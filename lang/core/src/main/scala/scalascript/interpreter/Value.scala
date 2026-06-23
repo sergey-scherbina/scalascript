@@ -2,28 +2,20 @@ package scalascript.interpreter
 
 import scala.meta.Term
 
-/** Runtime value ADT for the ScalaScript interpreter.  Defined as a
- *  `sealed trait` (not `enum`) so `InstanceV` can carry a mutable
- *  `fieldsArr: Array[Value]` without breaking the 399+ pattern-match
- *  sites that bind `(typeName, fields)` positionally. */
-sealed trait Value
+/** Runtime value type for the ScalaScript interpreter (value-unification, scalars-only).
+ *
+ *  `Value` is a **union** of the pure-data scalar leaves (`DataValue`, in `DataValue.scala`) and the
+ *  *rest* — containers, instances, and the runtime carriers — which stay a `sealed trait ValueRest`
+ *  here because they recursively hold an arbitrary `Value` (incl. closures) and/or carry execution
+ *  state (`Env`/`Computation`/`Term`). `object Value` re-exports the scalar cases via `export
+ *  DataValue.*`, so existing `Value.IntV(n)` / `case Value.IntV(n)` sites are unchanged. Both `DataValue`
+ *  (enum) and `ValueRest` (sealed) are exhaustively matchable, so a `match` on `Value` is still checked.
+ *  `ValueRest` is a `sealed trait` (not `enum`) so `InstanceV` can carry a mutable `fieldsArr`. */
+sealed trait ValueRest
+type Value = DataValue | ValueRest
 
 object Value:
-  final case class IntV(v: Long)    extends Value
-  final case class DoubleV(v: Double) extends Value
-  /** Arbitrary-precision signed integer (exact-numerics v1.64). Produced by
-   *  the `BigInt(...)` built-in and by Int→BigInt widening in arithmetic. */
-  final case class BigIntV(v: BigInt) extends Value
-  /** Arbitrary-precision signed decimal with explicit scale (exact-numerics
-   *  v1.64). Backed by `scala.math.BigDecimal`, whose `equals`/`hashCode` are
-   *  value-based (`Decimal("1.0") == Decimal("1.00")`) — so numeric `==` and
-   *  consistent hashing come for free. The workhorse for money. */
-  final case class DecimalV(v: BigDecimal) extends Value
-  final case class StringV(v: String)  extends Value
-  final case class BoolV(v: Boolean)   extends Value
-  final case class CharV(v: Char)      extends Value
-  case object UnitV extends Value
-  case object NullV extends Value
+  export DataValue.*
   /** A closure. `defaults(i)` is the default-value expression for parameter
    *  `params(i)`, or `None` if the parameter is required. The list may be
    *  shorter than `params` (in which case missing tail entries are treated
@@ -46,7 +38,7 @@ object Value:
     paramTypes: List[String] = Nil,
     usingParams: List[(String, String)] = Nil,
     returnsThrows: Boolean = false
-  ) extends Value:
+  ) extends ValueRest:
     /** Monomorphic inline cache for auto-resolved `using` / context-bound
      *  parameters (`GivenRuntime.resolveUsingAllCached`). Resolution depends only
      *  on this FunV's static info + the regular args' runtime types, so a
@@ -58,13 +50,13 @@ object Value:
     @transient var usingResolveCache: AnyRef = null
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
-  final case class NativeFnV(name: String, f: List[Value] => Computation) extends Value
+  final case class NativeFnV(name: String, f: List[Value] => Computation) extends ValueRest
   /** ADT / class instance value. `fieldsArr` is populated by StatRuntime at
    *  construction when field order is known; hot readers (PatternRuntime,
    *  BytecodeJit) prefer `fieldsArr(idx)` over `fields.apply(name)`.
    *  Defined as a `final case class` (not an enum case) so we can add this
    *  mutable field without breaking existing two-arg pattern-match sites. */
-  final case class InstanceV(typeName: String, fields: Map[String, Value]) extends Value:
+  final case class InstanceV(typeName: String, fields: Map[String, Value]) extends ValueRest:
     /** Positional fields; null when the instance bypasses StatRuntime.
      *  Index matches `Interpreter.typeFieldOrder(typeName)`. */
     var fieldsArr: Array[Value] | Null = null
@@ -93,41 +85,41 @@ object Value:
       Some((inst.typeName, inst.effectiveFields))
   /** The default eager linear sequence — backs `List`, `Seq`, and `Iterable` (all observably
    *  identical and all display as `List(…)` in an eager interpreter). */
-  final case class ListV(items: List[Value])     extends Value
+  final case class ListV(items: List[Value])     extends ValueRest
   /** A real **indexed** sequence backed by a Scala `Vector[Value]` — backs `Vector` and `IndexedSeq`
    *  so that `vec(i)` / `vec.updated(i, x)` are O(log₃₂ n) (effectively O(1)) instead of the O(n) a
    *  `List` would give. Cross-`Seq` equality with `ListV` (`Vector(1,2,3) == List(1,2,3)` is `true`,
    *  as in Scala) is handled in the `==` dispatch path, not via `equals`, so `ListV` stays untouched.
    *  (collection-vector-indexed.) */
-  final case class VectorV(items: Vector[Value]) extends Value
+  final case class VectorV(items: Vector[Value]) extends ValueRest
   /** A real **mutable** array — distinct from `ListV` because `Array` has genuinely
    *  different runtime semantics: in-place update (`a(i) = x`) and **reference identity**
    *  (`Array(1,2,3) != Array(1,2,3)`). Case-class `==` compares the `Array[Value]` field
    *  by reference (JVM array equality), which is exactly Scala's `Array` identity.
    *  (collection-real-type.) */
-  final case class ArrayV(items: Array[Value])   extends Value
+  final case class ArrayV(items: Array[Value])   extends ValueRest
   /** A real **lazy** list, backed by Scala's own `LazyList[Value]` so it gets laziness,
    *  memoization, infinite-stream support, and `toString` parity with the JVM backend
    *  (which raw-emits a real `scala.collection.immutable.LazyList`) for free.
    *  (collection-real-type.) */
-  final case class LazyListV(underlying: LazyList[Value]) extends Value
-  final case class OptionV(inner: Value | Null)  extends Value
-  final case class TupleV(elems: List[Value])    extends Value
-  final case class MapV(entries: Map[Value, Value]) extends Value
+  final case class LazyListV(underlying: LazyList[Value]) extends ValueRest
+  final case class OptionV(inner: Value | Null)  extends ValueRest
+  final case class TupleV(elems: List[Value])    extends ValueRest
+  final case class MapV(entries: Map[Value, Value]) extends ValueRest
   /** An unordered, deduplicated collection. `Set(...)` builds one; `toSet`
    *  produces one from a list. Element identity is `Value` equality. */
-  final case class SetV(items: Set[Value])       extends Value
-  final case class DocV(parts: List[Value])      extends Value
+  final case class SetV(items: Set[Value])       extends ValueRest
+  final case class DocV(parts: List[Value])      extends ValueRest
   /** Parsed XML document produced by a fenced ` ```xml ` block.
    *  The `doc` value is the root `Markup.Doc` from `markup-core`. */
-  final case class MarkupV(doc: scalascript.markup.Markup.Doc) extends Value
+  final case class MarkupV(doc: scalascript.markup.Markup.Doc) extends ValueRest
   /** Opaque JVM-handle bridge.  Wraps a Java object that the interpreter
    *  cannot inspect structurally but needs to thread through user code
    *  (e.g. `java.sql.Connection` for v1.26 sql blocks).  `typeName` is
    *  the human-readable Scala type name (`"Connection"`,
    *  `"DataSource"`, …) used by `resolveGiven` keyed lookups; `handle`
    *  is the JVM object passed verbatim to / from intrinsics. */
-  final case class Foreign(typeName: String, handle: Any) extends Value
+  final case class Foreign(typeName: String, handle: Any) extends ValueRest
   // Pool for common small integer values (-2048..16383). `intV(n)` returns a
   // cached instance for in-range values, avoiding a heap allocation on every
   // arithmetic result. Wider range covers typical loop counters beyond 1024

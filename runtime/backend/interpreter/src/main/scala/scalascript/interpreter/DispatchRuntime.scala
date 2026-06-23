@@ -435,8 +435,10 @@ private[interpreter] object DispatchRuntime:
         if ls.isEmpty || ls.tail.isEmpty then Pure(recv)
         else
           val arr = ls.toArray
-          java.util.Arrays.sort(arr, (a: Value, b: Value) =>
-            Computation.run(interp.callValue2(arg, a, b, env)) match
+          // `Value` is a union type (DataValue | ValueRest); java.util.Arrays.sort can't infer the
+          // generic element bound for a union array, so sort over Array[AnyRef] and cast back.
+          java.util.Arrays.sort(arr.asInstanceOf[Array[AnyRef]], (a: AnyRef, b: AnyRef) =>
+            Computation.run(interp.callValue2(arg, a.asInstanceOf[Value], b.asInstanceOf[Value], env)) match
               case Value.BoolV(true) => -1
               case _                 => 1
           )
