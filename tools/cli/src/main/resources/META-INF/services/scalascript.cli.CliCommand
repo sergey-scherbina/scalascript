@@ -1,4 +1,5 @@
 scalascript.cli.RunCmd
+scalascript.cli.TuiCmd
 scalascript.cli.WatchCmd
 scalascript.cli.WatchBenchCmd
 scalascript.cli.BenchCmd

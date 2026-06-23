@@ -476,6 +476,8 @@ def printUsage(): Unit =
   val tail =
     """
       |Platform targets:
+      |  tui     <f>                       Run a .ssc UI live in the terminal (ratatui, reactive)
+      |  run     --frontend tui <f>        Same live terminal UI (transpiled to a ratatui binary)
       |  run     --frontend electron <f>   Compile .ssc and open in an Electron desktop window
       |  run-jvm --frontend swing <f>      Launch the JDK-only Swing desktop frontend
       |  run-jvm --frontend javafx <f>     Launch the OpenJFX desktop frontend
@@ -1596,6 +1598,16 @@ final class RunCmd extends CliCommand:
     if isElectronRun then
       for file <- fileArgs.toList do
         runElectronDev(os.Path(file, os.pwd))
+      return
+
+    // --frontend tui → the live ratatui terminal runner (rust-tui-toolkit S5):
+    // transpile to a Cargo crate (uiTarget=tui) + `cargo run`, so signal/
+    // computedSignal reactivity is LIVE. Supersedes the static frontend/tui
+    // emitter. Falls back to the interpreter path below when cargo is absent.
+    if frontendFlag.contains("tui") && TuiRunner.cargoAvailable then
+      for file <- fileArgs.toList do
+        val code = TuiRunner.runFile(os.Path(file, os.pwd))
+        if code != 0 then System.exit(code)
       return
 
     frontendFlag.foreach(applyFrontendBackend)

@@ -30,7 +30,7 @@ seam = `BackendOptions.extra("uiTarget"->"tui")`). The terminal analog of rust-w
 - [x] **rust-tui-4-fetch-datatable** ✓ DONE 2026-06-23 (intrinsic overlay -> tui.rs ureq fetch + serde_json rowsPath drill + ratatui Table; cargo test fetches a live {data:[...]} envelope + renders rows) — — Rust runtimes for fetchUrlSignal/fetchRowsSource/staticRowsSource +
       rowsOf envelope drill + `_tui_data_table_view` (fetch→Table). (Absent on the Rust path entirely today.)
       **Gate:** remoteTable renders fetched rows vs a local server.
-- [ ] **rust-tui-5-converge** — point `frontend: tui` / `--frontend tui` at this path (supersede the static
+- [x] **rust-tui-5-converge** ✓ DONE 2026-06-23 (new `ssc tui`/`run-tui` live runner + `run --frontend tui` routes to the rust-codegen path via TuiRunner, cargo fallback to interpreter; CLI test asserts the emit yields the ratatui crate) — — point `frontend: tui` / `--frontend tui` at this path (supersede the static
       emitter for dynamic apps) or unify the two pipelines.
 
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").

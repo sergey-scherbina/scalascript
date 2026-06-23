@@ -1,6 +1,6 @@
 # rust-tui-toolkit — std/ui → ratatui via the Rust codegen backend (live thunks)
 
-Status: **IN PROGRESS** (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]"). SPRINT
+Status: **COMPLETE** (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]"). All slices S1–S5 shipped + cargo-verified. SPRINT
 track `rust-tui-*`. The terminal analog of [`rust-web-toolkit.md`](rust-web-toolkit.md). **S1 (seam + render) DONE
 2026-06-23** — a `signal`/`computedSignal`/`signalText`/`serve` program transpiles via RustCodeWalk and the emitted
 ratatui crate `cargo run`s rendering the computed value in the terminal (`RustGenTuiToolkitTest`, incl. cargo
@@ -107,7 +107,7 @@ The `Value` enum + signal store (`ValueRs`) and the computed/signal intrinsics a
   `__ssc_rowsOf`, and a real `_tui_data_table_view` (fetch → rows → ratatui `Table`). NOTE: these are absent on
   the Rust path **entirely** today (web SSR stubs `dataTableView` to an empty Fragment). **Gate:** `remoteTable(
   fetchUrlSignal(...), cols, rowsPath)` renders fetched rows in the terminal against a local HTTP server.
-- **S5 — convergence.** Point `frontend: tui` / `ssc run --frontend tui` at this path (it supersedes the static
+- **S5 — convergence. ✓ DONE (2026-06-23).** Point `frontend: tui` / `ssc run --frontend tui` at this path (it supersedes the static
   `frontend/tui` emitter for dynamic apps), or unify the two so one `.ssc` + `frontend: tui` gives the live TUI.
   Retire/keep the static emitter per the result.
 

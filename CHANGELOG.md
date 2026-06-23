@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — rust-tui-toolkit S5: converge `--frontend tui` onto the live rust path (COMPLETE)
+
+A new `ssc tui <file.ssc>` (alias `run-tui`) transpiles a `.ssc` UI to a Cargo crate with the ratatui View
+renderer (`uiTarget=tui`) and `cargo run`s it with the TTY inherited on all three streams — so signal/
+computedSignal reactivity is LIVE in the terminal (the crossterm loop). `ssc run --frontend tui` now routes to
+the same live path (shared `TuiRunner`), superseding the static `frontend/tui` emitter, and falls back to the
+interpreter path when cargo is absent. `RustBackend.compile` applies the tui intrinsic overlay only for
+`uiTarget=tui`, so the web path is untouched. CLI tests: `tui`/`run-tui` registered, `validFrontendNames`
+includes `tui`, and `compileViaBackend('rust', uiTarget=tui)` emits the ratatui crate (tui.rs + ratatui, no
+hyper). This completes rust-tui-toolkit S1–S5 — `computedSignal` now renders AND updates live in the terminal,
+with faithful flex/colors and fetched DataTables, all via the full `.ssc → Rust` transpile. Spec
+`specs/rust-tui-toolkit.md` (COMPLETE).
+
 ## 2026-06-23 — rust-tui-toolkit S4: fetch family + DataTable/remoteTable on the rust path
 
 `remoteTable`/`DataTable.Remote` now works on the rust-tui target end-to-end — the rust codegen path had

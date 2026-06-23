@@ -16,8 +16,41 @@ import org.scalatest.funsuite.AnyFunSuite
  *    name is on the classpath). */
 class FrontendBackendSelectionTest extends AnyFunSuite:
 
-  test("validFrontendNames lists exactly the four bundled backends") {
-    assert(validFrontendNames == Set("custom", "react", "solid", "vue", "electron", "swing", "javafx", "swiftui"))
+  test("validFrontendNames lists the bundled frontend backends (incl. tui)") {
+    assert(validFrontendNames == Set("custom", "react", "solid", "vue", "electron", "swing", "javafx", "swiftui", "tui"))
+  }
+
+  test("the `tui` command is registered (live ratatui runner, alias run-tui)") {
+    assert(CommandRegistry.lookup("tui").exists(_.name == "tui"))
+    assert(CommandRegistry.lookup("run-tui").exists(_.name == "tui"))
+  }
+
+  // S5 — the CLI live-path emit step (shared by `tui` and `run --frontend tui`):
+  // compileViaBackend('rust', uiTarget=tui) must yield the ratatui crate (tui.rs +
+  // ratatui dep, no hyper SSR server), not the web SSR crate.
+  test("compileViaBackend('rust', uiTarget=tui) emits the live ratatui crate") {
+    val dir = os.temp.dir(prefix = "ssc-tui-cli-")
+    try
+      val f = dir / "demo.ssc"
+      os.write(f,
+        """```scalascript
+          |@main def run(): Unit =
+          |  val loc  = signal("locale", "TUI_OK")
+          |  val page = element("div", Map(), Map(), List(signalText(computedSignal(() => loc()))))
+          |  serve(page, 0)
+          |```
+          |""".stripMargin)
+      compileViaBackend("rust", f, Map("binName" -> "demo", "uiTarget" -> "tui")) match
+        case scalascript.backend.spi.CompileResult.Segmented(segs) =>
+          val assets = segs.collect { case a: scalascript.backend.spi.Segment.Asset => a }
+          val names  = assets.map(_.name).toSet
+          assert(names.contains("src/runtime/tui.rs"), s"no tui.rs emitted; assets: $names")
+          val cargo = assets.find(_.name == "Cargo.toml").map(a => new String(a.bytes, "UTF-8")).getOrElse("")
+          assert(cargo.contains("ratatui"), s"Cargo.toml missing ratatui:\n$cargo")
+          assert(!cargo.contains("hyper"),  s"tui crate must not pull the hyper SSR server:\n$cargo")
+        case other =>
+          fail(s"expected Segmented crate, got ${other.getClass.getSimpleName}")
+    finally os.remove.all(dir)
   }
 
   test("applyFrontendBackend('react') selects react") {
