@@ -286,17 +286,22 @@ class Typer(
     )
     effectBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     extraBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
-    // Plugin namespaces not bundled in the CLI assembly — avoids false-positive
-    // "undefined name" errors in `ssc check` for plugin-backed examples.
-    val pluginObjects = List("oauth", "oidc", "spark", "http")
-    pluginObjects.foreach(n => s.define(Symbol(n, SType.Named(n, Nil), SymbolKind.Object)))
+    // core-min-advanced-optin: plugin namespace OBJECTS (`oauth`/`oidc`/`spark`/`http`) MIGRATED to
+    // their owning plugins' `preludeSymbols` — oauth/oidc → oauth-plugin (advanced, opt-in via
+    // `--plugin`), spark → SparkBackend, http → http-plugin (essential, auto-loaded). The hardcoded
+    // `pluginObjects` list is gone; advanced names now resolve only when the plugin is added (strict
+    // opt-in, the deliberate UX), essential/backend names resolve whenever the plugin is on classpath.
     val pluginBuiltins = List(
-      "Async", "Await", "Signal",
+      // interpreter-core globals (no owning std plugin) — stay hardcoded.
+      "Async", "Await", "Signal", "Future", "Storage",
+      // stdlib `.ssc` library modules (std.mapreduce / std.cluster — no compiled plugin) — stay
+      // hardcoded until stdlib auto-import covers them.
       "HandlerRegistry", "Cluster", "ShuffleStage", "Stage",
       "runDistributed", "runDistributedShuffle",
-      "Wallets", "X402Client", "X402", "CardanoFacilitator", "PaymentConfig",
-      "DefaultSyncBackend", "basicRequest", "Future",
-      "setHttpServerBackend", "Storage", "Source", "PipelineModel",
+      // MIGRATED to plugin `preludeSymbols` (core-min-advanced-optin): Source → streams-plugin,
+      // setHttpServerBackend → ws-plugin (both essential); Wallets/X402Client/X402/CardanoFacilitator/
+      // PaymentConfig/DefaultSyncBackend/basicRequest → payments-plugin (advanced, opt-in);
+      // PipelineModel → SparkBackend.
     )
     pluginBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     // core-min-prelude-spi: typed prelude symbols contributed by plugins. Defined with the

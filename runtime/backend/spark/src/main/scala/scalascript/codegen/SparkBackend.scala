@@ -114,6 +114,14 @@ class SparkBackend extends Backend:
   def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                          = Set.empty
 
+  /** core-min-advanced-optin: the Spark surface names, moved off the hardcoded Typer
+   *  `pluginObjects`/`pluginBuiltins`. The Spark backend is on the CLI classpath, so these
+   *  resolve for `ssc check` whenever Spark codegen is available. */
+  override def preludeSymbols: List[ir.ExportedSymbol] = List(
+    ir.ExportedSymbol("spark", "spark", "object", "Any"),
+    ir.ExportedSymbol("PipelineModel", "PipelineModel", "def", "Any"),
+  )
+
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule    = Denormalize(module)
     val sparkVersion = opts.extra.getOrElse("sparkVersion", SparkGen.DefaultVersion)

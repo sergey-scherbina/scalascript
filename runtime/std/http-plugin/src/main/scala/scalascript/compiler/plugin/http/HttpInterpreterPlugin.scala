@@ -26,6 +26,9 @@ class HttpInterpreterPlugin extends Backend:
   override def preludeSymbols: List[ExportedSymbol] = List(
     ExportedSymbol("runHttp", "runHttp", "def", "Any"),
     ExportedSymbol("runHttpStub", "runHttpStub", "def", "Any"),
+    // core-min-advanced-optin: the `http` namespace object, moved off the hardcoded Typer
+    // `pluginObjects`. http-plugin is essential (auto-loaded), so this always resolves.
+    ExportedSymbol("http", "http", "object", "Any"),
   )
 
   /** The Http effect runner, extracted from interpreter core (core-min §2d). Both keywords share
