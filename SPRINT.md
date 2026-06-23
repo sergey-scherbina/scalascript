@@ -456,16 +456,25 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       plugin `preludeSymbols`); actors have a provider + per-interpreter session seam. Not closed here:
       `core-min-value-unification` stays as its own deep refactor, and the hard Stream/Actors interpreter-internal
       code moves stay deferred/optional because they have low ROI without a new consumer.
-- [ ] **core-min-value-unification** (A, big — week-scale; LATER, not blocking) — collapse the duplication
-      between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type.
-      **SLICE 1 DONE 2026-06-23: SPI boundary is now LOSSLESS for the data cases.** Added `SpiValue.CharV`/
-      `VectorV` so `valueToSpi`/`spiToValue` stop coercing `Char`→`StrV` and `Vector`→`ListV` (a real
-      correctness fix: a `Char`/`Vector` crossing into a plugin handler and back kept its type). This is the
-      prerequisite for "the data ADT *is* `SpiValue`": `SpiValue` now faithfully covers `Value`'s immutable
-      data cases (mutable `Array` + case instances stay `Opaque` to preserve ref-identity, correct). Additive,
-      catch-all-safe; `SpiValueDataRoundTripTest`; plugin-tests 712/0. The big remaining refactor (split
-      `Value` into pure-data vs runtime-carrier, move closures/`Computation` out, make the data ADT == SpiValue,
-      delete the conversion) is still LATER. Today they're separate by
+- [~] **core-min-value-unification** (A, big — week-scale) — **SPEC + first slices LANDED 2026-06-23**
+      (`specs/value-unification.md`), on two complementary tracks. PROBED the real surface: **4387
+      `Value.<Case>` sites across 46 files**; `Value` = sealed trait co-defined with `Computation`/`Env`/
+      `FrameMap` (circular) + perf pools; the SPI conversion was lossless via `Opaque` EXCEPT `Char`→`StrV`
+      and `Vector`→`ListV` (coerced). **Structural blockers found:** a sealed trait can't be split across
+      modules, and data cases can't `extend` a core type if they must live *below* core (a `DataValue extends
+      Value` marker is the WRONG direction) → end-state = standalone low-module `DataValue` enum + `Value =
+      DataValue | carriers`, `type SpiValue = DataValue`, conversion deleted. NO early slice deletes duplication
+      (payoff lands at the final merge), so the work is a sequence of safe always-green slices.
+      **Track A — SpiValue completion:** added `SpiValue.CharV`/`VectorV` so the SPI boundary is LOSSLESS for
+      all immutable data cases (mutable `Array` + case instances stay `Opaque`, correct); `SpiValueDataRoundTripTest`,
+      plugin-tests 712/0. **Track B — disentangle `Value.scala`:** extracted `Computation`+runtime signals →
+      `Computation.scala` and `Env`/`FrameMap`/`MutableEnvView` → `Env.scala` (byte-identical, zero-behavior;
+      InterpreterTest 158/0, effects 33/0, closure/pattern/tuple 186/0). **NEXT:** spike the `export`-vs-union
+      mechanism for "DataValue cases are also Value cases" (4387 sites must keep compiling), then migrate cases
+      into a new `value-data` module case-by-case, then `type SpiValue = DataValue` + delete the conversion.
+      Original goal/notes below.
+      <br>**Goal (original):** collapse the duplication
+      between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
       necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,
       `NativeFnV(f: List[Value] => Computation)`, mutable `InstanceV`, `type Env = Map[String, Value]` — and
       `backendSpi` (which `core` depends on, not vice versa) can't reference it, so the boundary uses the

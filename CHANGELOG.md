@@ -23,6 +23,23 @@ instances correctly stay `Opaque` to preserve ref-identity); all SpiValue matche
 use catch-alls, so nothing regressed. `SpiValueDataRoundTripTest` locks the round-trip; plugin-tests
 712/0, no exhaustiveness warnings.
 
+## 2026-06-23 — core-min-value-unification: spec + Slices 1-2 (disentangle `Value.scala`)
+
+Started the (multi-week, filed-LATER) unification of the interpreter's `Value` and the SPI's `SpiValue` into
+one data type. Wrote `specs/value-unification.md` after probing the real surface — **4387 `Value.<Case>` sites
+across 46 files**; `Value` is a sealed trait co-defined with `Computation`/`Env`/`FrameMap` (circular) and
+heavily perf-pooled; the `Value↔SpiValue` conversion is already lossless (`Opaque` passthrough). Key
+structural findings recorded: a sealed trait can't be split across modules, and the data cases can't `extend`
+a core type if they must live *below* core (so a `DataValue extends Value` marker is the wrong direction) →
+the end-state is a standalone low-module `DataValue` enum with `Value = DataValue | carriers` and `type
+SpiValue = DataValue`, deleting the conversion; and **no early slice reduces duplication** (the payoff lands at
+the final merge), so the work proceeds as safe always-green slices. **Slice 1:** extracted the `Computation`
+free monad + runtime signal classes out of `Value.scala` into `Computation.scala` (byte-identical, same
+module). **Slice 2:** extracted `Env`/`FrameMap*`/`MutableEnvView` into `Env.scala`. Both are pure
+reorganization with zero behavior change — `Value.scala` now holds only the value ADT + its pools. Verified:
+core compiles, `InterpreterTest` 158/0, effects (Std/VmContinuations/OneShot) 33/0, closure/pattern/tuple
+186/0.
+
 ## 2026-06-23 — fix(interp): destructuring `val (a, b) = …` no longer marks a pre-existing `var` as a `val`
 
 `interp-stream-runforeach-var-capture`. A correctness bug where a closure that mutates a `var` lost every

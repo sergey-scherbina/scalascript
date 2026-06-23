@@ -1,6 +1,0 @@
-feature/core-min-value-unification 2026-06-23T01:00:00Z
-agent: claude
-heartbeat: 2026-06-23T01:00:00Z
-status: in-progress
-done-so-far: probed the real surface — Value = sealed trait (~25 cases) in core, co-defined with Computation/Env/FrameMap (circular), perf-pooled; 4387 Value.<Case> sites across 46 files; valueToSpi/spiToValue tiny + already lossless (Opaque passthrough); SpiValue (10 cases) consumed by 9 effect plugins. Structural blocker: a sealed trait can't be split across modules, and data cases can't `extend` a core type if they must live below core → end-state = standalone low-module data ADT + Value as union/alias. Multi-week; no early slice deletes duplication (that lands at the merge).
-next: write specs/value-unification.md (design: standalone DataValue enum in low module + Value=DataValue|carriers; slice sequence; perf-pool + 4387-site migration strategy; verification gates). Then Slice 1 = extract Computation + runtime signals out of Value.scala into Computation.scala (same module, zero behavior change) — the first physical seam between pure-data values and the runtime monad. Verify full interp suite green.
