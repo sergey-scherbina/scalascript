@@ -2,7 +2,8 @@ package scalascript.compiler.plugin.mcp
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, Computation}
+import scalascript.plugin.api.{PluginError, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Lst, MapVal, Inst, Opt}
 import scalascript.plugin.api.OAuthBridge
 import scalascript.mcp.*
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
@@ -45,7 +46,7 @@ object McpIntrinsics:
           val srvInstance = Mcp.makeServerInstance(builder, ctx)
           ctx.invokeCallback(setup, List(srvInstance))
           ()
-        case _ => throw InterpretError("mcpServer { srv => ... }")
+        case _ => PluginError.raise("mcpServer { srv => ... }")
     },
 
     // ─── serveMcp(transport) ────────────────────────────────────────────
@@ -54,7 +55,7 @@ object McpIntrinsics:
       args match
         case List(transport) =>
           val builder = Option(Mcp.builderTL.get).getOrElse(
-            throw InterpretError("serveMcp(...): no mcpServer { ... } configured first")
+            PluginError.raise("serveMcp(...): no mcpServer { ... } configured first")
           )
           Mcp.transportTag(transport) match
             case "Stdio" =>
@@ -84,8 +85,8 @@ object McpIntrinsics:
               Mcp.installWsRoute(builder, path, ctx)
               ctx.startServerAsync(port, ".")
             case other =>
-              throw InterpretError(s"serveMcp: unsupported transport '$other'")
-        case _ => throw InterpretError("serveMcp(transport)")
+              PluginError.raise(s"serveMcp: unsupported transport '$other'")
+        case _ => PluginError.raise("serveMcp(transport)")
     },
 
     // ─── mcpConnect(transport[, timeoutMs]) ────────────────────────────
@@ -103,7 +104,7 @@ object McpIntrinsics:
         case List(t, bt: String)                  => (t, 30000L, Some(bt))
         case List(t, ms: Long,   bt: String)      => (t, ms, Some(bt))
         case List(t, ms: Int,    bt: String)      => (t, ms.toLong, Some(bt))
-        case _ => throw InterpretError("mcpConnect(transport[, timeoutMs][, bearerToken])")
+        case _ => PluginError.raise("mcpConnect(transport[, timeoutMs][, bearerToken])")
       Mcp.transportTag(transport) match
         case "Spawn" =>
           val (cmd, cmdArgs) = Mcp.spawnArgs(transport)
@@ -115,9 +116,9 @@ object McpIntrinsics:
           val url = Mcp.wsClientUrl(transport)
           Mcp.makeWsClient(url, timeoutMs, ctx, bearer)
         case "Stdio" =>
-          throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
+          PluginError.raise("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
         case other =>
-          throw InterpretError(s"mcpConnect: unsupported transport '$other'")
+          PluginError.raise(s"mcpConnect: unsupported transport '$other'")
     }
   )
 
@@ -132,26 +133,26 @@ private object Mcp:
 
   /** Read the Transport.* variant tag from a Value.InstanceV. */
   def transportTag(v: Any): String = v match
-    case Value.InstanceV(tag, _) => tag
+    case Inst(tag, _) => tag
     case _                       => ""
 
   /** Extract `(cmd, args)` from a `Transport.Spawn(cmd, args: List[String])`. */
   def spawnArgs(v: Any): (String, List[String]) = v match
-    case Value.InstanceV("Spawn", fields) =>
-      val cmd = fields.get("cmd").collect { case Value.StringV(s) => s }.getOrElse("")
+    case Inst("Spawn", fields) =>
+      val cmd = fields.get("cmd").collect { case Str(s) => s }.getOrElse("")
       val args = fields.get("args").collect {
-        case Value.ListV(xs) => xs.collect { case Value.StringV(s) => s }
+        case Lst(xs) => xs.collect { case Str(s) => s }
       }.getOrElse(Nil)
       (cmd, args)
     case _ => ("", Nil)
 
   /** Extract `(port, path)` from a `Transport.Http(port, path)` — server-side. */
   def httpArgs(v: Any): (Int, String) = v match
-    case Value.InstanceV("Http", fields) =>
+    case Inst("Http", fields) =>
       val port = fields.get("port").collect {
-        case Value.IntV(i) => i.toInt
+        case Num(i) => i.toInt
       }.getOrElse(8080)
-      val path = fields.get("path").collect { case Value.StringV(s) => s }.getOrElse("/mcp")
+      val path = fields.get("path").collect { case Str(s) => s }.getOrElse("/mcp")
       (port, path)
     case _ => (8080, "/mcp")
 
@@ -163,11 +164,11 @@ private object Mcp:
    *  one-off Transport.Http(port, "/mcp") and rely on default host
    *  resolution; we look at `path` first and fall back to `http://localhost:<port><path>`. */
   def httpClientUrl(v: Any): String = v match
-    case Value.InstanceV("Http", fields) =>
-      val path = fields.get("path").collect { case Value.StringV(s) => s }.getOrElse("/mcp")
+    case Inst("Http", fields) =>
+      val path = fields.get("path").collect { case Str(s) => s }.getOrElse("/mcp")
       if path.startsWith("http://") || path.startsWith("https://") then path
       else
-        val port = fields.get("port").collect { case Value.IntV(i) => i.toInt }.getOrElse(8080)
+        val port = fields.get("port").collect { case Num(i) => i.toInt }.getOrElse(8080)
         s"http://localhost:$port$path"
     case _ => "http://localhost:8080/mcp"
 
@@ -180,9 +181,9 @@ private object Mcp:
    *  `builder.addSubscriber` mechanism that Stdio/Spawn/Ws use.  Each
    *  notification is wrapped as `data: <json>\n\n`. */
   def installHttpRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
-    val handler = Value.NativeFnV("mcp.http.handler", Computation.pureFn {
-      case List(Value.InstanceV("Request", fields)) =>
-        val body = fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+    val handler = PluginValue.nativeFn("mcp.http.handler", {
+      case List(Inst("Request", fields)) =>
+        val body = fields.get("body").collect { case Str(s) => s }.getOrElse("")
         // v1.17.x — auth gate.  Extract the bearer token from the request
         // headers and run it through the registered validator; on
         // reject, return 401 with WWW-Authenticate before any dispatch.
@@ -194,10 +195,10 @@ private object Mcp:
             Mcp.unauthorizedResponse(builder, code, descr)
           case McpServerCore.AuthOutcome.Allowed(claims) =>
             Mcp.dispatchAuthorized(builder, body, fields, claims, ctx)
-      case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(400L),
-        "headers" -> Value.EmptyMap,
-        "body"    -> Value.StringV("expected Request")
+      case _ => PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(400L),
+        "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+        "body"    -> PluginValue.string("expected Request")
       ))
     })
     ctx.registerRoute("POST", path, handler)
@@ -206,25 +207,25 @@ private object Mcp:
     // the user populated it via `srv.setProtectedResourceMetadata(...)`.
     // Clients fetch this to discover the matching authorization server.
     val metadataPath = "/.well-known/oauth-protected-resource"
-    val metadataHandler = Value.NativeFnV("mcp.auth.prm", Computation.pureFn {
-      case List(Value.InstanceV("Request", _)) =>
+    val metadataHandler = PluginValue.nativeFn("mcp.auth.prm", {
+      case List(Inst("Request", _)) =>
         builder.protectedResourceMetadata match
-          case Some(m) => Value.InstanceV("Response", Map(
-            "status"  -> Value.intV(200L),
-            "headers" -> Value.MapV(Map(
-              Value.StringV("Content-Type") -> Value.StringV("application/json")
+          case Some(m) => PluginValue.instance("Response", Map(
+            "status"  -> PluginValue.int(200L),
+            "headers" -> PluginValue.mapOf(Map(
+              PluginValue.string("Content-Type") -> PluginValue.string("application/json")
             )),
-            "body"    -> Value.StringV(m.toJson.render())
+            "body"    -> PluginValue.string(m.toJson.render())
           ))
-          case None => Value.InstanceV("Response", Map(
-            "status"  -> Value.intV(404L),
-            "headers" -> Value.EmptyMap,
-            "body"    -> Value.EmptyStr
+          case None => PluginValue.instance("Response", Map(
+            "status"  -> PluginValue.int(404L),
+            "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+            "body"    -> PluginValue.string("")
           ))
-      case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(400L),
-        "headers" -> Value.EmptyMap,
-        "body"    -> Value.StringV("expected Request")
+      case _ => PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(400L),
+        "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+        "body"    -> PluginValue.string("expected Request")
       ))
     })
     ctx.registerRoute("GET", metadataPath, metadataHandler)
@@ -234,24 +235,24 @@ private object Mcp:
    *  plain `Map[String, String]` for the auth helpers.  Non-string
    *  entries fall through silently — defensive against weird header
    *  encodings (e.g. byte arrays). */
-  def extractHeaderMap(fields: Map[String, Value]): Map[String, String] =
+  def extractHeaderMap(fields: Map[String, PluginValue]): Map[String, String] =
     fields.get("headers").collect {
-      case Value.MapV(m) => m.iterator.collect {
-        case (Value.StringV(k), Value.StringV(v)) => k -> v
+      case MapVal(m) => m.iterator.collect {
+        case (Str(k), Str(v)) => k -> v
       }.toMap
     }.getOrElse(Map.empty)
 
   /** v1.17.x — assemble a 401 Response with WWW-Authenticate per RFC 6750. */
-  def unauthorizedResponse(builder: McpServerBuilder, code: String, descr: String): Value =
+  def unauthorizedResponse(builder: McpServerBuilder, code: String, descr: String): PluginValue =
     val www = McpAuth.wwwAuthenticate(builder.authRealm, code, Some(descr))
     val body = ujson.Obj("error" -> code, "error_description" -> descr).render()
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(401L),
-      "headers" -> Value.MapV(Map(
-        (Value.StringV("WWW-Authenticate"): Value) -> (Value.StringV(www):                  Value),
-        (Value.StringV("Content-Type"):    Value) -> (Value.StringV("application/json"):    Value)
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(401L),
+      "headers" -> PluginValue.mapOf(Map(
+        (PluginValue.string("WWW-Authenticate"): PluginValue) -> (PluginValue.string(www): PluginValue),
+        (PluginValue.string("Content-Type"): PluginValue) -> (PluginValue.string("application/json"): PluginValue)
       )),
-      "body"    -> Value.StringV(body)
+      "body"    -> PluginValue.string(body)
     ))
 
   /** v1.17.x — original dispatch body extracted into a helper.  Runs
@@ -263,28 +264,28 @@ private object Mcp:
   def dispatchAuthorized(
     builder: McpServerBuilder,
     body:    String,
-    fields:  Map[String, Value],
+    fields:  Map[String, PluginValue],
     claims:  Option[McpAuth.AuthClaims],
     ctx: PluginContext
-  ): Value = builder.withAuth(claims) {
+  ): PluginValue = builder.withAuth(claims) {
     val acceptsSse = fields.get("headers").collect {
-      case Value.MapV(m) =>
+      case MapVal(m) =>
         m.iterator.exists {
-          case (Value.StringV(k), Value.StringV(v)) =>
+          case (Str(k), Str(v)) =>
             k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream")
           case _ => false
         }
     }.getOrElse(false)
     if acceptsSse then
-      val sseHeaders = Value.MapV(Map(
-        (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
-        (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value)
+      val sseHeaders = PluginValue.mapOf(Map(
+        (PluginValue.string("Content-Type"): PluginValue) -> (PluginValue.string("text/event-stream"): PluginValue),
+        (PluginValue.string("Cache-Control"): PluginValue) -> (PluginValue.string("no-cache"): PluginValue)
       ))
-      val callback = Value.NativeFnV("mcp.http.post.sse", Computation.pureFn {
+      val callback = PluginValue.nativeFn("mcp.http.post.sse", {
         case List(writeFn) =>
           val unsubscribe = builder.addSubscriber { line =>
             try ctx.invokeCallback(writeFn,
-              List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
+              List(PluginValue.string(s"data: ${line.stripSuffix("\n")}\n\n")))
             catch case _: Throwable => ()
           }
           try
@@ -293,13 +294,13 @@ private object Mcp:
             }
             if reply.nonEmpty then
               ctx.invokeCallback(writeFn,
-                List(Value.StringV(s"data: ${reply.stripSuffix("\n")}\n\n")))
+                List(PluginValue.string(s"data: ${reply.stripSuffix("\n")}\n\n")))
           finally unsubscribe()
-          Value.UnitV
-        case _ => Value.UnitV
+          PluginValue.unit
+        case _ => PluginValue.unit
       })
-      Value.InstanceV("StreamResponse", Map(
-        "status"   -> Value.intV(200L),
+      PluginValue.instance("StreamResponse", Map(
+        "status"   -> PluginValue.int(200L),
         "headers"  -> sseHeaders,
         "callback" -> callback
       ))
@@ -308,12 +309,12 @@ private object Mcp:
       val (status, respBody) =
         if reply.isEmpty then (204, "")
         else (200, reply)
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(status.toLong),
-        "headers" -> Value.MapV(Map(
-          Value.StringV("Content-Type") -> Value.StringV("application/json")
+      PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(status.toLong),
+        "headers" -> PluginValue.mapOf(Map(
+          PluginValue.string("Content-Type") -> PluginValue.string("application/json")
         )),
-        "body"    -> Value.StringV(respBody)
+        "body"    -> PluginValue.string(respBody)
       ))
   }
 
@@ -326,49 +327,49 @@ private object Mcp:
    *  the POST handler. */
   def installSseRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
     val sseEndpoint = path + "/events"
-    val sseHandler = Value.NativeFnV("mcp.http.sse", Computation.pureFn {
-      case List(Value.InstanceV("Request", fields)) =>
+    val sseHandler = PluginValue.nativeFn("mcp.http.sse", {
+      case List(Inst("Request", fields)) =>
         val headerMap = Mcp.extractHeaderMap(fields)
         val bearer    = McpAuth.extractBearer(headerMap)
         McpServerCore.authorizeHttp(builder, bearer) match
           case McpServerCore.AuthOutcome.Reject(code, descr) =>
             Mcp.unauthorizedResponse(builder, code, descr)
           case McpServerCore.AuthOutcome.Allowed(_) =>
-            val sseHeaders = Value.MapV(Map(
-              (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
-              (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value),
-              (Value.StringV("Connection"):    Value) -> (Value.StringV("keep-alive"):         Value)
+            val sseHeaders = PluginValue.mapOf(Map(
+              (PluginValue.string("Content-Type"): PluginValue) -> (PluginValue.string("text/event-stream"): PluginValue),
+              (PluginValue.string("Cache-Control"): PluginValue) -> (PluginValue.string("no-cache"): PluginValue),
+              (PluginValue.string("Connection"): PluginValue) -> (PluginValue.string("keep-alive"): PluginValue)
             ))
-            val callback = Value.NativeFnV("mcp.http.sse.writer", Computation.pureFn {
+            val callback = PluginValue.nativeFn("mcp.http.sse.writer", {
               case List(writeFn) =>
                 val done = new java.util.concurrent.atomic.AtomicBoolean(false)
                 val unsubscribe = builder.addSubscriber { line =>
                   if !done.get() then
-                    try ctx.invokeCallback(writeFn, List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
+                    try ctx.invokeCallback(writeFn, List(PluginValue.string(s"data: ${line.stripSuffix("\n")}\n\n")))
                     catch case _: Throwable => done.set(true)
                 }
                 try
                   while !done.get() do Thread.sleep(100)
                 finally unsubscribe()
-                Value.UnitV
-              case _ => Value.UnitV
+                PluginValue.unit
+              case _ => PluginValue.unit
             })
-            Value.InstanceV("StreamResponse", Map(
-              "status"   -> Value.intV(200L),
+            PluginValue.instance("StreamResponse", Map(
+              "status"   -> PluginValue.int(200L),
               "headers"  -> sseHeaders,
               "callback" -> callback
             ))
-      case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(400L),
-        "headers" -> Value.EmptyMap,
-        "body"    -> Value.StringV("expected Request")
+      case _ => PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(400L),
+        "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+        "body"    -> PluginValue.string("expected Request")
       ))
     })
     ctx.registerRoute("GET", sseEndpoint, sseHandler)
 
   /** Build an `McpClient` Value backed by `McpHttpClient`. */
   def makeHttpClient(url: String, timeoutMs: Long, ctx: PluginContext,
-                     bearerToken: Option[String] = None): Value =
+                     bearerToken: Option[String] = None): PluginValue =
     val client = new McpHttpClient(url, timeoutMs)
     bearerToken.foreach(t => client.setBearerToken(Some(t)))
     // Spec-mandated initialize handshake — same shape as the Spawn path.
@@ -378,18 +379,18 @@ private object Mcp:
       "clientInfo"      -> ujson.Obj("name" -> "ssc-mcp-int", "version" -> "1.0.0")
     )
     client.request(McpProtocol.Method.Initialize, initParams) match
-      case Left(e)  => throw InterpretError(s"mcpConnect(Http): initialize failed: ${e.message}")
+      case Left(e)  => PluginError.raise(s"mcpConnect(Http): initialize failed: ${e.message}")
       case Right(_) => client.notify("notifications/initialized", ujson.Obj())
     makeHttpClientInstance(client, timeoutMs, ctx)
 
   /** Transport.Ws(port, path) → `ws://localhost:port/path`.  Same `path`
    *  override rule as Http: a full ws://...  / wss://... URL passes through. */
   def wsClientUrl(v: Any): String = v match
-    case Value.InstanceV("Ws", fields) =>
-      val path = fields.get("path").collect { case Value.StringV(s) => s }.getOrElse("/mcp")
+    case Inst("Ws", fields) =>
+      val path = fields.get("path").collect { case Str(s) => s }.getOrElse("/mcp")
       if path.startsWith("ws://") || path.startsWith("wss://") then path
       else
-        val port = fields.get("port").collect { case Value.IntV(i) => i.toInt }.getOrElse(8080)
+        val port = fields.get("port").collect { case Num(i) => i.toInt }.getOrElse(8080)
         s"ws://localhost:$port$path"
     case _ => "ws://localhost:8080/mcp"
 
@@ -399,11 +400,11 @@ private object Mcp:
    *  the reply back via `ws.send`.  The user-side ws value is what
    *  `ctx.registerWsRoute`'s handler receives. */
   def installWsRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
-    val handler = Value.NativeFnV("mcp.ws.handler", Computation.pureFn {
-      case List(Value.InstanceV("WebSocket", wsFields)) =>
-        val sendV:      Option[Value] = wsFields.get("send")
-        val onMessageV: Option[Value] = wsFields.get("onMessage")
-        val onCloseV:   Option[Value] = wsFields.get("onClose")
+    val handler = PluginValue.nativeFn("mcp.ws.handler", {
+      case List(Inst("WebSocket", wsFields)) =>
+        val sendV:      Option[PluginValue] = wsFields.get("send")
+        val onMessageV: Option[PluginValue] = wsFields.get("onMessage")
+        val onCloseV:   Option[PluginValue] = wsFields.get("onClose")
         // Per-connection broadcaster slot: every ws.send that this
         // connection exposes joins the server's subscriber set, so
         // srv.notify(method, params) reaches this client too.  The
@@ -411,35 +412,35 @@ private object Mcp:
         // doesn't leave a stale writer behind.
         val unsubscribe = sendV.map(sendFn =>
           builder.addSubscriber(line =>
-            ctx.invokeCallback(sendFn, List(Value.StringV(line.stripSuffix("\n"))))
+            ctx.invokeCallback(sendFn, List(PluginValue.string(line.stripSuffix("\n"))))
           )
         ).getOrElse(() => ())
         onCloseV.foreach { oc =>
-          val onCloseCb = Value.NativeFnV("mcp.ws.onClose", Computation.pureFn {
-            case _ => unsubscribe(); Value.UnitV
+          val onCloseCb = PluginValue.nativeFn("mcp.ws.onClose", {
+            case _ => unsubscribe(); PluginValue.unit
           })
           ctx.invokeCallback(oc, List(onCloseCb))
         }
         // Register a NativeFnV as the onMessage callback.  When called by
-        // the WS infra with a Value.StringV(line) payload, we feed it to
+        // the WS infra with a PluginValue.string(line) payload, we feed it to
         // McpServerCore.handleHttpRequest and write the reply via ws.send.
-        val onMessageCb = Value.NativeFnV("mcp.ws.onMessage", Computation.pureFn {
-          case List(Value.StringV(line)) =>
+        val onMessageCb = PluginValue.nativeFn("mcp.ws.onMessage", {
+          case List(Str(line)) =>
             val reply = McpServerCore.handleHttpRequest(builder, line, "ssc-mcp-int", "1.0.0")
             if reply.nonEmpty then
-              sendV.foreach(sendFn => ctx.invokeCallback(sendFn, List(Value.StringV(reply.stripSuffix("\n")))))
-            Value.UnitV
-          case _ => Value.UnitV
+              sendV.foreach(sendFn => ctx.invokeCallback(sendFn, List(PluginValue.string(reply.stripSuffix("\n")))))
+            PluginValue.unit
+          case _ => PluginValue.unit
         })
         onMessageV.foreach(om => ctx.invokeCallback(om, List(onMessageCb)))
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     })
     ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler)
 
   /** Build an `McpClient` Value backed by `McpWsClient`. */
   def makeWsClient(url: String, timeoutMs: Long, ctx: PluginContext,
-                   bearerToken: Option[String] = None): Value =
+                   bearerToken: Option[String] = None): PluginValue =
     val client = new McpWsClient(url, timeoutMs, bearerToken)
     val initParams = ujson.Obj(
       "protocolVersion" -> McpProtocol.ProtocolVersion,
@@ -449,7 +450,7 @@ private object Mcp:
     client.request(McpProtocol.Method.Initialize, initParams) match
       case Left(e)  =>
         client.close()
-        throw InterpretError(s"mcpConnect(Ws): initialize failed: ${e.message}")
+        PluginError.raise(s"mcpConnect(Ws): initialize failed: ${e.message}")
       case Right(_) => client.notify("notifications/initialized", ujson.Obj())
     makeWsClientInstance(client, timeoutMs, ctx)
 
@@ -458,23 +459,23 @@ private object Mcp:
    *  either a `Unit` (no-arg lifecycle hooks) or another `NativeFnV`
    *  (the curried `tool(name)(handler)` / `resource(uri)(handler)` /
    *  `prompt(name)(handler)` two-step). */
-  def makeServerInstance(builder: McpServerBuilder, ctx: PluginContext): Value.InstanceV =
-    def toolFn = Value.NativeFnV("McpServer.tool", Computation.pureFn {
-      case List(Value.StringV(name)) =>
-        Value.NativeFnV(s"McpServer.tool.$name", Computation.pureFn {
+  def makeServerInstance(builder: McpServerBuilder, ctx: PluginContext): PluginValue =
+    def toolFn = PluginValue.nativeFn("McpServer.tool", {
+      case List(Str(name)) =>
+        PluginValue.nativeFn(s"McpServer.tool.$name", {
           case List(handler) =>
             registerTool(builder, name, None, ujson.Obj("type" -> "object"), handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.tool(name)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.tool(name)(handler)")
         })
-      case List(Value.StringV(name), Value.StringV(desc)) =>
-        Value.NativeFnV(s"McpServer.tool.$name", Computation.pureFn {
+      case List(Str(name), Str(desc)) =>
+        PluginValue.nativeFn(s"McpServer.tool.$name", {
           case List(handler) =>
             registerTool(builder, name, Some(desc), ujson.Obj("type" -> "object"), handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.tool(name, desc)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.tool(name, desc)(handler)")
         })
-      case _ => throw InterpretError("srv.tool(name[, desc])(handler)")
+      case _ => PluginError.raise("srv.tool(name[, desc])(handler)")
     })
     // v1.17.x — typed tool: takes an explicit JSON Schema for inputs.
     // Combined with `case class Args(...) derives McpSchema`, the user
@@ -486,191 +487,191 @@ private object Mcp:
     // still receives `Map[String, Any]` — manual decode at the boundary;
     // a fully-typed `A => ToolResult` overload is a follow-up that needs
     // the v1.14 Mirror to expose field constructors. */
-    def toolWithSchemaFn = Value.NativeFnV("McpServer.toolWithSchema", Computation.pureFn {
-      case List(Value.StringV(name), schemaV) =>
-        Value.NativeFnV(s"McpServer.toolWithSchema.$name", Computation.pureFn {
+    def toolWithSchemaFn = PluginValue.nativeFn("McpServer.toolWithSchema", {
+      case List(Str(name), schemaV) =>
+        PluginValue.nativeFn(s"McpServer.toolWithSchema.$name", {
           case List(handler) =>
             registerTool(builder, name, None, Mcp.valueToJson(schemaV), handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.toolWithSchema(name, schema)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.toolWithSchema(name, schema)(handler)")
         })
-      case List(Value.StringV(name), Value.StringV(desc), schemaV) =>
-        Value.NativeFnV(s"McpServer.toolWithSchema.$name", Computation.pureFn {
+      case List(Str(name), Str(desc), schemaV) =>
+        PluginValue.nativeFn(s"McpServer.toolWithSchema.$name", {
           case List(handler) =>
             registerTool(builder, name, Some(desc), Mcp.valueToJson(schemaV), handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.toolWithSchema(name, desc, schema)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.toolWithSchema(name, desc, schema)(handler)")
         })
-      case _ => throw InterpretError("srv.toolWithSchema(name[, desc], schema)(handler)")
+      case _ => PluginError.raise("srv.toolWithSchema(name[, desc], schema)(handler)")
     })
-    def resourceFn = Value.NativeFnV("McpServer.resource", Computation.pureFn {
-      case List(Value.StringV(uri)) =>
-        Value.NativeFnV(s"McpServer.resource.$uri", Computation.pureFn {
+    def resourceFn = PluginValue.nativeFn("McpServer.resource", {
+      case List(Str(uri)) =>
+        PluginValue.nativeFn(s"McpServer.resource.$uri", {
           case List(handler) =>
             registerResource(builder, uri, None, None, handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.resource(uri)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.resource(uri)(handler)")
         })
-      case List(Value.StringV(uri), Value.StringV(name)) =>
-        Value.NativeFnV(s"McpServer.resource.$uri", Computation.pureFn {
+      case List(Str(uri), Str(name)) =>
+        PluginValue.nativeFn(s"McpServer.resource.$uri", {
           case List(handler) =>
             registerResource(builder, uri, Some(name), None, handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.resource(uri, name)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.resource(uri, name)(handler)")
         })
-      case List(Value.StringV(uri), Value.StringV(name), Value.StringV(mimeType)) =>
-        Value.NativeFnV(s"McpServer.resource.$uri", Computation.pureFn {
+      case List(Str(uri), Str(name), Str(mimeType)) =>
+        PluginValue.nativeFn(s"McpServer.resource.$uri", {
           case List(handler) =>
             registerResource(builder, uri, Some(name), Some(mimeType), handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.resource(uri, name, mimeType)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.resource(uri, name, mimeType)(handler)")
         })
-      case _ => throw InterpretError("srv.resource(uri[, name[, mimeType]])(handler)")
+      case _ => PluginError.raise("srv.resource(uri[, name[, mimeType]])(handler)")
     })
     // v1.17.x — URI-template resources.  `srv.resourceTemplate(template[,
     // name[, description[, mimeType]]])(handler)` registers a parameterized
     // resource like `file:///{path}`.  Listed via resources/templates/list;
     // a concrete `resources/read` URI matching the template (RFC 6570
     // simplified: `{name}` → non-slash segment) flows to `handler`.
-    def resourceTemplateFn = Value.NativeFnV("McpServer.resourceTemplate", Computation.pureFn {
-      case List(Value.StringV(tpl)) =>
-        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+    def resourceTemplateFn = PluginValue.nativeFn("McpServer.resourceTemplate", {
+      case List(Str(tpl)) =>
+        PluginValue.nativeFn(s"McpServer.resourceTemplate.$tpl", {
           case List(handler) =>
-            registerResourceTemplate(builder, tpl, None, None, None, handler, ctx); Value.UnitV
-          case _ => throw InterpretError("srv.resourceTemplate(template)(handler)")
+            registerResourceTemplate(builder, tpl, None, None, None, handler, ctx); PluginValue.unit
+          case _ => PluginError.raise("srv.resourceTemplate(template)(handler)")
         })
-      case List(Value.StringV(tpl), Value.StringV(name)) =>
-        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+      case List(Str(tpl), Str(name)) =>
+        PluginValue.nativeFn(s"McpServer.resourceTemplate.$tpl", {
           case List(handler) =>
-            registerResourceTemplate(builder, tpl, Some(name), None, None, handler, ctx); Value.UnitV
-          case _ => throw InterpretError("srv.resourceTemplate(template, name)(handler)")
+            registerResourceTemplate(builder, tpl, Some(name), None, None, handler, ctx); PluginValue.unit
+          case _ => PluginError.raise("srv.resourceTemplate(template, name)(handler)")
         })
-      case List(Value.StringV(tpl), Value.StringV(name), Value.StringV(desc)) =>
-        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+      case List(Str(tpl), Str(name), Str(desc)) =>
+        PluginValue.nativeFn(s"McpServer.resourceTemplate.$tpl", {
           case List(handler) =>
-            registerResourceTemplate(builder, tpl, Some(name), Some(desc), None, handler, ctx); Value.UnitV
-          case _ => throw InterpretError("srv.resourceTemplate(template, name, description)(handler)")
+            registerResourceTemplate(builder, tpl, Some(name), Some(desc), None, handler, ctx); PluginValue.unit
+          case _ => PluginError.raise("srv.resourceTemplate(template, name, description)(handler)")
         })
-      case List(Value.StringV(tpl), Value.StringV(name), Value.StringV(desc), Value.StringV(mime)) =>
-        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+      case List(Str(tpl), Str(name), Str(desc), Str(mime)) =>
+        PluginValue.nativeFn(s"McpServer.resourceTemplate.$tpl", {
           case List(handler) =>
-            registerResourceTemplate(builder, tpl, Some(name), Some(desc), Some(mime), handler, ctx); Value.UnitV
-          case _ => throw InterpretError("srv.resourceTemplate(template, name, description, mimeType)(handler)")
+            registerResourceTemplate(builder, tpl, Some(name), Some(desc), Some(mime), handler, ctx); PluginValue.unit
+          case _ => PluginError.raise("srv.resourceTemplate(template, name, description, mimeType)(handler)")
         })
-      case _ => throw InterpretError("srv.resourceTemplate(template[, name[, description[, mimeType]]])(handler)")
+      case _ => PluginError.raise("srv.resourceTemplate(template[, name[, description[, mimeType]]])(handler)")
     })
-    def promptFn = Value.NativeFnV("McpServer.prompt", Computation.pureFn {
-      case List(Value.StringV(name)) =>
-        Value.NativeFnV(s"McpServer.prompt.$name", Computation.pureFn {
+    def promptFn = PluginValue.nativeFn("McpServer.prompt", {
+      case List(Str(name)) =>
+        PluginValue.nativeFn(s"McpServer.prompt.$name", {
           case List(handler) =>
             registerPrompt(builder, name, None, handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.prompt(name)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.prompt(name)(handler)")
         })
-      case List(Value.StringV(name), Value.StringV(desc)) =>
-        Value.NativeFnV(s"McpServer.prompt.$name", Computation.pureFn {
+      case List(Str(name), Str(desc)) =>
+        PluginValue.nativeFn(s"McpServer.prompt.$name", {
           case List(handler) =>
             registerPrompt(builder, name, Some(desc), handler, ctx)
-            Value.UnitV
-          case _ => throw InterpretError("srv.prompt(name, desc)(handler)")
+            PluginValue.unit
+          case _ => PluginError.raise("srv.prompt(name, desc)(handler)")
         })
-      case _ => throw InterpretError("srv.prompt(name[, desc])(handler)")
+      case _ => PluginError.raise("srv.prompt(name[, desc])(handler)")
     })
-    def onConnFn = Value.NativeFnV("McpServer.onConnected", Computation.pureFn {
+    def onConnFn = PluginValue.nativeFn("McpServer.onConnected", {
       case List(handler) =>
         builder.setOnConnected(() => { ctx.invokeCallback(handler, Nil); () })
-        Value.UnitV
-      case _ => throw InterpretError("srv.onConnected(() => ...)")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.onConnected(() => ...)")
     })
-    def onDisconnFn = Value.NativeFnV("McpServer.onDisconnected", Computation.pureFn {
+    def onDisconnFn = PluginValue.nativeFn("McpServer.onDisconnected", {
       case List(handler) =>
         builder.setOnDisconnected(() => { ctx.invokeCallback(handler, Nil); () })
-        Value.UnitV
-      case _ => throw InterpretError("srv.onDisconnected(() => ...)")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.onDisconnected(() => ...)")
     })
     // v1.17.x — resource subscriptions.  Hooks fire when the client
     // sends `resources/subscribe` / `resources/unsubscribe`; typical
     // wiring: spin up a file/DB watcher in the subscribe handler and
     // call `srv.notifyResourceUpdate(uri)` from its callback.
-    def onResSubFn = Value.NativeFnV("McpServer.onResourceSubscribe", Computation.pureFn {
+    def onResSubFn = PluginValue.nativeFn("McpServer.onResourceSubscribe", {
       case List(handler) =>
         builder.setOnResourceSubscribe { uri =>
-          ctx.invokeCallback(handler, List(Value.StringV(uri))); ()
+          ctx.invokeCallback(handler, List(PluginValue.string(uri))); ()
         }
-        Value.UnitV
-      case _ => throw InterpretError("srv.onResourceSubscribe(uri => ...)")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.onResourceSubscribe(uri => ...)")
     })
-    def onResUnsubFn = Value.NativeFnV("McpServer.onResourceUnsubscribe", Computation.pureFn {
+    def onResUnsubFn = PluginValue.nativeFn("McpServer.onResourceUnsubscribe", {
       case List(handler) =>
         builder.setOnResourceUnsubscribe { uri =>
-          ctx.invokeCallback(handler, List(Value.StringV(uri))); ()
+          ctx.invokeCallback(handler, List(PluginValue.string(uri))); ()
         }
-        Value.UnitV
-      case _ => throw InterpretError("srv.onResourceUnsubscribe(uri => ...)")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.onResourceUnsubscribe(uri => ...)")
     })
-    def notifyResUpdateFn = Value.NativeFnV("McpServer.notifyResourceUpdate", Computation.pureFn {
-      case List(Value.StringV(uri)) =>
+    def notifyResUpdateFn = PluginValue.nativeFn("McpServer.notifyResourceUpdate", {
+      case List(Str(uri)) =>
         builder.notifyResourceUpdate(uri)
-        Value.UnitV
-      case _ => throw InterpretError("srv.notifyResourceUpdate(uri)")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.notifyResourceUpdate(uri)")
     })
     // v1.17.x — list_changed notifications.  Servers call these after
     // registering or un-registering a tool / resource / prompt at runtime
     // to nudge clients to re-fetch the catalog.  Matching capability
     // flags are advertised in initialize.
-    def notifyToolsLCFn = Value.NativeFnV("McpServer.notifyToolsListChanged",
-      Computation.pureFn { _ => builder.notifyToolsListChanged(); Value.UnitV })
-    def notifyResourcesLCFn = Value.NativeFnV("McpServer.notifyResourcesListChanged",
-      Computation.pureFn { _ => builder.notifyResourcesListChanged(); Value.UnitV })
-    def notifyPromptsLCFn = Value.NativeFnV("McpServer.notifyPromptsListChanged",
-      Computation.pureFn { _ => builder.notifyPromptsListChanged(); Value.UnitV })
+    def notifyToolsLCFn = PluginValue.nativeFn("McpServer.notifyToolsListChanged",
+      { _ => builder.notifyToolsListChanged(); PluginValue.unit })
+    def notifyResourcesLCFn = PluginValue.nativeFn("McpServer.notifyResourcesListChanged",
+      { _ => builder.notifyResourcesListChanged(); PluginValue.unit })
+    def notifyPromptsLCFn = PluginValue.nativeFn("McpServer.notifyPromptsListChanged",
+      { _ => builder.notifyPromptsListChanged(); PluginValue.unit })
     // v1.17.x — cancellation.  Long-running tool handlers poll
     // `srv.isCancelled` at safe points and return early (typically with
     // an isError=true ToolResult) when the client has sent
     // notifications/cancelled for the current request.  MCP cancellation
     // is cooperative — honoring it is up to the handler.
-    def isCancelledFn = Value.NativeFnV("McpServer.isCancelled",
-      Computation.pureFn { _ => Value.boolV(builder.isCancelled) })
+    def isCancelledFn = PluginValue.nativeFn("McpServer.isCancelled",
+      { _ => PluginValue.bool(builder.isCancelled) })
     // v1.17.x — progress notifications.  Inside a tool/resource/prompt
     // handler, `srv.notifyProgress(progress[, total])` emits a
     // `notifications/progress` frame with the current handler's
     // progressToken (captured from the client's `_meta.progressToken`
     // on the originating request).  No-op when the client didn't ask
     // for progress.
-    def notifyProgressFn = Value.NativeFnV("McpServer.notifyProgress", Computation.pureFn {
-      case List(Value.DoubleV(p)) => builder.notifyProgress(p); Value.UnitV
-      case List(Value.IntV(p))    => builder.notifyProgress(p.toDouble); Value.UnitV
-      case List(Value.DoubleV(p), Value.DoubleV(t)) => builder.notifyProgress(p, Some(t)); Value.UnitV
-      case List(Value.IntV(p),    Value.IntV(t))    => builder.notifyProgress(p.toDouble, Some(t.toDouble)); Value.UnitV
-      case List(Value.DoubleV(p), Value.IntV(t))    => builder.notifyProgress(p, Some(t.toDouble)); Value.UnitV
-      case List(Value.IntV(p),    Value.DoubleV(t)) => builder.notifyProgress(p.toDouble, Some(t)); Value.UnitV
-      case _ => throw InterpretError("srv.notifyProgress(progress[, total])")
+    def notifyProgressFn = PluginValue.nativeFn("McpServer.notifyProgress", {
+      case List(Dbl(p)) => builder.notifyProgress(p); PluginValue.unit
+      case List(Num(p))    => builder.notifyProgress(p.toDouble); PluginValue.unit
+      case List(Dbl(p), Dbl(t)) => builder.notifyProgress(p, Some(t)); PluginValue.unit
+      case List(Num(p),    Num(t))    => builder.notifyProgress(p.toDouble, Some(t.toDouble)); PluginValue.unit
+      case List(Dbl(p), Num(t))    => builder.notifyProgress(p, Some(t.toDouble)); PluginValue.unit
+      case List(Num(p),    Dbl(t)) => builder.notifyProgress(p.toDouble, Some(t)); PluginValue.unit
+      case _ => PluginError.raise("srv.notifyProgress(progress[, total])")
     })
     // v1.17.x — logging.  `srv.log(level, data[, logger])` emits a
     // `notifications/message` frame iff the client-set log floor (via
     // logging/setLevel) is at or below the line's severity.  Default
     // floor is "info" — debug is silenced until the client opts in.
-    def logFn = Value.NativeFnV("McpServer.log", Computation.pureFn {
-      case List(Value.StringV(level), data) =>
-        builder.log(level, Mcp.valueToJson(data)); Value.UnitV
-      case List(Value.StringV(level), data, Value.StringV(logger)) =>
-        builder.log(level, Mcp.valueToJson(data), Some(logger)); Value.UnitV
-      case _ => throw InterpretError("srv.log(level, data[, logger])")
+    def logFn = PluginValue.nativeFn("McpServer.log", {
+      case List(Str(level), data) =>
+        builder.log(level, Mcp.valueToJson(data)); PluginValue.unit
+      case List(Str(level), data, Str(logger)) =>
+        builder.log(level, Mcp.valueToJson(data), Some(logger)); PluginValue.unit
+      case _ => PluginError.raise("srv.log(level, data[, logger])")
     })
-    def currentLogLevelFn = Value.NativeFnV("McpServer.currentLogLevel",
-      Computation.pureFn { _ => Value.StringV(builder.loggingLevel) })
+    def currentLogLevelFn = PluginValue.nativeFn("McpServer.currentLogLevel",
+      { _ => PluginValue.string(builder.loggingLevel) })
     // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
     // broadcasts a JSON-RPC notification frame to every currently-active
     // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
     // Http without SSE: no-op since no persistent push channel exists).
-    def notifyFn = Value.NativeFnV("McpServer.notify", Computation.pureFn {
-      case List(Value.StringV(method)) =>
+    def notifyFn = PluginValue.nativeFn("McpServer.notify", {
+      case List(Str(method)) =>
         builder.notify(method, ujson.Obj())
-        Value.UnitV
-      case List(Value.StringV(method), paramsV) =>
+        PluginValue.unit
+      case List(Str(method), paramsV) =>
         builder.notify(method, Mcp.valueToJson(paramsV))
-        Value.UnitV
-      case _ => throw InterpretError("srv.notify(method[, params])")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.notify(method[, params])")
     })
     // v1.17.x — bidirectional sampling.  Server can call into a connected
     // client (typical use: `srv.request("sampling/createMessage", args)`
@@ -678,20 +679,20 @@ private object Mcp:
     // the matching client.onRequest handler replies or `timeoutMs`
     // fires.  Returns the result Value on success, throws InterpretError
     // on timeout / error.
-    def requestFn = Value.NativeFnV("McpServer.request", Computation.pureFn {
-      case List(Value.StringV(method), paramsV, Value.IntV(timeoutMs)) =>
+    def requestFn = PluginValue.nativeFn("McpServer.request", {
+      case List(Str(method), paramsV, Num(timeoutMs)) =>
         builder.request(method, Mcp.valueToJson(paramsV), timeoutMs) match
-          case Left(e)     => throw InterpretError(s"srv.request($method): ${e.message}")
+          case Left(e)     => PluginError.raise(s"srv.request($method): ${e.message}")
           case Right(json) => Mcp.jsonToValue(json)
-      case List(Value.StringV(method), paramsV) =>
+      case List(Str(method), paramsV) =>
         builder.request(method, Mcp.valueToJson(paramsV), 30_000L) match
-          case Left(e)     => throw InterpretError(s"srv.request($method): ${e.message}")
+          case Left(e)     => PluginError.raise(s"srv.request($method): ${e.message}")
           case Right(json) => Mcp.jsonToValue(json)
-      case List(Value.StringV(method)) =>
+      case List(Str(method)) =>
         builder.request(method, ujson.Obj(), 30_000L) match
-          case Left(e)     => throw InterpretError(s"srv.request($method): ${e.message}")
+          case Left(e)     => PluginError.raise(s"srv.request($method): ${e.message}")
           case Right(json) => Mcp.jsonToValue(json)
-      case _ => throw InterpretError("srv.request(method[, params[, timeoutMs]])")
+      case _ => PluginError.raise("srv.request(method[, params[, timeoutMs]])")
     })
     // v1.17.x — roots (workspace info from the client).  Server pulls the
     // current root list on demand via `srv.listRoots()`; client pushes a
@@ -699,25 +700,25 @@ private object Mcp:
     // to the user's `srv.onRootsListChanged(...)` callback.  Returns a
     // List of Map(uri -> ..., name -> ...) for ergonomic destructuring
     // in user code.
-    def listRootsFn = Value.NativeFnV("McpServer.listRoots", Computation.pureFn {
-      case List(Value.IntV(timeoutMs)) =>
+    def listRootsFn = PluginValue.nativeFn("McpServer.listRoots", {
+      case List(Num(timeoutMs)) =>
         builder.listRoots(timeoutMs) match
-          case Left(e)      => throw InterpretError(s"srv.listRoots: ${e.message}")
+          case Left(e)      => PluginError.raise(s"srv.listRoots: ${e.message}")
           case Right(roots) => Mcp.rootsToValue(roots)
       case Nil =>
         builder.listRoots() match
-          case Left(e)      => throw InterpretError(s"srv.listRoots: ${e.message}")
+          case Left(e)      => PluginError.raise(s"srv.listRoots: ${e.message}")
           case Right(roots) => Mcp.rootsToValue(roots)
-      case _ => throw InterpretError("srv.listRoots([timeoutMs])")
+      case _ => PluginError.raise("srv.listRoots([timeoutMs])")
     })
-    def onRootsLCFn = Value.NativeFnV("McpServer.onRootsListChanged", Computation.pureFn {
+    def onRootsLCFn = PluginValue.nativeFn("McpServer.onRootsListChanged", {
       case List(handler) =>
         builder.setOnRootsListChanged(() => { ctx.invokeCallback(handler, Nil); () })
-        Value.UnitV
-      case _ => throw InterpretError("srv.onRootsListChanged(() => ...)")
+        PluginValue.unit
+      case _ => PluginError.raise("srv.onRootsListChanged(() => ...)")
     })
-    def clientSupportsRootsFn = Value.NativeFnV("McpServer.clientSupportsRoots",
-      Computation.pureFn { _ => Value.boolV(builder.clientSupportsRoots) })
+    def clientSupportsRootsFn = PluginValue.nativeFn("McpServer.clientSupportsRoots",
+      { _ => PluginValue.bool(builder.clientSupportsRoots) })
     // v1.17.x — elicitation.  `srv.elicit(message, schema[, timeoutMs])`
     // pops a prompt on the client side asking for user input matching
     // the supplied JSON Schema.  Returns an ElicitationResult instance:
@@ -725,36 +726,36 @@ private object Mcp:
     //   - Decline         → user clicked No
     //   - Cancel          → user dismissed the dialog
     // Treat the latter two as the safe "user didn't agree" branch.
-    def elicitFn = Value.NativeFnV("McpServer.elicit", Computation.pureFn {
-      case List(Value.StringV(message), schemaV, Value.IntV(timeoutMs)) =>
+    def elicitFn = PluginValue.nativeFn("McpServer.elicit", {
+      case List(Str(message), schemaV, Num(timeoutMs)) =>
         builder.elicit(message, Mcp.valueToJson(schemaV), timeoutMs) match
-          case Left(e)  => throw InterpretError(s"srv.elicit: ${e.message}")
+          case Left(e)  => PluginError.raise(s"srv.elicit: ${e.message}")
           case Right(r) => Mcp.elicitationResultToValue(r)
-      case List(Value.StringV(message), schemaV) =>
+      case List(Str(message), schemaV) =>
         builder.elicit(message, Mcp.valueToJson(schemaV)) match
-          case Left(e)  => throw InterpretError(s"srv.elicit: ${e.message}")
+          case Left(e)  => PluginError.raise(s"srv.elicit: ${e.message}")
           case Right(r) => Mcp.elicitationResultToValue(r)
-      case _ => throw InterpretError("srv.elicit(message, schema[, timeoutMs])")
+      case _ => PluginError.raise("srv.elicit(message, schema[, timeoutMs])")
     })
     def clientSupportsElicitationFn =
-      Value.NativeFnV("McpServer.clientSupportsElicitation",
-        Computation.pureFn { _ => Value.boolV(builder.clientSupportsElicitation) })
+      PluginValue.nativeFn("McpServer.clientSupportsElicitation",
+        { _ => PluginValue.bool(builder.clientSupportsElicitation) })
     // v1.17.x — completion handlers.  The handler is a function
     // `String => List[String]` (current partial value → suggestions).
     // Two registration entry points for the two ref shapes the spec
     // supports: `ref/prompt` keyed by prompt name, `ref/resource` keyed
     // by URI-template string.  Spec caps results at 100; the wire-layer
     // applies the cap so user handlers can return as many as they want.
-    def completionForPromptFn = Value.NativeFnV("McpServer.completionForPrompt",
-      Computation.pureFn {
-        case List(Value.StringV(promptName), Value.StringV(argName), handler) =>
+    def completionForPromptFn = PluginValue.nativeFn("McpServer.completionForPrompt",
+      {
+        case List(Str(promptName), Str(argName), handler) =>
           builder.completionForPrompt(promptName, argName, value =>
-            ctx.invokeCallback(handler, List(Value.StringV(value))) match
-              case v: Value => Mcp.valueToStringList(v)
+            ctx.invokeCallback(handler, List(PluginValue.string(value))) match
+              case v if PluginValue.isRuntimeValue(v) => Mcp.valueToStringList(v)
               case _        => Nil
           )
-          Value.UnitV
-        case _ => throw InterpretError("srv.completionForPrompt(promptName, argName, handler)")
+          PluginValue.unit
+        case _ => PluginError.raise("srv.completionForPrompt(promptName, argName, handler)")
       })
     // v1.17.x — pagination.  `srv.setPageSize(N)` caps every list
     // endpoint at N items per page; nextCursor opaque-encodes the offset
@@ -768,85 +769,85 @@ private object Mcp:
     // The HTTP route then gates every request through this validator.
     // `srv.useHmacValidator(secret)` is a convenience for tests +
     // trusted-internal deployments.
-    def setTokenValidatorFn = Value.NativeFnV("McpServer.setTokenValidator",
-      Computation.pureFn {
+    def setTokenValidatorFn = PluginValue.nativeFn("McpServer.setTokenValidator",
+      {
         case List(handler) =>
           builder.setTokenValidator(Some(token =>
-            ctx.invokeCallback(handler, List(Value.StringV(token))) match
-              case v: Value => Mcp.valueToAuthResult(v)
+            ctx.invokeCallback(handler, List(PluginValue.string(token))) match
+              case v if PluginValue.isRuntimeValue(v) => Mcp.valueToAuthResult(v)
               case _        => McpAuth.AuthResult.Invalid("invalid_token", "validator returned non-Value")
           ))
-          Value.UnitV
-        case _ => throw InterpretError("srv.setTokenValidator(handler)")
+          PluginValue.unit
+        case _ => PluginError.raise("srv.setTokenValidator(handler)")
       })
-    def useHmacValidatorFn = Value.NativeFnV("McpServer.useHmacValidator",
-      Computation.pureFn {
-        case List(Value.StringV(secret)) =>
+    def useHmacValidatorFn = PluginValue.nativeFn("McpServer.useHmacValidator",
+      {
+        case List(Str(secret)) =>
           builder.setTokenValidator(Some(McpAuth.hmacValidator(secret)))
-          Value.UnitV
-        case _ => throw InterpretError("srv.useHmacValidator(secret)")
+          PluginValue.unit
+        case _ => PluginError.raise("srv.useHmacValidator(secret)")
       })
     // v1.17.x — bridge to the standalone OAuth Authorization Server.
     // Takes the InstanceV produced by `oauth.authServer(...)` and wires
     // its token validator + protected-resource metadata into this MCP
     // server.  Resolves via OAuthBridge (shared with the oauth-plugin).
-    def useAuthServerFn = Value.NativeFnV("McpServer.useAuthServer",
-      Computation.pureFn {
+    def useAuthServerFn = PluginValue.nativeFn("McpServer.useAuthServer",
+      {
         case List(asValue) =>
           (asValue match
-            case Value.InstanceV("AuthServer", fields) =>
-              fields.get("_id").collect { case Value.StringV(id) => id }
+            case Inst("AuthServer", fields) =>
+              fields.get("_id").collect { case Str(id) => id }
                 .flatMap(id => Option(OAuthBridge.authServers.get(id))
                   .collect { case as: scalascript.oauth.AuthServer => as })
             case _ => None
           ) match
-            case Some(as) => builder.useAuthServer(as); Value.UnitV
-            case None     => throw InterpretError(
+            case Some(as) => builder.useAuthServer(as); PluginValue.unit
+            case None     => PluginError.raise(
               "srv.useAuthServer: argument is not an AuthServer instance (use oauth.authServer(...))")
-        case _ => throw InterpretError("srv.useAuthServer(authServer)")
+        case _ => PluginError.raise("srv.useAuthServer(authServer)")
       })
-    def setAuthRealmFn = Value.NativeFnV("McpServer.setAuthRealm",
-      Computation.pureFn {
-        case List(Value.StringV(realm)) => builder.setAuthRealm(realm); Value.UnitV
-        case _ => throw InterpretError("srv.setAuthRealm(realm)")
+    def setAuthRealmFn = PluginValue.nativeFn("McpServer.setAuthRealm",
+      {
+        case List(Str(realm)) => builder.setAuthRealm(realm); PluginValue.unit
+        case _ => PluginError.raise("srv.setAuthRealm(realm)")
       })
-    def currentAuthFn = Value.NativeFnV("McpServer.currentAuth",
-      Computation.pureFn { _ => Mcp.authClaimsToValueOpt(builder.currentAuth) })
-    def authEnabledFn = Value.NativeFnV("McpServer.authEnabled",
-      Computation.pureFn { _ => Value.boolV(builder.authEnabled) })
-    def setPrmFn = Value.NativeFnV("McpServer.setProtectedResourceMetadata",
-      Computation.pureFn {
+    def currentAuthFn = PluginValue.nativeFn("McpServer.currentAuth",
+      { _ => Mcp.authClaimsToValueOpt(builder.currentAuth) })
+    def authEnabledFn = PluginValue.nativeFn("McpServer.authEnabled",
+      { _ => PluginValue.bool(builder.authEnabled) })
+    def setPrmFn = PluginValue.nativeFn("McpServer.setProtectedResourceMetadata",
+      {
         case List(metadataV) =>
           builder.setProtectedResourceMetadata(Mcp.valueToPrm(metadataV))
-          Value.UnitV
-        case _ => throw InterpretError("srv.setProtectedResourceMetadata(metadata)")
+          PluginValue.unit
+        case _ => PluginError.raise("srv.setProtectedResourceMetadata(metadata)")
       })
-    def issueHmacTokenFn = Value.NativeFnV("McpServer.issueHmacToken",
-      Computation.pureFn {
-        case List(Value.StringV(secret), Value.StringV(subject), scopesV, Value.IntV(expSec)) =>
-          Value.StringV(McpAuth.issueHmacToken(secret, subject,
+    def issueHmacTokenFn = PluginValue.nativeFn("McpServer.issueHmacToken",
+      {
+        case List(Str(secret), Str(subject), scopesV, Num(expSec)) =>
+          PluginValue.string(McpAuth.issueHmacToken(secret, subject,
             Mcp.valueToStringList(scopesV).toSet, expSec))
-        case _ => throw InterpretError("srv.issueHmacToken(secret, subject, scopes, expiresInSeconds)")
+        case _ => PluginError.raise("srv.issueHmacToken(secret, subject, scopes, expiresInSeconds)")
       })
-    def setPageSizeFn = Value.NativeFnV("McpServer.setPageSize",
-      Computation.pureFn {
-        case List(Value.IntV(n)) => builder.setPageSize(n.toInt); Value.UnitV
-        case _ => throw InterpretError("srv.setPageSize(n)")
+    def setPageSizeFn = PluginValue.nativeFn("McpServer.setPageSize",
+      {
+        case List(Num(n)) => builder.setPageSize(n.toInt); PluginValue.unit
+        case _ => PluginError.raise("srv.setPageSize(n)")
       })
-    def currentPageSizeFn = Value.NativeFnV("McpServer.currentPageSize",
-      Computation.pureFn { _ => Value.intV(builder.currentPageSize) })
-    def completionForResourceFn = Value.NativeFnV("McpServer.completionForResource",
-      Computation.pureFn {
-        case List(Value.StringV(uriTemplate), Value.StringV(argName), handler) =>
+    def currentPageSizeFn = PluginValue.nativeFn("McpServer.currentPageSize",
+      { _ => PluginValue.int(builder.currentPageSize) })
+    def completionForResourceFn = PluginValue.nativeFn("McpServer.completionForResource",
+      {
+        case List(Str(uriTemplate), Str(argName), handler) =>
           builder.completionForResource(uriTemplate, argName, value =>
-            ctx.invokeCallback(handler, List(Value.StringV(value))) match
-              case v: Value => Mcp.valueToStringList(v)
+            ctx.invokeCallback(handler, List(PluginValue.string(value))) match
+              case v if PluginValue.isRuntimeValue(v) => Mcp.valueToStringList(v)
               case _        => Nil
           )
-          Value.UnitV
-        case _ => throw InterpretError("srv.completionForResource(uriTemplate, argName, handler)")
+          PluginValue.unit
+        case _ => PluginError.raise("srv.completionForResource(uriTemplate, argName, handler)")
       })
-    Value.InstanceV("McpServer", Map(
+    PluginValue.instance("McpServer", Map(
       "tool"                          -> toolFn,
       "toolWithSchema"                -> toolWithSchemaFn,
       "resource"                      -> resourceFn,
@@ -890,7 +891,7 @@ private object Mcp:
     name:    String,
     desc:    Option[String],
     schema:  ujson.Value,
-    handler: Value,
+    handler: PluginValue,
     ctx: PluginContext
   ): Unit =
     builder.tool(name, desc, schema, args =>
@@ -904,11 +905,11 @@ private object Mcp:
     uri:      String,
     name:     Option[String],
     mimeType: Option[String],
-    handler:  Value,
+    handler: PluginValue,
     ctx: PluginContext
   ): Unit =
     builder.resource(uri, name, mimeType, requestedUri =>
-      val result = ctx.invokeCallback(handler, List(Value.StringV(requestedUri)))
+      val result = ctx.invokeCallback(handler, List(PluginValue.string(requestedUri)))
       valueToResourceResult(result)
     )
 
@@ -918,11 +919,11 @@ private object Mcp:
     name:        Option[String],
     description: Option[String],
     mimeType:    Option[String],
-    handler:     Value,
+    handler: PluginValue,
     ctx: PluginContext
   ): Unit =
     builder.resourceTemplate(uriTemplate, name, description, mimeType, requestedUri =>
-      val result = ctx.invokeCallback(handler, List(Value.StringV(requestedUri)))
+      val result = ctx.invokeCallback(handler, List(PluginValue.string(requestedUri)))
       valueToResourceResult(result)
     )
 
@@ -930,7 +931,7 @@ private object Mcp:
     builder: McpServerBuilder,
     name:    String,
     desc:    Option[String],
-    handler: Value,
+    handler: PluginValue,
     ctx: PluginContext
   ): Unit =
     builder.prompt(name, desc, Nil, args =>
@@ -941,36 +942,36 @@ private object Mcp:
 
   // ─── Value → JSON marshallers for handler results ──────────────────
 
-  /** A user `Tool.text("hi")` evaluates to `Value.InstanceV("ToolResult",
+  /** A user `Tool.text("hi")` evaluates to `PluginValue.instance("ToolResult",
    *  Map("content" -> ListV(...), "isError" -> BoolV(...)))` in the
    *  interpreter.  We flatten that into the `ToolHandlerResult` the core
    *  expects. */
   def valueToToolResult(v: Any): ToolHandlerResult = v match
-    case Value.InstanceV("ToolResult", fields) =>
+    case Inst("ToolResult", fields) =>
       val items = fields.get("content").collect {
-        case Value.ListV(xs) => xs.map(contentValueToJson)
+        case Lst(xs) => xs.map(contentValueToJson)
       }.getOrElse(Nil)
-      val isErr = fields.get("isError").collect { case Value.BoolV(b) => b }.getOrElse(false)
+      val isErr = fields.get("isError").collect { case Bool(b) => b }.getOrElse(false)
       ToolHandlerResult(items, isErr)
-    case Value.StringV(s) =>
+    case Str(s) =>
       ToolHandlerResult(List(McpProtocol.textContent(s)), isError = false)
     case other =>
-      ToolHandlerResult(List(McpProtocol.textContent(Value.show(other.asInstanceOf[Value]))), isError = false)
+      ToolHandlerResult(List(McpProtocol.textContent(PluginValue.showAny(other.asInstanceOf[PluginValue]))), isError = false)
 
   def valueToResourceResult(v: Any): ResourceHandlerResult = v match
-    case Value.InstanceV("ResourceResult", fields) =>
-      val uri = fields.get("uri").collect { case Value.StringV(s) => s }.getOrElse("")
+    case Inst("ResourceResult", fields) =>
+      val uri = fields.get("uri").collect { case Str(s) => s }.getOrElse("")
       val contents = fields.get("contents").collect {
-        case Value.ListV(xs) => xs.map(contentValueToJson)
+        case Lst(xs) => xs.map(contentValueToJson)
       }.getOrElse(Nil)
       ResourceHandlerResult(uri, contents)
     case other =>
-      ResourceHandlerResult("", List(McpProtocol.textContent(Value.show(other.asInstanceOf[Value]))))
+      ResourceHandlerResult("", List(McpProtocol.textContent(PluginValue.showAny(other.asInstanceOf[PluginValue]))))
 
   def valueToPromptResult(v: Any): PromptHandlerResult = v match
-    case Value.InstanceV("PromptResult", fields) =>
+    case Inst("PromptResult", fields) =>
       val msgs = fields.get("messages").collect {
-        case Value.ListV(xs) => xs.map(messageValueToJson)
+        case Lst(xs) => xs.map(messageValueToJson)
       }.getOrElse(Nil)
       PromptHandlerResult(None, msgs)
     case _ =>
@@ -978,27 +979,27 @@ private object Mcp:
 
   /** `Content.Text(s)` / `Content.Image(data, mime)` / `Content.Resource(uri)`
    *  → MCP wire JSON object. */
-  def contentValueToJson(v: Value): ujson.Value = v match
-    case Value.InstanceV("Text", fields) =>
-      val s = fields.get("text").collect { case Value.StringV(s) => s }.getOrElse("")
+  def contentValueToJson(v: PluginValue): ujson.Value = v match
+    case Inst("Text", fields) =>
+      val s = fields.get("text").collect { case Str(s) => s }.getOrElse("")
       McpProtocol.textContent(s)
-    case Value.InstanceV("Image", fields) =>
-      val data = fields.get("data").collect { case Value.StringV(s) => s }.getOrElse("")
-      val mime = fields.get("mimeType").collect { case Value.StringV(s) => s }.getOrElse("application/octet-stream")
+    case Inst("Image", fields) =>
+      val data = fields.get("data").collect { case Str(s) => s }.getOrElse("")
+      val mime = fields.get("mimeType").collect { case Str(s) => s }.getOrElse("application/octet-stream")
       McpProtocol.imageContent(data, mime)
-    case Value.InstanceV("Resource", fields) =>
-      val uri = fields.get("uri").collect { case Value.StringV(s) => s }.getOrElse("")
+    case Inst("Resource", fields) =>
+      val uri = fields.get("uri").collect { case Str(s) => s }.getOrElse("")
       McpProtocol.resourceContent(uri)
-    case Value.StringV(s) => McpProtocol.textContent(s)
-    case other            => McpProtocol.textContent(Value.show(other))
+    case Str(s) => McpProtocol.textContent(s)
+    case other            => McpProtocol.textContent(PluginValue.showAny(other))
 
   /** `Message(role, content)` → `{role: "user|assistant|system", content: {...}}` */
-  def messageValueToJson(v: Value): ujson.Value = v match
-    case Value.InstanceV("Message", fields) =>
+  def messageValueToJson(v: PluginValue): ujson.Value = v match
+    case Inst("Message", fields) =>
       val role = fields.get("role").collect {
-        case Value.InstanceV("User", _)      => "user"
-        case Value.InstanceV("Assistant", _) => "assistant"
-        case Value.InstanceV("System", _)    => "system"
+        case Inst("User", _)      => "user"
+        case Inst("Assistant", _) => "assistant"
+        case Inst("System", _)    => "system"
       }.getOrElse("user")
       val content = fields.get("content").map(contentValueToJson).getOrElse(McpProtocol.textContent(""))
       ujson.Obj("role" -> role, "content" -> content)
@@ -1006,25 +1007,25 @@ private object Mcp:
 
   /** Lift `Map[String, Any]` (decoded by McpServerCore.jsonToScala) to a
    *  Value.MapV the handler closure sees as the `args` parameter. */
-  def mapToValue(m: Map[String, Any]): Value =
-    Value.MapV(m.map { case (k, v) => Value.StringV(k) -> anyToValue(v) })
+  def mapToValue(m: Map[String, Any]): PluginValue =
+    PluginValue.mapOf(m.map { case (k, v) => PluginValue.string(k) -> anyToValue(v) })
 
-  def anyToValue(a: Any): Value = a match
-    case null            => Value.NoneV
-    case b: Boolean      => Value.boolV(b)
-    case s: String       => Value.StringV(s)
-    case d: Double       => Value.doubleV(d)
-    case i: Int          => Value.intV(i.toLong)
-    case l: Long         => Value.intV(l)
-    case xs: List[?]     => Value.ListV(xs.map(anyToValue))
-    case m: Map[?, ?]    => Value.MapV(m.iterator.map((k, v) => Value.StringV(k.toString) -> anyToValue(v)).toMap)
-    case other           => Value.StringV(other.toString)
+  def anyToValue(a: Any): PluginValue = a match
+    case null            => PluginValue.none
+    case b: Boolean      => PluginValue.bool(b)
+    case s: String       => PluginValue.string(s)
+    case d: Double       => PluginValue.double(d)
+    case i: Int          => PluginValue.int(i.toLong)
+    case l: Long         => PluginValue.int(l)
+    case xs: List[?]     => PluginValue.list(xs.map(anyToValue))
+    case m: Map[?, ?]    => PluginValue.mapOf(m.iterator.map((k, v) => PluginValue.string(k.toString) -> anyToValue(v)).toMap)
+    case other           => PluginValue.string(other.toString)
 
   // ─── Spawn client construction ─────────────────────────────────────
 
   /** Spawn `cmd args*` as a subprocess and return a Value.InstanceV
    *  exposing the McpClient API — listTools / callTool / etc. */
-  def makeSpawnClient(cmd: String, cmdArgs: List[String], timeoutMs: Long, ctx: PluginContext): Value =
+  def makeSpawnClient(cmd: String, cmdArgs: List[String], timeoutMs: Long, ctx: PluginContext): PluginValue =
     val pb = new ProcessBuilder((cmd :: cmdArgs).asJavaList).redirectErrorStream(false)
     val proc = pb.start()
     val stdin  = BufferedWriter(OutputStreamWriter(proc.getOutputStream, "UTF-8"))
@@ -1056,7 +1057,7 @@ private object Mcp:
     initResult match
       case Left(e) =>
         proc.destroy()
-        throw InterpretError(s"mcpConnect: initialize failed: ${e.message}")
+        PluginError.raise(s"mcpConnect: initialize failed: ${e.message}")
       case Right(_) =>
         client.notify("notifications/initialized", ujson.Obj())
 
@@ -1067,147 +1068,147 @@ private object Mcp:
     proc:      Process,
     timeoutMs: Long,
     ctx: PluginContext
-  ): Value.InstanceV =
-    val fields = mutable.LinkedHashMap.empty[String, Value]
+  ): PluginValue =
+    val fields = mutable.LinkedHashMap.empty[String, PluginValue]
 
-    fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
+    fields("listTools") = PluginValue.nativeFn("McpClient.listTools", { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listTools: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listTools: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "tools", Mcp.toolDescriptorFromJson)
     })
-    fields("listResources") = Value.NativeFnV("McpClient.listResources", Computation.pureFn { _ =>
+    fields("listResources") = PluginValue.nativeFn("McpClient.listResources", { _ =>
       client.request(McpProtocol.Method.ResourcesList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listResources: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listResources: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "resources", Mcp.resourceDescriptorFromJson)
     })
-    fields("listPrompts") = Value.NativeFnV("McpClient.listPrompts", Computation.pureFn { _ =>
+    fields("listPrompts") = PluginValue.nativeFn("McpClient.listPrompts", { _ =>
       client.request(McpProtocol.Method.PromptsList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listPrompts: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listPrompts: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "prompts", Mcp.promptDescriptorFromJson)
     })
-    fields("callTool") = Value.NativeFnV("McpClient.callTool", Computation.pureFn {
-      case List(Value.StringV(name), argsV) =>
+    fields("callTool") = PluginValue.nativeFn("McpClient.callTool", {
+      case List(Str(name), argsV) =>
         val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
         client.request(McpProtocol.Method.ToolsCall, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"callTool: ${e.message}")
+          case Left(e)     => PluginError.raise(s"callTool: ${e.message}")
           case Right(json) => Mcp.toolResultFromJson(json)
-      case _ => throw InterpretError("client.callTool(name, args)")
+      case _ => PluginError.raise("client.callTool(name, args)")
     })
-    fields("readResource") = Value.NativeFnV("McpClient.readResource", Computation.pureFn {
-      case List(Value.StringV(uri)) =>
+    fields("readResource") = PluginValue.nativeFn("McpClient.readResource", {
+      case List(Str(uri)) =>
         val params = ujson.Obj("uri" -> uri)
         client.request(McpProtocol.Method.ResourcesRead, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"readResource: ${e.message}")
+          case Left(e)     => PluginError.raise(s"readResource: ${e.message}")
           case Right(json) => Mcp.resourceResultFromJson(json, uri)
-      case _ => throw InterpretError("client.readResource(uri)")
+      case _ => PluginError.raise("client.readResource(uri)")
     })
-    fields("getPrompt") = Value.NativeFnV("McpClient.getPrompt", Computation.pureFn {
-      case List(Value.StringV(name), argsV) =>
+    fields("getPrompt") = PluginValue.nativeFn("McpClient.getPrompt", {
+      case List(Str(name), argsV) =>
         val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
         client.request(McpProtocol.Method.PromptsGet, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"getPrompt: ${e.message}")
+          case Left(e)     => PluginError.raise(s"getPrompt: ${e.message}")
           case Right(json) => Mcp.promptResultFromJson(json)
-      case _ => throw InterpretError("client.getPrompt(name, args)")
+      case _ => PluginError.raise("client.getPrompt(name, args)")
     })
-    fields("close") = Value.NativeFnV("McpClient.close", Computation.pureFn { _ =>
+    fields("close") = PluginValue.nativeFn("McpClient.close", { _ =>
       client.close()
       try proc.destroy()    catch case _: Throwable => ()
-      Value.UnitV
+      PluginValue.unit
     })
-    fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
-      Value.boolV(client.isClosed)
+    fields("isClosed") = PluginValue.nativeFn("McpClient.isClosed", { _ =>
+      PluginValue.bool(client.isClosed)
     })
     // v1.17.x — server→client notification subscription.  Handler receives
-    // (method: String, params: Value).  Replaces any previously-registered
+    // (method: String, params: PluginValue).  Replaces any previously-registered
     // handler.  Stdio/Spawn transports deliver notifications natively
     // (frames just arrive on the same stdout the reader thread pulls).
-    fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
+    fields("onNotification") = PluginValue.nativeFn("McpClient.onNotification", {
       case List(handler) =>
         client.setNotificationHandler { (method, params) =>
-          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params)))
+          ctx.invokeCallback(handler, List(PluginValue.string(method), Mcp.jsonToValue(params)))
         }
-        Value.UnitV
-      case _ => throw InterpretError("client.onNotification(handler)")
+        PluginValue.unit
+      case _ => PluginError.raise("client.onNotification(handler)")
     })
     // v1.17.x — bidirectional sampling.  Handler returns the result Value;
     // exceptions become JSON-RPC error responses sent back via the writer
     // so the server-side pending map unblocks.
-    fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
+    fields("onRequest") = PluginValue.nativeFn("McpClient.onRequest", {
       case List(handler) =>
         client.setRequestHandler { (method, params) =>
-          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params))) match
-            case v: Value => Mcp.valueToJson(v)
+          ctx.invokeCallback(handler, List(PluginValue.string(method), Mcp.jsonToValue(params))) match
+            case v if PluginValue.isRuntimeValue(v) => Mcp.valueToJson(v)
             case other    => ujson.Str(String.valueOf(other))
         }
-        Value.UnitV
-      case _ => throw InterpretError("client.onRequest(handler)")
+        PluginValue.unit
+      case _ => PluginError.raise("client.onRequest(handler)")
     })
-    Value.InstanceV("McpClient", fields.toMap)
+    PluginValue.instance("McpClient", fields.toMap)
 
   /** Same shape as `makeClientInstance` but routes through `McpHttpClient`
    *  instead of the stdio-backed `McpClientCore`.  Code duplication is
    *  intentional: both clients expose identical method surfaces but the
    *  request bodies differ in transport semantics (stdio is async with a
    *  pending-id table; HTTP is synchronous request/response). */
-  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long, ctx: PluginContext): Value.InstanceV =
-    val fields = mutable.LinkedHashMap.empty[String, Value]
-    fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
+  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long, ctx: PluginContext): PluginValue =
+    val fields = mutable.LinkedHashMap.empty[String, PluginValue]
+    fields("listTools") = PluginValue.nativeFn("McpClient.listTools", { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listTools: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listTools: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "tools", Mcp.toolDescriptorFromJson)
     })
-    fields("listResources") = Value.NativeFnV("McpClient.listResources", Computation.pureFn { _ =>
+    fields("listResources") = PluginValue.nativeFn("McpClient.listResources", { _ =>
       client.request(McpProtocol.Method.ResourcesList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listResources: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listResources: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "resources", Mcp.resourceDescriptorFromJson)
     })
-    fields("listPrompts") = Value.NativeFnV("McpClient.listPrompts", Computation.pureFn { _ =>
+    fields("listPrompts") = PluginValue.nativeFn("McpClient.listPrompts", { _ =>
       client.request(McpProtocol.Method.PromptsList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listPrompts: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listPrompts: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "prompts", Mcp.promptDescriptorFromJson)
     })
-    fields("callTool") = Value.NativeFnV("McpClient.callTool", Computation.pureFn {
-      case List(Value.StringV(name), argsV) =>
+    fields("callTool") = PluginValue.nativeFn("McpClient.callTool", {
+      case List(Str(name), argsV) =>
         val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
         client.request(McpProtocol.Method.ToolsCall, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"callTool: ${e.message}")
+          case Left(e)     => PluginError.raise(s"callTool: ${e.message}")
           case Right(json) => Mcp.toolResultFromJson(json)
-      case _ => throw InterpretError("client.callTool(name, args)")
+      case _ => PluginError.raise("client.callTool(name, args)")
     })
-    fields("readResource") = Value.NativeFnV("McpClient.readResource", Computation.pureFn {
-      case List(Value.StringV(uri)) =>
+    fields("readResource") = PluginValue.nativeFn("McpClient.readResource", {
+      case List(Str(uri)) =>
         val params = ujson.Obj("uri" -> uri)
         client.request(McpProtocol.Method.ResourcesRead, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"readResource: ${e.message}")
+          case Left(e)     => PluginError.raise(s"readResource: ${e.message}")
           case Right(json) => Mcp.resourceResultFromJson(json, uri)
-      case _ => throw InterpretError("client.readResource(uri)")
+      case _ => PluginError.raise("client.readResource(uri)")
     })
-    fields("getPrompt") = Value.NativeFnV("McpClient.getPrompt", Computation.pureFn {
-      case List(Value.StringV(name), argsV) =>
+    fields("getPrompt") = PluginValue.nativeFn("McpClient.getPrompt", {
+      case List(Str(name), argsV) =>
         val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
         client.request(McpProtocol.Method.PromptsGet, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"getPrompt: ${e.message}")
+          case Left(e)     => PluginError.raise(s"getPrompt: ${e.message}")
           case Right(json) => Mcp.promptResultFromJson(json)
-      case _ => throw InterpretError("client.getPrompt(name, args)")
+      case _ => PluginError.raise("client.getPrompt(name, args)")
     })
-    fields("close") = Value.NativeFnV("McpClient.close", Computation.pureFn { _ =>
-      client.close(); Value.UnitV
+    fields("close") = PluginValue.nativeFn("McpClient.close", { _ =>
+      client.close(); PluginValue.unit
     })
-    fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
-      Value.boolV(client.isClosed)
+    fields("isClosed") = PluginValue.nativeFn("McpClient.isClosed", { _ =>
+      PluginValue.bool(client.isClosed)
     })
     // HTTP push via SSE GET `/events` — the client opens a daemon reader
     // thread that parses `data: <json>\n\n` frames and dispatches them
     // as notifications.  The server side (installHttpRoute) registers the
     // matching `/events` GET endpoint when `serveMcp(Transport.Http(...))`
     // is called.
-    fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
+    fields("onNotification") = PluginValue.nativeFn("McpClient.onNotification", {
       case List(handler) =>
         client.setNotificationHandler { (method, params) =>
-          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params)))
+          ctx.invokeCallback(handler, List(PluginValue.string(method), Mcp.jsonToValue(params)))
         }
-        Value.UnitV
-      case _ => throw InterpretError("client.onNotification(handler)")
+        PluginValue.unit
+      case _ => PluginError.raise("client.onNotification(handler)")
     })
     // Bidirectional sampling over HTTP: the SSE GET stream now also
     // delivers Request frames; McpHttpClient.setRequestHandler runs
@@ -1215,179 +1216,179 @@ private object Mcp:
     // `/mcp` URL — handleHttpRequest server-side routes it through
     // builder.routeInboundResponse so the broadcaster's pending map
     // unblocks.  Same API shape as the Stdio/Spawn/Ws paths.
-    fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
+    fields("onRequest") = PluginValue.nativeFn("McpClient.onRequest", {
       case List(handler) =>
         client.setRequestHandler { (method, params) =>
-          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params))) match
-            case v: Value => Mcp.valueToJson(v)
+          ctx.invokeCallback(handler, List(PluginValue.string(method), Mcp.jsonToValue(params))) match
+            case v if PluginValue.isRuntimeValue(v) => Mcp.valueToJson(v)
             case other    => ujson.Str(String.valueOf(other))
         }
-        Value.UnitV
-      case _ => throw InterpretError("client.onRequest(handler)")
+        PluginValue.unit
+      case _ => PluginError.raise("client.onRequest(handler)")
     })
-    Value.InstanceV("McpClient", fields.toMap)
+    PluginValue.instance("McpClient", fields.toMap)
 
   /** Same shape as `makeHttpClientInstance` / `makeClientInstance` but
    *  routes through `McpWsClient`.  Persistent WS connection — the
    *  pending-request map handles id correlation server→client; the
    *  same channel delivers server→client notifications. */
-  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long, ctx: PluginContext): Value.InstanceV =
-    val fields = mutable.LinkedHashMap.empty[String, Value]
-    fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
+  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long, ctx: PluginContext): PluginValue =
+    val fields = mutable.LinkedHashMap.empty[String, PluginValue]
+    fields("listTools") = PluginValue.nativeFn("McpClient.listTools", { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listTools: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listTools: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "tools", Mcp.toolDescriptorFromJson)
     })
-    fields("listResources") = Value.NativeFnV("McpClient.listResources", Computation.pureFn { _ =>
+    fields("listResources") = PluginValue.nativeFn("McpClient.listResources", { _ =>
       client.request(McpProtocol.Method.ResourcesList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listResources: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listResources: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "resources", Mcp.resourceDescriptorFromJson)
     })
-    fields("listPrompts") = Value.NativeFnV("McpClient.listPrompts", Computation.pureFn { _ =>
+    fields("listPrompts") = PluginValue.nativeFn("McpClient.listPrompts", { _ =>
       client.request(McpProtocol.Method.PromptsList, ujson.Obj(), timeoutMs) match
-        case Left(e)     => throw InterpretError(s"listPrompts: ${e.message}")
+        case Left(e)     => PluginError.raise(s"listPrompts: ${e.message}")
         case Right(json) => Mcp.descriptorsListFromJson(json, "prompts", Mcp.promptDescriptorFromJson)
     })
-    fields("callTool") = Value.NativeFnV("McpClient.callTool", Computation.pureFn {
-      case List(Value.StringV(name), argsV) =>
+    fields("callTool") = PluginValue.nativeFn("McpClient.callTool", {
+      case List(Str(name), argsV) =>
         val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
         client.request(McpProtocol.Method.ToolsCall, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"callTool: ${e.message}")
+          case Left(e)     => PluginError.raise(s"callTool: ${e.message}")
           case Right(json) => Mcp.toolResultFromJson(json)
-      case _ => throw InterpretError("client.callTool(name, args)")
+      case _ => PluginError.raise("client.callTool(name, args)")
     })
-    fields("readResource") = Value.NativeFnV("McpClient.readResource", Computation.pureFn {
-      case List(Value.StringV(uri)) =>
+    fields("readResource") = PluginValue.nativeFn("McpClient.readResource", {
+      case List(Str(uri)) =>
         val params = ujson.Obj("uri" -> uri)
         client.request(McpProtocol.Method.ResourcesRead, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"readResource: ${e.message}")
+          case Left(e)     => PluginError.raise(s"readResource: ${e.message}")
           case Right(json) => Mcp.resourceResultFromJson(json, uri)
-      case _ => throw InterpretError("client.readResource(uri)")
+      case _ => PluginError.raise("client.readResource(uri)")
     })
-    fields("getPrompt") = Value.NativeFnV("McpClient.getPrompt", Computation.pureFn {
-      case List(Value.StringV(name), argsV) =>
+    fields("getPrompt") = PluginValue.nativeFn("McpClient.getPrompt", {
+      case List(Str(name), argsV) =>
         val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
         client.request(McpProtocol.Method.PromptsGet, params, timeoutMs) match
-          case Left(e)     => throw InterpretError(s"getPrompt: ${e.message}")
+          case Left(e)     => PluginError.raise(s"getPrompt: ${e.message}")
           case Right(json) => Mcp.promptResultFromJson(json)
-      case _ => throw InterpretError("client.getPrompt(name, args)")
+      case _ => PluginError.raise("client.getPrompt(name, args)")
     })
-    fields("close") = Value.NativeFnV("McpClient.close", Computation.pureFn { _ =>
-      client.close(); Value.UnitV
+    fields("close") = PluginValue.nativeFn("McpClient.close", { _ =>
+      client.close(); PluginValue.unit
     })
-    fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
-      Value.boolV(client.isClosed)
+    fields("isClosed") = PluginValue.nativeFn("McpClient.isClosed", { _ =>
+      PluginValue.bool(client.isClosed)
     })
     // Same notification-subscription mechanism as the Spawn/Stdio path:
     // WS is a persistent bidirectional channel, server-initiated frames
     // dispatch through the reader thread.
-    fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
+    fields("onNotification") = PluginValue.nativeFn("McpClient.onNotification", {
       case List(handler) =>
         client.setNotificationHandler { (method, params) =>
-          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params)))
+          ctx.invokeCallback(handler, List(PluginValue.string(method), Mcp.jsonToValue(params)))
         }
-        Value.UnitV
-      case _ => throw InterpretError("client.onNotification(handler)")
+        PluginValue.unit
+      case _ => PluginError.raise("client.onNotification(handler)")
     })
-    fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
+    fields("onRequest") = PluginValue.nativeFn("McpClient.onRequest", {
       case List(handler) =>
         client.setRequestHandler { (method, params) =>
-          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params))) match
-            case v: Value => Mcp.valueToJson(v)
+          ctx.invokeCallback(handler, List(PluginValue.string(method), Mcp.jsonToValue(params))) match
+            case v if PluginValue.isRuntimeValue(v) => Mcp.valueToJson(v)
             case other    => ujson.Str(String.valueOf(other))
         }
-        Value.UnitV
-      case _ => throw InterpretError("client.onRequest(handler)")
+        PluginValue.unit
+      case _ => PluginError.raise("client.onRequest(handler)")
     })
-    Value.InstanceV("McpClient", fields.toMap)
+    PluginValue.instance("McpClient", fields.toMap)
 
   // ─── JSON → Value adapters for client return values ────────────────
 
-  def descriptorsListFromJson(json: ujson.Value, key: String, mk: ujson.Value => Value): Value =
+  def descriptorsListFromJson(json: ujson.Value, key: String, mk: ujson.Value => PluginValue): PluginValue =
     val list = json.objOpt.flatMap(_.get(key)).flatMap(_.arrOpt).map(_.toList).getOrElse(Nil)
-    Value.ListV(list.map(mk))
+    PluginValue.list(list.map(mk))
 
-  def toolDescriptorFromJson(v: ujson.Value): Value =
+  def toolDescriptorFromJson(v: ujson.Value): PluginValue =
     val name   = v.objOpt.flatMap(_.get("name").flatMap(_.strOpt)).getOrElse("")
     val desc   = v.objOpt.flatMap(_.get("description").flatMap(_.strOpt)).getOrElse("")
     val schema = v.objOpt.flatMap(_.get("inputSchema")).getOrElse(ujson.Obj())
-    Value.InstanceV("ToolDescriptor", Map(
-      "name"        -> Value.StringV(name),
-      "description" -> Value.StringV(desc),
+    PluginValue.instance("ToolDescriptor", Map(
+      "name"        -> PluginValue.string(name),
+      "description" -> PluginValue.string(desc),
       "schema"      -> jsonToValue(schema)
     ))
 
-  def resourceDescriptorFromJson(v: ujson.Value): Value =
+  def resourceDescriptorFromJson(v: ujson.Value): PluginValue =
     val uri  = v.objOpt.flatMap(_.get("uri").flatMap(_.strOpt)).getOrElse("")
     val name = v.objOpt.flatMap(_.get("name").flatMap(_.strOpt)).getOrElse("")
     val mime = v.objOpt.flatMap(_.get("mimeType").flatMap(_.strOpt)).getOrElse("")
-    Value.InstanceV("ResourceDescriptor", Map(
-      "uri"      -> Value.StringV(uri),
-      "name"     -> Value.StringV(name),
-      "mimeType" -> Value.StringV(mime)
+    PluginValue.instance("ResourceDescriptor", Map(
+      "uri"      -> PluginValue.string(uri),
+      "name"     -> PluginValue.string(name),
+      "mimeType" -> PluginValue.string(mime)
     ))
 
-  def promptDescriptorFromJson(v: ujson.Value): Value =
+  def promptDescriptorFromJson(v: ujson.Value): PluginValue =
     val name = v.objOpt.flatMap(_.get("name").flatMap(_.strOpt)).getOrElse("")
     val desc = v.objOpt.flatMap(_.get("description").flatMap(_.strOpt)).getOrElse("")
-    Value.InstanceV("PromptDescriptor", Map(
-      "name"        -> Value.StringV(name),
-      "description" -> Value.StringV(desc),
-      "args"        -> Value.EmptyList
+    PluginValue.instance("PromptDescriptor", Map(
+      "name"        -> PluginValue.string(name),
+      "description" -> PluginValue.string(desc),
+      "args"        -> PluginValue.list(Nil)
     ))
 
-  def toolResultFromJson(v: ujson.Value): Value =
+  def toolResultFromJson(v: ujson.Value): PluginValue =
     val items = v.objOpt.flatMap(_.get("content")).flatMap(_.arrOpt).map(_.toList).getOrElse(Nil)
     val isErr = v.objOpt.flatMap(_.get("isError")).flatMap(_.boolOpt).getOrElse(false)
-    Value.InstanceV("ToolResult", Map(
-      "content" -> Value.ListV(items.map(contentJsonToValue)),
-      "isError" -> Value.boolV(isErr)
+    PluginValue.instance("ToolResult", Map(
+      "content" -> PluginValue.list(items.map(contentJsonToValue)),
+      "isError" -> PluginValue.bool(isErr)
     ))
 
-  def resourceResultFromJson(v: ujson.Value, uri: String): Value =
+  def resourceResultFromJson(v: ujson.Value, uri: String): PluginValue =
     val items = v.objOpt.flatMap(_.get("contents")).flatMap(_.arrOpt).map(_.toList).getOrElse(Nil)
-    Value.InstanceV("ResourceResult", Map(
-      "uri"      -> Value.StringV(uri),
-      "contents" -> Value.ListV(items.map(contentJsonToValue))
+    PluginValue.instance("ResourceResult", Map(
+      "uri"      -> PluginValue.string(uri),
+      "contents" -> PluginValue.list(items.map(contentJsonToValue))
     ))
 
-  def promptResultFromJson(v: ujson.Value): Value =
+  def promptResultFromJson(v: ujson.Value): PluginValue =
     val msgs = v.objOpt.flatMap(_.get("messages")).flatMap(_.arrOpt).map(_.toList).getOrElse(Nil)
-    Value.InstanceV("PromptResult", Map(
-      "messages" -> Value.ListV(msgs.map(messageJsonToValue))
+    PluginValue.instance("PromptResult", Map(
+      "messages" -> PluginValue.list(msgs.map(messageJsonToValue))
     ))
 
-  def contentJsonToValue(v: ujson.Value): Value =
+  def contentJsonToValue(v: ujson.Value): PluginValue =
     v.objOpt.flatMap(_.get("type").flatMap(_.strOpt)) match
       case Some("text") =>
         val s = v.objOpt.flatMap(_.get("text").flatMap(_.strOpt)).getOrElse("")
-        Value.InstanceV("Text", Map("text" -> Value.StringV(s)))
+        PluginValue.instance("Text", Map("text" -> PluginValue.string(s)))
       case Some("image") =>
         val data = v.objOpt.flatMap(_.get("data").flatMap(_.strOpt)).getOrElse("")
         val mime = v.objOpt.flatMap(_.get("mimeType").flatMap(_.strOpt)).getOrElse("")
-        Value.InstanceV("Image", Map("data" -> Value.StringV(data), "mimeType" -> Value.StringV(mime)))
+        PluginValue.instance("Image", Map("data" -> PluginValue.string(data), "mimeType" -> PluginValue.string(mime)))
       case _ =>
-        Value.InstanceV("Text", Map("text" -> Value.StringV(v.render())))
+        PluginValue.instance("Text", Map("text" -> PluginValue.string(v.render())))
 
-  def messageJsonToValue(v: ujson.Value): Value =
+  def messageJsonToValue(v: ujson.Value): PluginValue =
     val role = v.objOpt.flatMap(_.get("role").flatMap(_.strOpt)).getOrElse("user")
     val roleVal = role match
-      case "assistant" => Value.InstanceV("Assistant", Map.empty)
-      case "system"    => Value.InstanceV("System",    Map.empty)
-      case _           => Value.InstanceV("User",      Map.empty)
+      case "assistant" => PluginValue.instance("Assistant", Map.empty)
+      case "system"    => PluginValue.instance("System",    Map.empty)
+      case _           => PluginValue.instance("User",      Map.empty)
     val content = v.objOpt.flatMap(_.get("content")).map(contentJsonToValue).getOrElse(
-      Value.InstanceV("Text", Map("text" -> Value.EmptyStr))
+      PluginValue.instance("Text", Map("text" -> PluginValue.string("")))
     )
-    Value.InstanceV("Message", Map("role" -> roleVal, "content" -> content))
+    PluginValue.instance("Message", Map("role" -> roleVal, "content" -> content))
 
   /** v1.17.x — adapt a typed `Root` list into a `List[InstanceV]` so user
    *  scripts can pattern-match on `root.uri` / `root.name`.  `name` is
    *  modelled as `Option[String]` (None when the client didn't supply one). */
-  def rootsToValue(roots: List[McpProtocol.Root]): Value =
-    Value.ListV(roots.map { r =>
-      Value.InstanceV("Root", Map(
-        "uri"  -> Value.StringV(r.uri),
-        "name" -> Value.OptionV(r.name.map(s => Value.StringV(s)).orNull)
+  def rootsToValue(roots: List[McpProtocol.Root]): PluginValue =
+    PluginValue.list(roots.map { r =>
+      PluginValue.instance("Root", Map(
+        "uri"  -> PluginValue.string(r.uri),
+        "name" -> PluginValue.option(r.name.map(s => PluginValue.string(s)))
       ))
     })
 
@@ -1401,10 +1402,10 @@ private object Mcp:
    *  `List[String]` for completion handlers.  Non-string elements
    *  fall back to their `show` representation — defensive but
    *  preserves user intent better than dropping them silently. */
-  def valueToStringList(v: Value): List[String] = v match
-    case Value.ListV(xs) => xs.map {
-      case Value.StringV(s) => s
-      case other            => Value.show(other)
+  def valueToStringList(v: Any): List[String] = v match
+    case Lst(xs) => xs.map {
+      case Str(s) => s
+      case other            => PluginValue.showAny(other)
     }
     case _ => Nil
 
@@ -1415,41 +1416,41 @@ private object Mcp:
    *    InstanceV("Valid",   { subject: String, scopes: List[String], extra: Map })
    *    InstanceV("Invalid", { code: String, description: String })
    *  Anything else collapses to Invalid("invalid_token", ...). */
-  def valueToAuthResult(v: Value): McpAuth.AuthResult = v match
-    case Value.InstanceV("Valid", fs) =>
-      val sub = fs.get("subject").collect { case Value.StringV(s) => s }.getOrElse("")
+  def valueToAuthResult(v: Any): McpAuth.AuthResult = v match
+    case Inst("Valid", fs) =>
+      val sub = fs.get("subject").collect { case Str(s) => s }.getOrElse("")
       val scopes = fs.get("scopes").map(valueToStringList).getOrElse(Nil).toSet
       val extra  = fs.get("extra").map(valueToJson).getOrElse(ujson.Obj())
       McpAuth.AuthResult.Valid(McpAuth.AuthClaims(sub, scopes, extra))
-    case Value.InstanceV("Invalid", fs) =>
-      val code  = fs.get("code").collect { case Value.StringV(s) => s }.getOrElse("invalid_token")
-      val descr = fs.get("description").collect { case Value.StringV(s) => s }.getOrElse("")
+    case Inst("Invalid", fs) =>
+      val code  = fs.get("code").collect { case Str(s) => s }.getOrElse("invalid_token")
+      val descr = fs.get("description").collect { case Str(s) => s }.getOrElse("")
       McpAuth.AuthResult.Invalid(code, descr)
     case _ =>
-      McpAuth.AuthResult.Invalid("invalid_token", s"validator returned unexpected: ${Value.show(v)}")
+      McpAuth.AuthResult.Invalid("invalid_token", s"validator returned unexpected: ${PluginValue.showAny(v)}")
 
-  def authClaimsToValueOpt(c: Option[McpAuth.AuthClaims]): Value = c match
-    case None => Value.NoneV
+  def authClaimsToValueOpt(c: Option[McpAuth.AuthClaims]): PluginValue = c match
+    case None => PluginValue.none
     case Some(claims) =>
-      Value.OptionV(Value.InstanceV("AuthClaims", Map(
-        "subject" -> Value.StringV(claims.subject),
-        "scopes"  -> Value.ListV(claims.scopes.toList.sorted.map(s => Value.StringV(s))),
+      PluginValue.some(PluginValue.instance("AuthClaims", Map(
+        "subject" -> PluginValue.string(claims.subject),
+        "scopes"  -> PluginValue.list(claims.scopes.toList.sorted.map(s => PluginValue.string(s))),
         "extra"   -> jsonToValue(claims.extra)
       )))
 
   /** Decode a user-supplied `Map` / `InstanceV` describing the metadata
    *  document.  Missing fields fall to spec defaults. */
-  def valueToPrm(v: Value): McpAuth.ProtectedResourceMetadata =
+  def valueToPrm(v: PluginValue): McpAuth.ProtectedResourceMetadata =
     val obj = v match
-      case Value.InstanceV(_, fs) => fs
-      case Value.MapV(m)          => m.iterator.collect {
-        case (Value.StringV(k), vv) => k -> vv
+      case Inst(_, fs) => fs
+      case MapVal(m)          => m.iterator.collect {
+        case (Str(k), vv) => k -> vv
       }.toMap
-      case _ => Map.empty[String, Value]
-    val resource = obj.get("resource").collect { case Value.StringV(s) => s }.getOrElse("")
+      case _ => Map.empty[String, PluginValue]
+    val resource = obj.get("resource").collect { case Str(s) => s }.getOrElse("")
     val authSrvs = obj.get("authorizationServers").map(valueToStringList).getOrElse(Nil)
     val scopes   = obj.get("scopesSupported").map(valueToStringList).getOrElse(Nil)
-    val doc      = obj.get("resourceDocumentation").collect { case Value.StringV(s) => s }
+    val doc      = obj.get("resourceDocumentation").collect { case Str(s) => s }
     McpAuth.ProtectedResourceMetadata(
       resource              = resource,
       authorizationServers  = authSrvs,
@@ -1457,49 +1458,49 @@ private object Mcp:
       resourceDocumentation = doc
     )
 
-  def elicitationResultToValue(r: McpProtocol.ElicitationResult): Value = r match
+  def elicitationResultToValue(r: McpProtocol.ElicitationResult): PluginValue = r match
     case McpProtocol.ElicitationResult.Accept(content) =>
-      Value.InstanceV("ElicitationResult", Map(
-        "action"  -> Value.StringV("accept"),
-        "content" -> Value.OptionV(jsonToValue(content))
+      PluginValue.instance("ElicitationResult", Map(
+        "action"  -> PluginValue.string("accept"),
+        "content" -> PluginValue.some(jsonToValue(content))
       ))
     case McpProtocol.ElicitationResult.Decline =>
-      Value.InstanceV("ElicitationResult", Map(
-        "action"  -> Value.StringV("decline"),
-        "content" -> Value.NoneV
+      PluginValue.instance("ElicitationResult", Map(
+        "action"  -> PluginValue.string("decline"),
+        "content" -> PluginValue.none
       ))
     case McpProtocol.ElicitationResult.Cancel =>
-      Value.InstanceV("ElicitationResult", Map(
-        "action"  -> Value.StringV("cancel"),
-        "content" -> Value.NoneV
+      PluginValue.instance("ElicitationResult", Map(
+        "action"  -> PluginValue.string("cancel"),
+        "content" -> PluginValue.none
       ))
 
-  def jsonToValue(v: ujson.Value): Value = v match
-    case ujson.Null    => Value.NoneV
-    case ujson.True    => Value.True
-    case ujson.False   => Value.False
-    case ujson.Str(s)  => Value.StringV(s)
-    case ujson.Num(n)  if n == n.toLong.toDouble => Value.intV(n.toLong)
-    case ujson.Num(n)  => Value.doubleV(n)
-    case ujson.Arr(xs) => Value.ListV(xs.iterator.map(jsonToValue).toList)
-    case ujson.Obj(kv) => Value.MapV(kv.iterator.map((k, v) => Value.StringV(k) -> jsonToValue(v)).toMap)
+  def jsonToValue(v: ujson.Value): PluginValue = v match
+    case ujson.Null    => PluginValue.none
+    case ujson.True    => PluginValue.bool(true)
+    case ujson.False   => PluginValue.bool(false)
+    case ujson.Str(s)  => PluginValue.string(s)
+    case ujson.Num(n)  if n == n.toLong.toDouble => PluginValue.int(n.toLong)
+    case ujson.Num(n)  => PluginValue.double(n)
+    case ujson.Arr(xs) => PluginValue.list(xs.iterator.map(jsonToValue).toList)
+    case ujson.Obj(kv) => PluginValue.mapOf(kv.iterator.map((k, v) => PluginValue.string(k) -> jsonToValue(v)).toMap)
 
-  def valueToJson(v: Value): ujson.Value = v match
-    case Value.NoneV    => ujson.Null
-    case ov: Value.OptionV if ov.inner != null => valueToJson(ov.inner)
-    case Value.BoolV(b)         => if b then ujson.True else ujson.False
-    case Value.StringV(s)       => ujson.Str(s)
-    case Value.IntV(i)          => ujson.Num(i.toDouble)
-    case Value.DoubleV(d)       => ujson.Num(d)
-    case Value.ListV(xs)        => ujson.Arr.from(xs.map(valueToJson))
-    case Value.MapV(m)          =>
+  def valueToJson(v: Any): ujson.Value = v match
+    case PluginValue.none    => ujson.Null
+    case Opt(Some(inner)) => valueToJson(inner)
+    case Bool(b)         => if b then ujson.True else ujson.False
+    case Str(s)       => ujson.Str(s)
+    case Num(i)          => ujson.Num(i.toDouble)
+    case Dbl(d)       => ujson.Num(d)
+    case Lst(xs)        => ujson.Arr.from(xs.map(valueToJson))
+    case MapVal(m)          =>
       val obj = ujson.Obj()
       m.foreach { (k, v) =>
-        val key = k match { case Value.StringV(s) => s; case other => Value.show(other) }
+        val key = k match { case Str(s) => s; case other => PluginValue.showAny(other) }
         obj(key) = valueToJson(v)
       }
       obj
-    case other                  => ujson.Str(Value.show(other))
+    case other                  => ujson.Str(PluginValue.showAny(other))
 
   /** Small helper to convert a Scala List[String] to a java.util.List[String]
    *  for ProcessBuilder without pulling in scala.jdk imports here. */

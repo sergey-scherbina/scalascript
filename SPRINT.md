@@ -354,7 +354,7 @@ validated + pushed:
       frontend ✓ (8, ctx=22 all caps; FunV/NativeFnV arms → new `PluginValue.Fn` extractor)** — all single-file.
       ENABLERS added to PluginApi: `Fn` extractor (any callable: FunV|NativeFnV) + `isCallable`.
       Remaining (2): mcp, content — the genuinely ctx-heavy / bridge-coupled giants.
-- [~] **p3-giants** (3 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
+- [~] **p3-giants** (2 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
       passes PLUS one bridge each. Per-plugin scope:
   - **http** ✓ DONE (4 unit + 58 integration tests: MountHandler/TypedHandler/HttpClient/TypedRpcBinary).
         jsonToJson → `jsonEncode`; the `TypedHandlerWrapper.wrapIfTyped` coupling → new `PluginValue.wrapTypedHandler`
@@ -369,7 +369,10 @@ validated + pushed:
         `OAuthBridge` (1-field ConcurrentHashMap) RELOCATED lang/core/interpreter → `scalascript.plugin.api.OAuthBridge`
         (core only defined it; mcp + the test reference it indirectly). ujson.Value protected via `(?<![A-Za-z.])`
         anchored regex; shared `Value`-typed helpers (toStringSet/resolveAuthServer) retyped to `Any`.
-  - **mcp** (1508 loc) — needs the OAuthBridge move (do with oauth) + big value pass.
+  - **mcp** ✓ DONE (2 unit + 184 integration: 30 Mcp* test files incl McpOAuthBridge/McpHttpBidi/McpBidiSampling).
+        Single file (1508 loc, 87 NativeFnV, 151 StringV, 72 ujson). OAuthBridge already moved; ctx on caps; the 4
+        `: Value.InstanceV` were return types (→ `PluginValue`). ujson.Value protected via anchored regex; `Mcp`
+        value helpers (valueToStringList/valueToJson/valueToAuthResult) retyped to `Any`.
   - **streams** ✓ DONE (88 tests). dstreams' sibling — same recipe; extra: 26 `.asInstanceOf[Value]`→`[PluginValue]`
         (valid no-op cast, PluginValue erases to Any), OptionV/TupleV unfold inspection → `Opt`/`asTuple`, NativeFnV
         type-tests → `Fn`, Foreign signal patterns → `Foreign`. GOTCHA: the `X: Value.InstanceV`→`InstAny(X)` regex
@@ -396,9 +399,9 @@ validated + pushed:
 - [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
       Status to "Phase 3 complete". STATUS: 25/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
-      sql/remote/frontend/http/dstreams/streams/content/oauth). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
+      sql/remote/frontend/http/dstreams/streams/content/oauth/mcp). 26/28 clean. PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
-      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 3: mcp, graphql(blocked), actors(special SPI).
+      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 2: graphql(blocked), actors(special SPI).
 
 In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
