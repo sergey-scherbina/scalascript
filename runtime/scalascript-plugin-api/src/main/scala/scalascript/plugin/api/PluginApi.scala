@@ -133,6 +133,12 @@ object PluginValue:
       pv match
         case i: Value.InstanceV => Some((i.typeName, i.effectiveFields.map((k, v) => (k, wrap(v)))))
         case _                  => None
+    /** A single named field of a record/instance value (`None` if absent or not an instance). */
+    def field(name: String): Option[PluginValue] =
+      pv match { case i: Value.InstanceV => i.effectiveFields.get(name).map(wrap); case _ => None }
+    /** The type/constructor name of a record/instance value (`None` if not an instance). */
+    def typeNameOf: Option[String] =
+      pv match { case i: Value.InstanceV => Some(i.typeName); case _ => None }
 
   // ── Extractor objects: pattern-match a raw `List[Any]` arg / runtime value WITHOUT importing
   //    `Value`. e.g. `args match { case List(Str(label), Bool(p)) => … }`. They accept `Any` because
@@ -145,6 +151,10 @@ object PluginValue:
   object Lst      { def unapply(v: Any): Option[List[PluginValue]] = wrap(v).asList }
   object Tpl      { def unapply(v: Any): Option[List[PluginValue]] = wrap(v).asTuple }
   object Inst     { def unapply(v: Any): Option[(String, Map[String, PluginValue])] = wrap(v).asInstance }
+  /** Matches any record/instance value and binds it WHOLE (as a `PluginValue`) — replaces a
+   *  `case x: Value.InstanceV =>` type-test where `x` is used as a whole value, not destructured. */
+  object InstAny  { def unapply(v: Any): Option[PluginValue] =
+                      if wrap(v).typeNameOf.isDefined then Some(wrap(v)) else None }
   /** `Opt(None)` matches a runtime `None`; `Opt(Some(inner))` a runtime `Some(inner)`. */
   object Opt      { def unapply(v: Any): Option[Option[PluginValue]] = wrap(v).asOption }
   object Big      { def unapply(v: Any): Option[BigInt]              = wrap(v).asBigInt }
