@@ -1,0 +1,6 @@
+feature/coremin-actors-codemove 2026-06-23T05:12:25Z
+agent: codex
+heartbeat: 2026-06-23T05:12:25Z
+status: not-started
+done-so-far:
+next: read actor spec, probe core dependencies, define first green seam slice
