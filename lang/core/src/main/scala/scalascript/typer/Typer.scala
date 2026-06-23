@@ -254,24 +254,16 @@ class Typer(
     // prevents strict-mode false-positives for code that uses real ScalaScript
     // effects without an explicit import.
     val variadic = SType.Function(List(SType.Any), SType.Any)
-    // Typed discharge signatures for standard effect runners (v1.12.3).
-    // Each runner takes a body thunk that carries the named effect in its row,
-    // and returns the body's result with that effect discharged.
-    // Body type: () => A ! EffName  (represented as Function(Nil, Any, EffectRow(-1, Set(EffectOp(eff)))))
-    val bodyWithEff: String => SType = eff =>
-      SType.Function(Nil, SType.Any, SType.EffectRow(-1, Set(EffectOp(eff))))
-    val runnerType: String => SType = eff =>
-      SType.Function(List(bodyWithEff(eff)), SType.Any)
-    // MIGRATED to plugin `preludeSymbols` (the typer does not enforce effect discharge, so a plain
-    // `Any` declaration suffices for `ssc check`; the interpreter resolves each runner via the
-    // bundled plugin's block-form): runLogger/runLoggerJson/runLoggerToList (logger-effect-plugin),
-    // runRandomSeeded/runClockAt/runEnvWith (random/clock/env-effect-plugin), runState
-    // (state-effect-plugin), runHttp/runHttpStub (http-plugin). The typed `runnerType2` helper was
-    // removed with its last user. Only `runStream` (below) stays in core until Stream is extracted.
-    // runStream { body } — v1.51.6
-    s.define(Symbol("runStream",       runnerType("Stream"),  SymbolKind.Def))
-    s.define(Symbol("Stream",  SType.Named("Stream",  Nil), SymbolKind.Object))
-    // NonDet and Reader globals
+    // ALL standard effect runners are now declared in their bundled plugins' `preludeSymbols`
+    // (core-min-prelude-migrate) — the typer does not enforce effect discharge, so a plain `Any`
+    // declaration suffices for `ssc check`, and the interpreter resolves each runner via the bundled
+    // plugin's block-form (or, for Stream/Actors, a runtime that stays in core via a provider seam):
+    //   runLogger/runLoggerJson/runLoggerToList (logger), runRandomSeeded (random),
+    //   runClockAt (clock), runEnvWith (env), runState (state), runHttp/runHttpStub (http),
+    //   runStream + the `Stream` object (streams-plugin) — the LAST runner off the core prelude.
+    // The typed `runnerType`/`runnerType2` prelude helpers were removed with their last user
+    // (`runStream`); Stream's runtime (Free-monad driver + FastTier + installStreamGlobal) stays in core.
+    // NonDet and Reader globals (no dedicated plugin yet — stay in core)
     s.define(Symbol("NonDet",   SType.Named("NonDet",  Nil), SymbolKind.Object))
     s.define(Symbol("Reader",   SType.Named("Reader",  Nil), SymbolKind.Object))
     s.define(Symbol("withReader", variadic, SymbolKind.Def))

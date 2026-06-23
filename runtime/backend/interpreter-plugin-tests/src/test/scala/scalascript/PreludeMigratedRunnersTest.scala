@@ -24,6 +24,7 @@ class PreludeMigratedRunnersTest extends AnyFunSuite with Matchers:
   private val logger = new scalascript.compiler.plugin.logger.LoggerEffectPlugin().preludeSymbols
   private val state  = new scalascript.compiler.plugin.state.StateEffectPlugin().preludeSymbols
   private val http   = new scalascript.compiler.plugin.http.HttpInterpreterPlugin().preludeSymbols
+  private val stream = new scalascript.compiler.plugin.streams.StreamsInterpreterPlugin().preludeSymbols
 
   /** (runner keyword, a call expression exercising its arity, the plugin's preludeSymbols) */
   private val migrated: List[(String, String, List[ExportedSymbol])] = List(
@@ -43,6 +44,8 @@ class PreludeMigratedRunnersTest extends AnyFunSuite with Matchers:
     ("runState",        "runState(1) { 1 }",         state),
     ("runHttp",         "runHttp { 1 }",             http),
     ("runHttpStub",     "runHttpStub(1) { 1 }",      http),
+    // the LAST runner off the core prelude — runtime stays in core, name lives in streams-plugin
+    ("runStream",       "runStream { 1 }",           stream),
   )
 
   for (runner, call, prelude) <- migrated do
