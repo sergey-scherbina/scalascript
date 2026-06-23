@@ -2,7 +2,7 @@ package scalascript.crypto.noble
 
 import org.scalatest.funsuite.AnyFunSuite
 
-import scalascript.crypto.{Curve, CryptoBackend, HashAlgo}
+import scalascript.crypto.{Blake2b, Curve, CryptoBackend, HashAlgo}
 
 /** Cross-platform conformance test for the Scala.js
  *  [[NobleCryptoBackend]].  Every assertion checks against a known,
@@ -50,6 +50,35 @@ class NobleCryptoBackendTest extends AnyFunSuite:
       "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce" +
       "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
     assert(hex(backend.hash(HashAlgo.Sha512, Array.emptyByteArray)) == expected)
+
+  // ── BLAKE2b (RFC 7693) — both the noble backend AND the pure-Scala reference, on JS ──
+
+  test("BLAKE2b-256 matches reference vectors + the pure-Scala Blake2b reference"):
+    val cases = List(
+      ""    -> "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8",
+      "abc" -> "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+    )
+    for (in, out) <- cases do
+      val data = in.getBytes("UTF-8")
+      assert(hex(backend.hash(HashAlgo.Blake2b256, data)) == out, s"noble blake2b-256($in)")
+      assert(hex(Blake2b.hash256(data)) == out,                   s"reference blake2b-256($in)")
+    // 200 bytes — multi-block; 128 bytes — exact-one-block edge.
+    val big = Array.tabulate(200)(i => (i & 0xff).toByte)
+    assert(hex(backend.hash(HashAlgo.Blake2b256, big)) == "63c3d97a9f8894d5e043a707b0fee7f7ec4c049a23bbf1079df20b4165f9e22d")
+    assert(hex(Blake2b.hash256(big))                   == "63c3d97a9f8894d5e043a707b0fee7f7ec4c049a23bbf1079df20b4165f9e22d")
+    val blk = Array.fill(128)(0x41.toByte)
+    assert(hex(backend.hash(HashAlgo.Blake2b256, blk)) == "5db0e67323e93220e9602568a3c2c43f52dc843e4ea5b1e3deb9d5d80ed9cf2c")
+    assert(hex(Blake2b.hash256(blk))                   == "5db0e67323e93220e9602568a3c2c43f52dc843e4ea5b1e3deb9d5d80ed9cf2c")
+
+  test("BLAKE2b-224 matches reference vectors + the pure-Scala Blake2b reference"):
+    val cases = List(
+      ""    -> "836cc68931c2e4e3e838602eca1902591d216837bafddfe6f0c8cb07",
+      "abc" -> "9bd237b02a29e43bdd6738afa5b53ff0eee178d6210b618e4511aec8",
+    )
+    for (in, out) <- cases do
+      val data = in.getBytes("UTF-8")
+      assert(hex(backend.hash(HashAlgo.Blake2b224, data)) == out, s"noble blake2b-224($in)")
+      assert(hex(Blake2b.hash224(data)) == out,                   s"reference blake2b-224($in)")
 
   test("HMAC-SHA256 RFC 4231 test case 1"):
     // RFC 4231 §4.2: key = 0x0b*20, data = "Hi There"

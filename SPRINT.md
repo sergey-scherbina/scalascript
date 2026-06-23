@@ -105,7 +105,7 @@ near-term, codeable-now slices are below; the larger/later epics are in `BACKLOG
 later epics". Every slice follows **reference → seam → gate → native** (the FROST template). Recommended order is
 foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (highest architectural value).
 
-- [ ] **crypto-spi-blake2b** (foundation, small) — add `Blake2b224`/`Blake2b256` to `HashAlgo`
+- [x] **crypto-spi-blake2b** ✓ DONE 2026-06-23 — added `Blake2b224`/`Blake2b256` to `HashAlgo`
       (`payments/crypto/spi/shared/.../HashAlgo.scala`); implement in `bouncycastle` (`Blake2bDigest`) +
       `noble-js` (`@noble/hashes/blake2b`); add a pure-Scala `Blake2b` reference fallback (mirrors FROST's
       `Sha512`). **Why:** Blake2b is the one hash missing from the SPI (Keccak-256 + RIPEMD-160 already there);

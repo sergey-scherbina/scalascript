@@ -89,6 +89,20 @@ private[noble] object NobleFacades:
   @js.native
   val ripemd160: CHash = js.native
 
+  /** BLAKE2b options object — `dkLen` is the digest length in bytes (28 / 32 / … / 64).
+   *  See `@noble/hashes/blake2b`. */
+  trait Blake2bOpts extends js.Object:
+    val dkLen: Int
+
+  object Blake2bOpts:
+    def apply(dkLen: Int): Blake2bOpts =
+      js.Dynamic.literal(dkLen = dkLen).asInstanceOf[Blake2bOpts]
+
+  /** `blake2b(data, { dkLen })` — variable-length BLAKE2b (RFC 7693). */
+  @JSImport("@noble/hashes/blake2b", "blake2b")
+  @js.native
+  def blake2b(data: Uint8Array, opts: Blake2bOpts): Uint8Array = js.native
+
   @JSImport("@noble/hashes/hmac", "hmac")
   @js.native
   def hmac(hash: CHash, key: Uint8Array, data: Uint8Array): Uint8Array = js.native

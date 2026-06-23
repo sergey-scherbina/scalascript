@@ -1,7 +1,7 @@
 package scalascript.crypto.bouncycastle
 
 import org.bouncycastle.crypto.Digest
-import org.bouncycastle.crypto.digests.{KeccakDigest, RIPEMD160Digest, SHA256Digest, SHA512Digest}
+import org.bouncycastle.crypto.digests.{Blake2bDigest, KeccakDigest, RIPEMD160Digest, SHA256Digest, SHA512Digest}
 import org.bouncycastle.crypto.macs.HMac
 import org.bouncycastle.crypto.params.KeyParameter
 
@@ -10,11 +10,14 @@ import scalascript.crypto.HashAlgo
 private[bouncycastle] object Hashes:
 
   private def newDigest(algo: HashAlgo): Digest = algo match
-    case HashAlgo.Sha256    => new SHA256Digest()
-    case HashAlgo.Sha512    => new SHA512Digest()
-    case HashAlgo.Keccak256 => new KeccakDigest(256)
-    case HashAlgo.Ripemd160 => new RIPEMD160Digest()
-    case HashAlgo.None      => throw new IllegalArgumentException("HashAlgo.None is not a real digest")
+    case HashAlgo.Sha256     => new SHA256Digest()
+    case HashAlgo.Sha512     => new SHA512Digest()
+    case HashAlgo.Keccak256  => new KeccakDigest(256)
+    case HashAlgo.Ripemd160  => new RIPEMD160Digest()
+    // Blake2bDigest(int) takes the digest size in BITS (224 -> 28 bytes, 256 -> 32 bytes).
+    case HashAlgo.Blake2b224 => new Blake2bDigest(224)
+    case HashAlgo.Blake2b256 => new Blake2bDigest(256)
+    case HashAlgo.None       => throw new IllegalArgumentException("HashAlgo.None is not a real digest")
     case HashAlgo.HmacSha512 =>
       throw new IllegalArgumentException("HashAlgo.HmacSha512 is a MAC, not a Digest; use Hashes.hmac")
 
@@ -32,6 +35,8 @@ private[bouncycastle] object Hashes:
       case HashAlgo.Sha256     => new SHA256Digest()
       case HashAlgo.Keccak256  => new KeccakDigest(256)
       case HashAlgo.Ripemd160  => new RIPEMD160Digest()
+      case HashAlgo.Blake2b224 => new Blake2bDigest(224)
+      case HashAlgo.Blake2b256 => new Blake2bDigest(256)
       case HashAlgo.None       => throw new IllegalArgumentException("HMAC needs a digest, not HashAlgo.None")
     val mac = new HMac(inner)
     mac.init(new KeyParameter(key))

@@ -52,6 +52,41 @@ class BouncyCastleBackendTest extends AnyFunSuite:
     assert(be.hash(HashAlgo.Ripemd160, Array.emptyByteArray).sameElements(expected))
   }
 
+  // ── BLAKE2b (RFC 7693) — both the BouncyCastle backend AND the pure-Scala reference ──
+
+  test("BLAKE2b-256 matches reference vectors + the pure-Scala Blake2b reference") {
+    val cases = List(
+      ""    -> "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8",
+      "abc" -> "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+    )
+    for (in, out) <- cases do
+      val data = in.getBytes("UTF-8")
+      val exp  = hex(out)
+      assert(be.hash(HashAlgo.Blake2b256, data).sameElements(exp), s"BC blake2b-256($in)")
+      assert(Blake2b.hash256(data).sameElements(exp),              s"reference blake2b-256($in)")
+    // 200 bytes — exercises the multi-block path; 128 bytes — the exact-one-block edge.
+    val big = Array.tabulate(200)(i => (i & 0xff).toByte)
+    val bigExp = hex("63c3d97a9f8894d5e043a707b0fee7f7ec4c049a23bbf1079df20b4165f9e22d")
+    assert(be.hash(HashAlgo.Blake2b256, big).sameElements(bigExp), "BC blake2b-256(200B)")
+    assert(Blake2b.hash256(big).sameElements(bigExp),              "reference blake2b-256(200B)")
+    val blk = Array.fill(128)(0x41.toByte)
+    val blkExp = hex("5db0e67323e93220e9602568a3c2c43f52dc843e4ea5b1e3deb9d5d80ed9cf2c")
+    assert(be.hash(HashAlgo.Blake2b256, blk).sameElements(blkExp), "BC blake2b-256(128B)")
+    assert(Blake2b.hash256(blk).sameElements(blkExp),              "reference blake2b-256(128B)")
+  }
+
+  test("BLAKE2b-224 matches reference vectors + the pure-Scala Blake2b reference") {
+    val cases = List(
+      ""    -> "836cc68931c2e4e3e838602eca1902591d216837bafddfe6f0c8cb07",
+      "abc" -> "9bd237b02a29e43bdd6738afa5b53ff0eee178d6210b618e4511aec8",
+    )
+    for (in, out) <- cases do
+      val data = in.getBytes("UTF-8")
+      val exp  = hex(out)
+      assert(be.hash(HashAlgo.Blake2b224, data).sameElements(exp), s"BC blake2b-224($in)")
+      assert(Blake2b.hash224(data).sameElements(exp),              s"reference blake2b-224($in)")
+  }
+
   test("HMAC-SHA-512 round-trips") {
     val mac1 = be.hmac(HashAlgo.HmacSha512, "key".getBytes, "data".getBytes)
     val mac2 = be.hmac(HashAlgo.HmacSha512, "key".getBytes, "data".getBytes)

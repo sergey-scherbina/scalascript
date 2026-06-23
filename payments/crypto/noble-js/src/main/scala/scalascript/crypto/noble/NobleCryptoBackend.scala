@@ -102,16 +102,17 @@ final class NobleCryptoBackend extends CryptoBackend:
 
   // ── hashes ──────────────────────────────────────────────────────────────
 
-  def hash(algo: HashAlgo, data: Array[Byte]): Array[Byte] =
-    val fn: NobleFacades.CHash = algo match
-      case HashAlgo.Sha256     => NobleFacades.sha256
-      case HashAlgo.Sha512     => NobleFacades.sha512
-      case HashAlgo.Keccak256  => NobleFacades.keccak_256
-      case HashAlgo.Ripemd160  => NobleFacades.ripemd160
-      case HashAlgo.None       => throw new IllegalArgumentException("HashAlgo.None is not a real digest")
-      case HashAlgo.HmacSha512 =>
-        throw new IllegalArgumentException("HashAlgo.HmacSha512 is a MAC, not a Digest; use hmac()")
-    u8ToBytes(fn(bytesToU8(data)))
+  def hash(algo: HashAlgo, data: Array[Byte]): Array[Byte] = algo match
+    // BLAKE2b takes a `{ dkLen }` option, so it does not go through the bare `CHash` path.
+    case HashAlgo.Blake2b224 => u8ToBytes(NobleFacades.blake2b(bytesToU8(data), NobleFacades.Blake2bOpts(28)))
+    case HashAlgo.Blake2b256 => u8ToBytes(NobleFacades.blake2b(bytesToU8(data), NobleFacades.Blake2bOpts(32)))
+    case HashAlgo.Sha256     => u8ToBytes(NobleFacades.sha256(bytesToU8(data)))
+    case HashAlgo.Sha512     => u8ToBytes(NobleFacades.sha512(bytesToU8(data)))
+    case HashAlgo.Keccak256  => u8ToBytes(NobleFacades.keccak_256(bytesToU8(data)))
+    case HashAlgo.Ripemd160  => u8ToBytes(NobleFacades.ripemd160(bytesToU8(data)))
+    case HashAlgo.None       => throw new IllegalArgumentException("HashAlgo.None is not a real digest")
+    case HashAlgo.HmacSha512 =>
+      throw new IllegalArgumentException("HashAlgo.HmacSha512 is a MAC, not a Digest; use hmac()")
 
   def hmac(algo: HashAlgo, key: Array[Byte], data: Array[Byte]): Array[Byte] =
     val fn: NobleFacades.CHash = algo match
@@ -120,6 +121,8 @@ final class NobleCryptoBackend extends CryptoBackend:
       case HashAlgo.Sha256     => NobleFacades.sha256
       case HashAlgo.Keccak256  => NobleFacades.keccak_256
       case HashAlgo.Ripemd160  => NobleFacades.ripemd160
+      case HashAlgo.Blake2b224 | HashAlgo.Blake2b256 =>
+        throw new IllegalArgumentException("HMAC over BLAKE2b is not supported; use BLAKE2b's keyed mode")
       case HashAlgo.None       => throw new IllegalArgumentException("HMAC needs a digest, not HashAlgo.None")
     u8ToBytes(NobleFacades.hmac(fn, bytesToU8(key), bytesToU8(data)))
 
