@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — docs: board/spec hygiene after core-min/polyglot sprint
+
+Reconciled stale future-looking wording in `SPRINT.md` and `specs/polyglot-libraries.md`
+after the optics host libraries, runtime-resource moves, advanced opt-in prelude cleanup,
+and core-min Phase 3+ slices landed. No code changed.
+
 ## 2026-06-23 — core-min: lossless `Char`/`Vector` across the SPI boundary (value-unification slice 1)
 
 The `Value ↔ SpiValue` conversion (block-form/effect-handler boundary) silently coerced two pure-data

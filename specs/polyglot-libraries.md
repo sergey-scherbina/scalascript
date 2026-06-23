@@ -1,16 +1,18 @@
 # ScalaScript as portable polyglot libraries (minimal core + cross-language reuse)
 
-Status: **draft spec with implementation slices landed (2026-06-22)**.
+Status: **living spec; major implementation slices landed (updated 2026-06-23)**.
 
-Implementation update (2026-06-22): the original "design only" baseline below is now
-partly implemented. The block-form SPI, typed `SpiValue` boundary, plugin
+Implementation update (2026-06-23): the original "design only" baseline below is now
+mostly implemented. The block-form SPI, typed/lossless `SpiValue` boundary, plugin
 `preludeSymbols`, logger/random/clock/env/state/retry/cache/http effect migrations,
-JS runtime-resource extraction, and the no-domain bundled plugin distribution split
-have landed. The standalone `Backend.effectHandlers` map sketched in early sections
-was superseded by the implemented `Backend.blockForms` + per-block `EffectHandler`
-contract described in §2d and proven by the effect plugins. Remaining extraction work
-is tracked by the active SPRINT items (`coremin-actors-migrate`, `core-min-phase3plus`,
-`core-min-value-unification`) instead of this spec-writing task.
+JS/JVM/Rust runtime-resource extraction, no-domain bundled plugin distribution split,
+advanced plugin strict opt-in, actors provider/session seam, and JS/JVM/Rust/Java optics
+host libraries have landed. The standalone `Backend.effectHandlers` map sketched in early
+sections was superseded by the implemented `Backend.blockForms` + per-block
+`EffectHandler` contract described in §2d and proven by the effect plugins. Remaining
+implementation work is tracked by sharper items: `core-min-value-unification` for the deep
+data-value refactor, plus deliberately deferred/optional Stream/Actors interpreter-internal
+code moves that should wait for a concrete consumer.
 
 This spec unifies two sprint directives from Sergiy:
 
