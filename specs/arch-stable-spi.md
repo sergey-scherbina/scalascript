@@ -1,7 +1,11 @@
 # Stable Plugin SPI — Specification
 
-Status: **partially implemented**.  Phase 1 landed 2026-05-29; Phase 2
-landed 2026-05-29 as a source-compatible capability bridge.  Tracked as
+Status: **Phase 3 value-surface migration complete (26/28 plugins)**.  Phase 1 landed
+2026-05-29; Phase 2 landed 2026-05-29 as a source-compatible capability bridge; Phase 3
+(2026-06-23) migrated every value-surface plugin off `scalascript.interpreter` onto the stable
+`scalascript-plugin-api` and added `StableSpiEnforcementTest` to lock it in.  Two plugins are
+explicit exemptions: `actors-plugin` (a runtime PROVIDER, not a value-surface plugin) and
+`graphql-plugin` (temporarily, blocked on a scalac `eq`-identity codegen issue).  Tracked as
 `arch-stable-spi` milestone in `BACKLOG.md`.
 Companion specs: [`specs/plugin-architecture.md`](plugin-architecture.md),
 [`specs/spi-intrinsics-design.md`](spi-intrinsics-design.md).
@@ -138,11 +142,21 @@ Callers of existing plugin APIs are not affected (API is additive).
 
 ### Phase 3 — Full migration
 
-- Migrate all 16 `runtime/std/*/…/*Intrinsics.scala` files.
-- Remove `LegacyNativeContext`.
-- Delete `isStdPluginInterpreterTest` filter from `build.sbt`.
-- CI: add a compile-classpath check that rejects any `*.jar` containing
-  `scalascript/interpreter/` in plugin subprojects.
+- ✓ Landed 2026-06-23: migrated all value-surface `runtime/std/*/…/*Intrinsics.scala` plugins
+  (26/28) off `scalascript.interpreter` onto `scalascript-plugin-api`.  The seam grew the
+  enablers needed: `nativeFn`/`callFn`, the JSON bridge (`jsonEncode`/`jsonFacade`/`fromHostAny`/
+  `parseJson`/`lookupKey`), value/instance extractors + accessors (`Str`/`Num`/…/`Foreign`/`Fn`/
+  `InstAny`, `field`/`typeNameOf`/`fields`/`asMapEntries`), constructors (`decimal`, `orderedInstance`),
+  and the `wrapTypedHandler`/`funArity` http bridge.  `OAuthBridge` was relocated from
+  `scalascript.interpreter` to `scalascript.plugin.api`.
+- ✓ Landed 2026-06-23: `StableSpiEnforcementTest` (the CI check) — scans every value-surface
+  plugin source and fails on any `scalascript.interpreter` reference; a second test rejects stale
+  exemptions.  (Source-level; a bytecode/jar-level scan is a possible hardening.)
+- Exemptions: `actors-plugin` (runtime `ActorRuntimeProviderBackend` provider — needs the
+  ActorRuntimeProvider SPI relocated to a stable module, or a permanent provider-plugin exemption);
+  `graphql-plugin` (blocked on a scalac `eq`-identity codegen interaction — needs a minimal repro).
+- `PluginNative.evalLegacy` is RETAINED (the legitimate untyped `(ctx, args) => Any` entry; bodies
+  are now clean of interpreter types, enforced by the test).
 
 ## 6. Testing strategy
 

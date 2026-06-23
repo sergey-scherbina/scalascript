@@ -371,16 +371,16 @@ object PluginNative:
   ): NativeImpl =
     eval[PluginContext]((ctx: PluginContext) => ctx)(f)
 
-  /** Migration helper for porting `NativeImpl` bodies to the capability-typed SPI.
+  /** Untyped intrinsic entry: `(ctx: PluginContext, args: List[Any]) => Any`.
    *
-   *  Replace `NativeImpl { (ctx, args) => body }` with
-   *  `PluginNative.evalLegacy { (ctx, args) => body }`, where `ctx` is now a
-   *  `PluginContext` (capability-typed) instead of raw `NativeContext`.
-   *  The body may still use interpreter-internal types such as `Value.*`;
-   *  those imports are acceptable in built-in monorepo plugins for Phase 3.
+   *  `evalLegacy { (ctx, args) => body }` replaces a raw `NativeImpl { (ctx, args) => body }`,
+   *  giving the body a capability-typed `PluginContext` instead of a raw `NativeContext` while
+   *  keeping the convenient untyped `List[Any]` args and `Any` result.
    *
-   *  Once `Value` is exposed through `PluginApi` (v2.x), `evalLegacy` will be
-   *  removed and all bodies will migrate to the fully opaque `eval` form. */
+   *  Despite the name, this is NOT deprecated: it remains the simplest entry for intrinsics that
+   *  pattern-match a `List[Any]` arg list.  Phase 3 is complete — bodies must NOT use
+   *  `scalascript.interpreter.*`; build the result with the opaque `PluginValue`/`PluginError`
+   *  surface (extractors, constructors) instead.  `StableSpiEnforcementTest` enforces this. */
   def evalLegacy(f: (PluginContext, List[Any]) => Any): NativeImpl =
     NativeImpl { (ctx, args) =>
       val pluginCtx = PluginContext.fromNative(ctx)
