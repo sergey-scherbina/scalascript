@@ -1,0 +1,6 @@
+feature/backlog-hygiene 2026-06-23T01:19:35Z
+agent: codex
+heartbeat: 2026-06-23T01:19:35Z
+status: in-progress
+done-so-far: claimed docs-only BACKLOG hygiene pass
+next: create worktree, queue SPRINT plan, classify stale BACKLOG open items as open/blocked/deferred/history without code changes
