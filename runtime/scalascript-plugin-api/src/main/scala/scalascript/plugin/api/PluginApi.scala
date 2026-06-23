@@ -67,7 +67,11 @@ object PluginValue:
       pv match { case Value.OptionV(o) => Some(Option(o).map(wrap)); case _ => None }
     def asBigInt: Option[BigInt] = pv match { case Value.BigIntV(n) => Some(n); case _ => None }
     def asInstance: Option[(String, Map[String, PluginValue])] =
-      pv match { case Value.InstanceV(tn, fs) => Some((tn, fs.map((k, v) => (k, wrap(v))))); case _ => None }
+      // use `effectiveFields`, not the raw `fields` map — an array-backed InstanceV keeps its data in
+      // `fieldsArr`/`fieldNames` with an empty `fields`, so destructuring the map would lose it.
+      pv match
+        case i: Value.InstanceV => Some((i.typeName, i.effectiveFields.map((k, v) => (k, wrap(v)))))
+        case _                  => None
 
   // ── Extractor objects: pattern-match a raw `List[Any]` arg / runtime value WITHOUT importing
   //    `Value`. e.g. `args match { case List(Str(label), Bool(p)) => … }`. They accept `Any` because

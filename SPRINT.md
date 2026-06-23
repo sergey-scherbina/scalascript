@@ -194,7 +194,7 @@ validated + pushed:
       capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
       `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
       `scalascript.interpreter` import + its tests green.
-- [~] **p3-batch-A**: **mime ✓, pdf ✓ (8/0), fs ✓ (14/0), crypto ✓ (58/0), payment-request ✓** (5/10).
+- [~] **p3-batch-A**: **mime ✓, pdf ✓, fs ✓, crypto ✓ (58/0), payment-request ✓, nfc ✓ (9/0)** (6/10).
       **BREAKTHROUGH 2026-06-23 — the hard problem is solved.** The blocker on the pattern-matching plugins:
       they use `Value.StringV(x)` etc. BOTH as constructors AND as `case` PATTERNS, and `PluginValue` (opaque)
       can't be pattern-matched. SOLUTION: added **extractor objects** to `PluginValue` — `Str/Num/Dbl/Bool/Chr/
@@ -205,8 +205,7 @@ validated + pushed:
       [Value]`→`.asInstanceOf[PluginValue]`; `Map[String, Value]`→`Map[String, PluginValue]`; `throw
       InterpretError`→`PluginError.raise`. **`Value.Foreign(tn, handle: Any)` IS exposable** (generic host-object
       wrapper, not interpreter-internal) — so fetch is NOT blocked, just Foreign-heavy.
-      REMAINING with their specific manual bits: **nfc** (nested `Opt(Some(Str(s)))` patterns + `InstanceV.
-      effectiveFields` → use `Inst` fields + `show`), **auth** (heavy: MapV/OptionV/Instance), **graph/yaml**
+      REMAINING with their specific manual bits: **auth** (heavy: MapV/OptionV/Instance), **graph/yaml**
       (also move internal `Value` store to `PluginValue`/`Any`), **fetch** (Foreign×117 + NativeFnV + Unit/Null
       `==` comparisons → use `isUnitOrNull`).
 - [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
