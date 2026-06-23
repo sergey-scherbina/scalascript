@@ -1,0 +1,33 @@
+# TOTP 2FA + Shamir secret backup demo
+
+Two portable crypto primitives, callable from `.ssc` via the crypto plugin:
+time-based one-time passwords (RFC 6238) and `t`-of-`n` secret sharing.
+
+```scalascript
+import std.crypto.*
+
+// ── TOTP (RFC 6238) — time-based one-time passwords (Google Authenticator) ──
+// The shared secret is base64; here it is the RFC test secret "12345678901234567890".
+val secret = base64Encode("12345678901234567890")
+
+// A TOTP code at a fixed instant (unix time 1111111111), 8 digits, SHA-1.
+val code = totp(secret, 1111111111, 30, 8, "SHA1")
+println(s"TOTP code: $code")                                  // 14050471
+
+// Validate it, tolerating ±1 step of clock skew.
+val ok = totpValidate(secret, code, 1111111111, 30, 8, "SHA1", 1)
+println(s"code valid: $ok")                                   // true
+println(s"wrong code valid: ${totpValidate(secret, "00000000", 1111111111, 30, 8, "SHA1", 1)}")  // false
+
+// ── Shamir secret sharing — split a wallet seed into 2-of-3 shares ──────────
+val seed   = base64Encode("my wallet seed phrase")
+val shares = shamirSplit(seed, 2, 3).split(" ")
+println(s"split into ${shares.length} shares")                // 3
+
+// Any 2 of the 3 shares recover the original secret.
+val recovered = shamirRecover(s"${shares(0)} ${shares(2)}")
+println(s"recovered matches: ${recovered == seed}")           // true
+
+// A single share reveals nothing — recovery from fewer than t shares is not the secret.
+println(s"one share recovers secret: ${shamirRecover(shares(1)) == seed}")  // false
+```

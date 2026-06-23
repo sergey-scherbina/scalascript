@@ -451,3 +451,38 @@ class CryptoPluginTest extends AnyFunSuite:
     val sig = evalStr(s"""rsaSignSha256("$priv", "checkpoint", "PSS")""")
     assert(evalBool(s"""verifyRsaSha256("$pub", "checkpoint", "$sig", "PSS")"""),
       "a PSS RSA signature must verify")
+
+  // ── HOTP / TOTP (RFC 4226 / 6238) from .ssc ──────────────────────────────
+  // The standard test secret is ASCII "12345678901234567890"; base64Encode feeds it to the OTP intrinsics.
+
+  test("hotp matches RFC 4226 Appendix D vectors"):
+    assert(evalStr("""hotp(base64Encode("12345678901234567890"), 0, 6, "SHA1")""") == "755224")
+    assert(evalStr("""hotp(base64Encode("12345678901234567890"), 1, 6, "SHA1")""") == "287082")
+    assert(evalStr("""hotp(base64Encode("12345678901234567890"), 9, 6, "SHA1")""") == "520489")
+
+  test("totp matches RFC 6238 Appendix B vectors"):
+    assert(evalStr("""totp(base64Encode("12345678901234567890"), 59, 30, 8, "SHA1")""") == "94287082")
+    assert(evalStr("""totp(base64Encode("12345678901234567890123456789012"), 59, 30, 8, "SHA256")""") == "46119246")
+
+  test("totpValidate accepts the current code and rejects a wrong one"):
+    val k = """base64Encode("12345678901234567890")"""
+    assert(evalBool(s"""totpValidate($k, totp($k, 1111111111, 30, 8, "SHA1"), 1111111111, 30, 8, "SHA1", 1)"""))
+    assert(!evalBool(s"""totpValidate($k, "00000000", 1111111111, 30, 8, "SHA1", 1)"""))
+
+  // ── Shamir secret sharing from .ssc ──────────────────────────────────────
+
+  test("shamirSplit then shamirRecover round-trips from any t shares"):
+    val secret    = "super secret seed phrase"
+    val expected  = evalStr(s"""base64Encode("$secret")""")
+    val sharesStr = evalStr(s"""shamirSplit(base64Encode("$secret"), 2, 3)""")
+    val parts     = sharesStr.split(" ")
+    assert(parts.length == 3, s"expected 3 shares, got ${parts.length}")
+    for combo <- parts.combinations(2) do
+      assert(evalStr(s"""shamirRecover("${combo.mkString(" ")}")""") == expected, s"recover from ${combo.toSeq}")
+
+  test("shamirRecover with too few shares does not return the secret"):
+    val secret    = "another secret"
+    val expected  = evalStr(s"""base64Encode("$secret")""")
+    val sharesStr = evalStr(s"""shamirSplit(base64Encode("$secret"), 3, 5)""")
+    val oneShare  = sharesStr.split(" ").head
+    assert(evalStr(s"""shamirRecover("$oneShare")""") != expected)

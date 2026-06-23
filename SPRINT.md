@@ -204,8 +204,9 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       `validate(window=±1)` skew check. Configurable digits + SHA-1/256/512 (`Totp.Algo`). **Gate MET:** byte-exact
       RFC 4226 App. D (HOTP counters 0-9) + RFC 6238 App. B (TOTP 8-digit, SHA-1/256/512 at 6 timestamps) + FIPS
       SHA-1 + RFC 2202 HMAC-SHA1 vectors. cryptoSpi JVM 51 / JS 51. (SHA-1 is collision-broken — included ONLY for
-      these legacy HMAC standards, documented as such.) No `.ssc` example yet — library primitive, not
-      plugin-exposed; `OtpTest` is the usage reference (a std/.ssc binding can be a follow-up).
+      these legacy HMAC standards, documented as such.) **Now exposed to `.ssc`** (2026-06-24) via the crypto
+      plugin: `hotp`/`totp`/`totpValidate` intrinsics in `CryptoIntrinsics` (secret as base64, algo
+      SHA1/256/512); RFC-vector tests through the interpreter + `examples/totp-shamir-demo.ssc`.
 
 - [x] **shamir-secret-backup** ✓ DONE 2026-06-23 — `ShamirSecretSharing` (cryptoFrost/shared): `t`-of-`n` split /
       recover of ARBITRARY byte secrets (seed phrases, keys, blobs) over the prime field `GF(2^255−19)`
@@ -215,8 +216,10 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       `<t`/tampered shares yield a wrong value, not the secret). **Gate MET:** round-trips across sizes
       (0/1/16/31/32/33/64/100/256 B) × thresholds (1-of-1…5-of-5); every t-subset recovers the same secret;
       `<t` reveals nothing; tampered → wrong. cryptoFrost JVM 34 / JS 20. NOT SLIP-0039 wire-compatible
-      (SLIP-0039 = GF(256)+mnemonics; this is the prime-field generalization the roadmap asked for). No `.ssc`
-      example — it is a Scala library primitive (not plugin-exposed); the test suite is the usage reference.
+      (SLIP-0039 = GF(256)+mnemonics; this is the prime-field generalization the roadmap asked for). **Now
+      exposed to `.ssc`** (2026-06-24) via the crypto plugin: `shamirSplit`/`shamirRecover` intrinsics (secret +
+      shares as base64, shares space-separated); round-trip tests through the interpreter +
+      `examples/totp-shamir-demo.ssc`.
 
 ### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be

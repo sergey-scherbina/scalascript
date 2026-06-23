@@ -2852,7 +2852,7 @@ lazy val deployPlugin = project
 // ── Crypto — sha256, hmacSha256, base64Encode, base64Decode ─────────────
 lazy val cryptoPlugin = project
   .in(file("payments/crypto/plugin"))
-  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, cryptoSpi, cryptoFrost, testUtils % Test)
   .settings(
     name := "scalascript-crypto-plugin",
     libraryDependencies ++= Seq(scalatestTest),

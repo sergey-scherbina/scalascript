@@ -18,7 +18,7 @@ class PluginExamplesSmokeTest extends AnyFunSuite:
   // Excluded: dataset/spark examples need the Spark backend's `DatasetCodec` (not an
   // interpreter plugin); network / GUI / browser / server examples can't run headless.
   private val examples: List[String] = List(
-    "crypto-demo.ssc", "crypto-encrypt-demo.ssc", "crypto-verify-demo.ssc",
+    "crypto-demo.ssc", "crypto-encrypt-demo.ssc", "crypto-verify-demo.ssc", "totp-shamir-demo.ssc",
     "uuid-v7.ssc", "invoice-pdf.ssc", "invoice-email.ssc",
     // algebraic-effects exercises runLogger/runState/runRandomSeeded/runClockAt/runEnvWith — now
     // bundled effect PLUGINS (extracted from core), so it belongs here (plugin classpath), not the

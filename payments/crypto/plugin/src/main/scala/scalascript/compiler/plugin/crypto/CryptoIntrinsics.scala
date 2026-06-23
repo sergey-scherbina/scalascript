@@ -3,6 +3,8 @@ package scalascript.compiler.plugin.crypto
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginError, PluginNative, PluginValue}
+import scalascript.crypto.Totp
+import scalascript.crypto.frost.ShamirSecretSharing
 
 object CryptoIntrinsics:
 
@@ -183,6 +185,18 @@ object CryptoIntrinsics:
       v.update(message.getBytes("UTF-8"))
       v.verify(b64d(sigB64))
     catch case _: Throwable => false
+
+  // ── HOTP / TOTP + Shamir helpers ──────────────────────────────────────────
+  private def otpAlgo(s: String): Totp.Algo = s.toUpperCase match
+    case "SHA1" | "SHA-1"     => Totp.Algo.Sha1
+    case "SHA256" | "SHA-256" => Totp.Algo.Sha256
+    case "SHA512" | "SHA-512" => Totp.Algo.Sha512
+    case other                => throw new RuntimeException(s"unknown OTP algo: $other (use SHA1/SHA256/SHA512)")
+
+  private def encodeShare(s: ShamirSecretSharing.Share): String = b64e(Array(s.id.toByte) ++ s.data)
+  private def decodeShare(b64: String): ShamirSecretSharing.Share =
+    val raw = b64d(b64)
+    ShamirSecretSharing.Share(raw(0) & 0xff, java.util.Arrays.copyOfRange(raw, 1, raw.length))
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
@@ -384,6 +398,47 @@ object CryptoIntrinsics:
       case List(privateKey: String, message: String, scheme: String) =>
         PluginValue.string(signRsaSha256Raw(privateKey, message, scheme))
       case _ => PluginError.raise("rsaSignSha256(privateKey: String, message: String, scheme: String)")
+    },
+
+    // ── HOTP / TOTP one-time passwords (RFC 4226 / 6238) ──────────────────────
+    // The shared secret is a base64 string; `algo` is "SHA1" / "SHA256" / "SHA512".
+
+    // hotp(secretB64, counter, digits, algo) -> zero-padded decimal code.
+    QualifiedName("hotp") -> native {
+      case List(secretB64: String, counter: Long, digits: Long, algo: String) =>
+        PluginValue.string(Totp.hotp(b64d(secretB64), counter, digits.toInt, otpAlgo(algo)))
+      case _ => PluginError.raise("hotp(secretB64: String, counter: Int, digits: Int, algo: String)")
+    },
+
+    // totp(secretB64, timeSeconds, period, digits, algo) -> code (e.g. Google Authenticator).
+    QualifiedName("totp") -> native {
+      case List(secretB64: String, time: Long, period: Long, digits: Long, algo: String) =>
+        PluginValue.string(Totp.totp(b64d(secretB64), time, period.toInt, digits.toInt, otpAlgo(algo)))
+      case _ => PluginError.raise("totp(secretB64: String, timeSeconds: Int, period: Int, digits: Int, algo: String)")
+    },
+
+    // totpValidate(secretB64, code, timeSeconds, period, digits, algo, window) -> Bool (±window steps of skew).
+    QualifiedName("totpValidate") -> native {
+      case List(secretB64: String, code: String, time: Long, period: Long, digits: Long, algo: String, window: Long) =>
+        PluginValue.bool(Totp.validate(b64d(secretB64), code, time, period.toInt, digits.toInt, otpAlgo(algo), window.toInt))
+      case _ => PluginError.raise("totpValidate(secretB64, code, timeSeconds, period, digits, algo, window)")
+    },
+
+    // ── Shamir secret sharing (t-of-n split / recover of any secret) ──────────
+    // shamirSplit(secretB64, threshold, total) -> space-separated base64 shares.
+    QualifiedName("shamirSplit") -> native {
+      case List(secretB64: String, threshold: Long, total: Long) =>
+        val shares = ShamirSecretSharing.split(b64d(secretB64), threshold.toInt, total.toInt)
+        PluginValue.string(shares.map(encodeShare).mkString(" "))
+      case _ => PluginError.raise("shamirSplit(secretB64: String, threshold: Int, total: Int)")
+    },
+
+    // shamirRecover(sharesSpaceSeparated) -> base64 of the recovered secret (needs >= t shares).
+    QualifiedName("shamirRecover") -> native {
+      case List(shares: String) =>
+        val parsed = shares.split(" ").filter(_.nonEmpty).map(decodeShare).toList
+        PluginValue.string(b64e(ShamirSecretSharing.recover(parsed)))
+      case _ => PluginError.raise("shamirRecover(sharesSpaceSeparated: String)")
     },
 
   )
