@@ -6,9 +6,9 @@ import java.nio.charset.StandardCharsets
 import scalascript.ast
 import scalascript.backend.spi.{IntrinsicImpl, NativeContextFeatureKeys}
 import scalascript.frontend.ReactiveSignal
-import scalascript.interpreter.{InterpretError, Value}
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.{PluginContext, PluginNative}
+import scalascript.plugin.api.{PluginContext, PluginError, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Lst, MapVal, InstAny, Opt}
 
 object ContentIntrinsics:
 
@@ -18,8 +18,8 @@ object ContentIntrinsics:
         case Nil =>
           ctx.featureGet(NativeContextFeatureKeys.ContentDocument) match
             case Some(doc: ast.DocumentContent) => documentValue(doc)
-            case _ => throw InterpretError("contentDocument() is only available while running a parsed .ssc module")
-        case _ => throw InterpretError("contentDocument()")
+            case _ => PluginError.raise("contentDocument() is only available while running a parsed .ssc module")
+        case _ => PluginError.raise("contentDocument()")
     },
     QualifiedName("contentCurrentSection") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
@@ -27,97 +27,97 @@ object ContentIntrinsics:
           ctx.featureLocalGet(NativeContextFeatureKeys.ContentCurrentSection) match
             case Some(section: ast.SectionContent) => sectionValue(section)
             case _ =>
-              throw InterpretError(
+              PluginError.raise(
                 "contentCurrentSection() is only available while running a parsed .ssc code block inside a Markdown section"
               )
-        case _ => throw InterpretError("contentCurrentSection()")
+        case _ => PluginError.raise("contentCurrentSection()")
     },
     QualifiedName("contentSection") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
-          Value.optionV(contentSectionById(currentDocument(ctx, "contentSection(id)"), id).map(sectionValue))
-        case _ => throw InterpretError("contentSection(id)")
+          PluginValue.option(contentSectionById(currentDocument(ctx, "contentSection(id)"), id).map(sectionValue))
+        case _ => PluginError.raise("contentSection(id)")
     },
     QualifiedName("contentBlock") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
-          Value.optionV(contentBlockById(currentDocument(ctx, "contentBlock(id)"), id).map(blockValue))
-        case _ => throw InterpretError("contentBlock(id)")
+          PluginValue.option(contentBlockById(currentDocument(ctx, "contentBlock(id)"), id).map(blockValue))
+        case _ => PluginError.raise("contentBlock(id)")
     },
     QualifiedName("contentData") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
-          Value.optionV(contentDataById(currentDocument(ctx, "contentData(id)"), id).map(contentValue))
-        case _ => throw InterpretError("contentData(id)")
+          PluginValue.option(contentDataById(currentDocument(ctx, "contentData(id)"), id).map(contentValue))
+        case _ => PluginError.raise("contentData(id)")
     },
     QualifiedName("contentMetadata") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (path: String) :: Nil =>
-          Value.optionV(contentMetadataPath(currentDocument(ctx, "contentMetadata(path)"), path).map(contentValue))
-        case _ => throw InterpretError("contentMetadata(path)")
+          PluginValue.option(contentMetadataPath(currentDocument(ctx, "contentMetadata(path)"), path).map(contentValue))
+        case _ => PluginError.raise("contentMetadata(path)")
     },
     QualifiedName("contentBind") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case (value: Value) :: (bindings: Value) :: Nil => contentBindValue(value, contentBindRoot(bindings))
-        case _ => throw InterpretError("contentBind(value, bindings)")
+        case value :: bindings :: Nil => contentBindValue(PluginValue.wrap(value), contentBindRoot(PluginValue.wrap(bindings)))
+        case _ => PluginError.raise("contentBind(value, bindings)")
     },
     QualifiedName("contentPlainText") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case value :: Nil => contentPlainTextAny(value)
-        case _            => throw InterpretError("contentPlainText(value)")
+        case _            => PluginError.raise("contentPlainText(value)")
     },
     QualifiedName("contentToMarkdown") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case value :: Nil => contentToMarkdownAny(value)
-        case _            => throw InterpretError("contentToMarkdown(value)")
+        case _            => PluginError.raise("contentToMarkdown(value)")
     },
     QualifiedName("contentModules") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case Nil =>
-          Value.MapV(uniqueImportedDocuments(ctx, "contentModules()").map {
-            case (namespace, doc) => Value.StringV(namespace) -> documentValue(doc)
+          PluginValue.mapOf(uniqueImportedDocuments(ctx, "contentModules()").map {
+            case (namespace, doc) => PluginValue.string(namespace) -> documentValue(doc)
           })
-        case _ => throw InterpretError("contentModules()")
+        case _ => PluginError.raise("contentModules()")
     },
     QualifiedName("contentModule") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (namespace: String) :: Nil =>
-          Value.optionV(importedDocument(ctx, namespace, "contentModule(namespace)").map(documentValue))
-        case _ => throw InterpretError("contentModule(namespace)")
+          PluginValue.option(importedDocument(ctx, namespace, "contentModule(namespace)").map(documentValue))
+        case _ => PluginError.raise("contentModule(namespace)")
     },
     QualifiedName("contentModuleSection") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (namespace: String) :: (id: String) :: Nil =>
-          Value.optionV(importedDocument(ctx, namespace, "contentModuleSection(namespace, id)").flatMap(doc =>
+          PluginValue.option(importedDocument(ctx, namespace, "contentModuleSection(namespace, id)").flatMap(doc =>
             contentSectionById(doc, id).map(sectionValue)))
-        case _ => throw InterpretError("contentModuleSection(namespace, id)")
+        case _ => PluginError.raise("contentModuleSection(namespace, id)")
     },
     QualifiedName("contentModuleBlock") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (namespace: String) :: (id: String) :: Nil =>
-          Value.optionV(importedDocument(ctx, namespace, "contentModuleBlock(namespace, id)").flatMap(doc =>
+          PluginValue.option(importedDocument(ctx, namespace, "contentModuleBlock(namespace, id)").flatMap(doc =>
             contentBlockById(doc, id).map(blockValue)))
-        case _ => throw InterpretError("contentModuleBlock(namespace, id)")
+        case _ => PluginError.raise("contentModuleBlock(namespace, id)")
     },
     QualifiedName("contentModuleData") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (namespace: String) :: (id: String) :: Nil =>
-          Value.optionV(importedDocument(ctx, namespace, "contentModuleData(namespace, id)").flatMap(doc =>
+          PluginValue.option(importedDocument(ctx, namespace, "contentModuleData(namespace, id)").flatMap(doc =>
             contentDataById(doc, id).map(contentValue)))
-        case _ => throw InterpretError("contentModuleData(namespace, id)")
+        case _ => PluginError.raise("contentModuleData(namespace, id)")
     },
     QualifiedName("contentModuleMetadata") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (namespace: String) :: (path: String) :: Nil =>
-          Value.optionV(importedDocument(ctx, namespace, "contentModuleMetadata(namespace, path)").flatMap(doc =>
+          PluginValue.option(importedDocument(ctx, namespace, "contentModuleMetadata(namespace, path)").flatMap(doc =>
             contentMetadataPath(doc, path).map(contentValue)))
-        case _ => throw InterpretError("contentModuleMetadata(namespace, path)")
+        case _ => PluginError.raise("contentModuleMetadata(namespace, path)")
     },
     QualifiedName("contentToolkitNode") -> PluginNative.evalLegacy { (ctx, args) =>
       val options = args match
         case Nil      => ToolkitOptions()
-        case (one: Value) :: Nil => toolkitOptions(one)
-        case _        => throw InterpretError("contentToolkitNode([options])")
+        case one :: Nil => toolkitOptions(PluginValue.wrap(one))
+        case _        => PluginError.raise("contentToolkitNode([options])")
       toolkitDocumentNode(ctx, contentBindDocument(currentDocument(ctx, "contentToolkitNode()"), options.bindings), options)
     },
     QualifiedName("contentToolkitBlock") -> PluginNative.evalLegacy { (ctx, args) =>
@@ -137,27 +137,27 @@ object ContentIntrinsics:
     listGap: Int = 4,
     wrapDocumentInCard: Boolean = false,
     wrapTopLevelSectionsInCards: Boolean = false,
-    components: Map[String, Value] = Map.empty,
+    components: Map[String, PluginValue] = Map.empty,
     bindings: Map[String, ast.ContentValue] = Map.empty,
-    actions: Map[String, Value] = Map.empty,
-    rowBindings: Map[String, Value] = Map.empty,
-    computed: Map[String, Value] = Map.empty,
-    slots: Map[String, Value] = Map.empty
+    actions: Map[String, PluginValue] = Map.empty,
+    rowBindings: Map[String, PluginValue] = Map.empty,
+    computed: Map[String, PluginValue] = Map.empty,
+    slots: Map[String, PluginValue] = Map.empty
   )
 
   // buildColumn (Scope B.2): builds a typed DataColumn by invoking a registered
   // column-builder native (fieldColumn/moneyColumn/…) — a closure capturing the
   // PluginContext, so toolkitControl can construct columns from inline YAML
   // `columns:` specs without the content plugin depending on the column model.
-  private case class ToolkitUiEnv(signals: Map[String, Value], actions: Map[String, Value] = Map.empty,
-                                  rowBindings: Map[String, Value] = Map.empty,
-                                  buildColumn: Option[(String, List[Any]) => Value] = None)
+  private case class ToolkitUiEnv(signals: Map[String, PluginValue], actions: Map[String, PluginValue] = Map.empty,
+                                  rowBindings: Map[String, PluginValue] = Map.empty,
+                                  buildColumn: Option[(String, List[Any]) => PluginValue] = None)
   private case class ToolkitLink(kind: String, query: Map[String, String], label: String)
 
   private def currentDocument(ctx: PluginContext, fn: String): ast.DocumentContent =
     ctx.featureGet(NativeContextFeatureKeys.ContentDocument) match
       case Some(doc: ast.DocumentContent) => doc
-      case _ => throw InterpretError(s"$fn is only available while running a parsed .ssc module")
+      case _ => PluginError.raise(s"$fn is only available while running a parsed .ssc module")
 
   private def importedDocumentTable(ctx: PluginContext): Map[String, List[ast.DocumentContent]] =
     ctx.featureGet(NativeContextFeatureKeys.ContentImportedModules) match
@@ -172,30 +172,30 @@ object ContentIntrinsics:
     importedDocumentTable(ctx).map {
       case (namespace, doc :: Nil) => namespace -> doc
       case (namespace, Nil) =>
-        throw InterpretError(s"$fn: empty imported content namespace '$namespace'")
+        PluginError.raise(s"$fn: empty imported content namespace '$namespace'")
       case (namespace, _) =>
-        throw InterpretError(s"$fn: duplicate imported content namespace '$namespace'")
+        PluginError.raise(s"$fn: duplicate imported content namespace '$namespace'")
     }
 
   private def importedDocument(ctx: PluginContext, namespace: String, fn: String): Option[ast.DocumentContent] =
     importedDocumentTable(ctx).get(namespace) match
       case None | Some(Nil) => None
       case Some(doc :: Nil) => Some(doc)
-      case Some(_)          => throw InterpretError(s"$fn: duplicate imported content namespace '$namespace'")
+      case Some(_)          => PluginError.raise(s"$fn: duplicate imported content namespace '$namespace'")
 
   private def toolkitSelectorArgs(fn: String, args: List[Any]): (String, ToolkitOptions) =
     args match
       case (id: String) :: Nil =>
         (id, ToolkitOptions())
-      case (id: String) :: (options: Value) :: Nil =>
-        (id, toolkitOptions(options))
+      case (id: String) :: options :: Nil =>
+        (id, toolkitOptions(PluginValue.wrap(options)))
       case _ =>
-        throw InterpretError(s"$fn(id, [options])")
+        PluginError.raise(s"$fn(id, [options])")
 
-  private def toolkitOptions(value: Value): ToolkitOptions =
+  private def toolkitOptions(value: PluginValue): ToolkitOptions =
     val fields = value match
-      case inst: Value.InstanceV if inst.typeName == "ContentToolkitOptions" => inst.effectiveFields
-      case other => throw InterpretError(s"contentToolkitNode: expected ContentToolkitOptions, got ${Value.show(other)}")
+      case InstAny(inst) if inst.typeNameOf.contains("ContentToolkitOptions") => inst.fields
+      case other => PluginError.raise(s"contentToolkitNode: expected ContentToolkitOptions, got ${PluginValue.showAny(other)}")
     ToolkitOptions(
       includeCode = boolField(fields, "includeCode", default = false),
       sectionGap = intField(fields, "sectionGap", default = 16),
@@ -214,121 +214,119 @@ object ContentIntrinsics:
   // slots (Scope B.6): a Map[String, TkNode] — id -> a code-built node injected at
   // a `{type: slot, id}` control (the escape hatch for content the vocabulary can't
   // express).  The node is already a built TkNode and is returned verbatim.
-  private def slotRegistry(value: Option[Value]): Map[String, Value] =
+  private def slotRegistry(value: Option[PluginValue]): Map[String, PluginValue] =
     value match
-      case None | Some(Value.NullV) => Map.empty
-      case Some(Value.MapV(m)) =>
-        m.collect { case (Value.StringV(k), v) => k -> v }
+      case None | Some(PluginValue.nullV) => Map.empty
+      case Some(MapVal(m)) =>
+        m.collect { case (Str(k), v) => k -> v }
       case Some(other) =>
-        throw InterpretError(s"ContentToolkitOptions.slots: expected Map[String, TkNode], got ${Value.show(other)}")
+        PluginError.raise(s"ContentToolkitOptions.slots: expected Map[String, TkNode], got ${PluginValue.showAny(other)}")
 
   // actions: a Map[String, EventHandler] — id -> handler for toolkit:button?action=id.
-  private def actionRegistry(value: Option[Value]): Map[String, Value] =
+  private def actionRegistry(value: Option[PluginValue]): Map[String, PluginValue] =
     value match
-      case None | Some(Value.NullV) => Map.empty
-      case Some(Value.MapV(m)) =>
-        m.collect { case (Value.StringV(k), v) => k -> v }
+      case None | Some(PluginValue.nullV) => Map.empty
+      case Some(MapVal(m)) =>
+        m.collect { case (Str(k), v) => k -> v }
       case Some(other) =>
-        throw InterpretError(s"ContentToolkitOptions.actions: expected Map[String, EventHandler], got ${Value.show(other)}")
+        PluginError.raise(s"ContentToolkitOptions.actions: expected Map[String, EventHandler], got ${PluginValue.showAny(other)}")
 
   // computed: a Map[String, Signal] (Scope B.5) — id -> a code-built derived signal
   // merged into the toolkit signal environment so YAML controls can reference it.
-  private def computedRegistry(value: Option[Value]): Map[String, Value] =
+  private def computedRegistry(value: Option[PluginValue]): Map[String, PluginValue] =
     value match
-      case None | Some(Value.NullV) => Map.empty
-      case Some(Value.MapV(m)) =>
-        m.collect { case (Value.StringV(k), v) => k -> v }
+      case None | Some(PluginValue.nullV) => Map.empty
+      case Some(MapVal(m)) =>
+        m.collect { case (Str(k), v) => k -> v }
       case Some(other) =>
-        throw InterpretError(s"ContentToolkitOptions.computed: expected Map[String, Signal], got ${Value.show(other)}")
+        PluginError.raise(s"ContentToolkitOptions.computed: expected Map[String, Signal], got ${PluginValue.showAny(other)}")
 
   // rowBindings: a Map[String, ContentRowBinding] — id -> live-row source for
   // toolkit:table?rows=id.  Each value carries `rows` (a Signal), `columns`
   // (field-column descriptors), and `actions` (per-row actions).
-  private def rowBindingRegistry(value: Option[Value]): Map[String, Value] =
+  private def rowBindingRegistry(value: Option[PluginValue]): Map[String, PluginValue] =
     value match
-      case None | Some(Value.NullV) => Map.empty
-      case Some(Value.MapV(m)) =>
-        m.collect { case (Value.StringV(k), v) => k -> v }
+      case None | Some(PluginValue.nullV) => Map.empty
+      case Some(MapVal(m)) =>
+        m.collect { case (Str(k), v) => k -> v }
       case Some(other) =>
-        throw InterpretError(s"ContentToolkitOptions.rowBindings: expected Map[String, ContentRowBinding], got ${Value.show(other)}")
+        PluginError.raise(s"ContentToolkitOptions.rowBindings: expected Map[String, ContentRowBinding], got ${PluginValue.showAny(other)}")
 
-  private def componentRegistry(value: Option[Value]): Map[String, Value] =
+  private def componentRegistry(value: Option[PluginValue]): Map[String, PluginValue] =
     value match
       case None => Map.empty
-      case Some(Value.ListV(entries)) =>
-        entries.foldLeft(Map.empty[String, Value]) { (acc, entry) =>
+      case Some(Lst(entries)) =>
+        entries.foldLeft(Map.empty[String, PluginValue]) { (acc, entry) =>
           val fields = entry match
-            case inst: Value.InstanceV if inst.typeName == "ContentToolkitComponent" => inst.effectiveFields
+            case InstAny(inst) if inst.typeNameOf.contains("ContentToolkitComponent") => inst.fields
             case other =>
-              throw InterpretError(s"ContentToolkitOptions.components: expected ContentToolkitComponent, got ${Value.show(other)}")
+              PluginError.raise(s"ContentToolkitOptions.components: expected ContentToolkitComponent, got ${PluginValue.showAny(other)}")
           val name = fields.get("name") match
-            case Some(Value.StringV(v)) => v
+            case Some(Str(v)) => v
             case Some(other) =>
-              throw InterpretError(s"ContentToolkitComponent.name: expected String, got ${Value.show(other)}")
+              PluginError.raise(s"ContentToolkitComponent.name: expected String, got ${PluginValue.showAny(other)}")
             case None =>
-              throw InterpretError("ContentToolkitComponent.name is required")
-          val render = fields.getOrElse("render", throw InterpretError(s"ContentToolkitComponent('$name').render is required"))
+              PluginError.raise("ContentToolkitComponent.name is required")
+          val render = fields.getOrElse("render", PluginError.raise(s"ContentToolkitComponent('$name').render is required"))
           acc.updated(name, render)
         }
       case Some(other) =>
-        throw InterpretError(s"ContentToolkitOptions.components: expected List, got ${Value.show(other)}")
+        PluginError.raise(s"ContentToolkitOptions.components: expected List, got ${PluginValue.showAny(other)}")
 
-  private def boolField(fields: Map[String, Value], name: String, default: Boolean): Boolean =
+  private def boolField(fields: Map[String, PluginValue], name: String, default: Boolean): Boolean =
     fields.get(name) match
-      case Some(Value.BoolV(v)) => v
+      case Some(Bool(v)) => v
       case None                 => default
-      case Some(other)          => throw InterpretError(s"ContentToolkitOptions.$name: expected Boolean, got ${Value.show(other)}")
+      case Some(other)          => PluginError.raise(s"ContentToolkitOptions.$name: expected Boolean, got ${PluginValue.showAny(other)}")
 
-  private def intField(fields: Map[String, Value], name: String, default: Int): Int =
+  private def intField(fields: Map[String, PluginValue], name: String, default: Int): Int =
     fields.get(name) match
-      case Some(Value.IntV(v)) => v.toInt
+      case Some(Num(v)) => v.toInt
       case None                => default
-      case Some(other)         => throw InterpretError(s"ContentToolkitOptions.$name: expected Int, got ${Value.show(other)}")
+      case Some(other)         => PluginError.raise(s"ContentToolkitOptions.$name: expected Int, got ${PluginValue.showAny(other)}")
 
-  private def contentValueMapField(value: Option[Value]): Map[String, ast.ContentValue] =
+  private def contentValueMapField(value: Option[PluginValue]): Map[String, ast.ContentValue] =
     value match
-      case None | Some(Value.NullV) => Map.empty
-      case Some(inst: Value.InstanceV) if inst.typeName == "MapV" =>
+      case None | Some(PluginValue.nullV) => Map.empty
+      case Some(InstAny(inst)) if inst.typeNameOf.contains("MapV") =>
         astContentValueMapEntries(inst, "ContentToolkitOptions.bindings")
       case Some(other) =>
-        throw InterpretError(s"ContentToolkitOptions.bindings: expected ContentValue.MapV, got ${Value.show(other)}")
+        PluginError.raise(s"ContentToolkitOptions.bindings: expected ContentValue.MapV, got ${PluginValue.showAny(other)}")
 
-  private def astContentValueMapEntries(value: Value, context: String): Map[String, ast.ContentValue] =
+  private def astContentValueMapEntries(value: PluginValue, context: String): Map[String, ast.ContentValue] =
     value match
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
-        bindField(inst.effectiveFields, "values", s"$context.values") match
-          case Value.MapV(entries) =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
+        bindField(inst.fields, "values", s"$context.values") match
+          case MapVal(entries) =>
             entries.map {
-              case (Value.StringV(key), value) => key -> astContentValue(value, s"$context.$key")
-              case (key, _) => throw InterpretError(s"$context expected string keys, got ${Value.show(key)}")
+              case (Str(key), value) => key -> astContentValue(value, s"$context.$key")
+              case (key, _) => PluginError.raise(s"$context expected string keys, got ${PluginValue.showAny(key)}")
             }
           case other =>
-            throw InterpretError(s"$context.values expected Map, got ${Value.show(other)}")
+            PluginError.raise(s"$context.values expected Map, got ${PluginValue.showAny(other)}")
       case other =>
-        throw InterpretError(s"$context expected ContentValue.MapV, got ${Value.show(other)}")
+        PluginError.raise(s"$context expected ContentValue.MapV, got ${PluginValue.showAny(other)}")
 
-  private def astContentValue(value: Value, context: String): ast.ContentValue =
+  private def astContentValue(value: PluginValue, context: String): ast.ContentValue =
     value match
-      case inst: Value.InstanceV if inst.typeName == "Str" =>
-        ast.ContentValue.Str(bindString(bindField(inst.effectiveFields, "value", s"$context.value"), s"$context.value"))
-      case inst: Value.InstanceV if inst.typeName == "Bool" =>
-        ast.ContentValue.Bool(bindBool(bindField(inst.effectiveFields, "value", s"$context.value"), s"$context.value"))
-      case inst: Value.InstanceV if inst.typeName == "Num" =>
-        ast.ContentValue.Num(bindDouble(bindField(inst.effectiveFields, "value", s"$context.value"), s"$context.value"))
-      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("Str") =>
+        ast.ContentValue.Str(bindString(bindField(inst.fields, "value", s"$context.value"), s"$context.value"))
+      case InstAny(inst) if inst.typeNameOf.contains("Bool") =>
+        ast.ContentValue.Bool(bindBool(bindField(inst.fields, "value", s"$context.value"), s"$context.value"))
+      case InstAny(inst) if inst.typeNameOf.contains("Num") =>
+        ast.ContentValue.Num(bindDouble(bindField(inst.fields, "value", s"$context.value"), s"$context.value"))
+      case InstAny(inst) if inst.typeNameOf.contains("NullV") =>
         ast.ContentValue.NullV
-      case inst: Value.InstanceV if inst.typeName == "ListV" =>
-        ast.ContentValue.ListV(bindList(bindField(inst.effectiveFields, "values", s"$context.values"), s"$context.values").map(astContentValue(_, context)))
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("ListV") =>
+        ast.ContentValue.ListV(bindList(bindField(inst.fields, "values", s"$context.values"), s"$context.values").map(astContentValue(_, context)))
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
         ast.ContentValue.MapV(astContentValueMapEntries(inst, context))
       case other =>
-        throw InterpretError(s"$context expected ContentValue, got ${Value.show(other)}")
+        PluginError.raise(s"$context expected ContentValue, got ${PluginValue.showAny(other)}")
 
-  private def instanceValue(typeName: String, fields: (String, Value)*): Value.InstanceV =
-    val inst = Value.InstanceV(typeName, fields.toMap)
-    inst.fieldNames = fields.map(_._1).toArray
-    inst.fieldsArr = fields.map(_._2).toArray
-    inst
+  private def instanceValue(typeName: String, fields: (String, PluginValue)*): PluginValue =
+    // Array-backed instance preserving field declaration order (consumers read fieldNames/fieldsArr).
+    PluginValue.orderedInstance(typeName, fields)
 
   // Build the toolkit env for a document/block/section: markdown signal defaults,
   // with code-registered computed signals (Scope B.5) merged in underneath (a
@@ -337,16 +335,16 @@ object ContentIntrinsics:
   private def toolkitEnvFor(ctx: PluginContext, base: ToolkitUiEnv, options: ToolkitOptions): ToolkitUiEnv =
     // Closure to build a typed DataColumn from a registered column-builder native
     // (Scope B.2) — captures ctx so toolkitControl can construct inline columns.
-    val buildColumn: (String, List[Any]) => Value = (name, args) =>
+    val buildColumn: (String, List[Any]) => PluginValue = (name, args) =>
       ctx.resolveGlobal(name) match
-        case Some(fn) => ctx.invokeCallback(fn, args).asInstanceOf[Value]
-        case None     => throw InterpretError(
+        case Some(fn) => ctx.invokeCallback(fn, args).asInstanceOf[PluginValue]
+        case None     => PluginError.raise(
           s"contentToolkitNode: table column builder '$name' is not available — import it from std/ui/data (fcol/mcol/scol/dcol/lcol)")
     base.copy(signals = options.computed ++ base.signals,
               actions = options.actions, rowBindings = options.rowBindings,
               buildColumn = Some(buildColumn))
 
-  private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
+  private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): PluginValue =
     val env = toolkitEnvFor(ctx, toolkitMarkdownEnv(doc), options)
     val children =
       doc.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
@@ -354,23 +352,23 @@ object ContentIntrinsics:
     val body = vstackNode(options.sectionGap, children)
     if options.wrapDocumentInCard then cardNode(List(body)) else body
 
-  private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
+  private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): PluginValue =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
         toolkitBlockNode(ctx, doc, block, options, toolkitEnvFor(ctx, toolkitMarkdownEnv(block), options))
       case Nil =>
-        throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
+        PluginError.raise(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
-        throw InterpretError(s"contentToolkitBlock: duplicate block id '$id'")
+        PluginError.raise(s"contentToolkitBlock: duplicate block id '$id'")
 
-  private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
+  private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): PluginValue =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
         toolkitSectionNode(ctx, doc, section, options, toolkitEnvFor(ctx, toolkitMarkdownEnv(section), options), topLevel = true)
       case Nil =>
-        throw InterpretError(s"contentToolkitSection: no section with id '$id'")
+        PluginError.raise(s"contentToolkitSection: no section with id '$id'")
       case _ =>
-        throw InterpretError(s"contentToolkitSection: duplicate section id '$id'")
+        PluginError.raise(s"contentToolkitSection: duplicate section id '$id'")
 
   private def blocksDeep(doc: ast.DocumentContent): List[ast.ContentBlock] =
     doc.blocks.flatMap(block => blocksDeep(block)) ++
@@ -416,18 +414,18 @@ object ContentIntrinsics:
     sectionsDeep(doc).filter(_.id == id) match
       case Nil           => None
       case section :: Nil => Some(section)
-      case _             => throw InterpretError(s"contentSection: duplicate section id '$id'")
+      case _             => PluginError.raise(s"contentSection: duplicate section id '$id'")
 
   private def contentBlockById(doc: ast.DocumentContent, id: String): Option[ast.ContentBlock] =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case Nil          => None
       case block :: Nil => Some(block)
-      case _            => throw InterpretError(s"contentBlock: duplicate block id '$id'")
+      case _            => PluginError.raise(s"contentBlock: duplicate block id '$id'")
 
   private def componentRenderer(
       attrs: Map[String, ast.ContentValue],
       options: ToolkitOptions
-  ): Option[(String, Value)] =
+  ): Option[(String, PluginValue)] =
     contentStringAttr(attrs, "component").flatMap(name => options.components.get(name).map(name -> _))
 
   private def contentDataById(doc: ast.DocumentContent, id: String): Option[ast.ContentValue] =
@@ -439,7 +437,7 @@ object ContentIntrinsics:
     matches match
       case Nil          => None
       case value :: Nil => value
-      case _            => throw InterpretError(s"contentData: duplicate structured data id '$id'")
+      case _            => PluginError.raise(s"contentData: duplicate structured data id '$id'")
 
   private def contentMetadataPath(doc: ast.DocumentContent, path: String): Option[ast.ContentValue] =
     val segments = contentMetadataSegments(path)
@@ -463,7 +461,7 @@ object ContentIntrinsics:
   private def contentMetadataSegments(path: String): List[String] =
     val trimmed = path.trim
     if trimmed.isEmpty || trimmed.startsWith(".") || trimmed.endsWith(".") || trimmed.contains("..") then
-      throw InterpretError("contentMetadata: path must be non-empty dot-separated segments")
+      PluginError.raise("contentMetadata: path must be non-empty dot-separated segments")
     trimmed.split("\\.").toList
 
   private def resolvedComponentData(
@@ -475,35 +473,35 @@ object ContentIntrinsics:
       case Some(id) => contentDataById(doc, id)
       case None     => fallback
 
-  private def renderComponent(ctx: PluginContext, name: String, render: Value, context: Value): Value =
+  private def renderComponent(ctx: PluginContext, name: String, render: PluginValue, context: PluginValue): PluginValue =
     ctx.invokeCallback(render, List(context)) match
-      case value: Value => value
+      case value if PluginValue.isRuntimeValue(value) => PluginValue.wrap(value)
       case other =>
-        throw InterpretError(s"contentToolkitNode: component '$name' returned non-value $other")
+        PluginError.raise(s"contentToolkitNode: component '$name' returned non-value $other")
 
-  private def sectionComponentContext(name: String, doc: ast.DocumentContent, section: ast.SectionContent): Value =
+  private def sectionComponentContext(name: String, doc: ast.DocumentContent, section: ast.SectionContent): PluginValue =
     instanceValue("ContentComponentContext",
-      "name"    -> Value.StringV(name),
-      "kind"    -> Value.StringV("section"),
-      "id"      -> Value.StringV(section.id),
+      "name"    -> PluginValue.string(name),
+      "kind"    -> PluginValue.string("section"),
+      "id"      -> PluginValue.string(section.id),
       "title"   -> optionString(Some(section.title)),
       "attrs"   -> attrsValue(section.attrs),
-      "section" -> Value.optionV(Some(sectionValue(section))),
-      "block"   -> Value.optionV(None),
-      "data"    -> Value.optionV(resolvedComponentData(doc, section.attrs, fallback = None).map(contentValue))
+      "section" -> PluginValue.option(Some(sectionValue(section))),
+      "block"   -> PluginValue.option(None),
+      "data"    -> PluginValue.option(resolvedComponentData(doc, section.attrs, fallback = None).map(contentValue))
     )
 
-  private def blockComponentContext(name: String, doc: ast.DocumentContent, block: ast.ContentBlock): Value =
+  private def blockComponentContext(name: String, doc: ast.DocumentContent, block: ast.ContentBlock): PluginValue =
     val attrs = blockAttrs(block)
     instanceValue("ContentComponentContext",
-      "name"    -> Value.StringV(name),
-      "kind"    -> Value.StringV("block"),
-      "id"      -> Value.StringV(blockId(block).getOrElse("")),
+      "name"    -> PluginValue.string(name),
+      "kind"    -> PluginValue.string("block"),
+      "id"      -> PluginValue.string(blockId(block).getOrElse("")),
       "title"   -> optionString(None),
       "attrs"   -> attrsValue(attrs),
-      "section" -> Value.optionV(None),
-      "block"   -> Value.optionV(Some(blockValue(block))),
-      "data"    -> Value.optionV(resolvedComponentData(doc, attrs, blockData(block)).map(contentValue))
+      "section" -> PluginValue.option(None),
+      "block"   -> PluginValue.option(Some(blockValue(block))),
+      "data"    -> PluginValue.option(resolvedComponentData(doc, attrs, blockData(block)).map(contentValue))
     )
 
   private def blockData(block: ast.ContentBlock): Option[ast.ContentValue] =
@@ -518,7 +516,7 @@ object ContentIntrinsics:
       options: ToolkitOptions,
       env: ToolkitUiEnv,
       topLevel: Boolean
-  ): Value =
+  ): PluginValue =
     componentRenderer(section.attrs, options) match
       case Some((name, render)) =>
         return renderComponent(ctx, name, render, sectionComponentContext(name, doc, section))
@@ -536,7 +534,7 @@ object ContentIntrinsics:
       block: ast.ContentBlock,
       options: ToolkitOptions,
       env: ToolkitUiEnv
-  ): Value =
+  ): PluginValue =
     componentRenderer(blockAttrs(block), options) match
       case Some((name, render)) =>
         return renderComponent(ctx, name, render, blockComponentContext(name, doc, block))
@@ -567,7 +565,7 @@ object ContentIntrinsics:
         data match
           case Some(value) => toolkitUiNode(value, options, env)
           case None =>
-            throw InterpretError("contentToolkitNode: @ui=toolkit requires a structured YAML/JSON/TOML block")
+            PluginError.raise("contentToolkitNode: @ui=toolkit requires a structured YAML/JSON/TOML block")
       case ast.ContentBlock.Embedded(lang, source, _, _, _) =>
         if options.includeCode then
           val label = if lang.isEmpty then "" else s"$lang\n"
@@ -578,29 +576,29 @@ object ContentIntrinsics:
     attrs.get("ui").contains(ast.ContentValue.Str("toolkit")) &&
       Set("yaml", "yml", "json", "toml").contains(lang)
 
-  private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions, baseEnv: ToolkitUiEnv): Value =
+  private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions, baseEnv: ToolkitUiEnv): PluginValue =
     val root = contentMap(value, "@ui=toolkit")
     val signals = root.get("signals").map(toolkitSignals).getOrElse(Map.empty)
     val env = ToolkitUiEnv(baseEnv.signals ++ signals, baseEnv.actions, baseEnv.rowBindings, baseEnv.buildColumn)
     root.get("controls")
       .orElse(root.get("control"))
       .map(toolkitControl(_, env, options))
-      .getOrElse(throw InterpretError("contentToolkitNode: @ui=toolkit block requires controls"))
+      .getOrElse(PluginError.raise("contentToolkitNode: @ui=toolkit block requires controls"))
 
   private def toolkitMarkdownEnv(doc: ast.DocumentContent): ToolkitUiEnv =
-    ToolkitUiEnv(markdownToolkitSignalDefaults(doc).foldLeft(Map.empty[String, Value]) {
+    ToolkitUiEnv(markdownToolkitSignalDefaults(doc).foldLeft(Map.empty[String, PluginValue]) {
       case (acc, (name, initial)) =>
         if acc.contains(name) then acc else acc.updated(name, reactiveSignal(name, initial))
     })
 
   private def toolkitMarkdownEnv(section: ast.SectionContent): ToolkitUiEnv =
-    ToolkitUiEnv(markdownToolkitSignalDefaults(section).foldLeft(Map.empty[String, Value]) {
+    ToolkitUiEnv(markdownToolkitSignalDefaults(section).foldLeft(Map.empty[String, PluginValue]) {
       case (acc, (name, initial)) =>
         if acc.contains(name) then acc else acc.updated(name, reactiveSignal(name, initial))
     })
 
   private def toolkitMarkdownEnv(block: ast.ContentBlock): ToolkitUiEnv =
-    ToolkitUiEnv(markdownToolkitSignalDefaults(block).foldLeft(Map.empty[String, Value]) {
+    ToolkitUiEnv(markdownToolkitSignalDefaults(block).foldLeft(Map.empty[String, PluginValue]) {
       case (acc, (name, initial)) =>
         if acc.contains(name) then acc else acc.updated(name, reactiveSignal(name, initial))
     })
@@ -635,7 +633,7 @@ object ContentIntrinsics:
       case _ =>
         None
 
-  private def toolkitListItemNode(item: List[ast.ContentBlock], env: ToolkitUiEnv): Option[Value] =
+  private def toolkitListItemNode(item: List[ast.ContentBlock], env: ToolkitUiEnv): Option[PluginValue] =
     item match
       case ast.ContentBlock.Paragraph(inlines, _) :: Nil =>
         singleToolkitLink(inlines).map(toolkitLinkNode(_, env))
@@ -649,7 +647,7 @@ object ContentIntrinsics:
       if question < 0 then (raw, "")
       else (raw.take(question), raw.drop(question + 1))
     val kind = normalizeControlKind(urlDecode(kindPart))
-    if kind.isEmpty then throw InterpretError("contentToolkitNode: toolkit link requires a control kind")
+    if kind.isEmpty then PluginError.raise("contentToolkitNode: toolkit link requires a control kind")
     val query =
       if queryPart.isEmpty then Map.empty[String, String]
       else queryPart.split("&").toList.filter(_.nonEmpty).map { pair =>
@@ -680,7 +678,7 @@ object ContentIntrinsics:
       name -> initial
     }
 
-  private def toolkitLinkNode(link: ToolkitLink, env: ToolkitUiEnv): Value =
+  private def toolkitLinkNode(link: ToolkitLink, env: ToolkitUiEnv): PluginValue =
     link.kind match
       case "textfield" | "input" =>
         textFieldNode(
@@ -703,7 +701,7 @@ object ContentIntrinsics:
         // it, the button sets a local signal (`signal=`) as before.
         link.query.get("action") match
           case Some(actionId) =>
-            val handler = env.actions.getOrElse(actionId, throw InterpretError(
+            val handler = env.actions.getOrElse(actionId, PluginError.raise(
               s"contentToolkitNode: toolkit:button action '$actionId' is not registered " +
               s"(available: ${if env.actions.isEmpty then "<none>" else env.actions.keys.toList.sorted.mkString(", ")})"))
             link.query.get("enabledWhen") match
@@ -737,33 +735,33 @@ object ContentIntrinsics:
         // `rows=<id>` binds a live DataTable whose row source is a runtime signal
         // registered under <id> in rowBindings (3b), mirroring the action registry.
         val regionId = requiredToolkitQuery(link, "rows")
-        val binding = env.rowBindings.getOrElse(regionId, throw InterpretError(
+        val binding = env.rowBindings.getOrElse(regionId, PluginError.raise(
           s"contentToolkitNode: toolkit:table rows '$regionId' is not registered " +
           s"(available: ${if env.rowBindings.isEmpty then "<none>" else env.rowBindings.keys.toList.sorted.mkString(", ")})"))
         rowBindingDataTable(regionId, binding)
       case other =>
-        throw InterpretError(s"contentToolkitNode: unsupported toolkit link control '$other'")
+        PluginError.raise(s"contentToolkitNode: unsupported toolkit link control '$other'")
 
   // rowBindingDataTable — turn a registered ContentRowBinding into a DataTableNode.
   // Reuses the existing DataTableNode lowering (web <table> / Swing JTable); the
   // signal + field-columns + per-row actions pass through opaquely as Values.
-  private def rowBindingDataTable(regionId: String, binding: Value, overrideColumns: Option[Value] = None): Value =
+  private def rowBindingDataTable(regionId: String, binding: PluginValue, overrideColumns: Option[PluginValue] = None): PluginValue =
     val fields = binding match
-      case inst: Value.InstanceV if inst.typeName == "ContentRowBinding" => inst.effectiveFields
-      case other => throw InterpretError(
-        s"contentToolkitNode: toolkit:table rows '$regionId' expected a ContentRowBinding, got ${Value.show(other)}")
-    val rows = fields.getOrElse("rows", throw InterpretError(
+      case InstAny(inst) if inst.typeNameOf.contains("ContentRowBinding") => inst.fields
+      case other => PluginError.raise(
+        s"contentToolkitNode: toolkit:table rows '$regionId' expected a ContentRowBinding, got ${PluginValue.showAny(other)}")
+    val rows = fields.getOrElse("rows", PluginError.raise(
       s"contentToolkitNode: ContentRowBinding('$regionId').rows is required"))
     // Inline YAML `columns:` (Scope B.2) override the registered columns for this
     // table; otherwise the ContentRowBinding's registered columns are used.
     val columns = overrideColumns.getOrElse(fields.get("columns") match
-      case Some(cols: Value.ListV) => cols
-      case Some(other) => throw InterpretError(
-        s"contentToolkitNode: ContentRowBinding('$regionId').columns expected a List, got ${Value.show(other)}")
-      case None => Value.ListV(Nil))
+      case Some(cols) if cols.asList.isDefined => cols
+      case Some(other) => PluginError.raise(
+        s"contentToolkitNode: ContentRowBinding('$regionId').columns expected a List, got ${PluginValue.showAny(other)}")
+      case None => PluginValue.list(Nil))
     val actions = fields.get("actions") match
-      case Some(acts: Value.ListV) => acts
-      case _                       => Value.ListV(Nil)
+      case Some(acts) if acts.asList.isDefined => acts
+      case _                       => PluginValue.list(Nil)
     instanceValue("DataTableNode",
       "signal"  -> rows,
       "columns" -> columns,
@@ -772,19 +770,19 @@ object ContentIntrinsics:
   // Build typed DataColumns from an inline YAML `columns:` list (Scope B.2) by
   // invoking the registered column-builder natives via env.buildColumn, so the
   // author can declare columns at the call site instead of only in code.
-  private def toolkitInlineColumns(columnsValue: ast.ContentValue, env: ToolkitUiEnv): Value =
-    val build = env.buildColumn.getOrElse(throw InterpretError(
+  private def toolkitInlineColumns(columnsValue: ast.ContentValue, env: ToolkitUiEnv): PluginValue =
+    val build = env.buildColumn.getOrElse(PluginError.raise(
       "contentToolkitNode: inline table columns require a render context"))
     val specs = columnsValue match
       case ast.ContentValue.ListV(items) => items
-      case other => throw InterpretError(
+      case other => PluginError.raise(
         s"contentToolkitNode: table columns expected a list, got ${contentValueKind(other)}")
-    Value.ListV(specs.map { spec =>
+    PluginValue.list(specs.map { spec =>
       val cf    = contentMap(spec, "table column")
       val label = firstContentString(cf, "label", "title").getOrElse(
-        throw InterpretError("contentToolkitNode: table column requires a label"))
+        PluginError.raise("contentToolkitNode: table column requires a label"))
       val path  = firstContentString(cf, "path", "fieldPath").getOrElse(
-        throw InterpretError("contentToolkitNode: table column requires a path"))
+        PluginError.raise("contentToolkitNode: table column requires a path"))
       val align = contentStringField(cf, "align", "")
       normalizeControlKind(contentStringField(cf, "kind", "text")) match
         case "text" | "" => build("fieldColumn",  List(label, path, align))
@@ -792,22 +790,22 @@ object ContentIntrinsics:
         case "money"     => build("moneyColumn",  List(label, path, align, contentStringField(cf, "currency", "USD"), contentStringField(cf, "locale", "")))
         case "status"    => build("statusColumn", List(label, path, align, toolkitColorMap(cf)))
         case "link"      => build("linkColumn",   List(label, path, align, contentStringField(cf, "url", "")))
-        case other       => throw InterpretError(s"contentToolkitNode: unknown table column kind '$other'")
+        case other       => PluginError.raise(s"contentToolkitNode: unknown table column kind '$other'")
     })
 
   // colors: {open: green, blocked: red} → Value.MapV for statusColumn; null if absent.
   private def toolkitColorMap(cf: Map[String, ast.ContentValue]): Any =
     cf.get("colors") match
       case Some(ast.ContentValue.MapV(entries)) =>
-        Value.MapV(entries.collect { case (k, ast.ContentValue.Str(v)) => Value.StringV(k) -> Value.StringV(v) })
-      case _ => Value.NullV
+        PluginValue.mapOf(entries.collect { case (k, ast.ContentValue.Str(v)) => PluginValue.string(k) -> PluginValue.string(v) })
+      case _ => PluginValue.nullV
 
   private def toolkitLinkLabel(link: ToolkitLink): String =
     link.query.getOrElse("label", link.label)
 
   private def requiredToolkitQuery(link: ToolkitLink, name: String): String =
     link.query.get(name).filter(_.nonEmpty)
-      .getOrElse(throw InterpretError(s"contentToolkitNode: toolkit:${link.kind} requires $name"))
+      .getOrElse(PluginError.raise(s"contentToolkitNode: toolkit:${link.kind} requires $name"))
 
   private def toolkitLinkBool(link: ToolkitLink, name: String, default: Boolean): Boolean =
     toolkitLinkBoolValue(link, name).getOrElse(default)
@@ -817,34 +815,34 @@ object ContentIntrinsics:
       case "true"  => true
       case "false" => false
       case other =>
-        throw InterpretError(s"contentToolkitNode: toolkit:${link.kind} $name expected true or false, got '$other'")
+        PluginError.raise(s"contentToolkitNode: toolkit:${link.kind} $name expected true or false, got '$other'")
     }
 
-  private def toolkitLinkLiteral(value: String): Value =
+  private def toolkitLinkLiteral(value: String): PluginValue =
     value match
-      case "true"  => Value.boolV(true)
-      case "false" => Value.boolV(false)
-      case other   => Value.StringV(other)
+      case "true"  => PluginValue.bool(true)
+      case "false" => PluginValue.bool(false)
+      case other   => PluginValue.string(other)
 
-  private def toolkitSignals(value: ast.ContentValue): Map[String, Value] =
+  private def toolkitSignals(value: ast.ContentValue): Map[String, PluginValue] =
     contentMap(value, "signals").map { case (name, initial) =>
       name -> reactiveSignal(name, initial)
     }
 
-  private def reactiveSignal(name: String, value: ast.ContentValue): Value =
+  private def reactiveSignal(name: String, value: ast.ContentValue): PluginValue =
     value match
-      case ast.ContentValue.Str(v)  => Value.Foreign("ReactiveSignal", new ReactiveSignal[String](name, v))
-      case ast.ContentValue.Bool(v) => Value.Foreign("ReactiveSignal", new ReactiveSignal[Boolean](name, v))
+      case ast.ContentValue.Str(v)  => PluginValue.foreign("ReactiveSignal", new ReactiveSignal[String](name, v))
+      case ast.ContentValue.Bool(v) => PluginValue.foreign("ReactiveSignal", new ReactiveSignal[Boolean](name, v))
       case ast.ContentValue.Num(v) if isIntLike(v) =>
-        Value.Foreign("ReactiveSignal", new ReactiveSignal[Int](name, v.toInt))
+        PluginValue.foreign("ReactiveSignal", new ReactiveSignal[Int](name, v.toInt))
       case ast.ContentValue.Num(v) =>
-        Value.Foreign("ReactiveSignal", new ReactiveSignal[Double](name, v))
+        PluginValue.foreign("ReactiveSignal", new ReactiveSignal[Double](name, v))
       case ast.ContentValue.NullV =>
-        Value.Foreign("ReactiveSignal", new ReactiveSignal[String](name, ""))
+        PluginValue.foreign("ReactiveSignal", new ReactiveSignal[String](name, ""))
       case other =>
-        throw InterpretError(s"contentToolkitNode: signal '$name' default must be scalar, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: signal '$name' default must be scalar, got ${contentValueKind(other)}")
 
-  private def toolkitControl(value: ast.ContentValue, env: ToolkitUiEnv, options: ToolkitOptions): Value =
+  private def toolkitControl(value: ast.ContentValue, env: ToolkitUiEnv, options: ToolkitOptions): PluginValue =
     value match
       case ast.ContentValue.ListV(values) =>
         fragmentNode(values.map(toolkitControl(_, env, options)))
@@ -904,8 +902,8 @@ object ContentIntrinsics:
             // inline `columns:` (Scope B.2) declare typed columns at the call site,
             // overriding the registered columns.
             val regionId = firstContentString(fields, "source", "rows").getOrElse(
-              throw InterpretError("contentToolkitNode: table control requires source or rows"))
-            val binding = env.rowBindings.getOrElse(regionId, throw InterpretError(
+              PluginError.raise("contentToolkitNode: table control requires source or rows"))
+            val binding = env.rowBindings.getOrElse(regionId, PluginError.raise(
               s"contentToolkitNode: table source '$regionId' is not registered " +
               s"(available: ${if env.rowBindings.isEmpty then "<none>" else env.rowBindings.keys.toList.sorted.mkString(", ")})"))
             val inlineCols = fields.get("columns").map(toolkitInlineColumns(_, env))
@@ -917,28 +915,28 @@ object ContentIntrinsics:
             )
           case "card" =>
             cardNode(
-              optionalControlField(fields, env, options, "header").getOrElse(Value.NullV),
+              optionalControlField(fields, env, options, "header").getOrElse(PluginValue.nullV),
               toolkitChildren(fields, env, options),
-              optionalControlField(fields, env, options, "footer").getOrElse(Value.NullV)
+              optionalControlField(fields, env, options, "footer").getOrElse(PluginValue.nullV)
             )
           case "slot" =>
             // {type: slot, id: <id>} injects a code-built TkNode registered under
             // <id> in options.slots (Scope B.6) — the escape hatch.  Returned verbatim.
             val slotId = requiredContentString(fields, "id", "slot")
-            options.slots.getOrElse(slotId, throw InterpretError(
+            options.slots.getOrElse(slotId, PluginError.raise(
               s"contentToolkitNode: slot '$slotId' is not registered " +
               s"(available: ${if options.slots.isEmpty then "<none>" else options.slots.keys.toList.sorted.mkString(", ")})"))
           case otherKind =>
-            throw InterpretError(s"contentToolkitNode: unsupported control type '$otherKind'")
+            PluginError.raise(s"contentToolkitNode: unsupported control type '$otherKind'")
 
-  private def toolkitButton(fields: Map[String, ast.ContentValue], env: ToolkitUiEnv): Value =
+  private def toolkitButton(fields: Map[String, ast.ContentValue], env: ToolkitUiEnv): PluginValue =
     // {type: button, action: <id>} binds the button to a registered EventHandler
     // (a typed server write) — the YAML control-tree form of the
     // `toolkit:button?action=<id>` Markdown link (Scope B.1).  Without `action`,
     // the existing `signal`-bound button path is used unchanged.
     fields.get("action") match
       case Some(ast.ContentValue.Str(actionId)) =>
-        val handler = env.actions.getOrElse(actionId, throw InterpretError(
+        val handler = env.actions.getOrElse(actionId, PluginError.raise(
           s"contentToolkitNode: button action '$actionId' is not registered " +
           s"(available: ${if env.actions.isEmpty then "<none>" else env.actions.keys.toList.sorted.mkString(", ")})"))
         val label = contentStringField(fields, "label", "")
@@ -951,14 +949,14 @@ object ContentIntrinsics:
               actionButtonNode(handler, label, disabled = true)
             )
           case Some(other) =>
-            throw InterpretError(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
+            PluginError.raise(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
           case None =>
             actionButtonNode(handler, label, disabled)
       case Some(other) =>
-        throw InterpretError(s"contentToolkitNode: button.action expected String, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: button.action expected String, got ${contentValueKind(other)}")
       case None =>
         val signal = signalField(fields, env, "button", "signal")
-        val value = fields.get("value").map(contentLiteral).getOrElse(Value.boolV(true))
+        val value = fields.get("value").map(contentLiteral).getOrElse(PluginValue.bool(true))
         val label = contentStringField(fields, "label", "")
         fields.get("enabledWhen") match
           case Some(ast.ContentValue.Str(name)) =>
@@ -968,7 +966,7 @@ object ContentIntrinsics:
               signalButtonNode(signal, value, label, disabled = true)
             )
           case Some(other) =>
-            throw InterpretError(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
+            PluginError.raise(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
           case None =>
             signalButtonNode(signal, value, label, contentBoolField(fields, "disabled", default = false))
 
@@ -976,11 +974,11 @@ object ContentIntrinsics:
     fields: Map[String, ast.ContentValue],
     env: ToolkitUiEnv,
     options: ToolkitOptions
-  ): List[Value] =
+  ): List[PluginValue] =
     fields.get("children").orElse(fields.get("body")) match
       case Some(ast.ContentValue.ListV(values)) => values.map(toolkitControl(_, env, options))
       case Some(other) =>
-        throw InterpretError(s"contentToolkitNode: children expected List, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: children expected List, got ${contentValueKind(other)}")
       case None => Nil
 
   private def requiredControlField(
@@ -989,16 +987,16 @@ object ContentIntrinsics:
     options: ToolkitOptions,
     context: String,
     names: String*
-  ): Value =
+  ): PluginValue =
     optionalControlField(fields, env, options, names*)
-      .getOrElse(throw InterpretError(s"contentToolkitNode: $context requires ${names.mkString(" or ")}"))
+      .getOrElse(PluginError.raise(s"contentToolkitNode: $context requires ${names.mkString(" or ")}"))
 
   private def optionalControlField(
     fields: Map[String, ast.ContentValue],
     env: ToolkitUiEnv,
     options: ToolkitOptions,
     names: String*
-  ): Option[Value] =
+  ): Option[PluginValue] =
     names.iterator.flatMap(name => fields.get(name)).take(1).toList match
       case value :: Nil => Some(toolkitControl(value, env, options))
       case _            => None
@@ -1008,27 +1006,27 @@ object ContentIntrinsics:
     env: ToolkitUiEnv,
     context: String,
     names: String*
-  ): Value =
+  ): PluginValue =
     val name = names.iterator.flatMap(name => contentStringOption(fields, name)).take(1).toList match
       case value :: Nil => value
-      case _ => throw InterpretError(s"contentToolkitNode: $context requires ${names.mkString(" or ")}")
+      case _ => PluginError.raise(s"contentToolkitNode: $context requires ${names.mkString(" or ")}")
     signalRef(name, env, context)
 
-  private def signalRef(name: String, env: ToolkitUiEnv, context: String): Value =
+  private def signalRef(name: String, env: ToolkitUiEnv, context: String): PluginValue =
     env.signals.getOrElse(
       name,
-      throw InterpretError(s"contentToolkitNode: $context references unknown signal '$name'")
+      PluginError.raise(s"contentToolkitNode: $context references unknown signal '$name'")
     )
 
   private def contentMap(value: ast.ContentValue, context: String): Map[String, ast.ContentValue] =
     value match
       case ast.ContentValue.MapV(values) => values
       case other =>
-        throw InterpretError(s"contentToolkitNode: $context expected object, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: $context expected object, got ${contentValueKind(other)}")
 
   private def requiredContentString(fields: Map[String, ast.ContentValue], name: String, context: String): String =
     contentStringOption(fields, name)
-      .getOrElse(throw InterpretError(s"contentToolkitNode: $context requires $name"))
+      .getOrElse(PluginError.raise(s"contentToolkitNode: $context requires $name"))
 
   private def contentStringField(fields: Map[String, ast.ContentValue], name: String, default: String): String =
     contentStringOption(fields, name).getOrElse(default)
@@ -1040,32 +1038,32 @@ object ContentIntrinsics:
     fields.get(name) match
       case Some(ast.ContentValue.Str(v)) => Some(v)
       case Some(other) =>
-        throw InterpretError(s"contentToolkitNode: $name expected String, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: $name expected String, got ${contentValueKind(other)}")
       case None => None
 
   private def contentBoolField(fields: Map[String, ast.ContentValue], name: String, default: Boolean): Boolean =
     fields.get(name) match
       case Some(ast.ContentValue.Bool(v)) => v
       case Some(other) =>
-        throw InterpretError(s"contentToolkitNode: $name expected Boolean, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: $name expected Boolean, got ${contentValueKind(other)}")
       case None => default
 
   private def contentIntField(fields: Map[String, ast.ContentValue], name: String, default: Int): Int =
     fields.get(name) match
       case Some(ast.ContentValue.Num(v)) if isIntLike(v) => v.toInt
       case Some(other) =>
-        throw InterpretError(s"contentToolkitNode: $name expected Int, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: $name expected Int, got ${contentValueKind(other)}")
       case None => default
 
-  private def contentLiteral(value: ast.ContentValue): Value =
+  private def contentLiteral(value: ast.ContentValue): PluginValue =
     value match
-      case ast.ContentValue.Str(v)  => Value.StringV(v)
-      case ast.ContentValue.Bool(v) => Value.boolV(v)
-      case ast.ContentValue.Num(v) if isIntLike(v) => Value.intV(v.toLong)
-      case ast.ContentValue.Num(v)  => Value.doubleV(v)
-      case ast.ContentValue.NullV   => Value.NullV
+      case ast.ContentValue.Str(v)  => PluginValue.string(v)
+      case ast.ContentValue.Bool(v) => PluginValue.bool(v)
+      case ast.ContentValue.Num(v) if isIntLike(v) => PluginValue.int(v.toLong)
+      case ast.ContentValue.Num(v)  => PluginValue.double(v)
+      case ast.ContentValue.NullV   => PluginValue.nullV
       case other =>
-        throw InterpretError(s"contentToolkitNode: literal expected scalar, got ${contentValueKind(other)}")
+        PluginError.raise(s"contentToolkitNode: literal expected scalar, got ${contentValueKind(other)}")
 
   private def isIntLike(value: Double): Boolean =
     value.isWhole && value >= Int.MinValue.toDouble && value <= Int.MaxValue.toDouble
@@ -1118,64 +1116,64 @@ object ContentIntrinsics:
   private val contentBindPathPattern =
     "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$".r
 
-  private def contentBindRoot(value: Value): Map[String, Value] =
+  private def contentBindRoot(value: PluginValue): Map[String, PluginValue] =
     contentValueMapEntries(value, "contentBind: bindings expected ContentValue.MapV")
 
-  private def contentBindValue(value: Value, bindings: Map[String, Value]): Value =
+  private def contentBindValue(value: PluginValue, bindings: Map[String, PluginValue]): PluginValue =
     value match
-      case doc: Value.InstanceV if doc.typeName == "DocumentContent" =>
-        val fields = doc.effectiveFields
+      case InstAny(doc) if doc.typeNameOf.contains("DocumentContent") =>
+        val fields = doc.fields
         instanceValue("DocumentContent",
           "manifest"    -> bindField(fields, "manifest", "DocumentContent.manifest"),
           "title"       -> bindField(fields, "title", "DocumentContent.title"),
           "description" -> bindField(fields, "description", "DocumentContent.description"),
           "attrs"       -> bindField(fields, "attrs", "DocumentContent.attrs"),
-          "sections"    -> Value.ListV(bindList(bindField(fields, "sections", "DocumentContent.sections"), "DocumentContent.sections").map(contentBindSection(_, bindings))),
-          "blocks"      -> Value.ListV(bindList(bindField(fields, "blocks", "DocumentContent.blocks"), "DocumentContent.blocks").map(contentBindBlock(_, bindings)))
+          "sections"    -> PluginValue.list(bindList(bindField(fields, "sections", "DocumentContent.sections"), "DocumentContent.sections").map(contentBindSection(_, bindings))),
+          "blocks"      -> PluginValue.list(bindList(bindField(fields, "blocks", "DocumentContent.blocks"), "DocumentContent.blocks").map(contentBindBlock(_, bindings)))
         )
-      case section: Value.InstanceV if section.typeName == "SectionContent" =>
+      case InstAny(section) if section.typeNameOf.contains("SectionContent") =>
         contentBindSection(section, bindings)
-      case block: Value.InstanceV if contentBlockValueTypeNames.contains(block.typeName) =>
+      case InstAny(block) if contentBlockValueTypeNames.contains(block.typeNameOf.getOrElse("")) =>
         contentBindBlock(block, bindings)
       case other =>
-        throw InterpretError(s"contentBind: expected DocumentContent, SectionContent, or ContentBlock, got ${Value.show(other)}")
+        PluginError.raise(s"contentBind: expected DocumentContent, SectionContent, or ContentBlock, got ${PluginValue.showAny(other)}")
 
-  private def contentBindSection(value: Value, bindings: Map[String, Value]): Value =
+  private def contentBindSection(value: PluginValue, bindings: Map[String, PluginValue]): PluginValue =
     val section = value match
-      case inst: Value.InstanceV if inst.typeName == "SectionContent" => inst
-      case other => throw InterpretError(s"contentBind: expected SectionContent, got ${Value.show(other)}")
-    val fields = section.effectiveFields
+      case InstAny(inst) if inst.typeNameOf.contains("SectionContent") => inst
+      case other => PluginError.raise(s"contentBind: expected SectionContent, got ${PluginValue.showAny(other)}")
+    val fields = section.fields
     instanceValue("SectionContent",
       "id"       -> bindField(fields, "id", "SectionContent.id"),
       "level"    -> bindField(fields, "level", "SectionContent.level"),
       "title"    -> bindField(fields, "title", "SectionContent.title"),
       "attrs"    -> bindField(fields, "attrs", "SectionContent.attrs"),
-      "blocks"   -> Value.ListV(bindList(bindField(fields, "blocks", "SectionContent.blocks"), "SectionContent.blocks").map(contentBindBlock(_, bindings))),
-      "children" -> Value.ListV(bindList(bindField(fields, "children", "SectionContent.children"), "SectionContent.children").map(contentBindSection(_, bindings)))
+      "blocks"   -> PluginValue.list(bindList(bindField(fields, "blocks", "SectionContent.blocks"), "SectionContent.blocks").map(contentBindBlock(_, bindings))),
+      "children" -> PluginValue.list(bindList(bindField(fields, "children", "SectionContent.children"), "SectionContent.children").map(contentBindSection(_, bindings)))
     )
 
-  private def contentBindBlock(value: Value, bindings: Map[String, Value]): Value =
+  private def contentBindBlock(value: PluginValue, bindings: Map[String, PluginValue]): PluginValue =
     val block = value match
-      case inst: Value.InstanceV if contentBlockValueTypeNames.contains(inst.typeName) => inst
-      case other => throw InterpretError(s"contentBind: expected ContentBlock, got ${Value.show(other)}")
-    val fields = block.effectiveFields
-    block.typeName match
+      case InstAny(inst) if contentBlockValueTypeNames.contains(inst.typeNameOf.getOrElse("")) => inst
+      case other => PluginError.raise(s"contentBind: expected ContentBlock, got ${PluginValue.showAny(other)}")
+    val fields = block.fields
+    block.typeNameOf.getOrElse("") match
       case "Paragraph" =>
         instanceValue("Paragraph",
-          "inlines" -> Value.ListV(bindList(bindField(fields, "inlines", "Paragraph.inlines"), "Paragraph.inlines").map(contentBindInline(_, bindings))),
+          "inlines" -> PluginValue.list(bindList(bindField(fields, "inlines", "Paragraph.inlines"), "Paragraph.inlines").map(contentBindInline(_, bindings))),
           "attrs"   -> bindField(fields, "attrs", "Paragraph.attrs")
         )
       case "BulletList" =>
         instanceValue("BulletList",
-          "items" -> Value.ListV(bindList(bindField(fields, "items", "BulletList.items"), "BulletList.items").map(item =>
-            Value.ListV(bindList(item, "BulletList.items.item").map(contentBindBlock(_, bindings)))
+          "items" -> PluginValue.list(bindList(bindField(fields, "items", "BulletList.items"), "BulletList.items").map(item =>
+            PluginValue.list(bindList(item, "BulletList.items.item").map(contentBindBlock(_, bindings)))
           )),
           "attrs" -> bindField(fields, "attrs", "BulletList.attrs")
         )
       case "OrderedList" =>
         instanceValue("OrderedList",
-          "items" -> Value.ListV(bindList(bindField(fields, "items", "OrderedList.items"), "OrderedList.items").map(item =>
-            Value.ListV(bindList(item, "OrderedList.items.item").map(contentBindBlock(_, bindings)))
+          "items" -> PluginValue.list(bindList(bindField(fields, "items", "OrderedList.items"), "OrderedList.items").map(item =>
+            PluginValue.list(bindList(item, "OrderedList.items.item").map(contentBindBlock(_, bindings)))
           )),
           "start" -> bindField(fields, "start", "OrderedList.start"),
           "attrs" -> bindField(fields, "attrs", "OrderedList.attrs")
@@ -1189,12 +1187,12 @@ object ContentIntrinsics:
         )
       case "Table" =>
         instanceValue("Table",
-          "headers"    -> Value.ListV(bindList(bindField(fields, "headers", "Table.headers"), "Table.headers").map(cell =>
-            Value.ListV(bindList(cell, "Table.headers.cell").map(contentBindInline(_, bindings)))
+          "headers"    -> PluginValue.list(bindList(bindField(fields, "headers", "Table.headers"), "Table.headers").map(cell =>
+            PluginValue.list(bindList(cell, "Table.headers.cell").map(contentBindInline(_, bindings)))
           )),
-          "rows"       -> Value.ListV(bindList(bindField(fields, "rows", "Table.rows"), "Table.rows").map(row =>
-            Value.ListV(bindList(row, "Table.rows.row").map(cell =>
-              Value.ListV(bindList(cell, "Table.rows.cell").map(contentBindInline(_, bindings)))
+          "rows"       -> PluginValue.list(bindList(bindField(fields, "rows", "Table.rows"), "Table.rows").map(row =>
+            PluginValue.list(bindList(row, "Table.rows.row").map(cell =>
+              PluginValue.list(bindList(cell, "Table.rows.cell").map(contentBindInline(_, bindings)))
             ))
           )),
           "alignments" -> bindField(fields, "alignments", "Table.alignments"),
@@ -1209,41 +1207,41 @@ object ContentIntrinsics:
           "attrs"  -> bindField(fields, "attrs", "Embedded.attrs")
         )
       case other =>
-        throw InterpretError(s"contentBind: expected ContentBlock, got $other")
+        PluginError.raise(s"contentBind: expected ContentBlock, got $other")
 
-  private def contentBindInline(value: Value, bindings: Map[String, Value]): Value =
+  private def contentBindInline(value: PluginValue, bindings: Map[String, PluginValue]): PluginValue =
     val inline = value match
-      case inst: Value.InstanceV => inst
-      case other => throw InterpretError(s"contentBind: expected ContentInline, got ${Value.show(other)}")
-    val fields = inline.effectiveFields
-    inline.typeName match
+      case inst if PluginValue.isRuntimeValue(inst) => PluginValue.wrap(inst)
+      case other => PluginError.raise(s"contentBind: expected ContentInline, got ${PluginValue.showAny(other)}")
+    val fields = inline.fields
+    inline.typeNameOf.getOrElse("") match
       case "Text" =>
         value
       case "Emphasis" =>
         instanceValue("Emphasis",
-          "children" -> Value.ListV(bindList(bindField(fields, "children", "Emphasis.children"), "Emphasis.children").map(contentBindInline(_, bindings)))
+          "children" -> PluginValue.list(bindList(bindField(fields, "children", "Emphasis.children"), "Emphasis.children").map(contentBindInline(_, bindings)))
         )
       case "Strong" =>
         instanceValue("Strong",
-          "children" -> Value.ListV(bindList(bindField(fields, "children", "Strong.children"), "Strong.children").map(contentBindInline(_, bindings)))
+          "children" -> PluginValue.list(bindList(bindField(fields, "children", "Strong.children"), "Strong.children").map(contentBindInline(_, bindings)))
         )
       case "Code" =>
         value
       case "Link" =>
         instanceValue("Link",
-          "label" -> Value.ListV(bindList(bindField(fields, "label", "Link.label"), "Link.label").map(contentBindInline(_, bindings))),
+          "label" -> PluginValue.list(bindList(bindField(fields, "label", "Link.label"), "Link.label").map(contentBindInline(_, bindings))),
           "href"  -> bindField(fields, "href", "Link.href"),
           "title" -> bindField(fields, "title", "Link.title")
         )
       case "Expr" =>
         val source = bindString(bindField(fields, "source", "Expr.source"), "Expr.source")
         contentBindLookup(bindings, source)
-          .map(value => instanceValue("Text", "value" -> Value.StringV(contentValueText(value))))
+          .map(value => instanceValue("Text", "value" -> PluginValue.string(contentValueText(value))))
           .getOrElse(value)
       case other =>
-        throw InterpretError(s"contentBind: expected ContentInline, got $other")
+        PluginError.raise(s"contentBind: expected ContentInline, got $other")
 
-  private def contentBindLookup(bindings: Map[String, Value], source: String): Option[Value] =
+  private def contentBindLookup(bindings: Map[String, PluginValue], source: String): Option[PluginValue] =
     if contentBindPathPattern.pattern.matcher(source).matches then
       val segments = source.split("\\.").toList
       segments match
@@ -1251,12 +1249,12 @@ object ContentIntrinsics:
         case Nil          => None
     else None
 
-  private def contentBindLookup(value: Value, segments: List[String]): Option[Value] =
+  private def contentBindLookup(value: PluginValue, segments: List[String]): Option[PluginValue] =
     segments match
       case Nil => Some(value)
       case head :: tail =>
         value match
-          case inst: Value.InstanceV if inst.typeName == "MapV" =>
+          case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
             contentValueMapEntries(inst, "contentBind: nested binding expected ContentValue.MapV").get(head).flatMap(contentBindLookup(_, tail))
           case _ =>
             None
@@ -1334,85 +1332,85 @@ object ContentIntrinsics:
       case ast.ContentValue.MapV(vs)  =>
         vs.toList.sortBy(_._1).map { case (key, v) => s"$key: ${astContentValueText(v)}" }.mkString("{", ", ", "}")
 
-  private def contentValueText(value: Value): String =
+  private def contentValueText(value: PluginValue): String =
     value match
-      case inst: Value.InstanceV if inst.typeName == "Str" =>
-        bindString(bindField(inst.effectiveFields, "value", "ContentValue.Str.value"), "ContentValue.Str.value")
-      case inst: Value.InstanceV if inst.typeName == "Bool" =>
-        bindBool(bindField(inst.effectiveFields, "value", "ContentValue.Bool.value"), "ContentValue.Bool.value").toString
-      case inst: Value.InstanceV if inst.typeName == "Num" =>
-        numberString(bindDouble(bindField(inst.effectiveFields, "value", "ContentValue.Num.value"), "ContentValue.Num.value"))
-      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("Str") =>
+        bindString(bindField(inst.fields, "value", "ContentValue.Str.value"), "ContentValue.Str.value")
+      case InstAny(inst) if inst.typeNameOf.contains("Bool") =>
+        bindBool(bindField(inst.fields, "value", "ContentValue.Bool.value"), "ContentValue.Bool.value").toString
+      case InstAny(inst) if inst.typeNameOf.contains("Num") =>
+        numberString(bindDouble(bindField(inst.fields, "value", "ContentValue.Num.value"), "ContentValue.Num.value"))
+      case InstAny(inst) if inst.typeNameOf.contains("NullV") =>
         ""
-      case inst: Value.InstanceV if inst.typeName == "ListV" =>
-        bindList(bindField(inst.effectiveFields, "values", "ContentValue.ListV.values"), "ContentValue.ListV.values")
+      case InstAny(inst) if inst.typeNameOf.contains("ListV") =>
+        bindList(bindField(inst.fields, "values", "ContentValue.ListV.values"), "ContentValue.ListV.values")
           .map(contentValueText)
           .mkString(", ")
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
         contentValueMapEntries(inst, "ContentValue.MapV.values").toList.sortBy(_._1)
           .map { case (key, v) => s"$key: ${contentValueText(v)}" }
           .mkString("{", ", ", "}")
       case other =>
-        Value.show(other)
+        PluginValue.showAny(other)
 
-  private def contentValueMapEntries(value: Value, context: String): Map[String, Value] =
+  private def contentValueMapEntries(value: PluginValue, context: String): Map[String, PluginValue] =
     value match
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
-        bindField(inst.effectiveFields, "values", "ContentValue.MapV.values") match
-          case Value.MapV(entries) =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
+        bindField(inst.fields, "values", "ContentValue.MapV.values") match
+          case MapVal(entries) =>
             entries.map {
-              case (Value.StringV(key), value) => key -> value
-              case (key, _) => throw InterpretError(s"$context expected string keys, got ${Value.show(key)}")
+              case (Str(key), value) => key -> value
+              case (key, _) => PluginError.raise(s"$context expected string keys, got ${PluginValue.showAny(key)}")
             }
           case other =>
-            throw InterpretError(s"$context expected Map, got ${Value.show(other)}")
+            PluginError.raise(s"$context expected Map, got ${PluginValue.showAny(other)}")
       case other =>
-        throw InterpretError(s"$context, got ${Value.show(other)}")
+        PluginError.raise(s"$context, got ${PluginValue.showAny(other)}")
 
-  private def bindField(fields: Map[String, Value], name: String, context: String): Value =
-    fields.getOrElse(name, throw InterpretError(s"contentBind: missing $context"))
+  private def bindField(fields: Map[String, PluginValue], name: String, context: String): PluginValue =
+    fields.getOrElse(name, PluginError.raise(s"contentBind: missing $context"))
 
-  private def bindList(value: Value, context: String): List[Value] =
+  private def bindList(value: PluginValue, context: String): List[PluginValue] =
     value match
-      case Value.ListV(items) => items
-      case other             => throw InterpretError(s"contentBind: $context expected List, got ${Value.show(other)}")
+      case Lst(items) => items
+      case other             => PluginError.raise(s"contentBind: $context expected List, got ${PluginValue.showAny(other)}")
 
-  private def bindString(value: Value, context: String): String =
+  private def bindString(value: PluginValue, context: String): String =
     value match
-      case Value.StringV(v) => v
-      case other           => throw InterpretError(s"contentBind: $context expected String, got ${Value.show(other)}")
+      case Str(v) => v
+      case other           => PluginError.raise(s"contentBind: $context expected String, got ${PluginValue.showAny(other)}")
 
-  private def bindBool(value: Value, context: String): Boolean =
+  private def bindBool(value: PluginValue, context: String): Boolean =
     value match
-      case Value.BoolV(v) => v
-      case other          => throw InterpretError(s"contentBind: $context expected Boolean, got ${Value.show(other)}")
+      case Bool(v) => v
+      case other          => PluginError.raise(s"contentBind: $context expected Boolean, got ${PluginValue.showAny(other)}")
 
-  private def bindDouble(value: Value, context: String): Double =
+  private def bindDouble(value: PluginValue, context: String): Double =
     value match
-      case Value.DoubleV(v) => v
-      case Value.IntV(v)    => v.toDouble
-      case other            => throw InterpretError(s"contentBind: $context expected Number, got ${Value.show(other)}")
+      case Dbl(v) => v
+      case Num(v)    => v.toDouble
+      case other            => PluginError.raise(s"contentBind: $context expected Number, got ${PluginValue.showAny(other)}")
 
   private val contentBlockValueTypeNames: Set[String] =
     Set("Paragraph", "BulletList", "OrderedList", "Image", "Table", "Embedded")
 
   private def contentPlainTextAny(value: Any): String =
     value match
-      case v: Value => contentPlainTextValue(v)
+      case v if PluginValue.isRuntimeValue(v) => contentPlainTextValue(PluginValue.wrap(v))
       case other =>
-        throw InterpretError(s"contentPlainText: expected SectionContent or ContentBlock, got ${String.valueOf(other)}")
+        PluginError.raise(s"contentPlainText: expected SectionContent or ContentBlock, got ${String.valueOf(other)}")
 
-  private def contentPlainTextValue(value: Value): String =
+  private def contentPlainTextValue(value: PluginValue): String =
     value match
-      case section: Value.InstanceV if section.typeName == "SectionContent" =>
+      case InstAny(section) if section.typeNameOf.contains("SectionContent") =>
         sectionPlainText(section)
-      case block: Value.InstanceV if contentBlockValueTypeNames.contains(block.typeName) =>
+      case InstAny(block) if contentBlockValueTypeNames.contains(block.typeNameOf.getOrElse("")) =>
         blockPlainText(block)
       case other =>
-        throw InterpretError(s"contentPlainText: expected SectionContent or ContentBlock, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: expected SectionContent or ContentBlock, got ${PluginValue.showAny(other)}")
 
-  private def sectionPlainText(section: Value.InstanceV): String =
-    val fields = section.effectiveFields
+  private def sectionPlainText(section: PluginValue): String =
+    val fields = section.fields
     val title = requiredStringField(fields, "title", "SectionContent.title")
     val blocks = requiredListField(fields, "blocks", "SectionContent.blocks")
     val children = requiredListField(fields, "children", "SectionContent.children")
@@ -1422,47 +1420,47 @@ object ContentIntrinsics:
         children.map(child => sectionPlainText(requiredInstance(child, "SectionContent", "SectionContent.children")))
     fragments.filter(_.nonEmpty).mkString("\n")
 
-  private def blockPlainText(value: Value): String =
+  private def blockPlainText(value: PluginValue): String =
     value match
-      case block: Value.InstanceV if block.typeName == "Paragraph" =>
-        val inlines = requiredListField(block.effectiveFields, "inlines", "Paragraph.inlines")
+      case InstAny(block) if block.typeNameOf.contains("Paragraph") =>
+        val inlines = requiredListField(block.fields, "inlines", "Paragraph.inlines")
         inlinePlainText(inlines)
-      case block: Value.InstanceV if block.typeName == "BulletList" =>
-        val items = requiredListField(block.effectiveFields, "items", "BulletList.items")
+      case InstAny(block) if block.typeNameOf.contains("BulletList") =>
+        val items = requiredListField(block.fields, "items", "BulletList.items")
         items.map(item => "- " + blockListPlainText(item, "BulletList.items")).filter(_.trim.nonEmpty).mkString("\n")
-      case block: Value.InstanceV if block.typeName == "OrderedList" =>
-        val fields = block.effectiveFields
+      case InstAny(block) if block.typeNameOf.contains("OrderedList") =>
+        val fields = block.fields
         val start = requiredIntField(fields, "start", "OrderedList.start")
         val items = requiredListField(fields, "items", "OrderedList.items")
         items.zipWithIndex.map { case (item, idx) =>
           s"${start + idx}. ${blockListPlainText(item, "OrderedList.items")}"
         }.filter(_.trim.nonEmpty).mkString("\n")
-      case block: Value.InstanceV if block.typeName == "Image" =>
-        val fields = block.effectiveFields
+      case InstAny(block) if block.typeNameOf.contains("Image") =>
+        val fields = block.fields
         val src = requiredStringField(fields, "src", "Image.src")
         val alt = requiredStringField(fields, "alt", "Image.alt")
         if alt.isEmpty then src else alt
-      case block: Value.InstanceV if block.typeName == "Table" =>
-        val fields = block.effectiveFields
+      case InstAny(block) if block.typeNameOf.contains("Table") =>
+        val fields = block.fields
         val headers = requiredListField(fields, "headers", "Table.headers")
         val rows = requiredListField(fields, "rows", "Table.rows")
         tableValuePlainText(headers, rows)
-      case block: Value.InstanceV if block.typeName == "Embedded" =>
-        val fields = block.effectiveFields
+      case InstAny(block) if block.typeNameOf.contains("Embedded") =>
+        val fields = block.fields
         val lang = requiredStringField(fields, "lang", "Embedded.lang")
         val source = requiredStringField(fields, "source", "Embedded.source")
         if lang.isEmpty then source else s"$lang: $source"
       case other =>
-        throw InterpretError(s"contentPlainText: expected ContentBlock, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: expected ContentBlock, got ${PluginValue.showAny(other)}")
 
-  private def blockListPlainText(value: Value, context: String): String =
+  private def blockListPlainText(value: PluginValue, context: String): String =
     val blocks = value match
-      case Value.ListV(items) => items
+      case Lst(items) => items
       case other =>
-        throw InterpretError(s"contentPlainText: $context expected List[ContentBlock], got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: $context expected List[ContentBlock], got ${PluginValue.showAny(other)}")
     blocks.map(blockPlainText).filter(_.nonEmpty).mkString(" ")
 
-  private def tableValuePlainText(headers: List[Value], rows: List[Value]): String =
+  private def tableValuePlainText(headers: List[PluginValue], rows: List[PluginValue]): String =
     val header = headers.map(cell => inlinePlainText(requiredValueList(cell, "Table.headers"))).mkString(" | ")
     val bodyRows = rows.map(row =>
       requiredValueList(row, "Table.rows")
@@ -1471,87 +1469,87 @@ object ContentIntrinsics:
     )
     (header :: bodyRows).filter(_.trim.nonEmpty).mkString("\n")
 
-  private def inlinePlainText(values: List[Value]): String =
+  private def inlinePlainText(values: List[PluginValue]): String =
     values.map(inlinePlainText).mkString
 
-  private def inlinePlainText(value: Value): String =
+  private def inlinePlainText(value: PluginValue): String =
     value match
-      case inline: Value.InstanceV if inline.typeName == "Text" =>
-        requiredStringField(inline.effectiveFields, "value", "Text.value")
-      case inline: Value.InstanceV if inline.typeName == "Emphasis" =>
-        inlinePlainText(requiredListField(inline.effectiveFields, "children", "Emphasis.children"))
-      case inline: Value.InstanceV if inline.typeName == "Strong" =>
-        inlinePlainText(requiredListField(inline.effectiveFields, "children", "Strong.children"))
-      case inline: Value.InstanceV if inline.typeName == "Code" =>
-        s"`${requiredStringField(inline.effectiveFields, "value", "Code.value")}`"
-      case inline: Value.InstanceV if inline.typeName == "Link" =>
-        val fields = inline.effectiveFields
+      case InstAny(inline) if inline.typeNameOf.contains("Text") =>
+        requiredStringField(inline.fields, "value", "Text.value")
+      case InstAny(inline) if inline.typeNameOf.contains("Emphasis") =>
+        inlinePlainText(requiredListField(inline.fields, "children", "Emphasis.children"))
+      case InstAny(inline) if inline.typeNameOf.contains("Strong") =>
+        inlinePlainText(requiredListField(inline.fields, "children", "Strong.children"))
+      case InstAny(inline) if inline.typeNameOf.contains("Code") =>
+        s"`${requiredStringField(inline.fields, "value", "Code.value")}`"
+      case InstAny(inline) if inline.typeNameOf.contains("Link") =>
+        val fields = inline.fields
         inlinePlainText(requiredListField(fields, "label", "Link.label")) +
           s" (${requiredStringField(fields, "href", "Link.href")})"
-      case inline: Value.InstanceV if inline.typeName == "Expr" =>
-        "${" + requiredStringField(inline.effectiveFields, "source", "Expr.source") + "}"
+      case InstAny(inline) if inline.typeNameOf.contains("Expr") =>
+        "${" + requiredStringField(inline.fields, "source", "Expr.source") + "}"
       case other =>
-        throw InterpretError(s"contentPlainText: expected ContentInline, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: expected ContentInline, got ${PluginValue.showAny(other)}")
 
-  private def requiredInstance(value: Value, typeName: String, context: String): Value.InstanceV =
+  private def requiredInstance(value: PluginValue, typeName: String, context: String): PluginValue =
     value match
-      case inst: Value.InstanceV if inst.typeName == typeName => inst
+      case InstAny(inst) if inst.typeNameOf.getOrElse("") == typeName => inst
       case other =>
-        throw InterpretError(s"contentPlainText: $context expected $typeName, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: $context expected $typeName, got ${PluginValue.showAny(other)}")
 
-  private def requiredStringField(fields: Map[String, Value], name: String, context: String): String =
+  private def requiredStringField(fields: Map[String, PluginValue], name: String, context: String): String =
     fields.get(name) match
-      case Some(Value.StringV(value)) => value
+      case Some(Str(value)) => value
       case Some(other) =>
-        throw InterpretError(s"contentPlainText: $context expected String, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: $context expected String, got ${PluginValue.showAny(other)}")
       case None =>
-        throw InterpretError(s"contentPlainText: missing $context")
+        PluginError.raise(s"contentPlainText: missing $context")
 
-  private def requiredIntField(fields: Map[String, Value], name: String, context: String): Int =
+  private def requiredIntField(fields: Map[String, PluginValue], name: String, context: String): Int =
     fields.get(name) match
-      case Some(Value.IntV(value)) => value.toInt
+      case Some(Num(value)) => value.toInt
       case Some(other) =>
-        throw InterpretError(s"contentPlainText: $context expected Int, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: $context expected Int, got ${PluginValue.showAny(other)}")
       case None =>
-        throw InterpretError(s"contentPlainText: missing $context")
+        PluginError.raise(s"contentPlainText: missing $context")
 
-  private def requiredListField(fields: Map[String, Value], name: String, context: String): List[Value] =
+  private def requiredListField(fields: Map[String, PluginValue], name: String, context: String): List[PluginValue] =
     fields.get(name) match
-      case Some(Value.ListV(values)) => values
+      case Some(Lst(values)) => values
       case Some(other) =>
-        throw InterpretError(s"contentPlainText: $context expected List, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: $context expected List, got ${PluginValue.showAny(other)}")
       case None =>
-        throw InterpretError(s"contentPlainText: missing $context")
+        PluginError.raise(s"contentPlainText: missing $context")
 
-  private def requiredValueList(value: Value, context: String): List[Value] =
+  private def requiredValueList(value: PluginValue, context: String): List[PluginValue] =
     value match
-      case Value.ListV(values) => values
+      case Lst(values) => values
       case other =>
-        throw InterpretError(s"contentPlainText: $context expected List, got ${Value.show(other)}")
+        PluginError.raise(s"contentPlainText: $context expected List, got ${PluginValue.showAny(other)}")
 
   private def contentToMarkdownAny(value: Any): String =
     value match
-      case v: Value => contentMarkdownValue(v)
+      case v if PluginValue.isRuntimeValue(v) => contentMarkdownValue(PluginValue.wrap(v))
       case other =>
-        throw InterpretError(
+        PluginError.raise(
           s"contentToMarkdown: expected DocumentContent, SectionContent, or ContentBlock, got ${String.valueOf(other)}"
         )
 
-  private def contentMarkdownValue(value: Value): String =
+  private def contentMarkdownValue(value: PluginValue): String =
     value match
-      case doc: Value.InstanceV if doc.typeName == "DocumentContent" =>
+      case InstAny(doc) if doc.typeNameOf.contains("DocumentContent") =>
         documentMarkdown(doc)
-      case section: Value.InstanceV if section.typeName == "SectionContent" =>
+      case InstAny(section) if section.typeNameOf.contains("SectionContent") =>
         sectionMarkdown(section)
-      case block: Value.InstanceV if contentBlockValueTypeNames.contains(block.typeName) =>
+      case InstAny(block) if contentBlockValueTypeNames.contains(block.typeNameOf.getOrElse("")) =>
         blockMarkdown(block)
       case other =>
-        throw InterpretError(
-          s"contentToMarkdown: expected DocumentContent, SectionContent, or ContentBlock, got ${Value.show(other)}"
+        PluginError.raise(
+          s"contentToMarkdown: expected DocumentContent, SectionContent, or ContentBlock, got ${PluginValue.showAny(other)}"
         )
 
-  private def documentMarkdown(doc: Value.InstanceV): String =
-    val fields = doc.effectiveFields
+  private def documentMarkdown(doc: PluginValue): String =
+    val fields = doc.fields
     val frontMatter = fields.get("manifest").flatMap(manifestMarkdown).toList
     val blocks = mdListField(fields, "blocks", "DocumentContent.blocks").map(blockMarkdown)
     val sections = mdListField(fields, "sections", "DocumentContent.sections").map { value =>
@@ -1559,22 +1557,22 @@ object ContentIntrinsics:
     }
     (frontMatter ++ blocks ++ sections).filter(_.nonEmpty).mkString("\n\n")
 
-  private def manifestMarkdown(value: Value): Option[String] =
+  private def manifestMarkdown(value: PluginValue): Option[String] =
     value match
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
         val values = mdContentMapInstance(inst, "DocumentContent.manifest")
         if values.isEmpty then None
         else Some("---\n" + yamlMapLines(values, 0).mkString("\n") + "\n---")
-      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("NullV") =>
         None
       case other =>
         Some("---\nvalue: " + yamlScalar(other) + "\n---")
 
-  private def sectionMarkdown(section: Value.InstanceV): String =
-    val fields = section.effectiveFields
+  private def sectionMarkdown(section: PluginValue): String =
+    val fields = section.fields
     val level = clampHeadingLevel(mdIntField(fields, "level", "SectionContent.level"))
     val id = mdStringField(fields, "id", "SectionContent.id")
-    val title = inlineTextMarkdown(List(Value.InstanceV("Text", Map("value" -> Value.StringV(mdStringField(fields, "title", "SectionContent.title"))))))
+    val title = inlineTextMarkdown(List(PluginValue.instance("Text", Map("value" -> PluginValue.string(mdStringField(fields, "title", "SectionContent.title"))))))
     val attrs = mdContentValueMap(mdField(fields, "attrs", "SectionContent.attrs"), "SectionContent.attrs")
     val headingAttrs = headingAttrGroup(id, attrs)
     val heading = ("#" * level) + " " + title + headingAttrs
@@ -1584,57 +1582,57 @@ object ContentIntrinsics:
     }
     (heading :: (blocks ++ children)).filter(_.nonEmpty).mkString("\n\n")
 
-  private def blockMarkdown(value: Value): String =
+  private def blockMarkdown(value: PluginValue): String =
     val body = value match
-      case block: Value.InstanceV if block.typeName == "Paragraph" =>
-        inlineTextMarkdown(mdListField(block.effectiveFields, "inlines", "Paragraph.inlines"))
-      case block: Value.InstanceV if block.typeName == "BulletList" =>
-        val items = mdListField(block.effectiveFields, "items", "BulletList.items")
+      case InstAny(block) if block.typeNameOf.contains("Paragraph") =>
+        inlineTextMarkdown(mdListField(block.fields, "inlines", "Paragraph.inlines"))
+      case InstAny(block) if block.typeNameOf.contains("BulletList") =>
+        val items = mdListField(block.fields, "items", "BulletList.items")
         items.map(item => listItemMarkdown("- ", item, "BulletList.items")).mkString("\n")
-      case block: Value.InstanceV if block.typeName == "OrderedList" =>
-        val fields = block.effectiveFields
+      case InstAny(block) if block.typeNameOf.contains("OrderedList") =>
+        val fields = block.fields
         val start = mdIntField(fields, "start", "OrderedList.start")
         mdListField(fields, "items", "OrderedList.items").zipWithIndex.map { case (item, idx) =>
           listItemMarkdown(s"${start + idx}. ", item, "OrderedList.items")
         }.mkString("\n")
-      case block: Value.InstanceV if block.typeName == "Image" =>
-        val fields = block.effectiveFields
-        val alt = inlineTextMarkdown(List(Value.InstanceV("Text", Map("value" -> Value.StringV(mdStringField(fields, "alt", "Image.alt"))))))
+      case InstAny(block) if block.typeNameOf.contains("Image") =>
+        val fields = block.fields
+        val alt = inlineTextMarkdown(List(PluginValue.instance("Text", Map("value" -> PluginValue.string(mdStringField(fields, "alt", "Image.alt"))))))
         val src = mdStringField(fields, "src", "Image.src")
         val title = mdOptionString(mdField(fields, "title", "Image.title"), "Image.title")
           .map(t => " " + quoteMarkdownAttr(t))
           .getOrElse("")
         s"![${alt}](${src}${title})"
-      case block: Value.InstanceV if block.typeName == "Table" =>
-        val fields = block.effectiveFields
+      case InstAny(block) if block.typeNameOf.contains("Table") =>
+        val fields = block.fields
         tableMarkdown(
           mdListField(fields, "headers", "Table.headers"),
           mdListField(fields, "rows", "Table.rows"),
           mdStringListField(fields, "alignments", "Table.alignments")
         )
-      case block: Value.InstanceV if block.typeName == "Embedded" =>
+      case InstAny(block) if block.typeNameOf.contains("Embedded") =>
         embeddedMarkdown(block)
       case other =>
-        throw InterpretError(s"contentToMarkdown: expected ContentBlock, got ${Value.show(other)}")
+        PluginError.raise(s"contentToMarkdown: expected ContentBlock, got ${PluginValue.showAny(other)}")
 
     value match
-      case block: Value.InstanceV if block.typeName != "Embedded" =>
-        val attrs = mdContentValueMap(mdField(block.effectiveFields, "attrs", s"${block.typeName}.attrs"), s"${block.typeName}.attrs")
+      case InstAny(block) if block.typeNameOf.getOrElse("") != "Embedded" =>
+        val attrs = mdContentValueMap(mdField(block.fields, "attrs", s"${block.typeNameOf.getOrElse("")}.attrs"), s"${block.typeNameOf.getOrElse("")}.attrs")
         metadataDirective(attrs).fold(body)(_ + "\n" + body)
       case _ =>
         body
 
-  private def listItemMarkdown(prefix: String, item: Value, context: String): String =
+  private def listItemMarkdown(prefix: String, item: PluginValue, context: String): String =
     val blocks = item match
-      case Value.ListV(values) => values
+      case Lst(values) => values
       case other =>
-        throw InterpretError(s"contentToMarkdown: $context expected List[ContentBlock], got ${Value.show(other)}")
+        PluginError.raise(s"contentToMarkdown: $context expected List[ContentBlock], got ${PluginValue.showAny(other)}")
     val body = blocks.map(blockMarkdown).filter(_.nonEmpty).mkString("\n\n")
     val lines = body.split("\n", -1).toList
     if body.isEmpty then prefix.trim
     else (prefix + lines.head) + lines.tail.map(line => "\n  " + line).mkString
 
-  private def tableMarkdown(headers: List[Value], rows: List[Value], alignments: List[String]): String =
+  private def tableMarkdown(headers: List[PluginValue], rows: List[PluginValue], alignments: List[String]): String =
     val headerCells = headers.map(cell => tableCellMarkdown(cell, "Table.headers"))
     val bodyRows = rows.map(row =>
       mdValueList(row, "Table.rows")
@@ -1646,7 +1644,7 @@ object ContentIntrinsics:
     val renderedRows = bodyRows.map(row => markdownTableRow(padStrings(row, colCount)))
     (markdownTableRow(paddedHeaders) :: markdownTableRow(separator) :: renderedRows).mkString("\n")
 
-  private def tableCellMarkdown(value: Value, context: String): String =
+  private def tableCellMarkdown(value: PluginValue, context: String): String =
     inlineTextMarkdown(mdValueList(value, context)).replace("\n", " ").replace("|", "\\|")
 
   private def padStrings(values: List[String], size: Int): List[String] =
@@ -1662,8 +1660,8 @@ object ContentIntrinsics:
       case "right"  => "---:"
       case _        => "---"
 
-  private def embeddedMarkdown(block: Value.InstanceV): String =
-    val fields = block.effectiveFields
+  private def embeddedMarkdown(block: PluginValue): String =
+    val fields = block.fields
     val lang = mdStringField(fields, "lang", "Embedded.lang")
     val source = mdStringField(fields, "source", "Embedded.source")
     val attrs = mdContentValueMap(mdField(fields, "attrs", "Embedded.attrs"), "Embedded.attrs")
@@ -1672,33 +1670,33 @@ object ContentIntrinsics:
     val body = if source.endsWith("\n") then source else source + "\n"
     if info.isEmpty then s"$fence\n$body$fence" else s"$fence$info\n$body$fence"
 
-  private def inlineTextMarkdown(values: List[Value]): String =
+  private def inlineTextMarkdown(values: List[PluginValue]): String =
     values.map(inlineMarkdown).mkString
 
-  private def inlineMarkdown(value: Value): String =
+  private def inlineMarkdown(value: PluginValue): String =
     value match
-      case inline: Value.InstanceV if inline.typeName == "Text" =>
-        escapeMarkdownText(mdStringField(inline.effectiveFields, "value", "Text.value"))
-      case inline: Value.InstanceV if inline.typeName == "Emphasis" =>
-        "*" + inlineTextMarkdown(mdListField(inline.effectiveFields, "children", "Emphasis.children")) + "*"
-      case inline: Value.InstanceV if inline.typeName == "Strong" =>
-        "**" + inlineTextMarkdown(mdListField(inline.effectiveFields, "children", "Strong.children")) + "**"
-      case inline: Value.InstanceV if inline.typeName == "Code" =>
-        inlineCodeMarkdown(mdStringField(inline.effectiveFields, "value", "Code.value"))
-      case inline: Value.InstanceV if inline.typeName == "Link" =>
-        val fields = inline.effectiveFields
+      case InstAny(inline) if inline.typeNameOf.contains("Text") =>
+        escapeMarkdownText(mdStringField(inline.fields, "value", "Text.value"))
+      case InstAny(inline) if inline.typeNameOf.contains("Emphasis") =>
+        "*" + inlineTextMarkdown(mdListField(inline.fields, "children", "Emphasis.children")) + "*"
+      case InstAny(inline) if inline.typeNameOf.contains("Strong") =>
+        "**" + inlineTextMarkdown(mdListField(inline.fields, "children", "Strong.children")) + "**"
+      case InstAny(inline) if inline.typeNameOf.contains("Code") =>
+        inlineCodeMarkdown(mdStringField(inline.fields, "value", "Code.value"))
+      case InstAny(inline) if inline.typeNameOf.contains("Link") =>
+        val fields = inline.fields
         val label = inlineTextMarkdown(mdListField(fields, "label", "Link.label"))
         val href = mdStringField(fields, "href", "Link.href")
         val title = mdOptionString(mdField(fields, "title", "Link.title"), "Link.title")
           .map(t => " " + quoteMarkdownAttr(t))
           .getOrElse("")
         s"[$label]($href$title)"
-      case inline: Value.InstanceV if inline.typeName == "Expr" =>
-        "${" + mdStringField(inline.effectiveFields, "source", "Expr.source") + "}"
+      case InstAny(inline) if inline.typeNameOf.contains("Expr") =>
+        "${" + mdStringField(inline.fields, "source", "Expr.source") + "}"
       case other =>
-        throw InterpretError(s"contentToMarkdown: expected ContentInline, got ${Value.show(other)}")
+        PluginError.raise(s"contentToMarkdown: expected ContentInline, got ${PluginValue.showAny(other)}")
 
-  private def headingAttrGroup(id: String, attrs: Map[String, Value]): String =
+  private def headingAttrGroup(id: String, attrs: Map[String, PluginValue]): String =
     val tokens =
       (if id.nonEmpty then List("#" + id) else Nil) ++
         classTokens(attrs) ++
@@ -1707,12 +1705,12 @@ object ContentIntrinsics:
         }
     if tokens.isEmpty then "" else tokens.mkString(" {", " ", "}")
 
-  private def metadataDirective(attrs: Map[String, Value]): Option[String] =
+  private def metadataDirective(attrs: Map[String, PluginValue]): Option[String] =
     val tokens =
       attrs.toList.sortBy(_._1).flatMap { case (key, value) => attrToken(key, value, prefix = "") }
     if tokens.isEmpty then None else Some(tokens.mkString("<!-- @meta ", " ", " -->"))
 
-  private def fenceAttrTokens(attrs: Map[String, Value]): List[String] =
+  private def fenceAttrTokens(attrs: Map[String, PluginValue]): List[String] =
     val id = attrs.get("id").flatMap(value => attrToken("id", value, prefix = "@"))
     val rest =
       attrs.toList.filterNot(_._1 == "id").sortBy(_._1).flatMap { case (key, value) =>
@@ -1720,161 +1718,161 @@ object ContentIntrinsics:
       }
     id.toList ++ rest
 
-  private def classTokens(attrs: Map[String, Value]): List[String] =
+  private def classTokens(attrs: Map[String, PluginValue]): List[String] =
     attrs.get("class").collect {
-      case inst: Value.InstanceV if inst.typeName == "Str" =>
-        mdStringField(inst.effectiveFields, "value", "ContentValue.Str.value")
+      case InstAny(inst) if inst.typeNameOf.contains("Str") =>
+        mdStringField(inst.fields, "value", "ContentValue.Str.value")
           .split("\\s+")
           .toList
           .filter(_.nonEmpty)
           .map("." + _)
     }.getOrElse(Nil)
 
-  private def attrToken(key: String, value: Value, prefix: String): Option[String] =
+  private def attrToken(key: String, value: PluginValue, prefix: String): Option[String] =
     value match
-      case inst: Value.InstanceV if inst.typeName == "Bool" =>
-        val bool = mdBoolField(inst.effectiveFields, "value", "ContentValue.Bool.value")
+      case InstAny(inst) if inst.typeNameOf.contains("Bool") =>
+        val bool = mdBoolField(inst.fields, "value", "ContentValue.Bool.value")
         if prefix.isEmpty && bool then Some(key) else Some(s"$prefix$key=${bool.toString}")
-      case inst: Value.InstanceV if inst.typeName == "Str" =>
-        Some(s"$prefix$key=${attrScalar(mdStringField(inst.effectiveFields, "value", "ContentValue.Str.value"))}")
-      case inst: Value.InstanceV if inst.typeName == "Num" =>
-        Some(s"$prefix$key=${numberString(mdDoubleField(inst.effectiveFields, "value", "ContentValue.Num.value"))}")
-      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("Str") =>
+        Some(s"$prefix$key=${attrScalar(mdStringField(inst.fields, "value", "ContentValue.Str.value"))}")
+      case InstAny(inst) if inst.typeNameOf.contains("Num") =>
+        Some(s"$prefix$key=${numberString(mdDoubleField(inst.fields, "value", "ContentValue.Num.value"))}")
+      case InstAny(inst) if inst.typeNameOf.contains("NullV") =>
         Some(s"$prefix$key=null")
       case _ =>
         Some(s"$prefix$key=${attrScalar(yamlScalar(value))}")
 
-  private def yamlMapLines(values: Map[String, Value], indent: Int): List[String] =
+  private def yamlMapLines(values: Map[String, PluginValue], indent: Int): List[String] =
     values.toList.sortBy(_._1).flatMap { case (key, value) =>
       yamlKeyValueLines(key, value, indent)
     }
 
-  private def yamlKeyValueLines(key: String, value: Value, indent: Int): List[String] =
+  private def yamlKeyValueLines(key: String, value: PluginValue, indent: Int): List[String] =
     val pad = " " * indent
     value match
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
         val values = mdContentMapInstance(inst, "ContentValue.MapV.values")
         if values.isEmpty then List(s"$pad${yamlKey(key)}: {}")
         else s"$pad${yamlKey(key)}:" :: yamlMapLines(values, indent + 2)
-      case inst: Value.InstanceV if inst.typeName == "ListV" =>
-        val values = mdListField(inst.effectiveFields, "values", "ContentValue.ListV.values")
+      case InstAny(inst) if inst.typeNameOf.contains("ListV") =>
+        val values = mdListField(inst.fields, "values", "ContentValue.ListV.values")
         if values.isEmpty then List(s"$pad${yamlKey(key)}: []")
         else s"$pad${yamlKey(key)}:" :: yamlListLines(values, indent + 2)
       case _ =>
         List(s"$pad${yamlKey(key)}: ${yamlScalar(value)}")
 
-  private def yamlListLines(values: List[Value], indent: Int): List[String] =
+  private def yamlListLines(values: List[PluginValue], indent: Int): List[String] =
     val pad = " " * indent
     values.flatMap {
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
         val values = mdContentMapInstance(inst, "ContentValue.MapV.values")
         if values.isEmpty then List(s"$pad- {}")
         else s"$pad-" :: yamlMapLines(values, indent + 2)
-      case inst: Value.InstanceV if inst.typeName == "ListV" =>
-        val values = mdListField(inst.effectiveFields, "values", "ContentValue.ListV.values")
+      case InstAny(inst) if inst.typeNameOf.contains("ListV") =>
+        val values = mdListField(inst.fields, "values", "ContentValue.ListV.values")
         if values.isEmpty then List(s"$pad- []")
         else s"$pad-" :: yamlListLines(values, indent + 2)
       case value =>
         List(s"$pad- ${yamlScalar(value)}")
     }
 
-  private def yamlScalar(value: Value): String =
+  private def yamlScalar(value: PluginValue): String =
     value match
-      case inst: Value.InstanceV if inst.typeName == "Str" =>
-        yamlString(mdStringField(inst.effectiveFields, "value", "ContentValue.Str.value"))
-      case inst: Value.InstanceV if inst.typeName == "Bool" =>
-        mdBoolField(inst.effectiveFields, "value", "ContentValue.Bool.value").toString
-      case inst: Value.InstanceV if inst.typeName == "Num" =>
-        numberString(mdDoubleField(inst.effectiveFields, "value", "ContentValue.Num.value"))
-      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("Str") =>
+        yamlString(mdStringField(inst.fields, "value", "ContentValue.Str.value"))
+      case InstAny(inst) if inst.typeNameOf.contains("Bool") =>
+        mdBoolField(inst.fields, "value", "ContentValue.Bool.value").toString
+      case InstAny(inst) if inst.typeNameOf.contains("Num") =>
+        numberString(mdDoubleField(inst.fields, "value", "ContentValue.Num.value"))
+      case InstAny(inst) if inst.typeNameOf.contains("NullV") =>
         "null"
-      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+      case InstAny(inst) if inst.typeNameOf.contains("MapV") =>
         val values = mdContentMapInstance(inst, "ContentValue.MapV.values")
-        if values.isEmpty then "{}" else quoteMarkdownAttr(Value.show(value))
-      case inst: Value.InstanceV if inst.typeName == "ListV" =>
-        val values = mdListField(inst.effectiveFields, "values", "ContentValue.ListV.values")
-        if values.isEmpty then "[]" else quoteMarkdownAttr(Value.show(value))
-      case Value.StringV(value) =>
+        if values.isEmpty then "{}" else quoteMarkdownAttr(PluginValue.showAny(value))
+      case InstAny(inst) if inst.typeNameOf.contains("ListV") =>
+        val values = mdListField(inst.fields, "values", "ContentValue.ListV.values")
+        if values.isEmpty then "[]" else quoteMarkdownAttr(PluginValue.showAny(value))
+      case Str(value) =>
         yamlString(value)
-      case Value.BoolV(value) =>
+      case Bool(value) =>
         value.toString
-      case Value.IntV(value) =>
+      case Num(value) =>
         value.toString
-      case Value.DoubleV(value) =>
+      case Dbl(value) =>
         numberString(value)
-      case Value.NullV =>
+      case PluginValue.nullV =>
         "null"
       case _ =>
-        quoteMarkdownAttr(Value.show(value))
+        quoteMarkdownAttr(PluginValue.showAny(value))
 
-  private def mdField(fields: Map[String, Value], name: String, context: String): Value =
-    fields.getOrElse(name, throw InterpretError(s"contentToMarkdown: missing $context"))
+  private def mdField(fields: Map[String, PluginValue], name: String, context: String): PluginValue =
+    fields.getOrElse(name, PluginError.raise(s"contentToMarkdown: missing $context"))
 
-  private def mdStringField(fields: Map[String, Value], name: String, context: String): String =
+  private def mdStringField(fields: Map[String, PluginValue], name: String, context: String): String =
     mdField(fields, name, context) match
-      case Value.StringV(value) => value
-      case other => throw InterpretError(s"contentToMarkdown: $context expected String, got ${Value.show(other)}")
+      case Str(value) => value
+      case other => PluginError.raise(s"contentToMarkdown: $context expected String, got ${PluginValue.showAny(other)}")
 
-  private def mdIntField(fields: Map[String, Value], name: String, context: String): Int =
+  private def mdIntField(fields: Map[String, PluginValue], name: String, context: String): Int =
     mdField(fields, name, context) match
-      case Value.IntV(value) => value.toInt
-      case other => throw InterpretError(s"contentToMarkdown: $context expected Int, got ${Value.show(other)}")
+      case Num(value) => value.toInt
+      case other => PluginError.raise(s"contentToMarkdown: $context expected Int, got ${PluginValue.showAny(other)}")
 
-  private def mdDoubleField(fields: Map[String, Value], name: String, context: String): Double =
+  private def mdDoubleField(fields: Map[String, PluginValue], name: String, context: String): Double =
     mdField(fields, name, context) match
-      case Value.DoubleV(value) => value
-      case Value.IntV(value) => value.toDouble
-      case other => throw InterpretError(s"contentToMarkdown: $context expected Number, got ${Value.show(other)}")
+      case Dbl(value) => value
+      case Num(value) => value.toDouble
+      case other => PluginError.raise(s"contentToMarkdown: $context expected Number, got ${PluginValue.showAny(other)}")
 
-  private def mdBoolField(fields: Map[String, Value], name: String, context: String): Boolean =
+  private def mdBoolField(fields: Map[String, PluginValue], name: String, context: String): Boolean =
     mdField(fields, name, context) match
-      case Value.BoolV(value) => value
-      case other => throw InterpretError(s"contentToMarkdown: $context expected Boolean, got ${Value.show(other)}")
+      case Bool(value) => value
+      case other => PluginError.raise(s"contentToMarkdown: $context expected Boolean, got ${PluginValue.showAny(other)}")
 
-  private def mdListField(fields: Map[String, Value], name: String, context: String): List[Value] =
+  private def mdListField(fields: Map[String, PluginValue], name: String, context: String): List[PluginValue] =
     mdField(fields, name, context) match
-      case Value.ListV(values) => values
-      case other => throw InterpretError(s"contentToMarkdown: $context expected List, got ${Value.show(other)}")
+      case Lst(values) => values
+      case other => PluginError.raise(s"contentToMarkdown: $context expected List, got ${PluginValue.showAny(other)}")
 
-  private def mdValueList(value: Value, context: String): List[Value] =
+  private def mdValueList(value: PluginValue, context: String): List[PluginValue] =
     value match
-      case Value.ListV(values) => values
-      case other => throw InterpretError(s"contentToMarkdown: $context expected List, got ${Value.show(other)}")
+      case Lst(values) => values
+      case other => PluginError.raise(s"contentToMarkdown: $context expected List, got ${PluginValue.showAny(other)}")
 
-  private def mdStringListField(fields: Map[String, Value], name: String, context: String): List[String] =
+  private def mdStringListField(fields: Map[String, PluginValue], name: String, context: String): List[String] =
     mdListField(fields, name, context).map {
-      case Value.StringV(value) => value
-      case other => throw InterpretError(s"contentToMarkdown: $context expected String list, got ${Value.show(other)}")
+      case Str(value) => value
+      case other => PluginError.raise(s"contentToMarkdown: $context expected String list, got ${PluginValue.showAny(other)}")
     }
 
-  private def mdContentValueMap(value: Value, context: String): Map[String, Value] =
+  private def mdContentValueMap(value: PluginValue, context: String): Map[String, PluginValue] =
     value match
-      case Value.MapV(values) =>
+      case MapVal(values) =>
         values.map {
-          case (Value.StringV(key), value) => key -> value
+          case (Str(key), value) => key -> value
           case (key, _) =>
-            throw InterpretError(s"contentToMarkdown: $context expected String keys, got ${Value.show(key)}")
+            PluginError.raise(s"contentToMarkdown: $context expected String keys, got ${PluginValue.showAny(key)}")
         }
       case other =>
-        throw InterpretError(s"contentToMarkdown: $context expected Map, got ${Value.show(other)}")
+        PluginError.raise(s"contentToMarkdown: $context expected Map, got ${PluginValue.showAny(other)}")
 
-  private def mdContentMapInstance(value: Value.InstanceV, context: String): Map[String, Value] =
-    mdContentValueMap(mdField(value.effectiveFields, "values", context), context)
+  private def mdContentMapInstance(value: PluginValue, context: String): Map[String, PluginValue] =
+    mdContentValueMap(mdField(value.fields, "values", context), context)
 
-  private def mdOptionString(value: Value, context: String): Option[String] =
+  private def mdOptionString(value: PluginValue, context: String): Option[String] =
     value match
-      case Value.OptionV(null) => None
-      case Value.OptionV(Value.StringV(v)) => Some(v)
-      case Value.OptionV(other) =>
-        throw InterpretError(s"contentToMarkdown: $context expected Option[String], got Some(${Value.show(other)})")
+      case Opt(None) => None
+      case Opt(Some(Str(v))) => Some(v)
+      case Opt(Some(other)) =>
+        PluginError.raise(s"contentToMarkdown: $context expected Option[String], got Some(${PluginValue.showAny(other)})")
       case other =>
-        throw InterpretError(s"contentToMarkdown: $context expected Option[String], got ${Value.show(other)}")
+        PluginError.raise(s"contentToMarkdown: $context expected Option[String], got ${PluginValue.showAny(other)}")
 
-  private def mdInstance(value: Value, typeName: String, context: String): Value.InstanceV =
+  private def mdInstance(value: PluginValue, typeName: String, context: String): PluginValue =
     value match
-      case inst: Value.InstanceV if inst.typeName == typeName => inst
+      case InstAny(inst) if inst.typeNameOf.getOrElse("") == typeName => inst
       case other =>
-        throw InterpretError(s"contentToMarkdown: $context expected $typeName, got ${Value.show(other)}")
+        PluginError.raise(s"contentToMarkdown: $context expected $typeName, got ${PluginValue.showAny(other)}")
 
   private def clampHeadingLevel(level: Int): Int =
     math.max(1, math.min(6, level))
@@ -1932,213 +1930,213 @@ object ContentIntrinsics:
     }
     best
 
-  private def vstackNode(gap: Int, children: List[Value]): Value =
+  private def vstackNode(gap: Int, children: List[PluginValue]): PluginValue =
     instanceValue("VStackNode",
-      "gap" -> Value.intV(gap.toLong),
-      "children" -> Value.ListV(children)
+      "gap" -> PluginValue.int(gap.toLong),
+      "children" -> PluginValue.list(children)
     )
 
-  private def hstackNode(gap: Int, children: List[Value]): Value =
+  private def hstackNode(gap: Int, children: List[PluginValue]): PluginValue =
     instanceValue("HStackNode",
-      "gap" -> Value.intV(gap.toLong),
-      "children" -> Value.ListV(children)
+      "gap" -> PluginValue.int(gap.toLong),
+      "children" -> PluginValue.list(children)
     )
 
-  private def dividerNode(): Value =
+  private def dividerNode(): PluginValue =
     instanceValue("DividerNode")
 
-  private def headingNode(level: Int, text: String): Value =
+  private def headingNode(level: Int, text: String): PluginValue =
     instanceValue("HeadingNode",
-      "level" -> Value.intV(level.toLong),
-      "text" -> Value.StringV(text)
+      "level" -> PluginValue.int(level.toLong),
+      "text" -> PluginValue.string(text)
     )
 
-  private def textNode_(text: String): Value =
+  private def textNode_(text: String): PluginValue =
     instanceValue("TextNode_",
-      "text" -> Value.StringV(text)
+      "text" -> PluginValue.string(text)
     )
 
-  private def rawTextNode(text: String): Value =
+  private def rawTextNode(text: String): PluginValue =
     instanceValue("RawTextNode",
-      "text" -> Value.StringV(text)
+      "text" -> PluginValue.string(text)
     )
 
-  private def tableColumn(label: String, key: String): Value =
+  private def tableColumn(label: String, key: String): PluginValue =
     instanceValue("TableColumn",
-      "label" -> Value.StringV(label),
-      "key"   -> Value.StringV(key)
+      "label" -> PluginValue.string(label),
+      "key"   -> PluginValue.string(key)
     )
 
-  private def tableNode(headers: List[List[ast.ContentInline]], rows: List[List[List[ast.ContentInline]]]): Value =
+  private def tableNode(headers: List[List[ast.ContentInline]], rows: List[List[List[ast.ContentInline]]]): PluginValue =
     instanceValue("TableNode",
-      "columns" -> Value.ListV(headers.zipWithIndex.map { case (header, idx) =>
+      "columns" -> PluginValue.list(headers.zipWithIndex.map { case (header, idx) =>
         tableColumn(inlineText(header), s"col$idx")
       }),
-      "rows" -> Value.ListV(rows.map(row =>
-        Value.ListV(row.map(cell => textNode_(inlineText(cell))))
+      "rows" -> PluginValue.list(rows.map(row =>
+        PluginValue.list(row.map(cell => textNode_(inlineText(cell))))
       )),
-      "sortCol" -> Value.NullV
+      "sortCol" -> PluginValue.nullV
     )
 
-  private def showWhenNode(signal: Value, whenTrue: Value, whenFalse: Value): Value =
+  private def showWhenNode(signal: PluginValue, whenTrue: PluginValue, whenFalse: PluginValue): PluginValue =
     instanceValue("ShowWhenNode",
       "signal" -> signal,
       "whenTrue" -> whenTrue,
       "whenFalse" -> whenFalse
     )
 
-  private def signalTextNode(signal: Value): Value =
+  private def signalTextNode(signal: PluginValue): PluginValue =
     instanceValue("SignalTextNode",
       "signal" -> signal
     )
 
-  private def fragmentNode(children: List[Value]): Value =
+  private def fragmentNode(children: List[PluginValue]): PluginValue =
     instanceValue("FragmentNode",
-      "children" -> Value.ListV(children)
+      "children" -> PluginValue.list(children)
     )
 
-  private def textFieldNode(value: Value, label: String, disabled: Boolean, required: Boolean): Value =
+  private def textFieldNode(value: PluginValue, label: String, disabled: Boolean, required: Boolean): PluginValue =
     instanceValue("TextFieldNode",
       "value" -> value,
-      "label" -> Value.StringV(label),
-      "disabled" -> Value.boolV(disabled),
-      "required" -> Value.boolV(required)
+      "label" -> PluginValue.string(label),
+      "disabled" -> PluginValue.bool(disabled),
+      "required" -> PluginValue.bool(required)
     )
 
-  private def checkboxNode(checked: Value, label: String, disabled: Boolean): Value =
+  private def checkboxNode(checked: PluginValue, label: String, disabled: Boolean): PluginValue =
     instanceValue("CheckboxNode",
       "checked" -> checked,
-      "label" -> Value.StringV(label),
-      "disabled" -> Value.boolV(disabled)
+      "label" -> PluginValue.string(label),
+      "disabled" -> PluginValue.bool(disabled)
     )
 
-  private def signalButtonNode(signal: Value, value: Value, label: String, disabled: Boolean): Value =
+  private def signalButtonNode(signal: PluginValue, value: PluginValue, label: String, disabled: Boolean): PluginValue =
     instanceValue("SignalButtonNode",
       "signal" -> signal,
       "value" -> value,
-      "label" -> Value.StringV(label),
-      "disabled" -> Value.boolV(disabled)
+      "label" -> PluginValue.string(label),
+      "disabled" -> PluginValue.bool(disabled)
     )
 
-  private def actionButtonNode(handler: Value, label: String, disabled: Boolean): Value =
+  private def actionButtonNode(handler: PluginValue, label: String, disabled: Boolean): PluginValue =
     instanceValue("ActionButtonNode",
       "handler" -> handler,
-      "label" -> Value.StringV(label),
-      "disabled" -> Value.boolV(disabled)
+      "label" -> PluginValue.string(label),
+      "disabled" -> PluginValue.bool(disabled)
     )
 
-  private def badgeNode(content: String, variant: String): Value =
+  private def badgeNode(content: String, variant: String): PluginValue =
     instanceValue("BadgeNode",
-      "content" -> Value.StringV(content),
-      "variant" -> Value.StringV(variant)
+      "content" -> PluginValue.string(content),
+      "variant" -> PluginValue.string(variant)
     )
 
-  private def cardNode(body: List[Value]): Value =
-    cardNode(Value.NullV, body, Value.NullV)
+  private def cardNode(body: List[PluginValue]): PluginValue =
+    cardNode(PluginValue.nullV, body, PluginValue.nullV)
 
   // CardNode's `header`/`footer` are `List[TkNode]` (0-or-1 — empty = absent), so an
   // absent slot is the empty list and a present node is a singleton, not a bare `Any`.
-  private def cardNode(header: Value, body: List[Value], footer: Value): Value =
-    def slot(v: Value): Value = v match
-      case Value.NullV => Value.ListV(Nil)
-      case other       => Value.ListV(List(other))
+  private def cardNode(header: PluginValue, body: List[PluginValue], footer: PluginValue): PluginValue =
+    def slot(v: PluginValue): PluginValue = v match
+      case PluginValue.nullV => PluginValue.list(Nil)
+      case other       => PluginValue.list(List(other))
     instanceValue("CardNode",
       "header" -> slot(header),
-      "body" -> Value.ListV(body),
+      "body" -> PluginValue.list(body),
       "footer" -> slot(footer)
     )
 
-  private def documentValue(doc: ast.DocumentContent): Value =
+  private def documentValue(doc: ast.DocumentContent): PluginValue =
     instanceValue("DocumentContent",
       "manifest"    -> contentValue(doc.manifest),
       "title"       -> optionString(doc.title),
       "description" -> optionString(doc.description),
       "attrs"       -> attrsValue(doc.attrs),
-      "sections"    -> Value.ListV(doc.sections.map(sectionValue)),
-      "blocks"      -> Value.ListV(doc.blocks.map(blockValue))
+      "sections"    -> PluginValue.list(doc.sections.map(sectionValue)),
+      "blocks"      -> PluginValue.list(doc.blocks.map(blockValue))
     )
 
-  private def sectionValue(section: ast.SectionContent): Value =
+  private def sectionValue(section: ast.SectionContent): PluginValue =
     instanceValue("SectionContent",
-      "id"       -> Value.StringV(section.id),
-      "level"    -> Value.intV(section.level.toLong),
-      "title"    -> Value.StringV(section.title),
+      "id"       -> PluginValue.string(section.id),
+      "level"    -> PluginValue.int(section.level.toLong),
+      "title"    -> PluginValue.string(section.title),
       "attrs"    -> attrsValue(section.attrs),
-      "blocks"   -> Value.ListV(section.blocks.map(blockValue)),
-      "children" -> Value.ListV(section.children.map(sectionValue))
+      "blocks"   -> PluginValue.list(section.blocks.map(blockValue)),
+      "children" -> PluginValue.list(section.children.map(sectionValue))
     )
 
-  private def blockValue(block: ast.ContentBlock): Value = block match
+  private def blockValue(block: ast.ContentBlock): PluginValue = block match
     case ast.ContentBlock.Paragraph(inlines, attrs) =>
       instanceValue("Paragraph",
-        "inlines" -> Value.ListV(inlines.map(inlineValue)),
+        "inlines" -> PluginValue.list(inlines.map(inlineValue)),
         "attrs"   -> attrsValue(attrs)
       )
     case ast.ContentBlock.BulletList(items, attrs) =>
       instanceValue("BulletList",
-        "items" -> Value.ListV(items.map(row => Value.ListV(row.map(blockValue)))),
+        "items" -> PluginValue.list(items.map(row => PluginValue.list(row.map(blockValue)))),
         "attrs" -> attrsValue(attrs)
       )
     case ast.ContentBlock.OrderedList(items, start, attrs) =>
       instanceValue("OrderedList",
-        "items" -> Value.ListV(items.map(row => Value.ListV(row.map(blockValue)))),
-        "start" -> Value.intV(start.toLong),
+        "items" -> PluginValue.list(items.map(row => PluginValue.list(row.map(blockValue)))),
+        "start" -> PluginValue.int(start.toLong),
         "attrs" -> attrsValue(attrs)
       )
     case ast.ContentBlock.Image(src, alt, title, attrs) =>
       instanceValue("Image",
-        "src"   -> Value.StringV(src),
-        "alt"   -> Value.StringV(alt),
+        "src"   -> PluginValue.string(src),
+        "alt"   -> PluginValue.string(alt),
         "title" -> optionString(title),
         "attrs" -> attrsValue(attrs)
       )
     case ast.ContentBlock.Table(headers, rows, alignments, attrs) =>
       instanceValue("Table",
-        "headers"    -> Value.ListV(headers.map(cell => Value.ListV(cell.map(inlineValue)))),
-        "rows"       -> Value.ListV(rows.map(row => Value.ListV(row.map(cell => Value.ListV(cell.map(inlineValue)))))),
-        "alignments" -> Value.ListV(alignments.map(value => Value.StringV(value))),
+        "headers"    -> PluginValue.list(headers.map(cell => PluginValue.list(cell.map(inlineValue)))),
+        "rows"       -> PluginValue.list(rows.map(row => PluginValue.list(row.map(cell => PluginValue.list(cell.map(inlineValue)))))),
+        "alignments" -> PluginValue.list(alignments.map(value => PluginValue.string(value))),
         "attrs"      -> attrsValue(attrs)
       )
     case ast.ContentBlock.Embedded(lang, source, kind, data, attrs) =>
       instanceValue("Embedded",
-        "lang"   -> Value.StringV(lang),
-        "source" -> Value.StringV(source),
+        "lang"   -> PluginValue.string(lang),
+        "source" -> PluginValue.string(source),
         "kind"   -> embeddedKindValue(kind),
-        "data"   -> Value.optionV(data.map(contentValue)),
+        "data"   -> PluginValue.option(data.map(contentValue)),
         "attrs"  -> attrsValue(attrs)
       )
 
-  private def embeddedKindValue(kind: ast.EmbeddedKind): Value =
+  private def embeddedKindValue(kind: ast.EmbeddedKind): PluginValue =
     instanceValue(kind.toString)
 
-  private def inlineValue(inline: ast.ContentInline): Value = inline match
+  private def inlineValue(inline: ast.ContentInline): PluginValue = inline match
     case ast.ContentInline.Text(value) =>
-      instanceValue("Text", "value" -> Value.StringV(value))
+      instanceValue("Text", "value" -> PluginValue.string(value))
     case ast.ContentInline.Emphasis(children) =>
-      instanceValue("Emphasis", "children" -> Value.ListV(children.map(inlineValue)))
+      instanceValue("Emphasis", "children" -> PluginValue.list(children.map(inlineValue)))
     case ast.ContentInline.Strong(children) =>
-      instanceValue("Strong", "children" -> Value.ListV(children.map(inlineValue)))
+      instanceValue("Strong", "children" -> PluginValue.list(children.map(inlineValue)))
     case ast.ContentInline.Code(value) =>
-      instanceValue("Code", "value" -> Value.StringV(value))
+      instanceValue("Code", "value" -> PluginValue.string(value))
     case ast.ContentInline.Link(label, href, title) =>
       instanceValue("Link",
-        "label" -> Value.ListV(label.map(inlineValue)),
-        "href"  -> Value.StringV(href),
+        "label" -> PluginValue.list(label.map(inlineValue)),
+        "href"  -> PluginValue.string(href),
         "title" -> optionString(title)
       )
     case ast.ContentInline.Expr(source) =>
-      instanceValue("Expr", "source" -> Value.StringV(source))
+      instanceValue("Expr", "source" -> PluginValue.string(source))
 
-  private def contentValue(value: ast.ContentValue): Value = value match
-    case ast.ContentValue.Str(v)    => instanceValue("Str", "value" -> Value.StringV(v))
-    case ast.ContentValue.Bool(v)   => instanceValue("Bool", "value" -> Value.boolV(v))
-    case ast.ContentValue.Num(v)    => instanceValue("Num", "value" -> Value.doubleV(v))
-    case ast.ContentValue.ListV(vs) => instanceValue("ListV", "values" -> Value.ListV(vs.map(contentValue)))
+  private def contentValue(value: ast.ContentValue): PluginValue = value match
+    case ast.ContentValue.Str(v)    => instanceValue("Str", "value" -> PluginValue.string(v))
+    case ast.ContentValue.Bool(v)   => instanceValue("Bool", "value" -> PluginValue.bool(v))
+    case ast.ContentValue.Num(v)    => instanceValue("Num", "value" -> PluginValue.double(v))
+    case ast.ContentValue.ListV(vs) => instanceValue("ListV", "values" -> PluginValue.list(vs.map(contentValue)))
     case ast.ContentValue.MapV(vs)  => instanceValue("MapV", "values" -> attrsValue(vs))
     case ast.ContentValue.NullV     => instanceValue("NullV")
 
-  private def attrsValue(attrs: Map[String, ast.ContentValue]): Value =
-    Value.MapV(attrs.map { case (k, v) => Value.StringV(k) -> contentValue(v) })
+  private def attrsValue(attrs: Map[String, ast.ContentValue]): PluginValue =
+    PluginValue.mapOf(attrs.map { case (k, v) => PluginValue.string(k) -> contentValue(v) })
 
-  private def optionString(value: Option[String]): Value =
-    Value.optionV(value.map(Value.StringV.apply))
+  private def optionString(value: Option[String]): PluginValue =
+    PluginValue.option(value.map(PluginValue.string))

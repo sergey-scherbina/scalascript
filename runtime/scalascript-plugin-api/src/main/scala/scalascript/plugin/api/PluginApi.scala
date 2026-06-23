@@ -97,6 +97,14 @@ object PluginValue:
   /** A case-class / record instance (`typeName` + named fields). */
   def instance(typeName: String, fields: Map[String, PluginValue]): PluginValue =
     Value.InstanceV(typeName, fields.map((k, v) => (k, v.asInstanceOf[Value])))
+  /** A record/instance with explicit field ORDER, array-backed: sets the interpreter's
+   *  `fieldNames`/`fieldsArr` so consumers that read fields positionally (content / UI node
+   *  renderers, or `inst.fieldNames`) observe declaration order rather than a hashed Map order. */
+  def orderedInstance(typeName: String, fields: Seq[(String, PluginValue)]): PluginValue =
+    val inst = Value.InstanceV(typeName, fields.iterator.map((k, v) => (k, v.asInstanceOf[Value])).toMap)
+    inst.fieldNames = fields.iterator.map(_._1).toArray
+    inst.fieldsArr  = fields.iterator.map(_._2.asInstanceOf[Value]).toArray
+    inst
   /** A native (host) function value — `fn` maps its args to a result, run eagerly. Backs the
    *  interpreter's `NativeFnV`, so a plugin can return a callable record (e.g. `WsRoom.add`). */
   def nativeFn(name: String, fn: List[PluginValue] => PluginValue): PluginValue =
@@ -139,6 +147,10 @@ object PluginValue:
     /** The type/constructor name of a record/instance value (`None` if not an instance). */
     def typeNameOf: Option[String] =
       pv match { case i: Value.InstanceV => Some(i.typeName); case _ => None }
+    /** ALL fields of a record/instance value as a map (empty if not an instance).
+     *  Uses `effectiveFields`, so array-backed instances are fully captured. */
+    def fields: Map[String, PluginValue] =
+      pv match { case i: Value.InstanceV => i.effectiveFields.map((k, v) => (k, wrap(v))); case _ => Map.empty }
 
   // ── Extractor objects: pattern-match a raw `List[Any]` arg / runtime value WITHOUT importing
   //    `Value`. e.g. `args match { case List(Str(label), Bool(p)) => … }`. They accept `Any` because
