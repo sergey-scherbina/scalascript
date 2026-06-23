@@ -67,9 +67,7 @@ object Ed25519Ops:
     def secretScalar(seed: Array[Byte])         = Ed25519Group.secretScalar(seed)
     def sha512(parts: Array[Byte]*): Array[Byte] =
       Sha512.digest(parts.foldLeft(Array.emptyByteArray)(_ ++ _))
-    private lazy val rng = new java.security.SecureRandom()
-    def randomBytes(n: Int): Array[Byte] =
-      val b = new Array[Byte](n); rng.nextBytes(b); b
+    def randomBytes(n: Int): Array[Byte] = PlatformEntropy.bytes(n)
 
   @volatile private var _current: Ed25519Ops = Reference
 

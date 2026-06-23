@@ -1719,17 +1719,26 @@ lazy val cryptoBouncycastle = project
 
 // FROST-Ed25519 threshold signatures. Pure (BigInteger) Ed25519 group arithmetic — no main dependency;
 // BouncyCastle is TEST-ONLY to cross-check public keys against a reference Ed25519. See specs/frost-ed25519.md.
-lazy val cryptoFrost = project
-  .in(file("payments/crypto/frost"))
-  .settings(
-    name := "scalascript-crypto-frost",
-    libraryDependencies ++= Seq(
-      "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1" % Test,
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js): the FROST reference is pure (BigInteger + own SHA-512), so it runs on both.
+// Only `PlatformEntropy` is per-platform (JVM SecureRandom / JS WebCrypto). BouncyCastle is a JVM TEST-only
+// cross-check; the cross-platform tests (FrostKeygen/Ed25519OpsSeam) live in `shared/` and run on both.
+lazy val cryptoFrostCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("payments/crypto/frost"))
+    .settings(
+      name := "scalascript-crypto-frost",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % scalatestV % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("cryptoFrost"))
+    .jsConfigure(_.withId("cryptoFrostJs"))
+    .jvmSettings(libraryDependencies += "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1" % Test)
+    .jsSettings(Test / fork := false)
+
+lazy val cryptoFrost   = cryptoFrostCross.jvm
+lazy val cryptoFrostJs = cryptoFrostCross.js
 
 // Scala.js-only `CryptoBackend` impl — specs/wallet-spi-scalajs.md §5
 // Stage 2.  Backed by `@noble/curves` + `@noble/hashes` (npm pkgs at
@@ -3647,7 +3656,7 @@ lazy val root = project
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore,
     // Frontend backends — derived from allFrontends registry below (arch-build-registry Phase 4)
