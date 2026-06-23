@@ -1,0 +1,6 @@
+feature/coremin-stream-prelude-migrate 2026-06-23T00:00:00Z
+agent: claude
+heartbeat: 2026-06-23T00:00:00Z
+status: in-progress
+done-so-far: edits ready — runStream + Stream object moved from core Typer prelude into StreamsInterpreterPlugin.preludeSymbols (the LAST hardcoded runner); dead runnerType/bodyWithEff helpers removed; PreludeMigratedRunnersTest extended with runStream. Runtime (Free-monad driver + FastTier + installStreamGlobal) STAYS in core (coremin-stream-migrate keeps it). Prelude-migration axis now 100%.
+next: build core+streamsPlugin, run PreludeMigratedRunnersTest, commit feature+docs, push HEAD:main, release claim.
