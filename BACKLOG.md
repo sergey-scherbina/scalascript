@@ -294,16 +294,6 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
-- [ ] **interp-stream-runforeach-var-capture** (correctness bug, PRE-EXISTING — found 2026-06-23, fails on
-      clean origin/main, NOT a regression) — `src.runForeach(x => { buf = buf :+ x })` where `var buf = List()`
-      loses the FIRST emission: a 2-element stream yields `buf == List(20)` instead of `List(10, 20)`
-      (`StreamsPluginInterpreterTest` "runStream result supports runForeach", line ~477). Smells like the
-      stream `runForeach` consumer either (a) runs the closure on a frame/snapshot where the first `buf`
-      reassignment is dropped, or (b) the first emission is consumed before the foreach subscriber attaches.
-      Related to the known interpreter var-mutation-in-closure family. Bounded interp slice; needs a repro
-      reduced off the stream harness (does a plain `List(10,20).foreach(x => buf = buf :+ x)` also lose the
-      first? if not, it's stream-consumer ordering, not var-capture).
-
 - [x] **direct-style-eval** — **RESOLVED 2026-06-18 → WONTFIX (closed; data-disproven, do not start).**
       Re-confirmed on current main: `Computation.Pure` is constructed at **1261 sites** (even larger than the
       earlier ~530 estimate), and the allocation split is unchanged — `Pure` ≈16%, dispatch machinery ≈66%,

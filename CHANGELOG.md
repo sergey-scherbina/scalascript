@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — fix(interp): destructuring `val (a, b) = …` no longer marks a pre-existing `var` as a `val`
+
+`interp-stream-runforeach-var-capture`. A correctness bug where a closure that mutates a `var` lost every
+write but the last when a **destructuring `val`** appeared between the `var` declaration and the closure —
+e.g. `var n = 0; val (a, b) = (7, 8); xs.foreach(_ => n += 1)` ended with `n == 1`, not the element count.
+Root cause: `PatternRuntime.matchPat` for a tuple pattern returns the *full threaded env* (`cur ++ new
+bindings`), and `StatRuntime.execStat` bound **all** of it — adding every returned name, including the
+pre-existing `var n`, to `interp.valNames`. The closure-capture heuristic then treated `n` as a stable
+`val` and *snapshot-captured* it instead of re-reading it live from `globals`, so each invocation saw the
+stale initial value. Fix: execStat now binds and marks-as-val **only the pattern's own names**
+(`PatternRuntime.patVarNames(pat)`), not the whole returned env. Surfaced via `StreamsPluginInterpreterTest`
+"runStream result supports runForeach" (was failing on clean main; now 83/83). Locked by two new
+`ClosureCaptureSoundnessTest` cases (destructuring-then-var-mutate stays live; destructured names still
+captured correctly). Regression-checked: `InterpreterTest` 141/0, closure/pattern/tuple/import-state suites
+54/0.
+
 ## 2026-06-23 — docs: core-min Phase 3+ actionable scope closed
 
 Closed the stale open `core-min-phase3plus` sprint line. Its bounded work has either landed
