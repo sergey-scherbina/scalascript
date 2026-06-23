@@ -1,13 +1,12 @@
 package scalascript.compiler.plugin.crypto
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.{Value, InterpretError}
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
+import scalascript.plugin.api.{PluginComputation, PluginError, PluginNative, PluginValue}
 
 object CryptoIntrinsics:
 
-  private def native(f: List[Any] => Value): NativeImpl =
+  private def native(f: List[Any] => PluginValue): NativeImpl =
     PluginNative.eval { (_, args) =>
       PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
     }
@@ -190,10 +189,10 @@ object CryptoIntrinsics:
     QualifiedName("sha256") -> native {
       case List(s: String) =>
         val md = java.security.MessageDigest.getInstance("SHA-256")
-        Value.StringV(md.digest(s.getBytes("UTF-8")).map("%02x".format(_)).mkString)
+        PluginValue.string(md.digest(s.getBytes("UTF-8")).map("%02x".format(_)).mkString)
       case _ =>
         val md = java.security.MessageDigest.getInstance("SHA-256")
-        Value.StringV(md.digest(Array.emptyByteArray).map("%02x".format(_)).mkString)
+        PluginValue.string(md.digest(Array.emptyByteArray).map("%02x".format(_)).mkString)
     },
 
     // base64 of the raw 32-byte SHA-256 digest (not hex). KSeF 2.0 invoiceHash /
@@ -202,10 +201,10 @@ object CryptoIntrinsics:
     QualifiedName("sha256Base64") -> native {
       case List(s: String) =>
         val md = java.security.MessageDigest.getInstance("SHA-256")
-        Value.StringV(b64e(md.digest(s.getBytes("UTF-8"))))
+        PluginValue.string(b64e(md.digest(s.getBytes("UTF-8"))))
       case _ =>
         val md = java.security.MessageDigest.getInstance("SHA-256")
-        Value.StringV(b64e(md.digest(Array.emptyByteArray)))
+        PluginValue.string(b64e(md.digest(Array.emptyByteArray)))
     },
 
     // base64 of SHA-256 over the RAW BYTES decoded from a base64 string (not the
@@ -217,7 +216,7 @@ object CryptoIntrinsics:
       case List(b64: String) =>
         try
           val md = java.security.MessageDigest.getInstance("SHA-256")
-          Value.StringV(b64e(md.digest(b64d(b64))))
+          PluginValue.string(b64e(md.digest(b64d(b64))))
         catch case e: Throwable => throw new RuntimeException(s"sha256OfBase64: ${e.getMessage}")
       case _ => throw new RuntimeException("sha256OfBase64(b64)")
     },
@@ -226,7 +225,7 @@ object CryptoIntrinsics:
     // For protocol size fields measured in bytes, e.g. KSeF 2.0 `invoiceSize` /
     // `encryptedInvoiceSize`, where multi-byte characters make `s.length` wrong.
     QualifiedName("byteLengthUtf8") -> native {
-      case List(s: String) => Value.IntV(s.getBytes("UTF-8").length.toLong)
+      case List(s: String) => PluginValue.int(s.getBytes("UTF-8").length.toLong)
       case _ => throw new RuntimeException("byteLengthUtf8(s)")
     },
 
@@ -234,8 +233,8 @@ object CryptoIntrinsics:
       case List(key: String, data: String) =>
         val mac = javax.crypto.Mac.getInstance("HmacSHA256")
         mac.init(new javax.crypto.spec.SecretKeySpec(key.getBytes("UTF-8"), "HmacSHA256"))
-        Value.StringV(mac.doFinal(data.getBytes("UTF-8")).map("%02x".format(_)).mkString)
-      case _ => Value.StringV("")
+        PluginValue.string(mac.doFinal(data.getBytes("UTF-8")).map("%02x".format(_)).mkString)
+      case _ => PluginValue.string("")
     },
 
     // ── PBKDF2-HMAC-SHA256 password derivation + secure random ──────────────
@@ -250,7 +249,7 @@ object CryptoIntrinsics:
           val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
           val dk  = skf.generateSecret(spec).getEncoded
           spec.clearPassword()
-          Value.StringV(b64e(dk))
+          PluginValue.string(b64e(dk))
         catch case e: Throwable => throw new RuntimeException(s"pbkdf2: ${e.getMessage}")
       case _ => throw new RuntimeException("pbkdf2(password, saltB64, iterations, dkLen)")
     },
@@ -260,21 +259,21 @@ object CryptoIntrinsics:
         if n < 0 then throw new RuntimeException("secureRandomBytesB64: n must be >= 0")
         val bytes = new Array[Byte](n.toInt)
         java.security.SecureRandom().nextBytes(bytes)
-        Value.StringV(b64e(bytes))
+        PluginValue.string(b64e(bytes))
       case _ => throw new RuntimeException("secureRandomBytesB64(n)")
     },
 
     QualifiedName("base64Encode") -> native {
       case List(s: String) =>
-        Value.StringV(java.util.Base64.getEncoder.encodeToString(s.getBytes("UTF-8")))
-      case _ => Value.StringV("")
+        PluginValue.string(java.util.Base64.getEncoder.encodeToString(s.getBytes("UTF-8")))
+      case _ => PluginValue.string("")
     },
 
     QualifiedName("base64Decode") -> native {
       case List(s: String) =>
-        try Value.StringV(String(java.util.Base64.getDecoder.decode(s), "UTF-8"))
-        catch case _: Throwable => Value.StringV("")
-      case _ => Value.StringV("")
+        try PluginValue.string(String(java.util.Base64.getDecoder.decode(s), "UTF-8"))
+        catch case _: Throwable => PluginValue.string("")
+      case _ => PluginValue.string("")
     },
 
     // ── AES-256-GCM symmetric encryption ────────────────────────────────────
@@ -282,30 +281,30 @@ object CryptoIntrinsics:
     QualifiedName("aesGenKey") -> native { _ =>
       val kg = javax.crypto.KeyGenerator.getInstance("AES")
       kg.init(256)
-      Value.StringV(b64e(kg.generateKey.getEncoded))
+      PluginValue.string(b64e(kg.generateKey.getEncoded))
     },
 
     QualifiedName("aesGcmEncrypt") -> native {
       case List(keyB64: String, plaintext: String) =>
-        Value.StringV(aesGcmEncryptRaw(keyB64, plaintext.getBytes("UTF-8")))
+        PluginValue.string(aesGcmEncryptRaw(keyB64, plaintext.getBytes("UTF-8")))
       case _ => throw new RuntimeException("aesGcmEncrypt(keyB64, plaintext)")
     },
 
     QualifiedName("aesGcmDecrypt") -> native {
       case List(keyB64: String, payloadB64: String) =>
-        Value.StringV(new String(aesGcmDecryptRaw(keyB64, payloadB64), "UTF-8"))
+        PluginValue.string(new String(aesGcmDecryptRaw(keyB64, payloadB64), "UTF-8"))
       case _ => throw new RuntimeException("aesGcmDecrypt(keyB64, payloadB64)")
     },
 
     QualifiedName("aesGcmEncryptBytes") -> native {
       case List(keyB64: String, plaintextB64: String) =>
-        Value.StringV(aesGcmEncryptRaw(keyB64, b64d(plaintextB64)))
+        PluginValue.string(aesGcmEncryptRaw(keyB64, b64d(plaintextB64)))
       case _ => throw new RuntimeException("aesGcmEncryptBytes(keyB64, plaintextB64)")
     },
 
     QualifiedName("aesGcmDecryptBytes") -> native {
       case List(keyB64: String, payloadB64: String) =>
-        Value.StringV(b64e(aesGcmDecryptRaw(keyB64, payloadB64)))
+        PluginValue.string(b64e(aesGcmDecryptRaw(keyB64, payloadB64)))
       case _ => throw new RuntimeException("aesGcmDecryptBytes(keyB64, payloadB64)")
     },
 
@@ -316,18 +315,18 @@ object CryptoIntrinsics:
     QualifiedName("aesGenIv") -> native { _ =>
       val iv = new Array[Byte](CbcIvLen)
       java.security.SecureRandom().nextBytes(iv)
-      Value.StringV(b64e(iv))
+      PluginValue.string(b64e(iv))
     },
 
     QualifiedName("aesCbcEncrypt") -> native {
       case List(keyB64: String, ivB64: String, plaintextB64: String) =>
-        Value.StringV(aesCbcEncryptRaw(keyB64, ivB64, b64d(plaintextB64)))
+        PluginValue.string(aesCbcEncryptRaw(keyB64, ivB64, b64d(plaintextB64)))
       case _ => throw new RuntimeException("aesCbcEncrypt(keyB64, ivB64, plaintextB64)")
     },
 
     QualifiedName("aesCbcDecrypt") -> native {
       case List(keyB64: String, ivB64: String, ciphertextB64: String) =>
-        Value.StringV(b64e(aesCbcDecryptRaw(keyB64, ivB64, ciphertextB64)))
+        PluginValue.string(b64e(aesCbcDecryptRaw(keyB64, ivB64, ciphertextB64)))
       case _ => throw new RuntimeException("aesCbcDecrypt(keyB64, ivB64, ciphertextB64)")
     },
 
@@ -335,7 +334,7 @@ object CryptoIntrinsics:
 
     QualifiedName("rsaOaepEncrypt") -> native {
       case List(publicKeyB64: String, plaintextB64: String) =>
-        Value.StringV(rsaOaepEncryptRaw(publicKeyB64, b64d(plaintextB64)))
+        PluginValue.string(rsaOaepEncryptRaw(publicKeyB64, b64d(plaintextB64)))
       case _ => throw new RuntimeException("rsaOaepEncrypt(publicKeyB64, plaintextB64)")
     },
 
@@ -343,7 +342,7 @@ object CryptoIntrinsics:
 
     QualifiedName("x509PublicKey") -> native {
       case List(certB64OrPem: String) =>
-        Value.StringV(x509PublicKeyRaw(certB64OrPem))
+        PluginValue.string(x509PublicKeyRaw(certB64OrPem))
       case _ => throw new RuntimeException("x509PublicKey(certB64OrPem)")
     },
 
@@ -351,40 +350,40 @@ object CryptoIntrinsics:
 
     QualifiedName("verifyEd25519") -> native {
       case List(publicKey: String, message: String, signature: String) =>
-        Value.boolV(verifyEd25519B64(publicKey, message, signature, b64d))
-      case _ => Value.boolV(false)
+        PluginValue.bool(verifyEd25519B64(publicKey, message, signature, b64d))
+      case _ => PluginValue.bool(false)
     },
 
     QualifiedName("verifyEd25519Url") -> native {
       case List(publicKey: String, message: String, signature: String) =>
-        Value.boolV(verifyEd25519B64(publicKey, message, signature, b64dUrl))
-      case _ => Value.boolV(false)
+        PluginValue.bool(verifyEd25519B64(publicKey, message, signature, b64dUrl))
+      case _ => PluginValue.bool(false)
     },
 
     QualifiedName("verifyRsaSha256") -> native {
       case List(publicKey: String, message: String, signature: String, scheme: String) =>
-        Value.boolV(verifyRsaSha256Raw(publicKey, message, signature, scheme))
-      case _ => Value.boolV(false)
+        PluginValue.bool(verifyRsaSha256Raw(publicKey, message, signature, scheme))
+      case _ => PluginValue.bool(false)
     },
 
     // ── public-key signing (private-key authoring — round-trips with verify) ──
 
     QualifiedName("ed25519Sign") -> native {
       case List(privateKey: String, message: String) =>
-        Value.StringV(signEd25519B64(privateKey, message, b64d, b64e))
-      case _ => throw InterpretError("ed25519Sign(privateKey: String, message: String)")
+        PluginValue.string(signEd25519B64(privateKey, message, b64d, b64e))
+      case _ => PluginError.raise("ed25519Sign(privateKey: String, message: String)")
     },
 
     QualifiedName("ed25519SignUrl") -> native {
       case List(privateKey: String, message: String) =>
-        Value.StringV(signEd25519B64(privateKey, message, b64dUrl, b64eUrl))
-      case _ => throw InterpretError("ed25519SignUrl(privateKey: String, message: String)")
+        PluginValue.string(signEd25519B64(privateKey, message, b64dUrl, b64eUrl))
+      case _ => PluginError.raise("ed25519SignUrl(privateKey: String, message: String)")
     },
 
     QualifiedName("rsaSignSha256") -> native {
       case List(privateKey: String, message: String, scheme: String) =>
-        Value.StringV(signRsaSha256Raw(privateKey, message, scheme))
-      case _ => throw InterpretError("rsaSignSha256(privateKey: String, message: String, scheme: String)")
+        PluginValue.string(signRsaSha256Raw(privateKey, message, scheme))
+      case _ => PluginError.raise("rsaSignSha256(privateKey: String, message: String, scheme: String)")
     },
 
   )

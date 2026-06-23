@@ -37,9 +37,17 @@ object PluginValue:
   def tuple(xs: List[PluginValue]):   PluginValue = Value.TupleV(xs.map(_.asInstanceOf[Value]))
   def map(es: List[(PluginValue, PluginValue)]): PluginValue =
     Value.MapV(es.map((k, v) => (k.asInstanceOf[Value], v.asInstanceOf[Value])).toMap)
+  def mapOf(m: Map[PluginValue, PluginValue]): PluginValue =
+    Value.MapV(m.map((k, v) => (k.asInstanceOf[Value], v.asInstanceOf[Value])))
   def some(v: PluginValue):           PluginValue = Value.someV(v.asInstanceOf[Value])
   val none:                           PluginValue = Value.NoneV
+  def option(o: Option[PluginValue]): PluginValue =
+    Value.OptionV(o.map(_.asInstanceOf[Value]).orNull)
   val unit:                           PluginValue = Value.UnitV
+  def bigint(n: BigInt):              PluginValue = Value.BigIntV(n)
+  /** A case-class / record instance (`typeName` + named fields). */
+  def instance(typeName: String, fields: Map[String, PluginValue]): PluginValue =
+    Value.InstanceV(typeName, fields.map((k, v) => (k, v.asInstanceOf[Value])))
 
   extension (pv: PluginValue)
     def unwrap: Any = pv
@@ -57,6 +65,9 @@ object PluginValue:
       pv match { case Value.MapV(m) => Some(m.map((k, v) => (wrap(k), wrap(v)))); case _ => None }
     def asOption: Option[Option[PluginValue]] =
       pv match { case Value.OptionV(o) => Some(Option(o).map(wrap)); case _ => None }
+    def asBigInt: Option[BigInt] = pv match { case Value.BigIntV(n) => Some(n); case _ => None }
+    def asInstance: Option[(String, Map[String, PluginValue])] =
+      pv match { case Value.InstanceV(tn, fs) => Some((tn, fs.map((k, v) => (k, wrap(v))))); case _ => None }
 
 /** Opaque wrapper for an interpreter-level runtime error. */
 opaque type PluginError = Throwable
