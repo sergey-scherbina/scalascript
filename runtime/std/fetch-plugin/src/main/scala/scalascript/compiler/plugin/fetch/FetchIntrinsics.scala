@@ -3,17 +3,16 @@ package scalascript.compiler.plugin.fetch
 import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{InterpretError, Value}
 import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource, ColumnKind, RowPayload}
-import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
 
 object FetchIntrinsics:
   private def isNullish(value: Any): Boolean =
-    value == null || value == Value.UnitV || value == Value.NullV
+    value == null || value == PluginValue.unit || value == PluginValue.nullV
 
   private def isEmptyHeadersArg(value: Any): Boolean =
     isNullish(value) || (value match
-      case Value.NativeFnV("emptyHeaders", _) => true
+      case PluginValue.NativeFn("emptyHeaders", _) => true
       case _                                  => false)
 
   @nowarn("cat=deprecation")
@@ -22,8 +21,8 @@ object FetchIntrinsics:
     // emptyHeaders: Signal[String] — no-op headers Signal (value always "").
     QualifiedName("emptyHeaders") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List() => Value.Foreign("ReactiveSignal", new ReactiveSignal[String]("__ssc_empty_headers", ""))
-        case _ => throw InterpretError("emptyHeaders")
+        case List() => PluginValue.foreign("ReactiveSignal", new ReactiveSignal[String]("__ssc_empty_headers", ""))
+        case _ => PluginError.raise("emptyHeaders")
     },
 
     // fetchUrlSignal(name, url, refreshTick[, headers]): Signal[String]
@@ -32,16 +31,16 @@ object FetchIntrinsics:
     QualifiedName("fetchUrlSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name: String, url: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("ReactiveSignal", new FetchUrlSignal(name, url, tick.id))
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("ReactiveSignal", new FetchUrlSignal(name, url, tick.id))
         case List(name: String, url: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val hId = headers.id
-          Value.Foreign("ReactiveSignal",
+          PluginValue.foreign("ReactiveSignal",
             new FetchUrlSignal(name, url, tick.id,
               if hId == "__ssc_empty_headers" then None else Some(hId)))
-        case _ => throw InterpretError("fetchUrlSignal(name, url, refreshTick[, headers])")
+        case _ => PluginError.raise("fetchUrlSignal(name, url, refreshTick[, headers])")
     },
 
     // fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers]): Signal[String]
@@ -51,18 +50,18 @@ object FetchIntrinsics:
     QualifiedName("fetchJsonSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name: String, url: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   modelTypeName: String) =>
-          Value.Foreign("ReactiveSignal", new FetchJsonSignal(name, url, tick.id, modelTypeName))
+          PluginValue.foreign("ReactiveSignal", new FetchJsonSignal(name, url, tick.id, modelTypeName))
         case List(name: String, url: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   modelTypeName: String,
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val hId = headers.id
-          Value.Foreign("ReactiveSignal",
+          PluginValue.foreign("ReactiveSignal",
             new FetchJsonSignal(name, url, tick.id, modelTypeName,
               if hId == "__ssc_empty_headers" then None else Some(hId)))
-        case _ => throw InterpretError("fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers])")
+        case _ => PluginError.raise("fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers])")
     },
 
     // fetchAction(method, url, body, onSuccessTick[, headers]): EventHandler
@@ -70,23 +69,23 @@ object FetchIntrinsics:
     QualifiedName("fetchAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("EventHandler",
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, url,
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          Value.Foreign("EventHandler",
+          PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, url,
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]],
               headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case _ => throw InterpretError("fetchAction(method, url, body, onSuccessTick[, headers])")
+        case _ => PluginError.raise("fetchAction(method, url, body, onSuccessTick[, headers])")
     },
 
     // fetchActionTo(method, urlSig, body, onSuccessTick[, headers]): EventHandler
@@ -96,25 +95,25 @@ object FetchIntrinsics:
     QualifiedName("fetchActionTo") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String,
-                  Value.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("EventHandler",
+                  PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, urlSig.asInstanceOf[ReactiveSignal[String]].apply(),
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(method: String,
-                  Value.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          Value.Foreign("EventHandler",
+          PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, urlSig.asInstanceOf[ReactiveSignal[String]].apply(),
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]],
               headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case _ => throw InterpretError("fetchActionTo(method, urlSig, body, onSuccessTick[, headers])")
+        case _ => PluginError.raise("fetchActionTo(method, urlSig, body, onSuccessTick[, headers])")
     },
 
     // fetchActionClear(method, url, body, onSuccessTick[, headers]): EventHandler
@@ -122,25 +121,25 @@ object FetchIntrinsics:
     QualifiedName("fetchActionClear") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("EventHandler",
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, url,
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]],
               clearBody = true))
         case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          Value.Foreign("EventHandler",
+          PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, url,
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]],
               clearBody = true,
               headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case _ => throw InterpretError("fetchActionClear(method, url, body, onSuccessTick[, headers])")
+        case _ => PluginError.raise("fetchActionClear(method, url, body, onSuccessTick[, headers])")
     },
 
     // ── Scope B.4: structured onSuccess effects ────────────────────────────────
@@ -148,28 +147,28 @@ object FetchIntrinsics:
     // fetchActionWith; the browser runtime runs them in order after a 2xx.
     QualifiedName("onBumpTick") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("OnSuccessEffect", ("bumpTick", tick))
-        case _ => throw InterpretError("onBumpTick(tickSignal)")
+        case List(PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("OnSuccessEffect", ("bumpTick", tick))
+        case _ => PluginError.raise("onBumpTick(tickSignal)")
     },
     QualifiedName("onSetSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.Foreign("ReactiveSignal", sig: ReactiveSignal[?]), value) =>
-          Value.Foreign("OnSuccessEffect", ("setSignal", sig, value))
-        case _ => throw InterpretError("onSetSignal(signal, value)")
+        case List(PluginValue.Foreign("ReactiveSignal", sig: ReactiveSignal[?]), value) =>
+          PluginValue.foreign("OnSuccessEffect", ("setSignal", sig, value))
+        case _ => PluginError.raise("onSetSignal(signal, value)")
     },
     QualifiedName("onNavigate") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(path) => Value.Foreign("OnSuccessEffect", ("navigate", String.valueOf(path)))
-        case _ => throw InterpretError("onNavigate(path)")
+        case List(path) => PluginValue.foreign("OnSuccessEffect", ("navigate", String.valueOf(path)))
+        case _ => PluginError.raise("onNavigate(path)")
     },
 
     // formBody(fields): a request-body descriptor (Scope B.4+) — the browser
     // assembles `{ field: <signal value> }` from the named field signals at submit.
     QualifiedName("formBody") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(fields: Value) => Value.Foreign("FormBody", fields)
-        case _                   => throw InterpretError("formBody(fields)")
+        case List(fields) => PluginValue.foreign("FormBody", fields)
+        case _                   => PluginError.raise("formBody(fields)")
     },
 
     // fetchActionWith(method, url, body, onSuccess[, headers]): EventHandler
@@ -180,31 +179,31 @@ object FetchIntrinsics:
     // latter is browser-assembled, so the interpreter uses a synthetic empty body.
     QualifiedName("fetchActionWith") -> PluginNative.evalLegacy { (_, args) =>
       def resolveBody(b: Any): ReactiveSignal[?] = b match
-        case Value.Foreign("ReactiveSignal", s: ReactiveSignal[?]) => s
-        case Value.Foreign("FormBody", _) => new ReactiveSignal[String]("__ssc_form_body", "")
-        case _ => throw InterpretError("fetchActionWith: body must be a Signal[String] or formBody(...)")
+        case PluginValue.Foreign("ReactiveSignal", s: ReactiveSignal[?]) => s
+        case PluginValue.Foreign("FormBody", _) => new ReactiveSignal[String]("__ssc_form_body", "")
+        case _ => PluginError.raise("fetchActionWith: body must be a Signal[String] or formBody(...)")
       def mk(method: String, url: String, body: ReactiveSignal[?], onSuccess: Any,
-             headers: Option[ReactiveSignal[String]]): Value =
+             headers: Option[ReactiveSignal[String]]): PluginValue =
         val effects = onSuccess match
-          case Value.ListV(es) => es
+          case PluginValue.Lst(es) => es
           case _               => Nil
         val firstTick = effects.collectFirst {
-          case Value.Foreign("OnSuccessEffect", ("bumpTick", t: ReactiveSignal[?])) =>
+          case PluginValue.Foreign("OnSuccessEffect", ("bumpTick", t: ReactiveSignal[?])) =>
             t.asInstanceOf[ReactiveSignal[Int]]
         }
         val tick = firstTick.getOrElse(new ReactiveSignal[Int]("__ssc_no_tick", 0))
-        Value.Foreign("EventHandler",
+        PluginValue.foreign("EventHandler",
           EventHandler.FetchAction(method, url,
             body.asInstanceOf[ReactiveSignal[String]], tick, headers = headers))
       args match
         case List(method: String, url: String, body, onSuccess) =>
           mk(method, url, resolveBody(body), onSuccess, None)
         case List(method: String, url: String, body, onSuccess,
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
           mk(method, url, resolveBody(body), onSuccess,
              if h.id == "__ssc_empty_headers" then None else Some(h))
-        case _ => throw InterpretError("fetchActionWith(method, url, body, onSuccess[, headers])")
+        case _ => PluginError.raise("fetchActionWith(method, url, body, onSuccess[, headers])")
     },
 
     // fetchCaptureAction(method, url, body, into, onSuccessTick[, headers]): EventHandler
@@ -217,74 +216,74 @@ object FetchIntrinsics:
     QualifiedName("fetchCaptureAction") -> PluginNative.evalLegacy { (_, args) =>
       def mk(method: String, url: String, body: ReactiveSignal[?], tick: ReactiveSignal[?],
              headers: Option[ReactiveSignal[String]]) =
-        Value.Foreign("EventHandler",
+        PluginValue.foreign("EventHandler",
           EventHandler.FetchAction(method, url,
             body.asInstanceOf[ReactiveSignal[String]],
             tick.asInstanceOf[ReactiveSignal[Int]],
             headers = headers))
       args match
         case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", _: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", _: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
           mk(method, url, body, tick, None)
         case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", _: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", _: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
           mk(method, url, body, tick, if h.id == "__ssc_empty_headers" then None else Some(h))
-        case _ => throw InterpretError("fetchCaptureAction(method, url, body, into, onSuccessTick[, headers])")
+        case _ => PluginError.raise("fetchCaptureAction(method, url, body, into, onSuccessTick[, headers])")
     },
 
     // incSignal(s): EventHandler — increment an Int signal by 1 on click.
     QualifiedName("incSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.Foreign("ReactiveSignal", rs: ReactiveSignal[?])) =>
-          Value.Foreign("EventHandler",
+        case List(PluginValue.Foreign("ReactiveSignal", rs: ReactiveSignal[?])) =>
+          PluginValue.foreign("EventHandler",
             EventHandler.IncrementSignal(rs.asInstanceOf[ReactiveSignal[Int]], 1))
-        case _ => throw InterpretError("incSignal(signal)")
+        case _ => PluginError.raise("incSignal(signal)")
     },
 
     // fieldColumn(title, fieldPath[, align[, editAction]]): FieldColumnDef
     QualifiedName("fieldColumn") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(title: String, fieldPath: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath))
         case List(title: String, fieldPath: String, align: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty)))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty)))
         case List(title: String, fieldPath: String, align: String,
-                  Value.Foreign("RowActionDef", ea: RowActionDef.RowInlineEdit)) =>
-          Value.Foreign("FieldColumnDef",
+                  PluginValue.Foreign("RowActionDef", ea: RowActionDef.RowInlineEdit)) =>
+          PluginValue.foreign("FieldColumnDef",
             FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), Some(ea)))
         case List(title: String, fieldPath: String, align: String, editAction)
             if isNullish(editAction) =>
-          Value.Foreign("FieldColumnDef",
+          PluginValue.foreign("FieldColumnDef",
             FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty)))
-        case _ => throw InterpretError("fieldColumn(title, fieldPath[, align[, editAction]])")
+        case _ => PluginError.raise("fieldColumn(title, fieldPath[, align[, editAction]])")
     },
 
     // rowDeleteAction(url, idField, tick[, headers]): RowActionDef
     QualifiedName("rowDeleteAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String, idField: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("RowActionDef",
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(url: String, idField: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
         case List(url: String, idField: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
             if isEmptyHeadersArg(headers) =>
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
-        case _ => throw InterpretError("rowDeleteAction(url, idField, tick[, headers])")
+        case _ => PluginError.raise("rowDeleteAction(url, idField, tick[, headers])")
     },
 
     // rowPostAction(label, method, url, payload, tick[, headers]): RowActionDef
@@ -292,59 +291,59 @@ object FetchIntrinsics:
     QualifiedName("rowPostAction") -> PluginNative.evalLegacy { (_, args) =>
       def toPayload(v: Any): RowPayload = v match
         case s: String                                    => RowPayload.Field(s)
-        case Value.Foreign("RowPayload", p: RowPayload)   => p
-        case _                                            => throw InterpretError("rowPostAction: invalid payload argument")
+        case PluginValue.Foreign("RowPayload", p: RowPayload)   => p
+        case _                                            => PluginError.raise("rowPostAction: invalid payload argument")
       args match
         case List(label: String, method: String, url: String, payloadArg,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("RowActionDef",
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowPost(label, method, url, toPayload(payloadArg), tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(label: String, method: String, url: String, payloadArg,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowPost(label, method, url, toPayload(payloadArg), tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
         case List(label: String, method: String, url: String, payloadArg,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
             if isEmptyHeadersArg(headers) =>
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowPost(label, method, url, toPayload(payloadArg), tick.asInstanceOf[ReactiveSignal[Int]]))
-        case _ => throw InterpretError("rowPostAction(label, method, url, payload, tick[, headers])")
+        case _ => PluginError.raise("rowPostAction(label, method, url, payload, tick[, headers])")
     },
 
     // rowLinkAction(label, signal, fieldPath): RowActionDef
     QualifiedName("rowLinkAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(label: String,
-                  Value.Foreign("ReactiveSignal", sig: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", sig: ReactiveSignal[?]),
                   fieldPath: String) =>
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowLink(label, sig.asInstanceOf[ReactiveSignal[String]], fieldPath))
-        case _ => throw InterpretError("rowLinkAction(label, signal, fieldPath)")
+        case _ => PluginError.raise("rowLinkAction(label, signal, fieldPath)")
     },
 
     // rowEditAction(method, url, idField, tick[, headers]): RowActionDef
     QualifiedName("rowEditAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String, url: String, idField: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          Value.Foreign("RowActionDef",
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(method: String, url: String, idField: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
         case List(method: String, url: String, idField: String,
-                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
             if isEmptyHeadersArg(headers) =>
-          Value.Foreign("RowActionDef",
+          PluginValue.foreign("RowActionDef",
             RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
-        case _ => throw InterpretError("rowEditAction(method, url, idField, tick[, headers])")
+        case _ => PluginError.raise("rowEditAction(method, url, idField, tick[, headers])")
     },
 
     // ── RowPayload constructors ──────────────────────────────────────────────
@@ -352,22 +351,22 @@ object FetchIntrinsics:
     // fieldPayload(name: String): RowPayload.Field
     QualifiedName("fieldPayload") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(name: String) => Value.Foreign("RowPayload", RowPayload.Field(name))
-        case _ => throw InterpretError("fieldPayload(name)")
+        case List(name: String) => PluginValue.foreign("RowPayload", RowPayload.Field(name))
+        case _ => PluginError.raise("fieldPayload(name)")
     },
 
     // wholeRowPayload(): RowPayload.WholeRow
     QualifiedName("wholeRowPayload") -> PluginNative.evalLegacy { (_, _) =>
-      Value.Foreign("RowPayload", RowPayload.WholeRow)
+      PluginValue.foreign("RowPayload", RowPayload.WholeRow)
     },
 
     // fieldsPayload(names: List[String]): RowPayload.Fields
     QualifiedName("fieldsPayload") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.ListV(items)) =>
-          val names = items.collect { case Value.StringV(s) => s }
-          Value.Foreign("RowPayload", RowPayload.Fields(names))
-        case _ => throw InterpretError("fieldsPayload(names)")
+        case List(PluginValue.Lst(items)) =>
+          val names = items.collect { case PluginValue.Str(s) => s }
+          PluginValue.foreign("RowPayload", RowPayload.Fields(names))
+        case _ => PluginError.raise("fieldsPayload(names)")
     },
 
     // ── Column kind constructors ─────────────────────────────────────────────
@@ -376,107 +375,107 @@ object FetchIntrinsics:
     QualifiedName("dateColumn") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(title: String, fieldPath: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Date(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Date(), None))
         case List(title: String, fieldPath: String, align: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Date(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Date(), None))
         case List(title: String, fieldPath: String, align: String, fmt) =>
           val fmtOpt = if isNullish(fmt) then None else Some(fmt.toString).filter(_.nonEmpty)
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Date(fmtOpt), None))
-        case _ => throw InterpretError("dateColumn(title, fieldPath[, align[, format]])")
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Date(fmtOpt), None))
+        case _ => PluginError.raise("dateColumn(title, fieldPath[, align[, format]])")
     },
 
     // moneyColumn(title, fieldPath, align?, currency?, locale?): FieldColumnDef
     QualifiedName("moneyColumn") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(title: String, fieldPath: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Money(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Money(), None))
         case List(title: String, fieldPath: String, align: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Money(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Money(), None))
         case List(title: String, fieldPath: String, align: String, currency: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
             ColumnKind.Money(Some(currency).filter(_.nonEmpty)), None))
         case List(title: String, fieldPath: String, align: String, currency: String, locale: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
             ColumnKind.Money(Some(currency).filter(_.nonEmpty), Some(locale).filter(_.nonEmpty)), None))
-        case _ => throw InterpretError("moneyColumn(title, fieldPath[, align[, currency[, locale]]])")
+        case _ => PluginError.raise("moneyColumn(title, fieldPath[, align[, currency[, locale]]])")
     },
 
     // statusColumn(title, fieldPath, align?, colorMap?): FieldColumnDef
     QualifiedName("statusColumn") -> PluginNative.evalLegacy { (_, args) =>
       def toColorMap(v: Any): Map[String, String] = v match
-        case Value.Foreign("Map", m: Map[?, ?])    => m.asInstanceOf[Map[String, String]]
-        case Value.Foreign("Object", m: Map[?, ?]) => m.asInstanceOf[Map[String, String]]
+        case PluginValue.Foreign("Map", m: Map[?, ?])    => m.asInstanceOf[Map[String, String]]
+        case PluginValue.Foreign("Object", m: Map[?, ?]) => m.asInstanceOf[Map[String, String]]
         case _ => Map.empty
       args match
         case List(title: String, fieldPath: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.StatusBadge(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.StatusBadge(), None))
         case List(title: String, fieldPath: String, align: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.StatusBadge(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.StatusBadge(), None))
         case List(title: String, fieldPath: String, align: String, colorMap) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
             ColumnKind.StatusBadge(toColorMap(colorMap)), None))
-        case _ => throw InterpretError("statusColumn(title, fieldPath[, align[, colorMap]])")
+        case _ => PluginError.raise("statusColumn(title, fieldPath[, align[, colorMap]])")
     },
 
     // linkColumn(title, fieldPath, align?, urlTemplate?): FieldColumnDef
     QualifiedName("linkColumn") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(title: String, fieldPath: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Link(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Link(), None))
         case List(title: String, fieldPath: String, align: String) =>
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Link(), None))
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Link(), None))
         case List(title: String, fieldPath: String, align: String, urlTemplate) =>
           val tplOpt = if isNullish(urlTemplate) then None else Some(urlTemplate.toString).filter(_.nonEmpty)
-          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+          PluginValue.foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
             ColumnKind.Link(tplOpt), None))
-        case _ => throw InterpretError("linkColumn(title, fieldPath[, align[, urlTemplate]])")
+        case _ => PluginError.raise("linkColumn(title, fieldPath[, align[, urlTemplate]])")
     },
 
     // dataTableView(source, columns, actions): View
     // Builds a View.DataTable from a TableDataSource + lists of FieldColumnDef/RowActionDef.
     // Accepts either a TableDataSource Foreign value, or a FetchUrlSignal directly (legacy path).
     QualifiedName("dataTableView") -> PluginNative.evalLegacy { (_, args) =>
-      def toColumns(v: Value): List[FieldColumnDef] = v match
-        case Value.ListV(items) => items.collect {
-          case Value.Foreign("FieldColumnDef", c: FieldColumnDef) => c }
+      def toColumns(v: Any): List[FieldColumnDef] = v match
+        case PluginValue.Lst(items) => items.collect {
+          case PluginValue.Foreign("FieldColumnDef", c: FieldColumnDef) => c }
         case _ => Nil
-      def toActions(v: Value): List[RowActionDef] = v match
-        case Value.ListV(items) => items.collect {
-          case Value.Foreign("RowActionDef", a: RowActionDef) => a }
+      def toActions(v: Any): List[RowActionDef] = v match
+        case PluginValue.Lst(items) => items.collect {
+          case PluginValue.Foreign("RowActionDef", a: RowActionDef) => a }
         case _ => Nil
       args match
-        case List(Value.Foreign("TableDataSource", src: TableDataSource),
-                  cols: Value, acts: Value) =>
-          Value.Foreign("View",
+        case List(PluginValue.Foreign("TableDataSource", src: TableDataSource),
+                  cols, acts) =>
+          PluginValue.foreign("View",
             View.DataTable(src, toColumns(cols), toActions(acts)))
-        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal),
-                  cols: Value, acts: Value) =>
+        case List(PluginValue.Foreign("ReactiveSignal", sig: FetchUrlSignal),
+                  cols, acts) =>
           // Legacy path: bare FetchUrlSignal → wrap as Remote automatically.
-          Value.Foreign("View",
+          PluginValue.foreign("View",
             View.DataTable(TableDataSource.Remote(sig), toColumns(cols), toActions(acts)))
-        case _ => throw InterpretError("dataTableView(source, columns, actions)")
+        case _ => PluginError.raise("dataTableView(source, columns, actions)")
     },
 
     // staticRowsSource(rows: List[Map[String, Any]]): TableDataSource.StaticRows
     QualifiedName("staticRowsSource") -> PluginNative.evalLegacy { (_, args) =>
-      def toRows(v: Value): List[Map[String, Any]] = v match
-        case Value.ListV(items) => items.collect {
-          case Value.Foreign("Map", m: Map[?, ?]) => m.asInstanceOf[Map[String, Any]]
-          case Value.Foreign("Object", m: Map[?, ?]) => m.asInstanceOf[Map[String, Any]]
+      def toRows(v: Any): List[Map[String, Any]] = v match
+        case PluginValue.Lst(items) => items.collect {
+          case PluginValue.Foreign("Map", m: Map[?, ?]) => m.asInstanceOf[Map[String, Any]]
+          case PluginValue.Foreign("Object", m: Map[?, ?]) => m.asInstanceOf[Map[String, Any]]
         }
         case _ => Nil
       args match
-        case List(rows: Value) =>
-          Value.Foreign("TableDataSource", TableDataSource.StaticRows(toRows(rows)))
-        case _ => throw InterpretError("staticRowsSource(rows)")
+        case List(rows) =>
+          PluginValue.foreign("TableDataSource", TableDataSource.StaticRows(toRows(rows)))
+        case _ => PluginError.raise("staticRowsSource(rows)")
     },
 
     // signalRowsSource(sig: ReactiveSignal[?]): TableDataSource.SignalRows
     QualifiedName("signalRowsSource") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.Foreign("ReactiveSignal", sig: ReactiveSignal[?])) =>
-          Value.Foreign("TableDataSource", TableDataSource.SignalRows(sig))
-        case _ => throw InterpretError("signalRowsSource(signal)")
+        case List(PluginValue.Foreign("ReactiveSignal", sig: ReactiveSignal[?])) =>
+          PluginValue.foreign("TableDataSource", TableDataSource.SignalRows(sig))
+        case _ => PluginError.raise("signalRowsSource(signal)")
     },
 
     // fetchRowsSource(sig: FetchUrlSignal, rowsPath: String): TableDataSource.Remote
@@ -487,10 +486,10 @@ object FetchIntrinsics:
     QualifiedName("fetchRowsSource") -> PluginNative.evalLegacy { (_, args) =>
       def pathOf(v: Any): String = String.valueOf(v) match { case "null" => ""; case s => s }
       args match
-        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal), rowsPath) =>
-          Value.Foreign("TableDataSource", TableDataSource.Remote(sig, pathOf(rowsPath)))
-        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal)) =>
-          Value.Foreign("TableDataSource", TableDataSource.Remote(sig))
-        case _ => throw InterpretError("fetchRowsSource(fetchSignal, rowsPath)")
+        case List(PluginValue.Foreign("ReactiveSignal", sig: FetchUrlSignal), rowsPath) =>
+          PluginValue.foreign("TableDataSource", TableDataSource.Remote(sig, pathOf(rowsPath)))
+        case List(PluginValue.Foreign("ReactiveSignal", sig: FetchUrlSignal)) =>
+          PluginValue.foreign("TableDataSource", TableDataSource.Remote(sig))
+        case _ => PluginError.raise("fetchRowsSource(fetchSignal, rowsPath)")
     },
   )
