@@ -2,8 +2,7 @@ package scalascript.compiler.plugin.ws
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, Computation}
-import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
 
 /** WebSocket server intrinsics for the tree-walking interpreter (Stage 5+/D).
  *
@@ -19,8 +18,8 @@ object WsIntrinsics:
       args match
         case Nil =>
           val snap = scalascript.server.Metrics.snapshot()
-          Value.MapV(snap.map((k, v) => Value.StringV(k) -> Value.intV(v)))
-        case _ => throw InterpretError("metrics() — no arguments")
+          PluginValue.mapOf(snap.map((k, v) => PluginValue.string(k) -> PluginValue.int(v)).toMap)
+        case _ => PluginError.raise("metrics() — no arguments")
     },
 
     // setMaxWsConnections(n) — process-wide cap on simultaneously-open WebSocket sessions.
@@ -29,7 +28,7 @@ object WsIntrinsics:
         case List(n: Long) =>
           ctx.setMaxWsConnections(if n > Int.MaxValue.toLong || n < 0 then Int.MaxValue else n.toInt)
           ()
-        case _ => throw InterpretError("setMaxWsConnections(n)")
+        case _ => PluginError.raise("setMaxWsConnections(n)")
     },
 
     // setHttpServerBackend(name) — pick which HttpServerSpi implementation
@@ -40,50 +39,50 @@ object WsIntrinsics:
     // is better than silent fallback when the user explicitly asked).
     QualifiedName("setHttpServerBackend") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.StringV(name)) =>
+        case List(PluginValue.Str(name)) =>
           scalascript.server.spi.HttpServerBackends.setBackend(name)
           ()
-        case _ => throw InterpretError("setHttpServerBackend(name)")
+        case _ => PluginError.raise("setHttpServerBackend(name)")
     },
 
     // WsRoom() — thread-safe registry with built-in broadcast helper.
     QualifiedName("WsRoom") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case Nil =>
-          val members = java.util.concurrent.CopyOnWriteArrayList[Value]()
-          val add = Value.NativeFnV("WsRoom.add", Computation.pureFn {
-            case List(ws) => members.add(ws); Value.UnitV
-            case _ => throw InterpretError("room.add(ws)")
+          val members = java.util.concurrent.CopyOnWriteArrayList[PluginValue]()
+          val add = PluginValue.nativeFn("WsRoom.add", {
+            case List(ws) => members.add(ws); PluginValue.unit
+            case _ => PluginError.raise("room.add(ws)")
           })
-          val remove = Value.NativeFnV("WsRoom.remove", Computation.pureFn {
-            case List(ws) => members.remove(ws); Value.UnitV
-            case _ => throw InterpretError("room.remove(ws)")
+          val remove = PluginValue.nativeFn("WsRoom.remove", {
+            case List(ws) => members.remove(ws); PluginValue.unit
+            case _ => PluginError.raise("room.remove(ws)")
           })
-          val broadcast = Value.NativeFnV("WsRoom.broadcast", Computation.pureFn {
-            case List(Value.StringV(msg)) =>
+          val broadcast = PluginValue.nativeFn("WsRoom.broadcast", {
+            case List(PluginValue.Str(msg)) =>
               val it = members.iterator()
               while it.hasNext do
                 it.next() match
-                  case Value.InstanceV("WebSocket", fields) =>
+                  case PluginValue.Inst("WebSocket", fields) =>
                     fields.get("send") match
-                      case Some(f: Value.NativeFnV) =>
-                        try Computation.run(f.f(List(Value.StringV(msg))))
+                      case Some(sendFn) =>
+                        try sendFn.callFn(List(PluginValue.string(msg)))
                         catch case _: Throwable => () // dead client; reaped via onClose
-                      case _ => ()
+                      case None => ()
                   case _ => ()
-              Value.UnitV
-            case _ => throw InterpretError("room.broadcast(msg)")
+              PluginValue.unit
+            case _ => PluginError.raise("room.broadcast(msg)")
           })
-          val size = Value.NativeFnV("WsRoom.size", Computation.pureFn {
-            case Nil => Value.intV(members.size.toLong)
-            case _   => throw InterpretError("room.size()")
+          val size = PluginValue.nativeFn("WsRoom.size", {
+            case Nil => PluginValue.int(members.size.toLong)
+            case _   => PluginError.raise("room.size()")
           })
-          Value.InstanceV("WsRoom", Map(
+          PluginValue.instance("WsRoom", Map(
             "add"       -> add,
             "remove"    -> remove,
             "broadcast" -> broadcast,
             "size"      -> size
           ))
-        case _ => throw InterpretError("WsRoom()")
+        case _ => PluginError.raise("WsRoom()")
     },
   )

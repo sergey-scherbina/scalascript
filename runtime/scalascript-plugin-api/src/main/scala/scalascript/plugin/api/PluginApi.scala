@@ -4,7 +4,7 @@ import scalascript.backend.spi.{NativeContext, NativeImpl, OpenApiGenerator, Rem
 // stable-spi-p3: the ONE controlled seam — pluginApi imports the interpreter `Value`/`InterpretError`
 // internally and re-exposes them through the stable `PluginValue`/`PluginError` surface, so plugins
 // never import `scalascript.interpreter.*` themselves.
-import scalascript.interpreter.{Value, InterpretError}
+import scalascript.interpreter.{Value, InterpretError, Computation}
 
 import scala.util.control.NonFatal
 
@@ -55,6 +55,10 @@ object PluginValue:
   /** A case-class / record instance (`typeName` + named fields). */
   def instance(typeName: String, fields: Map[String, PluginValue]): PluginValue =
     Value.InstanceV(typeName, fields.map((k, v) => (k, v.asInstanceOf[Value])))
+  /** A native (host) function value — `fn` maps its args to a result, run eagerly. Backs the
+   *  interpreter's `NativeFnV`, so a plugin can return a callable record (e.g. `WsRoom.add`). */
+  def nativeFn(name: String, fn: List[PluginValue] => PluginValue): PluginValue =
+    Value.NativeFnV(name, Computation.pureFn(vargs => fn(vargs.map(wrap)).asInstanceOf[Value]))
 
   extension (pv: PluginValue)
     def unwrap: Any = pv
@@ -73,6 +77,10 @@ object PluginValue:
     def asOption: Option[Option[PluginValue]] =
       pv match { case Value.OptionV(o) => Some(Option(o).map(wrap)); case _ => None }
     def asBigInt: Option[BigInt] = pv match { case Value.BigIntV(n) => Some(n); case _ => None }
+    /** Invoke `pv` as a native function value with `args` (running its computation to a result). */
+    def callFn(args: List[PluginValue]): PluginValue = pv match
+      case Value.NativeFnV(_, f) => wrap(Computation.run(f(args.map(_.asInstanceOf[Value]))))
+      case _ => throw InterpretError(s"callFn: not a function value: ${Value.show(pv.asInstanceOf[Value])}")
     def asInstance: Option[(String, Map[String, PluginValue])] =
       // use `effectiveFields`, not the raw `fields` map — an array-backed InstanceV keeps its data in
       // `fieldsArr`/`fieldNames` with an empty `fields`, so destructuring the map would lose it.

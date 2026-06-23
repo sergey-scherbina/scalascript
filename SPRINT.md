@@ -211,8 +211,11 @@ validated + pushed:
       `.collect { case (Str(k), Str(v)) => … }` (not only line-start `case`), and (b) bare `Value` TYPE
       annotations (`Option[Value]`/`: Value`/`[Value]`) → `PluginValue` (the `Value.`-only residual check
       misses them).
-- [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
-      streams, ws. Adds `PluginComputation` usage.
+- [~] **p3-batch-B**: **ws ✓ (3/0)** (1/7). ENABLER added: `PluginValue.nativeFn(name, List[PluginValue]=>PluginValue)`
+      (builds a `NativeFnV` via `Computation.pureFn`) + `pv.callFn(args)` (runs a fn value's Computation) — for
+      plugins that return callable records. Small/clean remaining: oauth, json (+`JsonParser`→`JsonCodec`), pwa.
+      Computation+ctx GIANTS (defer to batch-C-style): dstreams (56 NativeFnV/ctx), graphql (7+18ctx), streams
+      (67+38ctx) — huge + ctx-heavy, need capability migration too.
 - [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),
       remote (JsonParser+RemoteCap), content, frontend, request, smtp, sql (DbCap), uuid, os. Migrate ctx →
       capability traits (`evalLegacy`/`eval`) AND the value-surface.
