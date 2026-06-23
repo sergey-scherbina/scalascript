@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — docs: advanced-plugin examples note their `ssc check` opt-in requirement
+
+Follow-up to the advanced-optin strict-opt-in (`pluginObjects`/`pluginBuiltins` plugin names moved off
+the hardcoded prelude): the 7 examples that use advanced-plugin names (`x402-*` → payments, `oauth`/
+`oidc` → oauth) now `ssc check` with `undefined name: …` unless the plugin is added — the intended
+strict-opt-in, but a UX cliff. Verified the failure is real (`ssc check examples/x402-client.ssc` →
+`undefined name: DefaultSyncBackend / basicRequest`) and added a uniform "Advanced plugin" blockquote to
+each, pointing at `--plugin <…/plugin-available/…>` / `ssc plugin install`. Fence-lint + cli smoke 2/0.
+(The fuller fix — `ssc check` auto-loading a bundled plugin when the file imports its namespace — was
+scoped: it needs a `Backend.providesImports` SPI + `plugin-available` discovery + a per-check scan cost +
+installBin staging to verify, i.e. a medium feature disproportionate to the gain; queued in SPRINT as
+`check-autoload-plugin-by-import` with the verified premise + design for a future session.)
+
 ## 2026-06-23 — docs: BACKLOG open-item hygiene
 
 Classified stale `BACKLOG.md` open rows so agents can distinguish claimable work from

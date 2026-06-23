@@ -33,8 +33,27 @@ and execute autonomously. In priority order:
       bad). Large + interpreter-internal + ZERO user-visible change (the seam already lets the runtime live
       either side). The seam-builder deliberately deferred it for exactly this; not a responsible autonomous
       slice. Revisit only as a dedicated multi-session refactor with a clear consumer need.
-- [ ] **strategic-theme-pick** — after the above, pick one BACKLOG strategic theme (remote-package-registry /
-      FFI `@jvm`/`@js` Theme J / Library Modularity Theme H) and slice it. Maven publication stays EXCLUDED.
+- [x] **strategic-theme-survey** ✓ DONE 2026-06-23 — surveyed BACKLOG strategic themes: the audit shows
+      Themes A/E/F/H/J are ALREADY BUILT (FFI = `GlueClasspathRegistry`/`GlueJsPreambleRegistry` landed;
+      modularity = `SsclibManifest` landed; stable-SPI Phases 1+2 landed). The only open strategic item is
+      `remote-package-registry` (registry.scalascript.io), explicitly DEMAND-DRIVEN (build when a real external
+      plugin author needs it — needs hosting/domain, not codeable autonomously). So no greenfield strategic
+      slice is ready. Maven publication stays EXCLUDED per Sergiy.
+- [x] **advanced-example-check-ux** ✓ DONE 2026-06-23 — concrete follow-up to advanced-optin: the 7 examples
+      using advanced-plugin names (`x402-*`→payments, `oauth`/`oidc`→oauth) now `ssc check`-flag unless the
+      plugin is added (verified: `undefined name: DefaultSyncBackend/basicRequest`). Added a uniform "Advanced
+      plugin" note to each pointing at `--plugin`. Fence-lint + cli smoke 2/0.
+- [ ] **check-autoload-plugin-by-import** (scoped 2026-06-23, deferred — medium feature) — make `ssc check`
+      auto-resolve advanced names when the file imports the plugin's namespace, so no manual `--plugin`. PREMISE
+      VERIFIED (the x402 example flags `DefaultSyncBackend`/`basicRequest` post-strict-opt-in). DESIGN: add
+      `Backend.providesImports: List[String] = Nil` to the SPI; advanced plugins declare their namespaces
+      (payments→`scalascript.x402`, oauth→`scalascript.oauth`+`scalascript.oidc`, spark→`scalascript.spark`);
+      `ssc check` collects the module's import prefixes, scans `lib/compiler/plugin-available/*.sscpkg`
+      (throwaway `URLClassLoader`+`ServiceLoader` per pkg, or a build-time `imports.map` to avoid the per-check
+      cost), and folds in `preludeSymbols` from packages whose `providesImports` matches. Hooks at `Main.scala`
+      ~5293 (`BackendRegistry.inProcess.flatMap(_.preludeSymbols)`). Needs AST import-prefix extraction +
+      `installBin` staging to verify end-to-end. Disproportionate to the narrow gain right now → docs note shipped
+      instead (`advanced-example-check-ux`); pick this up when there's appetite for the full feature.
 
 - [x] **board-spec-hygiene** ✓ DONE 2026-06-23 — reconciled stale core-min/polyglot board/spec wording.
       Updated `specs/polyglot-libraries.md` to the 2026-06-23 landed state, removed future-looking optics
