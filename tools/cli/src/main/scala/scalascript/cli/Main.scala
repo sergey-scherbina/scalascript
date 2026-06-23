@@ -284,7 +284,9 @@ private[cli] def compileViaBackend(
     backend.compile(ir, opts)
 
 private[cli] def compileJsSegments(path: os.Path, noTreeShake: Boolean = false): List[Segment] =
-  val module  = loadModule(path)
+  // [E3] honor the `def view()` convention on the codegen path (client-mode SPA
+  // / emit-spa): synthesize `serve(view(), 8080)` so JsGen emits the React mount.
+  val module  = AutoViewEntry.maybeInject(loadModule(path))
   val ir      = Normalize(module)
   val backend = resolveBackend("js")
   val diags   = CapabilityCheck.validate(ir, backend.capabilities, "js")
