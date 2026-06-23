@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — UCC web fixes (rozum/sunny-civet): F1 DataTable rowsPath + E3 def view() client-mode mount
+
+Two compiler-side bugs reported from the Unified Control Center frontend:
+
+**F1 — two `remoteTable`s on one `fetchUrlSignal` now both fill.** `DataTableLowering` discarded the
+Remote source's `rowsPath` (hardcoded the `ForModel` field-path to `""`), so two DataTables sharing one
+fetch signal both read the raw envelope under `sig.id` and collided — only one filled. The rowsPath is now
+threaded into the `ForModel` field-path, so each table drills its own dotted path (`installed` /
+`residency_metrics` / `result.items`) from the ONE shared raw-envelope state. Empty rowsPath unchanged
+(root array). frontend/react DataTableEmitTest 14/14 (+2 F1 regression tests); frontendReact 59,
+frontendVue 59, frontendCore 56 green.
+
+**E3 — `def view()` now renders on the static codegen path (client-mode SPA).** The `def view()` convention
+(one `.ssc` → web or terminal, no explicit `serve`) was honored only at interpret time
+(`Interpreter.autoRunView`); the static JS compile (`compileJsSegments` → `JsGen`, used by
+`run --mode client` + `emit-spa`) never saw a `serve(...)`, so a def-view-only module emitted no mount → a
+blank client-mode page. New `AutoViewEntry.maybeInject` mirrors the convention for codegen: when a frontend
+is selected, the module defines a zero-arg top-level `view`, and it calls no UI entry itself, it synthesizes
+a top-level `serve(view(), 8080)` so JsGen emits the SPA + mount (same gating as autoRunView). cli
+AutoViewEntryClientModeTest 5/5; JS/SPA/frontend CLI suites green.
+
 ## 2026-06-23 — rust-tui-toolkit S5: converge `--frontend tui` onto the live rust path (COMPLETE)
 
 A new `ssc tui <file.ssc>` (alias `run-tui`) transpiles a `.ssc` UI to a Cargo crate with the ratatui View
