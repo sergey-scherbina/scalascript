@@ -26,7 +26,7 @@ object DataTableLowering:
 
   def lower(dt: View.DataTable): View[?] =
     dt.source match
-      case TableDataSource.Remote(sig, _) =>
+      case TableDataSource.Remote(sig, rowsPath) =>
         val bindingVar = sig.id
         val itemVar    = "row"
         val headerRow  = elem("tr",
@@ -46,9 +46,13 @@ object DataTableLowering:
         }
         val actionCells = dt.actions.map(a => elem("td", List(actionButton(a))))
         val bodyRow = elem("tr", dataCells ++ actionCells)
+        // Drill the optional dotted `rowsPath` (e.g. "installed", "result.items")
+        // from the RAW fetched envelope held under `bindingVar` (= sig.id). Two
+        // DataTables sharing one fetch signal each drill their own rowsPath from
+        // that one shared state, so both fill (a shared signal no longer collides).
         val tbody = elem("tbody",
           List(View.ModelView(sig, bindingVar,
-            View.ForModel(bindingVar, "", itemVar, bodyRow))))
+            View.ForModel(bindingVar, rowsPath, itemVar, bodyRow))))
         elem("table", List(thead, tbody))
       case _ =>
         // StaticRows and SignalRows: emit header only as stub; full rendering in Phase 3.

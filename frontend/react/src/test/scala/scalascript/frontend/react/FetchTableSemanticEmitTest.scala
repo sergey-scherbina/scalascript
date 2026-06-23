@@ -133,3 +133,38 @@ class DataTableEmitTest extends AnyFunSuite:
     val js = emitJs(dt)
     assert(js.contains("const [tick, setTick] = useState(0);"), s"got: $js")
   }
+
+  // ── F1: two DataTables sharing ONE fetch signal, different rowsPath ──────
+  // rozum/sunny-civet: remoteTable(st,…,"installed") + remoteTable(st,…,"residency_metrics")
+  // on one fetchUrlSignal `st` — both must fill. Each table drills its own rowsPath
+  // from the ONE shared raw-envelope state (no per-signal-id collision).
+
+  test("F1 — two DataTables on one fetch signal each drill their own rowsPath") {
+    val st       = new FetchUrlSignal("st", "/control/status", tick.id)
+    val catalog  = View.DataTable(
+      source  = TableDataSource.Remote(st, "installed"),
+      columns = List(FieldColumnDef("Model", "spec")),
+      actions = Nil)
+    val metrics  = View.DataTable(
+      source  = TableDataSource.Remote(st, "residency_metrics"),
+      columns = List(FieldColumnDef("Metric", "metric"), FieldColumnDef("Value", "value")),
+      actions = Nil)
+    val view = View.Element("div", Map.empty, Map.empty, List(catalog, metrics))
+    val js   = emitJs(view)
+    // ONE shared state + ONE fetch for the shared signal (deduped by signal id).
+    assert(js.split("const \\[st, setSt\\] = useState\\(\\[\\]\\);").length - 1 == 1,
+      s"expected exactly one shared useState for `st`, got: $js")
+    // Each table drills its OWN rowsPath from that shared raw envelope → both fill.
+    assert(js.contains("(st.installed || []).map"), s"catalog rowsPath drill missing: $js")
+    assert(js.contains("(st.residency_metrics || []).map"), s"residency_metrics rowsPath drill missing: $js")
+  }
+
+  test("F1 — a dotted rowsPath drills nested envelope fields") {
+    val st = new FetchUrlSignal("resp", "/api/x", tick.id)
+    val dt = View.DataTable(
+      source  = TableDataSource.Remote(st, "result.items"),
+      columns = List(FieldColumnDef("Name", "name")),
+      actions = Nil)
+    val js = emitJs(dt)
+    assert(js.contains("(resp.result.items || []).map"), s"dotted rowsPath drill missing: $js")
+  }
