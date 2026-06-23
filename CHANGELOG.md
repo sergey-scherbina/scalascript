@@ -16,6 +16,13 @@ unchanged; the richer `index.json` (checksums/all-versions) stays the publish-si
 through the existing `LocalRegistry.parseFile`/`resolve`. `RemoteRegistryTest` 8/0. Spec
 `specs/arch-build-registry.md` §6b.
 
+## 2026-06-23 — core-min actors: distributed server hook seam
+
+Added the second green slice of `coremin-actors-codemove`: `ActorRuntimeHost` now exposes the distributed
+hooks a moved runtime needs for outbound WebSocket clients, `_ssc-actors` WebSocket route registration, and
+cluster-control HTTP route registration. The current core delegate still owns actor scheduling; behavior is
+unchanged, and provider tests verify a custom provider can use the new host route hooks.
+
 ## 2026-06-23 — core-min actors: explicit runtime host-service seam
 
 Added the first green slice of `coremin-actors-codemove`: `ActorRuntimeHost` now exposes the non-server

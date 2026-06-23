@@ -47,6 +47,12 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       `_ssc-actors` WS route registration, and cluster-control route registration. This should stay
       behavior-preserving: `ActorInterp` remains the implementation owner, the future plugin runtime calls host
       hooks instead of `InterpreterServerSupport.current`, `wsRoutes.register`, or `ClusterRoutesRuntime` directly.
+      **Server/WS seam DONE 2026-06-23 (codex):** `ActorRuntimeHost` now exposes `actorOpenWsClient`,
+      `actorRegisterWsRoute`, and `actorRegisterClusterRoutes`; provider coverage verifies WS + cluster route
+      registration through host hooks. Actor behavior unchanged; verified provider 5/0 + actor targeted suites
+      53/0 (known ScalaTest reporter `InterruptedException`, sbt `[success]`). **Next slice:** move the
+      scheduler/cluster implementation into `runtime/std/actors-plugin` in a dedicated worktree step; keep
+      `receive` syntax + host bridge in core.
 
 - [ ] **theme-a-stable-plugin-spi — Phase 3** (versioned stable API module) — Phases 1+2 landed (the stable
       surface exists: `PluginValue`/`PluginError`/`PluginComputation`/`JsonCodec`/`PluginContext` in
