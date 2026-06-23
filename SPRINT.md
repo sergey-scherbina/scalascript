@@ -90,10 +90,12 @@ validated + pushed:
       capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
       `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
       `scalascript.interpreter` import + its tests green.
-- [~] **p3-batch-A** (10 simple — Value-only, no ctx, mostly no Computation): **mime ✓ DONE** (in foundation);
-      remaining: fs, graph, pdf, yaml, auth, fetch, nfc, payments/crypto, payments/payment-request. Mechanical:
-      `Value.*`/`InterpretError` → PluginValue/PluginError surface; drop the `scalascript.interpreter` import;
-      tests green.
+- [~] **p3-batch-A** (10 simple — Value-only): **mime ✓, pdf ✓ (8/0), fs ✓ (14/0)** (3/10). Remaining clean
+      ones (Value-only, swap `Value.X`→`PluginValue.x`, drop import): auth, fetch, nfc, payments/crypto,
+      payments/payment-request. NEED MORE WORK: **graph, yaml** use `Value.InstanceV` (need surface
+      `instance(typeName, fields)`/`asInstance`) + `Value.OptionV` (need `option`), AND hold interpreter `Value`
+      in their internal store (`GraphStore`/Y* records) → those store types must also move to `PluginValue`/`Any`
+      (more than a swap). Extend `PluginValue` then migrate them.
 - [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
       streams, ws. Adds `PluginComputation` usage.
 - [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),
