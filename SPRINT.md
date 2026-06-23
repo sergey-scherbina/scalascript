@@ -87,9 +87,10 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         id/version; calls `FileRegistry.publish` (content + index.json) + `writePackagesYaml`. Round-trip tested
         (temp `.sscpkg` → loadManifest → publish → fetch → client `LocalRegistry.resolve`). `RemoteRegistryTest`
         9/0; cli compiles.
-  - [ ] **registry-http-server** (slice 4) — a minimal HTTP server wrapping `FileRegistry` (GET `packages.yaml`
-        + artifact bytes, POST publish) so a real `registry.scalascript.io` can run it; the existing
-        `RegistryClient` already speaks the GET side. **Verify:** in-process HTTP round-trip (publish → search → fetch).
+  - [x] **registry-http-server** (slice 4) ✓ DONE 2026-06-23 — `RegistryHttpServer` (JDK `com.sun.net.httpserver`,
+        dependency-free): `GET /packages.yaml` + `GET /packages/<id>/<version>.sscpkg` + `POST /publish/<id>/<version>`;
+        auto-derives its self-referencing base URL from the bound port; loopback by default. In-process round-trip
+        test (`java.net.http.HttpClient`). `RegistryHttpServerTest`+`RemoteRegistryTest` 10/0.
   - [ ] **registry-publish-auth** (slice 5) — auth for `publish` (token/API-key; reject unauthenticated writes).
         **Verify:** publish rejected without a valid token, accepted with one.
 

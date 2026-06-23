@@ -227,8 +227,14 @@ app-store). `SscpkgLoader.loadManifest` reads id/version; `FileRegistry.publish`
 `writePackagesYaml` regenerates the client view. (`RemoteRegistryTest` round-trips temp `.sscpkg` → publish →
 client `LocalRegistry.resolve`.)
 
-**Follow-up slices:** an HTTP server wrapping `FileRegistry` (GET `packages.yaml`+artifacts, POST publish — the
-client already speaks the GET side); auth for publish. EXTERNAL (deploy, not code): host `registry.scalascript.io`.
+**HTTP server (slice 4, DONE 2026-06-23).** `RegistryHttpServer` — minimal, dependency-free (JDK
+`com.sun.net.httpserver`) reference server over a `FileRegistry`: `GET /packages.yaml`, `GET
+/packages/<id>/<version>.sscpkg`, `POST /publish/<id>/<version>`. Self-referencing base URL auto-derived from
+the bound port; loopback by default. (`RegistryHttpServerTest` does an in-process round-trip with
+`java.net.http.HttpClient`.)
+
+**Follow-up slices:** auth for publish (token/API-key). EXTERNAL (deploy, not code): host + TLS for
+`registry.scalascript.io`.
 
 ## 7. Open questions
 

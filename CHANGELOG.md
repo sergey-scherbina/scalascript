@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — remote-package-registry slice 4: reference HTTP server over FileRegistry
+
+`RegistryHttpServer` — a minimal, dependency-free (JDK `com.sun.net.httpserver`) reference server over a
+`FileRegistry`, the thing a hosted `registry.scalascript.io` runs: `GET /packages.yaml` (the client index the
+existing `RegistryClient`/`ssc search` already fetch), `GET /packages/<id>/<version>.sscpkg` (artifact bytes),
+`POST /publish/<id>/<version>[?description=…]`. Auto-derives its self-referencing base URL from the bound port
+when none is given. Bound to loopback by default; auth/TLS are slice 5/deploy. In-process round-trip test
+(`java.net.http.HttpClient`: POST publish → GET packages.yaml → GET artifact → 404). `RemoteRegistryTest` +
+`RegistryHttpServerTest` 10/0. Spec `specs/arch-build-registry.md` §6b.
+
 ## 2026-06-23 — remote-package-registry slice 3: `ssc plugin registry publish`
 
 A publish command under the existing (non-conflicting) `ssc plugin registry` subcommand group (`ssc publish`

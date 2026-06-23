@@ -1,6 +1,0 @@
-feature/registry-http-server 2026-06-23T09:45:00Z
-agent: claude
-heartbeat: 2026-06-23T09:45:00Z
-status: in-progress
-done-so-far: registry slices 1-3 landed (protocol+FileRegistry, packages.yaml bridge, ssc plugin registry publish).
-next: slice 4 = RegistryHttpServer (JDK com.sun.net.httpserver, dependency-free) over FileRegistry — GET /packages.yaml + GET /packages/<id>/<version>.sscpkg + POST /publish/<id>/<version>; in-process round-trip test (java.net.http.HttpClient). The GET side matches the existing RegistryClient. In core next to FileRegistry (reference/dev server).
