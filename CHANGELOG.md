@@ -4,6 +4,36 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — core-min: strict opt-in for advanced plugin prelude names (advanced-optin)
+
+Removes the hardcoded `pluginObjects`/`pluginBuiltins` *plugin-owned* names from the Typer prelude and
+moves each into its owning plugin's `preludeSymbols`, by tier:
+- **Essential (auto-loaded, no UX change):** `Source` → streams-plugin, `setHttpServerBackend` →
+  ws-plugin, `http` → http-plugin. Still resolve in production because the plugin is bundled+staged.
+- **Advanced (strict opt-in):** `oauth`/`oidc` → oauth-plugin, `Wallets`/`X402Client`/`X402`/
+  `CardanoFacilitator`/`PaymentConfig`/`DefaultSyncBackend`/`basicRequest` → payments-plugin,
+  `spark`/`PipelineModel` → SparkBackend. These now resolve for `ssc check` **only when the plugin is
+  added** (`--plugin <jar>` → `BackendRegistry.addPluginJar` → `inProcess` re-scan picks up its
+  `preludeSymbols`); a plugin-less `ssc check` flags them — the deliberate strict-opt-in UX.
+- **Stay hardcoded (no owning compiled plugin):** interpreter-core globals `Async`/`Await`/`Signal`/
+  `Future`/`Storage` and stdlib-`.ssc` library names `HandlerRegistry`/`Cluster`/`ShuffleStage`/`Stage`/
+  `runDistributed`/`runDistributedShuffle`.
+
+`pluginObjects` is gone entirely; `pluginBuiltins` drops from 21 to 11 names. No smoke test regresses
+(the advanced examples — x402-*/distributed-*/spark-* — aren't smoke-tested). `AdvancedOptInPreludeTest`
+locks all three behaviours (advanced flagged-without/resolved-with-plugin; essential declared;
+core/stdlib still hardcoded). typer 196/0, plugin-tests 710/0.
+
+## 2026-06-23 — fix(test): recategorize algebraic-effects.ssc as a plugin-backed example
+
+Pre-existing regression (since the first effect extraction, `c30f8e06d` State→plugin et al.):
+`algebraic-effects.ssc` uses `runLogger`/`runState`/`runRandomSeeded`/`runClockAt`/`runEnvWith`, which
+were extracted from interpreter core into bundled plugins, but it stayed in the cli `ExamplesSmokeTest`
+`runnableExamples` list whose interpreter deliberately has **no** plugins — so it failed at run time
+with `Undefined: runState`. Nobody had run the cli smoke test after the extractions. Moved it to
+`PluginExamplesSmokeTest` (plugin classpath, lazy ServiceLoader) where it runs clean. cli smoke 2/0,
+plugin smoke 1/0.
+
 ## 2026-06-23 — feat(interpreter): actor runtime providers are bound through per-interpreter sessions
 
 `core-min-phase3plus` actor seam slice. `ActorRuntimeProvider` now opens an `ActorRuntimeSession`
