@@ -81,10 +81,12 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         EXISTING `RegistryClient`/`ssc search`/`ssc install` consume a `FileRegistry`-served dir unchanged; the
         richer `index.json` (sha256/all-versions) stays the publish-side record. Test round-trips through
         `LocalRegistry.parseFile`/`resolve`. `RemoteRegistryTest` 8/0.
-  - [ ] **registry-publish-cmd** (slice 3) — a publish command under a NON-conflicting name (`ssc registry
-        publish <pkg.sscpkg>` subcommand, or extend `ssc plugin` — NOT `ssc publish`, which is app-store). Reads
-        id+version from the `.sscpkg` manifest (`SscpkgManifest` via `SscpkgLoader`), calls `FileRegistry.publish`,
-        regenerates `packages.yaml`. **Verify:** CliCommand test publishes a temp `.sscpkg`; `ssc search` finds it.
+  - [x] **registry-publish-cmd** (slice 3) ✓ DONE 2026-06-23 — `ssc plugin registry publish <pkg.sscpkg>
+        [--registry <dir>] [--base-url <url>] [--description <t>]` (the existing `ssc plugin registry` subcommand
+        group — not `ssc publish`, which is app-store). New `SscpkgLoader.loadManifest` (manifest-only) reads
+        id/version; calls `FileRegistry.publish` (content + index.json) + `writePackagesYaml`. Round-trip tested
+        (temp `.sscpkg` → loadManifest → publish → fetch → client `LocalRegistry.resolve`). `RemoteRegistryTest`
+        9/0; cli compiles.
   - [ ] **registry-http-server** (slice 4) — a minimal HTTP server wrapping `FileRegistry` (GET `packages.yaml`
         + artifact bytes, POST publish) so a real `registry.scalascript.io` can run it; the existing
         `RegistryClient` already speaks the GET side. **Verify:** in-process HTTP round-trip (publish → search → fetch).

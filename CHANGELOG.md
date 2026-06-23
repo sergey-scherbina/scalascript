@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — remote-package-registry slice 3: `ssc plugin registry publish`
+
+A publish command under the existing (non-conflicting) `ssc plugin registry` subcommand group (`ssc publish`
+is taken by app-store upload). `ssc plugin registry publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>]
+[--description <t>]` reads id/version from the package manifest (new `SscpkgLoader.loadManifest` — manifest-only,
+no JAR extraction), publishes into a server-side `FileRegistry` (content store + index.json), and regenerates
+the client-facing `packages.yaml`. Round-trip tested (build a temp `.sscpkg` → loadManifest → publish → fetch →
+client `LocalRegistry.resolve` sees it). `RemoteRegistryTest` 9/0; cli compiles. Spec
+`specs/arch-build-registry.md` §6b.
+
 ## 2026-06-23 — remote-package-registry slice 2: FileRegistry emits client `packages.yaml`
 
 Bridged the new server-side `FileRegistry` to the EXISTING client registry format. Probing revealed the

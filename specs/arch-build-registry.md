@@ -221,9 +221,14 @@ catalog into the client's `LocalRegistry.Entry` `packages.yaml` shape (one entry
 richer `index.json` (checksums/all-versions) stays the publish-side record. (`RemoteRegistryTest` round-trips the
 export through `LocalRegistry.parseFile`.)
 
-**Follow-up slices:** a publish command under a NON-conflicting name (`ssc registry publish` — not `ssc publish`);
-an HTTP server wrapping `FileRegistry` (GET `packages.yaml`+artifacts, POST publish — the client already speaks
-the GET side); auth for publish. EXTERNAL (deploy, not code): host `registry.scalascript.io`.
+**publish command (slice 3, DONE 2026-06-23).** `ssc plugin registry publish <pkg.sscpkg> [--registry <dir>]
+[--base-url <url>] [--description <t>]` (the existing `ssc plugin registry` subcommand group — `ssc publish` is
+app-store). `SscpkgLoader.loadManifest` reads id/version; `FileRegistry.publish` stores+indexes;
+`writePackagesYaml` regenerates the client view. (`RemoteRegistryTest` round-trips temp `.sscpkg` → publish →
+client `LocalRegistry.resolve`.)
+
+**Follow-up slices:** an HTTP server wrapping `FileRegistry` (GET `packages.yaml`+artifacts, POST publish — the
+client already speaks the GET side); auth for publish. EXTERNAL (deploy, not code): host `registry.scalascript.io`.
 
 ## 7. Open questions
 
