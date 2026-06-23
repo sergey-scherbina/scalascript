@@ -394,14 +394,23 @@ validated + pushed:
         from opaque `PluginValue` + the `Value = DataValue | ValueRest` union + an `Any` map slot. `AnyRef` carrier
         cascades type errors elsewhere; `Map[String, Value]` (original) passes but can't be used (interpreter import).
         NEEDS focused investigation (likely a minimal scalac repro / bug report), not a rushed workaround.
-  - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL: it lives in package `scalascript.interpreter.actors`
-        and implements the ActorRuntimeProvider SPI — NOT an intrinsics table. Separate treatment (SPI relocation).
-- [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
+  - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL — NOT a value-surface plugin: `intrinsics = Map.empty`.
+        It's a runtime PROVIDER (`class … extends Backend, ActorRuntimeProviderBackend`) in package
+        `scalascript.interpreter.actors` that delegates to `CoreActorRuntimeProvider` (the actor runtime stays in
+        core BY DESIGN; the plugin is a provider seam + a `preludeSymbols` keyword declaration). Migrating it off
+        `scalascript.interpreter` is NOT mechanical — it requires relocating the `ActorRuntimeProvider`/
+        `ActorRuntimeProviderBackend`/`CoreActorRuntimeProvider` SPI to a stable module AND rewiring how the plugin
+        obtains the core provider (currently a direct `= CoreActorRuntimeProvider` reference). DECISION NEEDED:
+        either that architectural SPI relocation, or EXEMPT runtime-provider plugins from the p3-enforce check
+        (the check targets value-surface plugin jars; a provider that bridges the core runtime is a different category).
+- [ ] **p3-enforce** (after value-surface plugins clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
       Status to "Phase 3 complete". STATUS: 26/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
       sql/remote/frontend/http/dstreams/streams/content/oauth/mcp). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
-      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 2: graphql(blocked), actors(special SPI).
+      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 2 are BOTH special, not mechanical:
+      graphql (codegen eq-identity blocker — needs scalac repro) + actors (runtime-provider, needs SPI relocation
+      OR p3-enforce exemption). The 26 value-surface plugin migrations are COMPLETE.
 
 In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
