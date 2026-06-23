@@ -1,0 +1,6 @@
+feature/registry-publish-cmd 2026-06-23T09:30:00Z
+agent: claude
+heartbeat: 2026-06-23T09:30:00Z
+status: in-progress
+done-so-far: registry slices 1-2 landed. publish home decided = `ssc plugin registry publish` (existing subcommand group, no conflict with app-store `ssc publish`).
+next: slice 3 = SscpkgLoader.loadManifest (manifest-only) + `ssc plugin registry publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>]` → FileRegistry.publish + writePackagesYaml; core test builds a temp .sscpkg + publishes + verifies (index + packages.yaml). cli compiles.
