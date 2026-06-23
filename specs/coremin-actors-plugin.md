@@ -39,7 +39,10 @@ The implementation adds an interpreter-local extension seam, not a host-neutral 
 package scalascript.interpreter
 
 trait ActorRuntimeProvider:
-  def runActors(host: ActorRuntimeHost, body: Computation): Computation
+  def open(host: ActorRuntimeHost): ActorRuntimeSession
+
+trait ActorRuntimeSession:
+  def runActors(body: Computation): Computation
 
 trait ActorRuntimeHost:
   def out: java.io.PrintStream
@@ -53,7 +56,7 @@ trait ActorRuntimeHost:
   def nativeFeatureRemove(key: String): Option[Any]
 ```
 
-Exact method names may change during implementation, but the boundary must preserve the direction: the provider owns actor runtime state and scheduling; the host exposes only the interpreter services needed to run ScalaScript closures, match `receive` cases, access the output sink, and reuse existing feature-state stores.
+Exact method names may change during implementation, but the boundary must preserve the direction: the provider opens a session bound to one interpreter host; that session owns actor runtime state and scheduling. The provider object itself may be a ServiceLoader singleton and must not hold actor/cluster mutable state. The host exposes only the interpreter services needed to run ScalaScript closures, match `receive` cases, access the output sink, and reuse existing feature-state stores.
 
 `EvalRuntime` keeps only a thin `runActors` dispatch:
 
@@ -67,6 +70,7 @@ Exact method names may change during implementation, but the boundary must prese
 - [ ] Without the actors plugin, `runActors { ... }` fails with a clear missing-plugin diagnostic; it must not silently ignore actor effects or fall back to stale core behavior.
 - [ ] `receive { case ... }` and `receive(timeout = n) { case ... }` preserve current pattern semantics, timeout wrapping (`Some`/`None`), and environment capture.
 - [ ] Remote WebSocket, cluster event, leader event, config event, drain event, metric event, publish queue, scheduled-send, and node-down drains remain driven by the actor scheduler.
+- [ ] `ActorRuntimeProvider.open(host)` creates an interpreter-bound `ActorRuntimeSession`; installing a provider resets the cached session so mutable actor/cluster state cannot leak through a reused ServiceLoader backend singleton.
 - [ ] No actor scheduler/mailbox/cluster state remains in interpreter core except the minimal host bridge and dispatch stub.
 - [ ] Existing `.ssc` examples and conformance files under `tests/conformance/actors-*.ssc` require no source changes.
 
@@ -113,9 +117,10 @@ Interpreter core keeps:
 
 1. **Spec slice** — this file. No code changes.
 2. **Provider seam slice** — add `ActorRuntimeProvider`/`ActorRuntimeHost`, provider registration, and a no-op/mirror provider that delegates to the existing core implementation. Tests must remain green.
-3. **Move runtime slice** — move `ActorRuntime`, scheduler loop, actor op handling, and cluster helpers into `runtime/std/actors-plugin`; core dispatches through the provider.
-4. **Prelude/check slice** — move actor runner/primitive names that are safe to type as `Any` into plugin `preludeSymbols`; keep syntax-only `receive` handling in core.
-5. **Cleanup slice** — remove stale actor scheduler state from interpreter core and update `SPRINT.md`/`CHANGELOG.md`.
+3. **Session lifecycle seam slice** — change the provider contract to `open(host): ActorRuntimeSession`, cache one session per interpreter host, and reset it when a provider is installed. This makes state ownership explicit before any runtime move.
+4. **Move runtime slice** — move `ActorRuntime`, scheduler loop, actor op handling, and cluster helpers into `runtime/std/actors-plugin`; core dispatches through the session.
+5. **Prelude/check slice** — move actor runner/primitive names that are safe to type as `Any` into plugin `preludeSymbols`; keep syntax-only `receive` handling in core.
+6. **Cleanup slice** — remove stale actor scheduler state from interpreter core and update `SPRINT.md`/`CHANGELOG.md`.
 
 ## Decisions
 
@@ -128,6 +133,10 @@ Interpreter core keeps:
   holder keyed by the `ActorRuntimeHost` / `Interpreter`, or otherwise bind provider state to the interpreter lifetime.
   Rejected: putting `peerChannels`, `remoteInbox`, raft/coordinator state, or registries directly on the backend object,
   because that would leak state across tests, servers, and embedded interpreters.
+- **Use a per-host session, not a stateful provider method.** Chosen because `ActorRuntimeProvider` instances are
+  supplied by backend plugins and may be reused by ServiceLoader; `open(host): ActorRuntimeSession` gives future
+  moved code a natural per-interpreter holder. Rejected: leaving `runActors(host, body)` on the provider as the only
+  hook, because that API makes it too easy for a plugin author to store cluster/node state on the provider singleton.
 - **No public API change.** Chosen because this is a core-minimization refactor. Rejected: using this slice to redesign ActorRef/Pid or cluster protocols.
 
 ## Results

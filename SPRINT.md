@@ -288,6 +288,12 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `ActorDistributedTest`+`ActorBinaryWsTest` 53/0; `ActorsPreludeMigrationTest` locks a representative name per
       category; typer 196/0, plugin-tests 693/0. `effectBuiltins` now holds only language forms + the not-yet-bundled
       runners (runAsync/runAuthWith/runStorage/runTx/httpClient/async primitives) + test helpers.
+      **SESSION-SEAM SLICE IN PROGRESS 2026-06-23:** claimed under `core-min-phase3plus`, not the hard runtime
+      move. Plan: update `ActorRuntimeProvider` to `open(host): ActorRuntimeSession`, cache one session per
+      `Interpreter`/`ActorRuntimeHost`, and clear the cache when a provider is installed. This records the state
+      ownership boundary before any future runtime code move, without moving scheduler code today. Verify with
+      `cd /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus && sbt "actorsPlugin/compile" "backendInterpreter/compile" "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest"`
+      plus targeted actor suites if the compile/test seam changes behavior.
       **Remaining (the hard code-move, optional):** move `ActorRuntime`, scheduler loop, `handleActorOp`, and
       cluster/event drains behind the provider into `runtime/std/actors-plugin`; keep `receive` syntax capture in
       core. **Gotcha:** do not store actor/cluster mutable state on the ServiceLoader backend singleton; today's
