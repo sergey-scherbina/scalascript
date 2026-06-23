@@ -1,7 +1,6 @@
 package scalascript.crypto.frost
 
 import java.math.BigInteger
-import java.security.SecureRandom
 
 /** FROST key generation — **trusted-dealer** Shamir secret sharing over the Ed25519 scalar field (mod `L`)
  *  (FROST-Ed25519 slice 2). A signing scalar `sk` is split into `n` shares such that any `t` reconstruct it
@@ -27,18 +26,10 @@ object FrostKeygen:
       threshold: Int,
       commitments: List[Array[Byte]])
 
-  /** A uniform non-zero scalar in `[1, L)`. Draws 48 random bytes and reduces mod `L` (negligible bias). */
-  def randomScalar(rng: SecureRandom): BigInteger =
-    var s = BigInteger.ZERO
-    while s.signum() == 0 do
-      val b = new Array[Byte](48); rng.nextBytes(b)
-      s = new BigInteger(1, b).mod(L)
-    s
-
   /** Trusted-dealer split: fresh random `sk`, degree-`(t-1)` polynomial, shares `f(1..n)`. */
-  def generate(threshold: Int, total: Int, rng: SecureRandom = new SecureRandom()): KeyShares =
+  def generate(threshold: Int, total: Int): KeyShares =
     require(threshold >= 1 && threshold <= total, s"need 1 <= t($threshold) <= n($total)")
-    val coeffs = Array.fill(threshold)(randomScalar(rng)) // coeffs(0) = sk, then a_1..a_{t-1}
+    val coeffs = Array.fill(threshold)(ops.randomScalar()) // coeffs(0) = sk, then a_1..a_{t-1}
     generateFrom(coeffs, total)
 
   /** Like [[generate]] but with explicit polynomial coefficients (`coeffs(0)` = secret). For deterministic

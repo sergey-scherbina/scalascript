@@ -2,7 +2,6 @@ package scalascript.crypto.frost
 
 import org.scalatest.funsuite.AnyFunSuite
 import java.math.BigInteger
-import java.security.SecureRandom
 
 class FrostKeygenTest extends AnyFunSuite:
   import FrostKeygen.*
@@ -31,8 +30,7 @@ class FrostKeygenTest extends AnyFunSuite:
     }
 
   test("random t-of-n: reconstruct matches and B·reconstruct == group key (t=3, n=5)"):
-    val rng = new SecureRandom(); rng.setSeed(0xABCDEFL)
-    val ks  = generate(threshold = 3, total = 5, rng)
+    val ks  = generate(threshold = 3, total = 5)
     val sk  = reconstruct(ks.shares.take(3))
     // a different 3-subset agrees
     assert(reconstruct(ks.shares.drop(2).take(3)) == sk)
@@ -40,7 +38,7 @@ class FrostKeygenTest extends AnyFunSuite:
     assert(hex(Ed25519Group.encode(Ed25519Group.mulBase(sk))) == hex(ks.groupPublicKey))
 
   test("Feldman commitments verify each share (and reject a tampered share)"):
-    val ks = generate(threshold = 2, total = 3, { val r = new SecureRandom(); r.setSeed(1L); r })
+    val ks = generate(threshold = 2, total = 3)
     ks.shares.foreach(s => assert(verifyShare(s, ks.commitments), s"share ${s.id} failed VSS check"))
     val bad = ks.shares.head.copy(value = ks.shares.head.value.add(BigInteger.ONE))
     assert(!verifyShare(bad, ks.commitments), "tampered share should fail VSS check")

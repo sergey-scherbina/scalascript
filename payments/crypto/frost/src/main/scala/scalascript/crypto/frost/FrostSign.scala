@@ -1,7 +1,6 @@
 package scalascript.crypto.frost
 
 import java.math.BigInteger
-import java.security.SecureRandom
 
 /** FROST-Ed25519 two-round threshold signing (FROST-Ed25519 slices 3+4). Produces a **standard Ed25519
  *  signature** (`ops.encode(R) ‖ scalarLE(z)`, 64 bytes) verifiable by any RFC 8032 verifier against the group
@@ -26,9 +25,9 @@ object FrostSign:
   final case class Commitment(id: Int, D: Array[Byte], E: Array[Byte])
 
   /** Round 1: a signer draws fresh nonces and publishes their commitments. */
-  def round1(id: Int, rng: SecureRandom = new SecureRandom()): (Nonce, Commitment) =
-    val d = FrostKeygen.randomScalar(rng)
-    val e = FrostKeygen.randomScalar(rng)
+  def round1(id: Int): (Nonce, Commitment) =
+    val d = ops.randomScalar()
+    val e = ops.randomScalar()
     (Nonce(d, e), Commitment(id, ops.encode(ops.mulBase(d)), ops.encode(ops.mulBase(e))))
 
   private def sha512(parts: Array[Byte]*): Array[Byte] = ops.sha512(parts*)

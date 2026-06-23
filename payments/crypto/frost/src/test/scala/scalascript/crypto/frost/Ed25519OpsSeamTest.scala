@@ -2,7 +2,6 @@ package scalascript.crypto.frost
 
 import org.scalatest.funsuite.AnyFunSuite
 import java.math.BigInteger
-import java.security.SecureRandom
 
 class Ed25519OpsSeamTest extends AnyFunSuite:
 
@@ -28,6 +27,7 @@ class Ed25519OpsSeamTest extends AnyFunSuite:
     def scalarReduce(a: BigInteger)             = r.scalarReduce(a)
     def secretScalar(seed: Array[Byte])         = r.secretScalar(seed)
     def sha512(parts: Array[Byte]*)             = { sha512Calls += 1; r.sha512(parts*) }
+    def randomBytes(n: Int)                     = r.randomBytes(n)
 
   test("default backend is the pure reference"):
     assert(Ed25519Ops.current.id == "reference-bigint")
@@ -38,11 +38,10 @@ class Ed25519OpsSeamTest extends AnyFunSuite:
       Ed25519Ops.register(spy)
       assert(Ed25519Ops.current.id == "spy")
       // a full keygen+sign must flow through the registered backend
-      val rng = new SecureRandom(); rng.setSeed(5L)
-      val ks  = FrostKeygen.generate(2, 3, rng)
+      val ks  = FrostKeygen.generate(2, 3)
       val msg = "via spy".getBytes("UTF-8")
       val signers = ks.shares.take(2)
-      val r1 = signers.map(s => s.id -> FrostSign.round1(s.id, rng)).toMap
+      val r1 = signers.map(s => s.id -> FrostSign.round1(s.id)).toMap
       val commitments = signers.map(s => r1(s.id)._2)
       val partials = signers.map(s =>
         FrostSign.partialSign(r1(s.id)._1, s, msg, commitments, ks.groupPublicKey))

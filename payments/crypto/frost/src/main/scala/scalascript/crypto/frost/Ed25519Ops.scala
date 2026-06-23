@@ -35,6 +35,16 @@ trait Ed25519Ops:
   /** SHA-512 over the concatenation of `parts`. The first thing a native backend typically overrides. */
   def sha512(parts: Array[Byte]*): Array[Byte]
 
+  // ── randomness (a substitutable primitive — JVM `SecureRandom`, JS `crypto.getRandomValues`, …) ──
+  /** `n` cryptographically-secure random bytes. FROST nonces/keys MUST use this (predictable nonces break
+   *  Schnorr), so it lives on the seam — never `java.security` hardcoded — and is platform-substitutable. */
+  def randomBytes(n: Int): Array[Byte]
+  /** A uniform non-zero scalar in `[1, L)` from `randomBytes` (48 bytes reduced mod L — negligible bias). */
+  def randomScalar(): BigInteger =
+    var s = BigInteger.ZERO
+    while s.signum() == 0 do s = new BigInteger(1, randomBytes(48)).mod(L)
+    s
+
 object Ed25519Ops:
 
   /** Pure reference implementation — `Ed25519Group` (BigInteger) + JDK SHA-512. Compiles to every backend
@@ -57,6 +67,9 @@ object Ed25519Ops:
     def secretScalar(seed: Array[Byte])         = Ed25519Group.secretScalar(seed)
     def sha512(parts: Array[Byte]*): Array[Byte] =
       Sha512.digest(parts.foldLeft(Array.emptyByteArray)(_ ++ _))
+    private lazy val rng = new java.security.SecureRandom()
+    def randomBytes(n: Int): Array[Byte] =
+      val b = new Array[Byte](n); rng.nextBytes(b); b
 
   @volatile private var _current: Ed25519Ops = Reference
 
