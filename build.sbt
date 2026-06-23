@@ -2454,17 +2454,27 @@ lazy val blockchainCardanoCross =
 lazy val blockchainCardano   = blockchainCardanoCross.jvm
 lazy val blockchainCardanoJs = blockchainCardanoCross.js
 
-lazy val blockchainBitcoin = project
-  .in(file("payments/blockchain/bitcoin"))
-  .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle)
-  .settings(
-    name := "scalascript-blockchain-bitcoin",
-    libraryDependencies ++= Seq(
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js). Backed entirely by the from-scratch portable
+// secp256k1 stack in crypto-spi/shared (no `org.bouncycastle`), and the chain
+// adapter is stub-only (no node I/O), so the whole module — addresses, ECDSA,
+// PSBT, Taproot — runs unchanged in a browser wallet via CrossType.Pure.
+lazy val blockchainBitcoinCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("payments/blockchain/bitcoin"))
+    .dependsOn(blockchainSpiCross, cryptoSpiCross)
+    .settings(
+      name := "scalascript-blockchain-bitcoin",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % scalatestV % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("blockchainBitcoin"))
+    .jsConfigure(_.withId("blockchainBitcoinJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val blockchainBitcoin   = blockchainBitcoinCross.jvm
+lazy val blockchainBitcoinJs = blockchainBitcoinCross.js
 
 lazy val blockchainCosmos = project
   .in(file("payments/blockchain/cosmos"))
@@ -3702,7 +3712,7 @@ lazy val root = project
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainBitcoinJs, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore,
     // Frontend backends — derived from allFrontends registry below (arch-build-registry Phase 4)

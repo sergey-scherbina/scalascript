@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scala.concurrent.ExecutionContext
 import scalascript.blockchain.spi.*
-import scalascript.crypto.{Curve, PublicKey}
+import scalascript.crypto.{Curve, PublicKey, Secp256k1Group}
 
 class BitcoinTest extends AnyFunSuite with Matchers:
 
@@ -74,14 +74,10 @@ class BitcoinTest extends AnyFunSuite with Matchers:
   test("sign with uncompressed public key also verifies") {
     val hash   = BitcoinCrypto.sha256("uncompressed".getBytes("UTF-8"))
     val sig    = BitcoinCrypto.sign(knownPrivKey, hash)
-    // Build 65-byte uncompressed key from the known compressed key
-    val params = org.bouncycastle.asn1.sec.SECNamedCurves.getByName("secp256k1")
-    val domain = new org.bouncycastle.crypto.params.ECDomainParameters(
-      params.getCurve, params.getG, params.getN, params.getH)
-    val point  = domain.getCurve.decodePoint(knownCompressedPub).normalize()
-    val uncompressed = Array[Byte](0x04.toByte) ++
-      BitcoinCrypto.toUnsigned32(point.getAffineXCoord.toBigInteger) ++
-      BitcoinCrypto.toUnsigned32(point.getAffineYCoord.toBigInteger)
+    // Build the 65-byte uncompressed key from the known compressed key via the portable group
+    val point  = Secp256k1Group.decode(knownCompressedPub).getOrElse(fail("compressed key must decode"))
+    val (x, y) = Secp256k1Group.toAffine(point).getOrElse(fail("not the identity"))
+    val uncompressed = Array[Byte](0x04.toByte) ++ Secp256k1Group.to32(x) ++ Secp256k1Group.to32(y)
     BitcoinCrypto.verify(uncompressed, hash, sig) shouldBe true
   }
 

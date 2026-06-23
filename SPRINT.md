@@ -131,10 +131,17 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
         address goldens + RFC 7693 BLAKE2b vectors + tx-body-hash + bech32 + CBOR roundtrips → **JVM 42 / JS 19
         green**, proving browser-wallet bytes are byte-identical to the JVM. HD-on-JS already covered by
         `noble-js-hd-derivation`. Downstream `x402*Cardano*` consumers recompile clean (`.jvm` keeps the id).
-      - Slice 2 (Bitcoin): `BitcoinCrypto` secp256k1-DER → `crypto.sign(Secp256k1,…)` + RIPEMD-160 →
-        `crypto.hash(Ripemd160,…)`; `blockchainBitcoin` → crossProject; verify P2WPKH/PSBT fixtures JVM+JS.
-        **Gotcha (open Q in spec §9):** confirm the SPI `sign(Secp256k1)` emits canonical low-S DER before
-        migrating, else a malleability regression vs the current direct-BC output.
+      - [x] Slice 2 (Bitcoin) ✓ DONE 2026-06-23 — Sergiy chose "port secp256k1 from scratch" over routing
+        through the SPI (Bitcoin also needs Taproot/Schnorr BIP-340/341, which no generic sign/hash SPI can
+        express). Built a full **from-scratch portable secp256k1 stack** in `crypto-spi/shared` (no
+        `org.bouncycastle`, identical JVM+JS): `Sha256`/`Ripemd160`/`HmacSha256` (NIST/RFC vectors),
+        `Secp256k1Group` (Jacobian, multiples-of-G table), `Secp256k1Ecdsa` (RFC-6979 + low-S DER — the d=1
+        vector reproduced byte-exact, **resolving the low-S gotcha**), `Secp256k1Schnorr` (BIP-340 vector 1
+        byte-exact + BIP-341 Taproot tweak). `BitcoinCrypto` rewritten as a thin shim over it; `blockchainBitcoin`
+        → `CrossType.Pure` crossProject (adapter is stub-only, so the WHOLE module — addresses/ECDSA/PSBT/Taproot
+        — cross-compiles, no shared/jvm split). cryptoBouncycastle dep dropped. **JVM 45 / JS 45 green** + 38
+        portable-stack vectors JVM+JS. Downstream walletVaultLedgerBitcoin recompiles clean. The portable
+        secp256k1 is **reusable for Slice 3 (Cosmos)**.
       - Slice 3 (Cosmos): `CosmosCrypto` + `CosmosSignDoc` secp256k1 + RIPEMD-160 + Ed25519 → SPI;
         `blockchainCosmos` → crossProject; verify Amino sign-doc fixtures JVM+JS.
       - **Gate (all):** existing per-chain tests green on JVM **and** newly pass on JS; zero `org.bouncycastle`
