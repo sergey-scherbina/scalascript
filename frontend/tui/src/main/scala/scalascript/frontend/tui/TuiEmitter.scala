@@ -407,10 +407,10 @@ object TuiEmitter:
     def add(id: String, init: String, isText: Boolean): Unit =
       if !acc.contains(id) then acc(id) = SigInfo(init, isText)
     v match
-      case View.SignalText(s, _)               => add(s.id, valueExpr(s()), isText = true)
-      case View.TextInput(s, _, _, _, _)       => add(s.id, valueExpr(s()), isText = true)
-      case View.Toggle(c, _, _)                => add(c.id, s"Value::B(${c()})", isText = false)
-      case View.ShowSignal(c, t, f)            => add(c.id, s"Value::B(${c()})", isText = false); collectSignals(t, acc); collectSignals(f, acc)
+      case View.SignalText(s, _)               => add(s.id, valueExpr(safeApply(s)), isText = true)
+      case View.TextInput(s, _, _, _, _)       => add(s.id, valueExpr(safeApply(s)), isText = true)
+      case View.Toggle(c, _, _)                => add(c.id, s"Value::B(${safeBool(c)})", isText = false)
+      case View.ShowSignal(c, t, f)            => add(c.id, s"Value::B(${safeBool(c)})", isText = false); collectSignals(t, acc); collectSignals(f, acc)
       case View.Column(ch, _, _, _)            => ch.foreach(collectSignals(_, acc))
       case View.Row(ch, _, _, _)               => ch.foreach(collectSignals(_, acc))
       case View.Stack(ch, _)                   => ch.foreach(collectSignals(_, acc))
@@ -421,15 +421,24 @@ object TuiEmitter:
       case View.LazyList(items, render, _, _)  => items().map(render).foreach(collectSignals(_, acc))
       case View.Show(cond, t, f)               => collectSignals(if cond() then t() else f(), acc)
       case View.Button(label, action, _, _)    => collectSignals(label, acc); collectHandlerSignal(action, add)
-      case View.TabBar(tabs, current, _)       => add(current.id, valueExpr(current()), false); tabs.foreach(t => collectSignals(t.content, acc))
-      case View.NavigationStack(routes, current, _) => add(current.id, valueExpr(current()), false); routes.values.foreach(r => collectSignals(r(), acc))
+      case View.TabBar(tabs, current, _)       => add(current.id, valueExpr(safeApply(current)), false); tabs.foreach(t => collectSignals(t.content, acc))
+      case View.NavigationStack(routes, current, _) => add(current.id, valueExpr(safeApply(current)), false); routes.values.foreach(r => collectSignals(r(), acc))
       case _                                   => ()
 
   private def collectHandlerSignal(h: EventHandler, add: (String, String, Boolean) => Unit): Unit = h match
-    case EventHandler.SetSignalLiteral(s, _) => add(s.id, valueExpr(s()), false)
-    case EventHandler.IncrementSignal(s, _)  => add(s.id, valueExpr(s()), false)
-    case EventHandler.ToggleSignal(s)        => add(s.id, s"Value::B(${s()})", false)
+    case EventHandler.SetSignalLiteral(s, _) => add(s.id, valueExpr(safeApply(s)), false)
+    case EventHandler.IncrementSignal(s, _)  => add(s.id, valueExpr(safeApply(s)), false)
+    case EventHandler.ToggleSignal(s)        => add(s.id, s"Value::B(${safeBool(s)})", false)
     case _                                   => ()
+
+  /** Emit-time signal reads can throw — a `computedSignal(() => …)` over a
+   *  not-yet-fetched value (e.g. `jsonValue(fetch())` on an empty body). The
+   *  TUI seeds the store with the static snapshot, so guard against a throw
+   *  (a derived value just seeds empty/false until it's fetched/recomputed). */
+  private def safeApply(s: ReactiveSignal[?]): Any =
+    try s() catch case _: Throwable => ""
+  private def safeBool(s: ReactiveSignal[?]): Boolean =
+    try s() match { case b: Boolean => b; case _ => false } catch case _: Throwable => false
 
   /** Collect fetch-bound signals (`FetchUrlSignal`) → (id, url) so `bootstrap`
    *  populates them at startup via a blocking GET. `SignalText` bound to a
