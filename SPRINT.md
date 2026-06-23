@@ -329,7 +329,7 @@ validated + pushed:
       frontend ✓ (8, ctx=22 all caps; FunV/NativeFnV arms → new `PluginValue.Fn` extractor)** — all single-file.
       ENABLERS added to PluginApi: `Fn` extractor (any callable: FunV|NativeFnV) + `isCallable`.
       Remaining (2): mcp, content — the genuinely ctx-heavy / bridge-coupled giants.
-- [~] **p3-giants** (6 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
+- [~] **p3-giants** (5 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
       passes PLUS one bridge each. Per-plugin scope:
   - **http** ✓ DONE (4 unit + 58 integration tests: MountHandler/TypedHandler/HttpClient/TypedRpcBinary).
         jsonToJson → `jsonEncode`; the `TypedHandlerWrapper.wrapIfTyped` coupling → new `PluginValue.wrapTypedHandler`
@@ -345,17 +345,21 @@ validated + pushed:
         mcp + 1 interp test) → `scalascript.plugin.api.OAuthBridge`; update mcp + McpOAuthBridgeTest imports.
         ctx.invokeCallback already on MountCap. Uses ujson directly (visible to plugins, confirmed via remote).
   - **mcp** (1508 loc) — needs the OAuthBridge move (do with oauth) + big value pass.
-  - **content** (2144 loc — largest), **streams** (1344, 67 NativeFnV/38ctx), **graphql** (2 files, 7 NativeFnV/
-        18ctx) — big-but-mechanical with `nativeFn` + the value/instance extractors (`field`/`typeNameOf`/`InstAny`
-        now available for their InstanceV-heavy internals, as proven on dstreams).
+  - **streams** ✓ DONE (88 tests). dstreams' sibling — same recipe; extra: 26 `.asInstanceOf[Value]`→`[PluginValue]`
+        (valid no-op cast, PluginValue erases to Any), OptionV/TupleV unfold inspection → `Opt`/`asTuple`, NativeFnV
+        type-tests → `Fn`, Foreign signal patterns → `Foreign`. GOTCHA: the `X: Value.InstanceV`→`InstAny(X)` regex
+        also hit a def PARAM (revert to `X: PluginValue`); stripping `case X: Value` ascriptions can shadow a
+        following catch-all (restore with an `isRuntimeValue` guard).
+  - **content** (2144 loc — largest), **graphql** (2 files, 7 NativeFnV/18ctx) — big-but-mechanical with `nativeFn`
+        + value/instance extractors (`field`/`typeNameOf`/`InstAny`), proven on dstreams+streams.
   - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL: it lives in package `scalascript.interpreter.actors`
         and implements the ActorRuntimeProvider SPI — NOT an intrinsics table. Separate treatment (SPI relocation).
 - [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
-      Status to "Phase 3 complete". STATUS: 22/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
-      sql/remote/frontend/http/dstreams). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
+      Status to "Phase 3 complete". STATUS: 23/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+      sql/remote/frontend/http/dstreams/streams). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
-      InstAny. Remaining 6: oauth, mcp, content, streams, graphql, actors(special SPI).
+      InstAny. Remaining 5: oauth, mcp, content, graphql, actors(special SPI).
 
 In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
