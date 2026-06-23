@@ -1145,6 +1145,7 @@ lazy val cli = project
         stdPluginSpec("pdf")             -> (pdfPlugin             / packagePlugin).value,
         stdPluginSpec("mime")            -> (mimePlugin            / packagePlugin).value,
         stdPluginSpec("smtp")            -> (smtpPlugin            / packagePlugin).value,
+        stdPluginSpec("tcp")             -> (tcpPlugin             / packagePlugin).value,
         stdPluginSpec("fs")              -> (fsPlugin              / packagePlugin).value,
         stdPluginSpec("os")              -> (osPlugin              / packagePlugin).value,
         stdPluginSpec("yaml")            -> (yamlPlugin            / packagePlugin).value,
@@ -2922,6 +2923,19 @@ lazy val smtpPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.smtp"))
 
+// ── TCP — raw line-oriented server/client sockets (IMAP/POP3/SMTP/Redis etc.) ──
+lazy val tcpPlugin = project
+  .in(file("runtime/std/tcp-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-tcp-plugin",
+    // Zero runtime deps: a hand-rolled, handle-based wrapper over java.net sockets.
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.tcp"))
+
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
   .in(file("runtime/std/bench-plugin"))
@@ -3188,6 +3202,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin",             tier = PluginTier.Advanced),
   PluginSpec("mime",            mimePlugin,            "scalascript-mime-plugin"),
   PluginSpec("smtp",            smtpPlugin,            "scalascript-smtp-plugin",            tier = PluginTier.Advanced),
+  PluginSpec("tcp",             tcpPlugin,             "scalascript-tcp-plugin",             tier = PluginTier.Advanced),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),

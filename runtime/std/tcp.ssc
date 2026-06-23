@@ -1,0 +1,72 @@
+---
+name: std-tcp
+version: 1.0.0
+description: Raw TCP — line-oriented server and client sockets (JVM only). The minimal surface needed to speak text protocols like IMAP/POP3/SMTP/Redis against a real socket. Handle-based and blocking, so the calling ScalaScript code drives its own accept/read loop (single-threaded; one connection at a time — ideal for simulators and simple clients).
+package: std.tcp
+exports:
+  - tcpListen
+  - tcpAccept
+  - tcpConnect
+  - tcpRecvLine
+  - tcpSend
+  - tcpClose
+  - tcpStop
+---
+
+# tcp
+
+A dependency-free, line-oriented raw-TCP capability. **JVM / interpreter only**
+(no raw sockets in the browser). Sockets are referenced by integer **handles**
+into a process-local registry, so the API passes through ScalaScript as plain
+`Int`s and needs no native→interpreter callbacks: the calling code runs its own
+accept/read loop.
+
+**Server**
+- `tcpListen(port)` opens a listening socket and returns a *server handle*
+  (`-1` on bind failure). `0.0.0.0` / all interfaces.
+- `tcpAccept(server)` **blocks** until a client connects and returns a
+  *connection handle* (`-1` if the server socket is closed).
+- `tcpStop(server)` closes the listening socket.
+
+**Client**
+- `tcpConnect(host, port)` connects and returns a *connection handle*
+  (`-1` on failure; connect/read timeouts are bounded so a dead host never hangs).
+
+**Connection I/O** (both sides)
+- `tcpRecvLine(conn)` reads one line, returning it **without** the trailing
+  `CR?LF`. Returns `""` on end-of-stream / a closed connection (text protocols
+  never send a meaningful empty line, so `""` doubles as the EOF signal).
+- `tcpSend(conn, data)` writes `data` verbatim (UTF-8). The caller appends
+  `"\r\n"` itself, so it controls line endings exactly.
+- `tcpClose(conn)` closes one connection.
+
+Typical line-protocol server loop:
+```text
+val srv = tcpListen(143)
+while running do
+  val c = tcpAccept(srv)
+  if c >= 0 then handleOneClient(c)   // read commands, tcpSend replies, tcpClose
+```
+
+```scalascript
+/** Open a listening TCP socket on `port`. Returns a server handle, or -1 on bind failure. JVM only. */
+extern def tcpListen(port: Int): Int
+
+/** Block until a client connects to `server`; return a connection handle, or -1 if the server is closed. JVM only. */
+extern def tcpAccept(server: Int): Int
+
+/** Connect to `host:port`; return a connection handle, or -1 on failure. Bounded timeouts. JVM only. */
+extern def tcpConnect(host: String, port: Int): Int
+
+/** Read one line from `conn` (without the trailing CR/LF). "" at end-of-stream. JVM only. */
+extern def tcpRecvLine(conn: Int): String
+
+/** Write `data` verbatim (UTF-8) to `conn`. The caller supplies any line ending. JVM only. */
+extern def tcpSend(conn: Int, data: String): Unit
+
+/** Close one connection. JVM only. */
+extern def tcpClose(conn: Int): Unit
+
+/** Close a listening server socket (unblocks a pending `tcpAccept` with -1). JVM only. */
+extern def tcpStop(server: Int): Unit
+```
