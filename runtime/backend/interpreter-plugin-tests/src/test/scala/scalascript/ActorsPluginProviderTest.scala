@@ -8,7 +8,8 @@ import scalascript.interpreter.{
   ActorRuntimeSession,
   Computation,
   CoreActorRuntimeProvider,
-  Interpreter
+  Interpreter,
+  Value
 }
 import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
@@ -60,6 +61,36 @@ class ActorsPluginProviderTest extends AnyFunSuite:
     assert(opens2.get == 1, "installing a replacement provider should clear the old cached session")
     assert(runs2.get == 1)
 
+  test("actor provider can use explicit host services without an Interpreter self-type"):
+    final class HostProbeActorsPlugin extends ActorsInterpreterPlugin:
+      override def actorRuntimeProvider: ActorRuntimeProvider =
+        new ActorRuntimeProvider:
+          def open(host: ActorRuntimeHost): ActorRuntimeSession =
+            new ActorRuntimeSession:
+              def runActors(initial: Computation): Computation =
+                host.actorNativeFeatureSet("actors.host.probe", "stored")
+                val stored = host.actorNativeFeatureGet("actors.host.probe")
+                val echo = Value.NativeFnV("host-echo", {
+                  case List(v) => Computation.Pure(v)
+                  case _       => throw new AssertionError("unexpected host-echo args")
+                })
+                val callN = Computation.run(host.actorCallValue(echo, List(Value.StringV("n")), Map.empty))
+                val call1 = Computation.run(host.actorCallValue1(echo, Value.StringV("one"), Map.empty))
+                val removed = host.actorNativeFeatureRemove("actors.host.probe")
+                assert(stored.contains("stored"))
+                assert(removed.contains("stored"))
+                assert(callN == Value.StringV("n"))
+                assert(call1 == Value.StringV("one"))
+                host.out.println("host-services-ok")
+                host.runCoreActorRuntime(initial)
+
+    val out = capturedWithPlugin(new HostProbeActorsPlugin, """
+      runActors {
+        println("body-ok")
+      }
+    """)
+    assert(out == "body-ok\nhost-services-ok")
+
   test("runActors still works with the actors provider installed through plugin wiring"):
     val out = captured("""
       runActors {
@@ -72,3 +103,12 @@ class ActorsPluginProviderTest extends AnyFunSuite:
       }
     """)
     assert(out == "pong", s"expected actor message round-trip via plugin provider, got: [$out]")
+
+  private def capturedWithPlugin(plugin: ActorsInterpreterPlugin, code: String): String =
+    val buf    = java.io.ByteArrayOutputStream()
+    val ps     = java.io.PrintStream(buf, true)
+    val interp = Interpreter(ps)
+    interp.installPlugins(List(plugin))
+    interp.run(Parser.parse(s"# Test\n\n```scala\n$code\n```\n"))
+    ps.flush()
+    buf.toString.trim

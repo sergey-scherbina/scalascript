@@ -14,6 +14,14 @@ trait ActorRuntimeSession:
   def runActors(initial: Computation): Computation
 
 trait ActorRuntimeHost:
+  def out: java.io.PrintStream
+  def actorCallValue(fn: Value, args: List[Value], env: Env): Computation
+  def actorCallValue1(fn: Value, arg: Value, env: Env): Computation
+  def actorReceiveSpec(specId: Long): (List[scala.meta.Case], Env)
+  def actorMatchReceive(cases: List[scala.meta.Case], env: Env, msg: Value): Option[Computation]
+  def actorNativeFeatureGet(key: String): Option[Any]
+  def actorNativeFeatureSet(key: String, value: Any): Unit
+  def actorNativeFeatureRemove(key: String): Option[Any]
   def runCoreActorRuntime(initial: Computation): Computation
 
 trait ActorRuntimeProviderBackend:

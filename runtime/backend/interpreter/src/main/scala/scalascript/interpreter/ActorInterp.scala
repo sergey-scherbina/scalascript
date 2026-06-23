@@ -59,6 +59,38 @@ private[interpreter] trait ActorInterp extends ActorRuntimeHost:
       actorRuntimeSession = actorRuntimeProvider.open(this)
     actorRuntimeSession
 
+  def actorCallValue(fn: Value, args: List[Value], env: Env): Computation =
+    callValue(fn, args, env)
+
+  def actorCallValue1(fn: Value, arg: Value, env: Env): Computation =
+    callValue1(fn, arg, env)
+
+  def actorReceiveSpec(specId: Long): (List[Case], Env) =
+    receiveSpecs(specId)
+
+  def actorNativeFeatureGet(key: String): Option[Any] =
+    nativeFeatureGet(key)
+
+  def actorNativeFeatureSet(key: String, value: Any): Unit =
+    nativeFeatureSet(key, value)
+
+  def actorNativeFeatureRemove(key: String): Option[Any] =
+    nativeFeatureRemove(key)
+
+  def actorMatchReceive(cases: List[Case], env: Env, msg: Value): Option[Computation] =
+    val it = cases.iterator
+    while it.hasNext do
+      val c = it.next()
+      val extEnv = PatternRuntime.matchPat(c.pat, msg, env, this)
+      if extEnv != null then
+        val guardOk = c.cond.forall { g =>
+          Computation.run(eval(g, extEnv)) match
+            case Value.BoolV(b) => b
+            case _              => false
+        }
+        if guardOk then return Some(eval(c.body, extEnv))
+    None
+
   /** True when `runActors { ... }` is active (an `ActorRuntime` is installed).
    *  Used by `ActorGlobals.install` to make `stop()` a no-op outside actor
    *  scope — otherwise `stop()` performs `Actor.self + exit`, which crashes
