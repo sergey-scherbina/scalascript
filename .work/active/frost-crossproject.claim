@@ -1,6 +1,0 @@
-feature/frost-crossproject 2026-06-23T13:55:00Z
-agent: claude
-heartbeat: 2026-06-23T13:55:00Z
-status: in-progress
-done-so-far: FROST 6a (portable SHA-512) + 6b (RNG via seam) done; only platform bit left = Reference.randomBytes (SecureRandom).
-next: slice 6c = cryptoFrost → crossProject(JVM,JS). Move main → shared/; PlatformEntropy per-platform (jvm SecureRandom / js crypto.getRandomValues); Reference.randomBytes→PlatformEntropy.bytes; BC/java.security tests→jvm/, pure tests (FrostKeygen/Ed25519OpsSeam)→shared/ (run on JS too = proof FROST works cross-platform). build.sbt crossProject + %%% scalatest. Verify cryptoFrost(JVM)+cryptoFrostJs compile+test.

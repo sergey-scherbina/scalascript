@@ -46,7 +46,7 @@ verifies under the standard `Ed25519.verify` against the group public key):
   call through; the pure-BigInteger `Ed25519Group` is the DEFAULT reference; a registry (`default` + `register`)
   lets a platform-native impl substitute transparently at runtime. SHA-512 routes through the seam (not
   `java.security`).
-- **Slice 6 — cross-build.** `cryptoFrost` as `crossProject(JVM, JS)` so the reference compiles to JS too
+- **Slice 6 — cross-build (DONE 2026-06-23).** cryptoFrost is a crossProject(JVM,JS); FROST runs on Node 6/6 + JVM 19/0. `cryptoFrost` as `crossProject(JVM, JS)` so the reference compiles to JS too
   (BigInteger works in Scala.js; SHA-512 via the seam → `CryptoBackend.hash` = Noble/JS, BC/JVM). "One
   reference, every platform."
 - **Slice 7 — native backend.** A JVM `Ed25519Ops` backend delegating substitutable primitives (SHA-512,

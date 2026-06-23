@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 6c: cross-build — the reference runs on JS (and JVM)
+
+`cryptoFrost` is now a `crossProject(JVM, JS)`: the FROST reference (Ed25519 curve math + own SHA-512 + keygen +
+signing + the `Ed25519Ops` seam) is pure `BigInteger`/`Long`, so it compiles and RUNS on both JVM and Scala.js.
+Only `PlatformEntropy` is per-platform (JVM `SecureRandom` / JS `globalThis.crypto.getRandomValues`); shared
+cross-platform tests (`FrostKeygenTest`, `Ed25519OpsSeamTest`) run on BOTH — **6/6 green on Node** including
+`generate(3,5)` (WebCrypto randomness through the seam) and the backend-substitution test; JVM 19/0 (BC
+cross-checks + java.security `Sha512` parity stay JVM-only in `jvm/`). This proves the architecture end-to-end:
+ONE ScalaScript-stack reference implementation of FROST threshold signing, identical on JVM and JS, with
+platform-native randomness and transparent native-backend substitution. **FROST cross-platform story COMPLETE.**
+Spec `specs/frost-ed25519.md`. Remaining FROST slices: 7 (JVM BouncyCastle native backend), 8 (wallet-vault
+integration).
+
 ## 2026-06-23 — FROST-Ed25519 slice 6b: randomness via the Ed25519Ops seam
 
 Routed FROST's randomness through the seam: `Ed25519Ops.randomBytes(n)` + `randomScalar()` (Reference = JVM

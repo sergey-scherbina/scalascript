@@ -140,9 +140,11 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
           `SecureRandom`). `FrostKeygen.generate`/`FrostSign.round1` dropped their `rng: SecureRandom` params and
           source from `Ed25519Ops.current` → FROST logic is fully `java.security`-free (only the JVM default's
           `randomBytes` uses it; 6c splits per-platform) AND the RNG is a substitutable primitive. cryptoFrost 19/0.
-    - [ ] **6c crossProject** — `cryptoFrost` → `crossProject(JVM,JS)` (CrossType.Full; `%%%` scalatest; BC test-only
-          on JVM); BC/`java.security` tests → `jvm/`; a shared self-verify test (`B·z == R + c·A`, no BC) runs on
-          BOTH. **Verify:** `cryptoFrost` + `cryptoFrostJs` compile + test.
+    - [x] **6c crossProject** ✓ DONE 2026-06-23 — `cryptoFrost` is a `crossProject(JVM,JS)`; reference (Ed25519
+          math + own SHA-512 + keygen + signing + seam) is pure → compiles+RUNS on JS. `PlatformEntropy` per-platform
+          (JVM `SecureRandom` / JS WebCrypto). Shared tests run on BOTH: **JS 6/6 on Node** (incl. `generate(3,5)`
+          via WebCrypto + the substitution test), JVM 19/0 (BC/java.security tests in `jvm/`). **→ FROST
+          cross-platform story COMPLETE: one reference, identical on JVM + JS, native RNG, transparent substitution.**
   - [ ] **frost-native-backend** (slice 7) — register a JVM `Ed25519Ops` backend that delegates the substitutable
         primitives (SHA-512, final-signature verify) to BouncyCastle (the native fast path), proving transparent
         substitution end-to-end; reference stays the fallback where BC exposes nothing (the group ops). **Verify:**
