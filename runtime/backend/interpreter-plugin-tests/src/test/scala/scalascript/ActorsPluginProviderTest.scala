@@ -91,6 +91,36 @@ class ActorsPluginProviderTest extends AnyFunSuite:
     """)
     assert(out == "body-ok\nhost-services-ok")
 
+  test("actor provider can register distributed server hooks through the host"):
+    final class ServerHookActorsPlugin extends ActorsInterpreterPlugin:
+      override def actorRuntimeProvider: ActorRuntimeProvider =
+        new ActorRuntimeProvider:
+          def open(host: ActorRuntimeHost): ActorRuntimeSession =
+            new ActorRuntimeSession:
+              def runActors(initial: Computation): Computation =
+                val wsHandler = Value.NativeFnV("actor-ws-probe", _ => Computation.PureUnit)
+                host.actorRegisterWsRoute(
+                  path = "/_actor-host-probe",
+                  handler = wsHandler,
+                  protocols = List("ssc-actors-test"))
+                host.actorRegisterClusterRoutes()
+                host.runCoreActorRuntime(initial)
+
+    val buf    = java.io.ByteArrayOutputStream()
+    val ps     = java.io.PrintStream(buf, true)
+    val interp = Interpreter(ps)
+    interp.installPlugins(List(new ServerHookActorsPlugin))
+    interp.run(Parser.parse("# Test\n\n```scala\nrunActors { println(\"server-hooks-ok\") }\n```\n"))
+
+    assert(interp.wsRoutes.all.exists(e =>
+      e.path == "/_actor-host-probe" && e.protocols == List("ssc-actors-test")))
+    val clusterRoutes = interp.routeRegistry.all.filter(_.path.startsWith("/_ssc-cluster/")).map(e =>
+      e.method -> e.path).toSet
+    assert(clusterRoutes.contains("GET" -> "/_ssc-cluster/status"))
+    assert(clusterRoutes.contains("POST" -> "/_ssc-cluster/drain"))
+    assert(clusterRoutes.contains("GET" -> "/_ssc-cluster/events"))
+    assert(clusterRoutes.contains("GET" -> "/_ssc-cluster/metrics-prom"))
+
   test("runActors still works with the actors provider installed through plugin wiring"):
     val out = captured("""
       runActors {

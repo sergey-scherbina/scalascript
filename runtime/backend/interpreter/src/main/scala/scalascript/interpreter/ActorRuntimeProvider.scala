@@ -22,6 +22,13 @@ trait ActorRuntimeHost:
   def actorNativeFeatureGet(key: String): Option[Any]
   def actorNativeFeatureSet(key: String, value: Any): Unit
   def actorNativeFeatureRemove(key: String): Option[Any]
+  def actorOpenWsClient(
+      url: String,
+      headers: Map[String, String],
+      protocols: List[String]
+  ): InterpreterWsClientSession
+  def actorRegisterWsRoute(path: String, handler: Value, protocols: List[String]): Unit
+  def actorRegisterClusterRoutes(): Unit
   def runCoreActorRuntime(initial: Computation): Computation
 
 trait ActorRuntimeProviderBackend:

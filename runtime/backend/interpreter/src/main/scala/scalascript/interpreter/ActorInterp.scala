@@ -77,6 +77,26 @@ private[interpreter] trait ActorInterp extends ActorRuntimeHost:
   def actorNativeFeatureRemove(key: String): Option[Any] =
     nativeFeatureRemove(key)
 
+  def actorOpenWsClient(
+      url: String,
+      headers: Map[String, String],
+      protocols: List[String]
+  ): InterpreterWsClientSession =
+    InterpreterServerSupport.current.openWsClient(this, url, headers, protocols, out)
+
+  def actorRegisterWsRoute(path: String, handler: Value, protocols: List[String]): Unit =
+    wsRoutes.register(path = path, handler = handler, interp = this, protocols = protocols)
+
+  def actorRegisterClusterRoutes(): Unit =
+    registerClusterStatusRoute()
+    registerClusterDrainRoute()
+    registerClusterEventsRoute()
+    registerClusterMetricsPromRoute()
+    registerClusterStepDownRoute()
+    registerClusterHandlersRoute()
+    registerClusterAuditRoute()
+    registerClusterWorkersRoute()
+
   def actorMatchReceive(cases: List[Case], env: Env, msg: Value): Option[Computation] =
     val it = cases.iterator
     while it.hasNext do
