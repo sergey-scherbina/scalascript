@@ -380,7 +380,17 @@ validated + pushed:
         content nodes are read positionally via `inst.fieldNames`, a behavioral bug caught by tests). GOTCHAS:
         the AST `ast.ContentValue.*` ADT (137 uses) collides with `Value.*` replaces → anchor every regex with
         `(?<![A-Za-z])`; the `InstAny`/`: Value` regexes also hit DEF PARAMS (revert to `: PluginValue`).
-  - **graphql** (2 files, 7 NativeFnV/18ctx) — big-but-mechanical; 2-file web (shared `Value` helpers, like oauth).
+  - **graphql** (2 files, 8 NativeFnV/7ctx) — ATTEMPTED + REVERTED (blocked). The mechanical migration is
+        straightforward and gets 161/162 tests green: anchor every `Value` regex with `(?<![A-Za-z.])` to protect
+        `ujson.Value`; the `GraphQLResolvers`/`ScalarCodec` carrier case classes must hold `Any` (not `PluginValue`)
+        so the 9 deeply Value-coupled test files keep compiling; `valueToJava`/`addResolver`/`byType` retype to `Any`.
+        BLOCKER: `GraphQLSubscriptionTest` "subscription map stores it" asserts `res.subscription("events") eq fn`
+        (reference identity of a resolver `NativeFnV` round-tripped through the carrier). With the `Map[String, Any]`
+        carrier it FAILS, yet instrumentation proves the object is identical end-to-end (same `identityHashCode` at
+        create→extract→read) and the `eq` only fails WITHOUT a debug `println` before it — a scalac codegen Heisenbug
+        from opaque `PluginValue` + the `Value = DataValue | ValueRest` union + an `Any` map slot. `AnyRef` carrier
+        cascades type errors elsewhere; `Map[String, Value]` (original) passes but can't be used (interpreter import).
+        NEEDS focused investigation (likely a minimal scalac repro / bug report), not a rushed workaround.
   - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL: it lives in package `scalascript.interpreter.actors`
         and implements the ActorRuntimeProvider SPI — NOT an intrinsics table. Separate treatment (SPI relocation).
 - [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
