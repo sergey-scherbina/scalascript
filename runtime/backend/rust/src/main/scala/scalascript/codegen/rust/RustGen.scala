@@ -51,11 +51,14 @@ object RustGen:
     val authUsage   = scanAuthUsage(astModule)
     val wsUsage     = scanWsUsage(astModule)
     val mcpUsage    = scanMcpUsage(astModule)
-    val uiUsage     = scanUiUsage(astModule)
     // rust-tui-toolkit (S1): `uiTarget=tui` renders the View to ratatui instead of
     // HTML/SSR — `serve` routes to a ratatui run (not a hyper server), so the http
     // server runtime + deps are suppressed and a `tui.rs` + ratatui deps are emitted.
     val tuiTarget   = opts.extra.get("uiTarget").contains("tui")
+    // tui.rs always imports `crate::runtime::ui::View`, and an S4 fetch/DataTable
+    // program may use no bare View primitive the scan recognises — so the tui target
+    // always emits the `ui` module.
+    val uiUsage     = scanUiUsage(astModule) || tuiTarget
     val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget)
 
     RustCodeWalk.walk(astModule, intrinsics) match
@@ -368,6 +371,9 @@ object RustGen:
     // depends on ratatui (not the hyper/tokio HTTP server) and `serve` is a shim.
     if tuiTarget then
       depLines += "ratatui = \"0.29\""
+      // S4 — the tui DataTable fetches (blocking GET) + drills/renders JSON rows.
+      depLines += "ureq = \"2\""
+      if !depLines.exists(_.startsWith("serde_json")) then depLines += "serde_json = \"1.0\""
     // R.5 — HTTP server deps, only when serve/route are used (NOT on the tui target,
     // where `serve` is the ratatui run shim).
     if httpUsage && !tuiTarget then

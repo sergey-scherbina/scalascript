@@ -19,7 +19,12 @@ class RustBackend extends Backend with IntrinsicOverlayAwareBackend:
   def acceptedSources: Set[String]                         = Set("scala", "scalascript", "ssc", "rust")
 
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
-    compileWithOverlay(module, opts, intrinsics, runtimePreamble)
+    // rust-tui-toolkit S4 — the tui target overlays the fetch + DataTable family
+    // onto tui-specific runtimes (ureq fetch + ratatui Table); web keeps its stubs.
+    val eff =
+      if opts.extra.get("uiTarget").contains("tui") then intrinsics ++ RustTuiIntrinsics
+      else intrinsics
+    compileWithOverlay(module, opts, eff, runtimePreamble)
 
   def compileWithOverlay(
       module: ir.NormalizedModule,

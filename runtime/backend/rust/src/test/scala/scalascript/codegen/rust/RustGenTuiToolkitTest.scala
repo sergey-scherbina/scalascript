@@ -128,3 +128,38 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
     val out = snapshotCrate(prog)
     val sameLine = out.linesIterator.find(l => l.contains("LEFT") && l.contains("RIGHT"))
     assert(sameLine.isDefined, s"flex-direction:row children must render on the same line (horizontal):\n$out")
+
+  test("S4 — remoteTable fetches a JSON envelope + renders the rows as a ratatui Table"):
+    assume(cargoAvailable, "cargo not on PATH — skipping rust-tui cargo smoke")
+    // A tiny local server returns {"data":[...]} — the same envelope shape the
+    // web/JS DataTable.Remote path drills. The tui crate does a blocking GET at
+    // construction, drills "data", and renders a Table with the projected fields.
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    val body = """{"data":[{"room":"demo","unread":2},{"room":"rozum","unread":5}]}"""
+    server.createContext("/rooms", new com.sun.net.httpserver.HttpHandler {
+      def handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
+        val bytes = body.getBytes("UTF-8")
+        ex.sendResponseHeaders(200, bytes.length.toLong)
+        val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val prog =
+        s"""```scalascript
+           |@main def run(): Unit =
+           |  val tick = signal("tick", 0)
+           |  val rooms = fetchUrlSignal("rooms", "http://127.0.0.1:$port/rooms", tick)
+           |  val table = dataTableView(
+           |    fetchRowsSource(rooms, "data"),
+           |    List(fieldColumn("Room", "room"), fieldColumn("Unread", "unread")),
+           |    List())
+           |  serve(table, 0)
+           |```
+           |""".stripMargin
+      val out = snapshotCrate(prog)
+      assert(out.contains("Room") && out.contains("Unread"), s"table header (column titles) missing:\n$out")
+      assert(out.contains("demo") && out.contains("rozum"),  s"fetched row values missing (rowsPath drill failed?):\n$out")
+      assert(out.contains("2")    && out.contains("5"),      s"projected numeric cells missing:\n$out")
+    finally
+      server.stop(0)

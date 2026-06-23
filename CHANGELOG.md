@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — rust-tui-toolkit S4: fetch family + DataTable/remoteTable on the rust path
+
+`remoteTable`/`DataTable.Remote` now works on the rust-tui target end-to-end — the rust codegen path had
+NONE of the fetch family before (the SSR `dataTableView` was a stub; `fetchUrlSignal`/`fetchRowsSource`/
+`fieldColumn` were unmapped). A tui-only intrinsic OVERLAY (`RustTuiIntrinsics`, applied by `RustBackend.compile`
+only when `uiTarget==tui`, so web keeps its stubs) points these at runtimes in `tui.rs`: `fetchUrlSignal` does a
+blocking `ureq` GET at construction and seeds the signal store; `fetchRowsSource`/`fieldColumn` carry the
+(signal, rowsPath) and (title, fieldPath) pairs; `dataTableView` encodes them into a `<table>` View; the renderer
+parses the live signal JSON with `serde_json`, drills the rows path (dotted, or `data`/`rows`/`items`/`results`
+envelope keys when empty), projects each row onto the column field paths, and renders a ratatui `Table`. ureq +
+serde_json deps are added for the tui target; the tui target always emits the `ui` module (tui.rs needs `View`).
+`RustGenTuiToolkitTest` 6/6 — the S4 cargo smoke serves a live `{"data":[...]}` envelope from a local
+HttpServer and asserts the fetched rows render. Web rust 38/38 unchanged. Spec `specs/rust-tui-toolkit.md`.
+
 ## 2026-06-23 — rust-tui-toolkit S3: faithful tag → ratatui (flex layout + colors)
 
 `tui.rs` now reads the CSS `style` attr (the std/ui `lower.ssc` bakes layout into it): a `div` with

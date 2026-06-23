@@ -27,7 +27,7 @@ seam = `BackendOptions.extra("uiTarget"->"tui")`). The terminal analog of rust-w
       redraw. **Gate:** counter+computedSignal; cargo test feeds the key, computed text changes (LIVE).
 - [x] **rust-tui-3-tag-mapping** ✓ DONE 2026-06-23 (flex-direction:row→horizontal Layout, CSS color/background/font-weight→ratatui fg/bg/bold; cargo test asserts hstack side-by-side) — — CSS flex/gap parse + all std/ui chrome (card/badge/divider/input/toggle/show)
       + focus highlight + colors. **Gate:** rozum-meeting-style toolkit renders faithfully.
-- [ ] **rust-tui-4-fetch-datatable** — Rust runtimes for fetchUrlSignal/fetchRowsSource/staticRowsSource +
+- [x] **rust-tui-4-fetch-datatable** ✓ DONE 2026-06-23 (intrinsic overlay -> tui.rs ureq fetch + serde_json rowsPath drill + ratatui Table; cargo test fetches a live {data:[...]} envelope + renders rows) — — Rust runtimes for fetchUrlSignal/fetchRowsSource/staticRowsSource +
       rowsOf envelope drill + `_tui_data_table_view` (fetch→Table). (Absent on the Rust path entirely today.)
       **Gate:** remoteTable renders fetched rows vs a local server.
 - [ ] **rust-tui-5-converge** — point `frontend: tui` / `--frontend tui` at this path (supersede the static

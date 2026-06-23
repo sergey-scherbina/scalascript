@@ -138,6 +138,7 @@
       |            match tag.as_str() {
       |                "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
       |                | "p" | "span" | "button" | "input" | "a" | "label" | "hr" => 1,
+      |                "table" => _tui_table_height(attrs),
       |                _ => if _tui_is_row(attrs) { cs_max(children) } else { cs_sum(children) },
       |            }
       |        }
@@ -181,6 +182,7 @@
       |                    frame.render_widget(Paragraph::new(_tui_text(v)).style(_tui_text_style(attrs, style)), area);
       |                }
       |                "hr" => { frame.render_widget(Block::default().borders(Borders::TOP), area); }
+      |                "table" => _tui_table(frame, area, attrs),
       |                _ => _tui_stack(frame, area, children, ctx, _tui_is_row(attrs)),
       |            }
       |        }
@@ -213,6 +215,133 @@
       |        out.push('\n');
       |    }
       |    out
+      |}
+      |
+      |// ── fetch + DataTable (tui target, intrinsic-overlaid) ───────────────────────
+      |// fetchUrlSignal: a blocking GET at construction seeds the signal store with the
+      |// response body, and the returned signal carries it. (refreshTick is ignored on
+      |// tui — the fetch happens once at startup; tick-driven re-fetch is a follow-up.)
+      |pub fn _tui_fetch_url_signal(name: String, url: String, _tick: crate::value::Value) -> crate::value::Value {
+      |    let body = _tui_http_get(&url);
+      |    crate::value::ssc_signals().lock().unwrap().insert(name.clone(), body.clone());
+      |    crate::value::Value::Signal(name, Box::new(crate::value::Value::Str(body)))
+      |}
+      |
+      |fn _tui_http_get(url: &str) -> String {
+      |    match ureq::get(url).call() {
+      |        Ok(resp) => resp.into_string().unwrap_or_default(),
+      |        Err(_) => String::new(),
+      |    }
+      |}
+      |
+      |/// fieldColumn(title, fieldPath) → a (title, fieldPath) pair carried as a Tuple.
+      |pub fn _tui_field_column(title: String, field: String) -> crate::value::Value {
+      |    crate::value::Value::Tuple(vec![crate::value::Value::Str(title), crate::value::Value::Str(field)])
+      |}
+      |
+      |/// fetchRowsSource(sig, rowsPath) → carries the fetch signal + the JSON path to
+      |/// the row array, as a Tuple the DataTable view decodes.
+      |pub fn _tui_fetch_rows_source(sig: crate::value::Value, rows_path: String) -> crate::value::Value {
+      |    crate::value::Value::Tuple(vec![sig, crate::value::Value::Str(rows_path)])
+      |}
+      |
+      |/// dataTableView(source, columns, actions) → a `<table>` View whose data attrs
+      |/// encode the source signal id, the rows path, and the columns; the tui renderer
+      |/// reads the LIVE signal JSON and renders a ratatui Table.
+      |pub fn _tui_data_table_view(
+      |    source: crate::value::Value,
+      |    columns: Vec<crate::value::Value>,
+      |    _actions: Vec<crate::value::Value>,
+      |) -> View {
+      |    use crate::value::Value;
+      |    let (sig_name, rows_path) = match source {
+      |        Value::Tuple(parts) if parts.len() == 2 => {
+      |            let name = match &parts[0] { Value::Signal(n, _) => n.clone(), other => other.show() };
+      |            let path = match &parts[1] { Value::Str(p) => p.clone(), other => other.show() };
+      |            (name, path)
+      |        }
+      |        Value::Signal(n, _) => (n, String::new()),
+      |        other => (other.show(), String::new()),
+      |    };
+      |    let cols_enc = columns.iter().map(|c| match c {
+      |        Value::Tuple(p) if p.len() >= 2 => format!("{}\u{1}{}", p[0].show(), p[1].show()),
+      |        other => other.show(),
+      |    }).collect::<Vec<_>>().join("\u{2}");
+      |    View::Element {
+      |        tag: "table".to_string(),
+      |        attrs: vec![
+      |            ("data-ssc-rows-sig".to_string(), sig_name),
+      |            ("data-ssc-rows-path".to_string(), rows_path),
+      |            ("data-ssc-cols".to_string(), cols_enc),
+      |        ],
+      |        children: vec![],
+      |    }
+      |}
+      |
+      |fn _tui_decode_cols(enc: &str) -> Vec<(String, String)> {
+      |    if enc.is_empty() { return vec![]; }
+      |    enc.split('\u{2}').filter_map(|c| {
+      |        let mut it = c.splitn(2, '\u{1}');
+      |        let title = it.next()?.to_string();
+      |        let field = it.next().unwrap_or("").to_string();
+      |        Some((title, field))
+      |    }).collect()
+      |}
+      |
+      |/// Drill the fetched JSON to the row array (`rows_path` dotted, or common
+      |/// envelope keys when empty) and project each row onto the column field paths.
+      |fn _tui_rows_of(json: &str, rows_path: &str, cols: &[(String, String)]) -> Vec<Vec<String>> {
+      |    let v: serde_json::Value = match serde_json::from_str(json) { Ok(x) => x, Err(_) => return vec![] };
+      |    let arr = match _tui_drill(&v, rows_path).and_then(|x| x.as_array()) {
+      |        Some(a) => a, None => return vec![],
+      |    };
+      |    arr.iter().map(|row| cols.iter().map(|(_, f)| _tui_json_field(row, f)).collect()).collect()
+      |}
+      |
+      |fn _tui_drill<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+      |    if path.is_empty() {
+      |        return ["data", "rows", "items", "results"].iter().find_map(|k| v.get(k)).or(Some(v));
+      |    }
+      |    let mut cur = v;
+      |    for part in path.split('.') { cur = cur.get(part)?; }
+      |    Some(cur)
+      |}
+      |
+      |fn _tui_json_field(row: &serde_json::Value, path: &str) -> String {
+      |    let mut cur = row;
+      |    for part in path.split('.') {
+      |        match cur.get(part) { Some(x) => cur = x, None => return String::new() }
+      |    }
+      |    match cur {
+      |        serde_json::Value::String(s) => s.clone(),
+      |        serde_json::Value::Null => String::new(),
+      |        other => other.to_string(),
+      |    }
+      |}
+      |
+      |fn _tui_table_height(attrs: &[(String, String)]) -> u16 {
+      |    let sig = _tui_attr(attrs, "data-ssc-rows-sig").unwrap_or("");
+      |    let path = _tui_attr(attrs, "data-ssc-rows-path").unwrap_or("");
+      |    let json = crate::value::ssc_signals().lock().unwrap().get(sig).cloned().unwrap_or_default();
+      |    let n = serde_json::from_str::<serde_json::Value>(&json).ok()
+      |        .and_then(|v| _tui_drill(&v, path).and_then(|x| x.as_array()).map(|a| a.len()))
+      |        .unwrap_or(0);
+      |    (n as u16) + 1
+      |}
+      |
+      |fn _tui_table(frame: &mut Frame, area: Rect, attrs: &[(String, String)]) {
+      |    use ratatui::widgets::{Table, Row};
+      |    let sig = _tui_attr(attrs, "data-ssc-rows-sig").unwrap_or("");
+      |    let path = _tui_attr(attrs, "data-ssc-rows-path").unwrap_or("");
+      |    let cols = _tui_decode_cols(_tui_attr(attrs, "data-ssc-cols").unwrap_or(""));
+      |    let json = crate::value::ssc_signals().lock().unwrap().get(sig).cloned().unwrap_or_default();
+      |    let rows = _tui_rows_of(&json, path, &cols);
+      |    let n = cols.len().max(1) as u32;
+      |    let widths: Vec<Constraint> = (0..n).map(|_| Constraint::Ratio(1, n)).collect();
+      |    let header = Row::new(cols.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>())
+      |        .style(Style::default().add_modifier(Modifier::BOLD));
+      |    let trows: Vec<Row> = rows.into_iter().map(Row::new).collect();
+      |    frame.render_widget(Table::new(trows, widths).header(header), area);
       |}
       |
       |fn _tui_snapshot(view: &View, focus: usize) -> String {
