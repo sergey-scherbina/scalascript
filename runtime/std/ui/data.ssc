@@ -16,6 +16,7 @@ exports:
   - dataTable
   - staticDataTable
   - signalDataTable
+  - remoteTable
   - dcol
   - mcol
   - scol
