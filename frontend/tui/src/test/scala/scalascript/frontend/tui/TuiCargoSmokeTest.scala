@@ -18,8 +18,15 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
 
   test("emitted ratatui crate compiles and runs via cargo"):
     assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    // A small static layout: heading + text, then a divider, then a two-column row.
+    val view = View.Column(Seq(
+      View.Text(() => "Title"),
+      View.Text(() => "hello"),
+      View.Divider(),
+      View.Row(Seq(View.Text(() => "left"), View.Text(() => "right")))
+    ))
     val module = FrontendModule(
-      components     = List(ComponentDef("App", Nil, _ => View.Text(() => "hello"))),
+      components     = List(ComponentDef("App", Nil, _ => view)),
       entryPoint     = "App",
       initialRoute   = "/",
       targetPlatform = Platform.Terminal
@@ -40,7 +47,16 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
       val logger = ProcessLogger(l => out.append(l).append('\n'), l => err.append(l).append('\n'))
       val code = Process(Seq("cargo", "run", "--quiet"), dir.toFile).!(logger)
       assert(code == 0, s"cargo run failed (exit $code) — emitted Rust did not compile:\n${err.toString}")
-      assert(out.toString.contains("ssc-tui: ok"), s"unexpected program output:\n${out.toString}")
+      val rendered = out.toString
+      // The buffer snapshot must contain the laid-out text content.
+      assert(rendered.contains("Title"),  s"missing heading:\n$rendered")
+      assert(rendered.contains("hello"),  s"missing text:\n$rendered")
+      assert(rendered.contains("left"),   s"missing row-left:\n$rendered")
+      assert(rendered.contains("right"),  s"missing row-right:\n$rendered")
+      assert(rendered.contains("─"),      s"missing divider rule:\n$rendered")
+      // Row children render side-by-side on the same line.
+      val rowLine = rendered.linesIterator.find(l => l.contains("left") && l.contains("right"))
+      assert(rowLine.isDefined, s"row children not on the same line:\n$rendered")
     finally
       deleteRecursively(dir)
 

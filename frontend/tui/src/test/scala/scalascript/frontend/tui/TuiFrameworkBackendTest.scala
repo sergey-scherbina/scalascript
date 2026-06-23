@@ -48,7 +48,8 @@ final class TuiFrameworkBackendTest extends AnyFunSuite:
     val main = app.sources("src/main.rs")
     assert(main.contains("TestBackend"))
     assert(main.contains("fn main()"))
-    assert(main.contains("ssc-tui: ok"))
+    assert(main.contains("fn render_root"))
+    assert(main.contains("buffer_to_lines"))
   }
 
   test("emitNative returns None for non-terminal platforms") {
