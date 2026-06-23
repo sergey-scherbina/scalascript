@@ -1,7 +1,9 @@
 # `frontend/tui` — a ratatui terminal-UI backend for the Tk frontend SPI
 
 Status: **IN PROGRESS** (2026-06-23, with Sergiy — "мы ведём всю компиляторную сторону сами. Оформляй
-спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`.
+спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`. **Slice 0 (scaffold) DONE
+2026-06-23** — `frontend/tui` module + `TuiFrameworkBackend` register & emit a cargo-buildable ratatui crate
+(8/8 incl. cargo smoke). Slices 1–5 (the `View → ratatui` lowering table) remain.
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
@@ -123,12 +125,17 @@ fetch runtime.
 ## 5. Slices (each independently green; gate = the emitted crate `cargo build`s and a `TestBackend` buffer
 snapshot matches)
 
-- **Slice 0 — scaffold + selection wiring.** New sbt module `frontendTui` (`frontend/tui`),
-  `TuiFrameworkBackend extends FrontendFrameworkSpi` (`name="tui"`, `emit` throws, `emitNative` returns a
-  minimal buildable crate), `META-INF/services/scalascript.frontend.FrontendFrameworkSpi`, add
-  `Platform.Terminal` + `AppFormat.RatatuiApp` to core, add `"tui"` to the CLI `--frontend` set. **Gate:**
-  module compiles; `FrontendFrameworks.setBackend("tui")` resolves; `emitNative` emits a `Cargo.toml` +
-  `src/main.rs` that `cargo build`s (assume(cargo)-gated) and renders an empty frame then exits.
+- **Slice 0 — scaffold + selection wiring. ✓ DONE (2026-06-23).** New sbt module `frontendTui`
+  (`frontend/tui`) — `TuiFrameworkBackend extends FrontendFrameworkSpi` (`name="tui"`, `emit` throws,
+  `emitNative` → minimal buildable crate via `TuiEmitter`), `META-INF/services/...FrontendFrameworkSpi`,
+  registered in build.sbt `allFrontends` (auto root-aggregate + CLI classpath). Added `Platform.Terminal` +
+  `AppFormat.RatatuiApp` to `frontend/core/.../Primitives.scala` (additive; all `Platform` matches have
+  catch-alls, `AppFormat` is never matched — sibling backends recompile clean). **Gate met:** `frontendTui/test`
+  8/8 — `FrontendFrameworks.setBackend("tui")` resolves, ServiceLoader discovers it, `emit` throws,
+  `emitNative` emits `Cargo.toml`+`src/main.rs`, and `TuiCargoSmokeTest` (assume(cargo)) confirms the emitted
+  crate `cargo run`s (ratatui 0.29, headless `TestBackend`, prints `ssc-tui: ok`). CLI `--frontend tui` native
+  wiring deferred to a later slice (the browser `--frontend` set is web-only; selection already works via
+  `-Dscalascript.frontend=tui` / front-matter / inline).
 - **Slice 1 — static layout + text (read-only).** `Column/Row/Spacer/Divider` → `Layout`; `Text/Heading/
   SignalText` (static read) → `Paragraph`; `Styled/Style/Theme` → styled `Span`; `Card` → bordered `Block`.
   Draw-once. **Gate:** a `vstack(heading, text)` program → cargo build + a `TestBackend` buffer snapshot of

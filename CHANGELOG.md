@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui (ratatui terminal-UI backend) — spec + slice 0 scaffold
+
+Scalascript-side half of the rozum Unified Control Center: a new `frontend/tui` render backend so one `std/ui`
+(Tk) `.ssc` app compiles to a terminal UI (ratatui) as well as web/desktop. Spec `specs/frontend-tui-ratatui.md`
+(+ answers to the rozum side's 3 questions: backend selection via `FrontendFrameworks` / focus-keyboard is
+backend-side with core `A11y` hints / scalascript owns the whole compiler side). SPRINT track `frontend-tui-*`
+(6 slices). **Slice 0 (scaffold) landed:** new `frontendTui` sbt module — `TuiFrameworkBackend extends
+FrontendFrameworkSpi` (`name="tui"`) emitting a self-contained ratatui+crossterm Rust crate via the
+`emitNative` (Swing/JavaFX native) pattern, NOT via RustCodeWalk; additive `Platform.Terminal` +
+`AppFormat.RatatuiApp` in `frontend/core`; registered in build.sbt `allFrontends`. `frontendTui/test` 8/8
+including an assume(cargo) smoke that builds + runs the emitted crate (ratatui 0.29). Slices 1–5 (the
+`View → ratatui` lowering table) remain.
+
 ## 2026-06-23 — Crypto/finance roadmap planned + grouped (docs + spec + SPRINT/BACKLOG)
 
 Turned the loose forward-looking brainstorm in `docs/capabilities.md §7` into a committed, grouped roadmap so

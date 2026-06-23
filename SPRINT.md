@@ -23,13 +23,14 @@ Route = `emitNative` (the Swing/JavaFX native pattern), emitting a self-containe
 (NOT via RustCodeWalk). Each slice gate = emitted crate `cargo build`s + a ratatui `TestBackend` buffer
 snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-to-bottom.
 
-- [ ] **frontend-tui-0-scaffold** — new sbt module `frontendTui` (`frontend/tui`) + `TuiFrameworkBackend extends
-      FrontendFrameworkSpi` (`name="tui"`, `emit` throws, `emitNative` → minimal buildable crate) +
-      `META-INF/services/scalascript.frontend.FrontendFrameworkSpi` + add `Platform.Terminal` &
-      `AppFormat.RatatuiApp` to `frontend/core/.../Primitives.scala` (additive enum cases) + add `"tui"` to the
-      CLI `--frontend` validation set (`tools/cli/.../EmitCommands.scala`). **Gate:** module compiles;
-      `FrontendFrameworks.setBackend("tui")` resolves; `emitNative` emits `Cargo.toml`+`src/main.rs` that
-      `cargo build`s and renders an empty frame then exits.
+- [x] **frontend-tui-0-scaffold** ✓ DONE 2026-06-23 — new sbt module `frontendTui` (`frontend/tui`) +
+      `TuiFrameworkBackend extends FrontendFrameworkSpi` (`name="tui"`, `emit` throws, `emitNative` → minimal
+      buildable crate via `TuiEmitter`) + `META-INF/services` + `Platform.Terminal` & `AppFormat.RatatuiApp`
+      added to `frontend/core` (additive) + registered in build.sbt `allFrontends`. **Gate met:**
+      `frontendTui/test` 8/8 incl. `TuiCargoSmokeTest` (assume(cargo): emitted crate `cargo run`s, ratatui 0.29
+      headless `TestBackend`, prints `ssc-tui: ok`); sibling frontend backends recompile clean. CLI
+      `--frontend tui` native-emit wiring deferred (selection already works via `-Dscalascript.frontend=tui` /
+      front-matter / inline).
 - [ ] **frontend-tui-1-static-layout** — lower `Column/Row/Spacer/Divider`→`Layout`; `Text/Heading/SignalText`
       (static)→`Paragraph`; `Styled/Style/Theme`→styled `Span`; `Card`→bordered `Block`. Draw-once. **Gate:**
       `vstack(heading,text)` → cargo build + `TestBackend` buffer snapshot. (UCC PoC step 1: read-only msg list.)
