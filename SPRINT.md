@@ -211,7 +211,7 @@ validated + pushed:
       `.collect { case (Str(k), Str(v)) => … }` (not only line-start `case`), and (b) bare `Value` TYPE
       annotations (`Option[Value]`/`: Value`/`[Value]`) → `PluginValue` (the `Value.`-only residual check
       misses them).
-- [~] **p3-batch-B**: **ws ✓ (3/0)** (1/7). ENABLER added: `PluginValue.nativeFn(name, List[PluginValue]=>PluginValue)`
+- [~] **p3-batch-B**: **ws ✓ (3/0), pwa ✓** (2/7). ENABLER added: `PluginValue.nativeFn(name, List[PluginValue]=>PluginValue)`
       (builds a `NativeFnV` via `Computation.pureFn`) + `pv.callFn(args)` (runs a fn value's Computation) — for
       plugins that return callable records. Small/clean remaining: oauth, json (+`JsonParser`→`JsonCodec`), pwa.
       Computation+ctx GIANTS (defer to batch-C-style): dstreams (56 NativeFnV/ctx), graphql (7+18ctx), streams

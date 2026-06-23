@@ -2,9 +2,7 @@ package scalascript.compiler.plugin.pwa
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, Computation}
-import scalascript.plugin.api.PluginNative
-import scalascript.plugin.api.PluginContext
+import scalascript.plugin.api.{PluginNative, PluginValue, PluginError, PluginContext}
 
 object PwaIntrinsics:
 
@@ -26,24 +24,24 @@ object PwaIntrinsics:
           registerPwaRoutes(ctx, name, if shortName.isEmpty then name else shortName, description, themeColor, bgColor, display, "/", Nil, Nil)
         case List(name: String, shortName: String, description: String, themeColor: String, bgColor: String, display: String, startUrl: String) =>
           registerPwaRoutes(ctx, name, if shortName.isEmpty then name else shortName, description, themeColor, bgColor, display, startUrl, Nil, Nil)
-        case List(name: String, shortName: String, description: String, themeColor: String, bgColor: String, display: String, startUrl: String, Value.ListV(iconVals)) =>
-          val icons = iconVals.collect { case Value.StringV(s) => s }
+        case List(name: String, shortName: String, description: String, themeColor: String, bgColor: String, display: String, startUrl: String, PluginValue.Lst(iconVals)) =>
+          val icons = iconVals.collect { case PluginValue.Str(s) => s }
           registerPwaRoutes(ctx, name, if shortName.isEmpty then name else shortName, description, themeColor, bgColor, display, startUrl, icons, Nil)
-        case List(name: String, shortName: String, description: String, themeColor: String, bgColor: String, display: String, startUrl: String, Value.ListV(iconVals), Value.ListV(precacheVals)) =>
-          val icons    = iconVals.collect   { case Value.StringV(s) => s }
-          val precache = precacheVals.collect { case Value.StringV(s) => s }
+        case List(name: String, shortName: String, description: String, themeColor: String, bgColor: String, display: String, startUrl: String, PluginValue.Lst(iconVals), PluginValue.Lst(precacheVals)) =>
+          val icons    = iconVals.collect   { case PluginValue.Str(s) => s }
+          val precache = precacheVals.collect { case PluginValue.Str(s) => s }
           registerPwaRoutes(ctx, name, if shortName.isEmpty then name else shortName, description, themeColor, bgColor, display, startUrl, icons, precache)
-        case _ => throw InterpretError("pwa(name[, shortName, description, themeColor, backgroundColor, display, startUrl, icons, precache])")
+        case _ => PluginError.raise("pwa(name[, shortName, description, themeColor, backgroundColor, display, startUrl, icons, precache])")
     },
   )
 
-  private def mkResponse(contentType: String, body: String): Value =
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(200),
-      "headers" -> Value.MapV(Map(
-        (Value.StringV("Content-Type"): Value) -> (Value.StringV(contentType): Value)
+  private def mkResponse(contentType: String, body: String): PluginValue =
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(200),
+      "headers" -> PluginValue.mapOf(Map(
+        (PluginValue.string("Content-Type"): PluginValue) -> (PluginValue.string(contentType): PluginValue)
       )),
-      "body"    -> Value.StringV(body)
+      "body"    -> PluginValue.string(body)
     ))
 
   private def registerPwaRoutes(
@@ -57,23 +55,21 @@ object PwaIntrinsics:
       start:    String,
       icons:    List[String],
       precache: List[String],
-  ): Value =
+  ): PluginValue =
     val manifest = buildManifest(name, short, desc, theme, bg, display, start, icons)
     val swJs     = buildServiceWorker(precache)
 
     ctx.registerRoute("GET", "/manifest.json",
-      Value.NativeFnV("pwa.manifest", Computation.pureFn(_ =>
-        mkResponse("application/manifest+json", manifest)
-      ))
+      PluginValue.nativeFn("pwa.manifest", _ =>
+        mkResponse("application/manifest+json", manifest))
     )
 
     ctx.registerRoute("GET", "/sw.js",
-      Value.NativeFnV("pwa.sw", Computation.pureFn(_ =>
-        mkResponse("application/javascript", swJs)
-      ))
+      PluginValue.nativeFn("pwa.sw", _ =>
+        mkResponse("application/javascript", swJs))
     )
 
-    Value.UnitV
+    PluginValue.unit
 
   private def jsonStr(s: String): String =
     "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
