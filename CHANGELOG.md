@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — core-min: runStream prelude name migrated — core Typer prelude has ZERO hardcoded effect runners
+
+`coremin-stream-prelude-migrate`. The last effect-runner names hardcoded in the Typer prelude — `runStream`
+(the runner) and the `Stream` object — moved into `StreamsInterpreterPlugin.preludeSymbols`
+(`ExportedSymbol("runStream","runStream","def","Any")` + `("Stream","Stream","object","Any")`), completing
+the prelude-migration axis: **no standard effect runner is hardcoded in core's `ssc check` prelude anymore.**
+The now-dead `runnerType`/`bodyWithEff` typer helpers were removed (core still compiles strict `-Werror`).
+This is the **prelude-name** axis only — Stream's runtime (Free-monad driver + `tryStreamEmitWhileFast`
+FastTier + `installStreamGlobal`) stays in core per `coremin-stream-migrate`, since a `BlockForm` only sees
+`SpiValue` (no AST). streams-plugin is bundled (installBin stages it; registered Backend provider), so
+production `ssc check` resolves these via `BackendRegistry.inProcess`. `PreludeMigratedRunnersTest` now locks
+16 runners including `runStream` (16/16); core compiles clean. Mirrors the actors prelude migration (names in
+the plugin, runtime in core via a seam).
+
 ## 2026-06-23 — feat(rust): Tier-3 unbounded multi-shot (Free-monad MComp) — R.6 complete for recursion
 
 Final multi-shot tier: a `multi effect` performed inside **recursion** (dynamic, unbounded perform depth)
