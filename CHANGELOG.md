@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — feat(core-min): `ssc check` auto-loads a bundled-opt-in plugin from the file's imports
+
+Removes the UX cliff the advanced-optin strict-opt-in introduced: a file using an advanced plugin's
+names (e.g. `x402-*` → payments) no longer needs a manual `--plugin` to `ssc check`. New SPI hook
+`Backend.providesImports: List[String]` — the import namespaces a plugin owns (payments →
+`scalascript.x402`, oauth → `scalascript.oauth`/`scalascript.oidc`, spark → `scalascript.spark`).
+`ssc check` collects the module's import prefixes (from the ```scalascript code-block trees, where
+these imports live — `scala.meta.Import` refs — plus doc-level `Content.Import`), and
+`BackendRegistry.importMatchedPreludeSymbols` scans `lib/compiler/plugin-available/` `.sscpkg` packages
+with a THROWAWAY `URLClassLoader` (so a non-matching plugin is never committed to the runtime), folding
+in `preludeSymbols` from packages whose `providesImports` matches. Wired into both `ssc check` and
+`check-with-iface`; a `-Dscalascript.pluginAvailableDir=` override aids tests/custom layouts.
+**Verified end-to-end:** `ssc check examples/x402-client.ssc` → `OK` with the staged payments package
+(was `undefined name: DefaultSyncBackend / basicRequest`), still errors without it (autoload is what
+fixes it), and `hello.ssc` is unaffected (import-gated — payments isn't over-loaded). `CheckAutoloadImportTest`
+locks the matching + import-extraction; plugin-tests 712/0, cli smoke 2/0. The 7 advanced examples'
+notes were updated to say `ssc check` auto-detects the plugin.
+
 ## 2026-06-23 — value-unification Slices 5-6: scalar leaves shared between `Value` and `SpiValue` (scalars-only COMPLETE)
 
 Finished the scalars-only value-unification. **Slice 5:** moved `DataValue` (the 9 scalar leaves split out in

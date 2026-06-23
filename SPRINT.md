@@ -43,17 +43,20 @@ and execute autonomously. In priority order:
       using advanced-plugin names (`x402-*`→payments, `oauth`/`oidc`→oauth) now `ssc check`-flag unless the
       plugin is added (verified: `undefined name: DefaultSyncBackend/basicRequest`). Added a uniform "Advanced
       plugin" note to each pointing at `--plugin`. Fence-lint + cli smoke 2/0.
-- [ ] **check-autoload-plugin-by-import** (scoped 2026-06-23, deferred — medium feature) — make `ssc check`
-      auto-resolve advanced names when the file imports the plugin's namespace, so no manual `--plugin`. PREMISE
-      VERIFIED (the x402 example flags `DefaultSyncBackend`/`basicRequest` post-strict-opt-in). DESIGN: add
-      `Backend.providesImports: List[String] = Nil` to the SPI; advanced plugins declare their namespaces
-      (payments→`scalascript.x402`, oauth→`scalascript.oauth`+`scalascript.oidc`, spark→`scalascript.spark`);
-      `ssc check` collects the module's import prefixes, scans `lib/compiler/plugin-available/*.sscpkg`
-      (throwaway `URLClassLoader`+`ServiceLoader` per pkg, or a build-time `imports.map` to avoid the per-check
-      cost), and folds in `preludeSymbols` from packages whose `providesImports` matches. Hooks at `Main.scala`
-      ~5293 (`BackendRegistry.inProcess.flatMap(_.preludeSymbols)`). Needs AST import-prefix extraction +
-      `installBin` staging to verify end-to-end. Disproportionate to the narrow gain right now → docs note shipped
-      instead (`advanced-example-check-ux`); pick this up when there's appetite for the full feature.
+- [x] **check-autoload-plugin-by-import** ✓ DONE 2026-06-23 (Sergiy: build it) — `ssc check` now auto-resolves
+      advanced names when the file imports the plugin's namespace, no manual `--plugin`. SHIPPED: SPI
+      `Backend.providesImports: List[String] = Nil`; payments→`scalascript.x402`, oauth→`scalascript.oauth`+
+      `scalascript.oidc`, spark→`scalascript.spark` declare it. `importPrefixesOf(module)` extracts import refs
+      from the ```scalascript code-block trees (`scala.meta.Import.importers.ref.syntax`) + doc-level
+      `Content.Import`; `BackendRegistry.importMatchedPreludeSymbols(prefixes, availableDirs)` scans
+      `lib/compiler/plugin-available` `.sscpkg` packages with a THROWAWAY `URLClassLoader` (non-matching plugins
+      never committed to the runtime) and folds in matching `preludeSymbols`. Wired into `ssc check` (Main ~5293)
+      AND `check-with-iface`; `-Dscalascript.pluginAvailableDir=` override for tests/custom layouts.
+      **Verified end-to-end** against the real staged `payments-plugin.sscpkg`: `ssc check examples/x402-client.ssc`
+      → `OK` (was `undefined DefaultSyncBackend/basicRequest`); still errors without the dir; `hello.ssc` unaffected
+      (import-gated). `CheckAutoloadImportTest` 3/0, plugin-tests 712/0, cli smoke 2/0. The 7 advanced-example notes
+      were updated to reflect the auto-detection. GOTCHA: Scala 3 nested comments — `/*` inside a `/** */` opens a
+      nested comment (bit me in a test doc-string).
 
 - [x] **board-spec-hygiene** ✓ DONE 2026-06-23 — reconciled stale core-min/polyglot board/spec wording.
       Updated `specs/polyglot-libraries.md` to the 2026-06-23 landed state, removed future-looking optics
