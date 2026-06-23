@@ -72,7 +72,14 @@ Value-decoupling is "v2.x". So import-removal is GATED on a **Value-surface in t
 come from `evalLegacy` (which only decouples the *context*). Cycle-checked: `pluginApi → core` is acyclic
 (core deps = `valueData, backendSpi, …`, not pluginApi). Do gradually, one plugin/small-batch per slice, each
 validated + pushed:
-- [ ] **p3-foundation** (THE enabler; do first) — expose a stable Value-surface through
+- [x] **p3-foundation** ✓ DONE 2026-06-23 — `scalascript-plugin-api` now `dependsOn(core)` (acyclic seam);
+      `PluginValue` exposes stable extractors (`asString/asInt/asDouble/asBool/asChar/asList/asTuple/asMap/
+      asOption`) + constructors (`string/int/double/bool/char/list/tuple/map/some/none/unit`) + `show`, backed
+      by the interpreter `Value`; `PluginError` builds the real `InterpretError` + `raise(msg)`. PROOF:
+      `mime-plugin` migrated off `scalascript.interpreter` end-to-end. `pluginApi/test` 14/0, `mimePlugin/test`
+      4/0, `PluginExamplesSmokeTest` 1/0. The surface may need a few more accessors as later batches surface new
+      shapes — extend `PluginValue` as needed.
+  ~~- [ ] p3-foundation (original)~~ — expose a stable Value-surface through
       `scalascript-plugin-api` so plugins stop importing `scalascript.interpreter.Value`. DESIGN (decided):
       `pluginApi` gains a `core` dep = the ONE controlled seam (moves the coupling 28→1; opaque `PluginValue` +
       stable extractors/constructors keep the plugin ABI stable even as core's `Value` repr changes — e.g.
@@ -83,9 +90,10 @@ validated + pushed:
       capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
       `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
       `scalascript.interpreter` import + its tests green.
-- [ ] **p3-batch-A** (10 simple — Value-only, no ctx, mostly no Computation): mime (in foundation), fs, graph,
-      pdf, yaml, auth, fetch, nfc, payments/crypto, payments/payment-request. Mechanical: `Value.*`/`InterpretError`
-      → PluginValue/PluginError surface; drop the `scalascript.interpreter` import; tests green.
+- [~] **p3-batch-A** (10 simple — Value-only, no ctx, mostly no Computation): **mime ✓ DONE** (in foundation);
+      remaining: fs, graph, pdf, yaml, auth, fetch, nfc, payments/crypto, payments/payment-request. Mechanical:
+      `Value.*`/`InterpretError` → PluginValue/PluginError surface; drop the `scalascript.interpreter` import;
+      tests green.
 - [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
       streams, ws. Adds `PluginComputation` usage.
 - [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),

@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — stable-SPI Phase 3: foundation — stable Value-surface in plugin-api (+ mime migrated)
+
+Starts Phase 3 (decouple the 28 plugin `*Intrinsics` from `import scalascript.interpreter.*`). The blocker
+(probed) was that `PluginValue`/`PluginComputation` were opaque `Any` with no accessors, so plugins had to
+keep importing the interpreter's `Value`. **Foundation:** `scalascript-plugin-api` now `dependsOn(core)` — the
+ONE controlled seam (acyclic: core doesn't depend on pluginApi) — and `PluginValue` exposes a stable
+Value-surface backed by the interpreter `Value`: extractors `asString/asInt/asDouble/asBool/asChar/asList/
+asTuple/asMap/asOption`, constructors `string/int/double/bool/char/list/tuple/map/some/none/unit`, and `show`.
+`PluginError` now builds the real `InterpretError` (identical error reporting) and adds `raise(msg): Nothing`.
+This moves the interpreter coupling from 28 plugins into one stable module; the opaque `PluginValue` keeps the
+plugin ABI stable as core's `Value` repr changes (e.g. value-unification). **Proof:** `mime-plugin` migrated
+fully off `scalascript.interpreter` (uses `PluginValue.asString/asList/asTuple/show` + `PluginValue.string` +
+`PluginError.raise`). `pluginApi/test` 14/0, `mimePlugin/test` 4/0, `PluginExamplesSmokeTest` (invoice-email)
+1/0. Remaining 27 plugins migrate in batches A/B/C (see SPRINT); `evalLegacy` removal + the
+`reject scalascript/interpreter in plugin jars` build check come in `p3-enforce`.
+
 ## 2026-06-23 — feat(core-min): `ssc check` auto-loads a bundled-opt-in plugin from the file's imports
 
 Removes the UX cliff the advanced-optin strict-opt-in introduced: a file using an advanced plugin's
