@@ -1,6 +1,0 @@
-feature/board-spec-hygiene 2026-06-23T00:43:03Z
-agent: codex
-heartbeat: 2026-06-23T00:43:03Z
-status: in-progress
-done-so-far: claimed docs-only board/spec hygiene; no code work
-next: create worktree, write SPRINT plan, reconcile stale BACKLOG/SPRINT/spec wording without touching active value-unification
