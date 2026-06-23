@@ -51,9 +51,31 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("Block::new().borders(Borders::TOP)"))
   }
 
-  test("Button renders as static bracketed label") {
+  test("Button renders a bracketed label with a focus marker") {
     val rs = emitMain(View.Button(text("Click"), EventHandler.Simple(() => ())))
-    assert(rs.contains("""Paragraph::new("[Click]")"""))
+    assert(rs.contains("""format!("{}[{}]", focus_mark(focus, 0), "Click")"""))
+  }
+
+  test("focusables form a focus ring with handle_key + generated event tests") {
+    val count = new ReactiveSignal[Int]("count", 0)
+    val name  = new ReactiveSignal[String]("name", "")
+    val rs = emitMain(View.Column(Seq(
+      View.SignalText(count),
+      View.Button(text("inc"), EventHandler.IncrementSignal(count, 1)),
+      View.TextInput(name, "type here")
+    )))
+    assert(rs.contains("const FOCUS_COUNT: usize = 2;"))               // button + text input
+    assert(rs.contains("fn handle_key(code: KeyCode"))
+    assert(rs.contains("fn activate(focus: usize"))
+    assert(rs.contains("matches!(focus, 1)"))                          // text input at idx 1
+    // button (idx 0) increments the "count" signal
+    assert(rs.contains("""0 => { let cur = match signals.get("count")"""))
+    // text input (idx 1) appends typed chars to "name"
+    assert(rs.contains("""1 => { let mut s = sig(signals, "name"); s.push(c);"""))
+    // generated self-tests for events + typing + focus
+    assert(rs.contains("fn event_handlers_run()"))
+    assert(rs.contains("fn text_input_typing()"))
+    assert(rs.contains("fn tab_moves_focus()"))
   }
 
   test("Toggle reads its checkbox + label from the runtime store") {
@@ -86,7 +108,7 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("fn run_interactive()"))
     assert(rs.contains("event::poll(Duration::from_millis(100))"))
     assert(rs.contains("fn initial_signals()"))
-    assert(rs.contains("fn render_root(frame: &mut Frame, area: Rect, signals: &HashMap<String, Value>)"))
+    assert(rs.contains("fn render_root(frame: &mut Frame, area: Rect, signals: &HashMap<String, Value>, focus: usize)"))
   }
 
   test("string content is escaped into a Rust literal") {

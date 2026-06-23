@@ -18,13 +18,18 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
 
   test("emitted ratatui crate compiles and runs via cargo"):
     assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
-    // heading + a reactive signal-bound line, a divider, then a two-column row.
-    val msg = new ReactiveSignal[String]("msg", "first")
+    // heading + a reactive signal-bound line, a divider, a two-column row,
+    // and interactive widgets (button increments a signal, a text input).
+    val msg   = new ReactiveSignal[String]("msg", "first")
+    val count = new ReactiveSignal[Int]("count", 0)
+    val name  = new ReactiveSignal[String]("name", "")
     val view = View.Column(Seq(
       View.Text(() => "Title"),
       View.SignalText(msg),
       View.Divider(),
-      View.Row(Seq(View.Text(() => "left"), View.Text(() => "right")))
+      View.Row(Seq(View.Text(() => "left"), View.Text(() => "right"))),
+      View.Button(View.Text(() => "inc"), EventHandler.IncrementSignal(count, 1)),
+      View.TextInput(name, "type here")
     ))
     val module = FrontendModule(
       components     = List(ComponentDef("App", Nil, _ => view)),
