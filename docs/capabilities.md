@@ -72,7 +72,9 @@ and **`@noble/*` on JS** (`register`). Plus **FROST-Ed25519** — our own pure t
 passkey/WebAuthn owner), Ledger (own APDU/app codecs; vendor lib only for the USB byte pipe), Trezor, and
 connectors (EIP-1193, WalletConnect v2 with own envelope crypto over X25519+ChaCha20, Wallet Standard). MPC
 vaults (Fireblocks/Coinbase/Lit/ZenGo) are **thin clients to remote external providers** behind a
-`RemoteSigningClient` SPI.
+`RemoteSigningClient` SPI — and `walletVaultMpcFrost` is the **in-house** implementation of that same seam:
+our own FROST-Ed25519 threshold signing run locally (no external provider), so `McpVault("…", new
+FrostSigningClient(Seq(quorum)))` is a complete threshold wallet with no new vault type.
 
 **Blockchains** — `ChainAdapter` SPI (`payments/blockchain/spi/`), one impl per chain, all signing through the
 crypto SPI:
