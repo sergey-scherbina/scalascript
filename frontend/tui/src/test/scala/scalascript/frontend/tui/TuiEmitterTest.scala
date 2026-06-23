@@ -149,6 +149,21 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""signals.insert("tab".to_string(), Value::I(1));"""))
   }
 
+  test("DataTable with a Remote source lowers to a runtime fetch_rows table + serde_json dep") {
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
+    val dt = View.DataTable(
+      TableDataSource.Remote(feed, "data"),
+      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+    )
+    val (cargo, rs) = emitCrate(dt)
+    assert(cargo.contains("serde_json"))                       // JSON parse dep
+    assert(cargo.contains("ureq"))                             // a remote table is also a fetch
+    assert(rs.contains("fn fetch_rows("))
+    assert(rs.contains("""fetch_rows(&__json, "data", &["room", "unread"])"""))
+    assert(rs.contains("""Row::new(vec!["Room", "Unread"])"""))   // header from column titles
+    assert(rs.contains("""sig(signals, "rooms")"""))           // reads the bootstrap-fetched body
+  }
+
   test("NavigationStack lowers to a reactive route match") {
     val route = new ReactiveSignal[String]("route", "home")
     val rs = emitMain(View.NavigationStack(

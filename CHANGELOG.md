@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui: DataTable.Remote live tables (fetched JSON → ratatui Table)
+
+`DataTable` with a `Remote(FetchUrlSignal, rowsPath)` source now renders live data: the body is fetched into
+`signals[id]` at bootstrap (the slice-5 fetch path) and parsed each frame into a ratatui `Table`. The emitted
+crate gets `fetch_rows(json, rows_path, field_paths)` + `json_field` helpers (serde_json) that navigate the
+`rowsPath` envelope (dotted, e.g. `result.items`) or the default `{data|rows|items|results}` keys, then extract
+each column's `fieldPath` value per row (strings unquoted, numbers/bools via `to_string`, missing → empty).
+`serde_json` is added to `Cargo.toml` only when a remote table exists. `frontendTui/test` 34/34 — a fast
+emitter case + a cargo smoke that starts a local JSON `HttpServer` and asserts the fetched rows (demo/rozum +
+their unread counts) render in the table. This is what the rozum control-API binds to (rooms/models tables).
+Follow-up: `SignalRows` source + typed-model views. Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui: Style → ratatui colors + focus highlight
 
 `TuiEmitter` now maps the typed `Style` to a ratatui `Style` per leaf: `text.foreground` / `decoration.background`

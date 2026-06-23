@@ -116,6 +116,31 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("DataTable.Remote fetches JSON and renders the rows via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    val json = """{"data":[{"room":"demo","unread":2},{"room":"rozum","unread":5}]}"""
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/rooms", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val bytes = json.getBytes("UTF-8")
+      ex.getResponseHeaders.add("Content-Type", "application/json")
+      ex.sendResponseHeaders(200, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val feed = new FetchUrlSignal("rooms", s"http://127.0.0.1:$port/rooms", "tick")
+      val view = View.DataTable(
+        TableDataSource.Remote(feed, "data"),
+        List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+      )
+      val out = snapshotViaCargo(view)
+      assert(out.contains("Room") && out.contains("Unread"), s"table header missing:\n$out")
+      assert(out.contains("demo") && out.contains("rozum"), s"fetched rows missing:\n$out")
+      assert(out.contains("2") && out.contains("5"),        s"fetched cell values missing:\n$out")
+    finally
+      server.stop(0)
+
   /** Emit `view`'s crate, `cargo run` it in `SSC_TUI_SNAPSHOT` mode (no TTY),
    *  return stdout. Cleans up the temp crate. */
   private def snapshotViaCargo(view: View[?]): String =
