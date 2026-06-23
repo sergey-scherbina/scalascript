@@ -456,7 +456,15 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `core-min-value-unification` stays as its own deep refactor, and the hard Stream/Actors interpreter-internal
       code moves stay deferred/optional because they have low ROI without a new consumer.
 - [ ] **core-min-value-unification** (A, big — week-scale; LATER, not blocking) — collapse the duplication
-      between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
+      between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type.
+      **SLICE 1 DONE 2026-06-23: SPI boundary is now LOSSLESS for the data cases.** Added `SpiValue.CharV`/
+      `VectorV` so `valueToSpi`/`spiToValue` stop coercing `Char`→`StrV` and `Vector`→`ListV` (a real
+      correctness fix: a `Char`/`Vector` crossing into a plugin handler and back kept its type). This is the
+      prerequisite for "the data ADT *is* `SpiValue`": `SpiValue` now faithfully covers `Value`'s immutable
+      data cases (mutable `Array` + case instances stay `Opaque` to preserve ref-identity, correct). Additive,
+      catch-all-safe; `SpiValueDataRoundTripTest`; plugin-tests 712/0. The big remaining refactor (split
+      `Value` into pure-data vs runtime-carrier, move closures/`Computation` out, make the data ADT == SpiValue,
+      delete the conversion) is still LATER. Today they're separate by
       necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,
       `NativeFnV(f: List[Value] => Computation)`, mutable `InstanceV`, `type Env = Map[String, Value]` — and
       `backendSpi` (which `core` depends on, not vice versa) can't reference it, so the boundary uses the

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — core-min: lossless `Char`/`Vector` across the SPI boundary (value-unification slice 1)
+
+The `Value ↔ SpiValue` conversion (block-form/effect-handler boundary) silently coerced two pure-data
+cases: a `Char` became a 1-char `StrV` and a `Vector` became a `ListV` — so a value crossing into a
+plugin handler and back changed type (e.g. `Random.pick(List('a','b'))` would hand back a `String`, and
+a `Vector` would `toString` as `List(…)`). Added dedicated `SpiValue.CharV(Char)` and
+`SpiValue.VectorV(List[SpiValue])` cases; `valueToSpi`/`spiToValue` now map `Char`/`Vector` losslessly.
+This is the first foundational slice of `core-min-value-unification`: before the data ADT can *be*
+`SpiValue`, `SpiValue` has to faithfully cover `Value`'s data cases. Additive (mutable `Array` and case
+instances correctly stay `Opaque` to preserve ref-identity); all SpiValue matchers in the effect plugins
+use catch-alls, so nothing regressed. `SpiValueDataRoundTripTest` locks the round-trip; plugin-tests
+712/0, no exhaustiveness warnings.
+
 ## 2026-06-23 — fix(interp): destructuring `val (a, b) = …` no longer marks a pre-existing `var` as a `val`
 
 `interp-stream-runforeach-var-capture`. A correctness bug where a closure that mutates a `var` lost every
