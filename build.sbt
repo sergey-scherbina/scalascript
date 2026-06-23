@@ -1421,6 +1421,23 @@ lazy val clientEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Turnkey Solana JSON-RPC client + a `ChainContext` for `SolanaChainAdapter`
+// (counterpart of `clientEvm`). Test-only deps on blockchainSolana + cryptoSpi
+// drive a build->sign->broadcast example through a mock RPC.
+lazy val clientSolana = project
+  .in(file("payments/client/solana"))
+  .dependsOn(blockchainSpi, blockchainSolana % Test, cryptoSpi % Test)
+  .settings(
+    name := "scalascript-client-solana",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "core"    % "4.0.23",
+      "com.lihaoyi"                   %% "upickle" % upickleV,
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val clientKafka = project
   .in(file("backend/kafka"))
   .settings(
@@ -3719,7 +3736,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientSolana, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,

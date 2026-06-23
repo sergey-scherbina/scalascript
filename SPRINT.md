@@ -155,12 +155,17 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
         Cosmos).** Byproduct: a full portable from-scratch crypto stack in `crypto-spi/shared` (SHA-256/512,
         RIPEMD-160, HMAC-SHA256, secp256k1 ECDSA+Schnorr+Taproot, Ed25519) reusable by any chain/wallet on JS.
 
-- [ ] **client-solana-rpc** (smallest gap, finishes a network) — new `payments/client/solana` providing a
-      `ChainContext` over Solana JSON-RPC (`sendTransaction`, `getLatestBlockhash`, `getBalance`,
-      `getTokenAccountsByOwner`, `getTransaction`), mirroring `payments/client/evm`. **Why:** we already build,
-      sign, AND broadcast Solana tx (via the generic `rpcCall` seam) — but EVM ships a turnkey client and Solana
-      doesn't, so callers must hand-roll a `ChainContext`. **Gate:** an `examples/` build→sign→broadcast against
-      a devnet/mock RPC; shape parity with `clientEvm`.
+- [x] **client-solana-rpc** ✓ DONE 2026-06-23 — new `payments/client/solana` (`clientSolana`): typed
+      `SolanaClient` (sttp4 JSON-RPC: getBalance/getLatestBlockhash/getTokenAccountsByOwner/getTransaction/
+      sendTransaction/getAccountInfo + raw `rpc`) mirroring `clientEvm`, PLUS the deliverable — `Solana.chainContext(config)`
+      returns a turnkey `ChainContext` so callers stop hand-rolling one (`SolanaChainContext` wraps a
+      `SolanaClient`; `rpcCall` returns the raw result envelope the adapter unwraps). **Gate MET:** a mock-RPC
+      build→sign→broadcast through `SolanaChainAdapter` + the turnkey context (signing with the portable
+      `crypto.Ed25519`) — asserts getLatestBlockhash + sendTransaction fire and a base64 tx (sig64+message) is
+      submitted; config/shape parity with clientEvm; a devnet-gated live test (getLatestBlockhash/getBalance,
+      cancels if offline) — ran green against live Solana devnet. `clientSolana` 5/5. main deps blockchainSpi;
+      test deps blockchainSolana + cryptoSpi (% Test). Added to root aggregate. No `examples/` dir — followed the
+      clientEvm precedent (mock test + reachability-gated live test = the runnable example).
 
 - [x] **frost-secp256k1** ✓ DONE 2026-06-23 — FROST threshold Schnorr on secp256k1 producing **standard BIP-340**
       signatures, in `FrostSecp256k1` (cryptoFrost/shared), built directly on the portable `Secp256k1Group` +
