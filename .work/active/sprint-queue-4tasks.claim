@@ -1,6 +1,0 @@
-feature/sprint-queue-4tasks 2026-06-23T07:00:00Z
-agent: claude
-heartbeat: 2026-06-23T07:00:00Z
-status: in-progress
-done-so-far: Sergiy directed "внеси в спринт" for 4 tasks: coremin-actors-codemove, theme-a-stable-plugin-spi (Phase 3), remote-package-registry, FROST-Ed25519.
-next: add an actionable SPRINT section queueing all 4 (scope/approach/verify each); reclassify the old DEFERRED/[~]/BACKLOG entries to point to the active queue; push.

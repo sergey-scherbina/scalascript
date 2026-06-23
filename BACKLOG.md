@@ -121,12 +121,10 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       family is later found to have *true* code duplication, factor the shared part into one library module
       the impls depend on (targeted refactor, not family grouping).
 
-- [ ] **remote-package-registry** (DEFERRED product / Tier 3 strategic) — the plugin ecosystem story is
-      local-only (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, all LANDED). The SPI
-      already supports third-party intrinsic packages (`.sscpkg`), but there's no `registry.scalascript.io`
-      to discover/distribute them — deferred "no concrete demand yet". This is the missing piece to
-      actually unlock the third-party ecosystem the SPI was built for. Product decision (build when there's
-      a real external plugin author), not debt. Spec: extend `specs/arch-build-registry.md`.
+- **remote-package-registry** → MOVED TO SPRINT 2026-06-23 (Sergiy "внеси в спринт"; active queue). Local
+      story done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install` + `.sscpkg`); the remote half
+      (registry protocol + `ssc publish`/`search` + remote `pkg:` against a configurable endpoint, testable vs a
+      local/mock server) is now active work. Public hosting (`registry.scalascript.io`) is a separate deploy step.
 
 - [x] **rust-backend-cargo-smoke-coverage** ✓ Landed (2026-06-22, `2c8032a5c`, mellow-shrew) — added
       `RustGenCargoSmokeTest`: a Rust-toolchain-gated (`assume(cargoAvailable)` — probes `cargo --version`
@@ -501,8 +499,9 @@ device, one seed, per-chain on-device apps; the Vault routes
 
 ### Phase 8 — MPC Vault
 
-- [ ] **FROST-Ed25519 and future MPC variants** (DEFERRED: concrete use case/partner required) — deferred until a concrete
-      production use case or partner request arrives.
+- **FROST-Ed25519** → MOVED TO SPRINT 2026-06-23 (Sergiy "внеси в спринт"; active queue). Threshold Ed25519
+      (FROST) signing as a `walletVaultMpcFrost` variant is now active work. (Other future MPC variants stay
+      deferred until a concrete use case/partner.)
 
 ---
 
