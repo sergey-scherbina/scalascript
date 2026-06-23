@@ -25,10 +25,18 @@ focus is visible beyond the `> ` marker), including tab headers. Caveat: `std/ui
 CSS-string `style` attr lose it at `NativeElementLowering` (a shared native-backend limitation) — colors arrive
 only via the typed `Style`/modifier DSL; mapping the CSS strings is a separate follow-up.
 
-Remaining follow-ups (per-slice notes below): `A11y.focusOrder` seeding + hidden-branch focus skip,
-typed-model/`DataTable.Remote` dynamic rows from fetched JSON, overlays (`Sheet`/`AlertDialog`), CSS-string
-style decode in `NativeElementLowering`, and a dedicated `ssc` CLI verb (today the entrypoint is the
-`emit(view, dir)` intrinsic + `frontend: tui` front-matter).
+**`DataTable.Remote` live tables (2026-06-23):** a `Remote(FetchUrlSignal, rowsPath)` table now renders fetched
+JSON — the body lands in `signals[id]` at bootstrap and is parsed each frame (`fetch_rows`/`json_field`,
+serde_json) following the `rowsPath` envelope (dotted) or default `{data|rows|items|results}` keys, building a
+ratatui `Table`. `serde_json` is added only when a remote table exists. This is what the rozum control-API binds
+to. (`frontendTui/test` 34/34, incl. a local-`HttpServer` JSON smoke.)
+
+Remaining follow-ups (lower priority, per-slice notes below): `A11y.focusOrder` seeding + hidden-branch focus
+skip (need a render↔ring index map / runtime focus set), overlays (`Sheet`/`AlertDialog`), `DataTable.SignalRows`
++ typed-model views (`ModelView`/`ForModel`), CSS-string style decode in `NativeElementLowering` (shared with
+swing/javafx), and a dedicated `ssc` CLI verb (today the entrypoint is the `emit(view, dir)` intrinsic +
+`frontend: tui` front-matter). These are edge polish — the backend already covers the control-center use case
+(interactive widgets, colors + focus highlight, live tables, tabs, routing, fetch).
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
