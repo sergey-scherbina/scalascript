@@ -2,8 +2,8 @@ package scalascript.compiler.plugin.graphql
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, Computation}
-import scalascript.plugin.api.{PluginContext, PluginNative}
+import scalascript.plugin.api.{PluginContext, PluginError, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Lst, MapVal, Inst, Opt, Foreign}
 
 import graphql.GraphQL
 import graphql.analysis.{MaxQueryComplexityInstrumentation, MaxQueryDepthInstrumentation}
@@ -33,8 +33,8 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case List(sdl: String) =>
           // Parse for early validation; throw on syntax error.
           new SchemaParser().parse(sdl)
-          Value.Foreign("GraphQLSchema", sdl)
-        case _ => throw InterpretError("GraphQL.schema(sdl: String)")
+          PluginValue.foreign("GraphQLSchema", sdl)
+        case _ => PluginError.raise("GraphQL.schema(sdl: String)")
     },
 
     // GraphQL.resolvers(query = Map(...), mutation = Map(...), subscription = Map(...),
@@ -44,12 +44,12 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     // scalars: Map[String, GraphQLScalar] — custom scalar codecs from GraphQL.scalar(...)
     // loaders: Map[String, GraphQLDataLoader] — DataLoader specs from GraphQL.dataLoader(...)
     QualifiedName("GraphQL.resolvers") -> PluginNative.evalLegacy { (_, args) =>
-      val query        = extractResolverMap(args.headOption.getOrElse(Value.MapV(Map.empty)))
-      val mutation     = extractResolverMap(args.drop(1).headOption.getOrElse(Value.MapV(Map.empty)))
-      val subscription = extractResolverMap(args.drop(2).headOption.getOrElse(Value.MapV(Map.empty)))
-      val scalars      = extractScalarMap(args.drop(3).headOption.getOrElse(Value.MapV(Map.empty)))
-      val loaders      = extractLoaderMap(args.drop(4).headOption.getOrElse(Value.MapV(Map.empty)))
-      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription, scalars, loaders))
+      val query        = extractResolverMap(args.headOption.getOrElse(PluginValue.mapOf(Map.empty)))
+      val mutation     = extractResolverMap(args.drop(1).headOption.getOrElse(PluginValue.mapOf(Map.empty)))
+      val subscription = extractResolverMap(args.drop(2).headOption.getOrElse(PluginValue.mapOf(Map.empty)))
+      val scalars      = extractScalarMap(args.drop(3).headOption.getOrElse(PluginValue.mapOf(Map.empty)))
+      val loaders      = extractLoaderMap(args.drop(4).headOption.getOrElse(PluginValue.mapOf(Map.empty)))
+      PluginValue.foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription, scalars, loaders))
     },
 
     // GraphQL.dataLoader(name, batchFn) — register a per-request-cached DataLoader.
@@ -59,8 +59,8 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     QualifiedName("GraphQL.dataLoader") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name: String, batchFn) =>
-          Value.Foreign("GraphQLDataLoader", DataLoaderSpec(name, batchFn))
-        case _ => throw InterpretError("GraphQL.dataLoader(name: String, batchFn: List[K] => Map[K, V])")
+          PluginValue.foreign("GraphQLDataLoader", DataLoaderSpec(name, batchFn))
+        case _ => PluginError.raise("GraphQL.dataLoader(name: String, batchFn: List[K] => Map[K, V])")
     },
 
     // GraphQL.scalar(name, serialize, coerce) — custom scalar codec.
@@ -70,11 +70,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       args match
         case List(name: String, serFn, coerceFn) =>
           val codec = ScalarCodec(
-            serialize = v   => valueToJava(ctx.invokeCallback(serFn,   List(v)).asInstanceOf[Value]),
-            coerce    = raw => ctx.invokeCallback(coerceFn, List(javaToValue(raw))).asInstanceOf[Value],
+            serialize = v   => valueToJava(ctx.invokeCallback(serFn,   List(v)).asInstanceOf[PluginValue]),
+            coerce    = raw => ctx.invokeCallback(coerceFn, List(javaToValue(raw))).asInstanceOf[PluginValue],
           )
-          Value.Foreign("GraphQLScalar", (name, codec))
-        case _ => throw InterpretError("GraphQL.scalar(name: String, serialize: Value => Any, coerce: Any => Value)")
+          PluginValue.foreign("GraphQLScalar", (name, codec))
+        case _ => PluginError.raise("GraphQL.scalar(name: String, serialize: PluginValue => Any, coerce: Any => PluginValue)")
     },
 
     // GraphQL.options(...) — runtime limits and policy.
@@ -82,72 +82,72 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     //   maxDepth: Int, maxComplexity: Int, maxQueryLength: Int,
     //   disableIntrospection: Boolean, persistedOps: Map[String, String], persistedOnly: Boolean
     QualifiedName("GraphQL.options") -> PluginNative.evalLegacy { (_, args) =>
-      val maxDepth      = args.headOption.collect { case Value.IntV(n) => n.toInt }
-      val maxComplexity = args.drop(1).headOption.collect { case Value.IntV(n) => n.toInt }
-      val maxQueryLen   = args.drop(2).headOption.collect { case Value.IntV(n) => n.toInt }
-      val noIntrospect  = args.drop(3).headOption.collect { case Value.BoolV(b) => b }.getOrElse(false)
+      val maxDepth      = args.headOption.collect { case Num(n) => n.toInt }
+      val maxComplexity = args.drop(1).headOption.collect { case Num(n) => n.toInt }
+      val maxQueryLen   = args.drop(2).headOption.collect { case Num(n) => n.toInt }
+      val noIntrospect  = args.drop(3).headOption.collect { case Bool(b) => b }.getOrElse(false)
       val persisted     = args.drop(4).headOption match
-        case Some(Value.MapV(m)) =>
-          m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+        case Some(MapVal(m)) =>
+          m.collect { case (Str(k), Str(v)) => k -> v }.toMap
         case _ => Map.empty[String, String]
-      val persistedOnly = args.drop(5).headOption.collect { case Value.BoolV(b) => b }.getOrElse(false)
-      Value.Foreign("GraphQLOptions",
+      val persistedOnly = args.drop(5).headOption.collect { case Bool(b) => b }.getOrElse(false)
+      PluginValue.foreign("GraphQLOptions",
         GraphQLOpts(maxDepth, maxComplexity, maxQueryLen, noIntrospect, persisted, persistedOnly))
     },
 
     // serveGraphQL(port, resolvers[, opts]) — registers POST + GET /graphql, then starts server.
     QualifiedName("serveGraphQL") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(port: Long, Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
+        case List(port: Long, Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
           mountGraphQL(ctx, res, GraphQLOpts.default)
           ctx.registerHealthDefaults()
           ctx.startServer(port.toInt, ".")
-          Value.UnitV
+          PluginValue.unit
         case List(port: Long,
-                  Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
-                  Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
+                  Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
           mountGraphQL(ctx, res, opts)
           ctx.registerHealthDefaults()
           ctx.startServer(port.toInt, ".")
-          Value.UnitV
+          PluginValue.unit
         case List(port: Long,
-                  Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
-                  Value.InstanceV("TlsContext", tls)) =>
+                  Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Inst("TlsContext", tls)) =>
           mountGraphQL(ctx, res, GraphQLOpts.default)
           ctx.registerHealthDefaults()
-          val cert = tls.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
-          val key  = tls.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
+          val cert = tls.get("cert").collect { case Str(s) => s }.getOrElse("")
+          val key  = tls.get("key").collect  { case Str(s) => s }.getOrElse("")
           ctx.startTlsServer(port.toInt, ".", cert, key)
-          Value.UnitV
-        case _ => throw InterpretError("serveGraphQL(port: Int, resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
+          PluginValue.unit
+        case _ => PluginError.raise("serveGraphQL(port: Int, resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
 
     // graphqlMount(resolvers[, opts]) — registers POST + GET /graphql without calling serve().
     QualifiedName("graphqlMount") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
+        case List(Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
           mountGraphQL(ctx, res, GraphQLOpts.default)
-          Value.UnitV
-        case List(Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
-                  Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
+          PluginValue.unit
+        case List(Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
           mountGraphQL(ctx, res, opts)
-          Value.UnitV
-        case _ => throw InterpretError("graphqlMount(resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
+          PluginValue.unit
+        case _ => PluginError.raise("graphqlMount(resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
 
     // graphqlHandler(schema, resolvers[, opts]) — returns a Request => Response handler value.
     QualifiedName("graphqlHandler") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(Value.Foreign("GraphQLSchema", sdl: String),
-                  Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
+        case List(Foreign("GraphQLSchema", sdl: String),
+                  Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
           val engine = buildEngine(sdl, res, ctx, GraphQLOpts.default)
           handlerValue(engine, GraphQLOpts.default, res.loaders, ctx)
-        case List(Value.Foreign("GraphQLSchema", sdl: String),
-                  Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
-                  Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
+        case List(Foreign("GraphQLSchema", sdl: String),
+                  Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
           val engine = buildEngine(sdl, res, ctx, opts)
           handlerValue(engine, opts, res.loaders, ctx)
-        case _ => throw InterpretError(
+        case _ => PluginError.raise(
           "graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
 
@@ -158,9 +158,9 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       args match
         case List(url: String, query: String) =>
           executeRemoteQuery(url, query, Map.empty)
-        case List(url: String, query: String, Value.MapV(vars)) =>
+        case List(url: String, query: String, MapVal(vars)) =>
           executeRemoteQuery(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v })
-        case _ => throw InterpretError("graphqlQuery(url: String, query: String[, variables: Map])")
+        case _ => PluginError.raise("graphqlQuery(url: String, query: String[, variables: Map])")
     },
 
     // graphqlSse(url, query) or graphqlSse(url, query, variables)
@@ -170,9 +170,9 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       args match
         case List(url: String, query: String) =>
           executeRemoteSse(url, query, Map.empty)
-        case List(url: String, query: String, Value.MapV(vars)) =>
+        case List(url: String, query: String, MapVal(vars)) =>
           executeRemoteSse(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v })
-        case _ => throw InterpretError("graphqlSse(url: String, query: String[, variables: Map])")
+        case _ => PluginError.raise("graphqlSse(url: String, query: String[, variables: Map])")
     },
 
     // graphqlSubscribe(url, query[, variables], handler)
@@ -182,34 +182,34 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       args match
         case List(url: String, query: String, handler) =>
           executeRemoteSubscription(url, query, Map.empty, handler, ctx)
-        case List(url: String, query: String, Value.MapV(vars), handler) =>
+        case List(url: String, query: String, MapVal(vars), handler) =>
           executeRemoteSubscription(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v }, handler, ctx)
-        case _ => throw InterpretError(
-          "graphqlSubscribe(url: String, query: String[, variables: Map], handler: Value => Unit)")
+        case _ => PluginError.raise(
+          "graphqlSubscribe(url: String, query: String[, variables: Map], handler: PluginValue => Unit)")
     },
 
     // GraphQL.printSchema(schema) — return the normalized SDL string.
     // Parses and reprints the SDL via graphql-java SchemaPrinter, normalizing whitespace.
     QualifiedName("GraphQL.printSchema") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.Foreign("GraphQLSchema", sdl: String)) =>
+        case List(Foreign("GraphQLSchema", sdl: String)) =>
           val typeReg = new SchemaParser().parse(sdl)
           val schema  = new SchemaGenerator().makeExecutableSchema(
             typeReg, RuntimeWiring.newRuntimeWiring().build())
-          Value.StringV(new graphql.schema.idl.SchemaPrinter().print(schema))
-        case _ => throw InterpretError("GraphQL.printSchema(schema: GraphQLSchema)")
+          PluginValue.string(new graphql.schema.idl.SchemaPrinter().print(schema))
+        case _ => PluginError.raise("GraphQL.printSchema(schema: GraphQLSchema)")
     },
 
     // GraphQL.introspectionJson(schema) — run the standard introspection query and
     // return the JSON result as a String.  Suitable for feeding to client-side codegen.
     QualifiedName("GraphQL.introspectionJson") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(Value.Foreign("GraphQLSchema", sdl: String)) =>
+        case List(Foreign("GraphQLSchema", sdl: String)) =>
           val engine = buildEngine(sdl, GraphQLResolvers(Map.empty, Map.empty), ctx, GraphQLOpts.default)
           val result = engine.execute(
             ExecutionInput.newExecutionInput(graphql.introspection.IntrospectionQuery.INTROSPECTION_QUERY).build())
-          Value.StringV(ujson.write(anyToUJson(result.getData[java.util.Map[String, Any]]())))
-        case _ => throw InterpretError("GraphQL.introspectionJson(schema: GraphQLSchema)")
+          PluginValue.string(ujson.write(anyToUJson(result.getData[java.util.Map[String, Any]]())))
+        case _ => PluginError.raise("GraphQL.introspectionJson(schema: GraphQLSchema)")
     },
 
     // GraphQL.diffSchemas(sdlA, sdlB) — compare two SDL strings and return a List of
@@ -217,24 +217,24 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     QualifiedName("GraphQL.diffSchemas") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(sdlA: String, sdlB: String) =>
-          Value.ListV(diffSdl(sdlA, sdlB).map { (kind, desc) =>
-            Value.MapV(Map(
-              Value.StringV("kind")        -> Value.StringV(kind),
-              Value.StringV("description") -> Value.StringV(desc),
+          PluginValue.list(diffSdl(sdlA, sdlB).map { (kind, desc) =>
+            PluginValue.mapOf(Map(
+              PluginValue.string("kind")        -> PluginValue.string(kind),
+              PluginValue.string("description") -> PluginValue.string(desc),
             ))
           })
-        case _ => throw InterpretError("GraphQL.diffSchemas(sdlA: String, sdlB: String)")
+        case _ => PluginError.raise("GraphQL.diffSchemas(sdlA: String, sdlB: String)")
     },
 
     // GraphQL.entityResolvers(entities) — Apollo Federation v2 entity resolver map.
-    // entities: Map[typeName, representation => Value]
+    // entities: Map[typeName, representation => PluginValue]
     // The representation map contains __typename plus the @key fields.
     QualifiedName("GraphQL.entityResolvers") -> PluginNative.evalLegacy { (_, args) =>
       val entities = args.headOption match
-        case Some(Value.MapV(m)) =>
-          m.collect { case (Value.StringV(k), fn) => k -> fn }.toMap
-        case _ => Map.empty[String, Value]
-      Value.Foreign("GraphQLFederationEntities", GraphQLFederationEntities(entities))
+        case Some(MapVal(m)) =>
+          m.collect { case (Str(k), fn) => k -> fn.asInstanceOf[AnyRef] }.toMap
+        case _ => Map.empty[String, AnyRef]
+      PluginValue.foreign("GraphQLFederationEntities", GraphQLFederationEntities(entities))
     },
 
     // graphqlSubgraphMount(resolvers[, entityResolvers][, opts])
@@ -243,45 +243,45 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     QualifiedName("graphqlSubgraphMount") -> PluginNative.evalLegacy { (ctx, args) =>
       val (res, entities, opts) = parseFederationArgs(args)
       mountFederatedGraphQL(ctx, res, entities, opts)
-      Value.UnitV
+      PluginValue.unit
     },
 
     // serveSubgraph(port, resolvers[, entityResolvers][, opts])
     // Like serveGraphQL but adds Apollo Federation v2 subgraph support.
     QualifiedName("serveSubgraph") -> PluginNative.evalLegacy { (ctx, args) =>
-      val port = args.headOption.collect { case Value.IntV(n) => n.toLong }.getOrElse(
-        throw InterpretError("serveSubgraph: first arg must be port: Int"))
+      val port = args.headOption.collect { case Num(n) => n.toLong }.getOrElse(
+        PluginError.raise("serveSubgraph: first arg must be port: Int"))
       val (res, entities, opts) = parseFederationArgs(args.tail)
       mountFederatedGraphQL(ctx, res, entities, opts)
       ctx.registerHealthDefaults()
       ctx.startServer(port.toInt, ".")
-      Value.UnitV
+      PluginValue.unit
     },
   )
 
   // ── Internal helpers ───────────────────────────────────────────────────────
 
-  private def extractResolverMap(v: Any): Map[String, Value] = v match
-    case Value.MapV(m) => m.collect { case (Value.StringV(k), fn) => k -> fn }.toMap
-    case _             => Map.empty
+  private def extractResolverMap(v: Any): Map[String, AnyRef] = v match
+    case MapVal(m) => m.collect { case (Str(k), fn) => k -> fn.asInstanceOf[AnyRef] }.toMap
+    case _         => Map.empty
 
   private def extractScalarMap(v: Any): Map[String, ScalarCodec] = v match
-    case Value.MapV(m) =>
-      m.collect { case (Value.StringV(_), Value.Foreign("GraphQLScalar", (name: String, codec: ScalarCodec))) =>
+    case MapVal(m) =>
+      m.collect { case (Str(_), Foreign("GraphQLScalar", (name: String, codec: ScalarCodec))) =>
         name -> codec
       }.toMap
     case _ => Map.empty
 
   private def extractLoaderMap(v: Any): Map[String, DataLoaderSpec] = v match
-    case Value.MapV(m) =>
-      m.collect { case (Value.StringV(_), Value.Foreign("GraphQLDataLoader", spec: DataLoaderSpec)) =>
+    case MapVal(m) =>
+      m.collect { case (Str(_), Foreign("GraphQLDataLoader", spec: DataLoaderSpec)) =>
         spec.name -> spec
       }.toMap
     case _ => Map.empty
 
   private def mountGraphQL(ctx: PluginContext, res: GraphQLResolvers, opts: GraphQLOpts): Unit =
     val sdl = runner.registeredSdl.getOrElse(
-      throw InterpretError("No graphql SDL registered — add a ```graphql block before serveGraphQL"))
+      PluginError.raise("No graphql SDL registered — add a ```graphql block before serveGraphQL"))
     val engine = buildEngine(sdl, res, ctx, opts)
     val h = handlerValue(engine, opts, res.loaders, ctx)
     ctx.registerRoute("POST", "/graphql", h)
@@ -323,55 +323,55 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
 
   private def parseFederationArgs(
     args: List[Any]
-  ): (GraphQLResolvers, Map[String, Value], GraphQLOpts) =
+  ): (GraphQLResolvers, Map[String, AnyRef], GraphQLOpts) =
     val res = args.headOption.collect {
-      case Value.Foreign("GraphQLResolvers", r: GraphQLResolvers) => r
-    }.getOrElse(throw InterpretError("federation mount: first arg must be GraphQLResolvers"))
+      case Foreign("GraphQLResolvers", r: GraphQLResolvers) => r
+    }.getOrElse(PluginError.raise("federation mount: first arg must be GraphQLResolvers"))
     val remaining = args.tail
     val (entities, optsArg) = remaining.headOption match
-      case Some(Value.Foreign("GraphQLFederationEntities", e: GraphQLFederationEntities)) =>
+      case Some(Foreign("GraphQLFederationEntities", e: GraphQLFederationEntities)) =>
         (e.entities, remaining.tail.headOption)
-      case other => (Map.empty[String, Value], other)
+      case other => (Map.empty[String, AnyRef], other)
     val opts = optsArg.collect {
-      case Value.Foreign("GraphQLOptions", o: GraphQLOpts) => o
+      case Foreign("GraphQLOptions", o: GraphQLOpts) => o
     }.getOrElse(GraphQLOpts.default)
     (res, entities, opts)
 
   private def mountFederatedGraphQL(
     ctx:      PluginContext,
     res:      GraphQLResolvers,
-    entities: Map[String, Value],
+    entities: Map[String, AnyRef],
     opts:     GraphQLOpts,
   ): Unit =
     val userSdl = runner.registeredSdl.getOrElse(
-      throw InterpretError("No graphql SDL registered — add a ```graphql block before graphqlSubgraphMount"))
+      PluginError.raise("No graphql SDL registered — add a ```graphql block before graphqlSubgraphMount"))
     val fedSdl  = buildFederationSdl(userSdl, entities.keySet)
 
     // Inject _service and _entities into the query resolver map.
-    val serviceResolver: Value = Value.NativeFnV("graphql.fed._service", Computation.pureFn { _ =>
-      Value.MapV(Map(Value.StringV("sdl") -> Value.StringV(userSdl)))
+    val serviceResolver: PluginValue = PluginValue.nativeFn("graphql.fed._service", { _ =>
+      PluginValue.mapOf(Map(PluginValue.string("sdl") -> PluginValue.string(userSdl)))
     })
-    val extraQuery: Map[String, Value] =
-      if entities.isEmpty then Map("_service" -> serviceResolver)
+    val extraQuery: Map[String, AnyRef] =
+      if entities.isEmpty then Map[String, AnyRef]("_service" -> serviceResolver.asInstanceOf[AnyRef])
       else
-        val entitiesResolver: Value = Value.NativeFnV("graphql.fed._entities", Computation.pureFn {
-          case List(Value.MapV(args)) =>
-            val reps = args.get(Value.StringV("representations")).collect {
-              case Value.ListV(items) => items
+        val entitiesResolver: PluginValue = PluginValue.nativeFn("graphql.fed._entities", {
+          case List(MapVal(args)) =>
+            val reps = args.get(PluginValue.string("representations")).collect {
+              case Lst(items) => items
             }.getOrElse(Nil)
-            Value.ListV(reps.map {
-              case rep @ Value.MapV(m) =>
-                val typeName = m.get(Value.StringV("__typename")).collect {
-                  case Value.StringV(s) => s
+            PluginValue.list(reps.map {
+              case rep @ MapVal(m) =>
+                val typeName = m.get(PluginValue.string("__typename")).collect {
+                  case Str(s) => s
                 }.getOrElse("")
                 entities.get(typeName).map { fn =>
-                  ctx.invokeCallbackAsync(fn, List(rep)).asInstanceOf[Value]
-                }.getOrElse(Value.NullV)
-              case _ => Value.NullV
+                  ctx.invokeCallbackAsync(fn, List(rep)).asInstanceOf[PluginValue]
+                }.getOrElse(PluginValue.nullV)
+              case _ => PluginValue.nullV
             })
-          case _ => Value.ListV(Nil)
+          case _ => PluginValue.list(Nil)
         })
-        Map("_service" -> serviceResolver, "_entities" -> entitiesResolver)
+        Map[String, AnyRef]("_service" -> serviceResolver.asInstanceOf[AnyRef], "_entities" -> entitiesResolver.asInstanceOf[AnyRef])
 
     val enhancedRes = res.copy(query = res.query ++ extraQuery)
     val engine = buildEngine(fedSdl, enhancedRes, ctx, opts, entities.keySet, federationMode = true)
@@ -424,9 +424,9 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
 
     // Collect all resolvers grouped by type name.
     // Keys may be plain ("hello") or schema coordinates ("Query.hello", "User.posts").
-    val byType = scala.collection.mutable.Map[String, scala.collection.mutable.Map[String, Value]]()
+    val byType = scala.collection.mutable.Map[String, scala.collection.mutable.Map[String, AnyRef]]()
 
-    def addResolver(key: String, fn: Value, defaultType: String): Unit =
+    def addResolver(key: String, fn: AnyRef, defaultType: String): Unit =
       val (typeName, fieldName) = parseCoordinate(key, defaultType)
       byType.getOrElseUpdate(typeName, scala.collection.mutable.Map()) += (fieldName -> fn)
 
@@ -437,30 +437,30 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       val tw = TypeRuntimeWiring.newTypeWiring(typeName)
       fields.foreach { (fieldName, fn) =>
         tw.dataFetcher(fieldName, (env: DataFetchingEnvironment) =>
-          val baseArgs: Map[Value, Value] = env.getArguments.asScala.toMap.map { (k, v) =>
-            Value.StringV(k) -> javaToValue(v)
+          val baseArgs: Map[PluginValue, PluginValue] = env.getArguments.asScala.toMap.map { (k, v) =>
+            PluginValue.string(k) -> javaToValue(v)
           }
           val enrichedArgs =
-            if res.loaders.isEmpty then Value.MapV(baseArgs)
+            if res.loaders.isEmpty then PluginValue.mapOf(baseArgs)
             else
               val dlCtx = env.getGraphQlContext.getOrDefault("_dlCtx", null)
                 .asInstanceOf[DataLoaderContext]
-              if dlCtx == null then Value.MapV(baseArgs)
+              if dlCtx == null then PluginValue.mapOf(baseArgs)
               else
-                val loadFn = Value.NativeFnV("graphql.load", Computation.pureFn {
-                  case List(Value.StringV(loaderName), key: Value) =>
+                val loadFn = PluginValue.nativeFn("graphql.load", {
+                  case List(Str(loaderName), key: PluginValue) =>
                     dlCtx.load(loaderName, key)
-                  case _ => throw InterpretError("_load(loaderName: String, key)")
+                  case _ => PluginError.raise("_load(loaderName: String, key)")
                 })
-                val batchLoadFn = Value.NativeFnV("graphql.batchLoad", Computation.pureFn {
-                  case List(Value.StringV(loaderName), Value.ListV(keys)) =>
+                val batchLoadFn = PluginValue.nativeFn("graphql.batchLoad", {
+                  case List(Str(loaderName), Lst(keys)) =>
                     dlCtx.batchLoad(loaderName, keys)
-                  case _ => throw InterpretError("_batchLoad(loaderName: String, keys: List)")
+                  case _ => PluginError.raise("_batchLoad(loaderName: String, keys: List)")
                 })
-                Value.MapV(baseArgs
-                  + (Value.StringV("_load")      -> loadFn)
-                  + (Value.StringV("_batchLoad") -> batchLoadFn))
-          valueToJava(ctx.invokeCallbackAsync(fn, List(enrichedArgs)).asInstanceOf[Value])
+                PluginValue.mapOf(baseArgs
+                  + (PluginValue.string("_load")      -> loadFn)
+                  + (PluginValue.string("_batchLoad") -> batchLoadFn))
+          valueToJava(ctx.invokeCallbackAsync(fn, List(enrichedArgs)).asInstanceOf[PluginValue])
         )
       }
       wiring.`type`(tw)
@@ -475,12 +475,12 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         subTw.dataFetcher(fieldName, (env: DataFetchingEnvironment) =>
           env.getSource[Any] match
             case null =>
-              val args: Map[Value, Value] = env.getArguments.asScala.toMap.map { (k, v) => (Value.StringV(k): Value) -> javaToValue(v) }
-              val result = ctx.invokeCallbackAsync(fn, List(Value.MapV(args))).asInstanceOf[Value]
+              val args: Map[PluginValue, PluginValue] = env.getArguments.asScala.toMap.map { (k, v) => (PluginValue.string(k): PluginValue) -> javaToValue(v) }
+              val result = ctx.invokeCallbackAsync(fn, List(PluginValue.mapOf(args))).asInstanceOf[PluginValue]
               val items: List[AnyRef] =
-                if result.isInstanceOf[Value.ListV] then
-                  result.asInstanceOf[Value.ListV].items.map(x => valueToJava(x).asInstanceOf[AnyRef])
-                else List(valueToJava(result).asInstanceOf[AnyRef])
+                result.asList match
+                  case Some(xs) => xs.map(x => valueToJava(x).asInstanceOf[AnyRef])
+                  case None     => List(valueToJava(result).asInstanceOf[AnyRef])
               new ListPublisher(items)
             case source =>
               source match
@@ -565,42 +565,42 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     specs:   Map[String, DataLoaderSpec],
     pCtx:    PluginContext,
   ):
-    private val cache = scala.collection.mutable.Map[String, scala.collection.mutable.Map[Value, Value]]()
+    private val cache = scala.collection.mutable.Map[String, scala.collection.mutable.Map[PluginValue, PluginValue]]()
 
     private def cacheFor(loaderName: String) =
       cache.getOrElseUpdate(loaderName, scala.collection.mutable.Map())
 
-    def load(loaderName: String, key: Value): Value =
-      val spec   = specs.getOrElse(loaderName, throw InterpretError(s"Unknown DataLoader: '$loaderName'"))
+    def load(loaderName: String, key: PluginValue): PluginValue =
+      val spec   = specs.getOrElse(loaderName, PluginError.raise(s"Unknown DataLoader: '$loaderName'"))
       val lCache = cacheFor(loaderName)
       lCache.getOrElse(key, {
-        val result = pCtx.invokeCallback(spec.batchFn, List(Value.ListV(List(key)))).asInstanceOf[Value]
+        val result = pCtx.invokeCallback(spec.batchFn, List(PluginValue.list(List(key)))).asInstanceOf[PluginValue]
         result match
-          case Value.MapV(m) =>
+          case MapVal(m) =>
             m.foreach { (k, v) => lCache(k) = v }
-            lCache.getOrElse(key, Value.NullV)
+            lCache.getOrElse(key, PluginValue.nullV)
           case single => lCache(key) = single; single
       })
 
-    def batchLoad(loaderName: String, keys: List[Value]): Value =
-      val spec      = specs.getOrElse(loaderName, throw InterpretError(s"Unknown DataLoader: '$loaderName'"))
+    def batchLoad(loaderName: String, keys: List[PluginValue]): PluginValue =
+      val spec      = specs.getOrElse(loaderName, PluginError.raise(s"Unknown DataLoader: '$loaderName'"))
       val lCache    = cacheFor(loaderName)
       val uncached  = keys.filter(k => !lCache.contains(k))
       if uncached.nonEmpty then
-        pCtx.invokeCallback(spec.batchFn, List(Value.ListV(uncached))).asInstanceOf[Value] match
-          case Value.MapV(m) => m.foreach { (k, v) => lCache(k) = v }
+        pCtx.invokeCallback(spec.batchFn, List(PluginValue.list(uncached))).asInstanceOf[PluginValue] match
+          case MapVal(m) => m.foreach { (k, v) => lCache(k) = v }
           case _             => ()
-      Value.MapV(keys.map { k => k -> lCache.getOrElse(k, Value.NullV) }.toMap)
+      PluginValue.mapOf(keys.map { k => k -> lCache.getOrElse(k, PluginValue.nullV) }.toMap)
 
   private def handlerValue(
     engine:  graphql.GraphQL,
     opts:    GraphQLOpts,
     loaders: Map[String, DataLoaderSpec],
     pCtx:    PluginContext,
-  ): Value =
-    Value.NativeFnV("graphql.handler", Computation.pureFn {
+  ): PluginValue =
+    PluginValue.nativeFn("graphql.handler", {
       case List(req) => handleRequest(engine, opts, loaders, pCtx, req)
-      case _         => throw InterpretError("GraphQL handler expects a Request argument")
+      case _         => PluginError.raise("GraphQL handler expects a Request argument")
     })
 
   // ── graphql-transport-ws protocol handler ─────────────────────────────────
@@ -608,32 +608,32 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
   private def wsHandlerValue(
     engine: graphql.GraphQL,
     pCtx:   PluginContext,
-  ): Value.NativeFnV =
-    Value.NativeFnV("graphql.wsHandler", Computation.pureFn {
-      case List(ws: Value) => handleWsConnection(engine, pCtx, ws); Value.UnitV
-      case _               => throw InterpretError("WS handler expects a WebSocket argument")
+  ): PluginValue =
+    PluginValue.nativeFn("graphql.wsHandler", {
+      case List(ws: PluginValue) => handleWsConnection(engine, pCtx, ws); PluginValue.unit
+      case _               => PluginError.raise("WS handler expects a WebSocket argument")
     })
 
   private def handleWsConnection(
     engine:  graphql.GraphQL,
     pCtx:    PluginContext,
-    ws:      Value,
+    ws: PluginValue,
   ): Unit =
     val initReceived = new java.util.concurrent.atomic.AtomicBoolean(false)
     val fields = ws match
-      case Value.InstanceV("WebSocket", f) => f
-      case _                               => Map.empty[String, Value]
+      case Inst("WebSocket", f) => f
+      case _                               => Map.empty[String, PluginValue]
 
     def sendMsg(msg: ujson.Value): Unit =
       fields.get("send").foreach { sendFn =>
-        pCtx.invokeCallback(sendFn, List(Value.StringV(ujson.write(msg))))
+        pCtx.invokeCallback(sendFn, List(PluginValue.string(ujson.write(msg))))
       }
 
-    val msgHandler = Value.NativeFnV("graphql.ws.onMessage", Computation.pureFn {
-      case List(Value.StringV(text)) =>
+    val msgHandler = PluginValue.nativeFn("graphql.ws.onMessage", {
+      case List(Str(text)) =>
         handleWsMessage(engine, sendMsg, initReceived, text)
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     })
     fields.get("onMessage").foreach { onMsgFn => pCtx.invokeCallback(onMsgFn, List(msgHandler)) }
 
@@ -733,15 +733,15 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
   private val GQL_RESPONSE_JSON = "application/graphql-response+json"
   private val APP_JSON          = "application/json"
 
-  private def headerValue(fields: Map[String, Value], name: String): Option[String] =
+  private def headerValue(fields: Map[String, PluginValue], name: String): Option[String] =
     fields.get("headers").collect {
-      case Value.MapV(m) =>
+      case MapVal(m) =>
         m.collectFirst {
-          case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase(name) => v
+          case (Str(k), Str(v)) if k.equalsIgnoreCase(name) => v
         }
     }.flatten
 
-  private def acceptsGqlResponseJson(fields: Map[String, Value]): Boolean =
+  private def acceptsGqlResponseJson(fields: Map[String, PluginValue]): Boolean =
     headerValue(fields, "accept").exists(_.contains(GQL_RESPONSE_JSON))
 
   private def parseQueryString(qs: String): Map[String, String] =
@@ -757,11 +757,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       .digest(text.getBytes("UTF-8"))
       .map(b => f"$b%02x").mkString
 
-  private def errorResponse(status: Int, message: String, ct: String): Value =
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(status.toLong),
-      "body"    -> Value.StringV(s"""{"errors":[{"message":"$message"}]}"""),
-      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+  private def errorResponse(status: Int, message: String, ct: String): PluginValue =
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(status.toLong),
+      "body"    -> PluginValue.string(s"""{"errors":[{"message":"$message"}]}"""),
+      "headers" -> PluginValue.mapOf(Map(PluginValue.string("Content-Type") -> PluginValue.string(ct))),
     ))
 
   private def handleRequest(
@@ -770,14 +770,14 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     loaders: Map[String, DataLoaderSpec],
     pCtx:    PluginContext,
     req:     Any,
-  ): Value =
+  ): PluginValue =
     val (method, path, body, fields) = req match
-      case Value.InstanceV("Request", f) =>
-        val m = f.get("method").collect { case Value.StringV(s) => s }.getOrElse("POST")
-        val p = f.get("path").collect   { case Value.StringV(s) => s }.getOrElse("/graphql")
-        val b = f.get("body").collect   { case Value.StringV(s) => s }.getOrElse("")
+      case Inst("Request", f) =>
+        val m = f.get("method").collect { case Str(s) => s }.getOrElse("POST")
+        val p = f.get("path").collect   { case Str(s) => s }.getOrElse("/graphql")
+        val b = f.get("body").collect   { case Str(s) => s }.getOrElse("")
         (m, p, b, f)
-      case _ => ("POST", "/graphql", "", Map.empty[String, Value])
+      case _ => ("POST", "/graphql", "", Map.empty[String, PluginValue])
 
     // GraphQL-over-HTTP §7.1: if Accept contains application/graphql-response+json
     // we respond with that type and may return 4xx/5xx status codes on errors.
@@ -823,11 +823,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       apqHash.flatMap(opts.persistedOps.get) match
         case Some(persisted) => query = persisted
         case None =>
-          return Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(200L),
-            "body"    -> Value.StringV(
+          return PluginValue.instance("Response", Map(
+            "status"  -> PluginValue.int(200L),
+            "body"    -> PluginValue.string(
               """{"errors":[{"message":"PersistedQueryNotFound","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}"""),
-            "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+            "headers" -> PluginValue.mapOf(Map(PluginValue.string("Content-Type") -> PluginValue.string(ct))),
           ))
 
     // persistedOnly: reject queries not in the manifest (hash not in persistedOps).
@@ -863,10 +863,10 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
           case _ => false
         }
         if hasMutation then
-          return Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(405L),
-            "body"    -> Value.StringV("""{"errors":[{"message":"Mutations are not allowed over GET"}]}"""),
-            "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+          return PluginValue.instance("Response", Map(
+            "status"  -> PluginValue.int(405L),
+            "body"    -> PluginValue.string("""{"errors":[{"message":"Mutations are not allowed over GET"}]}"""),
+            "headers" -> PluginValue.mapOf(Map(PluginValue.string("Content-Type") -> PluginValue.string(ct))),
           ))
       catch case _: Exception => () // syntax errors surface through the engine below
 
@@ -916,15 +916,15 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     if ext != null && !ext.isEmpty then
       respObj("extensions") = anyToUJson(ext)
 
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(status.toLong),
-      "body"    -> Value.StringV(ujson.write(respObj)),
-      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(status.toLong),
+      "body"    -> PluginValue.string(ujson.write(respObj)),
+      "headers" -> PluginValue.mapOf(Map(PluginValue.string("Content-Type") -> PluginValue.string(ct))),
     ))
 
   // ── SSE subscription delivery ─────────────────────────────────────────────
 
-  private def handleSseResult(pub: Publisher[graphql.ExecutionResult]): Value =
+  private def handleSseResult(pub: Publisher[graphql.ExecutionResult]): PluginValue =
     val body = new StringBuilder()
     pub.subscribe(new Subscriber[graphql.ExecutionResult]:
       override def onSubscribe(s: Subscription): Unit = s.request(Long.MaxValue)
@@ -942,18 +942,18 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         body.append(s"data: ${ujson.write(ujson.Obj("errors" -> ujson.Arr(ujson.Obj("message" -> ujson.Str(msg)))))}\n\n")
       override def onComplete(): Unit = ()
     )
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(200L),
-      "body"    -> Value.StringV(body.toString),
-      "headers" -> Value.MapV(Map(
-        Value.StringV("Content-Type")  -> Value.StringV("text/event-stream"),
-        Value.StringV("Cache-Control") -> Value.StringV("no-cache"),
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(200L),
+      "body"    -> PluginValue.string(body.toString),
+      "headers" -> PluginValue.mapOf(Map(
+        PluginValue.string("Content-Type")  -> PluginValue.string("text/event-stream"),
+        PluginValue.string("Cache-Control") -> PluginValue.string("no-cache"),
       )),
     ))
 
   // ── Remote GraphQL client ──────────────────────────────────────────────────
 
-  private def executeRemoteQuery(url: String, query: String, vars: Map[String, Value]): Value =
+  private def executeRemoteQuery(url: String, query: String, vars: Map[String, PluginValue]): PluginValue =
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import java.net.URI
     import java.time.Duration
@@ -977,23 +977,23 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       .build()
 
     val response = try client.send(request, HttpResponse.BodyHandlers.ofString())
-      catch case e: Exception => throw InterpretError(s"graphqlQuery: network error: ${e.getMessage}")
+      catch case e: Exception => PluginError.raise(s"graphqlQuery: network error: ${e.getMessage}")
 
     val json = try ujson.read(response.body())
-      catch case _: Exception => throw InterpretError(s"graphqlQuery: invalid JSON response from $graphqlUrl")
+      catch case _: Exception => PluginError.raise(s"graphqlQuery: invalid JSON response from $graphqlUrl")
 
     val errors = json.obj.get("errors").toList.flatMap {
       case ujson.Arr(xs) => xs.map(_.obj.get("message").map(_.str).getOrElse("unknown error"))
       case _             => Nil
     }
     if errors.nonEmpty then
-      throw InterpretError(s"graphqlQuery: GraphQL errors: ${errors.mkString("; ")}")
+      PluginError.raise(s"graphqlQuery: GraphQL errors: ${errors.mkString("; ")}")
 
     json.obj.get("data") match
       case Some(data) => ujsonToValue(data)
-      case None       => Value.NullV
+      case None       => PluginValue.nullV
 
-  private def executeRemoteSse(url: String, query: String, vars: Map[String, Value]): Value =
+  private def executeRemoteSse(url: String, query: String, vars: Map[String, PluginValue]): PluginValue =
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import java.net.URI
     import java.time.Duration
@@ -1016,7 +1016,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       .build()
 
     val response = try client.send(request, HttpResponse.BodyHandlers.ofString())
-      catch case e: Exception => throw InterpretError(s"graphqlSse: network error: ${e.getMessage}")
+      catch case e: Exception => PluginError.raise(s"graphqlSse: network error: ${e.getMessage}")
 
     val events = response.body().split("\n\n").toList
       .flatMap { block =>
@@ -1027,7 +1027,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       }
       .map(ujsonToValue)
 
-    Value.ListV(events)
+    PluginValue.list(events)
 
   // ── WebSocket subscription client ─────────────────────────────────────────
 
@@ -1043,15 +1043,15 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
   private def executeRemoteSubscription(
     url:     String,
     query:   String,
-    vars:    Map[String, Value],
+    vars:    Map[String, PluginValue],
     handler: Any,
     pCtx:    PluginContext,
-  ): Value =
+  ): PluginValue =
     import java.net.http.{HttpClient as JHttpClient, WebSocket}
     import java.net.URI
     import java.util.concurrent.{CompletableFuture, CountDownLatch, TimeUnit}
 
-    if query.isBlank then throw InterpretError("graphqlSubscribe: query must not be blank")
+    if query.isBlank then PluginError.raise("graphqlSubscribe: query must not be blank")
 
     val wsUrl = graphqlWsUrl(url)
     val subscribePayload = ujson.write(ujson.Obj(
@@ -1116,70 +1116,70 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     )
     if wsTry.isFailure then
       val msg = Option(wsTry.failed.get.getMessage).getOrElse("connection failed")
-      throw InterpretError(s"graphqlSubscribe: $msg")
+      PluginError.raise(s"graphqlSubscribe: $msg")
 
     done.await(30, TimeUnit.SECONDS)
-    if errorMsg != null then throw InterpretError(s"graphqlSubscribe: $errorMsg")
-    Value.UnitV
+    if errorMsg != null then PluginError.raise(s"graphqlSubscribe: $errorMsg")
+    PluginValue.unit
 
-  private def valueToJavaForVars(v: Value): String = v match
-    case Value.StringV(s) => s
+  private def valueToJavaForVars(v: PluginValue): String = v match
+    case Str(s) => s
     case other            => String.valueOf(other)
 
-  private def valueToUJson(v: Value): ujson.Value = v match
-    case Value.NullV                => ujson.Null
-    case Value.StringV(s)           => ujson.Str(s)
-    case Value.IntV(n)              => ujson.Num(n.toDouble)
-    case Value.DoubleV(d)           => ujson.Num(d)
-    case Value.BoolV(b)             => ujson.Bool(b)
-    case Value.UnitV                => ujson.Null
-    case ov: Value.OptionV          => if ov.inner != null then valueToUJson(ov.inner) else ujson.Null
-    case Value.ListV(items)         => ujson.Arr.from(items.map(valueToUJson))
-    case Value.MapV(m)              =>
+  private def valueToUJson(v: PluginValue): ujson.Value = v match
+    case PluginValue.nullV                => ujson.Null
+    case Str(s)           => ujson.Str(s)
+    case Num(n)              => ujson.Num(n.toDouble)
+    case Dbl(d)           => ujson.Num(d)
+    case Bool(b)             => ujson.Bool(b)
+    case PluginValue.unit                => ujson.Null
+    case Opt(o)                     => o.map(valueToUJson).getOrElse(ujson.Null)
+    case Lst(items)         => ujson.Arr.from(items.map(valueToUJson))
+    case MapVal(m)              =>
       ujson.Obj.from(m.map { (k, vv) => String.valueOf(valueToJava(k)) -> valueToUJson(vv) })
-    case Value.InstanceV(_, fields) =>
+    case Inst(_, fields) =>
       ujson.Obj.from(fields.map { (k, vv) => k -> valueToUJson(vv) })
     case other                      => ujson.Str(String.valueOf(other))
 
-  private def ujsonToValue(v: ujson.Value): Value = v match
-    case ujson.Null    => Value.NullV
-    case ujson.Str(s)  => Value.StringV(s)
+  private def ujsonToValue(v: ujson.Value): PluginValue = v match
+    case ujson.Null    => PluginValue.nullV
+    case ujson.Str(s)  => PluginValue.string(s)
     case ujson.Num(n)  =>
-      if n == n.toLong.toDouble then Value.IntV(n.toLong) else Value.DoubleV(n)
-    case ujson.Bool(b) => Value.BoolV(b)
-    case ujson.Arr(xs) => Value.ListV(xs.map(ujsonToValue).toList)
+      if n == n.toLong.toDouble then PluginValue.int(n.toLong) else PluginValue.double(n)
+    case ujson.Bool(b) => PluginValue.bool(b)
+    case ujson.Arr(xs) => PluginValue.list(xs.map(ujsonToValue).toList)
     case ujson.Obj(m)  =>
-      Value.MapV(m.toMap.map { (k, vv) => Value.StringV(k) -> ujsonToValue(vv) })
+      PluginValue.mapOf(m.toMap.map { (k, vv) => PluginValue.string(k) -> ujsonToValue(vv) })
 
   // ── Value <-> Java conversions ─────────────────────────────────────────────
 
-  private def javaToValue(v: Any): Value = v match
-    case null                   => Value.NullV
-    case s: String              => Value.StringV(s)
-    case n: java.lang.Long      => Value.IntV(n)
-    case n: java.lang.Integer   => Value.IntV(n.toLong)
-    case d: java.lang.Double    => Value.DoubleV(d)
-    case b: java.lang.Boolean   => Value.BoolV(b)
+  private def javaToValue(v: Any): PluginValue = v match
+    case null                   => PluginValue.nullV
+    case s: String              => PluginValue.string(s)
+    case n: java.lang.Long      => PluginValue.int(n)
+    case n: java.lang.Integer   => PluginValue.int(n.toLong)
+    case d: java.lang.Double    => PluginValue.double(d)
+    case b: java.lang.Boolean   => PluginValue.bool(b)
     case m: java.util.Map[?, ?] =>
-      Value.MapV(m.asScala.toMap.map { (k, vv) => Value.StringV(k.toString) -> javaToValue(vv) })
+      PluginValue.mapOf(m.asScala.toMap.map { (k, vv) => PluginValue.string(k.toString) -> javaToValue(vv) })
     case l: java.util.List[?]   =>
-      Value.ListV(l.asScala.toList.map(javaToValue))
-    case other                  => Value.StringV(String.valueOf(other))
+      PluginValue.list(l.asScala.toList.map(javaToValue))
+    case other                  => PluginValue.string(String.valueOf(other))
 
-  private def valueToJava(v: Value): Any = v match
-    case Value.NullV                => null
-    case Value.StringV(s)           => s
-    case Value.IntV(n)              => n
-    case Value.DoubleV(d)           => d
-    case Value.BoolV(b)             => b
-    case Value.UnitV                => null
-    case ov: Value.OptionV          => if ov.inner != null then valueToJava(ov.inner) else null
-    case Value.ListV(items)         => items.map(valueToJava).asJava
-    case Value.MapV(m)              =>
+  private def valueToJava(v: Any): Any = v match
+    case PluginValue.nullV                => null
+    case Str(s)           => s
+    case Num(n)              => n
+    case Dbl(d)           => d
+    case Bool(b)             => b
+    case PluginValue.unit                => null
+    case Opt(o)                     => o.map(valueToJava).getOrElse(null)
+    case Lst(items)         => items.map(valueToJava).asJava
+    case MapVal(m)              =>
       m.map { (k, vv) => valueToJava(k).toString -> valueToJava(vv) }.asJava
-    case Value.InstanceV("Future", fields) =>
-      valueToJava(fields.getOrElse("value", Value.UnitV))
-    case Value.InstanceV(_, fields) =>
+    case Inst("Future", fields) =>
+      valueToJava(fields.getOrElse("value", PluginValue.unit))
+    case Inst(_, fields) =>
       fields.map { (k, vv) => k -> valueToJava(vv) }.asJava
     case other                      => String.valueOf(other)
 

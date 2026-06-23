@@ -16,16 +16,11 @@ import org.scalatest.funsuite.AnyFunSuite
  *      in package `scalascript.interpreter.actors` that delegates to `CoreActorRuntimeProvider`.
  *      The actor runtime stays in core by design; this plugin is a provider seam + a `preludeSymbols`
  *      keyword declaration (`intrinsics = Map.empty`).  Decoupling it needs the ActorRuntimeProvider
- *      SPI relocated to a stable module — an architectural task, not a value-surface migration.
- *
- *    - `graphql-plugin`: TEMPORARILY exempt — the mechanical migration is done (161/162 tests) but
- *      reverted, blocked on a scalac `eq`-identity codegen interaction in `GraphQLSubscriptionTest`
- *      (resolver `NativeFnV` reference identity through the carrier).  See SPRINT.  Remove this
- *      exemption once graphql migrates. */
+ *      SPI relocated to a stable module — an architectural task, not a value-surface migration. */
 class StableSpiEnforcementTest extends AnyFunSuite:
 
   /** Plugins allowed to still reference `scalascript.interpreter` (see scaladoc above). */
-  private val exempt = Set("actors-plugin", "graphql-plugin")
+  private val exempt = Set("actors-plugin")
 
   private def isCodeLine(l: String): Boolean =
     val t = l.trim

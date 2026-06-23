@@ -354,7 +354,7 @@ validated + pushed:
       frontend ✓ (8, ctx=22 all caps; FunV/NativeFnV arms → new `PluginValue.Fn` extractor)** — all single-file.
       ENABLERS added to PluginApi: `Fn` extractor (any callable: FunV|NativeFnV) + `isCallable`.
       Remaining (2): mcp, content — the genuinely ctx-heavy / bridge-coupled giants.
-- [~] **p3-giants** (2 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
+- [~] **p3-giants** (1 left: actors, a provider — permanent exemption). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
       passes PLUS one bridge each. Per-plugin scope:
   - **http** ✓ DONE (4 unit + 58 integration tests: MountHandler/TypedHandler/HttpClient/TypedRpcBinary).
         jsonToJson → `jsonEncode`; the `TypedHandlerWrapper.wrapIfTyped` coupling → new `PluginValue.wrapTypedHandler`
@@ -383,17 +383,15 @@ validated + pushed:
         content nodes are read positionally via `inst.fieldNames`, a behavioral bug caught by tests). GOTCHAS:
         the AST `ast.ContentValue.*` ADT (137 uses) collides with `Value.*` replaces → anchor every regex with
         `(?<![A-Za-z])`; the `InstAny`/`: Value` regexes also hit DEF PARAMS (revert to `: PluginValue`).
-  - **graphql** (2 files, 8 NativeFnV/7ctx) — ATTEMPTED + REVERTED (blocked). The mechanical migration is
-        straightforward and gets 161/162 tests green: anchor every `Value` regex with `(?<![A-Za-z.])` to protect
-        `ujson.Value`; the `GraphQLResolvers`/`ScalarCodec` carrier case classes must hold `Any` (not `PluginValue`)
-        so the 9 deeply Value-coupled test files keep compiling; `valueToJava`/`addResolver`/`byType` retype to `Any`.
-        BLOCKER: `GraphQLSubscriptionTest` "subscription map stores it" asserts `res.subscription("events") eq fn`
-        (reference identity of a resolver `NativeFnV` round-tripped through the carrier). With the `Map[String, Any]`
-        carrier it FAILS, yet instrumentation proves the object is identical end-to-end (same `identityHashCode` at
-        create→extract→read) and the `eq` only fails WITHOUT a debug `println` before it — a scalac codegen Heisenbug
-        from opaque `PluginValue` + the `Value = DataValue | ValueRest` union + an `Any` map slot. `AnyRef` carrier
-        cascades type errors elsewhere; `Map[String, Value]` (original) passes but can't be used (interpreter import).
-        NEEDS focused investigation (likely a minimal scalac repro / bug report), not a rushed workaround.
+  - **graphql** ✓ DONE (162 tests, incl GraphQLSubscriptionTest). 2-file web; carrier case classes
+        (`GraphQLResolvers`/`ScalarCodec`/`GraphQLFederationEntities`) hold `AnyRef` (NOT `Any`).
+        ROOT CAUSE of the earlier "blocker": `GraphQLSubscriptionTest` asserts `res.subscription("e") eq fn`;
+        with an `Any` carrier `res.subscription("e")` is statically `Any` (no `.eq`), so scalatest's `assert`
+        macro routes it through its `Equalizer` implicit and casts the WRAPPER to `AnyRef` — comparing the
+        wrapper, not the value (always false). `AnyRef` carrier → `.eq` is direct reference equality, like the
+        original `Map[String, Value]` (`Value = DataValue|ValueRest` is `<: AnyRef`). NOT a scalac bug; the
+        debug-println "passes" were my explicit `.asInstanceOf[AnyRef]` casts bypassing the Equalizer. anchored
+        regex protects `ujson.Value`; `valueToJava`/`addResolver`/`byType`/`entities` retyped to AnyRef.
   - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL — NOT a value-surface plugin: `intrinsics = Map.empty`.
         It's a runtime PROVIDER (`class … extends Backend, ActorRuntimeProviderBackend`) in package
         `scalascript.interpreter.actors` that delegates to `CoreActorRuntimeProvider` (the actor runtime stays in
@@ -405,17 +403,15 @@ validated + pushed:
         (the check targets value-surface plugin jars; a provider that bridges the core runtime is a different category).
 - [~] **p3-enforce** — BUILD CHECK ✓ DONE: `StableSpiEnforcementTest` (backendInterpreterPluginTests) scans every
       `runtime/std/*-plugin/src/main` and fails if a value-surface plugin references `scalascript.interpreter`;
-      a second test guards against STALE exemptions. Exemptions: `actors-plugin` (runtime provider) +
-      `graphql-plugin` (codegen-blocked, temporary). Both pass — the 26 migrations are locked in. REMAINING:
+      a second test guards against STALE exemptions. Exemption: `actors-plugin` (runtime provider) only — graphql now migrated. The 27 migrations are locked in. REMAINING:
       `PluginNative.evalLegacy` stays (still the legitimate untyped `(ctx, args)=>Any` entry the migrated plugins
       use — bodies are clean, so it's no longer "transitional"; only its scaladoc's "may use Value.*" note is now
       stale). Bytecode-level jar scan + the graphql/actors special cases are the only open items.
-      STATUS: 26/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
-      sql/remote/frontend/http/dstreams/streams/content/oauth/mcp). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
+      STATUS: 27/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+      sql/remote/frontend/http/dstreams/streams/content/oauth/mcp/graphql). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
-      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 2 are BOTH special, not mechanical:
-      graphql (codegen eq-identity blocker — needs scalac repro) + actors (runtime-provider, needs SPI relocation
-      OR p3-enforce exemption). The 26 value-surface plugin migrations are COMPLETE.
+      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining: actors only (runtime-provider — permanent exemption is the right call). 27/28 value-surface
+      migrations COMPLETE; graphql resolved (carrier must be AnyRef not Any, for scalatest eq).
 
 In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
