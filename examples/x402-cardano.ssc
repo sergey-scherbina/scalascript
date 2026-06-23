@@ -5,6 +5,8 @@ version: 1.0.0
 description: HTTP 402 payment flow on Cardano — server requires CIP-8 / ADA payment, client auto-signs with an Ed25519 key.
 ---
 
+> **Advanced plugin:** this example uses the bundled-but-opt-in `payments` plugin, so its names (e.g. `X402Client / Wallets / DefaultSyncBackend`) are **not** in the default `ssc check` prelude (core-min strict opt-in). Add the plugin first: `ssc --plugin <…/lib/compiler/plugin-available/scalascript-payments-plugin*.sscpkg> check <file>` (or `ssc plugin install …`).
+
 # x402-cardano
 
 End-to-end Cardano payment flow over HTTP 402:

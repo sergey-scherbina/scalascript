@@ -5,6 +5,8 @@ version: 1.0.0
 description: End-to-end OpenID Connect login walk-through — PKCE pair + state, /authorize redirect, code exchange at /token, id_token + access_token + refresh_token, /userinfo lookup, and id_token signature/claim verification on the client.
 ---
 
+> **Advanced plugin:** this example uses the bundled-but-opt-in `oauth` plugin, so its names (e.g. `oauth / oidc`) are **not** in the default `ssc check` prelude (core-min strict opt-in). Add the plugin first: `ssc --plugin <…/lib/compiler/plugin-available/scalascript-oauth-plugin*.sscpkg> check <file>` (or `ssc plugin install …`).
+
 # OpenID Connect Login Flow — End-to-End
 
 A complete "Sign in with ScalaScript" walk-through.  This boots an OIDC

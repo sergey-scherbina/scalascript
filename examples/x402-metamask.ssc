@@ -8,6 +8,8 @@ frontend:
   openBrowser: false
 ---
 
+> **Advanced plugin:** this example uses the bundled-but-opt-in `payments` plugin, so its names (e.g. `X402Client / Wallets / DefaultSyncBackend`) are **not** in the default `ssc check` prelude (core-min strict opt-in). Add the plugin first: `ssc --plugin <…/lib/compiler/plugin-available/scalascript-payments-plugin*.sscpkg> check <file>` (or `ssc plugin install …`).
+
 # x402-metamask
 
 Browser-side x402 EVM wallet helper:

@@ -5,6 +5,8 @@ version: 1.0.0
 description: Complete OAuth-protected MCP server demo — single .ssc combining the OAuth 2.1 AS, an MCP server that uses it for authentication, a programmatic OAuth client that mints tokens via client_credentials, and an MCP client that calls a tool through the protected transport with auto-refresh on 401.
 ---
 
+> **Advanced plugin:** this example uses the bundled-but-opt-in `oauth` plugin, so its names (e.g. `oauth / oidc`) are **not** in the default `ssc check` prelude (core-min strict opt-in). Add the plugin first: `ssc --plugin <…/lib/compiler/plugin-available/scalascript-oauth-plugin*.sscpkg> check <file>` (or `ssc plugin install …`).
+
 # OAuth-Protected MCP Stack — Single-File Demo
 
 Brings together everything v1.17.x ships in one runnable script:
