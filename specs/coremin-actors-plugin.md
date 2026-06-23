@@ -70,7 +70,7 @@ Exact method names may change during implementation, but the boundary must prese
 - [ ] Without the actors plugin, `runActors { ... }` fails with a clear missing-plugin diagnostic; it must not silently ignore actor effects or fall back to stale core behavior.
 - [ ] `receive { case ... }` and `receive(timeout = n) { case ... }` preserve current pattern semantics, timeout wrapping (`Some`/`None`), and environment capture.
 - [ ] Remote WebSocket, cluster event, leader event, config event, drain event, metric event, publish queue, scheduled-send, and node-down drains remain driven by the actor scheduler.
-- [ ] `ActorRuntimeProvider.open(host)` creates an interpreter-bound `ActorRuntimeSession`; installing a provider resets the cached session so mutable actor/cluster state cannot leak through a reused ServiceLoader backend singleton.
+- [x] `ActorRuntimeProvider.open(host)` creates an interpreter-bound `ActorRuntimeSession`; installing a provider resets the cached session so mutable actor/cluster state cannot leak through a reused ServiceLoader backend singleton.
 - [ ] No actor scheduler/mailbox/cluster state remains in interpreter core except the minimal host bridge and dispatch stub.
 - [ ] Existing `.ssc` examples and conformance files under `tests/conformance/actors-*.ssc` require no source changes.
 
@@ -149,6 +149,16 @@ Interpreter core keeps:
 - 2026-06-22 — bundled plugin skeleton landed as `539105e3c feat(actors): add bundled actors provider plugin`.
   `runtime/std/actors-plugin` now builds as an essential `.sscpkg`, registers through ServiceLoader, contributes
   actor `preludeSymbols`, and installs the current provider through `ActorRuntimeProviderBackend`.
+- 2026-06-23 — session lifecycle seam landed. `ActorRuntimeProvider` now opens an `ActorRuntimeSession`
+  bound to one `ActorRuntimeHost`; `ActorInterp` lazily caches that session per `Interpreter` and clears it
+  when a replacement provider is installed. The bundled actors plugin still delegates to the core scheduler,
+  so no actor runtime code moved in this slice.
+- Verification for the session lifecycle seam:
+  - `cd /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus && sbt "actorsPlugin/compile" "backendInterpreter/compile" "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest"`
+    passed: provider plugin test 3/0, including the session cache/reset regression.
+  - `cd /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus && sbt "backendInterpreter/testOnly scalascript.ActorSupervisionTest scalascript.ActorStopOutsideTest scalascript.ActorGroupTest scalascript.ActorDistributedTest scalascript.ActorBinaryWsTest"`
+    passed: actor targeted suites 53/0. ScalaTest printed the known reporter `InterruptedException`, but sbt
+    completed with `[success]` and all tests passed.
 - Verification for the seam slice:
   - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "backendInterpreter/compile"`
     passed.
@@ -159,4 +169,4 @@ Interpreter core keeps:
     passed: provider plugin test 2/0.
   - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "cli/installBin"` passed and
     staged 26 essential `.sscpkg` files plus 13 advanced `.sscpkg` files.
-- Next slice: move the runtime implementation behind the provider without changing `.ssc` sources.
+- Remaining optional slice: move the runtime implementation behind the provider without changing `.ssc` sources.

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — feat(interpreter): actor runtime providers are bound through per-interpreter sessions
+
+`core-min-phase3plus` actor seam slice. `ActorRuntimeProvider` now opens an `ActorRuntimeSession`
+for an `ActorRuntimeHost`; `ActorInterp` caches one session per `Interpreter` and clears it when a
+replacement provider is installed. This makes the state ownership boundary explicit before any future
+actors-plugin runtime move, while the bundled actors plugin still delegates to the core scheduler.
+Verified: actors provider plugin test 3/0 and targeted actor suites 53/0.
+
 ## 2026-06-23 — core-min: runStream prelude name migrated — core Typer prelude has ZERO hardcoded effect runners
 
 `coremin-stream-prelude-migrate`. The last effect-runner names hardcoded in the Typer prelude — `runStream`
