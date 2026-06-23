@@ -469,10 +469,13 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       all immutable data cases (mutable `Array` + case instances stay `Opaque`, correct); `SpiValueDataRoundTripTest`,
       plugin-tests 712/0. **Track B — disentangle `Value.scala`:** extracted `Computation`+runtime signals →
       `Computation.scala` and `Env`/`FrameMap`/`MutableEnvView` → `Env.scala` (byte-identical, zero-behavior;
-      InterpreterTest 158/0, effects 33/0, closure/pattern/tuple 186/0). **NEXT:** spike the `export`-vs-union
-      mechanism for "DataValue cases are also Value cases" (4387 sites must keep compiling), then migrate cases
-      into a new `value-data` module case-by-case, then `type SpiValue = DataValue` + delete the conversion.
-      Original goal/notes below.
+      InterpreterTest 158/0, effects 33/0, closure/pattern/tuple 186/0). **Slice 3 spike DONE 2026-06-23:**
+      validated `type Value = DataValue | Callable` (union) + `export DataValue.*` from `object Value` — existing
+      `Value.IntV(n)` construct + `case Value.IntV(n)` patterns compile unchanged, DataValue lives below core,
+      exhaustiveness preserved under -Werror (rejected: `DataValue extends Value` marker; bare union w/o export).
+      **NEXT (Slice 4, fresh session):** create the `value-data` module + migrate the FIRST case (IntV + its
+      pool) behind the union+export bridge, prove 4387 sites compile + suite green, then migrate the rest
+      case-by-case, then `type SpiValue = DataValue` + delete the conversion. Original goal/notes below.
       <br>**Goal (original):** collapse the duplication
       between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
       necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,

@@ -1,6 +1,7 @@
 # Value unification — collapse `interpreter.Value` and `backend.spi.SpiValue` into one data type
 
-Status: **IN PROGRESS** (Slice 1 landed 2026-06-23). Task `core-min-value-unification` (SPRINT, roadmap A).
+Status: **IN PROGRESS** (Slices 1-2 landed + Track-A Char/Vector + Slice-3 spike/decision done, 2026-06-23).
+Task `core-min-value-unification` (SPRINT, roadmap A).
 
 ## 1. Goal
 
@@ -103,11 +104,29 @@ step, where `DataValue` must equal the completed `SpiValue`.
 - **Slice 2 — move `Env`/`FrameMap`/`MutableEnvView` into `Env.scala`** (same module). After this,
   `Value.scala` holds only the value ADT + its pools. Still zero behavior change.
 
-- **Slice 3 (SPIKE + decision) — the `export`-vs-`union` mechanism.** Prototype making the data cases
-  available as `Value` members from a separate definition (Scala 3 `export DataValue.*` from `object Value`,
-  vs `type Value = DataValue | FunV | NativeFnV`). Measure: do the 4387 `Value.IntV` sites still compile
-  unchanged? does exhaustiveness checking still hold? Pick the mechanism. **No production move yet** — just
-  the spike + the recorded decision, on a throwaway branch.
+- **Slice 3 (SPIKE + decision) — DONE 2026-06-23. DECISION: union `Value` + `export`.** A throwaway
+  scala-cli spike validated the load-bearing mechanism:
+  ```scala
+  enum DataValue:                              // lives in the LOW module — extends nothing from core
+    case IntV(v: Long); case StrV(v: String); case ListV(items: List[DataValue]); …
+  sealed trait Callable                        // the runtime carriers (core)
+  final case class FunV(…) extends Callable
+  final case class NativeFnV(…) extends Callable
+  type Value = DataValue | Callable            // union — DataValue <: Value (union member)
+  object Value:
+    export DataValue.*                          // so `Value.IntV(n)` construct + `case Value.IntV(n)` keep working
+  ```
+  Validated (all compile + run, scala-cli Scala 3.8.3): (1) `val a: Value = Value.IntV(3)` — construction via the
+  existing `Value.IntV` syntax works (DataValue is a union member, so `DataValue <: Value`); (2)
+  `case Value.IntV(n)` patterns match a union-typed scrutinee alongside carrier patterns `case f: FunV`;
+  (3) **exhaustiveness checking is PRESERVED** — a non-exhaustive `match` on `Value` is flagged
+  (`[E029] match may not be exhaustive`, an error under `-Werror`). So the 4387 `Value.<Case>` sites should
+  survive the migration largely unchanged, and the data ADT can live in a module *below* core. **Rejected
+  alternatives:** a `DataValue extends Value` marker (wrong dependency direction — §2.3); a bare union without
+  `export` (would force `DataValue.IntV` at all 4387 sites). **Open detail for Slice 4+:** `InstanceV` carries
+  mutable `fieldsArr`/`fieldNames`/`typeTag` (JIT) — decide whether it joins `DataValue` (host-neutral records)
+  or stays a core carrier; the intern pools that reference `Computation.Pure` (`_pureIntPool`) stay in core,
+  the pure-data pools (`intV`/`charV`/`someV`) move down with their cases.
 
 - **Slice 4 — create the `value-data` module** with `DataValue` containing the *first* pure-data case
   (e.g. `IntV`) plus its pool, re-exported into `Value` via the Slice-3 mechanism. Prove the bridge end to

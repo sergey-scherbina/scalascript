@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — value-unification Slice 3 (spike): union `Value` + `export` decided
+
+De-risked the load-bearing mechanism for the value-unification migration with a throwaway scala-cli spike.
+**Decision: `type Value = DataValue | Callable` (union) + `export DataValue.*` from `object Value`.** Validated
+that existing `Value.IntV(n)` construction and `case Value.IntV(n)` patterns compile unchanged, that `DataValue`
+can live in a module *below* core (it extends nothing core — only the union makes it a `Value`), and that
+exhaustiveness checking is preserved (a non-exhaustive `Value` match is flagged, error under `-Werror`). This
+means the ~4387 `Value.<Case>` sites should largely survive the eventual module split. Rejected: a `DataValue
+extends Value` marker (wrong dep direction) and a bare union without `export` (would churn all 4387 sites).
+Spec updated (`specs/value-unification.md` Slice 3). No production code changed — next is Slice 4 (create the
+`value-data` module + migrate the first case behind the union+export bridge).
 ## 2026-06-23 — docs: board/spec hygiene after core-min/polyglot sprint
 
 Reconciled stale future-looking wording in `SPRINT.md` and `specs/polyglot-libraries.md`
