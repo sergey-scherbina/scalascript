@@ -285,9 +285,12 @@ validated + pushed:
       plugins that return callable records. Small/clean remaining: oauth, json (+`JsonParser`→`JsonCodec`), pwa.
       Computation+ctx GIANTS (defer to batch-C-style): dstreams (56 NativeFnV/ctx), graphql (7+18ctx), streams
       (67+38ctx) — huge + ctx-heavy, need capability migration too.
-- [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),
-      remote (JsonParser+RemoteCap), content, frontend, request, smtp, sql (DbCap), uuid, os. Migrate ctx →
-      capability traits (`evalLegacy`/`eval`) AND the value-surface.
+- [~] **p3-batch-C** (5/10): **uuid ✓ (17), os ✓ (14), request ✓ (2, ValidateCap), smtp ✓ (6, plugin-local
+      `SmtpFail` marker → `PluginError` at boundary, since opaque `PluginError` can't be pattern-matched),
+      sql ✓ (6, DbCap + SqlBlockContext returns `Any` not `Value` → migratable)** — all single-file, value-surface
+      only (`NativeContext`/`NativeImpl`/`SqlBlockContext` already live in `backend.spi`, not the interpreter).
+      Remaining (5): http (jsonToJson), mcp (OAuthBridge), remote (JsonParser+RemoteCap), content, frontend —
+      these are the genuinely ctx-heavy / bridge-coupled ones. Migrate ctx → capability traits AND value-surface.
 - [ ] **p3-enforce** (after all 28 clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
       Status to "Phase 3 complete".

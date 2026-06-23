@@ -2,9 +2,8 @@ package scalascript.compiler.plugin.sql
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.Value
-import scalascript.plugin.api.PluginNative
-import scalascript.plugin.api.PluginContext
+import scalascript.plugin.api.{PluginContext, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Chr, Lst, Inst, MapVal, Opt, Foreign}
 
 /** SQL intrinsics: `DriverManager.getConnection` factory + dynamic
  *  `Db.query` / `Db.execute` for route handlers and runtime contexts.
@@ -12,7 +11,7 @@ import scalascript.plugin.api.PluginContext
  *  `sql` fenced blocks run at module-load time against a static connection.
  *  `Db.*` intrinsics let closures issue queries via `ctx.dbConnect` at runtime.
  *
- *  Return values use plain Scala primitives and `Value.ListV` / `Value.MapV`
+ *  Return values use plain Scala primitives and `PluginValue.list` / `PluginValue.mapOf`
  *  so the interpreter's `wrapAnyAsValue` converts them correctly. */
 object SqlIntrinsics:
 
@@ -23,9 +22,9 @@ object SqlIntrinsics:
     QualifiedName("DriverManager.getConnection") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String) =>
-          Value.Foreign("Connection", java.sql.DriverManager.getConnection(url))
+          PluginValue.foreign("Connection", java.sql.DriverManager.getConnection(url))
         case List(url: String, user: String, password: String) =>
-          Value.Foreign("Connection", java.sql.DriverManager.getConnection(url, user, password))
+          PluginValue.foreign("Connection", java.sql.DriverManager.getConnection(url, user, password))
         case other =>
           throw new RuntimeException(
             s"DriverManager.getConnection expects (url) or (url, user, password), " +
@@ -36,17 +35,17 @@ object SqlIntrinsics:
     // Runs a SELECT and returns each row as a Map keyed by column name.
     QualifiedName("Db.query") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(dbName: String, sql: String, params: Value) =>
+        case List(dbName: String, sql: String, params) =>
           val bindList = extractBinds(params)
           val conn     = ctx.dbConnect(dbName)
           scalascript.sql.SqlRuntime.execute(conn, sql, bindList) match
             case scalascript.sql.SqlResult.Rows(rows) =>
-              Value.ListV(rows.map(row =>
-                Value.MapV(row.columns.zip(row.values).map { (col, v) =>
-                  Value.StringV(col) -> wrapJdbc(v)
+              PluginValue.list(rows.map(row =>
+                PluginValue.mapOf(row.columns.zip(row.values).map { (col, v) =>
+                  PluginValue.string(col) -> wrapJdbc(v)
                 }.toMap)
               ).toList)
-            case _ => Value.EmptyList
+            case _ => PluginValue.list(Nil)
         case _ => throw new RuntimeException("Db.query(dbName: String, sql: String, params: List[Any])")
     },
 
@@ -54,7 +53,7 @@ object SqlIntrinsics:
     // Runs an INSERT / UPDATE / DELETE and returns the affected-row count.
     QualifiedName("Db.execute") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(dbName: String, sql: String, params: Value) =>
+        case List(dbName: String, sql: String, params) =>
           val bindList = extractBinds(params)
           val conn     = ctx.dbConnect(dbName)
           scalascript.sql.SqlRuntime.execute(conn, sql, bindList) match
@@ -67,7 +66,7 @@ object SqlIntrinsics:
     // Encodes interpreter case-class instances / maps as SQL columns.
     QualifiedName("Db.insert") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(dbName: String, table: String, value: Value) =>
+        case List(dbName: String, table: String, value) =>
           val conn = ctx.dbConnect(dbName)
           scalascript.sql.SqlRuntime.insertRow(conn, table, rowFields(ctx, value)).toLong
         case _ => throw new RuntimeException("Db.insert(dbName: String, table: String, value: A)")
@@ -77,7 +76,7 @@ object SqlIntrinsics:
     // The key column is excluded from SET by SqlRuntime.updateRow.
     QualifiedName("Db.update") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(dbName: String, table: String, keyColumn: String, keyValue, value: Value) =>
+        case List(dbName: String, table: String, keyColumn: String, keyValue, value) =>
           val conn = ctx.dbConnect(dbName)
           scalascript.sql.SqlRuntime
             .updateRow(conn, table, keyColumn, keyValue, rowFields(ctx, value))
@@ -97,7 +96,7 @@ object SqlIntrinsics:
       args match
         case List(dbName: String, channel: String) =>
           runIdentStatement(ctx.dbConnect(dbName), "LISTEN", channel)
-          Value.UnitV
+          PluginValue.unit
         case _ => throw new RuntimeException("Db.pgListen(dbName: String, channel: String)")
     },
 
@@ -106,7 +105,7 @@ object SqlIntrinsics:
       args match
         case List(dbName: String, channel: String) =>
           runIdentStatement(ctx.dbConnect(dbName), "UNLISTEN", channel)
-          Value.UnitV
+          PluginValue.unit
         case _ => throw new RuntimeException("Db.unlisten(dbName: String, channel: String)")
     },
 
@@ -134,63 +133,62 @@ object SqlIntrinsics:
     case n: Int               => n
     case n: Long              => n.toInt
     case n: java.lang.Number  => n.intValue
-    case Value.IntV(n)        => n.toInt
+    case Num(n)               => n.toInt
     case other                => throw new RuntimeException(s"Db.getNotifications: timeout must be an Int, got ${other}")
 
-  private def drainNotifications(conn: java.sql.Connection, timeoutMs: Int): Value =
+  private def drainNotifications(conn: java.sql.Connection, timeoutMs: Int): PluginValue =
     val pg =
       try conn.unwrap(classOf[org.postgresql.PGConnection])
       catch case _: Throwable =>
         throw new RuntimeException(
           "Db.getNotifications requires a PostgreSQL connection (LISTEN/NOTIFY is PostgreSQL-only)")
     val notes = pg.getNotifications(timeoutMs)
-    if notes == null then Value.EmptyList
-    else Value.ListV(notes.toList.map { n =>
-      Value.MapV(Map(
-        Value.StringV("channel") -> Value.StringV(n.getName),
-        Value.StringV("payload") -> Value.StringV(Option(n.getParameter).getOrElse("")),
-        Value.StringV("pid")     -> Value.intV(n.getPID.toLong),
+    if notes == null then PluginValue.list(Nil)
+    else PluginValue.list(notes.toList.map { n =>
+      PluginValue.mapOf(Map(
+        PluginValue.string("channel") -> PluginValue.string(n.getName),
+        PluginValue.string("payload") -> PluginValue.string(Option(n.getParameter).getOrElse("")),
+        PluginValue.string("pid")     -> PluginValue.int(n.getPID.toLong),
       ))
     })
 
-  private def extractBinds(params: Value): List[Any] = params match
-    case Value.ListV(items) => items.map(unwrapValue)
-    case _                  => Nil
+  private def extractBinds(params: Any): List[Any] = params match
+    case Lst(items) => items.map(unwrapValue)
+    case _          => Nil
 
-  private def unwrapValue(v: Value): Any = v match
-    case Value.IntV(n)    => n
-    case Value.DoubleV(d) => d
-    case Value.StringV(s) => s
-    case Value.BoolV(b)   => b
-    case Value.CharV(c)   => c.toString
-    case Value.UnitV      => null
-    case Value.NullV      => null
-    case Value.NoneV => null
-    case ov: Value.OptionV if ov.inner != null => unwrapValue(ov.inner)
-    case _                => v.toString
+  private def unwrapValue(v: Any): Any = v match
+    case Num(n)           => n
+    case Dbl(d)           => d
+    case Str(s)           => s
+    case Bool(b)          => b
+    case Chr(c)           => c.toString
+    case Opt(Some(inner)) => unwrapValue(inner)
+    case other if PluginValue.isUnitOrNull(other) => null
+    case Opt(None)        => null
+    case other            => other.toString
 
-  private def rowFields(ctx: PluginContext, value: Value): Vector[(String, Any)] = value match
-    case Value.InstanceV(typeName, fields) =>
+  private def rowFields(ctx: PluginContext, value: Any): Vector[(String, Any)] = value match
+    case Inst(typeName, fields) =>
       fields.iterator.toVector.map((name, fieldValue) => ctx.storageFieldName(typeName, name) -> unwrapValue(fieldValue))
-    case Value.MapV(entries) =>
+    case MapVal(entries) =>
       entries.iterator.toVector.map {
-        case (Value.StringV(name), fieldValue) => name -> unwrapValue(fieldValue)
-        case (key, _) => throw new RuntimeException(s"Db typed write expected string column names, got ${Value.show(key)}")
+        case (Str(name), fieldValue) => name -> unwrapValue(fieldValue)
+        case (key, _) => throw new RuntimeException(s"Db typed write expected string column names, got ${PluginValue.showAny(key)}")
       }
     case other =>
-      throw new RuntimeException(s"Db typed write expected case-class instance or Map, got ${Value.show(other)}")
+      throw new RuntimeException(s"Db typed write expected case-class instance or Map, got ${PluginValue.showAny(other)}")
 
-  private def wrapJdbc(v: Any): Value = v match
-    case null        => Value.NullV
-    case s: String   => Value.StringV(s)
-    case b: Boolean  => Value.boolV(b)
-    case n: Int      => Value.intV(n.toLong)
-    case n: Long     => Value.intV(n)
-    case n: Short    => Value.intV(n.toLong)
-    case n: Byte     => Value.intV(n.toLong)
-    case d: Double   => Value.doubleV(d)
-    case f: Float    => Value.doubleV(f.toDouble)
-    case other       => Value.StringV(other.toString)
+  private def wrapJdbc(v: Any): PluginValue = v match
+    case null        => PluginValue.nullV
+    case s: String   => PluginValue.string(s)
+    case b: Boolean  => PluginValue.bool(b)
+    case n: Int      => PluginValue.int(n.toLong)
+    case n: Long     => PluginValue.int(n)
+    case n: Short    => PluginValue.int(n.toLong)
+    case n: Byte     => PluginValue.int(n.toLong)
+    case d: Double   => PluginValue.double(d)
+    case f: Float    => PluginValue.double(f.toDouble)
+    case other       => PluginValue.string(other.toString)
 
 object SqlBlockRunnerImpl extends SqlBlockRunner:
 
@@ -200,9 +198,9 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
     val conn = resolveSqlConnection(attrs, ctx)
     scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds) match
       case scalascript.sql.SqlResult.Rows(rows) =>
-        Value.ListV(rows.map(rowToValue).toList)
+        PluginValue.list(rows.map(rowToValue).toList)
       case scalascript.sql.SqlResult.UpdateCount(n) =>
-        Value.intV(n.toLong)
+        PluginValue.int(n.toLong)
 
   override def runTransaction(source: String, attrs: Map[String, String], ctx: SqlBlockContext): Any =
     val dbName = attrs.getOrElse("db", "default")
@@ -214,47 +212,46 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
       }
     }
     results.lastOption match
-      case Some(scalascript.sql.SqlResult.Rows(rows))      => Value.ListV(rows.map(rowToValue).toList)
-      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => Value.intV(n.toLong)
-      case None                                            => Value.UnitV
+      case Some(scalascript.sql.SqlResult.Rows(rows))      => PluginValue.list(rows.map(rowToValue).toList)
+      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => PluginValue.int(n.toLong)
+      case None                                            => PluginValue.unit
 
   private def resolveSqlConnection(attrs: Map[String, String], ctx: SqlBlockContext): java.sql.Connection =
     ctx.global("Connection") match
-      case Some(Value.Foreign("Connection", c: java.sql.Connection)) => c
-      case Some(Value.Foreign("DataSource", ds: javax.sql.DataSource)) => ds.getConnection
+      case Some(Foreign("Connection", c: java.sql.Connection)) => c
+      case Some(Foreign("DataSource", ds: javax.sql.DataSource)) => ds.getConnection
       case _ =>
         val dbName = attrs.getOrElse("db", "default")
         ctx.dbConnect(dbName)
 
-  private def rowToValue(row: scalascript.sql.Row): Value =
+  private def rowToValue(row: scalascript.sql.Row): PluginValue =
     val pairs = row.columns.zip(row.values).map { case (col, v) =>
-      Value.StringV(col) -> wrapJdbcValue(v)
+      PluginValue.string(col) -> wrapJdbcValue(v)
     }
-    Value.MapV(pairs.toMap)
+    PluginValue.mapOf(pairs.toMap)
 
   private def unwrapForJdbc(v: Any): Any = v match
-    case Value.IntV(n)              => n
-    case Value.DoubleV(d)           => d
-    case Value.StringV(s)           => s
-    case Value.BoolV(b)             => b
-    case Value.CharV(c)             => c
-    case Value.UnitV                => null
-    case Value.NullV                => null
-    case Value.NoneV        => null
-    case ov: Value.OptionV if ov.inner != null => unwrapForJdbc(ov.inner)
-    case Value.Foreign(_, h)        => h
-    case other                      => other
+    case Num(n)           => n
+    case Dbl(d)           => d
+    case Str(s)           => s
+    case Bool(b)          => b
+    case Chr(c)           => c
+    case Opt(Some(inner)) => unwrapForJdbc(inner)
+    case other if PluginValue.isUnitOrNull(other) => null
+    case Opt(None)        => null
+    case Foreign(_, h)    => h
+    case other            => other
 
-  private def wrapJdbcValue(v: Any): Value = v match
-    case null        => Value.NullV
-    case s: String   => Value.StringV(s)
-    case b: Boolean  => Value.boolV(b)
-    case n: Int      => Value.intV(n.toLong)
-    case n: Long     => Value.intV(n)
-    case n: Short    => Value.intV(n.toLong)
-    case n: Byte     => Value.intV(n.toLong)
-    case d: Double   => Value.doubleV(d)
-    case f: Float    => Value.doubleV(f.toDouble)
-    case bi: java.math.BigInteger => Value.intV(bi.longValueExact)
-    case bd: java.math.BigDecimal => Value.doubleV(bd.doubleValue)
-    case other       => Value.Foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)
+  private def wrapJdbcValue(v: Any): PluginValue = v match
+    case null        => PluginValue.nullV
+    case s: String   => PluginValue.string(s)
+    case b: Boolean  => PluginValue.bool(b)
+    case n: Int      => PluginValue.int(n.toLong)
+    case n: Long     => PluginValue.int(n)
+    case n: Short    => PluginValue.int(n.toLong)
+    case n: Byte     => PluginValue.int(n.toLong)
+    case d: Double   => PluginValue.double(d)
+    case f: Float    => PluginValue.double(f.toDouble)
+    case bi: java.math.BigInteger => PluginValue.int(bi.longValueExact)
+    case bd: java.math.BigDecimal => PluginValue.double(bd.doubleValue)
+    case other       => PluginValue.foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)

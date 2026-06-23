@@ -6,9 +6,9 @@ import java.nio.charset.StandardCharsets
 import javax.net.ssl.{SSLContext, SSLSocket, SSLSocketFactory, TrustManager, X509TrustManager}
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.{Value, InterpretError}
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.{PluginError, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Lst}
 
 /** Hand-rolled, dependency-free SMTP submission client (RFC 5321).
  *
@@ -16,7 +16,7 @@ import scalascript.plugin.api.PluginNative
  *  `STARTTLS` → optional `AUTH LOGIN` → `MAIL FROM` → `RCPT TO`(×N) → `DATA` →
  *  `QUIT` — over a plain or STARTTLS-upgraded socket.  Connect/read timeouts are
  *  bounded so a dead host never hangs the interpreter.  Failures are raised as
- *  `InterpretError` tagged `permanent` (5xx) or `transient` (4xx) plus the
+ *  a `PluginError` tagged `permanent` (5xx) or `transient` (4xx) plus the
  *  server reply, so a caller's send/retry audit can classify them.  JVM only. */
 object SmtpIntrinsics:
 
@@ -65,8 +65,12 @@ object SmtpIntrinsics:
         done = line.length < 4 || line.charAt(3) == ' '
       (code, sb.toString)
 
-  private def err(tag: String, code: Int, text: String): InterpretError =
-    InterpretError(s"smtpSend: $tag SMTP failure ($code): ${text.replace("\n", " | ")}")
+  /** Internal control-flow marker for a classified SMTP failure; converted to a
+   *  `PluginError` at the intrinsic boundary so it surfaces as a language error. */
+  private final class SmtpFail(msg: String) extends RuntimeException(msg)
+
+  private def err(tag: String, code: Int, text: String): SmtpFail =
+    new SmtpFail(s"smtpSend: $tag SMTP failure ($code): ${text.replace("\n", " | ")}")
 
   /** Classify a non-expected reply: 5xx permanent, 4xx (or anything else) transient. */
   private def fail(code: Int, text: String): Nothing =
@@ -99,7 +103,7 @@ object SmtpIntrinsics:
       host: String, port: Int, username: String, password: String,
       useTls: Boolean, envelopeFrom: String, recipients: List[String], message: String): String =
     if recipients.isEmpty then
-      throw InterpretError("smtpSend: envelopeTo must have at least one recipient")
+      throw new SmtpFail("smtpSend: envelopeTo must have at least one recipient")
     val sock = new Socket()
     try
       sock.connect(new InetSocketAddress(host, port), ConnectMs)
@@ -135,7 +139,7 @@ object SmtpIntrinsics:
       try { c.write("QUIT"); c.reply() } catch case _: Throwable => ()
       finalReply
     catch
-      case e: InterpretError => throw e
+      case e: SmtpFail => throw e
       case e: java.net.SocketTimeoutException =>
         throw err("transient", 0, s"timeout talking to $host:$port — ${e.getMessage}")
       case e: java.io.IOException =>
@@ -149,26 +153,28 @@ object SmtpIntrinsics:
     val normalised = message.replace("\r\n", "\n").replace("\r", "\n").replace("\n", CRLF)
     normalised.split("\r\n", -1).map(l => if l.startsWith(".") then "." + l else l).mkString(CRLF)
 
-  private def recipientsOf(v: Value): List[String] = v match
-    case Value.ListV(items) => items.map {
-      case Value.StringV(s) => s
-      case other => throw InterpretError(
-        s"smtpSend: each recipient must be a String, got ${Value.show(other)}")
+  private def recipientsOf(v: Any): List[String] = v match
+    case Lst(items) => items.map {
+      case Str(s) => s
+      case other  => throw new SmtpFail(
+        s"smtpSend: each recipient must be a String, got ${PluginValue.showAny(other)}")
     }
-    case other => throw InterpretError(
-      s"smtpSend: envelopeTo must be a List[String], got ${Value.show(other)}")
+    case other => throw new SmtpFail(
+      s"smtpSend: envelopeTo must be a List[String], got ${PluginValue.showAny(other)}")
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     QualifiedName("smtpSend") -> PluginNative.evalLegacy { (_, args) =>
-      args match
-        case (host: String) :: (port: Long) :: (username: String) :: (password: String) ::
-             (useTls: Boolean) :: (envelopeFrom: String) :: (to: Value) :: (message: String) :: Nil =>
-          Value.StringV(send(host, port.toInt, username, password, useTls,
-                             envelopeFrom, recipientsOf(to), message))
-        case _ =>
-          throw InterpretError(
-            "smtpSend(host, port, username, password, useTls, envelopeFrom, envelopeTo, message)")
+      try
+        args match
+          case (host: String) :: (port: Long) :: (username: String) :: (password: String) ::
+               (useTls: Boolean) :: (envelopeFrom: String) :: (to: Any) :: (message: String) :: Nil =>
+            PluginValue.string(send(host, port.toInt, username, password, useTls,
+                               envelopeFrom, recipientsOf(to), message)).unwrap
+          case _ =>
+            PluginError.raise(
+              "smtpSend(host, port, username, password, useTls, envelopeFrom, envelopeTo, message)")
+      catch case e: SmtpFail => PluginError.raise(e.getMessage)
     },
 
   )

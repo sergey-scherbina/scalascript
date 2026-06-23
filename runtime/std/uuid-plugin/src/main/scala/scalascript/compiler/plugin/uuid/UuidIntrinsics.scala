@@ -1,9 +1,8 @@
 package scalascript.compiler.plugin.uuid
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.{Value, InterpretError}
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
+import scalascript.plugin.api.{PluginComputation, PluginError, PluginNative, PluginValue}
 
 import java.security.SecureRandom
 import java.util.UUID
@@ -91,12 +90,12 @@ object UuidIntrinsics:
       case Some(fixed: String) => fixed
       case _                   => generateV7Monotonic()
 
-  private def nativeCtx(f: (NativeContext, List[Any]) => Value): NativeImpl =
-    NativeImpl { (ctx, args) => f(ctx, args) }
+  private def nativeCtx(f: (NativeContext, List[Any]) => PluginValue): NativeImpl =
+    NativeImpl { (ctx, args) => f(ctx, args).unwrap }
 
-  private def native(f: List[Any] => Value): NativeImpl =
+  private def native(f: List[Any] => PluginValue): NativeImpl =
     PluginNative.eval { (_, args) =>
-      PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
+      PluginComputation.pure(f(args.map(_.unwrap)))
     }
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
@@ -104,48 +103,48 @@ object UuidIntrinsics:
     // ── effectful generators (check withFixedUuid override) ─────────────
 
     QualifiedName("uuidV4") -> nativeCtx { (ctx, _) =>
-      Value.StringV(generateV4(ctx))
+      PluginValue.string(generateV4(ctx))
     },
 
     QualifiedName("uuidV7") -> nativeCtx { (ctx, _) =>
-      Value.StringV(generateV7WithCtx(ctx))
+      PluginValue.string(generateV7WithCtx(ctx))
     },
 
     // Monotonic v7: strictly increasing across calls within the same millisecond
     // (rand_a counter). Explicit opt-in — `Uuid.v7Monotonic(): Uuid ! SideEffect`.
     QualifiedName("uuidV7Monotonic") -> nativeCtx { (ctx, _) =>
-      Value.StringV(generateV7MonotonicWithCtx(ctx))
+      PluginValue.string(generateV7MonotonicWithCtx(ctx))
     },
 
     // ── raw generators (also respect override for test predictability) ──
 
     QualifiedName("rawUuidV4") -> nativeCtx { (ctx, _) =>
-      Value.StringV(generateV4(ctx))
+      PluginValue.string(generateV4(ctx))
     },
 
     QualifiedName("rawUuidV7") -> nativeCtx { (ctx, _) =>
-      Value.StringV(generateV7WithCtx(ctx))
+      PluginValue.string(generateV7WithCtx(ctx))
     },
 
     // ── parsing / validation ─────────────────────────────────────────────
 
     QualifiedName("uuidFromString") -> native {
       case List(s: String) =>
-        if isValidUuid(s) then Value.OptionV(Value.StringV(s.toLowerCase))
-        else Value.NoneV
-      case _ => Value.NoneV
+        if isValidUuid(s) then PluginValue.some(PluginValue.string(s.toLowerCase))
+        else PluginValue.none
+      case _ => PluginValue.none
     },
 
     QualifiedName("uuidUnsafeFromString") -> native {
       case List(s: String) =>
-        if isValidUuid(s) then Value.StringV(s.toLowerCase)
-        else throw InterpretError(s"uuidUnsafeFromString: not a valid UUID: $s")
-      case _ => throw InterpretError("uuidUnsafeFromString(s: String)")
+        if isValidUuid(s) then PluginValue.string(s.toLowerCase)
+        else PluginError.raise(s"uuidUnsafeFromString: not a valid UUID: $s")
+      case _ => PluginError.raise("uuidUnsafeFromString(s: String)")
     },
 
     QualifiedName("uuidIsValid") -> native {
-      case List(s: String) => Value.boolV(isValidUuid(s))
-      case _               => Value.boolV(false)
+      case List(s: String) => PluginValue.bool(isValidUuid(s))
+      case _               => PluginValue.bool(false)
     },
 
   )
