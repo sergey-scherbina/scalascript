@@ -1,7 +1,7 @@
 # Value unification — collapse `interpreter.Value` and `backend.spi.SpiValue` into one data type
 
-Status: **IN PROGRESS** (Slices 1-2 landed + Track-A Char/Vector + Slice-3 spike/decision done, 2026-06-23).
-Task `core-min-value-unification` (SPRINT, roadmap A).
+Status: **IN PROGRESS** (Slices 1-4 landed 2026-06-23; scope = SCALARS-ONLY per Sergiy's decision — full merge
+off the table, see the container/closure obstacle in §3). Task `core-min-value-unification` (SPRINT, roadmap A).
 
 ## 1. Goal
 
@@ -60,34 +60,40 @@ sequence of safe, independently-shippable, always-green slices rather than one b
 
 ## 3. End-state architecture (decision)
 
+**DECISION (Sergiy, 2026-06-23): SCALARS-ONLY partial unification.** Full unification (delete the conversion)
+is NOT pursued — see the container/closure obstacle below. Only the **scalar leaf** cases are shared.
+
 ```
-  module: value-data  (NEW, at the ir/backendSpi level — depends on nothing in core)
-    enum DataValue:                 // the pure-data ADT — host-neutral, no Env/Computation/Term
-      IntV | DoubleV | BigIntV | DecimalV | StrV | BoolV | CharV | UnitV | NullV
-      | ListV | VectorV | ArrayV | LazyListV | OptionV | TupleV | MapV | SetV
-      | InstanceV(typeName, fields)   // user records — pure data
-      | Foreign(typeName, handle: Any) | MarkupV(doc) | DocV(parts)
-    // pure-data intern pools (intV/charV/someV/singletons) live here
+  module: value-data  (target — at the ir/backendSpi level; for now DataValue lives in core)
+    enum DataValue:                 // the pure-data SCALAR LEAVES only — no Env/Computation/Term, no recursion
+      IntV | DoubleV | BigIntV | DecimalV | StringV | BoolV | CharV | UnitV | NullV
 
   module: backendSpi
-    type SpiValue = DataValue        // SpiValue BECOMES DataValue (alias); the 9 effect plugins
-                                     // keep matching the same case names. (SPI version note below.)
+    // SpiValue's scalar cases become aliases of DataValue's → the scalar half of the conversion is identity.
+    // SpiValue's CONTAINER cases (ListV/TupleV/OptV/MapV/VectorV) + Opaque stay distinct (see obstacle).
 
   module: core (interpreter)
-    // Value = the data cases (re-exported from DataValue) PLUS the runtime carriers:
-    sealed trait Value
+    sealed trait ValueRest                       // containers + instances + runtime carriers
+    type Value = DataValue | ValueRest           // union — DataValue <: Value (union member)
     object Value:
-      export DataValue.*             // IntV…MarkupV are Value cases via re-export/aliases
-      case class FunV(... closure: Env, body: Term ...)   extends Value   // runtime carrier — stays
-      case class NativeFnV(name, f: List[Value] => Computation) extends Value  // runtime carrier — stays
-    // Computation, Env, FrameMap, signals live in their own files (Computation.scala, Env.scala)
+      export DataValue.*                          // so `Value.IntV(n)` / `case Value.IntV(n)` are unchanged
+      case class ListV(items: List[Value]) extends ValueRest    // container — holds ANY Value incl. closures
+      case class FunV(... closure: Env, body: Term ...) extends ValueRest   // carrier
+      … (VectorV/ArrayV/MapV/SetV/OptionV/TupleV/DocV/InstanceV/MarkupV/Foreign/NativeFnV) …
+      // intern pools (intV/charV/someV/singletons) + show() + smart ctors stay in object Value (core sees DataValue)
+    // Computation, Env, FrameMap, signals live in Computation.scala / Env.scala
 ```
 
-The exact mechanism for "DataValue cases are also Value cases" (Scala 3 `export`, a union `type Value =
-DataValue | FunV | NativeFnV`, or wrapping) is decided in Slice 3 — it is the load-bearing choice and gets
-its own spike. The carriers (`FunV`/`NativeFnV`) are **not** part of the shared data ADT; at the SPI boundary
-they remain `Opaque` (a closure is not host-neutral data), so `SpiValue`/`DataValue` never reference
-`Env`/`Computation`/`Term`. This is what makes the low module possible.
+**THE CONTAINER/CLOSURE OBSTACLE (why full unification is off the table).** The interpreter stores arbitrary
+values — *including closures* — inside containers: `List(() => 10)` is a `ListV(List(FunV(...)))` (real:
+`AsyncTest` `Async.parallel(List(() => 10, …))`). So `ListV` must hold `List[Value]` where `Value` includes the
+runtime carriers. For the data ADT to live *below* core and *be* `SpiValue`, its containers would have to be
+self-contained (`List[DataValue]`) — which can't hold a closure. The only way to reconcile is to represent
+closures as an `Opaque(handle)` case *inside* the data ADT, which forces a cast/unwrap on the **hot
+function-dispatch path** (every call) + rewrites dozens of `case FunV` sites — a perf regression Sergiy
+declined. Therefore: **containers + carriers stay in core `ValueRest`; only the scalar leaves are shared; the
+`Value ↔ SpiValue` conversion shrinks (scalars become identity) but is NOT deleted.** This confirms, with a
+concrete mechanism, the original "separate by necessity" rationale for `SpiValue`.
 
 ## 4. Slice sequence (each independently shippable + full-interp-suite-green)
 
@@ -128,20 +134,24 @@ step, where `DataValue` must equal the completed `SpiValue`.
   or stays a core carrier; the intern pools that reference `Computation.Pure` (`_pureIntPool`) stay in core,
   the pure-data pools (`intV`/`charV`/`someV`) move down with their cases.
 
-- **Slice 4 — create the `value-data` module** with `DataValue` containing the *first* pure-data case
-  (e.g. `IntV`) plus its pool, re-exported into `Value` via the Slice-3 mechanism. Prove the bridge end to
-  end (4387 sites compile; suite green) on ONE case before migrating the rest.
+- **Slice 4 — union flip, scalars to `DataValue` (DONE 2026-06-23).** Created `DataValue.scala` =
+  `enum DataValue` with the 9 scalar leaves (`IntV/DoubleV/BigIntV/DecimalV/StringV/BoolV/CharV/UnitV/NullV`,
+  exact Value names); flipped `Value.scala` to `sealed trait ValueRest` (the 14 container/instance/carrier
+  cases) + `type Value = DataValue | ValueRest` + `export DataValue.*` in `object Value` (pools/`show`/smart
+  ctors unchanged). `DataValue` lives in core *for now* (Slice 5 moves it to a low module). **Result:
+  astonishingly clean** — across the ~4387 `Value.<Case>` sites the ONLY friction was a single
+  `java.util.Arrays.sort(arr: Array[Value], …)` in `DispatchRuntime` (Java-generic inference can't bound a
+  union array → cast to `Array[AnyRef]`). Everything else compiled unchanged via `export`. Verified: core +
+  backendInterpreter + all plugins + interpreter-server + dap compile; **core/test 1019/0, plugin-tests
+  712/0, broad interp/value/effects 218/0, numeric/collection/JIT 77/0** (~2026 green, 0 fail).
 
-- **Slices 5…N — migrate the remaining pure-data cases** case-by-case (or in small batches) into `DataValue`,
-  each batch green. Move the matching pool with each case.
+- **Slice 5 — move `DataValue` to a low `value-data` module** (file move + build wiring; it extends nothing
+  core, so this is mechanical) so `backendSpi` can see it.
 
-- **Slice N+1 — `type SpiValue = DataValue`** in `backendSpi`; delete `valueToSpi`/`spiToValue` (they become
-  identity / no-ops). Update the 9 effect plugins if any case-name qualifier changed. SPI version bump.
+- **Slice 6 — alias `SpiValue`'s scalar cases to `DataValue`** so the *scalar* half of `valueToSpi`/`spiToValue`
+  becomes identity (no realloc/rewrap). Container cases of the conversion stay (the obstacle). SPI version note.
 
-- **Slice N+2 — cleanup.** Remove the (now-dead) conversion call sites and the `Opaque`-for-data fallback.
-
-**Gate at every slice:** `backendInterpreter` full suite green + plugin-tests green; no `Env`/`Computation`/
-`Term` reachable from the `value-data` module; the 4387 `Value.<Case>` sites compile unchanged.
+**Gate at every slice:** `backendInterpreter` + plugin-tests green; the `Value.<Case>` sites compile unchanged.
 
 ## 5. Non-goals / explicitly out of scope
 

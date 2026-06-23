@@ -520,9 +520,20 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       validated `type Value = DataValue | Callable` (union) + `export DataValue.*` from `object Value` — existing
       `Value.IntV(n)` construct + `case Value.IntV(n)` patterns compile unchanged, DataValue lives below core,
       exhaustiveness preserved under -Werror (rejected: `DataValue extends Value` marker; bare union w/o export).
-      **NEXT (Slice 4, fresh session):** create the `value-data` module + migrate the FIRST case (IntV + its
-      pool) behind the union+export bridge, prove 4387 sites compile + suite green, then migrate the rest
-      case-by-case, then `type SpiValue = DataValue` + delete the conversion. Original goal/notes below.
+      **SCOPE DECISION 2026-06-23 (Sergiy): SCALARS-ONLY — full merge OFF the table.** The container/closure
+      obstacle: the interp stores closures INSIDE containers (`List(() => 10)` = `ListV(List(FunV))`), so a
+      fully-merged low data type would force closures-as-`Opaque` → a cast on the HOT function-dispatch path
+      (perf regression Sergiy declined). So only the scalar leaves are shared; containers + carriers stay core;
+      the conversion shrinks (scalars→identity) but is NOT deleted. **Slice 4 DONE 2026-06-23:** flipped `Value`
+      to a union `type Value = DataValue | ValueRest` — `DataValue` (new enum, `DataValue.scala`) = 9 scalar
+      leaves; `ValueRest` (sealed) = 14 container/instance/carrier cases; `object Value` re-exports scalars via
+      `export DataValue.*` so all ~4387 sites are UNCHANGED. Astonishingly clean: the ONLY friction was one
+      `java.util.Arrays.sort` over a union array (→ `Array[AnyRef]` cast); exhaustiveness preserved. Verified
+      core+backendInterpreter+all plugins+server+dap compile; core/test 1019/0, plugin-tests 712/0, broad
+      interp/value/effects 218/0, numeric/collection/JIT 77/0 (~2026 green). **NEXT (Slice 5):** move `DataValue`
+      to a low `value-data` module (mechanical — it extends nothing core); **Slice 6:** alias `SpiValue` scalar
+      cases to `DataValue` so the scalar half of the conversion is identity. Original goal/notes below (NOTE:
+      the "delete the conversion / one type" end-state is superseded by the scalars-only decision above).
       <br>**Goal (original):** collapse the duplication
       between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
       necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,

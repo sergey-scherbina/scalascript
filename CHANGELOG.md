@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — value-unification Slice 4: `Value` is now a union, scalar leaves split into `DataValue`
+
+Flipped the interpreter's `Value` from a `sealed trait` to a **union** `type Value = DataValue | ValueRest`.
+`DataValue` (new `enum`, `DataValue.scala`) holds the 9 pure-data **scalar leaves** (`IntV`/`DoubleV`/`BigIntV`/
+`DecimalV`/`StringV`/`BoolV`/`CharV`/`UnitV`/`NullV`); `ValueRest` (sealed trait) holds the 14 container/
+instance/carrier cases (which recursively hold an arbitrary `Value`, incl. closures — `List(() => 10)` — so
+they can't be host-neutral data). `object Value` re-exports the scalars via `export DataValue.*`, so all ~4387
+`Value.<Case>` sites are unchanged. This is the scalars-only partial unification (Sergiy's call after the
+container/closure obstacle ruled out full conversion-deletion: a fully-merged low data type would force
+closures-as-`Opaque`, regressing the hot function-dispatch path). The split is the groundwork for sharing the
+scalar leaves with `SpiValue` (next slices) so the scalar half of the conversion becomes identity.
+**Remarkably clean:** the only friction across 4387 sites was one `java.util.Arrays.sort` over a union-typed
+array (Java-generic inference can't bound a union → cast to `Array[AnyRef]`); everything else compiled via
+`export`, and union exhaustiveness checking is preserved. Verified: core + backendInterpreter + all plugins +
+interpreter-server + dap compile; core/test 1019/0, plugin-tests 712/0, broad interp/value/effects 218/0,
+numeric/collection/JIT 77/0 (~2026 tests green, 0 fail). Spec: `specs/value-unification.md` §3–4.
+
 ## 2026-06-23 — docs: advanced-plugin examples note their `ssc check` opt-in requirement
 
 Follow-up to the advanced-optin strict-opt-in (`pluginObjects`/`pluginBuiltins` plugin names moved off

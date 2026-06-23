@@ -1,6 +1,0 @@
-feature/value-unification-scalars 2026-06-23T02:10:00Z
-agent: claude
-heartbeat: 2026-06-23T02:10:00Z
-status: in-progress
-done-so-far: design fork resolved by Sergiy = SCALARS-ONLY partial unification (containers+closures stay core; conversion shrinks not deleted; no perf risk). Confirmed interp stores closures in containers (AsyncTest List(()=>10,...)) → containers can't go low.
-next: Slice 4 = union flip proof — enum DataValue (scalar leaves) in core + `type Value = DataValue | ValueRest` + `export DataValue.*`; prove 4387 sites compile + interp suite green (DataValue-in-core first; low module + SpiValue convergence = Slice 5).
