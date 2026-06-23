@@ -13,7 +13,8 @@ import java.security.SecureRandom
  *  commitment (`B·share == Σ commitment_j · id^j`). */
 object FrostKeygen:
 
-  import Ed25519Group.L
+  private def ops: Ed25519Ops = Ed25519Ops.current
+  private def L: java.math.BigInteger = ops.L
 
   /** One participant's secret share: the polynomial evaluated at `id` (`id` is 1-based, never 0). */
   final case class Share(id: Int, value: BigInteger)
@@ -49,8 +50,8 @@ object FrostKeygen:
     val shares = (1 to total).map { id =>
       Share(id, evalPoly(coeffs, BigInteger.valueOf(id.toLong)))
     }.toList
-    val commitments = coeffs.map(a => Ed25519Group.encode(Ed25519Group.mulBase(a.mod(L)))).toList
-    KeyShares(Ed25519Group.encode(Ed25519Group.mulBase(sk)), shares, threshold, commitments)
+    val commitments = coeffs.map(a => ops.encode(ops.mulBase(a.mod(L)))).toList
+    KeyShares(ops.encode(ops.mulBase(sk)), shares, threshold, commitments)
 
   /** Horner evaluation of `Σ coeffs(j)·x^j` mod `L`. */
   private def evalPoly(coeffs: Array[BigInteger], x: BigInteger): BigInteger =
@@ -68,7 +69,7 @@ object FrostKeygen:
       val xj   = BigInteger.valueOf(j.toLong)
       val num  = xj
       val den  = xj.subtract(xi).mod(L)
-      acc.multiply(num).multiply(Ed25519Group.scalarInv(den)).mod(L)
+      acc.multiply(num).multiply(ops.scalarInv(den)).mod(L)
     }
 
   /** Reconstruct the secret scalar from `>= t` shares via Lagrange interpolation at `x=0`. */
@@ -83,14 +84,14 @@ object FrostKeygen:
   /** Verify a share against the public Feldman commitments: `B·value == Σ_j commitment_j · id^j`
    *  (fails if any commitment is undecodable). */
   def verifyShare(share: Share, commitments: List[Array[Byte]]): Boolean =
-    val lhs = Ed25519Group.mulBase(share.value.mod(L))
+    val lhs = ops.mulBase(share.value.mod(L))
     val x   = BigInteger.valueOf(share.id.toLong)
     // Accumulate (Σ commitment_j·x^j, x^j); None as soon as a commitment fails to decode.
     val rhs = commitments.foldLeft[Option[(Ed25519Group.Point, BigInteger)]](
-        Some((Ed25519Group.Identity, BigInteger.ONE))) { (acc, c) =>
+        Some((ops.identity, BigInteger.ONE))) { (acc, c) =>
       acc.flatMap { (sum, xp) =>
-        Ed25519Group.decode(c).map(cj =>
-          (Ed25519Group.add(sum, Ed25519Group.mul(xp, cj)), xp.multiply(x).mod(L)))
+        ops.decode(c).map(cj =>
+          (ops.add(sum, ops.mul(xp, cj)), xp.multiply(x).mod(L)))
       }
     }
-    rhs.exists((sum, _) => Ed25519Group.samePoint(lhs, sum))
+    rhs.exists((sum, _) => ops.samePoint(lhs, sum))
