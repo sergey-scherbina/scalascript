@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui: native-emit dispatch for `emit(view, dir)` (unblocks authoring a TUI `.ssc`)
+
+The `emit(view, outDir)` UI intrinsic now dispatches by the active frontend backend's `supportedPlatforms`
+instead of always calling the web `emit`: web backends still write `index.html`/`app.js`/`app.css`, while a
+native-only backend (the `tui` ratatui backend) routes through `emitNative` and writes its source tree
+(`Cargo.toml` + `src/main.rs`) to `outDir`, printing the build command (`cargo run`). `serve(view, port)` with
+a native backend now raises a clear `PluginError` (a terminal app isn't served over HTTP — use `emit`) instead
+of the opaque `UnsupportedOperationException` that `tui.emit` threw. Before this, a Tk `.ssc` with
+`frontend: tui` could not be built at all — `emit`/`serve` only ever called the web `emit`. So now:
+`frontend: tui` front-matter + `emit(view, "out/")` → `cd out && cargo run`. New
+`FrontendIntrinsics.emitFrontendArtifact` (the testable dispatch) + `FrontendNativeEmitTest` (2 cases: native
+writes the crate tree, web writes html/js); `frontendPlugin/test` 10/10. Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui slice 5: fetch data binding — MILESTONE COMPLETE (slices 0–5)
 
 `TuiEmitter.collectFetches` finds every `FetchUrlSignal` (which is a `ReactiveSignal[String]` carrying a URL)

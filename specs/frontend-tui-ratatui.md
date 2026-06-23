@@ -8,10 +8,18 @@ crossterm redraw loop (slice 2), a focus ring with keyboard events that mutate t
 `frontendTui/test` **28/28** — fast string-match cases + three `assume(cargo)` end-to-end smokes that build +
 run the emitted crate (incl. a local-`HttpServer` fetch test). Any backend-selection input
 (`-Dscalascript.frontend=tui` / front-matter / inline) resolves it. The rozum side can now author its control
-center as one `std/ui` Tk `.ssc` app and compile it to a terminal binary. Remaining are follow-ups (per-slice
-notes below): `Style`/`Theme` color mapping, `A11y.focusOrder` seeding + hidden-branch focus skip,
-typed-model/`DataTable.Remote` dynamic rows, overlays (`Sheet`/`AlertDialog`), and the CLI `--frontend tui`
-native-emit flag.
+center as one `std/ui` Tk `.ssc` app and compile it to a terminal binary.
+
+**User entrypoint (native-emit dispatch, 2026-06-23):** `emit(view, outDir)` from a `.ssc` with `frontend: tui`
+now writes the ratatui crate (`Cargo.toml` + `src/main.rs`) to `outDir` and prints the build command — then
+`cd outDir && cargo run`. The `emit` intrinsic (`FrontendIntrinsics.emitFrontendArtifact`) dispatches by the
+backend's `supportedPlatforms`: web backends → html/js as before; native-only backends (tui) → `emitNative`'s
+source tree. `serve(view, port)` with a native backend now fails with a clear message (a terminal app isn't
+served over HTTP — use `emit`). This was the seam that blocked authoring a Tk `.ssc` for TUI.
+
+Remaining follow-ups (per-slice notes below): `Style`/`Theme` color mapping, `A11y.focusOrder` seeding +
+hidden-branch focus skip, typed-model/`DataTable.Remote` dynamic rows, overlays (`Sheet`/`AlertDialog`), and a
+dedicated `ssc` CLI verb (today the entrypoint is the `emit(view, dir)` intrinsic + `frontend: tui` front-matter).
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
