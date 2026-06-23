@@ -2,7 +2,7 @@ package scalascript.compiler.plugin.frontend
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.frontend.{ReactiveSignal, SeedSignal, EventHandler, View, AttrValue, FrontendModule, ComponentDef, FrontendFrameworks}
+import scalascript.frontend.{ReactiveSignal, SeedSignal, EventHandler, View, AttrValue, FrontendModule, ComponentDef, FrontendFrameworks, FrontendFrameworkSpi, Platform}
 import scalascript.ast.ModelDef
 import scalascript.plugin.api.{PluginContext, PluginError, PluginNative, PluginValue}
 import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Lst, Inst, MapVal, Foreign, Fn}
@@ -250,8 +250,16 @@ object FrontendIntrinsics:
     FrontendModule(List(app), "App", "/", extraCss, models = models)
 
   private def uiEmitToTempDir(ctx: scalascript.plugin.api.StorageCap, view: View[?], extraCss: String): String =
+    val backend = FrontendFrameworks.current()
+    if !backend.supportedPlatforms.contains(Platform.Web) then
+      PluginError.raise(
+        s"serve(view, port) renders a web SPA, but the active frontend backend " +
+        s"'${backend.name}' is native-only (${backend.supportedPlatforms.mkString(", ")}). " +
+        s"Use emit(view, outDir) to write the native app sources, then build them " +
+        s"(e.g. `cargo run` for the tui backend)."
+      )
     val module  = uiBuildModule(ctx, view, extraCss)
-    val emitted = FrontendFrameworks.current().emit(module)
+    val emitted = backend.emit(module)
     val tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
     java.nio.file.Files.writeString(tmpDir.resolve("index.html"), emitted.html)
     java.nio.file.Files.writeString(tmpDir.resolve("app.js"),     emitted.js)
@@ -260,12 +268,40 @@ object FrontendIntrinsics:
     tmpDir.toString
 
   private def uiEmitToDir(ctx: scalascript.plugin.api.StorageCap, view: View[?], dir: String, out: java.io.PrintStream): Unit =
-    val module  = uiBuildModule(ctx, view)
-    val emitted = FrontendFrameworks.current().emit(module)
-    val p = java.nio.file.Paths.get(dir)
+    val module = uiBuildModule(ctx, view)
+    val p      = java.nio.file.Paths.get(dir)
     java.nio.file.Files.createDirectories(p)
-    java.nio.file.Files.writeString(p.resolve("index.html"), emitted.html)
-    java.nio.file.Files.writeString(p.resolve("app.js"),     emitted.js)
-    if emitted.css.nonEmpty then
-      java.nio.file.Files.writeString(p.resolve("app.css"), emitted.css)
-    out.println(s"[ui.emit] wrote index.html + app.js → $dir")
+    out.println(emitFrontendArtifact(FrontendFrameworks.current(), module, p))
+
+  /** Dispatch the active frontend backend to the right artifact form: a web
+   *  SPA (`emit` → html/js/css) or a native app bundle (`emitNative` → a
+   *  source/resource file tree, e.g. the ratatui `Cargo.toml` + `src/main.rs`
+   *  for the `tui` backend). Returns the human-facing log line. */
+  private[frontend] def emitFrontendArtifact(
+      backend: FrontendFrameworkSpi,
+      module:  FrontendModule,
+      p:       java.nio.file.Path,
+  ): String =
+    if backend.supportedPlatforms.contains(Platform.Web) then
+      val emitted = backend.emit(module)
+      java.nio.file.Files.writeString(p.resolve("index.html"), emitted.html)
+      java.nio.file.Files.writeString(p.resolve("app.js"),     emitted.js)
+      if emitted.css.nonEmpty then
+        java.nio.file.Files.writeString(p.resolve("app.css"), emitted.css)
+      s"[ui.emit] wrote index.html + app.js → $p"
+    else
+      val platform = backend.supportedPlatforms.headOption.getOrElse(Platform.All)
+      backend.emitNative(module, platform) match
+        case Some(app) =>
+          (app.sources.iterator.map(s => (s._1, Right(s._2): Either[Array[Byte], String])) ++
+           app.resources.iterator.map(r => (r._1, Left(r._2): Either[Array[Byte], String]))).foreach {
+            case (rel, payload) =>
+              val f = p.resolve(rel)
+              Option(f.getParent).foreach(java.nio.file.Files.createDirectories(_))
+              payload match
+                case Right(text)  => java.nio.file.Files.writeString(f, text)
+                case Left(bytes)  => java.nio.file.Files.write(f, bytes)
+          }
+          s"[ui.emit] wrote ${backend.name} app (${app.format}) → $p   —   build: ${app.buildScript}"
+        case None =>
+          s"[ui.emit] backend '${backend.name}' does not support platform $platform"
