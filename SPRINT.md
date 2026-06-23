@@ -20,14 +20,12 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       advanced opt-in prelude cleanup landed after `coremin-hybrid-split`, and changed old block-form template
       notes from "next work" to historical "later landed" wording. No code changed; active `core-min-value-unification`
       claim/worktree untouched.
-- [~] **backlog-hygiene** — docs-only classification pass for stale BACKLOG open items.
-      **Scope:** make `BACKLOG.md` easier for agents to read by separating genuinely open work from blocked,
-      deferred/product-gated, and historical/wontfix items. Target the current noisy matches:
-      `remote-package-registry`, `std-nfc-packager-adapters`, `@wasmExport/@wasmImport`, history-only perf
-      rows (`hof-glue-jit-compile`, `vectorize-pure-loop`, `direct-style-eval`), `arch-distribution-p3`,
-      browser-WebSocket harness, WC project-id, FROST, `registry.scalascript.io`, and `demand-driven-from-busi`.
-      **Do not touch code** and do not edit active value-unification work. **Verify:** `rg '^- \\[ \\] \\*\\*|^- \\[ \\] ' BACKLOG.md`
-      shows only intentional open/blocked/deferred/product items, with history rows no longer looking claimable.
+- [x] **backlog-hygiene** ✓ DONE 2026-06-23 — docs-only classification pass for stale BACKLOG open items.
+      Added a status-hygiene note to `BACKLOG.md`; marked `@wasmExport/@wasmImport` out-of-scope by design;
+      converted history-only perf rows (`hof-glue-jit-compile`, `vectorize-pure-loop`, `direct-style-eval`) and
+      `demand-driven-from-busi` to non-checkbox notes; consolidated duplicate `registry.scalascript.io` under
+      `remote-package-registry`; and labelled the remaining intentional `[ ]` rows as `BLOCKED` or `DEFERRED`
+      where appropriate. No code changed; active value-unification work untouched.
 
 ### ▶ Unblocked & claimable now (2026-06-22 eve, with Sergiy — "занеси в спринт всё что не заблокировано")
 

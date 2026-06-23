@@ -10,6 +10,10 @@ This backlog was tidied 2026-06-15: completed milestones moved to `CHANGELOG.md`
 history; only sections with open `[ ]` items remain below. The full detailed history of the
 55 archived milestones is recoverable from git (`git log -p BACKLOG.md`).
 
+Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open, but many are
+explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
+are plain bullets without checkboxes so agents do not claim them as build work.
+
 ## Roadmap — agreed priority order (2026-06-17, with Sergiy)
 
 Drive top-to-bottom, one major theme at a time. **Maven/centralized publication is dead
@@ -117,7 +121,7 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       family is later found to have *true* code duplication, factor the shared part into one library module
       the impls depend on (targeted refactor, not family grouping).
 
-- [ ] **remote-package-registry** (Tier 3, strategic/product) — the plugin ecosystem story is
+- [ ] **remote-package-registry** (DEFERRED product / Tier 3 strategic) — the plugin ecosystem story is
       local-only (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, all LANDED). The SPI
       already supports third-party intrinsic packages (`.sscpkg`), but there's no `registry.scalascript.io`
       to discover/distribute them — deferred "no concrete demand yet". This is the missing piece to
@@ -136,7 +140,7 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
 
 ## Native Platform follow-ups
 
-- [ ] **std-nfc-packager-adapters** — Consume
+- [ ] **std-nfc-packager-adapters** (BLOCKED: real packagers/device-browser harnesses) — Consume
       `scalascript.frontend.NativePlatformRequirements` in the SwiftUI/iOS,
       Android, and Web/PWA packagers, then implement real `std.nfc` read/write
       adapters where those targets exist. HOW: keep `runtime/std/nfc.ssc`
@@ -187,8 +191,9 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
       with a clear diagnostic. **Complete for wasm — common + advanced cases all run** (40 `WasmBackendTest`);
       any dynamic method outside the linkable `_dispatch` subset now errors clearly (was a reflection call on JVM).
       All additive, wasm-only.
-- [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the
-      Scala.js path owns the wasm ABI); would need a direct-emit wasm backend, not the Scala.js one.
+- [x] **`@wasmExport` / `@wasmImport`** ✓ OUT OF SCOPE BY DESIGN — raw WASM ABI export/import would need a
+      direct-emit wasm backend, not the current Scala.js-owned wasm path. Do not treat this as claimable
+      backlog without a new backend decision.
 
 ## Interpreter Performance — Open Targets
 
@@ -243,7 +248,7 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       `using`-param/given-member-access support in the JIT — a large architectural effort gated on the
       dual-bank `LExpr` VM work, risky (JIT is on every hot path). Big win is *possible* but it rides that VM
       roadmap; NOT a bounded slice. History below.
-- [ ] ~~**hof-glue-jit-compile** (history)~~ (deep; reframed from `hof-dispatch-cpu-devirt`, investigated
+- **hof-glue-jit-compile** (history only; not claimable) — deep; reframed from `hof-dispatch-cpu-devirt`, investigated
       2026-06-13) — **PARTIAL interp slice landed 2026-06-13** (fused curried
       `List.foldLeft(z)(g)` fast-path in `evalApplyGeneral`: `typeclassFoldMacro` 1.259 → 1.127
       ms/op, **−10.5%**; `FusedFoldLeftTest`). The **full lever is still open.**
@@ -279,7 +284,7 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       non-polynomial hot-loop benchmark that motivates it, and the cost (incubator `--add-modules`, ABI
       churn, tail-loop handling) is real. Do NOT build speculatively; revisit ONLY if a concrete
       non-polynomial pure-arithmetic hot loop appears as a real workload. Original sketch below.
-- [ ] ~~**vectorize-pure-loop** (history)~~ — Use `jdk.incubator.vector.LongVector` inside
+- **vectorize-pure-loop** (history only; not claimable) — Use `jdk.incubator.vector.LongVector` inside
       `tryCompileWhileLong` to batch 4–8 lanes when the body is pure arithmetic
       on the counter. Expected 4–8× speedup on `pureCallSumIf` (if the recognized
       grammar for `walkLinearPoly` is extended) and similar shapes. `pureCallSum*`
@@ -301,7 +306,7 @@ the contracts are explicit.
       the ≥15% gate against a 1200-site, high-risk migration. The win these shapes want is JIT/devirt, not
       direct-style. Do NOT start without a real workload where `Pure` dominates a *tree-walked* path. Original
       below.
-- [ ] ~~**direct-style-eval** (history)~~ (DEFERRED — data-disproven) — migrate `eval(...): Computation`
+- **direct-style-eval** (history only; data-disproven, not claimable) — migrate `eval(...): Computation`
       to direct-style `eval(...): Value` to kill per-call `Pure` allocation. **Re-validated
       2026-06-13** (`specs/direct-style-eval-spec.md` §11.1): on the representative tree-walked
       workload `Computation.Pure` is only ~16% of allocation; the dispatch machinery (~66%)
@@ -319,7 +324,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme C — Distribution ecosystem (multi-channel, not Maven-only)
 
-- [ ] **arch-distribution-p3** — First-party Maven Central publication
+- [ ] **arch-distribution-p3** (DEFERRED: explicit publication go required) — First-party Maven Central publication
   (deferred; not queued):
   `project/Publishing.scala`; `io.scalascript` group ID unified; publish
   `scalascript-core`, `scalascript-runtime`, `sbt-scalascript` on tag push;
@@ -442,7 +447,7 @@ Stage 5a — light up the deferred KDF + AEAD primitives in
 Stage 6a — extend `CryptoBackend` SPI with the primitives WC needs
 (additive only — no existing-method breakage):
 
-- [ ] **Real browser-WebSocket integration testing** — JS tests
+- [ ] **Real browser-WebSocket integration testing** (BLOCKED: real browser + WalletConnect relay/project) — JS tests
       currently mock `BrowserWebSocket` (Node has no native
       `WebSocket` in the test runtime).  Live integration against
       `wss://relay.walletconnect.com` lands in the future PWA-wallet
@@ -478,7 +483,7 @@ Landed in tandem with blockchain-spi Phase 1.
 
 ### Phase 4 — DappConnector WalletConnect v2 (scaffold landed 2026-05-20)
 
-- [ ] WC project-ID open question — still pending; the transport
+- [ ] **WC project-ID open question** (DEFERRED deployment config) — still pending; the transport
       accepts a `projectId` argument on both platforms but CI does
       not yet provision one. To resolve before first production
       deployment.
@@ -496,7 +501,7 @@ device, one seed, per-chain on-device apps; the Vault routes
 
 ### Phase 8 — MPC Vault
 
-- [ ] FROST-Ed25519 and future MPC variants — deferred until a concrete
+- [ ] **FROST-Ed25519 and future MPC variants** (DEFERRED: concrete use case/partner required) — deferred until a concrete
       production use case or partner request arrives.
 
 ---
@@ -532,12 +537,9 @@ The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-e
       runner a hard timeout that actually fires + deadlock-free stream draining, so a wedged scala-cli/node
       fails fast instead of hanging the job. The interp==JVM(scala-cli) leg stays gated (Conformance job
       covers it). Definitive cross-backend guarantee now standing in CI.
-- [ ] **registry.scalascript.io (remote package registry)** — the strategic platform move: the SPI +
-      `.sscpkg` + `pkg:` resolver + `ssc install` are all built and local-only; a remote registry is the
-      missing piece to unlock the third-party plugin ecosystem the SPI was designed for. Product decision
-      (build when there's a real external plugin author). Extends `specs/arch-build-registry.md`. (Dup of
-      the existing `remote-package-registry` backlog item — consolidate when picked up.)
-- [ ] **demand-driven-from-busi** (ongoing, not a discrete task) — the `busi` rozum channel is the live
+- [x] **registry.scalascript.io (remote package registry)** ✓ DUPLICATE — consolidated into the
+      `remote-package-registry` item above. Keep the concrete registry-domain discussion there.
+- **demand-driven-from-busi** (ongoing signal, not a claimable task) — the `busi` rozum channel is the live
       testbed and the highest-signal priority source; it is currently quiet. Proactively building one
       comprehensive real app (or asking busi what's painful) surfaces the gaps that matter more than any
       speculative backlog item. Keep sweeping the room per the rozum skill.

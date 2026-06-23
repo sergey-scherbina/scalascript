@@ -4,6 +4,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — docs: BACKLOG open-item hygiene
+
+Classified stale `BACKLOG.md` open rows so agents can distinguish claimable work from
+blocked, deferred/product-gated, duplicate, and history-only notes. No code changed.
+
 ## 2026-06-23 — rust backend: index `List` parameters as Vecs
 
 Fixed another Rust lowering gap exposed by the rozum meeting client rebuild: `xs(0)` on a
