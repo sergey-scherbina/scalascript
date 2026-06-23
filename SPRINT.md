@@ -292,11 +292,29 @@ validated + pushed:
       JsonParser→JsonCodec/ujson + 6 `NativeFnV`/`Computation.Pure` blocks → `PluginValue.nativeFn`),
       frontend ✓ (8, ctx=22 all caps; FunV/NativeFnV arms → new `PluginValue.Fn` extractor)** — all single-file.
       ENABLERS added to PluginApi: `Fn` extractor (any callable: FunV|NativeFnV) + `isCallable`.
-      Remaining (3): http (jsonToJson), mcp (OAuthBridge — move registry to plugin.api), content (2144 loc) —
-      the genuinely ctx-heavy / bridge-coupled giants. Migrate ctx → capability traits AND value-surface.
-- [ ] **p3-enforce** (after all 28 clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
+      Remaining (3): http, mcp, content — the genuinely ctx-heavy / bridge-coupled giants.
+- [ ] **p3-giants** (8 left = the only plugins still importing scalascript.interpreter). All ctx is covered by
+      EXISTING caps — these are big-but-mechanical value/NativeFnV passes PLUS one bridge each. Per-plugin scope:
+  - **http** (718 loc, 21 NativeFnV, 57 ctx — ALL 33 distinct ctx methods already on HttpCap&WsCap&Storage&Mount).
+        jsonToJson → `PluginValue.jsonEncode` (have it). ONE new bridge needed: `scalascript.interpreter.
+        TypedHandlerWrapper.wrapIfTyped(handler, invoke:(Value,List[Value])=>Value, globalsView:Map[String,Value],
+        mountedPath, errorDetails): Value` — add a `PluginValue.wrapTypedHandler(...)` seam delegating to it
+        (find where http obtains `globalsView` at HttpIntrinsics:589). Then mechanical value/NativeFnV pass.
+  - **oauth** (5-file web: OAuthIntrinsics 335 + OAuthHttp + OidcHttp + OAuthClientIntrinsics + OidcHelpers, all
+        share `Value`-typed helpers `toStringSet`/`ujsonToValue`/`valueToUjson` across files → migrate the WHOLE
+        plugin at once). PLUS move `OAuthBridge` (1-field ConcurrentHashMap in lang/core/interpreter, shared with
+        mcp + 1 interp test) → `scalascript.plugin.api.OAuthBridge`; update mcp + McpOAuthBridgeTest imports.
+        ctx.invokeCallback already on MountCap. Uses ujson directly (visible to plugins, confirmed via remote).
+  - **mcp** (1508 loc) — needs the OAuthBridge move (do with oauth) + big value pass.
+  - **content** (2144 loc — largest), **dstreams** (1130, 56 NativeFnV), **streams** (1344, 67 NativeFnV/38ctx),
+        **graphql** (2 files, 7 NativeFnV/18ctx) — big-but-mechanical with `nativeFn` + the value extractors.
+  - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL: it lives in package `scalascript.interpreter.actors`
+        and implements the ActorRuntimeProvider SPI — NOT an intrinsics table. Separate treatment (SPI relocation).
+- [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
-      Status to "Phase 3 complete".
+      Status to "Phase 3 complete". STATUS: 20/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+      sql/remote/frontend). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/jsonFacade/
+      fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec.
 
 In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
