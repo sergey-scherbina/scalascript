@@ -45,6 +45,13 @@ object PluginValue:
     Value.OptionV(o.map(_.asInstanceOf[Value]).orNull)
   val unit:                           PluginValue = Value.UnitV
   def bigint(n: BigInt):              PluginValue = Value.BigIntV(n)
+  /** Render ANY value: a runtime value via the interpreter's `show`, a native Scala value via
+   *  `toString`. Lets a plugin replace `value match { case v: Value => Value.show(v); case x => x.toString }`. */
+  def showAny(v: Any): String = v match
+    case rv: Value => Value.show(rv)
+    case _         => String.valueOf(v)
+  /** True if `v` is an interpreter runtime value (not a native Scala primitive/object). */
+  def isRuntimeValue(v: Any): Boolean = v.isInstanceOf[Value]
   /** A case-class / record instance (`typeName` + named fields). */
   def instance(typeName: String, fields: Map[String, PluginValue]): PluginValue =
     Value.InstanceV(typeName, fields.map((k, v) => (k, v.asInstanceOf[Value])))
