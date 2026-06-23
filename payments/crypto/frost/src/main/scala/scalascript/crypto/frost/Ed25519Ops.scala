@@ -1,7 +1,6 @@
 package scalascript.crypto.frost
 
 import java.math.BigInteger
-import java.security.MessageDigest
 
 /** The Ed25519 primitive operations FROST is built on — the **pluggable backend seam**, mirroring the project's
  *  `CryptoBackend` SPI (registry + per-platform substitution).
@@ -57,9 +56,7 @@ object Ed25519Ops:
     def scalarReduce(a: BigInteger)             = Ed25519Group.scalarReduce(a)
     def secretScalar(seed: Array[Byte])         = Ed25519Group.secretScalar(seed)
     def sha512(parts: Array[Byte]*): Array[Byte] =
-      val md = MessageDigest.getInstance("SHA-512")
-      parts.foreach(md.update)
-      md.digest()
+      Sha512.digest(parts.foldLeft(Array.emptyByteArray)(_ ++ _))
 
   @volatile private var _current: Ed25519Ops = Reference
 

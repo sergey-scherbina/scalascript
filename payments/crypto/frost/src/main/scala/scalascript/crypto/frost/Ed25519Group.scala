@@ -1,7 +1,6 @@
 package scalascript.crypto.frost
 
 import java.math.BigInteger
-import java.security.MessageDigest
 
 /** Pure Ed25519 group arithmetic — the RFC 8032 reference algorithm, `java.math.BigInteger`-backed, with NO
  *  external dependency (FROST-Ed25519 slice 1, the foundation the threshold scheme is built on).
@@ -121,7 +120,7 @@ object Ed25519Group:
    *  (RFC 8032 §5.1.5); the public key is `encode(B · scalar)`. Used to gate the group ops against a
    *  reference Ed25519 keygen. */
   def secretScalar(seed: Array[Byte]): BigInteger =
-    val h = MessageDigest.getInstance("SHA-512").digest(seed)
+    val h = Sha512.digest(seed)
     val a = h.take(32)
     a(0)  = (a(0) & 0xF8).toByte
     a(31) = ((a(31) & 0x7F) | 0x40).toByte
