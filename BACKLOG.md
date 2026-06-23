@@ -56,10 +56,16 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       Gate: age reference vectors; round-trip with the `age` CLI.
 
 **Track 4 — "invent our own" products:**
-- [ ] **threshold-custody-wallet** (the natural product; unblocked by `frost-secp256k1` +
-      `frost-distributed-transport`) — compose `cryptoFrost` + `walletVaultMpcFrost` + the transport into a
-      packaged, vendor-optional distributed threshold-custody wallet (~90% of parts already exist). Gate: a
-      deployable multi-host demo signs without co-located shares; shipped as a product example.
+- [x] **threshold-custody-wallet** ✓ DONE 2026-06-24 — composed `cryptoFrost` (FROST-Ed25519) +
+      `walletVaultMpcFrost` + an HTTP transport into a working distributed threshold-custody wallet.
+      `FrostParticipantServer` (JDK `HttpServer`, holds ONE share, exposes `/round1` `/round2` `/health`) +
+      `DistributedFrostSigningClient` (a `RemoteSigningClient` coordinator holding the group key + participant
+      URLs but **no shares**, runs the 2-round protocol over HTTP/JSON and aggregates a standard Ed25519
+      signature). **Gate MET:** a multi-host test (each share on its own localhost port = its own "host") signs
+      with no co-located shares and the sig verifies under standard Ed25519 (2-of-3, 3-of-5); it drops straight
+      into `McpVault` (unlock→getSigner→sign) — the threshold-custody-wallet end to end; `health()` is false when
+      `<t` participants are reachable. walletVaultMpcFrost 8/0. Transport is HTTP/JSON; a WS or actor-cluster
+      transport is the same protocol over a different pipe (bodies unchanged). No new deps (JDK http + ujson).
 - [ ] **micropayment-own-scheme** — a new off-chain settlement scheme behind the existing `ChannelProvider` SPI
       (`payments/micropayment`). Gate: open→pay→settle lifecycle test, parity with existing providers.
 - [ ] **distributed-infra** (speculative) — reference-first oracle/attestation, content-addressed storage, and

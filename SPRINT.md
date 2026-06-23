@@ -192,11 +192,12 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       `t`-of-`n` distributed run produces a valid BIP-340 signature (2-of-3 all subsets, 3-of-5, 5-of-5);
       byte-identical to the in-process path for the same nonces; only public data (33-byte commitments + partial
       scalars, never a share) crosses the transport (asserted via a recording transport). cryptoFrost JVM 39 / JS
-      25. **Remaining (deployment-specific):** a concrete HTTP/WS or actor-cluster `Transport` impl — a drop-in
-      that serializes the same public round-1/round-2 messages over the wire (the protocol + gate are done here;
-      the substrate binding lives in a wallet/x402 module that depends on this API). Unblocks
-      `threshold-custody-wallet` (BACKLOG). **Also hardened the pre-existing `shamir-secret-backup` tamper test**
-      (single-byte high/padding flips are truncation-masked by design → corrupt the whole share).
+      25. **Concrete HTTP transport DONE 2026-06-24** (walletVaultMpcFrost): `FrostParticipantServer` (JDK
+      HttpServer, one share/host, `/round1` `/round2` `/health`) + `DistributedFrostSigningClient` (share-free
+      coordinator over HTTP/JSON) → multi-host distributed FROST-Ed25519, verified under standard Ed25519, plugged
+      into `McpVault` = **threshold-custody-wallet DONE** (BACKLOG). WS/actor transport = same protocol, different
+      pipe. **Also hardened the pre-existing `shamir-secret-backup` tamper test** (single-byte high/padding flips
+      are truncation-masked by design → corrupt the whole share).
 
 - [x] **totp-hotp** ✓ DONE 2026-06-23 — HOTP (RFC 4226, counter) + TOTP (RFC 6238, time) in `Totp`
       (cryptoSpi/shared), fully PORTABLE (no SPI backend): added portable `Sha1` (FIPS 180) + generic `Hmac`
