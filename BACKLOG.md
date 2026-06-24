@@ -66,8 +66,17 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       into `McpVault` (unlock→getSigner→sign) — the threshold-custody-wallet end to end; `health()` is false when
       `<t` participants are reachable. walletVaultMpcFrost 8/0. Transport is HTTP/JSON; a WS or actor-cluster
       transport is the same protocol over a different pipe (bodies unchanged). No new deps (JDK http + ujson).
-- [ ] **micropayment-own-scheme** — a new off-chain settlement scheme behind the existing `ChannelProvider` SPI
-      (`payments/micropayment`). Gate: open→pay→settle lifecycle test, parity with existing providers.
+- [x] **micropayment-own-scheme** ✓ DONE 2026-06-24 — **PayWord hash-chain** scheme (`payments/micropayment/
+      hashchain`, `ChannelKind.HashChain`): a from-scratch off-chain scheme over the portable crypto — one
+      Ed25519-signed commitment at open (payer authorizes the chain tip `wₙ = SHA256ⁿ(seed)`), then **signature-free
+      per-payment preimage reveals** (`w₍ₙ₋ᵤ₎`, verified with one SHA-256, no round-trip). `HashChain` (crypto) +
+      `HashChainChannel` (MicropaymentChannel: pay reveals, receive verifies vs tip / incrementally, settle redeems
+      the deepest reveal) + `HashChainProvider` (ChannelProvider). **Gate MET:** open→pay→receive→settle lifecycle +
+      signed-commitment verify, forged-preimage / replay / over-capacity / non-multiple rejection, and the
+      deepest-reveal-proves-cumulative property (payee may skip intermediates). 7/7; all other micropayment
+      consumers recompile clean (ChannelKind addition safe). Settlement is off-chain accounting + the redemption
+      proof (deepest preimage + signed commitment) — parity with the probabilistic provider's deferred on-chain
+      claim.
 - [ ] **distributed-infra** (speculative) — reference-first oracle/attestation, content-addressed storage, and
       gossip/CRDT layers over the actor/cluster substrate + crypto SPI. Gate: per-component correctness + a
       cluster integration test.

@@ -8,6 +8,7 @@ enum ChannelKind:
   case HydraHead
   case Probabilistic
   case L2Native
+  case HashChain
 
 trait ChannelProvider:
   def kind: ChannelKind
