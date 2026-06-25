@@ -4,21 +4,20 @@ Bootstrap milestones for the clean-room self-hosting build. Architecture and dec
 [`specs/00-overview.md`](specs/00-overview.md). The bottom layer (kernel + seed) is the
 permanent trusted base; everything above it is ScalaScript compiled to Core IR.
 
-## K0 — Freeze Core IR  ◀ current
+## K0 — Freeze Core IR  ✅ COMPLETE (2026-06-25)
 
-Pin the untyped kernel language before any code.
+Pinned the untyped kernel language before any code.
 
-- [x] `specs/10-core-ir.md` v0 — value domain (10 shapes), 11 nodes, big-step semantics,
-      primitive table, program envelope, conformance sketch.
-- [x] Evaluation strategy decided: strict CBV + guaranteed TCO; laziness = thunk library
-      (D7). Numeric tower decided: `Int`/`BigInt`/`Float` all primitive (D8).
-- [ ] Final node-set sign-off (the 11 nodes / 10 values) → declare Core IR **frozen**.
-- [ ] `specs/12-ir-format.md` — canonical serialization (kernel-owned; what `coreir.encode`
-      emits). Needed before the seed can target a stable format.
-- [ ] Hand-write the conformance programs (factorial, list map, small match) as serialized
-      Core IR fixtures — the acceptance set for K1.
+- [x] `specs/10-core-ir.md` **frozen v1** — value domain (10 shapes), 11 nodes, big-step
+      semantics, primitive table, program envelope, conformance sketch.
+- [x] Evaluation strategy: strict CBV + guaranteed TCO; laziness = thunk library (D7).
+      Numeric tower: `Int`/`BigInt`/`Float` all primitive (D8).
+- [x] Node-set / value-domain signed off (11 nodes / 10 values) — frozen.
+- [x] `specs/12-ir-format.md` — canonical S-expr serialization (v1).
+- [x] `specs/15-ssc0.md` — `ssc₀` grammar + lowering (the seed contract).
+- [x] `conformance/*.coreir` — fact, map, thunk, letrec, tco (the K1 acceptance set).
 
-## K1 — Scala evaluator (the kernel)
+## K1 — Scala evaluator (the kernel)  ◀ current
 
 The only long-lived inner Scala. Target: a few thousand lines, correctness over speed.
 

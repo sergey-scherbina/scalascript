@@ -1,8 +1,10 @@
 # 10 — Core IR
 
-> Status: **design v0** (strawman to freeze). The keystone spec: everything in ssc 2.0
-> compiles to Core IR, and the Scala evaluator runs it. `ssc₀`, the seed, and every
-> backend derive from this. Once frozen, changes here are rare and ripple everywhere.
+> Status: **FROZEN v1** (2026-06-25). The keystone spec: everything in ssc 2.0 compiles to
+> Core IR, and the Scala evaluator runs it. `ssc₀`, the seed, and every backend derive from
+> this. The value domain (10 shapes) and node set (11 nodes) are frozen — a change here is a
+> **version bump** (`v2`) that must update the evaluator, the seed, and `12-ir-format.md`
+> together. Decisions: D1–D8 in [`00-overview.md`](00-overview.md).
 
 Core IR is the **untyped inner kernel language** ([overview](00-overview.md)). It is the
 language's formal semantic contract: one definition, every backend agrees on it.
@@ -25,7 +27,11 @@ language's formal semantic contract: one definition, every backend agrees on it.
 3. **Locals are de Bruijn indices; globals are named.** Local binders (λ params, `let`,
    `letrec`, `match` fields) are referenced by de Bruijn index — capture-free, and
    α-equivalence becomes *structural* equality (so the fixpoint/diff test is a plain
-   structural comparison). Top-level definitions are referenced by stable **name**
+   structural comparison). **Multi-binders bind right-to-left: the *last* of a group is
+   index `0`** (the curried reading `λx₁.….λxₙ` ⇒ `xₙ` is innermost) — so in `Lam n`/`Let`/a
+   `match` arm of arity `k`, the last param / rhs / field is `Local 0` and the first is
+   `Local (k-1)`; outer bindings shift up by `k` inside the binder. Top-level definitions
+   are referenced by stable **name**
    (robust across edits; good for incremental builds and the diff test). An optional
    human-readable name may be attached to any binder as a **debug annotation that the
    evaluator ignores and the canonical serialization excludes**.
@@ -164,8 +170,8 @@ binding lists evaluate left to right.
    ────────────────────────────────────────────          (Let)
             Σ; ρ ⊢ Let [r_1..r_n] body ⇓ v
 
-   ρ' = (c_1 :: … :: c_n :: ρ)   where c_i = Clos(ρ', n_i, b_i)   -- cyclic: each c_i sees all
-   Σ; ρ' ⊢ body ⇓ v
+   ρ' = (c_n :: … :: c_1 :: ρ)   where c_i = Clos(ρ', n_i, b_i)   -- last binding = index 0,
+   Σ; ρ' ⊢ body ⇓ v                                              -- cyclic: each c_i sees all
    ────────────────────────────────────────────          (LetRec)  -- bindings must be Lam
             Σ; ρ ⊢ LetRec [Lam n_i b_i] body ⇓ v
 
@@ -296,12 +302,12 @@ def fact = Lam 1 (
 entry = App (Global fact) [Lit 5]            -- ⇓ Int 120
 
 -- list map  (list = Data "Cons" [h,t] | Data "Nil" [])
-def map = Lam 2 (                            -- Local 0 = f, Local 1 = xs
-  Match (Local 1)
+def map = Lam 2 (                            -- params (f, xs): xs = Local 0, f = Local 1
+  Match (Local 0)                            -- match on xs
     [ ("Nil",  0, Ctor "Nil" [])
-    , ("Cons", 2, Ctor "Cons"                -- match binds head→Local0, tail→Local1
-        [ App (Local 2) [Local 0]            -- f head        (Local 2 = f, shifted by 2)
-        , App (Global map) [Local 2, Local 1] ]) ]   -- map f tail
+    , ("Cons", 2, Ctor "Cons"                -- Cons(h,t) binds h = Local 1, t = Local 0;
+        [ App (Local 3) [Local 1]            --   f, xs shift +2 ⇒ f = Local 3.   f head
+        , App (Global map) [Local 3, Local 0] ]) ]   -- map f tail
     Nothing)
 ```
 

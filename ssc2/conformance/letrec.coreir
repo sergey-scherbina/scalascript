@@ -1,0 +1,14 @@
+; mutual recursion via letrec: even/odd.  group [even, odd] => even = local 1, odd = local 0
+; inside each (lam 1) body the param shifts the pair up by 1: n=0, odd=1, even=2
+; even(10) = true
+(program
+ (defs
+  (def main
+   (lam 0
+    (letrec
+      ((lam 1 (if (prim i.eq (local 0) (lit (int 0))) (lit true)
+                  (app (local 1) (prim i.sub (local 0) (lit (int 1))))))   ; even -> odd
+       (lam 1 (if (prim i.eq (local 0) (lit (int 0))) (lit false)
+                  (app (local 2) (prim i.sub (local 0) (lit (int 1)))))))  ; odd  -> even
+      (app (local 1) (lit (int 10)))))))                                   ; even(10)
+ (entry (app (global main))))

@@ -1,0 +1,13 @@
+; tail-recursive loop summing 1..1_000_000  =>  500000500000
+; loop(n, acc): n = local 1, acc = local 0.  The else-branch call is in tail position,
+; so this MUST run in constant stack (invariant 7 / TCO).
+(program
+ (defs
+  (def loop
+   (lam 2
+    (if (prim i.eq (local 1) (lit (int 0)))
+        (local 0)
+        (app (global loop)
+             (prim i.sub (local 1) (lit (int 1)))
+             (prim i.add (local 0) (local 1)))))))
+ (entry (app (global loop) (lit (int 1000000)) (lit (int 0)))))

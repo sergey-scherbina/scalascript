@@ -1,0 +1,16 @@
+; map double [1,2,3]  =>  Cons 2 (Cons 4 (Cons 6 Nil))
+; params (f, xs): xs = local 0, f = local 1.  Inside Cons(h,t): h = local 1, t = local 0, f shifts to local 3.
+(program
+ (defs
+  (def double (lam 1 (prim i.mul (local 0) (lit (int 2)))))
+  (def map
+   (lam 2
+    (match (local 0)
+      ((arm Nil  0 (ctor Nil))
+       (arm Cons 2 (ctor Cons (app (local 3) (local 1))
+                              (app (global map) (local 3) (local 0)))))))))
+ (entry
+  (app (global map) (global double)
+       (ctor Cons (lit (int 1))
+             (ctor Cons (lit (int 2))
+                   (ctor Cons (lit (int 3)) (ctor Nil)))))))

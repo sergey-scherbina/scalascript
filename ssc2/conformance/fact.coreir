@@ -1,0 +1,9 @@
+(program
+ (defs
+  (def fact
+   (lam 1
+    (if (prim i.le (local 0) (lit (int 1)))
+        (lit (int 1))
+        (prim i.mul (local 0)
+              (app (global fact) (prim i.sub (local 0) (lit (int 1)))))))))
+ (entry (app (global fact) (lit (int 5)))))

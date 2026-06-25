@@ -1,0 +1,5 @@
+; nullary lambda (thunk) forced by zero-arg application  =>  42
+(program
+ (defs
+  (def main (lam 0 (lit (int 42)))))
+ (entry (app (global main))))
