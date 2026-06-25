@@ -12,7 +12,16 @@ language's formal semantic contract: one definition, every backend agrees on it.
 1. **Untyped.** No type information at runtime. Types are checked and *erased* by the
    outer compiler before lowering. The evaluator trusts the IR.
 2. **Strict, call-by-value, left-to-right.** Arguments and binding right-hand sides are
-   fully evaluated before use.
+   fully evaluated before use. CBV is *forced* by the effect model: `Prim` performs I/O
+   and mutates `Foreign` values directly (§5), and lazy-by-default + direct effects gives
+   unpredictable effect order/occurrence. The kernel is not pure, so it is strict.
+   **Laziness is a library, not a kernel feature** — and it needs *no new node*: a thunk
+   is a nullary closure `Lam 0 body`, forced by `App thunk []`; `lazy val` / call-by-need
+   is a memoizing thunk in a `Foreign` `cell`; by-name `=> T` lowers an argument to a thunk
+   and each use site to a force; `LazyList` is a memo-thunk tail. The kernel's *evaluation
+   strategy* and the *surface language's* strict-vs-lazy default are **separable**: a CBV
+   kernel hosts a strict or a lazy surface via thunk lowering, so this choice does not
+   constrain the surface (a lazy-by-default surface, if ever wanted, changes only lowering).
 3. **Locals are de Bruijn indices; globals are named.** Local binders (λ params, `let`,
    `letrec`, `match` fields) are referenced by de Bruijn index — capture-free, and
    α-equivalence becomes *structural* equality (so the fixpoint/diff test is a plain
@@ -32,6 +41,20 @@ language's formal semantic contract: one definition, every backend agrees on it.
    encoding of Core IR, owned by the kernel (exposed via the `coreir.*` primitives), so
    that "compile A vs compile B produced equal IR" is a meaningful, decidable check.
    Format detail: `specs/12-ir-format.md` (planned).
+7. **Proper tail calls (TCO) — guaranteed.** A call in *tail position* runs in constant
+   stack space (Scheme-style proper tail calls), so deep tail recursion never overflows.
+   This is a **semantic guarantee**, not an optimization: the K1 evaluator implements it
+   with an explicit control loop / trampoline rather than host (JVM) recursion for tail
+   calls. Because the kernel guarantees it, the outer compiler may lower surface `while` /
+   `for` loops to tail-recursive `LetRec` and rely on constant stack — so **no loop node is
+   needed** in Core IR.
+
+   **Tail positions** (where a sub-term inherits the enclosing function's continuation):
+   the body of a `Lam`; both branches of an `If` in tail position; every `arm` body and the
+   `default` of a `Match` in tail position; the `body` of a `Let`/`LetRec` in tail
+   position; and an `App` in tail position (the call itself — its result *is* the caller's
+   result). **Not** tail: any `Prim` argument, any `Ctor` field, an `App`'s function/argument
+   sub-terms, a `Match`/`If` scrutinee, and `Let`/`LetRec` right-hand sides.
 
 ## 2. Value domain
 
@@ -41,6 +64,8 @@ The evaluator manipulates exactly these runtime value shapes:
 Value ::= Unit
         | Bool   b                       -- true | false
         | Int    n                       -- 64-bit two's-complement, wrapping arithmetic
+        | BigInt n                       -- arbitrary-precision integer
+        | Float  f                       -- 64-bit IEEE-754 double
         | Str    s                       -- immutable Unicode (sequence of code points)
         | Bytes  b                       -- immutable byte array
         | Data   tag [Value]             -- tagged record: tuples, case classes, ADT
@@ -51,13 +76,17 @@ Value ::= Unit
                                          --   cell, file handle, …
 ```
 
-Eight shapes. Notes:
+Ten shapes. Notes:
 
-- **`Int` is 64-bit and wrapping** (matches `ssc 1.0`'s `Int = Long` reality). Arbitrary
-  precision, if needed by the language, is a `Foreign`/primitive `BigInt`, not a core
-  literal. Floating point (`Double`) is likewise **deferred** — not needed by the
-  compiler; added later as a primitive-backed value if/when the surface language needs it
-  (see §8).
+- **Three numeric kinds, all primitive** (`Int`, `BigInt`, `Float`) — kept in the kernel
+  rather than emulated in a library. By the "primitive only if unexpressible" rule (§5),
+  they qualify: faithful arbitrary-precision arithmetic and exact IEEE-754 semantics
+  genuinely cannot be expressed efficiently/correctly in-language over `Int`. They have no
+  implicit coercions in the kernel — conversion is always an explicit primitive (§5); the
+  outer type system decides the surface numeric tower.
+  - **`Int`** is 64-bit two's-complement, wrapping (matches `ssc 1.0`'s `Int = Long`).
+  - **`BigInt`** is arbitrary precision (host bignum).
+  - **`Float`** is a 64-bit IEEE-754 double (NaN, ±∞, signed zero per IEEE-754).
 - **`Data tag fields`** is the universal product/sum carrier. `tag` is a small symbol
   (interned string or integer). Tuples = `Data "Tuple" [...]`; a case class = `Data
   "Point" [x, y]`; an enum variant = `Data "Some" [v]`; lists = `Data "Cons" [h, t]` /
@@ -71,7 +100,7 @@ Eight shapes. Notes:
 Eleven nodes. Each line gives the abstract form; `e` ranges over terms.
 
 ```
-Term ::= Lit    const                         -- Unit | Bool | Int | Str | Bytes literal
+Term ::= Lit    const                         -- Unit|Bool|Int|BigInt|Float|Str|Bytes literal
        | Var    ref                            -- ref = Local i (de Bruijn) | Global name
        | Lam    arity body                     -- closure of fixed arity
        | App    fn [arg]                        -- exact-arity call
@@ -98,6 +127,9 @@ Why this set (and the deliberate near-misses):
 - **No first-class primitives.** To pass a primitive as a value, wrap it:
   `Lam 1 (Prim op [Local 0])`. So `Prim` is only ever a call site.
 - **`Seq a b` is dropped** — it is `Let [a] b` with an unused binding.
+- **Nullary `Lam`/`App` are legal and load-bearing.** `Lam 0 body` is a thunk; `App f []`
+  forces it. This is the *entire* kernel mechanism behind by-name params, `lazy val`, and
+  lazy streams (invariant 2) — laziness needs no dedicated node.
 
 ## 4. Operational semantics (big-step)
 
@@ -172,16 +204,30 @@ The frozen set of host operations the kernel provides. All are **strict** and
 **fixed-arity**. Most are pure; the side-effecting ones are flagged **[eff]**. This table
 is the strawman to freeze; it splits into `specs/11-primitives.md` once stable.
 
-**Integer (64-bit, wrapping):**
-`add sub mul div mod neg` · bitwise `band bor bxor bnot shl shr ushr` ·
-compare `ieq ilt ile igt ige` → `Bool`
+**Int — 64-bit, wrapping (`i.*`):**
+`i.add i.sub i.mul i.div i.mod i.neg` · bitwise `i.and i.or i.xor i.not i.shl i.shr i.ushr` ·
+compare `i.eq i.lt i.le i.gt i.ge` → `Bool`
+
+**BigInt — arbitrary precision (`big.*`):**
+`big.add big.sub big.mul big.div big.mod big.neg` ·
+compare `big.eq big.lt big.le big.gt big.ge` → `Bool`
+
+**Float — IEEE-754 double (`f.*`):**
+`f.add f.sub f.mul f.div f.neg` · `f.sqrt` · `f.floor f.ceil f.round f.trunc` ·
+compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · `f.isNaN f.isInf` → `Bool`
+(other transcendentals — `sin`/`cos`/`log`/`exp` — deferred to a later `mathx.*` group, §8)
+
+**Numeric conversions (explicit — the kernel has no implicit coercion):**
+`i->big` · `big->i` (may overflow) · `i->f` · `f->i` (truncate toward zero) · `big->f` ·
+`f->big` (truncate) · `i->str` · `big->str` · `f->str` · `str->i?` · `str->big?` · `str->f?`
+(the `?` forms return `Data Option` — parse may fail)
 
 **Boolean:** `not` (`and`/`or` are short-circuit ⇒ lowered to `If`, not primitives)
 
 **String (Unicode, immutable):**
 `slen` (length in code points) · `sconcat` · `sslice s a b` · `scodeAt s i` →`Int` ·
-`sfromCodes [Int]`→`Str` · `seq`→`Bool` · `scmp`→`Int` · `sindexOf` · `int->str` ·
-`str->int` → `Data Option` (parse may fail)
+`sfromCodes [Int]`→`Str` · `seq`→`Bool` · `scmp`→`Int` · `sindexOf`
+(int/bigint/float ↔ string conversions live in the numeric-conversions group above)
 
 **Bytes (immutable):**
 `blen` · `bget b i`→`Int` · `bslice` · `bconcat` · `str->utf8`→`Bytes` ·
@@ -244,9 +290,9 @@ Core IR per §1.6).
 ```
 -- factorial
 def fact = Lam 1 (
-  If (Prim ile [Local 0, Lit 1])
+  If (Prim i.le [Local 0, Lit 1])
      (Lit 1)
-     (Prim mul [Local 0, App (Global fact) [Prim sub [Local 0, Lit 1]]]))
+     (Prim i.mul [Local 0, App (Global fact) [Prim i.sub [Local 0, Lit 1]]]))
 entry = App (Global fact) [Lit 5]            -- ⇓ Int 120
 
 -- list map  (list = Data "Cons" [h,t] | Data "Nil" [])
@@ -261,15 +307,21 @@ def map = Lam 2 (                            -- Local 0 = f, Local 1 = xs
 
 ## 8. Deferred / open (do not block the freeze)
 
-- **`BigInt`, `Double`** — not needed by the compiler; add later as primitive-backed
-  values when the surface language requires them.
+Resolved this round (no longer open): **`BigInt` + `Float` are in the kernel** (§2);
+**TCO is a kernel guarantee** (invariant 7); **evaluation is strict CBV, laziness is a
+thunk library** (invariant 2).
+
+Still open / deferred:
+
+- **`mathx.*`** — transcendental floats (`sin cos tan log exp pow atan2`, …). Deferred; a
+  later primitive group, since IEEE-correct versions can't be written in-language.
 - **Structural map keys** — keys are `Str`|`Int` for now; structural-value keys via a
   `hash`/`eq` primitive pair later if needed.
 - **`hash.sha256 bytes`** — would make content-addressed IR and the fixpoint diff
   cheaper; tiny, optional, can land with K1.
-- **Tail calls** — the reference evaluator may be a plain recursive walker; whether the
-  kernel guarantees TCO (vs. the outer compiler lowering loops to an explicit trampoline /
-  `LetRec`) is an open K1 decision. Note it before freezing if it affects the node set.
+- **Surface evaluation default (strict vs lazy)** — a *surface-language* question, decided
+  later in the outer compiler; **does not affect the kernel** (invariant 2): a CBV kernel
+  hosts either via thunk lowering.
 
 ## 9. Explicitly NOT in Core IR
 

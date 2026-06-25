@@ -8,10 +8,11 @@ permanent trusted base; everything above it is ScalaScript compiled to Core IR.
 
 Pin the untyped kernel language before any code.
 
-- [x] `specs/10-core-ir.md` v0 — value domain, 11 nodes, big-step semantics, primitive
-      table, program envelope, conformance sketch.
-- [ ] Review/decide the §8 open points that affect the node set (notably: TCO guarantee
-      vs. outer trampoline lowering) before declaring the node set frozen.
+- [x] `specs/10-core-ir.md` v0 — value domain (10 shapes), 11 nodes, big-step semantics,
+      primitive table, program envelope, conformance sketch.
+- [x] Evaluation strategy decided: strict CBV + guaranteed TCO; laziness = thunk library
+      (D7). Numeric tower decided: `Int`/`BigInt`/`Float` all primitive (D8).
+- [ ] Final node-set sign-off (the 11 nodes / 10 values) → declare Core IR **frozen**.
 - [ ] `specs/12-ir-format.md` — canonical serialization (kernel-owned; what `coreir.encode`
       emits). Needed before the seed can target a stable format.
 - [ ] Hand-write the conformance programs (factorial, list map, small match) as serialized
