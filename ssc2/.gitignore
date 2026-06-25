@@ -1,0 +1,6 @@
+# scala-cli / build artifacts
+.scala-build/
+.bsp/
+*.class
+# compiled IR output
+*.coreir.out

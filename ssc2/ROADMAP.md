@@ -17,18 +17,22 @@ Pinned the untyped kernel language before any code.
 - [x] `specs/15-ssc0.md` — `ssc₀` grammar + lowering (the seed contract).
 - [x] `conformance/*.coreir` — fact, map, thunk, letrec, tco (the K1 acceptance set).
 
-## K1 — Scala evaluator (the kernel)  ◀ current
+## K1 — Scala evaluator (the kernel)  ✅ COMPLETE (2026-06-25)
 
-The only long-lived inner Scala. Target: a few thousand lines, correctness over speed.
+The only long-lived inner Scala. `kernel/Kernel.scala`, ~330 lines, scala-cli 3.8.3,
+zero deps on the `ssc 1.0` tree.
 
-- [ ] Own sbt build under `ssc2/` (zero dependency on the `ssc 1.0` tree).
-- [ ] Core IR data types + loader (`coreir.decode` / serialized-IR reader).
-- [ ] Tree-walking evaluator implementing every §4 rule.
-- [ ] Primitive table (`δ`) per §5: int/bool/str/bytes/data/map/array/cell/io/coreir.
-- [ ] CLI: `ssc2 run <program.coreir>`.
-- [ ] Green on the K0 conformance fixtures.
+- [x] Isolated build (scala-cli `kernel/project.scala`; no sbt, no `ssc 1.0` dependency).
+- [x] Core IR data types + lenient S-expr loader (`12-ir-format.md`).
+- [x] Trampolined big-step evaluator — every §4 rule; tail calls in constant stack (TCO).
+- [x] Primitive table `δ` — minimal (`i.*`, `not`, `io.print`); widen with the seed/`sscc`.
+- [x] CLI `ssc2 run <program.coreir>` + `conformance/check.sh`.
+- [x] Green on all five K0 conformance fixtures (incl. `tco` at 1e6 depth).
 
-## K-seed — `ssc₀` + permanent seed
+Deferred to later δ-widening: `big.*`/`f.*`, string/bytes, `map.*`/`arr.*`/`cell.*`,
+`io.*` file ops, `coreir.encode/decode`. Added when the seed and `sscc` need them.
+
+## K-seed — `ssc₀` + permanent seed  ◀ current
 
 The permanent minimal Scala front door into Core IR.
 

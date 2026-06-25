@@ -12,17 +12,14 @@ its own worktree off `origin/main`, push when green, per repo-root `AGENTS.md`.
 - [x] `specs/12-ir-format.md` — canonical S-expr serialization (v1).
 - [x] `specs/15-ssc0.md` — `ssc₀` grammar + lowering (the seed contract).
 - [x] `conformance/*.coreir` — fact, map, thunk, letrec, tco (the K1 acceptance set).
+- [x] **k1-evaluator** — `kernel/Kernel.scala` (scala-cli, Scala 3.8.3): Core IR ADTs +
+      lenient S-expr reader + trampolined big-step evaluator (constant-stack tail calls) +
+      `δ` (`i.*`, `not`, `io.print`) + `ssc2 run` CLI. All five fixtures pass via
+      `conformance/check.sh` — incl. `tco` at 1e6 depth in constant stack. (Found+fixed two
+      de Bruijn convention bugs in the spec while writing the fixtures: `LetRec` index order
+      and the §7 `map` sketch — now last-binder = index 0 throughout.)
 
 ## Pending
-
-- [ ] **k1-evaluator** — the kernel, in Scala (scala-cli, single dir under `ssc2/kernel/`).
-      Core IR ADT + lenient S-expr reader (`12-ir-format.md`) + big-step evaluator with a
-      **trampoline for guaranteed TCO** (invariant 7) + primitive table `δ`
-      (`10-core-ir.md §5`) + `ssc2 run <file.coreir>` CLI. Acceptance: all five
-      `conformance/*.coreir` produce their expected results (`conformance/README.md`),
-      including `tco.coreir` in constant stack. Start with: ADT → reader → evaluator (App,
-      If, Match, Let, LetRec, Ctor, Prim) → the i.* / io.* / data prims the fixtures need →
-      widen δ. Keep it minimal — correctness over speed.
 
 - [ ] **k-seed** — the permanent seed, in Scala, alongside the kernel. Tokenizer → parser
       for `ssc₀` (`specs/15-ssc0.md`) → name resolution (de Bruijn locals, named globals) →
