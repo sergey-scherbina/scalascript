@@ -62,9 +62,9 @@ object Lexer:
       else if c == ',' then { out += Tok.Comma; i += 1 }
       else if c == '=' && i + 1 < n && src.charAt(i + 1) == '>' then { out += Tok.Arrow; i += 2 }
       else if c == '=' then { out += Tok.Eq; i += 1 }
-      else if c == '#' then                                              // #prim.op
+      else if c == '#' then                                              // #prim.op  (incl. names like i->big)
         var j = i + 1
-        while j < n && (src.charAt(j).isLetterOrDigit || src.charAt(j) == '.' || src.charAt(j) == '_') do j += 1
+        while j < n && { val ch = src.charAt(j); ch.isLetterOrDigit || ch == '.' || ch == '_' || ch == '-' || ch == '>' } do j += 1
         out += Tok.PrimName(src.substring(i + 1, j)); i = j
       else if c == '"' then
         val (s, j) = lexString(src, i + 1); out += Tok.StrLit(s); i = j

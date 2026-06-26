@@ -230,8 +230,8 @@ compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · 
 
 **Boolean:** `not` (`and`/`or` are short-circuit ⇒ lowered to `If`, not primitives)
 
-**String (Unicode, immutable):**
-`slen` (length in code points) · `sconcat` · `sslice s a b` · `scodeAt s i` →`Int` ·
+**String (Unicode, immutable; indexed by UTF-16 code units):**
+`slen` (length in code units) · `sconcat` · `sslice s a b` · `scodeAt s i` →`Int` ·
 `sfromCodes [Int]`→`Str` · `seq`→`Bool` · `scmp`→`Int` · `sindexOf`
 (int/bigint/float ↔ string conversions live in the numeric-conversions group above)
 
@@ -274,6 +274,16 @@ Design rules for the primitive set:
   expressible in the language must be a library, not a primitive.
 - The set is **frozen-ish**: growing it touches both the evaluator and the seed (decision
   D4 makes that a normal, expected maintenance action).
+
+**Implementation status (`v2/src/Runtime.scala` `Prims.resolve`, 2026-06-26).** Implemented:
+all `i.*`/`big.*`/`f.*` + numeric conversions; `not`; the string group; the bytes group;
+the data-reflection group (`tagOf`/`arity`/`fieldAt`); `map.*`/`arr.*`/`cell.*` (Foreign,
+mutable); I/O (`print`/`eprint`/`args`/`readFile`/`writeFile`/`env`/`exit`). `Option`
+results use `Some`/`None`; lists use `Cons`/`Nil`. **Strings are UTF-16 code units** (O(1)
+indexing, matching JVM/JS) — `slen`/`scodeAt`/`sslice`/`sfromCodes` index in code units, not
+code points (a deliberate relaxation of the original "code points" wording for practical
+performance). Still deferred: `coreir.encode`/`coreir.decode` (lands with self-hosting),
+`mathx.*` transcendentals.
 
 ## 6. Program envelope
 

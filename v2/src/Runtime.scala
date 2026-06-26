@@ -168,22 +168,125 @@ object Prims:
     case "i.gt"  => a => BoolV(int(a, 0) >  int(a, 1))
     case "i.ge"  => a => BoolV(int(a, 0) >= int(a, 1))
     case "not"   => a => BoolV(!bool(a, 0))
+    // BigInt
+    case "big.add" => a => BigV(big(a, 0) + big(a, 1))
+    case "big.sub" => a => BigV(big(a, 0) - big(a, 1))
+    case "big.mul" => a => BigV(big(a, 0) * big(a, 1))
+    case "big.div" => a => BigV(big(a, 0) / big(a, 1))
+    case "big.mod" => a => BigV(big(a, 0) % big(a, 1))
+    case "big.neg" => a => BigV(-big(a, 0))
+    case "big.eq"  => a => BoolV(big(a, 0) == big(a, 1))
+    case "big.lt"  => a => BoolV(big(a, 0) <  big(a, 1))
+    case "big.le"  => a => BoolV(big(a, 0) <= big(a, 1))
+    case "big.gt"  => a => BoolV(big(a, 0) >  big(a, 1))
+    case "big.ge"  => a => BoolV(big(a, 0) >= big(a, 1))
+    // Float (IEEE-754)
+    case "f.add" => a => FloatV(flt(a, 0) + flt(a, 1))
+    case "f.sub" => a => FloatV(flt(a, 0) - flt(a, 1))
+    case "f.mul" => a => FloatV(flt(a, 0) * flt(a, 1))
+    case "f.div" => a => FloatV(flt(a, 0) / flt(a, 1))
+    case "f.neg" => a => FloatV(-flt(a, 0))
+    case "f.sqrt"  => a => FloatV(math.sqrt(flt(a, 0)))
+    case "f.floor" => a => FloatV(math.floor(flt(a, 0)))
+    case "f.ceil"  => a => FloatV(math.ceil(flt(a, 0)))
+    case "f.round" => a => FloatV(math.rint(flt(a, 0)))
+    case "f.trunc" => a => FloatV(flt(a, 0).toLong.toDouble)
+    case "f.eq" => a => BoolV(flt(a, 0) == flt(a, 1))
+    case "f.lt" => a => BoolV(flt(a, 0) <  flt(a, 1))
+    case "f.le" => a => BoolV(flt(a, 0) <= flt(a, 1))
+    case "f.gt" => a => BoolV(flt(a, 0) >  flt(a, 1))
+    case "f.ge" => a => BoolV(flt(a, 0) >= flt(a, 1))
+    case "f.isNaN" => a => BoolV(flt(a, 0).isNaN)
+    case "f.isInf" => a => BoolV(flt(a, 0).isInfinite)
+    // numeric conversions (explicit)
+    case "i->big"  => a => BigV(BigInt(int(a, 0)))
+    case "big->i"  => a => IntV(big(a, 0).toLong)
+    case "i->f"    => a => FloatV(int(a, 0).toDouble)
+    case "f->i"    => a => IntV(flt(a, 0).toLong)
+    case "big->f"  => a => FloatV(big(a, 0).toDouble)
+    case "f->big"  => a => BigV(BigDecimal(flt(a, 0)).toBigInt)
+    case "i->str"  => a => StrV(int(a, 0).toString)
+    case "big->str"=> a => StrV(big(a, 0).toString)
+    case "f->str"  => a => StrV(Writer.floatStr(flt(a, 0)))
+    case "str->i"  => a => str(a, 0).toLongOption.fold(none)(n => some(IntV(n)))
+    case "str->big"=> a => scala.util.Try(BigInt(str(a, 0))).toOption.fold(none)(b => some(BigV(b)))
+    case "str->f"  => a => str(a, 0).toDoubleOption.fold(none)(d => some(FloatV(d)))
+    // String (UTF-16 code units; O(1) indexing)
+    case "slen"      => a => IntV(str(a, 0).length.toLong)
+    case "sconcat"   => a => StrV(str(a, 0) + str(a, 1))
+    case "sslice"    => a => StrV(str(a, 0).substring(int(a, 1).toInt, int(a, 2).toInt))
+    case "scodeAt"   => a => IntV(str(a, 0).charAt(int(a, 1).toInt).toLong)
+    case "sfromCodes"=> a => StrV(unlist(a(0)).map(v => asInt(v).toChar).mkString)
+    case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
+    case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
+    case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
+    // Bytes
+    case "blen"      => a => IntV(bytes(a, 0).length.toLong)
+    case "bget"      => a => IntV((bytes(a, 0)(int(a, 1).toInt) & 0xff).toLong)
+    case "bslice"    => a => BytesV(bytes(a, 0).slice(int(a, 1).toInt, int(a, 2).toInt))
+    case "bconcat"   => a => BytesV(bytes(a, 0) ++ bytes(a, 1))
+    case "str->utf8" => a => BytesV(str(a, 0).getBytes("UTF-8").toVector)
+    case "utf8->str" => a => StrV(new String(bytes(a, 0).toArray, "UTF-8"))
+    // Data (generic reflection)
+    case "tagOf"   => a => StrV(asData(a(0))._1)
+    case "arity"   => a => IntV(asData(a(0))._2.length.toLong)
+    case "fieldAt" => a => asData(a(0))._2(int(a, 1).toInt)
+    // Map (Foreign, mutable; keys/values are Values)
+    case "map.new"  => _ => ForeignV(collection.mutable.HashMap[Value, Value]())
+    case "map.get"  => a => asMap(a(0)).get(a(1)).fold(none)(some)
+    case "map.put"  => a => asMap(a(0)).update(a(1), a(2)); UnitV
+    case "map.has"  => a => BoolV(asMap(a(0)).contains(a(1)))
+    case "map.del"  => a => asMap(a(0)).remove(a(1)); UnitV
+    case "map.keys" => a => listOf(asMap(a(0)).keys.toSeq)
+    case "map.size" => a => IntV(asMap(a(0)).size.toLong)
+    // Array (Foreign, growable)
+    case "arr.new"   => _ => ForeignV(collection.mutable.ArrayBuffer[Value]())
+    case "arr.len"   => a => IntV(asArr(a(0)).length.toLong)
+    case "arr.get"   => a => asArr(a(0))(int(a, 1).toInt)
+    case "arr.set"   => a => asArr(a(0))(int(a, 1).toInt) = a(2); UnitV
+    case "arr.push"  => a => asArr(a(0)) += a(1); UnitV
+    case "arr.pop"   => a => asArr(a(0)).remove(asArr(a(0)).length - 1)
+    case "arr.slice" => a => ForeignV(collection.mutable.ArrayBuffer.from(asArr(a(0)).slice(int(a, 1).toInt, int(a, 2).toInt)))
+    // Cell (Foreign, single mutable ref)
+    case "cell.new" => a => ForeignV(scala.Array[Value](a(0)))
+    case "cell.get" => a => asCell(a(0))(0)
+    case "cell.set" => a => asCell(a(0))(0) = a(1); UnitV
+    // I/O [eff]
     case "io.print"  => a => out(a(0), Console.out); UnitV
     case "io.eprint" => a => out(a(0), Console.err); UnitV
-    case "io.args"   => _ => strList(Runtime.argv)        // CLI argv -> Cons/Nil list of Str
+    case "io.args"   => _ => strList(Runtime.argv)
+    case "io.readFile"  => a => BytesV(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(str(a, 0))).toVector)
+    case "io.writeFile" => a => java.nio.file.Files.write(java.nio.file.Path.of(str(a, 0)), bytes(a, 1).toArray); UnitV
+    case "io.env"  => a => sys.env.get(str(a, 0)).fold(none)(s => some(StrV(s)))
+    case "io.exit" => a => sys.exit(int(a, 0).toInt); UnitV
     case _ => sys.error(s"unimplemented primitive: $op")
 
-  private def int(a: List[Value], k: Int): Long = a(k) match
-    case IntV(n) => n
-    case v => sys.error(s"expected Int, got ${Show.show(v)}")
-  private def bool(a: List[Value], k: Int): Boolean = a(k) match
-    case BoolV(b) => b
-    case v => sys.error(s"expected Bool, got ${Show.show(v)}")
+  // typed argument accessors
+  private def int(a: List[Value], k: Int): Long = asInt(a(k))
+  private def asInt(v: Value): Long = v match { case IntV(n) => n; case x => sys.error(s"expected Int, got ${Show.show(x)}") }
+  private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
+  private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
+  private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
+  private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
+  private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
+  private def asData(v: Value): (String, Vector[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
+  private def asMap(v: Value) = v match { case ForeignV(m: collection.mutable.HashMap[Value, Value] @unchecked) => m; case x => sys.error(s"expected Map, got ${Show.show(x)}") }
+  private def asArr(v: Value) = v match { case ForeignV(a: collection.mutable.ArrayBuffer[Value] @unchecked) => a; case x => sys.error(s"expected Array, got ${Show.show(x)}") }
+  private def asCell(v: Value) = v match { case ForeignV(c: Array[Value] @unchecked) => c; case x => sys.error(s"expected Cell, got ${Show.show(x)}") }
+
+  // Option / list helpers (the ssc0 ADT encoding the kernel speaks)
+  private val none: Value = DataV("None", Vector.empty)
+  private def some(v: Value): Value = DataV("Some", Vector(v))
+  private def listOf(vs: Seq[Value]): Value = vs.foldRight[Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
+  private def strList(xs: Seq[String]): Value = listOf(xs.map(StrV(_)))
+  private def unlist(v: Value): List[Value] = v match
+    case DataV("Cons", Vector(h, t)) => h :: unlist(t)
+    case DataV("Nil", _) => Nil
+    case x => sys.error(s"expected a list, got ${Show.show(x)}")
+
   private def out(v: Value, ps: java.io.PrintStream): Unit = v match
     case StrV(s) => ps.print(s)
     case _ => ps.print(Show.show(v))
-  private def strList(xs: List[String]): Value =
-    xs.foldRight[Value](DataV("Nil", Vector.empty))((s, acc) => DataV("Cons", Vector(StrV(s), acc)))
 
 object Show:
   import Value.*

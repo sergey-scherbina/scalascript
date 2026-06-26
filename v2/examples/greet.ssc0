@@ -1,0 +1,6 @@
+-- argv + string concat.   ssc run examples/greet.ssc0 Sergiy  =>  "Hello, Sergiy!"
+def main = () =>
+  match #io.args() {
+    case Cons(name, rest) => #sconcat(#sconcat("Hello, ", name), "!")
+    case Nil              => "Hello, world!"
+  }

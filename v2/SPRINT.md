@@ -21,9 +21,11 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       or jump to **`ssct`** = the typed layer (a type-checking pass written in ssc0 that
       erases to ir; types as an outer library, D1). Specs: `30-erasure-lowering.md`,
       `40-typer-as-library.md`. Each layer is a program the layer below compiles/runs.
-- [ ] **delta-widen** — extend `δ` (Runtime `Prims.resolve`) as the tower needs: `big.*`,
-      `f.*`, string/bytes, `map.*`/`arr.*`/`cell.*`, `io.*` file ops, `coreir.encode/decode`
-      as a primitive. Each addition is one `case` + a small spec note.
+- [x] **delta-widen** (2026-06-26) — full `δ`: `big.*`, `f.*` + numeric conversions, string
+      group (UTF-16 units), bytes, data reflection (`tagOf`/`arity`/`fieldAt`),
+      `map.*`/`arr.*`/`cell.*` (Foreign mutable), I/O (`readFile`/`writeFile`/`env`/`exit`).
+      +103 LOC (722→825). Examples greet/bigfact/mapdemo + conformance. Lexer fix: `#i->big`
+      prim names. Still deferred: `coreir.encode/decode` (with self-hosting), `mathx.*`.
 - [ ] **ssc0-imports** — multi-file `import "path"` (flat global namespace); needed once the
       compiler-in-ssc0 spans files. Currently parse-errors with a clear message.
 - [ ] **fixpoint** — toward the self-hosting CI invariant: a compiler written in ssc0 that

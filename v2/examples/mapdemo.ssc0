@@ -1,0 +1,9 @@
+-- mutable map (Foreign) + Option.   ssc run examples/mapdemo.ssc0  =>  1
+def main = () =>
+  let m  = #map.new()       in
+  let u1 = #map.put(m, "a", 1) in
+  let u2 = #map.put(m, "b", 2) in
+  match #map.get(m, "a") {
+    case Some(v) => v
+    case None    => 0
+  }

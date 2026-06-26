@@ -23,6 +23,10 @@ chk run examples/fact.ssc0 "120"
 chk run examples/map.ssc0  "Cons(2, Cons(4, Cons(6, Nil)))"
 chk run examples/tco.ssc0  "500000500000"
 
+echo "# widened primitives (strings, BigInt, maps, Option)"
+chk run examples/bigfact.ssc0 "265252859812191058636308480000000"
+chk run examples/mapdemo.ssc0 "1"
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"
@@ -38,8 +42,9 @@ chkargv() { # want -- file args...
   if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s\n' "run ${file##*/} [${*:2}]" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "run ${file##*/} [${*:2}]" "$got" "$want"; fail=1; fi
 }
-chkargv '"hello"'     -- examples/args.ssc0 hello world
-chkargv '"(no args)"' -- examples/args.ssc0
+chkargv '"hello"'           -- examples/args.ssc0 hello world
+chkargv '"(no args)"'       -- examples/args.ssc0
+chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy
 
 echo "# ssc0 -> ir reproduces the hand-written map def (15-ssc0 acceptance)"
 mapdef='(def map (lam 2 (match (local 0) ((arm Nil 0 (ctor Nil)) (arm Cons 2 (ctor Cons (app (local 3) (local 1)) (app (global map) (local 3) (local 0))))))))'

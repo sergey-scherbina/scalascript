@@ -1,0 +1,7 @@
+-- BigInt factorial: 30! is exact (overflows Int64).
+--   ssc run examples/bigfact.ssc0   =>  265252859812191058636308480000000
+def fact = (n) =>
+  if #big.le(n, #i->big(1)) then #i->big(1)
+  else #big.mul(n, fact(#big.sub(n, #i->big(1))))
+
+def main = () => fact(#i->big(30))
