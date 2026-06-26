@@ -1,0 +1,8 @@
+-- the first command-line argument, or a default.  argv arrives via #io.args().
+--   ssc run examples/args.ssc0 hello world   =>  "hello"
+--   ssc run examples/args.ssc0               =>  "(no args)"
+def main = () =>
+  match #io.args() {
+    case Cons(first, rest) => first
+    case Nil               => "(no args)"
+  }

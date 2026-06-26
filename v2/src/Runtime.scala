@@ -29,6 +29,10 @@ object Value:
 object Runtime:
   import Value.*
 
+  // Process argv — the trailing CLI args of `ssc run <file> ARGS...`, exposed to
+  // the program through the `io.args` primitive. Set by Main before running.
+  var argv: List[String] = Nil
+
   // Trampoline: run a compiled Code to a final Value, bouncing tail Calls in
   // CONSTANT STACK (specs/10-core-ir.md invariant 7).
   def run(code0: Code, env0: Env): Value =
@@ -166,6 +170,7 @@ object Prims:
     case "not"   => a => BoolV(!bool(a, 0))
     case "io.print"  => a => out(a(0), Console.out); UnitV
     case "io.eprint" => a => out(a(0), Console.err); UnitV
+    case "io.args"   => _ => strList(Runtime.argv)        // CLI argv -> Cons/Nil list of Str
     case _ => sys.error(s"unimplemented primitive: $op")
 
   private def int(a: List[Value], k: Int): Long = a(k) match
@@ -177,6 +182,8 @@ object Prims:
   private def out(v: Value, ps: java.io.PrintStream): Unit = v match
     case StrV(s) => ps.print(s)
     case _ => ps.print(Show.show(v))
+  private def strList(xs: List[String]): Value =
+    xs.foldRight[Value](DataV("Nil", Vector.empty))((s, acc) => DataV("Cons", Vector(StrV(s), acc)))
 
 object Show:
   import Value.*

@@ -30,6 +30,17 @@ chk run-ir conformance/map.coreir    "Cons(2, Cons(4, Cons(6, Nil)))"
 chk run-ir conformance/letrec.coreir "true"
 chk run-ir conformance/tco.coreir    "500000500000"
 
+echo "# argv: ssc run <file> ARGS... -> #io.args()"
+chkargv() { # want -- file args...
+  want=$1; shift 2
+  file=$1
+  got=$(ssc run "$@" | tail -1)
+  if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s\n' "run ${file##*/} [${*:2}]" "$got"
+  else printf 'FAIL %-26s got [%s] want [%s]\n' "run ${file##*/} [${*:2}]" "$got" "$want"; fail=1; fi
+}
+chkargv '"hello"'     -- examples/args.ssc0 hello world
+chkargv '"(no args)"' -- examples/args.ssc0
+
 echo "# ssc0 -> ir reproduces the hand-written map def (15-ssc0 acceptance)"
 mapdef='(def map (lam 2 (match (local 0) ((arm Nil 0 (ctor Nil)) (arm Cons 2 (ctor Cons (app (local 3) (local 1)) (app (global map) (local 3) (local 0))))))))'
 if ssc compile examples/map.ssc0 | grep -qF "$mapdef"; then

@@ -256,6 +256,9 @@ compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · 
 **I/O — [eff] (the compiler's whole interaction with the world):**
 `io.readFile path`→`Bytes` · `io.writeFile path bytes` · `io.print str` · `io.eprint str`
 · `io.args`→list of `Str` · `io.env name`→`Data Option` · `io.exit code`
+(`io.args` is the program's argv — the trailing args of `ssc run <file> ARGS...` /
+`ssc run-ir <file> ARGS...`, as a `Cons`/`Nil` list of `Str`. Implemented; `io.print`/
+`io.eprint` also implemented. The rest of the I/O group is deferred δ-widening.)
 
 **Core IR (canonical, kernel-owned serialization):**
 `coreir.encode v`→`Bytes` (serialize a `Data`-tree representation of a Core IR program to
