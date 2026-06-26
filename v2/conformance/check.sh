@@ -27,6 +27,9 @@ echo "# widened primitives (strings, BigInt, maps, Option)"
 chk run examples/bigfact.ssc0 "265252859812191058636308480000000"
 chk run examples/mapdemo.ssc0 "1"
 
+echo "# multi-file import"
+chk run examples/uselib.ssc0 "4950"
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"

@@ -1,0 +1,20 @@
+-- a tiny list library, written in ssc0 (lists are the Cons/Nil ADT).
+def foldl = (f, acc, xs) =>
+  match xs {
+    case Nil        => acc
+    case Cons(h, t) => foldl(f, f(acc, h), t)
+  }
+
+def length = (xs) => foldl((acc, x) => #i.add(acc, 1), 0, xs)
+def sum    = (xs) => foldl((acc, x) => #i.add(acc, x), 0, xs)
+
+def map = (g, xs) =>
+  match xs {
+    case Nil        => Nil
+    case Cons(h, t) => Cons(g(h), map(g, t))
+  }
+
+-- [0, 1, ..., n-1]
+def range = (n) =>
+  let rec go = (i, acc) => if #i.lt(i, 0) then acc else go(#i.sub(i, 1), Cons(i, acc))
+  in go(#i.sub(n, 1), Nil)

@@ -8,10 +8,10 @@ package ssc
 @main def cli(args: String*): Unit = args.toList match
   case "run" :: file :: rest =>                 // trailing args -> the program's #io.args()
     Runtime.argv = rest
-    val prog = Lower.module(Parser.parse(Lexer.lex(read(file))))
+    val prog = Lower.module(Loader.load(file))  // Loader resolves `import`s
     println(Show.show(Runtime.run(Compiler.compile(prog), Nil)))
   case "compile" :: file :: Nil =>
-    val prog = Lower.module(Parser.parse(Lexer.lex(read(file))))
+    val prog = Lower.module(Loader.load(file))
     println(Writer.program(prog))
   case "run-ir" :: file :: rest =>              // same argv forwarding for raw bytecode
     Runtime.argv = rest

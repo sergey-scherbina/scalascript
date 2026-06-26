@@ -26,8 +26,9 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       `map.*`/`arr.*`/`cell.*` (Foreign mutable), I/O (`readFile`/`writeFile`/`env`/`exit`).
       +103 LOC (722→825). Examples greet/bigfact/mapdemo + conformance. Lexer fix: `#i->big`
       prim names. Still deferred: `coreir.encode/decode` (with self-hosting), `mathx.*`.
-- [ ] **ssc0-imports** — multi-file `import "path"` (flat global namespace); needed once the
-      compiler-in-ssc0 spans files. Currently parse-errors with a clear message.
+- [x] **ssc0-imports** (2026-06-26) — `import "path"` (flat global namespace) via `Loader`:
+      relative resolution, load-once / cycle-safe, duplicate-def-name error. `lib/list.ssc0`
+      + `examples/uselib.ssc0` (sum(range(100))=4950) + conformance.
 - [ ] **fixpoint** — toward the self-hosting CI invariant: a compiler written in ssc0 that
       compiles itself; `compile(self) == (compile(self) run-on self)`. Spec `20-bootstrap.md`.
 

@@ -22,7 +22,8 @@ enum Pat:
   case PCtor(tag: String, vars: List[String])
   case PWild
 case class S0Def(name: String, body: S0)
-case class S0Module(defs: List[S0Def])
+case class S0File(imports: List[String], defs: List[S0Def])   // one parsed source file
+case class S0Module(defs: List[S0Def])                        // all files merged (flat namespace)
 
 // ── Lexer ────────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ object Lexer:
 // ── Parser (recursive descent over a token vector, with backtracking) ─────────
 
 object Parser:
-  def parse(toks: Vector[Tok]): S0Module = new P(toks).module()
+  def parse(toks: Vector[Tok]): S0File = new P(toks).module()
 
   final class P(toks: Vector[Tok]):
     var pos = 0
@@ -125,15 +126,17 @@ object Parser:
     def advance(): Tok = { val t = toks(pos); pos += 1; t }
     def expect(t: Tok): Unit = if peek == t then pos += 1 else sys.error(s"expected $t, got ${peek} at $pos")
     def expectLower(): String = peek match { case Tok.Lower(s) => pos += 1; s; case _ => sys.error(s"expected identifier, got ${peek}") }
+    def expectStr(): String = peek match { case Tok.StrLit(s) => pos += 1; s; case _ => sys.error(s"expected string, got ${peek}") }
 
-    def module(): S0Module =
+    def module(): S0File =
+      val imports = collection.mutable.ListBuffer[String]()
       val defs = collection.mutable.ListBuffer[S0Def]()
       while peek != Tok.EOF do peek match
         case Tok.KwDef =>
           pos += 1; val name = expectLower(); expect(Tok.Eq); defs += S0Def(name, expr())
-        case Tok.KwImport => sys.error("import not yet supported in ssc0 v1 (single-file)")
-        case other => sys.error(s"expected `def`, got $other")
-      S0Module(defs.toList)
+        case Tok.KwImport => pos += 1; imports += expectStr()
+        case other => sys.error(s"expected `def` or `import`, got $other")
+      S0File(imports.toList, defs.toList)
 
     def expr(): S0 = peek match
       case Tok.KwLet   => parseLet()
@@ -235,6 +238,28 @@ object Parser:
           Pat.PCtor(tag, vs.toList)
         else Pat.PCtor(tag, Nil)
       case other => sys.error(s"bad pattern: $other")
+
+// ── Loader: resolve `import "path"` across files into one flat module ─────────
+
+object Loader:
+  // Load an entry ssc0 file and all its (transitive) imports into one S0Module.
+  // Imports resolve relative to the importing file; each file is loaded once
+  // (cycle-safe); top-level def names must be unique across the whole program.
+  def load(entry: String): S0Module =
+    val files = collection.mutable.LinkedHashMap[String, S0File]()  // canonical path -> parsed
+    def go(path: String): Unit =
+      val canon = new java.io.File(path).getCanonicalPath
+      if !files.contains(canon) then
+        val src = scala.io.Source.fromFile(canon)(using scala.io.Codec.UTF8).mkString
+        val file = Parser.parse(Lexer.lex(src))
+        files(canon) = file                                        // record BEFORE recursing (cycles)
+        val dir = new java.io.File(canon).getParent
+        for imp <- file.imports do go(new java.io.File(dir, imp).getPath)
+    go(entry)
+    val defs = files.values.flatMap(_.defs).toList
+    val dup = defs.groupBy(_.name).collectFirst { case (n, ds) if ds.length > 1 => n }
+    dup.foreach(n => sys.error(s"duplicate top-level def `$n` across imported files"))
+    S0Module(defs)
 
 // ── Lower: ssc0 -> Core IR (name resolution to de Bruijn) ─────────────────────
 

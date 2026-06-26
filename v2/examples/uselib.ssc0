@@ -1,0 +1,5 @@
+-- multi-file: import a library and use it.
+--   ssc run examples/uselib.ssc0   =>  4950   (sum of 0..99)
+import "../lib/list.ssc0"
+
+def main = () => sum(range(100))
