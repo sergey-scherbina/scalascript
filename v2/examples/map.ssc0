@@ -1,0 +1,11 @@
+-- list map over an ADT.  `ssc run examples/map.ssc0`  =>  Cons(2, Cons(4, Cons(6, Nil)))
+-- `ssc compile examples/map.ssc0` must reproduce conformance/map.coreir's `map` def.
+def double = (n) => #i.mul(n, 2)
+
+def map = (f, xs) =>
+  match xs {
+    case Nil        => Nil
+    case Cons(h, t) => Cons(f(h), map(f, t))
+  }
+
+def main = () => map(double, Cons(1, Cons(2, Cons(3, Nil))))

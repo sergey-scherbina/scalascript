@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc — the ssc 2.0 runtime compiler (ssc0 -> ir -> ssc -> cpu).
+# Thin launcher over scala-cli + v2/src. `command` bypasses any shell wrapper;
+# --server=false keeps it daemonless.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- "$@"

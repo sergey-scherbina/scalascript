@@ -1,0 +1,7 @@
+-- tail-recursive loop: sum 1..1_000_000.  `ssc run examples/tco.ssc0`  =>  500000500000
+-- the recursive call is in tail position, so it runs in constant stack (TCO).
+def loop = (n, acc) =>
+  if #i.eq(n, 0) then acc
+  else loop(#i.sub(n, 1), #i.add(acc, n))
+
+def main = () => loop(1000000, 0)
