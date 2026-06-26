@@ -29,6 +29,11 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 - [x] **ssc0-imports** (2026-06-26) — `import "path"` (flat global namespace) via `Loader`:
       relative resolution, load-once / cycle-safe, duplicate-def-name error. `lib/list.ssc0`
       + `examples/uselib.ssc0` (sum(range(100))=4950) + conformance.
+- [x] **stdlib + interpreter** (2026-06-26) — `lib/list.ssc0` (foldl/foldr/map/filter/append/
+      reverse/length/sum/head/range), `lib/option.ssc0`; `examples/pipeline.ssc0`
+      (sum∘map∘filter∘range = 120) + `examples/calc.ssc0` — a real expression-language
+      interpreter in ~20 lines of ssc0 (ADTs, match, env, let → 42). Lexer: `;` now an
+      optional separator. Demonstrates the thesis: rich behaviour = small ssc0 on a tiny kernel.
 - [ ] **fixpoint** — toward the self-hosting CI invariant: a compiler written in ssc0 that
       compiles itself; `compile(self) == (compile(self) run-on self)`. Spec `20-bootstrap.md`.
 

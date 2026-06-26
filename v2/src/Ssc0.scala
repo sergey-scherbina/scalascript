@@ -56,6 +56,7 @@ object Lexer:
         while i + 1 < n && !(src.charAt(i) == '-' && src.charAt(i + 1) == '}') do i += 1
         i += 2
       else if c.isWhitespace then i += 1
+      else if c == ';' then i += 1                                     // optional separator, insignificant
       else if c == '(' then { out += Tok.LParen; i += 1 }
       else if c == ')' then { out += Tok.RParen; i += 1 }
       else if c == '{' then { out += Tok.LBrace; i += 1 }

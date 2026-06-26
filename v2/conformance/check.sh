@@ -30,6 +30,10 @@ chk run examples/mapdemo.ssc0 "1"
 echo "# multi-file import"
 chk run examples/uselib.ssc0 "4950"
 
+echo "# stdlib + an interpreter, written in ssc0"
+chk run examples/pipeline.ssc0 "120"
+chk run examples/calc.ssc0     "42"
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"

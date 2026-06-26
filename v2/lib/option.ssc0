@@ -1,0 +1,4 @@
+-- Option helpers (Option = the Some/None ADT the kernel speaks).
+def getOrElse = (o, d) => match o { case Some(v) => v; case None => d }
+def mapOpt    = (f, o) => match o { case Some(v) => Some(f(v)); case None => None }
+def isSome    = (o)    => match o { case Some(v) => true; case None => false }

@@ -1,0 +1,25 @@
+-- A small expression-language interpreter, written entirely in ssc0.
+-- Expr AST:  Num n | Add a b | Sub a b | Mul a b | Var name | Let name e body
+-- Environment = a list of Pair(name, value).  This is "v1-richness-shaped" code —
+-- ADTs, pattern matching, recursion, an environment, lexical let — in ~20 lines.
+--   ssc run examples/calc.ssc0   =>  42      (let x = 6 in x*7)
+
+def lookup = (env, name) =>
+  match env {
+    case Nil => 0
+    case Cons(p, rest) =>
+      match p { case Pair(k, v) => if #seq(k, name) then v else lookup(rest, name) }
+  }
+
+def eval = (env, e) =>
+  match e {
+    case Num(n)              => n
+    case Add(a, b)           => #i.add(eval(env, a), eval(env, b))
+    case Sub(a, b)           => #i.sub(eval(env, a), eval(env, b))
+    case Mul(a, b)           => #i.mul(eval(env, a), eval(env, b))
+    case Var(name)           => lookup(env, name)
+    case Let(name, e1, body) => eval(Cons(Pair(name, eval(env, e1)), env), body)
+  }
+
+-- let x = 6 in x * 7
+def main = () => eval(Nil, Let("x", Num(6), Mul(Var("x"), Num(7))))

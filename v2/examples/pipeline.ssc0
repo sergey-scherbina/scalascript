@@ -1,0 +1,9 @@
+-- stdlib composition: sum of squares of the even numbers in 0..9.
+--   filter even [0..9] = [0,2,4,6,8]; map square = [0,4,16,36,64]; sum = 120.
+--   ssc run examples/pipeline.ssc0   =>  120
+import "../lib/list.ssc0"
+
+def even   = (x) => #i.eq(#i.mod(x, 2), 0)
+def square = (x) => #i.mul(x, x)
+
+def main = () => sum(map(square, filter(even, range(10))))

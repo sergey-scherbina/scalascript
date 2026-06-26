@@ -5,14 +5,22 @@ def foldl = (f, acc, xs) =>
     case Cons(h, t) => foldl(f, f(acc, h), t)
   }
 
+def foldr = (f, z, xs) =>
+  match xs {
+    case Nil        => z
+    case Cons(h, t) => f(h, foldr(f, z, t))
+  }
+
 def length = (xs) => foldl((acc, x) => #i.add(acc, 1), 0, xs)
 def sum    = (xs) => foldl((acc, x) => #i.add(acc, x), 0, xs)
 
-def map = (g, xs) =>
-  match xs {
-    case Nil        => Nil
-    case Cons(h, t) => Cons(g(h), map(g, t))
-  }
+def map     = (g, xs) => foldr((h, acc) => Cons(g(h), acc), Nil, xs)
+def filter  = (p, xs) => foldr((h, acc) => if p(h) then Cons(h, acc) else acc, Nil, xs)
+def append  = (xs, ys) => foldr((h, acc) => Cons(h, acc), ys, xs)
+def reverse = (xs) => foldl((acc, x) => Cons(x, acc), Nil, xs)
+
+def isEmpty = (xs) => match xs { case Nil => true; case Cons(h, t) => false }
+def head    = (xs) => match xs { case Nil => None; case Cons(h, t) => Some(h) }
 
 -- [0, 1, ..., n-1]
 def range = (n) =>
