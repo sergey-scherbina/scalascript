@@ -212,6 +212,21 @@ fi
 echo "# ssct-hm TEXTUAL LISTS: map written as source text (nil/cons/head/tail/isNil) -> all 3 backends"
 chk_hm examples/hm-map.hm '"[Int]"'
 chk_hm examples/hm-listlit.hm '"[Int]"'                            # [1, 2, 3] list-literal syntax
+echo "# ssct-hm Ord operators: > <= >= <> derived from </=/if (consistent on all backends)"
+chk_hm examples/hm-ord.hm '"Int"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-ord.hm > "${TMPDIR:-/tmp}/o.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/o.coreir" | tail -1)
+if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ord (>= <> <=) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ord" "$got"; fail=1; fi
+QS2="Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Nil)))))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-qsort2.hm > "${TMPDIR:-/tmp}/q2.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/q2.coreir" | tail -1)
+if [ "$got" = "$QS2" ]; then printf 'ok   %-26s => %s\n' "qsort dup (>=) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "qsort dup" "$got"; fail=1; fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-qsort2.hm > "${TMPDIR:-/tmp}/q2.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/q2.rs" -o "${TMPDIR:-/tmp}/q2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/q2-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$QS2" ]; then printf 'ok   %-26s => %s (rustc)\n' "qsort dup -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "qsort dup Rust" "$got"; fail=1; fi
+fi
+
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)

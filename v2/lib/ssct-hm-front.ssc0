@@ -39,7 +39,7 @@ def lexFrom = (s, i) =>
     else
       let i2 = #i.add(i, 2) in
       let two = if #i.le(i2, #slen(s)) then #sslice(s, i, i2) else "" in
-      if chOr(#seq(two, "=>"), #seq(two, "->")) then Cons(TPunct(two), lexFrom(s, i2))
+      if chOr(chOr(#seq(two, "=>"), #seq(two, "->")), chOr(chOr(#seq(two, "<="), #seq(two, ">=")), #seq(two, "<>"))) then Cons(TPunct(two), lexFrom(s, i2))
       else Cons(TPunct(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))
 
 def lex = (s) => lexFrom(s, 0)
@@ -122,11 +122,20 @@ def parseAddMore = (a, toks) =>
   }
 def parseAddSub = (toks) => match parseMul(toks) { case Pair(a, r) => parseAddMore(a, r) }
 
-def parseCmp = (toks) =>                              -- single non-associative '=' (Eq)
+-- comparison operators (non-associative), all derived from Eq / Lt / If — consistent on every backend
+def isCmpOp = (p) => chOr(chOr(#seq(p, "="), #seq(p, "<")), chOr(chOr(#seq(p, ">"), #seq(p, "<=")), chOr(#seq(p, ">="), #seq(p, "<>"))))
+def mkCmp = (p, a, b) =>
+  if #seq(p, "=") then Eq(a, b)
+  else if #seq(p, "<") then Lt(a, b)
+  else if #seq(p, ">") then Lt(b, a)
+  else if #seq(p, "<>") then If(Eq(a, b), BoolLit(false), BoolLit(true))
+  else if #seq(p, "<=") then If(Lt(b, a), BoolLit(false), BoolLit(true))
+  else If(Lt(a, b), BoolLit(false), BoolLit(true))   -- ">="
+def parseCmp = (toks) =>                              -- a (cmpop a)?
   match parseAddSub(toks) {
     case Pair(a, r) =>
       match r {
-        case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "=") then match parseAddSub(rest) { case Pair(b, r2) => Pair(Eq(a, b), r2) } else if #seq(p, "<") then match parseAddSub(rest) { case Pair(b, r2) => Pair(Lt(a, b), r2) } else Pair(a, r) case _ => Pair(a, r) }
+        case Cons(t, rest) => match t { case TPunct(p) => if isCmpOp(p) then match parseAddSub(rest) { case Pair(b, r2) => Pair(mkCmp(p, a, b), r2) } else Pair(a, r) case _ => Pair(a, r) }
         case Nil => Pair(a, r)
       }
   }
