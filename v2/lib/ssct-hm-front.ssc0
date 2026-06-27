@@ -48,7 +48,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), #seq(s, "rec")),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(#seq(s, "rec"), #seq(s, "match"))),
        chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -164,6 +164,30 @@ def parseIfE = (toks) =>                              -- after 'if':  c 'then' t
       }
   }
 
+-- match e { Con binder* => body | Con2 ... }  (arms separated by '|', body stops at '|' or '}')
+def parseBinders = (toks) =>
+  match toks {
+    case Cons(t, rest) => match t { case TName(x) => match parseBinders(rest) { case Pair(bs, r2) => Pair(Cons(x, bs), r2) } case _ => Pair(Nil, toks) }
+    case Nil => Pair(Nil, Nil)
+  }
+def parseArm = (toks) =>
+  match toks {
+    case Cons(t, rest) => match t {
+        case TName(con) => match parseBinders(rest) { case Pair(binders, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(MArm(con, binders, body), r3) } }
+        case _ => Pair(ParseErr, Nil)
+      }
+    case Nil => Pair(ParseErr, Nil)
+  }
+def parseArms = (toks) =>
+  match parseArm(toks) {
+    case Pair(arm, r) => match r {
+        case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "|") then match parseArms(rest) { case Pair(more, r2) => Pair(Cons(arm, more), r2) } else Pair(Cons(arm, Nil), r) case _ => Pair(Cons(arm, Nil), r) }
+        case Nil => Pair(Cons(arm, Nil), Nil)
+      }
+  }
+def parseMatchE = (toks) =>                            -- after 'match':  scrut '{' arms '}'
+  match parseExpr(toks) { case Pair(scrut, r1) => match parseArms(drop1(r1)) { case Pair(arms, r2) => Pair(MatchT(scrut, arms), drop1(r2)) } }
+
 def parseExpr = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -172,6 +196,7 @@ def parseExpr = (toks) =>
           if #seq(s, "fun") then parseFun(rest)
           else if #seq(s, "let") then parseLetE(rest)
           else if #seq(s, "if") then parseIfE(rest)
+          else if #seq(s, "match") then parseMatchE(rest)
           else parseCmp(toks)
         case _ => parseCmp(toks)
       }
@@ -180,17 +205,22 @@ def parseExpr = (toks) =>
 
 -- desugar built-in list names into the list terms (post-parse, bottom-up):
 --   nil -> LNil ; head e -> LHead e ; tail e -> LTail e ; isNil e -> LIsNil e ; cons h t -> LCons h t
+-- a Capitalized identifier is a data constructor (built or accumulated into a ConApp)
+def isUpperName = (s) => if #i.lt(0, #slen(s)) then isUpper(#scodeAt(s, 0)) else false
+def appendL = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) }
 def dsApp = (f, a) =>
   match f {
     case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else App(f, a)
     case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else App(f, a) case _ => App(f, a) }
+    case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)
   }
+def dsArms = (arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => Cons(MArm(con, binders, desugar(body)), dsArms(rest)) } }
 def desugar = (t) =>
   match t {
     case Lit(n)          => Lit(n)
     case BoolLit(b)      => BoolLit(b)
-    case Var(x)          => if #seq(x, "nil") then LNil else Var(x)
+    case Var(x)          => if #seq(x, "nil") then LNil else if isUpperName(x) then ConApp(x, Nil) else Var(x)
     case Lam(x, b)       => Lam(x, desugar(b))
     case App(f, a)       => dsApp(desugar(f), desugar(a))
     case Add(a, b)       => Add(desugar(a), desugar(b))
@@ -201,5 +231,6 @@ def desugar = (t) =>
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
+    case MatchT(scrut, arms) => MatchT(desugar(scrut), dsArms(arms))
   }
 def parse = (s) => desugar(fst(parseExpr(lex(s))))

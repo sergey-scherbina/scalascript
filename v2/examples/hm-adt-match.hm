@@ -1,0 +1,1 @@
+match (Some 5) { Some x => x | None => 0 }

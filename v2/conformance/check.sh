@@ -243,6 +243,26 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s (rustc)\n' "ssct-hm-rust qsort.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-rust qsort.hm" "$got"; fail=1; fi
 fi
 
+echo "# ssct-hm TEXTUAL ADTs: capitalized constructors + match { | } as source text -> 3 backends"
+chk_hm examples/hm-adt-match.hm '"Int"'                              # match (Some 5) { Some x => x | None => 0 }
+ssc run bin/ssctc-hm.ssc0 examples/hm-adt-match.hm > "${TMPDIR:-/tmp}/om.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/om.coreir" | tail -1)
+if [ "$got" = "5" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm match.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssctc-hm match.hm" "$got"; fail=1; fi
+chk_hm examples/hm-adt-tree.hm  '"Int"'                              # recursive tree-sum via match
+ssc run bin/ssctc-hm.ssc0 examples/hm-adt-tree.hm > "${TMPDIR:-/tmp}/tt.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tt.coreir" | tail -1)
+if [ "$got" = "6" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm tree.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssctc-hm tree.hm" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-adt-tree.hm > "${TMPDIR:-/tmp}/tt.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/tt.js" 2>/dev/null | tail -1)
+  if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (node)\n' "ssct-hm-js tree.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-js tree.hm" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-adt-tree.hm > "${TMPDIR:-/tmp}/tt.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/tt.rs" -o "${TMPDIR:-/tmp}/tt-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tt-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (rustc)\n' "ssct-hm-rust tree.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-rust tree.hm" "$got"; fail=1; fi
+fi
+
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
   a=$(ssc compile "examples/$1.ssc0")
