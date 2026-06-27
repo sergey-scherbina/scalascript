@@ -1,0 +1,14 @@
+-- Sieve of Eratosthenes — a real imperative algorithm using the MUTABLE array primitives
+-- (#arr.new/push/get/set). Primes below 30.
+--   ssc run examples/sieve.ssc0  =>  Cons(2, Cons(3, Cons(5, Cons(7, Cons(11, Cons(13, Cons(17, Cons(19, Cons(23, Cons(29, Nil)))))))))
+def fillTrue = (arr, i, n) => if #i.ge(i, n) then arr else (let u = #arr.push(arr, true) in fillTrue(arr, #i.add(i, 1), n))
+def markFrom = (arr, p, j, n) => if #i.ge(j, n) then arr else (let u = #arr.set(arr, j, false) in markFrom(arr, p, #i.add(j, p), n))
+def markComposites = (arr, p, n) =>
+  if #i.ge(#i.mul(p, p), n) then arr
+  else (let u = if #arr.get(arr, p) then markFrom(arr, p, #i.mul(p, p), n) else arr in markComposites(arr, #i.add(p, 1), n))
+def collectPrimes = (arr, i, n) =>
+  if #i.ge(i, n) then Nil
+  else if #arr.get(arr, i) then Cons(i, collectPrimes(arr, #i.add(i, 1), n)) else collectPrimes(arr, #i.add(i, 1), n)
+
+def sieve = (n) => let arr = fillTrue(#arr.new(), 0, n) in let m = markComposites(arr, 2, n) in collectPrimes(m, 2, n)
+def main = () => sieve(30)

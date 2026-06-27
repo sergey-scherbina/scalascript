@@ -38,6 +38,7 @@ chk run examples/quicksort-lib.ssc0 "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Con
 chk run examples/stdlib-demo.ssc0   '"0, 1, 2"'                       # strJoin + map + take + range
 chk run examples/zipwith.ssc0       "Cons(11, Cons(22, Cons(33, Nil)))"
 chk run examples/map-demo.ssc0      "Pair(2, 3)"                      # lib/map: insert/lookup/size
+chk run examples/sieve.ssc0         "Cons(2, Cons(3, Cons(5, Cons(7, Cons(11, Cons(13, Cons(17, Cons(19, Cons(23, Cons(29, Nil))))))))))"  # mutable #arr.*
 
 echo "# algebraic effects + handlers (lib/effects.ssc0) — incl. MULTI-SHOT continuations"
 chk run examples/effects-state.ssc0  "Pair(2, 2)"
