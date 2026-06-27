@@ -1,0 +1,1 @@
+fun a => fun b => if a = b then 1 else 0

@@ -109,6 +109,8 @@ chk_hm examples/hm-src-id.hm  '"(t0 -> t0)"'
 chk_hm examples/hm-src-if.hm  '"(Bool -> Int)"'
 chk_hm examples/hm-src-let.hm '"(t2 -> t2)"'
 chk_hm examples/hm-src-err.hm '"TypeError: if-condition must be Bool"'
+chk_hm examples/hm-fact.hm    '"Int"'                                # let rec + * - = in source text
+chk_hm examples/hm-eqfun.hm   '"(Int -> (Int -> Int))"'              # '=' forces both operands Int
 
 echo "# ssctc: .ssct -> ir bytecode (erase + coreir.encode, all ssc0) -> run-ir on the VM"
 bc=$(ssc run bin/ssctc.ssc0 examples/id.ssct)
@@ -136,6 +138,11 @@ ssc run examples/hm-fact-emit.ssc0 > "${TMPDIR:-/tmp}/hm-fact.coreir" 2>/dev/nul
 got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-fact.coreir" | tail -1)
 if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "hm-fact -> ir -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [120]\n' "hm-fact -> ir -> run-ir" "$got"; fail=1; fi
+# the SAME factorial, written as SOURCE TEXT, compiled by ssctc-hm and run on the VM
+ssc run bin/ssctc-hm.ssc0 examples/hm-fact.hm > "${TMPDIR:-/tmp}/hm-fact-text.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-fact-text.coreir" | tail -1)
+if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm fact.hm -> run-ir" "$got"
+else printf 'FAIL %-26s got [%s] want [120]\n' "ssctc-hm fact.hm -> run-ir" "$got"; fail=1; fi
 
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem

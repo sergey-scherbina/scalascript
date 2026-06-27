@@ -48,7 +48,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(#seq(s, "fun"), #seq(s, "let")),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), #seq(s, "rec")),
        chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -78,18 +78,40 @@ def parseAppMore = (f, toks) =>
   else Pair(f, toks)
 def parseApp = (toks) => match parseAtom(toks) { case Pair(f, r) => parseAppMore(f, r) }
 
+-- precedence ladder:  cmp ('=')  <  add/sub ('+' '-')  <  mul ('*')  <  app
+def parseMulMore = (a, toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case TPunct(p) => if #seq(p, "*") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Mul(a, b), r2) } else Pair(a, toks)
+        case _ => Pair(a, toks)
+      }
+    case Nil => Pair(a, toks)
+  }
+def parseMul = (toks) => match parseApp(toks) { case Pair(a, r) => parseMulMore(a, r) }
+
 def parseAddMore = (a, toks) =>
   match toks {
     case Cons(t, rest) =>
       match t {
         case TPunct(p) =>
-          if #seq(p, "+") then match parseApp(rest) { case Pair(b, r2) => parseAddMore(Add(a, b), r2) }
+          if #seq(p, "+") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Add(a, b), r2) }
+          else if #seq(p, "-") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Sub(a, b), r2) }
           else Pair(a, toks)
         case _ => Pair(a, toks)
       }
     case Nil => Pair(a, toks)
   }
-def parseAdd = (toks) => match parseApp(toks) { case Pair(a, r) => parseAddMore(a, r) }
+def parseAddSub = (toks) => match parseMul(toks) { case Pair(a, r) => parseAddMore(a, r) }
+
+def parseCmp = (toks) =>                              -- single non-associative '=' (Eq)
+  match parseAddSub(toks) {
+    case Pair(a, r) =>
+      match r {
+        case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "=") then match parseAddSub(rest) { case Pair(b, r2) => Pair(Eq(a, b), r2) } else Pair(a, r) case _ => Pair(a, r) }
+        case Nil => Pair(a, r)
+      }
+  }
 
 def parseFun = (toks) =>                              -- after 'fun':  x '=>' body  (NO type annotation)
   match toks {
@@ -104,7 +126,7 @@ def parseFun = (toks) =>                              -- after 'fun':  x '=>' bo
     case Nil => Pair(ParseErr, Nil)
   }
 
-def parseLetE = (toks) =>                             -- after 'let':  x '=' e 'in' body
+def parseLetBind = (mk, toks) =>                      -- shared:  name '=' e 'in' body  ->  mk(name, e, body)
   match toks {
     case Cons(t, r1) =>
       match t {
@@ -112,10 +134,21 @@ def parseLetE = (toks) =>                             -- after 'let':  x '=' e '
           match parseExpr(drop1(r1)) {                 -- drop '='
             case Pair(e, r3) =>
               match parseExpr(drop1(r3)) {             -- drop 'in'
-                case Pair(body, r5) => Pair(Let(x, e, body), r5)
+                case Pair(body, r5) => Pair(mk(x, e, body), r5)
               }
           }
         case _ => Pair(ParseErr, Nil)
+      }
+    case Nil => Pair(ParseErr, Nil)
+  }
+def mkLet    = (x, e, b) => Let(x, e, b)
+def mkLetRec = (x, e, b) => LetRec(x, e, b)
+def parseLetE = (toks) =>                             -- after 'let':  [rec] x '=' e 'in' body
+  match toks {
+    case Cons(t, r1) =>
+      match t {
+        case TName(x) => if #seq(x, "rec") then parseLetBind(mkLetRec, r1) else parseLetBind(mkLet, toks)
+        case _        => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)
   }
@@ -139,8 +172,8 @@ def parseExpr = (toks) =>
           if #seq(s, "fun") then parseFun(rest)
           else if #seq(s, "let") then parseLetE(rest)
           else if #seq(s, "if") then parseIfE(rest)
-          else parseAdd(toks)
-        case _ => parseAdd(toks)
+          else parseCmp(toks)
+        case _ => parseCmp(toks)
       }
     case Nil => Pair(ParseErr, Nil)
   }
