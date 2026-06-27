@@ -1,0 +1,12 @@
+-- Two actors bouncing a ball (incrementing) until it reaches 5.
+--   ping & pong each: on Ball(n), if n<5 send the other Ball(n+1).  start: ping Ball(0).
+--   trace of deliveries =>  Ball 0, Ball 1, Ball 2, Ball 3, Ball 4, Ball 5
+import "../lib/actors.ssc0"
+
+def pingBeh = (st, p) => match p { case Ball(n) => if #i.lt(n, 5) then Pair(st, Cons(Msg("pong", Ball(#i.add(n, 1))), Nil)) else Pair(st, Nil) }
+def pongBeh = (st, p) => match p { case Ball(n) => if #i.lt(n, 5) then Pair(st, Cons(Msg("ping", Ball(#i.add(n, 1))), Nil)) else Pair(st, Nil) }
+
+def main = () =>
+  runActors(
+    Cons(Pair("ping", pingBeh), Cons(Pair("pong", pongBeh), Nil)),
+    Cons(Msg("ping", Ball(0)), Nil))

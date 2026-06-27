@@ -47,6 +47,9 @@ chk run examples/typeclass.ssc0        '"[1, 2, 3]"'
 chk run examples/typeclass-nested.ssc0 '"[[1, 2], [3]]"'
 chk run examples/typeclass-bool.ssc0   '"[true, false]"'
 
+echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
+chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
+
 echo "# ssct — the typed layer (a type checker written in ssc0)"
 chk run examples/typed.ssc0    'Typed("Int", 42)'
 chk run examples/typed-fn.ssc0 'Typed("Int", 42)'

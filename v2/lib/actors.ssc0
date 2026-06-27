@@ -1,0 +1,30 @@
+-- Actors / message passing, in ssc0. An actor is a behavior  (state, msg) -> Pair(state', outs)
+-- where outs is a list of Msg(to, payload). The system delivers messages from a queue, routes
+-- each to its actor, runs the behavior, enqueues the outputs, and records a delivery trace.
+-- Per-actor state, addressing, and dynamic message flow — the actor essence, no kernel support.
+
+def lookupA = (m, k) => match m { case Nil => Nil case Cons(p, t) => match p { case Pair(k2, v) => if #seq(k2, k) then v else lookupA(t, k) } }
+def updateA = (m, k, v) =>
+  match m {
+    case Nil => Cons(Pair(k, v), Nil)
+    case Cons(p, t) => match p { case Pair(k2, v2) => if #seq(k2, k) then Cons(Pair(k, v), t) else Cons(p, updateA(t, k, v)) }
+  }
+def appendA = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendA(t, ys)) }
+def reverseA = (xs) => revAA(xs, Nil)
+def revAA = (xs, acc) => match xs { case Nil => acc case Cons(h, t) => revAA(t, Cons(h, acc)) }
+
+-- behs: assoc id -> behavior ; states: assoc id -> state ; queue: list of Msg ; trace: delivered payloads
+def runSys = (behs, states, queue, trace) =>
+  match queue {
+    case Nil => reverseA(trace)
+    case Cons(m, rest) =>
+      match m { case Msg(to, p) =>
+        let beh = lookupA(behs, to) in
+        match beh(lookupA(states, to), p) {
+          case Pair(st2, outs) => runSys(behs, updateA(states, to, st2), appendA(rest, outs), Cons(p, trace))
+        }
+      }
+  }
+
+-- run a set of actors from an initial message queue; returns the delivery trace.
+def runActors = (behs, queue) => runSys(behs, Nil, queue, Nil)

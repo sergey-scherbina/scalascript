@@ -68,7 +68,10 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       resolution). Demos: show List Int / List(List Int) / List Bool. Spec `52-typeclasses.md`.
       Kernel +0. NEXT: wire automatic resolution into the `ssct` typer (insert dict from inferred
       type + erase); multi-method classes (Eq/Num/Ord) = multi-field dicts.
-- [ ] **actors** — message-passing on top of effects/async (mailboxes, spawn, send).
+- [x] **actors** (2026-06-27) — `lib/actors.ssc0`: behavior `(state, msg) -> (state', [Msg])`
+      + a delivery loop (route by id, per-actor state, enqueue outputs). Demo: ping-pong
+      bounce → Ball 0..5. Spec `53-actors.md`. Kernel +0. NEXT: concurrent actors with blocking
+      `receive` on the async scheduler; supervision; wire protocol via `coreir.encode`.
 - [ ] `do`-notation sugar for `bind` in the surface; typed effect rows in `ssct`.
 
 ## Backlog
