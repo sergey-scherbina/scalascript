@@ -1,0 +1,3 @@
+-- first 5 squares from the INFINITE stream 1,2,3,...  =>  Cons(1, Cons(4, Cons(9, Cons(16, Cons(25, Nil)))))
+import "../lib/stream.ssc0"
+def main = () => streamTake(5, streamMap((x) => #i.mul(x, x), from(1)))

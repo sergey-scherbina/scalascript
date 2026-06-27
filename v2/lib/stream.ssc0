@@ -1,0 +1,8 @@
+-- Lazy (possibly infinite) streams on the STRICT CBV kernel: a stream is Nil | Cons(head, thunk),
+-- where the tail thunk is a 1-arg closure forced by applying it to 0. CBV never evaluates a
+-- closure body until applied => genuine laziness, infinite streams, all on the frozen kernel.
+def force      = (tl) => tl(0)
+def from       = (k) => Cons(k, (u) => from(#i.add(k, 1)))                 -- k, k+1, k+2, ... (infinite)
+def streamTake = (n, s) => if #i.le(n, 0) then Nil else match s { case Nil => Nil case Cons(h, tl) => Cons(h, streamTake(#i.sub(n, 1), force(tl))) }
+def streamMap  = (f, s) => match s { case Nil => Nil case Cons(h, tl) => Cons(f(h), (u) => streamMap(f, force(tl))) }
+def streamFilter = (p, s) => match s { case Nil => Nil case Cons(h, tl) => if p(h) then Cons(h, (u) => streamFilter(p, force(tl))) else streamFilter(p, force(tl)) }
