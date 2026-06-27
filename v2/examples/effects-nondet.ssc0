@@ -1,0 +1,11 @@
+-- Nondeterminism (MULTI-SHOT continuations): choose x in {1,2}, y in {10,20}, return x+y.
+-- The handler resumes the SAME continuation once per choice — every combination explored.
+--   ssc run examples/effects-nondet.ssc0   =>  Cons(11, Cons(21, Cons(12, Cons(22, Nil))))
+import "../lib/effects.ssc0"
+
+def prog =
+  bind(choose(Cons(1, Cons(2, Nil))),    (x) =>
+  bind(choose(Cons(10, Cons(20, Nil))),  (y) =>
+  pure(#i.add(x, y))))
+
+def main = () => runAll(prog)

@@ -1,0 +1,12 @@
+-- State effect: get; put(get+1); get; put(get+1); get   threaded from 0.
+--   ssc run examples/effects-state.ssc0   =>  Pair(2, 2)   (result 2, final state 2)
+import "../lib/effects.ssc0"
+
+def main = () =>
+  runState(
+    bind(get,                (x0) =>
+    bind(put(#i.add(x0, 1)), (u1) =>
+    bind(get,                (x1) =>
+    bind(put(#i.add(x1, 1)), (u2) =>
+    get)))),
+    0)

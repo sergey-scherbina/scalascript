@@ -34,6 +34,10 @@ echo "# stdlib + an interpreter, written in ssc0"
 chk run examples/pipeline.ssc0 "120"
 chk run examples/calc.ssc0     "42"
 
+echo "# algebraic effects + handlers (lib/effects.ssc0) — incl. MULTI-SHOT continuations"
+chk run examples/effects-state.ssc0  "Pair(2, 2)"
+chk run examples/effects-nondet.ssc0 "Cons(11, Cons(21, Cons(12, Cons(22, Nil))))"
+
 echo "# ssct — the typed layer (a type checker written in ssc0)"
 chk run examples/typed.ssc0    'Typed("Int", 42)'
 chk run examples/typed-fn.ssc0 'Typed("Int", 42)'

@@ -54,6 +54,18 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       recursion) + conformance + spec `20-bootstrap.md`. **Kernel: +0 lines (still 913).** Left:
       M3 (ssc0c `import` resolution → multi-file self-compile).
 
+## K3 — ssc 1.0 feature parity (all libraries/elaborations on the frozen kernel)
+
+- [x] **algebraic effects + handlers** (2026-06-27) — `lib/effects.ssc0` (pure/perform/bind +
+      handlers). State (one-shot) + nondeterminism (**multi-shot** continuations) examples +
+      conformance + spec `50-effects.md`. Kernel +0. Effects = data + closures, no kernel node.
+- [ ] **async / cooperative concurrency** — `fork`/`yield`/`await` as effect ops + a scheduler
+      handler, on `lib/effects.ssc0`. Spec `51-async.md`. Demo: interleaved tasks.
+- [ ] **typeclasses** — dictionary-passing elaboration in the `ssct` typed layer (resolve
+      instances → explicit dict args, erased to plain functions). Demo: `Eq`/`Show`/`Num`.
+- [ ] **actors** — message-passing on top of effects/async (mailboxes, spawn, send).
+- [ ] `do`-notation sugar for `bind` in the surface; typed effect rows in `ssct`.
+
 ## Backlog
 
 - [ ] bare-`#prim` η-expansion (needs a prim-arity table); Array-env for speed; `v2-bin`
