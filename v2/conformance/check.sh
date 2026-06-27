@@ -69,6 +69,8 @@ chk run examples/hm-id.ssc0     '"(t0 -> t0)"'                       # polymorph
 chk run examples/hm-app.ssc0    '"Int"'
 chk run examples/hm-apply2.ssc0 '"((t1 -> t2) -> (t1 -> t2))"'       # f inferred to be a function
 chk run examples/hm-err.ssc0    '"TypeError: Add needs Int operands"'
+chk run examples/hm-letpoly.ssc0 '"(t2 -> t2)"'                       # let-poly: id id (occurs-error w/o generalization)
+chk run examples/hm-letmono.ssc0 '"Int"'                             # same id reused at Int
 
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"

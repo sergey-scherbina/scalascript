@@ -35,14 +35,27 @@ def unify = (s, t1, t2) =>
 
 def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, x) then Some(v) else lookupE(rest, x) } }
 
--- infer : (env, counter, subst, term) -> Ok3(subst, type, counter) | ErrI(msg)
+-- ── let-polymorphism: env binds names to type SCHEMES Forall(quantified-vars, type) ──
+def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.eq(h, n) then true else memberI(n, t) }
+def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyVar(n) => insertI(n, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
+def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
+def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
+-- generalize a type over all vars free in it but NOT free in the environment
+def generalize = (env, s, ty) => let t = appTy(s, ty) in Forall(diffList(freeTy(t, Nil), freeEnv(env, s, Nil)), t)
+-- instantiate a scheme: give each quantified var a FRESH var, return Pair(type, counter')
+def freshRen = (qs, c) => match qs { case Nil => Pair(Nil, c) case Cons(q, rest) => match freshRen(rest, #i.add(c, 1)) { case Pair(r, c2) => Pair(Cons(Pair(q, TyVar(c)), r), c2) } }
+def instantiate = (sch, c) => match sch { case Forall(qs, t) => match freshRen(qs, c) { case Pair(ren, c2) => Pair(appTy(ren, t), c2) } }
+
+-- infer : (env, counter, subst, term) -> Ok3(subst, type, counter) | ErrI(msg).  env: name -> Scheme.
 def infer = (env, c, s, term) =>
   match term {
     case Lit(n) => Ok3(s, TyInt, c)
-    case Var(x) => match lookupE(env, x) { case None => ErrI("unbound variable") case Some(t) => Ok3(s, t, c) }
+    case Var(x) => match lookupE(env, x) { case None => ErrI("unbound variable") case Some(sch) => match instantiate(sch, c) { case Pair(it, c2) => Ok3(s, it, c2) } }
     case Lam(x, body) =>
       let tv = TyVar(c) in
-      match infer(Cons(Pair(x, tv), env), #i.add(c, 1), s, body) {
+      match infer(Cons(Pair(x, Forall(Nil, tv)), env), #i.add(c, 1), s, body) {
         case ErrI(m)         => ErrI(m)
         case Ok3(s2, tb, c2) => Ok3(s2, TyFun(appTy(s2, tv), tb), c2)
       }
@@ -63,7 +76,7 @@ def infer = (env, c, s, term) =>
             match unify(s2, tb, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s3) => Ok3(s3, TyInt, c2) } } } }
     case Let(x, e, body) =>
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
-        infer(Cons(Pair(x, appTy(s1, te)), env), c1, s1, body) }
+        infer(Cons(Pair(x, generalize(env, s1, te)), env), c1, s1, body) }
   }
 
 def showTyR = (t) => match t {
