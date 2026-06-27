@@ -108,7 +108,7 @@ def parseCmp = (toks) =>                              -- single non-associative 
   match parseAddSub(toks) {
     case Pair(a, r) =>
       match r {
-        case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "=") then match parseAddSub(rest) { case Pair(b, r2) => Pair(Eq(a, b), r2) } else Pair(a, r) case _ => Pair(a, r) }
+        case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "=") then match parseAddSub(rest) { case Pair(b, r2) => Pair(Eq(a, b), r2) } else if #seq(p, "<") then match parseAddSub(rest) { case Pair(b, r2) => Pair(Lt(a, b), r2) } else Pair(a, r) case _ => Pair(a, r) }
         case Nil => Pair(a, r)
       }
   }
@@ -197,6 +197,7 @@ def desugar = (t) =>
     case Sub(a, b)       => Sub(desugar(a), desugar(b))
     case Mul(a, b)       => Mul(desugar(a), desugar(b))
     case Eq(a, b)        => Eq(desugar(a), desugar(b))
+    case Lt(a, b)        => Lt(desugar(a), desugar(b))
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))

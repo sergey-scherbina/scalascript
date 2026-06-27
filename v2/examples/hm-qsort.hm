@@ -1,0 +1,10 @@
+let rec filter = fun p => fun l =>
+  if isNil l then nil
+  else if p (head l) then cons (head l) (filter p (tail l)) else filter p (tail l) in
+let rec append = fun a => fun b => if isNil a then b else cons (head a) (append (tail a) b) in
+let rec qsort = fun l =>
+  if isNil l then nil
+  else append
+         (qsort (filter (fun x => x < head l) (tail l)))
+         (cons (head l) (qsort (filter (fun x => head l < x) (tail l)))) in
+qsort (cons 3 (cons 1 (cons 4 (cons 2 nil))))

@@ -87,6 +87,7 @@ def infer = (env, c, s, term) =>
     case Sub(a, b) => inferArith(env, c, s, a, b, TyInt,  "Sub needs Int operands")
     case Mul(a, b) => inferArith(env, c, s, a, b, TyInt,  "Mul needs Int operands")
     case Eq(a, b)  => inferArith(env, c, s, a, b, TyBool, "Eq needs Int operands")
+    case Lt(a, b)  => inferArith(env, c, s, a, b, TyBool, "< needs Int operands")
     case If(cnd, th, el) =>
       match infer(env, c, s, cnd) { case ErrI(m) => ErrI(m) case Ok3(s1, tc, c1) =>
         match unify(s1, tc, TyBool) { case Err(m) => ErrI("if-condition must be Bool") case Ok(s1b) =>
@@ -162,6 +163,7 @@ def evalT = (env, t) =>
     case Sub(a, b)    => IntVal(#i.sub(asI(evalT(env, a)), asI(evalT(env, b))))
     case Mul(a, b)    => IntVal(#i.mul(asI(evalT(env, a)), asI(evalT(env, b))))
     case Eq(a, b)     => BoolVal(#i.eq(asI(evalT(env, a)), asI(evalT(env, b))))
+    case Lt(a, b)     => BoolVal(#i.lt(asI(evalT(env, a)), asI(evalT(env, b))))
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
     case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }

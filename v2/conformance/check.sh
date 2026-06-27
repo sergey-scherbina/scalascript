@@ -202,6 +202,23 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (rustc)\n' "ssct-hm-rust map.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-rust map.hm" "$got"; fail=1; fi
 fi
 
+echo "# ssct-hm TYPED QUICKSORT: filter/append/qsort + less-than as source text -> infer [Int] -> 3 backends"
+chk_hm examples/hm-qsort.hm '"[Int]"'
+QS="Cons(1, Cons(2, Cons(3, Cons(4, Nil))))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-qsort.hm > "${TMPDIR:-/tmp}/qs.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/qs.coreir" | tail -1)
+if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm qsort.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssctc-hm qsort.hm" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-qsort.hm > "${TMPDIR:-/tmp}/qs.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/qs.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s (node)\n' "ssct-hm-js qsort.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-js qsort.hm" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-qsort.hm > "${TMPDIR:-/tmp}/qs.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/qs.rs" -o "${TMPDIR:-/tmp}/qs-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/qs-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s (rustc)\n' "ssct-hm-rust qsort.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-rust qsort.hm" "$got"; fail=1; fi
+fi
+
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
   a=$(ssc compile "examples/$1.ssc0")
