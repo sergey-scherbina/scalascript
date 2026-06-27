@@ -74,6 +74,16 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       `receive` on the async scheduler; supervision; wire protocol via `coreir.encode`.
 - [ ] `do`-notation sugar for `bind` in the surface; typed effect rows in `ssct`.
 
+## K4 — backends (ir → target, each an ssc0 program; "one source, many targets")
+
+- [x] **backend: ir → JS** (2026-06-27) — `lib/backend-js.ssc0` (reuses ssc0c front; walks IR
+      → JS). `./ssc0-js f.ssc0 | node`; node output == VM output for fact/map/calc. Spec
+      `60-backend-js.md`. Kernel +0. KNOWN: `tco` overflows (JS has no TCO → needs a trampoline
+      pass, deferred).
+- [ ] **backend: ir → Rust** — `lib/backend-rust.ssc0`: emit Rust over a `Value` enum +
+      `Rc<dyn Fn>` closures runtime; `rustc` compiles + runs == VM. (User-requested.)
+- [ ] **backend: ir → WASM**; a TCO-trampoline lowering pass (shared by JS/WASM) in ssc0.
+
 ## Backlog
 
 - [ ] bare-`#prim` η-expansion (needs a prim-arity table); Array-env for speed; `v2-bin`

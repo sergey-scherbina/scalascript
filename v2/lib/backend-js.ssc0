@@ -1,0 +1,103 @@
+-- Backend: Core IR -> JavaScript, written in ssc0.  "one source, many targets":
+-- reuse ssc0c's front (source -> IrProg Data), then WALK the IR emitting JS.
+-- De Bruijn locals -> named JS vars by absolute depth (v{d-1-i}); Data -> {t,f}; closures
+-- -> arrow functions; recursion via top-level consts. The kernel knows nothing of JS.
+import "ssc0c.ssc0"
+
+def joinStr = (parts, sep) =>
+  match parts {
+    case Nil => ""
+    case Cons(h, t) => match t { case Nil => h case Cons(h2, t2) => #sconcat(h, #sconcat(sep, joinStr(t, sep))) }
+  }
+def cats = (xs) => joinStr(xs, "")
+def jName = (i) => #sconcat("v", #i->str(i))
+def gName = (n) => #sconcat("$", n)
+def lenL  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenL(t)) }
+
+-- v{d}, v{d+1}, ..., v{d+n-1}
+def nameList = (d, n) => if #i.le(n, 0) then Nil else Cons(jName(d), nameList(#i.add(d, 1), #i.sub(n, 1)))
+def params   = (d, n) => joinStr(nameList(d, n), ", ")
+-- $s.f[0], $s.f[1], ...
+def fieldList = (i, n) => if #i.le(n, 0) then Nil else Cons(cats(Cons("$s.f[", Cons(#i->str(i), Cons("]", Nil)))), fieldList(#i.add(i, 1), #i.sub(n, 1)))
+def fields    = (n) => joinStr(fieldList(0, n), ", ")
+
+def genConst = (c) =>
+  match c {
+    case IrInt(n)  => #i->str(n)
+    case IrBool(b) => if b then "true" else "false"
+    case IrStr(s)  => cats(Cons("\"", Cons(s, Cons("\"", Nil))))
+    case IrUnit    => "UNIT"
+  }
+def bin = (args, ops) =>
+  match args {
+    case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("(", Cons(a, Cons(ops, Cons(b, Cons(")", Nil)))))) case Nil => "0" }
+    case Nil => "0"
+  }
+def genPrim = (op, args) =>
+  if #seq(op, "i.add") then bin(args, " + ")
+  else if #seq(op, "i.sub") then bin(args, " - ")
+  else if #seq(op, "i.mul") then bin(args, " * ")
+  else if #seq(op, "i.div") then bin(args, " / ")
+  else if #seq(op, "i.mod") then bin(args, " % ")
+  else if #seq(op, "i.eq")  then bin(args, " === ")
+  else if #seq(op, "i.lt")  then bin(args, " < ")
+  else if #seq(op, "i.le")  then bin(args, " <= ")
+  else if #seq(op, "i.gt")  then bin(args, " > ")
+  else if #seq(op, "i.ge")  then bin(args, " >= ")
+  else if #seq(op, "seq")   then bin(args, " === ")
+  else "0"
+
+def mapGenJS = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genJS(d, h), mapGenJS(d, t)) }
+
+def genJS = (d, t) =>
+  match t {
+    case IrLit(c)       => genConst(c)
+    case IrLocal(i)     => jName(#i.sub(#i.sub(d, 1), i))
+    case IrGlobal(name) => gName(name)
+    case IrLam(n, body) => cats(Cons("(", Cons(params(d, n), Cons(") => ", Cons(genJS(#i.add(d, n), body), Nil)))))
+    case IrApp(f, args) => cats(Cons(genJS(d, f), Cons("(", Cons(joinStr(mapGenJS(d, args), ", "), Cons(")", Nil)))))
+    case IrIf(c, th, el)=> cats(Cons("(", Cons(genJS(d, c), Cons(" ? ", Cons(genJS(d, th), Cons(" : ", Cons(genJS(d, el), Cons(")", Nil))))))))
+    case IrPrim(op, as) => genPrim(op, mapGenJS(d, as))
+    case IrCtor(tag, fs)=> cats(Cons("({t:\"", Cons(tag, Cons("\",f:[", Cons(joinStr(mapGenJS(d, fs), ", "), Cons("]})", Nil))))))
+    case IrLet(rhs, b)  => letJS(d, rhs, b)
+    case IrLetRec(ls, b)=> letrecJS(d, ls, b)
+    case IrMatch(s, arms, dflt) => cats(Cons("(($s) => ", Cons(armsJS(d, arms, dflt), Cons(")(", Cons(genJS(d, s), Cons(")", Nil))))))
+  }
+
+def armsJS = (d, arms, dflt) =>
+  match arms {
+    case Nil => match dflt { case Some(b) => genJS(d, b) case None => "(()=>{throw new Error('no match')})()" }
+    case Cons(arm, rest) =>
+      match arm { case IrArm(tag, ar, body) =>
+        cats(Cons("$s.t === \"", Cons(tag, Cons("\" ? ((", Cons(params(d, ar), Cons(") => ", Cons(genJS(#i.add(d, ar), body),
+          Cons(")(", Cons(fields(ar), Cons(") : ", Cons(armsJS(d, rest, dflt), Nil)))))))))))
+      }
+  }
+
+def letJS = (d, rhs, body) =>
+  match rhs {
+    case Nil => genJS(d, body)
+    case Cons(r, rest) => cats(Cons("((", Cons(jName(d), Cons(") => ", Cons(letJS(#i.add(d, 1), rest, body), Cons(")(", Cons(genJS(d, r), Cons(")", Nil))))))))
+  }
+
+def letrecDecls = (dj, dInner, lams) =>
+  match lams {
+    case Nil => ""
+    case Cons(lam, rest) => cats(Cons("const ", Cons(jName(dj), Cons(" = ", Cons(genJS(dInner, lam), Cons("; ", Cons(letrecDecls(#i.add(dj, 1), dInner, rest), Nil)))))))
+  }
+def letrecJS = (d, lams, body) =>
+  let n = lenL(lams) in
+  cats(Cons("(() => { ", Cons(letrecDecls(d, #i.add(d, n), lams), Cons("return ", Cons(genJS(#i.add(d, n), body), Cons("; })()", Nil))))))
+
+def genDefs = (defs) =>
+  match defs {
+    case Nil => ""
+    case Cons(dd, t) => match dd { case IrDef(name, body) => cats(Cons("const ", Cons(gName(name), Cons(" = ", Cons(genJS(0, body), Cons(";\n", Cons(genDefs(t), Nil))))))) }
+  }
+
+def jsPrelude = "const show = (v) => typeof v === 'number' ? String(v) : typeof v === 'boolean' ? String(v) : typeof v === 'string' ? JSON.stringify(v) : (v && v.t !== undefined) ? (v.f.length === 0 ? v.t : v.t + \"(\" + v.f.map(show).join(\", \") + \")\") : String(v);\nconst UNIT = {t:\"unit\",f:[]};\n"
+
+def genProg = (prog) =>
+  match prog { case IrProg(defs, entry) => cats(Cons(jsPrelude, Cons(genDefs(defs), Cons("console.log(show(", Cons(genJS(0, entry), Cons("));\n", Nil)))))) }
+
+def toJS = (src) => genProg(compileModule(parseTop(lex(src))))

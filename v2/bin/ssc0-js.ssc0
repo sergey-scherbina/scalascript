@@ -1,0 +1,9 @@
+-- ssc0 -> JavaScript backend driver. Reads a .ssc0 file, emits a runnable .js program.
+--   ssc run bin/ssc0-js.ssc0 examples/fact.ssc0 | node    =>  120
+import "../lib/backend-js.ssc0"
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) => #io.print(toJS(#utf8->str(#io.readFile(path))))
+    case Nil              => #io.eprint("usage: ssc0-js <file.ssc0>")
+  }

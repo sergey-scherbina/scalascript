@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc0-js — compile a .ssc0 file to JavaScript (the ssc0 backend lib/backend-js.ssc0
+# run on the ssc VM). Pipe to node to execute:
+#   ./ssc0-js examples/fact.ssc0 | node     =>  120
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc0-js.ssc0" "$@"

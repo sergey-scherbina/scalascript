@@ -103,6 +103,22 @@ else
   printf 'FAIL %-26s gen1(%s) != gen2(%s)\n' "ssc0c FIXPOINT" "${#gen1}" "${#gen2}"; fail=1
 fi
 
+echo "# backend: ir -> JS (lib/backend-js.ssc0) — node output == VM output"
+if command -v node >/dev/null 2>&1; then
+  chk_js() { # file-stem
+    vm=$(ssc run "examples/$1.ssc0" | tail -1)
+    ssc run bin/ssc0-js.ssc0 "examples/$1.ssc0" > "${TMPDIR:-/tmp}/ssc0bk-$1.js" 2>/dev/null
+    js=$(node "${TMPDIR:-/tmp}/ssc0bk-$1.js" 2>/dev/null | tail -1)
+    if [ "$vm" = "$js" ]; then printf 'ok   %-26s => %s (node == vm)\n' "js $1.ssc0" "$js"
+    else printf 'FAIL %-26s vm=[%s] node=[%s]\n' "js $1.ssc0" "$vm" "$js"; fail=1; fi
+  }
+  chk_js fact   # tco excluded: JS has no TCO (1e6-deep recursion overflows)
+  chk_js map
+  chk_js calc
+else
+  echo "ok   js backend                => skipped (node not installed)"
+fi
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"
