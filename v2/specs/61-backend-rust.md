@@ -33,11 +33,14 @@ move. A `show` matching the VM's renders output comparably.
 
 For `fact`, `map`, `calc`: `rustc -O (ssc0-rust X)` then run == `ssc run X`. Same output.
 
-## Known limitation
+## TCO via a trampoline (2026-06-27)
 
-`tco.ssc0` (1e6-deep tail loop) overflows — the `Rc<dyn Fn>` encoding doesn't get TCO. The
-shared TCO-trampoline lowering pass (planned for JS too, `specs/60`) fixes this for both
-targets; deferred.
+Rust doesn't TCO this `Rc<dyn Fn>` encoding either, so the codegen is tail-aware. Closures
+return a `Step = Val(V) | Bounce(V, Vec<V>)`; a tail `IrApp` emits `Step::Bounce`; `app` loops
+(`while let Step::Bounce`) over bounces. Constant stack — the IR/VM TCO guarantee, in native
+code. Two codegen modes: `genV` (value mode → a `V` expression) and `genT` (tail mode → a
+`Step`); `genT` bounces a tail call, wraps a leaf in `Step::Val`, and threads through
+`If`/`Match`/`Let` tail positions. `tco.ssc0` (1e6-deep, `500000500000`) now runs.
 
 ## Why this matters
 

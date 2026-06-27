@@ -1,7 +1,6 @@
--- Backend: Core IR -> Rust, written in ssc0. Rust is statically typed, so we emit over a
--- dynamic Value enum (V) + reference-counted closures (Rc<dyn Fn>). Reuses ssc0c's front
--- (source -> IrProg Data) and walks the IR. De Bruijn -> named vars v{d-1-i}; each closure
--- clones its captured outer vars (so it is self-contained / Fn). The kernel knows no Rust.
+-- Backend: Core IR -> Rust, written in ssc0. Dynamic enum V + Rc closures. Now TCO-correct:
+-- closures return a Step (Val | Bounce); a tail IrApp emits Bounce; `app` loops over bounces
+-- => constant stack. genV = value mode (-> V), genT = tail mode (-> Step). Reuses ssc0c front.
 import "ssc0c.ssc0"
 
 def joinStr = (parts, sep) => match parts { case Nil => "" case Cons(h, t) => match t { case Nil => h case Cons(h2, t2) => #sconcat(h, #sconcat(sep, joinStr(t, sep))) } }
@@ -9,11 +8,8 @@ def cats  = (xs) => joinStr(xs, "")
 def jName = (i) => #sconcat("v", #i->str(i))
 def lenL  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenL(t)) }
 
--- let v{d} = a[0].clone(); let v{d+1} = a[1].clone(); ...   (closure params)
-def rbinds = (d, idx, n) => if #i.le(n, 0) then "" else cats(Cons("let ", Cons(jName(d), Cons(" = a[", Cons(#i->str(idx), Cons("].clone(); ", Cons(rbinds(#i.add(d, 1), #i.add(idx, 1), #i.sub(n, 1)), Nil)))))))
--- let v{d} = f[0].clone(); ...   (match field binds)
+def rbinds  = (d, idx, n) => if #i.le(n, 0) then "" else cats(Cons("let ", Cons(jName(d), Cons(" = a[", Cons(#i->str(idx), Cons("].clone(); ", Cons(rbinds(#i.add(d, 1), #i.add(idx, 1), #i.sub(n, 1)), Nil)))))))
 def rfbinds = (d, idx, n) => if #i.le(n, 0) then "" else cats(Cons("let ", Cons(jName(d), Cons(" = f[", Cons(#i->str(idx), Cons("].clone(); ", Cons(rfbinds(#i.add(d, 1), #i.add(idx, 1), #i.sub(n, 1)), Nil)))))))
--- clone outer vars v0..v{d-1} before a move-closure so it captures clones
 def rclones = (k, d) => if #i.ge(k, d) then "" else cats(Cons("let ", Cons(jName(k), Cons(" = ", Cons(jName(k), Cons(".clone(); ", Cons(rclones(#i.add(k, 1), d), Nil)))))))
 
 def genRConst = (c) =>
@@ -41,36 +37,53 @@ def genRPrim = (op, args) =>
   else if #seq(op, "i.ge")  then rbin(args, ">=", "V::B")
   else if #seq(op, "seq")   then rseq(args)
   else "V::U"
+def mapGenV = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genV(d, h), mapGenV(d, t)) }
+def rletbinds = (d, rhs) => match rhs { case Nil => "" case Cons(r, rest) => cats(Cons("let ", Cons(jName(d), Cons(" = ", Cons(genV(d, r), Cons("; ", Cons(rletbinds(#i.add(d, 1), rest), Nil))))))) }
 
-def mapGenR = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genR(d, h), mapGenR(d, t)) }
-
-def genR = (d, t) =>
+-- value mode: produce a V expression
+def genV = (d, t) =>
   match t {
     case IrLit(c)       => genRConst(c)
     case IrLocal(i)     => cats(Cons(jName(#i.sub(#i.sub(d, 1), i)), Cons(".clone()", Nil)))
     case IrGlobal(name) => cats(Cons("g_", Cons(name, Cons("()", Nil))))
-    case IrLam(n, body) => cats(Cons("{ ", Cons(rclones(0, d), Cons("V::F(Rc::new(move |a: Vec<V>| { ", Cons(rbinds(d, 0, n), Cons(genR(#i.add(d, n), body), Cons(" })) }", Nil)))))))
-    case IrApp(f, args) => cats(Cons("app(", Cons(genR(d, f), Cons(", vec![", Cons(joinStr(mapGenR(d, args), ", "), Cons("])", Nil))))))
-    case IrIf(c, th, el)=> cats(Cons("if asb(&(", Cons(genR(d, c), Cons(")) { ", Cons(genR(d, th), Cons(" } else { ", Cons(genR(d, el), Cons(" }", Nil))))))))
-    case IrPrim(op, as) => genRPrim(op, mapGenR(d, as))
-    case IrCtor(tag, fs)=> cats(Cons("V::D(\"", Cons(tag, Cons("\".to_string(), vec![", Cons(joinStr(mapGenR(d, fs), ", "), Cons("])", Nil))))))
-    case IrLet(rhs, b)  => cats(Cons("{ ", Cons(rletbinds(d, rhs), Cons(genR(#i.add(d, lenL(rhs)), b), Cons(" }", Nil)))))
-    case IrLetRec(ls, b)=> "V::U"
-    case IrMatch(s, arms, dflt) => cats(Cons("{ let s = ", Cons(genR(d, s), Cons("; match &s { V::D(t, f) => { ", Cons(rArms(d, arms, dflt), Cons(" }, _ => panic!() } }", Nil))))))
+    case IrLam(n, body) => cats(Cons("{ ", Cons(rclones(0, d), Cons("V::F(Rc::new(move |a: Vec<V>| { ", Cons(rbinds(d, 0, n), Cons(genT(#i.add(d, n), body), Cons(" })) }", Nil)))))))
+    case IrApp(f, args)  => cats(Cons("app(", Cons(genV(d, f), Cons(", vec![", Cons(joinStr(mapGenV(d, args), ", "), Cons("])", Nil))))))
+    case IrIf(c, th, el) => cats(Cons("if asb(&(", Cons(genV(d, c), Cons(")) { ", Cons(genV(d, th), Cons(" } else { ", Cons(genV(d, el), Cons(" }", Nil))))))))
+    case IrPrim(op, as)  => genRPrim(op, mapGenV(d, as))
+    case IrCtor(tag, fs) => cats(Cons("V::D(\"", Cons(tag, Cons("\".to_string(), vec![", Cons(joinStr(mapGenV(d, fs), ", "), Cons("])", Nil))))))
+    case IrLet(rhs, b)   => cats(Cons("{ ", Cons(rletbinds(d, rhs), Cons(genV(#i.add(d, lenL(rhs)), b), Cons(" }", Nil)))))
+    case IrLetRec(ls, b) => "V::U"
+    case IrMatch(s, arms, dflt) => cats(Cons("{ let s = ", Cons(genV(d, s), Cons("; match &s { V::D(t, f) => { ", Cons(rArmsV(d, arms, dflt), Cons(" }, _ => panic!() } }", Nil))))))
   }
 
-def rletbinds = (d, rhs) => match rhs { case Nil => "" case Cons(r, rest) => cats(Cons("let ", Cons(jName(d), Cons(" = ", Cons(genR(d, r), Cons("; ", Cons(rletbinds(#i.add(d, 1), rest), Nil))))))) }
+-- tail mode: produce a Step expression (Bounce for a tail call, else Step::Val of a value)
+def genT = (d, t) =>
+  match t {
+    case IrApp(f, args)  => cats(Cons("Step::Bounce(", Cons(genV(d, f), Cons(", vec![", Cons(joinStr(mapGenV(d, args), ", "), Cons("])", Nil))))))
+    case IrIf(c, th, el) => cats(Cons("if asb(&(", Cons(genV(d, c), Cons(")) { ", Cons(genT(d, th), Cons(" } else { ", Cons(genT(d, el), Cons(" }", Nil))))))))
+    case IrLet(rhs, b)   => cats(Cons("{ ", Cons(rletbinds(d, rhs), Cons(genT(#i.add(d, lenL(rhs)), b), Cons(" }", Nil)))))
+    case IrLetRec(ls, b) => "Step::Val(V::U)"
+    case IrMatch(s, arms, dflt) => cats(Cons("{ let s = ", Cons(genV(d, s), Cons("; match &s { V::D(t, f) => { ", Cons(rArmsT(d, arms, dflt), Cons(" }, _ => panic!() } }", Nil))))))
+    case _ => cats(Cons("Step::Val(", Cons(genV(d, t), Cons(")", Nil))))
+  }
 
-def rArms = (d, arms, dflt) =>
+def rArmsV = (d, arms, dflt) =>
   match arms {
-    case Nil => match dflt { case Some(b) => genR(d, b) case None => "panic!()" }
+    case Nil => match dflt { case Some(b) => genV(d, b) case None => "panic!()" }
     case Cons(arm, rest) => match arm { case IrArm(tag, ar, body) =>
-      cats(Cons("if t == \"", Cons(tag, Cons("\" { ", Cons(rfbinds(d, 0, ar), Cons(genR(#i.add(d, ar), body), Cons(" } else { ", Cons(rArms(d, rest, dflt), Cons(" }", Nil)))))))))
+      cats(Cons("if t == \"", Cons(tag, Cons("\" { ", Cons(rfbinds(d, 0, ar), Cons(genV(#i.add(d, ar), body), Cons(" } else { ", Cons(rArmsV(d, rest, dflt), Cons(" }", Nil)))))))))
+    }
+  }
+def rArmsT = (d, arms, dflt) =>
+  match arms {
+    case Nil => match dflt { case Some(b) => genT(d, b) case None => "Step::Val(V::U)" }
+    case Cons(arm, rest) => match arm { case IrArm(tag, ar, body) =>
+      cats(Cons("if t == \"", Cons(tag, Cons("\" { ", Cons(rfbinds(d, 0, ar), Cons(genT(#i.add(d, ar), body), Cons(" } else { ", Cons(rArmsT(d, rest, dflt), Cons(" }", Nil)))))))))
     }
   }
 
-def rPrelude = "use std::rc::Rc;\n#[derive(Clone)]\nenum V { I(i64), B(bool), S(String), D(String, Vec<V>), F(Rc<dyn Fn(Vec<V>) -> V>), U }\nfn app(f: V, a: Vec<V>) -> V { match f { V::F(g) => g(a), _ => panic!() } }\nfn asi(v: &V) -> i64 { if let V::I(n) = v { *n } else { panic!() } }\nfn asb(v: &V) -> bool { if let V::B(b) = v { *b } else { panic!() } }\nfn ass(v: &V) -> String { if let V::S(s) = v { s.clone() } else { panic!() } }\nfn show(v: &V) -> String { match v { V::I(n) => n.to_string(), V::B(b) => b.to_string(), V::S(s) => format!(\"{:?}\", s), V::D(t, f) => if f.is_empty() { t.clone() } else { format!(\"{}({})\", t, f.iter().map(show).collect::<Vec<_>>().join(\", \")) }, V::F(_) => \"<closure>\".to_string(), V::U => \"()\".to_string() } }\n#[allow(unused, non_snake_case)]\n"
+def rPrelude = "#![allow(unused, non_snake_case)]\nuse std::rc::Rc;\n#[derive(Clone)]\nenum V { I(i64), B(bool), S(String), D(String, Vec<V>), F(Rc<dyn Fn(Vec<V>) -> Step>), U }\nenum Step { Val(V), Bounce(V, Vec<V>) }\nfn call(f: V, a: Vec<V>) -> Step { match f { V::F(g) => g(a), _ => panic!() } }\nfn app(f: V, a: Vec<V>) -> V { let mut s = call(f, a); loop { match s { Step::Val(v) => return v, Step::Bounce(g, na) => s = call(g, na) } } }\nfn asi(v: &V) -> i64 { if let V::I(n) = v { *n } else { panic!() } }\nfn asb(v: &V) -> bool { if let V::B(b) = v { *b } else { panic!() } }\nfn ass(v: &V) -> String { if let V::S(s) = v { s.clone() } else { panic!() } }\nfn show(v: &V) -> String { match v { V::I(n) => n.to_string(), V::B(b) => b.to_string(), V::S(s) => format!(\"{:?}\", s), V::D(t, f) => if f.is_empty() { t.clone() } else { format!(\"{}({})\", t, f.iter().map(show).collect::<Vec<_>>().join(\", \")) }, V::F(_) => \"<closure>\".to_string(), V::U => \"()\".to_string() } }\n"
 
-def genRDefs = (defs) => match defs { case Nil => "" case Cons(dd, t) => match dd { case IrDef(name, body) => cats(Cons("fn g_", Cons(name, Cons("() -> V { ", Cons(genR(0, body), Cons(" }\n", Cons(genRDefs(t), Nil))))))) } }
-def genRProg = (prog) => match prog { case IrProg(defs, entry) => cats(Cons(rPrelude, Cons(genRDefs(defs), Cons("fn main() { println!(\"{}\", show(&(", Cons(genR(0, entry), Cons("))); }\n", Nil)))))) }
+def genRDefs = (defs) => match defs { case Nil => "" case Cons(dd, t) => match dd { case IrDef(name, body) => cats(Cons("fn g_", Cons(name, Cons("() -> V { ", Cons(genV(0, body), Cons(" }\n", Cons(genRDefs(t), Nil))))))) } }
+def genRProg = (prog) => match prog { case IrProg(defs, entry) => cats(Cons(rPrelude, Cons(genRDefs(defs), Cons("fn main() { println!(\"{}\", show(&(", Cons(genV(0, entry), Cons("))); }\n", Nil)))))) }
 def toRust = (src) => genRProg(compileModule(parseTop(lex(src))))

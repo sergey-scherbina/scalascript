@@ -131,9 +131,10 @@ if command -v rustc >/dev/null 2>&1; then
       else printf 'FAIL %-26s vm=[%s] rust=[%s]\n' "rust $1.ssc0" "$vm" "$rs"; fail=1; fi
     else printf 'FAIL %-26s rustc compile error\n' "rust $1.ssc0"; fail=1; fi
   }
-  chk_rust fact   # tco excluded (deep recursion in the Rc-closure encoding)
+  chk_rust fact
   chk_rust map
   chk_rust calc
+  chk_rust tco    # now passes: the trampoline (Step::Bounce + app loop) gives constant stack
 else
   echo "ok   rust backend              => skipped (rustc not installed)"
 fi
