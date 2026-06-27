@@ -304,3 +304,9 @@ def lowDefs = (defs, globals) => match defs { case Nil => Nil case Cons(d, t) =>
 def compileModule = (defs) => IrProg(lowDefs(defs, namesOf(defs)), IrApp(IrGlobal("main"), Nil))
 
 def compile = (src) => #coreir.encode(compileModule(parseTop(lex(src))))
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) => #io.print(compile(#utf8->str(#io.readFile(path))))
+    case Nil              => #io.eprint("usage: ssc0c-self <file.ssc0>")
+  }

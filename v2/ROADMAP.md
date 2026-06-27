@@ -44,9 +44,10 @@ Each layer is a program compiled/run by the layer below: `ssc0 → ssc.1 → ssc
 - [x] **erase-to-ir + `coreir.encode`** (2026-06-27): the loop closes — `.ssct → typecheck →
       erase (ssc0) → ir bytecode → `ssc run-ir` (VM) → cpu`. Kernel gained exactly one
       primitive (`coreir.encode`). `./ssctc <file.ssct>` emits bytecode.
-- [ ] Toward the **fixpoint CI invariant**: a compiler written in ssc0 that compiles itself;
-      `compile(self) == compile(self) via self` (`specs/20-bootstrap.md`). `coreir.encode` is
-      the bootstrap-critical primitive — now in place.
+- [x] **SELF-HOSTING — fixpoint REACHED** (2026-06-27): `ssc0c` (`lib/ssc0c.ssc0`), the ssc0
+      compiler written in ssc0, compiled by the Scala front and run on its **own source**,
+      reproduces itself byte-for-byte (gen1==gen2==gen3). Differential invariant `ssc0c X ==
+      ssc compile X` holds on fact/tco/map/calc. `specs/20-bootstrap.md`. **Kernel: +0.**
 - [ ] Richer types (HM/unification, products/sums) — tower growth, all in ssc0.
 
 ## K3 — Regrow the world (on the tower)

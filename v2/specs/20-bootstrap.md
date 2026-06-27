@@ -1,7 +1,9 @@
 # 20 — Bootstrap & self-hosting
 
-> Status: **in progress** (2026-06-27). `ssc0c` — the ssc0 compiler written in ssc0 — exists
-> and, on the subset it supports, emits **byte-identical** Core IR to the Scala compiler.
+> Status: **SELF-HOSTING REACHED** (2026-06-27). `ssc0c` — the ssc0 compiler written in
+> ssc0 — compiled by the Scala front and run on **its own source**, reproduces itself
+> byte-for-byte (a stable fixpoint). The Scala front is now an interchangeable bootstrap, not
+> a hard dependency.
 
 ## The differential invariant
 
@@ -26,21 +28,23 @@ and the in-language compiler keep each other honest.
 ## Milestones
 
 - [x] **M1 (2026-06-27)** — `ssc0c` subset: `def` / lambda / `if` / application / `var` /
-      `int` / `#prim` / parens. `fact.ssc0` and `tco.ssc0` compile **byte-identically** to the
-      Scala compiler (`conformance/check.sh`), and the ssc0c-emitted bytecode runs on the VM
-      (`fact => 120`). Building blocks: the `δ` string prims, `coreir.encode`, `run-ir`.
-- [ ] **M2** — add `match` / constructor patterns / `Ctor` / `let` / `let rec` / string
-      literals to `ssc0c`. Target: `map.ssc0`, `calc.ssc0`, `lib/list.ssc0` compile identically.
+      `int` / `#prim` / parens. `fact.ssc0`, `tco.ssc0` compile **byte-identically** to the
+      Scala compiler. Building blocks: the `δ` string prims, `coreir.encode`, `run-ir`.
+- [x] **M2 (2026-06-27)** — added `match` / constructor patterns / `Ctor` / `let` / `let rec`
+      / string literals. `map.ssc0` and `calc.ssc0` now compile **byte-identically** too.
+- [x] **M4 — the fixpoint (2026-06-27): REACHED.** `examples/ssc0c-self.ssc0` (= `lib/ssc0c.ssc0`
+      + a `main` that compiles its argv file):
+      ```
+      gen1 = ssc compile ssc0c-self.ssc0        # the self-compiler, built by the Scala front
+      gen2 = run gen1 on ssc0c-self.ssc0         # the self-compiler compiling itself
+      gen1 == gen2 == gen3   (20413 bytes, byte-for-byte; gen3 = run gen2 again)
+      ```
+      The self-compiler reproduces itself exactly — a stable fixpoint. (The VM needs a large
+      `-Xss`: the lexer/parser use deep *non-tail* recursion over the input; the bytecode is
+      correct, it just needs stack. The `v2/ssc0c` launcher sets `-Xss512m`.)
 - [ ] **M3** — multi-file `import` resolution in the `ssc0c` driver (read + merge, like the
-      Scala `Loader`).
-- [ ] **M4 — the fixpoint.** `ssc0c` written in the subset it supports, compiling **its own
-      source**:
-      ```
-      gen1 = ssc compile ssc0c.ssc0        # the self-compiler, built by the Scala front
-      gen2 = run gen1 on ssc0c.ssc0         # the self-compiler compiling itself
-      assert gen1 == gen2                    # self-hosting fixpoint
-      ```
-      After M4 the Scala front is no longer in the trusted path for ssc0 → ir; `ssc0c` is.
+      Scala `Loader`), so a multi-file ssc0 program self-compiles too. Not needed for the
+      single-file fixpoint above.
 
 ## Why the kernel stays frozen through all of this
 

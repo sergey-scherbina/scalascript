@@ -45,12 +45,14 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       (sum∘map∘filter∘range = 120) + `examples/calc.ssc0` — a real expression-language
       interpreter in ~20 lines of ssc0 (ADTs, match, env, let → 42). Lexer: `;` now an
       optional separator. Demonstrates the thesis: rich behaviour = small ssc0 on a tiny kernel.
-- [~] **self-hosting** (M1 done 2026-06-27) — `lib/ssc0c.ssc0`: the ssc0 compiler written in
-      ssc0 (lex+parse+lower+emit). **Differential invariant holds**: `ssc0c X == ssc compile X`
-      byte-for-byte on the supported subset (def/lambda/if/app/var/int/#prim/parens) — `fact`,
-      `tco` identical; ssc0c output runs (fact→120). `bin/ssc0c.ssc0` + `v2/ssc0c` launcher +
-      conformance + spec `20-bootstrap.md`. NEXT: M2 add match/ctor/let/letrec/str (→ map,
-      calc, list), M3 imports, M4 the fixpoint (ssc0c compiles its own source). Kernel: +0.
+- [x] **self-hosting — FIXPOINT REACHED** (2026-06-27) — `lib/ssc0c.ssc0`: the ssc0 compiler
+      written in ssc0 (lex+parse+lower+emit). Differential invariant `ssc0c X == ssc compile X`
+      holds byte-for-byte: M1 (fact/tco) + M2 (match/ctor/let/letrec/str → map/calc).
+      **M4: `examples/ssc0c-self.ssc0` (lib + main), compiled by the Scala front then run on its
+      OWN source, reproduces itself byte-for-byte (gen1==gen2==gen3, 20413 bytes) — a stable
+      self-hosting fixpoint.** `bin/ssc0c.ssc0` + `v2/ssc0c` launcher (-Xss512m for deep non-tail
+      recursion) + conformance + spec `20-bootstrap.md`. **Kernel: +0 lines (still 913).** Left:
+      M3 (ssc0c `import` resolution → multi-file self-compile).
 
 ## Backlog
 

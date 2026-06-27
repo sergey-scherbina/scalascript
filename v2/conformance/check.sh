@@ -68,10 +68,24 @@ chk_diff() { # file-stem
 }
 chk_diff fact
 chk_diff tco
+chk_diff map
+chk_diff calc
 ssc run bin/ssc0c.ssc0 examples/fact.ssc0 > "${TMPDIR:-/tmp}/ssc0c-fact.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/ssc0c-fact.coreir" | tail -1)
 if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "ssc0c fact -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [120]\n' "ssc0c fact -> run-ir" "$got"; fail=1; fi
+
+echo "# self-hosting FIXPOINT: ssc0c (built by the Scala front) run on its OWN source == itself"
+# gen1 = Scala front compiles the self-compiler; gen2 = that bytecode compiling itself.
+gen1=$(ssc compile examples/ssc0c-self.ssc0)
+printf '%s' "$gen1" > "${TMPDIR:-/tmp}/ssc0c-gen1.ir"
+# the VM needs a big stack for the self-compiler's deep non-tail recursion over its own source
+gen2=$(java -Xss512m -jar "$JAR" run-ir "${TMPDIR:-/tmp}/ssc0c-gen1.ir" examples/ssc0c-self.ssc0 2>/dev/null)
+if [ -n "$gen1" ] && [ "$gen1" = "$gen2" ]; then
+  printf 'ok   %-26s => reproduces itself byte-for-byte (%s bytes)\n' "ssc0c FIXPOINT" "${#gen1}"
+else
+  printf 'FAIL %-26s gen1(%s) != gen2(%s)\n' "ssc0c FIXPOINT" "${#gen1}" "${#gen2}"; fail=1
+fi
 
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"

@@ -4,4 +4,5 @@
 #   ./ssc0c examples/fact.ssc0 | ./ssc run-ir /dev/stdin
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc0c.ssc0" "$@"
+# -Xss is large: the self-compiler uses deep non-tail recursion over its input source.
+exec command scala-cli run "$DIR/src" --server=false --quiet -J-Xss512m -- run "$DIR/bin/ssc0c.ssc0" "$@"
