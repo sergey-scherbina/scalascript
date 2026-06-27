@@ -138,6 +138,11 @@ def infer = (env, c, s, term) =>
     case FDiv(a, b)   => inferFloat2(env, c, s, a, b, TyFloat, "float op needs Float operands")
     case FLt(a, b)    => inferFloat2(env, c, s, a, b, TyBool,  "flt needs Float operands")
     case FEq(a, b)    => inferFloat2(env, c, s, a, b, TyBool,  "feq needs Float operands")
+    case IDiv(a, b)   => inferArith(env, c, s, a, b, TyInt, "div needs Int operands")
+    case IMod(a, b)   => inferArith(env, c, s, a, b, TyInt, "mod needs Int operands")
+    case INeg(e)      => inferUn(env, c, s, e, TyInt,   "neg expects an Int")
+    case FNeg(e)      => inferUn(env, c, s, e, TyFloat, "fneg expects a Float")
+    case FSqrt(e)     => inferUn(env, c, s, e, TyFloat, "fsqrt expects a Float")
     case If(cnd, th, el) =>
       match infer(env, c, s, cnd) { case ErrI(m) => ErrI(m) case Ok3(s1, tc, c1) =>
         match unify(s1, tc, TyBool) { case Err(m) => ErrI("if-condition must be Bool") case Ok(s1b) =>
@@ -232,6 +237,9 @@ def inferFloat2 = (env, c, s, a, b, res, msg) =>
     match unify(s1, ta, TyFloat) { case Err(m) => ErrI(msg) case Ok(s1b) =>
       match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
         match unify(s2, tb, TyFloat) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
+def inferUn = (env, c, s, e, ty, msg) =>
+  match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
+    match unify(s1, te, ty) { case Err(m) => ErrI(msg) case Ok(s2) => Ok3(s2, ty, c1) } }
 
 -- ── user-definable ADTs: a constructor registry  con -> ConSig(typeCtor, #params, fieldTypes) ──
 -- field types use TyVar(0..#params-1) as the type parameters (a canonical scheme, instantiated fresh).
@@ -365,6 +373,11 @@ def evalT = (env, t) =>
     case FDiv(a, b)   => FloatVal(#f.div(asF(evalT(env, a)), asF(evalT(env, b))))
     case FLt(a, b)    => BoolVal(#f.lt(asF(evalT(env, a)), asF(evalT(env, b))))
     case FEq(a, b)    => BoolVal(#f.eq(asF(evalT(env, a)), asF(evalT(env, b))))
+    case IDiv(a, b)   => IntVal(#i.div(asI(evalT(env, a)), asI(evalT(env, b))))
+    case IMod(a, b)   => IntVal(#i.mod(asI(evalT(env, a)), asI(evalT(env, b))))
+    case INeg(e)      => IntVal(#i.neg(asI(evalT(env, e))))
+    case FNeg(e)      => FloatVal(#f.neg(asF(evalT(env, e))))
+    case FSqrt(e)     => FloatVal(#f.sqrt(asF(evalT(env, e))))
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
     case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }

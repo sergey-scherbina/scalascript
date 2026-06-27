@@ -310,6 +310,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/rec.rs" -o "${TMPDIR:-/tmp}/rec-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/rec-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$RW" ]; then printf 'ok   %-26s => %s (rustc)\n' "record -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "record Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm ARITH: div/mod/neg (Int) + fneg/fsqrt (Float), on every backend"
+chk_hm examples/hm-arith.hm '"Int"'
+AW="2"
+ssc run bin/ssctc-hm.ssc0 examples/hm-arith.hm > "${TMPDIR:-/tmp}/ar.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ar.coreir" | tail -1)
+if [ "$got" = "$AW" ]; then printf 'ok   %-26s => %s\n' "mod 17 5 -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-arith.hm > "${TMPDIR:-/tmp}/ar.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ar.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$AW" ]; then printf 'ok   %-26s => %s (node)\n' "arith -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-arith.hm > "${TMPDIR:-/tmp}/ar.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ar.rs" -o "${TMPDIR:-/tmp}/ar-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ar-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$AW" ]; then printf 'ok   %-26s => %s (rustc)\n' "arith -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm SHOWCASE: a typed arithmetic-expression interpreter, written in ssct-hm, on 3 backends"
 chk_hm examples/hm-eval.hm '"Int"'                                  # data Expr = Num | Plus | Times ; eval
 ssc run bin/ssctc-hm.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.coreir" 2>/dev/null
