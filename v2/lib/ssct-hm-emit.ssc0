@@ -19,6 +19,12 @@ def erase = (scope, term) =>
     case If(c, t, e)  => IrIf(erase(scope, c), erase(scope, t), erase(scope, e))
     case Let(x, e, body)      => IrLet(Cons(erase(scope, e), Nil), erase(Cons(x, scope), body))
     case LetRec(f, lam, body) => IrLetRec(Cons(erase(Cons(f, scope), lam), Nil), erase(Cons(f, scope), body))
+    -- lists: data ctors Nil/Cons; head/tail/isNil deconstruct via a Cons-match (field h=local 1, t=local 0)
+    case LNil        => IrCtor("Nil", Nil)
+    case LCons(h, t) => IrCtor("Cons", Cons(erase(scope, h), Cons(erase(scope, t), Nil)))
+    case LHead(l)    => IrMatch(erase(scope, l), Cons(IrArm("Cons", 2, IrLocal(1)), Nil), None)
+    case LTail(l)    => IrMatch(erase(scope, l), Cons(IrArm("Cons", 2, IrLocal(0)), Nil), None)
+    case LIsNil(l)   => IrMatch(erase(scope, l), Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Cons(IrArm("Cons", 2, IrLit(IrBool(false))), Nil)), None)
   }
 
 def emit = (term) => #coreir.encode(IrProg(Nil, erase(Nil, term)))

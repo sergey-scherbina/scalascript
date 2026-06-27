@@ -88,6 +88,25 @@ chk run examples/hm-list-err.ssc0 '"TypeError: list elements must have the same 
 chk run examples/hm-length.ssc0   'Typed("Int", 3)'                  # length [1,2,3] (isNil/tail + recursion)
 chk run examples/hm-map.ssc0      'Typed("[Int]", Cons(1, Cons(4, Cons(9, Nil))))'  # map (x*x) [1,2,3]
 
+echo "# ssct-hm lists COMPILE: map/length erase to Core IR (ctor + Cons-match) and run on VM/JS/Rust"
+LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
+ssc run examples/hm-length-emit.ssc0 > "${TMPDIR:-/tmp}/hm-length.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-length.coreir" | tail -1)
+if [ "$got" = "3" ]; then printf 'ok   %-26s => %s\n' "hm-length -> ir -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [3]\n' "hm-length" "$got"; fail=1; fi
+ssc run examples/hm-map-emit.ssc0 > "${TMPDIR:-/tmp}/hm-map.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-map.coreir" | tail -1)
+if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s\n' "hm-map -> ir -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [%s]\n' "hm-map" "$got" "$LMAP"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run examples/hm-map-js.ssc0 > "${TMPDIR:-/tmp}/hm-map.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/hm-map.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (node)\n' "hm-map -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "hm-map JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run examples/hm-map-rust.ssc0 > "${TMPDIR:-/tmp}/hm-map.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/hm-map.rs" -o "${TMPDIR:-/tmp}/hm-map-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/hm-map-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (rustc)\n' "hm-map -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "hm-map Rust" "$got"; fail=1; fi
+fi
+
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
 
