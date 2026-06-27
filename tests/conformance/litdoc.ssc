@@ -1,0 +1,103 @@
+#!/usr/bin/env ssc
+---
+name: litdoc
+---
+
+# std/litdoc — resilient literate-document parser
+
+Parses a small literate document into the typed tree, then exercises every island
+(front-matter / heading / quote / bullet / fence / prose), the inline + data laws,
+resilience to a malformed island, and the incremental `reparse` (which must equal a
+full `parseDoc`). Output is deterministic across backends (INT == JS == JVM).
+
+[Span, Diag, Kv, Node, FrontMatter, Heading, Quote, ListItem, Fence, Prose, Doc, parseDoc, reparse, firstDiff, Inline, Plain, Bold, inlinesOf, Datum, dataOf](std/litdoc.ssc)
+
+```scalascript
+val md =
+  "---\n" +
+  "id: demo\n" +
+  "monthly: 39\n" +
+  "---\n" +
+  "\n" +
+  "# Title here\n" +
+  "\n" +
+  "> a quoted hero line\n" +
+  "\n" +
+  "Some prose with a price 40 zł inside.\n" +
+  "\n" +
+  "## Offers\n" +
+  "\n" +
+  "- first :: blurb one :: 40\n" +
+  "- second :: blurb two :: 60\n" +
+  "\n" +
+  "```scalascript\n" +
+  "on order:\n" +
+  "  receive job\n" +
+  "```\n"
+
+val doc = parseDoc(md)
+
+def kind(n: Node): String =
+  n match
+    case FrontMatter(_, _) => "front"
+    case Heading(_, _, _) => "heading"
+    case Quote(_, _) => "quote"
+    case ListItem(_, _) => "item"
+    case Fence(_, _, _) => "fence"
+    case Prose(_, _) => "prose"
+
+// 1. node kinds in order
+println("kinds: " + doc.nodes.map(n => kind(n)).mkString(","))
+
+// 2. front-matter pairs
+def frontPairs(n: Node): List[Kv] =
+  n match
+    case FrontMatter(ps, _) => ps
+    case _ => List()
+val fronts = doc.nodes.filter(n => kind(n) == "front")
+val pairs = if fronts.isEmpty then List() else frontPairs(fronts.head)
+println("front: " + pairs.map(p => p.key + "=" + p.value).mkString(","))
+
+// 3. heading level + text
+def headText(n: Node): String =
+  n match
+    case Heading(l, t, _) => l.toString + ":" + t
+    case _ => ""
+println("h1: " + doc.nodes.filter(n => kind(n) == "heading").map(n => headText(n)).mkString("|"))
+
+// 4. bullet items (caller's job to read «::» — here we just show the raw text)
+def itemText(n: Node): String =
+  n match
+    case ListItem(t, _) => t
+    case _ => ""
+println("items: " + doc.nodes.filter(n => kind(n) == "item").map(n => itemText(n)).mkString(" / "))
+
+// 5. fence lang + body lines (caller interprets the body)
+def fenceInfo(n: Node): String =
+  n match
+    case Fence(lang, ls, _) => lang + "#" + ls.length.toString + ":" + ls.mkString(";")
+    case _ => ""
+println("fence: " + doc.nodes.filter(n => kind(n) == "fence").map(n => fenceInfo(n)).mkString())
+
+// 6. data mined from the whole doc (price 40 in prose, prices in items)
+println("data: " + dataOf(doc).map(d => d.kind + "=" + d.value).mkString(","))
+
+// 7. inline split on «**bold**»
+println("inline: " + inlinesOf("buy a **new** dress").map(i => i match
+  case Bold(t) => "B(" + t + ")"
+  case Plain(t) => "P(" + t + ")").mkString(""))
+
+// 8. resilience: an unclosed fence must NOT throw — it becomes a Fence to EOF
+val bad = parseDoc("# ok\n\n```x\nunterminated\nstill going\n")
+println("resilient: nodes=" + bad.nodes.length.toString + " kinds=" + bad.nodes.map(n => kind(n)).mkString(","))
+
+// 9. incremental reparse == full parse (edit the prose line only)
+val oldLines = md.split("\n").toList
+val edited = md.replace("Some prose with a price 40 zł inside.", "Some prose changed to 55 zł here.")
+val newLines = edited.split("\n").toList
+val full = parseDoc(edited)
+val inc  = reparse(oldLines, doc, newLines)
+println("reparse: incKinds=" + inc.nodes.map(n => kind(n)).mkString(",") +
+        " equalsFull=" + (inc.nodes.map(n => kind(n)).mkString(",") == full.nodes.map(n => kind(n)).mkString(",")).toString)
+println("reparse-data: " + dataOf(inc).map(d => d.value).mkString(","))
+```
