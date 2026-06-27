@@ -1,0 +1,1 @@
+let f = fun x : Int => x + 1 in f (f 40)

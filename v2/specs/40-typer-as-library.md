@@ -60,11 +60,34 @@ type classes), you grow the **ssc0 program**, not the kernel — the kernel size
 from the language's type-system richness. That is the v2 bet: a tiny frozen core, with all
 the richness expressed in the language itself.
 
+## Textual surface (`.ssct`) — IMPLEMENTED (2026-06-27)
+
+`v2/lib/ssct-front.ssc0` (170 lines of ssc0) is a **lexer + parser** for a real `.ssct`
+concrete syntax, turning text into the `Term` AST. The whole `ssct` tool — front + checker +
+evaluator — is ssc0; the kernel is unchanged. Run with `./v2/ssct <file.ssct>` (a launcher
+over the ssc0 driver `bin/ssct.ssc0`).
+
+```
+expr := 'fun' x ':' ty '=>' expr | 'let' x '=' expr 'in' expr
+      | 'if' expr 'then' expr 'else' expr | add
+add  := app ('+' app)*        app := atom atom*        (application by juxtaposition)
+atom := int | 'true' | 'false' | ident | '(' expr ')'
+ty   := 'Int' | 'Bool' | '(' ty '->' ty ')'
+```
+
+The lexer scans by code unit using the `δ` string primitives (`slen`/`scodeAt`/`sslice`/
+`str->i`); the parser is combinator-style (each step returns `Pair(node, restTokens)`).
+That a real lexer+parser fits in ~170 lines of ssc0 is the skill a self-hosting compiler
+needs. Examples (`conformance/check.sh`):
+
+```
+id.ssct    let f = fun x : Int => x + 1 in f (f 40)   => Typed("Int", 42)
+cond.ssct  if true then 1 else 0                       => Typed("Int", 1)
+bad.ssct   1 + true                                    => TypeError("Add expects Int operands")
+```
+
 ## Deferred / next
 
-- **Textual surface** — an `ssct` concrete syntax (`\x:Int. x`) with a lexer/parser written
-  in ssc0, so `.ssct` files are written as text rather than as hand-built `Term` ADTs. (The
-  string primitives needed for this are already in `δ`.)
 - **Erase to ir** — instead of a bundled `evalTerm`, lower a well-typed `Term` to a Core IR
   `Data` tree and `coreir.encode` it, so the erased program runs on the VM proper (closes
   the loop with `ssc run-ir`). Needs the `coreir.encode` primitive.

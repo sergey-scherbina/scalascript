@@ -20,9 +20,12 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 - [x] **ssct — the typed layer** (2026-06-27) — `lib/ssct.ssc0` (136 lines): a typed lambda
       calculus with `infer` (synthesis-only type checker) + erased `evalTerm`, **written in
       ssc0** (D1: types as an outer library, kernel stays untyped). `check` = type-check then
-      run. Examples typed/typed-fn (`Typed("Int", 42)`) + illtyped (`TypeError(...)`) +
-      conformance. Spec `40-typer-as-library.md`. Deferred: textual `.ssct` surface (parser in
-      ssc0), erase-to-ir via `coreir.encode`, HM/unification + richer types.
+      run. Spec `40-typer-as-library.md`.
+- [x] **ssct textual surface** (2026-06-27) — `lib/ssct-front.ssc0` (170 lines): a real
+      **lexer + parser written in ssc0** for `.ssct` text → `Term`. Driver `bin/ssct.ssc0` +
+      `v2/ssct` launcher: `./ssct examples/id.ssct` ⟶ text→lex→parse→typecheck→run, all ssc0.
+      Examples id/cond (`Typed(...)`) + bad (`TypeError`) + conformance. **Kernel byte-for-byte
+      unchanged** (still 851 lines). Deferred: erase-to-ir via `coreir.encode`, HM/unification.
 - [x] **delta-widen** (2026-06-26) — full `δ`: `big.*`, `f.*` + numeric conversions, string
       group (UTF-16 units), bytes, data reflection (`tagOf`/`arity`/`fieldAt`),
       `map.*`/`arr.*`/`cell.*` (Foreign mutable), I/O (`readFile`/`writeFile`/`env`/`exit`).

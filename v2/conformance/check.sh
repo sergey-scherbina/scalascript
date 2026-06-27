@@ -39,6 +39,16 @@ chk run examples/typed.ssc0    'Typed("Int", 42)'
 chk run examples/typed-fn.ssc0 'Typed("Int", 42)'
 chk run examples/illtyped.ssc0 'TypeError("Add expects Int operands")'
 
+echo "# ssct textual surface (.ssct text -> lex+parse+typecheck+run, all in ssc0)"
+chk_ssct() { # file want
+  got=$(ssc run bin/ssct.ssc0 "$1" | tail -1)
+  if [ "$got" = "$2" ]; then printf 'ok   %-26s => %s\n' "ssct ${1##*/}" "$got"
+  else printf 'FAIL %-26s got [%s] want [%s]\n' "ssct ${1##*/}" "$got" "$2"; fail=1; fi
+}
+chk_ssct examples/id.ssct   'Typed("Int", 42)'
+chk_ssct examples/cond.ssct 'Typed("Int", 1)'
+chk_ssct examples/bad.ssct  'TypeError("Add expects Int operands")'
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"

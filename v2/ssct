@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssct — the typed layer of the tower, as a tool. It is an ssc0 program
+# (bin/ssct.ssc0) run on the ssc VM: read .ssct text -> lex+parse+typecheck+run, all
+# in ssc0. Pipeline: .ssct -> (ssc0 front) -> typed Term -> check -> result.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssct.ssc0" "$@"

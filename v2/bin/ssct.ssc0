@@ -1,0 +1,11 @@
+-- ssct driver: read a .ssct file, lex+parse (ssc0), type-check + run (ssc0), print.
+-- The whole `ssct` tool is this ssc0 program — the typed layer is on the tower, not
+-- in the kernel.  Invoked via the v2/ssct launcher.
+import "../lib/ssct-front.ssc0"
+import "../lib/ssct.ssc0"
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) => check(parse(#utf8->str(#io.readFile(path))))
+    case Nil              => TypeError("usage: ssct <file.ssct>")
+  }
