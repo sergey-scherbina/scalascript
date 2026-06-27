@@ -81,6 +81,13 @@ chk run examples/hm-run-if.ssc0  'Typed("Int", 10)'
 chk run examples/hm-run-let.ssc0 'Typed("Int", 10)'
 chk run examples/hm-run-err.ssc0 'TypeError("Add needs Int operands")'  # ill-typed rejected, never runs
 
+echo "# ssct-hm POLYMORPHIC LISTS: infer [a], typecheck length/map, reject heterogeneous lists"
+chk run examples/hm-nil.ssc0      '"[t0]"'                            # nil : forall a. [a]
+chk run examples/hm-list.ssc0     'Typed("[Int]", Cons(1, Cons(2, Cons(3, Nil))))'
+chk run examples/hm-list-err.ssc0 '"TypeError: list elements must have the same type"'
+chk run examples/hm-length.ssc0   'Typed("Int", 3)'                  # length [1,2,3] (isNil/tail + recursion)
+chk run examples/hm-map.ssc0      'Typed("[Int]", Cons(1, Cons(4, Cons(9, Nil))))'  # map (x*x) [1,2,3]
+
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
 

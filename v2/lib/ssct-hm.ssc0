@@ -10,9 +10,10 @@ def appTy   = (s, t) => match t {
     case TyInt      => TyInt
     case TyBool     => TyBool
     case TyVar(n)   => match lookupS(s, n) { case None => TyVar(n) case Some(u) => appTy(s, u) }
+    case TyList(e)  => TyList(appTy(s, e))
     case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
   }
-def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyVar(m) => #i.eq(n, m) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
 
 -- unify two types under subst s -> Ok(s') | Err(msg)
 def unify = (s, t1, t2) =>
@@ -38,6 +39,11 @@ def unify = (s, t1, t2) =>
         case TyVar(m)      => if occurs(m, a) then Err("occurs-check: infinite type") else Ok(Cons(Pair(m, a), s))
         case _             => Err("cannot unify a function with a different type")
       }
+    case TyList(ea) => match b {
+        case TyList(eb) => unify(s, ea, eb)
+        case TyVar(m)   => if occurs(m, a) then Err("occurs-check: infinite type") else Ok(Cons(Pair(m, a), s))
+        case _          => Err("cannot unify a list with a different type")
+      }
   }
 
 def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, x) then Some(v) else lookupE(rest, x) } }
@@ -45,7 +51,7 @@ def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => mat
 -- ── let-polymorphism: env binds names to type SCHEMES Forall(quantified-vars, type) ──
 def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.eq(h, n) then true else memberI(n, t) }
 def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
-def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyVar(n) => insertI(n, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
 def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
 def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
 def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
@@ -98,6 +104,20 @@ def infer = (env, c, s, term) =>
           match unify(s1, tv, tlam) { case Err(m) => ErrI(m) case Ok(s2) =>
             infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body) }
       }
+    case LNil => Ok3(s, TyList(TyVar(c)), #i.add(c, 1))            -- forall a. [a]: a fresh elem var each use
+    case LCons(h, t) =>
+      match infer(env, c, s, h) { case ErrI(m) => ErrI(m) case Ok3(s1, th, c1) =>
+        match infer(env, c1, s1, t) { case ErrI(m) => ErrI(m) case Ok3(s2, tt, c2) =>
+          match unify(s2, tt, TyList(th)) { case Err(m) => ErrI("list elements must have the same type") case Ok(s3) => Ok3(s3, appTy(s3, TyList(th)), c2) } } }
+    case LHead(l) =>
+      match infer(env, c, s, l) { case ErrI(m) => ErrI(m) case Ok3(s1, tl, c1) =>
+        match unify(s1, tl, TyList(TyVar(c1))) { case Err(m) => ErrI("head expects a list") case Ok(s2) => Ok3(s2, appTy(s2, TyVar(c1)), #i.add(c1, 1)) } }
+    case LTail(l) =>
+      match infer(env, c, s, l) { case ErrI(m) => ErrI(m) case Ok3(s1, tl, c1) =>
+        match unify(s1, tl, TyList(TyVar(c1))) { case Err(m) => ErrI("tail expects a list") case Ok(s2) => Ok3(s2, appTy(s2, TyList(TyVar(c1))), #i.add(c1, 1)) } }
+    case LIsNil(l) =>
+      match infer(env, c, s, l) { case ErrI(m) => ErrI(m) case Ok3(s1, tl, c1) =>
+        match unify(s1, tl, TyList(TyVar(c1))) { case Err(m) => ErrI("isNil expects a list") case Ok(s2) => Ok3(s2, TyBool, #i.add(c1, 1)) } }
   }
 
 -- shared: infer two operands, force both Int, return a chosen result type (TyInt for +-*, TyBool for eq)
@@ -111,6 +131,7 @@ def showTyR = (t) => match t {
     case TyInt      => "Int"
     case TyBool     => "Bool"
     case TyVar(n)   => #sconcat("t", #i->str(n))
+    case TyList(e)  => #sconcat("[", #sconcat(showTyR(e), "]"))
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
   }
 -- infer a closed term and pretty-print its principal type (or the type error)
@@ -144,8 +165,13 @@ def evalT = (env, t) =>
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
     case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }
+    case LNil => Nil
+    case LCons(h, t) => Cons(evalT(env, h), evalT(env, t))
+    case LHead(l) => match evalT(env, l) { case Cons(h, t) => h case _ => Stuck }
+    case LTail(l) => match evalT(env, l) { case Cons(h, t) => t case _ => Stuck }
+    case LIsNil(l) => match evalT(env, l) { case Nil => BoolVal(true) case _ => BoolVal(false) }
   }
-def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" }
+def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" case Nil => Nil case Cons(h, t) => Cons(valShow(h), valShow(t)) }
 -- infer the type (reject if ill-typed), then evaluate; report Typed(type, value) | TypeError(msg)
 def runHm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)      => TypeError(m)
