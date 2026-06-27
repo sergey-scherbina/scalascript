@@ -1,0 +1,242 @@
+---
+name: litdoc
+version: 0.1.0
+description: Resilient incremental parser for literate markdown. Recognises the structural islands of a document (YAML front-matter, headings, block-quotes, bullet items, fenced code) as a typed tree of Nodes, each carrying a line Span; anything unrecognised becomes Prose (water), never an error. Never throws — a malformed island degrades to water plus a Diag. Spans let an edit re-parse incrementally via reparse. Self-contained (plain case classes, no externs) so it imports cleanly into any caller. What a bullet or a fence MEANS is the caller's domain; litdoc only recognises the shapes.
+exports:
+  - Span
+  - Diag
+  - Kv
+  - Node
+  - FrontMatter
+  - Heading
+  - Quote
+  - ListItem
+  - Fence
+  - Prose
+  - Doc
+  - parseDoc
+  - reparse
+  - firstDiff
+  - Inline
+  - Plain
+  - Bold
+  - inlinesOf
+  - Datum
+  - dataOf
+---
+
+# litdoc — a literate-document parser
+
+Parsing is pattern recognition. A markdown document is **water** (prose) dotted with **islands** of
+structure — front-matter, headings, quotes, bullets, fenced code. litdoc splits the document into those
+territories and builds a typed tree. A block that matches no island is water: a `Prose` node, never an
+error. Each node carries a line `Span`, so the tree is **incremental-ready**, and parsing **never throws**
+— a malformed island degrades to water and adds a `Diag`.
+
+litdoc recognises *shapes*. What a bullet or a fenced block *means* — an offer, a price, a command — is
+the **caller's** domain. litdoc hands back the shapes; the caller reads its meaning off them.
+
+## The tree
+
+```scalascript
+case class Span(lo: Int, hi: Int)
+case class Diag(line: Int, severity: String, message: String)
+case class Kv(key: String, value: String)
+
+trait Node
+case class FrontMatter(pairs: List[Kv], span: Span) extends Node
+case class Heading(level: Int, text: String, span: Span) extends Node
+case class Quote(text: String, span: Span) extends Node
+case class ListItem(text: String, span: Span) extends Node
+case class Fence(lang: String, lines: List[String], span: Span) extends Node
+case class Prose(text: String, span: Span) extends Node
+
+case class Doc(nodes: List[Node], diags: List[Diag])
+```
+
+## Small recognizers (the pattern bodies)
+
+```scalascript
+// collect lines until `isEnd` is true (the terminator is consumed); report how many lines were used
+case class Collected(taken: List[String], rest: List[String], used: Int)
+def collectUntil(lines: List[String], isEnd: String => Boolean): Collected =
+  if lines.isEmpty then Collected(List(), List(), 0)
+  else if isEnd(lines.head) then Collected(List(), lines.tail, 1)
+  else
+    val c = collectUntil(lines.tail, isEnd)
+    Collected(List(lines.head) ++ c.taken, c.rest, c.used + 1)
+
+def leadingHashes(t: String): Int =
+  if t.startsWith("#") then 1 + leadingHashes(t.substring(1)) else 0
+
+def toKv(l: String): Kv =
+  val parts = l.split(":").toList
+  if parts.isEmpty then Kv("", "") else Kv(parts.head.trim, parts.drop(1).mkString(":").trim)
+```
+
+## The block patterns + the loop
+
+```scalascript
+case class Taken(node: Node, diags: List[Diag], rest: List[String], next: Int)
+
+// island: YAML front-matter «--- … ---» (only at the very top of the document)
+def takeFront(lines: List[String], idx: Int): Taken =
+  val c = collectUntil(lines.tail, l => l.trim == "---")
+  val pairs = c.taken.filter(l => l.contains(":")).map(l => toKv(l))
+  Taken(FrontMatter(pairs, Span(idx, idx + c.used + 1)), List(), c.rest, idx + c.used + 1)
+
+// island: a fenced code block → its language + raw body lines (the caller interprets the body)
+def takeFence(lines: List[String], idx: Int): Taken =
+  val lang = lines.head.trim.substring(3).trim
+  val c    = collectUntil(lines.tail, l => l.trim.startsWith("```"))
+  Taken(Fence(lang, c.taken, Span(idx, idx + c.used + 1)), List(), c.rest, idx + c.used + 1)
+
+// the doc-mode single-line patterns; the last one (prose) is water — it always matches
+def classifyLine(line: String, idx: Int): Taken =
+  val t = line.trim
+  if t.startsWith("#") then
+    val lvl = leadingHashes(t)
+    Taken(Heading(lvl, t.substring(lvl).trim, Span(idx, idx)), List(), List(), idx + 1)
+  else if t.startsWith("> ") then
+    Taken(Quote(t.substring(2).trim, Span(idx, idx)), List(), List(), idx + 1)
+  else if t.startsWith("- ") then
+    Taken(ListItem(t.substring(2).trim, Span(idx, idx)), List(), List(), idx + 1)
+  else
+    Taken(Prose(t, Span(idx, idx)), List(), List(), idx + 1)
+
+// a single-line block; rest = the tail. (Helper so the `else` in takeNext is a single expression —
+// ssc mishandles a multi-statement final `else` after an `else if`.)
+def lineBlock(lines: List[String], idx: Int): Taken =
+  val r = classifyLine(lines.head, idx)
+  Taken(r.node, r.diags, lines.tail, idx + 1)
+
+// dispatch one block by mode: front-matter / fence / single-line classify
+def takeNext(lines: List[String], idx: Int): Taken =
+  val ht = lines.head.trim
+  if idx == 0 && ht == "---" then takeFront(lines, idx)
+  else if ht.startsWith("```") then takeFence(lines, idx)
+  else lineBlock(lines, idx)
+
+// take one block, recurse on the rest, prepend (extracted helper → single-expression else below)
+def emitBlock(lines: List[String], idx: Int): Doc =
+  val t = takeNext(lines, idx)
+  val sub = parseBlocks(t.rest, t.next)
+  Doc(List(t.node) ++ sub.nodes, t.diags ++ sub.diags)
+
+def parseBlocks(lines: List[String], idx: Int): Doc =
+  if lines.isEmpty then Doc(List(), List())
+  else if lines.head.trim.length == 0 then parseBlocks(lines.tail, idx + 1)
+  else emitBlock(lines, idx)
+
+def parseDoc(md: String): Doc = parseBlocks(md.split("\n").toList, 0)
+```
+
+## Inline laws: formatting + embedded data
+
+Prose is water, but its waves carry meaning — `**bold**` for display, and embedded data (phone / price /
+date) to use. Co-equal patterns: `inlinesOf` segments a string for display; `dataOf` mines the whole
+document's text for data. (Each step is a single-expression helper — keeps the recursion clear of the ssc
+multi-statement-final-else gotcha.)
+
+```scalascript
+trait Inline
+case class Plain(text: String) extends Inline
+case class Bold(text: String) extends Inline
+
+def inlineStep(segs: List[String], bold: Boolean): List[Inline] =
+  val h = segs.head
+  val node = if bold then Bold(h) else Plain(h)
+  val rest = inlinesFrom(segs.tail, !bold)
+  if h.length == 0 then rest else List(node) ++ rest
+def inlinesFrom(segs: List[String], bold: Boolean): List[Inline] =
+  if segs.isEmpty then List() else inlineStep(segs, bold)
+// «buy a **new** dress» → Plain/Bold/Plain (alternating on the «**» marker)
+def inlinesOf(text: String): List[Inline] =
+  inlinesFrom(text.split("\\*\\*").toList, false)
+
+case class Datum(kind: String, value: String, line: Int)
+
+def isDateTok(t: String): Boolean =
+  (t.length == 10 && t.contains("-")) || (t.length >= 8 && t.contains(".") && t.contains("20"))
+
+def hasDigit(t: String): Boolean =
+  t.contains("0") || t.contains("1") || t.contains("2") || t.contains("3") || t.contains("4") ||
+  t.contains("5") || t.contains("6") || t.contains("7") || t.contains("8") || t.contains("9")
+def classifyTok(t: String, nextZl: Boolean, line: Int): List[Datum] =
+  if t.startsWith("+") && t.length >= 6 then List(Datum("phone", t, line))
+  else if (t.endsWith("zł") && hasDigit(t)) || (hasDigit(t) && nextZl) then List(Datum("price", t, line))
+  else if isDateTok(t) then List(Datum("date", t, line))
+  else List()
+
+def nextIsZl(toks: List[String]): Boolean =
+  if toks.tail.isEmpty then false else toks.tail.head == "zł"
+def scanStep(toks: List[String], line: Int): List[Datum] =
+  classifyTok(toks.head, nextIsZl(toks), line) ++ scanData(toks.tail, line)
+def scanData(toks: List[String], line: Int): List[Datum] =
+  if toks.isEmpty then List() else scanStep(toks, line)
+
+def spanLo(s: Span): Int =
+  s match
+    case Span(lo, _) => lo
+def textOf(n: Node): String =
+  n match
+    case Prose(t, _) => t
+    case Quote(t, _) => t
+    case Heading(_, t, _) => t
+    case ListItem(t, _) => t
+    case _ => ""
+def lineOf(n: Node): Int =
+  n match
+    case Prose(_, s) => spanLo(s)
+    case Quote(_, s) => spanLo(s)
+    case Heading(_, _, s) => spanLo(s)
+    case ListItem(_, s) => spanLo(s)
+    case _ => 0
+
+def dataStep(nodes: List[Node]): List[Datum] =
+  val n = nodes.head
+  val toks = textOf(n).split(" ").toList.filter(x => x.length > 0)
+  scanData(toks, lineOf(n)) ++ dataIn(nodes.tail)
+def dataIn(nodes: List[Node]): List[Datum] =
+  if nodes.isEmpty then List() else dataStep(nodes)
+def dataOf(doc: Doc): List[Datum] = dataIn(doc.nodes)
+```
+
+## Incremental re-parse
+
+An edit usually changes one place. `reparse` keeps every block whose span fully precedes the first
+changed line, and re-parses only from the first affected block onward (line index preserved, so spans
+stay correct). The result equals a full `parseDoc` of the new text — it just does less work. Its consumer
+is a live edit loop (e.g. an editor preview).
+
+```scalascript
+// the first line index where the two line-lists differ (or the shorter length if one is a prefix)
+def firstDiff(a: List[String], b: List[String], idx: Int): Int =
+  if a.isEmpty then idx
+  else if b.isEmpty then idx
+  else if a.head == b.head then firstDiff(a.tail, b.tail, idx + 1)
+  else idx
+
+def spanHi(s: Span): Int =
+  s match
+    case Span(_, hi) => hi
+def nodeSpan(n: Node): Span =
+  n match
+    case FrontMatter(_, s) => s
+    case Heading(_, _, s) => s
+    case Quote(_, s) => s
+    case ListItem(_, s) => s
+    case Fence(_, _, s) => s
+    case Prose(_, s) => s
+def nodeHi(n: Node): Int = spanHi(nodeSpan(n))
+def nodeLo(n: Node): Int = spanLo(nodeSpan(n))
+
+// re-parse newLines reusing oldDoc's prefix blocks before the first affected block
+def reparse(oldLines: List[String], oldDoc: Doc, newLines: List[String]): Doc =
+  val fd = firstDiff(oldLines, newLines, 0)
+  val affected = oldDoc.nodes.filter(n => nodeHi(n) >= fd)
+  val from = if affected.isEmpty then fd else nodeLo(affected.head)
+  val keep = oldDoc.nodes.filter(n => nodeHi(n) < from)
+  val fresh = parseBlocks(newLines.drop(from), from)
+  Doc(keep ++ fresh.nodes, fresh.diags)
+```
