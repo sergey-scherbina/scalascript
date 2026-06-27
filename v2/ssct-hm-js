@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# ssct-hm-js — compile inferred-typed source text to JavaScript (the shared JS codegen, reused).
+# An ssc0 program (bin/ssct-hm-js.ssc0) on the ssc VM: text -> infer -> erase -> genProg -> JS (stdout).
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssct-hm-js.ssc0" "$@"

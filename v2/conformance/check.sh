@@ -143,6 +143,13 @@ ssc run bin/ssctc-hm.ssc0 examples/hm-fact.hm > "${TMPDIR:-/tmp}/hm-fact-text.co
 got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-fact-text.coreir" | tail -1)
 if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm fact.hm -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [120]\n' "ssctc-hm fact.hm -> run-ir" "$got"; fail=1; fi
+# and the SAME factorial compiled to JavaScript (shared codegen reused via ssct-hm-js) and run on node
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-fact.hm > "${TMPDIR:-/tmp}/hm-fact.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/hm-fact.js" 2>/dev/null | tail -1)
+  if [ "$got" = "120" ]; then printf 'ok   %-26s => %s (node)\n' "ssct-hm-js fact.hm" "$got"
+  else printf 'FAIL %-26s got [%s] want [120]\n' "ssct-hm-js fact.hm" "$got"; fail=1; fi
+fi
 
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
