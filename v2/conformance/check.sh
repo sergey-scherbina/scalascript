@@ -572,6 +572,26 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/vp.rs" -o "${TMPDIR:-/tmp}/vp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/vp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$VPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "var pattern -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "varpat Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm PRELUDE: map/filter/foldr/foldl/append/reverse/length/sum/range auto-injected ONLY when used free"
+chk_hm examples/hm-prelude.hm '"Int"'
+PLW="14"
+ssc run bin/ssctc-hm.ssc0 examples/hm-prelude.hm > "${TMPDIR:-/tmp}/pl.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/pl.coreir" | tail -1)
+if [ "$got" = "$PLW" ]; then printf 'ok   %-26s => %s\n' "prelude compose -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-prelude.hm > "${TMPDIR:-/tmp}/pl.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/pl.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$PLW" ]; then printf 'ok   %-26s => %s (node)\n' "prelude compose -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-prelude.hm > "${TMPDIR:-/tmp}/pl.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/pl.rs" -o "${TMPDIR:-/tmp}/pl-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pl-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$PLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "prelude compose -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude Rust" "$got"; fail=1; fi
+fi
+# the prelude must NOT perturb a program that defines its own helper (free-var scan excludes bound names)
+ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/plchk.coreir" 2>/dev/null
+nlet=$(ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm 2>/dev/null | grep -o 'letrec' | wc -l | tr -d ' ')
+if [ "$nlet" = "1" ]; then printf 'ok   %-26s => %s\n' "prelude not injected (own map)" "1 letrec"; else printf 'FAIL %-26s got [%s letrec]\n' "prelude over-inject" "$nlet"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
