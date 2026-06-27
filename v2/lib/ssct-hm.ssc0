@@ -163,6 +163,10 @@ def infer = (env, c, s, term) =>
         } }
     case MatchT(scrut, arms) =>                                    -- pattern match on a data value
       match infer(env, c, s, scrut) { case ErrI(m) => ErrI(m) case Ok3(s1, ts, c1) => inferArms(env, c1, s1, ts, arms, None) }
+    case ShowM(id, e) =>                                           -- `show e` : a -> String (Show typeclass)
+      match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
+        let tag = baseTag(appTy(s1, te)) in
+        if #seq(tag, "?") then ErrI("no Show instance for this type") else let u = registerInst(id, tag) in Ok3(s1, TyStr, c1) }
   }
 
 -- shared: infer two operands, force both Int, return a chosen result type (TyInt for +-*, TyBool for eq)
@@ -190,6 +194,14 @@ def conReg      = #cell.new(Nil)
 def lookupReg   = (reg, name) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(k, sig) => if #seq(k, name) then Some(sig) else lookupReg(rest, name) } }
 def registerCon = (con, sig) => #cell.set(conReg, Cons(Pair(con, sig), #cell.get(conReg)))
 def conInfo = (name) => match lookupReg(#cell.get(conReg), name) { case Some(sig) => sig case None => builtinCon(name) }
+-- ── typeclass dictionary resolution: each method node carries a unique id (assigned at parse);
+-- infer resolves the instance from the operand type and records id -> instance-tag in tcReg;
+-- erase reads tcReg[id] to emit the resolved instance. The interpreter value-dispatches instead.
+def tcReg        = #cell.new(Nil)
+def registerInst = (id, tag) => #cell.set(tcReg, Cons(Pair(id, tag), #cell.get(tcReg)))
+def lookupId     = (reg, id) => match reg { case Nil => "?" case Cons(p, rest) => match p { case Pair(k, tag) => if #i.eq(k, id) then tag else lookupId(rest, id) } }
+def instOf       = (id) => lookupId(#cell.get(tcReg), id)
+def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
 def builtinCon = (name) =>
   if #seq(name, "None") then ConSig("Option", 1, Nil)
   else if #seq(name, "Some") then ConSig("Option", 1, Cons(TyVar(0), Nil))
@@ -307,6 +319,7 @@ def evalT = (env, t) =>
     case LIsNil(l) => match evalT(env, l) { case Nil => BoolVal(true) case _ => BoolVal(false) }
     case ConApp(name, args) => ConV(name, mapEvalT(env, args))
     case MatchT(scrut, arms) => match evalT(env, scrut) { case ConV(cn, vals) => evalArms(env, cn, vals, arms) case _ => Stuck }
+    case ShowM(id, e) => StrVal(vToStr(evalT(env, e)))             -- interpreter: value-dispatch via vToStr
   }
 def mapEvalT = (env, ts) => match ts { case Nil => Nil case Cons(t, rest) => Cons(evalT(env, t), mapEvalT(env, rest)) }
 def bindVals = (binders, vals, env) => match binders { case Nil => env case Cons(b, bs) => match vals { case Cons(v, vs) => bindVals(bs, vs, Cons(Pair(b, v), env)) case Nil => env } }

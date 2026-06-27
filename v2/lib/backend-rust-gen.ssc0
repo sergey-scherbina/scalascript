@@ -51,6 +51,7 @@ def genRPrim = (op, args) =>
   else if #seq(op, "f.eq")  then rfbin(args, "==", "V::B")
   else if #seq(op, "f.lt")  then rfbin(args, "<", "V::B")
   else if #seq(op, "i->f")  then run1(args, "V::Fl(asi(&(", ")) as f64)")
+  else if #seq(op, "f->str") then run1(args, "V::S(asf(&(", ")).to_string())")
   else "V::U"
 def mapGenV = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genV(d, h), mapGenV(d, t)) }
 def rletbinds = (d, rhs) => match rhs { case Nil => "" case Cons(r, rest) => cats(Cons("let ", Cons(jName(d), Cons(" = ", Cons(genV(d, r), Cons("; ", Cons(rletbinds(#i.add(d, 1), rest), Nil))))))) }

@@ -260,6 +260,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/tp.rs" -o "${TMPDIR:-/tmp}/tp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s (rustc)\n' "tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm TYPECLASS Show: one `show` resolves to the instance for the inferred type, on every backend"
+chk_hm examples/hm-show.hm '"String"'
+SHW='"x=42"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-show.hm > "${TMPDIR:-/tmp}/shw.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/shw.coreir" | tail -1)
+if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s\n' "show Int -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "show" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-show.hm > "${TMPDIR:-/tmp}/shw.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/shw.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s (node)\n' "show Int -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "show JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-show.hm > "${TMPDIR:-/tmp}/shw.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/shw.rs" -o "${TMPDIR:-/tmp}/shw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/shw-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Int -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "show Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm SHOWCASE: a typed arithmetic-expression interpreter, written in ssct-hm, on 3 backends"
 chk_hm examples/hm-eval.hm '"Int"'                                  # data Expr = Num | Plus | Times ; eval
 ssc run bin/ssctc-hm.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.coreir" 2>/dev/null

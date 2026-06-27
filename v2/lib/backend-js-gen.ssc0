@@ -50,6 +50,7 @@ def genPrim = (op, args) =>
   else if #seq(op, "f.eq")  then bin(args, " === ")
   else if #seq(op, "f.lt")  then bin(args, " < ")
   else if #seq(op, "i->f")  then un(args, "(", ")")
+  else if #seq(op, "f->str") then un(args, "String(", ")")
   else "0"
 
 def mapGenE = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genE(d, h, false), mapGenE(d, t)) }

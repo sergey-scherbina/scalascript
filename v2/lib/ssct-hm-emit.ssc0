@@ -2,6 +2,7 @@
 -- #coreir.encode it to canonical bytecode. Identical to ssct-emit except Lam carries no
 -- type (it was never annotated — it was inferred). Closes the loop: inferred-typed source
 -- text -> ir -> ssc(VM) -> cpu (and, being plain Core IR, the JS/Rust backends could run it too).
+import "ssct-hm.ssc0"                                  -- for instOf (the typeclass instance resolved by infer)
 
 def idxOf = (scope, x) => match scope { case Nil => 0 case Cons(h, t) => if #seq(h, x) then 0 else #i.add(1, idxOf(t, x)) }
 def lenB  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenB(t)) }
@@ -45,6 +46,13 @@ def erase = (scope, term) =>
     case LIsNil(l)   => IrMatch(erase(scope, l), Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Cons(IrArm("Cons", 2, IrLit(IrBool(false))), Nil)), None)
     case ConApp(name, args)  => IrCtor(name, mapErase(scope, args))
     case MatchT(scrut, arms) => IrMatch(erase(scope, scrut), mapEraseArms(scope, arms), None)
+    case ShowM(id, e) =>                                           -- emit the Show instance resolved by infer (tcReg[id])
+      let tag = instOf(id) in
+      if #seq(tag, "i") then IrPrim("i->str", Cons(erase(scope, e), Nil))
+      else if #seq(tag, "f") then IrPrim("f->str", Cons(erase(scope, e), Nil))
+      else if #seq(tag, "s") then erase(scope, e)
+      else if #seq(tag, "b") then IrIf(erase(scope, e), IrLit(IrStr("true")), IrLit(IrStr("false")))
+      else IrLit(IrStr("?"))
   }
 
 def emit = (term) => #coreir.encode(IrProg(Nil, erase(Nil, term)))
