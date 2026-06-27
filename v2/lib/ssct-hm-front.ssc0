@@ -98,6 +98,12 @@ def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' 
 def parseParenOrTuple = (toks) =>                      -- toks is after the '('
   match parseExpr(toks) { case Pair(e1, r1) =>
     match r1 { case Cons(t, r2) => match t { case TPunct(q) => if #seq(q, ",") then match parseTupleElems(r2) { case Pair(more, r3) => Pair(mkTuple(Cons(e1, more)), drop1(r3)) } else Pair(e1, drop1(r1)) case _ => Pair(e1, drop1(r1)) } case Nil => Pair(e1, Nil) } }
+-- record literal:  '{' name '=' e ( ',' name '=' e )* '}'
+def parseRecField = (toks) =>
+  match toks { case Cons(t, rest) => match t { case TName(nm) => match parseExpr(drop1(rest)) { case Pair(e, r) => Pair(Pair(nm, e), r) } case _ => Pair(Pair("?", ParseErr), Nil) } case Nil => Pair(Pair("?", ParseErr), Nil) }
+def parseRecFields = (toks) =>
+  match parseRecField(toks) { case Pair(fld, r) => match r { case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, ",") then match parseRecFields(rest) { case Pair(more, r2) => Pair(Cons(fld, more), r2) } else Pair(Cons(fld, Nil), r) case _ => Pair(Cons(fld, Nil), r) } case Nil => Pair(Cons(fld, Nil), Nil) } }
+def parseRecord = (toks) => match parseRecFields(toks) { case Pair(fields, r) => Pair(RecLit(fields), drop1(r)) }   -- drop '}'
 def parseAtom = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -109,15 +115,22 @@ def parseAtom = (toks) =>
           if #seq(s, "true") then Pair(BoolLit(true), rest)
           else if #seq(s, "false") then Pair(BoolLit(false), rest)
           else Pair(Var(s), rest)
-        case TPunct(p) => if #seq(p, "[") then parseListLit(rest) else parseParenOrTuple(rest)   -- [ .. ] or ( e ) or ( e , … )
+        case TPunct(p) => if #seq(p, "[") then parseListLit(rest) else if #seq(p, "{") then parseRecord(rest) else parseParenOrTuple(rest)   -- [..] / {..} / (e) / (e,..)
       }
     case Nil => Pair(ParseErr, Nil)
   }
+-- postfix `.field` access (tighter than application): wraps an atom in FieldGet
+def parsePostfix = (node, toks) =>
+  match toks { case Cons(t, rest) => match t {
+      case TPunct(p) => if #seq(p, ".") then (match rest { case Cons(t2, r2) => match t2 { case TName(fld) => parsePostfix(FieldGet(nextId(0), node, fld), r2) case _ => Pair(node, toks) } case Nil => Pair(node, toks) }) else Pair(node, toks)
+      case _ => Pair(node, toks) }
+    case Nil => Pair(node, toks) }
+def parseAtomP = (toks) => match parseAtom(toks) { case Pair(n, r) => parsePostfix(n, r) }
 
 def parseAppMore = (f, toks) =>
-  if startsAtom(toks) then match parseAtom(toks) { case Pair(a, r) => parseAppMore(App(f, a), r) }
+  if startsAtom(toks) then match parseAtomP(toks) { case Pair(a, r) => parseAppMore(App(f, a), r) }
   else Pair(f, toks)
-def parseApp = (toks) => match parseAtom(toks) { case Pair(f, r) => parseAppMore(f, r) }
+def parseApp = (toks) => match parseAtomP(toks) { case Pair(f, r) => parseAppMore(f, r) }
 
 -- precedence ladder:  cmp ('=')  <  add/sub ('+' '-')  <  mul ('*')  <  app
 def parseMulMore = (a, toks) =>
@@ -289,7 +302,10 @@ def desugar = (t) =>
     case StrLit(str)     => StrLit(str)
     case Concat(a, b)    => Concat(desugar(a), desugar(b))
     case FloatLit(str)   => FloatLit(str)
+    case RecLit(fields)  => RecLit(dsRecFields(fields))
+    case FieldGet(id, rc, name) => FieldGet(id, desugar(rc), name)
   }
+def dsRecFields = (fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, desugar(e)), dsRecFields(rest)) } }
 -- ── `data` declarations: parse them, register each constructor's signature into the global cell ──
 def isParam = (x, ps) => match ps { case Nil => false case Cons(p, r) => if #seq(p, x) then true else isParam(x, r) }
 def idxP    = (x, ps) => match ps { case Nil => 0 case Cons(p, r) => if #seq(p, x) then 0 else #i.add(1, idxP(x, r)) }

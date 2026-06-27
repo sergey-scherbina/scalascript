@@ -125,13 +125,13 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->f`**, and
 **reflection** (`tagOf`/`arity`/`fieldAt`) — so generic `show`/`eq`/`compare` are expressible.
 
-- [ ] **Float** — `TyFloat` + float literals (`3.14`) + float ops (`+. -. *. /.`, `<.` etc.) +
+- [x] **Float** (K6.1) — `TyFloat` + float literals (`3.14`) + float ops (`+. -. *. /.`, `<.` etc.) +
       `toFloat`/`floor`; add `f.*`/`i->f` to the JS + Rust genPrims. All 3 backends.
-- [ ] **Tuples** — `(a, b)` (n-ary) + projections; `TyTup [t]`; erase → IrCtor("Tuple", …).
+- [x] **Tuples** (K6.2) — `(a, b)` (n-ary) + projections; `TyTup [t]`; erase → IrCtor("Tuple", …).
 - [ ] **Records** — `{x = e, y = e}` + field access `r.x`; closed structural record types.
-- [ ] **Polymorphic `show`** — one generic structural renderer via `tagOf`/`arity`/`fieldAt`
+- [x] **Polymorphic `show` (Show typeclass)** (K6.3) — one generic structural renderer via `tagOf`/`arity`/`fieldAt`
       (+ those prims in JS/Rust gen); `show` works on any type, same output everywhere.
-- [ ] **Polymorphic `eq` / `compare`** — generic structural equality + ordering via reflection;
+- [x] **Polymorphic `eq`/`compare` (Eq/Ord)** (K6.4) — generic structural equality + ordering via reflection;
       makes equality/ordering work on any type, consistent across VM/JS/Rust.
 - [ ] **Real typeclasses** — `class`/`instance` declarations + dictionary passing (constraints
       in the inferred type, dict params at generalization, dict args at instantiation); the

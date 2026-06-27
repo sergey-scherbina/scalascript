@@ -294,6 +294,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/eq.rs" -o "${TMPDIR:-/tmp}/eq-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eq-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (rustc)\n' "eq -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm RECORDS: { x = e, y = e } literals + r.x access (structural record types), 3 backends"
+chk_hm examples/hm-rectype.hm '"{x: Int, y: Bool}"'
+RW="10"
+ssc run bin/ssctc-hm.ssc0 examples/hm-record.hm > "${TMPDIR:-/tmp}/rec.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/rec.coreir" | tail -1)
+if [ "$got" = "$RW" ]; then printf 'ok   %-26s => %s\n' "record p.x+p.y -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "record" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-record.hm > "${TMPDIR:-/tmp}/rec.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/rec.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$RW" ]; then printf 'ok   %-26s => %s (node)\n' "record -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "record JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-record.hm > "${TMPDIR:-/tmp}/rec.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/rec.rs" -o "${TMPDIR:-/tmp}/rec-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/rec-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$RW" ]; then printf 'ok   %-26s => %s (rustc)\n' "record -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "record Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm SHOWCASE: a typed arithmetic-expression interpreter, written in ssct-hm, on 3 backends"
 chk_hm examples/hm-eval.hm '"Int"'                                  # data Expr = Num | Plus | Times ; eval
 ssc run bin/ssctc-hm.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.coreir" 2>/dev/null

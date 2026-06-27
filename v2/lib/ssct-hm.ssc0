@@ -15,10 +15,13 @@ def appTy   = (s, t) => match t {
     case TyVar(n)   => match lookupS(s, n) { case None => TyVar(n) case Some(u) => appTy(s, u) }
     case TyList(e)  => TyList(appTy(s, e))
     case TyCon(nm, args) => TyCon(nm, mapAppTy(s, args))
+    case TyRec(fs)  => TyRec(mapAppRec(s, fs))
     case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
   }
+def mapAppRec = (s, fs) => match fs { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, t) => Cons(Pair(nm, appTy(s, t)), mapAppRec(s, rest)) } }
 def anyOccurs = (n, ts) => match ts { case Nil => false case Cons(t, rest) => if occurs(n, t) then true else anyOccurs(n, rest) }
-def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+def anyOccursRec = (n, fs) => match fs { case Nil => false case Cons(p, rest) => match p { case Pair(nm, t) => if occurs(n, t) then true else anyOccursRec(n, rest) } }
+def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyRec(fs) => anyOccursRec(n, fs) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
 
 -- unify two types under subst s -> Ok(s') | Err(msg)
 def unify = (s, t1, t2) =>
@@ -64,7 +67,17 @@ def unify = (s, t1, t2) =>
         case TyVar(m)       => if occurs(m, a) then Err("occurs-check: infinite type") else Ok(Cons(Pair(m, a), s))
         case _              => Err("cannot unify a data type with a different type")
       }
+    case TyRec(fa) => match b {
+        case TyRec(fb) => unifyRec(s, fa, fb)
+        case TyVar(m)  => if occurs(m, a) then Err("occurs-check: infinite type") else Ok(Cons(Pair(m, a), s))
+        case _         => Err("cannot unify a record with a different type")
+      }
   }
+def unifyRec = (s, fa, fb) =>
+  match fa { case Nil => match fb { case Nil => Ok(s) case Cons(x, y) => Err("record field count mismatch") }
+    case Cons(pa, ra) => match fb { case Nil => Err("record field count mismatch")
+        case Cons(pb, rb) => match pa { case Pair(na, ta) => match pb { case Pair(nb, tb) =>
+          if #seq(na, nb) then match unify(s, ta, tb) { case Err(m) => Err(m) case Ok(s2) => unifyRec(s2, ra, rb) } else Err("record field name mismatch") } } } }
 def unifyList = (s, as, bs) =>
   match as { case Nil => Ok(s) case Cons(a, ra) => match bs { case Cons(b, rb) =>
     match unify(s, a, b) { case Err(m) => Err(m) case Ok(s2) => unifyList(s2, ra, rb) } case Nil => Err("type constructor arity mismatch") } }
@@ -75,7 +88,8 @@ def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => mat
 def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.eq(h, n) then true else memberI(n, t) }
 def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
 def freeTyList = (ts, acc) => match ts { case Nil => acc case Cons(t, rest) => freeTyList(rest, freeTy(t, acc)) }
-def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def freeRec = (fs, acc) => match fs { case Nil => acc case Cons(p, rest) => match p { case Pair(nm, t) => freeRec(rest, freeTy(t, acc)) } }
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyRec(fs) => freeRec(fs, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
 def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
 def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
 def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
@@ -169,7 +183,22 @@ def infer = (env, c, s, term) =>
         if #seq(tag, "?") then ErrI("no Show instance for this type") else let u = registerInst(id, tag) in Ok3(s1, TyStr, c1) }
     case EqM(id, a, b)  => inferTcBin(env, c, s, id, a, b, TyBool, "Eq")   -- `eq a b`  : a -> a -> Bool
     case CmpM(id, a, b) => inferTcOrd(env, c, s, id, a, b)                 -- `compare a b` : a -> a -> Int (Ord)
+    case RecLit(fields) => inferRec(env, c, s, fields, Nil)               -- { x = e, y = e }
+    case FieldGet(id, rc, name) =>                                        -- r.name
+      match infer(env, c, s, rc) { case ErrI(m) => ErrI(m) case Ok3(s1, tr, c1) =>
+        match appTy(s1, tr) {
+          case TyRec(fields) => match findField(fields, name, 0) {
+              case None => ErrI(#sconcat("record has no field ", name))
+              case Some(pr) => match pr { case Pair(idx, ft) => let u = registerField(id, idx, lenRec(fields)) in Ok3(s1, ft, c1) } }
+          case _ => ErrI("field access on a non-record") } }
   }
+def inferRec = (env, c, s, fields, acc) =>
+  match fields {
+    case Nil => Ok3(s, TyRec(revRecL(acc, Nil)), c)
+    case Cons(p, rest) => match p { case Pair(nm, e) =>
+      match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => inferRec(env, c1, s1, rest, Cons(Pair(nm, appTy(s1, te)), acc)) } }
+  }
+def revRecL = (xs, acc) => match xs { case Nil => acc case Cons(h, t) => revRecL(t, Cons(h, acc)) }
 -- a binary typeclass method: both operands the same base type; record the instance; return res
 def inferTcBin = (env, c, s, id, a, b, res, cls) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
@@ -220,6 +249,13 @@ def registerInst = (id, tag) => #cell.set(tcReg, Cons(Pair(id, tag), #cell.get(t
 def lookupId     = (reg, id) => match reg { case Nil => "?" case Cons(p, rest) => match p { case Pair(k, tag) => if #i.eq(k, id) then tag else lookupId(rest, id) } }
 def instOf       = (id) => lookupId(#cell.get(tcReg), id)
 def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
+-- record field access: infer records id -> Pair(index, arity); erase reads it to emit a field extract.
+def fieldReg     = #cell.new(Nil)
+def registerField = (id, idx, ar) => #cell.set(fieldReg, Cons(Pair(id, Pair(idx, ar)), #cell.get(fieldReg)))
+def lookupFid    = (reg, id) => match reg { case Nil => Pair(0, 0) case Cons(p, rest) => match p { case Pair(k, v) => if #i.eq(k, id) then v else lookupFid(rest, id) } }
+def fieldOf      = (id) => lookupFid(#cell.get(fieldReg), id)
+def findField    = (fs, name, i) => match fs { case Nil => None case Cons(p, rest) => match p { case Pair(k, t) => if #seq(k, name) then Some(Pair(i, t)) else findField(rest, name, #i.add(i, 1)) } }
+def lenRec       = (fs) => match fs { case Nil => 0 case Cons(h, t) => #i.add(1, lenRec(t)) }
 def builtinCon = (name) =>
   if #seq(name, "None") then ConSig("Option", 1, Nil)
   else if #seq(name, "Some") then ConSig("Option", 1, Cons(TyVar(0), Nil))
@@ -278,12 +314,14 @@ def showTyR = (t) => match t {
     case TyVar(n)   => #sconcat("t", #i->str(n))
     case TyList(e)  => #sconcat("[", #sconcat(showTyR(e), "]"))
     case TyCon(nm, args) => if #seq(nm, "Pair") then #sconcat("(", #sconcat(showTup(args), ")")) else if #seq(nm, "Triple") then #sconcat("(", #sconcat(showTup(args), ")")) else match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
+    case TyRec(fs)  => #sconcat("{", #sconcat(showRecF(fs), "}"))
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
   }
 -- render a type-constructor argument, parenthesizing compound args (applied TyCon)
 def showArg  = (t) => match t { case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat("(", #sconcat(showTyR(t), ")")) } case _ => showTyR(t) }
 def showArgs = (ts) => match ts { case Nil => "" case Cons(t, rest) => match rest { case Nil => showArg(t) case Cons(h, tl) => #sconcat(showArg(t), #sconcat(" ", showArgs(rest))) } }
 def showTup  = (ts) => match ts { case Nil => "" case Cons(t, rest) => match rest { case Nil => showTyR(t) case Cons(h, tl) => #sconcat(showTyR(t), #sconcat(", ", showTup(rest))) } }
+def showRecF = (fs) => match fs { case Nil => "" case Cons(p, rest) => match p { case Pair(nm, t) => match rest { case Nil => #sconcat(nm, #sconcat(": ", showTyR(t))) case Cons(h, tl) => #sconcat(nm, #sconcat(": ", #sconcat(showTyR(t), #sconcat(", ", showRecF(rest))))) } } }
 -- infer a closed term and pretty-print its principal type (or the type error)
 def hm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)       => #sconcat("TypeError: ", m)
@@ -340,7 +378,11 @@ def evalT = (env, t) =>
     case ShowM(id, e) => StrVal(vToStr(evalT(env, e)))             -- interpreter: value-dispatch via vToStr
     case EqM(id, a, b)  => BoolVal(valEq(evalT(env, a), evalT(env, b)))
     case CmpM(id, a, b) => IntVal(valCmp(evalT(env, a), evalT(env, b)))
+    case RecLit(fields) => RecVal(evalRecF(env, fields))
+    case FieldGet(id, rc, name) => match evalT(env, rc) { case RecVal(fs) => lookupField(fs, name) case _ => Stuck }
   }
+def evalRecF = (env, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, evalT(env, e)), evalRecF(env, rest)) } }
+def lookupField = (fs, name) => match fs { case Nil => Stuck case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, name) then v else lookupField(rest, name) } }
 def boolEq = (a, b) => if a then b else (if b then false else true)
 def valEq = (x, y) => match x {
     case IntVal(a)   => match y { case IntVal(b) => #i.eq(a, b) case _ => false }
@@ -367,7 +409,7 @@ def vToStr  = (v) => match v {
     case _ => "?"
   }
 def vsToStr = (vs) => match vs { case Nil => "" case Cons(v, rest) => match rest { case Nil => vToStr(v) case Cons(h, t) => #sconcat(vToStr(v), #sconcat(", ", vsToStr(rest))) } }
-def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case StrVal(s) => s case FloatVal(x) => x case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" case Nil => Nil case Cons(h, t) => Cons(valShow(h), valShow(t)) case ConV(name, vals) => vToStr(v) }
+def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case StrVal(s) => s case FloatVal(x) => x case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" case Nil => Nil case Cons(h, t) => Cons(valShow(h), valShow(t)) case ConV(name, vals) => vToStr(v) case RecVal(fs) => "<record>" }
 -- infer the type (reject if ill-typed), then evaluate; report Typed(type, value) | TypeError(msg)
 def runHm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)      => TypeError(m)
