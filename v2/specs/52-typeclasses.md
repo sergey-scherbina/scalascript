@@ -28,13 +28,22 @@ show (List (List Int)) [[1,2],[3]]      =>  "[[1, 2], [3]]"   (deep recursive re
 show (List Bool)       [true,false]     =>  "[true, false]"
 ```
 
-## Relation to the typed layer
+## Integrated into the ssct typer — IMPLEMENTED (2026-06-27)
 
-`lib/typeclass.ssc0` shows the *elaborated* form (the type rep is passed explicitly). The
-`ssct` typer (`specs/40`) is where the **automatic** step lives: from the *inferred* type of
-each `show` use site, insert the corresponding `resolveShow` (the dictionary), then erase to
-ordinary calls. So "typeclasses" = ssct inference + this resolution + erasure — every piece a
-program on the frozen kernel; the kernel sees only records and functions.
+`lib/ssct.ssc0` now does **automatic** resolution. A `show e` use site (term `ShowM e`) does
+*not* name an instance; the typer:
+
+1. **enforces the constraint** — `infer (ShowM e)`: infer `e`'s type `T`; if `T` has a `Show`
+   instance (`Int`/`Bool`) then `ShowM e : String`, else a **type error** (`show` on a function
+   is rejected — `tc-show-err.ssc0` ⇒ `TypeError("no Show instance …")`);
+2. **resolves + inserts the dictionary** — `elaborate` walks the well-typed term and rewrites
+   each `ShowM e` to `ShowDispatch(instFor(typeOf e), e')`, choosing `showInt`/`showBool` from
+   the *inferred* type. `check` = `infer` (reject ill-typed) → `elaborate` → run.
+
+So the use site is instance-agnostic; the typer picks the instance from the type. Examples:
+`show (1+2)` ⇒ `Typed("String", "3")`, `show true` ⇒ `Typed("String", "true")`,
+`show (fun x:Int. x)` ⇒ type error. (`lib/typeclass.ssc0` remains the standalone resolver with
+recursive/conditional instances, e.g. `Show a ⇒ Show (List a)`.)
 
 ## Why this matters
 

@@ -1,0 +1,4 @@
+-- `show (fun x:Int. x)` — no Show instance for a function: TYPE ERROR caught by the typer.
+import "../lib/ssct.ssc0"
+def term = ShowM(Lam("x", TyInt, Var("x")))
+def main = () => check(term)

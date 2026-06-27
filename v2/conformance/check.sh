@@ -47,6 +47,11 @@ chk run examples/typeclass.ssc0        '"[1, 2, 3]"'
 chk run examples/typeclass-nested.ssc0 '"[[1, 2], [3]]"'
 chk run examples/typeclass-bool.ssc0   '"[true, false]"'
 
+echo "# typeclasses IN THE TYPER (ssct): show-e resolved from the inferred type; constraint enforced"
+chk run examples/tc-show-int.ssc0  'Typed("String", "3")'
+chk run examples/tc-show-bool.ssc0 'Typed("String", "true")'
+chk run examples/tc-show-err.ssc0  'TypeError("no Show instance for the argument type")'
+
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
 

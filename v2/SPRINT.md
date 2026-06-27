@@ -63,11 +63,13 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       ops + a round-robin scheduler handler on `lib/effects.ssc0`. Demos: async-tasks (two tasks
       interleaved → 1,10,2,20,3) + async-fork (spawn → 1,2,100,3,200). Spec `51-async.md`.
       Kernel +0 — concurrency is a library. NEXT in async: await/futures/channels/mailboxes.
-- [x] **typeclasses** (2026-06-27) — `lib/typeclass.ssc0`: type-directed instance resolution +
-      dictionary passing, incl. conditional instances `Show a => Show (List a)` (recursive
-      resolution). Demos: show List Int / List(List Int) / List Bool. Spec `52-typeclasses.md`.
-      Kernel +0. NEXT: wire automatic resolution into the `ssct` typer (insert dict from inferred
-      type + erase); multi-method classes (Eq/Num/Ord) = multi-field dicts.
+- [x] **typeclasses** (2026-06-27) — (a) `lib/typeclass.ssc0`: standalone type-directed resolution
+      + dict passing, incl. conditional instances `Show a => Show (List a)`. (b) **Integrated into
+      the `ssct` typer**: `show e` use site is instance-agnostic; `infer` enforces the `Show`
+      constraint (rejects `show` on a function) and `elaborate` resolves+inserts the dict from the
+      *inferred* type (`ShowM` → `ShowDispatch(instFor(typeOf e), …)`). Examples tc-show-int/bool
+      (`Typed("String", …)`) + tc-show-err (`TypeError`). Specs `52`. Kernel +0. NEXT: multi-method
+      classes (Eq/Num/Ord) = multi-field dicts; polymorphism (type vars) for real generic constraints.
 - [x] **actors** (2026-06-27) — `lib/actors.ssc0`: behavior `(state, msg) -> (state', [Msg])`
       + a delivery loop (route by id, per-actor state, enqueue outputs). Demo: ping-pong
       bounce → Ball 0..5. Spec `53-actors.md`. Kernel +0. NEXT: concurrent actors with blocking

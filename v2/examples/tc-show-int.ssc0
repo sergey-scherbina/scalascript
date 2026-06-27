@@ -1,0 +1,5 @@
+-- typeclass resolution by the typer: `show (1+2)` — typer infers Int, resolves Show Int.
+--   ssc run examples/tc-show-int.ssc0   =>  Typed("String", "3")
+import "../lib/ssct.ssc0"
+def term = ShowM(Add(Lit(1), Lit(2)))
+def main = () => check(term)

@@ -1,0 +1,4 @@
+-- `show true` — typer infers Bool, resolves Show Bool.  =>  Typed("String", "true")
+import "../lib/ssct.ssc0"
+def term = ShowM(BoolLit(true))
+def main = () => check(term)

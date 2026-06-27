@@ -15,10 +15,14 @@ def both = (a, b) => if a then b else false
 def isInt  = (ty) => match ty { case TyInt  => true case _ => false }
 def isBool = (ty) => match ty { case TyBool => true case _ => false }
 
+def isStr  = (ty) => match ty { case TyStr  => true case _ => false }
+def isShowable = (ty) => match ty { case TyInt => true case TyBool => true case _ => false }
+
 def tyEq = (a, b) =>
   match a {
     case TyInt  => isInt(b)
     case TyBool => isBool(b)
+    case TyStr  => isStr(b)
     case TyFun(p1, r1) =>
       match b {
         case TyFun(p2, r2) => both(tyEq(p1, p2), tyEq(r1, r2))
@@ -30,6 +34,7 @@ def showType = (ty) =>
   match ty {
     case TyInt  => "Int"
     case TyBool => "Bool"
+    case TyStr  => "String"
     case TyFun(a, b) => #sconcat("(", #sconcat(showType(a), #sconcat(" -> ", #sconcat(showType(b), ")"))))
   }
 
@@ -72,6 +77,11 @@ def infer = (env, term) =>
             case Err(m2) => Err(m2)
             case Ok(tb)  => if both(isInt(ta), isInt(tb)) then Ok(TyInt) else Err("Add expects Int operands")
           }
+      }
+    case ShowM(e) =>                            -- `show e` : a Show-constrained method
+      match infer(env, e) {
+        case Err(m) => Err(m)
+        case Ok(t)  => if isShowable(t) then Ok(TyStr) else Err("no Show instance for the argument type")
       }
     case If(c, t, e) =>
       match infer(env, c) {
@@ -117,6 +127,10 @@ def evalTerm = (env, term) =>
         case _ => Stuck
       }
     case Let(x, e, body) => evalTerm(Cons(Pair(x, evalTerm(env, e)), env), body)
+    case ShowDispatch(inst, e) =>                 -- the typer-resolved Show dictionary, applied
+      let v = evalTerm(env, e) in
+      if #seq(inst, "showInt") then StrVal(#i->str(asInt(v)))
+      else match v { case BoolVal(b) => if b then StrVal("true") else StrVal("false") case _ => Stuck }
   }
 
 def lookupVal = (env, x) =>
@@ -126,11 +140,27 @@ def lookupVal = (env, x) =>
       match p { case Pair(k, v) => if #seq(k, x) then v else lookupVal(rest, x) }
   }
 
-def valToShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case _ => Stuck }
+def valToShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case StrVal(s) => s case _ => Stuck }
 
--- ── the typed layer:  type-check, then (if well typed) run ───────────────────
+-- ── typeclass elaboration: resolve each `show e` to its instance from e's inferred type ──
+def typeOf  = (env, e) => match infer(env, e) { case Ok(t) => t case Err(m) => TyInt }
+def instFor = (ty) => match ty { case TyInt => "showInt" case TyBool => "showBool" case _ => "showErr" }
+def elaborate = (env, term) =>
+  match term {
+    case Lit(n)           => Lit(n)
+    case BoolLit(b)       => BoolLit(b)
+    case Var(x)           => Var(x)
+    case Lam(x, ty, body) => Lam(x, ty, elaborate(Cons(Pair(x, ty), env), body))
+    case App(f, a)        => App(elaborate(env, f), elaborate(env, a))
+    case Add(a, b)        => Add(elaborate(env, a), elaborate(env, b))
+    case If(c, t, e)      => If(elaborate(env, c), elaborate(env, t), elaborate(env, e))
+    case Let(x, e, body)  => Let(x, elaborate(env, e), elaborate(Cons(Pair(x, typeOf(env, e)), env), body))
+    case ShowM(e)         => ShowDispatch(instFor(typeOf(env, e)), elaborate(env, e))   -- resolve!
+  }
+
+-- ── the typed layer:  type-check, elaborate (resolve dicts), then run ────────────
 def check = (term) =>
   match infer(Nil, term) {
-    case Ok(ty) => Typed(showType(ty), valToShow(evalTerm(Nil, term)))
+    case Ok(ty) => Typed(showType(ty), valToShow(evalTerm(Nil, elaborate(Nil, term))))
     case Err(m) => TypeError(m)
   }
