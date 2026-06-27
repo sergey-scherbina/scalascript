@@ -51,13 +51,7 @@ def erase = (scope, term) =>
     case LIsNil(l)   => IrMatch(erase(scope, l), Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Cons(IrArm("Cons", 2, IrLit(IrBool(false))), Nil)), None)
     case ConApp(name, args)  => IrCtor(name, mapErase(scope, args))
     case MatchT(scrut, arms) => IrMatch(erase(scope, scrut), mapEraseArms(scope, arms), None)
-    case ShowM(id, e) =>                                           -- emit the Show instance resolved by infer (tcReg[id])
-      let tag = instOf(id) in
-      if #seq(tag, "i") then IrPrim("i->str", Cons(erase(scope, e), Nil))
-      else if #seq(tag, "f") then IrPrim("f->str", Cons(erase(scope, e), Nil))
-      else if #seq(tag, "s") then erase(scope, e)
-      else if #seq(tag, "b") then IrIf(erase(scope, e), IrLit(IrStr("true")), IrLit(IrStr("false")))
-      else IrLit(IrStr("?"))
+    case ShowM(id, e) => emitShowV(instOf(id), erase(scope, e))   -- Show instance resolved by infer (tcReg[id])
     case EqM(id, a, b) =>                                          -- Eq instance resolved by infer
       let tag = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
       if #seq(tag, "i") then IrPrim("i.eq", Cons(ea, Cons(eb, Nil)))
@@ -75,4 +69,28 @@ def erase = (scope, term) =>
   }
 def eraseRecF = (scope, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(erase(scope, e), eraseRecF(scope, rest)) } }
 
-def emit = (term) => #coreir.encode(IrProg(Nil, erase(Nil, term)))
+-- ── Show instance code for a value (base types inline; lists via the global __showList, passing the
+-- element-show as a dictionary — so nested lists compose). tag "Li" = [Int], "LLi" = [[Int]], etc.
+def lstr     = (s) => IrLit(IrStr(s))
+def isListT  = (tag) => if #i.lt(0, #slen(tag)) then #i.eq(#scodeAt(tag, 0), 76) else false   -- starts with 'L'
+def emitShowFn = (tag) => IrLam(1, emitShowV(tag, IrLocal(0)))                                 -- λx. show x  (a dictionary)
+def emitShowV  = (tag, v) =>
+  if #seq(tag, "i") then IrPrim("i->str", Cons(v, Nil))
+  else if #seq(tag, "f") then IrPrim("f->str", Cons(v, Nil))
+  else if #seq(tag, "s") then v
+  else if #seq(tag, "b") then IrIf(v, lstr("true"), lstr("false"))
+  else if isListT(tag) then IrApp(IrApp(IrGlobal("__showList"), Cons(emitShowFn(#sslice(tag, 1, #slen(tag))), Nil)), Cons(v, Nil))
+  else lstr("?")
+-- __joinRest = λf. λl. match l { Nil => "" | Cons(h,t) => ", " ++ f h ++ __joinRest f t }   (Cons: h=local 1, t=local 0; outer l=2, f=3)
+def joinRestDef = IrDef("__joinRest", IrLam(1, IrLam(1, IrMatch(IrLocal(0),
+    Cons(IrArm("Nil", 0, lstr("")),
+    Cons(IrArm("Cons", 2, IrPrim("sconcat", Cons(lstr(", "), Cons(IrPrim("sconcat", Cons(IrApp(IrLocal(3), Cons(IrLocal(1), Nil)), Cons(IrApp(IrApp(IrGlobal("__joinRest"), Cons(IrLocal(3), Nil)), Cons(IrLocal(0), Nil)), Nil))), Nil)))), Nil)), None))))
+-- __showList = λf. λl. "[" ++ (match l { Nil => "" | Cons(h,t) => f h ++ __joinRest f t }) ++ "]"
+def showListDef = IrDef("__showList", IrLam(1, IrLam(1, IrPrim("sconcat", Cons(lstr("["), Cons(IrPrim("sconcat", Cons(IrMatch(IrLocal(0),
+    Cons(IrArm("Nil", 0, lstr("")),
+    Cons(IrArm("Cons", 2, IrPrim("sconcat", Cons(IrApp(IrLocal(3), Cons(IrLocal(1), Nil)), Cons(IrApp(IrApp(IrGlobal("__joinRest"), Cons(IrLocal(3), Nil)), Cons(IrLocal(0), Nil)), Nil)))), Nil)), None), Cons(lstr("]"), Nil))), Nil))))))
+def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, tag) => if isListT(tag) then true else anyListShow(rest) } }
+-- include the list-show helpers in the program ONLY when a list-show instance was resolved (keeps other bytecode unchanged)
+def progOf = (term) => let body = erase(Nil, term) in IrProg(if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Nil)) else Nil, body)
+
+def emit = (term) => #coreir.encode(progOf(term))

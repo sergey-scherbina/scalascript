@@ -276,6 +276,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/shw.rs" -o "${TMPDIR:-/tmp}/shw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/shw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Int -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "show Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm Show over LISTS: recursive type-directed (show [Int]/[[Int]]/[Bool]) on every backend"
+chk_hm examples/hm-showlist.hm '"String"'
+SLW='"[1, 2, 3]"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-showlist.hm > "${TMPDIR:-/tmp}/sl.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sl.coreir" | tail -1)
+if [ "$got" = "$SLW" ]; then printf 'ok   %-26s => %s\n' "show [Int] -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "showlist" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-showlist.hm > "${TMPDIR:-/tmp}/sl.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/sl.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$SLW" ]; then printf 'ok   %-26s => %s (node)\n' "show [Int] -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showlist JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-showlist.hm > "${TMPDIR:-/tmp}/sl.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/sl.rs" -o "${TMPDIR:-/tmp}/sl-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sl-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$SLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show [Int] -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showlist Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm TYPECLASS Eq/Ord: eq (4 base types) + compare (Int+Float) resolved by type"
 ssc run bin/ssctc-hm.ssc0 examples/hm-cmp.hm > "${TMPDIR:-/tmp}/cmp.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/cmp.coreir" | tail -1)

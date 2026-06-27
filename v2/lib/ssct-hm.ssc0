@@ -182,9 +182,9 @@ def infer = (env, c, s, term) =>
         } }
     case MatchT(scrut, arms) =>                                    -- pattern match on a data value
       match infer(env, c, s, scrut) { case ErrI(m) => ErrI(m) case Ok3(s1, ts, c1) => inferArms(env, c1, s1, ts, arms, None) }
-    case ShowM(id, e) =>                                           -- `show e` : a -> String (Show typeclass)
+    case ShowM(id, e) =>                                           -- `show e` : a -> String (Show typeclass, base + lists)
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
-        let tag = baseTag(appTy(s1, te)) in
+        let tag = showTag(appTy(s1, te)) in
         if #seq(tag, "?") then ErrI("no Show instance for this type") else let u = registerInst(id, tag) in Ok3(s1, TyStr, c1) }
     case EqM(id, a, b)  => inferTcBin(env, c, s, id, a, b, TyBool, "Eq")   -- `eq a b`  : a -> a -> Bool
     case CmpM(id, a, b) => inferTcOrd(env, c, s, id, a, b)                 -- `compare a b` : a -> a -> Int (Ord)
@@ -257,6 +257,8 @@ def registerInst = (id, tag) => #cell.set(tcReg, Cons(Pair(id, tag), #cell.get(t
 def lookupId     = (reg, id) => match reg { case Nil => "?" case Cons(p, rest) => match p { case Pair(k, tag) => if #i.eq(k, id) then tag else lookupId(rest, id) } }
 def instOf       = (id) => lookupId(#cell.get(tcReg), id)
 def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
+-- Show instance tag: base types + lists recursively ("Li" = [Int], "LLi" = [[Int]]); "?" if not showable
+def showTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case TyList(e) => let et = showTag(e) in if #seq(et, "?") then "?" else #sconcat("L", et) case _ => "?" }
 -- record field access: infer records id -> Pair(index, arity); erase reads it to emit a field extract.
 def fieldReg     = #cell.new(Nil)
 def registerField = (id, idx, ar) => #cell.set(fieldReg, Cons(Pair(id, Pair(idx, ar)), #cell.get(fieldReg)))

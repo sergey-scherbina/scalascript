@@ -10,7 +10,7 @@ def main = () =>
     case Cons(path, rest) =>
       let term = parse(#utf8->str(#io.readFile(path))) in
       match infer(Nil, 0, Nil, term) {
-        case Ok3(s, t, c) => #io.print(genRProg(IrProg(Nil, erase(Nil, term))))
+        case Ok3(s, t, c) => #io.print(genRProg(progOf(term)))
         case ErrI(m)      => #io.eprint(#sconcat("type error: ", m))
       }
     case Nil => #io.eprint("usage: ssct-hm-rust <file>")
