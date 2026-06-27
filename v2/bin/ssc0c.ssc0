@@ -1,9 +1,33 @@
--- ssc0c driver — the ssc0 compiler (written in ssc0): read a .ssc0 file, emit Core IR
--- bytecode (stdout).  Differential goal: identical to `ssc compile <file>`.
+-- ssc0c driver — the ssc0 compiler (written in ssc0): read a .ssc0 file (resolving its
+-- `import`s, multi-file), emit Core IR bytecode (stdout). Differential goal: identical to
+-- `ssc compile <file>`. The import loader mirrors the Scala Loader: DFS, load-once, entry's
+-- defs first then imports'.
 import "../lib/ssc0c.ssc0"
+
+def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
+def lastSlash = (s, i, best) => if #i.ge(i, #slen(s)) then best else (if #i.eq(#scodeAt(s, i), 47) then lastSlash(s, #i.add(i, 1), i) else lastSlash(s, #i.add(i, 1), best))
+def dirOf = (path) => let j = lastSlash(path, 0, #i.sub(0, 1)) in if #i.lt(j, 0) then "" else #sslice(path, 0, #i.add(j, 1))
+
+-- load a file's defs + (DFS) its imports'; returns Pair(mergedDefs, seenPaths). load-once.
+def loadDefs = (path, seen) =>
+  if member(seen, path) then Pair(Nil, seen)
+  else
+    let toks = lex(#utf8->str(#io.readFile(path))) in
+    match loadImports(parseImports(toks), dirOf(path), Cons(path, seen)) {
+      case Pair(impDefs, seen2) => Pair(appendD(parseTop(toks), impDefs), seen2)
+    }
+def loadImports = (imps, dir, seen) =>
+  match imps {
+    case Nil => Pair(Nil, seen)
+    case Cons(rel, rest) =>
+      match loadDefs(#sconcat(dir, rel), seen) {
+        case Pair(d1, seen2) => match loadImports(rest, dir, seen2) { case Pair(d2, seen3) => Pair(appendD(d1, d2), seen3) }
+      }
+  }
 
 def main = () =>
   match #io.args() {
-    case Cons(path, rest) => #io.print(compile(#utf8->str(#io.readFile(path))))
-    case Nil              => #io.eprint("usage: ssc0c <file.ssc0>")
+    case Cons(path, rest) =>
+      match loadDefs(path, Nil) { case Pair(defs, seen) => #io.print(#coreir.encode(compileModule(defs))) }
+    case Nil => #io.eprint("usage: ssc0c <file.ssc0>")
   }

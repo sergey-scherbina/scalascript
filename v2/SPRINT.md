@@ -85,8 +85,15 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       tail `IrApp`→`Step::Bounce`, `app` loops (genV/genT split). `./ssc0-rust f.ssc0 | rustc` →
       native binary; output == VM for fact/map/calc **and tco** (1e6, constant stack). Spec
       `61-backend-rust.md`. Kernel +0. **3 targets, all TCO-correct: JVM / JS / native Rust.**
-- [ ] **backend: ir → WASM** (third target, same approach). Both backends now TCO-correct, so
-      WASM (which also lacks guaranteed TCO) reuses the trampoline idea.
+- [x] **ssc0c multi-file imports (M3)** (2026-06-27) — `bin/ssc0c.ssc0` resolves `import "path"`
+      (DFS, load-once loader; `parseImports` + `parseTop` skips imports). `uselib.ssc0` (imports
+      `lib/list.ssc0`) compiles byte-identically to Scala; **multi-file fixpoint**: `bin/ssc0c.ssc0`
+      compiles itself across the import, reproduces itself (22533 bytes). Self-hosting spans files.
+- [ ] **backend: ir → WASM** — BLOCKED on toolchain: only `node`'s WebAssembly API is present
+      (binary `.wasm` only; no `wat2wasm`/`wasmtime`/rust-wasm-target). A from-scratch binary-wasm
+      backend would need a kernel byte-builder primitive + a heap/GC runtime for closures/ADTs, and
+      runs only integer programs without it. Options: install `wabt`/`wasmtime` or
+      `rustup target add wasm32-wasip1` (then reuse the Rust backend), or build the binary emitter.
 
 ## Backlog
 

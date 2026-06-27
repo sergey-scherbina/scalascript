@@ -231,18 +231,36 @@ def pExpr = (toks) =>
     case Nil => Pair(SErr, Nil)
   }
 
-def parseTop = (toks) =>                         -- [ def name = expr ]*  -> [Pair(name, expr)]
+def parseTop = (toks) =>                         -- ( import "p" | def name = expr )*  -> [Pair(name, expr)]
   match toks {
     case Nil => Nil
     case Cons(d, r1) =>
-      match r1 {
-        case Cons(nm, r2) =>
-          match nm { case KName(name) =>
-            match r2 { case Cons(eq, r3) =>
-              match pExpr(r3) { case Pair(body, r4) => Cons(Pair(name, body), parseTop(r4)) }
-            case Nil => Nil }
-          case _ => Nil }
-        case Nil => Nil
+      match d {
+        case KName(kw) =>
+          if #seq(kw, "import") then parseTop(drop1(r1))    -- skip `import` + the path string
+          else
+            match r1 {
+              case Cons(nm, r2) =>
+                match nm { case KName(name) =>
+                  match r2 { case Cons(eq, r3) => match pExpr(r3) { case Pair(body, r4) => Cons(Pair(name, body), parseTop(r4)) } case Nil => Nil }
+                case _ => Nil }
+              case Nil => Nil
+            }
+        case _ => Nil
+      }
+  }
+
+-- collect the paths of every `import "path"` (scans the token stream)
+def parseImports = (toks) =>
+  match toks {
+    case Nil => Nil
+    case Cons(t0, r0) =>
+      match t0 {
+        case KName(kw) =>
+          if #seq(kw, "import") then
+            (match r0 { case Cons(s, r1) => match s { case KStr(p) => Cons(p, parseImports(r1)) case _ => parseImports(r0) } case Nil => Nil })
+          else parseImports(r0)
+        case _ => parseImports(r0)
       }
   }
 

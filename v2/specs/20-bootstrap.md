@@ -42,9 +42,13 @@ and the in-language compiler keep each other honest.
       The self-compiler reproduces itself exactly — a stable fixpoint. (The VM needs a large
       `-Xss`: the lexer/parser use deep *non-tail* recursion over the input; the bytecode is
       correct, it just needs stack. The `v2/ssc0c` launcher sets `-Xss512m`.)
-- [ ] **M3** — multi-file `import` resolution in the `ssc0c` driver (read + merge, like the
-      Scala `Loader`), so a multi-file ssc0 program self-compiles too. Not needed for the
-      single-file fixpoint above.
+- [x] **M3 — multi-file imports (2026-06-27): DONE.** `ssc0c` resolves `import "path"` in its
+      driver (`bin/ssc0c.ssc0`): a DFS, load-once loader mirroring the Scala `Loader` (entry's
+      defs first, then imports'). `parseImports` collects the paths; `parseTop` skips them. A
+      multi-file program (`examples/uselib.ssc0` importing `lib/list.ssc0`) compiles
+      **byte-identically** to `ssc compile`. And the **multi-file fixpoint**: `bin/ssc0c.ssc0`
+      (which imports `lib/ssc0c.ssc0`) compiles *itself* across the import, reproducing itself
+      byte-for-byte (22533 bytes). Self-hosting now spans files.
 
 ## Why the kernel stays frozen through all of this
 

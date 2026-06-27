@@ -103,6 +103,17 @@ else
   printf 'FAIL %-26s gen1(%s) != gen2(%s)\n' "ssc0c FIXPOINT" "${#gen1}" "${#gen2}"; fail=1
 fi
 
+echo "# MULTI-FILE: ssc0c resolves imports == Scala (uselib); and the multi-file fixpoint"
+ua=$(ssc compile examples/uselib.ssc0); ub=$(ssc run bin/ssc0c.ssc0 examples/uselib.ssc0)
+if [ -n "$ua" ] && [ "$ua" = "$ub" ]; then printf 'ok   %-26s => byte-identical ir (across import)\n' "ssc0c uselib.ssc0"
+else printf 'FAIL %-26s ir differs\n' "ssc0c uselib.ssc0"; fail=1; fi
+# the multi-file driver bin/ssc0c.ssc0 (imports lib/ssc0c.ssc0) compiles ITSELF, byte-for-byte
+m1=$(ssc compile bin/ssc0c.ssc0)
+printf '%s' "$m1" > "${TMPDIR:-/tmp}/m3-gen1.ir"
+m2=$(java -Xss512m -jar "$JAR" run-ir "${TMPDIR:-/tmp}/m3-gen1.ir" bin/ssc0c.ssc0 2>/dev/null)
+if [ -n "$m1" ] && [ "$m1" = "$m2" ]; then printf 'ok   %-26s => reproduces itself (%s bytes)\n' "ssc0c MULTI-FILE FIXPOINT" "${#m1}"
+else printf 'FAIL %-26s m1(%s) != m2(%s)\n' "ssc0c MULTI-FILE FIXPOINT" "${#m1}" "${#m2}"; fail=1; fi
+
 echo "# backend: ir -> JS (lib/backend-js.ssc0) — node output == VM output"
 if command -v node >/dev/null 2>&1; then
   chk_js() { # file-stem
