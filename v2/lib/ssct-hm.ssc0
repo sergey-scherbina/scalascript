@@ -260,7 +260,7 @@ def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case Ty
 -- Show/Eq instances now store the resolved TYPE in tcReg; showableType says if a type has an instance:
 -- base types, lists of showable, and tuples (Pair/Triple) of showable. (general ADTs = follow-up)
 def allShowable  = (ts) => match ts { case Nil => true case Cons(t, rest) => if showableType(t) then allShowable(rest) else false }
-def showableType = (t) => match t { case TyInt => true case TyBool => true case TyStr => true case TyFloat => true case TyList(e) => showableType(e) case TyCon(nm, args) => if #seq(nm, "Pair") then allShowable(args) else if #seq(nm, "Triple") then allShowable(args) else false case _ => false }
+def showableType = (t) => match t { case TyInt => true case TyBool => true case TyStr => true case TyFloat => true case TyList(e) => showableType(e) case TyCon(nm, args) => if #seq(nm, "Pair") then allShowable(args) else if #seq(nm, "Triple") then allShowable(args) else if #seq(nm, "Option") then allShowable(args) else if #seq(nm, "Either") then allShowable(args) else false case _ => false }
 -- record field access: infer records id -> Pair(index, arity); erase reads it to emit a field extract.
 def fieldReg     = #cell.new(Nil)
 def registerField = (id, idx, ar) => #cell.set(fieldReg, Cons(Pair(id, Pair(idx, ar)), #cell.get(fieldReg)))

@@ -75,9 +75,16 @@ def emitShowFromType = (t, v) =>
     case TyStr   => v
     case TyFloat => IrPrim("f->str", Cons(v, Nil))
     case TyList(e) => IrApp(IrApp(IrGlobal("__showList"), Cons(emitShowFn(e), Nil)), Cons(v, Nil))
-    case TyCon(nm, args) => if #seq(nm, "Pair") then emitShowPair(args, v) else if #seq(nm, "Triple") then emitShowTriple(args, v) else lstr("?")
+    case TyCon(nm, args) => if #seq(nm, "Pair") then emitShowPair(args, v) else if #seq(nm, "Triple") then emitShowTriple(args, v) else if #seq(nm, "Option") then emitShowOption(args, v) else if #seq(nm, "Either") then emitShowEither(args, v) else lstr("?")
     case _ => lstr("?")
   }
+-- match v { None => "None" | Some(x) => "Some(" ++ show x ++ ")" }
+def emitShowOption = (args, v) => match args { case Cons(t1, r1) =>
+    IrMatch(v, Cons(IrArm("None", 0, lstr("None")), Cons(IrArm("Some", 1, sc(lstr("Some("), sc(emitShowFromType(t1, IrLocal(0)), lstr(")")))), Nil)), None)
+    case Nil => lstr("?") }
+def emitShowEither = (args, v) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) =>
+    IrMatch(v, Cons(IrArm("Left", 1, sc(lstr("Left("), sc(emitShowFromType(t1, IrLocal(0)), lstr(")")))), Cons(IrArm("Right", 1, sc(lstr("Right("), sc(emitShowFromType(t2, IrLocal(0)), lstr(")")))), Nil)), None)
+    case Nil => lstr("?") } case Nil => lstr("?") }
 -- match v { Pair(a, b) => "(" ++ show a ++ ", " ++ show b ++ ")" }   (Pair arity 2: a=local 1, b=local 0)
 def emitShowPair = (args, v) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) =>
     IrMatch(v, Cons(IrArm("Pair", 2, sc(lstr("("), sc(emitShowFromType(t1, IrLocal(1)), sc(lstr(", "), sc(emitShowFromType(t2, IrLocal(0)), lstr(")")))))), Nil), None)
@@ -102,9 +109,19 @@ def emitEqFromType = (t, va, vb) =>
     case TyStr   => IrPrim("seq", Cons(va, Cons(vb, Nil)))
     case TyFloat => IrPrim("f.eq", Cons(va, Cons(vb, Nil)))
     case TyList(e) => IrApp(IrApp(IrApp(IrGlobal("__eqList"), Cons(emitEqFn(e), Nil)), Cons(va, Nil)), Cons(vb, Nil))
-    case TyCon(nm, args) => if #seq(nm, "Pair") then emitEqPair(args, va, vb) else if #seq(nm, "Triple") then emitEqTriple(args, va, vb) else IrLit(IrBool(false))
+    case TyCon(nm, args) => if #seq(nm, "Pair") then emitEqPair(args, va, vb) else if #seq(nm, "Triple") then emitEqTriple(args, va, vb) else if #seq(nm, "Option") then emitEqOption(args, va, vb) else if #seq(nm, "Either") then emitEqEither(args, va, vb) else IrLit(IrBool(false))
     case _ => IrLit(IrBool(false))
   }
+-- sum-type eq via SINGLE-match projections + guards (no nested scrutinee -> no de Bruijn shift)
+def isTag    = (v, tag, ar) => IrMatch(v, Cons(IrArm(tag, ar, IrLit(IrBool(true))), Nil), Some(IrLit(IrBool(false))))   -- does v have ctor `tag`?
+def getF0    = (v, tag, ar) => IrMatch(v, Cons(IrArm(tag, ar, IrLocal(0)), Nil), Some(IrLit(IrInt(0))))                 -- the (arity-1) field; default never hit
+def emitEqOption = (args, va, vb) => match args { case Cons(t1, r1) =>
+    IrIf(isTag(va, "None", 0), isTag(vb, "None", 0), IrIf(isTag(vb, "None", 0), IrLit(IrBool(false)), emitEqFromType(t1, getF0(va, "Some", 1), getF0(vb, "Some", 1))))
+    case Nil => IrLit(IrBool(false)) }
+def emitEqEither = (args, va, vb) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) =>
+    IrIf(isTag(va, "Left", 1), IrIf(isTag(vb, "Left", 1), emitEqFromType(t1, getF0(va, "Left", 1), getF0(vb, "Left", 1)), IrLit(IrBool(false))),
+         IrIf(isTag(vb, "Left", 1), IrLit(IrBool(false)), emitEqFromType(t2, getF0(va, "Right", 1), getF0(vb, "Right", 1))))
+    case Nil => IrLit(IrBool(false)) } case Nil => IrLit(IrBool(false)) }
 def projP = (v, k) => IrMatch(v, Cons(IrArm("Pair", 2, IrLocal(k)), Nil), None)               -- fst: k=1, snd: k=0
 def projT = (v, k) => IrMatch(v, Cons(IrArm("Triple", 3, IrLocal(k)), Nil), None)             -- fields k=2,1,0
 def emitEqPair = (args, va, vb) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) =>

@@ -325,6 +325,24 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/st.rs" -o "${TMPDIR:-/tmp}/st-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/st-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtup Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm Show/Eq over Option/Either: show (Some 5)/eq, type-directed, on every backend"
+SOW='"Some(5)"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-showopt.hm > "${TMPDIR:-/tmp}/so.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/so.coreir" | tail -1)
+if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s\n' "show Option -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "showopt" "$got"; fail=1; fi
+ssc run bin/ssctc-hm.ssc0 examples/hm-eqopt.hm > "${TMPDIR:-/tmp}/eo.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/eo.coreir" | tail -1)
+if [ "$got" = "1" ]; then printf 'ok   %-26s => %s\n' "eq Option -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eqopt" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-showopt.hm > "${TMPDIR:-/tmp}/so.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/so.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (node)\n' "show Option -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showopt JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-showopt.hm > "${TMPDIR:-/tmp}/so.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/so.rs" -o "${TMPDIR:-/tmp}/so-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/so-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Option -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showopt Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm TYPECLASS Eq/Ord: eq (4 base types) + compare (Int+Float) resolved by type"
 ssc run bin/ssctc-hm.ssc0 examples/hm-cmp.hm > "${TMPDIR:-/tmp}/cmp.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/cmp.coreir" | tail -1)
