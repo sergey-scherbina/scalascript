@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# ssct-hm-rust — compile inferred-typed source text to Rust (the shared Rust codegen, reused).
+# An ssc0 program (bin/ssct-hm-rust.ssc0) on the ssc VM: text -> infer -> erase -> genRProg -> Rust.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssct-hm-rust.ssc0" "$@"

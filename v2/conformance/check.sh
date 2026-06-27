@@ -151,6 +151,13 @@ if command -v node >/dev/null 2>&1; then
   if [ "$got" = "120" ]; then printf 'ok   %-26s => %s (node)\n' "ssct-hm-js fact.hm" "$got"
   else printf 'FAIL %-26s got [%s] want [120]\n' "ssct-hm-js fact.hm" "$got"; fail=1; fi
 fi
+# and the SAME factorial compiled to native Rust (shared Rust codegen reused via ssct-hm-rust)
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-fact.hm > "${TMPDIR:-/tmp}/hm-fact.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/hm-fact.rs" -o "${TMPDIR:-/tmp}/hm-fact-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/hm-fact-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "120" ]; then printf 'ok   %-26s => %s (rustc)\n' "ssct-hm-rust fact.hm" "$got"
+  else printf 'FAIL %-26s got [%s] want [120]\n' "ssct-hm-rust fact.hm" "$got"; fail=1; fi
+fi
 
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
