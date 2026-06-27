@@ -191,28 +191,28 @@ def parseOrMore = (a, toks) =>
   }
 def parseOr = (toks) => match parseAnd(toks) { case Pair(a, r) => parseOrMore(a, r) }
 
-def parseFun = (toks) =>                              -- after 'fun':  x '=>' body  (NO type annotation)
-  match toks {
-    case Cons(t, r1) =>
-      match t {
-        case TName(x) =>
-          match parseExpr(drop1(r1)) {                 -- drop '=>'
-            case Pair(body, r3) => Pair(Lam(x, body), r3)
-          }
-        case _ => Pair(ParseErr, Nil)
+-- fun x1 x2 .. xn => body   desugars to nested single-arg lambdas (currying)
+def mkLams = (xs, body) => match xs { case Nil => body case Cons(x, t) => Lam(x, mkLams(t, body)) }
+def parseFun = (toks) =>                              -- after 'fun':  x1 .. xn '=>' body  (NO type annotation)
+  match parseBinders(toks) {                          -- collect 1+ binders, stops at '=>'
+    case Pair(xs, r1) =>
+      match parseExpr(drop1(r1)) {                     -- drop '=>'
+        case Pair(body, r3) => Pair(mkLams(xs, body), r3)
       }
-    case Nil => Pair(ParseErr, Nil)
   }
 
-def parseLetBind = (mk, toks) =>                      -- shared:  name '=' e 'in' body  ->  mk(name, e, body)
+def parseLetBind = (mk, toks) =>                      -- shared:  name param* '=' e 'in' body  ->  mk(name, fun param* => e, body)
   match toks {
     case Cons(t, r1) =>
       match t {
         case TName(x) =>
-          match parseExpr(drop1(r1)) {                 -- drop '='
-            case Pair(e, r3) =>
-              match parseExpr(drop1(r3)) {             -- drop 'in'
-                case Pair(body, r5) => Pair(mk(x, e, body), r5)
+          match parseBinders(r1) {                     -- collect 0+ params before '=' (function-def sugar)
+            case Pair(ps, r2) =>
+              match parseExpr(drop1(r2)) {             -- drop '='
+                case Pair(e, r3) =>
+                  match parseExpr(drop1(r3)) {         -- drop 'in'
+                    case Pair(body, r5) => Pair(mk(x, mkLams(ps, e), body), r5)
+                  }
               }
           }
         case _ => Pair(ParseErr, Nil)

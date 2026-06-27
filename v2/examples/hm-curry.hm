@@ -1,0 +1,1 @@
+let rec fact n = if n = 0 then 1 else n * fact (n - 1) in let add x y = x + y in add (fact 5) ((fun a b => a * b) 3 4)

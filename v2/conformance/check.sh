@@ -508,6 +508,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/sop.rs" -o "${TMPDIR:-/tmp}/sop-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sop-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "strLen/charAt/substr -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "strops Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm CURRY sugar: multi-arg 'fun x y => e' + function-def 'let f x y = e' / 'let rec f n = e'"
+chk_hm examples/hm-curry.hm '"Int"'
+CUW="132"
+ssc run bin/ssctc-hm.ssc0 examples/hm-curry.hm > "${TMPDIR:-/tmp}/cur.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/cur.coreir" | tail -1)
+if [ "$got" = "$CUW" ]; then printf 'ok   %-26s => %s\n' "curry sugar -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "curry" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-curry.hm > "${TMPDIR:-/tmp}/cur.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/cur.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$CUW" ]; then printf 'ok   %-26s => %s (node)\n' "curry sugar -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "curry JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-curry.hm > "${TMPDIR:-/tmp}/cur.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/cur.rs" -o "${TMPDIR:-/tmp}/cur-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cur-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$CUW" ]; then printf 'ok   %-26s => %s (rustc)\n' "curry sugar -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "curry Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
