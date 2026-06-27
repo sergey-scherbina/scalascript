@@ -1,0 +1,20 @@
+-- ssct-hm erasure: lower a (type-INFERRED) ssct-hm Term to a Core IR Data tree, then
+-- #coreir.encode it to canonical bytecode. Identical to ssct-emit except Lam carries no
+-- type (it was never annotated — it was inferred). Closes the loop: inferred-typed source
+-- text -> ir -> ssc(VM) -> cpu (and, being plain Core IR, the JS/Rust backends could run it too).
+
+def idxOf = (scope, x) => match scope { case Nil => 0 case Cons(h, t) => if #seq(h, x) then 0 else #i.add(1, idxOf(t, x)) }
+
+def erase = (scope, term) =>
+  match term {
+    case Lit(n)       => IrLit(IrInt(n))
+    case BoolLit(b)   => IrLit(IrBool(b))
+    case Var(x)       => IrLocal(idxOf(scope, x))
+    case Lam(x, body) => IrLam(1, erase(Cons(x, scope), body))            -- no type to drop
+    case App(f, a)    => IrApp(erase(scope, f), Cons(erase(scope, a), Nil))
+    case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case If(c, t, e)  => IrIf(erase(scope, c), erase(scope, t), erase(scope, e))
+    case Let(x, e, body) => IrLet(Cons(erase(scope, e), Nil), erase(Cons(x, scope), body))
+  }
+
+def emit = (term) => #coreir.encode(IrProg(Nil, erase(Nil, term)))

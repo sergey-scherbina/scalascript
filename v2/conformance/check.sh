@@ -120,6 +120,16 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/ssctc-id.coreir" | tail -1)
 if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ssctc id -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [42]\n' "ssctc id -> run-ir" "$got"; fail=1; fi
 
+echo "# ssctc-hm: INFERRED-typed source text -> ir bytecode (all ssc0) -> run-ir on the VM"
+hbc=$(ssc run bin/ssctc-hm.ssc0 examples/hm-prog.hm)
+want_hbc='(program (defs) (entry (app (lam 1 (prim i.add (local 0) (lit (int 1)))) (lit (int 41)))))'
+if [ "$hbc" = "$want_hbc" ]; then printf 'ok   %-26s => <canonical bytecode>\n' "ssctc-hm hm-prog (emit)"
+else printf 'FAIL %-26s bytecode mismatch [%s]\n' "ssctc-hm hm-prog" "$hbc"; fail=1; fi
+printf '%s\n' "$hbc" > "${TMPDIR:-/tmp}/ssctc-hm-prog.coreir"
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ssctc-hm-prog.coreir" | tail -1)
+if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm prog -> run-ir" "$got"
+else printf 'FAIL %-26s got [%s] want [42]\n' "ssctc-hm prog -> run-ir" "$got"; fail=1; fi
+
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
   a=$(ssc compile "examples/$1.ssc0")
