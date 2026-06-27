@@ -17,10 +17,12 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 
 ## Pending (K2 — grow the tower)
 
-- [ ] **next-layer** — choose and spec the layer above ssc0: either a richer untyped `ssc.1`
-      or jump to **`ssct`** = the typed layer (a type-checking pass written in ssc0 that
-      erases to ir; types as an outer library, D1). Specs: `30-erasure-lowering.md`,
-      `40-typer-as-library.md`. Each layer is a program the layer below compiles/runs.
+- [x] **ssct — the typed layer** (2026-06-27) — `lib/ssct.ssc0` (136 lines): a typed lambda
+      calculus with `infer` (synthesis-only type checker) + erased `evalTerm`, **written in
+      ssc0** (D1: types as an outer library, kernel stays untyped). `check` = type-check then
+      run. Examples typed/typed-fn (`Typed("Int", 42)`) + illtyped (`TypeError(...)`) +
+      conformance. Spec `40-typer-as-library.md`. Deferred: textual `.ssct` surface (parser in
+      ssc0), erase-to-ir via `coreir.encode`, HM/unification + richer types.
 - [x] **delta-widen** (2026-06-26) — full `δ`: `big.*`, `f.*` + numeric conversions, string
       group (UTF-16 units), bytes, data reflection (`tagOf`/`arity`/`fieldAt`),
       `map.*`/`arr.*`/`cell.*` (Foreign mutable), I/O (`readFile`/`writeFile`/`env`/`exit`).

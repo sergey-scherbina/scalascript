@@ -35,10 +35,12 @@ bare-`#prim` η-expansion; Array-env / binary `ir` (`v2-bin`) for speed.
 
 Each layer is a program compiled/run by the layer below: `ssc0 → ssc.1 → ssct → …`.
 
-- [ ] Pick the next layer above ssc0 (richer ssc.1, or jump to **ssct** = the typed layer:
-      a type-checking pass written in ssc0 that erases to ir — types as an outer library,
-      D1). Spec it (`specs/30-erasure-lowering.md`, `specs/40-typer-as-library.md`).
-- [ ] Widen δ + ssc0 imports as that layer needs them.
+- [x] δ-widened (full primitive set) + ssc0 `import`s + an ssc0 stdlib (2026-06-26).
+- [x] **ssct — the typed layer** (2026-06-27, `lib/ssct.ssc0`, 136 lines): a typed lambda
+      calculus type checker + erased evaluator, **written in ssc0** — types as an outer
+      library, kernel stays untyped (D1). Spec `40-typer-as-library.md`. The thesis, live.
+- [ ] Grow ssct: a textual `.ssct` surface (lexer/parser in ssc0), erase-to-ir via
+      `coreir.encode`, then HM/unification + richer types.
 - [ ] Toward the **fixpoint CI invariant**: a compiler written in ssc0 that compiles itself;
       `compile(self) == compile(self) via self` (`specs/20-bootstrap.md`).
 

@@ -1,0 +1,8 @@
+-- ssct: a well-typed program checked + run by the typer written in ssc0.
+--   (\x:Int. x + 1) 41   :  Int   =  42
+--   ssc run examples/typed.ssc0   =>  Typed("Int", 42)
+import "../lib/ssct.ssc0"
+
+def term = App(Lam("x", TyInt, Add(Var("x"), Lit(1))), Lit(41))
+
+def main = () => check(term)

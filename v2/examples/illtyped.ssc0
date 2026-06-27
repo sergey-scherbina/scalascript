@@ -1,0 +1,7 @@
+-- ssct: an ILL-typed program rejected by the typer (1 + true).
+--   ssc run examples/illtyped.ssc0   =>  TypeError("Add expects Int operands")
+import "../lib/ssct.ssc0"
+
+def term = Add(Lit(1), BoolLit(true))
+
+def main = () => check(term)

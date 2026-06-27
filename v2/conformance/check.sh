@@ -34,6 +34,11 @@ echo "# stdlib + an interpreter, written in ssc0"
 chk run examples/pipeline.ssc0 "120"
 chk run examples/calc.ssc0     "42"
 
+echo "# ssct — the typed layer (a type checker written in ssc0)"
+chk run examples/typed.ssc0    'Typed("Int", 42)'
+chk run examples/typed-fn.ssc0 'Typed("Int", 42)'
+chk run examples/illtyped.ssc0 'TypeError("Add expects Int operands")'
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"

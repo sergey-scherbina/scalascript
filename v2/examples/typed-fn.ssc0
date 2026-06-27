@@ -1,0 +1,10 @@
+-- ssct: a let-bound function, type-inferred and applied twice.
+--   let f = (\x:Int. x + 1) in f (f 40)   :  Int   =  42
+--   ssc run examples/typed-fn.ssc0   =>  Typed("Int", 42)
+import "../lib/ssct.ssc0"
+
+def term =
+  Let("f", Lam("x", TyInt, Add(Var("x"), Lit(1))),
+      App(Var("f"), App(Var("f"), Lit(40))))
+
+def main = () => check(term)

@@ -1,0 +1,136 @@
+-- ssct — the TYPED layer of the tower, written entirely in ssc0.
+-- This is the core thesis (decision D1): the type checker is a *program* on the
+-- layer below, not a kernel feature. Types are an outer library.
+--
+-- A small typed lambda calculus:
+--   Type = TyInt | TyBool | TyFun(a, b)
+--   Term = Lit n | BoolLit b | Var x | Lam(x, ty, body) | App(f, a)
+--        | Add(a, b) | If(c, t, e) | Let(x, e, body)
+-- `infer` type-checks (synthesizes a Type, or an error); `evalTerm` is the erased
+-- (type-free) evaluator. typecheck THEN run = the typed layer, on the untyped kernel.
+
+def both = (a, b) => if a then b else false
+
+-- ── types ──────────────────────────────────────────────────────────────────
+def isInt  = (ty) => match ty { case TyInt  => true case _ => false }
+def isBool = (ty) => match ty { case TyBool => true case _ => false }
+
+def tyEq = (a, b) =>
+  match a {
+    case TyInt  => isInt(b)
+    case TyBool => isBool(b)
+    case TyFun(p1, r1) =>
+      match b {
+        case TyFun(p2, r2) => both(tyEq(p1, p2), tyEq(r1, r2))
+        case _ => false
+      }
+  }
+
+def showType = (ty) =>
+  match ty {
+    case TyInt  => "Int"
+    case TyBool => "Bool"
+    case TyFun(a, b) => #sconcat("(", #sconcat(showType(a), #sconcat(" -> ", #sconcat(showType(b), ")"))))
+  }
+
+-- ── type checker:  infer : env -> term -> Ok ty | Err msg ────────────────────
+def lookupTy = (env, x) =>
+  match env {
+    case Nil => Err(#sconcat("unbound variable: ", x))
+    case Cons(p, rest) =>
+      match p { case Pair(k, ty) => if #seq(k, x) then Ok(ty) else lookupTy(rest, x) }
+  }
+
+def infer = (env, term) =>
+  match term {
+    case Lit(n)     => Ok(TyInt)
+    case BoolLit(b) => Ok(TyBool)
+    case Var(x)     => lookupTy(env, x)
+    case Lam(x, ty, body) =>
+      match infer(Cons(Pair(x, ty), env), body) {
+        case Err(m)  => Err(m)
+        case Ok(bty) => Ok(TyFun(ty, bty))
+      }
+    case App(f, a) =>
+      match infer(env, f) {
+        case Err(m) => Err(m)
+        case Ok(tf) =>
+          match tf {
+            case TyFun(p, r) =>
+              match infer(env, a) {
+                case Err(m2) => Err(m2)
+                case Ok(ta)  => if tyEq(ta, p) then Ok(r) else Err("App: argument type mismatch")
+              }
+            case _ => Err("App: applying a non-function")
+          }
+      }
+    case Add(a, b) =>
+      match infer(env, a) {
+        case Err(m) => Err(m)
+        case Ok(ta) =>
+          match infer(env, b) {
+            case Err(m2) => Err(m2)
+            case Ok(tb)  => if both(isInt(ta), isInt(tb)) then Ok(TyInt) else Err("Add expects Int operands")
+          }
+      }
+    case If(c, t, e) =>
+      match infer(env, c) {
+        case Err(m) => Err(m)
+        case Ok(tc) =>
+          if isBool(tc) then
+            match infer(env, t) {
+              case Err(m2) => Err(m2)
+              case Ok(tt)  =>
+                match infer(env, e) {
+                  case Err(m3) => Err(m3)
+                  case Ok(te)  => if tyEq(tt, te) then Ok(tt) else Err("If: branches have different types")
+                }
+            }
+          else Err("If: condition must be Bool")
+      }
+    case Let(x, e, body) =>
+      match infer(env, e) {
+        case Err(m) => Err(m)
+        case Ok(te) => infer(Cons(Pair(x, te), env), body)
+      }
+  }
+
+-- ── erased evaluator:  evalTerm : env -> term -> Value  (ignores types) ──────
+-- Value = IntVal n | BoolVal b | Closure(x, body, env)
+def asInt = (v) => match v { case IntVal(n) => n case _ => 0 }
+
+def evalTerm = (env, term) =>
+  match term {
+    case Lit(n)     => IntVal(n)
+    case BoolLit(b) => BoolVal(b)
+    case Var(x)     => lookupVal(env, x)
+    case Lam(x, ty, body) => Closure(x, body, env)
+    case App(f, a) =>
+      match evalTerm(env, f) {
+        case Closure(x, body, cenv) => evalTerm(Cons(Pair(x, evalTerm(env, a)), cenv), body)
+        case _ => Stuck
+      }
+    case Add(a, b)  => IntVal(#i.add(asInt(evalTerm(env, a)), asInt(evalTerm(env, b))))
+    case If(c, t, e) =>
+      match evalTerm(env, c) {
+        case BoolVal(b) => if b then evalTerm(env, t) else evalTerm(env, e)
+        case _ => Stuck
+      }
+    case Let(x, e, body) => evalTerm(Cons(Pair(x, evalTerm(env, e)), env), body)
+  }
+
+def lookupVal = (env, x) =>
+  match env {
+    case Nil => Stuck
+    case Cons(p, rest) =>
+      match p { case Pair(k, v) => if #seq(k, x) then v else lookupVal(rest, x) }
+  }
+
+def valToShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case _ => Stuck }
+
+-- ── the typed layer:  type-check, then (if well typed) run ───────────────────
+def check = (term) =>
+  match infer(Nil, term) {
+    case Ok(ty) => Typed(showType(ty), valToShow(evalTerm(Nil, term)))
+    case Err(m) => TypeError(m)
+  }
