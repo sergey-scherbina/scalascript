@@ -178,4 +178,27 @@ def parseExpr = (toks) =>
     case Nil => Pair(ParseErr, Nil)
   }
 
-def parse = (s) => fst(parseExpr(lex(s)))
+-- desugar built-in list names into the list terms (post-parse, bottom-up):
+--   nil -> LNil ; head e -> LHead e ; tail e -> LTail e ; isNil e -> LIsNil e ; cons h t -> LCons h t
+def dsApp = (f, a) =>
+  match f {
+    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else App(f, a)
+    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else App(f, a) case _ => App(f, a) }
+    case _         => App(f, a)
+  }
+def desugar = (t) =>
+  match t {
+    case Lit(n)          => Lit(n)
+    case BoolLit(b)      => BoolLit(b)
+    case Var(x)          => if #seq(x, "nil") then LNil else Var(x)
+    case Lam(x, b)       => Lam(x, desugar(b))
+    case App(f, a)       => dsApp(desugar(f), desugar(a))
+    case Add(a, b)       => Add(desugar(a), desugar(b))
+    case Sub(a, b)       => Sub(desugar(a), desugar(b))
+    case Mul(a, b)       => Mul(desugar(a), desugar(b))
+    case Eq(a, b)        => Eq(desugar(a), desugar(b))
+    case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
+    case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
+    case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
+  }
+def parse = (s) => desugar(fst(parseExpr(lex(s))))

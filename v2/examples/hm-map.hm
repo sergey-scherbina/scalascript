@@ -1,0 +1,1 @@
+let rec map = fun f => fun l => if isNil l then nil else cons (f (head l)) (map f (tail l)) in map (fun x => x * x) (cons 1 (cons 2 (cons 3 nil)))

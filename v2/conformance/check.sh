@@ -185,6 +185,23 @@ if command -v rustc >/dev/null 2>&1; then
   else printf 'FAIL %-26s got [%s] want [120]\n' "ssct-hm-rust fact.hm" "$got"; fail=1; fi
 fi
 
+echo "# ssct-hm TEXTUAL LISTS: map written as source text (nil/cons/head/tail/isNil) -> all 3 backends"
+chk_hm examples/hm-map.hm '"[Int]"'
+LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)
+if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm map.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssctc-hm map.hm" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/tmap.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (node)\n' "ssct-hm-js map.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-js map.hm" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/tmap.rs" -o "${TMPDIR:-/tmp}/tmap-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tmap-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (rustc)\n' "ssct-hm-rust map.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssct-hm-rust map.hm" "$got"; fail=1; fi
+fi
+
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
   a=$(ssc compile "examples/$1.ssc0")
