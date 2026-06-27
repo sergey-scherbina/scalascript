@@ -88,6 +88,16 @@ chk run examples/hm-list-err.ssc0 '"TypeError: list elements must have the same 
 chk run examples/hm-length.ssc0   'Typed("Int", 3)'                  # length [1,2,3] (isNil/tail + recursion)
 chk run examples/hm-map.ssc0      'Typed("[Int]", Cons(1, Cons(4, Cons(9, Nil))))'  # map (x*x) [1,2,3]
 
+echo "# ssct-hm USER ADTs: one general ConApp/MatchT mechanism types Option/Either/Pair/Tree"
+chk run examples/hm-adt-some.ssc0    '"Option Int"'                   # Some 5
+chk run examples/hm-adt-none.ssc0    '"Option t0"'                    # None : polymorphic
+chk run examples/hm-adt-pair.ssc0    '"Pair Int Bool"'               # Pair 1 true
+chk run examples/hm-adt-tree.ssc0    '"Tree Int"'                    # Node (Leaf 1) (Leaf 2)
+chk run examples/hm-adt-match.ssc0   'Typed("Int", 5)'               # match (Some 5) { Some x => x; None => 0 }
+chk run examples/hm-adt-treesum.ssc0 'Typed("Int", 6)'               # recursive fold over a Tree
+chk run examples/hm-adt-err.ssc0     '"TypeError: match branches must have the same type"'
+chk run examples/hm-adt-build.ssc0   'Typed("Option Int", "Some(5)")'
+
 echo "# ssct-hm lists COMPILE: map/length erase to Core IR (ctor + Cons-match) and run on VM/JS/Rust"
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run examples/hm-length-emit.ssc0 > "${TMPDIR:-/tmp}/hm-length.coreir" 2>/dev/null
