@@ -91,7 +91,7 @@ chk run examples/hm-map.ssc0      'Typed("[Int]", Cons(1, Cons(4, Cons(9, Nil)))
 echo "# ssct-hm USER ADTs: one general ConApp/MatchT mechanism types Option/Either/Pair/Tree"
 chk run examples/hm-adt-some.ssc0    '"Option Int"'                   # Some 5
 chk run examples/hm-adt-none.ssc0    '"Option t0"'                    # None : polymorphic
-chk run examples/hm-adt-pair.ssc0    '"Pair Int Bool"'               # Pair 1 true
+chk run examples/hm-adt-pair.ssc0    '"(Int, Bool)"'                # Pair 1 true (Pair renders as a tuple type)
 chk run examples/hm-adt-tree.ssc0    '"Tree Int"'                    # Node (Leaf 1) (Leaf 2)
 chk run examples/hm-adt-match.ssc0   'Typed("Int", 5)'               # match (Some 5) { Some x => x; None => 0 }
 chk run examples/hm-adt-treesum.ssc0 'Typed("Int", 6)'               # recursive fold over a Tree
@@ -243,6 +243,22 @@ if command -v rustc >/dev/null 2>&1; then
   ssc run bin/ssct-hm-rust.ssc0 examples/hm-float.hm > "${TMPDIR:-/tmp}/fw.rs" 2>/dev/null
   if rustc -O "${TMPDIR:-/tmp}/fw.rs" -o "${TMPDIR:-/tmp}/fw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/fw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$FW" ]; then printf 'ok   %-26s => %s (rustc)\n' "float -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "float Rust" "$got"; fail=1; fi
+fi
+echo "# ssct-hm TUPLES: (a, b) / (a, b, c) syntax + fst/snd, on every backend"
+chk_hm examples/hm-tuptype.hm '"(Int, Bool)"'                       # (1, true) renders as a tuple type
+TW="10"
+ssc run bin/ssctc-hm.ssc0 examples/hm-tuple.hm > "${TMPDIR:-/tmp}/tp.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tp.coreir" | tail -1)
+if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s\n' "tuple fst/snd -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-tuple.hm > "${TMPDIR:-/tmp}/tp.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/tp.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s (node)\n' "tuple -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-tuple.hm > "${TMPDIR:-/tmp}/tp.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/tp.rs" -o "${TMPDIR:-/tmp}/tp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tp-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s (rustc)\n' "tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple Rust" "$got"; fail=1; fi
 fi
 echo "# ssct-hm SHOWCASE: a typed arithmetic-expression interpreter, written in ssct-hm, on 3 backends"
 chk_hm examples/hm-eval.hm '"Int"'                                  # data Expr = Num | Plus | Times ; eval

@@ -86,6 +86,18 @@ def parseListLit = (toks) =>
     case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "]") then Pair(Var("nil"), rest) else parseListSeq(toks) case _ => parseListSeq(toks) }
     case Nil => Pair(Var("nil"), Nil)
   }
+-- '(' e ( ',' e )* ')'  — a paren group (1 elem) or a tuple (built as Pair/Triple applications)
+def mkTuple = (elems) =>
+  match elems { case Nil => ParseErr case Cons(a, r1) => match r1 {
+      case Nil => a
+      case Cons(b, r2) => match r2 { case Nil => App(App(Var("Pair"), a), b) case Cons(cc, r3) => App(App(App(Var("Triple"), a), b), cc) }
+    } }
+def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' e )* (stops at ')')
+  match parseExpr(toks) { case Pair(e, r) =>
+    match r { case Cons(t, rest) => match t { case TPunct(q) => if #seq(q, ",") then match parseTupleElems(rest) { case Pair(more, r2) => Pair(Cons(e, more), r2) } else Pair(Cons(e, Nil), r) case _ => Pair(Cons(e, Nil), r) } case Nil => Pair(Cons(e, Nil), Nil) } }
+def parseParenOrTuple = (toks) =>                      -- toks is after the '('
+  match parseExpr(toks) { case Pair(e1, r1) =>
+    match r1 { case Cons(t, r2) => match t { case TPunct(q) => if #seq(q, ",") then match parseTupleElems(r2) { case Pair(more, r3) => Pair(mkTuple(Cons(e1, more)), drop1(r3)) } else Pair(e1, drop1(r1)) case _ => Pair(e1, drop1(r1)) } case Nil => Pair(e1, Nil) } }
 def parseAtom = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -97,7 +109,7 @@ def parseAtom = (toks) =>
           if #seq(s, "true") then Pair(BoolLit(true), rest)
           else if #seq(s, "false") then Pair(BoolLit(false), rest)
           else Pair(Var(s), rest)
-        case TPunct(p) => if #seq(p, "[") then parseListLit(rest) else match parseExpr(rest) { case Pair(e, r2) => Pair(e, drop1(r2)) }  -- [ .. ] or ( e )
+        case TPunct(p) => if #seq(p, "[") then parseListLit(rest) else parseParenOrTuple(rest)   -- [ .. ] or ( e ) or ( e , … )
       }
     case Nil => Pair(ParseErr, Nil)
   }
@@ -249,7 +261,7 @@ def isUpperName = (s) => if #i.lt(0, #slen(s)) then isUpper(#scodeAt(s, 0)) else
 def appendL = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) }
 def dsApp = (f, a) =>
   match f {
-    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else App(f, a)
+    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else if #seq(x, "fst") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tfst")), Nil)) else if #seq(x, "snd") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tsnd")), Nil)) else App(f, a)
     case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else if #seq(y, "fadd") then FAdd(h, a) else if #seq(y, "fsub") then FSub(h, a) else if #seq(y, "fmul") then FMul(h, a) else if #seq(y, "fdiv") then FDiv(h, a) else if #seq(y, "flt") then FLt(h, a) else if #seq(y, "feq") then FEq(h, a) else App(f, a) case _ => App(f, a) }
     case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)

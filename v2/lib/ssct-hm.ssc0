@@ -196,6 +196,7 @@ def builtinCon = (name) =>
   else if #seq(name, "Left") then ConSig("Either", 2, Cons(TyVar(0), Nil))
   else if #seq(name, "Right") then ConSig("Either", 2, Cons(TyVar(1), Nil))
   else if #seq(name, "Pair") then ConSig("Pair", 2, Cons(TyVar(0), Cons(TyVar(1), Nil)))
+  else if #seq(name, "Triple") then ConSig("Triple", 3, Cons(TyVar(0), Cons(TyVar(1), Cons(TyVar(2), Nil))))
   else if #seq(name, "Leaf") then ConSig("Tree", 1, Cons(TyVar(0), Nil))
   else if #seq(name, "Node") then ConSig("Tree", 1, Cons(TyCon("Tree", Cons(TyVar(0), Nil)), Cons(TyCon("Tree", Cons(TyVar(0), Nil)), Nil)))
   else ConSig("?", 0, Nil)
@@ -246,12 +247,13 @@ def showTyR = (t) => match t {
     case TyFloat    => "Float"
     case TyVar(n)   => #sconcat("t", #i->str(n))
     case TyList(e)  => #sconcat("[", #sconcat(showTyR(e), "]"))
-    case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
+    case TyCon(nm, args) => if #seq(nm, "Pair") then #sconcat("(", #sconcat(showTup(args), ")")) else if #seq(nm, "Triple") then #sconcat("(", #sconcat(showTup(args), ")")) else match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
   }
 -- render a type-constructor argument, parenthesizing compound args (applied TyCon)
 def showArg  = (t) => match t { case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat("(", #sconcat(showTyR(t), ")")) } case _ => showTyR(t) }
 def showArgs = (ts) => match ts { case Nil => "" case Cons(t, rest) => match rest { case Nil => showArg(t) case Cons(h, tl) => #sconcat(showArg(t), #sconcat(" ", showArgs(rest))) } }
+def showTup  = (ts) => match ts { case Nil => "" case Cons(t, rest) => match rest { case Nil => showTyR(t) case Cons(h, tl) => #sconcat(showTyR(t), #sconcat(", ", showTup(rest))) } }
 -- infer a closed term and pretty-print its principal type (or the type error)
 def hm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)       => #sconcat("TypeError: ", m)
