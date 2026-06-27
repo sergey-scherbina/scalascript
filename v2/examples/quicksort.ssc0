@@ -1,0 +1,15 @@
+-- Quicksort in ssc0 — real algorithm: higher-order filter (closure predicates), recursion,
+-- lists. Self-contained (single file), so it runs on every backend.
+--   qsort [3,1,4,1,5,2]  =>  Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))
+def appendL = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) }
+def filterL = (p, xs) => match xs { case Nil => Nil case Cons(h, t) => if p(h) then Cons(h, filterL(p, t)) else filterL(p, t) }
+
+def qsort = (xs) =>
+  match xs {
+    case Nil => Nil
+    case Cons(p, rest) =>
+      appendL(qsort(filterL((x) => #i.lt(x, p), rest)),
+              Cons(p, qsort(filterL((x) => #i.ge(x, p), rest))))
+  }
+
+def main = () => qsort(Cons(3, Cons(1, Cons(4, Cons(1, Cons(5, Cons(2, Nil)))))))
