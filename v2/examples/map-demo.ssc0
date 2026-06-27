@@ -1,0 +1,5 @@
+-- Map: insert a few, look one up, report size.  =>  Pair(2, 3)  (value at "b" = 2, size = 3)
+import "../lib/map.ssc0"
+def main = () =>
+  let m = mapInsert("c", 3, mapInsert("b", 2, mapInsert("a", 1, mapEmpty))) in
+  Pair(match mapLookup("b", m) { case Some(v) => v case None => 0 }, mapSize(m))

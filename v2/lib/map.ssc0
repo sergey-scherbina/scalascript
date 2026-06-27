@@ -1,0 +1,17 @@
+-- An immutable string-keyed map (association list), written in ssc0. Pure; runs on every target.
+def mapEmpty  = Nil
+def mapInsert = (k, v, m) =>
+  match m {
+    case Nil => Cons(Pair(k, v), Nil)
+    case Cons(p, rest) => match p { case Pair(k2, v2) => if #seq(k2, k) then Cons(Pair(k, v), rest) else Cons(p, mapInsert(k, v, rest)) }
+  }
+def mapLookup = (k, m) =>
+  match m {
+    case Nil => None
+    case Cons(p, rest) => match p { case Pair(k2, v) => if #seq(k2, k) then Some(v) else mapLookup(k, rest) }
+  }
+def mapHas    = (k, m) => match mapLookup(k, m) { case Some(v) => true case None => false }
+def mapRemove = (k, m) => match m { case Nil => Nil case Cons(p, rest) => match p { case Pair(k2, v) => if #seq(k2, k) then rest else Cons(p, mapRemove(k, rest)) } }
+def mapKeys   = (m) => match m { case Nil => Nil case Cons(p, rest) => match p { case Pair(k, v) => Cons(k, mapKeys(rest)) } }
+def mapSize   = (m) => match m { case Nil => 0 case Cons(p, rest) => #i.add(1, mapSize(rest)) }
+def mapFromList = (pairs) => match pairs { case Nil => Nil case Cons(p, rest) => match p { case Pair(k, v) => mapInsert(k, v, mapFromList(rest)) } }
