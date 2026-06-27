@@ -1,0 +1,2 @@
+-- local recursion via `let rec` (emits Core IR letrec) — exercises backend letrec lowering
+def main = () => let rec fact = (n) => if #i.eq(n, 0) then 1 else #i.mul(n, fact(#i.sub(n, 1))) in fact(5)
