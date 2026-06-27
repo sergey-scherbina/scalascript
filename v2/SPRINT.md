@@ -110,3 +110,30 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       `10-core-ir.md §8`.)
 - [ ] K3: stdlib, full type system, effects/actors as libraries, JVM/JS/WASM backends as
       ssc-compiled programs `ir → target`.
+
+## K5 — ssct-hm: a Hindley-Milner typed language (DONE 2026-06-27)
+
+- [x] **ssct-hm** — a complete HM-inferred typed FP language in ssc0 (`lib/ssct-hm*.ssc0`):
+      Algorithm-W inference + let-polymorphism; Int/Bool/String; polymorphic lists `[a]` with
+      literals; **user `data` types + pattern matching** (`match { | }`); full arith/cmp/string
+      ops. Source text → infer → interpret OR erase → Core IR → **VM / JS / native Rust**.
+      Showcases: factorial, map, quicksort (dups), a typed expression interpreter — all compile
+      to native code. Spec `41-ssct-hm.md`. 161 conformance checks. Kernel +0 (still 913).
+
+## K6 — ssct-hm: full ssc 1.0 feature parity (plan)
+
+Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->f`**, and
+**reflection** (`tagOf`/`arity`/`fieldAt`) — so generic `show`/`eq`/`compare` are expressible.
+
+- [ ] **Float** — `TyFloat` + float literals (`3.14`) + float ops (`+. -. *. /.`, `<.` etc.) +
+      `toFloat`/`floor`; add `f.*`/`i->f` to the JS + Rust genPrims. All 3 backends.
+- [ ] **Tuples** — `(a, b)` (n-ary) + projections; `TyTup [t]`; erase → IrCtor("Tuple", …).
+- [ ] **Records** — `{x = e, y = e}` + field access `r.x`; closed structural record types.
+- [ ] **Polymorphic `show`** — one generic structural renderer via `tagOf`/`arity`/`fieldAt`
+      (+ those prims in JS/Rust gen); `show` works on any type, same output everywhere.
+- [ ] **Polymorphic `eq` / `compare`** — generic structural equality + ordering via reflection;
+      makes equality/ordering work on any type, consistent across VM/JS/Rust.
+- [ ] **Real typeclasses** — `class`/`instance` declarations + dictionary passing (constraints
+      in the inferred type, dict params at generalization, dict args at instantiation); the
+      `ssct` elaboration model lifted into HM. Start: `Eq`/`Ord`/`Show`, then user classes.
+- [ ] **do-notation / effects** in the typed surface (effects already exist untyped).
