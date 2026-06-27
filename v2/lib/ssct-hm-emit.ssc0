@@ -52,13 +52,7 @@ def erase = (scope, term) =>
     case ConApp(name, args)  => IrCtor(name, mapErase(scope, args))
     case MatchT(scrut, arms) => IrMatch(erase(scope, scrut), mapEraseArms(scope, arms), None)
     case ShowM(id, e) => emitShowV(instOf(id), erase(scope, e))   -- Show instance resolved by infer (tcReg[id])
-    case EqM(id, a, b) =>                                          -- Eq instance resolved by infer
-      let tag = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
-      if #seq(tag, "i") then IrPrim("i.eq", Cons(ea, Cons(eb, Nil)))
-      else if #seq(tag, "f") then IrPrim("f.eq", Cons(ea, Cons(eb, Nil)))
-      else if #seq(tag, "s") then IrPrim("seq", Cons(ea, Cons(eb, Nil)))
-      else if #seq(tag, "b") then IrIf(ea, eb, IrIf(eb, IrLit(IrBool(false)), IrLit(IrBool(true))))
-      else IrLit(IrBool(false))
+    case EqM(id, a, b) => emitEqV(instOf(id), erase(scope, a), erase(scope, b))   -- Eq instance resolved by infer
     case CmpM(id, a, b) =>                                         -- Ord (compare -> -1/0/1) for Int/Float
       let tag = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
       let lt = if #seq(tag, "f") then "f.lt" else "i.lt" in let eqp = if #seq(tag, "f") then "f.eq" else "i.eq" in
@@ -89,8 +83,29 @@ def joinRestDef = IrDef("__joinRest", IrLam(1, IrLam(1, IrMatch(IrLocal(0),
 def showListDef = IrDef("__showList", IrLam(1, IrLam(1, IrPrim("sconcat", Cons(lstr("["), Cons(IrPrim("sconcat", Cons(IrMatch(IrLocal(0),
     Cons(IrArm("Nil", 0, lstr("")),
     Cons(IrArm("Cons", 2, IrPrim("sconcat", Cons(IrApp(IrLocal(3), Cons(IrLocal(1), Nil)), Cons(IrApp(IrApp(IrGlobal("__joinRest"), Cons(IrLocal(3), Nil)), Cons(IrLocal(0), Nil)), Nil)))), Nil)), None), Cons(lstr("]"), Nil))), Nil))))))
+-- Eq instance code for a value (base inline; lists via global __eqList, passing element-eq as a dictionary)
+def emitEqFn = (tag) => IrLam(1, IrLam(1, emitEqV(tag, IrLocal(1), IrLocal(0))))   -- λx. λy. eq x y  (a dictionary)
+def emitEqV  = (tag, va, vb) =>
+  if #seq(tag, "i") then IrPrim("i.eq", Cons(va, Cons(vb, Nil)))
+  else if #seq(tag, "f") then IrPrim("f.eq", Cons(va, Cons(vb, Nil)))
+  else if #seq(tag, "s") then IrPrim("seq", Cons(va, Cons(vb, Nil)))
+  else if #seq(tag, "b") then IrIf(va, vb, IrIf(vb, IrLit(IrBool(false)), IrLit(IrBool(true))))
+  else if isListT(tag) then IrApp(IrApp(IrApp(IrGlobal("__eqList"), Cons(emitEqFn(#sslice(tag, 1, #slen(tag))), Nil)), Cons(va, Nil)), Cons(vb, Nil))
+  else IrLit(IrBool(false))
+-- __eqList = λf. λa. λb. match a { Nil => match b {Nil=>true|_=>false} | Cons(ha,ta) => match b {Nil=>false | Cons(hb,tb) => if f ha hb then __eqList f ta tb else false} }
+--   inside Cons-a arm: ta=0 ha=1 b=2 a=3 f=4 ; inside Cons-b arm: tb=0 hb=1 ta=2 ha=3 b=4 a=5 f=6
+def eqListDef = IrDef("__eqList", IrLam(1, IrLam(1, IrLam(1, IrMatch(IrLocal(1),
+    Cons(IrArm("Nil", 0, IrMatch(IrLocal(0), Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Nil), Some(IrLit(IrBool(false))))),
+    Cons(IrArm("Cons", 2, IrMatch(IrLocal(2),
+        Cons(IrArm("Nil", 0, IrLit(IrBool(false))),
+        Cons(IrArm("Cons", 2, IrIf(
+            IrApp(IrApp(IrLocal(6), Cons(IrLocal(3), Nil)), Cons(IrLocal(1), Nil)),
+            IrApp(IrApp(IrApp(IrGlobal("__eqList"), Cons(IrLocal(6), Nil)), Cons(IrLocal(2), Nil)), Cons(IrLocal(0), Nil)),
+            IrLit(IrBool(false)))), Nil)),
+        None)), Nil)),
+    None)))))
 def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, tag) => if isListT(tag) then true else anyListShow(rest) } }
 -- include the list-show helpers in the program ONLY when a list-show instance was resolved (keeps other bytecode unchanged)
-def progOf = (term) => let body = erase(Nil, term) in IrProg(if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Nil)) else Nil, body)
+def progOf = (term) => let body = erase(Nil, term) in IrProg(if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil, body)
 
 def emit = (term) => #coreir.encode(progOf(term))

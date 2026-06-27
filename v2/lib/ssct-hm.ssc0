@@ -209,7 +209,7 @@ def inferTcBin = (env, c, s, id, a, b, res, cls) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
     match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
       match unify(s2, ta, tb) { case Err(m) => ErrI(#sconcat(cls, " operands must be the same type")) case Ok(s3) =>
-        let tag = baseTag(appTy(s3, ta)) in
+        let tag = showTag(appTy(s3, ta)) in
         if #seq(tag, "?") then ErrI(#sconcat("no ", #sconcat(cls, " instance for this type"))) else let u = registerInst(id, tag) in Ok3(s3, res, c2) } } }
 -- Ord (compare): only Int/Float have an ordering primitive
 def inferTcOrd = (env, c, s, id, a, b) =>
@@ -404,6 +404,8 @@ def valEq = (x, y) => match x {
     case BoolVal(a)  => match y { case BoolVal(b) => boolEq(a, b) case _ => false }
     case StrVal(a)   => match y { case StrVal(b) => #seq(a, b) case _ => false }
     case FloatVal(a) => match y { case FloatVal(b) => #f.eq(a, b) case _ => false }
+    case Nil => match y { case Nil => true case _ => false }
+    case Cons(ha, ta) => match y { case Cons(hb, tb) => if valEq(ha, hb) then valEq(ta, tb) else false case _ => false }
     case _ => false
   }
 def valCmp = (x, y) => match x {
