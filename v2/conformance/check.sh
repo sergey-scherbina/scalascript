@@ -75,6 +75,10 @@ chk run examples/hm-if.ssc0     '"(Bool -> Int)"'                    # Bool/If: 
 chk run examples/hm-if-poly.ssc0 '"(Bool -> Bool)"'                  # x unified as Bool by cond AND branches
 chk run examples/hm-if-err.ssc0 '"TypeError: if-condition must be Bool"'
 chk run examples/hm-if-branch-err.ssc0 '"TypeError: if-branches must have the same type"'
+chk run examples/hm-run-app.ssc0 'Typed("Int", 42)'                  # infer-then-RUN: well-typed evaluates
+chk run examples/hm-run-if.ssc0  'Typed("Int", 10)'
+chk run examples/hm-run-let.ssc0 'Typed("Int", 10)'
+chk run examples/hm-run-err.ssc0 'TypeError("Add needs Int operands")'  # ill-typed rejected, never runs
 
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"

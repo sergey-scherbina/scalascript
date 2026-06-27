@@ -104,3 +104,25 @@ def hm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)       => #sconcat("TypeError: ", m)
     case Ok3(s, t, c)  => showTyR(appTy(s, t))
   }
+
+-- ── infer-then-RUN: types are erased at runtime; a well-typed term evaluates, ill-typed is rejected ──
+def lookupVl = (env, x) => match env { case Nil => Stuck case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, x) then v else lookupVl(rest, x) } }
+def asI = (v) => match v { case IntVal(n) => n case _ => 0 }
+def asB = (v) => match v { case BoolVal(b) => b case _ => false }
+def evalT = (env, t) =>
+  match t {
+    case Lit(n)       => IntVal(n)
+    case BoolLit(b)   => BoolVal(b)
+    case Var(x)       => lookupVl(env, x)
+    case Lam(x, body) => CloVal(x, body, env)
+    case App(f, a)    => match evalT(env, f) { case CloVal(x, body, cenv) => evalT(Cons(Pair(x, evalT(env, a)), cenv), body) case _ => Stuck }
+    case Add(a, b)    => IntVal(#i.add(asI(evalT(env, a)), asI(evalT(env, b))))
+    case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
+    case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
+  }
+def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case CloVal(x, body, env) => "<fun>" }
+-- infer the type (reject if ill-typed), then evaluate; report Typed(type, value) | TypeError(msg)
+def runHm = (term) => match infer(Nil, 0, Nil, term) {
+    case ErrI(m)      => TypeError(m)
+    case Ok3(s, t, c) => Typed(showTyR(appTy(s, t)), valShow(evalT(Nil, term)))
+  }
