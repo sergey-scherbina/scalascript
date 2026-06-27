@@ -27,11 +27,15 @@ def scanWhile = (s, i, pred) =>
 
 def strToInt = (sub) => match #str->i(sub) { case Some(n) => n case None => 0 }
 
+-- line comments:  '//' (47,47) starts a comment that runs to the next newline (10) or end of input
+def isLineComment = (s, i) => if #i.lt(#i.add(i, 1), #slen(s)) then chAnd(#i.eq(#scodeAt(s, i), 47), #i.eq(#scodeAt(s, #i.add(i, 1)), 47)) else false
+def skipToEol = (s, i) => if #i.lt(i, #slen(s)) then (if #i.eq(#scodeAt(s, i), 10) then i else skipToEol(s, #i.add(i, 1))) else i
 def lexFrom = (s, i) =>
   if #i.ge(i, #slen(s)) then Nil
   else
     let c = #scodeAt(s, i) in
     if isSpace(c) then lexFrom(s, #i.add(i, 1))
+    else if isLineComment(s, i) then lexFrom(s, skipToEol(s, i))   -- '// ...' to end of line
     else if isDigit(c) then
       let j = scanWhile(s, i, isDigit) in
       if hasFrac(s, j) then let k = scanWhile(s, #i.add(j, 1), isDigit) in Cons(TFloat(#sslice(s, i, k)), lexFrom(s, k))

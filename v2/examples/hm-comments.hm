@@ -1,0 +1,6 @@
+// factorial, documented with line comments
+let rec fact n =
+  if n = 0 then 1         // base case
+  else n * fact (n - 1)   // recurse
+in
+fact 5                    // => 120

@@ -540,6 +540,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/wc.rs" -o "${TMPDIR:-/tmp}/wc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/wc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$WCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "wildcard match -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "wildcard Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm LINE COMMENTS: '// ...' to end of line (lexer skips; strings keep their slashes), all backends"
+chk_hm examples/hm-comments.hm '"Int"'
+CMW="120"
+ssc run bin/ssctc-hm.ssc0 examples/hm-comments.hm > "${TMPDIR:-/tmp}/cmt.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/cmt.coreir" | tail -1)
+if [ "$got" = "$CMW" ]; then printf 'ok   %-26s => %s\n' "comments -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "comments" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-comments.hm > "${TMPDIR:-/tmp}/cmt.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/cmt.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$CMW" ]; then printf 'ok   %-26s => %s (node)\n' "comments -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "comments JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-comments.hm > "${TMPDIR:-/tmp}/cmt.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/cmt.rs" -o "${TMPDIR:-/tmp}/cmt-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cmt-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$CMW" ]; then printf 'ok   %-26s => %s (rustc)\n' "comments -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "comments Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
