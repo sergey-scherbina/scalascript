@@ -212,6 +212,22 @@ fi
 echo "# ssct-hm TEXTUAL LISTS: map written as source text (nil/cons/head/tail/isNil) -> all 3 backends"
 chk_hm examples/hm-map.hm '"[Int]"'
 chk_hm examples/hm-listlit.hm '"[Int]"'                            # [1, 2, 3] list-literal syntax
+echo "# ssct-hm STRINGS: String type + literals + ++ (concat) + showInt, on every backend"
+chk_hm examples/hm-string.hm '"String"'
+SW='"n=42"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-string.hm > "${TMPDIR:-/tmp}/sw.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sw.coreir" | tail -1)
+if [ "$got" = "$SW" ]; then printf 'ok   %-26s => %s\n' "string -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "string" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-string.hm > "${TMPDIR:-/tmp}/sw.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/sw.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$SW" ]; then printf 'ok   %-26s => %s (node)\n' "string -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "string JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-string.hm > "${TMPDIR:-/tmp}/sw.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/sw.rs" -o "${TMPDIR:-/tmp}/sw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sw-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$SW" ]; then printf 'ok   %-26s => %s (rustc)\n' "string -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "string Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm Ord operators: > <= >= <> derived from </=/if (consistent on all backends)"
 chk_hm examples/hm-ord.hm '"Int"'
 ssc run bin/ssctc-hm.ssc0 examples/hm-ord.hm > "${TMPDIR:-/tmp}/o.coreir" 2>/dev/null
