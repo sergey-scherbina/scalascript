@@ -1,0 +1,78 @@
+-- ssct-hm: type INFERENCE (Algorithm W) for an UNANNOTATED lambda calculus, written in ssc0.
+-- Unlike ssct.ssc0 (which checks user-annotated lambdas), here lambdas carry NO type — the
+-- checker INFERS a principal type via fresh type variables + unification + a substitution.
+-- Type = TyInt | TyVar(n) | TyFun(a, b).   Term = Lit(n) | Var(x) | Lam(x, body) | App(f, a) | Add(a, b) | Let(x, e, body).
+-- Monomorphic let (no generalization yet — true HM schemes are a follow-up).
+
+def lookupS = (s, n) => match s { case Nil => None case Cons(p, rest) => match p { case Pair(k, v) => if #i.eq(k, n) then Some(v) else lookupS(rest, n) } }
+def appTy   = (s, t) => match t {
+    case TyInt      => TyInt
+    case TyVar(n)   => match lookupS(s, n) { case None => TyVar(n) case Some(u) => appTy(s, u) }
+    case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
+  }
+def occurs = (n, t) => match t { case TyInt => false case TyVar(m) => #i.eq(n, m) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+
+-- unify two types under subst s -> Ok(s') | Err(msg)
+def unify = (s, t1, t2) =>
+  let a = appTy(s, t1) in
+  let b = appTy(s, t2) in
+  match a {
+    case TyVar(n) => match b {
+        case TyVar(m) => if #i.eq(n, m) then Ok(s) else Ok(Cons(Pair(n, b), s))
+        case _        => if occurs(n, b) then Err("occurs-check: infinite type") else Ok(Cons(Pair(n, b), s))
+      }
+    case TyInt => match b {
+        case TyInt    => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, a), s))
+        case _        => Err("cannot unify Int with a function")
+      }
+    case TyFun(a1, a2) => match b {
+        case TyFun(b1, b2) => match unify(s, a1, b1) { case Err(m) => Err(m) case Ok(s2) => unify(s2, a2, b2) }
+        case TyVar(m)      => if occurs(m, a) then Err("occurs-check: infinite type") else Ok(Cons(Pair(m, a), s))
+        case _             => Err("cannot unify a function with Int")
+      }
+  }
+
+def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, x) then Some(v) else lookupE(rest, x) } }
+
+-- infer : (env, counter, subst, term) -> Ok3(subst, type, counter) | ErrI(msg)
+def infer = (env, c, s, term) =>
+  match term {
+    case Lit(n) => Ok3(s, TyInt, c)
+    case Var(x) => match lookupE(env, x) { case None => ErrI("unbound variable") case Some(t) => Ok3(s, t, c) }
+    case Lam(x, body) =>
+      let tv = TyVar(c) in
+      match infer(Cons(Pair(x, tv), env), #i.add(c, 1), s, body) {
+        case ErrI(m)         => ErrI(m)
+        case Ok3(s2, tb, c2) => Ok3(s2, TyFun(appTy(s2, tv), tb), c2)
+      }
+    case App(f, a) =>
+      match infer(env, c, s, f) {
+        case ErrI(m) => ErrI(m)
+        case Ok3(s1, tf, c1) => match infer(env, c1, s1, a) {
+            case ErrI(m) => ErrI(m)
+            case Ok3(s2, ta, c2) =>
+              let tr = TyVar(c2) in
+              match unify(s2, tf, TyFun(ta, tr)) { case Err(m) => ErrI(m) case Ok(s3) => Ok3(s3, appTy(s3, tr), #i.add(c2, 1)) }
+          }
+      }
+    case Add(a, b) =>
+      match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+        match unify(s1, ta, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s1b) =>
+          match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+            match unify(s2, tb, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s3) => Ok3(s3, TyInt, c2) } } } }
+    case Let(x, e, body) =>
+      match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
+        infer(Cons(Pair(x, appTy(s1, te)), env), c1, s1, body) }
+  }
+
+def showTyR = (t) => match t {
+    case TyInt      => "Int"
+    case TyVar(n)   => #sconcat("t", #i->str(n))
+    case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
+  }
+-- infer a closed term and pretty-print its principal type (or the type error)
+def hm = (term) => match infer(Nil, 0, Nil, term) {
+    case ErrI(m)       => #sconcat("TypeError: ", m)
+    case Ok3(s, t, c)  => showTyR(appTy(s, t))
+  }

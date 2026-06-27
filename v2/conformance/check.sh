@@ -63,6 +63,13 @@ chk run examples/tc-eq-int.ssc0    'Typed("Bool", true)'
 chk run examples/tc-eq-false.ssc0  'Typed("Bool", false)'
 chk run examples/tc-eq-err.ssc0    'TypeError("eq: operands must be the same Eq-able type")'
 
+echo "# ssct-hm: type INFERENCE (Algorithm W) — principal types for UNANNOTATED lambdas"
+chk run examples/hm-inc.ssc0    '"(Int -> Int)"'                     # arg type deduced from use
+chk run examples/hm-id.ssc0     '"(t0 -> t0)"'                       # polymorphic identity, no annotation
+chk run examples/hm-app.ssc0    '"Int"'
+chk run examples/hm-apply2.ssc0 '"((t1 -> t2) -> (t1 -> t2))"'       # f inferred to be a function
+chk run examples/hm-err.ssc0    '"TypeError: Add needs Int operands"'
+
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
 
