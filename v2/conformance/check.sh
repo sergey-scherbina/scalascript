@@ -112,9 +112,10 @@ if command -v node >/dev/null 2>&1; then
     if [ "$vm" = "$js" ]; then printf 'ok   %-26s => %s (node == vm)\n' "js $1.ssc0" "$js"
     else printf 'FAIL %-26s vm=[%s] node=[%s]\n' "js $1.ssc0" "$vm" "$js"; fail=1; fi
   }
-  chk_js fact   # tco excluded: JS has no TCO (1e6-deep recursion overflows)
+  chk_js fact
   chk_js map
   chk_js calc
+  chk_js tco    # now passes: the trampoline gives constant-stack tail calls
 else
   echo "ok   js backend                => skipped (node not installed)"
 fi

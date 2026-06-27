@@ -25,16 +25,19 @@ the same tree `coreir.encode` serializes, rendered as JavaScript instead of S-ex
 A small `show` prelude renders values exactly like the VM's `Show`, so outputs are
 comparable. `./ssc0-js f.ssc0 | node`.
 
+## TCO via a trampoline (2026-06-27)
+
+JavaScript has no guaranteed tail calls, so the codegen is **tail-aware**: functions take an
+args array and return a *Step* — a value, or a `bounce(f, a)` object. A tail `IrApp` emits a
+`bounce` instead of calling; the universal `app(f, a)` loops over bounces in a `while`. So a
+tail call runs in **constant stack** — the IR/VM TCO guarantee (invariant 7), now honored in
+JS. `genE(d, term, tail)` carries the tail flag: it bounces only a tail `IrApp`, and threads
+`tail` through `If`/`Match`/`Let`/`LetRec` tail positions; everything else is value mode.
+
 ## Conformance (`conformance/check.sh`)
 
-For `fact`, `map`, `calc`: `node (ssc0-js X)` == `ssc run X` (same observable output).
-
-## Known limitation
-
-`tco.ssc0` (a 1e6-deep tail loop) overflows in node — **JavaScript has no guaranteed tail
-calls**. The Core IR guarantees TCO (the VM honors it); a faithful JS backend would lower
-tail calls to a trampoline/`while`. Deferred (a codegen pass, in ssc0). Everything non-deeply-
-recursive runs.
+`node (ssc0-js X)` == `ssc run X` for `fact`, `map`, `calc`, **and `tco`** (the 1e6-deep tail
+loop, `500000500000`, now runs in constant stack).
 
 ## Why this matters
 

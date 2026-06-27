@@ -77,9 +77,9 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 ## K4 — backends (ir → target, each an ssc0 program; "one source, many targets")
 
 - [x] **backend: ir → JS** (2026-06-27) — `lib/backend-js.ssc0` (reuses ssc0c front; walks IR
-      → JS). `./ssc0-js f.ssc0 | node`; node output == VM output for fact/map/calc. Spec
-      `60-backend-js.md`. Kernel +0. KNOWN: `tco` overflows (JS has no TCO → needs a trampoline
-      pass, deferred).
+      → JS). **Now TCO-correct**: tail-aware codegen (`genE` with a tail flag) emits `bounce(f,a)`
+      for a tail `IrApp`; `app` trampolines in a `while`. `./ssc0-js f.ssc0 | node` == VM for
+      fact/map/calc **and tco** (1e6 in constant stack). Spec `60-backend-js.md`. Kernel +0.
 - [x] **backend: ir → Rust** (2026-06-27) — `lib/backend-rust.ssc0`: emit Rust over a dynamic
       `V` enum + `Rc<dyn Fn>` closures; closures clone captured outer vars (stay `Fn`).
       `./ssc0-rust f.ssc0 | rustc` → native binary; output == VM for fact/map/calc. Spec
