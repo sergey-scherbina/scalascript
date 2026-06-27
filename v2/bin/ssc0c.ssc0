@@ -1,0 +1,9 @@
+-- ssc0c driver — the ssc0 compiler (written in ssc0): read a .ssc0 file, emit Core IR
+-- bytecode (stdout).  Differential goal: identical to `ssc compile <file>`.
+import "../lib/ssc0c.ssc0"
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) => #io.print(compile(#utf8->str(#io.readFile(path))))
+    case Nil              => #io.eprint("usage: ssc0c <file.ssc0>")
+  }

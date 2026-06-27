@@ -59,6 +59,20 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/ssctc-id.coreir" | tail -1)
 if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ssctc id -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [42]\n' "ssctc id -> run-ir" "$got"; fail=1; fi
 
+echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
+chk_diff() { # file-stem
+  a=$(ssc compile "examples/$1.ssc0")
+  b=$(ssc run bin/ssc0c.ssc0 "examples/$1.ssc0")
+  if [ "$a" = "$b" ]; then printf 'ok   %-26s => byte-identical ir\n' "ssc0c $1.ssc0"
+  else printf 'FAIL %-26s ir differs from Scala compiler\n' "ssc0c $1.ssc0"; fail=1; fi
+}
+chk_diff fact
+chk_diff tco
+ssc run bin/ssc0c.ssc0 examples/fact.ssc0 > "${TMPDIR:-/tmp}/ssc0c-fact.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ssc0c-fact.coreir" | tail -1)
+if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "ssc0c fact -> run-ir" "$got"
+else printf 'FAIL %-26s got [%s] want [120]\n' "ssc0c fact -> run-ir" "$got"; fail=1; fi
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"

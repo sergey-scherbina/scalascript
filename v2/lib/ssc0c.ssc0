@@ -1,0 +1,210 @@
+-- ssc0c — the ssc0 compiler, written in ssc0.  lex + parse + lower + emit.
+-- Differential invariant: ssc0cCompile(X) must equal `ssc compile X` byte-for-byte.
+-- Milestone 1 subset: def / lambda / if / application / var / int / #prim / parens
+-- (enough for fact.ssc0, tco.ssc0). match/ctor/let/str come next.
+
+-- ===== char predicates =====
+def cor  = (a, b) => if a then true else b
+def cand = (a, b) => if a then b else false
+def isWs  = (c) => cor(cor(#i.eq(c, 32), #i.eq(c, 10)), cor(#i.eq(c, 9), #i.eq(c, 13)))
+def isDig = (c) => cand(#i.ge(c, 48), #i.le(c, 57))
+def isLow = (c) => cand(#i.ge(c, 97), #i.le(c, 122))
+def isUp  = (c) => cand(#i.ge(c, 65), #i.le(c, 90))
+def isIdStart = (c) => cor(cor(isLow(c), isUp(c)), #i.eq(c, 95))
+def isIdPart  = (c) => cor(isIdStart(c), isDig(c))
+def startsUpper = (s) => isUp(#scodeAt(s, 0))
+
+-- ===== list helpers =====
+def rev    = (xs) => revAcc(xs, Nil)
+def revAcc = (xs, acc) => match xs { case Nil => acc case Cons(h, t) => revAcc(t, Cons(h, acc)) }
+def len    = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, len(t)) }
+def member = (xs, x) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else member(t, x) }
+
+-- ===== lexer =====   tokens: KNum n | KName s | KPrim s | KStr s | KP s
+def peekEq = (s, i, code) => if #i.lt(i, #slen(s)) then #i.eq(#scodeAt(s, i), code) else false
+def scanId = (s, i) => if cand(#i.lt(i, #slen(s)), isIdPart(#scodeAt(s, i))) then scanId(s, #i.add(i, 1)) else i
+def scanDig = (s, i) => if cand(#i.lt(i, #slen(s)), isDig(#scodeAt(s, i))) then scanDig(s, #i.add(i, 1)) else i
+def isPrimCh = (c) => cor(cor(isIdPart(c), #i.eq(c, 46)), cor(#i.eq(c, 45), #i.eq(c, 62)))
+def scanPrim = (s, i) => if cand(#i.lt(i, #slen(s)), isPrimCh(#scodeAt(s, i))) then scanPrim(s, #i.add(i, 1)) else i
+def skipLine = (s, i) => if #i.lt(i, #slen(s)) then (if #i.eq(#scodeAt(s, i), 10) then i else skipLine(s, #i.add(i, 1))) else i
+def skipBlock = (s, i) =>
+  if #i.lt(#i.add(i, 1), #slen(s)) then
+    (if cand(#i.eq(#scodeAt(s, i), 45), #i.eq(#scodeAt(s, #i.add(i, 1)), 125)) then #i.add(i, 2) else skipBlock(s, #i.add(i, 1)))
+  else #slen(s)
+def strToI = (sub) => match #str->i(sub) { case Some(n) => n case None => 0 }
+def scanStr = (s, i, acc) =>
+  if #i.ge(i, #slen(s)) then Pair(acc, i)
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 34) then Pair(acc, #i.add(i, 1))
+    else scanStr(s, #i.add(i, 1), #sconcat(acc, #sslice(s, i, #i.add(i, 1))))
+
+def lexFrom = (s, i) =>
+  if #i.ge(i, #slen(s)) then Nil
+  else
+    let c = #scodeAt(s, i) in
+    if isWs(c) then lexFrom(s, #i.add(i, 1))
+    else if #i.eq(c, 59) then lexFrom(s, #i.add(i, 1))                                  -- ';'
+    else if cand(#i.eq(c, 45), peekEq(s, #i.add(i, 1), 45)) then lexFrom(s, skipLine(s, i))         -- '--'
+    else if cand(#i.eq(c, 123), peekEq(s, #i.add(i, 1), 45)) then lexFrom(s, skipBlock(s, #i.add(i, 2)))  -- '{-'
+    else if isDig(c) then (let j = scanDig(s, i) in Cons(KNum(strToI(#sslice(s, i, j))), lexFrom(s, j)))
+    else if isIdStart(c) then (let j = scanId(s, i) in Cons(KName(#sslice(s, i, j)), lexFrom(s, j)))
+    else if #i.eq(c, 35) then (let j = scanPrim(s, #i.add(i, 1)) in Cons(KPrim(#sslice(s, #i.add(i, 1), j)), lexFrom(s, j)))
+    else if #i.eq(c, 34) then (match scanStr(s, #i.add(i, 1), "") { case Pair(str, j) => Cons(KStr(str), lexFrom(s, j)) })
+    else if cand(#i.eq(c, 61), peekEq(s, #i.add(i, 1), 62)) then Cons(KP("=>"), lexFrom(s, #i.add(i, 2)))  -- '=>'
+    else Cons(KP(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))                -- single-char punct
+
+def lex = (s) => lexFrom(s, 0)
+
+-- ===== parser =====   each step -> Pair(node, restTokens).  AST: S* / L* constructors
+def collectParams = (toks, acc) =>             -- after '(' ; -> Some(Pair(params, rest)) | None
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case KP(p) => if #seq(p, ")") then Some(Pair(rev(acc), rest)) else None
+        case KName(x) =>
+          match rest {
+            case Cons(t2, r2) =>
+              match t2 {
+                case KP(p2) =>
+                  if #seq(p2, ",") then collectParams(r2, Cons(x, acc))
+                  else if #seq(p2, ")") then Some(Pair(rev(Cons(x, acc)), r2))
+                  else None
+                case _ => None
+              }
+            case Nil => None
+          }
+        case _ => None
+      }
+    case Nil => None
+  }
+
+def expectArrowThen = (toks, params) =>        -- expect '=>' then body -> Some(Pair(SLam, rest))
+  match toks {
+    case Cons(t, rest) =>
+      match t { case KP(a) => if #seq(a, "=>") then (match pExpr(rest) { case Pair(b, r) => Some(Pair(SLam(params, b), r)) }) else None
+                case _ => None }
+    case Nil => None
+  }
+
+def tryLambda = (toks) =>
+  match toks {
+    case Cons(t, r0) =>
+      match t {
+        case KP(p) => if #seq(p, "(") then (match collectParams(r0, Nil) { case Some(pr) => match pr { case Pair(ps, r1) => expectArrowThen(r1, ps) } case None => None }) else None
+        case KName(x) =>
+          match r0 { case Cons(t2, r2) => match t2 { case KP(a) => if #seq(a, "=>") then expectArrowThen(r0, Cons(x, Nil)) else None case _ => None } case Nil => None }
+        case _ => None
+      }
+    case Nil => None
+  }
+
+def pArgList = (toks) =>
+  match pExpr(toks) { case Pair(a, r1) =>
+    match r1 {
+      case Cons(t, rest) =>
+        match t { case KP(p) =>
+          if #seq(p, ",") then (match pArgList(rest) { case Pair(as, r2) => Pair(Cons(a, as), r2) })
+          else if #seq(p, ")") then Pair(Cons(a, Nil), rest)
+          else Pair(Cons(a, Nil), r1)
+        case _ => Pair(Cons(a, Nil), r1) }
+      case Nil => Pair(Cons(a, Nil), Nil)
+    }
+  }
+def pArgs = (toks) =>                            -- after '(' ; parse args up to and incl ')'
+  match toks { case Cons(t, rest) => match t { case KP(p) => if #seq(p, ")") then Pair(Nil, rest) else pArgList(toks) case _ => pArgList(toks) } case Nil => Pair(Nil, Nil) }
+
+def parenExpr = (toks) =>                        -- after '(' ; expr then ')'
+  match pExpr(toks) { case Pair(e, r) => match r { case Cons(t, rest) => Pair(e, rest) case Nil => Pair(e, Nil) } }
+
+def pAtom = (toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case KNum(n) => Pair(SLit(LInt(n)), rest)
+        case KStr(s) => Pair(SLit(LStr(s)), rest)
+        case KPrim(op) =>
+          match rest { case Cons(t2, r2) => match t2 { case KP(p) => if #seq(p, "(") then (match pArgs(r2) { case Pair(args, r3) => Pair(SPrim(op, args), r3) }) else Pair(SErr, rest) case _ => Pair(SErr, rest) } case Nil => Pair(SErr, rest) }
+        case KName(s) =>
+          if startsUpper(s) then
+            match rest { case Cons(t2, r2) => match t2 { case KP(p) => if #seq(p, "(") then (match pArgs(r2) { case Pair(args, r3) => Pair(SCtor(s, args), r3) }) else Pair(SCtor(s, Nil), rest) case _ => Pair(SCtor(s, Nil), rest) } case Nil => Pair(SCtor(s, Nil), rest) }
+          else if #seq(s, "true") then Pair(SLit(LBool(true)), rest)
+          else if #seq(s, "false") then Pair(SLit(LBool(false)), rest)
+          else Pair(SVar(s), rest)
+        case KP(p) =>
+          if #seq(p, "(") then
+            match rest { case Cons(t2, r2) => match t2 { case KP(p2) => if #seq(p2, ")") then Pair(SLit(LUnit), r2) else parenExpr(rest) case _ => parenExpr(rest) } case Nil => Pair(SErr, rest) }
+          else Pair(SErr, rest)
+      }
+    case Nil => Pair(SErr, Nil)
+  }
+
+def pAppMore = (e, toks) =>
+  match toks { case Cons(t, rest) => match t { case KP(p) => if #seq(p, "(") then (match pArgs(rest) { case Pair(args, r2) => pAppMore(SApp(e, args), r2) }) else Pair(e, toks) case _ => Pair(e, toks) } case Nil => Pair(e, toks) }
+def pApp = (toks) => match pAtom(toks) { case Pair(e, r) => pAppMore(e, r) }
+
+def pIf = (toks) =>                              -- after 'if'
+  match pExpr(toks) { case Pair(c, r1) =>
+    match pExpr(drop1(r1)) { case Pair(th, r3) =>             -- drop 'then'
+      match pExpr(drop1(r3)) { case Pair(el, r5) => Pair(SIf(c, th, el), r5) } } }  -- drop 'else'
+def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
+
+def pExpr = (toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case KName(s) =>
+          if #seq(s, "if") then pIf(rest)
+          else match tryLambda(toks) { case Some(pr) => pr case None => pApp(toks) }
+        case KP(p) => match tryLambda(toks) { case Some(pr) => pr case None => pApp(toks) }
+        case _ => pApp(toks)
+      }
+    case Nil => Pair(SErr, Nil)
+  }
+
+def parseTop = (toks) =>                         -- [ def name = expr ]*  -> [Pair(name, expr)]
+  match toks {
+    case Nil => Nil
+    case Cons(d, r1) =>
+      match r1 {
+        case Cons(nm, r2) =>
+          match nm { case KName(name) =>
+            match r2 { case Cons(eq, r3) =>
+              match pExpr(r3) { case Pair(body, r4) => Cons(Pair(name, body), parseTop(r4)) }
+            case Nil => Nil }
+          case _ => Nil }
+        case Nil => Nil
+      }
+  }
+
+-- ===== lower: S0 AST -> Core IR Data (de Bruijn) =====
+def idxOf = (scope, x) =>
+  match scope {
+    case Nil => #i.sub(0, 1)
+    case Cons(h, t) => if #seq(h, x) then 0 else (let r = idxOf(t, x) in if #i.lt(r, 0) then #i.sub(0, 1) else #i.add(r, 1))
+  }
+def push = (params, scope) => match params { case Nil => scope case Cons(h, t) => push(t, Cons(h, scope)) }
+def lowArgs = (args, scope, globals) => match args { case Nil => Nil case Cons(h, t) => Cons(low(scope, globals, h), lowArgs(t, scope, globals)) }
+def lowConst = (lit) =>
+  match lit {
+    case LInt(n)  => IrInt(n)
+    case LBool(b) => IrBool(b)
+    case LStr(s)  => IrStr(s)
+    case LUnit    => IrUnit
+  }
+def low = (scope, globals, e) =>
+  match e {
+    case SLit(c)        => IrLit(lowConst(c))
+    case SVar(x)        => (let i = idxOf(scope, x) in if #i.ge(i, 0) then IrLocal(i) else IrGlobal(x))
+    case SLam(ps, body) => IrLam(len(ps), low(push(ps, scope), globals, body))
+    case SApp(f, args)  => IrApp(low(scope, globals, f), lowArgs(args, scope, globals))
+    case SPrim(op, args)=> IrPrim(op, lowArgs(args, scope, globals))
+    case SIf(c, t, el)  => IrIf(low(scope, globals, c), low(scope, globals, t), low(scope, globals, el))
+    case SCtor(tag, as) => IrCtor(tag, lowArgs(as, scope, globals))
+  }
+
+def namesOf = (defs) => match defs { case Nil => Nil case Cons(d, t) => match d { case Pair(n, e) => Cons(n, namesOf(t)) } }
+def lowDefs = (defs, globals) => match defs { case Nil => Nil case Cons(d, t) => match d { case Pair(n, e) => Cons(IrDef(n, low(Nil, globals, e)), lowDefs(t, globals)) } }
+def compileModule = (defs) => IrProg(lowDefs(defs, namesOf(defs)), IrApp(IrGlobal("main"), Nil))
+
+def compile = (src) => #coreir.encode(compileModule(parseTop(lex(src))))

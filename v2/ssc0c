@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc0c — the ssc0 compiler written in ssc0 (bin/ssc0c.ssc0), run on the ssc VM.
+# Emits Core IR bytecode for a .ssc0 file; should match `ssc compile` byte-for-byte.
+#   ./ssc0c examples/fact.ssc0 | ./ssc run-ir /dev/stdin
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc0c.ssc0" "$@"

@@ -45,8 +45,12 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       (sum∘map∘filter∘range = 120) + `examples/calc.ssc0` — a real expression-language
       interpreter in ~20 lines of ssc0 (ADTs, match, env, let → 42). Lexer: `;` now an
       optional separator. Demonstrates the thesis: rich behaviour = small ssc0 on a tiny kernel.
-- [ ] **fixpoint** — toward the self-hosting CI invariant: a compiler written in ssc0 that
-      compiles itself; `compile(self) == (compile(self) run-on self)`. Spec `20-bootstrap.md`.
+- [~] **self-hosting** (M1 done 2026-06-27) — `lib/ssc0c.ssc0`: the ssc0 compiler written in
+      ssc0 (lex+parse+lower+emit). **Differential invariant holds**: `ssc0c X == ssc compile X`
+      byte-for-byte on the supported subset (def/lambda/if/app/var/int/#prim/parens) — `fact`,
+      `tco` identical; ssc0c output runs (fact→120). `bin/ssc0c.ssc0` + `v2/ssc0c` launcher +
+      conformance + spec `20-bootstrap.md`. NEXT: M2 add match/ctor/let/letrec/str (→ map,
+      calc, list), M3 imports, M4 the fixpoint (ssc0c compiles its own source). Kernel: +0.
 
 ## Backlog
 
