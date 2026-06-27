@@ -150,7 +150,13 @@ def inferArith = (env, c, s, a, b, res, msg) =>
 
 -- ── user-definable ADTs: a constructor registry  con -> ConSig(typeCtor, #params, fieldTypes) ──
 -- field types use TyVar(0..#params-1) as the type parameters (a canonical scheme, instantiated fresh).
-def conInfo = (name) =>
+-- a global registry cell holds USER-declared constructors (from `data` decls); conInfo consults it
+-- first, then falls back to the built-in types. Each run starts with an empty registry.
+def conReg      = #cell.new(Nil)
+def lookupReg   = (reg, name) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(k, sig) => if #seq(k, name) then Some(sig) else lookupReg(rest, name) } }
+def registerCon = (con, sig) => #cell.set(conReg, Cons(Pair(con, sig), #cell.get(conReg)))
+def conInfo = (name) => match lookupReg(#cell.get(conReg), name) { case Some(sig) => sig case None => builtinCon(name) }
+def builtinCon = (name) =>
   if #seq(name, "None") then ConSig("Option", 1, Nil)
   else if #seq(name, "Some") then ConSig("Option", 1, Cons(TyVar(0), Nil))
   else if #seq(name, "Left") then ConSig("Either", 2, Cons(TyVar(0), Nil))

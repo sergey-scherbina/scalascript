@@ -1,0 +1,1 @@
+data MyTree a = MyLeaf a | MyNode (MyTree a) (MyTree a) in let rec sum = fun t => match t { MyLeaf x => x | MyNode l r => sum l + sum r } in sum (MyNode (MyLeaf 1) (MyNode (MyLeaf 2) (MyLeaf 3)))

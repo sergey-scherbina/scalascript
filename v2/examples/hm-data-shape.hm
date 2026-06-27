@@ -1,0 +1,1 @@
+data Shape a = Circle a | Rect a a in match (Rect 3 4) { Circle r => r | Rect w h => w * h }

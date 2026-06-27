@@ -7,6 +7,8 @@
 --         | 'if' expr 'then' expr 'else' expr | add
 --   add  := app ('+' app)*            app := atom atom*
 --   atom := int | 'true' | 'false' | ident | '(' expr ')'
+--   prog := ('data' Name param* '=' con ('|' con)* 'in')* expr      con := Con fieldtype*
+import "ssct-hm.ssc0"
 
 -- ── char predicates (codes) ──────────────────────────────────────────────────
 def chOr  = (a, b) => if a then true else b
@@ -48,7 +50,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(#seq(s, "rec"), #seq(s, "match"))),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), #seq(s, "data"))),
        chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -249,4 +251,34 @@ def desugar = (t) =>
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
     case MatchT(scrut, arms) => MatchT(desugar(scrut), dsArms(arms))
   }
-def parse = (s) => desugar(fst(parseExpr(lex(s))))
+-- ── `data` declarations: parse them, register each constructor's signature into the global cell ──
+def isParam = (x, ps) => match ps { case Nil => false case Cons(p, r) => if #seq(p, x) then true else isParam(x, r) }
+def idxP    = (x, ps) => match ps { case Nil => 0 case Cons(p, r) => if #seq(p, x) then 0 else #i.add(1, idxP(x, r)) }
+def lenP    = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenP(t)) }
+-- a field-type starts at a type name (not the 'in' terminator) or '(' / '['
+def fieldStart = (toks) => match toks { case Cons(t, rest) => match t { case TName(x) => if #seq(x, "in") then false else true case TPunct(p) => chOr(#seq(p, "("), #seq(p, "[")) case _ => false } case Nil => false }
+def parseFieldType = (ps, toks) =>
+  match toks { case Cons(t, rest) => match t {
+      case TName(x)  => if isParam(x, ps) then Pair(TyVar(idxP(x, ps)), rest) else if #seq(x, "Int") then Pair(TyInt, rest) else if #seq(x, "Bool") then Pair(TyBool, rest) else Pair(TyCon(x, Nil), rest)
+      case TPunct(p) => if #seq(p, "(") then match parseTypeApp(ps, rest) { case Pair(ty, r) => Pair(ty, r) } else if #seq(p, "[") then match parseFieldType(ps, rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else Pair(TyInt, rest)
+      case _         => Pair(TyInt, rest)
+    } case Nil => Pair(TyInt, Nil) }
+def parseTypeApp = (ps, toks) =>                      -- after '(':  Name fieldtype* ')'
+  match toks { case Cons(t, rest) => match t { case TName(nm) => match parseFields(ps, rest) { case Pair(args, r) => Pair(TyCon(nm, args), drop1(r)) } case _ => Pair(TyInt, rest) } case Nil => Pair(TyInt, Nil) }
+def parseFields = (ps, toks) =>                        -- a run of field types (stops at '|' / 'in' / ')' / ']')
+  if fieldStart(toks) then match parseFieldType(ps, toks) { case Pair(ft, r) => match parseFields(ps, r) { case Pair(fs, r2) => Pair(Cons(ft, fs), r2) } } else Pair(Nil, toks)
+def parseCons = (typeName, ps, toks) =>               -- Con fields ('|' Con fields)* (stops at 'in')
+  match toks { case Cons(t, rest) => match t { case TName(con) =>
+      match parseFields(ps, rest) { case Pair(fields, r) =>
+        let reg = registerCon(con, ConSig(typeName, lenP(ps), fields)) in
+        match r { case Cons(t2, rest2) => match t2 { case TPunct(p) => if #seq(p, "|") then parseCons(typeName, ps, rest2) else Pair(UnitT, r) case _ => Pair(UnitT, r) } case Nil => Pair(UnitT, Nil) } }
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+def parseParams = (toks) => match toks { case Cons(t, rest) => match t { case TName(x) => match parseParams(rest) { case Pair(ps, r) => Pair(Cons(x, ps), r) } case _ => Pair(Nil, toks) } case Nil => Pair(Nil, Nil) }
+def parseData = (toks) =>                              -- after 'data':  Name param* '=' cons 'in' <prog>
+  match toks { case Cons(t, rest) => match t { case TName(typeName) =>
+      match parseParams(rest) { case Pair(ps, r1) =>                  -- r1 starts with '='
+        match parseCons(typeName, ps, drop1(r1)) { case Pair(u, r2) => parseProgram(drop1(r2)) } }    -- drop '=' then 'in'
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+def parseProgram = (toks) =>
+  match toks { case Cons(t, rest) => match t { case TName(s) => if #seq(s, "data") then parseData(rest) else parseExpr(toks) case _ => parseExpr(toks) } case Nil => Pair(ParseErr, Nil) }
+def parse = (s) => desugar(fst(parseProgram(lex(s))))

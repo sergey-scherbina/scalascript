@@ -250,6 +250,17 @@ ssc run bin/ssctc-hm.ssc0 examples/hm-adt-match.hm > "${TMPDIR:-/tmp}/om.coreir"
 got=$(ssc run-ir "${TMPDIR:-/tmp}/om.coreir" | tail -1)
 if [ "$got" = "5" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm match.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssctc-hm match.hm" "$got"; fail=1; fi
 chk_hm examples/hm-adt-tree.hm  '"Int"'                              # recursive tree-sum via match
+echo "# ssct-hm USER data DECLS: declare your own types in text -> type-checked + compiled"
+chk_hm examples/hm-data-box.hm   '"Box Int"'                         # data Box a = Box a in Box 7
+chk_hm examples/hm-data-shape.hm '"Int"'                            # data Shape a = Circle a | Rect a a
+ssc run bin/ssctc-hm.ssc0 examples/hm-data-shape.hm > "${TMPDIR:-/tmp}/sh.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sh.coreir" | tail -1)
+if [ "$got" = "12" ]; then printf 'ok   %-26s => %s\n' "data Shape -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "data Shape" "$got"; fail=1; fi
+chk_hm examples/hm-data-tree.hm  '"Int"'                            # user-declared recursive Tree
+ssc run bin/ssctc-hm.ssc0 examples/hm-data-tree.hm > "${TMPDIR:-/tmp}/mt.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/mt.coreir" | tail -1)
+if [ "$got" = "6" ]; then printf 'ok   %-26s => %s\n' "data MyTree -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "data MyTree" "$got"; fail=1; fi
+
 ssc run bin/ssctc-hm.ssc0 examples/hm-adt-tree.hm > "${TMPDIR:-/tmp}/tt.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tt.coreir" | tail -1)
 if [ "$got" = "6" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm tree.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ssctc-hm tree.hm" "$got"; fail=1; fi
