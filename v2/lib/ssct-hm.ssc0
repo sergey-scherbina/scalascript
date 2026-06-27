@@ -167,7 +167,25 @@ def infer = (env, c, s, term) =>
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
         let tag = baseTag(appTy(s1, te)) in
         if #seq(tag, "?") then ErrI("no Show instance for this type") else let u = registerInst(id, tag) in Ok3(s1, TyStr, c1) }
+    case EqM(id, a, b)  => inferTcBin(env, c, s, id, a, b, TyBool, "Eq")   -- `eq a b`  : a -> a -> Bool
+    case CmpM(id, a, b) => inferTcOrd(env, c, s, id, a, b)                 -- `compare a b` : a -> a -> Int (Ord)
   }
+-- a binary typeclass method: both operands the same base type; record the instance; return res
+def inferTcBin = (env, c, s, id, a, b, res, cls) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+      match unify(s2, ta, tb) { case Err(m) => ErrI(#sconcat(cls, " operands must be the same type")) case Ok(s3) =>
+        let tag = baseTag(appTy(s3, ta)) in
+        if #seq(tag, "?") then ErrI(#sconcat("no ", #sconcat(cls, " instance for this type"))) else let u = registerInst(id, tag) in Ok3(s3, res, c2) } } }
+-- Ord (compare): only Int/Float have an ordering primitive
+def inferTcOrd = (env, c, s, id, a, b) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+      match unify(s2, ta, tb) { case Err(m) => ErrI("compare operands must be the same type") case Ok(s3) =>
+        let tag = baseTag(appTy(s3, ta)) in
+        if #seq(tag, "i") then let u = registerInst(id, "i") in Ok3(s3, TyInt, c2)
+        else if #seq(tag, "f") then let u = registerInst(id, "f") in Ok3(s3, TyInt, c2)
+        else ErrI("no Ord instance for this type (only Int/Float)") } } }
 
 -- shared: infer two operands, force both Int, return a chosen result type (TyInt for +-*, TyBool for eq)
 def inferArith = (env, c, s, a, b, res, msg) =>
@@ -320,6 +338,21 @@ def evalT = (env, t) =>
     case ConApp(name, args) => ConV(name, mapEvalT(env, args))
     case MatchT(scrut, arms) => match evalT(env, scrut) { case ConV(cn, vals) => evalArms(env, cn, vals, arms) case _ => Stuck }
     case ShowM(id, e) => StrVal(vToStr(evalT(env, e)))             -- interpreter: value-dispatch via vToStr
+    case EqM(id, a, b)  => BoolVal(valEq(evalT(env, a), evalT(env, b)))
+    case CmpM(id, a, b) => IntVal(valCmp(evalT(env, a), evalT(env, b)))
+  }
+def boolEq = (a, b) => if a then b else (if b then false else true)
+def valEq = (x, y) => match x {
+    case IntVal(a)   => match y { case IntVal(b) => #i.eq(a, b) case _ => false }
+    case BoolVal(a)  => match y { case BoolVal(b) => boolEq(a, b) case _ => false }
+    case StrVal(a)   => match y { case StrVal(b) => #seq(a, b) case _ => false }
+    case FloatVal(a) => match y { case FloatVal(b) => #f.eq(a, b) case _ => false }
+    case _ => false
+  }
+def valCmp = (x, y) => match x {
+    case IntVal(a)   => match y { case IntVal(b) => if #i.lt(a, b) then #i.sub(0, 1) else (if #i.eq(a, b) then 0 else 1) case _ => 0 }
+    case FloatVal(a) => match y { case FloatVal(b) => if #f.lt(a, b) then #i.sub(0, 1) else (if #f.eq(a, b) then 0 else 1) case _ => 0 }
+    case _ => 0
   }
 def mapEvalT = (env, ts) => match ts { case Nil => Nil case Cons(t, rest) => Cons(evalT(env, t), mapEvalT(env, rest)) }
 def bindVals = (binders, vals, env) => match binders { case Nil => env case Cons(b, bs) => match vals { case Cons(v, vs) => bindVals(bs, vs, Cons(Pair(b, v), env)) case Nil => env } }

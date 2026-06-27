@@ -276,6 +276,24 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/shw.rs" -o "${TMPDIR:-/tmp}/shw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/shw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Int -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "show Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm TYPECLASS Eq/Ord: eq (4 base types) + compare (Int+Float) resolved by type"
+ssc run bin/ssctc-hm.ssc0 examples/hm-cmp.hm > "${TMPDIR:-/tmp}/cmp.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/cmp.coreir" | tail -1)
+if [ "$got" = "1" ]; then printf 'ok   %-26s => %s\n' "compare 5 3 -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [1]\n' "compare" "$got"; fail=1; fi
+EQW="1"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eq.hm > "${TMPDIR:-/tmp}/eq.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/eq.coreir" | tail -1)
+if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s\n' "eq String -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eq.hm > "${TMPDIR:-/tmp}/eq.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/eq.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (node)\n' "eq -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eq.hm > "${TMPDIR:-/tmp}/eq.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/eq.rs" -o "${TMPDIR:-/tmp}/eq-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eq-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (rustc)\n' "eq -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm SHOWCASE: a typed arithmetic-expression interpreter, written in ssct-hm, on 3 backends"
 chk_hm examples/hm-eval.hm '"Int"'                                  # data Expr = Num | Plus | Times ; eval
 ssc run bin/ssctc-hm.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.coreir" 2>/dev/null

@@ -53,6 +53,17 @@ def erase = (scope, term) =>
       else if #seq(tag, "s") then erase(scope, e)
       else if #seq(tag, "b") then IrIf(erase(scope, e), IrLit(IrStr("true")), IrLit(IrStr("false")))
       else IrLit(IrStr("?"))
+    case EqM(id, a, b) =>                                          -- Eq instance resolved by infer
+      let tag = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
+      if #seq(tag, "i") then IrPrim("i.eq", Cons(ea, Cons(eb, Nil)))
+      else if #seq(tag, "f") then IrPrim("f.eq", Cons(ea, Cons(eb, Nil)))
+      else if #seq(tag, "s") then IrPrim("seq", Cons(ea, Cons(eb, Nil)))
+      else if #seq(tag, "b") then IrIf(ea, eb, IrIf(eb, IrLit(IrBool(false)), IrLit(IrBool(true))))
+      else IrLit(IrBool(false))
+    case CmpM(id, a, b) =>                                         -- Ord (compare -> -1/0/1) for Int/Float
+      let tag = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
+      let lt = if #seq(tag, "f") then "f.lt" else "i.lt" in let eqp = if #seq(tag, "f") then "f.eq" else "i.eq" in
+      IrIf(IrPrim(lt, Cons(ea, Cons(eb, Nil))), IrLit(IrInt(#i.sub(0, 1))), IrIf(IrPrim(eqp, Cons(ea, Cons(eb, Nil))), IrLit(IrInt(0)), IrLit(IrInt(1))))
   }
 
 def emit = (term) => #coreir.encode(IrProg(Nil, erase(Nil, term)))

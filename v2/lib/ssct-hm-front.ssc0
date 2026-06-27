@@ -265,7 +265,7 @@ def nextId = (u) => let n = #cell.get(idCell) in let z = #cell.set(idCell, #i.ad
 def dsApp = (f, a) =>
   match f {
     case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else if #seq(x, "show") then ShowM(nextId(0), a) else if #seq(x, "fst") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tfst")), Nil)) else if #seq(x, "snd") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tsnd")), Nil)) else App(f, a)
-    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else if #seq(y, "fadd") then FAdd(h, a) else if #seq(y, "fsub") then FSub(h, a) else if #seq(y, "fmul") then FMul(h, a) else if #seq(y, "fdiv") then FDiv(h, a) else if #seq(y, "flt") then FLt(h, a) else if #seq(y, "feq") then FEq(h, a) else App(f, a) case _ => App(f, a) }
+    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else if #seq(y, "fadd") then FAdd(h, a) else if #seq(y, "fsub") then FSub(h, a) else if #seq(y, "fmul") then FMul(h, a) else if #seq(y, "fdiv") then FDiv(h, a) else if #seq(y, "flt") then FLt(h, a) else if #seq(y, "feq") then FEq(h, a) else if #seq(y, "eq") then EqM(nextId(0), h, a) else if #seq(y, "compare") then CmpM(nextId(0), h, a) else App(f, a) case _ => App(f, a) }
     case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)
   }
