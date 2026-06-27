@@ -29,6 +29,8 @@ def genConst = (c) =>
   }
 def bin = (args, ops) =>
   match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("(", Cons(a, Cons(ops, Cons(b, Cons(")", Nil)))))) case Nil => "0" } case Nil => "0" }
+def un = (args, pre, post) =>
+  match args { case Cons(a, t) => cats(Cons(pre, Cons(a, Cons(post, Nil)))) case Nil => "0" }
 def genPrim = (op, args) =>
   if #seq(op, "i.add") then bin(args, " + ")
   else if #seq(op, "i.sub") then bin(args, " - ")
@@ -41,6 +43,8 @@ def genPrim = (op, args) =>
   else if #seq(op, "i.gt")  then bin(args, " > ")
   else if #seq(op, "i.ge")  then bin(args, " >= ")
   else if #seq(op, "seq")   then bin(args, " === ")
+  else if #seq(op, "sconcat") then bin(args, " + ")
+  else if #seq(op, "i->str")  then un(args, "String(", ")")
   else "0"
 
 def mapGenE = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genE(d, h, false), mapGenE(d, t)) }

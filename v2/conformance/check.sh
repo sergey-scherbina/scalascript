@@ -39,6 +39,7 @@ chk run examples/stdlib-demo.ssc0   '"0, 1, 2"'                       # strJoin 
 chk run examples/zipwith.ssc0       "Cons(11, Cons(22, Cons(33, Nil)))"
 chk run examples/map-demo.ssc0      "Pair(2, 3)"                      # lib/map: insert/lookup/size
 chk run examples/sieve.ssc0         "Cons(2, Cons(3, Cons(5, Cons(7, Cons(11, Cons(13, Cons(17, Cons(19, Cons(23, Cons(29, Nil))))))))))"  # mutable #arr.*
+chk run examples/string-build.ssc0  '"n=42"'                          # #sconcat + #i->str
 
 echo "# algebraic effects + handlers (lib/effects.ssc0) — incl. MULTI-SHOT continuations"
 chk run examples/effects-state.ssc0  "Pair(2, 2)"
@@ -144,6 +145,7 @@ if command -v node >/dev/null 2>&1; then
   chk_js quicksort-lib   # multi-file: imports lib/list (backend resolves imports)
   chk_js zipwith
   chk_js map-demo
+  chk_js string-build '"n=42"'
   chk_js tco    # now passes: the trampoline gives constant-stack tail calls
 else
   echo "ok   js backend                => skipped (node not installed)"
@@ -167,6 +169,7 @@ if command -v rustc >/dev/null 2>&1; then
   chk_rust quicksort-lib   # multi-file: imports lib/list (backend resolves imports)
   chk_rust zipwith
   chk_rust map-demo
+  chk_rust string-build '"n=42"'
   chk_rust tco    # now passes: the trampoline (Step::Bounce + app loop) gives constant stack
 else
   echo "ok   rust backend              => skipped (rustc not installed)"

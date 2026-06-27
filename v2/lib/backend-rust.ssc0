@@ -24,6 +24,8 @@ def rbin = (args, ops, wrap) =>
     cats(Cons(wrap, Cons("(asi(&(", Cons(a, Cons(")) ", Cons(ops, Cons(" asi(&(", Cons(b, Cons(")))", Nil)))))))))
     case Nil => "V::U" } case Nil => "V::U" }
 def rseq = (args) => match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("V::B(ass(&(", Cons(a, Cons(")) == ass(&(", Cons(b, Cons(")))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
+def rcat = (args) => match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("V::S(ass(&(", Cons(a, Cons(")) + &ass(&(", Cons(b, Cons(")))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
+def run1 = (args, pre, post) => match args { case Cons(a, t) => cats(Cons(pre, Cons(a, Cons(post, Nil)))) case Nil => "V::U" }
 def genRPrim = (op, args) =>
   if #seq(op, "i.add") then rbin(args, "+", "V::I")
   else if #seq(op, "i.sub") then rbin(args, "-", "V::I")
@@ -36,6 +38,8 @@ def genRPrim = (op, args) =>
   else if #seq(op, "i.gt")  then rbin(args, ">", "V::B")
   else if #seq(op, "i.ge")  then rbin(args, ">=", "V::B")
   else if #seq(op, "seq")   then rseq(args)
+  else if #seq(op, "sconcat") then rcat(args)
+  else if #seq(op, "i->str")  then run1(args, "V::S(asi(&(", ")).to_string())")
   else "V::U"
 def mapGenV = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genV(d, h), mapGenV(d, t)) }
 def rletbinds = (d, rhs) => match rhs { case Nil => "" case Cons(r, rest) => cats(Cons("let ", Cons(jName(d), Cons(" = ", Cons(genV(d, r), Cons("; ", Cons(rletbinds(#i.add(d, 1), rest), Nil))))))) }
