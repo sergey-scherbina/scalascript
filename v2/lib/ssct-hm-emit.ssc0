@@ -27,6 +27,9 @@ def erase = (scope, term) =>
     case ShowInt(e)   => IrPrim("i->str", Cons(erase(scope, e), Nil))
     case Concat(a, b) => IrPrim("sconcat", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrEq(a, b)  => IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case StrLen(e)    => IrPrim("slen", Cons(erase(scope, e), Nil))
+    case CharAt(sv, iv) => IrPrim("scodeAt", Cons(erase(scope, sv), Cons(erase(scope, iv), Nil)))
+    case Substr(sv, fv, tv) => IrPrim("sslice", Cons(erase(scope, sv), Cons(erase(scope, fv), Cons(erase(scope, tv), Nil))))
     case FloatLit(str) => match #str->f(str) { case Some(x) => IrLit(IrFloat(x)) case None => IrLit(IrFloat(#i->f(0))) }
     case ToFloat(e)   => IrPrim("i->f", Cons(erase(scope, e), Nil))
     case FAdd(a, b)   => IrPrim("f.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))

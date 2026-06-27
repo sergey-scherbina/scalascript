@@ -492,6 +492,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/hb.rs" -o "${TMPDIR:-/tmp}/hb-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/hb-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$BLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "and/or/not -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "bool Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm STRING ops: strLen / charAt / substr (typed builtins -> slen/scodeAt/sslice) on every backend"
+chk_hm examples/hm-strops.hm '"String"'
+SOW='"hello/11/119"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-strops.hm > "${TMPDIR:-/tmp}/sop.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sop.coreir" | tail -1)
+if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s\n' "strLen/charAt/substr -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "strops" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-strops.hm > "${TMPDIR:-/tmp}/sop.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/sop.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (node)\n' "strLen/charAt/substr -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "strops JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-strops.hm > "${TMPDIR:-/tmp}/sop.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/sop.rs" -o "${TMPDIR:-/tmp}/sop-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sop-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "strLen/charAt/substr -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "strops Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

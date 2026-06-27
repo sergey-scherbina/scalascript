@@ -130,6 +130,19 @@ def infer = (env, c, s, term) =>
     case ShowInt(e)   => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("showInt expects an Int") case Ok(s2) => Ok3(s2, TyStr, c1) } }
     case Concat(a, b) => inferStr2(env, c, s, a, b, TyStr,  "++ needs String operands")
     case StrEq(a, b)  => inferStr2(env, c, s, a, b, TyBool, "strEq needs String operands")
+    case StrLen(e)    => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyStr) { case Err(m) => ErrI("strLen expects a String") case Ok(s2) => Ok3(s2, TyInt, c1) } }
+    case CharAt(sv, iv) =>
+      match infer(env, c, s, sv) { case ErrI(m) => ErrI(m) case Ok3(s1, ts, c1) =>
+        match unify(s1, ts, TyStr) { case Err(m) => ErrI("charAt: first arg must be String") case Ok(s2) =>
+          match infer(env, c1, s2, iv) { case ErrI(m) => ErrI(m) case Ok3(s3, ti, c2) =>
+            match unify(s3, ti, TyInt) { case Err(m) => ErrI("charAt: index must be Int") case Ok(s4) => Ok3(s4, TyInt, c2) } } } }
+    case Substr(sv, fv, tv) =>
+      match infer(env, c, s, sv) { case ErrI(m) => ErrI(m) case Ok3(s1, ts, c1) =>
+        match unify(s1, ts, TyStr) { case Err(m) => ErrI("substr: first arg must be String") case Ok(s2) =>
+          match infer(env, c1, s2, fv) { case ErrI(m) => ErrI(m) case Ok3(s3, tf, c2) =>
+            match unify(s3, tf, TyInt) { case Err(m) => ErrI("substr: from must be Int") case Ok(s4) =>
+              match infer(env, c2, s4, tv) { case ErrI(m) => ErrI(m) case Ok3(s5, tt, c3) =>
+                match unify(s5, tt, TyInt) { case Err(m) => ErrI("substr: to must be Int") case Ok(s6) => Ok3(s6, TyStr, c3) } } } } } }
     case FloatLit(str) => Ok3(s, TyFloat, c)
     case ToFloat(e)   => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("toFloat expects an Int") case Ok(s2) => Ok3(s2, TyFloat, c1) } }
     case FAdd(a, b)   => inferFloat2(env, c, s, a, b, TyFloat, "float op needs Float operands")
@@ -405,6 +418,9 @@ def evalT = (env, t) =>
     case ShowInt(e)   => StrVal(#i->str(asI(evalT(env, e))))
     case Concat(a, b) => StrVal(#sconcat(asStr(evalT(env, a)), asStr(evalT(env, b))))
     case StrEq(a, b)  => BoolVal(#seq(asStr(evalT(env, a)), asStr(evalT(env, b))))
+    case StrLen(e)    => IntVal(#slen(asStr(evalT(env, e))))
+    case CharAt(sv, iv) => IntVal(#scodeAt(asStr(evalT(env, sv)), asI(evalT(env, iv))))
+    case Substr(sv, fv, tv) => StrVal(#sslice(asStr(evalT(env, sv)), asI(evalT(env, fv)), asI(evalT(env, tv))))
     case FloatLit(str) => match #str->f(str) { case Some(x) => FloatVal(x) case None => FloatVal(#i->f(0)) }
     case ToFloat(e)   => FloatVal(#i->f(asI(evalT(env, e))))
     case FAdd(a, b)   => FloatVal(#f.add(asF(evalT(env, a)), asF(evalT(env, b))))

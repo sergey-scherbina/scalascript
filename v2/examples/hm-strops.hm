@@ -1,0 +1,1 @@
+let s = "hello world" in substr s 0 5 ++ "/" ++ showInt (strLen s) ++ "/" ++ showInt (charAt s 6)

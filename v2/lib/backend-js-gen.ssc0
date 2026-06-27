@@ -29,6 +29,10 @@ def bin = (args, ops) =>
   match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("(", Cons(a, Cons(ops, Cons(b, Cons(")", Nil)))))) case Nil => "0" } case Nil => "0" }
 def un = (args, pre, post) =>
   match args { case Cons(a, t) => cats(Cons(pre, Cons(a, Cons(post, Nil)))) case Nil => "0" }
+-- (s).charCodeAt(i)  — string code unit at an index
+def jat = (args) => match args { case Cons(a, r1) => match r1 { case Cons(b, t) => cats(Cons("(", Cons(a, Cons(").charCodeAt(", Cons(b, Cons(")", Nil)))))) case Nil => "0" } case Nil => "0" }
+-- (s).slice(from, to)  — substring
+def jsl = (args) => match args { case Cons(a, r1) => match r1 { case Cons(b, r2) => match r2 { case Cons(cc, t) => cats(Cons("(", Cons(a, Cons(").slice(", Cons(b, Cons(", ", Cons(cc, Cons(")", Nil)))))))) case Nil => "0" } case Nil => "0" } case Nil => "0" }
 def genPrim = (op, args) =>
   if #seq(op, "i.add") then bin(args, " + ")
   else if #seq(op, "i.sub") then bin(args, " - ")
@@ -42,6 +46,9 @@ def genPrim = (op, args) =>
   else if #seq(op, "i.ge")  then bin(args, " >= ")
   else if #seq(op, "seq")   then bin(args, " === ")
   else if #seq(op, "sconcat") then bin(args, " + ")
+  else if #seq(op, "slen")    then un(args, "(", ").length")
+  else if #seq(op, "scodeAt") then jat(args)
+  else if #seq(op, "sslice")  then jsl(args)
   else if #seq(op, "i->str")  then un(args, "String(", ")")
   else if #seq(op, "f.add") then bin(args, " + ")
   else if #seq(op, "f.sub") then bin(args, " - ")

@@ -30,6 +30,10 @@ def rfbin = (args, ops, wrap) =>
 def rseq = (args) => match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("V::B(ass(&(", Cons(a, Cons(")) == ass(&(", Cons(b, Cons(")))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
 def rcat = (args) => match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("V::S(ass(&(", Cons(a, Cons(")) + &ass(&(", Cons(b, Cons(")))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
 def run1 = (args, pre, post) => match args { case Cons(a, t) => cats(Cons(pre, Cons(a, Cons(post, Nil)))) case Nil => "V::U" }
+-- code unit at index: V::I(s.chars().nth(i).map(|c| c as i64).unwrap_or(0))
+def rat = (args) => match args { case Cons(a, r1) => match r1 { case Cons(b, t) => cats(Cons("V::I(ass(&(", Cons(a, Cons(")).chars().nth(asi(&(", Cons(b, Cons(")) as usize).map(|c| c as i64).unwrap_or(0))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
+-- substring [from, to): V::S(s.chars().skip(from).take(to-from).collect::<String>())
+def rsl = (args) => match args { case Cons(a, r1) => match r1 { case Cons(b, r2) => match r2 { case Cons(cc, t) => cats(Cons("V::S(ass(&(", Cons(a, Cons(")).chars().skip(asi(&(", Cons(b, Cons(")) as usize).take((asi(&(", Cons(cc, Cons(")) - asi(&(", Cons(b, Cons("))) as usize).collect::<String>())", Nil)))))))))) case Nil => "V::U" } case Nil => "V::U" } case Nil => "V::U" }
 def genRPrim = (op, args) =>
   if #seq(op, "i.add") then rbin(args, "+", "V::I")
   else if #seq(op, "i.sub") then rbin(args, "-", "V::I")
@@ -43,6 +47,9 @@ def genRPrim = (op, args) =>
   else if #seq(op, "i.ge")  then rbin(args, ">=", "V::B")
   else if #seq(op, "seq")   then rseq(args)
   else if #seq(op, "sconcat") then rcat(args)
+  else if #seq(op, "slen")    then run1(args, "V::I(ass(&(", ")).chars().count() as i64)")
+  else if #seq(op, "scodeAt") then rat(args)
+  else if #seq(op, "sslice")  then rsl(args)
   else if #seq(op, "i->str")  then run1(args, "V::S(asi(&(", ")).to_string())")
   else if #seq(op, "f.add") then rfbin(args, "+", "V::Fl")
   else if #seq(op, "f.sub") then rfbin(args, "-", "V::Fl")
