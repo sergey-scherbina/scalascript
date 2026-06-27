@@ -301,6 +301,20 @@ def dsApp = (f, a) =>
     case _         => App(f, a)
   }
 def dsArms = (arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => Cons(MArm(con, binders, desugar(body)), dsArms(rest)) } }
+-- a trailing `x => body` arm (x LOWERCASE, no field binders — a Capitalized name is a constructor)
+-- binds the whole scrutinee: desugar to  let x = scrut in match x { ... | _ => body }  (reusing the `_` arm).
+def startsLower = (s) => if #i.lt(0, #slen(s)) then isLower(#scodeAt(s, 0)) else false
+def isEmptyL = (xs) => match xs { case Nil => true case Cons(h, t) => false }
+def isVarArm = (arm) => match arm { case MArm(con, binders, body) => chAnd(startsLower(con), isEmptyL(binders)) }
+def lastArm = (arms) => match arms { case Nil => None case Cons(a, t) => match t { case Nil => Some(a) case _ => lastArm(t) } }
+def dropLast = (arms) => match arms { case Nil => Nil case Cons(a, t) => match t { case Nil => Nil case _ => Cons(a, dropLast(t)) } }
+def mkMatch = (scrut, arms) =>
+  match lastArm(arms) {
+    case None => MatchT(scrut, arms)
+    case Some(la) =>
+      if isVarArm(la) then match la { case MArm(x, binders, body) => Let(x, scrut, MatchT(Var(x), appendL(dropLast(arms), Cons(MArm("_", Nil, body), Nil)))) }
+      else MatchT(scrut, arms)
+  }
 def desugar = (t) =>
   match t {
     case Lit(n)          => Lit(n)
@@ -316,7 +330,7 @@ def desugar = (t) =>
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
-    case MatchT(scrut, arms) => MatchT(desugar(scrut), dsArms(arms))
+    case MatchT(scrut, arms) => mkMatch(desugar(scrut), dsArms(arms))
     case StrLit(str)     => StrLit(str)
     case Concat(a, b)    => Concat(desugar(a), desugar(b))
     case FloatLit(str)   => FloatLit(str)

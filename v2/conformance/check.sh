@@ -556,6 +556,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/cmt.rs" -o "${TMPDIR:-/tmp}/cmt-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cmt-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$CMW" ]; then printf 'ok   %-26s => %s (rustc)\n' "comments -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "comments Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm VARIABLE pattern: 'case x => body' binds the whole scrutinee (let x = scrut in match _), all backends"
+chk_hm examples/hm-varpat.hm '"String"'
+VPW='"C/B/C"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-varpat.hm > "${TMPDIR:-/tmp}/vp.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/vp.coreir" | tail -1)
+if [ "$got" = "$VPW" ]; then printf 'ok   %-26s => %s\n' "var pattern -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "varpat" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-varpat.hm > "${TMPDIR:-/tmp}/vp.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/vp.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$VPW" ]; then printf 'ok   %-26s => %s (node)\n' "var pattern -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "varpat JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-varpat.hm > "${TMPDIR:-/tmp}/vp.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/vp.rs" -o "${TMPDIR:-/tmp}/vp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/vp-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$VPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "var pattern -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "varpat Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
