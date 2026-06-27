@@ -1,63 +1,80 @@
-# ssc 2.0 — `ssc`, a runtime compiler
+# ssc 2.0 — a self-hosting language on a tiny frozen kernel
 
-`v2/` is a **clean-room redesign** of ScalaScript, built from a minimal kernel upward and
-bootstrapped on itself (dogfood). **Isolated**: its own build (scala-cli), zero dependency
-on the `ssc 1.0` tree under the repo root. The old implementation is never touched or
-reused. Architecture & decisions: [`specs/00-overview.md`](specs/00-overview.md).
+`v2/` is a **clean-room redesign** of ScalaScript: a minimal kernel in Scala 3, with the
+*entire language* — its own compiler, type system, effects, concurrency, typeclasses, and
+three code backends — grown on top **in the language itself**. Isolated (own scala-cli build,
+zero dependency on the `ssc 1.0` tree). Architecture & decisions: [`specs/00-overview.md`](specs/00-overview.md).
 
-## The one program: `v2/ssc`
+## The one bet
 
-A single self-sufficient Scala 3 binary that fuses **front + compiler + runtime**. It reads
-code, **generates a program** (compiles), and runs it — a *runtime compiler*. The pipeline:
+Scope the hand-written, **permanent Scala kernel** to *host the self-compiler* — not to run
+the whole language. Everything else is an `.ssc0` program compiled to a tiny untyped bytecode
+(**Core IR**) the kernel runs. Result: the kernel is **frozen at 913 lines of Scala**, and
+across this entire project it grew by exactly **one primitive** (`coreir.encode`). Everything
+below is **~1100 lines of ssc0** on top of it.
 
 ```
-ssc0  ──►  ir  ──►  ssc (VM)  ──►  cpu
-source     bytecode  compile-to-closures + execute
+ssc0 source ──► ir (bytecode) ──► ssc (VM: compile-to-closures + trampoline) ──► cpu
+                         │
+                         └──► JS  (lib/backend-js.ssc0)   ──► node
+                         └──► Rust(lib/backend-rust.ssc0) ──► rustc → native
 ```
 
-- **ir** (Core IR) is a real first-class **bytecode** — a tiny untyped lambda calculus
-  ([`specs/10-core-ir.md`](specs/10-core-ir.md)), with a canonical text form
-  ([`specs/12-ir-format.md`](specs/12-ir-format.md)).
-- **ssc0** is the thin readable source language ([`specs/15-ssc0.md`](specs/15-ssc0.md)); the
-  front (`ssc0 → ir`) is built into the binary, but `ir` is also a standalone artifact —
-  hence the duality: `ssc` runs source *or* bytecode.
-- **ssc** is the VM. Per the **JIT philosophy** (once we know what a node is, we emit a
-  closure that does exactly that — no re-dispatch on the AST at run time), it compiles `ir`
-  to a tree of closures and runs it with proper tail calls (constant-stack TCO).
+## What it is, end to end
 
-### Three modes
+| Layer | Where | What |
+|---|---|---|
+| **kernel** (compiler + VM + ssc0 front + `coreir.encode`) | `src/*.scala`, **frozen 913 LOC** | untyped Core IR ([`10-core-ir`](specs/10-core-ir.md)), a compile-to-closures VM with a trampoline (constant-stack TCO), the ssc0 lexer/parser/lower, and canonical IR serialization |
+| **self-hosting compiler** | `lib/ssc0c.ssc0` (+ `loader.ssc0`) | the ssc0 compiler **written in ssc0**; compiles itself byte-for-byte (single- and **multi-file** fixpoints) — [`20-bootstrap`](specs/20-bootstrap.md) |
+| **typed layer `ssct`** | `lib/ssct*.ssc0` | a typed lambda calculus: type checker, textual `.ssct` surface (lexer+parser in ssc0), erase-to-ir, and **typeclasses resolved by the typer** — [`40`](specs/40-typer-as-library.md), [`52`](specs/52-typeclasses.md) |
+| **effects** | `lib/effects.ssc0` | algebraic effects + handlers, incl. **multi-shot** continuations — [`50`](specs/50-effects.md) |
+| **concurrency** | `lib/async.ssc0`, `lib/actors.ssc0` | a cooperative scheduler (yield/fork) and the actor model — [`51`](specs/51-async.md), [`53`](specs/53-actors.md) |
+| **backends** | `lib/backend-js.ssc0`, `lib/backend-rust.ssc0` | `ir → JS` and `ir → Rust`, both TCO-correct and multi-file — [`60`](specs/60-backend-js.md), [`61`](specs/61-backend-rust.md) |
+| **stdlib** | `lib/list.ssc0`, `lib/string.ssc0`, `lib/option.ssc0` | lists, strings, options |
+
+The kernel never gained: a type checker, the typed surface parser, effect/continuation nodes,
+actors, a JIT-to-bytecode, or any target backend. Each is an ssc0 program on the frozen core.
+
+## Run it
 
 ```bash
-./ssc run     examples/fact.ssc0     # ssc0 → ir → run            => 120
-./ssc compile examples/fact.ssc0     # ssc0 → ir (canonical bytecode, stdout)
-./ssc run-ir  conformance/fact.coreir # ir → run (pure VM)        => 120
+# the kernel binary (./ssc run | compile | run-ir):
+./ssc run examples/quicksort.ssc0          # => Cons(1, Cons(1, Cons(2, …)))   (a real algorithm)
+
+# the self-hosting ssc0 compiler (emits the same ir bytecode as the kernel, byte-for-byte):
+./ssc0c examples/fact.ssc0 | ./ssc run-ir /dev/stdin     # => 120
+
+# the typed layer:  ./ssct <file.ssct>   (lex+parse+typecheck+run, all in ssc0)
+./ssct examples/id.ssct                    # => Typed("Int", 42)
+
+# the backends — one source, three targets, identical output:
+./ssc0-js   examples/quicksort.ssc0 | node                          # => Cons(1, …)
+./ssc0-rust examples/quicksort.ssc0 > q.rs && rustc -O q.rs -o q && ./q   # => Cons(1, …)
 ```
 
-(`./ssc` is a thin scala-cli launcher over [`src/`](src). First run compiles the VM.)
-
-## The tower
-
-`ssc` is the irreducible foundation. On top of it, as a tower, each layer is built using
-the one below: **`ssc0 → ssc.1 → ssct (typed) → … → full ScalaScript`**, until v2
-reproduces everything ssc 1.0 has — but grounded on a tiny, auditable kernel. The type
-checker is itself an *outer* layer (a program), not a kernel feature; the kernel stays
-untyped (see [`specs/00-overview.md`](specs/00-overview.md)).
+(`./ssc`, `./ssc0c`, `./ssct`, `./ssctc`, `./ssc0-js`, `./ssc0-rust` are thin scala-cli
+launchers over [`src/`](src) running the corresponding ssc0 driver in `bin/`.)
 
 ## Layout
 
 ```
 v2/
-  ssc                 launcher (./ssc run|compile|run-ir …)
-  src/                the binary: CoreIR (ir + reader/writer), Runtime (VM + compiler +
-                      δ), Ssc0 (front: lexer/parser/lower), Main (CLI)
-  examples/*.ssc0     runnable ssc0 programs
-  conformance/        ir fixtures + check.sh (builds one jar, runs all modes)
-  specs/              10-core-ir · 12-ir-format · 15-ssc0 · 00-overview
+  ssc ssc0c ssct ssctc ssc0-js ssc0-rust   launchers
+  src/        the kernel (Scala 3): CoreIR · Runtime (VM/δ/coreir.encode) · Ssc0 · Main
+  lib/        the language, in ssc0: ssc0c, ssct*, effects, async, actors, typeclass,
+              backend-js, backend-rust, loader, list, string, option
+  bin/        ssc0 drivers (ssc0c, ssct, ssctc, ssc0-js, ssc0-rust)
+  examples/   runnable .ssc0 / .ssct programs
+  conformance/ ir fixtures + check.sh (one jar, ~60 checks across every layer & target)
+  specs/      00-overview · 10-core-ir · 12-ir-format · 15-ssc0 · 20-bootstrap ·
+              40-typer · 50-effects · 51-async · 52-typeclasses · 53-actors · 60/61-backends
 ```
 
 ## Status
 
-The runtime compiler works end to end: ssc0 → ir → run, ir → run, and ssc0 → ir, all green
-(`conformance/check.sh`), including a 1e6-deep tail loop in constant stack. Next: grow the
-tower (a typed layer) and widen the primitive set. Roadmap: [`ROADMAP.md`](ROADMAP.md);
-queue: [`SPRINT.md`](SPRINT.md).
+Conformance (`conformance/check.sh`, all green): the runtime compiler (3 modes), the
+self-hosting fixpoints (single- and multi-file), the typed layer + typeclass resolution,
+effects (incl. multi-shot) / async / actors, and **all three targets (VM / JS / native Rust),
+TCO-correct**, agreeing byte-for-byte on real programs. Roadmap: [`ROADMAP.md`](ROADMAP.md);
+queue: [`SPRINT.md`](SPRINT.md). Remaining work is breadth (more stdlib, richer types, WASM
+when a toolchain is present) — all ssc0 on the frozen kernel.
