@@ -43,7 +43,7 @@ def lexFrom = (s, i) =>
     else
       let i2 = #i.add(i, 2) in
       let two = if #i.le(i2, #slen(s)) then #sslice(s, i, i2) else "" in
-      if chOr(chOr(chOr(#seq(two, "=>"), #seq(two, "->")), #seq(two, "++")), chOr(chOr(#seq(two, "<="), #seq(two, ">=")), #seq(two, "<>"))) then Cons(TPunct(two), lexFrom(s, i2))
+      if chOr(chOr(chOr(#seq(two, "=>"), #seq(two, "->")), chOr(#seq(two, "++"), chOr(#seq(two, "&&"), #seq(two, "||")))), chOr(chOr(#seq(two, "<="), #seq(two, ">=")), #seq(two, "<>"))) then Cons(TPunct(two), lexFrom(s, i2))
       else Cons(TPunct(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))
 
 def scanStr = (s, k) => if #i.lt(k, #slen(s)) then (if #i.eq(#scodeAt(s, k), 34) then k else scanStr(s, #i.add(k, 1))) else k
@@ -177,6 +177,20 @@ def parseCmp = (toks) =>                              -- a (cmpop a)?
       }
   }
 
+-- boolean operators:  '||' (loosest) < '&&' < comparison.  Left-assoc, desugared to If — consistent on every backend.
+def parseAndMore = (a, toks) =>
+  match toks {
+    case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "&&") then match parseCmp(rest) { case Pair(b, r2) => parseAndMore(If(a, b, BoolLit(false)), r2) } else Pair(a, toks) case _ => Pair(a, toks) }
+    case Nil => Pair(a, toks)
+  }
+def parseAnd = (toks) => match parseCmp(toks) { case Pair(a, r) => parseAndMore(a, r) }
+def parseOrMore = (a, toks) =>
+  match toks {
+    case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "||") then match parseAnd(rest) { case Pair(b, r2) => parseOrMore(If(a, BoolLit(true), b), r2) } else Pair(a, toks) case _ => Pair(a, toks) }
+    case Nil => Pair(a, toks)
+  }
+def parseOr = (toks) => match parseAnd(toks) { case Pair(a, r) => parseOrMore(a, r) }
+
 def parseFun = (toks) =>                              -- after 'fun':  x '=>' body  (NO type annotation)
   match toks {
     case Cons(t, r1) =>
@@ -261,8 +275,8 @@ def parseExpr = (toks) =>
           else if #seq(s, "let") then parseLetE(rest)
           else if #seq(s, "if") then parseIfE(rest)
           else if #seq(s, "match") then parseMatchE(rest)
-          else parseCmp(toks)
-        case _ => parseCmp(toks)
+          else parseOr(toks)
+        case _ => parseOr(toks)
       }
     case Nil => Pair(ParseErr, Nil)
   }
@@ -277,7 +291,7 @@ def idCell = #cell.new(0)
 def nextId = (u) => let n = #cell.get(idCell) in let z = #cell.set(idCell, #i.add(n, 1)) in n
 def dsApp = (f, a) =>
   match f {
-    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else if #seq(x, "neg") then INeg(a) else if #seq(x, "fneg") then FNeg(a) else if #seq(x, "fsqrt") then FSqrt(a) else if #seq(x, "show") then ShowM(nextId(0), a) else if #seq(x, "fst") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tfst")), Nil)) else if #seq(x, "snd") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tsnd")), Nil)) else if isMethod(x) then MethodCall(nextId(0), x, a) else App(f, a)
+    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "not") then If(a, BoolLit(false), BoolLit(true)) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else if #seq(x, "neg") then INeg(a) else if #seq(x, "fneg") then FNeg(a) else if #seq(x, "fsqrt") then FSqrt(a) else if #seq(x, "show") then ShowM(nextId(0), a) else if #seq(x, "fst") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tfst")), Nil)) else if #seq(x, "snd") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tsnd")), Nil)) else if isMethod(x) then MethodCall(nextId(0), x, a) else App(f, a)
     case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else if #seq(y, "fadd") then FAdd(h, a) else if #seq(y, "fsub") then FSub(h, a) else if #seq(y, "fmul") then FMul(h, a) else if #seq(y, "fdiv") then FDiv(h, a) else if #seq(y, "flt") then FLt(h, a) else if #seq(y, "feq") then FEq(h, a) else if #seq(y, "eq") then EqM(nextId(0), h, a) else if #seq(y, "compare") then CmpM(nextId(0), h, a) else if #seq(y, "div") then IDiv(h, a) else if #seq(y, "mod") then IMod(h, a) else App(f, a) case _ => App(f, a) }
     case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)

@@ -476,6 +476,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/q2.rs" -o "${TMPDIR:-/tmp}/q2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/q2-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$QS2" ]; then printf 'ok   %-26s => %s (rustc)\n' "qsort dup -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "qsort dup Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm BOOLEAN operators: && (tighter) / || (looser) / not — desugar to If, consistent on all backends"
+chk_hm examples/hm-bool.hm '"Bool"'
+BLW="true"
+ssc run bin/ssctc-hm.ssc0 examples/hm-bool.hm > "${TMPDIR:-/tmp}/hb.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/hb.coreir" | tail -1)
+if [ "$got" = "$BLW" ]; then printf 'ok   %-26s => %s\n' "and/or/not -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "bool" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-bool.hm > "${TMPDIR:-/tmp}/hb.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/hb.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$BLW" ]; then printf 'ok   %-26s => %s (node)\n' "and/or/not -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "bool JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-bool.hm > "${TMPDIR:-/tmp}/hb.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/hb.rs" -o "${TMPDIR:-/tmp}/hb-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/hb-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$BLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "and/or/not -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "bool Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
