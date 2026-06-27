@@ -1,0 +1,17 @@
+-- ssctc — the ssct COMPILER: read a .ssct file, type-check, and emit real Core IR
+-- bytecode (which `ssc run-ir` then runs). Like ssct, the whole compiler is ssc0.
+--   ssctc foo.ssct > foo.coreir ; ssc run-ir foo.coreir
+import "../lib/ssct-front.ssc0"
+import "../lib/ssct.ssc0"
+import "../lib/ssct-emit.ssc0"
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) =>
+      let term = parse(#utf8->str(#io.readFile(path))) in
+      match infer(Nil, term) {
+        case Ok(ty) => #io.print(emit(term))                       -- bytecode to stdout
+        case Err(m) => #io.eprint(#sconcat("type error: ", m))
+      }
+    case Nil => #io.eprint("usage: ssctc <file.ssct>")
+  }

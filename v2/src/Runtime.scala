@@ -259,6 +259,8 @@ object Prims:
     case "io.writeFile" => a => java.nio.file.Files.write(java.nio.file.Path.of(str(a, 0)), bytes(a, 1).toArray); UnitV
     case "io.env"  => a => sys.env.get(str(a, 0)).fold(none)(s => some(StrV(s)))
     case "io.exit" => a => sys.exit(int(a, 0).toInt); UnitV
+    // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
+    case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
     case _ => sys.error(s"unimplemented primitive: $op")
 
   // typed argument accessors
@@ -287,6 +289,60 @@ object Prims:
   private def out(v: Value, ps: java.io.PrintStream): Unit = v match
     case StrV(s) => ps.print(s)
     case _ => ps.print(Show.show(v))
+
+// coreir.encode — serialize an IR-as-Data tree (built by an ssc0 program) to the
+// canonical Core IR text (specs/12-ir-format.md). The format stays owned by the kernel
+// in ONE place; ssc0 emits IR by building Data and calling this. Tags: IrProg/IrDef/
+// IrLit/IrLocal/IrGlobal/IrLam/IrApp/IrLet/IrLetRec/IrIf/IrCtor/IrMatch/IrArm/IrPrim and
+// consts IrUnit/IrBool/IrInt/IrBig/IrFloat/IrStr. Lists = Cons/Nil, Option = Some/None.
+object IrEncode:
+  import Value.*
+  def program(v: Value): String = v match
+    case DataV("IrProg", Vector(defs, entry)) =>
+      val ds = list(defs).map {
+        case DataV("IrDef", Vector(StrV(n), b)) => s"(def $n ${term(b)})"
+        case x => sys.error(s"coreir.encode: bad IrDef ${Show.show(x)}")
+      }
+      val defsStr = if ds.isEmpty then "(defs)" else s"(defs ${ds.mkString(" ")})"
+      s"(program $defsStr (entry ${term(entry)}))"
+    case x => sys.error(s"coreir.encode: expected IrProg, got ${Show.show(x)}")
+
+  private def term(v: Value): String = v match
+    case DataV("IrLit", Vector(c))            => s"(lit ${const(c)})"
+    case DataV("IrLocal", Vector(IntV(i)))    => s"(local $i)"
+    case DataV("IrGlobal", Vector(StrV(n)))   => s"(global $n)"
+    case DataV("IrLam", Vector(IntV(ar), b))  => s"(lam $ar ${term(b)})"
+    case DataV("IrApp", Vector(f, args))      => s"(app ${term(f)}${list(args).map(x => " " + term(x)).mkString})"
+    case DataV("IrLet", Vector(rhs, b))       => s"(let (${list(rhs).map(term).mkString(" ")}) ${term(b)})"
+    case DataV("IrLetRec", Vector(lams, b))   => s"(letrec (${list(lams).map(term).mkString(" ")}) ${term(b)})"
+    case DataV("IrIf", Vector(c, t, e))       => s"(if ${term(c)} ${term(t)} ${term(e)})"
+    case DataV("IrCtor", Vector(StrV(tg), fs))=> s"(ctor $tg${list(fs).map(x => " " + term(x)).mkString})"
+    case DataV("IrPrim", Vector(StrV(op), as))=> s"(prim $op${list(as).map(x => " " + term(x)).mkString})"
+    case DataV("IrMatch", Vector(s, arms, d)) =>
+      val a = list(arms).map {
+        case DataV("IrArm", Vector(StrV(tg), IntV(ar), b)) => s"(arm $tg $ar ${term(b)})"
+        case x => sys.error(s"coreir.encode: bad IrArm ${Show.show(x)}")
+      }.mkString(" ")
+      val dd = d match
+        case DataV("Some", Vector(t)) => s" (default ${term(t)})"
+        case DataV("None", _) => ""
+        case x => sys.error(s"coreir.encode: bad default ${Show.show(x)}")
+      s"(match ${term(s)} ($a)$dd)"
+    case x => sys.error(s"coreir.encode: bad term ${Show.show(x)}")
+
+  private def const(v: Value): String = v match
+    case DataV("IrUnit", _)                 => "unit"
+    case DataV("IrBool", Vector(BoolV(b)))  => b.toString
+    case DataV("IrInt", Vector(IntV(n)))    => s"(int $n)"
+    case DataV("IrBig", Vector(BigV(n)))    => s"(big $n)"
+    case DataV("IrFloat", Vector(FloatV(d)))=> s"(float ${Writer.floatStr(d)})"
+    case DataV("IrStr", Vector(StrV(s)))    => s"(str ${Writer.strLit(s)})"
+    case x => sys.error(s"coreir.encode: bad const ${Show.show(x)}")
+
+  private def list(v: Value): List[Value] = v match
+    case DataV("Cons", Vector(h, t)) => h :: list(t)
+    case DataV("Nil", _) => Nil
+    case x => sys.error(s"coreir.encode: expected list, got ${Show.show(x)}")
 
 object Show:
   import Value.*

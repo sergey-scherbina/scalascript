@@ -39,10 +39,15 @@ Each layer is a program compiled/run by the layer below: `ssc0 → ssc.1 → ssc
 - [x] **ssct — the typed layer** (2026-06-27, `lib/ssct.ssc0`, 136 lines): a typed lambda
       calculus type checker + erased evaluator, **written in ssc0** — types as an outer
       library, kernel stays untyped (D1). Spec `40-typer-as-library.md`. The thesis, live.
-- [ ] Grow ssct: a textual `.ssct` surface (lexer/parser in ssc0), erase-to-ir via
-      `coreir.encode`, then HM/unification + richer types.
+- [x] **textual `.ssct` surface** (2026-06-27, `lib/ssct-front.ssc0`, 170 lines): a real
+      lexer + parser in ssc0; `./ssct <file.ssct>`.
+- [x] **erase-to-ir + `coreir.encode`** (2026-06-27): the loop closes — `.ssct → typecheck →
+      erase (ssc0) → ir bytecode → `ssc run-ir` (VM) → cpu`. Kernel gained exactly one
+      primitive (`coreir.encode`). `./ssctc <file.ssct>` emits bytecode.
 - [ ] Toward the **fixpoint CI invariant**: a compiler written in ssc0 that compiles itself;
-      `compile(self) == compile(self) via self` (`specs/20-bootstrap.md`).
+      `compile(self) == compile(self) via self` (`specs/20-bootstrap.md`). `coreir.encode` is
+      the bootstrap-critical primitive — now in place.
+- [ ] Richer types (HM/unification, products/sums) — tower growth, all in ssc0.
 
 ## K3 — Regrow the world (on the tower)
 

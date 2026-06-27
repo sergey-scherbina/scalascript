@@ -1,0 +1,27 @@
+-- ssct erasure: lower a (type-checked) ssct Term to a Core IR Data tree, then
+-- #coreir.encode it to canonical bytecode. The kernel owns the byte format; this
+-- ssc0 code just builds the IR as data. Erasure = drop the type annotations, resolve
+-- names to de Bruijn indices. Closes the loop: .ssct -> ir -> ssc(VM) -> cpu.
+
+-- de Bruijn index of name x in a scope (head = innermost = 0)
+def idxOf = (scope, x) =>
+  match scope {
+    case Nil => 0
+    case Cons(h, t) => if #seq(h, x) then 0 else #i.add(1, idxOf(t, x))
+  }
+
+-- erase : scope(names) -> Term -> IrData
+def erase = (scope, term) =>
+  match term {
+    case Lit(n)           => IrLit(IrInt(n))
+    case BoolLit(b)       => IrLit(IrBool(b))
+    case Var(x)           => IrLocal(idxOf(scope, x))
+    case Lam(x, ty, body) => IrLam(1, erase(Cons(x, scope), body))         -- type dropped
+    case App(f, a)        => IrApp(erase(scope, f), Cons(erase(scope, a), Nil))
+    case Add(a, b)        => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case If(c, t, e)      => IrIf(erase(scope, c), erase(scope, t), erase(scope, e))
+    case Let(x, e, body)  => IrLet(Cons(erase(scope, e), Nil), erase(Cons(x, scope), body))
+  }
+
+-- emit : Term -> canonical Core IR bytecode (a String)
+def emit = (term) => #coreir.encode(IrProg(Nil, erase(Nil, term)))

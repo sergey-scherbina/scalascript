@@ -86,10 +86,28 @@ cond.ssct  if true then 1 else 0                       => Typed("Int", 1)
 bad.ssct   1 + true                                    => TypeError("Add expects Int operands")
 ```
 
+## Erase to ir — IMPLEMENTED (2026-06-27): the loop closes
+
+`v2/lib/ssct-emit.ssc0` (~25 lines ssc0) lowers a type-checked `Term` to a Core IR **Data
+tree** (resolving names to de Bruijn, dropping type annotations = erasure), then calls the
+new **`coreir.encode`** primitive — the *one* place the kernel grew (it owns the byte
+format; ssc0 only builds the data). `ssctc` (driver `bin/ssctc.ssc0`, launcher `v2/ssctc`)
+emits real bytecode:
+
+```
+$ ./ssctc examples/id.ssct
+(program (defs) (entry (let ((lam 1 (prim i.add (local 0) (lit (int 1))))) (app (local 0) (app (local 0) (lit (int 40)))))))
+$ ./ssctc examples/id.ssct | ./ssc run-ir /dev/stdin     # -> 42
+```
+
+So the full tower runs: **`.ssct` text → (ssc0: lex, parse, typecheck, erase) → ir bytecode
+→ `ssc run-ir` (the VM) → cpu**. The typed program runs on the *actual* VM, not a bundled
+evaluator. `coreir.encode` reads an `IrProg`/`IrLam`/`IrPrim`/… Data tree and emits canonical
+S-expr (specs/12-ir-format.md); it is the bootstrap-critical primitive for self-hosting.
+
 ## Deferred / next
 
-- **Erase to ir** — instead of a bundled `evalTerm`, lower a well-typed `Term` to a Core IR
-  `Data` tree and `coreir.encode` it, so the erased program runs on the VM proper (closes
-  the loop with `ssc run-ir`). Needs the `coreir.encode` primitive.
+- **Self-hosting fixpoint** — a compiler written in ssc0 that emits its own ir; the permanent
+  CI invariant `compile(self) == (compile(self) run on self)` (specs/20-bootstrap.md).
 - **Richer types** — type variables + unification (HM), products/sums, recursive types.
-- These are tower growth — all in ssc0, none in the kernel.
+- These are tower growth — all in ssc0; the kernel only ever gained `coreir.encode`.

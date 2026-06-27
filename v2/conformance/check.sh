@@ -49,6 +49,16 @@ chk_ssct examples/id.ssct   'Typed("Int", 42)'
 chk_ssct examples/cond.ssct 'Typed("Int", 1)'
 chk_ssct examples/bad.ssct  'TypeError("Add expects Int operands")'
 
+echo "# ssctc: .ssct -> ir bytecode (erase + coreir.encode, all ssc0) -> run-ir on the VM"
+bc=$(ssc run bin/ssctc.ssc0 examples/id.ssct)
+want_bc='(program (defs) (entry (let ((lam 1 (prim i.add (local 0) (lit (int 1))))) (app (local 0) (app (local 0) (lit (int 40)))))))'
+if [ "$bc" = "$want_bc" ]; then printf 'ok   %-26s => <canonical bytecode>\n' "ssctc id.ssct (emit)"
+else printf 'FAIL %-26s bytecode mismatch\n' "ssctc id.ssct"; fail=1; fi
+printf '%s\n' "$bc" > "${TMPDIR:-/tmp}/ssctc-id.coreir"
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ssctc-id.coreir" | tail -1)
+if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ssctc id -> run-ir" "$got"
+else printf 'FAIL %-26s got [%s] want [42]\n' "ssctc id -> run-ir" "$got"; fail=1; fi
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"
