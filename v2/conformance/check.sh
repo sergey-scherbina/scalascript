@@ -94,6 +94,18 @@ chk_ssct examples/id.ssct   'Typed("Int", 42)'
 chk_ssct examples/cond.ssct 'Typed("Int", 1)'
 chk_ssct examples/bad.ssct  'TypeError("Add expects Int operands")'
 
+echo "# ssct-hm textual surface (UNANNOTATED source text -> lex+parse+INFER, all in ssc0)"
+chk_hm() { # file want
+  got=$(ssc run bin/ssct-hm.ssc0 "$1" | tail -1)
+  if [ "$got" = "$2" ]; then printf 'ok   %-26s => %s\n' "ssct-hm ${1##*/}" "$got"
+  else printf 'FAIL %-26s got [%s] want [%s]\n' "ssct-hm ${1##*/}" "$got" "$2"; fail=1; fi
+}
+chk_hm examples/hm-src-inc.hm '"(Int -> Int)"'
+chk_hm examples/hm-src-id.hm  '"(t0 -> t0)"'
+chk_hm examples/hm-src-if.hm  '"(Bool -> Int)"'
+chk_hm examples/hm-src-let.hm '"(t2 -> t2)"'
+chk_hm examples/hm-src-err.hm '"TypeError: if-condition must be Bool"'
+
 echo "# ssctc: .ssct -> ir bytecode (erase + coreir.encode, all ssc0) -> run-ir on the VM"
 bc=$(ssc run bin/ssctc.ssc0 examples/id.ssct)
 want_bc='(program (defs) (entry (let ((lam 1 (prim i.add (local 0) (lit (int 1))))) (app (local 0) (app (local 0) (lit (int 40)))))))'

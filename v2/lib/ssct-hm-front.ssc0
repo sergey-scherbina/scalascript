@@ -1,0 +1,148 @@
+-- ssct-hm front: a LEXER + PARSER for the UNANNOTATED textual surface, written in ssc0.
+-- text  ->  [token]  ->  Term  (the AST that lib/ssct-hm.ssc0 INFERS a type for & runs).
+-- Same grammar as ssct-front EXCEPT `fun` carries no type annotation — the type is inferred.
+--
+-- Concrete syntax:
+--   expr := 'fun' ident '=>' expr | 'let' ident '=' expr 'in' expr
+--         | 'if' expr 'then' expr 'else' expr | add
+--   add  := app ('+' app)*            app := atom atom*
+--   atom := int | 'true' | 'false' | ident | '(' expr ')'
+
+-- ── char predicates (codes) ──────────────────────────────────────────────────
+def chOr  = (a, b) => if a then true else b
+def chAnd = (a, b) => if a then b else false
+def isSpace = (c) => chOr(chOr(#i.eq(c, 32), #i.eq(c, 10)), chOr(#i.eq(c, 9), #i.eq(c, 13)))
+def isDigit = (c) => chAnd(#i.ge(c, 48), #i.le(c, 57))
+def isLower = (c) => chAnd(#i.ge(c, 97), #i.le(c, 122))
+def isUpper = (c) => chAnd(#i.ge(c, 65), #i.le(c, 90))
+def isAlpha = (c) => chOr(chOr(isLower(c), isUpper(c)), #i.eq(c, 95))
+def isAlphaNum = (c) => chOr(isAlpha(c), isDigit(c))
+
+-- ── lexer:  string -> [TNum n | TName s | TPunct s] ──────────────────────────
+def scanWhile = (s, i, pred) =>
+  if #i.lt(i, #slen(s)) then (if pred(#scodeAt(s, i)) then scanWhile(s, #i.add(i, 1), pred) else i)
+  else i
+
+def strToInt = (sub) => match #str->i(sub) { case Some(n) => n case None => 0 }
+
+def lexFrom = (s, i) =>
+  if #i.ge(i, #slen(s)) then Nil
+  else
+    let c = #scodeAt(s, i) in
+    if isSpace(c) then lexFrom(s, #i.add(i, 1))
+    else if isDigit(c) then
+      let j = scanWhile(s, i, isDigit) in Cons(TNum(strToInt(#sslice(s, i, j))), lexFrom(s, j))
+    else if isAlpha(c) then
+      let j = scanWhile(s, i, isAlphaNum) in Cons(TName(#sslice(s, i, j)), lexFrom(s, j))
+    else
+      let i2 = #i.add(i, 2) in
+      let two = if #i.le(i2, #slen(s)) then #sslice(s, i, i2) else "" in
+      if chOr(#seq(two, "=>"), #seq(two, "->")) then Cons(TPunct(two), lexFrom(s, i2))
+      else Cons(TPunct(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))
+
+def lex = (s) => lexFrom(s, 0)
+
+-- ── parser:  [token] -> Term   (combinator style: each step -> Pair(node, rest)) ──
+def fst   = (p) => match p { case Pair(a, b) => a }
+def snd   = (p) => match p { case Pair(a, b) => b }
+def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
+
+def isKeyword = (s) =>
+  chOr(chOr(#seq(s, "fun"), #seq(s, "let")),
+       chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
+
+def atomStart = (t) =>
+  match t {
+    case TNum(n)   => true
+    case TName(s)  => if isKeyword(s) then false else true
+    case TPunct(p) => #seq(p, "(")
+  }
+def startsAtom = (toks) => match toks { case Cons(t, r) => atomStart(t) case Nil => false }
+
+def parseAtom = (toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case TNum(n)  => Pair(Lit(n), rest)
+        case TName(s) =>
+          if #seq(s, "true") then Pair(BoolLit(true), rest)
+          else if #seq(s, "false") then Pair(BoolLit(false), rest)
+          else Pair(Var(s), rest)
+        case TPunct(p) => match parseExpr(rest) { case Pair(e, r2) => Pair(e, drop1(r2)) }  -- ( e )
+      }
+    case Nil => Pair(ParseErr, Nil)
+  }
+
+def parseAppMore = (f, toks) =>
+  if startsAtom(toks) then match parseAtom(toks) { case Pair(a, r) => parseAppMore(App(f, a), r) }
+  else Pair(f, toks)
+def parseApp = (toks) => match parseAtom(toks) { case Pair(f, r) => parseAppMore(f, r) }
+
+def parseAddMore = (a, toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case TPunct(p) =>
+          if #seq(p, "+") then match parseApp(rest) { case Pair(b, r2) => parseAddMore(Add(a, b), r2) }
+          else Pair(a, toks)
+        case _ => Pair(a, toks)
+      }
+    case Nil => Pair(a, toks)
+  }
+def parseAdd = (toks) => match parseApp(toks) { case Pair(a, r) => parseAddMore(a, r) }
+
+def parseFun = (toks) =>                              -- after 'fun':  x '=>' body  (NO type annotation)
+  match toks {
+    case Cons(t, r1) =>
+      match t {
+        case TName(x) =>
+          match parseExpr(drop1(r1)) {                 -- drop '=>'
+            case Pair(body, r3) => Pair(Lam(x, body), r3)
+          }
+        case _ => Pair(ParseErr, Nil)
+      }
+    case Nil => Pair(ParseErr, Nil)
+  }
+
+def parseLetE = (toks) =>                             -- after 'let':  x '=' e 'in' body
+  match toks {
+    case Cons(t, r1) =>
+      match t {
+        case TName(x) =>
+          match parseExpr(drop1(r1)) {                 -- drop '='
+            case Pair(e, r3) =>
+              match parseExpr(drop1(r3)) {             -- drop 'in'
+                case Pair(body, r5) => Pair(Let(x, e, body), r5)
+              }
+          }
+        case _ => Pair(ParseErr, Nil)
+      }
+    case Nil => Pair(ParseErr, Nil)
+  }
+
+def parseIfE = (toks) =>                              -- after 'if':  c 'then' t 'else' e
+  match parseExpr(toks) {
+    case Pair(c, r1) =>
+      match parseExpr(drop1(r1)) {                     -- drop 'then'
+        case Pair(th, r3) =>
+          match parseExpr(drop1(r3)) {                 -- drop 'else'
+            case Pair(el, r5) => Pair(If(c, th, el), r5)
+          }
+      }
+  }
+
+def parseExpr = (toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case TName(s) =>
+          if #seq(s, "fun") then parseFun(rest)
+          else if #seq(s, "let") then parseLetE(rest)
+          else if #seq(s, "if") then parseIfE(rest)
+          else parseAdd(toks)
+        case _ => parseAdd(toks)
+      }
+    case Nil => Pair(ParseErr, Nil)
+  }
+
+def parse = (s) => fst(parseExpr(lex(s)))
