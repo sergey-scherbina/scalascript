@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc0-rust — compile a .ssc0 file to Rust (the ssc0 backend lib/backend-rust.ssc0
+# run on the ssc VM). Compile + run the native binary:
+#   ./ssc0-rust examples/fact.ssc0 > f.rs && rustc -O f.rs -o f && ./f     =>  120
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc0-rust.ssc0" "$@"

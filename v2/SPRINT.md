@@ -80,9 +80,12 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       → JS). `./ssc0-js f.ssc0 | node`; node output == VM output for fact/map/calc. Spec
       `60-backend-js.md`. Kernel +0. KNOWN: `tco` overflows (JS has no TCO → needs a trampoline
       pass, deferred).
-- [ ] **backend: ir → Rust** — `lib/backend-rust.ssc0`: emit Rust over a `Value` enum +
-      `Rc<dyn Fn>` closures runtime; `rustc` compiles + runs == VM. (User-requested.)
-- [ ] **backend: ir → WASM**; a TCO-trampoline lowering pass (shared by JS/WASM) in ssc0.
+- [x] **backend: ir → Rust** (2026-06-27) — `lib/backend-rust.ssc0`: emit Rust over a dynamic
+      `V` enum + `Rc<dyn Fn>` closures; closures clone captured outer vars (stay `Fn`).
+      `./ssc0-rust f.ssc0 | rustc` → native binary; output == VM for fact/map/calc. Spec
+      `61-backend-rust.md`. Kernel +0. **3 targets now: JVM / JS / native Rust from one source.**
+      KNOWN: `tco` overflows (no TCO in the Rc-closure encoding; shared trampoline pass deferred).
+- [ ] **backend: ir → WASM**; a TCO-trampoline lowering pass (shared by JS/Rust/WASM) in ssc0.
 
 ## Backlog
 

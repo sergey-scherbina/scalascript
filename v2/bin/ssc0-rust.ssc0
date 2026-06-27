@@ -1,0 +1,9 @@
+-- ssc0 -> Rust backend driver. Reads a .ssc0 file, emits a runnable Rust program.
+--   ssc run bin/ssc0-rust.ssc0 examples/fact.ssc0 > f.rs ; rustc f.rs -o f ; ./f   =>  120
+import "../lib/backend-rust.ssc0"
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) => #io.print(toRust(#utf8->str(#io.readFile(path))))
+    case Nil              => #io.eprint("usage: ssc0-rust <file.ssc0>")
+  }

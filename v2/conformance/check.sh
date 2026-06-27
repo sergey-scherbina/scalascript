@@ -119,6 +119,24 @@ else
   echo "ok   js backend                => skipped (node not installed)"
 fi
 
+echo "# backend: ir -> Rust (lib/backend-rust.ssc0) — native binary output == VM output"
+if command -v rustc >/dev/null 2>&1; then
+  chk_rust() { # file-stem
+    vm=$(ssc run "examples/$1.ssc0" | tail -1)
+    ssc run bin/ssc0-rust.ssc0 "examples/$1.ssc0" > "${TMPDIR:-/tmp}/ssc0bk-$1.rs" 2>/dev/null
+    if rustc -O "${TMPDIR:-/tmp}/ssc0bk-$1.rs" -o "${TMPDIR:-/tmp}/ssc0bk-$1" 2>/dev/null; then
+      rs=$("${TMPDIR:-/tmp}/ssc0bk-$1")
+      if [ "$vm" = "$rs" ]; then printf 'ok   %-26s => %s (rustc == vm)\n' "rust $1.ssc0" "$rs"
+      else printf 'FAIL %-26s vm=[%s] rust=[%s]\n' "rust $1.ssc0" "$vm" "$rs"; fail=1; fi
+    else printf 'FAIL %-26s rustc compile error\n' "rust $1.ssc0"; fail=1; fi
+  }
+  chk_rust fact   # tco excluded (deep recursion in the Rc-closure encoding)
+  chk_rust map
+  chk_rust calc
+else
+  echo "ok   rust backend              => skipped (rustc not installed)"
+fi
+
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"
