@@ -1,0 +1,7 @@
+data Expr = Num Int | Plus Expr Expr | Times Expr Expr in
+let rec eval = fun e => match e {
+    Num n => n
+  | Plus a b => eval a + eval b
+  | Times a b => eval a * eval b
+} in
+eval (Plus (Num 1) (Times (Num 2) (Num 3)))

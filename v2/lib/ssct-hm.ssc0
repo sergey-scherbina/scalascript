@@ -106,13 +106,10 @@ def infer = (env, c, s, term) =>
     case Mul(a, b) => inferArith(env, c, s, a, b, TyInt,  "Mul needs Int operands")
     case Eq(a, b)  => inferArith(env, c, s, a, b, TyBool, "Eq needs Int operands")
     case Lt(a, b)  => inferArith(env, c, s, a, b, TyBool, "< needs Int operands")
-    case StrLit(str) => Ok3(s, TyStr, c)
-    case ShowInt(e)  => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("showInt expects an Int") case Ok(s2) => Ok3(s2, TyStr, c1) } }
-    case Concat(a, b) =>
-      match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
-        match unify(s1, ta, TyStr) { case Err(m) => ErrI("++ needs String operands") case Ok(s1b) =>
-          match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
-            match unify(s2, tb, TyStr) { case Err(m) => ErrI("++ needs String operands") case Ok(s3) => Ok3(s3, TyStr, c2) } } } }
+    case StrLit(str)  => Ok3(s, TyStr, c)
+    case ShowInt(e)   => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("showInt expects an Int") case Ok(s2) => Ok3(s2, TyStr, c1) } }
+    case Concat(a, b) => inferStr2(env, c, s, a, b, TyStr,  "++ needs String operands")
+    case StrEq(a, b)  => inferStr2(env, c, s, a, b, TyBool, "strEq needs String operands")
     case If(cnd, th, el) =>
       match infer(env, c, s, cnd) { case ErrI(m) => ErrI(m) case Ok3(s1, tc, c1) =>
         match unify(s1, tc, TyBool) { case Err(m) => ErrI("if-condition must be Bool") case Ok(s1b) =>
@@ -160,6 +157,11 @@ def inferArith = (env, c, s, a, b, res, msg) =>
     match unify(s1, ta, TyInt) { case Err(m) => ErrI(msg) case Ok(s1b) =>
       match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
         match unify(s2, tb, TyInt) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
+def inferStr2 = (env, c, s, a, b, res, msg) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match unify(s1, ta, TyStr) { case Err(m) => ErrI(msg) case Ok(s1b) =>
+      match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+        match unify(s2, tb, TyStr) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
 
 -- ── user-definable ADTs: a constructor registry  con -> ConSig(typeCtor, #params, fieldTypes) ──
 -- field types use TyVar(0..#params-1) as the type parameters (a canonical scheme, instantiated fresh).
@@ -263,6 +265,7 @@ def evalT = (env, t) =>
     case StrLit(str)  => StrVal(str)
     case ShowInt(e)   => StrVal(#i->str(asI(evalT(env, e))))
     case Concat(a, b) => StrVal(#sconcat(asStr(evalT(env, a)), asStr(evalT(env, b))))
+    case StrEq(a, b)  => BoolVal(#seq(asStr(evalT(env, a)), asStr(evalT(env, b))))
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
     case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }

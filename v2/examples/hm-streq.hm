@@ -1,0 +1,1 @@
+if strEq "abc" "abc" then 1 else 0

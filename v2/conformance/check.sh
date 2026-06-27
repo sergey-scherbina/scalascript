@@ -228,6 +228,25 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/sw.rs" -o "${TMPDIR:-/tmp}/sw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SW" ]; then printf 'ok   %-26s => %s (rustc)\n' "string -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "string Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm SHOWCASE: a typed arithmetic-expression interpreter, written in ssct-hm, on 3 backends"
+chk_hm examples/hm-eval.hm '"Int"'                                  # data Expr = Num | Plus | Times ; eval
+ssc run bin/ssctc-hm.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ev.coreir" | tail -1)
+if [ "$got" = "7" ]; then printf 'ok   %-26s => %s\n' "eval interp -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eval" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ev.js" 2>/dev/null | tail -1)
+  if [ "$got" = "7" ]; then printf 'ok   %-26s => %s (node)\n' "eval interp -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eval JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eval.hm > "${TMPDIR:-/tmp}/ev.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ev.rs" -o "${TMPDIR:-/tmp}/ev-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ev-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "7" ]; then printf 'ok   %-26s => %s (rustc)\n' "eval interp -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eval Rust" "$got"; fail=1; fi
+fi
+chk_hm examples/hm-streq.hm '"Int"'                                 # strEq (string equality)
+ssc run bin/ssctc-hm.ssc0 examples/hm-streq.hm > "${TMPDIR:-/tmp}/se.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/se.coreir" | tail -1)
+if [ "$got" = "1" ]; then printf 'ok   %-26s => %s\n' "strEq -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "strEq" "$got"; fail=1; fi
 echo "# ssct-hm Ord operators: > <= >= <> derived from </=/if (consistent on all backends)"
 chk_hm examples/hm-ord.hm '"Int"'
 ssc run bin/ssctc-hm.ssc0 examples/hm-ord.hm > "${TMPDIR:-/tmp}/o.coreir" 2>/dev/null

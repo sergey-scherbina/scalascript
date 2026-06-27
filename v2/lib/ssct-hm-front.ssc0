@@ -244,7 +244,7 @@ def appendL = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, a
 def dsApp = (f, a) =>
   match f {
     case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else App(f, a)
-    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else App(f, a) case _ => App(f, a) }
+    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else App(f, a) case _ => App(f, a) }
     case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)
   }
