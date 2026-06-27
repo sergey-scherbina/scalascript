@@ -1,0 +1,3 @@
+-- `eq 1 1` — typer infers Int for both, resolves Eq Int.  =>  Typed("Bool", true)
+import "../lib/ssct.ssc0"
+def main = () => check(EqM(Lit(1), Lit(1)))

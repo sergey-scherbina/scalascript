@@ -55,6 +55,9 @@ echo "# typeclasses IN THE TYPER (ssct): show-e resolved from the inferred type;
 chk run examples/tc-show-int.ssc0  'Typed("String", "3")'
 chk run examples/tc-show-bool.ssc0 'Typed("String", "true")'
 chk run examples/tc-show-err.ssc0  'TypeError("no Show instance for the argument type")'
+chk run examples/tc-eq-int.ssc0    'Typed("Bool", true)'
+chk run examples/tc-eq-false.ssc0  'Typed("Bool", false)'
+chk run examples/tc-eq-err.ssc0    'TypeError("eq: operands must be the same Eq-able type")'
 
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"

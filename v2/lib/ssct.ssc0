@@ -83,6 +83,15 @@ def infer = (env, term) =>
         case Err(m) => Err(m)
         case Ok(t)  => if isShowable(t) then Ok(TyStr) else Err("no Show instance for the argument type")
       }
+    case EqM(a, b) =>                           -- `eq a b` : an Eq-constrained binary method
+      match infer(env, a) {
+        case Err(m) => Err(m)
+        case Ok(ta) =>
+          match infer(env, b) {
+            case Err(m2) => Err(m2)
+            case Ok(tb)  => if both(tyEq(ta, tb), isShowable(ta)) then Ok(TyBool) else Err("eq: operands must be the same Eq-able type")
+          }
+      }
     case If(c, t, e) =>
       match infer(env, c) {
         case Err(m) => Err(m)
@@ -131,7 +140,13 @@ def evalTerm = (env, term) =>
       let v = evalTerm(env, e) in
       if #seq(inst, "showInt") then StrVal(#i->str(asInt(v)))
       else match v { case BoolVal(b) => if b then StrVal("true") else StrVal("false") case _ => Stuck }
+    case EqDispatch(inst, a, b) =>                -- the typer-resolved Eq dictionary, applied
+      let va = evalTerm(env, a) in
+      let vb = evalTerm(env, b) in
+      if #seq(inst, "eqInt") then BoolVal(#i.eq(asInt(va), asInt(vb)))
+      else match va { case BoolVal(x) => match vb { case BoolVal(y) => BoolVal(boolEq(x, y)) case _ => Stuck } case _ => Stuck }
   }
+def boolEq = (x, y) => if x then y else (if y then false else true)
 
 def lookupVal = (env, x) =>
   match env {
@@ -144,7 +159,8 @@ def valToShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case S
 
 -- ── typeclass elaboration: resolve each `show e` to its instance from e's inferred type ──
 def typeOf  = (env, e) => match infer(env, e) { case Ok(t) => t case Err(m) => TyInt }
-def instFor = (ty) => match ty { case TyInt => "showInt" case TyBool => "showBool" case _ => "showErr" }
+def instFor   = (ty) => match ty { case TyInt => "showInt" case TyBool => "showBool" case _ => "showErr" }
+def instForEq = (ty) => match ty { case TyInt => "eqInt"   case TyBool => "eqBool"   case _ => "eqErr" }
 def elaborate = (env, term) =>
   match term {
     case Lit(n)           => Lit(n)
@@ -156,6 +172,7 @@ def elaborate = (env, term) =>
     case If(c, t, e)      => If(elaborate(env, c), elaborate(env, t), elaborate(env, e))
     case Let(x, e, body)  => Let(x, elaborate(env, e), elaborate(Cons(Pair(x, typeOf(env, e)), env), body))
     case ShowM(e)         => ShowDispatch(instFor(typeOf(env, e)), elaborate(env, e))   -- resolve!
+    case EqM(a, b)        => EqDispatch(instForEq(typeOf(env, a)), elaborate(env, a), elaborate(env, b))
   }
 
 -- ── the typed layer:  type-check, elaborate (resolve dicts), then run ────────────
