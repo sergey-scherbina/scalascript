@@ -1,0 +1,1 @@
+data Color = Red | Green | Blue in let name c = match c { Red => "red" | _ => "other" } in name Red ++ "/" ++ name Green ++ "/" ++ name Blue

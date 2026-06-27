@@ -524,6 +524,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/cur.rs" -o "${TMPDIR:-/tmp}/cur-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cur-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$CUW" ]; then printf 'ok   %-26s => %s (rustc)\n' "curry sugar -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "curry Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm WILDCARD match: 'case _ => e' catch-all arm -> IrMatch default slot, on every backend"
+chk_hm examples/hm-wildcard.hm '"String"'
+WCW='"red/other/other"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-wildcard.hm > "${TMPDIR:-/tmp}/wc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/wc.coreir" | tail -1)
+if [ "$got" = "$WCW" ]; then printf 'ok   %-26s => %s\n' "wildcard match -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "wildcard" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-wildcard.hm > "${TMPDIR:-/tmp}/wc.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/wc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$WCW" ]; then printf 'ok   %-26s => %s (node)\n' "wildcard match -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "wildcard JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-wildcard.hm > "${TMPDIR:-/tmp}/wc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/wc.rs" -o "${TMPDIR:-/tmp}/wc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/wc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$WCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "wildcard match -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "wildcard Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

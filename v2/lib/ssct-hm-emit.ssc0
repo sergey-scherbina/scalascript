@@ -10,6 +10,9 @@ def mapErase = (scope, ts) => match ts { case Nil => Nil case Cons(t, rest) => C
 -- prepend binders so the LAST one is de Bruijn index 0 (kernel arm convention: first field = highest index)
 def prependAll = (xs, scope) => match xs { case Nil => scope case Cons(x, rest) => prependAll(rest, Cons(x, scope)) }
 def mapEraseArms = (scope, arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => Cons(IrArm(con, lenB(binders), erase(prependAll(binders, scope), body)), mapEraseArms(scope, rest)) } }
+-- wildcard `_` arms become the IrMatch `default` slot, not an IrArm (binds nothing, so scope is unchanged):
+def mapEraseArmsNW = (scope, arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then mapEraseArmsNW(scope, rest) else Cons(IrArm(con, lenB(binders), erase(prependAll(binders, scope), body)), mapEraseArmsNW(scope, rest)) } }
+def findDefault = (scope, arms) => match arms { case Nil => None case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then Some(erase(scope, body)) else findDefault(scope, rest) } }
 
 def erase = (scope, term) =>
   match term {
@@ -53,7 +56,7 @@ def erase = (scope, term) =>
     case LTail(l)    => IrMatch(erase(scope, l), Cons(IrArm("Cons", 2, IrLocal(0)), Nil), None)
     case LIsNil(l)   => IrMatch(erase(scope, l), Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Cons(IrArm("Cons", 2, IrLit(IrBool(false))), Nil)), None)
     case ConApp(name, args)  => IrCtor(name, mapErase(scope, args))
-    case MatchT(scrut, arms) => IrMatch(erase(scope, scrut), mapEraseArms(scope, arms), None)
+    case MatchT(scrut, arms) => IrMatch(erase(scope, scrut), mapEraseArmsNW(scope, arms), findDefault(scope, arms))
     case ShowM(id, e) => emitShowFromType(instOf(id), erase(scope, e))   -- Show instance (the resolved type) from infer
     case EqM(id, a, b) => emitEqFromType(instOf(id), erase(scope, a), erase(scope, b))   -- Eq instance from infer
     case CmpM(id, a, b) =>                                         -- Ord (compare -> -1/0/1) for Int/Float

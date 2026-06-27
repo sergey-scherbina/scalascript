@@ -357,6 +357,13 @@ def inferArms = (env, c, s, ts, arms, resultOpt) =>
   match arms {
     case Nil => match resultOpt { case Some(rt) => Ok3(s, appTy(s, rt), c) case None => ErrI("empty match") }
     case Cons(arm, rest) => match arm { case MArm(con, binders, body) =>
+      if #seq(con, "_") then                                       -- wildcard arm: binds nothing, doesn't constrain the scrutinee
+        match infer(env, c, s, body) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c3) =>
+          match resultOpt {
+            case None      => inferArms(env, c3, s2, ts, rest, Some(tb))
+            case Some(rt)  => match unify(s2, rt, tb) { case Err(m) => ErrI("match branches must have the same type") case Ok(s3) => inferArms(env, c3, s3, ts, rest, Some(rt)) }
+          } }
+      else
       match conInfo(con) { case ConSig(tyCon, np, fields) =>
         let ren = mkRen(0, np, c) in
         match unify(s, ts, TyCon(tyCon, freshArgs(0, np, c))) { case Err(m) => ErrI("match scrutinee does not fit constructor") case Ok(s1) =>
@@ -472,7 +479,7 @@ def valCmp = (x, y) => match x {
   }
 def mapEvalT = (env, ts) => match ts { case Nil => Nil case Cons(t, rest) => Cons(evalT(env, t), mapEvalT(env, rest)) }
 def bindVals = (binders, vals, env) => match binders { case Nil => env case Cons(b, bs) => match vals { case Cons(v, vs) => bindVals(bs, vs, Cons(Pair(b, v), env)) case Nil => env } }
-def evalArms = (env, cn, vals, arms) => match arms { case Nil => Stuck case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, cn) then evalT(bindVals(binders, vals, env), body) else evalArms(env, cn, vals, rest) } }
+def evalArms = (env, cn, vals, arms) => match arms { case Nil => Stuck case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then evalT(env, body) else if #seq(con, cn) then evalT(bindVals(binders, vals, env), body) else evalArms(env, cn, vals, rest) } }
 -- render a runtime value as a string (for ADT values: Some(5), Pair(1, true), Node(Leaf(1), Leaf(2)))
 def vToStr  = (v) => match v {
     case IntVal(n)  => #i->str(n)
