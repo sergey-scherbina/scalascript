@@ -196,6 +196,17 @@ def infer = (env, c, s, term) =>
               case None => ErrI(#sconcat("record has no field ", name))
               case Some(pr) => match pr { case Pair(idx, ft) => let u = registerField(id, idx, lenRec(fields)) in Ok3(s1, ft, c1) } }
           case _ => ErrI("field access on a non-record") } }
+    case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
+      match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
+        let tn = typeName(appTy(s1, ta)) in
+        match lookupInstance(m, tn) {
+          case None => ErrI(#sconcat("no instance of `", #sconcat(m, #sconcat("` for type ", tn))))
+          case Some(impl) =>
+            match infer(env, c1, s1, impl) { case ErrI(e) => ErrI(e) case Ok3(s2, ti, c2) =>
+              let tr = TyVar(c2) in
+              match unify(s2, ti, TyFun(appTy(s2, ta), tr)) { case Err(e) => ErrI("method instance type mismatch") case Ok(s3) =>
+                let u = registerMethodImpl(id, impl) in Ok3(s3, appTy(s3, tr), #i.add(c2, 1)) } } }
+      }
   }
 def inferRec = (env, c, s, fields, acc) =>
   match fields {
@@ -248,6 +259,22 @@ def inferUn = (env, c, s, e, ty, msg) =>
 def conReg      = #cell.new(Nil)
 def lookupReg   = (reg, name) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(k, sig) => if #seq(k, name) then Some(sig) else lookupReg(rest, name) } }
 def registerCon = (con, sig) => #cell.set(conReg, Cons(Pair(con, sig), #cell.get(conReg)))
+-- ── user-defined typeclasses: `method m` registers a method name; `instance m T = expr` registers an
+-- impl keyed by (method, type-head-name). A method use `m arg` resolves by arg's type-head to the impl. ──
+def methodSet  = #cell.new(Nil)
+def instReg    = #cell.new(Nil)                                    -- list of Pair(Pair(method, typeName), implTerm)
+def methodReg  = #cell.new(Nil)                                    -- per-use id -> resolved impl term
+def registerMethod   = (m) => #cell.set(methodSet, Cons(m, #cell.get(methodSet)))
+def memberStrL       = (s, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, s) then true else memberStrL(s, t) }
+def isMethod         = (m) => memberStrL(m, #cell.get(methodSet))
+def registerInstance = (m, tn, impl) => #cell.set(instReg, Cons(Pair(Pair(m, tn), impl), #cell.get(instReg)))
+def bothT            = (a, b) => if a then b else false
+def lookupInst       = (reg, m, tn) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(key, impl) => match key { case Pair(km, ktn) => if bothT(#seq(km, m), #seq(ktn, tn)) then Some(impl) else lookupInst(rest, m, tn) } } }
+def lookupInstance   = (m, tn) => lookupInst(#cell.get(instReg), m, tn)
+def registerMethodImpl = (id, impl) => #cell.set(methodReg, Cons(Pair(id, impl), #cell.get(methodReg)))
+def lookupMImpl      = (reg, id) => match reg { case Nil => Lit(0) case Cons(p, rest) => match p { case Pair(k, impl) => if #i.eq(k, id) then impl else lookupMImpl(rest, id) } }
+def methodImplOf     = (id) => lookupMImpl(#cell.get(methodReg), id)
+def typeName = (t) => match t { case TyInt => "Int" case TyBool => "Bool" case TyStr => "String" case TyFloat => "Float" case TyList(e) => "List" case TyCon(nm, args) => nm case _ => "?" }
 def conInfo = (name) => match lookupReg(#cell.get(conReg), name) { case Some(sig) => sig case None => builtinCon(name) }
 -- the constructors of a type (built-ins hard-coded; user data types scanned from conReg) — for show/eq emit
 def consInReg = (name, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(con, sig) => match sig { case ConSig(tyCon, np, fields) => if #seq(tyCon, name) then Cons(con, consInReg(name, rest)) else consInReg(name, rest) } } }
@@ -406,6 +433,7 @@ def evalT = (env, t) =>
     case CmpM(id, a, b) => IntVal(valCmp(evalT(env, a), evalT(env, b)))
     case RecLit(fields) => RecVal(evalRecF(env, fields))
     case FieldGet(id, rc, name) => match evalT(env, rc) { case RecVal(fs) => lookupField(fs, name) case _ => Stuck }
+    case MethodCall(id, m, arg) => applyV(evalT(env, methodImplOf(id)), evalT(env, arg))   -- apply the resolved impl
   }
 def evalRecF = (env, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, evalT(env, e)), evalRecF(env, rest)) } }
 def lookupField = (fs, name) => match fs { case Nil => Stuck case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, name) then v else lookupField(rest, name) } }

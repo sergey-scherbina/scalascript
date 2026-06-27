@@ -1,0 +1,1 @@
+data Color = Red | Green | Blue in method name in instance name Color = fun c => match c { Red => "red" | Green => "green" | Blue => "blue" } in name Green

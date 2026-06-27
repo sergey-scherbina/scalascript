@@ -60,6 +60,7 @@ def erase = (scope, term) =>
     case RecLit(fields)  => IrCtor("__rec", eraseRecF(scope, fields))      -- a record value: a __rec Data in field order
     case FieldGet(id, rc, name) =>                                        -- field extract at the index resolved by infer
       match fieldOf(id) { case Pair(idx, ar) => IrMatch(erase(scope, rc), Cons(IrArm("__rec", ar, IrLocal(#i.sub(#i.sub(ar, 1), idx))), Nil), None) }
+    case MethodCall(id, m, arg) => IrApp(erase(scope, methodImplOf(id)), Cons(erase(scope, arg), Nil))   -- apply resolved instance impl
   }
 def eraseRecF = (scope, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(erase(scope, e), eraseRecF(scope, rest)) } }
 

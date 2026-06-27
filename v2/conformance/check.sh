@@ -379,6 +379,38 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/eq.rs" -o "${TMPDIR:-/tmp}/eq-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eq-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (rustc)\n' "eq -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm USER TYPECLASSES: `method m` + `instance m T = impl`, m resolves by arg type-head, on every backend"
+chk_hm examples/hm-userclass.hm '"String"'
+UCW='"int"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-userclass.hm > "${TMPDIR:-/tmp}/uc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/uc.coreir" | tail -1)
+if [ "$got" = "$UCW" ]; then printf 'ok   %-26s => %s\n' "describe 5 -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-userclass.hm > "${TMPDIR:-/tmp}/uc.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/uc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$UCW" ]; then printf 'ok   %-26s => %s (node)\n' "describe 5 -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-userclass.hm > "${TMPDIR:-/tmp}/uc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/uc.rs" -o "${TMPDIR:-/tmp}/uc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/uc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$UCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "describe 5 -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass Rust" "$got"; fail=1; fi
+fi
+echo "# ssct-hm USER TYPECLASS over a user data type: instance name Color resolves + dispatches the impl"
+chk_hm examples/hm-userclass-color.hm '"String"'
+UCC='"green"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-userclass-color.hm > "${TMPDIR:-/tmp}/ucc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ucc.coreir" | tail -1)
+if [ "$got" = "$UCC" ]; then printf 'ok   %-26s => %s\n' "name Green -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass-color" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-userclass-color.hm > "${TMPDIR:-/tmp}/ucc.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ucc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$UCC" ]; then printf 'ok   %-26s => %s (node)\n' "name Green -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass-color JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-userclass-color.hm > "${TMPDIR:-/tmp}/ucc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ucc.rs" -o "${TMPDIR:-/tmp}/ucc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ucc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$UCC" ]; then printf 'ok   %-26s => %s (rustc)\n' "name Green -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass-color Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm RECORDS: { x = e, y = e } literals + r.x access (structural record types), 3 backends"
 chk_hm examples/hm-rectype.hm '"{x: Int, y: Bool}"'
 RW="10"

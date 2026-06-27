@@ -1,0 +1,1 @@
+method describe in instance describe Int = fun n => "int" in instance describe Bool = fun b => "bool" in describe 5

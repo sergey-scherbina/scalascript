@@ -57,7 +57,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), #seq(s, "data"))),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(#seq(s, "data"), chOr(#seq(s, "method"), #seq(s, "instance"))))),
        chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -277,7 +277,7 @@ def idCell = #cell.new(0)
 def nextId = (u) => let n = #cell.get(idCell) in let z = #cell.set(idCell, #i.add(n, 1)) in n
 def dsApp = (f, a) =>
   match f {
-    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else if #seq(x, "neg") then INeg(a) else if #seq(x, "fneg") then FNeg(a) else if #seq(x, "fsqrt") then FSqrt(a) else if #seq(x, "show") then ShowM(nextId(0), a) else if #seq(x, "fst") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tfst")), Nil)) else if #seq(x, "snd") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tsnd")), Nil)) else App(f, a)
+    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else if #seq(x, "neg") then INeg(a) else if #seq(x, "fneg") then FNeg(a) else if #seq(x, "fsqrt") then FSqrt(a) else if #seq(x, "show") then ShowM(nextId(0), a) else if #seq(x, "fst") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tfst")), Nil)) else if #seq(x, "snd") then MatchT(a, Cons(MArm("Pair", Cons("tfst", Cons("tsnd", Nil)), Var("tsnd")), Nil)) else if isMethod(x) then MethodCall(nextId(0), x, a) else App(f, a)
     case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else if #seq(y, "fadd") then FAdd(h, a) else if #seq(y, "fsub") then FSub(h, a) else if #seq(y, "fmul") then FMul(h, a) else if #seq(y, "fdiv") then FDiv(h, a) else if #seq(y, "flt") then FLt(h, a) else if #seq(y, "feq") then FEq(h, a) else if #seq(y, "eq") then EqM(nextId(0), h, a) else if #seq(y, "compare") then CmpM(nextId(0), h, a) else if #seq(y, "div") then IDiv(h, a) else if #seq(y, "mod") then IMod(h, a) else App(f, a) case _ => App(f, a) }
     case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)
@@ -334,6 +334,25 @@ def parseData = (toks) =>                              -- after 'data':  Name pa
       match parseParams(rest) { case Pair(ps, r1) =>                  -- r1 starts with '='
         match parseCons(typeName, ps, drop1(r1)) { case Pair(u, r2) => parseProgram(drop1(r2)) } }    -- drop '=' then 'in'
       case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+-- ── `method m in <prog>` : declare a user typeclass method (monomorphic, resolved by arg type) ──
+def parseMethodDecl = (toks) =>                        -- after 'method':  m 'in' <prog>
+  match toks { case Cons(t, rest) => match t { case TName(m) =>
+      let u = registerMethod(m) in parseProgram(drop1(rest))   -- drop 'in'
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+-- ── `instance m T = expr in <prog>` : register the impl for method m at type-head T ──
+def parseInstanceDecl = (toks) =>                      -- after 'instance':  m T '=' expr 'in' <prog>
+  match toks { case Cons(t1, r1) => match t1 { case TName(m) =>
+      match r1 { case Cons(t2, r2) => match t2 { case TName(tn) =>
+          match parseExpr(drop1(r2)) {                  -- drop '='
+            case Pair(impl, r3) =>
+              let u = registerInstance(m, tn, desugar(impl)) in parseProgram(drop1(r3)) }   -- drop 'in'
+          case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
 def parseProgram = (toks) =>
-  match toks { case Cons(t, rest) => match t { case TName(s) => if #seq(s, "data") then parseData(rest) else parseExpr(toks) case _ => parseExpr(toks) } case Nil => Pair(ParseErr, Nil) }
+  match toks { case Cons(t, rest) => match t { case TName(s) =>
+      if #seq(s, "data") then parseData(rest)
+      else if #seq(s, "method") then parseMethodDecl(rest)
+      else if #seq(s, "instance") then parseInstanceDecl(rest)
+      else parseExpr(toks)
+      case _ => parseExpr(toks) } case Nil => Pair(ParseErr, Nil) }
 def parse = (s) => desugar(fst(parseProgram(lex(s))))
