@@ -211,6 +211,7 @@ fi
 
 echo "# ssct-hm TEXTUAL LISTS: map written as source text (nil/cons/head/tail/isNil) -> all 3 backends"
 chk_hm examples/hm-map.hm '"[Int]"'
+chk_hm examples/hm-listlit.hm '"[Int]"'                            # [1, 2, 3] list-literal syntax
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)

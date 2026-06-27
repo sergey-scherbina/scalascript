@@ -55,10 +55,26 @@ def atomStart = (t) =>
   match t {
     case TNum(n)   => true
     case TName(s)  => if isKeyword(s) then false else true
-    case TPunct(p) => #seq(p, "(")
+    case TPunct(p) => chOr(#seq(p, "("), #seq(p, "["))
   }
 def startsAtom = (toks) => match toks { case Cons(t, r) => atomStart(t) case Nil => false }
 
+-- list literal:  '[' (e (',' e)*)? ']'  desugars to cons/nil chains (then -> LCons/LNil)
+def parseListSeq = (toks) =>
+  match parseExpr(toks) { case Pair(e, r1) =>
+    match r1 {
+      case Cons(t, rest) => match t {
+          case TPunct(p) => if #seq(p, ",") then match parseListSeq(rest) { case Pair(tl, r2) => Pair(App(App(Var("cons"), e), tl), r2) }
+                            else Pair(App(App(Var("cons"), e), Var("nil")), rest)
+          case _ => Pair(App(App(Var("cons"), e), Var("nil")), r1)
+        }
+      case Nil => Pair(App(App(Var("cons"), e), Var("nil")), Nil)
+    } }
+def parseListLit = (toks) =>
+  match toks {
+    case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "]") then Pair(Var("nil"), rest) else parseListSeq(toks) case _ => parseListSeq(toks) }
+    case Nil => Pair(Var("nil"), Nil)
+  }
 def parseAtom = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -68,7 +84,7 @@ def parseAtom = (toks) =>
           if #seq(s, "true") then Pair(BoolLit(true), rest)
           else if #seq(s, "false") then Pair(BoolLit(false), rest)
           else Pair(Var(s), rest)
-        case TPunct(p) => match parseExpr(rest) { case Pair(e, r2) => Pair(e, drop1(r2)) }  -- ( e )
+        case TPunct(p) => if #seq(p, "[") then parseListLit(rest) else match parseExpr(rest) { case Pair(e, r2) => Pair(e, drop1(r2)) }  -- [ .. ] or ( e )
       }
     case Nil => Pair(ParseErr, Nil)
   }
