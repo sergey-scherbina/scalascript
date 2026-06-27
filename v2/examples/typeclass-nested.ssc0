@@ -1,0 +1,2 @@
+import "../lib/typeclass.ssc0"
+def main = () => show(TListR(TListR(TIntR)), Cons(Cons(1, Cons(2, Nil)), Cons(Cons(3, Nil), Nil)))

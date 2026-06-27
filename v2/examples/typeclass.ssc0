@@ -1,0 +1,6 @@
+-- Typeclass resolution: show a list of ints. The resolver picks Show(List), which needs
+-- Show(Int) — conditional-instance resolution, exactly like `Show a => Show (List a)`.
+--   ssc run examples/typeclass.ssc0   =>  "[1, 2, 3]"
+import "../lib/typeclass.ssc0"
+
+def main = () => show(TListR(TIntR), Cons(1, Cons(2, Cons(3, Nil))))

@@ -1,0 +1,33 @@
+-- Typeclasses, as type-directed instance resolution + dictionary passing, in ssc0.
+-- A "dictionary" is the instance (here: a function). `resolveShow` is instance resolution:
+-- given a type representation it returns the dictionary, INCLUDING the conditional instance
+-- `Show a => Show (List a)` (resolve the element instance, build the list one). This is the
+-- elaborated form a typeclass system produces; the ssct typer would insert it from inferred
+-- types automatically. No kernel support — typeclasses are an elaboration + records.
+
+-- type representations (what the typer would carry):  TIntR | TBoolR | TListR(elem)
+def showInt  = (n) => #i->str(n)
+def showBool = (b) => if b then "true" else "false"
+
+def mapL = (f, xs) => match xs { case Nil => Nil case Cons(h, t) => Cons(f(h), mapL(f, t)) }
+def joinComma = (parts) =>
+  match parts {
+    case Nil => ""
+    case Cons(h, t) =>
+      match t {
+        case Nil => h
+        case Cons(h2, t2) => #sconcat(h, #sconcat(", ", joinComma(t)))
+      }
+  }
+def showListWith = (showE) => (xs) => #sconcat("[", #sconcat(joinComma(mapL(showE, xs)), "]"))
+
+-- instance resolution: type -> Show dictionary  (note the recursive/conditional instance)
+def resolveShow = (t) =>
+  match t {
+    case TIntR     => showInt
+    case TBoolR    => showBool
+    case TListR(e) => showListWith(resolveShow(e))      -- Show a => Show (List a)
+  }
+
+-- the constrained generic: `show : Show a => a -> String`, here passed the resolved dict.
+def show = (t, v) => resolveShow(t)(v)

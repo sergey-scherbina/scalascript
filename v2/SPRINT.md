@@ -63,8 +63,11 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       ops + a round-robin scheduler handler on `lib/effects.ssc0`. Demos: async-tasks (two tasks
       interleaved → 1,10,2,20,3) + async-fork (spawn → 1,2,100,3,200). Spec `51-async.md`.
       Kernel +0 — concurrency is a library. NEXT in async: await/futures/channels/mailboxes.
-- [ ] **typeclasses** — dictionary-passing elaboration in the `ssct` typed layer (resolve
-      instances → explicit dict args, erased to plain functions). Demo: `Eq`/`Show`/`Num`.
+- [x] **typeclasses** (2026-06-27) — `lib/typeclass.ssc0`: type-directed instance resolution +
+      dictionary passing, incl. conditional instances `Show a => Show (List a)` (recursive
+      resolution). Demos: show List Int / List(List Int) / List Bool. Spec `52-typeclasses.md`.
+      Kernel +0. NEXT: wire automatic resolution into the `ssct` typer (insert dict from inferred
+      type + erase); multi-method classes (Eq/Num/Ord) = multi-field dicts.
 - [ ] **actors** — message-passing on top of effects/async (mailboxes, spawn, send).
 - [ ] `do`-notation sugar for `bind` in the surface; typed effect rows in `ssct`.
 

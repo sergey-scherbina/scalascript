@@ -42,6 +42,11 @@ echo "# async: cooperative scheduler on effects (lib/async.ssc0) — yield + for
 chk run examples/async-tasks.ssc0 "Cons(1, Cons(10, Cons(2, Cons(20, Cons(3, Nil)))))"
 chk run examples/async-fork.ssc0  "Cons(1, Cons(2, Cons(100, Cons(3, Cons(200, Nil)))))"
 
+echo "# typeclasses: type-directed instance resolution + dict passing (lib/typeclass.ssc0)"
+chk run examples/typeclass.ssc0        '"[1, 2, 3]"'
+chk run examples/typeclass-nested.ssc0 '"[[1, 2], [3]]"'
+chk run examples/typeclass-bool.ssc0   '"[true, false]"'
+
 echo "# ssct — the typed layer (a type checker written in ssc0)"
 chk run examples/typed.ssc0    'Typed("Int", 42)'
 chk run examples/typed-fn.ssc0 'Typed("Int", 42)'
