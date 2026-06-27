@@ -77,11 +77,10 @@ def infer = (env, c, s, term) =>
               match unify(s2, tf, TyFun(ta, tr)) { case Err(m) => ErrI(m) case Ok(s3) => Ok3(s3, appTy(s3, tr), #i.add(c2, 1)) }
           }
       }
-    case Add(a, b) =>
-      match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
-        match unify(s1, ta, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s1b) =>
-          match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
-            match unify(s2, tb, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s3) => Ok3(s3, TyInt, c2) } } } }
+    case Add(a, b) => inferArith(env, c, s, a, b, TyInt,  "Add needs Int operands")
+    case Sub(a, b) => inferArith(env, c, s, a, b, TyInt,  "Sub needs Int operands")
+    case Mul(a, b) => inferArith(env, c, s, a, b, TyInt,  "Mul needs Int operands")
+    case Eq(a, b)  => inferArith(env, c, s, a, b, TyBool, "Eq needs Int operands")
     case If(cnd, th, el) =>
       match infer(env, c, s, cnd) { case ErrI(m) => ErrI(m) case Ok3(s1, tc, c1) =>
         match unify(s1, tc, TyBool) { case Err(m) => ErrI("if-condition must be Bool") case Ok(s1b) =>
@@ -91,7 +90,22 @@ def infer = (env, c, s, term) =>
     case Let(x, e, body) =>
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
         infer(Cons(Pair(x, generalize(env, s1, te)), env), c1, s1, body) }
+    case LetRec(f, lam, body) =>
+      let tv = TyVar(c) in
+      match infer(Cons(Pair(f, Forall(Nil, tv)), env), #i.add(c, 1), s, lam) {
+        case ErrI(m) => ErrI(m)
+        case Ok3(s1, tlam, c1) =>
+          match unify(s1, tv, tlam) { case Err(m) => ErrI(m) case Ok(s2) =>
+            infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body) }
+      }
   }
+
+-- shared: infer two operands, force both Int, return a chosen result type (TyInt for +-*, TyBool for eq)
+def inferArith = (env, c, s, a, b, res, msg) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match unify(s1, ta, TyInt) { case Err(m) => ErrI(msg) case Ok(s1b) =>
+      match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+        match unify(s2, tb, TyInt) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
 
 def showTyR = (t) => match t {
     case TyInt      => "Int"
@@ -109,18 +123,29 @@ def hm = (term) => match infer(Nil, 0, Nil, term) {
 def lookupVl = (env, x) => match env { case Nil => Stuck case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, x) then v else lookupVl(rest, x) } }
 def asI = (v) => match v { case IntVal(n) => n case _ => 0 }
 def asB = (v) => match v { case BoolVal(b) => b case _ => false }
+-- apply a value to an argument; a recursive closure re-binds itself in its own body's env
+def applyV = (fn, arg) =>
+  match fn {
+    case CloVal(x, body, cenv)       => evalT(Cons(Pair(x, arg), cenv), body)
+    case RecCloVal(f, x, body, cenv) => evalT(Cons(Pair(x, arg), Cons(Pair(f, RecCloVal(f, x, body, cenv)), cenv)), body)
+    case _ => Stuck
+  }
 def evalT = (env, t) =>
   match t {
     case Lit(n)       => IntVal(n)
     case BoolLit(b)   => BoolVal(b)
     case Var(x)       => lookupVl(env, x)
     case Lam(x, body) => CloVal(x, body, env)
-    case App(f, a)    => match evalT(env, f) { case CloVal(x, body, cenv) => evalT(Cons(Pair(x, evalT(env, a)), cenv), body) case _ => Stuck }
+    case App(f, a)    => applyV(evalT(env, f), evalT(env, a))
     case Add(a, b)    => IntVal(#i.add(asI(evalT(env, a)), asI(evalT(env, b))))
+    case Sub(a, b)    => IntVal(#i.sub(asI(evalT(env, a)), asI(evalT(env, b))))
+    case Mul(a, b)    => IntVal(#i.mul(asI(evalT(env, a)), asI(evalT(env, b))))
+    case Eq(a, b)     => BoolVal(#i.eq(asI(evalT(env, a)), asI(evalT(env, b))))
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
+    case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }
   }
-def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case CloVal(x, body, env) => "<fun>" }
+def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" }
 -- infer the type (reject if ill-typed), then evaluate; report Typed(type, value) | TypeError(msg)
 def runHm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)      => TypeError(m)

@@ -130,6 +130,13 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/ssctc-hm-prog.coreir" | tail -1)
 if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ssctc-hm prog -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [42]\n' "ssctc-hm prog -> run-ir" "$got"; fail=1; fi
 
+echo "# ssct-hm RECURSION: factorial (let rec + mul/sub/eq) infers Int, runs, AND compiles to letrec ir"
+chk run examples/hm-fact.ssc0 'Typed("Int", 120)'        # interpreter: HM infer + evaluate
+ssc run examples/hm-fact-emit.ssc0 > "${TMPDIR:-/tmp}/hm-fact.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-fact.coreir" | tail -1)
+if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "hm-fact -> ir -> run-ir" "$got"
+else printf 'FAIL %-26s got [%s] want [120]\n' "hm-fact -> ir -> run-ir" "$got"; fail=1; fi
+
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
 chk_diff() { # file-stem
   a=$(ssc compile "examples/$1.ssc0")
