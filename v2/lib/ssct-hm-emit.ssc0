@@ -51,11 +51,11 @@ def erase = (scope, term) =>
     case LIsNil(l)   => IrMatch(erase(scope, l), Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Cons(IrArm("Cons", 2, IrLit(IrBool(false))), Nil)), None)
     case ConApp(name, args)  => IrCtor(name, mapErase(scope, args))
     case MatchT(scrut, arms) => IrMatch(erase(scope, scrut), mapEraseArms(scope, arms), None)
-    case ShowM(id, e) => emitShowV(instOf(id), erase(scope, e))   -- Show instance resolved by infer (tcReg[id])
-    case EqM(id, a, b) => emitEqV(instOf(id), erase(scope, a), erase(scope, b))   -- Eq instance resolved by infer
+    case ShowM(id, e) => emitShowFromType(instOf(id), erase(scope, e))   -- Show instance (the resolved type) from infer
+    case EqM(id, a, b) => emitEqFromType(instOf(id), erase(scope, a), erase(scope, b))   -- Eq instance from infer
     case CmpM(id, a, b) =>                                         -- Ord (compare -> -1/0/1) for Int/Float
-      let tag = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
-      let lt = if #seq(tag, "f") then "f.lt" else "i.lt" in let eqp = if #seq(tag, "f") then "f.eq" else "i.eq" in
+      let t = instOf(id) in let ea = erase(scope, a) in let eb = erase(scope, b) in
+      let lt = match t { case TyFloat => "f.lt" case _ => "i.lt" } in let eqp = match t { case TyFloat => "f.eq" case _ => "i.eq" } in
       IrIf(IrPrim(lt, Cons(ea, Cons(eb, Nil))), IrLit(IrInt(#i.sub(0, 1))), IrIf(IrPrim(eqp, Cons(ea, Cons(eb, Nil))), IrLit(IrInt(0)), IrLit(IrInt(1))))
     case RecLit(fields)  => IrCtor("__rec", eraseRecF(scope, fields))      -- a record value: a __rec Data in field order
     case FieldGet(id, rc, name) =>                                        -- field extract at the index resolved by infer
@@ -65,16 +65,26 @@ def eraseRecF = (scope, fields) => match fields { case Nil => Nil case Cons(p, r
 
 -- ── Show instance code for a value (base types inline; lists via the global __showList, passing the
 -- element-show as a dictionary — so nested lists compose). tag "Li" = [Int], "LLi" = [[Int]], etc.
-def lstr     = (s) => IrLit(IrStr(s))
-def isListT  = (tag) => if #i.lt(0, #slen(tag)) then #i.eq(#scodeAt(tag, 0), 76) else false   -- starts with 'L'
-def emitShowFn = (tag) => IrLam(1, emitShowV(tag, IrLocal(0)))                                 -- λx. show x  (a dictionary)
-def emitShowV  = (tag, v) =>
-  if #seq(tag, "i") then IrPrim("i->str", Cons(v, Nil))
-  else if #seq(tag, "f") then IrPrim("f->str", Cons(v, Nil))
-  else if #seq(tag, "s") then v
-  else if #seq(tag, "b") then IrIf(v, lstr("true"), lstr("false"))
-  else if isListT(tag) then IrApp(IrApp(IrGlobal("__showList"), Cons(emitShowFn(#sslice(tag, 1, #slen(tag))), Nil)), Cons(v, Nil))
-  else lstr("?")
+def lstr = (s) => IrLit(IrStr(s))
+def sc   = (a, b) => IrPrim("sconcat", Cons(a, Cons(b, Nil)))                                  -- a ++ b
+def emitShowFn = (t) => IrLam(1, emitShowFromType(t, IrLocal(0)))                              -- λx. show x  (a dictionary)
+def emitShowFromType = (t, v) =>
+  match t {
+    case TyInt   => IrPrim("i->str", Cons(v, Nil))
+    case TyBool  => IrIf(v, lstr("true"), lstr("false"))
+    case TyStr   => v
+    case TyFloat => IrPrim("f->str", Cons(v, Nil))
+    case TyList(e) => IrApp(IrApp(IrGlobal("__showList"), Cons(emitShowFn(e), Nil)), Cons(v, Nil))
+    case TyCon(nm, args) => if #seq(nm, "Pair") then emitShowPair(args, v) else if #seq(nm, "Triple") then emitShowTriple(args, v) else lstr("?")
+    case _ => lstr("?")
+  }
+-- match v { Pair(a, b) => "(" ++ show a ++ ", " ++ show b ++ ")" }   (Pair arity 2: a=local 1, b=local 0)
+def emitShowPair = (args, v) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) =>
+    IrMatch(v, Cons(IrArm("Pair", 2, sc(lstr("("), sc(emitShowFromType(t1, IrLocal(1)), sc(lstr(", "), sc(emitShowFromType(t2, IrLocal(0)), lstr(")")))))), Nil), None)
+    case Nil => lstr("?") } case Nil => lstr("?") }
+def emitShowTriple = (args, v) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) => match r2 { case Cons(t3, r3) =>
+    IrMatch(v, Cons(IrArm("Triple", 3, sc(lstr("("), sc(emitShowFromType(t1, IrLocal(2)), sc(lstr(", "), sc(emitShowFromType(t2, IrLocal(1)), sc(lstr(", "), sc(emitShowFromType(t3, IrLocal(0)), lstr(")")))))))), Nil), None)
+    case Nil => lstr("?") } case Nil => lstr("?") } case Nil => lstr("?") }
 -- __joinRest = λf. λl. match l { Nil => "" | Cons(h,t) => ", " ++ f h ++ __joinRest f t }   (Cons: h=local 1, t=local 0; outer l=2, f=3)
 def joinRestDef = IrDef("__joinRest", IrLam(1, IrLam(1, IrMatch(IrLocal(0),
     Cons(IrArm("Nil", 0, lstr("")),
@@ -84,14 +94,25 @@ def showListDef = IrDef("__showList", IrLam(1, IrLam(1, IrPrim("sconcat", Cons(l
     Cons(IrArm("Nil", 0, lstr("")),
     Cons(IrArm("Cons", 2, IrPrim("sconcat", Cons(IrApp(IrLocal(3), Cons(IrLocal(1), Nil)), Cons(IrApp(IrApp(IrGlobal("__joinRest"), Cons(IrLocal(3), Nil)), Cons(IrLocal(0), Nil)), Nil)))), Nil)), None), Cons(lstr("]"), Nil))), Nil))))))
 -- Eq instance code for a value (base inline; lists via global __eqList, passing element-eq as a dictionary)
-def emitEqFn = (tag) => IrLam(1, IrLam(1, emitEqV(tag, IrLocal(1), IrLocal(0))))   -- λx. λy. eq x y  (a dictionary)
-def emitEqV  = (tag, va, vb) =>
-  if #seq(tag, "i") then IrPrim("i.eq", Cons(va, Cons(vb, Nil)))
-  else if #seq(tag, "f") then IrPrim("f.eq", Cons(va, Cons(vb, Nil)))
-  else if #seq(tag, "s") then IrPrim("seq", Cons(va, Cons(vb, Nil)))
-  else if #seq(tag, "b") then IrIf(va, vb, IrIf(vb, IrLit(IrBool(false)), IrLit(IrBool(true))))
-  else if isListT(tag) then IrApp(IrApp(IrApp(IrGlobal("__eqList"), Cons(emitEqFn(#sslice(tag, 1, #slen(tag))), Nil)), Cons(va, Nil)), Cons(vb, Nil))
-  else IrLit(IrBool(false))
+def emitEqFn = (t) => IrLam(1, IrLam(1, emitEqFromType(t, IrLocal(1), IrLocal(0))))   -- λx. λy. eq x y  (a dictionary)
+def emitEqFromType = (t, va, vb) =>
+  match t {
+    case TyInt   => IrPrim("i.eq", Cons(va, Cons(vb, Nil)))
+    case TyBool  => IrIf(va, vb, IrIf(vb, IrLit(IrBool(false)), IrLit(IrBool(true))))
+    case TyStr   => IrPrim("seq", Cons(va, Cons(vb, Nil)))
+    case TyFloat => IrPrim("f.eq", Cons(va, Cons(vb, Nil)))
+    case TyList(e) => IrApp(IrApp(IrApp(IrGlobal("__eqList"), Cons(emitEqFn(e), Nil)), Cons(va, Nil)), Cons(vb, Nil))
+    case TyCon(nm, args) => if #seq(nm, "Pair") then emitEqPair(args, va, vb) else if #seq(nm, "Triple") then emitEqTriple(args, va, vb) else IrLit(IrBool(false))
+    case _ => IrLit(IrBool(false))
+  }
+def projP = (v, k) => IrMatch(v, Cons(IrArm("Pair", 2, IrLocal(k)), Nil), None)               -- fst: k=1, snd: k=0
+def projT = (v, k) => IrMatch(v, Cons(IrArm("Triple", 3, IrLocal(k)), Nil), None)             -- fields k=2,1,0
+def emitEqPair = (args, va, vb) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) =>
+    IrIf(emitEqFromType(t1, projP(va, 1), projP(vb, 1)), emitEqFromType(t2, projP(va, 0), projP(vb, 0)), IrLit(IrBool(false)))
+    case Nil => IrLit(IrBool(false)) } case Nil => IrLit(IrBool(false)) }
+def emitEqTriple = (args, va, vb) => match args { case Cons(t1, r1) => match r1 { case Cons(t2, r2) => match r2 { case Cons(t3, r3) =>
+    IrIf(emitEqFromType(t1, projT(va, 2), projT(vb, 2)), IrIf(emitEqFromType(t2, projT(va, 1), projT(vb, 1)), emitEqFromType(t3, projT(va, 0), projT(vb, 0)), IrLit(IrBool(false))), IrLit(IrBool(false)))
+    case Nil => IrLit(IrBool(false)) } case Nil => IrLit(IrBool(false)) } case Nil => IrLit(IrBool(false)) }
 -- __eqList = λf. λa. λb. match a { Nil => match b {Nil=>true|_=>false} | Cons(ha,ta) => match b {Nil=>false | Cons(hb,tb) => if f ha hb then __eqList f ta tb else false} }
 --   inside Cons-a arm: ta=0 ha=1 b=2 a=3 f=4 ; inside Cons-b arm: tb=0 hb=1 ta=2 ha=3 b=4 a=5 f=6
 def eqListDef = IrDef("__eqList", IrLam(1, IrLam(1, IrLam(1, IrMatch(IrLocal(1),
@@ -104,7 +125,9 @@ def eqListDef = IrDef("__eqList", IrLam(1, IrLam(1, IrLam(1, IrMatch(IrLocal(1),
             IrLit(IrBool(false)))), Nil)),
         None)), Nil)),
     None)))))
-def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, tag) => if isListT(tag) then true else anyListShow(rest) } }
+def anyContainsList = (ts) => match ts { case Nil => false case Cons(t, rest) => if containsList(t) then true else anyContainsList(rest) }
+def containsList    = (t) => match t { case TyList(e) => true case TyCon(nm, args) => anyContainsList(args) case _ => false }
+def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, t) => if containsList(t) then true else anyListShow(rest) } }
 -- include the list-show helpers in the program ONLY when a list-show instance was resolved (keeps other bytecode unchanged)
 def progOf = (term) => let body = erase(Nil, term) in IrProg(if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil, body)
 

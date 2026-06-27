@@ -184,8 +184,8 @@ def infer = (env, c, s, term) =>
       match infer(env, c, s, scrut) { case ErrI(m) => ErrI(m) case Ok3(s1, ts, c1) => inferArms(env, c1, s1, ts, arms, None) }
     case ShowM(id, e) =>                                           -- `show e` : a -> String (Show typeclass, base + lists)
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
-        let tag = showTag(appTy(s1, te)) in
-        if #seq(tag, "?") then ErrI("no Show instance for this type") else let u = registerInst(id, tag) in Ok3(s1, TyStr, c1) }
+        let st = appTy(s1, te) in
+        if showableType(st) then let u = registerInst(id, st) in Ok3(s1, TyStr, c1) else ErrI("no Show instance for this type") }
     case EqM(id, a, b)  => inferTcBin(env, c, s, id, a, b, TyBool, "Eq")   -- `eq a b`  : a -> a -> Bool
     case CmpM(id, a, b) => inferTcOrd(env, c, s, id, a, b)                 -- `compare a b` : a -> a -> Int (Ord)
     case RecLit(fields) => inferRec(env, c, s, fields, Nil)               -- { x = e, y = e }
@@ -209,17 +209,17 @@ def inferTcBin = (env, c, s, id, a, b, res, cls) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
     match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
       match unify(s2, ta, tb) { case Err(m) => ErrI(#sconcat(cls, " operands must be the same type")) case Ok(s3) =>
-        let tag = showTag(appTy(s3, ta)) in
-        if #seq(tag, "?") then ErrI(#sconcat("no ", #sconcat(cls, " instance for this type"))) else let u = registerInst(id, tag) in Ok3(s3, res, c2) } } }
+        let st = appTy(s3, ta) in
+        if showableType(st) then let u = registerInst(id, st) in Ok3(s3, res, c2) else ErrI(#sconcat("no ", #sconcat(cls, " instance for this type"))) } } }
 -- Ord (compare): only Int/Float have an ordering primitive
 def inferTcOrd = (env, c, s, id, a, b) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
     match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
       match unify(s2, ta, tb) { case Err(m) => ErrI("compare operands must be the same type") case Ok(s3) =>
-        let tag = baseTag(appTy(s3, ta)) in
-        if #seq(tag, "i") then let u = registerInst(id, "i") in Ok3(s3, TyInt, c2)
-        else if #seq(tag, "f") then let u = registerInst(id, "f") in Ok3(s3, TyInt, c2)
-        else ErrI("no Ord instance for this type (only Int/Float)") } } }
+        let rt = appTy(s3, ta) in
+        match rt { case TyInt => let u = registerInst(id, TyInt) in Ok3(s3, TyInt, c2)
+                   case TyFloat => let u = registerInst(id, TyFloat) in Ok3(s3, TyInt, c2)
+                   case _ => ErrI("no Ord instance for this type (only Int/Float)") } } } }
 
 -- shared: infer two operands, force both Int, return a chosen result type (TyInt for +-*, TyBool for eq)
 def inferArith = (env, c, s, a, b, res, msg) =>
@@ -254,11 +254,13 @@ def conInfo = (name) => match lookupReg(#cell.get(conReg), name) { case Some(sig
 -- erase reads tcReg[id] to emit the resolved instance. The interpreter value-dispatches instead.
 def tcReg        = #cell.new(Nil)
 def registerInst = (id, tag) => #cell.set(tcReg, Cons(Pair(id, tag), #cell.get(tcReg)))
-def lookupId     = (reg, id) => match reg { case Nil => "?" case Cons(p, rest) => match p { case Pair(k, tag) => if #i.eq(k, id) then tag else lookupId(rest, id) } }
-def instOf       = (id) => lookupId(#cell.get(tcReg), id)
+def lookupId     = (reg, id) => match reg { case Nil => TyInt case Cons(p, rest) => match p { case Pair(k, t) => if #i.eq(k, id) then t else lookupId(rest, id) } }
+def instOf       = (id) => lookupId(#cell.get(tcReg), id)         -- now returns the resolved TYPE (not a string tag)
 def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
--- Show instance tag: base types + lists recursively ("Li" = [Int], "LLi" = [[Int]]); "?" if not showable
-def showTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case TyList(e) => let et = showTag(e) in if #seq(et, "?") then "?" else #sconcat("L", et) case _ => "?" }
+-- Show/Eq instances now store the resolved TYPE in tcReg; showableType says if a type has an instance:
+-- base types, lists of showable, and tuples (Pair/Triple) of showable. (general ADTs = follow-up)
+def allShowable  = (ts) => match ts { case Nil => true case Cons(t, rest) => if showableType(t) then allShowable(rest) else false }
+def showableType = (t) => match t { case TyInt => true case TyBool => true case TyStr => true case TyFloat => true case TyList(e) => showableType(e) case TyCon(nm, args) => if #seq(nm, "Pair") then allShowable(args) else if #seq(nm, "Triple") then allShowable(args) else false case _ => false }
 -- record field access: infer records id -> Pair(index, arity); erase reads it to emit a field extract.
 def fieldReg     = #cell.new(Nil)
 def registerField = (id, idx, ar) => #cell.set(fieldReg, Cons(Pair(id, Pair(idx, ar)), #cell.get(fieldReg)))
@@ -406,8 +408,10 @@ def valEq = (x, y) => match x {
     case FloatVal(a) => match y { case FloatVal(b) => #f.eq(a, b) case _ => false }
     case Nil => match y { case Nil => true case _ => false }
     case Cons(ha, ta) => match y { case Cons(hb, tb) => if valEq(ha, hb) then valEq(ta, tb) else false case _ => false }
+    case ConV(na, va) => match y { case ConV(nb, vb) => if #seq(na, nb) then valEqL(va, vb) else false case _ => false }
     case _ => false
   }
+def valEqL = (xs, ys) => match xs { case Nil => match ys { case Nil => true case _ => false } case Cons(x, rx) => match ys { case Cons(y, ry) => if valEq(x, y) then valEqL(rx, ry) else false case _ => false } }
 def valCmp = (x, y) => match x {
     case IntVal(a)   => match y { case IntVal(b) => if #i.lt(a, b) then #i.sub(0, 1) else (if #i.eq(a, b) then 0 else 1) case _ => 0 }
     case FloatVal(a) => match y { case FloatVal(b) => if #f.lt(a, b) then #i.sub(0, 1) else (if #f.eq(a, b) then 0 else 1) case _ => 0 }
@@ -422,7 +426,7 @@ def vToStr  = (v) => match v {
     case BoolVal(b) => if b then "true" else "false"
     case StrVal(s)  => s
     case FloatVal(x) => #f->str(x)
-    case ConV(name, vals) => match vals { case Nil => name case Cons(h, t) => #sconcat(name, #sconcat("(", #sconcat(vsToStr(vals), ")"))) }
+    case ConV(name, vals) => if #seq(name, "Pair") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else if #seq(name, "Triple") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else match vals { case Nil => name case Cons(h, t) => #sconcat(name, #sconcat("(", #sconcat(vsToStr(vals), ")"))) }
     case _ => "?"
   }
 def vsToStr = (vs) => match vs { case Nil => "" case Cons(v, rest) => match rest { case Nil => vToStr(v) case Cons(h, t) => #sconcat(vToStr(v), #sconcat(", ", vsToStr(rest))) } }
