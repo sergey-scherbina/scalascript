@@ -1,0 +1,2 @@
+import "../lib/ssct-hm-emit.ssc0"
+def main = () => #io.print(emit(LetRec("sum", Lam("t", MatchT(Var("t"), Cons(MArm("Leaf", Cons("x", Nil), Var("x")), Cons(MArm("Node", Cons("l", Cons("r", Nil)), Add(App(Var("sum"), Var("l")), App(Var("sum"), Var("r")))), Nil)))), App(Var("sum"), ConApp("Node", Cons(ConApp("Leaf", Cons(Lit(1), Nil)), Cons(ConApp("Node", Cons(ConApp("Leaf", Cons(Lit(2), Nil)), Cons(ConApp("Leaf", Cons(Lit(3), Nil)), Nil))), Nil)))))))

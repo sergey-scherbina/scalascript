@@ -97,6 +97,20 @@ chk run examples/hm-adt-match.ssc0   'Typed("Int", 5)'               # match (So
 chk run examples/hm-adt-treesum.ssc0 'Typed("Int", 6)'               # recursive fold over a Tree
 chk run examples/hm-adt-err.ssc0     '"TypeError: match branches must have the same type"'
 chk run examples/hm-adt-build.ssc0   'Typed("Option Int", "Some(5)")'
+# ADTs COMPILE: tree-sum (Node/Leaf ctors + match + recursion) erases to Core IR and runs on all 3
+ssc run examples/hm-adt-treesum-emit.ssc0 > "${TMPDIR:-/tmp}/ts.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ts.coreir" | tail -1)
+if [ "$got" = "6" ]; then printf 'ok   %-26s => %s\n' "adt tree-sum -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [6]\n' "adt tree-sum" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run examples/hm-adt-match-js.ssc0 > "${TMPDIR:-/tmp}/ts.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ts.js" 2>/dev/null | tail -1)
+  if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (node)\n' "adt tree-sum -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "adt tree-sum JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run examples/hm-adt-match-rust.ssc0 > "${TMPDIR:-/tmp}/ts.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ts.rs" -o "${TMPDIR:-/tmp}/ts-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ts-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (rustc)\n' "adt tree-sum -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "adt tree-sum Rust" "$got"; fail=1; fi
+fi
 
 echo "# ssct-hm lists COMPILE: map/length erase to Core IR (ctor + Cons-match) and run on VM/JS/Rust"
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
