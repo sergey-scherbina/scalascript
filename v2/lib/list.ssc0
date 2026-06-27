@@ -21,6 +21,21 @@ def reverse = (xs) => foldl((acc, x) => Cons(x, acc), Nil, xs)
 
 def isEmpty = (xs) => match xs { case Nil => true; case Cons(h, t) => false }
 def head    = (xs) => match xs { case Nil => None; case Cons(h, t) => Some(h) }
+def tail    = (xs) => match xs { case Nil => None; case Cons(h, t) => Some(t) }
+
+def take = (n, xs) => if #i.le(n, 0) then Nil else match xs { case Nil => Nil case Cons(h, t) => Cons(h, take(#i.sub(n, 1), t)) }
+def drop = (n, xs) => if #i.le(n, 0) then xs  else match xs { case Nil => Nil case Cons(h, t) => drop(#i.sub(n, 1), t) }
+
+def elem = (x, xs) => match xs { case Nil => false case Cons(h, t) => if #i.eq(h, x) then true else elem(x, t) }   -- Int lists
+def all  = (p, xs) => match xs { case Nil => true  case Cons(h, t) => if p(h) then all(p, t) else false }
+def any  = (p, xs) => match xs { case Nil => false case Cons(h, t) => if p(h) then true  else any(p, t) }
+
+def concatAll = (xss) => foldr((xs, acc) => append(xs, acc), Nil, xss)   -- flatten a list of lists
+def zipWith   = (f, xs, ys) =>
+  match xs {
+    case Nil => Nil
+    case Cons(hx, tx) => match ys { case Nil => Nil case Cons(hy, ty) => Cons(f(hx, hy), zipWith(f, tx, ty)) }
+  }
 
 -- [0, 1, ..., n-1]
 def range = (n) =>

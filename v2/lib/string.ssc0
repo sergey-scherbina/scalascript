@@ -1,0 +1,23 @@
+-- String utilities, written in ssc0 over the kernel's string primitives (δ).
+def strLen   = (s) => #slen(s)
+def strCat   = (a, b) => #sconcat(a, b)
+def strEq    = (a, b) => #seq(a, b)
+def strCmp   = (a, b) => #scmp(a, b)
+def charAt   = (s, i) => #scodeAt(s, i)              -- the code unit at index i
+def substr   = (s, a, b) => #sslice(s, a, b)
+def fromChars = (codes) => #sfromCodes(codes)        -- [Int code] -> String
+def strContains = (s, sub) => #i.ge(#sindexOf(s, sub), 0)
+
+-- repeat s, n times
+def strRepeat = (s, n) => if #i.le(n, 0) then "" else #sconcat(s, strRepeat(s, #i.sub(n, 1)))
+
+-- the code units of s, as a list of Int
+def toChars = (s) => toCharsFrom(s, 0)
+def toCharsFrom = (s, i) => if #i.ge(i, #slen(s)) then Nil else Cons(#scodeAt(s, i), toCharsFrom(s, #i.add(i, 1)))
+
+-- join a list of strings with a separator
+def strJoin = (sep, parts) =>
+  match parts {
+    case Nil => ""
+    case Cons(h, t) => match t { case Nil => h case Cons(h2, t2) => #sconcat(h, #sconcat(sep, strJoin(sep, t))) }
+  }

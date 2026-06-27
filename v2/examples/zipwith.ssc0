@@ -1,0 +1,3 @@
+-- backend-portable stdlib demo (no let rec): zipWith (+) over two lists.
+import "../lib/list.ssc0"
+def main = () => zipWith((a, b) => #i.add(a, b), Cons(1, Cons(2, Cons(3, Nil))), Cons(10, Cons(20, Cons(30, Nil))))

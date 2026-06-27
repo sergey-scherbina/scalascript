@@ -1,0 +1,4 @@
+-- stdlib: join the first 3 of [0..9] as strings.  =>  "0, 1, 2"
+import "../lib/list.ssc0"
+import "../lib/string.ssc0"
+def main = () => strJoin(", ", map((n) => #i->str(n), take(3, range(10))))
