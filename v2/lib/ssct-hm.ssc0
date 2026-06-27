@@ -1,16 +1,18 @@
 -- ssct-hm: type INFERENCE (Algorithm W) for an UNANNOTATED lambda calculus, written in ssc0.
 -- Unlike ssct.ssc0 (which checks user-annotated lambdas), here lambdas carry NO type — the
 -- checker INFERS a principal type via fresh type variables + unification + a substitution.
--- Type = TyInt | TyVar(n) | TyFun(a, b).   Term = Lit(n) | Var(x) | Lam(x, body) | App(f, a) | Add(a, b) | Let(x, e, body).
--- Monomorphic let (no generalization yet — true HM schemes are a follow-up).
+-- Type = TyInt | TyBool | TyVar(n) | TyFun(a, b).
+-- Term = Lit(n) | BoolLit(b) | Var(x) | Lam(x, body) | App(f, a) | Add(a, b) | If(c, t, e) | Let(x, e, body).
+-- HM with let-generalization (type schemes Forall(vars, ty)).
 
 def lookupS = (s, n) => match s { case Nil => None case Cons(p, rest) => match p { case Pair(k, v) => if #i.eq(k, n) then Some(v) else lookupS(rest, n) } }
 def appTy   = (s, t) => match t {
     case TyInt      => TyInt
+    case TyBool     => TyBool
     case TyVar(n)   => match lookupS(s, n) { case None => TyVar(n) case Some(u) => appTy(s, u) }
     case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
   }
-def occurs = (n, t) => match t { case TyInt => false case TyVar(m) => #i.eq(n, m) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyVar(m) => #i.eq(n, m) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
 
 -- unify two types under subst s -> Ok(s') | Err(msg)
 def unify = (s, t1, t2) =>
@@ -24,12 +26,17 @@ def unify = (s, t1, t2) =>
     case TyInt => match b {
         case TyInt    => Ok(s)
         case TyVar(m) => Ok(Cons(Pair(m, a), s))
-        case _        => Err("cannot unify Int with a function")
+        case _        => Err("cannot unify Int with a different type")
+      }
+    case TyBool => match b {
+        case TyBool   => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, a), s))
+        case _        => Err("cannot unify Bool with a different type")
       }
     case TyFun(a1, a2) => match b {
         case TyFun(b1, b2) => match unify(s, a1, b1) { case Err(m) => Err(m) case Ok(s2) => unify(s2, a2, b2) }
         case TyVar(m)      => if occurs(m, a) then Err("occurs-check: infinite type") else Ok(Cons(Pair(m, a), s))
-        case _             => Err("cannot unify a function with Int")
+        case _             => Err("cannot unify a function with a different type")
       }
   }
 
@@ -38,7 +45,7 @@ def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => mat
 -- ── let-polymorphism: env binds names to type SCHEMES Forall(quantified-vars, type) ──
 def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.eq(h, n) then true else memberI(n, t) }
 def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
-def freeTy  = (t, acc) => match t { case TyInt => acc case TyVar(n) => insertI(n, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyVar(n) => insertI(n, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
 def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
 def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
 def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
@@ -51,7 +58,8 @@ def instantiate = (sch, c) => match sch { case Forall(qs, t) => match freshRen(q
 -- infer : (env, counter, subst, term) -> Ok3(subst, type, counter) | ErrI(msg).  env: name -> Scheme.
 def infer = (env, c, s, term) =>
   match term {
-    case Lit(n) => Ok3(s, TyInt, c)
+    case Lit(n)     => Ok3(s, TyInt, c)
+    case BoolLit(b) => Ok3(s, TyBool, c)
     case Var(x) => match lookupE(env, x) { case None => ErrI("unbound variable") case Some(sch) => match instantiate(sch, c) { case Pair(it, c2) => Ok3(s, it, c2) } }
     case Lam(x, body) =>
       let tv = TyVar(c) in
@@ -74,6 +82,12 @@ def infer = (env, c, s, term) =>
         match unify(s1, ta, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s1b) =>
           match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
             match unify(s2, tb, TyInt) { case Err(m) => ErrI("Add needs Int operands") case Ok(s3) => Ok3(s3, TyInt, c2) } } } }
+    case If(cnd, th, el) =>
+      match infer(env, c, s, cnd) { case ErrI(m) => ErrI(m) case Ok3(s1, tc, c1) =>
+        match unify(s1, tc, TyBool) { case Err(m) => ErrI("if-condition must be Bool") case Ok(s1b) =>
+          match infer(env, c1, s1b, th) { case ErrI(m) => ErrI(m) case Ok3(s2, tt, c2) =>
+            match infer(env, c2, s2, el) { case ErrI(m) => ErrI(m) case Ok3(s3, te, c3) =>
+              match unify(s3, tt, te) { case Err(m) => ErrI("if-branches must have the same type") case Ok(s4) => Ok3(s4, appTy(s4, tt), c3) } } } } }
     case Let(x, e, body) =>
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
         infer(Cons(Pair(x, generalize(env, s1, te)), env), c1, s1, body) }
@@ -81,6 +95,7 @@ def infer = (env, c, s, term) =>
 
 def showTyR = (t) => match t {
     case TyInt      => "Int"
+    case TyBool     => "Bool"
     case TyVar(n)   => #sconcat("t", #i->str(n))
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
   }

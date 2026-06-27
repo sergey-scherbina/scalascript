@@ -71,6 +71,10 @@ chk run examples/hm-apply2.ssc0 '"((t1 -> t2) -> (t1 -> t2))"'       # f inferre
 chk run examples/hm-err.ssc0    '"TypeError: Add needs Int operands"'
 chk run examples/hm-letpoly.ssc0 '"(t2 -> t2)"'                       # let-poly: id id (occurs-error w/o generalization)
 chk run examples/hm-letmono.ssc0 '"Int"'                             # same id reused at Int
+chk run examples/hm-if.ssc0     '"(Bool -> Int)"'                    # Bool/If: cond forces Bool
+chk run examples/hm-if-poly.ssc0 '"(Bool -> Bool)"'                  # x unified as Bool by cond AND branches
+chk run examples/hm-if-err.ssc0 '"TypeError: if-condition must be Bool"'
+chk run examples/hm-if-branch-err.ssc0 '"TypeError: if-branches must have the same type"'
 
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
 chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
