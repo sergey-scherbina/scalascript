@@ -343,6 +343,24 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/so.rs" -o "${TMPDIR:-/tmp}/so-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/so-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Option -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showopt Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm Show/Eq over GENERAL/RECURSIVE ADTs: Tree + user enums, via per-type recursive helpers"
+STW='"Node(Leaf(1), Node(Leaf(2), Leaf(3)))"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-showtree.hm > "${TMPDIR:-/tmp}/tr.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tr.coreir" | tail -1)
+if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s\n' "show Tree -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtree" "$got"; fail=1; fi
+ssc run bin/ssctc-hm.ssc0 examples/hm-eqtree.hm > "${TMPDIR:-/tmp}/etr.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/etr.coreir" | tail -1)
+if [ "$got" = "1" ]; then printf 'ok   %-26s => %s\n' "eq Tree -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eqtree" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-showtree.hm > "${TMPDIR:-/tmp}/tr.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/tr.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (node)\n' "show Tree -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtree JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-showtree.hm > "${TMPDIR:-/tmp}/tr.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/tr.rs" -o "${TMPDIR:-/tmp}/tr-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tr-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Tree -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtree Rust" "$got"; fail=1; fi
+fi
 echo "# ssct-hm TYPECLASS Eq/Ord: eq (4 base types) + compare (Int+Float) resolved by type"
 ssc run bin/ssctc-hm.ssc0 examples/hm-cmp.hm > "${TMPDIR:-/tmp}/cmp.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/cmp.coreir" | tail -1)

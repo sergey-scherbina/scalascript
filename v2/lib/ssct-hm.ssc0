@@ -249,6 +249,15 @@ def conReg      = #cell.new(Nil)
 def lookupReg   = (reg, name) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(k, sig) => if #seq(k, name) then Some(sig) else lookupReg(rest, name) } }
 def registerCon = (con, sig) => #cell.set(conReg, Cons(Pair(con, sig), #cell.get(conReg)))
 def conInfo = (name) => match lookupReg(#cell.get(conReg), name) { case Some(sig) => sig case None => builtinCon(name) }
+-- the constructors of a type (built-ins hard-coded; user data types scanned from conReg) — for show/eq emit
+def consInReg = (name, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(con, sig) => match sig { case ConSig(tyCon, np, fields) => if #seq(tyCon, name) then Cons(con, consInReg(name, rest)) else consInReg(name, rest) } } }
+def consOf = (name) =>
+  if #seq(name, "Option") then Cons("None", Cons("Some", Nil))
+  else if #seq(name, "Either") then Cons("Left", Cons("Right", Nil))
+  else if #seq(name, "Tree") then Cons("Leaf", Cons("Node", Nil))
+  else if #seq(name, "Pair") then Cons("Pair", Nil)
+  else if #seq(name, "Triple") then Cons("Triple", Nil)
+  else consInReg(name, #cell.get(conReg))
 -- ── typeclass dictionary resolution: each method node carries a unique id (assigned at parse);
 -- infer resolves the instance from the operand type and records id -> instance-tag in tcReg;
 -- erase reads tcReg[id] to emit the resolved instance. The interpreter value-dispatches instead.
@@ -260,7 +269,7 @@ def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case Ty
 -- Show/Eq instances now store the resolved TYPE in tcReg; showableType says if a type has an instance:
 -- base types, lists of showable, and tuples (Pair/Triple) of showable. (general ADTs = follow-up)
 def allShowable  = (ts) => match ts { case Nil => true case Cons(t, rest) => if showableType(t) then allShowable(rest) else false }
-def showableType = (t) => match t { case TyInt => true case TyBool => true case TyStr => true case TyFloat => true case TyList(e) => showableType(e) case TyCon(nm, args) => if #seq(nm, "Pair") then allShowable(args) else if #seq(nm, "Triple") then allShowable(args) else if #seq(nm, "Option") then allShowable(args) else if #seq(nm, "Either") then allShowable(args) else false case _ => false }
+def showableType = (t) => match t { case TyInt => true case TyBool => true case TyStr => true case TyFloat => true case TyList(e) => showableType(e) case TyCon(nm, args) => allShowable(args) case _ => false }
 -- record field access: infer records id -> Pair(index, arity); erase reads it to emit a field extract.
 def fieldReg     = #cell.new(Nil)
 def registerField = (id, idx, ar) => #cell.set(fieldReg, Cons(Pair(id, Pair(idx, ar)), #cell.get(fieldReg)))

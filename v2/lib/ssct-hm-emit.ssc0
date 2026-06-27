@@ -75,9 +75,30 @@ def emitShowFromType = (t, v) =>
     case TyStr   => v
     case TyFloat => IrPrim("f->str", Cons(v, Nil))
     case TyList(e) => IrApp(IrApp(IrGlobal("__showList"), Cons(emitShowFn(e), Nil)), Cons(v, Nil))
-    case TyCon(nm, args) => if #seq(nm, "Pair") then emitShowPair(args, v) else if #seq(nm, "Triple") then emitShowTriple(args, v) else if #seq(nm, "Option") then emitShowOption(args, v) else if #seq(nm, "Either") then emitShowEither(args, v) else lstr("?")
+    case TyCon(nm, args) => if #seq(nm, "Pair") then emitShowPair(args, v) else if #seq(nm, "Triple") then emitShowTriple(args, v) else emitShowGeneral(t, v)
     case _ => lstr("?")
   }
+-- general/recursive ADT show: a specialized recursive global helper __show_<mangle(type)> per type,
+-- built once on demand; recursion is handled by the helper calling itself (mark BEFORE build).
+def mangle = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case TyList(e) => #sconcat("L", mangle(e)) case TyCon(nm, args) => #sconcat(nm, mangleArgs(args)) case _ => "x" }
+def mangleArgs = (ts) => match ts { case Nil => "" case Cons(t, rest) => #sconcat("_", #sconcat(mangle(t), mangleArgs(rest))) }
+def helperNames = #cell.new(Nil)
+def helperDefs  = #cell.new(Nil)
+def memberStr   = (s, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, s) then true else memberStr(s, t) }
+def emitShowGeneral = (t, v) => let mt = mangle(t) in let z = ensureShowHelper(t, mt) in IrApp(IrGlobal(#sconcat("__show_", mt)), Cons(v, Nil))
+def ensureShowHelper = (t, mt) => if memberStr(#sconcat("S", mt), #cell.get(helperNames)) then mt else
+    let u = #cell.set(helperNames, Cons(#sconcat("S", mt), #cell.get(helperNames))) in     -- mark BEFORE build (recursion)
+    let d = buildShowHelper(t, mt) in #cell.set(helperDefs, Cons(d, #cell.get(helperDefs)))
+def argSubst = (ts, i) => match ts { case Nil => Nil case Cons(t, rest) => Cons(Pair(i, t), argSubst(rest, #i.add(i, 1))) }
+def buildShowHelper = (t, mt) => match t { case TyCon(name, args) => IrDef(#sconcat("__show_", mt), IrLam(1, IrMatch(IrLocal(0), buildShowArms(consOf(name), args), None))) case _ => IrDef(#sconcat("__show_", mt), IrLam(1, lstr("?"))) }
+def buildShowArms = (cons, typeArgs) => match cons { case Nil => Nil case Cons(con, rest) =>
+    match conInfo(con) { case ConSig(tyCon, np, fields) =>
+      let ifields = mapRen(argSubst(typeArgs, 0), fields) in let k = lenB(ifields) in
+      Cons(IrArm(con, k, buildConShow(con, ifields, k)), buildShowArms(rest, typeArgs)) } }
+def buildConShow = (con, ifields, k) => if #i.eq(k, 0) then lstr(con) else sc(lstr(#sconcat(con, "(")), buildFShows(ifields, 0, k))
+def buildFShows = (ifields, i, k) => match ifields { case Nil => lstr(")") case Cons(ft, rest) =>
+    let fshow = emitShowFromType(ft, IrLocal(#i.sub(#i.sub(k, 1), i))) in
+    match rest { case Nil => sc(fshow, lstr(")")) case Cons(h, tl) => sc(fshow, sc(lstr(", "), buildFShows(rest, #i.add(i, 1), k))) } }
 -- match v { None => "None" | Some(x) => "Some(" ++ show x ++ ")" }
 def emitShowOption = (args, v) => match args { case Cons(t1, r1) =>
     IrMatch(v, Cons(IrArm("None", 0, lstr("None")), Cons(IrArm("Some", 1, sc(lstr("Some("), sc(emitShowFromType(t1, IrLocal(0)), lstr(")")))), Nil)), None)
@@ -109,9 +130,24 @@ def emitEqFromType = (t, va, vb) =>
     case TyStr   => IrPrim("seq", Cons(va, Cons(vb, Nil)))
     case TyFloat => IrPrim("f.eq", Cons(va, Cons(vb, Nil)))
     case TyList(e) => IrApp(IrApp(IrApp(IrGlobal("__eqList"), Cons(emitEqFn(e), Nil)), Cons(va, Nil)), Cons(vb, Nil))
-    case TyCon(nm, args) => if #seq(nm, "Pair") then emitEqPair(args, va, vb) else if #seq(nm, "Triple") then emitEqTriple(args, va, vb) else if #seq(nm, "Option") then emitEqOption(args, va, vb) else if #seq(nm, "Either") then emitEqEither(args, va, vb) else IrLit(IrBool(false))
+    case TyCon(nm, args) => if #seq(nm, "Pair") then emitEqPair(args, va, vb) else if #seq(nm, "Triple") then emitEqTriple(args, va, vb) else emitEqGeneral(t, va, vb)
     case _ => IrLit(IrBool(false))
   }
+-- general/recursive ADT eq: a specialized recursive global helper __eq_<mangle(type)> per type.
+-- chained if per constructor; fields extracted by single-match projection (getField) -> no de Bruijn shift.
+def getField = (v, con, k, i) => IrMatch(v, Cons(IrArm(con, k, IrLocal(#i.sub(#i.sub(k, 1), i))), Nil), Some(IrLit(IrInt(0))))
+def emitEqGeneral = (t, va, vb) => let mt = mangle(t) in let z = ensureEqHelper(t, mt) in IrApp(IrApp(IrGlobal(#sconcat("__eq_", mt)), Cons(va, Nil)), Cons(vb, Nil))
+def ensureEqHelper = (t, mt) => if memberStr(#sconcat("E", mt), #cell.get(helperNames)) then mt else
+    let u = #cell.set(helperNames, Cons(#sconcat("E", mt), #cell.get(helperNames))) in    -- mark BEFORE build (recursion)
+    let d = buildEqHelper(t, mt) in #cell.set(helperDefs, Cons(d, #cell.get(helperDefs)))
+def buildEqHelper = (t, mt) => match t { case TyCon(name, args) => IrDef(#sconcat("__eq_", mt), IrLam(1, IrLam(1, buildEqBody(consOf(name), args)))) case _ => IrDef(#sconcat("__eq_", mt), IrLam(1, IrLam(1, IrLit(IrBool(false))))) }
+def buildEqBody = (cons, typeArgs) => match cons { case Nil => IrLit(IrBool(false)) case Cons(con, rest) =>
+    match conInfo(con) { case ConSig(tyCon, np, fields) =>
+      let ifields = mapRen(argSubst(typeArgs, 0), fields) in let k = lenB(ifields) in
+      IrIf(isTag(IrLocal(1), con, k), IrIf(isTag(IrLocal(0), con, k), buildFieldsEq(con, ifields, 0, k), IrLit(IrBool(false))), buildEqBody(rest, typeArgs)) } }
+def buildFieldsEq = (con, ifields, i, k) => match ifields { case Nil => IrLit(IrBool(true)) case Cons(ft, rest) =>
+    let feq = emitEqFromType(ft, getField(IrLocal(1), con, k, i), getField(IrLocal(0), con, k, i)) in
+    match rest { case Nil => feq case Cons(h, tl) => IrIf(feq, buildFieldsEq(con, rest, #i.add(i, 1), k), IrLit(IrBool(false))) } }
 -- sum-type eq via SINGLE-match projections + guards (no nested scrutinee -> no de Bruijn shift)
 def isTag    = (v, tag, ar) => IrMatch(v, Cons(IrArm(tag, ar, IrLit(IrBool(true))), Nil), Some(IrLit(IrBool(false))))   -- does v have ctor `tag`?
 def getF0    = (v, tag, ar) => IrMatch(v, Cons(IrArm(tag, ar, IrLocal(0)), Nil), Some(IrLit(IrInt(0))))                 -- the (arity-1) field; default never hit
@@ -145,7 +181,10 @@ def eqListDef = IrDef("__eqList", IrLam(1, IrLam(1, IrLam(1, IrMatch(IrLocal(1),
 def anyContainsList = (ts) => match ts { case Nil => false case Cons(t, rest) => if containsList(t) then true else anyContainsList(rest) }
 def containsList    = (t) => match t { case TyList(e) => true case TyCon(nm, args) => anyContainsList(args) case _ => false }
 def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, t) => if containsList(t) then true else anyListShow(rest) } }
--- include the list-show helpers in the program ONLY when a list-show instance was resolved (keeps other bytecode unchanged)
-def progOf = (term) => let body = erase(Nil, term) in IrProg(if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil, body)
+def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
+-- defs = list helpers (if a list instance used) ++ the per-type show/eq helpers collected during erase
+def progOf = (term) => let body = erase(Nil, term) in
+  let listH = if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil in
+  IrProg(appendD(listH, #cell.get(helperDefs)), body)
 
 def emit = (term) => #coreir.encode(progOf(term))

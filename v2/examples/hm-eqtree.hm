@@ -1,0 +1,1 @@
+data Tree a = Leaf a | Node (Tree a) (Tree a) in if eq (Node (Leaf 1) (Leaf 2)) (Node (Leaf 1) (Leaf 2)) then 1 else 0

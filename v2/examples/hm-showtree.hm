@@ -1,0 +1,2 @@
+data Tree a = Leaf a | Node (Tree a) (Tree a) in
+show (Node (Leaf 1) (Node (Leaf 2) (Leaf 3)))
