@@ -1,0 +1,10 @@
+-- Two cooperative tasks interleaved by the scheduler (yield = the interleaving point).
+--   taskA: log 1; yield; log 2; yield; log 3      taskB: log 10; yield; log 20
+--   round-robin =>  1, 10, 2, 20, 3
+--   ssc run examples/async-tasks.ssc0  =>  Cons(1, Cons(10, Cons(2, Cons(20, Cons(3, Nil)))))
+import "../lib/async.ssc0"
+
+def main = () =>
+  let taskA = bind(log(1),  (u1) => bind(yield, (u2) => bind(log(2), (u3) => bind(yield, (u4) => log(3))))) in
+  let taskB = bind(log(10), (u1) => bind(yield, (u2) => log(20)))                                          in
+  runSched(Cons(taskA, Cons(taskB, Nil)))

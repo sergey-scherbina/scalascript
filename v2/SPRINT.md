@@ -59,8 +59,10 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 - [x] **algebraic effects + handlers** (2026-06-27) — `lib/effects.ssc0` (pure/perform/bind +
       handlers). State (one-shot) + nondeterminism (**multi-shot** continuations) examples +
       conformance + spec `50-effects.md`. Kernel +0. Effects = data + closures, no kernel node.
-- [ ] **async / cooperative concurrency** — `fork`/`yield`/`await` as effect ops + a scheduler
-      handler, on `lib/effects.ssc0`. Spec `51-async.md`. Demo: interleaved tasks.
+- [x] **async / cooperative concurrency** (2026-06-27) — `lib/async.ssc0`: `yield`/`fork`/`log`
+      ops + a round-robin scheduler handler on `lib/effects.ssc0`. Demos: async-tasks (two tasks
+      interleaved → 1,10,2,20,3) + async-fork (spawn → 1,2,100,3,200). Spec `51-async.md`.
+      Kernel +0 — concurrency is a library. NEXT in async: await/futures/channels/mailboxes.
 - [ ] **typeclasses** — dictionary-passing elaboration in the `ssct` typed layer (resolve
       instances → explicit dict args, erased to plain functions). Demo: `Eq`/`Show`/`Num`.
 - [ ] **actors** — message-passing on top of effects/async (mailboxes, spawn, send).

@@ -1,0 +1,24 @@
+-- Cooperative concurrency (async), built ON TOP of algebraic effects (lib/effects.ssc0).
+-- New ops: yield (cooperatively give up control), fork (spawn a task), log (emit a value).
+-- A scheduler handler runs a queue of tasks round-robin, capturing each task's continuation
+-- at every yield/fork. No kernel support — just the effect machinery.
+import "effects.ssc0"
+
+def yield = perform("yield", ())
+def log   = (x) => perform("log", x)
+def fork  = (child) => perform("fork", child)
+
+-- runSched: run a queue of Comps cooperatively; return the logged values in scheduler order.
+def runSched = (queue) =>
+  match queue {
+    case Nil => Nil
+    case Cons(c, rest) =>
+      match c {
+        case Pure(v)     => runSched(rest)                                       -- task finished
+        case Op(l, a, k) =>
+          if #seq(l, "log")   then Cons(a, runSched(Cons(k(()), rest)))          -- emit, keep running this task
+          else if #seq(l, "yield") then runSched(appendE(rest, Cons(k(()), Nil)))   -- yield: requeue at the tail
+          else if #seq(l, "fork")  then runSched(Cons(k(()), appendE(rest, Cons(a, Nil))))  -- continue parent; child at tail
+          else runSched(rest)
+      }
+  }

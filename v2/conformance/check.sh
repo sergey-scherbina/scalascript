@@ -38,6 +38,10 @@ echo "# algebraic effects + handlers (lib/effects.ssc0) — incl. MULTI-SHOT con
 chk run examples/effects-state.ssc0  "Pair(2, 2)"
 chk run examples/effects-nondet.ssc0 "Cons(11, Cons(21, Cons(12, Cons(22, Nil))))"
 
+echo "# async: cooperative scheduler on effects (lib/async.ssc0) — yield + fork"
+chk run examples/async-tasks.ssc0 "Cons(1, Cons(10, Cons(2, Cons(20, Cons(3, Nil)))))"
+chk run examples/async-fork.ssc0  "Cons(1, Cons(2, Cons(100, Cons(3, Cons(200, Nil)))))"
+
 echo "# ssct — the typed layer (a type checker written in ssc0)"
 chk run examples/typed.ssc0    'Typed("Int", 42)'
 chk run examples/typed-fn.ssc0 'Typed("Int", 42)'

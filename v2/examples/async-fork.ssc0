@@ -1,0 +1,12 @@
+-- fork spawns a child task; the scheduler interleaves parent and child.
+--   parent: log 1; fork(child); log 2; yield; log 3      child: log 100; yield; log 200
+import "../lib/async.ssc0"
+
+def main = () =>
+  runSched(Cons(
+    bind(log(1), (u1) =>
+    bind(fork(bind(log(100), (v1) => bind(yield, (v2) => log(200)))), (u2) =>
+    bind(log(2), (u3) =>
+    bind(yield, (u4) =>
+    log(3))))),
+    Nil))
