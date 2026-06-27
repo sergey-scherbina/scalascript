@@ -426,7 +426,13 @@ def prelude =
   Cons(Pair("length",  "fun l => if isNil l then 0 else 1 + length (tail l)"),
   Cons(Pair("sum",     "fun l => if isNil l then 0 else head l + sum (tail l)"),
   Cons(Pair("range",   "fun lo => fun hi => if lo < hi then cons lo (range (lo + 1) hi) else nil"),
-  Nil)))))))))
+  Cons(Pair("take",    "fun n => fun l => if n < 1 then nil else if isNil l then nil else cons (head l) (take (n - 1) (tail l))"),
+  Cons(Pair("drop",    "fun n => fun l => if n < 1 then l else if isNil l then nil else drop (n - 1) (tail l)"),
+  Cons(Pair("zip",     "fun a => fun b => if isNil a then nil else if isNil b then nil else cons (Pair (head a) (head b)) (zip (tail a) (tail b))"),
+  Cons(Pair("replicate", "fun n => fun x => if n < 1 then nil else cons x (replicate (n - 1) x)"),
+  Cons(Pair("all",     "fun p => fun l => if isNil l then true else if p (head l) then all p (tail l) else false"),
+  Cons(Pair("any",     "fun p => fun l => if isNil l then false else if p (head l) then true else any p (tail l)"),
+  Nil)))))))))))))))
 def injectPrelude = (pl, fvs, acc) =>
   match pl { case Nil => acc case Cons(p, rest) => match p { case Pair(nm, src) =>
     if fvMember(nm, fvs) then injectPrelude(rest, fvs, LetRec(nm, parseBody(src), acc)) else injectPrelude(rest, fvs, acc) } }

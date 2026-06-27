@@ -592,6 +592,22 @@ fi
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/plchk.coreir" 2>/dev/null
 nlet=$(ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm 2>/dev/null | grep -o 'letrec' | wc -l | tr -d ' ')
 if [ "$nlet" = "1" ]; then printf 'ok   %-26s => %s\n' "prelude not injected (own map)" "1 letrec"; else printf 'FAIL %-26s got [%s letrec]\n' "prelude over-inject" "$nlet"; fail=1; fi
+echo "# ssct-hm PRELUDE (more): take/drop/zip/replicate/all/any — pure polymorphic list functions"
+chk_hm examples/hm-prelude2.hm '"Int"'
+PL2="2"
+ssc run bin/ssctc-hm.ssc0 examples/hm-prelude2.hm > "${TMPDIR:-/tmp}/pl2.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/pl2.coreir" | tail -1)
+if [ "$got" = "$PL2" ]; then printf 'ok   %-26s => %s\n' "take/zip/replicate -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude2" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-prelude2.hm > "${TMPDIR:-/tmp}/pl2.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/pl2.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$PL2" ]; then printf 'ok   %-26s => %s (node)\n' "take/zip/replicate -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude2 JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-prelude2.hm > "${TMPDIR:-/tmp}/pl2.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/pl2.rs" -o "${TMPDIR:-/tmp}/pl2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pl2-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$PL2" ]; then printf 'ok   %-26s => %s (rustc)\n' "take/zip/replicate -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude2 Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
