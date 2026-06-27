@@ -22,6 +22,7 @@ def genConst = (c) =>
     case IrInt(n)  => #i->str(n)
     case IrBool(b) => if b then "true" else "false"
     case IrStr(s)  => cats(Cons("\"", Cons(s, Cons("\"", Nil))))
+    case IrFloat(d) => #f->str(d)
     case IrUnit    => "UNIT"
   }
 def bin = (args, ops) =>
@@ -42,6 +43,13 @@ def genPrim = (op, args) =>
   else if #seq(op, "seq")   then bin(args, " === ")
   else if #seq(op, "sconcat") then bin(args, " + ")
   else if #seq(op, "i->str")  then un(args, "String(", ")")
+  else if #seq(op, "f.add") then bin(args, " + ")
+  else if #seq(op, "f.sub") then bin(args, " - ")
+  else if #seq(op, "f.mul") then bin(args, " * ")
+  else if #seq(op, "f.div") then bin(args, " / ")
+  else if #seq(op, "f.eq")  then bin(args, " === ")
+  else if #seq(op, "f.lt")  then bin(args, " < ")
+  else if #seq(op, "i->f")  then un(args, "(", ")")
   else "0"
 
 def mapGenE = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genE(d, h, false), mapGenE(d, t)) }

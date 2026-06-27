@@ -33,7 +33,9 @@ def lexFrom = (s, i) =>
     let c = #scodeAt(s, i) in
     if isSpace(c) then lexFrom(s, #i.add(i, 1))
     else if isDigit(c) then
-      let j = scanWhile(s, i, isDigit) in Cons(TNum(strToInt(#sslice(s, i, j))), lexFrom(s, j))
+      let j = scanWhile(s, i, isDigit) in
+      if hasFrac(s, j) then let k = scanWhile(s, #i.add(j, 1), isDigit) in Cons(TFloat(#sslice(s, i, k)), lexFrom(s, k))
+      else Cons(TNum(strToInt(#sslice(s, i, j))), lexFrom(s, j))
     else if isAlpha(c) then
       let j = scanWhile(s, i, isAlphaNum) in Cons(TName(#sslice(s, i, j)), lexFrom(s, j))
     else if #i.eq(c, 34) then                                -- '"' : a string literal (no escapes)
@@ -45,6 +47,8 @@ def lexFrom = (s, i) =>
       else Cons(TPunct(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))
 
 def scanStr = (s, k) => if #i.lt(k, #slen(s)) then (if #i.eq(#scodeAt(s, k), 34) then k else scanStr(s, #i.add(k, 1))) else k
+-- a fractional part: '.' (46) at j followed by a digit  ->  this number is a Float literal
+def hasFrac = (s, j) => if #i.lt(#i.add(j, 1), #slen(s)) then chAnd(#i.eq(#scodeAt(s, j), 46), isDigit(#scodeAt(s, #i.add(j, 1)))) else false
 def lex = (s) => lexFrom(s, 0)
 
 -- ── parser:  [token] -> Term   (combinator style: each step -> Pair(node, rest)) ──
@@ -60,6 +64,7 @@ def atomStart = (t) =>
   match t {
     case TNum(n)   => true
     case TStr(str) => true
+    case TFloat(str) => true
     case TName(s)  => if isKeyword(s) then false else true
     case TPunct(p) => chOr(#seq(p, "("), #seq(p, "["))
   }
@@ -87,6 +92,7 @@ def parseAtom = (toks) =>
       match t {
         case TNum(n)  => Pair(Lit(n), rest)
         case TStr(str) => Pair(StrLit(str), rest)
+        case TFloat(str) => Pair(FloatLit(str), rest)
         case TName(s) =>
           if #seq(s, "true") then Pair(BoolLit(true), rest)
           else if #seq(s, "false") then Pair(BoolLit(false), rest)
@@ -243,8 +249,8 @@ def isUpperName = (s) => if #i.lt(0, #slen(s)) then isUpper(#scodeAt(s, 0)) else
 def appendL = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) }
 def dsApp = (f, a) =>
   match f {
-    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else App(f, a)
-    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else App(f, a) case _ => App(f, a) }
+    case Var(x)    => if #seq(x, "head") then LHead(a) else if #seq(x, "tail") then LTail(a) else if #seq(x, "isNil") then LIsNil(a) else if #seq(x, "showInt") then ShowInt(a) else if #seq(x, "toFloat") then ToFloat(a) else App(f, a)
+    case App(g, h) => match g { case Var(y) => if #seq(y, "cons") then LCons(h, a) else if #seq(y, "strEq") then StrEq(h, a) else if #seq(y, "fadd") then FAdd(h, a) else if #seq(y, "fsub") then FSub(h, a) else if #seq(y, "fmul") then FMul(h, a) else if #seq(y, "fdiv") then FDiv(h, a) else if #seq(y, "flt") then FLt(h, a) else if #seq(y, "feq") then FEq(h, a) else App(f, a) case _ => App(f, a) }
     case ConApp(con, args) => ConApp(con, appendL(args, Cons(a, Nil)))   -- accumulate constructor arguments
     case _         => App(f, a)
   }
@@ -267,6 +273,7 @@ def desugar = (t) =>
     case MatchT(scrut, arms) => MatchT(desugar(scrut), dsArms(arms))
     case StrLit(str)     => StrLit(str)
     case Concat(a, b)    => Concat(desugar(a), desugar(b))
+    case FloatLit(str)   => FloatLit(str)
   }
 -- ── `data` declarations: parse them, register each constructor's signature into the global cell ──
 def isParam = (x, ps) => match ps { case Nil => false case Cons(p, r) => if #seq(p, x) then true else isParam(x, r) }

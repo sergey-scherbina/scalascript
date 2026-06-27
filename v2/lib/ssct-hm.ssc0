@@ -11,13 +11,14 @@ def appTy   = (s, t) => match t {
     case TyInt      => TyInt
     case TyBool     => TyBool
     case TyStr      => TyStr
+    case TyFloat    => TyFloat
     case TyVar(n)   => match lookupS(s, n) { case None => TyVar(n) case Some(u) => appTy(s, u) }
     case TyList(e)  => TyList(appTy(s, e))
     case TyCon(nm, args) => TyCon(nm, mapAppTy(s, args))
     case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
   }
 def anyOccurs = (n, ts) => match ts { case Nil => false case Cons(t, rest) => if occurs(n, t) then true else anyOccurs(n, rest) }
-def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
 
 -- unify two types under subst s -> Ok(s') | Err(msg)
 def unify = (s, t1, t2) =>
@@ -42,6 +43,11 @@ def unify = (s, t1, t2) =>
         case TyStr    => Ok(s)
         case TyVar(m) => Ok(Cons(Pair(m, a), s))
         case _        => Err("cannot unify String with a different type")
+      }
+    case TyFloat => match b {
+        case TyFloat  => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, a), s))
+        case _        => Err("cannot unify Float with a different type")
       }
     case TyFun(a1, a2) => match b {
         case TyFun(b1, b2) => match unify(s, a1, b1) { case Err(m) => Err(m) case Ok(s2) => unify(s2, a2, b2) }
@@ -69,7 +75,7 @@ def lookupE = (env, x) => match env { case Nil => None case Cons(p, rest) => mat
 def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.eq(h, n) then true else memberI(n, t) }
 def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
 def freeTyList = (ts, acc) => match ts { case Nil => acc case Cons(t, rest) => freeTyList(rest, freeTy(t, acc)) }
-def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
 def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
 def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
 def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
@@ -110,6 +116,14 @@ def infer = (env, c, s, term) =>
     case ShowInt(e)   => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("showInt expects an Int") case Ok(s2) => Ok3(s2, TyStr, c1) } }
     case Concat(a, b) => inferStr2(env, c, s, a, b, TyStr,  "++ needs String operands")
     case StrEq(a, b)  => inferStr2(env, c, s, a, b, TyBool, "strEq needs String operands")
+    case FloatLit(str) => Ok3(s, TyFloat, c)
+    case ToFloat(e)   => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("toFloat expects an Int") case Ok(s2) => Ok3(s2, TyFloat, c1) } }
+    case FAdd(a, b)   => inferFloat2(env, c, s, a, b, TyFloat, "float op needs Float operands")
+    case FSub(a, b)   => inferFloat2(env, c, s, a, b, TyFloat, "float op needs Float operands")
+    case FMul(a, b)   => inferFloat2(env, c, s, a, b, TyFloat, "float op needs Float operands")
+    case FDiv(a, b)   => inferFloat2(env, c, s, a, b, TyFloat, "float op needs Float operands")
+    case FLt(a, b)    => inferFloat2(env, c, s, a, b, TyBool,  "flt needs Float operands")
+    case FEq(a, b)    => inferFloat2(env, c, s, a, b, TyBool,  "feq needs Float operands")
     case If(cnd, th, el) =>
       match infer(env, c, s, cnd) { case ErrI(m) => ErrI(m) case Ok3(s1, tc, c1) =>
         match unify(s1, tc, TyBool) { case Err(m) => ErrI("if-condition must be Bool") case Ok(s1b) =>
@@ -162,6 +176,11 @@ def inferStr2 = (env, c, s, a, b, res, msg) =>
     match unify(s1, ta, TyStr) { case Err(m) => ErrI(msg) case Ok(s1b) =>
       match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
         match unify(s2, tb, TyStr) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
+def inferFloat2 = (env, c, s, a, b, res, msg) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match unify(s1, ta, TyFloat) { case Err(m) => ErrI(msg) case Ok(s1b) =>
+      match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+        match unify(s2, tb, TyFloat) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
 
 -- ── user-definable ADTs: a constructor registry  con -> ConSig(typeCtor, #params, fieldTypes) ──
 -- field types use TyVar(0..#params-1) as the type parameters (a canonical scheme, instantiated fresh).
@@ -224,6 +243,7 @@ def showTyR = (t) => match t {
     case TyInt      => "Int"
     case TyBool     => "Bool"
     case TyStr      => "String"
+    case TyFloat    => "Float"
     case TyVar(n)   => #sconcat("t", #i->str(n))
     case TyList(e)  => #sconcat("[", #sconcat(showTyR(e), "]"))
     case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
@@ -243,6 +263,7 @@ def lookupVl = (env, x) => match env { case Nil => Stuck case Cons(p, rest) => m
 def asI = (v) => match v { case IntVal(n) => n case _ => 0 }
 def asB = (v) => match v { case BoolVal(b) => b case _ => false }
 def asStr = (v) => match v { case StrVal(s) => s case _ => "" }
+def asF = (v) => match v { case FloatVal(x) => x case _ => #i->f(0) }
 -- apply a value to an argument; a recursive closure re-binds itself in its own body's env
 def applyV = (fn, arg) =>
   match fn {
@@ -266,6 +287,14 @@ def evalT = (env, t) =>
     case ShowInt(e)   => StrVal(#i->str(asI(evalT(env, e))))
     case Concat(a, b) => StrVal(#sconcat(asStr(evalT(env, a)), asStr(evalT(env, b))))
     case StrEq(a, b)  => BoolVal(#seq(asStr(evalT(env, a)), asStr(evalT(env, b))))
+    case FloatLit(str) => match #str->f(str) { case Some(x) => FloatVal(x) case None => FloatVal(#i->f(0)) }
+    case ToFloat(e)   => FloatVal(#i->f(asI(evalT(env, e))))
+    case FAdd(a, b)   => FloatVal(#f.add(asF(evalT(env, a)), asF(evalT(env, b))))
+    case FSub(a, b)   => FloatVal(#f.sub(asF(evalT(env, a)), asF(evalT(env, b))))
+    case FMul(a, b)   => FloatVal(#f.mul(asF(evalT(env, a)), asF(evalT(env, b))))
+    case FDiv(a, b)   => FloatVal(#f.div(asF(evalT(env, a)), asF(evalT(env, b))))
+    case FLt(a, b)    => BoolVal(#f.lt(asF(evalT(env, a)), asF(evalT(env, b))))
+    case FEq(a, b)    => BoolVal(#f.eq(asF(evalT(env, a)), asF(evalT(env, b))))
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
     case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }
@@ -285,11 +314,12 @@ def vToStr  = (v) => match v {
     case IntVal(n)  => #i->str(n)
     case BoolVal(b) => if b then "true" else "false"
     case StrVal(s)  => s
+    case FloatVal(x) => #f->str(x)
     case ConV(name, vals) => match vals { case Nil => name case Cons(h, t) => #sconcat(name, #sconcat("(", #sconcat(vsToStr(vals), ")"))) }
     case _ => "?"
   }
 def vsToStr = (vs) => match vs { case Nil => "" case Cons(v, rest) => match rest { case Nil => vToStr(v) case Cons(h, t) => #sconcat(vToStr(v), #sconcat(", ", vsToStr(rest))) } }
-def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case StrVal(s) => s case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" case Nil => Nil case Cons(h, t) => Cons(valShow(h), valShow(t)) case ConV(name, vals) => vToStr(v) }
+def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case StrVal(s) => s case FloatVal(x) => x case CloVal(x, body, env) => "<fun>" case RecCloVal(f, x, body, env) => "<fun>" case Nil => Nil case Cons(h, t) => Cons(valShow(h), valShow(t)) case ConV(name, vals) => vToStr(v) }
 -- infer the type (reject if ill-typed), then evaluate; report Typed(type, value) | TypeError(msg)
 def runHm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)      => TypeError(m)
