@@ -78,6 +78,11 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 
 ## K4 — backends (ir → target, each an ssc0 program; "one source, many targets")
 
+- [x] **backends are multi-file** (2026-06-27) — `lib/loader.ssc0` (shared DFS import loader)
+      wired into the JS + Rust drivers, so stdlib-importing programs compile to every target.
+      `examples/quicksort-lib.ssc0` (imports `lib/list`) runs identically on VM / JS / Rust.
+      Plus `examples/quicksort.ssc0` (self-contained) — a real algorithm on all 3. Kernel +0.
+
 - [x] **backend: ir → JS** (2026-06-27) — `lib/backend-js.ssc0` (reuses ssc0c front; walks IR
       → JS). **Now TCO-correct**: tail-aware codegen (`genE` with a tail flag) emits `bounce(f,a)`
       for a tail `IrApp`; `app` trampolines in a `while`. `./ssc0-js f.ssc0 | node` == VM for

@@ -33,7 +33,8 @@ chk run examples/uselib.ssc0 "4950"
 echo "# stdlib + an interpreter, written in ssc0"
 chk run examples/pipeline.ssc0 "120"
 chk run examples/calc.ssc0     "42"
-chk run examples/quicksort.ssc0 "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))"
+chk run examples/quicksort.ssc0     "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))"
+chk run examples/quicksort-lib.ssc0 "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))"
 
 echo "# algebraic effects + handlers (lib/effects.ssc0) — incl. MULTI-SHOT continuations"
 chk run examples/effects-state.ssc0  "Pair(2, 2)"
@@ -133,6 +134,7 @@ if command -v node >/dev/null 2>&1; then
   chk_js map
   chk_js calc
   chk_js quicksort
+  chk_js quicksort-lib   # multi-file: imports lib/list (backend resolves imports)
   chk_js tco    # now passes: the trampoline gives constant-stack tail calls
 else
   echo "ok   js backend                => skipped (node not installed)"
@@ -153,6 +155,7 @@ if command -v rustc >/dev/null 2>&1; then
   chk_rust map
   chk_rust calc
   chk_rust quicksort
+  chk_rust quicksort-lib   # multi-file: imports lib/list (backend resolves imports)
   chk_rust tco    # now passes: the trampoline (Step::Bounce + app loop) gives constant stack
 else
   echo "ok   rust backend              => skipped (rustc not installed)"

@@ -1,0 +1,8 @@
+-- quicksort using the stdlib (imports lib/list for append + filter) — multi-file, all targets.
+import "../lib/list.ssc0"
+def qsort = (xs) =>
+  match xs {
+    case Nil => Nil
+    case Cons(p, rest) => append(qsort(filter((x) => #i.lt(x, p), rest)), Cons(p, qsort(filter((x) => #i.ge(x, p), rest))))
+  }
+def main = () => qsort(Cons(3, Cons(1, Cons(4, Cons(1, Cons(5, Cons(2, Nil)))))))
