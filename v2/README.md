@@ -11,7 +11,8 @@ Scope the hand-written, **permanent Scala kernel** to *host the self-compiler* �
 the whole language. Everything else is an `.ssc0` program compiled to a tiny untyped bytecode
 (**Core IR**) the kernel runs. Result: the kernel is **frozen at 913 lines of Scala**, and
 across this entire project it grew by exactly **one primitive** (`coreir.encode`). Everything
-below is **~1100 lines of ssc0** on top of it.
+below is **~1900 lines of ssc0** on top of it — including a full Hindley-Milner typed
+language with user data types, all compiling to three backends.
 
 ```
 ssc0 source ──► ir (bytecode) ──► ssc (VM: compile-to-closures + trampoline) ──► cpu
@@ -27,6 +28,7 @@ ssc0 source ──► ir (bytecode) ──► ssc (VM: compile-to-closures + tra
 | **kernel** (compiler + VM + ssc0 front + `coreir.encode`) | `src/*.scala`, **frozen 913 LOC** | untyped Core IR ([`10-core-ir`](specs/10-core-ir.md)), a compile-to-closures VM with a trampoline (constant-stack TCO), the ssc0 lexer/parser/lower, and canonical IR serialization |
 | **self-hosting compiler** | `lib/ssc0c.ssc0` (+ `loader.ssc0`) | the ssc0 compiler **written in ssc0**; compiles itself byte-for-byte (single- and **multi-file** fixpoints) — [`20-bootstrap`](specs/20-bootstrap.md) |
 | **typed layer `ssct`** | `lib/ssct*.ssc0` | a typed lambda calculus: type checker, textual `.ssct` surface (lexer+parser in ssc0), erase-to-ir, and **typeclasses resolved by the typer** — [`40`](specs/40-typer-as-library.md), [`52`](specs/52-typeclasses.md) |
+| **typed language `ssct-hm`** | `lib/ssct-hm*.ssc0` | a **Hindley-Milner inferred** functional language: type inference + let-polymorphism, recursion, Int/Bool/String, polymorphic lists `[a]`, **user `data` types + pattern matching** — written as source text, compiled to **VM / JS / native Rust** — [`41`](specs/41-ssct-hm.md) |
 | **effects** | `lib/effects.ssc0` | algebraic effects + handlers, incl. **multi-shot** continuations — [`50`](specs/50-effects.md) |
 | **concurrency** | `lib/async.ssc0`, `lib/actors.ssc0` | a cooperative scheduler (yield/fork) and the actor model — [`51`](specs/51-async.md), [`53`](specs/53-actors.md) |
 | **backends** | `lib/backend-js.ssc0`, `lib/backend-rust.ssc0` | `ir → JS` and `ir → Rust`, both TCO-correct and multi-file — [`60`](specs/60-backend-js.md), [`61`](specs/61-backend-rust.md) |
@@ -47,13 +49,18 @@ actors, a JIT-to-bytecode, or any target backend. Each is an ssc0 program on the
 # the typed layer:  ./ssct <file.ssct>   (lex+parse+typecheck+run, all in ssc0)
 ./ssct examples/id.ssct                    # => Typed("Int", 42)
 
+# the HM-inferred typed language:  infer a type, or compile it to any of three targets
+./ssct-hm      examples/hm-qsort.hm                # => "[Int]"   (Algorithm-W inferred)
+./ssct-hm-rust examples/hm-eval.hm > e.rs && rustc -O e.rs -o e && ./e   # => 7  (a typed interpreter, native)
+
 # the backends — one source, three targets, identical output:
 ./ssc0-js   examples/quicksort.ssc0 | node                          # => Cons(1, …)
 ./ssc0-rust examples/quicksort.ssc0 > q.rs && rustc -O q.rs -o q && ./q   # => Cons(1, …)
 ```
 
-(`./ssc`, `./ssc0c`, `./ssct`, `./ssctc`, `./ssc0-js`, `./ssc0-rust` are thin scala-cli
-launchers over [`src/`](src) running the corresponding ssc0 driver in `bin/`.)
+(`./ssc`, `./ssc0c`, `./ssct`, `./ssctc`, `./ssct-hm`, `./ssct-hm-{js,rust}`, `./ssc0-js`,
+`./ssc0-rust` are thin scala-cli launchers over [`src/`](src) running the corresponding ssc0
+driver in `bin/`.)
 
 ## Layout
 
