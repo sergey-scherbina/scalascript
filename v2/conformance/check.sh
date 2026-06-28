@@ -848,6 +848,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ay.rs" -o "${TMPDIR:-/tmp}/ay-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ay-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s (rustc)\n' "async sched -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "async Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm TYPED ACTORS: stateful behavior (state, msg) -> (state', out) over a message stream, all backends"
+chk_hm examples/hm-actors.hm '"[Int]"'
+ATW="Cons(2, Cons(3, Cons(2, Nil)))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-actors.hm > "${TMPDIR:-/tmp}/at.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/at.coreir" | tail -1)
+if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s\n' "actor behavior -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-actors.hm > "${TMPDIR:-/tmp}/at.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/at.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s (node)\n' "actor behavior -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-actors.hm > "${TMPDIR:-/tmp}/at.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/at.rs" -o "${TMPDIR:-/tmp}/at-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/at-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s (rustc)\n' "actor behavior -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

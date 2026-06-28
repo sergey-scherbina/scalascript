@@ -1,0 +1,9 @@
+data Msg = Inc | Dec | Get in
+let rec runActor = fun state => fun msgs => match msgs {
+    Nil => nil
+  | Cons m rest => match m {
+      Inc => runActor (state + 1) rest
+    | Dec => runActor (state - 1) rest
+    | Get => cons state (runActor state rest)
+    } } in
+runActor 0 [Inc, Inc, Get, Inc, Get, Dec, Get]
