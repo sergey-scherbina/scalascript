@@ -506,3 +506,12 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       `let {x=a, y=b} = r`, `{y=b, x=a}` (order-free), single-field, and destructuring a function's record result
       all green on run-ir/JS/Rust. No regression: record literals + `.f` access, record update, tuple
       destructure, plain `let` untouched. conformance +5.
+
+## K20 — parse-error robustness (clean error, no crash)
+
+- [x] **K20.1 — `ParseErr` → clean type error instead of a Java crash.** `if true then 1` (no `else`), an empty
+      `let` body, etc. produced a `ParseErr` node that reached a `match` with no arm → uncaught
+      `RuntimeException: match: no arm for ParseErr`. Added `case ParseErr => ErrI("parse error: incomplete or
+      malformed expression …")` to `infer` (covers the type-check path) and `case ParseErr => ParseErr`
+      passthrough to `desugar` (codegen path). Now any incomplete/malformed input reports a clean
+      `TypeError: parse error …` on both `ssct-hm` and `ssctc-hm`. Valid programs unchanged. conformance +1.

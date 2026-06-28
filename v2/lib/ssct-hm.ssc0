@@ -140,6 +140,7 @@ def genRecEnv = (binds, idx, c0, s, env) => match binds { case Nil => env case C
 -- infer : (env, counter, subst, term) -> Ok3(subst, type, counter) | ErrI(msg).  env: name -> Scheme.
 def infer = (env, c, s, term) =>
   match term {
+    case ParseErr   => ErrI("parse error: incomplete or malformed expression (e.g. an `if` with no `else`)")
     case Lit(n)     => Ok3(s, TyInt, c)
     case BoolLit(b) => Ok3(s, TyBool, c)
     case Var(x) => match lookupE(env, x) { case None => ErrI("unbound variable") case Some(sch) => match instantiate(sch, c) { case Pair(it, c2) => Ok3(s, it, c2) } }

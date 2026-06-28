@@ -605,6 +605,7 @@ def fvBinds  = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { c
 def cnoBinds = (bs) => match bs { case Nil => false case Cons(p, r) => match p { case Pair(nm, l) => or2(containsNumOp(l), cnoBinds(r)) } }
 def desugar = (t) =>
   match t {
+    case ParseErr        => ParseErr
     case Lit(n)          => Lit(n)
     case BoolLit(b)      => BoolLit(b)
     case Var(x)          => if #seq(x, "nil") then LNil else if isUpperName(x) then ConApp(x, Nil) else if #seq(x, "getE") then EffOp("State", "get", Lit(0)) else if isEffOp(x) then EffOp(effLabel(x), x, Lit(0)) else Var(x)
