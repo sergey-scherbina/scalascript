@@ -430,3 +430,17 @@ focused effort, gate conformance after EACH slice. Key cost: `Forall(qs, ty)` mu
 
 Designed-but-larger (not blocked): **typed handler resumes** (per-op typed resume, `specs/54`) — current
 effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separate focused effort.
+
+## K14 — string ordering (Ord/Eq for String)
+
+- [x] **K14.1 — `=`, `<>`, `<`, `<=`, `>`, `>=` on String** (lexicographic). Probed (2026-06-28): strings had
+      `strEq` but the *operators* only worked on Int/Float (`"a" < "b"` → "need Int or Float operands"); since
+      ssct-hm has no module system, this — not dict-passing — was the most broadly-useful real gap. `mkCmp`
+      already desugars all six comparison operators into `Lt`/`Eq`, and both route through `inferNum(_,"cmp")`,
+      so a single `TyStr` branch in `inferNum` (guarded to the `"cmp"` kind, so string `+`/`-`/`*` stay
+      rejected → "use ++") enables all six at once. Erase: `Eq`/`<>` reuse the kernel `seq` primitive; the
+      `<`-family use a new `__strLt` IR helper (lexicographic via `slen`+`scodeAt`, recursing through
+      `IrGlobal("__strLtGo")` — named-global recursion, no de Bruijn knot), injected like the eff helpers via
+      a `usedStrLtCell`. Interp mirrors with a host `strLtV`. **0 kernel / 0 backend change** — `__strLt` is an
+      ordinary IR global (like `__effBind`), so it runs identically on run-ir/JS/Rust. Lexicographic order
+      verified incl. prefixes (`"ab" < "abc"`, `"abc" < "ab"`). conformance +5.

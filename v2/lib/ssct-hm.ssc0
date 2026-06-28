@@ -371,6 +371,7 @@ def inferArith = (env, c, s, a, b, res, msg) =>
 -- overloaded numeric operators (Int or Float), resolved by operand type, recorded by node id in tcReg.
 -- Eager defaulting: a still-unresolved operand type defaults to Int (sound; a later non-num use conflicts).
 def isFloatTy = (t) => match t { case TyFloat => true case _ => false }
+def isStrTy = (t) => match t { case TyStr => true case _ => false }
 def numRes = (kind, t) => if #seq(kind, "cmp") then TyBool else t
 def inferNum = (env, c, s, id, a, b, kind) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
@@ -379,6 +380,7 @@ def inferNum = (env, c, s, id, a, b, kind) =>
         match appTy(s3, ta) {
           case TyInt    => let u = registerInst(id, TyInt)   in Ok3(s3, numRes(kind, TyInt), c2)
           case TyFloat  => let u = registerInst(id, TyFloat) in Ok3(s3, numRes(kind, TyFloat), c2)
+          case TyStr    => if #seq(kind, "cmp") then (let u = registerInst(id, TyStr) in Ok3(s3, numRes(kind, TyStr), c2)) else ErrI("+ - * need Int or Float operands (use ++ to concatenate strings)")   -- Ord/Eq for String: =, <>, <, <=, >, >= compare lexicographically
           case TyVar(n) => let u = recordPending(n) in let u2 = registerInst(id, TyVar(n)) in Ok3(s3, numRes(kind, TyVar(n)), c2)   -- DEFER: record the var; resolve at generalize / top-level
           case _        => ErrI("+ - * (and < =) need Int or Float operands")
         } } } }
@@ -601,6 +603,16 @@ def lookupVl = (env, x) => match env { case Nil => Stuck case Cons(p, rest) => m
 def asI = (v) => match v { case IntVal(n) => n case _ => 0 }
 def asB = (v) => match v { case BoolVal(b) => b case _ => false }
 def asStr = (v) => match v { case StrVal(s) => s case _ => "" }
+-- lexicographic string `<` (interp side; the emit/backends use the __strLt IR helper)
+def strLtGoV = (a, b, i) =>
+  if #i.lt(i, #slen(a)) then
+    (if #i.lt(i, #slen(b)) then
+       (if #i.lt(#scodeAt(a, i), #scodeAt(b, i)) then true
+        else (if #i.lt(#scodeAt(b, i), #scodeAt(a, i)) then false
+              else strLtGoV(a, b, #i.add(i, 1))))
+     else false)
+  else #i.lt(i, #slen(b))
+def strLtV = (a, b) => strLtGoV(a, b, 0)
 def asF = (v) => match v { case FloatVal(x) => x case _ => #i->f(0) }
 -- apply a value to an argument; a recursive closure re-binds itself in its own body's env
 def applyV = (fn, arg) =>
@@ -623,8 +635,8 @@ def evalT = (env, t) =>
     case Add(a, b)    => IntVal(#i.add(asI(evalT(env, a)), asI(evalT(env, b))))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IntVal(#i.sub(asI(evalT(env, a)), asI(evalT(env, b))))
     case Mul(a, b)    => IntVal(#i.mul(asI(evalT(env, a)), asI(evalT(env, b))))
-    case Eq(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => BoolVal(#f.eq(x, asF(evalT(env, b)))) case _ => BoolVal(#i.eq(asI(va), asI(evalT(env, b)))) }
-    case Lt(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => BoolVal(#f.lt(x, asF(evalT(env, b)))) case _ => BoolVal(#i.lt(asI(va), asI(evalT(env, b)))) }
+    case Eq(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => BoolVal(#f.eq(x, asF(evalT(env, b)))) case StrVal(sa) => BoolVal(#seq(sa, asStr(evalT(env, b)))) case _ => BoolVal(#i.eq(asI(va), asI(evalT(env, b)))) }
+    case Lt(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => BoolVal(#f.lt(x, asF(evalT(env, b)))) case StrVal(sa) => BoolVal(strLtV(sa, asStr(evalT(env, b)))) case _ => BoolVal(#i.lt(asI(va), asI(evalT(env, b)))) }
     case Eq(a, b)     => BoolVal(#i.eq(asI(evalT(env, a)), asI(evalT(env, b))))
     case Lt(a, b)     => BoolVal(#i.lt(asI(evalT(env, a)), asI(evalT(env, b))))
     case StrLit(str)  => StrVal(str)

@@ -33,8 +33,8 @@ def erase = (scope, term) =>
     case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IrPrim("i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Mul(a, b)    => IrPrim("i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Eq(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.eq" else "i.eq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Lt(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.lt" else "i.lt", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Eq(id, a, b) => if isStrTy(instOf(id)) then IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.eq" else "i.eq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Lt(id, a, b) => if isStrTy(instOf(id)) then (let u = #cell.set(usedStrLtCell, true) in IrApp(IrApp(IrGlobal("__strLt"), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.lt" else "i.lt", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Eq(a, b)     => IrPrim("i.eq",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Lt(a, b)     => IrPrim("i.lt",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrLit(str)  => IrLit(IrStr(str))
@@ -247,6 +247,23 @@ def effLogGoDef = IrDef("__effLogGo", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
     None))))
 -- __effRunLog = λm. __effLogGo m Nil
 def effRunLogDef = IrDef("__effRunLog", IrLam(1, IrApp(IrApp(IrGlobal("__effLogGo"), Cons(IrLocal(0), Nil)), Cons(IrCtor("Nil", Nil), Nil))))
+-- lexicographic string `<` for all 3 backends (Eq/<> reuse the `seq` prim; only `<` family needs this).
+-- __strLtGo = λa.λb.λi.  (a=Local2, b=Local1, i=Local0)
+--   if i<len(a) then (if i<len(b) then  code(a,i)<code(b,i) ? T : code(b,i)<code(a,i) ? F : go a b (i+1)
+--                     else F)                       -- b is a proper prefix of a  → a > b
+--   else i<len(b)                                   -- a exhausted → a<b iff b still has chars (proper prefix)
+def strLtGoDef = IrDef("__strLtGo", IrLam(1, IrLam(1, IrLam(1,
+  IrIf(IrPrim("i.lt", Cons(IrLocal(0), Cons(IrPrim("slen", Cons(IrLocal(2), Nil)), Nil))),
+    IrIf(IrPrim("i.lt", Cons(IrLocal(0), Cons(IrPrim("slen", Cons(IrLocal(1), Nil)), Nil))),
+      IrIf(IrPrim("i.lt", Cons(IrPrim("scodeAt", Cons(IrLocal(2), Cons(IrLocal(0), Nil))), Cons(IrPrim("scodeAt", Cons(IrLocal(1), Cons(IrLocal(0), Nil))), Nil))),
+        IrLit(IrBool(true)),
+        IrIf(IrPrim("i.lt", Cons(IrPrim("scodeAt", Cons(IrLocal(1), Cons(IrLocal(0), Nil))), Cons(IrPrim("scodeAt", Cons(IrLocal(2), Cons(IrLocal(0), Nil))), Nil))),
+          IrLit(IrBool(false)),
+          IrApp(IrApp(IrApp(IrGlobal("__strLtGo"), Cons(IrLocal(2), Nil)), Cons(IrLocal(1), Nil)), Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))), Nil)))),
+      IrLit(IrBool(false))),
+    IrPrim("i.lt", Cons(IrLocal(0), Cons(IrPrim("slen", Cons(IrLocal(1), Nil)), Nil))))))))
+def strLtDef = IrDef("__strLt", IrLam(1, IrLam(1,
+  IrApp(IrApp(IrApp(IrGlobal("__strLtGo"), Cons(IrLocal(1), Nil)), Cons(IrLocal(0), Nil)), Cons(IrLit(IrInt(0)), Nil)))))
 -- general deep handler: __effHandle = λlbl.λm.λvalf.λopf. match m {
 --   Pure v => valf v                                                          (v=0; opf=1,valf=2,m=3,lbl=4)
 --   Op l a k => l==lbl ? opf (fst a) (snd a) (λr. __effHandle lbl (k r) valf opf)   (k=0,a=1,l=2; opf=3,valf=4,m=5,lbl=6 — a = Pair op realArg)
@@ -261,12 +278,14 @@ def effHandleDef = IrDef("__effHandle", IrLam(1, IrLam(1, IrLam(1, IrLam(1, IrMa
     Nil)),
     None))))))
 def usedEffCell = #cell.new(false)
+def usedStrLtCell = #cell.new(false)
 def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, t) => if containsList(t) then true else anyListShow(rest) } }
 def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
 -- defs = list helpers (if a list instance used) ++ the per-type show/eq helpers collected during erase
 def progOf = (term) => let body = erase(Nil, term) in
   let listH = if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil in
   let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Cons(effRevAppDef, Cons(effLogGoDef, Cons(effRunLogDef, Cons(effHandleDef, Nil))))))) else Nil in
-  IrProg(appendD(effH, appendD(listH, #cell.get(helperDefs))), body)
+  let strH  = if #cell.get(usedStrLtCell) then Cons(strLtDef, Cons(strLtGoDef, Nil)) else Nil in
+  IrProg(appendD(strH, appendD(effH, appendD(listH, #cell.get(helperDefs)))), body)
 
 def emit = (term) => #coreir.encode(progOf(term))

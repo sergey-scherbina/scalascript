@@ -1,0 +1,1 @@
+let b2i = fun b => if b then 1 else 0 in (b2i ("a" < "b")) + (b2i ("b" < "a")) * 10 + (b2i ("ab" < "abc")) * 100 + (b2i ("xy" < "xy")) * 1000
