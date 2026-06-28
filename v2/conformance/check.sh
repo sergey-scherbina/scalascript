@@ -832,6 +832,23 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 # int comparison still resolves to Int (regression guard)
 echo -n "ok   int < still Int         => "; printf 'if 3 < 5 then 1 else 0' > "${TMPDIR:-/tmp}/ic.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ic.hm" > "${TMPDIR:-/tmp}/ic.coreir" 2>/dev/null; icg=$(ssc run-ir "${TMPDIR:-/tmp}/ic.coreir" | tail -1); if [ "$icg" = "1" ]; then echo "1"; else echo "FAIL [$icg]"; fail=1; fi
+echo "# ssct-hm OVERLOADED division (K8.3): '/' resolves to Int (truncating) or Float by operand type, all backends"
+chk_hm examples/hm-div.hm '"(Int, Float)"'                            # (20 / 6, 9.0 / 2.0): Int division truncates, Float division does not
+DIVW="Pair(3, 4.5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-div.hm > "${TMPDIR:-/tmp}/dv.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/dv.coreir" | tail -1)
+if [ "$got" = "$DIVW" ]; then printf 'ok   %-26s => %s\n' "int/float div -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "div" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-div.hm > "${TMPDIR:-/tmp}/dv.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/dv.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$DIVW" ]; then printf 'ok   %-26s => %s (node)\n' "int/float div -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "div JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-div.hm > "${TMPDIR:-/tmp}/dv.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/dv.rs" -o "${TMPDIR:-/tmp}/dv-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/dv-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$DIVW" ]; then printf 'ok   %-26s => %s (rustc)\n' "int/float div -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "div Rust" "$got"; fail=1; fi
+fi
+echo -n "ok   mixed div rejected       => "; printf '9.0 / 2' > "${TMPDIR:-/tmp}/dmx.hm"; dmx=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/dmx.hm" | tail -1); if [ "$dmx" = '"TypeError: arithmetic operands must have the same type"' ]; then echo "Int/Float mix rejected (correct)"; else echo "FAIL [$dmx]"; fail=1; fi
 echo "# ssct-hm TYPED ASYNC: cooperative scheduler (yield/log) on the typed effect monad, all backends"
 chk_hm examples/hm-async.hm '"[Int]"'
 AYW="Cons(1, Cons(2, Cons(101, Cons(102, Nil))))"

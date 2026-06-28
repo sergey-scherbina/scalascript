@@ -186,11 +186,16 @@ needs a leading concrete float or `(r : Float)*…` (ascription). `fadd`/etc. st
       dispatches (IntVal/FloatVal). `1.5 + 2.5` ⇒ Float, `1 + 2` ⇒ Int, all 3 backends. `"a" + "b"` rejected.
 - [x] **K8.2 — overloaded `< =`** (and the derived `> <= >= <>`) — same mechanism for `Lt`/`Eq`; result
       Bool, operands Int or Float. `1.5 < 2.5`, `1.0 = 1.0` work; all 3 backends.
+- [x] **K8.3 — overloaded `/`** — same id-tag / `inferNum` / eager-default mechanism for a new `Div(id,a,b)`
+      node (lexer already emits `TPunct("/")`; `//` is the comment, caught first; `/` is multiplicative
+      precedence, left-assoc). `20 / 6` ⇒ `Int` `3` (truncating), `9.0 / 2.0` ⇒ `Float` `4.5`, `9.0 / 2`
+      rejected. All 3 backends. Found+fixed a latent JS bug: `i.div` emitted JS `/` (always float) → now
+      `Math.trunc(a / b)` (truncates toward zero like JVM/Rust; the old `div` function was wrong on JS too).
+      conformance +5.
 - [x] **DOC/CONF** — spec 41 (numeric operators are overloaded; the defaulting note) + conformance.
 
-OPEN (deferred): overloaded `/` is NOT done — `div` (Int) and `fdiv` (Float) have different semantics.
-Fully-general numeric polymorphism (e.g. `r*r*pi` with `r` a param) needs qualified types (`Num a =>`),
-the same research-level work as effect rows; eager defaulting is the sound pragmatic choice.
+OPEN (deferred): Fully-general numeric polymorphism (e.g. `r*r*pi` with `r` a param) needs qualified types
+(`Num a =>`), the same research-level work as effect rows; eager defaulting is the sound pragmatic choice.
 
 ## K9 — Concurrency in the typed surface (on the typed effects)
 

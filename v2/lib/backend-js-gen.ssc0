@@ -37,7 +37,7 @@ def genPrim = (op, args) =>
   if #seq(op, "i.add") then bin(args, " + ")
   else if #seq(op, "i.sub") then bin(args, " - ")
   else if #seq(op, "i.mul") then bin(args, " * ")
-  else if #seq(op, "i.div") then bin(args, " / ")
+  else if #seq(op, "i.div") then cats(Cons("Math.trunc", Cons(bin(args, " / "), Nil)))   -- integer division truncates toward zero (JS `/` is float)
   else if #seq(op, "i.mod") then bin(args, " % ")
   else if #seq(op, "i.eq")  then bin(args, " === ")
   else if #seq(op, "i.lt")  then bin(args, " < ")

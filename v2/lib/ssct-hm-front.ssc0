@@ -159,7 +159,7 @@ def parseMulMore = (a, toks) =>
   match toks {
     case Cons(t, rest) =>
       match t {
-        case TPunct(p) => if #seq(p, "*") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Mul(nextId(0), a, b), r2) } else Pair(a, toks)
+        case TPunct(p) => if #seq(p, "*") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Mul(nextId(0), a, b), r2) } else if #seq(p, "/") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Div(nextId(0), a, b), r2) } else Pair(a, toks)
         case _ => Pair(a, toks)
       }
     case Nil => Pair(a, toks)
@@ -453,6 +453,7 @@ def desugar = (t) =>
     case Add(id, a, b)   => Add(id, desugar(a), desugar(b))
     case Sub(id, a, b)   => Sub(id, desugar(a), desugar(b))
     case Mul(id, a, b)   => Mul(id, desugar(a), desugar(b))
+    case Div(id, a, b)   => Div(id, desugar(a), desugar(b))
     case Eq(id, a, b)    => Eq(id, desugar(a), desugar(b))
     case Lt(id, a, b)    => Lt(id, desugar(a), desugar(b))
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
@@ -543,6 +544,7 @@ def freeVars = (t) =>
     case Add(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Sub(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Mul(id, a, b)   => appendL(freeVars(a), freeVars(b))
+    case Div(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Eq(id, a, b)    => appendL(freeVars(a), freeVars(b))
     case Lt(id, a, b)    => appendL(freeVars(a), freeVars(b))
     case Concat(a, b)    => appendL(freeVars(a), freeVars(b))

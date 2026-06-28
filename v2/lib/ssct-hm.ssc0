@@ -151,6 +151,7 @@ def infer = (env, c, s, term) =>
     case Add(id, a, b) => inferNum(env, c, s, id, a, b, "num")
     case Sub(id, a, b) => inferNum(env, c, s, id, a, b, "num")
     case Mul(id, a, b) => inferNum(env, c, s, id, a, b, "num")
+    case Div(id, a, b) => inferNum(env, c, s, id, a, b, "num")
     case Eq(id, a, b) => inferNum(env, c, s, id, a, b, "cmp")
     case Lt(id, a, b) => inferNum(env, c, s, id, a, b, "cmp")
     case Add(a, b) => inferArith(env, c, s, a, b, TyInt,  "Add needs Int operands")    -- 2-arg = legacy Int (hand-built ASTs)
@@ -514,6 +515,7 @@ def evalT = (env, t) =>
     case Add(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.add(x, asF(evalT(env, b)))) case _ => IntVal(#i.add(asI(va), asI(evalT(env, b)))) }
     case Sub(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.sub(x, asF(evalT(env, b)))) case _ => IntVal(#i.sub(asI(va), asI(evalT(env, b)))) }
     case Mul(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.mul(x, asF(evalT(env, b)))) case _ => IntVal(#i.mul(asI(va), asI(evalT(env, b)))) }
+    case Div(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.div(x, asF(evalT(env, b)))) case _ => IntVal(#i.div(asI(va), asI(evalT(env, b)))) }
     case Add(a, b)    => IntVal(#i.add(asI(evalT(env, a)), asI(evalT(env, b))))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IntVal(#i.sub(asI(evalT(env, a)), asI(evalT(env, b))))
     case Mul(a, b)    => IntVal(#i.mul(asI(evalT(env, a)), asI(evalT(env, b))))
