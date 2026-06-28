@@ -111,14 +111,28 @@ variable; instantiation must produce a fresh **row** variable, not an ordinary o
 re-tag a freshened ordinary var as a row var at row positions (`asRow`) — without this a generic handler
 fails with `not an effect row`.
 
-## Path to full (Koka-style) — deferred
+## Typed payloads (light) — LANDED (K11.4)
 
-Add operation **signatures** to the declaration (`effect State { get : Unit -> Int ; put : Int -> Unit }`);
-type `perform`/operations against them (drop `Dyn`); type the handler resume/return. This gives full
-payload safety on top of the label tracking. It reuses two pieces that already landed — the `effect`
-declaration (K11.1, which would carry the signatures) and the constraint/typing machinery designed for
-qualified types ([`55-qualified-types.md`](55-qualified-types.md)) — plus the row core here; the remaining
-work is signature-directed typing of `perform`/handlers. It is a multi-session effort, deferred.
+Operation **signatures** on the declaration drop the `Dyn` on the *perform* side:
+
+```
+effect State { get : Dyn -> Int , put : Int -> Dyn } in
+doE { u <- put 5 ; x <- get ; pureE (x + 100) }     -- x : Int, inferred — no `(x : Int)` ascription
+```
+
+Each `op : ArgT -> ReplyT` is recorded (`effSigReg`); `EffOp` infer checks the arg against `ArgT` and
+returns `Comp {Eff | ρ} ReplyT` (not `Dyn`) when a signature exists, and falls back to `Dyn` otherwise (so
+untyped `effect Name op…` decls and string `perform` are unchanged). The built-in handlers
+(`runStateE`/`runLogE`) are generic over the computation's value type, so they consume the typed replies
+unchanged. `put "x"` ⇒ `TypeError: effect op arg type mismatch`.
+
+## Path to full (Koka-style) — the deeper step still deferred
+
+What remains is typing a **user-written handler's resume/return against the signature** — the general
+`handle` currently keeps a `Dyn` resume, and a per-operation handler form (`handler { get -> … ; put k -> … }`)
+would be needed to type each operation's resume precisely. That reuses the constraint/typing machinery
+designed for qualified types ([`55-qualified-types.md`](55-qualified-types.md)); it is a multi-session
+effort, deferred.
 
 The ergonomic sugar around the light system has **landed**: `effect Name op…` operation declarations
 (K11.1) and `{}` / `{l, m}` / `{l | r}` effect-row syntax in the type parser for ascriptions (K11.2).
@@ -128,7 +142,7 @@ The ergonomic sugar around the light system has **landed**: `effect Name op…` 
 | Where | What |
 |---|---|
 | `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle` |
-| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `effect Name op…` decl (`effOpReg`, K11.1); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
+| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `effect Name op…` decl (`effOpReg`, K11.1) and typed `effect Name { op : A -> R }` decl (`effSigReg`, K11.4); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
 | `lib/ssct-hm-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); appended by `progOf` when effects are used |
 | backends | `f.*`/`i.*` prims already present; effects need no new prim (they are plain `Comp` data) |
-| `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`); + unhandled-effect programs that are rejected |
+| `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`), `hm-eff-decl`(-choose) (`effect` decl), `hm-eff-rowann` (row ascription), `hm-eff-typed` (typed payloads); + unhandled-effect / type-mismatch programs that are rejected |
