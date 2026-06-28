@@ -27,6 +27,8 @@ def erase = (scope, term) =>
     case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IrPrim("i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Mul(a, b)    => IrPrim("i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Eq(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.eq" else "i.eq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Lt(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.lt" else "i.lt", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Eq(a, b)     => IrPrim("i.eq",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Lt(a, b)     => IrPrim("i.lt",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrLit(str)  => IrLit(IrStr(str))

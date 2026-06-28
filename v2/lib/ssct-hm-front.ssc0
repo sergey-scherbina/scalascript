@@ -184,12 +184,12 @@ def parseAddSub = (toks) => match parseMul(toks) { case Pair(a, r) => parseAddMo
 -- comparison operators (non-associative), all derived from Eq / Lt / If — consistent on every backend
 def isCmpOp = (p) => chOr(chOr(#seq(p, "="), #seq(p, "<")), chOr(chOr(#seq(p, ">"), #seq(p, "<=")), chOr(#seq(p, ">="), #seq(p, "<>"))))
 def mkCmp = (p, a, b) =>
-  if #seq(p, "=") then Eq(a, b)
-  else if #seq(p, "<") then Lt(a, b)
-  else if #seq(p, ">") then Lt(b, a)
-  else if #seq(p, "<>") then If(Eq(a, b), BoolLit(false), BoolLit(true))
-  else if #seq(p, "<=") then If(Lt(b, a), BoolLit(false), BoolLit(true))
-  else If(Lt(a, b), BoolLit(false), BoolLit(true))   -- ">="
+  if #seq(p, "=") then Eq(nextId(0), a, b)
+  else if #seq(p, "<") then Lt(nextId(0), a, b)
+  else if #seq(p, ">") then Lt(nextId(0), b, a)
+  else if #seq(p, "<>") then If(Eq(nextId(0), a, b), BoolLit(false), BoolLit(true))
+  else if #seq(p, "<=") then If(Lt(nextId(0), b, a), BoolLit(false), BoolLit(true))
+  else If(Lt(nextId(0), a, b), BoolLit(false), BoolLit(true))   -- ">="
 def parseCmp = (toks) =>                              -- a (cmpop a)?
   match parseAddSub(toks) {
     case Pair(a, r) =>
@@ -450,8 +450,8 @@ def desugar = (t) =>
     case Add(id, a, b)   => Add(id, desugar(a), desugar(b))
     case Sub(id, a, b)   => Sub(id, desugar(a), desugar(b))
     case Mul(id, a, b)   => Mul(id, desugar(a), desugar(b))
-    case Eq(a, b)        => Eq(desugar(a), desugar(b))
-    case Lt(a, b)        => Lt(desugar(a), desugar(b))
+    case Eq(id, a, b)    => Eq(id, desugar(a), desugar(b))
+    case Lt(id, a, b)    => Lt(id, desugar(a), desugar(b))
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
@@ -540,8 +540,8 @@ def freeVars = (t) =>
     case Add(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Sub(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Mul(id, a, b)   => appendL(freeVars(a), freeVars(b))
-    case Eq(a, b)        => appendL(freeVars(a), freeVars(b))
-    case Lt(a, b)        => appendL(freeVars(a), freeVars(b))
+    case Eq(id, a, b)    => appendL(freeVars(a), freeVars(b))
+    case Lt(id, a, b)    => appendL(freeVars(a), freeVars(b))
     case Concat(a, b)    => appendL(freeVars(a), freeVars(b))
     case If(c, x, y)     => appendL(freeVars(c), appendL(freeVars(x), freeVars(y)))
     case Let(x, e, b)    => appendL(freeVars(e), removeStr(x, freeVars(b)))

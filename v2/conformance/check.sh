@@ -814,6 +814,24 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 # int arithmetic still resolves to Int (regression guard)
 echo -n "ok   int +/* still Int       => "; printf 'let sq = fun n => n * n + 1 in sq 6' > "${TMPDIR:-/tmp}/ia.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ia.hm" > "${TMPDIR:-/tmp}/ia.coreir" 2>/dev/null; ig=$(ssc run-ir "${TMPDIR:-/tmp}/ia.coreir" | tail -1); if [ "$ig" = "37" ]; then echo "37"; else echo "FAIL [$ig]"; fail=1; fi
+echo "# ssct-hm OVERLOADED comparisons (K8.2): < = (and > <= >= <>) on Int or Float, all backends"
+chk_hm examples/hm-numcmp.hm '"Float"'
+NCW="1.75"
+ssc run bin/ssctc-hm.ssc0 examples/hm-numcmp.hm > "${TMPDIR:-/tmp}/nc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/nc.coreir" | tail -1)
+if [ "$got" = "$NCW" ]; then printf 'ok   %-26s => %s\n' "float < -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "numcmp" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-numcmp.hm > "${TMPDIR:-/tmp}/nc.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/nc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$NCW" ]; then printf 'ok   %-26s => %s (node)\n' "float < -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "numcmp JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-numcmp.hm > "${TMPDIR:-/tmp}/nc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/nc.rs" -o "${TMPDIR:-/tmp}/nc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/nc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$NCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "float < -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "numcmp Rust" "$got"; fail=1; fi
+fi
+# int comparison still resolves to Int (regression guard)
+echo -n "ok   int < still Int         => "; printf 'if 3 < 5 then 1 else 0' > "${TMPDIR:-/tmp}/ic.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ic.hm" > "${TMPDIR:-/tmp}/ic.coreir" 2>/dev/null; icg=$(ssc run-ir "${TMPDIR:-/tmp}/ic.coreir" | tail -1); if [ "$icg" = "1" ]; then echo "1"; else echo "FAIL [$icg]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
