@@ -1,0 +1,7 @@
+data St a = Ret a | Get (Int -> St a) | Put Int (St a) in
+let rec bind = fun m => fun f => match m { Ret x => f x | Get k => Get (fun s => bind (k s) f) | Put n c => Put n (bind c f) } in
+let pure = fun x => Ret x in
+let get = Get (fun s => Ret s) in
+let put = fun n => Put n (Ret 0) in
+let rec runState = fun m => fun s => match m { Ret x => Pair x s | Get k => runState (k s) s | Put n c => runState c n } in
+match (runState (do { x <- get ; put (x + 1) ; y <- get ; put (y + 10) ; get }) 0) { Pair v s => v + s }

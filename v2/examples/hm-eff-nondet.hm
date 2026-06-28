@@ -1,0 +1,6 @@
+data Nd a = RetN a | Choose [Int] (Int -> Nd a) in
+let rec bind = fun m => fun f => match m { RetN x => f x | Choose xs k => Choose xs (fun c => bind (k c) f) } in
+let pure = fun x => RetN x in
+let choose = fun xs => Choose xs (fun c => RetN c) in
+let rec runAll = fun m => match m { RetN x => [x] | Choose xs k => concatMap (fun c => runAll (k c)) xs } in
+sum (runAll (do { x <- choose [1, 2, 3] ; y <- choose [10, 20] ; pure (x + y) }))

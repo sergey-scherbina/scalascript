@@ -752,6 +752,32 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ffe.rs" -o "${TMPDIR:-/tmp}/ffe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ffe-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$FFW" ]; then printf 'ok   %-26s => %s (rustc)\n' "fn-typed field -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "fnfield Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm TYPED EFFECTS (K7-P): State (one-shot) + Nondeterminism (MULTI-SHOT) as typed free monads + do-notation"
+chk_hm examples/hm-eff-state.hm '"Int"'
+ESW="22"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-state.hm > "${TMPDIR:-/tmp}/es.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/es.coreir" | tail -1)
+if [ "$got" = "$ESW" ]; then printf 'ok   %-26s => %s\n' "State effect -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-state" "$got"; fail=1; fi
+ENW="102"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-nondet.hm > "${TMPDIR:-/tmp}/en.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/en.coreir" | tail -1)
+if [ "$got" = "$ENW" ]; then printf 'ok   %-26s => %s\n' "Nondet (multi-shot) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-nondet" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-state.hm > "${TMPDIR:-/tmp}/es.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/es.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$ESW" ]; then printf 'ok   %-26s => %s (node)\n' "State effect -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-state JS" "$got"; fail=1; fi
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-nondet.hm > "${TMPDIR:-/tmp}/en.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/en.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$ENW" ]; then printf 'ok   %-26s => %s (node)\n' "Nondet (multi-shot) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-nondet JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-state.hm > "${TMPDIR:-/tmp}/es.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/es.rs" -o "${TMPDIR:-/tmp}/es-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/es-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$ESW" ]; then printf 'ok   %-26s => %s (rustc)\n' "State effect -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-state Rust" "$got"; fail=1; fi
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-nondet.hm > "${TMPDIR:-/tmp}/en.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/en.rs" -o "${TMPDIR:-/tmp}/en-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/en-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$ENW" ]; then printf 'ok   %-26s => %s (rustc)\n' "Nondet (multi-shot) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-nondet Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
