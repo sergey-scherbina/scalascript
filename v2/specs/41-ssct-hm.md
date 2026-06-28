@@ -39,6 +39,7 @@ atom   := int | float | string | 'true' | 'false' | '_'
         | '[' (expr (',' expr)*)? ']'                     -- list literal
         | '{' field '=' expr (',' field '=' expr)* '}'    -- record literal
         | '(' expr (',' expr)* ')'                        -- paren group or tuple
+        | '(' expr ':' type ')'                           -- type ascription
         | x | Con
 ```
 
@@ -84,6 +85,9 @@ first-class):
 - **do-notation** `do { x <- e ; … ; result }` desugars to `bind e (fun x => …)`; `bind`/`pure`
   resolve from scope, so it is monad-agnostic — the prelude supplies the **Option** monad by
   default, and a program can define its own `bind`/`pure` for another monad.
+- **Type ascription** `(e : T)` (concrete `T`) checks/documents a type and, usefully,
+  disambiguates typeclass resolution: `show (None : Option Int)` ⇒ `"None"` (an ambiguous-type
+  error without the annotation). Erased at runtime.
 
 ## Typeclasses
 
@@ -114,9 +118,10 @@ describe 5                                                                     =
 A small standard library is **auto-injected, but only the functions a program uses freely**
 (a binder-aware free-var scan over the pre-desugar tree decides; a program that binds its own
 `map` is unchanged). Functions may depend on one another (the transitive closure is pulled in).
-Lists: `map filter foldr foldl concatMap append reverse length sum range take drop zip
-replicate all any`. Option: `mapOption getOrElse isSome isNone find`. Monad (Option by default):
-`pure bind`. All are ordinary pure ssc0, so they run identically on every backend.
+Lists: `map filter foldr foldl concatMap concat append reverse length sum range take drop zip
+zipWith replicate all any elemBy sortBy`. Option: `mapOption getOrElse isSome isNone find`.
+Combinators: `id const abs minBy maxBy`. Monad (Option by default): `pure bind`. 32 functions in
+all — ordinary pure ssc0, so they run identically on every backend.
 
 ## Components (all ssc0, on the frozen kernel)
 
