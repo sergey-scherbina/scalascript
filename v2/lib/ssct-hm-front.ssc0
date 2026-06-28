@@ -339,11 +339,18 @@ def parseLetRec   = (toks) =>                          -- after 'rec':  binds 'i
   match parseRecBinds(toks) { case Pair(binds, r) =>
     match parseExpr(drop1(r)) { case Pair(body, r2) =>      -- drop 'in'
       match binds { case Cons(b1, rest) => match rest { case Nil => match b1 { case Pair(nm, lam) => Pair(LetRec(nm, lam, body), r2) } case _ => Pair(LetRecM(binds, body), r2) } case Nil => Pair(ParseErr, Nil) } } }
-def parseLetE = (toks) =>                             -- after 'let':  [rec] x '=' e 'in' body
+-- tuple/constructor destructuring:  `let (pat) = e in body`  →  `match e { pat => body }`  (no params, non-rec)
+def parseLetDestructure = (r1) =>                     -- r1 is just after the opening '('
+  match parseParenPat(r1) { case Pair(pat, r2) =>     -- r2 is just after the matching ')'
+    match parseExpr(drop1(r2)) { case Pair(e, r3) =>      -- drop '='
+      match parseExpr(drop1(r3)) { case Pair(body, r5) => -- drop 'in'
+        Pair(MatchT(e, Cons(armOfPat(pat, body), Nil)), r5) } } }
+def parseLetE = (toks) =>                             -- after 'let':  [rec] x '=' e 'in' body  |  (pat) '=' e 'in' body
   match toks {
     case Cons(t, r1) =>
       match t {
         case TName(x) => if #seq(x, "rec") then parseLetRec(r1) else parseLetBind(mkLet, toks)
+        case TPunct(p) => if #seq(p, "(") then parseLetDestructure(r1) else Pair(ParseErr, Nil)
         case _        => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)

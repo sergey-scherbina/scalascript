@@ -457,3 +457,16 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       backend change** — `__append` builds plain `Cons`/`Nil` IR. `[1,2]++[3,4]`→`[1,2,3,4]`, `[]++[1]`,
       chaining, list-of-strings all green on run-ir/JS/Rust; string `++` and ambiguous-default unchanged.
       conformance +5.
+
+## K16 — let destructuring
+
+- [x] **K16.1 — `let (pat) = e in body`** (tuples, nested, ctor patterns). Probed (2026-06-28): this used to
+      **crash** the compiler (`parseLetE` saw `(` after `let`, fell to `ParseErr`, and a downstream match had
+      "no arm for ParseErr"). Now `parseLetE` dispatches a leading `(` to `parseLetDestructure`, which parses
+      the parenthesised pattern with the existing `parseParenPat`, then desugars to `match e { pat => body }`
+      via the existing `armOfPat` — so all the tuple/nested-pattern machinery (incl. `match`-compiler for
+      non-simple sub-patterns) is reused. `let (a,b)=(3,4)`, `let (a,b,c)=…`, `let (a,(b,c))=…`, and
+      destructuring a function result all work on run-ir/JS/Rust. 0 infer/erase/backend change (pure
+      front-end desugar to `MatchT`). No regression: `let x=e`, `let f x=e`, `let x:T=e`, `let rec` untouched.
+      conformance +5. (Other parser robustness gaps noted: `if` w/o else and float-literal patterns still
+      Java-crash rather than erroring cleanly; negative-literal *patterns* don't parse — lower priority.)
