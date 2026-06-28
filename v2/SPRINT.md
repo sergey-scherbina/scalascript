@@ -191,3 +191,19 @@ needs a leading concrete float or `(r : Float)*…` (ascription). `fadd`/etc. st
 OPEN (deferred): overloaded `/` is NOT done — `div` (Int) and `fdiv` (Float) have different semantics.
 Fully-general numeric polymorphism (e.g. `r*r*pi` with `r` a param) needs qualified types (`Num a =>`),
 the same research-level work as effect rows; eager defaulting is the sound pragmatic choice.
+
+## K9 — Concurrency in the typed surface (on the typed effects)
+
+- [x] **typed async** — `examples/hm-async.hm`: yield/log ops over the universal `Comp`, a round-robin
+      `runSched` handler, cooperative interleaving of tasks ⇒ `[1, 2, 101, 102]`. All 3 backends.
+- [x] **typed actors** — `examples/hm-actors.hm`: a stateful behavior `(state, msg) -> (state', out)`
+      over a message stream ⇒ `[2, 3, 2]`. All 3 backends.
+
+## Remaining (genuinely blocked, not "todo")
+
+- **Full effect-row inference** — research-level (row polymorphism in the ~430-line inferrer); deferred
+  with user agreement. Track-P effects are already type-safe per effect; rows would only add static
+  tracking of the effect *set*.
+- **WASM backend** — toolchain-blocked, re-confirmed 2026-06-28: no `rustup` (so `rustc` can't build
+  `wasm32-unknown-unknown` — "can't find crate for std"), and no `wabt`/`wasmtime`/`wasmer` to assemble or
+  run wasm. Unblock = install `rustup` + `rustup target add wasm32-unknown-unknown`, or `wabt`+`wasmtime`.
