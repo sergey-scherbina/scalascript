@@ -6,6 +6,10 @@ def joinStr = (parts, sep) => match parts { case Nil => "" case Cons(h, t) => ma
 def cats  = (xs) => joinStr(xs, "")
 def jName = (i) => #sconcat("v", #i->str(i))
 def lenL  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenL(t)) }
+-- escape a string VALUE for emission as a Rust source-literal: \ " \n \t \r
+def escChar = (c) => if #i.eq(c, 92) then "\\\\" else if #i.eq(c, 34) then "\\\"" else if #i.eq(c, 10) then "\\n" else if #i.eq(c, 9) then "\\t" else if #i.eq(c, 13) then "\\r" else #sfromCodes(Cons(c, Nil))
+def escStr = (s, i) => if #i.ge(i, #slen(s)) then "" else #sconcat(escChar(#scodeAt(s, i)), escStr(s, #i.add(i, 1)))
+def escapeStr = (s) => escStr(s, 0)
 
 def rbinds  = (d, idx, n) => if #i.le(n, 0) then "" else cats(Cons("let ", Cons(jName(d), Cons(" = a[", Cons(#i->str(idx), Cons("].clone(); ", Cons(rbinds(#i.add(d, 1), #i.add(idx, 1), #i.sub(n, 1)), Nil)))))))
 def rfbinds = (d, idx, n) => if #i.le(n, 0) then "" else cats(Cons("let ", Cons(jName(d), Cons(" = f[", Cons(#i->str(idx), Cons("].clone(); ", Cons(rfbinds(#i.add(d, 1), #i.add(idx, 1), #i.sub(n, 1)), Nil)))))))
@@ -15,7 +19,7 @@ def genRConst = (c) =>
   match c {
     case IrInt(n)  => cats(Cons("V::I(", Cons(#i->str(n), Cons(")", Nil))))
     case IrBool(b) => if b then "V::B(true)" else "V::B(false)"
-    case IrStr(s)  => cats(Cons("V::S(\"", Cons(s, Cons("\".to_string())", Nil))))
+    case IrStr(s)  => cats(Cons("V::S(\"", Cons(escapeStr(s), Cons("\".to_string())", Nil))))
     case IrFloat(d) => cats(Cons("V::Fl(", Cons(#f->str(d), Cons(")", Nil))))
     case IrUnit    => "V::U"
   }

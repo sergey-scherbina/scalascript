@@ -42,15 +42,18 @@ def lexFrom = (s, i) =>
       else Cons(TNum(strToInt(#sslice(s, i, j))), lexFrom(s, j))
     else if isAlpha(c) then
       let j = scanWhile(s, i, isAlphaNum) in Cons(TName(#sslice(s, i, j)), lexFrom(s, j))
-    else if #i.eq(c, 34) then                                -- '"' : a string literal (no escapes)
-      let j = scanStr(s, #i.add(i, 1)) in Cons(TStr(#sslice(s, #i.add(i, 1), j)), lexFrom(s, #i.add(j, 1)))
+    else if #i.eq(c, 34) then                                -- '"' : a string literal with \n \t \r \\ \" escapes
+      let j = scanStr(s, #i.add(i, 1)) in Cons(TStr(unescapeStr(#sslice(s, #i.add(i, 1), j))), lexFrom(s, #i.add(j, 1)))
     else
       let i2 = #i.add(i, 2) in
       let two = if #i.le(i2, #slen(s)) then #sslice(s, i, i2) else "" in
       if chOr(chOr(chOr(#seq(two, "=>"), #seq(two, "->")), chOr(#seq(two, "++"), chOr(#seq(two, "&&"), #seq(two, "||")))), chOr(chOr(#seq(two, "<="), #seq(two, ">=")), chOr(#seq(two, "<>"), #seq(two, "<-")))) then Cons(TPunct(two), lexFrom(s, i2))
       else Cons(TPunct(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))
 
-def scanStr = (s, k) => if #i.lt(k, #slen(s)) then (if #i.eq(#scodeAt(s, k), 34) then k else scanStr(s, #i.add(k, 1))) else k
+def scanStr = (s, k) => if #i.lt(k, #slen(s)) then (let c = #scodeAt(s, k) in if #i.eq(c, 34) then k else if chAnd(#i.eq(c, 92), #i.lt(#i.add(k, 1), #slen(s))) then scanStr(s, #i.add(k, 2)) else scanStr(s, #i.add(k, 1))) else k
+def unEscCode = (c) => if #i.eq(c, 110) then 10 else if #i.eq(c, 116) then 9 else if #i.eq(c, 114) then 13 else c   -- \n→LF \t→TAB \r→CR ; \\ \" → the literal char
+def unescapeCodes = (s, i) => if #i.ge(i, #slen(s)) then Nil else let c = #scodeAt(s, i) in if chAnd(#i.eq(c, 92), #i.lt(#i.add(i, 1), #slen(s))) then Cons(unEscCode(#scodeAt(s, #i.add(i, 1))), unescapeCodes(s, #i.add(i, 2))) else Cons(c, unescapeCodes(s, #i.add(i, 1)))
+def unescapeStr = (s) => #sfromCodes(unescapeCodes(s, 0))
 -- a fractional part: '.' (46) at j followed by a digit  ->  this number is a Float literal
 def hasFrac = (s, j) => if #i.lt(#i.add(j, 1), #slen(s)) then chAnd(#i.eq(#scodeAt(s, j), 46), isDigit(#scodeAt(s, #i.add(j, 1)))) else false
 def lex = (s) => lexFrom(s, 0)

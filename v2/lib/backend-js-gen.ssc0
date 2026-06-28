@@ -6,6 +6,10 @@ def joinStr = (parts, sep) =>
   match parts { case Nil => "" case Cons(h, t) => match t { case Nil => h case Cons(h2, t2) => #sconcat(h, #sconcat(sep, joinStr(t, sep))) } }
 def cats  = (xs) => joinStr(xs, "")
 def jName = (i) => #sconcat("v", #i->str(i))
+-- escape a string VALUE for emission as a source-literal (JS/Rust share these escapes): \ " \n \t \r
+def escChar = (c) => if #i.eq(c, 92) then "\\\\" else if #i.eq(c, 34) then "\\\"" else if #i.eq(c, 10) then "\\n" else if #i.eq(c, 9) then "\\t" else if #i.eq(c, 13) then "\\r" else #sfromCodes(Cons(c, Nil))
+def escStr = (s, i) => if #i.ge(i, #slen(s)) then "" else #sconcat(escChar(#scodeAt(s, i)), escStr(s, #i.add(i, 1)))
+def escapeStr = (s) => escStr(s, 0)
 def gName = (n) => #sconcat("$", n)
 def lenL  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenL(t)) }
 
@@ -21,7 +25,7 @@ def genConst = (c) =>
   match c {
     case IrInt(n)  => #i->str(n)
     case IrBool(b) => if b then "true" else "false"
-    case IrStr(s)  => cats(Cons("\"", Cons(s, Cons("\"", Nil))))
+    case IrStr(s)  => cats(Cons("\"", Cons(escapeStr(s), Cons("\"", Nil))))
     case IrFloat(d) => #f->str(d)
     case IrUnit    => "UNIT"
   }

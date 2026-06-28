@@ -358,6 +358,10 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       stops at keywords, so `Som x if x > 0` doesn't slurp `if x` as extra sub-patterns. `examples/hm-guard.hm`
       (a `classify` with `x<0`/`x>0`/else) ⇒ `0`; `Som x if x>10 => 100 | Som x => x` on `Som 5` ⇒ `5`
       (fallthrough). All 3 backends. conformance +6.
-
+- [x] **K12.4 — string escapes** — `\n` `\t` `\r` `\\` `\"` in string literals. The lexer un-escapes the
+      source (and `scanStr` skips `\"` so it isn't a terminator); the JS/Rust gens re-escape the string VALUE
+      on emit (`escapeStr` in emit, shared) so the generated source is valid; the Core IR already round-trips
+      special chars (kernel `strLit`/`readString`), so run-ir needed no change. `strLen "a\nb\tc"` ⇒ `5`;
+      `strLen "x\"y"` ⇒ `3`. All 3 backends. conformance +5.
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.
