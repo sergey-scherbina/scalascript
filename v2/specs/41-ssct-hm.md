@@ -25,8 +25,12 @@ ctor   := Con fieldtype*    fieldtype := tyvar|'Int'|'Bool'|'String'|'Float'|'['
 expr   := 'fun' x+ '=>' expr                               -- multi-arg lambda (curried)
         | 'let' ['rec'] x x* '=' expr 'in' expr            -- value or function definition (curried)
         | 'if' expr 'then' expr 'else' expr
+        | 'do' '{' (x '<-' expr | expr) (';' …)* '}'       -- monadic do-notation (=> bind / pure)
         | 'match' expr '{' arm ('|' arm)* '}' | or
-arm    := Con x* '=>' expr | '_' '=>' expr                 -- constructor arm or wildcard catch-all
+arm    := pat '=>' expr                                    -- a pattern arm
+pat    := Con apat* | apat                                 -- constructor applied to sub-patterns, or an atom
+apat   := x | '_' | int | string | 'true' | 'false'       -- var / wildcard / Int·String·Bool literal
+        | Con | '(' pat (',' pat)* ')'                     -- nullary ctor, nested ctor, or tuple pattern
 or     := and ('||' and)*       and := cmp ('&&' cmp)*     -- boolean operators (loosest .. tighter)
 cmp    := add (('=' | '<' | '>' | '<=' | '>=' | '<>') add)?
 add    := mul (('+' | '-' | '++') mul)*       mul := app ('*' app)*       app := postfix postfix*
@@ -68,11 +72,18 @@ first-class):
 - **Records**: `{x = 1, y = true} : {x: Int, y: Bool}` (structural); `r.x` projects a field.
 - **User ADTs**: a `data` declaration registers each constructor's signature; a constructor
   application instantiates the type's parameters fresh and unifies the arguments against the
-  field types; a `match` unifies the scrutinee with each arm's constructor result type, binds
-  the field types to the arm's binders, and unifies all arm bodies. A `_` arm is a catch-all
-  (it binds nothing and does not constrain the scrutinee — it lowers to the Core IR `Match`
-  default slot). `Some 5 : Option Int`, `Node (Leaf 1) (Leaf 2) : Tree Int`.
+  field types. `Some 5 : Option Int`, `Node (Leaf 1) (Leaf 2) : Tree Int`.
+- **Pattern matching** covers constructor arms (`Cons h t`), a wildcard `_`, a variable arm
+  `x` (binds the whole scrutinee), Int/String/Bool **literal** arms, and **nested** patterns
+  (`Cons a (Cons b t)`, `(Some x, y)`, `Node (Leaf a) (Leaf b)`). Simple matches lower to the
+  Core IR `Match` (a `_` arm becomes its default slot); nested/literal/list matches lower —
+  entirely in the front desugar — to a backtracking chain of `Let`/`If`/`Match` with a
+  continuation thunk per arm, so infer/erase/eval are untouched. List `Cons`/`Nil` patterns
+  lower to `isNil`/`head`/`tail` (a list is `TyList`, not an ADT).
 - Comparisons `> <= >= <>` desugar to `< / = / if`; boolean `&& || not` desugar to `if`.
+- **do-notation** `do { x <- e ; … ; result }` desugars to `bind e (fun x => …)`; `bind`/`pure`
+  resolve from scope, so it is monad-agnostic — the prelude supplies the **Option** monad by
+  default, and a program can define its own `bind`/`pure` for another monad.
 
 ## Typeclasses
 
@@ -97,6 +108,15 @@ instance describe Int  = fun n => "int"  in
 instance describe Bool = fun b => "bool" in
 describe 5                                                                     => "int"
 ```
+
+## Prelude
+
+A small standard library is **auto-injected, but only the functions a program uses freely**
+(a binder-aware free-var scan over the pre-desugar tree decides; a program that binds its own
+`map` is unchanged). Functions may depend on one another (the transitive closure is pulled in).
+Lists: `map filter foldr foldl concatMap append reverse length sum range take drop zip
+replicate all any`. Option: `mapOption getOrElse isSome isNone find`. Monad (Option by default):
+`pure bind`. All are ordinary pure ssc0, so they run identically on every backend.
 
 ## Components (all ssc0, on the frozen kernel)
 
@@ -123,6 +143,10 @@ let p = {x = 3, y = 7} in p.x + p.y                                            =
 show (Some [1, 2, 3])                                                          => "Some([1, 2, 3])"
 data Color = Red | Green | Blue in
 let name c = match c { Red => "red" | _ => "other" } in name Green             => "other"
+sum (filter (fun x => x < 10) (map (fun x => x * x) (range 1 5)))              => 14   (prelude)
+let rec sum2 xs = match xs { Cons a (Cons b t) => a + b + sum2 t
+                           | Cons a Nil => a | Nil => 0 } in sum2 [1,2,3,4,5]  => 15   (nested patterns)
+getOrElse (do { x <- Some 10 ; y <- Some 20 ; pure (x + y) }) 0               => 30   (do-notation)
 data Expr = Num Int | Plus Expr Expr | Times Expr Expr in
 let rec eval e = match e { Num n => n | Plus a b => eval a + eval b
                          | Times a b => eval a * eval b } in
