@@ -251,8 +251,14 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
       **unified runtime convention** — the universal `Op`'s label is now the EFFECT name with the op name in a
       `Pair op arg` payload (handlers match by effect, dispatch by op); `__effRunSt`/`__effLogGo` updated to
       match. conformance +5 (322 → 327). NOTE: K9 async/actors use a *source-level* `Comp`, unaffected.
-- [ ] **K10.4e — remaining ergonomics (optional)** — `effect`/`handler` keyword sugar over `perform`/`handle`;
-      row syntax `{}` / `{l | r}` in the type parser for user annotations; parameterized handlers (State-style
-      via a returned function) over the general `handle`; interp `eval` of the effect built-ins.
+- [x] **K10.4e.1 — the general `handle` SUBSUMES the built-ins** — `examples/hm-eff-userstate.hm`
+      re-implements `runState` **entirely in user source** with only `perform`/`handle`/`bindE`/`pureE` — a
+      *parameterized* (state-threading) handler where the handled computation returns a function of the state
+      (`b = Int -> Comp ρ (Pair a Int)`; `get` = `λs. (k s) s`, `put a` = `λs. (k ()) a`). ⇒ type `(Int, Int)`,
+      value `Pair(105, 5)` on run-ir / node / rustc — identical to the built-in `runStateE`. ZERO compiler
+      change: it shows the general deep handler already covers stateful effects, not just the pure/multi-shot
+      ones. conformance +4 (327 → 331).
+- [ ] **K10.4e.2 — remaining ergonomics (optional)** — `effect`/`handler` keyword sugar over `perform`/`handle`;
+      row syntax `{}` / `{l | r}` in the type parser for user annotations; interp `eval` of the effect built-ins.
 
 OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.

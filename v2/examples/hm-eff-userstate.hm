@@ -1,0 +1,13 @@
+let runState = fun comp => fun s0 =>
+  bindE
+    (handle "State" comp
+       (fun v => pureE (fun s => pureE (Pair v s)))
+       (fun o => fun a => fun k =>
+          if strEq o "get"
+          then pureE (fun s => bindE (k s) (fun g => g s))
+          else pureE (fun s => bindE (k (0 : Dyn)) (fun g => g a))))
+    (fun f => f s0) in
+runE (runState
+  (bindE (perform "State" "put" (5 : Dyn))
+   (fun u => bindE (perform "State" "get" (0 : Dyn))
+    (fun x => pureE ((x : Int) + 100)))) 0)
