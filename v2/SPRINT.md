@@ -201,9 +201,26 @@ the same research-level work as effect rows; eager defaulting is the sound pragm
 
 ## Remaining (genuinely blocked, not "todo")
 
-- **Full effect-row inference** — research-level (row polymorphism in the ~430-line inferrer); deferred
-  with user agreement. Track-P effects are already type-safe per effect; rows would only add static
-  tracking of the effect *set*.
+- **Effect rows** — now in progress as **K10** below (light version: track the effect *set*); the full
+  Koka-style system (typed payloads) stays deferred.
 - **WASM backend** — toolchain-blocked, re-confirmed 2026-06-28: no `rustup` (so `rustc` can't build
   `wasm32-unknown-unknown` — "can't find crate for std"), and no `wabt`/`wasmtime`/`wasmer` to assemble or
   run wasm. Unblock = install `rustup` + `rustup target add wasm32-unknown-unknown`, or `wabt`+`wasmtime`.
+
+## K10 — Effect rows (research; light implementation)
+
+Track effects in the type: `Comp {get, put | ρ} a`; `run : Comp {} a -> a` enforces "no unhandled
+effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over the existing `Dyn`
+`Comp`; payloads stay `Dyn`; full Koka-style typed-operations deferred). Spec `54-effect-rows.md`.
+
+- [x] **K10.1 — row-unification spike** — Rémy-style row unification in ssc0, validated on the three
+      canonical cases (`{get|ρ}~{put,get}`; `{get}~{put}` fails; `{get|ρ1}~{put|ρ2}` shares a tail).
+- [x] **K10.2 — design doc** — `specs/54-effect-rows.md`.
+- [ ] **K10.3 — rows in the inferrer** — `TyRowEmpty`/`TyRowExt`/`TyRowVar` + `rowUnify`/`rowRewrite` +
+      `unify` dispatch (incl. `Comp[r,a]`) + appTy/occurs/freeTy/renameTy/showTyR; row syntax `{}` /
+      `{l, …}` / `{l | r}` in the type parser; validate via ascriptions.
+- [ ] **K10.4 — light effect surface** — `effect L ops in …` decl (ops typed `Dyn -> Comp {L|ρ} Dyn`),
+      `pure`/`bind`/`handle` (removes a label), `run` (empty row); a State example that type-checks and an
+      unhandled-effect program that is a type error. All 3 backends (runtime = the universal Comp).
+
+OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.
