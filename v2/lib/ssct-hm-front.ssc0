@@ -47,7 +47,7 @@ def lexFrom = (s, i) =>
     else
       let i2 = #i.add(i, 2) in
       let two = if #i.le(i2, #slen(s)) then #sslice(s, i, i2) else "" in
-      if chOr(chOr(chOr(#seq(two, "=>"), #seq(two, "->")), chOr(#seq(two, "++"), chOr(#seq(two, "&&"), #seq(two, "||")))), chOr(chOr(#seq(two, "<="), #seq(two, ">=")), #seq(two, "<>"))) then Cons(TPunct(two), lexFrom(s, i2))
+      if chOr(chOr(chOr(#seq(two, "=>"), #seq(two, "->")), chOr(#seq(two, "++"), chOr(#seq(two, "&&"), #seq(two, "||")))), chOr(chOr(#seq(two, "<="), #seq(two, ">=")), chOr(#seq(two, "<>"), #seq(two, "<-")))) then Cons(TPunct(two), lexFrom(s, i2))
       else Cons(TPunct(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))
 
 def scanStr = (s, k) => if #i.lt(k, #slen(s)) then (if #i.eq(#scodeAt(s, k), 34) then k else scanStr(s, #i.add(k, 1))) else k
@@ -61,7 +61,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(#seq(s, "data"), chOr(#seq(s, "method"), #seq(s, "instance"))))),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), #seq(s, "do")), chOr(#seq(s, "method"), #seq(s, "instance"))))),
        chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -294,6 +294,22 @@ def parseArms = (toks) =>
 def parseMatchE = (toks) =>                            -- after 'match':  scrut '{' arms '}'
   match parseExpr(toks) { case Pair(scrut, r1) => match parseArms(drop1(r1)) { case Pair(arms, r2) => Pair(MatchT(scrut, arms), drop1(r2)) } }
 
+-- do-notation:  do { x <- e ; ... ; result }  ->  bind e (fun x => ...) ; the last stmt is the result.
+-- `bind`/`pure` resolve to whatever is in scope — the prelude provides the Option monad by default.
+def isBindStmt = (toks) => match toks { case Cons(t1, r1) => match t1 { case TName(x) => match r1 { case Cons(t2, r2) => match t2 { case TPunct(p) => #seq(p, "<-") case _ => false } case Nil => false } case _ => false } case Nil => false }
+def parseDoStmts = (toks) =>
+  if isBindStmt(toks) then
+    match toks { case Cons(t1, r1) => match t1 {
+        case TName(x) => match parseExpr(drop1(r1)) { case Pair(e, r2) =>     -- drop '<-'
+            match parseDoStmts(drop1(r2)) { case Pair(rest, r3) => Pair(App(App(Var("bind"), e), Lam(x, rest)), r3) } }   -- drop ';'
+        case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+  else
+    match parseExpr(toks) { case Pair(e, r2) =>
+      match r2 { case Cons(t, rest) => match t {
+          case TPunct(p) => if #seq(p, ";") then match parseDoStmts(rest) { case Pair(restT, r3) => Pair(App(App(Var("bind"), e), Lam("_", restT)), r3) }
+                            else Pair(e, rest)                                 -- '}' : last stmt is the result
+          case _ => Pair(e, r2) } case Nil => Pair(e, Nil) } }
+def parseDoBody = (toks) => parseDoStmts(drop1(toks))                          -- drop '{'
 def parseExpr = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -303,6 +319,7 @@ def parseExpr = (toks) =>
           else if #seq(s, "let") then parseLetE(rest)
           else if #seq(s, "if") then parseIfE(rest)
           else if #seq(s, "match") then parseMatchE(rest)
+          else if #seq(s, "do") then parseDoBody(rest)
           else parseOr(toks)
         case _ => parseOr(toks)
       }
@@ -533,7 +550,9 @@ def prelude =
   Cons(Pair("isSome",  "fun o => match o { Some x => true | None => false }"),
   Cons(Pair("isNone",  "fun o => match o { Some x => false | None => true }"),
   Cons(Pair("find",    "fun p => fun xs => match xs { Cons h t => if p h then Some h else find p t | Nil => None }"),
-  Nil)))))))))))))))))))))
+  Cons(Pair("pure",    "fun x => Some x"),
+  Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
+  Nil)))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }

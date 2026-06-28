@@ -672,6 +672,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/oe.rs" -o "${TMPDIR:-/tmp}/oe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/oe-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s (rustc)\n' "option/concatMap -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "option Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm DO-NOTATION: do { x <- e ; ... ; r } -> bind/pure (Option monad by default), all backends"
+chk_hm examples/hm-do.hm '"Int"'
+DOW="130"
+ssc run bin/ssctc-hm.ssc0 examples/hm-do.hm > "${TMPDIR:-/tmp}/de.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/de.coreir" | tail -1)
+if [ "$got" = "$DOW" ]; then printf 'ok   %-26s => %s\n' "do-notation -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "do" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-do.hm > "${TMPDIR:-/tmp}/de.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/de.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$DOW" ]; then printf 'ok   %-26s => %s (node)\n' "do-notation -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "do JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-do.hm > "${TMPDIR:-/tmp}/de.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/de.rs" -o "${TMPDIR:-/tmp}/de-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/de-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$DOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "do-notation -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "do Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

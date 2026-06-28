@@ -1,0 +1,1 @@
+getOrElse (do { x <- Some 10 ; y <- Some 20 ; pure (x + y) }) 0 + getOrElse (do { x <- Some 1 ; y <- None ; pure (x + y) }) 100
