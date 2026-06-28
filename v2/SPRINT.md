@@ -269,7 +269,35 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
       `parseDoStmts` is now parameterized by the bind name. `examples/hm-eff-do.hm` (State) ⇒ `(Int, Int)` /
       `Pair(105, 5)`; `examples/hm-eff-do-nondet.hm` uses `doE` in BOTH the handler body and the computation ⇒
       `[Int]` / `[3,2,1,0]` — all on run-ir / node / rustc. conformance +7 (331 → 338).
-- [ ] **K10.4e.3 — remaining ergonomics (optional)** — `effect`/`handler` keyword sugar over `perform`/`handle`;
-      row syntax `{}` / `{l | r}` in the type parser for user annotations; interp `eval` of the effect built-ins.
+## K11 — finish everything remaining (2026-06-28, user: "делай всё, не останавливайся")
 
-OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.
+Close out the whole remaining frontier. Ordered easy→hard; each slice ships green on all 3 backends.
+
+- [ ] **K11.1 — `effect` declaration sugar** — `effect Name op1 op2 in <body>` registers each `opK` as an
+      operation of effect `Name`; inside the body `opK arg` desugars to `perform "Name" "opK" arg`
+      (= `EffOp("Name","opK",arg)`). A parse-time registry cell (like `data`), consulted in `dsApp`.
+      `handle` stays string-based. Makes user effects read like Koka without the string literals.
+- [ ] **K11.2 — row syntax in the type parser** — `{}` / `{l}` / `{l, m}` / `{l | r}` as a *row* type, and
+      `Comp {row} a`, so effect types can appear in ascriptions: `(getE : Comp {State} Dyn)`. Disambiguate
+      from record types (`{x : T}` has `:`; a row has bare labels / `|`). Enables documenting effect types.
+- [ ] **K11.3 — QUALIFIED TYPES via dictionary passing** (the big one — general typeclass/numeric
+      polymorphism). Inference collects constraints `C a` when an overloaded op / user `method` is used on an
+      unresolved var; `let`-generalization quantifies them into the scheme (`∀a. C a => τ`); instantiation
+      makes fresh constraints; a constraint is discharged when its var becomes concrete (else defaulted/erro).
+      Erase = **dictionary passing**: a constrained fn gains a leading dict param, method uses become dict
+      applications, call sites pass the resolved instance (or thread an enclosing dict). VALUES stay concrete
+      per call (no boxing) → backend-agnostic, NO backend change. Removes the K8 eager-default sharp edge
+      (`fun a b => a < b`, `r*r*pi`) and makes user typeclasses fully polymorphic. Sliced:
+  - [ ] K11.3a — constraint representation + collection in `infer` (overloaded ops + `method` calls).
+  - [ ] K11.3b — constraints in type schemes; generalize/instantiate; discharge on resolution + defaulting.
+  - [ ] K11.3c — dictionary-passing erase (fn dict params + method→dict app + call-site dict args).
+  - [ ] K11.3d — demo + conformance: a generic `min3`/`sumList` over a user `Ord`/`Num` class; `r*r*pi`.
+- [ ] **K11.4 — full Koka-style typed payloads** (research, the deepest). Operation signatures on the
+      `effect` decl (`effect State { get : Unit -> Int ; put : Int -> Unit }`); type `perform`/ops against
+      them (drop `Dyn`); type the handler resume/return. Builds on K11.1 (decl) + K11.3 (the typing
+      machinery). If it cannot land as one green increment, deliver the design in `specs/54` + the achievable
+      subset, honestly marked.
+- [ ] **K11.5 — convert effect examples to `doE`** (idiomatic cleanup) + spec/CHANGELOG sweep.
+
+BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
+(only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.
