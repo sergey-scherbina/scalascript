@@ -12,6 +12,7 @@ def appTy   = (s, t) => match t {
     case TyBool     => TyBool
     case TyStr      => TyStr
     case TyFloat    => TyFloat
+    case TyDyn      => TyDyn
     case TyVar(n)   => match lookupS(s, n) { case None => TyVar(n) case Some(u) => appTy(s, u) }
     case TyList(e)  => TyList(appTy(s, e))
     case TyCon(nm, args) => TyCon(nm, mapAppTy(s, args))
@@ -21,12 +22,14 @@ def appTy   = (s, t) => match t {
 def mapAppRec = (s, fs) => match fs { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, t) => Cons(Pair(nm, appTy(s, t)), mapAppRec(s, rest)) } }
 def anyOccurs = (n, ts) => match ts { case Nil => false case Cons(t, rest) => if occurs(n, t) then true else anyOccurs(n, rest) }
 def anyOccursRec = (n, fs) => match fs { case Nil => false case Cons(p, rest) => match p { case Pair(nm, t) => if occurs(n, t) then true else anyOccursRec(n, rest) } }
-def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyRec(fs) => anyOccursRec(n, fs) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyDyn => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyRec(fs) => anyOccursRec(n, fs) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
 
 -- unify two types under subst s -> Ok(s') | Err(msg)
+def isDyn = (t) => match t { case TyDyn => true case _ => false }
 def unify = (s, t1, t2) =>
   let a = appTy(s, t1) in
   let b = appTy(s, t2) in
+  if isDyn(a) then Ok(s) else if isDyn(b) then Ok(s) else      -- Dyn = the escape-hatch: unifies with any type
   match a {
     case TyVar(n) => match b {
         case TyVar(m) => if #i.eq(n, m) then Ok(s) else Ok(Cons(Pair(n, b), s))
@@ -89,7 +92,7 @@ def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.e
 def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
 def freeTyList = (ts, acc) => match ts { case Nil => acc case Cons(t, rest) => freeTyList(rest, freeTy(t, acc)) }
 def freeRec = (fs, acc) => match fs { case Nil => acc case Cons(p, rest) => match p { case Pair(nm, t) => freeRec(rest, freeTy(t, acc)) } }
-def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyRec(fs) => freeRec(fs, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyDyn => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyRec(fs) => freeRec(fs, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
 def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
 def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
 def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
@@ -338,10 +341,13 @@ def mapRen    = (ren, ts) => match ts { case Nil => Nil case Cons(t, rest) => Co
 def renameTy  = (ren, t) => match t {
     case TyInt      => TyInt
     case TyBool     => TyBool
+    case TyStr      => TyStr
+    case TyFloat    => TyFloat
     case TyVar(i)   => match lookupS(ren, i) { case None => TyVar(i) case Some(u) => u }
     case TyList(e)  => TyList(renameTy(ren, e))
     case TyCon(nm, args) => TyCon(nm, mapRen(ren, args))
     case TyFun(a, b) => TyFun(renameTy(ren, a), renameTy(ren, b))
+    case TyDyn      => TyDyn
   }
 def freshArgs = (i, n, c) => if #i.ge(i, n) then Nil else Cons(TyVar(#i.add(c, i)), freshArgs(#i.add(i, 1), n, c))
 -- infer constructor arguments against (instantiated) field types -> OkS(subst, counter) | ErrS(msg)
@@ -387,6 +393,7 @@ def showTyR = (t) => match t {
     case TyCon(nm, args) => if #seq(nm, "Pair") then #sconcat("(", #sconcat(showTup(args), ")")) else if #seq(nm, "Triple") then #sconcat("(", #sconcat(showTup(args), ")")) else match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
     case TyRec(fs)  => #sconcat("{", #sconcat(showRecF(fs), "}"))
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
+    case TyDyn      => "Dyn"
   }
 -- render a type-constructor argument, parenthesizing compound args (applied TyCon)
 def showArg  = (t) => match t { case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat("(", #sconcat(showTyR(t), ")")) } case _ => showTyR(t) }

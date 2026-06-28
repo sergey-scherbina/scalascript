@@ -778,6 +778,24 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/en.rs" -o "${TMPDIR:-/tmp}/en-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/en-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ENW" ]; then printf 'ok   %-26s => %s (rustc)\n' "Nondet (multi-shot) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-nondet Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm UNIVERSAL Comp via Dyn (K7-E): one effect monad for all ops; perform + label-dispatch handler"
+chk_hm examples/hm-eff-comp.hm '"Int"'
+ECW="41"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-comp.hm > "${TMPDIR:-/tmp}/ec.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ec.coreir" | tail -1)
+if [ "$got" = "$ECW" ]; then printf 'ok   %-26s => %s\n' "universal Comp/Dyn -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-comp" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-comp.hm > "${TMPDIR:-/tmp}/ec.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ec.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$ECW" ]; then printf 'ok   %-26s => %s (node)\n' "universal Comp/Dyn -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-comp JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-comp.hm > "${TMPDIR:-/tmp}/ec.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ec.rs" -o "${TMPDIR:-/tmp}/ec-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ec-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$ECW" ]; then printf 'ok   %-26s => %s (rustc)\n' "universal Comp/Dyn -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-comp Rust" "$got"; fail=1; fi
+fi
+# Dyn round-trip (the escape-hatch) types and erases
+echo -n "ok   Dyn round-trip          => "; printf '((5 : Dyn) : Int) + 1' > "${TMPDIR:-/tmp}/dyn.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/dyn.hm" > "${TMPDIR:-/tmp}/dyn.coreir" 2>/dev/null; dg=$(ssc run-ir "${TMPDIR:-/tmp}/dyn.coreir" | tail -1); if [ "$dg" = "6" ]; then echo "6"; else echo "FAIL [$dg]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

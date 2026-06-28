@@ -100,8 +100,8 @@ def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' 
   match parseExpr(toks) { case Pair(e, r) =>
     match r { case Cons(t, rest) => match t { case TPunct(q) => if #seq(q, ",") then match parseTupleElems(rest) { case Pair(more, r2) => Pair(Cons(e, more), r2) } else Pair(Cons(e, Nil), r) case _ => Pair(Cons(e, Nil), r) } case Nil => Pair(Cons(e, Nil), Nil) } }
 -- a type expression for an ascription `(e : ty)`:  basic | Con atom* | [ty] | (ty)  (concrete types)
-def isBasicTy = (s) => chOr(chOr(#seq(s, "Int"), #seq(s, "Bool")), chOr(#seq(s, "String"), #seq(s, "Float")))
-def basicTy = (s) => if #seq(s, "Int") then TyInt else if #seq(s, "Bool") then TyBool else if #seq(s, "String") then TyStr else TyFloat
+def isBasicTy = (s) => chOr(chOr(chOr(#seq(s, "Int"), #seq(s, "Bool")), #seq(s, "Dyn")), chOr(#seq(s, "String"), #seq(s, "Float")))
+def basicTy = (s) => if #seq(s, "Int") then TyInt else if #seq(s, "Bool") then TyBool else if #seq(s, "Dyn") then TyDyn else if #seq(s, "String") then TyStr else TyFloat
 def ascAtomStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TPunct(p) => chOr(#seq(p, "["), #seq(p, "(")) case _ => false } case Nil => false }
 def parseAscAtom = (toks) =>                           -- a single type atom (no Con application)
   match toks { case Cons(t, rest) => match t {
@@ -472,14 +472,14 @@ def lenP    = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenP
 def fieldStart = (toks) => match toks { case Cons(t, rest) => match t { case TName(x) => if #seq(x, "in") then false else true case TPunct(p) => chOr(#seq(p, "("), #seq(p, "[")) case _ => false } case Nil => false }
 def parseFieldType = (ps, toks) =>                    -- a single field-type ATOM (application/`->` only inside parens)
   match toks { case Cons(t, rest) => match t {
-      case TName(x)  => if isParam(x, ps) then Pair(TyVar(idxP(x, ps)), rest) else if #seq(x, "Int") then Pair(TyInt, rest) else if #seq(x, "Bool") then Pair(TyBool, rest) else Pair(TyCon(x, Nil), rest)
+      case TName(x)  => if isParam(x, ps) then Pair(TyVar(idxP(x, ps)), rest) else if #seq(x, "Int") then Pair(TyInt, rest) else if #seq(x, "Bool") then Pair(TyBool, rest) else if #seq(x, "String") then Pair(TyStr, rest) else if #seq(x, "Float") then Pair(TyFloat, rest) else if #seq(x, "Dyn") then Pair(TyDyn, rest) else Pair(TyCon(x, Nil), rest)
       case TPunct(p) => if #seq(p, "(") then match parseFnType(ps, rest) { case Pair(ty, r) => Pair(ty, drop1(r)) } else if #seq(p, "[") then match parseFnType(ps, rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else Pair(TyInt, rest)
       case _         => Pair(TyInt, rest)
     } case Nil => Pair(TyInt, Nil) }
 -- inside parens/brackets: a type may be a Con application (`F a`) or a (right-assoc) function type (`a -> b`)
 def parseTyApp = (ps, toks) =>                        -- `Con atom*`  |  atom
   match toks { case Cons(t, rest) => match t {
-      case TName(x) => if isUpperName(x) then (if chOr(#seq(x, "Int"), #seq(x, "Bool")) then parseFieldType(ps, toks) else match parseFields(ps, rest) { case Pair(args, r) => Pair(TyCon(x, args), r) }) else parseFieldType(ps, toks)
+      case TName(x) => if isUpperName(x) then (if chOr(chOr(#seq(x, "Int"), #seq(x, "Bool")), chOr(#seq(x, "String"), chOr(#seq(x, "Float"), #seq(x, "Dyn")))) then parseFieldType(ps, toks) else match parseFields(ps, rest) { case Pair(args, r) => Pair(TyCon(x, args), r) }) else parseFieldType(ps, toks)
       case _ => parseFieldType(ps, toks) } case Nil => Pair(TyInt, Nil) }
 def parseFnType = (ps, toks) =>                       -- app ('->' fnType)?  (right-associative)
   match parseTyApp(ps, toks) { case Pair(t1, r1) =>

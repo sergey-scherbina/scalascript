@@ -1,0 +1,6 @@
+data Comp a = Pure a | Op String Dyn (Dyn -> Comp a) in
+let rec bind = fun m => fun f => match m { Pure v => f v | Op l a k => Op l a (fun r => bind (k r) f) } in
+let pure = fun x => Pure x in
+let perform = fun l => fun a => Op l a (fun r => Pure r) in
+let rec runMath = fun m => match m { Pure v => v | Op l a k => if strEq l "double" then runMath (k (((a : Int) * 2) : Dyn)) else runMath (k (((a : Int) + 1) : Dyn)) } in
+runMath (do { x <- perform "double" (10 : Dyn) ; y <- perform "inc" (x : Dyn) ; pure ((x : Int) + (y : Int)) })
