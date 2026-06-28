@@ -1,0 +1,1 @@
+let op s = fun a => fun b => match s { "add" => a + b | "sub" => a - b | "mul" => a * b | _ => 0 } in op "add" 1 2 + op "mul" 6 7

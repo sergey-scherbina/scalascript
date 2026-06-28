@@ -255,8 +255,12 @@ def parseBinders = (toks) =>
 def parseArm = (toks) =>
   match toks {
     case Cons(t, rest) => match t {
-        case TName(con) => match parseBinders(rest) { case Pair(binders, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(MArm(con, binders, body), r3) } }
+        case TName(con) =>
+          if #seq(con, "true")  then match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(BoolLit(true), body), r3) }    -- Bool literal pattern
+          else if #seq(con, "false") then match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(BoolLit(false), body), r3) }
+          else match parseBinders(rest) { case Pair(binders, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(MArm(con, binders, body), r3) } }
         case TNum(n)    => match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(Lit(n), body), r3) }   -- an Int literal pattern (drop '=>')
+        case TStr(s)    => match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(StrLit(s), body), r3) }  -- a String literal pattern
         case _ => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)
@@ -325,8 +329,15 @@ def hasLitArm = (arms) => match arms { case Nil => false case Cons(a, rest) => m
 -- The bound name is the trailing catch-all variable (a `x => …` arm) else "$lm" (un-lexable, can't clash).
 def litElse = (arms) => match lastArm(arms) { case Some(la) => match la { case MArm(c, b, body) => body case LitArm(l, body) => body } case None => Lit(0) }
 def litBindName = (arms) => match lastArm(arms) { case Some(la) => match la { case MArm(c, b, body) => if startsLower(c) then c else "$lm" case LitArm(l, body) => "$lm" } case None => "$lm" }
+-- the test for a literal pattern, by literal kind:  Int via `=`, String via strEq, Bool directly (or negated)
+def litCond = (sv, lit) => match lit {
+    case Lit(n)      => Eq(sv, Lit(n))
+    case StrLit(s)   => StrEq(sv, StrLit(s))
+    case BoolLit(b)  => if b then sv else If(sv, BoolLit(false), BoolLit(true))
+    case _           => Eq(sv, lit)
+  }
 def litArmsChain = (sv, arms, elseBody) => match arms { case Nil => elseBody case Cons(arm, rest) => match arm {
-    case LitArm(lit, body) => If(Eq(sv, lit), body, litArmsChain(sv, rest, elseBody))
+    case LitArm(lit, body) => If(litCond(sv, lit), body, litArmsChain(sv, rest, elseBody))
     case _                 => litArmsChain(sv, rest, elseBody) } }
 def desugarLitMatch = (scrut, arms) => let nm = litBindName(arms) in Let(nm, scrut, litArmsChain(Var(nm), dropLast(arms), litElse(arms)))
 def desugar = (t) =>

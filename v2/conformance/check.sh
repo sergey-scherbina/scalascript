@@ -624,6 +624,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/lp.rs" -o "${TMPDIR:-/tmp}/lp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/lp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$LPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "fib (lit patterns) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm STRING/BOOL literal patterns: 'match s { \"add\" => .. | _ => .. }' (strEq) / true|false (if)"
+chk_hm examples/hm-litpat-str.hm '"Int"'
+LSW="45"
+ssc run bin/ssctc-hm.ssc0 examples/hm-litpat-str.hm > "${TMPDIR:-/tmp}/ls.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ls.coreir" | tail -1)
+if [ "$got" = "$LSW" ]; then printf 'ok   %-26s => %s\n' "string dispatch -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat-str" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-litpat-str.hm > "${TMPDIR:-/tmp}/ls.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ls.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$LSW" ]; then printf 'ok   %-26s => %s (node)\n' "string dispatch -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat-str JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-litpat-str.hm > "${TMPDIR:-/tmp}/ls.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ls.rs" -o "${TMPDIR:-/tmp}/ls-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ls-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$LSW" ]; then printf 'ok   %-26s => %s (rustc)\n' "string dispatch -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat-str Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
