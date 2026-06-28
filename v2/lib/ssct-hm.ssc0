@@ -293,7 +293,13 @@ def infer = (env, c, s, term) =>
                   Ok3(s6, appTy(s6, compRb), #i.add(c3, 3)) } } } } } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
-        let tn = typeName(appTy(s1, ta)) in
+        let taa = appTy(s1, ta) in let tn = typeName(taa) in
+        if #seq(tn, "?") then                                          -- receiver still a variable: DEFER if the method has a result sig
+          match methodSigOf(m) {
+            case Some(rTy) => match taa { case TyVar(n) => let u = recordPendingMethod(id, m, n) in Ok3(s1, rTy, c1) case _ => ErrI(#sconcat("cannot resolve method `", #sconcat(m, "` on an ambiguous type"))) }
+            case None => ErrI(#sconcat("no instance of `", #sconcat(m, "` (add `method ")))
+          }
+        else
         match lookupInstance(m, tn) {
           case None => ErrI(#sconcat("no instance of `", #sconcat(m, #sconcat("` for type ", tn))))
           case Some(impl) =>
@@ -373,6 +379,13 @@ def registerCon = (con, sig) => #cell.set(conReg, Cons(Pair(con, sig), #cell.get
 def methodSet  = #cell.new(Nil)
 def instReg    = #cell.new(Nil)                                    -- list of Pair(Pair(method, typeName), implTerm)
 def methodReg  = #cell.new(Nil)                                    -- per-use id -> resolved impl term
+-- method RESULT-TYPE signature (`method m : R in …`): a fixed result type R makes `m` usable POLYMORPHICALLY
+-- (on a type variable) — the instance is then deferred and resolved when the receiver becomes concrete.
+def methodSigReg = #cell.new(Nil)                                  -- list of Pair(method, resultType)
+def registerMethodSig = (m, r) => #cell.set(methodSigReg, Cons(Pair(m, r), #cell.get(methodSigReg)))
+def methodSigOf  = (m) => lookupReg(#cell.get(methodSigReg), m)    -- Some(R) | None
+def pendingMethods = #cell.new(Nil)                               -- list of Pair(id, Pair(method, receiverVarId)) — resolved at the end
+def recordPendingMethod = (id, m, n) => #cell.set(pendingMethods, Cons(Pair(id, Pair(m, n)), #cell.get(pendingMethods)))
 def registerMethod   = (m) => #cell.set(methodSet, Cons(m, #cell.get(methodSet)))
 def memberStrL       = (s, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, s) then true else memberStrL(s, t) }
 def isMethod         = (m) => memberStrL(m, #cell.get(methodSet))
@@ -424,7 +437,10 @@ def alwaysQ      = (n) => true
 def finalDefault = (s) => defaultNum(s, #cell.get(pendingNum), alwaysQ)              -- top level: default ALL remaining
 def defaultPendingIn = (s, qs) => defaultNum(s, qs, isPending)                       -- at generalize: default the quantified Num vars
 def rebakeReg    = (s, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(id, ty) => Cons(Pair(id, appTy(s, ty)), rebakeReg(s, rest)) } }
-def resolveNum   = (s) => let s2 = finalDefault(s) in let z = #cell.set(tcReg, rebakeReg(s2, #cell.get(tcReg))) in s2
+-- resolve each DEFERRED method use (receiver now concrete via inlining+application) → register the instance impl by id
+def resolveMethods = (s, pend) => match pend { case Nil => 0 case Cons(p, rest) => match p { case Pair(id, mn) => match mn { case Pair(m, n) =>
+    match lookupInstance(m, typeName(appTy(s, TyVar(n)))) { case Some(impl) => let u = registerMethodImpl(id, impl) in resolveMethods(s, rest) case None => resolveMethods(s, rest) } } } }
+def resolveNum   = (s) => let s2 = finalDefault(s) in let z = #cell.set(tcReg, rebakeReg(s2, #cell.get(tcReg))) in let z2 = resolveMethods(s2, #cell.get(pendingMethods)) in s2
 def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
 -- Show/Eq instances now store the resolved TYPE in tcReg; showableType says if a type has an instance:
 -- base types, lists of showable, and tuples (Pair/Triple) of showable. (general ADTs = follow-up)

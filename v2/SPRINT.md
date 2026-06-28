@@ -298,8 +298,17 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       monomorphic-Int = sound) and finally at the top (`finalDefault` → Int); `resolveNum(s)` re-bakes `tcReg`
       through the final subst before erase, threaded into all drivers. So each inlined copy resolves its own
       Int/Float from its argument. conformance +5 (358 → 363); `int helper still Int` guards soundness.
-      LIMITATION (documented in spec 55): only CLOSED numeric helpers polymorphise; non-closed numeric-generic
-      fns and user-typeclass polymorphism still need the full dictionary-passing design (spec 55).
+- [x] **K11.3b — USER-TYPECLASS POLYMORPHISM (same inlining trick + method result sig)** — a user `method`
+      with a RESULT-TYPE signature works POLYMORPHICALLY inside a closed function: `method describe : String
+      in … let f = fun x => describe x in (f 5, f true)` ⇒ `(String, String)` / `Pair("an int", "a bool")` on
+      all 3 backends — `describe` dispatches to the Int instance for `f 5` and the Bool instance for `f true`.
+      `method m : R in` records the result type (`methodSigReg`); `MethodCall` on a still-variable receiver
+      DEFERS (`pendingMethods`) returning `R`, and the instance is resolved at the top (`resolveMethods`, in
+      `resolveNum`) once inlining has made the receiver concrete. Inlining is relaxed to allow free **method**
+      names (capture-safe — methods are global) via `isMethodApp`/`allMethods`. Methods WITHOUT a signature
+      keep resolving eagerly/monomorphically (regression `sz 5 => 6`). conformance +5. LIMITATION: only
+      fixed-result methods (result not depending on the receiver, e.g. `show`/`compare`/`describe`) in CLOSED
+      functions; receiver-result methods (`negate : a -> a`) and non-closed uses still need full dict passing.
 - [x] **K11.4 — TYPED PAYLOADS (light)** — `effect Name { op : ArgT -> ReplyT , … } in …` gives each op a
       SIGNATURE (`effSigReg`); a typed op's arg is checked against `ArgT` and its reply is `ReplyT` (not `Dyn`),
       so effect code drops the `(x : Int)` / `(5 : Dyn)` ascriptions: `effect State { get : Dyn -> Int , put :

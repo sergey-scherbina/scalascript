@@ -524,9 +524,12 @@ def parseData = (toks) =>                              -- after 'data':  Name pa
         match parseCons(typeName, ps, drop1(r1)) { case Pair(u, r2) => parseProgram(drop1(r2)) } }    -- drop '=' then 'in'
       case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
 -- ── `method m in <prog>` : declare a user typeclass method (monomorphic, resolved by arg type) ──
-def parseMethodDecl = (toks) =>                        -- after 'method':  m 'in' <prog>
+def parseMethodDecl = (toks) =>                        -- after 'method':  m (':' resultType)? 'in' <prog>
   match toks { case Cons(t, rest) => match t { case TName(m) =>
-      let u = registerMethod(m) in parseProgram(drop1(rest))   -- drop 'in'
+      let u = registerMethod(m) in
+      match rest { case Cons(t2, r1) => match t2 {
+          case TPunct(p) => if #seq(p, ":") then match parseAscType(r1) { case Pair(rTy, r2) => let u2 = registerMethodSig(m, rTy) in parseProgram(drop1(r2)) } else parseProgram(drop1(rest))
+          case _ => parseProgram(drop1(rest)) } case Nil => Pair(ParseErr, Nil) }
       case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
 -- ── `instance m T = expr in <prog>` : register the impl for method m at type-head T ──
 def parseInstanceDecl = (toks) =>                      -- after 'instance':  m T '=' expr 'in' <prog>
@@ -710,7 +713,7 @@ def containsNumOp = (t) => match t {                   -- does the term use an o
     case Eq(id, a, b)    => true
     case Lt(id, a, b)    => true
     case Lam(x, b)       => containsNumOp(b)
-    case App(f, a)       => or2(containsNumOp(f), containsNumOp(a))
+    case App(f, a)       => or2(isMethodApp(f), or2(containsNumOp(f), containsNumOp(a)))
     case Concat(a, b)    => or2(containsNumOp(a), containsNumOp(b))
     case If(c, x, y)     => or2(containsNumOp(c), or2(containsNumOp(x), containsNumOp(y)))
     case Let(x, e, b)    => or2(containsNumOp(e), containsNumOp(b))
@@ -721,9 +724,12 @@ def containsNumOp = (t) => match t {                   -- does the term use an o
     case Ascribe(e, ty)  => containsNumOp(e)
     case _               => false
   }
--- inline only a CLOSED function that actually uses an overloaded numeric op (so non-numeric helpers like
--- `id` are untouched → no var-numbering perturbation; only numeric-generic helpers get per-use resolution)
-def isClosedFn = (e) => match e { case Lam(x, b) => bothT(match freeVars(e) { case Nil => true case _ => false }, containsNumOp(e)) case _ => false }
+def isMethodApp = (f) => match f { case Var(m) => isMethod(m) case _ => false }   -- `m _` where m is a user method
+def allMethods  = (xs) => match xs { case Nil => true case Cons(h, t) => if isMethod(h) then allMethods(t) else false }
+-- inline a function that uses an overloaded numeric op OR a user method, whose only free vars are method
+-- names (capture-safe: methods are global). Non-numeric/non-method helpers like `id` are untouched (no
+-- var-number churn); numeric/method-generic helpers get per-use resolution (the receiver becomes concrete).
+def isClosedFn = (e) => match e { case Lam(x, b) => bothT(allMethods(freeVars(e)), containsNumOp(e)) case _ => false }
 def inlineArm = (a) => match a { case MArm(c, bs, b) => MArm(c, bs, inlineClosed(b)) case LitArm(l, b) => LitArm(l, inlineClosed(b)) case PatArm(p, b) => PatArm(p, inlineClosed(b)) }
 def inlineArms = (arms) => match arms { case Nil => Nil case Cons(a, r) => Cons(inlineArm(a), inlineArms(r)) }
 def inlineRec = (fs) => match fs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, e) => Cons(Pair(nm, inlineClosed(e)), inlineRec(r)) } }

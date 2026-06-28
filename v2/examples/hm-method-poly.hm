@@ -1,0 +1,4 @@
+method describe : String in
+instance describe Int = fun n => "an int" in
+instance describe Bool = fun b => "a bool" in
+let f = fun x => describe x in (f 5, f true)
