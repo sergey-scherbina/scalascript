@@ -640,6 +640,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ls.rs" -o "${TMPDIR:-/tmp}/ls-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ls-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$LSW" ]; then printf 'ok   %-26s => %s (rustc)\n' "string dispatch -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat-str Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm NESTED patterns: Con (Sub ..) / tuple / list (Cons/Nil) / literal sub-patterns, backtracking"
+chk_hm examples/hm-nestpat.hm '"Int"'
+NPW="15"
+ssc run bin/ssctc-hm.ssc0 examples/hm-nestpat.hm > "${TMPDIR:-/tmp}/ne.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ne.coreir" | tail -1)
+if [ "$got" = "$NPW" ]; then printf 'ok   %-26s => %s\n' "nested patterns -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "nestpat" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-nestpat.hm > "${TMPDIR:-/tmp}/ne.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ne.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$NPW" ]; then printf 'ok   %-26s => %s (node)\n' "nested patterns -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "nestpat JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-nestpat.hm > "${TMPDIR:-/tmp}/ne.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ne.rs" -o "${TMPDIR:-/tmp}/ne-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ne-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$NPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "nested patterns -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "nestpat Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

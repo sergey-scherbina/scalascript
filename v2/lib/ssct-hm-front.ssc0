@@ -252,19 +252,38 @@ def parseBinders = (toks) =>
     case Cons(t, rest) => match t { case TName(x) => match parseBinders(rest) { case Pair(bs, r2) => Pair(Cons(x, bs), r2) } case _ => Pair(Nil, toks) }
     case Nil => Pair(Nil, Nil)
   }
-def parseArm = (toks) =>
-  match toks {
-    case Cons(t, rest) => match t {
-        case TName(con) =>
-          if #seq(con, "true")  then match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(BoolLit(true), body), r3) }    -- Bool literal pattern
-          else if #seq(con, "false") then match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(BoolLit(false), body), r3) }
-          else match parseBinders(rest) { case Pair(binders, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(MArm(con, binders, body), r3) } }
-        case TNum(n)    => match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(Lit(n), body), r3) }   -- an Int literal pattern (drop '=>')
-        case TStr(s)    => match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(StrLit(s), body), r3) }  -- a String literal pattern
-        case _ => Pair(ParseErr, Nil)
-      }
-    case Nil => Pair(ParseErr, Nil)
+-- ── pattern parser (match arms): Pat = PVar | PWild | PLit lit | PCon con [Pat] ──
+-- supports nested constructors `Con (Sub a) b`, tuple patterns `(a, b)`, Int/String/Bool literals.
+def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TNum(n) => true case TStr(s) => true case TPunct(p) => #seq(p, "(") case _ => false } case Nil => false }
+def parseAtomPat = (toks) =>
+  match toks { case Cons(t, rest) => match t {
+    case TName(s)  => if #seq(s, "_") then Pair(PWild, rest) else if #seq(s, "true") then Pair(PLit(BoolLit(true)), rest) else if #seq(s, "false") then Pair(PLit(BoolLit(false)), rest) else if isUpperName(s) then Pair(PCon(s, Nil), rest) else Pair(PVar(s), rest)
+    case TNum(n)   => Pair(PLit(Lit(n)), rest)
+    case TStr(s)   => Pair(PLit(StrLit(s)), rest)
+    case TPunct(p) => if #seq(p, "(") then parseParenPat(rest) else Pair(PWild, rest)
+    } case Nil => Pair(PWild, Nil) }
+def parseAtomPats = (toks) => if patStarts(toks) then match parseAtomPat(toks) { case Pair(p, r) => match parseAtomPats(r) { case Pair(ps, r2) => Pair(Cons(p, ps), r2) } } else Pair(Nil, toks)
+def parseFullPat = (toks) =>           -- `Con atom*`  |  atom   (true/false are lowercase => not PCon)
+  match toks { case Cons(t, rest) => match t {
+    case TName(s) => if isUpperName(s) then match parseAtomPats(rest) { case Pair(ps, r) => Pair(PCon(s, ps), r) } else parseAtomPat(toks)
+    case _        => parseAtomPat(toks) } case Nil => Pair(PWild, Nil) }
+def parseParenTuple = (toks) =>        -- after ',':  fullpat (',' fullpat)*  (stops at ')')
+  match parseFullPat(toks) { case Pair(p, r) => match r { case Cons(t, rest) => match t { case TPunct(q) => if #seq(q, ",") then match parseParenTuple(rest) { case Pair(more, r2) => Pair(Cons(p, more), r2) } else Pair(Cons(p, Nil), r) case _ => Pair(Cons(p, Nil), r) } case Nil => Pair(Cons(p, Nil), Nil) } }
+def mkTuplePat = (ps) => match ps { case Cons(a, r1) => match r1 { case Cons(b, r2) => match r2 { case Nil => PCon("Pair", Cons(a, Cons(b, Nil))) case Cons(cc, r3) => PCon("Triple", Cons(a, Cons(b, Cons(cc, Nil)))) } case Nil => a } case Nil => PWild }
+def parseParenPat = (toks) =>          -- after '(':  fullpat (',' fullpat)* ')'
+  match parseFullPat(toks) { case Pair(p1, r1) => match r1 { case Cons(t, r2) => match t { case TPunct(q) => if #seq(q, ",") then match parseParenTuple(r2) { case Pair(more, r3) => Pair(mkTuplePat(Cons(p1, more)), drop1(r3)) } else Pair(p1, drop1(r1)) case _ => Pair(p1, drop1(r1)) } case Nil => Pair(p1, Nil) } }
+-- downgrade a parsed pattern to the existing simple arm forms when possible (so simple matches are unchanged)
+def allSimplePats = (subs) => match subs { case Nil => true case Cons(p, t) => match p { case PVar(x) => allSimplePats(t) case PWild => allSimplePats(t) case _ => false } }
+def simpleNames = (subs) => match subs { case Nil => Nil case Cons(p, t) => Cons(match p { case PVar(x) => x case _ => "_" }, simpleNames(t)) }
+def armOfPat = (pat, body) => match pat {
+    case PVar(x)         => MArm(x, Nil, body)
+    case PWild           => MArm("_", Nil, body)
+    case PLit(l)         => LitArm(l, body)
+    case PCon(con, subs) => if allSimplePats(subs) then MArm(con, simpleNames(subs), body) else PatArm(pat, body)
   }
+def parseArm = (toks) =>
+  match parseFullPat(toks) { case Pair(pat, r) =>
+    match parseExpr(drop1(r)) { case Pair(body, r3) => Pair(armOfPat(pat, body), r3) } }   -- drop '=>'
 def parseArms = (toks) =>
   match parseArm(toks) {
     case Pair(arm, r) => match r {
@@ -323,7 +342,8 @@ def mkMatch = (scrut, arms) =>
 -- desugar arm bodies (MArm or Int-literal LitArm)
 def dsArmsM = (arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm {
     case MArm(con, binders, body) => Cons(MArm(con, binders, desugar(body)), dsArmsM(rest))
-    case LitArm(lit, body)        => Cons(LitArm(lit, desugar(body)), dsArmsM(rest)) } }
+    case LitArm(lit, body)        => Cons(LitArm(lit, desugar(body)), dsArmsM(rest))
+    case PatArm(pat, body)        => Cons(PatArm(pat, desugar(body)), dsArmsM(rest)) } }
 def hasLitArm = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case LitArm(l, b) => true case _ => hasLitArm(rest) } }
 -- Int-literal match `match e { 0 => b0 | 1 => b1 | _ => bd }`  ->  let s = e in if s=0 then b0 else if s=1 then b1 else bd.
 -- The bound name is the trailing catch-all variable (a `x => …` arm) else "$lm" (un-lexable, can't clash).
@@ -340,6 +360,51 @@ def litArmsChain = (sv, arms, elseBody) => match arms { case Nil => elseBody cas
     case LitArm(lit, body) => If(litCond(sv, lit), body, litArmsChain(sv, rest, elseBody))
     case _                 => litArmsChain(sv, rest, elseBody) } }
 def desugarLitMatch = (scrut, arms) => let nm = litBindName(arms) in Let(nm, scrut, litArmsChain(Var(nm), dropLast(arms), litElse(arms)))
+-- ── nested-pattern compiler: a backtracking match -> Let/If/MatchT/Lam/App/Var (existing constructs) ──
+-- Each arm gets a continuation thunk holding the compilation of the rest; a pattern failure calls it.
+-- Output uses only single-level MatchT (con arm + `_` default = the failure), so erase/infer are untouched.
+def namesToPats = (ns) => match ns { case Nil => Nil case Cons(n, t) => Cons(if #seq(n, "_") then PWild else PVar(n), namesToPats(t)) }
+def armToPB = (arm) => match arm {
+    case MArm(con, binders, body) => if chAnd(isEmptyL(binders), startsLower(con)) then Pair(PVar(con), body) else if #seq(con, "_") then Pair(PWild, body) else Pair(PCon(con, namesToPats(binders)), body)
+    case LitArm(lit, body) => Pair(PLit(lit), body)
+    case PatArm(pat, body) => Pair(pat, body)
+  }
+def armsToPBs = (arms) => match arms { case Nil => Nil case Cons(a, t) => Cons(armToPB(a), armsToPBs(t)) }
+def freshFieldNames = (subs) => match subs { case Nil => Nil case Cons(sub, ss) => Cons(match sub { case PVar(x) => x case PWild => #sconcat("$w", #i->str(nextId(0))) case _ => #sconcat("$f", #i->str(nextId(0))) }, freshFieldNames(ss)) }
+def compileSubs = (names, subs, success, fail) =>
+  match names { case Nil => success case Cons(nm, ns) => match subs { case Cons(sub, ss) =>
+    match sub {
+      case PVar(x)      => compileSubs(ns, ss, success, fail)        -- field already bound to x
+      case PWild        => compileSubs(ns, ss, success, fail)        -- field bound, ignored
+      case PLit(lit)    => If(litCond(Var(nm), lit), compileSubs(ns, ss, success, fail), fail)
+      case PCon(c, sps) => compilePat(Var(nm), sub, compileSubs(ns, ss, success, fail), fail)
+    } case Nil => success } }
+-- list patterns lower to the built-in list ops (TyList is not an ADT, so it has no conInfo):
+--   Nil => if isNil s then ok else fail ;  Cons h t => if isNil s then fail else bind head/tail and match
+def compileConsP = (scrut, subs, success, fail) =>
+  match subs { case Cons(hp, r) => match r { case Cons(tp, r2) =>
+      let hn = #sconcat("$h", #i->str(nextId(0))) in let tn = #sconcat("$t", #i->str(nextId(0))) in
+      If(LIsNil(scrut), fail, Let(hn, LHead(scrut), Let(tn, LTail(scrut), compilePat(Var(hn), hp, compilePat(Var(tn), tp, success, fail), fail))))
+    case Nil => fail } case Nil => fail }
+def compilePat = (scrut, pat, success, fail) =>
+  match pat {
+    case PVar(x)   => Let(x, scrut, success)
+    case PWild     => success
+    case PLit(lit) => If(litCond(scrut, lit), success, fail)
+    case PCon(con, subs) =>
+      if #seq(con, "Nil") then If(LIsNil(scrut), success, fail)
+      else if #seq(con, "Cons") then compileConsP(scrut, subs, success, fail)
+      else let names = freshFieldNames(subs) in MatchT(scrut, Cons(MArm(con, names, compileSubs(names, subs, success, fail)), Cons(MArm("_", Nil, fail), Nil)))
+  }
+def compileArms = (scrut, pbs, ff) =>
+  match pbs { case Nil => ff case Cons(pb, rest) => match pb { case Pair(pat, body) =>
+    let kid = nextId(0) in let kname = #sconcat("$k", #i->str(kid)) in
+    Let(kname, Lam(#sconcat("$u", #i->str(kid)), compileArms(scrut, rest, ff)), compilePat(scrut, pat, body, App(Var(kname), Lit(0)))) } }
+def hasPatArm = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case PatArm(p, b) => true case _ => hasPatArm(rest) } }
+-- simple `Cons`/`Nil` arms also need the compiler (the existing single-level path can't match lists)
+def hasListConTop = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case MArm(con, b, body) => if chOr(#seq(con, "Cons"), #seq(con, "Nil")) then true else hasListConTop(rest) case _ => hasListConTop(rest) } }
+def needsCompiler = (arms) => if hasPatArm(arms) then true else hasListConTop(arms)
+def compileMatch = (scrut, arms) => let snm = #sconcat("$s", #i->str(nextId(0))) in Let(snm, scrut, compileArms(Var(snm), armsToPBs(arms), LHead(LNil)))
 def desugar = (t) =>
   match t {
     case Lit(n)          => Lit(n)
@@ -355,7 +420,7 @@ def desugar = (t) =>
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
-    case MatchT(scrut, arms) => let da = dsArmsM(arms) in if hasLitArm(da) then desugarLitMatch(desugar(scrut), da) else mkMatch(desugar(scrut), da)
+    case MatchT(scrut, arms) => let da = dsArmsM(arms) in if needsCompiler(da) then compileMatch(desugar(scrut), da) else if hasLitArm(da) then desugarLitMatch(desugar(scrut), da) else mkMatch(desugar(scrut), da)
     case StrLit(str)     => StrLit(str)
     case Concat(a, b)    => Concat(desugar(a), desugar(b))
     case FloatLit(str)   => FloatLit(str)
@@ -419,7 +484,9 @@ def parseProgram = (toks) =>
 def removeStr = (x, xs) => match xs { case Nil => Nil case Cons(h, t) => if #seq(h, x) then removeStr(x, t) else Cons(h, removeStr(x, t)) }
 def removeAll = (xs, fvs) => match xs { case Nil => fvs case Cons(h, t) => removeAll(t, removeStr(h, fvs)) }
 def fvMember = (x, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else fvMember(x, t) }
-def fvArms = (arms) => match arms { case Nil => Nil case Cons(arm, r) => match arm { case MArm(con, binders, body) => appendL(removeAll(binders, freeVars(body)), fvArms(r)) case LitArm(lit, body) => appendL(freeVars(body), fvArms(r)) } }
+def patVars  = (pat) => match pat { case PVar(x) => Cons(x, Nil) case PWild => Nil case PLit(l) => Nil case PCon(con, subs) => patVarsL(subs) }
+def patVarsL = (subs) => match subs { case Nil => Nil case Cons(s, t) => appendL(patVars(s), patVarsL(t)) }
+def fvArms = (arms) => match arms { case Nil => Nil case Cons(arm, r) => match arm { case MArm(con, binders, body) => appendL(removeAll(binders, freeVars(body)), fvArms(r)) case LitArm(lit, body) => appendL(freeVars(body), fvArms(r)) case PatArm(pat, body) => appendL(removeAll(patVars(pat), freeVars(body)), fvArms(r)) } }
 def fvRec  = (fields) => match fields { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, e) => appendL(freeVars(e), fvRec(r)) } }
 def freeVars = (t) =>
   match t {

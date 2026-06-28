@@ -1,0 +1,1 @@
+let rec sum2 xs = match xs { Cons a (Cons b t) => a + b + sum2 t | Cons a Nil => a | Nil => 0 } in sum2 [1, 2, 3, 4, 5]
