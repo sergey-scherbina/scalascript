@@ -350,7 +350,14 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       the tail (`Quad(a,b,c,(d,e,…))`) so no element is lost. `mkTuple` + `mkTuplePat` extended. `(1,2,3,4)` ⇒
       `(Int,Int,Int,Int)` / `Quad(1,2,3,4)`; `(a,b,c,d) => a+b+c+d` ⇒ `10`; a 5-tuple `(a,b,c,(d,e))` matches.
       All 3 backends. conformance +5. (NOTE: ssct-hm match syntax is `pat => body | …` — NO `case` keyword;
-      var-catch-all and tuple patterns already worked.) Still open: **pattern guards** (`pat if cond => body`).
+      var-catch-all and tuple patterns already worked.)
+- [x] **K12.3 — pattern guards** — `match x { pat if cond => body | … }`: a failed guard falls through to the
+      next arm. No new AST node — a guarded arm parses to `PatArm(pat, If(cond, body, Var "$guardfail"))`
+      (forcing the compiler path), and `compileArms` substitutes `$guardfail` with that arm's fail
+      continuation (`if cond then body else <next arm>`). Fixed a parser bug it exposed: `patStarts` now
+      stops at keywords, so `Som x if x > 0` doesn't slurp `if x` as extra sub-patterns. `examples/hm-guard.hm`
+      (a `classify` with `x<0`/`x>0`/else) ⇒ `0`; `Som x if x>10 => 100 | Som x => x` on `Som 5` ⇒ `5`
+      (fallthrough). All 3 backends. conformance +6.
 
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.

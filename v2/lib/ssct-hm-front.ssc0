@@ -311,7 +311,7 @@ def parseBinders = (toks) =>
   }
 -- ── pattern parser (match arms): Pat = PVar | PWild | PLit lit | PCon con [Pat] ──
 -- supports nested constructors `Con (Sub a) b`, tuple patterns `(a, b)`, Int/String/Bool literals.
-def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TNum(n) => true case TStr(s) => true case TPunct(p) => #seq(p, "(") case _ => false } case Nil => false }
+def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => if isKeyword(x) then false else true case TNum(n) => true case TStr(s) => true case TPunct(p) => #seq(p, "(") case _ => false } case Nil => false }
 def parseAtomPat = (toks) =>
   match toks { case Cons(t, rest) => match t {
     case TName(s)  => if #seq(s, "_") then Pair(PWild, rest) else if #seq(s, "true") then Pair(PLit(BoolLit(true)), rest) else if #seq(s, "false") then Pair(PLit(BoolLit(false)), rest) else if isUpperName(s) then Pair(PCon(s, Nil), rest) else Pair(PVar(s), rest)
@@ -338,9 +338,14 @@ def armOfPat = (pat, body) => match pat {
     case PLit(l)         => LitArm(l, body)
     case PCon(con, subs) => if allSimplePats(subs) then MArm(con, simpleNames(subs), body) else PatArm(pat, body)
   }
+def parseArmBody = (pat, r) => match parseExpr(drop1(r)) { case Pair(body, r3) => Pair(armOfPat(pat, body), r3) }   -- drop '=>'
+-- pattern guard:  pat 'if' cond '=>' body  → PatArm(pat, if cond then body else $guardfail) — $guardfail is
+-- replaced in compileArms by the fail continuation, so a failed guard falls through to the next arm.
 def parseArm = (toks) =>
   match parseFullPat(toks) { case Pair(pat, r) =>
-    match parseExpr(drop1(r)) { case Pair(body, r3) => Pair(armOfPat(pat, body), r3) } }   -- drop '=>'
+    match r { case Cons(t, rest) => match t {
+        case TName(x) => if #seq(x, "if") then match parseExpr(rest) { case Pair(cond, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(PatArm(pat, If(cond, body, Var("$guardfail"))), r3) } } else parseArmBody(pat, r)
+        case _ => parseArmBody(pat, r) } case Nil => Pair(ParseErr, Nil) } }
 def parseArms = (toks) =>
   match parseArm(toks) {
     case Pair(arm, r) => match r {
@@ -475,8 +480,8 @@ def compilePat = (scrut, pat, success, fail) =>
   }
 def compileArms = (scrut, pbs, ff) =>
   match pbs { case Nil => ff case Cons(pb, rest) => match pb { case Pair(pat, body) =>
-    let kid = nextId(0) in let kname = #sconcat("$k", #i->str(kid)) in
-    Let(kname, Lam(#sconcat("$u", #i->str(kid)), compileArms(scrut, rest, ff)), compilePat(scrut, pat, body, App(Var(kname), Lit(0)))) } }
+    let kid = nextId(0) in let kname = #sconcat("$k", #i->str(kid)) in let failk = App(Var(kname), Lit(0)) in
+    Let(kname, Lam(#sconcat("$u", #i->str(kid)), compileArms(scrut, rest, ff)), compilePat(scrut, pat, substVar("$guardfail", failk, body), failk)) } }   -- substVar: a guard's $guardfail falls through to the next arm
 def hasPatArm = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case PatArm(p, b) => true case _ => hasPatArm(rest) } }
 -- simple `Cons`/`Nil` arms also need the compiler (the existing single-level path can't match lists)
 def hasListConTop = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case MArm(con, b, body) => if chOr(#seq(con, "Cons"), #seq(con, "Nil")) then true else hasListConTop(rest) case _ => hasListConTop(rest) } }

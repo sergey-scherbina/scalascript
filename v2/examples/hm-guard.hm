@@ -1,0 +1,1 @@
+let classify = fun n => match n { x if x < 0 => 0 - 1 | x if x > 0 => 1 | x => 0 } in classify 7 + classify (0 - 3) + classify 0
