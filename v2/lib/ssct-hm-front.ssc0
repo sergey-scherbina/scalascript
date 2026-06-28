@@ -196,17 +196,41 @@ def parseAppMore = (f, toks) =>
   else Pair(f, toks)
 def parseApp = (toks) => match parseAtomP(toks) { case Pair(f, r) => parseAppMore(f, r) }
 
--- precedence ladder:  cmp ('=')  <  add/sub ('+' '-')  <  mul ('*')  <  app
+-- precedence ladder:  cmp ('=')  <  add/sub ('+' '-')  <  mul ('*')  <  unary-minus < app
+-- parseUMinus: an operand = optional leading `-` on a NUMERIC LITERAL, then an app.
+-- `-5` -> `0 - 5` (object Sub), `-2.5` -> negative float string literal.  `-` is not an
+-- atomStart, so application args never grab it and binary `f - 5` stays subtraction.
+-- `-x` / `-(e)` are not negation here (write `0 - x`).  Used at EVERY operand position.
+def parseUMinus = (toks) =>
+  match toks {
+    case Cons(t, rest) =>
+      match t {
+        case TPunct(p) =>
+          if #seq(p, "-") then
+            (match rest {
+              case Cons(t2, r2) =>
+                (match t2 {
+                  case TNum(n) => Pair(Sub(nextId(0), Lit(0), Lit(n)), r2)
+                  case TFloat(s) => Pair(FloatLit(#sconcat("-", s)), r2)
+                  case _ => parseApp(toks)
+                })
+              case Nil => parseApp(toks)
+            })
+          else parseApp(toks)
+        case _ => parseApp(toks)
+      }
+    case Nil => parseApp(toks)
+  }
 def parseMulMore = (a, toks) =>
   match toks {
     case Cons(t, rest) =>
       match t {
-        case TPunct(p) => if #seq(p, "*") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Mul(nextId(0), a, b), r2) } else if #seq(p, "/") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Div(nextId(0), a, b), r2) } else Pair(a, toks)
+        case TPunct(p) => if #seq(p, "*") then match parseUMinus(rest) { case Pair(b, r2) => parseMulMore(Mul(nextId(0), a, b), r2) } else if #seq(p, "/") then match parseUMinus(rest) { case Pair(b, r2) => parseMulMore(Div(nextId(0), a, b), r2) } else Pair(a, toks)
         case _ => Pair(a, toks)
       }
     case Nil => Pair(a, toks)
   }
-def parseMul = (toks) => match parseApp(toks) { case Pair(a, r) => parseMulMore(a, r) }
+def parseMul = (toks) => match parseUMinus(toks) { case Pair(a, r) => parseMulMore(a, r) }
 
 def parseAddMore = (a, toks) =>
   match toks {

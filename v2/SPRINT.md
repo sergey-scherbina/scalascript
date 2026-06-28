@@ -371,5 +371,13 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       + `prependN` to shift the value's scope past the `ar` field binders). `with` is a keyword.
       `{r with x = 9}` then `r2.x + r2.y` ⇒ `11`; `{r with x=9, y=8}` ⇒ `17`; `{r with z = …}` rejected. All 3
       backends (records are generic `__rec` Data → no backend change). conformance +5.
+- [x] **K12.6 — negative literals** — unary minus on a numeric literal: `-5`, `-2.5`, usable at any operand
+      position (`x * -2`, `6 / -2`, `f (-3)`, `[-1, -2]`). New `parseUMinus` sits between `parseMul` and
+      `parseApp`: a leading `-` immediately followed by `TNum`/`TFloat` becomes `0 - n` (object `Sub`, since the
+      ssc0 KERNEL has no infix `-`) / a negative float-string `FloatLit`. Used at EVERY operand slot (parseMul
+      entry + `*`/`/` right operands in parseMulMore + `+`/`-` right operands already go through parseMul). `-`
+      is *not* an `atomStart`, so application args never grab it and binary `f - 5` / `a - 1` stay subtraction.
+      `-x` / `-(e)` are still not negation (write `0 - x`). `-3 * -2` ⇒ `6`, `-5 + 3` ⇒ `-2`. Pure front-end
+      desugar → all 3 backends unchanged. conformance +5.
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.
