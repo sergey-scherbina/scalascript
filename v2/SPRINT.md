@@ -236,8 +236,23 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
       `((Int, Int), [Dyn])`, value `Pair(Pair(103, 3), Cons(7, Nil))` on run-ir / node / rustc; forgetting
       `runLogE` ⇒ `TypeError: effect not handled: Log`. This is the headline payoff of ROWS over a single
       effect monad. conformance +5 (317 → 322).
-- [ ] **K10.4d — remaining ergonomics (optional)** — `effect L ops in …` user declaration syntax (replace
-      the hard-wired demo ops); row syntax `{}` / `{l | r}` in the type parser for user annotations; a general
-      `handle` combinator; interp `eval` of the effect built-ins (effects run via the compile path today).
+- [x] **K10.4d — USER-EXTENSIBLE effects (`perform` + general `handle`)** — effects are no longer hard-wired
+      to the built-in State/Log demos. Two new primitives, no new keyword syntax (they reuse the application
+      spine): `perform "Eff" "op" arg` performs any user effect (→ `EffOp`, row-tracked), and
+      `handle "Eff" comp (v => ..) (op => arg => k => ..)` is a general **deep handler** — a literal effect
+      label so `infer` does the row surgery (`Comp {Eff | ρ} a → Comp ρ b`), and at runtime it FORWARDS other
+      effects so handlers compose. Because the resume `k` re-enters the handler, it is deep + **multi-shot**.
+      Demo `examples/hm-eff-handle.hm` — nondeterminism: a user-written handler that calls `k` **twice**
+      (`k true` ++ `k false`) over `flip; flip` ⇒ type `[Int]`, value `[3,2,1,0]` on run-ir / node / rustc;
+      `runE (perform "Choose" "flip" …)` ⇒ `TypeError: effect not handled: Choose` (a *user* effect, tracked).
+      Two supporting fixes: (1) **row-var generalization** — `appTy`/`renameTy` now re-tag a freshened
+      (instantiated) ordinary var as a row var at row positions (`asRow`), so a `let`-bound polymorphic handler
+      instantiates its row var as a row, not an ordinary var (was: `TypeError: not an effect row`). (2)
+      **unified runtime convention** — the universal `Op`'s label is now the EFFECT name with the op name in a
+      `Pair op arg` payload (handlers match by effect, dispatch by op); `__effRunSt`/`__effLogGo` updated to
+      match. conformance +5 (322 → 327). NOTE: K9 async/actors use a *source-level* `Comp`, unaffected.
+- [ ] **K10.4e — remaining ergonomics (optional)** — `effect`/`handler` keyword sugar over `perform`/`handle`;
+      row syntax `{}` / `{l | r}` in the type parser for user annotations; parameterized handlers (State-style
+      via a returned function) over the general `handle`; interp `eval` of the effect built-ins.
 
 OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.

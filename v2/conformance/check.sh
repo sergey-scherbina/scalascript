@@ -899,6 +899,23 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s (rustc)\n' "two effects -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2 Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   second effect tracked too => "; printf 'runE (runStateE (bindE (logE (7 : Dyn)) (fun w => bindE getE (fun x => pureE ((x : Int) + 1)))) 0)' > "${TMPDIR:-/tmp}/er3.hm"; el=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er3.hm" | tail -1); if [ "$el" = '"TypeError: effect not handled: Log"' ]; then echo "Log unhandled rejected (correct)"; else echo "FAIL [$el]"; fail=1; fi
+echo "# K10.4d — USER-EXTENSIBLE effects: 'perform' any effect + general deep 'handle' (incl MULTI-SHOT). No built-in support."
+chk_hm examples/hm-eff-handle.hm '"[Int]"'                            # nondeterminism: flip;flip via a user handler that resumes TWICE
+EHV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-handle.hm > "${TMPDIR:-/tmp}/eh.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/eh.coreir" | tail -1)
+if [ "$got" = "$EHV" ]; then printf 'ok   %-26s => %s\n' "multi-shot handle -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-handle" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-handle.hm > "${TMPDIR:-/tmp}/eh.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/eh.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$EHV" ]; then printf 'ok   %-26s => %s (node)\n' "multi-shot handle -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-handle JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-handle.hm > "${TMPDIR:-/tmp}/eh.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/eh.rs" -o "${TMPDIR:-/tmp}/eh-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eh-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$EHV" ]; then printf 'ok   %-26s => %s (rustc)\n' "multi-shot handle -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-handle Rust" "$got"; fail=1; fi
+fi
+echo -n "ok   user effect tracked too   => "; printf 'runE (perform "Choose" "flip" (0 : Dyn))' > "${TMPDIR:-/tmp}/er4.hm"; ec=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er4.hm" | tail -1); if [ "$ec" = '"TypeError: effect not handled: Choose"' ]; then echo "user Choose unhandled rejected (correct)"; else echo "FAIL [$ec]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

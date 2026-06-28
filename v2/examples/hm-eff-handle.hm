@@ -1,0 +1,10 @@
+let runAll = fun comp =>
+  handle "Choose" comp
+    (fun v => pureE (cons v nil))
+    (fun o => fun a => fun k =>
+       bindE (k (true : Dyn)) (fun xs =>
+       bindE (k (false : Dyn)) (fun ys =>
+       pureE (append xs ys)))) in
+runE (runAll (bindE (perform "Choose" "flip" (0 : Dyn)) (fun b =>
+              bindE (perform "Choose" "flip" (0 : Dyn)) (fun c =>
+              pureE ((if (b : Bool) then 2 else 0) + (if (c : Bool) then 1 else 0))))))

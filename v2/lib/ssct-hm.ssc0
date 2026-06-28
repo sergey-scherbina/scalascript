@@ -7,6 +7,7 @@
 
 def lookupS = (s, n) => match s { case Nil => None case Cons(p, rest) => match p { case Pair(k, v) => if #i.eq(k, n) then Some(v) else lookupS(rest, n) } }
 def mapAppTy = (s, ts) => match ts { case Nil => Nil case Cons(t, rest) => Cons(appTy(s, t), mapAppTy(s, rest)) }
+def asRow   = (u) => match u { case TyVar(f) => TyRowVar(f) case _ => u }   -- at a row position a freshened (instantiated) ordinary var is really a row var
 def appTy   = (s, t) => match t {
     case TyInt      => TyInt
     case TyBool     => TyBool
@@ -20,7 +21,7 @@ def appTy   = (s, t) => match t {
     case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
     case TyRowEmpty  => TyRowEmpty
     case TyRowExt(l, r) => TyRowExt(l, appTy(s, r))
-    case TyRowVar(n) => match lookupS(s, n) { case None => TyRowVar(n) case Some(u) => appTy(s, u) }
+    case TyRowVar(n) => match lookupS(s, n) { case None => TyRowVar(n) case Some(u) => asRow(appTy(s, u)) }
   }
 def mapAppRec = (s, fs) => match fs { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, t) => Cons(Pair(nm, appTy(s, t)), mapAppRec(s, rest)) } }
 def anyOccurs = (n, ts) => match ts { case Nil => false case Cons(t, rest) => if occurs(n, t) then true else anyOccurs(n, rest) }
@@ -269,6 +270,16 @@ def infer = (env, c, s, term) =>
         let rho = TyRowVar(c1) in let ta = TyVar(#i.add(c1, 1)) in
         match unify(s1, tm, TyCon("Comp", Cons(TyRowExt("Log", rho), Cons(ta, Nil)))) { case Err(e) => ErrI("runLog: not a Log computation") case Ok(s2) =>
           Ok3(s2, appTy(s2, TyCon("Comp", Cons(rho, Cons(TyCon("Pair", Cons(ta, Cons(TyList(TyDyn), Nil))), Nil)))), #i.add(c1, 2)) } }
+    case EffHandle(lbl, m, retf, opf) =>                               -- general deep handler: handle "L" comp (v=>..) (op=>arg=>k=>..) : Comp r b
+      match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
+        match infer(env, c1, s1, retf) { case ErrI(e) => ErrI(e) case Ok3(s2, tr, c2) =>
+          match infer(env, c2, s2, opf) { case ErrI(e) => ErrI(e) case Ok3(s3, to, c3) =>
+            let rho = TyRowVar(c3) in let ta = TyVar(#i.add(c3, 1)) in let tb = TyVar(#i.add(c3, 2)) in
+            let compRb = TyCon("Comp", Cons(rho, Cons(tb, Nil))) in
+            match unify(s3, tm, TyCon("Comp", Cons(TyRowExt(lbl, rho), Cons(ta, Nil)))) { case Err(e) => ErrI(#sconcat("handle: arg is not a Comp of effect ", lbl)) case Ok(s4) =>
+              match unify(s4, tr, TyFun(ta, compRb)) { case Err(e) => ErrI("handle: return clause type mismatch") case Ok(s5) =>
+                match unify(s5, to, TyFun(TyStr, TyFun(TyDyn, TyFun(TyFun(TyDyn, compRb), compRb)))) { case Err(e) => ErrI("handle: op clause type mismatch") case Ok(s6) =>
+                  Ok3(s6, appTy(s6, compRb), #i.add(c3, 3)) } } } } } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
         let tn = typeName(appTy(s1, ta)) in
@@ -418,7 +429,7 @@ def renameTy  = (ren, t) => match t {
     case TyDyn      => TyDyn
     case TyRowEmpty => TyRowEmpty
     case TyRowExt(l, r) => TyRowExt(l, renameTy(ren, r))
-    case TyRowVar(i) => match lookupS(ren, i) { case None => TyRowVar(i) case Some(u) => u }
+    case TyRowVar(i) => match lookupS(ren, i) { case None => TyRowVar(i) case Some(u) => asRow(u) }
   }
 def freshArgs = (i, n, c) => if #i.ge(i, n) then Nil else Cons(TyVar(#i.add(c, i)), freshArgs(#i.add(i, 1), n, c))
 -- infer constructor arguments against (instantiated) field types -> OkS(subst, counter) | ErrS(msg)
