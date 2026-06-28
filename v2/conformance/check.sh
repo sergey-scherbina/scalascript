@@ -656,6 +656,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ne.rs" -o "${TMPDIR:-/tmp}/ne-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ne-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$NPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "nested patterns -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "nestpat Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm PRELUDE Option/list: concatMap (transitive dep on append) / mapOption / getOrElse / find"
+chk_hm examples/hm-option.hm '"Int"'
+OEW="30"
+ssc run bin/ssctc-hm.ssc0 examples/hm-option.hm > "${TMPDIR:-/tmp}/oe.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/oe.coreir" | tail -1)
+if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s\n' "option/concatMap -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "option" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-option.hm > "${TMPDIR:-/tmp}/oe.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/oe.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s (node)\n' "option/concatMap -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "option JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-option.hm > "${TMPDIR:-/tmp}/oe.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/oe.rs" -o "${TMPDIR:-/tmp}/oe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/oe-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s (rustc)\n' "option/concatMap -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "option Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
