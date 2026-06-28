@@ -172,7 +172,7 @@ def infer = (env, c, s, term) =>
     case Lt(a, b)  => inferArith(env, c, s, a, b, TyBool, "< needs Int operands")
     case StrLit(str)  => Ok3(s, TyStr, c)
     case ShowInt(e)   => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyInt) { case Err(m) => ErrI("showInt expects an Int") case Ok(s2) => Ok3(s2, TyStr, c1) } }
-    case Concat(a, b) => inferStr2(env, c, s, a, b, TyStr,  "++ needs String operands")
+    case Concat(id, a, b) => inferConcat(env, c, s, id, a, b)   -- ++ overloaded: String concat OR List append (lexical dispatch by operand type)
     case StrEq(a, b)  => inferStr2(env, c, s, a, b, TyBool, "strEq needs String operands")
     case StrLen(e)    => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyStr) { case Err(m) => ErrI("strLen expects a String") case Ok(s2) => Ok3(s2, TyInt, c1) } }
     case CharAt(sv, iv) =>
@@ -383,6 +383,18 @@ def inferNum = (env, c, s, id, a, b, kind) =>
           case TyStr    => if #seq(kind, "cmp") then (let u = registerInst(id, TyStr) in Ok3(s3, numRes(kind, TyStr), c2)) else ErrI("+ - * need Int or Float operands (use ++ to concatenate strings)")   -- Ord/Eq for String: =, <>, <, <=, >, >= compare lexicographically
           case TyVar(n) => let u = recordPending(n) in let u2 = registerInst(id, TyVar(n)) in Ok3(s3, numRes(kind, TyVar(n)), c2)   -- DEFER: record the var; resolve at generalize / top-level
           case _        => ErrI("+ - * (and < =) need Int or Float operands")
+        } } } }
+-- ++ : overloaded String concat / List append.  Both operands unify; dispatch on the result type.
+-- An unresolved type-var (ambiguous `++`) defaults to String — preserves the old String-only behaviour.
+def inferConcat = (env, c, s, id, a, b) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+      match unify(s2, ta, tb) { case Err(m) => ErrI("++ operands must have the same type") case Ok(s3) =>
+        match appTy(s3, ta) {
+          case TyStr     => let u = registerInst(id, TyStr) in Ok3(s3, TyStr, c2)
+          case TyList(e) => let u = registerInst(id, TyList(e)) in Ok3(s3, TyList(e), c2)
+          case TyVar(n)  => match unify(s3, TyVar(n), TyStr) { case Err(m) => ErrI("++ needs String or List operands") case Ok(s4) => let u = registerInst(id, TyStr) in Ok3(s4, TyStr, c2) }
+          case _         => ErrI("++ needs String or List operands")
         } } } }
 def inferStr2 = (env, c, s, a, b, res, msg) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
@@ -613,6 +625,8 @@ def strLtGoV = (a, b, i) =>
      else false)
   else #i.lt(i, #slen(b))
 def strLtV = (a, b) => strLtGoV(a, b, 0)
+-- list append for `++` (interp side; list values are host Cons/Nil — see LCons eval)
+def appendV = (xs, ys) => match xs { case Cons(h, t) => Cons(h, appendV(t, ys)) case _ => ys }
 def asF = (v) => match v { case FloatVal(x) => x case _ => #i->f(0) }
 -- apply a value to an argument; a recursive closure re-binds itself in its own body's env
 def applyV = (fn, arg) =>
@@ -641,7 +655,7 @@ def evalT = (env, t) =>
     case Lt(a, b)     => BoolVal(#i.lt(asI(evalT(env, a)), asI(evalT(env, b))))
     case StrLit(str)  => StrVal(str)
     case ShowInt(e)   => StrVal(#i->str(asI(evalT(env, e))))
-    case Concat(a, b) => StrVal(#sconcat(asStr(evalT(env, a)), asStr(evalT(env, b))))
+    case Concat(id, a, b) => let va = evalT(env, a) in match va { case StrVal(sa) => StrVal(#sconcat(sa, asStr(evalT(env, b)))) case _ => appendV(va, evalT(env, b)) }
     case StrEq(a, b)  => BoolVal(#seq(asStr(evalT(env, a)), asStr(evalT(env, b))))
     case StrLen(e)    => IntVal(#slen(asStr(evalT(env, e))))
     case CharAt(sv, iv) => IntVal(#scodeAt(asStr(evalT(env, sv)), asI(evalT(env, iv))))

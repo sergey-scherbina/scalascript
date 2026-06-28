@@ -1,0 +1,1 @@
+let rec sum = fun xs => match xs { Cons h t => h + sum t | Nil => 0 } in sum ([1, 2] ++ [3, 4] ++ [5])

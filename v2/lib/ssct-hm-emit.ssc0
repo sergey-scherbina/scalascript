@@ -39,7 +39,7 @@ def erase = (scope, term) =>
     case Lt(a, b)     => IrPrim("i.lt",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrLit(str)  => IrLit(IrStr(str))
     case ShowInt(e)   => IrPrim("i->str", Cons(erase(scope, e), Nil))
-    case Concat(a, b) => IrPrim("sconcat", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Concat(id, a, b) => if isStrTy(instOf(id)) then IrPrim("sconcat", Cons(erase(scope, a), Cons(erase(scope, b), Nil))) else (let u = #cell.set(usedAppendCell, true) in IrApp(IrApp(IrGlobal("__append"), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil)))
     case StrEq(a, b)  => IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrLen(e)    => IrPrim("slen", Cons(erase(scope, e), Nil))
     case CharAt(sv, iv) => IrPrim("scodeAt", Cons(erase(scope, sv), Cons(erase(scope, iv), Nil)))
@@ -264,6 +264,11 @@ def strLtGoDef = IrDef("__strLtGo", IrLam(1, IrLam(1, IrLam(1,
     IrPrim("i.lt", Cons(IrLocal(0), Cons(IrPrim("slen", Cons(IrLocal(1), Nil)), Nil))))))))
 def strLtDef = IrDef("__strLt", IrLam(1, IrLam(1,
   IrApp(IrApp(IrApp(IrGlobal("__strLtGo"), Cons(IrLocal(1), Nil)), Cons(IrLocal(0), Nil)), Cons(IrLit(IrInt(0)), Nil)))))
+-- list append for `++`:  __append = λxs.λys. match xs { Cons h t => Cons h (__append t ys) | Nil => ys }
+-- (xs=Local1, ys=Local0; inside the Cons arm 2 binders push → h=Local1, t=Local0, ys=Local2)
+def appendDef = IrDef("__append", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
+    Cons(IrArm("Cons", 2, IrCtor("Cons", Cons(IrLocal(1), Cons(IrApp(IrApp(IrGlobal("__append"), Cons(IrLocal(0), Nil)), Cons(IrLocal(2), Nil)), Nil)))),
+    Cons(IrArm("Nil", 0, IrLocal(0)), Nil)), None))))
 -- general deep handler: __effHandle = λlbl.λm.λvalf.λopf. match m {
 --   Pure v => valf v                                                          (v=0; opf=1,valf=2,m=3,lbl=4)
 --   Op l a k => l==lbl ? opf (fst a) (snd a) (λr. __effHandle lbl (k r) valf opf)   (k=0,a=1,l=2; opf=3,valf=4,m=5,lbl=6 — a = Pair op realArg)
@@ -279,6 +284,7 @@ def effHandleDef = IrDef("__effHandle", IrLam(1, IrLam(1, IrLam(1, IrLam(1, IrMa
     None))))))
 def usedEffCell = #cell.new(false)
 def usedStrLtCell = #cell.new(false)
+def usedAppendCell = #cell.new(false)
 def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, t) => if containsList(t) then true else anyListShow(rest) } }
 def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
 -- defs = list helpers (if a list instance used) ++ the per-type show/eq helpers collected during erase
@@ -286,6 +292,7 @@ def progOf = (term) => let body = erase(Nil, term) in
   let listH = if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil in
   let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Cons(effRevAppDef, Cons(effLogGoDef, Cons(effRunLogDef, Cons(effHandleDef, Nil))))))) else Nil in
   let strH  = if #cell.get(usedStrLtCell) then Cons(strLtDef, Cons(strLtGoDef, Nil)) else Nil in
-  IrProg(appendD(strH, appendD(effH, appendD(listH, #cell.get(helperDefs)))), body)
+  let appH  = if #cell.get(usedAppendCell) then Cons(appendDef, Nil) else Nil in
+  IrProg(appendD(appH, appendD(strH, appendD(effH, appendD(listH, #cell.get(helperDefs))))), body)
 
 def emit = (term) => #coreir.encode(progOf(term))

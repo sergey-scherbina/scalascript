@@ -444,3 +444,16 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       a `usedStrLtCell`. Interp mirrors with a host `strLtV`. **0 kernel / 0 backend change** — `__strLt` is an
       ordinary IR global (like `__effBind`), so it runs identically on run-ir/JS/Rust. Lexicographic order
       verified incl. prefixes (`"ab" < "abc"`, `"abc" < "ab"`). conformance +5.
+
+## K15 — list append (overload `++`)
+
+- [x] **K15.1 — `++` on lists** = append (was String-only: `[1,2] ++ [3,4]` → "needs String operands"). Gave
+      `Concat` an `id` (mirroring `Add`/`Lt`/`Eq` across desugar/freeVars/freshen/subst/containsNumOp/inline),
+      so `inferConcat` can dispatch by operand type: both operands unify, then `TyStr`→String concat (`sconcat`
+      prim), `TyList(e)`→list append (new `__append` IR helper), unresolved `TyVar`→**defaults to String** (so
+      the old String-only behaviour is preserved exactly for ambiguous `++`). `__append` = `λxs.λys. match xs
+      { Cons h t => Cons h (__append t ys) | Nil => ys }` recursing via `IrGlobal("__append")` (named-global,
+      no de Bruijn knot), injected via `usedAppendCell`; interp mirrors with host `appendV`. **0 kernel / 0
+      backend change** — `__append` builds plain `Cons`/`Nil` IR. `[1,2]++[3,4]`→`[1,2,3,4]`, `[]++[1]`,
+      chaining, list-of-strings all green on run-ir/JS/Rust; string `++` and ambiguous-default unchanged.
+      conformance +5.

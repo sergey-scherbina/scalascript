@@ -239,7 +239,7 @@ def parseAddMore = (a, toks) =>
         case TPunct(p) =>
           if #seq(p, "+") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Add(nextId(0), a, b), r2) }
           else if #seq(p, "-") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Sub(nextId(0), a, b), r2) }
-          else if #seq(p, "++") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Concat(a, b), r2) }
+          else if #seq(p, "++") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Concat(nextId(0), a, b), r2) }
           else Pair(a, toks)
         case _ => Pair(a, toks)
       }
@@ -571,7 +571,7 @@ def desugar = (t) =>
     case LetRecM(binds, b) => LetRecM(mapBindsD(binds), desugar(b))
     case MatchT(scrut, arms) => let da = dsArmsM(arms) in if needsCompiler(da) then compileMatch(desugar(scrut), da) else if hasLitArm(da) then desugarLitMatch(desugar(scrut), da) else mkMatch(desugar(scrut), da)
     case StrLit(str)     => StrLit(str)
-    case Concat(a, b)    => Concat(desugar(a), desugar(b))
+    case Concat(id, a, b) => Concat(id, desugar(a), desugar(b))
     case FloatLit(str)   => FloatLit(str)
     case RecLit(fields)  => RecLit(dsRecFields(fields))
     case FieldGet(id, rc, name) => FieldGet(id, desugar(rc), name)
@@ -683,7 +683,7 @@ def freeVars = (t) =>
     case Div(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Eq(id, a, b)    => appendL(freeVars(a), freeVars(b))
     case Lt(id, a, b)    => appendL(freeVars(a), freeVars(b))
-    case Concat(a, b)    => appendL(freeVars(a), freeVars(b))
+    case Concat(id, a, b) => appendL(freeVars(a), freeVars(b))
     case If(c, x, y)     => appendL(freeVars(c), appendL(freeVars(x), freeVars(y)))
     case Let(x, e, b)    => appendL(freeVars(e), removeStr(x, freeVars(b)))
     case LetRec(f, l, b) => removeStr(f, appendL(freeVars(l), freeVars(b)))
@@ -759,7 +759,7 @@ def freshenIds = (t) => match t {                      -- deep copy, reassigning
     case Div(id, a, b)   => Div(nextId(0), freshenIds(a), freshenIds(b))
     case Eq(id, a, b)    => Eq(nextId(0), freshenIds(a), freshenIds(b))
     case Lt(id, a, b)    => Lt(nextId(0), freshenIds(a), freshenIds(b))
-    case Concat(a, b)    => Concat(freshenIds(a), freshenIds(b))
+    case Concat(id, a, b) => Concat(nextId(0), freshenIds(a), freshenIds(b))
     case If(c, x, y)     => If(freshenIds(c), freshenIds(x), freshenIds(y))
     case Let(x, e, b)    => Let(x, freshenIds(e), freshenIds(b))
     case LetRec(f, l, b) => LetRec(f, freshenIds(l), freshenIds(b))
@@ -787,7 +787,7 @@ def substVar = (nm, repl, t) => match t {              -- replace FREE Var(nm) w
     case Div(id, a, b)   => Div(id, substVar(nm, repl, a), substVar(nm, repl, b))
     case Eq(id, a, b)    => Eq(id, substVar(nm, repl, a), substVar(nm, repl, b))
     case Lt(id, a, b)    => Lt(id, substVar(nm, repl, a), substVar(nm, repl, b))
-    case Concat(a, b)    => Concat(substVar(nm, repl, a), substVar(nm, repl, b))
+    case Concat(id, a, b) => Concat(id, substVar(nm, repl, a), substVar(nm, repl, b))
     case If(c, x, y)     => If(substVar(nm, repl, c), substVar(nm, repl, x), substVar(nm, repl, y))
     case Let(x, e, b)    => if #seq(x, nm) then Let(x, substVar(nm, repl, e), b) else Let(x, substVar(nm, repl, e), substVar(nm, repl, b))
     case LetRec(f, l, b) => if #seq(f, nm) then LetRec(f, l, b) else LetRec(f, substVar(nm, repl, l), substVar(nm, repl, b))
@@ -812,7 +812,7 @@ def containsNumOp = (t) => match t {                   -- does the term use an o
     case Lt(id, a, b)    => true
     case Lam(x, b)       => containsNumOp(b)
     case App(f, a)       => or2(isMethodApp(f), or2(containsNumOp(f), containsNumOp(a)))
-    case Concat(a, b)    => or2(containsNumOp(a), containsNumOp(b))
+    case Concat(id, a, b) => or2(containsNumOp(a), containsNumOp(b))
     case If(c, x, y)     => or2(containsNumOp(c), or2(containsNumOp(x), containsNumOp(y)))
     case Let(x, e, b)    => or2(containsNumOp(e), containsNumOp(b))
     case LetRec(f, l, b) => or2(containsNumOp(l), containsNumOp(b))
@@ -843,7 +843,7 @@ def inlineClosed = (t) => match t {
     case Div(id, a, b)   => Div(id, inlineClosed(a), inlineClosed(b))
     case Eq(id, a, b)    => Eq(id, inlineClosed(a), inlineClosed(b))
     case Lt(id, a, b)    => Lt(id, inlineClosed(a), inlineClosed(b))
-    case Concat(a, b)    => Concat(inlineClosed(a), inlineClosed(b))
+    case Concat(id, a, b) => Concat(id, inlineClosed(a), inlineClosed(b))
     case If(c, x, y)     => If(inlineClosed(c), inlineClosed(x), inlineClosed(y))
     case LetRec(f, l, b) => LetRec(f, inlineClosed(l), inlineClosed(b))
     case LetRecM(binds, b) => LetRecM(mapBindsI(binds), inlineClosed(b))
