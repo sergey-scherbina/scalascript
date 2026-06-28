@@ -864,8 +864,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/at.rs" -o "${TMPDIR:-/tmp}/at-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/at-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s (rustc)\n' "actor behavior -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors Rust" "$got"; fail=1; fi
 fi
-echo "# ssct-hm EFFECT ROWS (K10, type-level): the type tracks effects; runE rejects unhandled effects"
-chk_hm examples/hm-effrow.hm '"(Int, Int)"'                          # get;put;return handled by runState, then runE
+echo "# ssct-hm EFFECT ROWS (K10): type tracks effects + runE rejects unhandled; runs on all backends"
+chk_hm examples/hm-effrow.hm '"(Int, Int)"'                          # put 5; get; return get+100 -> handled, runs
+ERV="Pair(105, 5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-effrow.hm > "${TMPDIR:-/tmp}/er.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/er.coreir" | tail -1)
+if [ "$got" = "$ERV" ]; then printf 'ok   %-26s => %s\n' "effect run (State) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "effrow" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-effrow.hm > "${TMPDIR:-/tmp}/er.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/er.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$ERV" ]; then printf 'ok   %-26s => %s (node)\n' "effect run (State) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "effrow JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-effrow.hm > "${TMPDIR:-/tmp}/er.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/er.rs" -o "${TMPDIR:-/tmp}/er-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/er-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$ERV" ]; then printf 'ok   %-26s => %s (rustc)\n' "effect run (State) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "effrow Rust" "$got"; fail=1; fi
+fi
 echo -n "ok   effect tracked in type   => "; printf 'getE' > "${TMPDIR:-/tmp}/er1.hm"; et=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er1.hm" | tail -1); if [ "$et" = '"Comp {State | e0} Dyn"' ]; then echo "Comp {State | e0} Dyn"; else echo "FAIL [$et]"; fail=1; fi
 echo -n "ok   unhandled effect = error => "; printf 'runE getE' > "${TMPDIR:-/tmp}/er2.hm"; eu=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er2.hm" | tail -1); if [ "$eu" = '"TypeError: effect not handled: State"' ]; then echo "rejected (correct)"; else echo "FAIL [$eu]"; fail=1; fi
 

@@ -223,9 +223,14 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
       with row-carrying types; `Comp {S | ρ}` tracks effects, `runStateE` removes `State`, `runE : Comp {}
       a -> a` so an **unhandled effect is a type error** (`runE getE` rejected). Demonstrated at the type
       level (`examples/hm-effrow.hm` ⇒ `(Int, Int)`; `runE getE` ⇒ TypeError). conformance +3.
-- [ ] **K10.4b — runtime + ergonomics** — erase/eval the effect built-ins to the universal `Comp` (so
-      effectful programs RUN on all backends, not only type-check); `effect L ops in …` declaration syntax
-      (replacing the hard-wired demo `State` ops); row syntax `{}` / `{l | r}` in the type parser for
-      annotations; general `handle`. The untyped runtime already exists (K7-E), so this is wiring.
+- [x] **K10.4b — runtime (runs on all backends)** — `erase` lowers the effect built-ins to the universal
+      `Comp` (`Pure`/`Op`) + global helper defs `__effBind`/`__effRun`/`__effRunSt` (hand-coded de Bruijn,
+      appended by `progOf` when effects are used). Effectful programs now RUN, not just type-check:
+      `examples/hm-effrow.hm` (put 5; get; return get+100, handled by `runStateE`, then `runE`) ⇒
+      `Pair(105, 5)` on run-ir / node / rustc. conformance +3 (314 → 317).
+- [ ] **K10.4c — ergonomics (optional)** — `effect L ops in …` declaration syntax (replace the hard-wired
+      `State` demo ops getE/putE/runStateE); row syntax `{}` / `{l | r}` in the type parser for user
+      annotations; a general `handle` combinator. (interp `eval` of the effect built-ins is also unwired —
+      effects run via the compile path, which is what the backends use.)
 
 OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.

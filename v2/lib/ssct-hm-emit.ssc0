@@ -73,6 +73,12 @@ def erase = (scope, term) =>
       match fieldOf(id) { case Pair(idx, ar) => IrMatch(erase(scope, rc), Cons(IrArm("__rec", ar, IrLocal(#i.sub(#i.sub(ar, 1), idx))), Nil), None) }
     case MethodCall(id, m, arg) => IrApp(erase(scope, methodImplOf(id)), Cons(erase(scope, arg), Nil))   -- apply resolved instance impl
     case Ascribe(e, ty) => erase(scope, e)                               -- ascription is erased
+    -- effect rows (K10.4b): lower to the universal Comp (Pure | Op) + global helpers
+    case EffPure(arg) => IrCtor("Pure", Cons(erase(scope, arg), Nil))
+    case EffOp(eff, op, arg) => IrCtor("Op", Cons(IrLit(IrStr(op)), Cons(erase(scope, arg), Cons(IrLam(1, IrCtor("Pure", Cons(IrLocal(0), Nil))), Nil))))   -- Op op arg (λr. Pure r)
+    case EffBind(m, f) => let u = #cell.set(usedEffCell, true) in IrApp(IrApp(IrGlobal("__effBind"), Cons(erase(scope, m), Nil)), Cons(erase(scope, f), Nil))
+    case EffRun(m)     => let u = #cell.set(usedEffCell, true) in IrApp(IrGlobal("__effRun"), Cons(erase(scope, m), Nil))
+    case EffRunSt(m, sv) => let u = #cell.set(usedEffCell, true) in IrApp(IrApp(IrGlobal("__effRunSt"), Cons(erase(scope, m), Nil)), Cons(erase(scope, sv), Nil))
   }
 def eraseRecF = (scope, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(erase(scope, e), eraseRecF(scope, rest)) } }
 
@@ -193,11 +199,30 @@ def eqListDef = IrDef("__eqList", IrLam(1, IrLam(1, IrLam(1, IrMatch(IrLocal(1),
     None)))))
 def anyContainsList = (ts) => match ts { case Nil => false case Cons(t, rest) => if containsList(t) then true else anyContainsList(rest) }
 def containsList    = (t) => match t { case TyList(e) => true case TyCon(nm, args) => anyContainsList(args) case _ => false }
+-- ── effect-rows runtime (K10.4b): the universal Comp = Pure v | Op label argDyn (Dyn -> Comp) ──
+-- __effBind = λm.λf. match m { Pure v => f v | Op l a k => Op l a (λr. __effBind (k r) f) }   (m=1,f=0; arm: l=2,a=1,k=0)
+def effBindDef = IrDef("__effBind", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
+    Cons(IrArm("Pure", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
+    Cons(IrArm("Op", 3, IrCtor("Op", Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLam(1, IrApp(IrApp(IrGlobal("__effBind"), Cons(IrApp(IrLocal(1), Cons(IrLocal(0), Nil)), Nil)), Cons(IrLocal(4), Nil))), Nil))))), Nil)),
+    None))))
+-- __effRun = λm. match m { Pure v => v }   (Op at the top = type-prevented; no arm => runtime stuck)
+def effRunDef = IrDef("__effRun", IrLam(1, IrMatch(IrLocal(0), Cons(IrArm("Pure", 1, IrLocal(0)), Nil), None)))
+-- __effRunSt = λm.λs. match m { Pure v => Pure (Pair v s) | Op l a k => get? __effRunSt(k s) s : put? __effRunSt(k 0) a : forward }
+def effRunStDef = IrDef("__effRunSt", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
+    Cons(IrArm("Pure", 1, IrCtor("Pure", Cons(IrCtor("Pair", Cons(IrLocal(0), Cons(IrLocal(1), Nil))), Nil))),
+    Cons(IrArm("Op", 3, IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("get"), Nil))),
+        IrApp(IrApp(IrGlobal("__effRunSt"), Cons(IrApp(IrLocal(0), Cons(IrLocal(3), Nil)), Nil)), Cons(IrLocal(3), Nil)),
+        IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("put"), Nil))),
+            IrApp(IrApp(IrGlobal("__effRunSt"), Cons(IrApp(IrLocal(0), Cons(IrLit(IrInt(0)), Nil)), Nil)), Cons(IrLocal(1), Nil)),
+            IrCtor("Op", Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLam(1, IrApp(IrApp(IrGlobal("__effRunSt"), Cons(IrApp(IrLocal(1), Cons(IrLocal(0), Nil)), Nil)), Cons(IrLocal(4), Nil))), Nil))))))), Nil)),
+    None))))
+def usedEffCell = #cell.new(false)
 def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, t) => if containsList(t) then true else anyListShow(rest) } }
 def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
 -- defs = list helpers (if a list instance used) ++ the per-type show/eq helpers collected during erase
 def progOf = (term) => let body = erase(Nil, term) in
   let listH = if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil in
-  IrProg(appendD(listH, #cell.get(helperDefs)), body)
+  let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Nil))) else Nil in
+  IrProg(appendD(effH, appendD(listH, #cell.get(helperDefs))), body)
 
 def emit = (term) => #coreir.encode(progOf(term))

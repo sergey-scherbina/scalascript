@@ -1,1 +1,1 @@
-runE (runStateE (bindE getE (fun x => bindE (putE (x : Dyn)) (fun u => pureE (x : Int)))) 0)
+runE (runStateE (bindE (putE (5 : Dyn)) (fun u => bindE getE (fun x => pureE ((x : Int) + 100)))) 0)
