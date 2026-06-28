@@ -1,0 +1,1 @@
+abs (0 - 7) + maxBy (fun a => fun b => a < b) 3 10 + const 5 99 + id 0

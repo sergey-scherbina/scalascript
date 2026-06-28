@@ -574,9 +574,14 @@ def prelude =
   Cons(Pair("zipWith", "fun f => fun a => fun b => if isNil a then nil else if isNil b then nil else cons (f (head a) (head b)) (zipWith f (tail a) (tail b))"),
   Cons(Pair("elemBy",  "fun cmp => fun x => fun xs => if isNil xs then false else if cmp x (head xs) then true else elemBy cmp x (tail xs)"),
   Cons(Pair("sortBy",  "fun lt => fun xs => let rec ins = fun x => fun ys => if isNil ys then cons x nil else if lt x (head ys) then cons x ys else cons (head ys) (ins x (tail ys)) in let rec go = fun zs => if isNil zs then nil else ins (head zs) (go (tail zs)) in go xs"),
+  Cons(Pair("id",      "fun x => x"),
+  Cons(Pair("const",   "fun x => fun y => x"),
+  Cons(Pair("abs",     "fun n => if n < 0 then neg n else n"),
+  Cons(Pair("minBy",   "fun lt => fun a => fun b => if lt a b then a else b"),
+  Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil)))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }
