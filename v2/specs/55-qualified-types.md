@@ -1,26 +1,38 @@
-# 55 — Qualified types for ssct-hm (numeric subset shipped; full design)
+# 55 — Qualified types for ssct-hm (light subset shipped; full design)
 
-> Status: **2026-06-28.** A **light numeric subset shipped** (K11.3): a *closed* numeric helper inlines, so
-> `let twice = fun x => x + x in (twice 5, twice 2.25)` works at Int AND Float on all three backends — no
-> dictionary passing, no backend change. See *Shipped: numeric polymorphism via inlining* below. The **full**
-> dictionary-passing design (general user typeclasses + non-closed numeric fns) is documented here for a
-> focused follow-up; it remains the one genuinely multi-session item.
+> Status: **2026-06-28.** A **light subset shipped** (K11.3 / K11.3b / K11.3c) covering, in *closed*
+> functions, **numeric** polymorphism (`twice` at Int & Float), **fixed-result user methods**
+> (`method m : R`), and **receiver-result user methods** (`method m : self`) — all on all three backends,
+> with **no dictionary passing and no backend change**. See *Shipped: light qualified types via inlining*
+> below. The **full** dictionary-passing design (the remaining NON-closed case) is documented here for a
+> focused follow-up.
 
-## Shipped: numeric polymorphism via inlining (K11.3)
+## Shipped: light qualified types via inlining (K11.3 / K11.3b / K11.3c)
 
-A non-recursive `let f = <closed numeric fn> in …` is **unfolded** (pure beta) in a pre-desugar pass
-(`inlineClosed`), so each use of `f` becomes an independent copy with **fresh** numeric node-ids
-(`freshenIds` inside `substVar`). "Closed" = `freeVars` empty (which auto-excludes recursive functions —
-self-reference is a free var — and prelude-using functions) **and** `containsNumOp` (so non-numeric helpers
-like `id` are not touched, avoiding type-variable renumbering). Combined with **deferred numeric resolution**
-— an overloaded op on an unresolved var records the var instead of eager-defaulting to `Int`; it's resolved
-at let-generalization (`defaultPendingIn`, which keeps *non-inlined* numeric lets monomorphic-`Int`, sound)
-and finally at the top (`finalDefault` → `Int`); `resolveNum(s)` re-bakes `tcReg` through the final
-substitution before erase — each inlined copy resolves its own `Int`/`Float` from its argument.
+**Inlining.** A non-recursive `let f = <closed fn> in …` is **unfolded** (pure beta) in a pre-desugar pass
+(`inlineClosed`), so each use of `f` becomes an independent copy with **fresh** node-ids (`freshenIds` inside
+a capture-free `substVar`). "Closed" = every free var is a **method name** (`allMethods`; capture-safe —
+methods are global; this auto-excludes recursive and prelude-using functions) **and** `containsNumOp` (a
+numeric op *or* a method application — so non-numeric/non-method helpers like `id` are untouched, avoiding
+type-variable renumbering).
 
-This covers the common pain (the K8 sharp edge: `twice`/`double`/`square`/`r*r`). It does **not** cover
-non-closed numeric-generic functions (which keep defaulting to `Int`, soundly) or user-typeclass
-polymorphism — those need the full design below.
+**Deferred resolution.** An overloaded numeric op, or a user `method` with a result signature, used on a
+still-unresolved receiver, **records** the receiver variable instead of resolving eagerly, and returns the
+known result type (the operand type / `R` / the receiver itself for `: self`). At the top, `resolveNum(s)`
+defaults remaining numeric vars to `Int`, re-bakes `tcReg`, and — for each deferred method — looks up the now
+concrete receiver's instance. Numeric vars also default at let-generalization (`defaultPendingIn`), keeping
+*non-inlined* numeric lets monomorphic-`Int` (sound). Each inlined copy thus resolves its own
+`Int`/`Float`/instance from its argument.
+
+**Method signatures.** `method m : R in …` records a result type; `: self` means *the receiver type*
+(`selfRes`). The instance impl chosen at resolution is **type-checked** with the concrete receiver
+(`checkImpl`) so the impl's own overloaded ops resolve correctly (`f.lt`/`f.sub`, not the default `i.*`) —
+without this an impl like `instance negate Float = fun x => 0.0 - x` miscompiled. Methods without a signature
+keep resolving eagerly/monomorphically by the argument's type-head.
+
+This covers the common pain (the K8 sharp edge `twice`/`double`/`r*r`, and polymorphic `show`/`compare`/
+`negate`-style user methods). It does **not** cover **non-closed** generic functions (those keep defaulting
+to `Int` / resolving monomorphically, soundly) — that is the remaining case for the full design below.
 
 ## The full design (dictionary passing) — for the focused follow-up
 
