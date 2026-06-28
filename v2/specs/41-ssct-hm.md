@@ -21,7 +21,8 @@ prog   := decl*  expr
 decl   := 'data' Con tyvar* '=' ctor ('|' ctor)* 'in'      -- a user algebraic data type
         | 'method' m 'in'                                  -- a user typeclass method
         | 'instance' m T '=' expr 'in'                     -- an instance of m at type-head T
-ctor   := Con fieldtype*    fieldtype := tyvar|'Int'|'Bool'|'String'|'Float'|'['fieldtype']'|'('Con fieldtype*')'
+ctor   := Con fieldtype*    fieldtype := tyvar|'Int'|'Bool'|'String'|'Float'|'Dyn'|'['ty']'|'('ty')'
+ty     := fieldtype | Con fieldtype* | ty '->' ty       -- (inside parens) application / right-assoc function type
 expr   := 'fun' x+ '=>' expr                               -- multi-arg lambda (curried)
         | 'let' ['rec'] x x* '=' expr 'in' expr            -- value or function definition (curried)
         | 'if' expr 'then' expr 'else' expr
@@ -88,6 +89,14 @@ first-class):
 - **Type ascription** `(e : T)` (concrete `T`) checks/documents a type and, usefully,
   disambiguates typeclass resolution: `show (None : Option Int)` ⇒ `"None"` (an ambiguous-type
   error without the annotation). Erased at runtime.
+- **Function-typed data fields** `data F a = Op (Int -> F a) | Ret a` — a constructor field may be
+  a (parenthesized) function type, which makes **free monads** expressible as plain data types.
+- **`Dyn`** — a type that unifies with any type; the single, explicit, *localized* escape-hatch.
+  It lets the universal effect monad `Comp = Pure | Op(label, arg, resume)` be typed despite its
+  existential payload; user code casts at the boundary with `(e : T)`.
+- **Algebraic effects** (one-shot AND multi-shot) live in the typed surface — see
+  [`50-effects.md`](50-effects.md): type-safe per-effect free monads (State, Nondeterminism), or
+  the universal `Comp` via `Dyn`. Full effect-row inference is a deferred research item.
 
 ## Typeclasses
 

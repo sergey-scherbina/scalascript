@@ -51,9 +51,38 @@ observable semantics — including **multi-shot continuations** — as ~40 lines
 kernel that knows nothing about effects. To add an effect you write a `perform` + a handler;
 no kernel change. Forwarding (`else Op(...)`) composes handlers.
 
+## Typed surface (ssct-hm) — K7, 2026-06-28
+
+The same effects are now available in the **typed** `ssct-hm` surface (HM-inferred, compiling
+to VM / JS / native Rust), via two complementary designs. `do`-notation provides the `bind`
+sugar (`specs/41-ssct-hm.md`).
+
+**Track P — type-safe, per-effect free monads** (no `Dyn`, no existentials). Each effect is a
+free monad over its *own* functor — an ordinary `data` type with **function-typed fields**:
+
+```
+data St a = Ret a | Get (Int -> St a) | Put Int (St a)        -- examples/hm-eff-state.hm  (one-shot)
+data Nd a = RetN a | Choose [Int] (Int -> Nd a)               -- examples/hm-eff-nondet.hm (MULTI-SHOT)
+```
+`get`/`put`/`choose` are typed (`get : St Int`), handlers are plain folds (`runState`, `runAll`
+via `concatMap` for multi-shot), and the user writes `do { x <- get ; put (x+1) ; … }`. Fully
+type-checked; the only language feature this needed was function types in data fields.
+
+**Track E — universal `Comp` via a `Dyn` escape-hatch.** One monad for *all* effects, matching
+this library's `Pure | Op(label, arg, resume)` exactly. The operation payload/reply are
+existential, so they ride a `Dyn` type (unifies with any type — the single, localized unsafe
+coercion); user code casts at the boundary with `(e : T)`:
+
+```
+data Comp a = Pure a | Op String Dyn (Dyn -> Comp a)          -- examples/hm-eff-comp.hm
+perform l a = Op l a (fun r => Pure r)                        -- generic; one handler dispatches by label
+```
+
+Deferred (research): **full effect-row inference** (tracking *which* effects in the type,
+Koka/Frank style) — disproportionate for the ~430-line inferrer; Track P already types effects
+per-effect.
+
 ## Next
 
-- `do`-style sugar for `bind` in the `ssct`/surface layer (today: explicit `bind`).
 - Async as an effect: a `fork`/`yield`/`await` op + a scheduler handler (see
   `specs/51-async.md`).
-- Typed effects (effect rows) in the `ssct` type layer.
