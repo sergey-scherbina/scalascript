@@ -166,3 +166,22 @@ class ParseErrorPositionTest extends AnyFunSuite:
     assert(cb.tree.isEmpty, "expected scalameta to reject the unbalanced-paren block")
     assert(cb.parseError.isDefined, s"expected a populated parseError; got cb=$cb")
     assert(cb.parseError.get.message.nonEmpty)
+
+  // trysplitparse-quadratic-hang: a Scala-3 soft keyword (`given`) used as an
+  // identifier makes both the Source- and Term-mode parses fail, so the
+  // `trySplitParse` fallback runs.  Before the `MaxSplitSuffixLines` bound it
+  // re-parsed EVERY split point — O(N) parses of O(N)-line prefixes (O(N²)) —
+  // turning a fast parse error into a multi-minute hang on a large module
+  // (busi's ~3500-line phone hub hung ~90s).  It must now yield a fast diagnostic.
+  test("large block with `given` as an identifier yields a fast diagnostic, not a quadratic hang"):
+    val filler = (1 to 2500).map(i => s"val d$i = $i").mkString("\n")
+    val src =
+      "# big\n\n```scalascript\ndef jr(b: String): String = b\n" + filler +
+        "\nval given = \"x\"\nval number = if given.length > 0 then given else \"z\"\nprintln(jr(number))\n```\n"
+    val start = System.nanoTime()
+    val cb = firstCodeBlock(src)
+    val elapsedMs = (System.nanoTime() - start) / 1000000
+    assert(cb.tree.isEmpty, "expected scalameta to reject `given` used as an identifier")
+    assert(cb.parseError.isDefined, s"expected a populated parseError; got cb=$cb")
+    assert(elapsedMs < 15000,
+      s"parse must stay fast with the capped trySplitParse; took ${elapsedMs}ms (quadratic regression?)")

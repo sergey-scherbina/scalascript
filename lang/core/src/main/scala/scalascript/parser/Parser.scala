@@ -2299,13 +2299,25 @@ object Parser:
    *  Tries every split point from the bottom up (suffix = last N lines).
    *  Returns the first `Source` that combines a valid declaration prefix with
    *  a valid trailing term, or `None` if no split works. */
+  /** The handler-file pattern this fallback targets always has a SHORT trailing
+   *  term (a lambda after the class defs), so the useful split points are the
+   *  ones nearest the end.  We therefore only try splits whose suffix is at most
+   *  `MaxSplitSuffixLines` lines.  Without this bound a large block that fails
+   *  both earlier parses (e.g. one that uses a Scala-3 soft keyword like `given`
+   *  as an identifier) makes this loop re-parse every prefix — O(N) parses over
+   *  O(N)-line prefixes, i.e. O(N²) total — which turns a fast parse error into a
+   *  multi-minute hang on a multi-thousand-line module.  Small blocks (≤ the
+   *  bound) keep the original full-range behaviour. */
+  private val MaxSplitSuffixLines = 48
+
   private def trySplitParse(code: String): Option[scala.meta.Source] =
     import scala.meta.*
     given Dialect = dialects.Scala3
     val lines = code.linesIterator.toVector
     // Only attempt when there are at least 2 lines to split.
     if lines.length < 2 then return None
-    (lines.length - 1 to 1 by -1).view.flatMap { k =>
+    val lowestPrefix = math.max(1, lines.length - MaxSplitSuffixLines)
+    (lines.length - 1 to lowestPrefix by -1).view.flatMap { k =>
       val prefix = lines.take(k).mkString("\n").trim
       val suffix = lines.drop(k).mkString("\n").trim
       if prefix.isEmpty || suffix.isEmpty then None
