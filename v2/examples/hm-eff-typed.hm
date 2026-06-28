@@ -1,0 +1,2 @@
+effect State { get : Dyn -> Int , put : Int -> Dyn } in
+runE (runStateE (doE { u <- put 5 ; x <- get ; pureE (x + 100) }) 0)

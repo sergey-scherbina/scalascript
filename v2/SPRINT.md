@@ -300,10 +300,15 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       Int/Float from its argument. conformance +5 (358 → 363); `int helper still Int` guards soundness.
       LIMITATION (documented in spec 55): only CLOSED numeric helpers polymorphise; non-closed numeric-generic
       fns and user-typeclass polymorphism still need the full dictionary-passing design (spec 55).
-- [~] **K11.4 — full Koka-style typed payloads** — **DESIGNED** (the "Path to full" section of
-      [`specs/54-effect-rows.md`](specs/54-effect-rows.md)); implementation deferred. Reuses K11.1 (the
-      `effect` decl, which would carry the operation signatures) + the K11.3 typing machinery + the row core;
-      remaining work is signature-directed typing of `perform`/handlers. Multi-session.
+- [x] **K11.4 — TYPED PAYLOADS (light)** — `effect Name { op : ArgT -> ReplyT , … } in …` gives each op a
+      SIGNATURE (`effSigReg`); a typed op's arg is checked against `ArgT` and its reply is `ReplyT` (not `Dyn`),
+      so effect code drops the `(x : Int)` / `(5 : Dyn)` ascriptions: `effect State { get : Dyn -> Int , put :
+      Int -> Dyn } in doE { u <- put 5 ; x <- get ; pureE (x + 100) }` ⇒ `x : Int` inferred, `(Int, Int)` /
+      `Pair(105, 5)` on all 3 backends; `put "x"` ⇒ `TypeError: effect op arg type mismatch`. `EffOp` infer
+      uses the signature when present, falls back to `Dyn` otherwise (untyped decls + string `perform`
+      unchanged). Built-in handlers (runStateE/…) are generic over the value type, so they consume typed
+      replies unchanged. conformance +5. NOTE the **general `handle`** keeps a `Dyn` resume (typing a
+      user-written handler's resume against the signature is the deeper Koka step, still open).
 - [x] **K11.5 — spec sweep** — specs (41/50/54) updated to the shipped surface (earlier commit) + new
       `55-qualified-types.md` design + `54`'s "Path to full" updated (effect-decl & row-syntax landed; payloads
       build on K11.1/K11.3). Effect examples already demonstrate `doE` in dedicated files (`hm-eff-do*.hm`,

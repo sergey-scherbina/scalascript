@@ -251,7 +251,13 @@ def infer = (env, c, s, term) =>
         match unify(s1, te, ty) { case Err(m) => ErrI("type ascription mismatch") case Ok(s2) => Ok3(s2, appTy(s2, ty), c1) } }
     -- effect rows (K10): a computation's type carries the row of effects it may perform; runE demands {}.
     case EffPure(arg) => match infer(env, c, s, arg) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) => Ok3(s1, TyCon("Comp", Cons(TyRowVar(c1), Cons(ta, Nil))), #i.add(c1, 1)) }
-    case EffOp(eff, op, arg) => match infer(env, c, s, arg) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) => Ok3(s1, TyCon("Comp", Cons(TyRowExt(eff, TyRowVar(c1)), Cons(TyDyn, Nil))), #i.add(c1, 1)) }
+    case EffOp(eff, op, arg) => match infer(env, c, s, arg) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+        match effSigOf(op) {
+          case None => Ok3(s1, TyCon("Comp", Cons(TyRowExt(eff, TyRowVar(c1)), Cons(TyDyn, Nil))), #i.add(c1, 1))   -- untyped: Dyn reply
+          case Some(sig) => match sig { case Pair(argT, replyT) =>
+            match unify(s1, ta, argT) { case Err(m) => ErrI(#sconcat("effect op arg type mismatch for ", op)) case Ok(s2) =>
+              Ok3(s2, TyCon("Comp", Cons(TyRowExt(eff, TyRowVar(c1)), Cons(replyT, Nil))), #i.add(c1, 1)) } }
+        } }
     case EffBind(m, f) =>
       match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
         match infer(env, c1, s1, f) { case ErrI(e) => ErrI(e) case Ok3(s2, tf, c2) =>
@@ -376,6 +382,11 @@ def effOpReg     = #cell.new(Nil)                                  -- list of Pa
 def registerEffOp    = (op, eff) => #cell.set(effOpReg, Cons(Pair(op, eff), #cell.get(effOpReg)))
 def effOpOf          = (op) => match lookupReg(#cell.get(effOpReg), op) { case Some(eff) => Some(eff) case None => None }
 def isEffOp          = (op) => match effOpOf(op) { case Some(e) => true case None => false }
+-- typed payloads (K11.4): `effect Name { op : ArgT -> ReplyT } in …` records a per-op SIGNATURE; a typed
+-- op's arg is checked against ArgT and its reply is ReplyT (not Dyn), so `x <- get : Int` needs no ascription.
+def effSigReg    = #cell.new(Nil)                                  -- list of Pair(opName, Pair(argT, replyT))
+def registerEffSig   = (op, argT, replyT) => #cell.set(effSigReg, Cons(Pair(op, Pair(argT, replyT)), #cell.get(effSigReg)))
+def effSigOf         = (op) => lookupReg(#cell.get(effSigReg), op)   -- Some(Pair(argT, replyT)) | None
 def effLabel         = (op) => match effOpOf(op) { case Some(e) => e case None => "?" }
 def registerInstance = (m, tn, impl) => #cell.set(instReg, Cons(Pair(Pair(m, tn), impl), #cell.get(instReg)))
 def bothT            = (a, b) => if a then b else false

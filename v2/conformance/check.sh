@@ -1029,6 +1029,22 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 # the eager-default sharp edge is gone for a closed helper, but a let-bound NON-inlined numeric fn still defaults to Int (sound)
 echo -n "ok   int helper still Int     => "; printf 'let sq = fun n => n * n in sq 7' > "${TMPDIR:-/tmp}/sq.hm"; sqg=$(ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/sq.hm" 2>/dev/null > "${TMPDIR:-/tmp}/sq.coreir"; ssc run-ir "${TMPDIR:-/tmp}/sq.coreir" | tail -1); if [ "$sqg" = "49" ]; then echo "49"; else echo "FAIL [$sqg]"; fail=1; fi
+echo "# K11.4 — TYPED PAYLOADS (light): effect Name { op : ArgT -> ReplyT } — typed perform, no Dyn ascriptions"
+chk_hm examples/hm-eff-typed.hm '"(Int, Int)"'                        # get : Dyn -> Int, put : Int -> Dyn; `x <- get` gives x : Int with NO ascription
+TPV="Pair(105, 5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-typed.hm > "${TMPDIR:-/tmp}/tp.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tp.coreir" | tail -1)
+if [ "$got" = "$TPV" ]; then printf 'ok   %-26s => %s\n' "typed payloads -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-typed" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-typed.hm > "${TMPDIR:-/tmp}/tp.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tp.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$TPV" ]; then printf 'ok   %-26s => %s (node)\n' "typed payloads -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-typed JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-typed.hm > "${TMPDIR:-/tmp}/tp.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/tp.rs" -o "${TMPDIR:-/tmp}/tp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tp-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$TPV" ]; then printf 'ok   %-26s => %s (rustc)\n' "typed payloads -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-typed Rust" "$got"; fail=1; fi
+fi
+echo -n "ok   typed op arg checked     => "; printf 'effect State { get : Dyn -> Int , put : Int -> Dyn } in runE (runStateE (doE { u <- put "x" ; x <- get ; pureE (x + 1) }) 0)' > "${TMPDIR:-/tmp}/tpb.hm"; tpb=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/tpb.hm" | tail -1); if [ "$tpb" = '"TypeError: effect op arg type mismatch for put"' ]; then echo "put String rejected (correct)"; else echo "FAIL [$tpb]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

@@ -541,10 +541,22 @@ def parseInstanceDecl = (toks) =>                      -- after 'instance':  m T
 def regEffOps = (eff, ops) => match ops { case Nil => 0 case Cons(o, r) => let u = registerEffOp(o, eff) in regEffOps(eff, r) }
 def parseOpNames = (toks) =>                           -- a run of operation names, STOPPING at the 'in' terminator
   match toks { case Cons(t, rest) => match t { case TName(x) => if #seq(x, "in") then Pair(Nil, toks) else match parseOpNames(rest) { case Pair(ps, r) => Pair(Cons(x, ps), r) } case _ => Pair(Nil, toks) } case Nil => Pair(Nil, Nil) }
-def parseEffectDecl = (toks) =>                        -- after 'effect':  Name op* 'in' <prog>
+-- typed form:  effect Name { op : ArgT -> ReplyT , … } in <prog>   (registers op→eff AND op→(ArgT,ReplyT))
+def parseEffSigs = (eff, toks) =>                       -- toks AFTER '{'; returns the tokens after '}'
+  match toks { case Cons(t, rest) => match t {
+      case TName(op) =>
+        match parseAscType(drop1(rest)) { case Pair(argT, r2) =>             -- drop ':' then ArgT
+          match parseAscType(drop1(r2)) { case Pair(replyT, r4) =>           -- drop '->' then ReplyT
+            let u = registerEffOp(op, eff) in let u2 = registerEffSig(op, argT, replyT) in
+            match r4 { case Cons(t2, r5) => match t2 { case TPunct(p) => if #seq(p, ",") then parseEffSigs(eff, r5) else r5 case _ => r5 } case Nil => Nil } } }
+      case TPunct(p) => rest                                                  -- '{}' : no ops
+      case _ => toks } case Nil => Nil }
+def parseUntypedEff = (eff, rest) => match parseOpNames(rest) { case Pair(ops, r1) => let u = regEffOps(eff, ops) in parseProgram(drop1(r1)) }
+def parseEffectDecl = (toks) =>                        -- after 'effect':  Name (op* | '{' op:T->T,… '}') 'in' <prog>
   match toks { case Cons(t, rest) => match t { case TName(eff) =>
-      match parseOpNames(rest) { case Pair(ops, r1) =>               -- r1 starts with 'in'
-        let u = regEffOps(eff, ops) in parseProgram(drop1(r1)) }      -- drop 'in'
+      match rest { case Cons(t2, r1) => match t2 {
+          case TPunct(p) => if #seq(p, "{") then let r2 = parseEffSigs(eff, r1) in parseProgram(drop1(r2)) else parseUntypedEff(eff, rest)
+          case _ => parseUntypedEff(eff, rest) } case Nil => Pair(ParseErr, Nil) }
       case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
 def parseProgram = (toks) =>
   match toks { case Cons(t, rest) => match t { case TName(s) =>
