@@ -18,18 +18,41 @@ def appTy   = (s, t) => match t {
     case TyCon(nm, args) => TyCon(nm, mapAppTy(s, args))
     case TyRec(fs)  => TyRec(mapAppRec(s, fs))
     case TyFun(a, b) => TyFun(appTy(s, a), appTy(s, b))
+    case TyRowEmpty  => TyRowEmpty
+    case TyRowExt(l, r) => TyRowExt(l, appTy(s, r))
+    case TyRowVar(n) => match lookupS(s, n) { case None => TyRowVar(n) case Some(u) => appTy(s, u) }
   }
 def mapAppRec = (s, fs) => match fs { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, t) => Cons(Pair(nm, appTy(s, t)), mapAppRec(s, rest)) } }
 def anyOccurs = (n, ts) => match ts { case Nil => false case Cons(t, rest) => if occurs(n, t) then true else anyOccurs(n, rest) }
 def anyOccursRec = (n, fs) => match fs { case Nil => false case Cons(p, rest) => match p { case Pair(nm, t) => if occurs(n, t) then true else anyOccursRec(n, rest) } }
-def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyDyn => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyRec(fs) => anyOccursRec(n, fs) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) }
+def occurs = (n, t) => match t { case TyInt => false case TyBool => false case TyStr => false case TyFloat => false case TyDyn => false case TyVar(m) => #i.eq(n, m) case TyList(e) => occurs(n, e) case TyCon(nm, args) => anyOccurs(n, args) case TyRec(fs) => anyOccursRec(n, fs) case TyFun(a, b) => if occurs(n, a) then true else occurs(n, b) case TyRowEmpty => false case TyRowExt(l, r) => occurs(n, r) case TyRowVar(m) => #i.eq(n, m) }
 
 -- unify two types under subst s -> Ok(s') | Err(msg)
 def isDyn = (t) => match t { case TyDyn => true case _ => false }
+def isRow = (t) => match t { case TyRowEmpty => true case TyRowExt(l, r) => true case TyRowVar(n) => true case _ => false }
+-- effect-row unification (Rémy / scoped-labels). Fresh row-vars from a global cell, based high to
+-- avoid colliding with the threaded type-var counter (unify has no counter to thread). See specs/54.
+def rowFreshCell = #cell.new(9000000)
+def rowFresh = (u) => let n = #cell.get(rowFreshCell) in let z = #cell.set(rowFreshCell, #i.add(n, 1)) in n
+def rowRewrite = (s, l, r) =>                                  -- bring one `l` to the front of r -> ROk(rest, s') | RErr
+  match appTy(s, r) {
+    case TyRowEmpty     => RErr
+    case TyRowExt(l2, t) => if #seq(l2, l) then ROk(t, s) else match rowRewrite(s, l, t) { case RErr => RErr case ROk(t2, s2) => ROk(TyRowExt(l2, t2), s2) }
+    case TyRowVar(n)    => let f = rowFresh(0) in ROk(TyRowVar(f), Cons(Pair(n, TyRowExt(l, TyRowVar(f))), s))   -- extend the row var
+    case _              => RErr
+  }
+def rowUnify = (s, r1, r2) =>
+  match appTy(s, r1) {
+    case TyRowEmpty  => match appTy(s, r2) { case TyRowEmpty => Ok(s) case TyRowVar(n) => Ok(Cons(Pair(n, TyRowEmpty), s)) case _ => Err("effect rows differ: an effect is unhandled") }
+    case TyRowVar(n) => let r2a = appTy(s, r2) in match r2a { case TyRowVar(m) => if #i.eq(n, m) then Ok(s) else Ok(Cons(Pair(n, r2a), s)) case _ => if occurs(n, r2a) then Err("effect row occurs-check") else Ok(Cons(Pair(n, r2a), s)) }
+    case TyRowExt(l, t1) => match rowRewrite(s, l, r2) { case RErr => Err(#sconcat("effect not handled: ", l)) case ROk(t2, s2) => rowUnify(s2, t1, t2) }
+    case _           => Err("not an effect row")
+  }
 def unify = (s, t1, t2) =>
   let a = appTy(s, t1) in
   let b = appTy(s, t2) in
   if isDyn(a) then Ok(s) else if isDyn(b) then Ok(s) else      -- Dyn = the escape-hatch: unifies with any type
+  if isRow(a) then rowUnify(s, a, b) else if isRow(b) then rowUnify(s, a, b) else
   match a {
     case TyVar(n) => match b {
         case TyVar(m) => if #i.eq(n, m) then Ok(s) else Ok(Cons(Pair(n, b), s))
@@ -92,7 +115,7 @@ def memberI = (n, xs) => match xs { case Nil => false case Cons(h, t) => if #i.e
 def insertI = (n, xs) => if memberI(n, xs) then xs else Cons(n, xs)
 def freeTyList = (ts, acc) => match ts { case Nil => acc case Cons(t, rest) => freeTyList(rest, freeTy(t, acc)) }
 def freeRec = (fs, acc) => match fs { case Nil => acc case Cons(p, rest) => match p { case Pair(nm, t) => freeRec(rest, freeTy(t, acc)) } }
-def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyDyn => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyRec(fs) => freeRec(fs, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) }
+def freeTy  = (t, acc) => match t { case TyInt => acc case TyBool => acc case TyStr => acc case TyFloat => acc case TyDyn => acc case TyVar(n) => insertI(n, acc) case TyList(e) => freeTy(e, acc) case TyCon(nm, args) => freeTyList(args, acc) case TyRec(fs) => freeRec(fs, acc) case TyFun(a, b) => freeTy(b, freeTy(a, acc)) case TyRowEmpty => acc case TyRowExt(l, r) => freeTy(r, acc) case TyRowVar(n) => insertI(n, acc) }
 def addFree = (vars, qs, acc) => match vars { case Nil => acc case Cons(v, rest) => if memberI(v, qs) then addFree(rest, qs, acc) else addFree(rest, qs, insertI(v, acc)) }
 def freeEnv = (env, s, acc) => match env { case Nil => acc case Cons(p, rest) => match p { case Pair(k, sch) => match sch { case Forall(qs, t) => freeEnv(rest, s, addFree(freeTy(appTy(s, t), Nil), qs, acc)) } } }
 def diffList = (xs, ys) => match xs { case Nil => Nil case Cons(x, rest) => if memberI(x, ys) then diffList(rest, ys) else Cons(x, diffList(rest, ys)) }
@@ -220,6 +243,27 @@ def infer = (env, c, s, term) =>
     case Ascribe(e, ty) =>                                             -- (e : ty) : unify e's type with the annotation
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
         match unify(s1, te, ty) { case Err(m) => ErrI("type ascription mismatch") case Ok(s2) => Ok3(s2, appTy(s2, ty), c1) } }
+    -- effect rows (K10): a computation's type carries the row of effects it may perform; runE demands {}.
+    case EffPure(arg) => match infer(env, c, s, arg) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) => Ok3(s1, TyCon("Comp", Cons(TyRowVar(c1), Cons(ta, Nil))), #i.add(c1, 1)) }
+    case EffOp(eff, op, arg) => match infer(env, c, s, arg) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) => Ok3(s1, TyCon("Comp", Cons(TyRowExt(eff, TyRowVar(c1)), Cons(TyDyn, Nil))), #i.add(c1, 1)) }
+    case EffBind(m, f) =>
+      match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
+        match infer(env, c1, s1, f) { case ErrI(e) => ErrI(e) case Ok3(s2, tf, c2) =>
+          let rho = TyRowVar(c2) in let ta = TyVar(#i.add(c2, 1)) in let tb = TyVar(#i.add(c2, 2)) in
+          match unify(s2, tm, TyCon("Comp", Cons(rho, Cons(ta, Nil)))) { case Err(e) => ErrI("bindE: first arg is not a Comp") case Ok(s3) =>
+            match unify(s3, tf, TyFun(ta, TyCon("Comp", Cons(rho, Cons(tb, Nil))))) { case Err(e) => ErrI("bindE: continuation type mismatch") case Ok(s4) =>
+              Ok3(s4, appTy(s4, TyCon("Comp", Cons(rho, Cons(tb, Nil)))), #i.add(c2, 3)) } } } }
+    case EffRun(m) =>
+      match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
+        let ta = TyVar(c1) in
+        match unify(s1, tm, TyCon("Comp", Cons(TyRowEmpty, Cons(ta, Nil)))) { case Err(e) => ErrI(e) case Ok(s2) => Ok3(s2, appTy(s2, ta), #i.add(c1, 1)) } }
+    case EffRunSt(m, sv) =>
+      match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
+        match infer(env, c1, s1, sv) { case ErrI(e) => ErrI(e) case Ok3(s2, ts, c2) =>
+          match unify(s2, ts, TyInt) { case Err(e) => ErrI("runState: initial state must be Int") case Ok(s2b) =>
+            let rho = TyRowVar(c2) in let ta = TyVar(#i.add(c2, 1)) in
+            match unify(s2b, tm, TyCon("Comp", Cons(TyRowExt("State", rho), Cons(ta, Nil)))) { case Err(e) => ErrI("runState: not a State computation") case Ok(s3) =>
+              Ok3(s3, appTy(s3, TyCon("Comp", Cons(rho, Cons(TyCon("Pair", Cons(ta, Cons(TyInt, Nil))), Nil)))), #i.add(c2, 2)) } } } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
         let tn = typeName(appTy(s1, ta)) in
@@ -367,6 +411,9 @@ def renameTy  = (ren, t) => match t {
     case TyCon(nm, args) => TyCon(nm, mapRen(ren, args))
     case TyFun(a, b) => TyFun(renameTy(ren, a), renameTy(ren, b))
     case TyDyn      => TyDyn
+    case TyRowEmpty => TyRowEmpty
+    case TyRowExt(l, r) => TyRowExt(l, renameTy(ren, r))
+    case TyRowVar(i) => match lookupS(ren, i) { case None => TyRowVar(i) case Some(u) => u }
   }
 def freshArgs = (i, n, c) => if #i.ge(i, n) then Nil else Cons(TyVar(#i.add(c, i)), freshArgs(#i.add(i, 1), n, c))
 -- infer constructor arguments against (instantiated) field types -> OkS(subst, counter) | ErrS(msg)
@@ -413,6 +460,9 @@ def showTyR = (t) => match t {
     case TyRec(fs)  => #sconcat("{", #sconcat(showRecF(fs), "}"))
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
     case TyDyn      => "Dyn"
+    case TyRowEmpty => "{}"
+    case TyRowExt(l, r) => #sconcat("{", #sconcat(l, #sconcat(" | ", #sconcat(showTyR(r), "}"))))
+    case TyRowVar(n) => #sconcat("e", #i->str(n))
   }
 -- render a type-constructor argument, parenthesizing compound args (applied TyCon)
 def showArg  = (t) => match t { case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat("(", #sconcat(showTyR(t), ")")) } case _ => showTyR(t) }

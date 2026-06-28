@@ -216,11 +216,16 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
 - [x] **K10.1 — row-unification spike** — Rémy-style row unification in ssc0, validated on the three
       canonical cases (`{get|ρ}~{put,get}`; `{get}~{put}` fails; `{get|ρ1}~{put|ρ2}` shares a tail).
 - [x] **K10.2 — design doc** — `specs/54-effect-rows.md`.
-- [ ] **K10.3 — rows in the inferrer** — `TyRowEmpty`/`TyRowExt`/`TyRowVar` + `rowUnify`/`rowRewrite` +
-      `unify` dispatch (incl. `Comp[r,a]`) + appTy/occurs/freeTy/renameTy/showTyR; row syntax `{}` /
-      `{l, …}` / `{l | r}` in the type parser; validate via ascriptions.
-- [ ] **K10.4 — light effect surface** — `effect L ops in …` decl (ops typed `Dyn -> Comp {L|ρ} Dyn`),
-      `pure`/`bind`/`handle` (removes a label), `run` (empty row); a State example that type-checks and an
-      unhandled-effect program that is a type error. All 3 backends (runtime = the universal Comp).
+- [x] **K10.3 — rows in the inferrer** — `TyRowEmpty`/`TyRowExt`/`TyRowVar` + `rowUnify`/`rowRewrite`
+      (fresh row-vars via a global cell, based high) + `unify` dispatch (incl. `Comp[r,a]`) +
+      appTy/occurs/freeTy/renameTy/showTyR. Validated; no regression.
+- [x] **K10.4a — type-level effect surface** — built-in `pureE`/`bindE`/`getE`/`putE`/`runStateE`/`runE`
+      with row-carrying types; `Comp {S | ρ}` tracks effects, `runStateE` removes `State`, `runE : Comp {}
+      a -> a` so an **unhandled effect is a type error** (`runE getE` rejected). Demonstrated at the type
+      level (`examples/hm-effrow.hm` ⇒ `(Int, Int)`; `runE getE` ⇒ TypeError). conformance +3.
+- [ ] **K10.4b — runtime + ergonomics** — erase/eval the effect built-ins to the universal `Comp` (so
+      effectful programs RUN on all backends, not only type-check); `effect L ops in …` declaration syntax
+      (replacing the hard-wired demo `State` ops); row syntax `{}` / `{l | r}` in the type parser for
+      annotations; general `handle`. The untyped runtime already exists (K7-E), so this is wiring.
 
 OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.

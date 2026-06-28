@@ -864,6 +864,10 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/at.rs" -o "${TMPDIR:-/tmp}/at-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/at-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s (rustc)\n' "actor behavior -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm EFFECT ROWS (K10, type-level): the type tracks effects; runE rejects unhandled effects"
+chk_hm examples/hm-effrow.hm '"(Int, Int)"'                          # get;put;return handled by runState, then runE
+echo -n "ok   effect tracked in type   => "; printf 'getE' > "${TMPDIR:-/tmp}/er1.hm"; et=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er1.hm" | tail -1); if [ "$et" = '"Comp {State | e0} Dyn"' ]; then echo "Comp {State | e0} Dyn"; else echo "FAIL [$et]"; fail=1; fi
+echo -n "ok   unhandled effect = error => "; printf 'runE getE' > "${TMPDIR:-/tmp}/er2.hm"; eu=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er2.hm" | tail -1); if [ "$eu" = '"TypeError: effect not handled: State"' ]; then echo "rejected (correct)"; else echo "FAIL [$eu]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
