@@ -1076,6 +1076,21 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/mo.rs" -o "${TMPDIR:-/tmp}/mo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mo-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method poly (ops) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops Rust" "$got"; fail=1; fi
 fi
+echo "# K11.3c — RECEIVER-RESULT methods: `method negate : self` (result = the receiver type) polymorphic at Int & Float"
+chk_hm examples/hm-method-self.hm '"(Int, Float)"'                    # negate : self; 0-n (Int) / 0.0-x (Float)
+MSV="Pair(-5, -2.5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-method-self.hm > "${TMPDIR:-/tmp}/ms.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ms.coreir" | tail -1)
+if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s\n' "method self -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-method-self.hm > "${TMPDIR:-/tmp}/ms.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ms.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s (node)\n' "method self -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-method-self.hm > "${TMPDIR:-/tmp}/ms.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ms.rs" -o "${TMPDIR:-/tmp}/ms-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ms-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method self -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

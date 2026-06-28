@@ -102,7 +102,7 @@ def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' 
 -- a type expression for an ascription `(e : ty)`:  basic | Con atom* | [ty] | (ty)  (concrete types)
 def isBasicTy = (s) => chOr(chOr(chOr(#seq(s, "Int"), #seq(s, "Bool")), #seq(s, "Dyn")), chOr(#seq(s, "String"), #seq(s, "Float")))
 def basicTy = (s) => if #seq(s, "Int") then TyInt else if #seq(s, "Bool") then TyBool else if #seq(s, "Dyn") then TyDyn else if #seq(s, "String") then TyStr else TyFloat
-def ascAtomStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TPunct(p) => chOr(chOr(#seq(p, "["), #seq(p, "{")), #seq(p, "(")) case _ => false } case Nil => false }
+def ascAtomStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => if isKeyword(x) then false else true case TPunct(p) => chOr(chOr(#seq(p, "["), #seq(p, "{")), #seq(p, "(")) case _ => false } case Nil => false }
 -- effect-row type syntax (for ascriptions): `{}` | `{l}` | `{l, m}` (closed) | `{l | r}` (open, fresh tail var)
 def parseRowTail  = (toks) =>                          -- after '|':  a row-var name then '}'  (name is opaque → fresh open tail)
   match toks { case Cons(t, rest) => match t {

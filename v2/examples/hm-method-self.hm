@@ -1,0 +1,4 @@
+method negate : self in
+instance negate Int = fun n => 0 - n in
+instance negate Float = fun x => 0.0 - x in
+let f = fun x => negate x in (f 5, f 2.5)

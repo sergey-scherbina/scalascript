@@ -296,7 +296,7 @@ def infer = (env, c, s, term) =>
         let taa = appTy(s1, ta) in let tn = typeName(taa) in
         if #seq(tn, "?") then                                          -- receiver still a variable: DEFER if the method has a result sig
           match methodSigOf(m) {
-            case Some(rTy) => match taa { case TyVar(n) => let u = recordPendingMethod(id, m, n) in Ok3(s1, rTy, c1) case _ => ErrI(#sconcat("cannot resolve method `", #sconcat(m, "` on an ambiguous type"))) }
+            case Some(rTy) => match taa { case TyVar(n) => let u = recordPendingMethod(id, m, n) in Ok3(s1, selfRes(rTy, taa), c1) case _ => ErrI(#sconcat("cannot resolve method `", #sconcat(m, "` on an ambiguous type"))) }
             case None => ErrI(#sconcat("no instance of `", #sconcat(m, "` (add `method ")))
           }
         else
@@ -384,6 +384,7 @@ def methodReg  = #cell.new(Nil)                                    -- per-use id
 def methodSigReg = #cell.new(Nil)                                  -- list of Pair(method, resultType)
 def registerMethodSig = (m, r) => #cell.set(methodSigReg, Cons(Pair(m, r), #cell.get(methodSigReg)))
 def methodSigOf  = (m) => lookupReg(#cell.get(methodSigReg), m)    -- Some(R) | None
+def selfRes      = (rTy, recv) => match rTy { case TyCon(nm, args) => if #seq(nm, "self") then recv else rTy case _ => rTy }   -- `method m : self` ⇒ result is the receiver type
 def pendingMethods = #cell.new(Nil)                               -- list of Pair(id, Pair(method, receiverVarId)) — resolved at the end
 def recordPendingMethod = (id, m, n) => #cell.set(pendingMethods, Cons(Pair(id, Pair(m, n)), #cell.get(pendingMethods)))
 def registerMethod   = (m) => #cell.set(methodSet, Cons(m, #cell.get(methodSet)))

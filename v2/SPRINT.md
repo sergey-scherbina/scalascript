@@ -308,7 +308,15 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       names (capture-safe — methods are global) via `isMethodApp`/`allMethods`. Methods WITHOUT a signature
       keep resolving eagerly/monomorphically (regression `sz 5 => 6`). conformance +5. LIMITATION: only
       fixed-result methods (result not depending on the receiver, e.g. `show`/`compare`/`describe`) in CLOSED
-      functions; receiver-result methods (`negate : a -> a`) and non-closed uses still need full dict passing.
+      functions; non-closed method uses still need the full dict-passing design.
+- [x] **K11.3c — RECEIVER-RESULT methods + impl soundness** — (1) `method m : self in` makes the result the
+      RECEIVER type, so `method negate : self in … let f = fun x => negate x in (f 5, f 2.5)` ⇒ `(Int, Float)`
+      / `Pair(-5, -2.5)` — `negate` polymorphic over Int & Float (`selfRes` returns the receiver var when the
+      sig is `self`). (2) SOUNDNESS fix: the deferred path now TYPE-CHECKS the chosen impl with the concrete
+      receiver (`checkImpl`), so an impl that itself uses an overloaded op (`0.0 - x`, `x < 3.0`) resolves to
+      the right primitive (`f.sub`/`f.lt`) — previously it defaulted to `i.*` and crashed run-ir / panicked
+      Rust. (3) `ascAtomStarts` stops at keywords so a method/op result type before `in` parses (`: self in`).
+      conformance +4 (method-poly-ops, the op-impl soundness guard) +4 (method-self). All 3 backends.
 - [x] **K11.4 — TYPED PAYLOADS (light)** — `effect Name { op : ArgT -> ReplyT , … } in …` gives each op a
       SIGNATURE (`effSigReg`); a typed op's arg is checked against `ArgT` and its reply is `ReplyT` (not `Dyn`),
       so effect code drops the `(x : Int)` / `(5 : Dyn)` ascriptions: `effect State { get : Dyn -> Int , put :
