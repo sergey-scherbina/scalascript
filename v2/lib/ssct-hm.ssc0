@@ -485,8 +485,15 @@ def showTyR = (t) => match t {
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
     case TyDyn      => "Dyn"
     case TyRowEmpty => "{}"
-    case TyRowExt(l, r) => #sconcat("{", #sconcat(l, #sconcat(" | ", #sconcat(showTyR(r), "}"))))
+    case TyRowExt(l, r) => #sconcat("{", #sconcat(showRowBody(l, r), "}"))
     case TyRowVar(n) => #sconcat("e", #i->str(n))
+  }
+-- a row body: `l1, l2` (closed) or `l1, l2 | eN` (open tail); `{l | eN}` for a single open label is unchanged
+def showRowBody = (l, r) => match r {
+    case TyRowEmpty => l
+    case TyRowExt(l2, r2) => #sconcat(l, #sconcat(", ", showRowBody(l2, r2)))
+    case TyRowVar(n) => #sconcat(l, #sconcat(" | e", #i->str(n)))
+    case _ => #sconcat(l, #sconcat(" | ", showTyR(r)))
   }
 -- render a type-constructor argument, parenthesizing compound args (applied TyCon)
 def showArg  = (t) => match t { case TyCon(nm, args) => match args { case Nil => nm case Cons(h, tl) => #sconcat("(", #sconcat(showTyR(t), ")")) } case _ => showTyR(t) }

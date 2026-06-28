@@ -102,11 +102,30 @@ def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' 
 -- a type expression for an ascription `(e : ty)`:  basic | Con atom* | [ty] | (ty)  (concrete types)
 def isBasicTy = (s) => chOr(chOr(chOr(#seq(s, "Int"), #seq(s, "Bool")), #seq(s, "Dyn")), chOr(#seq(s, "String"), #seq(s, "Float")))
 def basicTy = (s) => if #seq(s, "Int") then TyInt else if #seq(s, "Bool") then TyBool else if #seq(s, "Dyn") then TyDyn else if #seq(s, "String") then TyStr else TyFloat
-def ascAtomStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TPunct(p) => chOr(#seq(p, "["), #seq(p, "(")) case _ => false } case Nil => false }
+def ascAtomStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TPunct(p) => chOr(chOr(#seq(p, "["), #seq(p, "{")), #seq(p, "(")) case _ => false } case Nil => false }
+-- effect-row type syntax (for ascriptions): `{}` | `{l}` | `{l, m}` (closed) | `{l | r}` (open, fresh tail var)
+def parseRowTail  = (toks) =>                          -- after '|':  a row-var name then '}'  (name is opaque → fresh open tail)
+  match toks { case Cons(t, rest) => match t {
+      case TName(v)  => Pair(TyRowVar(rowFresh(0)), drop1(rest))
+      case TPunct(p) => Pair(TyRowEmpty, rest)
+      case _ => Pair(TyRowEmpty, rest) } case Nil => Pair(TyRowEmpty, Nil) }
+def parseRowMore  = (lbl, toks) =>                     -- after a label, toks at a separator ( , | } )
+  match toks { case Cons(t, rest) => match t {
+      case TPunct(p) => if #seq(p, ",") then match parseRowAfterComma(rest) { case Pair(tl, r) => Pair(TyRowExt(lbl, tl), r) }
+                        else if #seq(p, "|") then match parseRowTail(rest) { case Pair(tl, r) => Pair(TyRowExt(lbl, tl), r) }
+                        else if #seq(p, "}") then Pair(TyRowExt(lbl, TyRowEmpty), rest)
+                        else Pair(TyRowExt(lbl, TyRowEmpty), toks)
+      case _ => Pair(TyRowExt(lbl, TyRowEmpty), toks) } case Nil => Pair(TyRowExt(lbl, TyRowEmpty), Nil) }
+def parseRowAfterComma = (toks) => match toks { case Cons(t, rest) => match t { case TName(lbl) => parseRowMore(lbl, rest) case _ => Pair(TyRowEmpty, toks) } case Nil => Pair(TyRowEmpty, Nil) }
+def parseRowType  = (toks) =>                          -- toks is AFTER the '{'
+  match toks { case Cons(t, rest) => match t {
+      case TName(lbl) => parseRowMore(lbl, rest)
+      case TPunct(p)  => Pair(TyRowEmpty, rest)        -- '{}' (rest is after '}')
+      case _ => Pair(TyRowEmpty, rest) } case Nil => Pair(TyRowEmpty, Nil) }
 def parseAscAtom = (toks) =>                           -- a single type atom (no Con application)
   match toks { case Cons(t, rest) => match t {
       case TName(s)  => if isBasicTy(s) then Pair(basicTy(s), rest) else Pair(TyCon(s, Nil), rest)
-      case TPunct(p) => if #seq(p, "[") then match parseAscType(rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else if #seq(p, "(") then match parseAscType(rest) { case Pair(ty, r) => Pair(ty, drop1(r)) } else Pair(TyInt, rest)
+      case TPunct(p) => if #seq(p, "[") then match parseAscType(rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else if #seq(p, "{") then parseRowType(rest) else if #seq(p, "(") then match parseAscType(rest) { case Pair(ty, r) => Pair(ty, drop1(r)) } else Pair(TyInt, rest)
       case _ => Pair(TyInt, rest) } case Nil => Pair(TyInt, Nil) }
 def parseAscArgs = (toks) => if ascAtomStarts(toks) then match parseAscAtom(toks) { case Pair(a, r) => match parseAscArgs(r) { case Pair(more, r2) => Pair(Cons(a, more), r2) } } else Pair(Nil, toks)
 def parseAscType = (toks) =>                           -- `Con atom*`  |  atom

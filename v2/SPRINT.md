@@ -280,9 +280,13 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       bare-op Var rule. `handle` stays string-based. `hm-eff-decl.hm` (State) ⇒ `(Int,Int)`/`Pair(105,5)`;
       `hm-eff-decl-choose.hm` (`effect Choose flip` + multi-shot `handle`) ⇒ `[Int]`/`[3,2,1,0]`;
       declared-unhandled ⇒ `TypeError: effect not handled: Choose`. All 3 backends. conformance +8.
-- [ ] **K11.2 — row syntax in the type parser** — `{}` / `{l}` / `{l, m}` / `{l | r}` as a *row* type, and
-      `Comp {row} a`, so effect types can appear in ascriptions: `(getE : Comp {State} Dyn)`. Disambiguate
-      from record types (`{x : T}` has `:`; a row has bare labels / `|`). Enables documenting effect types.
+- [x] **K11.2 — row syntax in the type parser** — `{}` / `{l}` / `{l, m}` (closed) / `{l | r}` (open, fresh
+      tail var) parse as *row* types in ascriptions, and `Comp {row} a` works: `(getE : Comp {State} Dyn)`,
+      `(comp : Comp {State} Int)`. `parseRowType`/`parseRowMore`/`parseRowTail` added; `{` starts an asc atom.
+      `showTyR` now renders rows as `{State}` / `{State, Log}` / `{State | eN}` (a single open label `{l | eN}`
+      is unchanged → existing checks safe). Wrong ascription (`getE : Comp {Log} Dyn`) rejected.
+      `examples/hm-eff-rowann.hm` (doE block ascribed `: Comp {State} Int`) ⇒ `(Int,Int)`/`Pair(105,5)`, all 3
+      backends. Records (`{x = e}`) untouched (different parse position). conformance +7.
 - [ ] **K11.3 — QUALIFIED TYPES via dictionary passing** (the big one — general typeclass/numeric
       polymorphism). Inference collects constraints `C a` when an overloaded op / user `method` is used on an
       unresolved var; `let`-generalization quantifies them into the scheme (`∀a. C a => τ`); instantiation

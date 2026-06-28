@@ -994,6 +994,24 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s (rustc)\n' "effect decl Choose -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   declared op tracked too   => "; printf 'effect Choose flip in runE (flip (0 : Dyn))' > "${TMPDIR:-/tmp}/edu.hm"; edu=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/edu.hm" | tail -1); if [ "$edu" = '"TypeError: effect not handled: Choose"' ]; then echo "declared Choose unhandled rejected (correct)"; else echo "FAIL [$edu]"; fail=1; fi
+echo "# K11.2 — effect-row syntax in the type parser: {} / {l} / {l, m} / {l | r} in ascriptions"
+echo -n "ok   closed row ascription     => "; printf '(getE : Comp {State} Dyn)' > "${TMPDIR:-/tmp}/rs1.hm"; rs1=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/rs1.hm" | tail -1); if [ "$rs1" = '"Comp {State} Dyn"' ]; then echo "Comp {State} Dyn"; else echo "FAIL [$rs1]"; fail=1; fi
+echo -n "ok   open row ascription       => "; printf '(getE : Comp {State | r} Dyn)' > "${TMPDIR:-/tmp}/rs2.hm"; rs2=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/rs2.hm" | tail -1); case "$rs2" in '"Comp {State | e'*'} Dyn"') echo "$rs2 (open)";; *) echo "FAIL [$rs2]"; fail=1;; esac
+echo -n "ok   wrong row ascr rejected   => "; printf '(getE : Comp {Log} Dyn)' > "${TMPDIR:-/tmp}/rs3.hm"; rs3=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/rs3.hm" | tail -1); if [ "$rs3" = '"TypeError: type ascription mismatch"' ]; then echo "State vs Log rejected (correct)"; else echo "FAIL [$rs3]"; fail=1; fi
+chk_hm examples/hm-eff-rowann.hm '"(Int, Int)"'                       # the doE block ascribed : Comp {State} Int
+RAV="Pair(105, 5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-rowann.hm > "${TMPDIR:-/tmp}/ra.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ra.coreir" | tail -1)
+if [ "$got" = "$RAV" ]; then printf 'ok   %-26s => %s\n' "row ascription -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-rowann" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-rowann.hm > "${TMPDIR:-/tmp}/ra.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ra.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$RAV" ]; then printf 'ok   %-26s => %s (node)\n' "row ascription -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-rowann JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-rowann.hm > "${TMPDIR:-/tmp}/ra.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ra.rs" -o "${TMPDIR:-/tmp}/ra-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ra-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$RAV" ]; then printf 'ok   %-26s => %s (rustc)\n' "row ascription -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-rowann Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
