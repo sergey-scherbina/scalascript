@@ -287,15 +287,19 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       is unchanged → existing checks safe). Wrong ascription (`getE : Comp {Log} Dyn`) rejected.
       `examples/hm-eff-rowann.hm` (doE block ascribed `: Comp {State} Int`) ⇒ `(Int,Int)`/`Pair(105,5)`, all 3
       backends. Records (`{x = e}`) untouched (different parse position). conformance +7.
-- [~] **K11.3 — QUALIFIED TYPES via dictionary passing** — **DESIGNED** ([`specs/55-qualified-types.md`](specs/55-qualified-types.md));
-      implementation deferred. This is the one genuinely multi-session item: the type-level half (constraint
-      set + `Forall` w/ constraints + discharge/default) is moderate, but the runtime half is a whole-program
-      **dictionary-passing erase** (constrained fns get hidden dict params; ops/methods → dict applications;
-      every call site threads the resolved dict) — a deep, error-prone change to `erase` that cannot be
-      landed as one green-every-commit increment in the autonomous pass. A runtime tag on numeric *values* is
-      not viable (JS can't tell `3.0` from `3`; Rust is unboxed), so the operation must carry the type — which
-      is exactly why K8 chose eager-defaulting. The spec gives the full design + slicing (K11.3a–e) for a
-      focused follow-up. (The eager-default sharp edge has documented workarounds; nothing is *blocked* today.)
+- [x] **K11.3 — NUMERIC POLYMORPHISM (light qualified types via inlining)** — the documented K8 sharp edge
+      is GONE for the common case: `let twice = fun x => x + x in (twice 5, twice 2.25)` ⇒ `(Int, Float)` /
+      `Pair(10, 4.5)` on all 3 backends. Done WITHOUT dictionary passing (no backend change), via two pieces:
+      (1) **inlining** — a non-recursive `let f = <closed numeric fn> in …` is unfolded (pure beta) so each use
+      of `f` is an independent copy with FRESH numeric ids; "closed" = `freeVars` empty (auto-excludes recursive
+      / prelude-using fns) AND `containsNumOp` (so non-numeric helpers like `id` are untouched → no var-number
+      churn). (2) **deferred numeric resolution** — an overloaded op on an unresolved var records the var (not
+      eager-Int); it's resolved at let-generalization (`defaultPendingIn` → keeps NON-inlined numeric lets
+      monomorphic-Int = sound) and finally at the top (`finalDefault` → Int); `resolveNum(s)` re-bakes `tcReg`
+      through the final subst before erase, threaded into all drivers. So each inlined copy resolves its own
+      Int/Float from its argument. conformance +5 (358 → 363); `int helper still Int` guards soundness.
+      LIMITATION (documented in spec 55): only CLOSED numeric helpers polymorphise; non-closed numeric-generic
+      fns and user-typeclass polymorphism still need the full dictionary-passing design (spec 55).
 - [~] **K11.4 — full Koka-style typed payloads** — **DESIGNED** (the "Path to full" section of
       [`specs/54-effect-rows.md`](specs/54-effect-rows.md)); implementation deferred. Reuses K11.1 (the
       `effect` decl, which would carry the operation signatures) + the K11.3 typing machinery + the row core;

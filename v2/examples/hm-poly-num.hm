@@ -1,0 +1,1 @@
+let twice = fun x => x + x in (twice 5, twice 2.25)

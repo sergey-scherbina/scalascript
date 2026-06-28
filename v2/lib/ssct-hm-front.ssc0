@@ -633,7 +633,108 @@ def closeDeps = (worklist, acc) =>
     if fvMember(nm, acc) then closeDeps(rest, acc)
     else closeDeps(appendL(keepPreludeNames(freeVars(parseBody(preludeSrc(prelude, nm)))), rest), Cons(nm, acc)) }
 def neededPrelude = (userFvs) => closeDeps(keepPreludeNames(userFvs), Nil)
+-- ── LIGHT QUALIFIED TYPES via inlining (K11.3): a non-recursive `let f = <closed fn> in …` is unfolded
+-- (pure beta) so each use of `f` is an INDEPENDENT copy with FRESH numeric ids → each resolves its own
+-- Int/Float by the eager-default rule. So `let twice = fun x => x+x in (twice 5, twice 2.5)` works at BOTH
+-- types. "closed" = freeVars empty, which automatically excludes recursive fns (self-ref = free var) and
+-- prelude-using fns (prelude name = free var) — only truly self-contained helpers inline. No capture risk.
+def freshenArm = (a) => match a { case MArm(c, bs, b) => MArm(c, bs, freshenIds(b)) case LitArm(l, b) => LitArm(l, freshenIds(b)) case PatArm(p, b) => PatArm(p, freshenIds(b)) }
+def freshenArms = (arms) => match arms { case Nil => Nil case Cons(a, r) => Cons(freshenArm(a), freshenArms(r)) }
+def freshenRec = (fs) => match fs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, e) => Cons(Pair(nm, freshenIds(e)), freshenRec(r)) } }
+def freshenIds = (t) => match t {                      -- deep copy, reassigning the parser-level ids (Add..Lt, FieldGet)
+    case Lam(x, b)       => Lam(x, freshenIds(b))
+    case App(f, a)       => App(freshenIds(f), freshenIds(a))
+    case Add(id, a, b)   => Add(nextId(0), freshenIds(a), freshenIds(b))
+    case Sub(id, a, b)   => Sub(nextId(0), freshenIds(a), freshenIds(b))
+    case Mul(id, a, b)   => Mul(nextId(0), freshenIds(a), freshenIds(b))
+    case Div(id, a, b)   => Div(nextId(0), freshenIds(a), freshenIds(b))
+    case Eq(id, a, b)    => Eq(nextId(0), freshenIds(a), freshenIds(b))
+    case Lt(id, a, b)    => Lt(nextId(0), freshenIds(a), freshenIds(b))
+    case Concat(a, b)    => Concat(freshenIds(a), freshenIds(b))
+    case If(c, x, y)     => If(freshenIds(c), freshenIds(x), freshenIds(y))
+    case Let(x, e, b)    => Let(x, freshenIds(e), freshenIds(b))
+    case LetRec(f, l, b) => LetRec(f, freshenIds(l), freshenIds(b))
+    case MatchT(s, arms) => MatchT(freshenIds(s), freshenArms(arms))
+    case RecLit(fs)      => RecLit(freshenRec(fs))
+    case FieldGet(id, rc, n) => FieldGet(nextId(0), freshenIds(rc), n)
+    case Ascribe(e, ty)  => Ascribe(freshenIds(e), ty)
+    case _               => t
+  }
+def substArm = (nm, repl, a) => match a {
+    case MArm(c, bs, b) => if fvMember(nm, bs) then MArm(c, bs, b) else MArm(c, bs, substVar(nm, repl, b))
+    case LitArm(l, b)   => LitArm(l, substVar(nm, repl, b))
+    case PatArm(p, b)   => if fvMember(nm, patVars(p)) then PatArm(p, b) else PatArm(p, substVar(nm, repl, b)) }
+def substArms = (nm, repl, arms) => match arms { case Nil => Nil case Cons(a, r) => Cons(substArm(nm, repl, a), substArms(nm, repl, r)) }
+def substRec = (nm, repl, fs) => match fs { case Nil => Nil case Cons(p, r) => match p { case Pair(fn, e) => Cons(Pair(fn, substVar(nm, repl, e)), substRec(nm, repl, r)) } }
+def substVar = (nm, repl, t) => match t {              -- replace FREE Var(nm) with a FRESH copy of repl (closed → no capture)
+    case Var(x)          => if #seq(x, nm) then freshenIds(repl) else Var(x)
+    case Lam(x, b)       => if #seq(x, nm) then Lam(x, b) else Lam(x, substVar(nm, repl, b))
+    case App(f, a)       => App(substVar(nm, repl, f), substVar(nm, repl, a))
+    case Add(id, a, b)   => Add(id, substVar(nm, repl, a), substVar(nm, repl, b))
+    case Sub(id, a, b)   => Sub(id, substVar(nm, repl, a), substVar(nm, repl, b))
+    case Mul(id, a, b)   => Mul(id, substVar(nm, repl, a), substVar(nm, repl, b))
+    case Div(id, a, b)   => Div(id, substVar(nm, repl, a), substVar(nm, repl, b))
+    case Eq(id, a, b)    => Eq(id, substVar(nm, repl, a), substVar(nm, repl, b))
+    case Lt(id, a, b)    => Lt(id, substVar(nm, repl, a), substVar(nm, repl, b))
+    case Concat(a, b)    => Concat(substVar(nm, repl, a), substVar(nm, repl, b))
+    case If(c, x, y)     => If(substVar(nm, repl, c), substVar(nm, repl, x), substVar(nm, repl, y))
+    case Let(x, e, b)    => if #seq(x, nm) then Let(x, substVar(nm, repl, e), b) else Let(x, substVar(nm, repl, e), substVar(nm, repl, b))
+    case LetRec(f, l, b) => if #seq(f, nm) then LetRec(f, l, b) else LetRec(f, substVar(nm, repl, l), substVar(nm, repl, b))
+    case MatchT(s, arms) => MatchT(substVar(nm, repl, s), substArms(nm, repl, arms))
+    case RecLit(fs)      => RecLit(substRec(nm, repl, fs))
+    case FieldGet(id, rc, n) => FieldGet(id, substVar(nm, repl, rc), n)
+    case Ascribe(e, ty)  => Ascribe(substVar(nm, repl, e), ty)
+    case _               => t
+  }
+def cnoArm  = (a) => match a { case MArm(c, bs, b) => containsNumOp(b) case LitArm(l, b) => containsNumOp(b) case PatArm(p, b) => containsNumOp(b) }
+def cnoArms = (arms) => match arms { case Nil => false case Cons(a, r) => if cnoArm(a) then true else cnoArms(r) }
+def cnoRec  = (fs) => match fs { case Nil => false case Cons(p, r) => match p { case Pair(nm, e) => if containsNumOp(e) then true else cnoRec(r) } }
+def or2     = (a, b) => if a then true else b
+def containsNumOp = (t) => match t {                   -- does the term use an overloaded numeric op (+ - * / < =)?
+    case Add(id, a, b)   => true
+    case Sub(id, a, b)   => true
+    case Mul(id, a, b)   => true
+    case Div(id, a, b)   => true
+    case Eq(id, a, b)    => true
+    case Lt(id, a, b)    => true
+    case Lam(x, b)       => containsNumOp(b)
+    case App(f, a)       => or2(containsNumOp(f), containsNumOp(a))
+    case Concat(a, b)    => or2(containsNumOp(a), containsNumOp(b))
+    case If(c, x, y)     => or2(containsNumOp(c), or2(containsNumOp(x), containsNumOp(y)))
+    case Let(x, e, b)    => or2(containsNumOp(e), containsNumOp(b))
+    case LetRec(f, l, b) => or2(containsNumOp(l), containsNumOp(b))
+    case MatchT(s, arms) => or2(containsNumOp(s), cnoArms(arms))
+    case RecLit(fs)      => cnoRec(fs)
+    case FieldGet(id, rc, n) => containsNumOp(rc)
+    case Ascribe(e, ty)  => containsNumOp(e)
+    case _               => false
+  }
+-- inline only a CLOSED function that actually uses an overloaded numeric op (so non-numeric helpers like
+-- `id` are untouched → no var-numbering perturbation; only numeric-generic helpers get per-use resolution)
+def isClosedFn = (e) => match e { case Lam(x, b) => bothT(match freeVars(e) { case Nil => true case _ => false }, containsNumOp(e)) case _ => false }
+def inlineArm = (a) => match a { case MArm(c, bs, b) => MArm(c, bs, inlineClosed(b)) case LitArm(l, b) => LitArm(l, inlineClosed(b)) case PatArm(p, b) => PatArm(p, inlineClosed(b)) }
+def inlineArms = (arms) => match arms { case Nil => Nil case Cons(a, r) => Cons(inlineArm(a), inlineArms(r)) }
+def inlineRec = (fs) => match fs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, e) => Cons(Pair(nm, inlineClosed(e)), inlineRec(r)) } }
+def inlineClosed = (t) => match t {
+    case Let(x, e, b)    => let e2 = inlineClosed(e) in if isClosedFn(e2) then inlineClosed(substVar(x, e2, b)) else Let(x, e2, inlineClosed(b))
+    case Lam(x, b)       => Lam(x, inlineClosed(b))
+    case App(f, a)       => App(inlineClosed(f), inlineClosed(a))
+    case Add(id, a, b)   => Add(id, inlineClosed(a), inlineClosed(b))
+    case Sub(id, a, b)   => Sub(id, inlineClosed(a), inlineClosed(b))
+    case Mul(id, a, b)   => Mul(id, inlineClosed(a), inlineClosed(b))
+    case Div(id, a, b)   => Div(id, inlineClosed(a), inlineClosed(b))
+    case Eq(id, a, b)    => Eq(id, inlineClosed(a), inlineClosed(b))
+    case Lt(id, a, b)    => Lt(id, inlineClosed(a), inlineClosed(b))
+    case Concat(a, b)    => Concat(inlineClosed(a), inlineClosed(b))
+    case If(c, x, y)     => If(inlineClosed(c), inlineClosed(x), inlineClosed(y))
+    case LetRec(f, l, b) => LetRec(f, inlineClosed(l), inlineClosed(b))
+    case MatchT(s, arms) => MatchT(inlineClosed(s), inlineArms(arms))
+    case RecLit(fs)      => RecLit(inlineRec(fs))
+    case FieldGet(id, rc, n) => FieldGet(id, inlineClosed(rc), n)
+    case Ascribe(e, ty)  => Ascribe(inlineClosed(e), ty)
+    case _               => t
+  }
 def injectPrelude = (pl, needed, acc) =>
   match pl { case Nil => acc case Cons(p, rest) => match p { case Pair(nm, src) =>
     if fvMember(nm, needed) then injectPrelude(rest, needed, LetRec(nm, parseBody(src), acc)) else injectPrelude(rest, needed, acc) } }
-def parse = (s) => let prog = fst(parseProgram(lex(s))) in desugar(injectPrelude(prelude, neededPrelude(freeVars(prog)), prog))
+def parse = (s) => let prog = fst(parseProgram(lex(s))) in desugar(inlineClosed(injectPrelude(prelude, neededPrelude(freeVars(prog)), prog)))

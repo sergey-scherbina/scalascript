@@ -1012,6 +1012,23 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ra.rs" -o "${TMPDIR:-/tmp}/ra-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ra-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$RAV" ]; then printf 'ok   %-26s => %s (rustc)\n' "row ascription -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-rowann Rust" "$got"; fail=1; fi
 fi
+echo "# K11.3 — NUMERIC POLYMORPHISM (light qualified types via inlining): a closed numeric helper works at Int AND Float"
+chk_hm examples/hm-poly-num.hm '"(Int, Float)"'                       # let twice = fun x => x+x in (twice 5, twice 2.25): used at BOTH numeric types
+PNV="Pair(10, 4.5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-poly-num.hm > "${TMPDIR:-/tmp}/pn.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/pn.coreir" | tail -1)
+if [ "$got" = "$PNV" ]; then printf 'ok   %-26s => %s\n' "poly numeric -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "poly-num" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-poly-num.hm > "${TMPDIR:-/tmp}/pn.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/pn.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$PNV" ]; then printf 'ok   %-26s => %s (node)\n' "poly numeric -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "poly-num JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-poly-num.hm > "${TMPDIR:-/tmp}/pn.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/pn.rs" -o "${TMPDIR:-/tmp}/pn-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pn-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$PNV" ]; then printf 'ok   %-26s => %s (rustc)\n' "poly numeric -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "poly-num Rust" "$got"; fail=1; fi
+fi
+# the eager-default sharp edge is gone for a closed helper, but a let-bound NON-inlined numeric fn still defaults to Int (sound)
+echo -n "ok   int helper still Int     => "; printf 'let sq = fun n => n * n in sq 7' > "${TMPDIR:-/tmp}/sq.hm"; sqg=$(ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/sq.hm" 2>/dev/null > "${TMPDIR:-/tmp}/sq.coreir"; ssc run-ir "${TMPDIR:-/tmp}/sq.coreir" | tail -1); if [ "$sqg" = "49" ]; then echo "49"; else echo "FAIL [$sqg]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

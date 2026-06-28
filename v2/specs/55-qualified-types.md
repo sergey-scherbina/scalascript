@@ -1,8 +1,28 @@
-# 55 — Qualified types for ssct-hm (design; implementation deferred)
+# 55 — Qualified types for ssct-hm (numeric subset shipped; full design)
 
-> Status: **design, 2026-06-28.** This is the one genuinely multi-session item left. It documents the
-> approach precisely enough to implement in a focused follow-up, and explains why it is *not* landed as a
-> single green-every-commit increment in the autonomous pass. Everything else on the K11 frontier shipped.
+> Status: **2026-06-28.** A **light numeric subset shipped** (K11.3): a *closed* numeric helper inlines, so
+> `let twice = fun x => x + x in (twice 5, twice 2.25)` works at Int AND Float on all three backends — no
+> dictionary passing, no backend change. See *Shipped: numeric polymorphism via inlining* below. The **full**
+> dictionary-passing design (general user typeclasses + non-closed numeric fns) is documented here for a
+> focused follow-up; it remains the one genuinely multi-session item.
+
+## Shipped: numeric polymorphism via inlining (K11.3)
+
+A non-recursive `let f = <closed numeric fn> in …` is **unfolded** (pure beta) in a pre-desugar pass
+(`inlineClosed`), so each use of `f` becomes an independent copy with **fresh** numeric node-ids
+(`freshenIds` inside `substVar`). "Closed" = `freeVars` empty (which auto-excludes recursive functions —
+self-reference is a free var — and prelude-using functions) **and** `containsNumOp` (so non-numeric helpers
+like `id` are not touched, avoiding type-variable renumbering). Combined with **deferred numeric resolution**
+— an overloaded op on an unresolved var records the var instead of eager-defaulting to `Int`; it's resolved
+at let-generalization (`defaultPendingIn`, which keeps *non-inlined* numeric lets monomorphic-`Int`, sound)
+and finally at the top (`finalDefault` → `Int`); `resolveNum(s)` re-bakes `tcReg` through the final
+substitution before erase — each inlined copy resolves its own `Int`/`Float` from its argument.
+
+This covers the common pain (the K8 sharp edge: `twice`/`double`/`square`/`r*r`). It does **not** cover
+non-closed numeric-generic functions (which keep defaulting to `Int`, soundly) or user-typeclass
+polymorphism — those need the full design below.
+
+## The full design (dictionary passing) — for the focused follow-up
 
 ## What it buys
 

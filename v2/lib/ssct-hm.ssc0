@@ -197,14 +197,18 @@ def infer = (env, c, s, term) =>
               match unify(s3, tt, te) { case Err(m) => ErrI("if-branches must have the same type") case Ok(s4) => Ok3(s4, appTy(s4, tt), c3) } } } } }
     case Let(x, e, body) =>
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
-        infer(Cons(Pair(x, generalize(env, s1, te)), env), c1, s1, body) }
+        let qs = diffList(freeTy(appTy(s1, te), Nil), freeEnv(env, s1, Nil)) in   -- quantified vars; default the Num ones (sound: non-inlined numeric lets stay monomorphic)
+        let s1b = defaultPendingIn(s1, qs) in
+        infer(Cons(Pair(x, generalize(env, s1b, te)), env), c1, s1b, body) }
     case LetRec(f, lam, body) =>
       let tv = TyVar(c) in
       match infer(Cons(Pair(f, Forall(Nil, tv)), env), #i.add(c, 1), s, lam) {
         case ErrI(m) => ErrI(m)
         case Ok3(s1, tlam, c1) =>
           match unify(s1, tv, tlam) { case Err(m) => ErrI(m) case Ok(s2) =>
-            infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body) }
+            let qs = diffList(freeTy(appTy(s2, tv), Nil), freeEnv(env, s2, Nil)) in
+            let s2b = defaultPendingIn(s2, qs) in
+            infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) }
       }
     case LNil => Ok3(s, TyList(TyVar(c)), #i.add(c, 1))            -- forall a. [a]: a fresh elem var each use
     case LCons(h, t) =>
@@ -334,7 +338,7 @@ def inferNum = (env, c, s, id, a, b, kind) =>
         match appTy(s3, ta) {
           case TyInt    => let u = registerInst(id, TyInt)   in Ok3(s3, numRes(kind, TyInt), c2)
           case TyFloat  => let u = registerInst(id, TyFloat) in Ok3(s3, numRes(kind, TyFloat), c2)
-          case TyVar(n) => match unify(s3, TyVar(n), TyInt) { case Err(m) => ErrI("numeric default failed") case Ok(s4) => let u = registerInst(id, TyInt) in Ok3(s4, numRes(kind, TyInt), c2) }
+          case TyVar(n) => let u = recordPending(n) in let u2 = registerInst(id, TyVar(n)) in Ok3(s3, numRes(kind, TyVar(n)), c2)   -- DEFER: record the var; resolve at generalize / top-level
           case _        => ErrI("+ - * (and < =) need Int or Float operands")
         } } } }
 def inferStr2 = (env, c, s, a, b, res, msg) =>
@@ -398,6 +402,18 @@ def tcReg        = #cell.new(Nil)
 def registerInst = (id, tag) => #cell.set(tcReg, Cons(Pair(id, tag), #cell.get(tcReg)))
 def lookupId     = (reg, id) => match reg { case Nil => TyInt case Cons(p, rest) => match p { case Pair(k, t) => if #i.eq(k, id) then t else lookupId(rest, id) } }
 def instOf       = (id) => lookupId(#cell.get(tcReg), id)         -- now returns the resolved TYPE (not a string tag)
+-- ── deferred numeric resolution (K11.3): an overloaded op on an unresolved var records the var (not Int);
+-- it is resolved at let-generalization (defaulted → keeps non-inlined numeric lets monomorphic = sound) and
+-- finally at the top (default → Int). With inlining, a closed numeric fn's copies each resolve their own type.
+def pendingNum   = #cell.new(Nil)                                 -- var ids carrying an (as-yet-unresolved) Num constraint
+def recordPending = (n) => #cell.set(pendingNum, Cons(n, #cell.get(pendingNum)))
+def isPending    = (n) => memberI(n, #cell.get(pendingNum))
+def defaultNum   = (s, ns, onlyQ) => match ns { case Nil => s case Cons(n, r) => if onlyQ(n) then match appTy(s, TyVar(n)) { case TyVar(m) => defaultNum(Cons(Pair(m, TyInt), s), r, onlyQ) case _ => defaultNum(s, r, onlyQ) } else defaultNum(s, r, onlyQ) }
+def alwaysQ      = (n) => true
+def finalDefault = (s) => defaultNum(s, #cell.get(pendingNum), alwaysQ)              -- top level: default ALL remaining
+def defaultPendingIn = (s, qs) => defaultNum(s, qs, isPending)                       -- at generalize: default the quantified Num vars
+def rebakeReg    = (s, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(id, ty) => Cons(Pair(id, appTy(s, ty)), rebakeReg(s, rest)) } }
+def resolveNum   = (s) => let s2 = finalDefault(s) in let z = #cell.set(tcReg, rebakeReg(s2, #cell.get(tcReg))) in s2
 def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
 -- Show/Eq instances now store the resolved TYPE in tcReg; showableType says if a type has an instance:
 -- base types, lists of showable, and tuples (Pair/Triple) of showable. (general ADTs = follow-up)
@@ -503,7 +519,7 @@ def showRecF = (fs) => match fs { case Nil => "" case Cons(p, rest) => match p {
 -- infer a closed term and pretty-print its principal type (or the type error)
 def hm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)       => #sconcat("TypeError: ", m)
-    case Ok3(s, t, c)  => showTyR(appTy(s, t))
+    case Ok3(s, t, c)  => let s2 = resolveNum(s) in showTyR(appTy(s2, t))
   }
 
 -- ── infer-then-RUN: types are erased at runtime; a well-typed term evaluates, ill-typed is rejected ──
@@ -611,5 +627,5 @@ def valShow = (v) => match v { case IntVal(n) => n case BoolVal(b) => b case Str
 -- infer the type (reject if ill-typed), then evaluate; report Typed(type, value) | TypeError(msg)
 def runHm = (term) => match infer(Nil, 0, Nil, term) {
     case ErrI(m)      => TypeError(m)
-    case Ok3(s, t, c) => Typed(showTyR(appTy(s, t)), valShow(evalT(Nil, term)))
+    case Ok3(s, t, c) => let s2 = resolveNum(s) in Typed(showTyR(appTy(s2, t)), valShow(evalT(Nil, term)))
   }
