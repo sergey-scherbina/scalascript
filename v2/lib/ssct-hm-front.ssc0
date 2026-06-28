@@ -470,12 +470,20 @@ def idxP    = (x, ps) => match ps { case Nil => 0 case Cons(p, r) => if #seq(p, 
 def lenP    = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenP(t)) }
 -- a field-type starts at a type name (not the 'in' terminator) or '(' / '['
 def fieldStart = (toks) => match toks { case Cons(t, rest) => match t { case TName(x) => if #seq(x, "in") then false else true case TPunct(p) => chOr(#seq(p, "("), #seq(p, "[")) case _ => false } case Nil => false }
-def parseFieldType = (ps, toks) =>
+def parseFieldType = (ps, toks) =>                    -- a single field-type ATOM (application/`->` only inside parens)
   match toks { case Cons(t, rest) => match t {
       case TName(x)  => if isParam(x, ps) then Pair(TyVar(idxP(x, ps)), rest) else if #seq(x, "Int") then Pair(TyInt, rest) else if #seq(x, "Bool") then Pair(TyBool, rest) else Pair(TyCon(x, Nil), rest)
-      case TPunct(p) => if #seq(p, "(") then match parseTypeApp(ps, rest) { case Pair(ty, r) => Pair(ty, r) } else if #seq(p, "[") then match parseFieldType(ps, rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else Pair(TyInt, rest)
+      case TPunct(p) => if #seq(p, "(") then match parseFnType(ps, rest) { case Pair(ty, r) => Pair(ty, drop1(r)) } else if #seq(p, "[") then match parseFnType(ps, rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else Pair(TyInt, rest)
       case _         => Pair(TyInt, rest)
     } case Nil => Pair(TyInt, Nil) }
+-- inside parens/brackets: a type may be a Con application (`F a`) or a (right-assoc) function type (`a -> b`)
+def parseTyApp = (ps, toks) =>                        -- `Con atom*`  |  atom
+  match toks { case Cons(t, rest) => match t {
+      case TName(x) => if isUpperName(x) then (if chOr(#seq(x, "Int"), #seq(x, "Bool")) then parseFieldType(ps, toks) else match parseFields(ps, rest) { case Pair(args, r) => Pair(TyCon(x, args), r) }) else parseFieldType(ps, toks)
+      case _ => parseFieldType(ps, toks) } case Nil => Pair(TyInt, Nil) }
+def parseFnType = (ps, toks) =>                       -- app ('->' fnType)?  (right-associative)
+  match parseTyApp(ps, toks) { case Pair(t1, r1) =>
+    match r1 { case Cons(t, r2) => match t { case TPunct(p) => if #seq(p, "->") then match parseFnType(ps, r2) { case Pair(t2, r3) => Pair(TyFun(t1, t2), r3) } else Pair(t1, r1) case _ => Pair(t1, r1) } case Nil => Pair(t1, Nil) } }
 def parseTypeApp = (ps, toks) =>                      -- after '(':  Name fieldtype* ')'
   match toks { case Cons(t, rest) => match t { case TName(nm) => match parseFields(ps, rest) { case Pair(args, r) => Pair(TyCon(nm, args), drop1(r)) } case _ => Pair(TyInt, rest) } case Nil => Pair(TyInt, Nil) }
 def parseFields = (ps, toks) =>                        -- a run of field types (stops at '|' / 'in' / ')' / ']')

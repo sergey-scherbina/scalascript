@@ -736,6 +736,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ce.rs" -o "${TMPDIR:-/tmp}/ce-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ce-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$CBW" ]; then printf 'ok   %-26s => %s (rustc)\n' "combinators -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "combinators Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm FUNCTION-TYPED data fields: data F a = Op (Int -> F a) | Ret a  (free monads, K7-P1)"
+chk_hm examples/hm-fnfield.hm '"Int"'
+FFW="20"
+ssc run bin/ssctc-hm.ssc0 examples/hm-fnfield.hm > "${TMPDIR:-/tmp}/ffe.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ffe.coreir" | tail -1)
+if [ "$got" = "$FFW" ]; then printf 'ok   %-26s => %s\n' "fn-typed field -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "fnfield" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-fnfield.hm > "${TMPDIR:-/tmp}/ffe.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ffe.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$FFW" ]; then printf 'ok   %-26s => %s (node)\n' "fn-typed field -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "fnfield JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-fnfield.hm > "${TMPDIR:-/tmp}/ffe.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ffe.rs" -o "${TMPDIR:-/tmp}/ffe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ffe-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$FFW" ]; then printf 'ok   %-26s => %s (rustc)\n' "fn-typed field -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "fnfield Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

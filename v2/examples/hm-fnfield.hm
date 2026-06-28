@@ -1,0 +1,1 @@
+data F a = Op (Int -> F a) | Ret a in let rec run = fun c => match c { Ret x => x | Op k => run (k 10) } in run (Op (fun n => Op (fun m => Ret (n + m))))
