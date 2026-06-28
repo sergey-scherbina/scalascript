@@ -1,0 +1,8 @@
+data Comp a = Pure a | Op String Dyn (Dyn -> Comp a) in
+let rec bind = fun m => fun f => match m { Pure v => f v | Op l a k => Op l a (fun r => bind (k r) f) } in
+let pure = fun x => Pure x in
+let log = fun x => Op "log" (x : Dyn) (fun r => Pure 0) in
+let yield = Op "yield" (0 : Dyn) (fun r => Pure 0) in
+let rec runSched = fun q => match q { Nil => nil | Cons c rest => match c { Pure v => runSched rest | Op l a k => if strEq l "log" then cons (a : Int) (runSched (cons (k (0 : Dyn)) rest)) else runSched (append rest (cons (k (0 : Dyn)) nil)) } } in
+let task = fun tag => do { x <- log tag ; y <- yield ; log (tag + 100) } in
+runSched (cons (task 1) (cons (task 2) nil))

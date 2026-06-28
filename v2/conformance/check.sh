@@ -832,6 +832,22 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 # int comparison still resolves to Int (regression guard)
 echo -n "ok   int < still Int         => "; printf 'if 3 < 5 then 1 else 0' > "${TMPDIR:-/tmp}/ic.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ic.hm" > "${TMPDIR:-/tmp}/ic.coreir" 2>/dev/null; icg=$(ssc run-ir "${TMPDIR:-/tmp}/ic.coreir" | tail -1); if [ "$icg" = "1" ]; then echo "1"; else echo "FAIL [$icg]"; fail=1; fi
+echo "# ssct-hm TYPED ASYNC: cooperative scheduler (yield/log) on the typed effect monad, all backends"
+chk_hm examples/hm-async.hm '"[Int]"'
+AYW="Cons(1, Cons(2, Cons(101, Cons(102, Nil))))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-async.hm > "${TMPDIR:-/tmp}/ay.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ay.coreir" | tail -1)
+if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s\n' "async sched -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "async" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-async.hm > "${TMPDIR:-/tmp}/ay.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ay.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s (node)\n' "async sched -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "async JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-async.hm > "${TMPDIR:-/tmp}/ay.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ay.rs" -o "${TMPDIR:-/tmp}/ay-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ay-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s (rustc)\n' "async sched -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "async Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
