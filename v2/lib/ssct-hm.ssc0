@@ -124,7 +124,10 @@ def infer = (env, c, s, term) =>
               match unify(s2, tf, TyFun(ta, tr)) { case Err(m) => ErrI(m) case Ok(s3) => Ok3(s3, appTy(s3, tr), #i.add(c2, 1)) }
           }
       }
-    case Add(a, b) => inferArith(env, c, s, a, b, TyInt,  "Add needs Int operands")
+    case Add(id, a, b) => inferNum(env, c, s, id, a, b, "num")
+    case Sub(id, a, b) => inferNum(env, c, s, id, a, b, "num")
+    case Mul(id, a, b) => inferNum(env, c, s, id, a, b, "num")
+    case Add(a, b) => inferArith(env, c, s, a, b, TyInt,  "Add needs Int operands")    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b) => inferArith(env, c, s, a, b, TyInt,  "Sub needs Int operands")
     case Mul(a, b) => inferArith(env, c, s, a, b, TyInt,  "Mul needs Int operands")
     case Eq(a, b)  => inferArith(env, c, s, a, b, TyBool, "Eq needs Int operands")
@@ -257,6 +260,20 @@ def inferArith = (env, c, s, a, b, res, msg) =>
     match unify(s1, ta, TyInt) { case Err(m) => ErrI(msg) case Ok(s1b) =>
       match infer(env, c1, s1b, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
         match unify(s2, tb, TyInt) { case Err(m) => ErrI(msg) case Ok(s3) => Ok3(s3, res, c2) } } } }
+-- overloaded numeric operators (Int or Float), resolved by operand type, recorded by node id in tcReg.
+-- Eager defaulting: a still-unresolved operand type defaults to Int (sound; a later non-num use conflicts).
+def isFloatTy = (t) => match t { case TyFloat => true case _ => false }
+def numRes = (kind, t) => if #seq(kind, "cmp") then TyBool else t
+def inferNum = (env, c, s, id, a, b, kind) =>
+  match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
+    match infer(env, c1, s1, b) { case ErrI(m) => ErrI(m) case Ok3(s2, tb, c2) =>
+      match unify(s2, ta, tb) { case Err(m) => ErrI("arithmetic operands must have the same type") case Ok(s3) =>
+        match appTy(s3, ta) {
+          case TyInt    => let u = registerInst(id, TyInt)   in Ok3(s3, numRes(kind, TyInt), c2)
+          case TyFloat  => let u = registerInst(id, TyFloat) in Ok3(s3, numRes(kind, TyFloat), c2)
+          case TyVar(n) => match unify(s3, TyVar(n), TyInt) { case Err(m) => ErrI("numeric default failed") case Ok(s4) => let u = registerInst(id, TyInt) in Ok3(s4, numRes(kind, TyInt), c2) }
+          case _        => ErrI("+ - * (and < =) need Int or Float operands")
+        } } } }
 def inferStr2 = (env, c, s, a, b, res, msg) =>
   match infer(env, c, s, a) { case ErrI(m) => ErrI(m) case Ok3(s1, ta, c1) =>
     match unify(s1, ta, TyStr) { case Err(m) => ErrI(msg) case Ok(s1b) =>
@@ -426,7 +443,10 @@ def evalT = (env, t) =>
     case Var(x)       => lookupVl(env, x)
     case Lam(x, body) => CloVal(x, body, env)
     case App(f, a)    => applyV(evalT(env, f), evalT(env, a))
-    case Add(a, b)    => IntVal(#i.add(asI(evalT(env, a)), asI(evalT(env, b))))
+    case Add(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.add(x, asF(evalT(env, b)))) case _ => IntVal(#i.add(asI(va), asI(evalT(env, b)))) }
+    case Sub(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.sub(x, asF(evalT(env, b)))) case _ => IntVal(#i.sub(asI(va), asI(evalT(env, b)))) }
+    case Mul(id, a, b) => let va = evalT(env, a) in match va { case FloatVal(x) => FloatVal(#f.mul(x, asF(evalT(env, b)))) case _ => IntVal(#i.mul(asI(va), asI(evalT(env, b)))) }
+    case Add(a, b)    => IntVal(#i.add(asI(evalT(env, a)), asI(evalT(env, b))))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IntVal(#i.sub(asI(evalT(env, a)), asI(evalT(env, b))))
     case Mul(a, b)    => IntVal(#i.mul(asI(evalT(env, a)), asI(evalT(env, b))))
     case Eq(a, b)     => BoolVal(#i.eq(asI(evalT(env, a)), asI(evalT(env, b))))

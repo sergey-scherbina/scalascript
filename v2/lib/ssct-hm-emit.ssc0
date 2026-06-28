@@ -21,7 +21,10 @@ def erase = (scope, term) =>
     case Var(x)       => IrLocal(idxOf(scope, x))
     case Lam(x, body) => IrLam(1, erase(Cons(x, scope), body))            -- no type to drop
     case App(f, a)    => IrApp(erase(scope, f), Cons(erase(scope, a), Nil))
-    case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Add(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.add" else "i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Sub(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.sub" else "i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Mul(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.mul" else "i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IrPrim("i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Mul(a, b)    => IrPrim("i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Eq(a, b)     => IrPrim("i.eq",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))

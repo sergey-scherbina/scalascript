@@ -159,7 +159,7 @@ def parseMulMore = (a, toks) =>
   match toks {
     case Cons(t, rest) =>
       match t {
-        case TPunct(p) => if #seq(p, "*") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Mul(a, b), r2) } else Pair(a, toks)
+        case TPunct(p) => if #seq(p, "*") then match parseApp(rest) { case Pair(b, r2) => parseMulMore(Mul(nextId(0), a, b), r2) } else Pair(a, toks)
         case _ => Pair(a, toks)
       }
     case Nil => Pair(a, toks)
@@ -171,8 +171,8 @@ def parseAddMore = (a, toks) =>
     case Cons(t, rest) =>
       match t {
         case TPunct(p) =>
-          if #seq(p, "+") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Add(a, b), r2) }
-          else if #seq(p, "-") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Sub(a, b), r2) }
+          if #seq(p, "+") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Add(nextId(0), a, b), r2) }
+          else if #seq(p, "-") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Sub(nextId(0), a, b), r2) }
           else if #seq(p, "++") then match parseMul(rest) { case Pair(b, r2) => parseAddMore(Concat(a, b), r2) }
           else Pair(a, toks)
         case _ => Pair(a, toks)
@@ -447,9 +447,9 @@ def desugar = (t) =>
     case Var(x)          => if #seq(x, "nil") then LNil else if isUpperName(x) then ConApp(x, Nil) else Var(x)
     case Lam(x, b)       => Lam(x, desugar(b))
     case App(f, a)       => dsApp(desugar(f), desugar(a))
-    case Add(a, b)       => Add(desugar(a), desugar(b))
-    case Sub(a, b)       => Sub(desugar(a), desugar(b))
-    case Mul(a, b)       => Mul(desugar(a), desugar(b))
+    case Add(id, a, b)   => Add(id, desugar(a), desugar(b))
+    case Sub(id, a, b)   => Sub(id, desugar(a), desugar(b))
+    case Mul(id, a, b)   => Mul(id, desugar(a), desugar(b))
     case Eq(a, b)        => Eq(desugar(a), desugar(b))
     case Lt(a, b)        => Lt(desugar(a), desugar(b))
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
@@ -537,9 +537,9 @@ def freeVars = (t) =>
     case Var(x)          => Cons(x, Nil)
     case Lam(x, b)       => removeStr(x, freeVars(b))
     case App(f, a)       => appendL(freeVars(f), freeVars(a))
-    case Add(a, b)       => appendL(freeVars(a), freeVars(b))
-    case Sub(a, b)       => appendL(freeVars(a), freeVars(b))
-    case Mul(a, b)       => appendL(freeVars(a), freeVars(b))
+    case Add(id, a, b)   => appendL(freeVars(a), freeVars(b))
+    case Sub(id, a, b)   => appendL(freeVars(a), freeVars(b))
+    case Mul(id, a, b)   => appendL(freeVars(a), freeVars(b))
     case Eq(a, b)        => appendL(freeVars(a), freeVars(b))
     case Lt(a, b)        => appendL(freeVars(a), freeVars(b))
     case Concat(a, b)    => appendL(freeVars(a), freeVars(b))

@@ -796,6 +796,24 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 # Dyn round-trip (the escape-hatch) types and erases
 echo -n "ok   Dyn round-trip          => "; printf '((5 : Dyn) : Int) + 1' > "${TMPDIR:-/tmp}/dyn.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/dyn.hm" > "${TMPDIR:-/tmp}/dyn.coreir" 2>/dev/null; dg=$(ssc run-ir "${TMPDIR:-/tmp}/dyn.coreir" | tail -1); if [ "$dg" = "6" ]; then echo "6"; else echo "FAIL [$dg]"; fail=1; fi
+echo "# ssct-hm OVERLOADED arithmetic (K8.1): + - * resolve to Int or Float by operand type, all backends"
+chk_hm examples/hm-numops.hm '"Float"'
+NOW="13.56"
+ssc run bin/ssctc-hm.ssc0 examples/hm-numops.hm > "${TMPDIR:-/tmp}/no.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/no.coreir" | tail -1)
+if [ "$got" = "$NOW" ]; then printf 'ok   %-26s => %s\n' "float +/* -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "numops" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-numops.hm > "${TMPDIR:-/tmp}/no.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/no.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$NOW" ]; then printf 'ok   %-26s => %s (node)\n' "float +/* -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "numops JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-numops.hm > "${TMPDIR:-/tmp}/no.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/no.rs" -o "${TMPDIR:-/tmp}/no-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/no-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$NOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "float +/* -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "numops Rust" "$got"; fail=1; fi
+fi
+# int arithmetic still resolves to Int (regression guard)
+echo -n "ok   int +/* still Int       => "; printf 'let sq = fun n => n * n + 1 in sq 6' > "${TMPDIR:-/tmp}/ia.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ia.hm" > "${TMPDIR:-/tmp}/ia.coreir" 2>/dev/null; ig=$(ssc run-ir "${TMPDIR:-/tmp}/ia.coreir" | tail -1); if [ "$ig" = "37" ]; then echo "37"; else echo "FAIL [$ig]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
