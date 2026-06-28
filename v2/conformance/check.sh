@@ -688,6 +688,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/de.rs" -o "${TMPDIR:-/tmp}/de-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/de-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$DOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "do-notation -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "do Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm PRELUDE (sort): concat / zipWith / elemBy / sortBy — polymorphic, comparator-passing"
+chk_hm examples/hm-sort.hm '"Int"'
+SRW="3210"
+ssc run bin/ssctc-hm.ssc0 examples/hm-sort.hm > "${TMPDIR:-/tmp}/se.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/se.coreir" | tail -1)
+if [ "$got" = "$SRW" ]; then printf 'ok   %-26s => %s\n' "sortBy/zipWith -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "sort" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-sort.hm > "${TMPDIR:-/tmp}/se.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/se.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$SRW" ]; then printf 'ok   %-26s => %s (node)\n' "sortBy/zipWith -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "sort JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-sort.hm > "${TMPDIR:-/tmp}/se.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/se.rs" -o "${TMPDIR:-/tmp}/se-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/se-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$SRW" ]; then printf 'ok   %-26s => %s (rustc)\n' "sortBy/zipWith -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "sort Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
