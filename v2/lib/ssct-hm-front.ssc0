@@ -62,7 +62,7 @@ def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
   chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), chOr(#seq(s, "do"), #seq(s, "doE"))), chOr(chOr(#seq(s, "method"), #seq(s, "effect")), #seq(s, "instance"))))),
-       chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
+       chOr(chOr(chOr(#seq(s, "in"), #seq(s, "if")), #seq(s, "and")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
   match t {
@@ -262,11 +262,23 @@ def parseLetBind = (mk, toks) =>                      -- shared:  name param* '=
   }
 def mkLet    = (x, e, b) => Let(x, e, b)
 def mkLetRec = (x, e, b) => LetRec(x, e, b)
+-- mutual recursion:  let rec f = e1 and g = e2 … in body  → LetRecM([(f,λ..),(g,λ..)], body)  (single = LetRec)
+def parseRecBind  = (toks) =>                         -- one  name param* '=' e  → Pair(Pair(name, fun param* => e), rest)
+  match toks { case Cons(t, r1) => match t { case TName(x) =>
+      match parseBinders(r1) { case Pair(ps, r2) => match parseExpr(drop1(r2)) { case Pair(e, r3) => Pair(Pair(x, mkLams(ps, e)), r3) } }
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+def parseRecBinds = (toks) =>                         -- bind ('and' bind)*  → Pair(list-of-binds, rest-at-'in')
+  match parseRecBind(toks) { case Pair(b, r) =>
+    match r { case Cons(t, rest) => match t { case TName(a) => if #seq(a, "and") then match parseRecBinds(rest) { case Pair(bs, r2) => Pair(Cons(b, bs), r2) } else Pair(Cons(b, Nil), r) case _ => Pair(Cons(b, Nil), r) } case Nil => Pair(Cons(b, Nil), Nil) } }
+def parseLetRec   = (toks) =>                          -- after 'rec':  binds 'in' body
+  match parseRecBinds(toks) { case Pair(binds, r) =>
+    match parseExpr(drop1(r)) { case Pair(body, r2) =>      -- drop 'in'
+      match binds { case Cons(b1, rest) => match rest { case Nil => match b1 { case Pair(nm, lam) => Pair(LetRec(nm, lam, body), r2) } case _ => Pair(LetRecM(binds, body), r2) } case Nil => Pair(ParseErr, Nil) } } }
 def parseLetE = (toks) =>                             -- after 'let':  [rec] x '=' e 'in' body
   match toks {
     case Cons(t, r1) =>
       match t {
-        case TName(x) => if #seq(x, "rec") then parseLetBind(mkLetRec, r1) else parseLetBind(mkLet, toks)
+        case TName(x) => if #seq(x, "rec") then parseLetRec(r1) else parseLetBind(mkLet, toks)
         case _        => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)
@@ -462,6 +474,14 @@ def hasPatArm = (arms) => match arms { case Nil => false case Cons(a, rest) => m
 def hasListConTop = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case MArm(con, b, body) => if chOr(#seq(con, "Cons"), #seq(con, "Nil")) then true else hasListConTop(rest) case _ => hasListConTop(rest) } }
 def needsCompiler = (arms) => if hasPatArm(arms) then true else hasListConTop(arms)
 def compileMatch = (scrut, arms) => let snm = #sconcat("$s", #i->str(nextId(0))) in Let(snm, scrut, compileArms(Var(snm), armsToPBs(arms), LHead(LNil)))
+-- ── mutual-recursion bind-list helpers (LetRecM binds = list of Pair(name, lam)) ──
+def bindNames = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => Cons(nm, bindNames(r)) } }
+def mapBindsD = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => Cons(Pair(nm, desugar(l)), mapBindsD(r)) } }
+def mapBindsF = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => Cons(Pair(nm, freshenIds(l)), mapBindsF(r)) } }
+def mapBindsI = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => Cons(Pair(nm, inlineClosed(l)), mapBindsI(r)) } }
+def mapBindsS = (nm, repl, bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(bn, l) => Cons(Pair(bn, substVar(nm, repl, l)), mapBindsS(nm, repl, r)) } }
+def fvBinds  = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => appendL(freeVars(l), fvBinds(r)) } }
+def cnoBinds = (bs) => match bs { case Nil => false case Cons(p, r) => match p { case Pair(nm, l) => or2(containsNumOp(l), cnoBinds(r)) } }
 def desugar = (t) =>
   match t {
     case Lit(n)          => Lit(n)
@@ -478,6 +498,7 @@ def desugar = (t) =>
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
+    case LetRecM(binds, b) => LetRecM(mapBindsD(binds), desugar(b))
     case MatchT(scrut, arms) => let da = dsArmsM(arms) in if needsCompiler(da) then compileMatch(desugar(scrut), da) else if hasLitArm(da) then desugarLitMatch(desugar(scrut), da) else mkMatch(desugar(scrut), da)
     case StrLit(str)     => StrLit(str)
     case Concat(a, b)    => Concat(desugar(a), desugar(b))
@@ -595,6 +616,7 @@ def freeVars = (t) =>
     case If(c, x, y)     => appendL(freeVars(c), appendL(freeVars(x), freeVars(y)))
     case Let(x, e, b)    => appendL(freeVars(e), removeStr(x, freeVars(b)))
     case LetRec(f, l, b) => removeStr(f, appendL(freeVars(l), freeVars(b)))
+    case LetRecM(binds, b) => removeAll(bindNames(binds), appendL(fvBinds(binds), freeVars(b)))
     case MatchT(scrut, arms) => appendL(freeVars(scrut), fvArms(arms))
     case RecLit(fields)  => fvRec(fields)
     case FieldGet(id, rc, name) => freeVars(rc)
@@ -669,6 +691,7 @@ def freshenIds = (t) => match t {                      -- deep copy, reassigning
     case If(c, x, y)     => If(freshenIds(c), freshenIds(x), freshenIds(y))
     case Let(x, e, b)    => Let(x, freshenIds(e), freshenIds(b))
     case LetRec(f, l, b) => LetRec(f, freshenIds(l), freshenIds(b))
+    case LetRecM(binds, b) => LetRecM(mapBindsF(binds), freshenIds(b))
     case MatchT(s, arms) => MatchT(freshenIds(s), freshenArms(arms))
     case RecLit(fs)      => RecLit(freshenRec(fs))
     case FieldGet(id, rc, n) => FieldGet(nextId(0), freshenIds(rc), n)
@@ -695,6 +718,7 @@ def substVar = (nm, repl, t) => match t {              -- replace FREE Var(nm) w
     case If(c, x, y)     => If(substVar(nm, repl, c), substVar(nm, repl, x), substVar(nm, repl, y))
     case Let(x, e, b)    => if #seq(x, nm) then Let(x, substVar(nm, repl, e), b) else Let(x, substVar(nm, repl, e), substVar(nm, repl, b))
     case LetRec(f, l, b) => if #seq(f, nm) then LetRec(f, l, b) else LetRec(f, substVar(nm, repl, l), substVar(nm, repl, b))
+    case LetRecM(binds, b) => if fvMember(nm, bindNames(binds)) then LetRecM(binds, b) else LetRecM(mapBindsS(nm, repl, binds), substVar(nm, repl, b))
     case MatchT(s, arms) => MatchT(substVar(nm, repl, s), substArms(nm, repl, arms))
     case RecLit(fs)      => RecLit(substRec(nm, repl, fs))
     case FieldGet(id, rc, n) => FieldGet(id, substVar(nm, repl, rc), n)
@@ -718,6 +742,7 @@ def containsNumOp = (t) => match t {                   -- does the term use an o
     case If(c, x, y)     => or2(containsNumOp(c), or2(containsNumOp(x), containsNumOp(y)))
     case Let(x, e, b)    => or2(containsNumOp(e), containsNumOp(b))
     case LetRec(f, l, b) => or2(containsNumOp(l), containsNumOp(b))
+    case LetRecM(binds, b) => or2(cnoBinds(binds), containsNumOp(b))
     case MatchT(s, arms) => or2(containsNumOp(s), cnoArms(arms))
     case RecLit(fs)      => cnoRec(fs)
     case FieldGet(id, rc, n) => containsNumOp(rc)
@@ -746,6 +771,7 @@ def inlineClosed = (t) => match t {
     case Concat(a, b)    => Concat(inlineClosed(a), inlineClosed(b))
     case If(c, x, y)     => If(inlineClosed(c), inlineClosed(x), inlineClosed(y))
     case LetRec(f, l, b) => LetRec(f, inlineClosed(l), inlineClosed(b))
+    case LetRecM(binds, b) => LetRecM(mapBindsI(binds), inlineClosed(b))
     case MatchT(s, arms) => MatchT(inlineClosed(s), inlineArms(arms))
     case RecLit(fs)      => RecLit(inlineRec(fs))
     case FieldGet(id, rc, n) => FieldGet(id, inlineClosed(rc), n)

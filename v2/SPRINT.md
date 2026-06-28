@@ -332,5 +332,18 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       `hm-eff-decl*.hm`); the older explicit-`bindE` examples are kept intentionally (they document the
       desugaring) rather than churned.
 
+## K12 — mutual recursion
+
+- [x] **K12.1 — `let rec f = .. and g = .. in ..`** — mutual recursion, a genuinely-missing feature. New
+      `LetRecM(binds, body)` node (single `let rec` still → `LetRec`); `and` is a keyword. Infer binds all
+      names to fresh vars in a shared env, infers each lam, unifies, then generalizes all (numeric vars
+      defaulted at generalization, sound). Erases to the IR's existing list-form `IrLetRec` (last bind = idx
+      0, matched by `prependAll`). run-ir + JS supported the multi-binding `IrLetRec` already; the **Rust
+      backend only did single-binding (bailed to `V::U`) — extended it** with an n-way knot-tie (n
+      `RefCell<V>` cells + n self-ref closures + write each real lam into its cell). `examples/hm-mutual.hm`
+      (isEven/isOdd) ⇒ `Bool`/`true`; a 3-way `f→g→h→f` ⇒ `1`; all on run-ir / node / rustc. (The tree-walk
+      interp `evalT` is `Stuck` for `LetRecM` — not conformance-exercised; effects run via the compile path.)
+      conformance +5.
+
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.

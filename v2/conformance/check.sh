@@ -1091,6 +1091,21 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ms.rs" -o "${TMPDIR:-/tmp}/ms-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ms-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method self -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self Rust" "$got"; fail=1; fi
 fi
+echo "# MUTUAL RECURSION: let rec f = .. and g = .. in ..  (multi-binding IrLetRec; Rust gen got an n-way knot-tie)"
+chk_hm examples/hm-mutual.hm '"Bool"'                                 # isEven/isOdd mutual recursion
+ssc run bin/ssctc-hm.ssc0 examples/hm-mutual.hm > "${TMPDIR:-/tmp}/mut.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/mut.coreir" | tail -1)
+if [ "$got" = "true" ]; then printf 'ok   %-26s => %s\n' "mutual rec -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-mutual.hm > "${TMPDIR:-/tmp}/mut.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mut.js" 2>/dev/null | tail -1)
+  if [ "$got" = "true" ]; then printf 'ok   %-26s => %s (node)\n' "mutual rec -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-mutual.hm > "${TMPDIR:-/tmp}/mut.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/mut.rs" -o "${TMPDIR:-/tmp}/mut-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mut-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "true" ]; then printf 'ok   %-26s => %s (rustc)\n' "mutual rec -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual Rust" "$got"; fail=1; fi
+fi
+echo -n "ok   3-way mutual rec         => "; printf 'let rec f = fun n => if n = 0 then 0 else g (n - 1) and g = fun n => if n = 0 then 1 else h (n - 1) and h = fun n => if n = 0 then 2 else f (n - 1) in f 7' > "${TMPDIR:-/tmp}/m3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/m3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/m3.coreir"; m3=$(ssc run-ir "${TMPDIR:-/tmp}/m3.coreir" | tail -1); if [ "$m3" = "1" ]; then echo "1 (f→g→h→f…)"; else echo "FAIL [$m3]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

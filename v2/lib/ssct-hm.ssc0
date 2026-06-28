@@ -125,6 +125,17 @@ def generalize = (env, s, ty) => let t = appTy(s, ty) in Forall(diffList(freeTy(
 -- instantiate a scheme: give each quantified var a FRESH var, return Pair(type, counter')
 def freshRen = (qs, c) => match qs { case Nil => Pair(Nil, c) case Cons(q, rest) => match freshRen(rest, #i.add(c, 1)) { case Pair(r, c2) => Pair(Cons(Pair(q, TyVar(c)), r), c2) } }
 def instantiate = (sch, c) => match sch { case Forall(qs, t) => match freshRen(qs, c) { case Pair(ren, c2) => Pair(appTy(ren, t), c2) } }
+-- ── mutual recursion (LetRecM): all names share a fresh var; infer each lam, unify, then generalize all ──
+def lenBinds = (bs) => match bs { case Nil => 0 case Cons(p, r) => #i.add(1, lenBinds(r)) }
+def envWithRecVars = (binds, idx, c, env) => match binds { case Nil => env case Cons(p, r) => match p { case Pair(nm, l) => Cons(Pair(nm, Forall(Nil, TyVar(#i.add(c, idx)))), envWithRecVars(r, #i.add(idx, 1), c, env)) } }
+def inferRecBinds = (binds, idx, c0, cc, s, env1) => match binds {                          -- infer each lam, unify with its tv; Ok3(s, dummy, c) | ErrI
+    case Nil => Ok3(s, TyInt, cc)
+    case Cons(p, r) => match p { case Pair(nm, l) =>
+      match infer(env1, cc, s, l) { case ErrI(m) => ErrI(m) case Ok3(s1, tl, c1) =>
+        match unify(s1, TyVar(#i.add(c0, idx)), tl) { case Err(m) => ErrI("mutual-rec binding type mismatch") case Ok(s2) => inferRecBinds(r, #i.add(idx, 1), c0, c1, s2, env1) } } } }
+def defaultRecNum = (binds, idx, c0, s, env) => match binds { case Nil => s case Cons(p, r) => match p { case Pair(nm, l) =>
+    let s1 = defaultPendingIn(s, diffList(freeTy(appTy(s, TyVar(#i.add(c0, idx))), Nil), freeEnv(env, s, Nil))) in defaultRecNum(r, #i.add(idx, 1), c0, s1, env) } }
+def genRecEnv = (binds, idx, c0, s, env) => match binds { case Nil => env case Cons(p, r) => match p { case Pair(nm, l) => Cons(Pair(nm, generalize(env, s, TyVar(#i.add(c0, idx)))), genRecEnv(r, #i.add(idx, 1), c0, s, env)) } }
 
 -- infer : (env, counter, subst, term) -> Ok3(subst, type, counter) | ErrI(msg).  env: name -> Scheme.
 def infer = (env, c, s, term) =>
@@ -210,6 +221,14 @@ def infer = (env, c, s, term) =>
             let s2b = defaultPendingIn(s2, qs) in
             infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) }
       }
+    case LetRecM(binds, body) =>                                  -- mutual recursion: all names in scope in each other
+      let k = lenBinds(binds) in let c0 = c in
+      let env1 = envWithRecVars(binds, 0, c0, env) in
+      match inferRecBinds(binds, 0, c0, #i.add(c0, k), s, env1) {
+        case ErrI(m) => ErrI(m)
+        case Ok3(s2, du, c2) =>
+          let s2b = defaultRecNum(binds, 0, c0, s2, env) in
+          infer(genRecEnv(binds, 0, c0, s2b, env), c2, s2b, body) }
     case LNil => Ok3(s, TyList(TyVar(c)), #i.add(c, 1))            -- forall a. [a]: a fresh elem var each use
     case LCons(h, t) =>
       match infer(env, c, s, h) { case ErrI(m) => ErrI(m) case Ok3(s1, th, c1) =>
@@ -619,6 +638,7 @@ def evalT = (env, t) =>
     case If(cnd, th, el) => if asB(evalT(env, cnd)) then evalT(env, th) else evalT(env, el)
     case Let(x, e, body) => evalT(Cons(Pair(x, evalT(env, e)), env), body)
     case LetRec(f, lam, body) => match lam { case Lam(x, lbody) => evalT(Cons(Pair(f, RecCloVal(f, x, lbody, env)), env), body) case _ => Stuck }
+    case LetRecM(binds, body) => Stuck                            -- mutual rec runs via the COMPILE path (IrLetRec); the tree-walk interp is not exercised by conformance
     case LNil => Nil
     case LCons(h, t) => Cons(evalT(env, h), evalT(env, t))
     case LHead(l) => match evalT(env, l) { case Cons(h, t) => h case _ => Stuck }

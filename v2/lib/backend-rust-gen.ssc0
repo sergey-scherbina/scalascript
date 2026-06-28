@@ -71,8 +71,14 @@ def rletbinds = (d, rhs) => match rhs { case Nil => "" case Cons(r, rest) => cat
 -- reference is the fix `self_ref`, which on application fetches the real closure from fix's cell.
 def letrecBody = (d, lam, b, genTail) =>
   cats(Cons("{ let ", Cons(jName(d), Cons(" = fix(Rc::new({ ", Cons(rclones(0, d), Cons("move |", Cons(jName(d), Cons(": V| -> V { ", Cons(genV(#i.add(d, 1), lam), Cons(" } })); ", Cons(genTail, Cons(" }", Nil))))))))))))
-def letrecV = (d, ls, b) => match ls { case Nil => genV(d, b) case Cons(lam, rest) => match rest { case Nil => letrecBody(d, lam, b, genV(#i.add(d, 1), b)) case _ => "V::U" } }
-def letrecT = (d, ls, b) => match ls { case Nil => genT(d, b) case Cons(lam, rest) => match rest { case Nil => letrecBody(d, lam, b, genT(#i.add(d, 1), b)) case _ => "Step::Val(V::U)" } }
+-- mutual recursion: n cells (RefCell<V>), n self-ref closures reading their cell, then each real lam (which
+-- clones the self-refs via rclones) is written into its cell — tying the knot.  d..dn-1 are the rec names.
+def lrCells   = (i, dn) => if #i.ge(i, dn) then "" else cats(Cons("let cell", Cons(#i->str(i), Cons(" = std::rc::Rc::new(std::cell::RefCell::new(V::U)); ", Cons(lrCells(#i.add(i, 1), dn), Nil)))))
+def lrSelfs   = (i, dn) => if #i.ge(i, dn) then "" else cats(Cons("let ", Cons(jName(i), Cons(" = { let c = cell", Cons(#i->str(i), Cons(".clone(); V::F(std::rc::Rc::new(move |a: Vec<V>| -> Step { call(c.borrow().clone(), a) })) }; ", Cons(lrSelfs(#i.add(i, 1), dn), Nil)))))))
+def lrAssigns = (i, dn, ls) => match ls { case Nil => "" case Cons(lam, rest) => cats(Cons("*cell", Cons(#i->str(i), Cons(".borrow_mut() = ", Cons(genV(dn, lam), Cons("; ", Cons(lrAssigns(#i.add(i, 1), dn, rest), Nil))))))) }
+def letrecMulti = (d, ls, genTail) => let dn = #i.add(d, lenL(ls)) in cats(Cons("{ ", Cons(lrCells(d, dn), Cons(lrSelfs(d, dn), Cons(lrAssigns(d, dn, ls), Cons(genTail, Cons(" }", Nil)))))))
+def letrecV = (d, ls, b) => match ls { case Nil => genV(d, b) case Cons(lam, rest) => match rest { case Nil => letrecBody(d, lam, b, genV(#i.add(d, 1), b)) case _ => letrecMulti(d, ls, genV(#i.add(d, lenL(ls)), b)) } }
+def letrecT = (d, ls, b) => match ls { case Nil => genT(d, b) case Cons(lam, rest) => match rest { case Nil => letrecBody(d, lam, b, genT(#i.add(d, 1), b)) case _ => letrecMulti(d, ls, genT(#i.add(d, lenL(ls)), b)) } }
 
 -- value mode: produce a V expression
 def genV = (d, t) =>
