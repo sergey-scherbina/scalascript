@@ -26,7 +26,7 @@ ty     := fieldtype | Con fieldtype* | ty '->' ty       -- (inside parens) appli
 expr   := 'fun' x+ '=>' expr                               -- multi-arg lambda (curried)
         | 'let' ['rec'] x x* '=' expr 'in' expr            -- value or function definition (curried)
         | 'if' expr 'then' expr 'else' expr
-        | 'do' '{' (x '<-' expr | expr) (';' …)* '}'       -- monadic do-notation (=> bind / pure)
+        | ('do'|'doE') '{' (x '<-' expr | expr) (';' …)* '}' -- do-notation (do => bind ; doE => bindE)
         | 'match' expr '{' arm ('|' arm)* '}' | or
 arm    := pat '=>' expr                                    -- a pattern arm
 pat    := Con apat* | apat                                 -- constructor applied to sub-patterns, or an atom
@@ -53,7 +53,7 @@ first-class):
 | lists | `cons head tail isNil nil` |
 | strings | `showInt strEq strLen charAt substr` (`++` is concat) |
 | float | `toFloat fadd fsub fmul fdiv flt feq fneg fsqrt` |
-| int | `div mod neg` (`+ - *` and `< =` are **overloaded** operators — Int or Float; see below) |
+| int | `div mod neg` (`+ - * /` and `< =` are **overloaded** operators — Int or Float; see below) |
 | tuples | `fst snd` |
 | boolean | `not` (`&& ||` are operators) |
 | typeclasses | `show eq compare` + any user-declared `method` |
@@ -88,10 +88,12 @@ first-class):
   error (no implicit coercion). HM has no qualified types, so an unconstrained operand defaults
   to Int; a generic function over `<`/`+` (e.g. `fun a b => a < b`) therefore monomorphises to
   Int — use a leading concrete `Float`, a `(e : Float)` ascription, or the prelude's
-  comparator-passing `minBy`/`maxBy`. `fadd`/`flt`/… remain; `/` stays split (`div` / `fdiv`).
+  comparator-passing `minBy`/`maxBy`. `fadd`/`flt`/… remain. `/` is overloaded too: `20 / 6 : Int`
+  (truncating) `= 3`, `9.0 / 2.0 : Float = 4.5`, `9.0 / 2` a type error (`fadd`/`fdiv` still exist).
 - **do-notation** `do { x <- e ; … ; result }` desugars to `bind e (fun x => …)`; `bind`/`pure`
   resolve from scope, so it is monad-agnostic — the prelude supplies the **Option** monad by
-  default, and a program can define its own `bind`/`pure` for another monad.
+  default, and a program can define its own `bind`/`pure` for another monad. `doE { … }` is the same
+  but desugars `<-` to `bindE` (the algebraic-effect monad; see effects below).
 - **Type ascription** `(e : T)` (concrete `T`) checks/documents a type and, usefully,
   disambiguates typeclass resolution: `show (None : Option Int)` ⇒ `"None"` (an ambiguous-type
   error without the annotation). Erased at runtime.
@@ -100,9 +102,13 @@ first-class):
 - **`Dyn`** — a type that unifies with any type; the single, explicit, *localized* escape-hatch.
   It lets the universal effect monad `Comp = Pure | Op(label, arg, resume)` be typed despite its
   existential payload; user code casts at the boundary with `(e : T)`.
-- **Algebraic effects** (one-shot AND multi-shot) live in the typed surface — see
-  [`50-effects.md`](50-effects.md): type-safe per-effect free monads (State, Nondeterminism), or
-  the universal `Comp` via `Dyn`. Full effect-row inference is a deferred research item.
+- **Algebraic effects with effect rows** live in the typed surface — see [`50-effects.md`](50-effects.md)
+  and [`54-effect-rows.md`](54-effect-rows.md). The computation type `Comp {Eff | ρ} a` tracks *which*
+  effects it may perform; `runE : Comp {} a -> a` demands the empty row, so an unhandled effect is a
+  **type error**. Effects are **user-extensible** without a compiler change: `perform "Eff" "op" arg`
+  and a general deep `handle "Eff" comp ret op` (forwards other effects → composes; resume re-enters →
+  **multi-shot** and **stateful** handlers). `getE`/`putE`/`runStateE` and `logE`/`runLogE` ship as
+  conveniences. Light scope: payloads are `Dyn`; typed-payload (Koka-style) signatures are deferred.
 
 ## Typeclasses
 

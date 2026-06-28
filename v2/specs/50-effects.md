@@ -78,9 +78,11 @@ data Comp a = Pure a | Op String Dyn (Dyn -> Comp a)          -- examples/hm-eff
 perform l a = Op l a (fun r => Pure r)                        -- generic; one handler dispatches by label
 ```
 
-Deferred (research): **full effect-row inference** (tracking *which* effects in the type,
-Koka/Frank style) — disproportionate for the ~430-line inferrer; Track P already types effects
-per-effect.
+**Update:** the **light** effect-row system (tracking *which* effects in the type; `runE` rejects any
+unhandled effect; user-extensible `perform`/`handle` with deep/multi-shot/stateful handlers; `doE`
+do-notation) is now **implemented and runs on all three backends** — see [`54-effect-rows.md`](54-effect-rows.md).
+Still deferred (research): **typed payloads** (Koka/Frank operation signatures, no `Dyn`) on top of the
+tracking.
 
 ## Next
 

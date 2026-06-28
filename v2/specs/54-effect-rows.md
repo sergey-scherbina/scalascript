@@ -1,8 +1,11 @@
-# 54 — Effect rows for ssct-hm (research + light implementation)
+# 54 — Effect rows for ssct-hm (implemented; light payloads)
 
-> Status: **research, 2026-06-28.** Row-unification spike validated; light implementation in
-> progress. This documents the design, the algorithm (validated on the kernel), the scope of the
-> "light" version being shipped, and the path to a full Koka-style system.
+> Status: **IMPLEMENTED, 2026-06-28.** The light (label-tracking) version is done and **runs on all
+> three backends** (run-ir / JS / native-Rust). Effects are **user-extensible** (`perform` / `handle`,
+> no compiler change per effect), handlers are **deep + multi-shot** and can be **stateful**
+> (parameterized), and `runE` rejects any unhandled effect as a **type error**. This documents the
+> design, the validated row-unification algorithm, the surface as shipped, and the path to a full
+> Koka-style (typed-payload) system, which remains deferred.
 
 ## Goal
 
@@ -62,33 +65,67 @@ Validated by a standalone ssc0 spike (the three canonical cases):
 `TyCon("Comp", [r2,a2])` unifies `r1~r2` as rows and `a1~a2` as types. `appTy`/`occurs`/`freeTy`/
 `renameTy`/`showTyR` gain the three row cases; `freeTy` collects row variables for `let`-generalization.
 
-## Surface
+## Surface (as shipped)
 
-Effect operations must carry their label in the type, which the type system can't read from a runtime
-string — so operations come from a declaration:
+An effect operation must carry its effect **label** in the type, but the type system can't read a value
+out of a runtime string. So the label is a **string literal** in the surface and the type checker reads
+it at compile time. There are two general primitives — no per-effect declaration or compiler change:
 
 ```
-effect State get put in           -- declares effect `State` with operations get, put
-do { x <- get unit ; put (x + 1) ; get unit }    -- : Comp {State | ρ} Dyn
+perform "Eff" "op" arg                 -- perform operation "op" of effect "Eff"  : Comp {Eff | ρ} Dyn
+handle  "Eff" comp                     -- general DEEP handler (removes the label "Eff")
+        (fun v => …)                   --   value/return clause : a -> Comp ρ b
+        (fun op => fun arg => fun k => …)  -- operation clause; k = resume : Dyn -> Comp ρ b
 ```
 
-A declared operation `op` of effect `L` gets type `Dyn -> Comp {L | ρ} Dyn` (fresh `ρ` per use);
-its runtime is `Op "op" arg (fun r => Pure r)` over the universal `Comp`. `pure : a -> Comp ρ a`,
-`bind : Comp ρ a -> (a -> Comp ρ b) -> Comp ρ b`. A handler for `L` has type
-`Comp {L | ρ} a -> … -> Comp ρ b` (removes `L`); `run : Comp {} a -> a` demands the empty row, so a
-program with an unhandled effect is a **type error** — the guarantee effect rows buy.
+plus the monad combinators and do-notation:
+
+```
+pureE : a -> Comp ρ a
+bindE : Comp ρ a -> (a -> Comp ρ b) -> Comp ρ b
+runE  : Comp {} a -> a                 -- demands the EMPTY row: an unhandled effect is a TYPE ERROR
+doE { x <- m ; … ; result }            -- do-notation; desugars `<-` to bindE (the final stmt = result)
+```
+
+`perform "Eff" "op" arg : Comp {Eff | ρ} Dyn` (fresh `ρ` per use; payload `Dyn` — the light scope).
+`handle "Eff" comp ret op : Comp ρ b` reads the literal `"Eff"` to remove exactly that label from the
+row. At runtime the handler **forwards** operations of other effects (so handlers compose in any order),
+and because the resume `k` re-enters the handler it is a **deep** handler: it supports **multi-shot**
+resumption (call `k` zero / one / many times) and **parameterized / stateful** handlers (let the result
+type `b` be a function of the state). `runE` demands `{}`, so a program with any unhandled effect does
+not type-check — the guarantee effect rows buy.
+
+**Runtime representation.** The universal `Comp = Pure v | Op effectLabel (Pair op arg) (Dyn -> Comp)` —
+the `Op`'s label is the **effect** name (handlers match on it) and the operation name lives in the `Pair`
+payload (handlers dispatch on it). `__effHandle` / `__effBind` / `__effRun` are global helper defs emitted
+(once, when any effect is used) by `erase`; they are pure data folds, so multi-shot is just re-running an
+immutable `Comp`.
+
+**Convenience built-ins.** Two common effects ship as built-ins: `getE` / `putE` +
+`runStateE comp s0 : Comp ρ (Pair a Int)`, and `logE` + `runLogE comp : Comp ρ (Pair a [Dyn])`. These are
+conveniences, **not** a fixed capability set — `examples/hm-eff-userstate.hm` re-implements `runState`
+entirely in user source via the general `handle` (a parameterized handler), with the same result.
+
+**`let`-generalization of row variables.** A `let`-bound polymorphic handler quantifies over its row
+variable; instantiation must produce a fresh **row** variable, not an ordinary one. `appTy` / `renameTy`
+re-tag a freshened ordinary var as a row var at row positions (`asRow`) — without this a generic handler
+fails with `not an effect row`.
 
 ## Path to full (Koka-style) — deferred
 
 Add operation signatures to declarations (`effect State { get : () -> Int ; put : Int -> () }`); type
 `perform`/operations against them (no `Dyn`); type handlers' resume/return. This gives full payload
 safety on top of the tracking. It is a larger, multi-session effort (the rows are the shared core,
-already done here); deferred with the user's agreement.
+already done here); deferred with the user's agreement. Ergonomic sugar — `effect`/`handler` keywords
+over `perform`/`handle`, and `{}` / `{l | r}` row syntax in the *type* parser for user annotations —
+is also still open (optional).
 
 ## Components
 
 | Where | What |
 |---|---|
-| `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR |
-| `lib/ssct-hm-front.ssc0` | row syntax in the type parser (`{}` / `{l, …}` / `{l | r}`); `effect L ops in …` decl |
-| `examples/` | a `State` program that type-checks; an unhandled-effect program that is rejected |
+| `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle` |
+| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `doE` block (`parseDoStmts` parameterized by bind name); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
+| `lib/ssct-hm-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); appended by `progOf` when effects are used |
+| backends | `f.*`/`i.*` prims already present; effects need no new prim (they are plain `Comp` data) |
+| `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`); + unhandled-effect programs that are rejected |
