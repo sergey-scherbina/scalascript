@@ -468,5 +468,18 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       non-simple sub-patterns) is reused. `let (a,b)=(3,4)`, `let (a,b,c)=…`, `let (a,(b,c))=…`, and
       destructuring a function result all work on run-ir/JS/Rust. 0 infer/erase/backend change (pure
       front-end desugar to `MatchT`). No regression: `let x=e`, `let f x=e`, `let x:T=e`, `let rec` untouched.
-      conformance +5. (Other parser robustness gaps noted: `if` w/o else and float-literal patterns still
-      Java-crash rather than erroring cleanly; negative-literal *patterns* don't parse — lower priority.)
+      conformance +5. (Other parser robustness gaps noted: `if` w/o else still Java-crashes rather than
+      erroring cleanly — lower priority.)
+
+## K17 — literal patterns (negative + float)
+
+- [x] **K17.1 — negative-int / float / negative-float patterns.** Probed (2026-06-28): `match n { -1 => … }`
+      mis-parsed (`-` became `PWild`), and `match x { 2.5 => … }` **Java-crashed** (`parseAtomPat` had no
+      `TFloat` arm → "no arm for TFloat"). Fixed in `parseAtomPat`: `TFloat(s)` → `PLit(FloatLit s)`; a leading
+      `-` on a numeric literal → `PLit(Sub(0, Lit n))` (int) / `PLit(FloatLit("-"++s))` (float) — reusing the
+      same object-`Sub` trick as expression negative-literals (the ssc0 kernel has no infix `-`). `patStarts`
+      now also admits `TFloat`/`-` so these work as constructor sub-patterns too. `litCond` gained a `FloatLit`
+      arm → float patterns compile to `FEq` (float equality), not the Int-only 2-arg `Eq`; negative ints reuse
+      the generic `Eq(sv, Sub …)` `_`-case. `match n { 0 => .. | -1 => .. | -5 => .. }`, `match 2.5 { 2.5 => .. }`,
+      `match (0.0-2.5) { -2.5 => .. }` all green on run-ir/JS/Rust; positive int/str/bool/ctor/nested patterns
+      unchanged. Pure front-end (0 backend change). conformance +5.

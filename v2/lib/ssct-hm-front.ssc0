@@ -375,13 +375,16 @@ def parseBinders = (toks) =>
   }
 -- ── pattern parser (match arms): Pat = PVar | PWild | PLit lit | PCon con [Pat] ──
 -- supports nested constructors `Con (Sub a) b`, tuple patterns `(a, b)`, Int/String/Bool literals.
-def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => if isKeyword(x) then false else true case TNum(n) => true case TStr(s) => true case TPunct(p) => #seq(p, "(") case _ => false } case Nil => false }
+def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => if isKeyword(x) then false else true case TNum(n) => true case TFloat(s) => true case TStr(s) => true case TPunct(p) => chOr(#seq(p, "("), #seq(p, "-")) case _ => false } case Nil => false }
 def parseAtomPat = (toks) =>
   match toks { case Cons(t, rest) => match t {
     case TName(s)  => if #seq(s, "_") then Pair(PWild, rest) else if #seq(s, "true") then Pair(PLit(BoolLit(true)), rest) else if #seq(s, "false") then Pair(PLit(BoolLit(false)), rest) else if isUpperName(s) then Pair(PCon(s, Nil), rest) else Pair(PVar(s), rest)
     case TNum(n)   => Pair(PLit(Lit(n)), rest)
+    case TFloat(s) => Pair(PLit(FloatLit(s)), rest)
     case TStr(s)   => Pair(PLit(StrLit(s)), rest)
-    case TPunct(p) => if #seq(p, "(") then parseParenPat(rest) else Pair(PWild, rest)
+    case TPunct(p) => if #seq(p, "(") then parseParenPat(rest)
+                      else if #seq(p, "-") then (match rest { case Cons(t2, r2) => (match t2 { case TNum(n) => Pair(PLit(Sub(nextId(0), Lit(0), Lit(n))), r2) case TFloat(s) => Pair(PLit(FloatLit(#sconcat("-", s))), r2) case _ => Pair(PWild, rest) }) case Nil => Pair(PWild, rest) })
+                      else Pair(PWild, rest)
     } case Nil => Pair(PWild, Nil) }
 def parseAtomPats = (toks) => if patStarts(toks) then match parseAtomPat(toks) { case Pair(p, r) => match parseAtomPats(r) { case Pair(ps, r2) => Pair(Cons(p, ps), r2) } } else Pair(Nil, toks)
 def parseFullPat = (toks) =>           -- `Con atom*`  |  atom   (true/false are lowercase => not PCon)
@@ -500,6 +503,7 @@ def litCond = (sv, lit) => match lit {
     case Lit(n)      => Eq(sv, Lit(n))
     case StrLit(s)   => StrEq(sv, StrLit(s))
     case BoolLit(b)  => if b then sv else If(sv, BoolLit(false), BoolLit(true))
+    case FloatLit(s) => FEq(sv, FloatLit(s))
     case _           => Eq(sv, lit)
   }
 def litArmsChain = (sv, arms, elseBody) => match arms { case Nil => elseBody case Cons(arm, rest) => match arm {
