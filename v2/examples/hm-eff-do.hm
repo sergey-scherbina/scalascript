@@ -1,0 +1,1 @@
+runE (runStateE (doE { u <- putE (5 : Dyn) ; x <- getE ; pureE ((x : Int) + 100) }) 0)

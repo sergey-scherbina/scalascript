@@ -258,7 +258,13 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
       value `Pair(105, 5)` on run-ir / node / rustc — identical to the built-in `runStateE`. ZERO compiler
       change: it shows the general deep handler already covers stateful effects, not just the pure/multi-shot
       ones. conformance +4 (327 → 331).
-- [ ] **K10.4e.2 — remaining ergonomics (optional)** — `effect`/`handler` keyword sugar over `perform`/`handle`;
+- [x] **K10.4e.2 — `doE` do-notation for effects** — `doE { x <- m ; … ; result }` desugars `<-` to `bindE`
+      (and the final stmt is the result), so effect code reads top-to-bottom instead of nested `bindE (..)
+      (fun x => ..)`. The existing `do` (→ `bind`, used by Option / the K9 async `Comp`) is untouched —
+      `parseDoStmts` is now parameterized by the bind name. `examples/hm-eff-do.hm` (State) ⇒ `(Int, Int)` /
+      `Pair(105, 5)`; `examples/hm-eff-do-nondet.hm` uses `doE` in BOTH the handler body and the computation ⇒
+      `[Int]` / `[3,2,1,0]` — all on run-ir / node / rustc. conformance +7 (331 → 338).
+- [ ] **K10.4e.3 — remaining ergonomics (optional)** — `effect`/`handler` keyword sugar over `perform`/`handle`;
       row syntax `{}` / `{l | r}` in the type parser for user annotations; interp `eval` of the effect built-ins.
 
 OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.

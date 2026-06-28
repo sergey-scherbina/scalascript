@@ -61,7 +61,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), #seq(s, "do")), chOr(#seq(s, "method"), #seq(s, "instance"))))),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), chOr(#seq(s, "do"), #seq(s, "doE"))), chOr(#seq(s, "method"), #seq(s, "instance"))))),
        chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -315,19 +315,20 @@ def parseMatchE = (toks) =>                            -- after 'match':  scrut 
 -- do-notation:  do { x <- e ; ... ; result }  ->  bind e (fun x => ...) ; the last stmt is the result.
 -- `bind`/`pure` resolve to whatever is in scope — the prelude provides the Option monad by default.
 def isBindStmt = (toks) => match toks { case Cons(t1, r1) => match t1 { case TName(x) => match r1 { case Cons(t2, r2) => match t2 { case TPunct(p) => #seq(p, "<-") case _ => false } case Nil => false } case _ => false } case Nil => false }
-def parseDoStmts = (toks) =>
+def parseDoStmts = (toks, bn) =>                                              -- bn = the bind name: "bind" (do) or "bindE" (doE)
   if isBindStmt(toks) then
     match toks { case Cons(t1, r1) => match t1 {
         case TName(x) => match parseExpr(drop1(r1)) { case Pair(e, r2) =>     -- drop '<-'
-            match parseDoStmts(drop1(r2)) { case Pair(rest, r3) => Pair(App(App(Var("bind"), e), Lam(x, rest)), r3) } }   -- drop ';'
+            match parseDoStmts(drop1(r2), bn) { case Pair(rest, r3) => Pair(App(App(Var(bn), e), Lam(x, rest)), r3) } }   -- drop ';'
         case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
   else
     match parseExpr(toks) { case Pair(e, r2) =>
       match r2 { case Cons(t, rest) => match t {
-          case TPunct(p) => if #seq(p, ";") then match parseDoStmts(rest) { case Pair(restT, r3) => Pair(App(App(Var("bind"), e), Lam("_", restT)), r3) }
+          case TPunct(p) => if #seq(p, ";") then match parseDoStmts(rest, bn) { case Pair(restT, r3) => Pair(App(App(Var(bn), e), Lam("_", restT)), r3) }
                             else Pair(e, rest)                                 -- '}' : last stmt is the result
           case _ => Pair(e, r2) } case Nil => Pair(e, Nil) } }
-def parseDoBody = (toks) => parseDoStmts(drop1(toks))                          -- drop '{'
+def parseDoBody  = (toks) => parseDoStmts(drop1(toks), "bind")                 -- drop '{'
+def parseDoBodyE = (toks) => parseDoStmts(drop1(toks), "bindE")               -- doE: desugars `<-` to bindE (algebraic effects)
 def parseExpr = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -338,6 +339,7 @@ def parseExpr = (toks) =>
           else if #seq(s, "if") then parseIfE(rest)
           else if #seq(s, "match") then parseMatchE(rest)
           else if #seq(s, "do") then parseDoBody(rest)
+          else if #seq(s, "doE") then parseDoBodyE(rest)
           else parseOr(toks)
         case _ => parseOr(toks)
       }

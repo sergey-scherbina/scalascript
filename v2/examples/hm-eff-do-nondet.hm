@@ -1,0 +1,6 @@
+let runAll = fun comp =>
+  handle "Choose" comp
+    (fun v => pureE (cons v nil))
+    (fun o => fun a => fun k =>
+       doE { xs <- k (true : Dyn) ; ys <- k (false : Dyn) ; pureE (append xs ys) }) in
+runE (runAll (doE { b <- perform "Choose" "flip" (0 : Dyn) ; c <- perform "Choose" "flip" (0 : Dyn) ; pureE ((if (b : Bool) then 2 else 0) + (if (c : Bool) then 1 else 0)) }))

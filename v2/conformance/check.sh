@@ -932,6 +932,28 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/us.rs" -o "${TMPDIR:-/tmp}/us-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/us-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$USV" ]; then printf 'ok   %-26s => %s (rustc)\n' "user State handler -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-userstate Rust" "$got"; fail=1; fi
 fi
+echo "# K10.4e.2 — 'doE { x <- m ; .. }' do-notation for effects (desugars <- to bindE; the existing 'do' -> 'bind' is untouched)"
+chk_hm examples/hm-eff-do.hm '"(Int, Int)"'                           # doE State: put 5; get; return get+100
+DOV="Pair(105, 5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-do.hm > "${TMPDIR:-/tmp}/edo.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/edo.coreir" | tail -1)
+if [ "$got" = "$DOV" ]; then printf 'ok   %-26s => %s\n' "doE State -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do" "$got"; fail=1; fi
+chk_hm examples/hm-eff-do-nondet.hm '"[Int]"'                         # doE in BOTH the handler body and the computation (multi-shot)
+DNV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-do-nondet.hm > "${TMPDIR:-/tmp}/edn.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/edn.coreir" | tail -1)
+if [ "$got" = "$DNV" ]; then printf 'ok   %-26s => %s\n' "doE nondet -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do-nondet" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-do.hm > "${TMPDIR:-/tmp}/edo.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/edo.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$DOV" ]; then printf 'ok   %-26s => %s (node)\n' "doE State -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do JS" "$got"; fail=1; fi
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-do-nondet.hm > "${TMPDIR:-/tmp}/edn.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/edn.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$DNV" ]; then printf 'ok   %-26s => %s (node)\n' "doE nondet -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do-nondet JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-do.hm > "${TMPDIR:-/tmp}/edo.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/edo.rs" -o "${TMPDIR:-/tmp}/edo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/edo-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$DOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "doE State -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
