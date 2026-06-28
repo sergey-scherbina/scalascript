@@ -437,10 +437,25 @@ def alwaysQ      = (n) => true
 def finalDefault = (s) => defaultNum(s, #cell.get(pendingNum), alwaysQ)              -- top level: default ALL remaining
 def defaultPendingIn = (s, qs) => defaultNum(s, qs, isPending)                       -- at generalize: default the quantified Num vars
 def rebakeReg    = (s, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(id, ty) => Cons(Pair(id, appTy(s, ty)), rebakeReg(s, rest)) } }
--- resolve each DEFERRED method use (receiver now concrete via inlining+application) → register the instance impl by id
-def resolveMethods = (s, pend) => match pend { case Nil => 0 case Cons(p, rest) => match p { case Pair(id, mn) => match mn { case Pair(m, n) =>
-    match lookupInstance(m, typeName(appTy(s, TyVar(n)))) { case Some(impl) => let u = registerMethodImpl(id, impl) in resolveMethods(s, rest) case None => resolveMethods(s, rest) } } } }
-def resolveNum   = (s) => let s2 = finalDefault(s) in let z = #cell.set(tcReg, rebakeReg(s2, #cell.get(tcReg))) in let z2 = resolveMethods(s2, #cell.get(pendingMethods)) in s2
+-- type-check a resolved instance impl with the receiver type known, so the impl's OWN overloaded-op ids get
+-- resolved (else a deferred method whose impl uses `+`/`<`/… would erase those ops at the default Int → miscompile).
+-- (env = Nil: self-contained impls — arithmetic/comparison/constant — resolve; a prelude-using impl is skipped.)
+def checkImpl = (s, ctr, impl, ta) =>
+  match infer(Nil, ctr, s, impl) {
+    case ErrI(e) => ctr
+    case Ok3(s1, ti, c1) =>
+      match unify(s1, ti, TyFun(ta, TyVar(c1))) {
+        case Err(e) => #i.add(c1, 1)
+        case Ok(s2) => let z = #cell.set(tcReg, rebakeReg(finalDefault(s2), #cell.get(tcReg))) in #i.add(c1, 1)
+      }
+  }
+-- resolve each DEFERRED method use (receiver now concrete via inlining+application): type-check + register the impl
+def resolveMethods = (s, pend, ctr) => match pend { case Nil => 0 case Cons(p, rest) => match p { case Pair(id, mn) => match mn { case Pair(m, n) =>
+    let ta = appTy(s, TyVar(n)) in
+    match lookupInstance(m, typeName(ta)) {
+      case Some(impl) => let ctr2 = checkImpl(s, ctr, impl, ta) in let u = registerMethodImpl(id, impl) in resolveMethods(s, rest, ctr2)
+      case None => resolveMethods(s, rest, ctr) } } } }
+def resolveNum   = (s) => let s2 = finalDefault(s) in let z = #cell.set(tcReg, rebakeReg(s2, #cell.get(tcReg))) in let z2 = resolveMethods(s2, #cell.get(pendingMethods), 8000000) in s2
 def baseTag      = (t) => match t { case TyInt => "i" case TyBool => "b" case TyStr => "s" case TyFloat => "f" case _ => "?" }
 -- Show/Eq instances now store the resolved TYPE in tcReg; showableType says if a type has an instance:
 -- base types, lists of showable, and tuples (Pair/Triple) of showable. (general ADTs = follow-up)

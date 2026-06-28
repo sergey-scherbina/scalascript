@@ -1061,6 +1061,21 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$MPV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method poly -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   eager method still works => "; printf 'method sz in instance sz Int = fun n => n + 1 in instance sz Bool = fun b => 0 in sz 5' > "${TMPDIR:-/tmp}/eg.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/eg.hm" 2>/dev/null > "${TMPDIR:-/tmp}/eg.coreir"; egg=$(ssc run-ir "${TMPDIR:-/tmp}/eg.coreir" | tail -1); if [ "$egg" = "6" ]; then echo "6 (monomorphic, no sig)"; else echo "FAIL [$egg]"; fail=1; fi
+# SOUNDNESS: a deferred method whose instance impl uses an overloaded op (`<` on a Float) must type-check the impl so the op resolves (f.lt, not i.lt) — all 3 backends agree
+chk_hm examples/hm-method-poly-ops.hm '"(Int, Int)"'                  # instance impls use `<` on Int/Float
+MOV="Pair(200, 111)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-method-poly-ops.hm > "${TMPDIR:-/tmp}/mo.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/mo.coreir" | tail -1)
+if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s\n' "method poly (ops) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-method-poly-ops.hm > "${TMPDIR:-/tmp}/mo.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mo.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s (node)\n' "method poly (ops) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-method-poly-ops.hm > "${TMPDIR:-/tmp}/mo.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/mo.rs" -o "${TMPDIR:-/tmp}/mo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mo-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method poly (ops) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

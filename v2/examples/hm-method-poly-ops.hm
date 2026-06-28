@@ -1,0 +1,4 @@
+method cmp : Int in
+instance cmp Int = fun a => if a < 3 then 100 else 200 in
+instance cmp Float = fun x => if x < 3.0 then 111 else 222 in
+let f = fun x => cmp x in (f 5, f 2.5)
