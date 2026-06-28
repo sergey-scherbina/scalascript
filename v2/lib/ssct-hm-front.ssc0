@@ -256,6 +256,7 @@ def parseArm = (toks) =>
   match toks {
     case Cons(t, rest) => match t {
         case TName(con) => match parseBinders(rest) { case Pair(binders, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(MArm(con, binders, body), r3) } }
+        case TNum(n)    => match parseExpr(drop1(rest)) { case Pair(body, r3) => Pair(LitArm(Lit(n), body), r3) }   -- an Int literal pattern (drop '=>')
         case _ => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)
@@ -315,6 +316,19 @@ def mkMatch = (scrut, arms) =>
       if isVarArm(la) then match la { case MArm(x, binders, body) => Let(x, scrut, MatchT(Var(x), appendL(dropLast(arms), Cons(MArm("_", Nil, body), Nil)))) }
       else MatchT(scrut, arms)
   }
+-- desugar arm bodies (MArm or Int-literal LitArm)
+def dsArmsM = (arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm {
+    case MArm(con, binders, body) => Cons(MArm(con, binders, desugar(body)), dsArmsM(rest))
+    case LitArm(lit, body)        => Cons(LitArm(lit, desugar(body)), dsArmsM(rest)) } }
+def hasLitArm = (arms) => match arms { case Nil => false case Cons(a, rest) => match a { case LitArm(l, b) => true case _ => hasLitArm(rest) } }
+-- Int-literal match `match e { 0 => b0 | 1 => b1 | _ => bd }`  ->  let s = e in if s=0 then b0 else if s=1 then b1 else bd.
+-- The bound name is the trailing catch-all variable (a `x => …` arm) else "$lm" (un-lexable, can't clash).
+def litElse = (arms) => match lastArm(arms) { case Some(la) => match la { case MArm(c, b, body) => body case LitArm(l, body) => body } case None => Lit(0) }
+def litBindName = (arms) => match lastArm(arms) { case Some(la) => match la { case MArm(c, b, body) => if startsLower(c) then c else "$lm" case LitArm(l, body) => "$lm" } case None => "$lm" }
+def litArmsChain = (sv, arms, elseBody) => match arms { case Nil => elseBody case Cons(arm, rest) => match arm {
+    case LitArm(lit, body) => If(Eq(sv, lit), body, litArmsChain(sv, rest, elseBody))
+    case _                 => litArmsChain(sv, rest, elseBody) } }
+def desugarLitMatch = (scrut, arms) => let nm = litBindName(arms) in Let(nm, scrut, litArmsChain(Var(nm), dropLast(arms), litElse(arms)))
 def desugar = (t) =>
   match t {
     case Lit(n)          => Lit(n)
@@ -330,7 +344,7 @@ def desugar = (t) =>
     case If(c, x, y)     => If(desugar(c), desugar(x), desugar(y))
     case Let(x, e, b)    => Let(x, desugar(e), desugar(b))
     case LetRec(f, l, b) => LetRec(f, desugar(l), desugar(b))
-    case MatchT(scrut, arms) => mkMatch(desugar(scrut), dsArms(arms))
+    case MatchT(scrut, arms) => let da = dsArmsM(arms) in if hasLitArm(da) then desugarLitMatch(desugar(scrut), da) else mkMatch(desugar(scrut), da)
     case StrLit(str)     => StrLit(str)
     case Concat(a, b)    => Concat(desugar(a), desugar(b))
     case FloatLit(str)   => FloatLit(str)
@@ -394,7 +408,7 @@ def parseProgram = (toks) =>
 def removeStr = (x, xs) => match xs { case Nil => Nil case Cons(h, t) => if #seq(h, x) then removeStr(x, t) else Cons(h, removeStr(x, t)) }
 def removeAll = (xs, fvs) => match xs { case Nil => fvs case Cons(h, t) => removeAll(t, removeStr(h, fvs)) }
 def fvMember = (x, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else fvMember(x, t) }
-def fvArms = (arms) => match arms { case Nil => Nil case Cons(arm, r) => match arm { case MArm(con, binders, body) => appendL(removeAll(binders, freeVars(body)), fvArms(r)) } }
+def fvArms = (arms) => match arms { case Nil => Nil case Cons(arm, r) => match arm { case MArm(con, binders, body) => appendL(removeAll(binders, freeVars(body)), fvArms(r)) case LitArm(lit, body) => appendL(freeVars(body), fvArms(r)) } }
 def fvRec  = (fields) => match fields { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, e) => appendL(freeVars(e), fvRec(r)) } }
 def freeVars = (t) =>
   match t {
