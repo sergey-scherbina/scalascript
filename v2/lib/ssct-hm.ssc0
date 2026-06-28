@@ -438,6 +438,7 @@ def consOf = (name) =>
   else if #seq(name, "Tree") then Cons("Leaf", Cons("Node", Nil))
   else if #seq(name, "Pair") then Cons("Pair", Nil)
   else if #seq(name, "Triple") then Cons("Triple", Nil)
+  else if #seq(name, "Quad") then Cons("Quad", Nil)
   else consInReg(name, #cell.get(conReg))
 -- ── typeclass dictionary resolution: each method node carries a unique id (assigned at parse);
 -- infer resolves the instance from the operand type and records id -> instance-tag in tcReg;
@@ -495,6 +496,7 @@ def builtinCon = (name) =>
   else if #seq(name, "Right") then ConSig("Either", 2, Cons(TyVar(1), Nil))
   else if #seq(name, "Pair") then ConSig("Pair", 2, Cons(TyVar(0), Cons(TyVar(1), Nil)))
   else if #seq(name, "Triple") then ConSig("Triple", 3, Cons(TyVar(0), Cons(TyVar(1), Cons(TyVar(2), Nil))))
+  else if #seq(name, "Quad") then ConSig("Quad", 4, Cons(TyVar(0), Cons(TyVar(1), Cons(TyVar(2), Cons(TyVar(3), Nil)))))
   else if #seq(name, "Leaf") then ConSig("Tree", 1, Cons(TyVar(0), Nil))
   else if #seq(name, "Node") then ConSig("Tree", 1, Cons(TyCon("Tree", Cons(TyVar(0), Nil)), Cons(TyCon("Tree", Cons(TyVar(0), Nil)), Nil)))
   else ConSig("?", 0, Nil)
@@ -558,7 +560,7 @@ def showTyR = (t) => match t {
     case TyFloat    => "Float"
     case TyVar(n)   => #sconcat("t", #i->str(n))
     case TyList(e)  => #sconcat("[", #sconcat(showTyR(e), "]"))
-    case TyCon(nm, args) => if #seq(nm, "Pair") then #sconcat("(", #sconcat(showTup(args), ")")) else if #seq(nm, "Triple") then #sconcat("(", #sconcat(showTup(args), ")")) else match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
+    case TyCon(nm, args) => if #seq(nm, "Pair") then #sconcat("(", #sconcat(showTup(args), ")")) else if #seq(nm, "Triple") then #sconcat("(", #sconcat(showTup(args), ")")) else if #seq(nm, "Quad") then #sconcat("(", #sconcat(showTup(args), ")")) else match args { case Nil => nm case Cons(h, tl) => #sconcat(nm, #sconcat(" ", showArgs(args))) }
     case TyRec(fs)  => #sconcat("{", #sconcat(showRecF(fs), "}"))
     case TyFun(a, b) => #sconcat("(", #sconcat(showTyR(a), #sconcat(" -> ", #sconcat(showTyR(b), ")"))))
     case TyDyn      => "Dyn"
@@ -682,7 +684,7 @@ def vToStr  = (v) => match v {
     case BoolVal(b) => if b then "true" else "false"
     case StrVal(s)  => s
     case FloatVal(x) => #f->str(x)
-    case ConV(name, vals) => if #seq(name, "Pair") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else if #seq(name, "Triple") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else match vals { case Nil => name case Cons(h, t) => #sconcat(name, #sconcat("(", #sconcat(vsToStr(vals), ")"))) }
+    case ConV(name, vals) => if #seq(name, "Pair") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else if #seq(name, "Triple") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else if #seq(name, "Quad") then #sconcat("(", #sconcat(vsToStr(vals), ")")) else match vals { case Nil => name case Cons(h, t) => #sconcat(name, #sconcat("(", #sconcat(vsToStr(vals), ")"))) }
     case _ => "?"
   }
 def vsToStr = (vs) => match vs { case Nil => "" case Cons(v, rest) => match rest { case Nil => vToStr(v) case Cons(h, t) => #sconcat(vToStr(v), #sconcat(", ", vsToStr(rest))) } }

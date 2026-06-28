@@ -344,6 +344,13 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       (isEven/isOdd) ⇒ `Bool`/`true`; a 3-way `f→g→h→f` ⇒ `1`; all on run-ir / node / rustc. (The tree-walk
       interp `evalT` is `Stuck` for `LetRecM` — not conformance-exercised; effects run via the compile path.)
       conformance +5.
+- [x] **K12.2 — 4-tuples (Quad), fix silent truncation** — `(1, 2, 3, 4)` used to **silently drop the 4th
+      element** (the tuple builder made a `Triple` from the first 3) — a data-loss bug. Now `(a,b,c,d)` builds a
+      `Quad` (new built-in con, arity 4, added to `builtinCon`/showable/`showTyR`/value-show); arity ≥5 nests
+      the tail (`Quad(a,b,c,(d,e,…))`) so no element is lost. `mkTuple` + `mkTuplePat` extended. `(1,2,3,4)` ⇒
+      `(Int,Int,Int,Int)` / `Quad(1,2,3,4)`; `(a,b,c,d) => a+b+c+d` ⇒ `10`; a 5-tuple `(a,b,c,(d,e))` matches.
+      All 3 backends. conformance +5. (NOTE: ssct-hm match syntax is `pat => body | …` — NO `case` keyword;
+      var-catch-all and tuple patterns already worked.) Still open: **pattern guards** (`pat if cond => body`).
 
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.

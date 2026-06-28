@@ -1106,6 +1106,15 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "true" ]; then printf 'ok   %-26s => %s (rustc)\n' "mutual rec -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   3-way mutual rec         => "; printf 'let rec f = fun n => if n = 0 then 0 else g (n - 1) and g = fun n => if n = 0 then 1 else h (n - 1) and h = fun n => if n = 0 then 2 else f (n - 1) in f 7' > "${TMPDIR:-/tmp}/m3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/m3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/m3.coreir"; m3=$(ssc run-ir "${TMPDIR:-/tmp}/m3.coreir" | tail -1); if [ "$m3" = "1" ]; then echo "1 (f→g→h→f…)"; else echo "FAIL [$m3]"; fail=1; fi
+echo "# 4-TUPLES (Quad): `(a,b,c,d)` no longer silently truncates to Triple; 5+ nest the tail (no data loss)"
+echo -n "ok   4-tuple type            => "; printf '(1, 2, 3, 4)' > "${TMPDIR:-/tmp}/q.hm"; qt=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/q.hm" | tail -1); if [ "$qt" = '"(Int, Int, Int, Int)"' ]; then echo "(Int, Int, Int, Int)"; else echo "FAIL [$qt]"; fail=1; fi
+chk_hm examples/hm-quad.hm '"Int"'                                    # 4-tuple pattern (a, b, c, d) => sum
+ssc run bin/ssctc-hm.ssc0 examples/hm-quad.hm > "${TMPDIR:-/tmp}/q.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/q.coreir" | tail -1)
+if [ "$got" = "10" ]; then printf 'ok   %-26s => %s\n' "4-tuple pattern -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "quad" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-quad.hm > "${TMPDIR:-/tmp}/q.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/q.js" 2>/dev/null | tail -1); if [ "$got" = "10" ]; then printf 'ok   %-26s => %s (node)\n' "4-tuple -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "quad JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-quad.hm > "${TMPDIR:-/tmp}/q.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/q.rs" -o "${TMPDIR:-/tmp}/q-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/q-bin"); else got="(rustc err)"; fi; if [ "$got" = "10" ]; then printf 'ok   %-26s => %s (rustc)\n' "4-tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "quad Rust" "$got"; fail=1; fi; fi
+echo -n "ok   5-tuple no data loss     => "; printf 'match (1, 2, 3, 4, 5) { (a, b, c, (d, e)) => a + e }' > "${TMPDIR:-/tmp}/q5.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/q5.hm" 2>/dev/null > "${TMPDIR:-/tmp}/q5.coreir"; q5=$(ssc run-ir "${TMPDIR:-/tmp}/q5.coreir" | tail -1); if [ "$q5" = "6" ]; then echo "6 (nested, a+e)"; else echo "FAIL [$q5]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

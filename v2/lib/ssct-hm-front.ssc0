@@ -94,7 +94,15 @@ def parseListLit = (toks) =>
 def mkTuple = (elems) =>
   match elems { case Nil => ParseErr case Cons(a, r1) => match r1 {
       case Nil => a
-      case Cons(b, r2) => match r2 { case Nil => App(App(Var("Pair"), a), b) case Cons(cc, r3) => App(App(App(Var("Triple"), a), b), cc) }
+      case Cons(b, r2) => match r2 {
+        case Nil => App(App(Var("Pair"), a), b)
+        case Cons(cc, r3) => match r3 {
+          case Nil => App(App(App(Var("Triple"), a), b), cc)
+          case Cons(dd, r4) => match r4 {
+            case Nil => App(App(App(App(Var("Quad"), a), b), cc), dd)
+            case _   => App(App(App(App(Var("Quad"), a), b), cc), mkTuple(Cons(dd, r4)))
+          } }
+      }
     } }
 def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' e )* (stops at ')')
   match parseExpr(toks) { case Pair(e, r) =>
@@ -318,7 +326,7 @@ def parseFullPat = (toks) =>           -- `Con atom*`  |  atom   (true/false are
     case _        => parseAtomPat(toks) } case Nil => Pair(PWild, Nil) }
 def parseParenTuple = (toks) =>        -- after ',':  fullpat (',' fullpat)*  (stops at ')')
   match parseFullPat(toks) { case Pair(p, r) => match r { case Cons(t, rest) => match t { case TPunct(q) => if #seq(q, ",") then match parseParenTuple(rest) { case Pair(more, r2) => Pair(Cons(p, more), r2) } else Pair(Cons(p, Nil), r) case _ => Pair(Cons(p, Nil), r) } case Nil => Pair(Cons(p, Nil), Nil) } }
-def mkTuplePat = (ps) => match ps { case Cons(a, r1) => match r1 { case Cons(b, r2) => match r2 { case Nil => PCon("Pair", Cons(a, Cons(b, Nil))) case Cons(cc, r3) => PCon("Triple", Cons(a, Cons(b, Cons(cc, Nil)))) } case Nil => a } case Nil => PWild }
+def mkTuplePat = (ps) => match ps { case Cons(a, r1) => match r1 { case Cons(b, r2) => match r2 { case Nil => PCon("Pair", Cons(a, Cons(b, Nil))) case Cons(cc, r3) => match r3 { case Nil => PCon("Triple", Cons(a, Cons(b, Cons(cc, Nil)))) case Cons(dd, r4) => match r4 { case Nil => PCon("Quad", Cons(a, Cons(b, Cons(cc, Cons(dd, Nil))))) case _ => PCon("Quad", Cons(a, Cons(b, Cons(cc, Cons(mkTuplePat(Cons(dd, r4)), Nil))))) } } } case Nil => a } case Nil => PWild }
 def parseParenPat = (toks) =>          -- after '(':  fullpat (',' fullpat)* ')'
   match parseFullPat(toks) { case Pair(p1, r1) => match r1 { case Cons(t, r2) => match t { case TPunct(q) => if #seq(q, ",") then match parseParenTuple(r2) { case Pair(more, r3) => Pair(mkTuplePat(Cons(p1, more)), drop1(r3)) } else Pair(p1, drop1(r1)) case _ => Pair(p1, drop1(r1)) } case Nil => Pair(p1, Nil) } }
 -- downgrade a parsed pattern to the existing simple arm forms when possible (so simple matches are unchanged)
