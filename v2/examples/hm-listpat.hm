@@ -1,0 +1,1 @@
+let rec describe = fun xs => match xs { [] => 0 | [a] => a | [a, b] => a + b | Cons h t => h + describe t } in (describe ([] : [Int])) + (describe [10]) + (describe [3, 4]) + (describe [1, 1, 1, 1])

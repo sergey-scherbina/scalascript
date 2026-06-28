@@ -483,3 +483,14 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       the generic `Eq(sv, Sub …)` `_`-case. `match n { 0 => .. | -1 => .. | -5 => .. }`, `match 2.5 { 2.5 => .. }`,
       `match (0.0-2.5) { -2.5 => .. }` all green on run-ir/JS/Rust; positive int/str/bool/ctor/nested patterns
       unchanged. Pure front-end (0 backend change). conformance +5.
+
+## K18 — list bracket patterns
+
+- [x] **K18.1 — `[]`, `[a]`, `[a, b, …]` list patterns** in `match` (previously only `Cons`/`Nil` worked;
+      `[a, b]` gave "unbound variable"). New `parseListPat`/`parseListPatElems` parse a `[ … ]` pattern and
+      desugar to the nested `Cons`/`Nil` `PCon` chain (`[a,b]` → `PCon Cons [a, PCon Cons [b, PCon Nil []]]`),
+      so the existing match-compiler handles length-checking and binding. Wired into `parseAtomPat` (a `[` after
+      a pattern position) and `patStarts` (so list patterns nest inside ctor patterns). `[] => …`, `[a] => …`,
+      `[a,b] => …` and a `Cons h t` fallthrough all compose in one match; nested element patterns
+      (`[Some a, b]`) work. Pure front-end desugar (0 infer/erase/backend change). All green on run-ir/JS/Rust;
+      `Cons`/`Nil` patterns, list-literal exprs, tuple patterns unchanged. conformance +5.
