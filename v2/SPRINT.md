@@ -494,3 +494,15 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       `[a,b] => …` and a `Cons h t` fallthrough all compose in one match; nested element patterns
       (`[Some a, b]`) work. Pure front-end desugar (0 infer/erase/backend change). All green on run-ir/JS/Rust;
       `Cons`/`Nil` patterns, list-literal exprs, tuple patterns unchanged. conformance +5.
+
+## K19 — record destructuring
+
+- [x] **K19.1 — `let { f = v , … } = e in body`** (completes the destructuring story: K16 did tuples, this does
+      records). Desugars to `let $r = e in let v = $r.f in … in body` — i.e. one binding per field via the
+      existing type-directed `FieldGet`, so it is **order-independent** (binds by field name, not position) and
+      fully type-checked, with no new pattern node or match-compiler/infer/erase change. `parseLetE` dispatches a
+      leading `{` (after `let`) to `parseLetRecDestr`; `parseRecDestrFields` collects the `field = var` pairs and
+      `buildRecDestr` folds them into nested `Let`s over a fresh `$rd<n>` bound to `e` (so `e` is evaluated once).
+      `let {x=a, y=b} = r`, `{y=b, x=a}` (order-free), single-field, and destructuring a function's record result
+      all green on run-ir/JS/Rust. No regression: record literals + `.f` access, record update, tuple
+      destructure, plain `let` untouched. conformance +5.

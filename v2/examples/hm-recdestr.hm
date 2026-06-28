@@ -1,0 +1,1 @@
+let mk = fun n => {lo = n, hi = n * 10} in let {lo = a, hi = b} = mk 4 in let {x = p, y = q} = {x = 100, y = 200} in a + b + p + q

@@ -345,12 +345,35 @@ def parseLetDestructure = (r1) =>                     -- r1 is just after the op
     match parseExpr(drop1(r2)) { case Pair(e, r3) =>      -- drop '='
       match parseExpr(drop1(r3)) { case Pair(body, r5) => -- drop 'in'
         Pair(MatchT(e, Cons(armOfPat(pat, body), Nil)), r5) } } }
-def parseLetE = (toks) =>                             -- after 'let':  [rec] x '=' e 'in' body  |  (pat) '=' e 'in' body
+-- record destructuring:  `let { f = v , … } = e in body`  →  let $r = e in let v = $r.f in … in body
+-- (reuses the type-directed FieldGet for each field, so order-independent and fully checked)
+def parseRecDestrFields = (toks) =>                  -- field '=' var (',' …)* '}'  → list of Pair(field, var), rest at '}'
+  match toks { case Cons(t, rest) => match t {
+    case TName(fn) =>
+      match rest { case Cons(eq, r2) =>                 -- eq is '='
+        match r2 { case Cons(vt, r3) => match vt {
+          case TName(vn) =>
+            match r3 { case Cons(sep, r4) => match sep {
+                case TPunct(p) => if #seq(p, ",") then (match parseRecDestrFields(r4) { case Pair(more, r5) => Pair(Cons(Pair(fn, vn), more), r5) }) else Pair(Cons(Pair(fn, vn), Nil), r3)
+                case _ => Pair(Cons(Pair(fn, vn), Nil), r3) }
+              case Nil => Pair(Cons(Pair(fn, vn), Nil), Nil) }
+          case _ => Pair(Nil, toks) } case Nil => Pair(Nil, toks) }
+        case Nil => Pair(Nil, toks) }
+    case _ => Pair(Nil, toks) } case Nil => Pair(Nil, toks) }
+def buildRecDestr = (rv, pairs, body) => match pairs { case Nil => body
+    case Cons(pr, rest) => match pr { case Pair(fn, vn) => Let(vn, FieldGet(nextId(0), Var(rv), fn), buildRecDestr(rv, rest, body)) } }
+def parseLetRecDestr = (r1) =>                       -- r1 just after '{' :  field=var (,…)* '}' '=' e 'in' body
+  match parseRecDestrFields(r1) { case Pair(pairs, r) =>
+    match parseExpr(drop1(drop1(r))) { case Pair(e, r3) =>     -- drop '}' then '='
+      match parseExpr(drop1(r3)) { case Pair(body, r5) =>      -- drop 'in'
+        let rv = #sconcat("$rd", #i->str(nextId(0))) in
+        Pair(Let(rv, e, buildRecDestr(rv, pairs, body)), r5) } } }
+def parseLetE = (toks) =>                             -- after 'let':  [rec] x '=' e 'in' body | (pat) = e .. | {f=v..} = e ..
   match toks {
     case Cons(t, r1) =>
       match t {
         case TName(x) => if #seq(x, "rec") then parseLetRec(r1) else parseLetBind(mkLet, toks)
-        case TPunct(p) => if #seq(p, "(") then parseLetDestructure(r1) else Pair(ParseErr, Nil)
+        case TPunct(p) => if #seq(p, "(") then parseLetDestructure(r1) else if #seq(p, "{") then parseLetRecDestr(r1) else Pair(ParseErr, Nil)
         case _        => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)
