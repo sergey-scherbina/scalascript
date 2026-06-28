@@ -1149,6 +1149,16 @@ if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-neg.hm > "${TMPDIR:-/tmp}/neg.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/neg.rs" -o "${TMPDIR:-/tmp}/neg-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/neg-bin"); else got="(rustc err)"; fi; if [ "$got" = "14" ]; then printf 'ok   %-26s => %s (rustc)\n' "neg literal -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "neg literal Rust" "$got"; fail=1; fi; fi
 echo -n "ok   neg precedence + binary '-' => "; printf 'let n = -3 in n * -2' > "${TMPDIR:-/tmp}/ng2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ng2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/ng2.coreir"; ng2=$(ssc run-ir "${TMPDIR:-/tmp}/ng2.coreir" | tail -1); printf 'let f = fun a => a - 1 in f 10' > "${TMPDIR:-/tmp}/ng3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ng3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/ng3.coreir"; ng3=$(ssc run-ir "${TMPDIR:-/tmp}/ng3.coreir" | tail -1); if [ "$ng2" = "6" ] && [ "$ng3" = "9" ]; then echo "-3 * -2 = 6 ; binary a-1 still subtraction (=9)"; else echo "FAIL [$ng2 / $ng3]"; fail=1; fi
 
+echo "# LET ANNOTATION: 'let x : T = e in body' ascribes e to T (enforced, aids error localization)"
+chk_hm examples/hm-letann.hm '"[Int]"'                                # let x : Int = 5 in let xs : [Int] = [x,2,3] in xs
+LANN="Cons(5, Cons(2, Cons(3, Nil)))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-letann.hm > "${TMPDIR:-/tmp}/la.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/la.coreir" | tail -1)
+if [ "$got" = "$LANN" ]; then printf 'ok   %-26s => %s\n' "let annot -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "let annot" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-letann.hm > "${TMPDIR:-/tmp}/la.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/la.js" 2>/dev/null | tail -1); if [ "$got" = "$LANN" ]; then printf 'ok   %-26s => %s (node)\n' "let annot -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "let annot JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-letann.hm > "${TMPDIR:-/tmp}/la.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/la.rs" -o "${TMPDIR:-/tmp}/la-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/la-bin"); else got="(rustc err)"; fi; if [ "$got" = "$LANN" ]; then printf 'ok   %-26s => %s (rustc)\n' "let annot -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "let annot Rust" "$got"; fail=1; fi; fi
+echo -n "ok   let annot enforced + plain   => "; printf 'let x : Int = true in x' > "${TMPDIR:-/tmp}/la2.hm"; la2=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/la2.hm" | tail -1); printf 'let f x = x + 1 in f 9' > "${TMPDIR:-/tmp}/la3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/la3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/la3.coreir"; la3=$(ssc run-ir "${TMPDIR:-/tmp}/la3.coreir" | tail -1); if [ "$la2" = '"TypeError: type ascription mismatch"' ] && [ "$la3" = "10" ]; then echo "bad annot rejected ; fn-sugar 'let f x =' still works (=10)"; else echo "FAIL [$la2 / $la3]"; fail=1; fi
+
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)

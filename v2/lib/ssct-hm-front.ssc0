@@ -289,20 +289,38 @@ def parseFun = (toks) =>                              -- after 'fun':  x1 .. xn 
       }
   }
 
-def parseLetBind = (mk, toks) =>                      -- shared:  name param* '=' e 'in' body  ->  mk(name, fun param* => e, body)
+-- `name param* '=' e 'in' body`  (function-def sugar) -> mk(name, fun param* => e, body)
+def parseLetBindPlain = (mk, x, r1) =>
+  match parseBinders(r1) {                             -- collect 0+ params before '='
+    case Pair(ps, r2) =>
+      match parseExpr(drop1(r2)) {                     -- drop '='
+        case Pair(e, r3) =>
+          match parseExpr(drop1(r3)) {                 -- drop 'in'
+            case Pair(body, r5) => Pair(mk(x, mkLams(ps, e), body), r5)
+          }
+      }
+  }
+-- `name ': ' ty '=' e 'in' body`  ->  bound expr ascribed to ty (no params).  toks is at '='.
+def parseLetBindAsc = (mk, x, ty, toks) =>
+  match parseExpr(drop1(toks)) {                       -- drop '='
+    case Pair(e, r3) =>
+      match parseExpr(drop1(r3)) {                     -- drop 'in'
+        case Pair(body, r5) => Pair(mk(x, Ascribe(e, ty), body), r5)
+      }
+  }
+def parseLetBind = (mk, toks) =>                      -- shared:  name [': ' ty] param* '=' e 'in' body
   match toks {
     case Cons(t, r1) =>
       match t {
         case TName(x) =>
-          match parseBinders(r1) {                     -- collect 0+ params before '=' (function-def sugar)
-            case Pair(ps, r2) =>
-              match parseExpr(drop1(r2)) {             -- drop '='
-                case Pair(e, r3) =>
-                  match parseExpr(drop1(r3)) {         -- drop 'in'
-                    case Pair(body, r5) => Pair(mk(x, mkLams(ps, e), body), r5)
-                  }
-              }
-          }
+          (match r1 {
+            case Cons(tc, rc) =>
+              (match tc {
+                case TPunct(p) => if #seq(p, ":") then match parseAscType(rc) { case Pair(ty, r2) => parseLetBindAsc(mk, x, ty, r2) } else parseLetBindPlain(mk, x, r1)
+                case _ => parseLetBindPlain(mk, x, r1)
+              })
+            case Nil => parseLetBindPlain(mk, x, r1)
+          })
         case _ => Pair(ParseErr, Nil)
       }
     case Nil => Pair(ParseErr, Nil)

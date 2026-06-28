@@ -379,5 +379,13 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       is *not* an `atomStart`, so application args never grab it and binary `f - 5` / `a - 1` stay subtraction.
       `-x` / `-(e)` are still not negation (write `0 - x`). `-3 * -2` ⇒ `6`, `-5 + 3` ⇒ `-2`. Pure front-end
       desugar → all 3 backends unchanged. conformance +5.
+- [x] **K12.7 — let-binding type annotation** — `let x : T = e in body` ascribes the bound expr to `T`
+      (no params). `parseLetBind` now intercepts a `:` immediately after the binder name, parses the type with
+      the existing `parseAscType`, and wraps the bound expr in the existing `Ascribe(e, ty)` node (so the
+      annotation is *enforced* — `let x : Int = true` is rejected with "type ascription mismatch"). Refactored
+      into `parseLetBindPlain` (the old `name param* = e` path) + `parseLetBindAsc`. No regression: `let x = e`,
+      `let f x = e` (fn sugar — token after `f` is a name, not `:`), and `let rec` are untouched. Reuses the
+      `(e : T)` ascription machinery → 0 backend change. `let xs : [Int] = [1,2] in xs` works on all 3 backends.
+      conformance +5.
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.
