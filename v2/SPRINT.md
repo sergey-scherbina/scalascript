@@ -128,12 +128,46 @@ Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->
 - [x] **Float** (K6.1) — `TyFloat` + float literals (`3.14`) + float ops (`+. -. *. /.`, `<.` etc.) +
       `toFloat`/`floor`; add `f.*`/`i->f` to the JS + Rust genPrims. All 3 backends.
 - [x] **Tuples** (K6.2) — `(a, b)` (n-ary) + projections; `TyTup [t]`; erase → IrCtor("Tuple", …).
-- [ ] **Records** — `{x = e, y = e}` + field access `r.x`; closed structural record types.
+- [x] **Records** (K6.5) — `{x = e, y = e}` + field access `r.x`; closed structural record types.
 - [x] **Polymorphic `show` (Show typeclass)** (K6.3) — one generic structural renderer via `tagOf`/`arity`/`fieldAt`
       (+ those prims in JS/Rust gen); `show` works on any type, same output everywhere.
 - [x] **Polymorphic `eq`/`compare` (Eq/Ord)** (K6.4) — generic structural equality + ordering via reflection;
       makes equality/ordering work on any type, consistent across VM/JS/Rust.
-- [ ] **Real typeclasses** — `class`/`instance` declarations + dictionary passing (constraints
-      in the inferred type, dict params at generalization, dict args at instantiation); the
-      `ssct` elaboration model lifted into HM. Start: `Eq`/`Ord`/`Show`, then user classes.
-- [ ] **do-notation / effects** in the typed surface (effects already exist untyped).
+- [x] **User typeclasses** (K6.12) — `method m` + `instance m T = impl`, resolved monomorphically by the
+      argument's type-head. (Full dictionary-passing with constraints-in-the-type is a deferred research
+      item, same class as effect-rows below.)
+- [x] **More surface features** (K6.13–K6.28, this batch) — boolean `&& || not`; string ops `strLen/charAt/
+      substr`; currying (`fun x y =>`, `let f x y =`); pattern matching: wildcard `_`, variable catch-all,
+      Int/String/Bool literals, **nested patterns** (backtracking compiler) + list `Cons`/`Nil`; `//`
+      comments; **monadic do-notation**; **type ascription** `(e : T)`; a 32-function auto-injected prelude.
+      Conformance 161 → 277, all 3 backends.
+
+## K7 — Typed algebraic effects in the ssct-hm surface
+
+Bring ssc 1.0's signature feature — algebraic effects + handlers (one-shot AND multi-shot) — into the
+TYPED surface, all 3 backends. The untyped library (`lib/effects.ssc0`, `Comp = Pure | Op(label,arg,
+resume)`) already proves the mechanism on the VM. The blocker is that `Op`'s `arg`/`resume`-reply are
+existential. Two complementary tracks (chosen design; full effect-row inference deferred as research):
+
+Track P — **type-safe per-effect free monads** (no `Dyn`, no existentials): each effect is a free monad
+over its own functor = a plain user `data` type with **function-typed fields**.
+- [ ] **P1. function types in data fields** — `data F a = Op (Int -> F a) | Ret a`; `parseFieldType`
+      accepts `->` (right-assoc, `TyFun`). Function-in-ctor-field already runs at runtime; this enables it
+      at the type level. All 3 backends.
+- [ ] **P2. State effect (one-shot)** — `data StateF a = Ret a | Get (Int -> StateF a) | Put Int (StateF a)`
+      + `get`/`put` + `bindS`/`pureS` + `runState : StateF a -> Int -> Pair a Int`; via do-notation. Typed
+      end-to-end (e.g. `get; put (get+1); …` ⇒ `Pair(2,2)`-style). All 3 backends.
+- [ ] **P3. Nondeterminism (MULTI-SHOT)** — `data NondetF a = Ret a | Choose [Int] ([Int]? )` (choose +
+      runAll collecting every branch); verify multi-shot resume on run-ir / node / rust.
+
+Track E — **universal `Comp` via a localized `Dyn` escape-hatch** (option B): one monad for all effects.
+- [ ] **E1. `Dyn` type** — `TyDyn`, unifies with any type (both directions); surface type `Dyn`;
+      ascription round-trip `((x : Dyn) : Int)`. The single, documented unsafe escape-hatch.
+- [ ] **E2. universal `Comp` + `perform`/`pure`/`bind` + a multi-op handler** using `Dyn` payloads;
+      typed operation wrappers (`get : Comp Int`, …) so user code stays type-safe.
+
+- [ ] **DOC/CONF** — `specs/50-effects.md` (typed-surface section) + `specs/41-ssct-hm.md`; conformance for
+      State (one-shot) + Nondeterminism (multi-shot), both tracks, all backends.
+
+OPEN (deferred, research): **full effect-row inference** — `Comp` tracks WHICH effects (row polymorphism,
+Koka/Frank style). Disproportionate for the ~430-line inferrer; Track P already types effects per-effect.
