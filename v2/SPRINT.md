@@ -363,5 +363,13 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       on emit (`escapeStr` in emit, shared) so the generated source is valid; the Core IR already round-trips
       special chars (kernel `strLit`/`readString`), so run-ir needed no change. `strLen "a\nb\tc"` ⇒ `5`;
       `strLen "x\"y"` ⇒ `3`. All 3 backends. conformance +5.
+- [x] **K12.5 — record update** — `{ r with f = v , … }` builds a new record like `r` with field `f`
+      replaced (multiple fields chain into nested `RecUpd`). New `RecUpd(id, rc, field, val)` node (mirrors
+      `FieldGet` across desugar/freeVars/inline/freshen/subst/containsNumOp); infer is type-directed — `r` must
+      be a `TyRec` with the field, `val` is checked against the field's type, result = `r`'s type; erase
+      matches `r` once (binding all `ar` fields) and rebuilds `__rec` with field `idx` replaced (`recUpdFields`
+      + `prependN` to shift the value's scope past the `ar` field binders). `with` is a keyword.
+      `{r with x = 9}` then `r2.x + r2.y` ⇒ `11`; `{r with x=9, y=8}` ⇒ `17`; `{r with z = …}` rejected. All 3
+      backends (records are generic `__rec` Data → no backend change). conformance +5.
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.

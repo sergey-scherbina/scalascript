@@ -9,6 +9,9 @@ def lenB  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenB(t
 def mapErase = (scope, ts) => match ts { case Nil => Nil case Cons(t, rest) => Cons(erase(scope, t), mapErase(scope, rest)) }
 -- prepend binders so the LAST one is de Bruijn index 0 (kernel arm convention: first field = highest index)
 def prependAll = (xs, scope) => match xs { case Nil => scope case Cons(x, rest) => prependAll(rest, Cons(x, scope)) }
+def prependN   = (n, nm, scope) => if #i.le(n, 0) then scope else prependN(#i.sub(n, 1), nm, Cons(nm, scope))   -- prepend n dummies (record-update arm binds n fields, shifting outer vars)
+def recUpdFields = (j, ar, idx, armScope, newVal) =>   -- field j: the new value at idx, else the bound field (de Bruijn ar-1-j)
+  if #i.ge(j, ar) then Nil else Cons(if #i.eq(j, idx) then erase(armScope, newVal) else IrLocal(#i.sub(#i.sub(ar, 1), j)), recUpdFields(#i.add(j, 1), ar, idx, armScope, newVal))
 def eraseBindLams = (sc, bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => Cons(erase(sc, l), eraseBindLams(sc, r)) } }   -- erase each LetRecM lam in the shared rec scope
 def bindNamesE = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => Cons(nm, bindNamesE(r)) } }   -- names of LetRecM binds (local to emit: emit-only fixtures don't import front)
 def mapEraseArms = (scope, arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => Cons(IrArm(con, lenB(binders), erase(prependAll(binders, scope), body)), mapEraseArms(scope, rest)) } }
@@ -75,6 +78,8 @@ def erase = (scope, term) =>
     case RecLit(fields)  => IrCtor("__rec", eraseRecF(scope, fields))      -- a record value: a __rec Data in field order
     case FieldGet(id, rc, name) =>                                        -- field extract at the index resolved by infer
       match fieldOf(id) { case Pair(idx, ar) => IrMatch(erase(scope, rc), Cons(IrArm("__rec", ar, IrLocal(#i.sub(#i.sub(ar, 1), idx))), Nil), None) }
+    case RecUpd(id, rc, name, newVal) =>                                  -- match rc once (binds all ar fields), rebuild __rec with field idx replaced
+      match fieldOf(id) { case Pair(idx, ar) => IrMatch(erase(scope, rc), Cons(IrArm("__rec", ar, IrCtor("__rec", recUpdFields(0, ar, idx, prependN(ar, "$ru", scope), newVal))), Nil), None) }
     case MethodCall(id, m, arg) => IrApp(erase(scope, methodImplOf(id)), Cons(erase(scope, arg), Nil))   -- apply resolved instance impl
     case Ascribe(e, ty) => erase(scope, e)                               -- ascription is erased
     -- effect rows (K10.4b): lower to the universal Comp (Pure | Op) + global helpers

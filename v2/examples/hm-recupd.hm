@@ -1,0 +1,1 @@
+let r = {x = 1, y = 2} in let r2 = {r with x = 9} in r2.x + r2.y

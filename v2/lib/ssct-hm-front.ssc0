@@ -65,7 +65,7 @@ def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
   chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), chOr(#seq(s, "do"), #seq(s, "doE"))), chOr(chOr(#seq(s, "method"), #seq(s, "effect")), #seq(s, "instance"))))),
-       chOr(chOr(chOr(#seq(s, "in"), #seq(s, "if")), #seq(s, "and")), chOr(#seq(s, "then"), #seq(s, "else"))))
+       chOr(chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "and"), #seq(s, "with"))), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
   match t {
@@ -155,7 +155,19 @@ def parseRecField = (toks) =>
   match toks { case Cons(t, rest) => match t { case TName(nm) => match parseExpr(drop1(rest)) { case Pair(e, r) => Pair(Pair(nm, e), r) } case _ => Pair(Pair("?", ParseErr), Nil) } case Nil => Pair(Pair("?", ParseErr), Nil) }
 def parseRecFields = (toks) =>
   match parseRecField(toks) { case Pair(fld, r) => match r { case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, ",") then match parseRecFields(rest) { case Pair(more, r2) => Pair(Cons(fld, more), r2) } else Pair(Cons(fld, Nil), r) case _ => Pair(Cons(fld, Nil), r) } case Nil => Pair(Cons(fld, Nil), Nil) } }
-def parseRecord = (toks) => match parseRecFields(toks) { case Pair(fields, r) => Pair(RecLit(fields), drop1(r)) }   -- drop '}'
+-- record update:  { rname 'with' field = val (',' field = val)* }  → nested RecUpd  (rname is a single variable)
+def isRecUpdate = (toks) => match toks { case Cons(t1, r1) => match r1 { case Cons(t2, r2) => match t2 { case TName(w) => #seq(w, "with") case _ => false } case Nil => false } case Nil => false }
+def parseRecUpdFields = (rexpr, toks) =>               -- field = val (',' field = val)* '}'  → fold into nested RecUpd
+  match toks { case Cons(t, rest) => match t {
+      case TName(fn) => match parseExpr(drop1(rest)) { case Pair(v, r2) =>      -- drop '='
+          let upd = RecUpd(nextId(0), rexpr, fn, v) in
+          match r2 { case Cons(t2, r3) => match t2 { case TPunct(p) => if #seq(p, ",") then parseRecUpdFields(upd, r3) else Pair(upd, r2) case _ => Pair(upd, r2) } case Nil => Pair(upd, Nil) } }
+      case _ => Pair(rexpr, toks) } case Nil => Pair(rexpr, Nil) }
+def parseRecUpdate = (toks) =>                          -- rname 'with' ... '}'
+  match toks { case Cons(t, rest) => match t { case TName(rname) =>
+      match parseRecUpdFields(Var(rname), drop1(rest)) { case Pair(upd, r) => Pair(upd, drop1(r)) }   -- drop 'with', then '}'
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+def parseRecord = (toks) => if isRecUpdate(toks) then parseRecUpdate(toks) else match parseRecFields(toks) { case Pair(fields, r) => Pair(RecLit(fields), drop1(r)) }   -- drop '}'
 def parseAtom = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -521,6 +533,7 @@ def desugar = (t) =>
     case FloatLit(str)   => FloatLit(str)
     case RecLit(fields)  => RecLit(dsRecFields(fields))
     case FieldGet(id, rc, name) => FieldGet(id, desugar(rc), name)
+    case RecUpd(id, rc, name, v) => RecUpd(id, desugar(rc), name, desugar(v))
     case Ascribe(e, ty) => Ascribe(desugar(e), ty)
   }
 def dsRecFields = (fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, desugar(e)), dsRecFields(rest)) } }
@@ -636,6 +649,7 @@ def freeVars = (t) =>
     case MatchT(scrut, arms) => appendL(freeVars(scrut), fvArms(arms))
     case RecLit(fields)  => fvRec(fields)
     case FieldGet(id, rc, name) => freeVars(rc)
+    case RecUpd(id, rc, name, v) => appendL(freeVars(rc), freeVars(v))
     case Ascribe(e, ty) => freeVars(e)
     case _               => Nil
   }
@@ -711,6 +725,7 @@ def freshenIds = (t) => match t {                      -- deep copy, reassigning
     case MatchT(s, arms) => MatchT(freshenIds(s), freshenArms(arms))
     case RecLit(fs)      => RecLit(freshenRec(fs))
     case FieldGet(id, rc, n) => FieldGet(nextId(0), freshenIds(rc), n)
+    case RecUpd(id, rc, n, v) => RecUpd(nextId(0), freshenIds(rc), n, freshenIds(v))
     case Ascribe(e, ty)  => Ascribe(freshenIds(e), ty)
     case _               => t
   }
@@ -738,6 +753,7 @@ def substVar = (nm, repl, t) => match t {              -- replace FREE Var(nm) w
     case MatchT(s, arms) => MatchT(substVar(nm, repl, s), substArms(nm, repl, arms))
     case RecLit(fs)      => RecLit(substRec(nm, repl, fs))
     case FieldGet(id, rc, n) => FieldGet(id, substVar(nm, repl, rc), n)
+    case RecUpd(id, rc, n, v) => RecUpd(id, substVar(nm, repl, rc), n, substVar(nm, repl, v))
     case Ascribe(e, ty)  => Ascribe(substVar(nm, repl, e), ty)
     case _               => t
   }
@@ -762,6 +778,7 @@ def containsNumOp = (t) => match t {                   -- does the term use an o
     case MatchT(s, arms) => or2(containsNumOp(s), cnoArms(arms))
     case RecLit(fs)      => cnoRec(fs)
     case FieldGet(id, rc, n) => containsNumOp(rc)
+    case RecUpd(id, rc, n, v) => or2(containsNumOp(rc), containsNumOp(v))
     case Ascribe(e, ty)  => containsNumOp(e)
     case _               => false
   }
@@ -791,6 +808,7 @@ def inlineClosed = (t) => match t {
     case MatchT(s, arms) => MatchT(inlineClosed(s), inlineArms(arms))
     case RecLit(fs)      => RecLit(inlineRec(fs))
     case FieldGet(id, rc, n) => FieldGet(id, inlineClosed(rc), n)
+    case RecUpd(id, rc, n, v) => RecUpd(id, inlineClosed(rc), n, inlineClosed(v))
     case Ascribe(e, ty)  => Ascribe(inlineClosed(e), ty)
     case _               => t
   }

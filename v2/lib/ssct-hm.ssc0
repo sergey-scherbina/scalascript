@@ -265,6 +265,16 @@ def infer = (env, c, s, term) =>
               case None => ErrI(#sconcat("record has no field ", name))
               case Some(pr) => match pr { case Pair(idx, ft) => let u = registerField(id, idx, lenRec(fields)) in Ok3(s1, ft, c1) } }
           case _ => ErrI("field access on a non-record") } }
+    case RecUpd(id, rc, name, newVal) =>                                  -- { rc with name = newVal } : a new record like rc, field name replaced
+      match infer(env, c, s, rc) { case ErrI(m) => ErrI(m) case Ok3(s1, tr, c1) =>
+        match appTy(s1, tr) {
+          case TyRec(fields) => match findField(fields, name, 0) {
+              case None => ErrI(#sconcat("record has no field ", name))
+              case Some(pr) => match pr { case Pair(idx, ft) =>
+                match infer(env, c1, s1, newVal) { case ErrI(m) => ErrI(m) case Ok3(s2, tv, c2) =>
+                  match unify(s2, tv, ft) { case Err(m) => ErrI(#sconcat("record-update value type mismatch for field ", name)) case Ok(s3) =>
+                    let u = registerField(id, idx, lenRec(fields)) in Ok3(s3, appTy(s3, tr), c2) } } } }
+          case _ => ErrI("record update on a non-record") } }
     case Ascribe(e, ty) =>                                             -- (e : ty) : unify e's type with the annotation
       match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
         match unify(s1, te, ty) { case Err(m) => ErrI("type ascription mismatch") case Ok(s2) => Ok3(s2, appTy(s2, ty), c1) } }
@@ -653,11 +663,13 @@ def evalT = (env, t) =>
     case CmpM(id, a, b) => IntVal(valCmp(evalT(env, a), evalT(env, b)))
     case RecLit(fields) => RecVal(evalRecF(env, fields))
     case FieldGet(id, rc, name) => match evalT(env, rc) { case RecVal(fs) => lookupField(fs, name) case _ => Stuck }
+    case RecUpd(id, rc, name, v) => match evalT(env, rc) { case RecVal(fs) => RecVal(updField(fs, name, evalT(env, v))) case _ => Stuck }
     case Ascribe(e, ty) => evalT(env, e)                                  -- ascription is erased at runtime
     case MethodCall(id, m, arg) => applyV(evalT(env, methodImplOf(id)), evalT(env, arg))   -- apply the resolved impl
   }
 def evalRecF = (env, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, evalT(env, e)), evalRecF(env, rest)) } }
 def lookupField = (fs, name) => match fs { case Nil => Stuck case Cons(p, rest) => match p { case Pair(k, v) => if #seq(k, name) then v else lookupField(rest, name) } }
+def updField    = (fs, name, nv) => match fs { case Nil => Nil case Cons(p, rest) => match p { case Pair(k, ov) => if #seq(k, name) then Cons(Pair(k, nv), updField(rest, name, nv)) else Cons(Pair(k, ov), updField(rest, name, nv)) } }
 def boolEq = (a, b) => if a then b else (if b then false else true)
 def valEq = (x, y) => match x {
     case IntVal(a)   => match y { case IntVal(b) => #i.eq(a, b) case _ => false }
