@@ -389,3 +389,44 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       conformance +5.
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.
+
+## K13 — non-closed qualified types via dictionary passing (the one substantial remaining feature)
+
+Status of qualified types today: the **closed** case is DONE (K11.3 light qualified types) — a polymorphic
+helper whose whole body is visible is `inlineClosed`-unfolded (fresh ids per copy) and its overloaded
+numerics / user-method calls are **deferred** (`pendingNum` / `methodSigReg`) and resolved per concrete use,
+impls type-checked → sound. What's missing is the **non-closed** case: a top-level polymorphic binding used at
+several concrete types **without** inlining (recursive, large, or exported across a module boundary). That
+needs real **dictionary passing** (spec `specs/55-qualified-types.md`). The values stay concretely typed; only
+the *operations* are passed, so a `Num`/`Ord` dict is just a **type-tag string** + global tag-dispatch helpers.
+
+⚠️ This is a DEEP, PERVASIVE inferrer change (probed 2026-06-28), NOT a tail-of-session slice — do it as a
+focused effort, gate conformance after EACH slice. Key cost: `Forall(qs, ty)` must gain a constraints field
+→ touched at ~15+ sites (`generalize`, `instantiate`, `freeEnv`, `envWithRecVars`, every `Forall(Nil, …)` in
+`infer`). `pendingNum` is today's Num-only side-channel — the seed of the constraint set, extend it.
+
+- [ ] **K13.1 — constraint set in `infer`** (BEHAVIOR-NEUTRAL). `Constraint(className, var)`. Thread a
+      constraint set (reuse/extend the `pendingNum` cell). At an overloaded op / `method` use on a still-
+      unresolved var `a`, record `Num a` / `Ord a` instead of eagerly defaulting; id-tag the node, record
+      "tag from var `a`" in `tcReg`. Top-level still defaults `Num→Int` (so conformance is unchanged). Land
+      green with NO observable change — this is pure machinery.
+- [ ] **K13.2 — `Forall(qs, constraints, ty)`** (BEHAVIOR-NEUTRAL). `generalize` quantifies constrained vars
+      and keeps the constraints mentioning them; `instantiate` freshens both (adds fresh constraints to the
+      current set); a constraint whose var resolves to a concrete type is **discharged** (verify Int·Float is
+      `Num`); one still unresolved at the top is **defaulted** (`Num→Int`) — preserves today's behaviour for
+      every monomorphic program exactly. Update all `Forall(Nil, …)` → `Forall(Nil, Nil, …)`. Still green.
+- [ ] **K13.3 — dict-passing erase for built-in `Num`** (FIRST OBSERVABLE WIN). A `let`-bound value with `k`
+      constraints erases to a lambda with `k` leading dict params (prepend names to `scope` so de Bruijn auto-
+      adjusts). A constrained op erases to a dict application `__nadd(tag, a, b)` (global helpers
+      `__nadd("Int",x,y)=i.add` / `__nadd("Float",x,y)=f.add`, similarly sub/mul/div/lt). Every call supplies
+      the dict: a **literal tag** if the type arg is concrete, else the **enclosing dict param** (via `scope`).
+      Backends unchanged (dicts are plain strings, `__n*` ordinary globals). Demo: `twice` used at Int AND
+      Float in the same program (the case inlining can't do across a recursive/exported binding).
+- [ ] **K13.4 — extend to `Ord` + user classes.** `Ord` dict (compare/lt). User classes need method
+      **signatures** (`method compare : a -> a -> Int`) so a polymorphic use has a known result type; the dict
+      is a **record of the instance's impls**. Generic `min3` over a user `Ord`.
+- [ ] **K13.5 — demo + conformance.** `twice` at Int & Float; generic `min3` over user `Ord`; `r*r*pi`
+      unanchored (stays `Num a ⇒` then defaults). Type + all 3 backends, mirror the existing chk_hm pattern.
+
+Designed-but-larger (not blocked): **typed handler resumes** (per-op typed resume, `specs/54`) — current
+effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separate focused effort.
