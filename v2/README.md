@@ -11,8 +11,8 @@ Scope the hand-written, **permanent Scala kernel** to *host the self-compiler* �
 the whole language. Everything else is an `.ssc0` program compiled to a tiny untyped bytecode
 (**Core IR**) the kernel runs. Result: the kernel is **frozen at 913 lines of Scala**, and
 across this entire project it grew by exactly **one primitive** (`coreir.encode`). Everything
-below is **~1900 lines of ssc0** on top of it — including a full Hindley-Milner typed
-language with user data types, all compiling to three backends.
+below is **~2500 lines of ssc0** on top of it — including a feature-complete Hindley-Milner
+typed language (typeclasses, records, pattern matching, a prelude) compiling to three backends.
 
 ```
 ssc0 source ──► ir (bytecode) ──► ssc (VM: compile-to-closures + trampoline) ──► cpu
@@ -28,7 +28,7 @@ ssc0 source ──► ir (bytecode) ──► ssc (VM: compile-to-closures + tra
 | **kernel** (compiler + VM + ssc0 front + `coreir.encode`) | `src/*.scala`, **frozen 913 LOC** | untyped Core IR ([`10-core-ir`](specs/10-core-ir.md)), a compile-to-closures VM with a trampoline (constant-stack TCO), the ssc0 lexer/parser/lower, and canonical IR serialization |
 | **self-hosting compiler** | `lib/ssc0c.ssc0` (+ `loader.ssc0`) | the ssc0 compiler **written in ssc0**; compiles itself byte-for-byte (single- and **multi-file** fixpoints) — [`20-bootstrap`](specs/20-bootstrap.md) |
 | **typed layer `ssct`** | `lib/ssct*.ssc0` | a typed lambda calculus: type checker, textual `.ssct` surface (lexer+parser in ssc0), erase-to-ir, and **typeclasses resolved by the typer** — [`40`](specs/40-typer-as-library.md), [`52`](specs/52-typeclasses.md) |
-| **typed language `ssct-hm`** | `lib/ssct-hm*.ssc0` | a **Hindley-Milner inferred** functional language: type inference + let-polymorphism, recursion, Int/Bool/String, polymorphic lists `[a]`, **user `data` types + pattern matching** — written as source text, compiled to **VM / JS / native Rust** — [`41`](specs/41-ssct-hm.md) |
+| **typed language `ssct-hm`** | `lib/ssct-hm*.ssc0` | a **feature-complete Hindley-Milner** functional language: inference + let-polymorphism, recursion + currying, Int/Bool/String/**Float**, polymorphic lists `[a]`, **tuples**, **records**, **user `data` types**, pattern matching (constructor / wildcard `_` / variable / **Int·String·Bool literals**), built-in **Show/Eq/Ord** + **user `method`/`instance` typeclasses**, an auto-injected **standard prelude** (map/filter/fold/…), `//` comments — written as source text, compiled to **VM / JS / native Rust** — [`41`](specs/41-ssct-hm.md) |
 | **effects** | `lib/effects.ssc0` | algebraic effects + handlers, incl. **multi-shot** continuations — [`50`](specs/50-effects.md) |
 | **concurrency** | `lib/async.ssc0`, `lib/actors.ssc0` | a cooperative scheduler (yield/fork) and the actor model — [`51`](specs/51-async.md), [`53`](specs/53-actors.md) |
 | **backends** | `lib/backend-js.ssc0`, `lib/backend-rust.ssc0` | `ir → JS` and `ir → Rust`, both TCO-correct and multi-file — [`60`](specs/60-backend-js.md), [`61`](specs/61-backend-rust.md) |
@@ -72,7 +72,7 @@ v2/
               backend-js, backend-rust, loader, list, string, option
   bin/        ssc0 drivers (ssc0c, ssct, ssctc, ssc0-js, ssc0-rust)
   examples/   runnable .ssc0 / .ssct programs
-  conformance/ ir fixtures + check.sh (one jar, ~60 checks across every layer & target)
+  conformance/ ir fixtures + check.sh (one jar, 250+ checks across every layer & target)
   specs/      00-overview · 10-core-ir · 12-ir-format · 15-ssc0 · 20-bootstrap ·
               40-typer · 50-effects · 51-async · 52-typeclasses · 53-actors · 60/61-backends
 ```
