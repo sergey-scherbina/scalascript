@@ -971,6 +971,29 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/edo.rs" -o "${TMPDIR:-/tmp}/edo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/edo-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$DOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "doE State -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do Rust" "$got"; fail=1; fi
 fi
+echo "# K11.1 — 'effect Name op1 op2 in …' declaration sugar: 'op arg' => perform (no string literals)"
+chk_hm examples/hm-eff-decl.hm '"(Int, Int)"'                         # effect State get put in … (get/put as declared ops)
+EDV="Pair(105, 5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-decl.hm > "${TMPDIR:-/tmp}/edl.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/edl.coreir" | tail -1)
+if [ "$got" = "$EDV" ]; then printf 'ok   %-26s => %s\n' "effect decl State -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl" "$got"; fail=1; fi
+chk_hm examples/hm-eff-decl-choose.hm '"[Int]"'                       # effect Choose flip in … + general handle (multi-shot)
+EDCV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-decl-choose.hm > "${TMPDIR:-/tmp}/edc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/edc.coreir" | tail -1)
+if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s\n' "effect decl Choose -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-decl.hm > "${TMPDIR:-/tmp}/edl.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/edl.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$EDV" ]; then printf 'ok   %-26s => %s (node)\n' "effect decl State -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl JS" "$got"; fail=1; fi
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-decl-choose.hm > "${TMPDIR:-/tmp}/edc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/edc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s (node)\n' "effect decl Choose -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-decl-choose.hm > "${TMPDIR:-/tmp}/edc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/edc.rs" -o "${TMPDIR:-/tmp}/edc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/edc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s (rustc)\n' "effect decl Choose -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose Rust" "$got"; fail=1; fi
+fi
+echo -n "ok   declared op tracked too   => "; printf 'effect Choose flip in runE (flip (0 : Dyn))' > "${TMPDIR:-/tmp}/edu.hm"; edu=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/edu.hm" | tail -1); if [ "$edu" = '"TypeError: effect not handled: Choose"' ]; then echo "declared Choose unhandled rejected (correct)"; else echo "FAIL [$edu]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

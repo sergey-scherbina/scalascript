@@ -273,10 +273,13 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
 
 Close out the whole remaining frontier. Ordered easy→hard; each slice ships green on all 3 backends.
 
-- [ ] **K11.1 — `effect` declaration sugar** — `effect Name op1 op2 in <body>` registers each `opK` as an
-      operation of effect `Name`; inside the body `opK arg` desugars to `perform "Name" "opK" arg`
-      (= `EffOp("Name","opK",arg)`). A parse-time registry cell (like `data`), consulted in `dsApp`.
-      `handle` stays string-based. Makes user effects read like Koka without the string literals.
+- [x] **K11.1 — `effect` declaration sugar** — `effect Name op1 op2 in <body>` registers each `opK` as an
+      operation of effect `Name` (`effOpReg` + `registerEffOp`/`effOpOf`/`isEffOp`/`effLabel`); `opK arg`
+      desugars to `EffOp("Name","opK",arg)`, bare `opK` to `EffOp(..,Lit 0)`. `parseEffectDecl` (op-name list
+      stops at `in`; `effect` is a keyword); applied ops intercepted in `desugar`'s App case before the
+      bare-op Var rule. `handle` stays string-based. `hm-eff-decl.hm` (State) ⇒ `(Int,Int)`/`Pair(105,5)`;
+      `hm-eff-decl-choose.hm` (`effect Choose flip` + multi-shot `handle`) ⇒ `[Int]`/`[3,2,1,0]`;
+      declared-unhandled ⇒ `TypeError: effect not handled: Choose`. All 3 backends. conformance +8.
 - [ ] **K11.2 — row syntax in the type parser** — `{}` / `{l}` / `{l, m}` / `{l | r}` as a *row* type, and
       `Comp {row} a`, so effect types can appear in ascriptions: `(getE : Comp {State} Dyn)`. Disambiguate
       from record types (`{x : T}` has `:`; a row has bare labels / `|`). Enables documenting effect types.

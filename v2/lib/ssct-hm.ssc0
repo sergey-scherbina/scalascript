@@ -366,6 +366,13 @@ def methodReg  = #cell.new(Nil)                                    -- per-use id
 def registerMethod   = (m) => #cell.set(methodSet, Cons(m, #cell.get(methodSet)))
 def memberStrL       = (s, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, s) then true else memberStrL(s, t) }
 def isMethod         = (m) => memberStrL(m, #cell.get(methodSet))
+-- ── `effect Name op1 op2 in …` : register each opK as an operation of effect Name; a use `opK arg`
+-- desugars to perform "Name" "opK" arg (= EffOp). effOpOf gives the effect label for an op name. ──
+def effOpReg     = #cell.new(Nil)                                  -- list of Pair(opName, effectName)
+def registerEffOp    = (op, eff) => #cell.set(effOpReg, Cons(Pair(op, eff), #cell.get(effOpReg)))
+def effOpOf          = (op) => match lookupReg(#cell.get(effOpReg), op) { case Some(eff) => Some(eff) case None => None }
+def isEffOp          = (op) => match effOpOf(op) { case Some(e) => true case None => false }
+def effLabel         = (op) => match effOpOf(op) { case Some(e) => e case None => "?" }
 def registerInstance = (m, tn, impl) => #cell.set(instReg, Cons(Pair(Pair(m, tn), impl), #cell.get(instReg)))
 def bothT            = (a, b) => if a then b else false
 def lookupInst       = (reg, m, tn) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(key, impl) => match key { case Pair(km, ktn) => if bothT(#seq(km, m), #seq(ktn, tn)) then Some(impl) else lookupInst(rest, m, tn) } } }
