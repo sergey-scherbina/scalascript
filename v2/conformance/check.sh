@@ -882,6 +882,23 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 echo -n "ok   effect tracked in type   => "; printf 'getE' > "${TMPDIR:-/tmp}/er1.hm"; et=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er1.hm" | tail -1); if [ "$et" = '"Comp {State | e0} Dyn"' ]; then echo "Comp {State | e0} Dyn"; else echo "FAIL [$et]"; fail=1; fi
 echo -n "ok   unhandled effect = error => "; printf 'runE getE' > "${TMPDIR:-/tmp}/er2.hm"; eu=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er2.hm" | tail -1); if [ "$eu" = '"TypeError: effect not handled: State"' ]; then echo "rejected (correct)"; else echo "FAIL [$eu]"; fail=1; fi
+echo "# K10.4c — TWO effects (State + Log): the ROW tracks both; runE demands BOTH handled; runs on all backends"
+chk_hm examples/hm-eff2.hm '"((Int, Int), [Dyn])"'                   # put 3; log 7; get -> row {State, Log}, both handled
+E2V="Pair(Pair(103, 3), Cons(7, Nil))"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff2.hm > "${TMPDIR:-/tmp}/e2.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/e2.coreir" | tail -1)
+if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s\n' "two effects -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-eff2.hm > "${TMPDIR:-/tmp}/e2.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/e2.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s (node)\n' "two effects -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2 JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff2.hm > "${TMPDIR:-/tmp}/e2.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/e2.rs" -o "${TMPDIR:-/tmp}/e2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/e2-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s (rustc)\n' "two effects -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2 Rust" "$got"; fail=1; fi
+fi
+echo -n "ok   second effect tracked too => "; printf 'runE (runStateE (bindE (logE (7 : Dyn)) (fun w => bindE getE (fun x => pureE ((x : Int) + 1)))) 0)' > "${TMPDIR:-/tmp}/er3.hm"; el=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er3.hm" | tail -1); if [ "$el" = '"TypeError: effect not handled: Log"' ]; then echo "Log unhandled rejected (correct)"; else echo "FAIL [$el]"; fail=1; fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null

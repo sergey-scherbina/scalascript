@@ -228,9 +228,16 @@ effects". Chosen scope (agreed): **doc + spike + light** (rows track labels over
       appended by `progOf` when effects are used). Effectful programs now RUN, not just type-check:
       `examples/hm-effrow.hm` (put 5; get; return get+100, handled by `runStateE`, then `runE`) ⇒
       `Pair(105, 5)` on run-ir / node / rustc. conformance +3 (314 → 317).
-- [ ] **K10.4c — ergonomics (optional)** — `effect L ops in …` declaration syntax (replace the hard-wired
-      `State` demo ops getE/putE/runStateE); row syntax `{}` / `{l | r}` in the type parser for user
-      annotations; a general `handle` combinator. (interp `eval` of the effect built-ins is also unwired —
-      effects run via the compile path, which is what the backends use.)
+- [x] **K10.4c — a SECOND effect (proves rows, not one monad)** — added a `Log` effect (`logE` /
+      `runLogE : Comp {Log | ρ} a -> Comp ρ (Pair a [Dyn])`, collects logged values in emission order via
+      an accumulator + `__effRevApp`; its handler forwards non-Log ops so it composes in either order).
+      `examples/hm-eff2.hm` (put 3; **log 7**; get; return get+100) has row `{State, Log}` — the type tracks
+      **both** and `runE` demands **both** handled: `runE (runLogE (runStateE … 0))` ⇒ type
+      `((Int, Int), [Dyn])`, value `Pair(Pair(103, 3), Cons(7, Nil))` on run-ir / node / rustc; forgetting
+      `runLogE` ⇒ `TypeError: effect not handled: Log`. This is the headline payoff of ROWS over a single
+      effect monad. conformance +5 (317 → 322).
+- [ ] **K10.4d — remaining ergonomics (optional)** — `effect L ops in …` user declaration syntax (replace
+      the hard-wired demo ops); row syntax `{}` / `{l | r}` in the type parser for user annotations; a general
+      `handle` combinator; interp `eval` of the effect built-ins (effects run via the compile path today).
 
 OPEN (deferred, agreed): **full Koka-style** — operation signatures + typed payloads + typed handlers.

@@ -79,6 +79,7 @@ def erase = (scope, term) =>
     case EffBind(m, f) => let u = #cell.set(usedEffCell, true) in IrApp(IrApp(IrGlobal("__effBind"), Cons(erase(scope, m), Nil)), Cons(erase(scope, f), Nil))
     case EffRun(m)     => let u = #cell.set(usedEffCell, true) in IrApp(IrGlobal("__effRun"), Cons(erase(scope, m), Nil))
     case EffRunSt(m, sv) => let u = #cell.set(usedEffCell, true) in IrApp(IrApp(IrGlobal("__effRunSt"), Cons(erase(scope, m), Nil)), Cons(erase(scope, sv), Nil))
+    case EffRunLog(m)    => let u = #cell.set(usedEffCell, true) in IrApp(IrGlobal("__effRunLog"), Cons(erase(scope, m), Nil))
   }
 def eraseRecF = (scope, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(erase(scope, e), eraseRecF(scope, rest)) } }
 
@@ -216,13 +217,28 @@ def effRunStDef = IrDef("__effRunSt", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
             IrApp(IrApp(IrGlobal("__effRunSt"), Cons(IrApp(IrLocal(0), Cons(IrLit(IrInt(0)), Nil)), Nil)), Cons(IrLocal(1), Nil)),
             IrCtor("Op", Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLam(1, IrApp(IrApp(IrGlobal("__effRunSt"), Cons(IrApp(IrLocal(1), Cons(IrLocal(0), Nil)), Nil)), Cons(IrLocal(4), Nil))), Nil))))))), Nil)),
     None))))
+-- __effRevApp = λxs.λacc. match xs { Nil => acc | Cons h t => __effRevApp t (Cons h acc) }   (reverse xs onto acc)
+def effRevAppDef = IrDef("__effRevApp", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
+    Cons(IrArm("Nil", 0, IrLocal(0)),
+    Cons(IrArm("Cons", 2, IrApp(IrApp(IrGlobal("__effRevApp"), Cons(IrLocal(0), Nil)), Cons(IrCtor("Cons", Cons(IrLocal(1), Cons(IrLocal(2), Nil))), Nil))), Nil)),
+    None))))
+-- __effLogGo = λm.λacc. match m { Pure v => Pure (Pair v (__effRevApp acc Nil)) | Op l a k => log? __effLogGo (k 0) (Cons a acc) : forward }
+-- acc collects logs newest-first; reversed at the end so the result list is in emission order.  forward keeps non-Log ops so runLogE composes in any order.
+def effLogGoDef = IrDef("__effLogGo", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
+    Cons(IrArm("Pure", 1, IrCtor("Pure", Cons(IrCtor("Pair", Cons(IrLocal(0), Cons(IrApp(IrApp(IrGlobal("__effRevApp"), Cons(IrLocal(1), Nil)), Cons(IrCtor("Nil", Nil), Nil)), Nil))), Nil))),
+    Cons(IrArm("Op", 3, IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("log"), Nil))),
+        IrApp(IrApp(IrGlobal("__effLogGo"), Cons(IrApp(IrLocal(0), Cons(IrLit(IrInt(0)), Nil)), Nil)), Cons(IrCtor("Cons", Cons(IrLocal(1), Cons(IrLocal(3), Nil))), Nil)),
+        IrCtor("Op", Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLam(1, IrApp(IrApp(IrGlobal("__effLogGo"), Cons(IrApp(IrLocal(1), Cons(IrLocal(0), Nil)), Nil)), Cons(IrLocal(4), Nil))), Nil)))))), Nil)),
+    None))))
+-- __effRunLog = λm. __effLogGo m Nil
+def effRunLogDef = IrDef("__effRunLog", IrLam(1, IrApp(IrApp(IrGlobal("__effLogGo"), Cons(IrLocal(0), Nil)), Cons(IrCtor("Nil", Nil), Nil))))
 def usedEffCell = #cell.new(false)
 def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => match p { case Pair(k, t) => if containsList(t) then true else anyListShow(rest) } }
 def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
 -- defs = list helpers (if a list instance used) ++ the per-type show/eq helpers collected during erase
 def progOf = (term) => let body = erase(Nil, term) in
   let listH = if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil in
-  let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Nil))) else Nil in
+  let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Cons(effRevAppDef, Cons(effLogGoDef, Cons(effRunLogDef, Nil)))))) else Nil in
   IrProg(appendD(effH, appendD(listH, #cell.get(helperDefs))), body)
 
 def emit = (term) => #coreir.encode(progOf(term))

@@ -1,0 +1,1 @@
+runE (runLogE (runStateE (bindE (putE (3 : Dyn)) (fun u => bindE (logE (7 : Dyn)) (fun w => bindE getE (fun x => pureE ((x : Int) + 100))))) 0))

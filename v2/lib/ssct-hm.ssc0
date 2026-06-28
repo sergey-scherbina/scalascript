@@ -264,6 +264,11 @@ def infer = (env, c, s, term) =>
             let rho = TyRowVar(c2) in let ta = TyVar(#i.add(c2, 1)) in
             match unify(s2b, tm, TyCon("Comp", Cons(TyRowExt("State", rho), Cons(ta, Nil)))) { case Err(e) => ErrI("runState: not a State computation") case Ok(s3) =>
               Ok3(s3, appTy(s3, TyCon("Comp", Cons(rho, Cons(TyCon("Pair", Cons(ta, Cons(TyInt, Nil))), Nil)))), #i.add(c2, 2)) } } } }
+    case EffRunLog(m) =>                                               -- runLogE : Comp {Log | r} a -> Comp r (Pair a [Dyn])
+      match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
+        let rho = TyRowVar(c1) in let ta = TyVar(#i.add(c1, 1)) in
+        match unify(s1, tm, TyCon("Comp", Cons(TyRowExt("Log", rho), Cons(ta, Nil)))) { case Err(e) => ErrI("runLog: not a Log computation") case Ok(s2) =>
+          Ok3(s2, appTy(s2, TyCon("Comp", Cons(rho, Cons(TyCon("Pair", Cons(ta, Cons(TyList(TyDyn), Nil))), Nil)))), #i.add(c1, 2)) } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
         let tn = typeName(appTy(s1, ta)) in
