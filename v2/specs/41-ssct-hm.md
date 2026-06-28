@@ -53,7 +53,7 @@ first-class):
 | lists | `cons head tail isNil nil` |
 | strings | `showInt strEq strLen charAt substr` (`++` is concat) |
 | float | `toFloat fadd fsub fmul fdiv flt feq fneg fsqrt` |
-| int | `div mod neg` (`+ - *` are operators) |
+| int | `div mod neg` (`+ - *` and `< =` are **overloaded** operators — Int or Float; see below) |
 | tuples | `fst snd` |
 | boolean | `not` (`&& ||` are operators) |
 | typeclasses | `show eq compare` + any user-declared `method` |
@@ -83,6 +83,12 @@ first-class):
   continuation thunk per arm, so infer/erase/eval are untouched. List `Cons`/`Nil` patterns
   lower to `isNil`/`head`/`tail` (a list is `TyList`, not an ADT).
 - Comparisons `> <= >= <>` desugar to `< / = / if`; boolean `&& || not` desugar to `if`.
+- **Overloaded numerics**: `+ - *` and `< =` (and the derived `> <= >= <>`) work on **Int or
+  Float**, resolved by operand type — `1.5 + 2.25 : Float`, `1 + 2 : Int`, `1 + 1.5` is a type
+  error (no implicit coercion). HM has no qualified types, so an unconstrained operand defaults
+  to Int; a generic function over `<`/`+` (e.g. `fun a b => a < b`) therefore monomorphises to
+  Int — use a leading concrete `Float`, a `(e : Float)` ascription, or the prelude's
+  comparator-passing `minBy`/`maxBy`. `fadd`/`flt`/… remain; `/` stays split (`div` / `fdiv`).
 - **do-notation** `do { x <- e ; … ; result }` desugars to `bind e (fun x => …)`; `bind`/`pure`
   resolve from scope, so it is monad-agnostic — the prelude supplies the **Option** monad by
   default, and a program can define its own `bind`/`pure` for another monad.

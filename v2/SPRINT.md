@@ -181,12 +181,12 @@ it; a still-unresolved type-var ⇒ default to `Int`; any other type ⇒ reject.
 constraint conflicts). One documented sharp edge: an all-type-var chain defaults to Int, so `r*r*pi`
 needs a leading concrete float or `(r : Float)*…` (ascription). `fadd`/etc. stay as-is (back-compat).
 
-- [ ] **K8.1 — overloaded `+ - *`** — id-tag `Add`/`Sub`/`Mul`; `inferNum` resolves Int/Float (eager
+- [x] **K8.1 — overloaded `+ - *`** — id-tag `Add`/`Sub`/`Mul`; `inferNum` resolves Int/Float (eager
       default), records the type in `tcReg`; erase emits `i.*`/`f.*` by the recorded type; eval value-
       dispatches (IntVal/FloatVal). `1.5 + 2.5` ⇒ Float, `1 + 2` ⇒ Int, all 3 backends. `"a" + "b"` rejected.
-- [ ] **K8.2 — overloaded `< =`** (and the derived `> <= >= <>`) — same mechanism for `Lt`/`Eq`; result
+- [x] **K8.2 — overloaded `< =`** (and the derived `> <= >= <>`) — same mechanism for `Lt`/`Eq`; result
       Bool, operands Int or Float. `1.5 < 2.5`, `1.0 = 1.0` work; all 3 backends.
-- [ ] **DOC/CONF** — spec 41 (numeric operators are overloaded; the defaulting note) + conformance.
+- [x] **DOC/CONF** — spec 41 (numeric operators are overloaded; the defaulting note) + conformance.
 
 OPEN (deferred): overloaded `/` is NOT done — `div` (Int) and `fdiv` (Float) have different semantics.
 Fully-general numeric polymorphism (e.g. `r*r*pi` with `r` a param) needs qualified types (`Num a =>`),
