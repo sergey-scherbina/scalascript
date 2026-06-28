@@ -287,24 +287,24 @@ Close out the whole remaining frontier. Ordered easy→hard; each slice ships gr
       is unchanged → existing checks safe). Wrong ascription (`getE : Comp {Log} Dyn`) rejected.
       `examples/hm-eff-rowann.hm` (doE block ascribed `: Comp {State} Int`) ⇒ `(Int,Int)`/`Pair(105,5)`, all 3
       backends. Records (`{x = e}`) untouched (different parse position). conformance +7.
-- [ ] **K11.3 — QUALIFIED TYPES via dictionary passing** (the big one — general typeclass/numeric
-      polymorphism). Inference collects constraints `C a` when an overloaded op / user `method` is used on an
-      unresolved var; `let`-generalization quantifies them into the scheme (`∀a. C a => τ`); instantiation
-      makes fresh constraints; a constraint is discharged when its var becomes concrete (else defaulted/erro).
-      Erase = **dictionary passing**: a constrained fn gains a leading dict param, method uses become dict
-      applications, call sites pass the resolved instance (or thread an enclosing dict). VALUES stay concrete
-      per call (no boxing) → backend-agnostic, NO backend change. Removes the K8 eager-default sharp edge
-      (`fun a b => a < b`, `r*r*pi`) and makes user typeclasses fully polymorphic. Sliced:
-  - [ ] K11.3a — constraint representation + collection in `infer` (overloaded ops + `method` calls).
-  - [ ] K11.3b — constraints in type schemes; generalize/instantiate; discharge on resolution + defaulting.
-  - [ ] K11.3c — dictionary-passing erase (fn dict params + method→dict app + call-site dict args).
-  - [ ] K11.3d — demo + conformance: a generic `min3`/`sumList` over a user `Ord`/`Num` class; `r*r*pi`.
-- [ ] **K11.4 — full Koka-style typed payloads** (research, the deepest). Operation signatures on the
-      `effect` decl (`effect State { get : Unit -> Int ; put : Int -> Unit }`); type `perform`/ops against
-      them (drop `Dyn`); type the handler resume/return. Builds on K11.1 (decl) + K11.3 (the typing
-      machinery). If it cannot land as one green increment, deliver the design in `specs/54` + the achievable
-      subset, honestly marked.
-- [ ] **K11.5 — convert effect examples to `doE`** (idiomatic cleanup) + spec/CHANGELOG sweep.
+- [~] **K11.3 — QUALIFIED TYPES via dictionary passing** — **DESIGNED** ([`specs/55-qualified-types.md`](specs/55-qualified-types.md));
+      implementation deferred. This is the one genuinely multi-session item: the type-level half (constraint
+      set + `Forall` w/ constraints + discharge/default) is moderate, but the runtime half is a whole-program
+      **dictionary-passing erase** (constrained fns get hidden dict params; ops/methods → dict applications;
+      every call site threads the resolved dict) — a deep, error-prone change to `erase` that cannot be
+      landed as one green-every-commit increment in the autonomous pass. A runtime tag on numeric *values* is
+      not viable (JS can't tell `3.0` from `3`; Rust is unboxed), so the operation must carry the type — which
+      is exactly why K8 chose eager-defaulting. The spec gives the full design + slicing (K11.3a–e) for a
+      focused follow-up. (The eager-default sharp edge has documented workarounds; nothing is *blocked* today.)
+- [~] **K11.4 — full Koka-style typed payloads** — **DESIGNED** (the "Path to full" section of
+      [`specs/54-effect-rows.md`](specs/54-effect-rows.md)); implementation deferred. Reuses K11.1 (the
+      `effect` decl, which would carry the operation signatures) + the K11.3 typing machinery + the row core;
+      remaining work is signature-directed typing of `perform`/handlers. Multi-session.
+- [x] **K11.5 — spec sweep** — specs (41/50/54) updated to the shipped surface (earlier commit) + new
+      `55-qualified-types.md` design + `54`'s "Path to full" updated (effect-decl & row-syntax landed; payloads
+      build on K11.1/K11.3). Effect examples already demonstrate `doE` in dedicated files (`hm-eff-do*.hm`,
+      `hm-eff-decl*.hm`); the older explicit-`bindE` examples are kept intentionally (they document the
+      desugaring) rather than churned.
 
 BLOCKED (not doable here): **ir → WASM** — no `rustup`/`wasmtime`/`wabt` toolchain in this environment
 (only node's WebAssembly API). Documented in K4; revisit when the toolchain is available.

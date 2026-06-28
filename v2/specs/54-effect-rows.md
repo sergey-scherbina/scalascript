@@ -113,19 +113,22 @@ fails with `not an effect row`.
 
 ## Path to full (Koka-style) — deferred
 
-Add operation signatures to declarations (`effect State { get : () -> Int ; put : Int -> () }`); type
-`perform`/operations against them (no `Dyn`); type handlers' resume/return. This gives full payload
-safety on top of the tracking. It is a larger, multi-session effort (the rows are the shared core,
-already done here); deferred with the user's agreement. Ergonomic sugar — `effect`/`handler` keywords
-over `perform`/`handle`, and `{}` / `{l | r}` row syntax in the *type* parser for user annotations —
-is also still open (optional).
+Add operation **signatures** to the declaration (`effect State { get : Unit -> Int ; put : Int -> Unit }`);
+type `perform`/operations against them (drop `Dyn`); type the handler resume/return. This gives full
+payload safety on top of the label tracking. It reuses two pieces that already landed — the `effect`
+declaration (K11.1, which would carry the signatures) and the constraint/typing machinery designed for
+qualified types ([`55-qualified-types.md`](55-qualified-types.md)) — plus the row core here; the remaining
+work is signature-directed typing of `perform`/handlers. It is a multi-session effort, deferred.
+
+The ergonomic sugar around the light system has **landed**: `effect Name op…` operation declarations
+(K11.1) and `{}` / `{l, m}` / `{l | r}` effect-row syntax in the type parser for ascriptions (K11.2).
 
 ## Components
 
 | Where | What |
 |---|---|
 | `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle` |
-| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `doE` block (`parseDoStmts` parameterized by bind name); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
+| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `effect Name op…` decl (`effOpReg`, K11.1); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
 | `lib/ssct-hm-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); appended by `progOf` when effects are used |
 | backends | `f.*`/`i.*` prims already present; effects need no new prim (they are plain `Comp` data) |
 | `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`); + unhandled-effect programs that are rejected |
