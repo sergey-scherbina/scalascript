@@ -209,6 +209,9 @@ def infer = (env, c, s, term) =>
               case None => ErrI(#sconcat("record has no field ", name))
               case Some(pr) => match pr { case Pair(idx, ft) => let u = registerField(id, idx, lenRec(fields)) in Ok3(s1, ft, c1) } }
           case _ => ErrI("field access on a non-record") } }
+    case Ascribe(e, ty) =>                                             -- (e : ty) : unify e's type with the annotation
+      match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) =>
+        match unify(s1, te, ty) { case Err(m) => ErrI("type ascription mismatch") case Ok(s2) => Ok3(s2, appTy(s2, ty), c1) } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
         let tn = typeName(appTy(s1, ta)) in
@@ -456,6 +459,7 @@ def evalT = (env, t) =>
     case CmpM(id, a, b) => IntVal(valCmp(evalT(env, a), evalT(env, b)))
     case RecLit(fields) => RecVal(evalRecF(env, fields))
     case FieldGet(id, rc, name) => match evalT(env, rc) { case RecVal(fs) => lookupField(fs, name) case _ => Stuck }
+    case Ascribe(e, ty) => evalT(env, e)                                  -- ascription is erased at runtime
     case MethodCall(id, m, arg) => applyV(evalT(env, methodImplOf(id)), evalT(env, arg))   -- apply the resolved impl
   }
 def evalRecF = (env, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, evalT(env, e)), evalRecF(env, rest)) } }

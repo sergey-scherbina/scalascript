@@ -99,9 +99,27 @@ def mkTuple = (elems) =>
 def parseTupleElems = (toks) =>                        -- after a ',':  e ( ',' e )* (stops at ')')
   match parseExpr(toks) { case Pair(e, r) =>
     match r { case Cons(t, rest) => match t { case TPunct(q) => if #seq(q, ",") then match parseTupleElems(rest) { case Pair(more, r2) => Pair(Cons(e, more), r2) } else Pair(Cons(e, Nil), r) case _ => Pair(Cons(e, Nil), r) } case Nil => Pair(Cons(e, Nil), Nil) } }
+-- a type expression for an ascription `(e : ty)`:  basic | Con atom* | [ty] | (ty)  (concrete types)
+def isBasicTy = (s) => chOr(chOr(#seq(s, "Int"), #seq(s, "Bool")), chOr(#seq(s, "String"), #seq(s, "Float")))
+def basicTy = (s) => if #seq(s, "Int") then TyInt else if #seq(s, "Bool") then TyBool else if #seq(s, "String") then TyStr else TyFloat
+def ascAtomStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => true case TPunct(p) => chOr(#seq(p, "["), #seq(p, "(")) case _ => false } case Nil => false }
+def parseAscAtom = (toks) =>                           -- a single type atom (no Con application)
+  match toks { case Cons(t, rest) => match t {
+      case TName(s)  => if isBasicTy(s) then Pair(basicTy(s), rest) else Pair(TyCon(s, Nil), rest)
+      case TPunct(p) => if #seq(p, "[") then match parseAscType(rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else if #seq(p, "(") then match parseAscType(rest) { case Pair(ty, r) => Pair(ty, drop1(r)) } else Pair(TyInt, rest)
+      case _ => Pair(TyInt, rest) } case Nil => Pair(TyInt, Nil) }
+def parseAscArgs = (toks) => if ascAtomStarts(toks) then match parseAscAtom(toks) { case Pair(a, r) => match parseAscArgs(r) { case Pair(more, r2) => Pair(Cons(a, more), r2) } } else Pair(Nil, toks)
+def parseAscType = (toks) =>                           -- `Con atom*`  |  atom
+  match toks { case Cons(t, rest) => match t {
+      case TName(s) => if isBasicTy(s) then Pair(basicTy(s), rest) else match parseAscArgs(rest) { case Pair(args, r) => Pair(TyCon(s, args), r) }
+      case _ => parseAscAtom(toks) } case Nil => Pair(TyInt, Nil) }
 def parseParenOrTuple = (toks) =>                      -- toks is after the '('
   match parseExpr(toks) { case Pair(e1, r1) =>
-    match r1 { case Cons(t, r2) => match t { case TPunct(q) => if #seq(q, ",") then match parseTupleElems(r2) { case Pair(more, r3) => Pair(mkTuple(Cons(e1, more)), drop1(r3)) } else Pair(e1, drop1(r1)) case _ => Pair(e1, drop1(r1)) } case Nil => Pair(e1, Nil) } }
+    match r1 { case Cons(t, r2) => match t { case TPunct(q) =>
+        if #seq(q, ",") then match parseTupleElems(r2) { case Pair(more, r3) => Pair(mkTuple(Cons(e1, more)), drop1(r3)) }
+        else if #seq(q, ":") then match parseAscType(r2) { case Pair(ty, r3) => Pair(Ascribe(e1, ty), drop1(r3)) }   -- (e : ty) ascription
+        else Pair(e1, drop1(r1))
+        case _ => Pair(e1, drop1(r1)) } case Nil => Pair(e1, Nil) } }
 -- record literal:  '{' name '=' e ( ',' name '=' e )* '}'
 def parseRecField = (toks) =>
   match toks { case Cons(t, rest) => match t { case TName(nm) => match parseExpr(drop1(rest)) { case Pair(e, r) => Pair(Pair(nm, e), r) } case _ => Pair(Pair("?", ParseErr), Nil) } case Nil => Pair(Pair("?", ParseErr), Nil) }
@@ -443,6 +461,7 @@ def desugar = (t) =>
     case FloatLit(str)   => FloatLit(str)
     case RecLit(fields)  => RecLit(dsRecFields(fields))
     case FieldGet(id, rc, name) => FieldGet(id, desugar(rc), name)
+    case Ascribe(e, ty) => Ascribe(desugar(e), ty)
   }
 def dsRecFields = (fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, desugar(e)), dsRecFields(rest)) } }
 -- ── `data` declarations: parse them, register each constructor's signature into the global cell ──
@@ -522,6 +541,7 @@ def freeVars = (t) =>
     case MatchT(scrut, arms) => appendL(freeVars(scrut), fvArms(arms))
     case RecLit(fields)  => fvRec(fields)
     case FieldGet(id, rc, name) => freeVars(rc)
+    case Ascribe(e, ty) => freeVars(e)
     case _               => Nil
   }
 def parseBody = (src) => fst(parseExpr(lex(src)))

@@ -704,6 +704,22 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/se.rs" -o "${TMPDIR:-/tmp}/se-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/se-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SRW" ]; then printf 'ok   %-26s => %s (rustc)\n' "sortBy/zipWith -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "sort Rust" "$got"; fail=1; fi
 fi
+echo "# ssct-hm TYPE ASCRIPTION: (e : T) checks/documents, and disambiguates typeclasses (show (None : Option Int))"
+chk_hm examples/hm-ascribe.hm '"String"'
+ASW='"None/6"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-ascribe.hm > "${TMPDIR:-/tmp}/ae.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ae.coreir" | tail -1)
+if [ "$got" = "$ASW" ]; then printf 'ok   %-26s => %s\n' "ascription -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ascribe" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-ascribe.hm > "${TMPDIR:-/tmp}/ae.js" 2>/dev/null
+  got=$(node "${TMPDIR:-/tmp}/ae.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$ASW" ]; then printf 'ok   %-26s => %s (node)\n' "ascription -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "ascribe JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-ascribe.hm > "${TMPDIR:-/tmp}/ae.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ae.rs" -o "${TMPDIR:-/tmp}/ae-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ae-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$ASW" ]; then printf 'ok   %-26s => %s (rustc)\n' "ascription -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "ascribe Rust" "$got"; fail=1; fi
+fi
 
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
