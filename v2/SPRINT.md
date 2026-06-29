@@ -647,3 +647,12 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       match node. `match 7 { x => x+1 }` ⇒ 8 on all 3 backends; multi-arm matches with a trailing var arm,
       ctor/literal/list/tuple/as-patterns all unchanged. (⚠️ ssc0 kernel pattern parser rejects a bare
       lowercase var pattern like `case others =>` — use `case _ =>`.) conformance +5.
+
+## K29 — prelude, batch 2
+
+- [x] **K29.1 — `takeWhile` / `dropWhile` / `span` / `partition` / `scanl` / `lookup` / `maximum` / `minimum` /
+      `count` / `nub` / `enumerate`** added to the prelude (all were unbound). One-liner ssct-hm defs; inserted
+      at the TOP of the `prelude` list so they can reference the existing combinators (depender-before-dependency
+      injection rule). `maximum`/`minimum` (over `<`) and `lookup`/`nub` (over `=`) are polymorphic and ride the
+      Num/Ord dict-passing. `span`/`partition` return a tuple; `enumerate` = `zip (range 0 (length xs)) xs`;
+      `lookup` returns an `Option`. All green on run-ir/JS/Rust. conformance +5.

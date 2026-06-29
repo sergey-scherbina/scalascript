@@ -798,6 +798,17 @@ def parseBody = (src) => fst(parseExpr(lex(src)))
 -- AFTER its user (later = outer = visible in the earlier function's body). Transitive deps are pulled
 -- in automatically by neededPrelude below, so a program only carries what it (transitively) uses.
 def prelude =
+  Cons(Pair("span",      "fun p => fun xs => (takeWhile p xs, dropWhile p xs)"),
+  Cons(Pair("takeWhile", "fun p => fun xs => if isNil xs then nil else if p (head xs) then cons (head xs) (takeWhile p (tail xs)) else nil"),
+  Cons(Pair("dropWhile", "fun p => fun xs => if isNil xs then nil else if p (head xs) then dropWhile p (tail xs) else xs"),
+  Cons(Pair("partition", "fun p => fun xs => (filter p xs, filter (fun y => if p y then false else true) xs)"),
+  Cons(Pair("scanl",     "fun f => fun z => fun xs => if isNil xs then cons z nil else cons z (scanl f (f z (head xs)) (tail xs))"),
+  Cons(Pair("lookup",    "fun k => fun ps => if isNil ps then None else match head ps { (a, b) => if a = k then Some b else lookup k (tail ps) }"),
+  Cons(Pair("maximum",   "fun xs => foldl (fun a => fun b => if a < b then b else a) (head xs) (tail xs)"),
+  Cons(Pair("minimum",   "fun xs => foldl (fun a => fun b => if a < b then a else b) (head xs) (tail xs)"),
+  Cons(Pair("count",     "fun p => fun xs => length (filter p xs)"),
+  Cons(Pair("nub",       "fun xs => if isNil xs then nil else cons (head xs) (nub (filter (fun y => if head xs = y then false else true) (tail xs)))"),
+  Cons(Pair("enumerate", "fun xs => zip (range 0 (length xs)) xs"),
   Cons(Pair("map",     "fun f => fun l => if isNil l then nil else cons (f (head l)) (map f (tail l))"),
   Cons(Pair("filter",  "fun p => fun l => if isNil l then nil else if p (head l) then cons (head l) (filter p (tail l)) else filter p (tail l)"),
   Cons(Pair("foldr",   "fun f => fun z => fun l => if isNil l then z else f (head l) (foldr f z (tail l))"),
@@ -847,7 +858,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil)))))))))))))))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }
