@@ -11,6 +11,20 @@
       |use hyper::service::service_fn;
       |use tokio::net::TcpListener;
       |
+      |// Current request's cookies (name -> value), set per-request before the (sync) handler runs so a
+      |// String-surface handler can still read them via `requestCookie(name)`. Thread-local: the handler
+      |// runs synchronously on the worker thread right after this is set, with no await in between.
+      |thread_local! {
+      |    static CURRENT_COOKIES: std::cell::RefCell<std::collections::HashMap<String, String>> =
+      |        std::cell::RefCell::new(std::collections::HashMap::new());
+      |}
+      |
+      |/// `requestCookie(name)` — the value of the named cookie on the CURRENT request, or "" if absent.
+      |#[allow(dead_code)]
+      |pub fn _http_request_cookie(name: String) -> String {
+      |    CURRENT_COOKIES.with(|c| c.borrow().get(&name).cloned().unwrap_or_default())
+      |}
+      |
       |pub type RouteHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
       |
       |static ROUTES: std::sync::OnceLock<
@@ -64,6 +78,14 @@
       |) -> Result<Response<Full<Bytes>>, hyper::Error> {
       |    let method = req.method().to_string();
       |    let path   = req.uri().path().to_owned();
+      |    // Snapshot the Cookie header BEFORE the body is consumed (into_body takes `req`), so the
+      |    // handler can read per-request cookies via `requestCookie(name)` for auth/session.
+      |    let cookie_hdr = req
+      |        .headers()
+      |        .get("cookie")
+      |        .and_then(|v| v.to_str().ok())
+      |        .unwrap_or("")
+      |        .to_owned();
       |    // Read the body so POST/PUT handlers see what was submitted; GET/HEAD handlers still
       |    // receive the path (routing is by exact method+path, so the handler keeps its context).
       |    let body_bytes = req.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
@@ -72,6 +94,16 @@
       |    } else {
       |        String::from_utf8_lossy(&body_bytes).into_owned()
       |    };
+      |    // Publish this request's cookies to the thread-local for the (sync) handler — no await follows.
+      |    CURRENT_COOKIES.with(|c| {
+      |        let mut m = c.borrow_mut();
+      |        m.clear();
+      |        for pair in cookie_hdr.split(';') {
+      |            if let Some((k, v)) = pair.split_once('=') {
+      |                m.insert(k.trim().to_string(), v.trim().to_string());
+      |            }
+      |        }
+      |    });
       |    let out = {
       |        let guard = routes().lock().unwrap();
       |        // Exact method+path first; then a prefix route (a registered path ending in

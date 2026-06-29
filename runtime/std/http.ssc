@@ -63,6 +63,12 @@ extern def stop(): Unit
 // Route registration — curried: route(method, path) { handler }
 extern def route(method: String, path: String, handler: Request => Response): Unit
 
+// Per-request cookie access (Rust backend).  Returns the value of the named
+// cookie on the request currently being handled, or "" if absent.  Lets a
+// String-surface route handler read a session/auth token cookie without a
+// Request object.  Set per-request immediately before the (sync) handler runs.
+extern def requestCookie(name: String): String
+
 // Middleware — wraps every route handler.  First registered = outermost.
 // Call next() to pass control to the next middleware / route handler.
 extern def use(fn: (Request, () => Response) => Response): Unit
