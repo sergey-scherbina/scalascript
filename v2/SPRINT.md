@@ -854,5 +854,14 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       `fromRight`/`fromLeft` (with default), `partitionEithers : [Either a b] -> ([a], [b])` (via `foldr`). All
       properly polymorphic (`mapRight : (b -> c) -> Either a b -> Either a c`). Error-handling breadth alongside
       the Option combinators. Example exercises all 8 -> `143` on run-ir/JS/Rust. Kernel +0.
-- [ ] **K45 — `lib/set.ssc0` structural Set.** A set keyed by any value (over the K37 `valEq` oracle):
-      `setEmpty`/`insert`/`member`/`union`/`inter`/`diff`/`toList`/`size`. VM-only (like `#map`).
+- [x] **K45 — `lib/set.ssc0` structural Set DONE** (conformance +1). A set keyed by any value (int/str/tuple/
+      ADT/nested) over the K37 `#map` equality oracle: `setEmpty`/`setInsert`/`setMember`/`setFromList`/
+      `setToList`/`setSize`/`setUnion`/`setInter`/`setDiff`/`setSubset`. VM-only (like `#map`/`#arr`). Demo:
+      `{1,2,3}` (deduped from `[1,2,3,2,1]`) vs `{2,3,4}` → ∪=4, ∩=2, ∖=1, member ✓; plus structural tuple dedup
+      (`{(1,2),(1,2),(3,4)}` → size 2). Result `234211`. Kernel +0.
+
+**K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
+mapx/set/option/stream + a ~90-fn ssct-hm prelude (incl. Either + full math); the type system is a complete
+HM language (now with tuple-typed ADT fields); effects/actors/async are libraries; backends JS+Rust are ssc0
+programs; and the JSON showcase proves a real program compiles to all 3 targets. Remaining is open-ended
+breadth (more libs/showcases on demand) + WASM (toolchain-blocked).

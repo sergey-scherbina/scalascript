@@ -1,0 +1,16 @@
+-- An immutable Set keyed by STRUCTURAL equality (any value: int/str/tuple/ADT/nested), written in ssc0.
+-- Uses the same #map equality ORACLE as lib/mapx.ssc0 (the frozen kernel has no generic-eq prim, but its
+-- mutable #map is a Scala HashMap[Value,Value] comparing keys structurally). VM/run-ir only (like #map/#arr).
+def valEqS = (a, b) => let m = #map.new() in let u = #map.put(m, a, 0) in #map.has(m, b)
+def memberOf = (x, s) => match s { case Nil => false case Cons(h, rest) => if valEqS(h, x) then true else memberOf(x, rest) }
+
+def setEmpty   = Nil
+def setMember  = (x, s) => memberOf(x, s)
+def setInsert  = (x, s) => if memberOf(x, s) then s else Cons(x, s)
+def setFromList = (xs) => match xs { case Nil => Nil case Cons(h, rest) => setInsert(h, setFromList(rest)) }
+def setToList  = (s) => s
+def setSize    = (s) => match s { case Nil => 0 case Cons(h, rest) => #i.add(1, setSize(rest)) }
+def setUnion   = (a, b) => match a { case Nil => b case Cons(h, rest) => setInsert(h, setUnion(rest, b)) }
+def setInter   = (a, b) => match a { case Nil => Nil case Cons(h, rest) => if memberOf(h, b) then Cons(h, setInter(rest, b)) else setInter(rest, b) }
+def setDiff    = (a, b) => match a { case Nil => Nil case Cons(h, rest) => if memberOf(h, b) then setDiff(rest, b) else Cons(h, setDiff(rest, b)) }
+def setSubset  = (a, b) => match a { case Nil => true case Cons(h, rest) => if memberOf(h, b) then setSubset(rest, b) else false }

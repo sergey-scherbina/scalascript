@@ -1,0 +1,9 @@
+import "../lib/set.ssc0"
+-- {1,2,3} (deduped from [1,2,3,2,1]) vs {2,3,4}; plus a structural-key check (set of equal tuples dedups).
+def main = () =>
+  let s1 = setFromList(Cons(1, Cons(2, Cons(3, Cons(2, Cons(1, Nil)))))) in
+  let s2 = setFromList(Cons(2, Cons(3, Cons(4, Nil)))) in
+  let tup = setFromList(Cons(Pair(1, 2), Cons(Pair(1, 2), Cons(Pair(3, 4), Nil)))) in   -- {(1,2),(3,4)} = 2
+  let mem = if setMember(2, s1) then 1 else 0 in
+  let parts = #i.add(#i.mul(setSize(s1), 10000), #i.add(#i.mul(setSize(setUnion(s1, s2)), 1000), #i.add(#i.mul(setSize(setInter(s1, s2)), 100), #i.add(#i.mul(setSize(setDiff(s1, s2)), 10), mem)))) in
+  #i.add(#i.mul(setSize(tup), 100000), parts)
