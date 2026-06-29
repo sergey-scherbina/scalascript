@@ -515,3 +515,13 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       malformed expression …")` to `infer` (covers the type-check path) and `case ParseErr => ParseErr`
       passthrough to `desugar` (codegen path). Now any incomplete/malformed input reports a clean
       `TypeError: parse error …` on both `ssct-hm` and `ssctc-hm`. Valid programs unchanged. conformance +1.
+
+## K21 — char literals
+
+- [x] **K21.1 — `'a'` char literals → Int char code.** ssct-hm has no `Char` type and `charAt`/`scodeAt` already
+      return Int codes, so a char literal is just its code: `'a'` = 97, `'0'` = 48, `'\n'` = 10. Pure lexer
+      change — `lexFrom` gets a `'` (code 39) arm that reads one char (handling a `\`-escape via the existing
+      `unEscCode`) and emits `TNum(code)`, so downstream everything treats it as an ordinary `Lit`/Int (no
+      type, infer, erase, or backend change). Enables char arithmetic (`'z' - 'a'` = 25), range tests
+      (`ch >= 'A'`), and comparison against `charAt` results (`charAt s i = 'a'`). All green on run-ir/JS/Rust.
+      conformance +5.

@@ -1215,6 +1215,15 @@ echo -n "ok   rec destr order-free + plain  => "; printf 'let {y = b, x = a} = {
 
 echo -n "ok   parse error = clean (no crash) => "; printf 'if true then 1' > "${TMPDIR:-/tmp}/pe.hm"; pe=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/pe.hm" 2>&1 | tail -1); printf 'if true then 1 else 2' > "${TMPDIR:-/tmp}/pe2.hm"; pe2=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/pe2.hm" 2>&1 | tail -1); case "$pe" in *"parse error"*) peok=1;; *) peok=0;; esac; if [ "$peok" = "1" ] && [ "$pe2" = '"Int"' ]; then echo "if-no-else => clean TypeError (not a Java crash) ; valid if/else => Int"; else echo "FAIL [$pe / $pe2]"; fail=1; fi
 
+echo "# CHAR LITERALS: 'a' lexes to its Int code (97), '\\n'=10 etc. — consistent with charAt/scodeAt returning codes"
+chk_hm examples/hm-charlit.hm '"Int"'                                # isUpper via 'A'..'Z' ranges + 'Z'-'A'
+ssc run bin/ssctc-hm.ssc0 examples/hm-charlit.hm > "${TMPDIR:-/tmp}/cl.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/cl.coreir" | tail -1)
+if [ "$got" = "1025" ]; then printf 'ok   %-26s => %s\n' "char literal -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "char literal" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-charlit.hm > "${TMPDIR:-/tmp}/cl.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/cl.js" 2>/dev/null | tail -1); if [ "$got" = "1025" ]; then printf 'ok   %-26s => %s (node)\n' "char literal -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "char literal JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-charlit.hm > "${TMPDIR:-/tmp}/cl.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/cl.rs" -o "${TMPDIR:-/tmp}/cl-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cl-bin"); else got="(rustc err)"; fi; if [ "$got" = "1025" ]; then printf 'ok   %-26s => %s (rustc)\n' "char literal -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "char literal Rust" "$got"; fail=1; fi; fi
+echo -n "ok   char code + escape + cmp      => "; printf "('a' + 0) * 100 + '\\\\n'" > "${TMPDIR:-/tmp}/cl2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/cl2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/cl2.coreir"; cl2=$(ssc run-ir "${TMPDIR:-/tmp}/cl2.coreir" | tail -1); printf "(charAt \"xyz\" 1) = 'y'" > "${TMPDIR:-/tmp}/cl3.hm"; cl3=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/cl3.hm" | tail -1); if [ "$cl2" = "9710" ] && [ "$cl3" = '"Bool"' ]; then echo "'a'=97,'\\n'=10 => 9710 ; charAt = 'y' typechecks Bool"; else echo "FAIL [$cl2 / $cl3]"; fail=1; fi
+
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)

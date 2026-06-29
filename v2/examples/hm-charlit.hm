@@ -1,0 +1,1 @@
+let isUpper = fun ch => if ch >= 'A' then (if ch <= 'Z' then 1 else 0) else 0 in (isUpper 'H') * 1000 + (isUpper 'h') * 100 + ('Z' - 'A')
