@@ -872,6 +872,15 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       Op(...)` avoids eager top-level value ordering issues in generated JS; JS/Rust generation for
       the richer raw scheduler uses `java -Xss512m -jar` like the JSON showcase.
 
+- [ ] **K48 — Multi-op typed handler resumes** — spec: `specs/57-multi-op-handler-resumes.md`.
+      Add `handleM "L" m { | op1 a k => b1 | op2 a k => b2 } retf`, a total per-operation
+      handler form for declared effect ops. Each arm's arg/resume comes from that op's signature
+      (so `ask`'s `k : Int -> Comp` and `tell`'s `k : String -> Comp` are typed independently,
+      not as `Dyn`). Reject missing, duplicate, unknown, or foreign-label arms so the generated
+      dispatcher's fallback is unreachable. Erase to existing `__effHandle` only; no kernel/backend
+      change. Touch front/typer/emit, add `examples/hm-eff-multiop.hm`, and extend conformance with
+      VM/JS/Rust plus wrong-resume, missing-arm, and foreign-arm negatives.
+
 - [x] **K47 — Array-env VM optimization DONE** (`type Env = Array[Value]` replacing
       `List[Value]`; `Local(i)` is now O(1) via `env(env.length - 1 - i)` instead of
       O(i) linked-list scan). `extend`/`appendOne` replace `prepend`; de Bruijn convention
