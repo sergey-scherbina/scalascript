@@ -798,6 +798,10 @@ def parseBody = (src) => fst(parseExpr(lex(src)))
 -- AFTER its user (later = outer = visible in the earlier function's body). Transitive deps are pulled
 -- in automatically by neededPrelude below, so a program only carries what it (transitively) uses.
 def prelude =
+  Cons(Pair("startsWith", "fun pre => fun s => if strLen pre > strLen s then false else substr s 0 (strLen pre) = pre"),
+  Cons(Pair("endsWith",   "fun suf => fun s => if strLen suf > strLen s then false else substr s (strLen s - strLen suf) (strLen s) = suf"),
+  Cons(Pair("strContains", "fun sub => fun s => let nb = strLen sub in let rec go = fun i => if i + nb > strLen s then false else if substr s i (i + nb) = sub then true else go (i + 1) in go 0"),
+  Cons(Pair("trim",       "fun s => let n = strLen s in let rec fwd = fun i => if i >= n then n else if charAt s i = 32 then fwd (i + 1) else i in let rec bwd = fun j => if j < 0 then 0 else if charAt s j = 32 then bwd (j - 1) else j + 1 in let a = fwd 0 in let b = bwd (n - 1) in if a >= b then \"\" else substr s a b"),
   Cons(Pair("span",      "fun p => fun xs => (takeWhile p xs, dropWhile p xs)"),
   Cons(Pair("takeWhile", "fun p => fun xs => if isNil xs then nil else if p (head xs) then cons (head xs) (takeWhile p (tail xs)) else nil"),
   Cons(Pair("dropWhile", "fun p => fun xs => if isNil xs then nil else if p (head xs) then dropWhile p (tail xs) else xs"),
@@ -858,7 +862,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }

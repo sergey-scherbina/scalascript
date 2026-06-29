@@ -1,0 +1,1 @@
+(if startsWith "he" "hello" then 1000 else 0) + (if endsWith "lo" "hello" then 100 else 0) + (if strContains "ell" "hello" then 10 else 0) + strLen (trim "  ab  ")

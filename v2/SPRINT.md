@@ -656,3 +656,12 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       injection rule). `maximum`/`minimum` (over `<`) and `lookup`/`nub` (over `=`) are polymorphic and ride the
       Num/Ord dict-passing. `span`/`partition` return a tuple; `enumerate` = `zip (range 0 (length xs)) xs`;
       `lookup` returns an `Option`. All green on run-ir/JS/Rust. conformance +5.
+
+## K30 — string functions, batch 2
+
+- [x] **K30.1 — `startsWith` / `endsWith` / `strContains` / `trim`** (prelude). All built from the existing
+      `substr` / `charAt` / `strLen` intrinsics + string `=` (K14) — no new kernel/IR primitive, so they run on
+      run-ir/JS/Rust unchanged. `trim` walks in from both ends skipping spaces (code 32) then `substr`s;
+      `strContains` is a sliding `substr =` search. `trim "  hi  "` ⇒ `"hi"`, `startsWith "he" "hello"` ⇒ true.
+      (⚠️ `toUpper`/`toLower` NOT added — they need to rebuild a string from char codes via `sfromCodes`, which
+      the JS/Rust gen `genPrim` doesn't expose as an IR prim; would need backend support.) conformance +5.
