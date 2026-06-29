@@ -1,0 +1,1 @@
+let rec maxOf = fun x => fun xs => match xs { Cons h t => if x < h then maxOf h t else maxOf x t | Nil => x } in (maxOf 0 [3, 5, 1]) * 100 + (if flt (fabs (maxOf 0.0 [2.5, 9.5] - 9.5)) 0.01 then 1 else 0) * 10 + (if maxOf "a" ["x", "z", "m"] = "z" then 1 else 0)

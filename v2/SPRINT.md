@@ -436,9 +436,19 @@ focused effort, gate conformance after EACH slice. Key cost: `Forall(qs, ty)` mu
       has no pending var → unchanged. **Limitations:** only the `Num` class; a single dict var per binding; the
       external-call tag must be readable from the argument's form (a bare `Var` of unknown concrete type
       defaults to "Int"); the dict-fn must be directly applied (not passed as a value). conformance +5.
-- [ ] **K13.4 — extend to `Ord` + user classes** (remaining). `Ord` dict (compare/lt); user classes need
-      method signatures + a record-of-impls dict. Generic `min3` over a user `Ord`. (The `Num` mechanism above
-      is the template.)
+- [x] **K13.4 — extend dict-passing to `Ord` (Int / Float / String) SHIPPED (2026-06-29)**. Two parts:
+      (1) **Detection fix** — `firstPendingIn` checked `isPending` on the *quantified* vars, but a `<`-only
+      dict-fn records its pending var on a var that unification later folds into a *different* representative,
+      so it was missed (the `+` cases passed by luck). New `dictVarOf(s, pend, qs)` maps each pending var through
+      the substitution and returns the representative that is in `qs`; `unpendRep` removes (by representative) so
+      the top-level default leaves it alone. This alone fixed `<`-using dict-fns at Float.
+      (2) **String/Ord helpers** — `tagOfType`/`tagOfArg` gained `String`; the comparison helpers became 3-way:
+      `__nlt` = Float→`f.lt` / String→`__strLt` / Int→`i.lt`, and a new `__neq` = Float→`f.eq` / String→`seq` /
+      Int→`i.eq` (Eq erase now dict-dispatches too). `__strLt` is auto-injected whenever the dict helpers are.
+      A single recursive `maxOf` (using `<`) now runs at Int, Float AND String — `Triple(5, 9.5, "z")` — and a
+      `countEq` (using `=`) at Int and String, all on run-ir/JS/Rust. Remaining for true generality: USER-class
+      Ord (record-of-impls dict, method signatures) — the built-in Num/Ord cover the practical cases.
+      conformance +5.
 ORIGINAL PLAN (kept for reference — the targeted K13.1 above subsumes K13.1–K13.3/K13.5 for `Num`): a constraint
 set threaded in `infer`, `Forall(qs, constraints, ty)`, generalize/instantiate/discharge/default, dict-passing
 erase. The targeted approach reuses the existing `pendingNum`/`tcReg`/`instOf` machinery instead of adding a

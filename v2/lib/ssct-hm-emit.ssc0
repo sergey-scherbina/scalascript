@@ -27,8 +27,8 @@ def usedNDictCell = #cell.new(false)
 def dictVarMatch = (id) => match #cell.get(curDictV) { case None => false case Some(v) => isVarN(instOf(id), v) }
 def dictLocal    = (scope) => IrLocal(idxOf(scope, "$dict"))
 def nDispatch    = (helper, scope, a, b) => let u = #cell.set(usedNDictCell, true) in IrApp(IrApp(IrApp(IrGlobal(helper), Cons(dictLocal(scope), Nil)), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))
-def tagOfType    = (ty) => match ty { case TyFloat => "Float" case _ => "Int" }
-def tagOfArg     = (e) => match e { case Lit(n) => "Int" case FloatLit(s) => "Float" case Add(id, a, b) => tagOfType(instOf(id)) case Sub(id, a, b) => tagOfType(instOf(id)) case Mul(id, a, b) => tagOfType(instOf(id)) case Div(id, a, b) => tagOfType(instOf(id)) case Ascribe(e2, ty) => tagOfType(ty) case _ => "Int" }
+def tagOfType    = (ty) => match ty { case TyFloat => "Float" case TyStr => "String" case _ => "Int" }
+def tagOfArg     = (e) => match e { case Lit(n) => "Int" case FloatLit(s) => "Float" case StrLit(s) => "String" case Add(id, a, b) => tagOfType(instOf(id)) case Sub(id, a, b) => tagOfType(instOf(id)) case Mul(id, a, b) => tagOfType(instOf(id)) case Div(id, a, b) => tagOfType(instOf(id)) case Ascribe(e2, ty) => tagOfType(ty) case _ => "Int" }
 def spineHead    = (t) => match t { case App(f, a) => spineHead(f) case _ => t }
 def spineArgs    = (t) => match t { case App(f, a) => appendD(spineArgs(f), Cons(a, Nil)) case _ => Nil }
 def nthArg       = (xs, i) => match xs { case Nil => Lit(0) case Cons(h, t) => if #i.eq(i, 0) then h else nthArg(t, #i.sub(i, 1)) }
@@ -51,7 +51,7 @@ def erase = (scope, term) =>
     case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IrPrim("i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Mul(a, b)    => IrPrim("i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Eq(id, a, b) => if isStrTy(instOf(id)) then IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.eq" else "i.eq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Eq(id, a, b) => if dictVarMatch(id) then nDispatch("__neq", scope, a, b) else if isStrTy(instOf(id)) then IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.eq" else "i.eq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Lt(id, a, b) => if dictVarMatch(id) then nDispatch("__nlt", scope, a, b) else if isStrTy(instOf(id)) then (let u = #cell.set(usedStrLtCell, true) in IrApp(IrApp(IrGlobal("__strLt"), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.lt" else "i.lt", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Eq(a, b)     => IrPrim("i.eq",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Lt(a, b)     => IrPrim("i.lt",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
@@ -297,7 +297,13 @@ def appendDef = IrDef("__append", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
 -- numeric dict dispatch:  __nadd = λtag.λa.λb. if seq(tag,"Float") then f.add a b else i.add a b   (tag=L2,a=L1,b=L0)
 def nHelperDef = (name, fop, iop) => IrDef(name, IrLam(1, IrLam(1, IrLam(1,
     IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("Float"), Nil))), IrPrim(fop, Cons(IrLocal(1), Cons(IrLocal(0), Nil))), IrPrim(iop, Cons(IrLocal(1), Cons(IrLocal(0), Nil))))))))
-def nDictDefs = Cons(nHelperDef("__nadd", "f.add", "i.add"), Cons(nHelperDef("__nsub", "f.sub", "i.sub"), Cons(nHelperDef("__nmul", "f.mul", "i.mul"), Cons(nHelperDef("__ndiv", "f.div", "i.div"), Cons(nHelperDef("__nlt", "f.lt", "i.lt"), Nil)))))
+-- Ord comparison helpers are 3-way: Float / String / Int  (tag=L2, a=L1, b=L0)
+def nCmpDef    = (name, fop, strApp, iop) => IrDef(name, IrLam(1, IrLam(1, IrLam(1,
+    IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("Float"), Nil))), IrPrim(fop, Cons(IrLocal(1), Cons(IrLocal(0), Nil))),
+      IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("String"), Nil))), strApp, IrPrim(iop, Cons(IrLocal(1), Cons(IrLocal(0), Nil)))))))))
+def nLtDef     = nCmpDef("__nlt", "f.lt", IrApp(IrApp(IrGlobal("__strLt"), Cons(IrLocal(1), Nil)), Cons(IrLocal(0), Nil)), "i.lt")
+def nEqDef     = nCmpDef("__neq", "f.eq", IrPrim("seq", Cons(IrLocal(1), Cons(IrLocal(0), Nil))), "i.eq")
+def nDictDefs = Cons(nHelperDef("__nadd", "f.add", "i.add"), Cons(nHelperDef("__nsub", "f.sub", "i.sub"), Cons(nHelperDef("__nmul", "f.mul", "i.mul"), Cons(nHelperDef("__ndiv", "f.div", "i.div"), Cons(nLtDef, Cons(nEqDef, Nil))))))
 -- general deep handler: __effHandle = λlbl.λm.λvalf.λopf. match m {
 --   Pure v => valf v                                                          (v=0; opf=1,valf=2,m=3,lbl=4)
 --   Op l a k => l==lbl ? opf (fst a) (snd a) (λr. __effHandle lbl (k r) valf opf)   (k=0,a=1,l=2; opf=3,valf=4,m=5,lbl=6 — a = Pair op realArg)
@@ -318,6 +324,7 @@ def anyListShow = (reg) => match reg { case Nil => false case Cons(p, rest) => m
 def appendD = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, appendD(t, ys)) }
 -- defs = list helpers (if a list instance used) ++ the per-type show/eq helpers collected during erase
 def progOf = (term) => let body = erase(Nil, term) in
+  let uStr  = if #cell.get(usedNDictCell) then #cell.set(usedStrLtCell, true) else false in   -- __nlt's String branch calls __strLt
   let listH = if anyListShow(#cell.get(tcReg)) then Cons(joinRestDef, Cons(showListDef, Cons(eqListDef, Nil))) else Nil in
   let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Cons(effRevAppDef, Cons(effLogGoDef, Cons(effRunLogDef, Cons(effHandleDef, Nil))))))) else Nil in
   let strH  = if #cell.get(usedStrLtCell) then Cons(strLtDef, Cons(strLtGoDef, Nil)) else Nil in

@@ -220,8 +220,8 @@ def infer = (env, c, s, term) =>
           match unify(s1, tv, tlam) { case Err(m) => ErrI(m) case Ok(s2) =>
             let fty = appTy(s2, tv) in
             let qs = diffList(freeTy(fty, Nil), freeEnv(env, s2, Nil)) in
-            match firstPendingIn(qs) {                                  -- an UNANCHORED numeric var → make `f` a dict-fn (keep it polymorphic)
-              case Some(dv) => let u = registerDictFn(f, dv, dictArgPos(fty, dv)) in let u2 = unpend(dv) in
+            match dictVarOf(s2, #cell.get(pendingNum), qs) {            -- an UNANCHORED Num/Ord var → make `f` a dict-fn (keep it polymorphic)
+              case Some(dv) => let u = registerDictFn(f, dv, dictArgPos(fty, dv)) in let u2 = #cell.set(pendingNum, unpendRep(s2, dv, #cell.get(pendingNum))) in
                                infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body)
               case None => let s2b = defaultPendingIn(s2, qs) in
                            infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) } }
@@ -494,6 +494,11 @@ def registerDictFn = (nm, v, pos) => #cell.set(dictFnReg, Cons(Pair(nm, Pair(v, 
 def lookupDictFn  = (reg, nm) => match reg { case Nil => None case Cons(p, r) => match p { case Pair(n, info) => if #seq(n, nm) then Some(info) else lookupDictFn(r, nm) } }
 def isDictFn      = (nm) => match lookupDictFn(#cell.get(dictFnReg), nm) { case Some(x) => true case None => false }
 def firstPendingIn = (qs) => match qs { case Nil => None case Cons(v, r) => if isPending(v) then Some(v) else firstPendingIn(r) }
+-- substitution-aware: a pending var p may have been unified into a different representative q; the dict var is
+-- the representative q that is among the binding's quantified vars qs.  (firstPendingIn missed `<`-only fns
+-- where the recorded pending var ≠ the canonical quantified var.)
+def dictVarOf  = (s, pend, qs) => match pend { case Nil => None case Cons(p, r) => match appTy(s, TyVar(p)) { case TyVar(q) => if memberI(q, qs) then Some(q) else dictVarOf(s, r, qs) case _ => dictVarOf(s, r, qs) } }
+def unpendRep  = (s, q, xs) => match xs { case Nil => Nil case Cons(p, t) => match appTy(s, TyVar(p)) { case TyVar(m) => if #i.eq(m, q) then unpendRep(s, q, t) else Cons(p, unpendRep(s, q, t)) case _ => Cons(p, unpendRep(s, q, t)) } }
 def removeI       = (v, xs) => match xs { case Nil => Nil case Cons(h, t) => if #i.eq(h, v) then removeI(v, t) else Cons(h, removeI(v, t)) }
 def unpend        = (v) => #cell.set(pendingNum, removeI(v, #cell.get(pendingNum)))
 def isVarN        = (ty, var) => match ty { case TyVar(n) => #i.eq(n, var) case _ => false }
