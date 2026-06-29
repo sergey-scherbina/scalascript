@@ -65,6 +65,7 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // hyper-util into Cargo.toml only when reached.
   QualifiedName("serve")            -> RuntimeCall("crate::runtime::http::_http_serve"),
   QualifiedName("route")            -> RuntimeCall("crate::runtime::http::_http_route"),
+  QualifiedName("requestCookie")    -> RuntimeCall("crate::runtime::http::_http_request_cookie"),
   // R.6 — auth.  Pulls argon2 + jsonwebtoken + serde into Cargo.toml
   // only when at least one auth intrinsic is reached.
   QualifiedName("hashPassword")     -> RuntimeCall("crate::runtime::auth::_hash_password"),

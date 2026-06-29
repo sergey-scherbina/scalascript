@@ -201,7 +201,7 @@ object RustGen:
    *  asset. */
   private[rust] def scanHttpUsage(astModule: scalascript.ast.Module): Boolean =
     val found = scala.collection.mutable.Set.empty[String]
-    astModule.sections.foreach(s => scanSectionForNames(s, Set("serve", "route"), found))
+    astModule.sections.foreach(s => scanSectionForNames(s, Set("serve", "route", "requestCookie"), found))
     found.nonEmpty
 
   /** std/ui — detect `element` / `textNode` / `fragment` View-primitive
