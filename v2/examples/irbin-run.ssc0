@@ -1,0 +1,5 @@
+import "../lib/irbin.ssc0"
+-- a RUNNABLE program's IR, round-tripped through the binary codec, re-emitted as canonical S-expr.
+-- Piping this to `ssc run-ir` must yield 42 — proving the binary format preserves executable IR.
+def runnable = IrProg(Nil, IrPrim("i.add", Cons(IrLit(IrInt(40)), Cons(IrLit(IrInt(2)), Nil))))
+def main = () => #io.print(#coreir.encode(binDecode(binEncode(runnable))))

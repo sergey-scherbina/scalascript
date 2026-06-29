@@ -41,6 +41,11 @@ chk run examples/map-demo.ssc0      "Pair(2, 3)"                      # lib/map:
 chk run examples/mapx-demo.ssc0     '"pair|triple|int|nested|?  size=4  upd=PAIR2"'   # lib/mapx: STRUCTURAL keys (tuple/int/ADT/nested), valEq oracle
 chk run examples/sieve.ssc0         "Cons(2, Cons(3, Cons(5, Cons(7, Cons(11, Cons(13, Cons(17, Cons(19, Cons(23, Cons(29, Nil))))))))))"  # mutable #arr.*
 chk run examples/sha256-demo.ssc0   "4"                                # SHA-256 (lib/sha256.ssc0) vs 4 standard vectors incl. multi-block; VM-only (64-bit bitwise+byte+#arr)
+chk run examples/irbin-demo.ssc0    'Pair("roundtrip-ok", Pair(108, 334))'   # v2-bin (lib/irbin.ssc0): IR-tree -> compact binary -> IR-tree, all node types; 108 bytes vs 334 S-expr chars
+# v2-bin executable round-trip: a runnable IR through binary -> back to S-expr -> actually runs to 42
+ssc run examples/irbin-run.ssc0 > "${TMPDIR:-/tmp}/irbin.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/irbin.coreir" | tail -1)
+if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "v2-bin round-trip -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [42]\n' "v2-bin round-trip" "$got"; fail=1; fi
 chk run examples/string-build.ssc0  '"n=42"'                          # #sconcat + #i->str
 chk run examples/stream-squares.ssc0 "Cons(1, Cons(4, Cons(9, Cons(16, Cons(25, Nil)))))"  # lazy infinite stream
 chk run examples/letrec-fact.ssc0   "120"                            # local `let rec` -> Core IR letrec

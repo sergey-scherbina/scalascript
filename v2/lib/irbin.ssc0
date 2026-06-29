@@ -1,0 +1,92 @@
+-- v2-bin: a COMPACT BINARY encoding of the Core IR, written in ssc0 (VM/run-ir only — uses #arr).
+-- enc : (#arr, ir-Data) -> #arr of bytes (0..255) ; dec : (#arr, pos) -> Pair(ir-Data, pos').
+-- A tooling layer over the same IR-Data tree that #coreir.encode consumes; the kernel still runs S-expr,
+-- so the round-trip invariant is:  #coreir.encode(dec(enc(ir))) == #coreir.encode(ir).
+-- Integers use LEB128 varints (unsigned for tags/arities/locals/lengths; zig-zag for signed int literals),
+-- so small values are 1 byte (compact). Strings = uvarint length + UTF-8 bytes. Floats via #f->str/#str->f.
+
+-- ===== varints =====
+def encUVar = (arr, x) =>
+  if #i.lt(x, 128) then (let u = #arr.push(arr, x) in arr)
+  else (let u = #arr.push(arr, #i.or(#i.and(x, 127), 128)) in encUVar(arr, #i.ushr(x, 7)))
+def decUVar = (arr, pos) =>
+  let b = #arr.get(arr, pos) in
+  if #i.lt(b, 128) then Pair(b, #i.add(pos, 1))
+  else (match decUVar(arr, #i.add(pos, 1)) { case Pair(rest, p2) => Pair(#i.or(#i.and(b, 127), #i.shl(rest, 7)), p2) })
+def zig   = (x) => #i.xor(#i.shl(x, 1), #i.shr(x, 63))
+def unzig = (z) => #i.xor(#i.ushr(z, 1), #i.neg(#i.and(z, 1)))
+def encSVar = (arr, x) => encUVar(arr, zig(x))
+def decSVar = (arr, pos) => match decUVar(arr, pos) { case Pair(z, p2) => Pair(unzig(z), p2) }
+
+-- ===== strings (uvarint char-count + one uvarint per UTF-16 code unit; round-trips via #scodeAt/#sfromCodes) =====
+def encChars = (arr, s, i, n) => if #i.ge(i, n) then arr else (let a1 = encUVar(arr, #scodeAt(s, i)) in encChars(a1, s, #i.add(i, 1), n))
+def encStr = (arr, s) => let n = #slen(s) in let a1 = encUVar(arr, n) in encChars(a1, s, 0, n)
+def decChars = (arr, pos, n) => if #i.le(n, 0) then Pair(Nil, pos) else (match decUVar(arr, pos) { case Pair(c, p2) => match decChars(arr, p2, #i.sub(n, 1)) { case Pair(rest, p3) => Pair(Cons(c, rest), p3) } })
+def decStr = (arr, pos) => match decUVar(arr, pos) { case Pair(n, p2) => match decChars(arr, p2, n) { case Pair(codes, p3) => Pair(#sfromCodes(codes), p3) } }
+
+-- ===== encode (tag byte then fields) =====
+-- 1 IrProg 2 IrDef 3 IrLit 4 IrLocal 5 IrGlobal 6 IrLam 7 IrApp 8 IrLet 9 IrLetRec 10 IrIf
+-- 11 IrCtor 12 IrPrim 13 IrMatch 14 IrArm 15 IrUnit 16 IrBool 17 IrInt 18 IrBig 19 IrFloat 20 IrStr
+-- 21 Cons 22 Nil 23 Some 24 None
+def tag = (arr, t) => let u = #arr.push(arr, t) in arr
+def encList = (arr, xs) => match xs { case Nil => tag(arr, 22) case Cons(h, t) => let a1 = tag(arr, 21) in let a2 = enc(a1, h) in encList(a2, t) }
+def encOpt  = (arr, o)  => match o  { case None => tag(arr, 24) case Some(x) => let a1 = tag(arr, 23) in enc(a1, x) }
+def enc = (arr, ir) =>
+  match ir {
+    case IrProg(defs, entry) => let a1 = tag(arr, 1) in let a2 = encList(a1, defs) in enc(a2, entry)
+    case IrDef(n, b)         => let a1 = tag(arr, 2) in let a2 = encStr(a1, n) in enc(a2, b)
+    case IrLit(c)            => let a1 = tag(arr, 3) in enc(a1, c)
+    case IrLocal(i)          => let a1 = tag(arr, 4) in encUVar(a1, i)
+    case IrGlobal(nm)        => let a1 = tag(arr, 5) in encStr(a1, nm)
+    case IrLam(ar, b)        => let a1 = tag(arr, 6) in let a2 = encUVar(a1, ar) in enc(a2, b)
+    case IrApp(f, args)      => let a1 = tag(arr, 7) in let a2 = enc(a1, f) in encList(a2, args)
+    case IrLet(rhs, b)       => let a1 = tag(arr, 8) in let a2 = encList(a1, rhs) in enc(a2, b)
+    case IrLetRec(lams, b)   => let a1 = tag(arr, 9) in let a2 = encList(a1, lams) in enc(a2, b)
+    case IrIf(c, t, e)       => let a1 = tag(arr, 10) in let a2 = enc(a1, c) in let a3 = enc(a2, t) in enc(a3, e)
+    case IrCtor(tg, fs)      => let a1 = tag(arr, 11) in let a2 = encStr(a1, tg) in encList(a2, fs)
+    case IrPrim(op, as)      => let a1 = tag(arr, 12) in let a2 = encStr(a1, op) in encList(a2, as)
+    case IrMatch(s, arms, d) => let a1 = tag(arr, 13) in let a2 = enc(a1, s) in let a3 = encList(a2, arms) in encOpt(a3, d)
+    case IrArm(tg, ar, b)    => let a1 = tag(arr, 14) in let a2 = encStr(a1, tg) in let a3 = encUVar(a2, ar) in enc(a3, b)
+    case IrUnit              => tag(arr, 15)
+    case IrBool(b)           => let a1 = tag(arr, 16) in let u = #arr.push(a1, if b then 1 else 0) in a1
+    case IrInt(n)            => let a1 = tag(arr, 17) in encSVar(a1, n)
+    case IrBig(n)            => let a1 = tag(arr, 18) in encSVar(a1, #big->i(n))
+    case IrFloat(d)          => let a1 = tag(arr, 19) in encStr(a1, #f->str(d))
+    case IrStr(s)            => let a1 = tag(arr, 20) in encStr(a1, s)
+  }
+
+-- ===== decode (read tag byte, dispatch) =====
+def decList = (arr, pos) =>
+  let t = #arr.get(arr, pos) in
+  if #i.eq(t, 22) then Pair(Nil, #i.add(pos, 1))
+  else (match dec(arr, #i.add(pos, 1)) { case Pair(h, p2) => match decList(arr, p2) { case Pair(tl, p3) => Pair(Cons(h, tl), p3) } })
+def decOpt = (arr, pos) =>
+  let t = #arr.get(arr, pos) in
+  if #i.eq(t, 24) then Pair(None, #i.add(pos, 1))
+  else (match dec(arr, #i.add(pos, 1)) { case Pair(x, p2) => Pair(Some(x), p2) })
+def dec = (arr, pos) =>
+  let t = #arr.get(arr, pos) in
+  let p = #i.add(pos, 1) in
+  if #i.eq(t, 1) then (match decList(arr, p) { case Pair(defs, p2) => match dec(arr, p2) { case Pair(en, p3) => Pair(IrProg(defs, en), p3) } })
+  else if #i.eq(t, 2) then (match decStr(arr, p) { case Pair(n, p2) => match dec(arr, p2) { case Pair(b, p3) => Pair(IrDef(n, b), p3) } })
+  else if #i.eq(t, 3) then (match dec(arr, p) { case Pair(c, p2) => Pair(IrLit(c), p2) })
+  else if #i.eq(t, 4) then (match decUVar(arr, p) { case Pair(i, p2) => Pair(IrLocal(i), p2) })
+  else if #i.eq(t, 5) then (match decStr(arr, p) { case Pair(nm, p2) => Pair(IrGlobal(nm), p2) })
+  else if #i.eq(t, 6) then (match decUVar(arr, p) { case Pair(ar, p2) => match dec(arr, p2) { case Pair(b, p3) => Pair(IrLam(ar, b), p3) } })
+  else if #i.eq(t, 7) then (match dec(arr, p) { case Pair(f, p2) => match decList(arr, p2) { case Pair(args, p3) => Pair(IrApp(f, args), p3) } })
+  else if #i.eq(t, 8) then (match decList(arr, p) { case Pair(rhs, p2) => match dec(arr, p2) { case Pair(b, p3) => Pair(IrLet(rhs, b), p3) } })
+  else if #i.eq(t, 9) then (match decList(arr, p) { case Pair(lams, p2) => match dec(arr, p2) { case Pair(b, p3) => Pair(IrLetRec(lams, b), p3) } })
+  else if #i.eq(t, 10) then (match dec(arr, p) { case Pair(c, p2) => match dec(arr, p2) { case Pair(th, p3) => match dec(arr, p3) { case Pair(el, p4) => Pair(IrIf(c, th, el), p4) } } })
+  else if #i.eq(t, 11) then (match decStr(arr, p) { case Pair(tg, p2) => match decList(arr, p2) { case Pair(fs, p3) => Pair(IrCtor(tg, fs), p3) } })
+  else if #i.eq(t, 12) then (match decStr(arr, p) { case Pair(op, p2) => match decList(arr, p2) { case Pair(as, p3) => Pair(IrPrim(op, as), p3) } })
+  else if #i.eq(t, 13) then (match dec(arr, p) { case Pair(s, p2) => match decList(arr, p2) { case Pair(arms, p3) => match decOpt(arr, p3) { case Pair(d, p4) => Pair(IrMatch(s, arms, d), p4) } } })
+  else if #i.eq(t, 14) then (match decStr(arr, p) { case Pair(tg, p2) => match decUVar(arr, p2) { case Pair(ar, p3) => match dec(arr, p3) { case Pair(b, p4) => Pair(IrArm(tg, ar, b), p4) } } })
+  else if #i.eq(t, 15) then Pair(IrUnit, p)
+  else if #i.eq(t, 16) then (let b = #arr.get(arr, p) in Pair(IrBool(if #i.eq(b, 1) then true else false), #i.add(p, 1)))
+  else if #i.eq(t, 17) then (match decSVar(arr, p) { case Pair(n, p2) => Pair(IrInt(n), p2) })
+  else if #i.eq(t, 18) then (match decSVar(arr, p) { case Pair(n, p2) => Pair(IrBig(#i->big(n)), p2) })
+  else if #i.eq(t, 19) then (match decStr(arr, p) { case Pair(s, p2) => match #str->f(s) { case Some(d) => Pair(IrFloat(d), p2) case None => Pair(IrFloat(0.0), p2) } })
+  else (match decStr(arr, p) { case Pair(s, p2) => Pair(IrStr(s), p2) })
+
+def binEncode = (ir) => enc(#arr.new(), ir)
+def binDecode = (arr) => match dec(arr, 0) { case Pair(ir, p) => ir }

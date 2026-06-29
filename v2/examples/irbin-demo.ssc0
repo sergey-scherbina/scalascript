@@ -1,0 +1,22 @@
+import "../lib/irbin.ssc0"
+-- a hand-built IR tree exercising every node type + const + Cons/Nil + Some/None, round-tripped through
+-- the binary codec. Invariant: #coreir.encode(binDecode(binEncode(ir))) == #coreir.encode(ir).
+def sampleIr =
+  IrProg(
+    Cons(IrDef("fact", IrLam(1,
+           IrIf(IrPrim("i.eq", Cons(IrLocal(0), Cons(IrLit(IrInt(0)), Nil))),
+                IrLit(IrInt(1)),
+                IrLet(Cons(IrLit(IrInt(#i.neg(1))), Nil),
+                      IrApp(IrGlobal("fact"), Cons(IrLocal(0), Nil)))))),
+    Cons(IrDef("g", IrLetRec(Cons(IrLam(1, IrLit(IrFloat(3.5))), Nil), IrLit(IrUnit))),
+    Nil)),
+    IrMatch(IrCtor("Pair", Cons(IrLit(IrInt(1)), Cons(IrLit(IrStr("hi")), Nil))),
+            Cons(IrArm("Pair", 2, IrLit(IrBool(true))),
+            Cons(IrArm("Nil", 0, IrLit(IrBool(false))), Nil)),
+            Some(IrLit(IrBig(#i->big(123))))))
+def main = () =>
+  let s1 = #coreir.encode(sampleIr) in
+  let bytes = binEncode(sampleIr) in
+  let ir2 = binDecode(bytes) in
+  let s2 = #coreir.encode(ir2) in
+  if #seq(s1, s2) then Pair("roundtrip-ok", Pair(#arr.len(bytes), #slen(s1))) else Pair("MISMATCH", Pair(s1, s2))
