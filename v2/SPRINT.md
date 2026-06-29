@@ -872,6 +872,19 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       Op(...)` avoids eager top-level value ordering issues in generated JS; JS/Rust generation for
       the richer raw scheduler uses `java -Xss512m -jar` like the JSON showcase.
 
+- [ ] **K47 — Array-env VM optimization** — Replace `type Env = List[Value]` with
+      `type Env = Array[Value]` in `v2/src/Runtime.scala`. `Local(i)` lookup is currently
+      O(i) (linked-list traversal); with a flat array it becomes O(1): `env(env.length - 1 - i)`.
+      De Bruijn convention stays: last binding = Local(0). Changes: (a) `type Env = Array[Value]`;
+      (b) `extend(base, vals)` replaces `prepend(xs, base)` — appends `vals` IN ORDER so that
+      `Local(0) = arr[last]`; (c) `appendOne(base, v)` for `Let` sequential rhs binding;
+      (d) `Local(i)` case: `env(i)` → `env(env.length - 1 - i)` (O(1) array index);
+      (e) `LetRec` initial env: `Nil` → `Array.empty[Value]`, `prepend(cs.toArray, env)` →
+      `extend(env, cs.toArray)` (same cycle-tie via `var env`); (f) `Compiler.compile` global
+      lambda defs: `ClosV(Nil, …)` + `run(…, Nil)` → `Array.empty[Value]`; (g) `Main.scala`
+      run calls: `Nil` → `Array.empty[Value]`. Conformance gate: `conformance/check.sh` all
+      green. Kernel semantic: +0 (pure VM implementation change, no IR change).
+
 **K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
 mapx/set/option/stream + a ~90-fn ssct-hm prelude (incl. Either + full math); the type system is a complete
 HM language (now with tuple-typed ADT fields); effects/actors/async are libraries (K46 adds futures/channels/

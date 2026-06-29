@@ -6,7 +6,7 @@ package ssc
 // compile(Term): Code  turns the IR into a tree of closures (the "generated
 // program"); the trampoline driver runs it with proper tail calls (TCO).
 
-type Env  = List[Value]
+type Env  = Array[Value]
 type Code  = Env => Step   // a compiled term: given an env, yield the next Step
 
 sealed trait Step
@@ -42,18 +42,25 @@ object Runtime:
         case Done(v) => return v
         case Call(c, args) =>
           if c.arity != args.length then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
-          env = prepend(args, c.env)
+          env = Runtime.extend(c.env, args)
           code = c.code
     sys.error("unreachable")
 
   // Non-tail evaluation of a sub-term = run it to a value.
   inline def value(code: Code, env: Env): Value = run(code, env)
 
-  // Push a frame so the LAST element is index 0 (specs/10-core-ir.md §1.3).
-  def prepend(xs: Array[Value], base: Env): Env =
-    var e = base; var i = 0
-    while i < xs.length do { e = xs(i) :: e; i += 1 }
-    e
+  // Extend env with new bindings appended in order; Local(i) = arr[length-1-i] (O(1)).
+  def extend(base: Env, vals: Array[Value]): Env =
+    val r = new Array[Value](base.length + vals.length)
+    System.arraycopy(base, 0, r, 0, base.length)
+    System.arraycopy(vals, 0, r, base.length, vals.length)
+    r
+
+  def appendOne(base: Env, v: Value): Env =
+    val r = new Array[Value](base.length + 1)
+    System.arraycopy(base, 0, r, 0, base.length)
+    r(base.length) = v
+    r
 
 object Compiler:
   import Value.*, Term.*
@@ -64,12 +71,12 @@ object Compiler:
     val c = new C(globals)
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match
-      case Lam(ar, b) => globals(d.name) = ClosV(Nil, ar, c.compile(b))
+      case Lam(ar, b) => globals(d.name) = ClosV(Array.empty[Value], ar, c.compile(b))
       case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
       case Lam(_, _) => ()
-      case other => globals(d.name) = Runtime.run(c.compile(other), Nil)
+      case other => globals(d.name) = Runtime.run(c.compile(other), Array.empty[Value])
     c.compile(p.entry)
 
   final class C(globals: collection.mutable.Map[String, Value]):
@@ -77,7 +84,7 @@ object Compiler:
       case Lit(k) =>
         val v = constV(k); (_: Env) => Done(v)                       // const folded once
       case Local(i) =>
-        (env: Env) => Done(env(i))
+        (env: Env) => Done(env(env.length - 1 - i))
       case Global(g) =>
         (_: Env) => Done(globals.getOrElse(g, sys.error(s"unbound global: $g")))
       case Lam(ar, b) =>
@@ -92,7 +99,7 @@ object Compiler:
         val rcs = rhs.map(compile); val bc = compile(body)
         (env: Env) =>
           var e = env
-          rcs.foreach(rc => e = Runtime.value(rc, e) :: e)           // sequential, non-tail rhs
+          rcs.foreach(rc => e = Runtime.appendOne(e, Runtime.value(rc, e)))  // sequential, non-tail rhs
           bc(e)                                                      // body: tail
       case LetRec(lams, body) =>
         val acs = lams.map {
@@ -101,8 +108,8 @@ object Compiler:
         }
         val bc = compile(body)
         (env: Env) =>
-          val cs = acs.map { case (ar, code) => ClosV(Nil, ar, code) }
-          val envP = Runtime.prepend(cs.toArray, env)                // last binding = index 0
+          val cs = acs.map { case (ar, code) => ClosV(Array.empty[Value], ar, code) }
+          val envP = Runtime.extend(env, cs.toArray)                 // last binding = Local(0)
           cs.foreach(_.env = envP)                                   // tie the cyclic frame
           bc(envP)                                                   // body: tail
       case Ctor(tag, fields) =>
@@ -115,7 +122,7 @@ object Compiler:
         (env: Env) => Runtime.value(sc, env) match                   // scrutinee: non-tail
           case DataV(tag, fs) =>
             acs.find { case (t, ar, _) => t == tag && ar == fs.length } match
-              case Some((_, _, body)) => body(Runtime.prepend(fs.toArray, env))  // arm: tail
+              case Some((_, _, body)) => body(Runtime.extend(env, fs.toArray))    // arm: tail
               case None => dc match
                 case Some(d) => d(env)
                 case None => sys.error(s"match: no arm for $tag/${fs.length}")
