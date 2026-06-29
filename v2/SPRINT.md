@@ -872,14 +872,27 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       Op(...)` avoids eager top-level value ordering issues in generated JS; JS/Rust generation for
       the richer raw scheduler uses `java -Xss512m -jar` like the JSON showcase.
 
-- [ ] **K48 — Multi-op typed handler resumes** — spec: `specs/57-multi-op-handler-resumes.md`.
-      Add `handleM "L" m { | op1 a k => b1 | op2 a k => b2 } retf`, a total per-operation
-      handler form for declared effect ops. Each arm's arg/resume comes from that op's signature
-      (so `ask`'s `k : Int -> Comp` and `tell`'s `k : String -> Comp` are typed independently,
-      not as `Dyn`). Reject missing, duplicate, unknown, or foreign-label arms so the generated
-      dispatcher's fallback is unreachable. Erase to existing `__effHandle` only; no kernel/backend
-      change. Touch front/typer/emit, add `examples/hm-eff-multiop.hm`, and extend conformance with
-      VM/JS/Rust plus wrong-resume, missing-arm, and foreign-arm negatives.
+- [x] **K48 — Multi-op typed handler resumes DONE** (2026-06-29; spec:
+      `specs/57-multi-op-handler-resumes.md`). Added `handleM "L" m { | op1 a k => b1 |
+      op2 a k => b2 } retf`, a total per-operation handler form for declared effect ops. Each
+      arm's arg/resume comes from that op's signature (`ask`: `k : Int -> Comp`; `tell`:
+      `k : String -> Comp`), and type checking rejects missing, duplicate, unknown, or foreign-label
+      arms so the generated dispatcher's fallback is unreachable. Erases to existing `__effHandle`;
+      no kernel/backend change. Added `examples/hm-eff-multiop.hm` and conformance coverage for HM
+      type, run-ir, JS, Rust, row composition with `Log`, wrong-resume, missing-arm, foreign-arm, and
+      duplicate-arm negatives. Targeted verification passed via launchers and `/tmp/ssc-conformance.jar`:
+      `"Int"`, VM/JS/Rust `42`, negatives as `TypeError`. Full `conformance/check.sh` exposed an
+      unrelated intermittent empty-output/rustc flake, queued as K49 below.
+
+- [ ] **K49 — full conformance intermittent empty-output flake** — `./conformance/check.sh`
+      twice produced a contiguous block of unrelated `got []` failures after an unrelated Rust
+      backend `(rustc err)` while direct reruns of the first failing examples passed. Observed
+      2026-06-29 while testing K48: first run failed around `hm-method-self`/mutual/quad; second
+      run failed around `hm-eff-handle` through K48 happy-path checks, then recovered. Targeted K48
+      checks via both launchers and the assembled `/tmp/ssc-conformance.jar` passed (`"Int"`,
+      VM/JS/Rust `42`, negatives as TypeError). Likely harness/tooling flake, not a feature
+      regression. Done when `check.sh` captures per-command stderr/logs (especially Java/rustc),
+      avoids opaque empty stdout failures, and a full run is stable across two consecutive runs.
 
 - [x] **K47 — Array-env VM optimization DONE** (`type Env = Array[Value]` replacing
       `List[Value]`; `Local(i)` is now O(1) via `env(env.length - 1 - i)` instead of
