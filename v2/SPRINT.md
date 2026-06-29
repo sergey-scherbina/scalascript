@@ -535,3 +535,20 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       **`floor`/`ceil`/`round` are NOT added: they need a float→int truncation primitive the frozen ssc0 kernel
       doesn't expose** (kernel float prims are only `add/sub/mul/div/lt/eq/neg/sqrt`; `ToFloat` is Int→Float
       only). conformance +5.
+
+## K23 — record patterns in match arms
+
+- [x] **K23.1 — `match r { {f = subpat, …} => body }`** (records in match, completing record patterns alongside
+      K19's `let`-destructure). New `PRec(fields)` pattern node parsed by `parseRecPat`/`parseRecPatFields`
+      (`{` wired into `parseAtomPat` + `patStarts` so it also nests, e.g. `{x = Some n}`). Records are
+      single-constructor (always match), so `compilePat`'s new `PRec` case binds each field via the
+      type-directed `FieldGet` (`compileRecFields`) — **order-independent** (by name), supports nested
+      sub-patterns (a `PVar` binds directly; anything else binds to a fresh var then `compilePat`s the
+      sub-pattern), and `compileSubs` also gets a `PRec` arm so a record pattern can nest inside a constructor
+      pattern. `armOfPat` routes `PRec` to `PatArm` (→ the match compiler); `patVars` gets a `PRec` arm.
+      `{x=a, y=b}`, `{y=b, x=a}` (order-free), `{x = Some n}` (nested) all green on run-ir/JS/Rust. **Shared
+      pre-existing limitation** (not new): matching a record pattern against a *polymorphic function parameter*
+      fails with "field access on a non-record" — exactly like `.f` access and `let`-destructure on a fn param,
+      since HM here doesn't infer a record type from field access (would need row polymorphism). The common
+      concrete-record-scrutinee case works. No regression: ctor/tuple/list/literal patterns unchanged.
+      conformance +5.

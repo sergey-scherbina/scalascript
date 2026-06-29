@@ -401,7 +401,7 @@ def parseBinders = (toks) =>
   }
 -- ── pattern parser (match arms): Pat = PVar | PWild | PLit lit | PCon con [Pat] ──
 -- supports nested constructors `Con (Sub a) b`, tuple patterns `(a, b)`, Int/String/Bool literals.
-def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => if isKeyword(x) then false else true case TNum(n) => true case TFloat(s) => true case TStr(s) => true case TPunct(p) => chOr(chOr(#seq(p, "("), #seq(p, "[")), #seq(p, "-")) case _ => false } case Nil => false }
+def patStarts = (toks) => match toks { case Cons(t, r) => match t { case TName(x) => if isKeyword(x) then false else true case TNum(n) => true case TFloat(s) => true case TStr(s) => true case TPunct(p) => chOr(chOr(chOr(#seq(p, "("), #seq(p, "[")), #seq(p, "{")), #seq(p, "-")) case _ => false } case Nil => false }
 -- list pattern:  '[' (fullpat (',' fullpat)*)? ']'  →  Cons p1 (Cons p2 .. Nil)  (so the match-compiler handles it)
 def parseListPatElems = (toks) =>
   match parseFullPat(toks) { case Pair(p, r1) =>
@@ -418,6 +418,19 @@ def parseListPat = (toks) =>                          -- after '['
     case Cons(t, rest) => (match t { case TPunct(p) => if #seq(p, "]") then Pair(PCon("Nil", Nil), rest) else parseListPatElems(toks) case _ => parseListPatElems(toks) })
     case Nil => Pair(PCon("Nil", Nil), Nil)
   }
+-- record pattern:  '{' field '=' subpat (',' field '=' subpat)* '}'  →  PRec [ (field, subpat) ]
+-- (records are single-constructor, so a record pattern always matches; fields bind via the type-directed FieldGet)
+def parseRecPatFields = (toks) =>                     -- field '=' fullpat (',' …)* '}'  → list of Pair(field, pat), rest at '}'
+  match toks { case Cons(t, rest) => match t {
+    case TName(fn) =>
+      match parseFullPat(drop1(rest)) { case Pair(sp, r2) =>     -- drop '=', parse the sub-pattern
+        match r2 { case Cons(sep, r3) => (match sep {
+            case TPunct(p) => if #seq(p, ",") then (match parseRecPatFields(r3) { case Pair(more, r4) => Pair(Cons(Pair(fn, sp), more), r4) }) else Pair(Cons(Pair(fn, sp), Nil), r2)
+            case _ => Pair(Cons(Pair(fn, sp), Nil), r2) })
+          case Nil => Pair(Cons(Pair(fn, sp), Nil), Nil) } }
+    case _ => Pair(Nil, toks) } case Nil => Pair(Nil, toks) }
+def parseRecPat = (toks) =>                           -- after '{'
+  match parseRecPatFields(toks) { case Pair(fields, r) => Pair(PRec(fields), drop1(r)) }   -- drop '}'
 def parseAtomPat = (toks) =>
   match toks { case Cons(t, rest) => match t {
     case TName(s)  => if #seq(s, "_") then Pair(PWild, rest) else if #seq(s, "true") then Pair(PLit(BoolLit(true)), rest) else if #seq(s, "false") then Pair(PLit(BoolLit(false)), rest) else if isUpperName(s) then Pair(PCon(s, Nil), rest) else Pair(PVar(s), rest)
@@ -426,6 +439,7 @@ def parseAtomPat = (toks) =>
     case TStr(s)   => Pair(PLit(StrLit(s)), rest)
     case TPunct(p) => if #seq(p, "(") then parseParenPat(rest)
                       else if #seq(p, "[") then parseListPat(rest)
+                      else if #seq(p, "{") then parseRecPat(rest)
                       else if #seq(p, "-") then (match rest { case Cons(t2, r2) => (match t2 { case TNum(n) => Pair(PLit(Sub(nextId(0), Lit(0), Lit(n))), r2) case TFloat(s) => Pair(PLit(FloatLit(#sconcat("-", s))), r2) case _ => Pair(PWild, rest) }) case Nil => Pair(PWild, rest) })
                       else Pair(PWild, rest)
     } case Nil => Pair(PWild, Nil) }
@@ -447,6 +461,7 @@ def armOfPat = (pat, body) => match pat {
     case PWild           => MArm("_", Nil, body)
     case PLit(l)         => LitArm(l, body)
     case PCon(con, subs) => if allSimplePats(subs) then MArm(con, simpleNames(subs), body) else PatArm(pat, body)
+    case PRec(fields)    => PatArm(pat, body)
   }
 def parseArmBody = (pat, r) => match parseExpr(drop1(r)) { case Pair(body, r3) => Pair(armOfPat(pat, body), r3) }   -- drop '=>'
 -- pattern guard:  pat 'if' cond '=>' body  → PatArm(pat, if cond then body else $guardfail) — $guardfail is
@@ -571,7 +586,18 @@ def compileSubs = (names, subs, success, fail) =>
       case PWild        => compileSubs(ns, ss, success, fail)        -- field bound, ignored
       case PLit(lit)    => If(litCond(Var(nm), lit), compileSubs(ns, ss, success, fail), fail)
       case PCon(c, sps) => compilePat(Var(nm), sub, compileSubs(ns, ss, success, fail), fail)
+      case PRec(fs)     => compilePat(Var(nm), sub, compileSubs(ns, ss, success, fail), fail)
     } case Nil => success } }
+-- record pattern: records are single-constructor (always match), so bind each field via the type-directed FieldGet
+def compileRecFields = (scrut, fields, success, fail) =>
+  match fields {
+    case Nil => success
+    case Cons(fp, rest) => match fp { case Pair(name, subpat) =>
+      (match subpat {
+        case PVar(x) => Let(x, FieldGet(nextId(0), scrut, name), compileRecFields(scrut, rest, success, fail))
+        case PWild   => Let(#sconcat("$rw", #i->str(nextId(0))), FieldGet(nextId(0), scrut, name), compileRecFields(scrut, rest, success, fail))
+        case _       => let nm = #sconcat("$rf", #i->str(nextId(0))) in Let(nm, FieldGet(nextId(0), scrut, name), compilePat(Var(nm), subpat, compileRecFields(scrut, rest, success, fail), fail))
+      }) } }
 -- list patterns lower to the built-in list ops (TyList is not an ADT, so it has no conInfo):
 --   Nil => if isNil s then ok else fail ;  Cons h t => if isNil s then fail else bind head/tail and match
 def compileConsP = (scrut, subs, success, fail) =>
@@ -588,6 +614,7 @@ def compilePat = (scrut, pat, success, fail) =>
       if #seq(con, "Nil") then If(LIsNil(scrut), success, fail)
       else if #seq(con, "Cons") then compileConsP(scrut, subs, success, fail)
       else let names = freshFieldNames(subs) in MatchT(scrut, Cons(MArm(con, names, compileSubs(names, subs, success, fail)), Cons(MArm("_", Nil, fail), Nil)))
+    case PRec(fields) => compileRecFields(scrut, fields, success, fail)
   }
 def compileArms = (scrut, pbs, ff) =>
   match pbs { case Nil => ff case Cons(pb, rest) => match pb { case Pair(pat, body) =>
@@ -723,8 +750,9 @@ def parseProgram = (toks) =>
 def removeStr = (x, xs) => match xs { case Nil => Nil case Cons(h, t) => if #seq(h, x) then removeStr(x, t) else Cons(h, removeStr(x, t)) }
 def removeAll = (xs, fvs) => match xs { case Nil => fvs case Cons(h, t) => removeAll(t, removeStr(h, fvs)) }
 def fvMember = (x, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else fvMember(x, t) }
-def patVars  = (pat) => match pat { case PVar(x) => Cons(x, Nil) case PWild => Nil case PLit(l) => Nil case PCon(con, subs) => patVarsL(subs) }
+def patVars  = (pat) => match pat { case PVar(x) => Cons(x, Nil) case PWild => Nil case PLit(l) => Nil case PCon(con, subs) => patVarsL(subs) case PRec(fields) => recPatVars(fields) }
 def patVarsL = (subs) => match subs { case Nil => Nil case Cons(s, t) => appendL(patVars(s), patVarsL(t)) }
+def recPatVars = (fields) => match fields { case Nil => Nil case Cons(fp, rest) => match fp { case Pair(name, sp) => appendL(patVars(sp), recPatVars(rest)) } }
 def fvArms = (arms) => match arms { case Nil => Nil case Cons(arm, r) => match arm { case MArm(con, binders, body) => appendL(removeAll(binders, freeVars(body)), fvArms(r)) case LitArm(lit, body) => appendL(freeVars(body), fvArms(r)) case PatArm(pat, body) => appendL(removeAll(patVars(pat), freeVars(body)), fvArms(r)) } }
 def fvRec  = (fields) => match fields { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, e) => appendL(freeVars(e), fvRec(r)) } }
 def freeVars = (t) =>

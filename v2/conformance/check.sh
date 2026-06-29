@@ -1232,6 +1232,15 @@ if [ "$got" = "1111" ]; then printf 'ok   %-26s => %s\n' "float math -> run-ir" 
 if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-floatmath.hm > "${TMPDIR:-/tmp}/fm.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/fm.js" 2>/dev/null | tail -1); if [ "$got" = "1111" ]; then printf 'ok   %-26s => %s (node)\n' "float math -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "float math JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-floatmath.hm > "${TMPDIR:-/tmp}/fm.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/fm.rs" -o "${TMPDIR:-/tmp}/fm-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/fm-bin"); else got="(rustc err)"; fi; if [ "$got" = "1111" ]; then printf 'ok   %-26s => %s (rustc)\n' "float math -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "float math Rust" "$got"; fail=1; fi; fi
 
+echo "# RECORD PATTERNS in match arms: match r { {f = subpat, …} => .. } — binds fields via FieldGet (order-free, nested)"
+chk_hm examples/hm-recpat.hm '"Int"'                                 # {name=n, age=a} then nested {x=Some v, y=w}
+ssc run bin/ssctc-hm.ssc0 examples/hm-recpat.hm > "${TMPDIR:-/tmp}/rpc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/rpc.coreir" | tail -1)
+if [ "$got" = "6530" ]; then printf 'ok   %-26s => %s\n' "record pattern -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "record pattern" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-recpat.hm > "${TMPDIR:-/tmp}/rpc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/rpc.js" 2>/dev/null | tail -1); if [ "$got" = "6530" ]; then printf 'ok   %-26s => %s (node)\n' "record pattern -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "record pattern JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-recpat.hm > "${TMPDIR:-/tmp}/rpc.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/rpc.rs" -o "${TMPDIR:-/tmp}/rpc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/rpc-bin"); else got="(rustc err)"; fi; if [ "$got" = "6530" ]; then printf 'ok   %-26s => %s (rustc)\n' "record pattern -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "record pattern Rust" "$got"; fail=1; fi; fi
+echo -n "ok   record pat order-free + ctor pat => "; printf 'match {x = 3, y = 4} { {y = b, x = a} => a * 10 + b }' > "${TMPDIR:-/tmp}/rp2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/rp2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/rp2.coreir"; rp2=$(ssc run-ir "${TMPDIR:-/tmp}/rp2.coreir" | tail -1); printf 'match (Some 5) { Some n => n | None => 0 }' > "${TMPDIR:-/tmp}/rp3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/rp3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/rp3.coreir"; rp3=$(ssc run-ir "${TMPDIR:-/tmp}/rp3.coreir" | tail -1); if [ "$rp2" = "34" ] && [ "$rp3" = "5" ]; then echo "{y=b,x=a} binds by name =>34 ; ctor pattern still =>5"; else echo "FAIL [$rp2 / $rp3]"; fail=1; fi
+
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)

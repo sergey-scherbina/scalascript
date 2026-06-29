@@ -1,0 +1,1 @@
+let r = {name = 65, age = 30} in match r { {name = n, age = a} => match {x = Some n, y = a} { {x = Some v, y = w} => v * 100 + w | _ => 0 } }
