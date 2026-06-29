@@ -1,6 +1,6 @@
 feature/v2-multiop-effects 2026-06-29T17:35:37Z
 agent: codex
-heartbeat: 2026-06-29T17:35:37Z
+heartbeat: 2026-06-29T17:49:43Z
 status: in-progress
-done-so-far: found existing dirty worktree /Users/sergiy/work/my/scalascript-wt-v2-multiop-effects with multi-op effects changes; claiming before inspection/continuation
-next: inspect existing diffs, reconcile with origin/main K47, then queue/update v2 SPRINT plan before further implementation
+done-so-far: spec/SPRINT commit ca000d325 pushed; handleM parser, typer validation, eraser draft, example, and K48 conformance are under test in /Users/sergiy/work/my/scalascript-wt-v2-multiop-effects
+next: run full v2 conformance, then commit implementation/docs/bookkeeping and release claim
