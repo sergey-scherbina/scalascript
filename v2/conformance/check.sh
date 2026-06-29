@@ -1249,6 +1249,14 @@ if [ "$got" = "1111111" ]; then printf 'ok   %-26s => %s\n' "float rounding -> r
 if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-rounding.hm > "${TMPDIR:-/tmp}/rd.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/rd.js" 2>/dev/null | tail -1); if [ "$got" = "1111111" ]; then printf 'ok   %-26s => %s (node)\n' "float rounding -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "float rounding JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-rounding.hm > "${TMPDIR:-/tmp}/rd.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/rd.rs" -o "${TMPDIR:-/tmp}/rd-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/rd-bin"); else got="(rustc err)"; fi; if [ "$got" = "1111111" ]; then printf 'ok   %-26s => %s (rustc)\n' "float rounding -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "float rounding Rust" "$got"; fail=1; fi; fi
 
+echo "# MATH LIBRARY COMPLETE (mathx): inverse trig atan/asin/acos (atan = double half-angle reduce + Maclaurin), hyperbolic sinh/cosh/tanh, cbrt/hypot, log2/log10/logBase — all pure prelude. exp now range-reduced by halving (exp x = exp(x/2)^2) so it's accurate for large |x| too (exp 1.0 still bit-identical). Identical on all 3 backends"
+chk_hm examples/hm-mathx2.hm '"Int"'                                 # 14 near-checks of atan/asin/acos/sinh/cosh/tanh/cbrt/hypot/log2/log10/logBase/sinh5 -> 14
+ssc run bin/ssctc-hm.ssc0 examples/hm-mathx2.hm > "${TMPDIR:-/tmp}/m2.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/m2.coreir" | tail -1)
+if [ "$got" = "14" ]; then printf 'ok   %-26s => %s\n' "math library -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "math library" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-mathx2.hm > "${TMPDIR:-/tmp}/m2.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/m2.js" 2>/dev/null | tail -1); if [ "$got" = "14" ]; then printf 'ok   %-26s => %s (node)\n' "math library -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "math library JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-mathx2.hm > "${TMPDIR:-/tmp}/m2.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/m2.rs" -o "${TMPDIR:-/tmp}/m2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/m2-bin"); else got="(rustc err)"; fi; if [ "$got" = "14" ]; then printf 'ok   %-26s => %s (rustc)\n' "math library -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "math library Rust" "$got"; fail=1; fi; fi
+
 echo "# RECORD PATTERNS in match arms: match r { {f = subpat, …} => .. } — binds fields via FieldGet (order-free, nested)"
 chk_hm examples/hm-recpat.hm '"Int"'                                 # {name=n, age=a} then nested {x=Some v, y=w}
 ssc run bin/ssctc-hm.ssc0 examples/hm-recpat.hm > "${TMPDIR:-/tmp}/rpc.coreir" 2>/dev/null

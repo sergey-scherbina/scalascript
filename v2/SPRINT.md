@@ -737,3 +737,20 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       the IEEE default on run-ir (`Double`), JS (`Number`), Rust (`f64`), so results are **identical across all 3
       backends** (`rint 2.5 = 2.0`, `rint 3.5 = 4.0` — banker's rounding everywhere). Example sums seven
       near-checks → `1111111` on all backends. conformance +4.
+
+## K35 — math library complete (inverse trig / hyperbolic / log bases / cbrt / hypot)
+
+- [x] **K35.1 — `atan`/`asin`/`acos`, `sinh`/`cosh`/`tanh`, `cbrt`, `hypot`, `log2`/`log10`/`logBase`; `exp`
+      hardened.** Rounds the mathx float library out to typical-stdlib parity, all pure prelude (0 kernel/backend
+      change), all via the K33 series pattern. **`atan`** is the only non-trivial one: the Maclaurin series
+      `x - x³/3 + …` converges hopelessly near `|x|=1` (Leibniz), so it's preceded by a **double half-angle
+      reduction** `atan x = 4·atanSeries(r2)` where `r = a/(1+√(1+a²))` applied twice — shrinks any argument
+      (even `atan 10`) into the fast-converging zone. `asin x = atan(x/√(1-x²))`, `acos = π/2 - asin`. Hyperbolics
+      are one-liners off `exp` (`sinh = (eˣ-e⁻ˣ)/2`, etc.; `tanh = sinh/cosh` is even self-correcting for large
+      `x` since `e⁻ˣ→0`). `cbrt` = sign-aware `exp(ln|x|/3)`, `hypot = √(a²+b²)`, `log2`/`log10` divide `ln x` by
+      the constant, `logBase b x = ln x / ln b`. **`exp` is now range-reduced by halving** (`exp x = exp(x/2)²`
+      recursing until `|x|≤1`, then the 30-term series) so it (and `sinh`/`cosh`/`pow`) is accurate for large `|x|`
+      too — and `exp 1.0` stays *bit-identical* (`|1.0|>1.0` is false → still the plain series). All deterministic
+      across run-ir/JS/Rust (IEEE-754, fixed op order); a 14-check example sums to `14` identically on all three.
+      conformance +4. **The float-math story is now complete: arithmetic + comparison + abs/sign/min/max +
+      rounding + sqrt/cbrt + exp/ln/log-bases + full trig + inverse trig + hyperbolic + pi/hypot.**
