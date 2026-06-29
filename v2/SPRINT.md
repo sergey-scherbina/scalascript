@@ -566,3 +566,15 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       since HM here doesn't infer a record type from field access (would need row polymorphism). The common
       concrete-record-scrutinee case works. No regression: ctor/tuple/list/literal patterns unchanged.
       conformance +5.
+
+## K24 — prelude combinators + utilities
+
+- [x] **K24.1 — `compose` / `flip` / `min` / `max` / `elem` / `notElem` / `product` / `last` / `null` / `join`.**
+      Probed (2026-06-29): all were unbound. All are one-liners definable in ssct-hm, added to the auto-injected
+      prelude (no infer/erase/backend change). `min`/`max` use overloaded `<` so they are polymorphic via
+      inlining (work on Int/Float/String — `min "banana" "apple"` = "apple"). `elem`/`notElem` use overloaded
+      `=`. `join` concatenates a `[String]` with a separator via `++`. ⚠️ GOTCHA: the prelude injects so that a
+      *depender* must come BEFORE its dependency in the list (like `concatMap` before `append`) — `notElem`
+      (uses `elem`) had to be listed before `elem`, else "unbound variable". Also: don't reuse an existing
+      example filename (`hm-prelude2.hm` already existed — conformance caught the clobber; used
+      `hm-preludecombi.hm`). All green on run-ir/JS/Rust. conformance +5.

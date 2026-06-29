@@ -814,12 +814,22 @@ def prelude =
   Cons(Pair("sortBy",  "fun lt => fun xs => let rec ins = fun x => fun ys => if isNil ys then cons x nil else if lt x (head ys) then cons x ys else cons (head ys) (ins x (tail ys)) in let rec go = fun zs => if isNil zs then nil else ins (head zs) (go (tail zs)) in go xs"),
   Cons(Pair("id",      "fun x => x"),
   Cons(Pair("const",   "fun x => fun y => x"),
+  Cons(Pair("compose", "fun f => fun g => fun x => f (g x)"),
+  Cons(Pair("flip",    "fun f => fun a => fun b => f b a"),
+  Cons(Pair("min",     "fun a => fun b => if a < b then a else b"),
+  Cons(Pair("max",     "fun a => fun b => if a < b then b else a"),
+  Cons(Pair("notElem", "fun x => fun xs => if elem x xs then false else true"),
+  Cons(Pair("elem",    "fun x => fun xs => if isNil xs then false else if x = head xs then true else elem x (tail xs)"),
+  Cons(Pair("product", "fun l => if isNil l then 1 else head l * product (tail l)"),
+  Cons(Pair("last",    "fun l => if isNil (tail l) then head l else last (tail l)"),
+  Cons(Pair("null",    "fun l => isNil l"),
+  Cons(Pair("join",    "fun sep => fun xs => if isNil xs then \"\" else if isNil (tail xs) then head xs else head xs ++ sep ++ join sep (tail xs)"),
   Cons(Pair("abs",     "fun n => if n < 0 then neg n else n"),
   Cons(Pair("minBy",   "fun lt => fun a => fun b => if lt a b then a else b"),
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }
