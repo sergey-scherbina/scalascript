@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-29 — JS SPA hash-route bridge sync for mounted UIs
+
+Fixed a browser SPA runtime bridge bug that affected hash-routed std/ui apps such as rozum UCC
+`clients/control/control-center-live.ssc`: `hashSignal()` updated the reactive graph on `hashchange`, but mounted
+`data-ssc-cond` DOM subscribers were only refreshed through `_syncBridgeSignals()` after bridge-owned `_set(...)`
+calls. `_ssc_ui_mount()` now also syncs the bridge on native `hashchange`, so route guards and hash-derived
+computed displays switch immediately after clicking a navigation link, without requiring a browser refresh.
+
+Guard: `JsGenStdImportTest` now changes the hash after mount and asserts the branch styles toggle; the adjacent
+`SpaComputedBodyBridgeTest` computed-to-bridge regression remains green.
+
 ## 2026-06-29 — v2 K46: async futures/channels/mailboxes + roadmap reconcile
 
 v2 status docs now match the K45 state: `ROADMAP.md`, `README.md`, Core IR notes, and JS backend notes no

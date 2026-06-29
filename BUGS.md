@@ -12,6 +12,25 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## js-spa-hashchange-bridge-sync — `fixed` (2026-06-29)
+
+- **Reported by:** Sergiy, from the rozum Unified Control Center (`clients/control/control-center-live.ssc`).
+- **Symptom:** clicking a hash-route navigation control changed `location.hash`, but the visible SPA route did
+  not switch until a manual browser refresh. The reactive `hashSignal()` / `computedSignal` graph updated, but
+  mounted `data-ssc-cond` branches still kept their previous `display:none` / `display:contents` state.
+- **Repro:** mount a JS browser SPA with `hashSignal()` feeding an `eqSignal` / route guard, then change
+  `window.location.hash` and dispatch `hashchange`; before the fix the computed signal value changed while the
+  mounted branch styles did not.
+- **Root cause:** `_ssc_ui_hashSignal()` already registered a `hashchange` listener and updated the reactive
+  graph, but `_ssc_ui_mount()` only pushed computed values from the reactive graph into the DOM bridge store
+  (`_sv` / `_sb`) through `_syncBridgeSignals()` after bridge-owned `_set(...)` calls. Native browser
+  `hashchange` events never called that bridge sync.
+- **FIXED (2026-06-29, `23789503d8b9c2a4cba41545ba5ae7ba0219bc1b`):** `_ssc_ui_mount()` now listens for
+  `hashchange` and calls `_syncBridgeSignals()`, so `data-ssc-cond`, signal text, and other mounted bridge
+  subscribers observe hash-derived computed changes without a refresh.
+- **Guard:** `JsGenStdImportTest` now dispatches `hashchange` after mount and asserts the `data-ssc-cond`
+  branches toggle. Also re-ran `SpaComputedBodyBridgeTest` to cover the adjacent computed-to-bridge path.
+
 ## v2-conformance-echo-backticks — `fixed` (2026-06-29)
 
 - **Found by:** codex, while running full `v2/conformance/check.sh` for K46 async/actor breadth.
