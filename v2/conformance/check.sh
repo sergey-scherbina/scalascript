@@ -275,6 +275,16 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/tf.coreir" | tail -1)
 if [ "$got" = "$TFW" ]; then printf 'ok   %-26s => %s\n' "tuple-type field -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuptype-field" "$got"; fail=1; fi
 if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-tuptype-field.hm > "${TMPDIR:-/tmp}/tf.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tf.js" 2>/dev/null | tail -1); if [ "$got" = "$TFW" ]; then printf 'ok   %-26s => %s (node)\n' "tuple-type field -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuptype-field JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-tuptype-field.hm > "${TMPDIR:-/tmp}/tf.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/tf.rs" -o "${TMPDIR:-/tmp}/tf-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tf-bin"); else got="(rustc err)"; fi; if [ "$got" = "$TFW" ]; then printf 'ok   %-26s => %s (rustc)\n' "tuple-type field -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuptype-field Rust" "$got"; fail=1; fi; fi
+echo "# K43 — JSON SHOWCASE: a real ADT + recursive serializer + recursive-descent parser (mutual recursion) in ssct-hm, on 3 backends. Roundtrips {\"name\":\"ada\",...} and queries the parsed tree; result Int 3610072 = age 36 (×1e5) + idempotent 1 (×1e4) + serialized len 72. (Big program → typechecker needs -Xss512m, like the ssc0c fixpoint.)"
+JX="java -Xss512m -jar $JAR"
+jt=$($JX run bin/ssct-hm.ssc0 examples/hm-json.hm 2>/dev/null | tail -1)
+if [ "$jt" = '"Int"' ]; then printf 'ok   %-26s => %s\n' "json showcase : type" "$jt"; else printf 'FAIL %-26s got [%s] want ["Int"]\n' "json type" "$jt"; fail=1; fi
+JW="3610072"
+$JX run bin/ssctc-hm.ssc0 examples/hm-json.hm > "${TMPDIR:-/tmp}/json.coreir" 2>/dev/null
+got=$($JX run-ir "${TMPDIR:-/tmp}/json.coreir" | tail -1)
+if [ "$got" = "$JW" ]; then printf 'ok   %-26s => %s\n' "json roundtrip -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [%s]\n' "json run-ir" "$got" "$JW"; fail=1; fi
+if command -v node >/dev/null 2>&1; then $JX run bin/ssct-hm-js.ssc0 examples/hm-json.hm > "${TMPDIR:-/tmp}/json.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/json.js" 2>/dev/null | tail -1); if [ "$got" = "$JW" ]; then printf 'ok   %-26s => %s (node)\n' "json roundtrip -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "json JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then $JX run bin/ssct-hm-rust.ssc0 examples/hm-json.hm > "${TMPDIR:-/tmp}/json.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/json.rs" -o "${TMPDIR:-/tmp}/json-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/json-bin"); else got="(rustc err)"; fi; if [ "$got" = "$JW" ]; then printf 'ok   %-26s => %s (rustc)\n' "json roundtrip -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "json Rust" "$got"; fail=1; fi; fi
 echo "# ssct-hm TYPECLASS Show: one `show` resolves to the instance for the inferred type, on every backend"
 chk_hm examples/hm-show.hm '"String"'
 SHW='"x=42"'

@@ -839,10 +839,16 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       are unchanged. `data Rec = Rec (String, Int) (Int, Int, Int)` → Pair + Triple fields, 5+1+2+3 = 11 on
       run-ir/JS/Rust; nested ADTs + existing tuple tests unaffected. Unblocks idiomatic ADTs incl. JSON's
       `[(String, Json)]`. Kernel +0.
-- [ ] **K43 — JSON library showcase (ssct-hm).** `data Json = JNull | JBool Bool | JNum Int | JStr String |
-      JArr [Json] | JObj [(String, Json)]` + a recursive serializer `showJson : Json -> String` (and, stretch,
-      a recursive-descent parser). A real, recognizable typed program composing ADTs + recursion + lists + tuples
-      + strings + pattern matching, compiling to run-ir/JS/native-Rust.
+- [x] **K43 — JSON library showcase DONE** (conformance +4). `examples/hm-json.hm`: `data Json = JNull |
+      JBool Bool | JNum Int | JStr String | JArr [Json] | JObj [(String, Json)]` (uses K42 tuple fields) + a
+      recursive **serializer** `showJson` (compact) + a full **recursive-descent parser** (mutual recursion
+      `parseValue`/`parseArr`/`parseObj`, char-code dispatch via `charAt`/`strLen`, whitespace skipping, strings,
+      signed numbers, bool/null) + accessors (`lookupJ`/`numOf`). Roundtrips a whitespace-formatted
+      `{ "name": "ada", … "neg": -7 }` → compact `{"name":"ada",…,"neg":-7}` (len 72), idempotently, extracting
+      `age`=36. Encoded as Int **3610072** (= 36·1e5 + idempotent·1e4 + 72) — Int dodges the cross-backend
+      string-DISPLAY divergence (run-ir shows inner quotes raw, JS/Rust escape; value identical). Green on
+      run-ir/JS/native-Rust. Big program → VM-interpreted typechecker needs `-Xss512m` (like the ssc0c fixpoint).
+      GOTCHAS: ssct-hm equality is `=` (not `==`); comments `//`; `\"` escapes work.
 - [ ] **K44 — Either / Result combinators (ssct-hm prelude).** `mapLeft`/`mapRight`/`either`/`isLeft`/`isRight`/
       `fromRight`/`partitionEithers` over the built-in `Left`/`Right` ADT — error-handling breadth alongside the
       existing Option combinators.

@@ -1,0 +1,71 @@
+// JSON in ssct-hm — a real recognizable program: an ADT, a recursive serializer, AND a recursive-descent
+// parser, all HM-typed and compiling to run-ir / JS / native Rust. Exercises ADTs (with a tuple field),
+// recursion, mutual recursion, lists, tuples, strings (charAt/strLen/chr), comparison + boolean ops, match.
+data Json = JNull | JBool Bool | JNum Int | JStr String | JArr [Json] | JObj [(String, Json)] in
+
+// serializer : Json -> String (compact)
+let q = fun s => (chr 34) ++ (s ++ (chr 34)) in
+let rec showJson = fun j => match j {
+    JNull => "null"
+  | JBool b => if b then "true" else "false"
+  | JNum n => showInt n
+  | JStr s => q s
+  | JArr xs => "[" ++ ((join "," (map showJson xs)) ++ "]")
+  | JObj kvs => "{" ++ ((join "," (map (fun kv => match kv { (k, v) => (q k) ++ (":" ++ (showJson v)) }) kvs)) ++ "}")
+} in
+
+// parser : String -> Json  (threads (value, nextPos) internally)
+let isDigit = fun c => (c >= 48) && (c <= 57) in
+let rec skipWs = fun s => fun i =>
+  if i >= strLen s then i
+  else (let c = charAt s i in if (c = 32) || ((c = 10) || ((c = 9) || (c = 13))) then skipWs s (i + 1) else i) in
+let rec scanStr = fun s => fun i => fun acc =>
+  if charAt s i = 34 then (acc, i + 1) else scanStr s (i + 1) (acc ++ (chr (charAt s i))) in
+let parseStr = fun s => fun i => scanStr s (i + 1) "" in
+let rec scanNum = fun s => fun i => fun acc =>
+  if (i < strLen s) && (isDigit (charAt s i)) then scanNum s (i + 1) ((acc * 10) + ((charAt s i) - 48)) else (acc, i) in
+let parseNum = fun s => fun i =>
+  if charAt s i = 45 then (match scanNum s (i + 1) 0 { (n, j) => (0 - n, j) }) else scanNum s i 0 in
+let rec parseValue = fun s => fun i0 =>
+  let i = skipWs s i0 in
+  let c = charAt s i in
+  if c = 123 then parseObj s (i + 1) nil
+  else if c = 91 then parseArr s (i + 1) nil
+  else if c = 34 then (match parseStr s i { (str, j) => (JStr str, j) })
+  else if c = 110 then (JNull, i + 4)
+  else if c = 116 then (JBool true, i + 4)
+  else if c = 102 then (JBool false, i + 5)
+  else (match parseNum s i { (n, j) => (JNum n, j) })
+and parseArr = fun s => fun i0 => fun acc =>
+  let i = skipWs s i0 in
+  if charAt s i = 93 then (JArr (reverse acc), i + 1)
+  else (match parseValue s i { (v, j) =>
+       let j2 = skipWs s j in
+       if charAt s j2 = 44 then parseArr s (j2 + 1) (cons v acc)
+       else (JArr (reverse (cons v acc)), j2 + 1) })
+and parseObj = fun s => fun i0 => fun acc =>
+  let i = skipWs s i0 in
+  if charAt s i = 125 then (JObj (reverse acc), i + 1)
+  else (match parseStr s i { (key, j) =>
+       let j2 = skipWs s j in
+       match parseValue s (j2 + 1) { (v, k) =>
+       let k2 = skipWs s k in
+       if charAt s k2 = 44 then parseObj s (k2 + 1) (cons (key, v) acc)
+       else (JObj (reverse (cons (key, v) acc)), k2 + 1) } }) in
+let parse = fun s => match parseValue s 0 { (j, i) => j } in
+
+// small accessors over the parsed tree (proves it is a real queryable value, not just a roundtrip)
+let objOf = fun j => match j { JObj kvs => kvs | _ => nil } in
+let numOf = fun j => match j { JNum n => n | _ => 0 - 1 } in
+let rec lookupJ = fun key => fun kvs =>
+  if isNil kvs then JNull else (match head kvs { (k, v) => if k = key then v else lookupJ key (tail kvs) }) in
+
+// roundtrip a whitespace-formatted document; serialized form is
+//   {"name":"ada","age":36,"langs":["ssc","ml"],"ok":true,"n":null,"neg":-7}
+let doc = "{ \"name\": \"ada\", \"age\": 36, \"langs\": [\"ssc\", \"ml\"], \"ok\": true, \"n\": null, \"neg\": -7 }" in
+let parsed = parse doc in
+let result = showJson parsed in
+let age = numOf (lookupJ "age" (objOf parsed)) in            // 36 — proves the tree is queryable
+let idem = if result = (showJson (parse result)) then 1 else 0 in   // parse/show is idempotent
+// encode all three deterministically (Int — no cross-backend string-display divergence):
+((age * 100000) + (idem * 10000)) + (strLen result)
