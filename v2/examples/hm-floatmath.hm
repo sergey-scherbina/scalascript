@@ -1,0 +1,1 @@
+let near = fun a => fun b => if flt (fabs (a - b)) 0.001 then 1 else 0 in (near (fmax 2.5 1.5) 2.5) * 1000 + (near (fmin 2.5 1.5) 1.5) * 100 + (near (fsign (0.0 - 5.0)) (0.0 - 1.0)) * 10 + (near (fabs (0.0 - 7.0)) 7.0)

@@ -769,6 +769,10 @@ def prelude =
   Cons(Pair("take",    "fun n => fun l => if n < 1 then nil else if isNil l then nil else cons (head l) (take (n - 1) (tail l))"),
   Cons(Pair("drop",    "fun n => fun l => if n < 1 then l else if isNil l then nil else drop (n - 1) (tail l)"),
   Cons(Pair("zip",     "fun a => fun b => if isNil a then nil else if isNil b then nil else cons (Pair (head a) (head b)) (zip (tail a) (tail b))"),
+  Cons(Pair("fabs",    "fun x => if flt x 0.0 then fneg x else x"),
+  Cons(Pair("fmin",    "fun a => fun b => if flt a b then a else b"),
+  Cons(Pair("fmax",    "fun a => fun b => if flt a b then b else a"),
+  Cons(Pair("fsign",   "fun x => if flt x 0.0 then fneg 1.0 else (if flt 0.0 x then 1.0 else 0.0)"),
   Cons(Pair("replicate", "fun n => fun x => if n < 1 then nil else cons x (replicate (n - 1) x)"),
   Cons(Pair("all",     "fun p => fun l => if isNil l then true else if p (head l) then all p (tail l) else false"),
   Cons(Pair("any",     "fun p => fun l => if isNil l then false else if p (head l) then true else any p (tail l)"),
@@ -787,7 +791,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }

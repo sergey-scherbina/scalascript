@@ -525,3 +525,13 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       type, infer, erase, or backend change). Enables char arithmetic (`'z' - 'a'` = 25), range tests
       (`ch >= 'A'`), and comparison against `charAt` results (`charAt s i = 'a'`). All green on run-ir/JS/Rust.
       conformance +5.
+
+## K22 — float math (prelude)
+
+- [x] **K22.1 — `fabs` / `fmin` / `fmax` / `fsign`** added to the prelude (alongside the existing `fsqrt`/`fneg`).
+      All are definable from the kernel float prims that exist (`flt`, `fneg`): `fabs = if flt x 0 then fneg x
+      else x`, `fmin`/`fmax` via `flt`, `fsign` via two `flt`s. Pure prelude (ssct-hm source) addition — auto-
+      injected only when used, no infer/erase/backend change — so they run identically on run-ir/JS/Rust.
+      **`floor`/`ceil`/`round` are NOT added: they need a float→int truncation primitive the frozen ssc0 kernel
+      doesn't expose** (kernel float prims are only `add/sub/mul/div/lt/eq/neg/sqrt`; `ToFloat` is Int→Float
+      only). conformance +5.

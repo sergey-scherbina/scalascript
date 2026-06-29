@@ -1224,6 +1224,14 @@ if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-charlit.hm > "${TMPDIR:-/tmp}/cl.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/cl.rs" -o "${TMPDIR:-/tmp}/cl-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cl-bin"); else got="(rustc err)"; fi; if [ "$got" = "1025" ]; then printf 'ok   %-26s => %s (rustc)\n' "char literal -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "char literal Rust" "$got"; fail=1; fi; fi
 echo -n "ok   char code + escape + cmp      => "; printf "('a' + 0) * 100 + '\\\\n'" > "${TMPDIR:-/tmp}/cl2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/cl2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/cl2.coreir"; cl2=$(ssc run-ir "${TMPDIR:-/tmp}/cl2.coreir" | tail -1); printf "(charAt \"xyz\" 1) = 'y'" > "${TMPDIR:-/tmp}/cl3.hm"; cl3=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/cl3.hm" | tail -1); if [ "$cl2" = "9710" ] && [ "$cl3" = '"Bool"' ]; then echo "'a'=97,'\\n'=10 => 9710 ; charAt = 'y' typechecks Bool"; else echo "FAIL [$cl2 / $cl3]"; fail=1; fi
 
+echo "# FLOAT MATH: prelude fabs / fmin / fmax / fsign (definable from flt+fneg; floor/ceil need a kernel prim)"
+chk_hm examples/hm-floatmath.hm '"Int"'                              # near(fmax/fmin/fsign/fabs results) summed to an Int
+ssc run bin/ssctc-hm.ssc0 examples/hm-floatmath.hm > "${TMPDIR:-/tmp}/fm.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/fm.coreir" | tail -1)
+if [ "$got" = "1111" ]; then printf 'ok   %-26s => %s\n' "float math -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "float math" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-floatmath.hm > "${TMPDIR:-/tmp}/fm.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/fm.js" 2>/dev/null | tail -1); if [ "$got" = "1111" ]; then printf 'ok   %-26s => %s (node)\n' "float math -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "float math JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-floatmath.hm > "${TMPDIR:-/tmp}/fm.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/fm.rs" -o "${TMPDIR:-/tmp}/fm-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/fm-bin"); else got="(rustc err)"; fi; if [ "$got" = "1111" ]; then printf 'ok   %-26s => %s (rustc)\n' "float math -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "float math Rust" "$got"; fail=1; fi; fi
+
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)
