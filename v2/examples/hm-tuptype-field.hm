@@ -1,0 +1,4 @@
+// tuple types in ADT field positions: a constructor field can be a tuple (A, B) or (A, B, C).
+data Rec = Rec (String, Int) (Int, Int, Int) in
+let r = Rec ("pt", 5) (1, 2, 3) in
+match r { Rec name xyz => match name { (lbl, n) => match xyz { (x, y, z) => n + x + y + z } } }

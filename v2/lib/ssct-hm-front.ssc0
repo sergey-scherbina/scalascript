@@ -695,9 +695,19 @@ def fieldStart = (toks) => match toks { case Cons(t, rest) => match t { case TNa
 def parseFieldType = (ps, toks) =>                    -- a single field-type ATOM (application/`->` only inside parens)
   match toks { case Cons(t, rest) => match t {
       case TName(x)  => if isParam(x, ps) then Pair(TyVar(idxP(x, ps)), rest) else if #seq(x, "Int") then Pair(TyInt, rest) else if #seq(x, "Bool") then Pair(TyBool, rest) else if #seq(x, "String") then Pair(TyStr, rest) else if #seq(x, "Float") then Pair(TyFloat, rest) else if #seq(x, "Dyn") then Pair(TyDyn, rest) else Pair(TyCon(x, Nil), rest)
-      case TPunct(p) => if #seq(p, "(") then match parseFnType(ps, rest) { case Pair(ty, r) => Pair(ty, drop1(r)) } else if #seq(p, "[") then match parseFnType(ps, rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else Pair(TyInt, rest)
+      case TPunct(p) => if #seq(p, "(") then parseParenType(ps, rest) else if #seq(p, "[") then match parseFnType(ps, rest) { case Pair(e, r) => Pair(TyList(e), drop1(r)) } else Pair(TyInt, rest)
       case _         => Pair(TyInt, rest)
     } case Nil => Pair(TyInt, Nil) }
+-- after '(': a single (parenthesized) type `(a -> b)`, OR a TUPLE type `(A, B)`/`(A, B, C)` -> Pair/Triple TyCon
+def commaNextT = (toks) => match toks { case Cons(t, r) => match t { case TPunct(p) => #seq(p, ",") case _ => false } case Nil => false }
+def parseParenType = (ps, toks) =>
+  match parseFnType(ps, toks) { case Pair(t1, r1) =>
+    if commaNextT(r1) then
+      match parseFnType(ps, drop1(r1)) { case Pair(t2, r2) =>
+        if commaNextT(r2) then
+          match parseFnType(ps, drop1(r2)) { case Pair(t3, r3) => Pair(TyCon("Triple", Cons(t1, Cons(t2, Cons(t3, Nil)))), drop1(r3)) }
+        else Pair(TyCon("Pair", Cons(t1, Cons(t2, Nil))), drop1(r2)) }
+    else Pair(t1, drop1(r1)) }
 -- inside parens/brackets: a type may be a Con application (`F a`) or a (right-assoc) function type (`a -> b`)
 def parseTyApp = (ps, toks) =>                        -- `Con atom*`  |  atom
   match toks { case Cons(t, rest) => match t {

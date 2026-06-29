@@ -267,6 +267,14 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/tp.rs" -o "${TMPDIR:-/tmp}/tp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s (rustc)\n' "tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple Rust" "$got"; fail=1; fi
 fi
+echo "# K42 — TUPLE TYPES in ADT field positions: a constructor field may be a tuple (A, B) / (A, B, C). data Rec = Rec (String, Int) (Int, Int, Int)"
+chk_hm examples/hm-tuptype-field.hm '"Int"'                          # Rec ("pt",5) (1,2,3) -> 5+1+2+3
+TFW="11"
+ssc run bin/ssctc-hm.ssc0 examples/hm-tuptype-field.hm > "${TMPDIR:-/tmp}/tf.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tf.coreir" | tail -1)
+if [ "$got" = "$TFW" ]; then printf 'ok   %-26s => %s\n' "tuple-type field -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuptype-field" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-tuptype-field.hm > "${TMPDIR:-/tmp}/tf.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tf.js" 2>/dev/null | tail -1); if [ "$got" = "$TFW" ]; then printf 'ok   %-26s => %s (node)\n' "tuple-type field -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuptype-field JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-tuptype-field.hm > "${TMPDIR:-/tmp}/tf.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/tf.rs" -o "${TMPDIR:-/tmp}/tf-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tf-bin"); else got="(rustc err)"; fi; if [ "$got" = "$TFW" ]; then printf 'ok   %-26s => %s (rustc)\n' "tuple-type field -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuptype-field Rust" "$got"; fail=1; fi; fi
 echo "# ssct-hm TYPECLASS Show: one `show` resolves to the instance for the inferred type, on every backend"
 chk_hm examples/hm-show.hm '"String"'
 SHW='"x=42"'
