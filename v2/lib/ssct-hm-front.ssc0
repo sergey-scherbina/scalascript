@@ -146,13 +146,22 @@ def parseAscType = (toks) =>                           -- `Con atom*`  |  atom
   match toks { case Cons(t, rest) => match t {
       case TName(s) => if isBasicTy(s) then Pair(basicTy(s), rest) else match parseAscArgs(rest) { case Pair(args, r) => Pair(TyCon(s, args), r) }
       case _ => parseAscAtom(toks) } case Nil => Pair(TyInt, Nil) }
-def parseParenOrTuple = (toks) =>                      -- toks is after the '('
+def parseParenBody = (toks) =>                         -- toks is after the '('  ( e [',' …] [':' ty] ')' )
   match parseExpr(toks) { case Pair(e1, r1) =>
     match r1 { case Cons(t, r2) => match t { case TPunct(q) =>
         if #seq(q, ",") then match parseTupleElems(r2) { case Pair(more, r3) => Pair(mkTuple(Cons(e1, more)), drop1(r3)) }
         else if #seq(q, ":") then match parseAscType(r2) { case Pair(ty, r3) => Pair(Ascribe(e1, ty), drop1(r3)) }   -- (e : ty) ascription
         else Pair(e1, drop1(r1))
         case _ => Pair(e1, drop1(r1)) } case Nil => Pair(e1, Nil) } }
+-- right operator section:  '(' op e ')'  →  fun $sec => $sec op e   (e.g. (+ 1), (* 2), (< 5), (++ "!"))
+-- `-` is NOT a section op (it's negation, see parseUMinus); use `(fun x => x - n)` for that.
+def isSectionOp = (p) => chOr(chOr(chOr(#seq(p, "+"), #seq(p, "*")), chOr(#seq(p, "/"), #seq(p, "++"))), isCmpOp(p))
+def mkSectionOp = (op, a, b) =>
+  if #seq(op, "+") then Add(nextId(0), a, b) else if #seq(op, "*") then Mul(nextId(0), a, b) else if #seq(op, "/") then Div(nextId(0), a, b) else if #seq(op, "++") then Concat(nextId(0), a, b) else mkCmp(op, a, b)
+def parseRightSection = (op, rest) =>
+  match parseExpr(rest) { case Pair(e, r) => Pair(Lam("$sec", mkSectionOp(op, Var("$sec"), e)), drop1(r)) }   -- drop ')'
+def parseParenOrTuple = (toks) =>                      -- toks is after the '('
+  match toks { case Cons(t, r1) => (match t { case TPunct(p) => if isSectionOp(p) then parseRightSection(p, r1) else parseParenBody(toks) case _ => parseParenBody(toks) }) case Nil => parseParenBody(toks) }
 -- record literal:  '{' name '=' e ( ',' name '=' e )* '}'
 def parseRecField = (toks) =>
   match toks { case Cons(t, rest) => match t { case TName(nm) => match parseExpr(drop1(rest)) { case Pair(e, r) => Pair(Pair(nm, e), r) } case _ => Pair(Pair("?", ParseErr), Nil) } case Nil => Pair(Pair("?", ParseErr), Nil) }

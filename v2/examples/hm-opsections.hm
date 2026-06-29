@@ -1,0 +1,1 @@
+sum (map (* 3) (filter (< 4) [1, 2, 3, 4, 5])) + length (filter (= 2) [1, 2, 2, 3, 2])

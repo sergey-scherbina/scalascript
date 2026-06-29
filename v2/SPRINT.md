@@ -589,3 +589,15 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       `PAs`→`PatArm`, `patVars` gets a `PAs` arm. Real `dedup` using `Cons a rest@(Cons b t)` runs on all 3
       backends. No regression. conformance +5. (Note: `match <scalar> { x => … }` — a single var-only arm on a
       scalar — still crashes at run-ir; that's a PRE-EXISTING issue, unrelated to as-patterns.)
+
+## K26 — operator sections
+
+- [x] **K26.1 — right operator sections `(op e)`** = `fun x => x op e`, for point-free `map`/`filter`:
+      `(+ 1)`, `(* 2)`, `(/ 2)`, `(< 5)`, `(>= 0)`, `(= 0)`, `(<> 3)`, `(++ "!")`. `parseParenOrTuple` now peeks
+      the first token after `(`: if it's a section op (`isSectionOp` = `+`/`*`/`/`/`++` ∪ the comparison ops),
+      it parses `op e )` into `Lam("$sec", mkSectionOp(op, Var "$sec", e))`; otherwise the original paren/tuple/
+      ascription parser (`parseParenBody`) runs. `-` is deliberately excluded (it's negation — `(-5)` stays a
+      negative literal). `map (+ 1) [1,2,3]`→`[2,3,4]`, `filter (< 3) …`, `(++ "!") "hi"`→`"hi!"` all green on
+      run-ir/JS/Rust. No regression: `(e)`, `(a, b)`, `(e : T)`, negation, binary subtraction unchanged. Pure
+      front-end desugar (0 backend change). conformance +5. (Left sections `(e op)` not done — rarer, and the
+      `-` ambiguity makes them fiddly; use `fun x => e op x`.)
