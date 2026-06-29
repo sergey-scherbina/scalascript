@@ -673,3 +673,16 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       next token is `}`, so `inferArms` reaches its existing `Nil`→`ErrI("empty match")` branch and reports a
       clean `TypeError: empty match`. Non-empty matches (ctor/literal/var/guard/as/record/tuple) unchanged.
       conformance +1.
+
+## K32 — string building (fromCodes → toUpper/toLower/chr)
+
+- [x] **K32.1 — `fromCodes : [Int] -> String` intrinsic + `chr` / `toUpper` / `toLower`.** This was the one
+      true *capability* gap (the SPRINT K30 note flagged toUpper/toLower as backend-blocked). The kernel run-ir
+      already has the `sfromCodes` IR prim, so the work was: a new `FromCodes(e)` node (recognized as a 1-arg
+      intrinsic in `dsApp`, like `strLen`; infer `[Int]->String`; erase → `IrPrim("sfromCodes", …)`; interp via
+      `hostCodesToKernel` + `#sfromCodes`), plus **backend support** — JS `genPrim` emits an inline IIFE that
+      walks the `{t,f}` Cons-list `String.fromCharCode`-ing each, and the Rust `genPrim`/preamble gain an
+      `sfromcodes(&V)` helper that walks the `V::D("Cons", …)` list building a `String`. Prelude then defines
+      `chr c = fromCodes (cons c nil)` and `toUpper`/`toLower` (walk the string, shift `a..z`/`A..Z` codes,
+      `fromCodes` the result). `toUpper "ab3X!z"` ⇒ `"AB3X!Z"`, `toLower (toUpper "Hi") ` round-trips; all green
+      on run-ir/JS/Rust. conformance +5. (String-building is now general — any char-list transform works.)

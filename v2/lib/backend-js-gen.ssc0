@@ -51,6 +51,7 @@ def genPrim = (op, args) =>
   else if #seq(op, "seq")   then bin(args, " === ")
   else if #seq(op, "sconcat") then bin(args, " + ")
   else if #seq(op, "slen")    then un(args, "(", ").length")
+  else if #seq(op, "sfromCodes") then un(args, "(l=>{let s='';while(l.t==='Cons'){s+=String.fromCharCode(l.f[0]);l=l.f[1];}return s;})(", ")")
   else if #seq(op, "scodeAt") then jat(args)
   else if #seq(op, "sslice")  then jsl(args)
   else if #seq(op, "i->str")  then un(args, "String(", ")")

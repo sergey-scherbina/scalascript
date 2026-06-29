@@ -176,6 +176,7 @@ def infer = (env, c, s, term) =>
     case Concat(id, a, b) => inferConcat(env, c, s, id, a, b)   -- ++ overloaded: String concat OR List append (lexical dispatch by operand type)
     case StrEq(a, b)  => inferStr2(env, c, s, a, b, TyBool, "strEq needs String operands")
     case StrLen(e)    => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyStr) { case Err(m) => ErrI("strLen expects a String") case Ok(s2) => Ok3(s2, TyInt, c1) } }
+    case FromCodes(e) => match infer(env, c, s, e) { case ErrI(m) => ErrI(m) case Ok3(s1, te, c1) => match unify(s1, te, TyList(TyInt)) { case Err(m) => ErrI("fromCodes expects a [Int]") case Ok(s2) => Ok3(s2, TyStr, c1) } }
     case CharAt(sv, iv) =>
       match infer(env, c, s, sv) { case ErrI(m) => ErrI(m) case Ok3(s1, ts, c1) =>
         match unify(s1, ts, TyStr) { case Err(m) => ErrI("charAt: first arg must be String") case Ok(s2) =>
@@ -655,6 +656,7 @@ def lookupVl = (env, x) => match env { case Nil => Stuck case Cons(p, rest) => m
 def asI = (v) => match v { case IntVal(n) => n case _ => 0 }
 def asB = (v) => match v { case BoolVal(b) => b case _ => false }
 def asStr = (v) => match v { case StrVal(s) => s case _ => "" }
+def hostCodesToKernel = (v) => match v { case Cons(h, t) => Cons(asI(h), hostCodesToKernel(t)) case _ => Nil }   -- interp [IntVal] → kernel [Int] for #sfromCodes
 -- lexicographic string `<` (interp side; the emit/backends use the __strLt IR helper)
 def strLtGoV = (a, b, i) =>
   if #i.lt(i, #slen(a)) then
@@ -698,6 +700,7 @@ def evalT = (env, t) =>
     case Concat(id, a, b) => let va = evalT(env, a) in match va { case StrVal(sa) => StrVal(#sconcat(sa, asStr(evalT(env, b)))) case _ => appendV(va, evalT(env, b)) }
     case StrEq(a, b)  => BoolVal(#seq(asStr(evalT(env, a)), asStr(evalT(env, b))))
     case StrLen(e)    => IntVal(#slen(asStr(evalT(env, e))))
+    case FromCodes(e) => StrVal(#sfromCodes(hostCodesToKernel(evalT(env, e))))
     case CharAt(sv, iv) => IntVal(#scodeAt(asStr(evalT(env, sv)), asI(evalT(env, iv))))
     case Substr(sv, fv, tv) => StrVal(#sslice(asStr(evalT(env, sv)), asI(evalT(env, fv)), asI(evalT(env, tv))))
     case FloatLit(str) => match #str->f(str) { case Some(x) => FloatVal(x) case None => FloatVal(#i->f(0)) }

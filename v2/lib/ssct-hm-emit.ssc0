@@ -70,6 +70,7 @@ def erase = (scope, term) =>
     case Concat(id, a, b) => if isStrTy(instOf(id)) then IrPrim("sconcat", Cons(erase(scope, a), Cons(erase(scope, b), Nil))) else (let u = #cell.set(usedAppendCell, true) in IrApp(IrApp(IrGlobal("__append"), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil)))
     case StrEq(a, b)  => IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrLen(e)    => IrPrim("slen", Cons(erase(scope, e), Nil))
+    case FromCodes(e) => IrPrim("sfromCodes", Cons(erase(scope, e), Nil))
     case CharAt(sv, iv) => IrPrim("scodeAt", Cons(erase(scope, sv), Cons(erase(scope, iv), Nil)))
     case Substr(sv, fv, tv) => IrPrim("sslice", Cons(erase(scope, sv), Cons(erase(scope, fv), Cons(erase(scope, tv), Nil))))
     case FloatLit(str) => match #str->f(str) { case Some(x) => IrLit(IrFloat(x)) case None => IrLit(IrFloat(#i->f(0))) }

@@ -1305,6 +1305,15 @@ echo -n "ok   trim edges + contains miss   => "; printf 'strLen (trim "   ") * 1
 
 echo -n "ok   empty match = clean error    => "; printf 'match 5 { }' > "${TMPDIR:-/tmp}/em.hm"; em=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/em.hm" 2>&1 | tail -1); printf 'match 5 { 1 => 10 | _ => 0 }' > "${TMPDIR:-/tmp}/em2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/em2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/em2.coreir"; em2=$(ssc run-ir "${TMPDIR:-/tmp}/em2.coreir" | tail -1); case "$em" in *"empty match"*) emok=1;; *) emok=0;; esac; if [ "$emok" = "1" ] && [ "$em2" = "0" ]; then echo "empty match => clean TypeError (not a crash) ; normal match still works"; else echo "FAIL [$em / $em2]"; fail=1; fi
 
+echo "# STRING BUILDING: fromCodes ([Int]->String) intrinsic + chr / toUpper / toLower (prelude)"
+chk_hm examples/hm-strbuild.hm '"Int"'                               # toUpper/toLower + charAt of results
+ssc run bin/ssctc-hm.ssc0 examples/hm-strbuild.hm > "${TMPDIR:-/tmp}/sb.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sb.coreir" | tail -1)
+if [ "$got" = "662" ]; then printf 'ok   %-26s => %s\n' "string build -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "string build" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-strbuild.hm > "${TMPDIR:-/tmp}/sb.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/sb.js" 2>/dev/null | tail -1); if [ "$got" = "662" ]; then printf 'ok   %-26s => %s (node)\n' "string build -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "string build JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-strbuild.hm > "${TMPDIR:-/tmp}/sb.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/sb.rs" -o "${TMPDIR:-/tmp}/sb-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sb-bin"); else got="(rustc err)"; fi; if [ "$got" = "662" ]; then printf 'ok   %-26s => %s (rustc)\n' "string build -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "string build Rust" "$got"; fail=1; fi; fi
+echo -n "ok   fromCodes + chr + roundtrip   => "; printf 'strLen (fromCodes [72, 105]) * 100 + (charAt (chr 90) 0) + (if toLower (toUpper "Yo") = "yo" then 1 else 0)' > "${TMPDIR:-/tmp}/sb2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/sb2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/sb2.coreir"; sb2=$(ssc run-ir "${TMPDIR:-/tmp}/sb2.coreir" | tail -1); if [ "$sb2" = "291" ]; then echo "fromCodes[72,105]=\"Hi\" len 2 (*100) ; chr 90='Z'=90 ; roundtrip=1 => 291"; else echo "FAIL [$sb2]"; fail=1; fi
+
 echo "# PRELUDE BATCH: compose / flip / min / max / elem / notElem / product / last / null / join"
 chk_hm examples/hm-preludecombi.hm '"Int"'                           # min/max/product/last combined
 ssc run bin/ssctc-hm.ssc0 examples/hm-preludecombi.hm > "${TMPDIR:-/tmp}/pc.coreir" 2>/dev/null

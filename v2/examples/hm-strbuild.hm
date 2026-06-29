@@ -1,0 +1,1 @@
+(strLen (toUpper "hello")) * 100 + (charAt (toUpper "abc") 0) + (charAt (toLower "ABC") 0)
