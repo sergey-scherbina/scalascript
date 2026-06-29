@@ -1052,6 +1052,15 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$TPV" ]; then printf 'ok   %-26s => %s (rustc)\n' "typed payloads -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-typed Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   typed op arg checked     => "; printf 'effect State { get : Dyn -> Int , put : Int -> Dyn } in runE (runStateE (doE { u <- put "x" ; x <- get ; pureE (x + 1) }) 0)' > "${TMPDIR:-/tmp}/tpb.hm"; tpb=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/tpb.hm" | tail -1); if [ "$tpb" = '"TypeError: effect op arg type mismatch for put"' ]; then echo "put String rejected (correct)"; else echo "FAIL [$tpb]"; fail=1; fi
+
+echo "# K39 — TYPED HANDLER RESUMES: for a single-op TYPED effect `effect Ask { ask : Int -> String }`, a handle clause types its arg as Int and its resume k as String->Comp (no Dyn ascriptions). Purely static; erase unchanged → 3 backends"
+chk_hm examples/hm-eff-typed-resume.hm '"Int"'                       # handler uses (a + 1):Int and k (showInt ..):String — only checks WITH typed resume
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-typed-resume.hm > "${TMPDIR:-/tmp}/tr.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tr.coreir" | tail -1)
+if [ "$got" = "2" ]; then printf 'ok   %-26s => %s\n' "typed resume -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "typed resume" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-typed-resume.hm > "${TMPDIR:-/tmp}/tr.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tr.js" 2>/dev/null | tail -1); if [ "$got" = "2" ]; then printf 'ok   %-26s => %s (node)\n' "typed resume -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "typed resume JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-typed-resume.hm > "${TMPDIR:-/tmp}/tr.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/tr.rs" -o "${TMPDIR:-/tmp}/tr-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tr-bin"); else got="(rustc err)"; fi; if [ "$got" = "2" ]; then printf 'ok   %-26s => %s (rustc)\n' "typed resume -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "typed resume Rust" "$got"; fail=1; fi; fi
+echo -n "ok   wrong-type resume rejected => "; printf 'effect Ask { ask : Int -> String } in runE (handle "Ask" (bindE (ask 41) (fun s => pureE (strLen s))) (fun v => pureE v) (fun o => fun a => fun k => k (a + 1)))' > "${TMPDIR:-/tmp}/trb.hm"; trb=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/trb.hm" | tail -1); if [ "$trb" = '"TypeError: handle: op clause type mismatch"' ]; then echo "resuming with Int (k expects String) rejected (correct)"; else echo "FAIL [$trb]"; fail=1; fi
 echo "# K11.3b — USER-TYPECLASS POLYMORPHISM: a `method m : R` (result sig) used in a closed fn resolves the instance per use"
 chk_hm examples/hm-method-poly.hm '"(String, String)"'                # let f = fun x => describe x in (f 5, f true): Int & Bool instances
 MPV='Pair("an int", "a bool")'

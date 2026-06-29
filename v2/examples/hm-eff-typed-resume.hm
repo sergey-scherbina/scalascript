@@ -1,0 +1,6 @@
+effect Ask { ask : Int -> String } in
+let handler = fun comp =>
+  handle "Ask" comp
+    (fun v => pureE v)
+    (fun o => fun a => fun k => k (showInt (a + 1))) in
+runE (handler (bindE (ask 41) (fun s => pureE (strLen s))))

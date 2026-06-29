@@ -329,7 +329,13 @@ def infer = (env, c, s, term) =>
             let compRb = TyCon("Comp", Cons(rho, Cons(tb, Nil))) in
             match unify(s3, tm, TyCon("Comp", Cons(TyRowExt(lbl, rho), Cons(ta, Nil)))) { case Err(e) => ErrI(#sconcat("handle: arg is not a Comp of effect ", lbl)) case Ok(s4) =>
               match unify(s4, tr, TyFun(ta, compRb)) { case Err(e) => ErrI("handle: return clause type mismatch") case Ok(s5) =>
-                match unify(s5, to, TyFun(TyStr, TyFun(TyDyn, TyFun(TyFun(TyDyn, compRb), compRb)))) { case Err(e) => ErrI("handle: op clause type mismatch") case Ok(s6) =>
+                -- op clause type: for a single-op TYPED effect, arg = A and resume = R -> Comp r b (typed resume);
+                -- otherwise Dyn -> (Dyn -> Comp r b) -> Comp r b (the general untyped form).
+                let opClauseTy = match singleOpSigOf(lbl) {
+                  case Some(sig) => match sig { case Pair(argT, replyT) => TyFun(TyStr, TyFun(argT, TyFun(TyFun(replyT, compRb), compRb))) }
+                  case None => TyFun(TyStr, TyFun(TyDyn, TyFun(TyFun(TyDyn, compRb), compRb)))
+                } in
+                match unify(s5, to, opClauseTy) { case Err(e) => ErrI("handle: op clause type mismatch") case Ok(s6) =>
                   Ok3(s6, appTy(s6, compRb), #i.add(c3, 3)) } } } } } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
@@ -456,6 +462,15 @@ def effSigReg    = #cell.new(Nil)                                  -- list of Pa
 def registerEffSig   = (op, argT, replyT) => #cell.set(effSigReg, Cons(Pair(op, Pair(argT, replyT)), #cell.get(effSigReg)))
 def effSigOf         = (op) => lookupReg(#cell.get(effSigReg), op)   -- Some(Pair(argT, replyT)) | None
 def effLabel         = (op) => match effOpOf(op) { case Some(e) => e case None => "?" }
+-- K39 typed handler resumes: for a SINGLE-op TYPED effect `effect L { op : A -> R }`, a `handle "L"` clause can
+-- type its op-arg as A and its resume k as `R -> Comp r b` (instead of Dyn->Dyn). Multi-op / untyped effects
+-- keep the Dyn fallback (one op-clause lambda can't type resumes for several differently-typed ops).
+def opsOfEff = (lbl, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(op, eff) => if #seq(eff, lbl) then Cons(op, opsOfEff(lbl, rest)) else opsOfEff(lbl, rest) } }
+def singleOpSigOf = (lbl) =>
+  match opsOfEff(lbl, #cell.get(effOpReg)) {
+    case Cons(op, rest) => match rest { case Nil => effSigOf(op) case _ => None }
+    case Nil => None
+  }
 def registerInstance = (m, tn, impl) => #cell.set(instReg, Cons(Pair(Pair(m, tn), impl), #cell.get(instReg)))
 def bothT            = (a, b) => if a then b else false
 def lookupInst       = (reg, m, tn) => match reg { case Nil => None case Cons(p, rest) => match p { case Pair(key, impl) => match key { case Pair(km, ktn) => if bothT(#seq(km, m), #seq(ktn, tn)) then Some(impl) else lookupInst(rest, m, tn) } } }
