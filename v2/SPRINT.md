@@ -721,3 +721,19 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       doubles and the op order is fixed by the shared source, so `exp 1.0` = `2.7182818284590455` *exactly* on all
       three (conformance asserts this directly). The mathx example sums seven `near`-comparisons → `1111111` on
       run-ir/JS/Rust; extra checks cover `ln 1000`, `ln 0.01`, `pow 3 4`. conformance +5.
+
+## K34 — float rounding (floor / ceil / round / trunc / rint)
+
+- [x] **K34.1 — `floor` / `ceil` / `round` / `trunc` / `rint`.** The K6 float-math note (and the conformance
+      comment) claimed *"floor/ceil need a kernel prim"* — **wrong** (another "too-hard" misjudgment): they need
+      no float→int conversion at all. `rint` (round to nearest integer, ties-to-even) is the classic IEEE trick
+      `(x + 1.5·2^52) - 1.5·2^52` where `1.5·2^52 = 6755399441055744.0`. Adding the magic number forces `x` into
+      `[2^52, 2^53)` where the ULP is exactly `1.0`, so the IEEE round-to-nearest-even of the addition lands on
+      the nearest integer; subtracting it back recovers `rint x` (valid for `|x| < 2^51`). Then `floor x = let r =
+      rint x in if x < r then r-1 else r`, `ceil` symmetric, `round x = floor (x + 0.5)` (half up toward +∞),
+      `trunc x = if x<0 then ceil x else floor x`. **First magic constant `2^52` alone is wrong for negatives**
+      (`x+2^52 < 2^52` drops into the ULP=0.5 band → off by 0.5); `1.5·2^52` keeps it in the ULP=1.0 band for both
+      signs. All pure prelude (0 kernel/backend change), monomorphic `Float -> Float`. Round-to-nearest-even is
+      the IEEE default on run-ir (`Double`), JS (`Number`), Rust (`f64`), so results are **identical across all 3
+      backends** (`rint 2.5 = 2.0`, `rint 3.5 = 4.0` — banker's rounding everywhere). Example sums seven
+      near-checks → `1111111` on all backends. conformance +4.

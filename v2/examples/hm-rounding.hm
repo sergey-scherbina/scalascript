@@ -1,0 +1,1 @@
+let b = fun a => fun bb => if flt (fabs (a - bb)) 0.0001 then 1 else 0 in (b (floor 3.7) 3.0) * 1000000 + (b (floor (fneg 2.3)) (fneg 3.0)) * 100000 + (b (ceil 3.2) 4.0) * 10000 + (b (ceil (fneg 2.3)) (fneg 2.0)) * 1000 + (b (round 2.5) 3.0) * 100 + (b (trunc (fneg 3.9)) (fneg 3.0)) * 10 + (b (rint 3.5) 4.0)
