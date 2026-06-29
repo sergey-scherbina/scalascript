@@ -1,6 +1,6 @@
 feature/v2-k46-async-actors-roadmap 2026-06-29T13:23:34Z
 agent: codex
-heartbeat: 2026-06-29T13:24:20Z
+heartbeat: 2026-06-29T13:29:47Z
 status: in-progress
-done-so-far: claim published and external worktree created at /Users/sergiy/work/my/scalascript-wt-v2-k46-async-actors-roadmap
-next: write and commit v2/SPRINT plan before docs/spec/code changes
+done-so-far: plan and K45 docs/status reconcile pushed to origin/main
+next: write and commit K46 async/actors feature spec before code
