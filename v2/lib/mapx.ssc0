@@ -1,0 +1,23 @@
+-- An immutable map keyed by STRUCTURAL equality (any value: ints, strings, tuples, ADTs, nested),
+-- written in ssc0. The kernel has no generic equality prim, but its mutable #map (a Scala
+-- HashMap[Value,Value]) compares keys structurally — so `valEq` uses a one-shot #map as an
+-- equality ORACLE: put `a`, ask whether `b` is present ⇒ true iff a structurally equals b.
+-- (VM/run-ir only — like all #map/#arr programs.) Companion to the string-keyed lib/map.ssc0.
+def valEq = (a, b) => let m = #map.new() in let u = #map.put(m, a, 0) in #map.has(m, b)
+
+def mapxEmpty  = Nil
+def mapxInsert = (k, v, m) =>
+  match m {
+    case Nil => Cons(Pair(k, v), Nil)
+    case Cons(p, rest) => match p { case Pair(k2, v2) => if valEq(k2, k) then Cons(Pair(k, v), rest) else Cons(p, mapxInsert(k, v, rest)) }
+  }
+def mapxLookup = (k, m) =>
+  match m {
+    case Nil => None
+    case Cons(p, rest) => match p { case Pair(k2, v) => if valEq(k2, k) then Some(v) else mapxLookup(k, rest) }
+  }
+def mapxHas    = (k, m) => match mapxLookup(k, m) { case Some(v) => true case None => false }
+def mapxRemove = (k, m) => match m { case Nil => Nil case Cons(p, rest) => match p { case Pair(k2, v) => if valEq(k2, k) then rest else Cons(p, mapxRemove(k, rest)) } }
+def mapxKeys   = (m) => match m { case Nil => Nil case Cons(p, rest) => match p { case Pair(k, v) => Cons(k, mapxKeys(rest)) } }
+def mapxSize   = (m) => match m { case Nil => 0 case Cons(p, rest) => #i.add(1, mapxSize(rest)) }
+def mapxFromList = (pairs) => match pairs { case Nil => Nil case Cons(p, rest) => match p { case Pair(k, v) => mapxInsert(k, v, mapxFromList(rest)) } }

@@ -38,6 +38,7 @@ chk run examples/quicksort-lib.ssc0 "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Con
 chk run examples/stdlib-demo.ssc0   '"0, 1, 2"'                       # strJoin + map + take + range
 chk run examples/zipwith.ssc0       "Cons(11, Cons(22, Cons(33, Nil)))"
 chk run examples/map-demo.ssc0      "Pair(2, 3)"                      # lib/map: insert/lookup/size
+chk run examples/mapx-demo.ssc0     '"pair|triple|int|nested|?  size=4  upd=PAIR2"'   # lib/mapx: STRUCTURAL keys (tuple/int/ADT/nested), valEq oracle
 chk run examples/sieve.ssc0         "Cons(2, Cons(3, Cons(5, Cons(7, Cons(11, Cons(13, Cons(17, Cons(19, Cons(23, Cons(29, Nil))))))))))"  # mutable #arr.*
 chk run examples/sha256-demo.ssc0   "4"                                # SHA-256 (lib/sha256.ssc0) vs 4 standard vectors incl. multi-block; VM-only (64-bit bitwise+byte+#arr)
 chk run examples/string-build.ssc0  '"n=42"'                          # #sconcat + #i->str

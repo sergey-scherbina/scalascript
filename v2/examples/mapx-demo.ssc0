@@ -1,0 +1,14 @@
+import "../lib/mapx.ssc0"
+-- a structural-key map with tuple / int / ADT / nested keys, looked up by FRESHLY-BUILT equal keys
+-- (proving structural — not identity — equality). Result: looked-up values joined, then sizes.
+def get = (k, m) => match mapxLookup(k, m) { case Some(v) => v case None => "?" }
+def main = () =>
+  let m = mapxInsert(Pair(1, 2), "pair",
+          mapxInsert(Triple(7, 8, 9), "triple",
+          mapxInsert(42, "int",
+          mapxInsert(Some(Pair(3, 4)), "nested",
+          mapxEmpty)))) in
+  let hits = #sconcat(get(Pair(1, 2), m), #sconcat("|", #sconcat(get(Triple(7, 8, 9), m), #sconcat("|", #sconcat(get(42, m), #sconcat("|", #sconcat(get(Some(Pair(3, 4)), m), #sconcat("|", get(Pair(1, 9), m))))))))) in
+  -- hits = "pair|triple|int|nested|?" ; then overwrite the Pair(1,2) key and check size stays 4
+  let m2 = mapxInsert(Pair(1, 2), "PAIR2", m) in
+  #sconcat(hits, #sconcat("  size=", #sconcat(#i->str(mapxSize(m2)), #sconcat("  upd=", get(Pair(1, 2), m2)))))
