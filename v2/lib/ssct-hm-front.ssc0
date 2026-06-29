@@ -433,7 +433,7 @@ def parseRecPat = (toks) =>                           -- after '{'
   match parseRecPatFields(toks) { case Pair(fields, r) => Pair(PRec(fields), drop1(r)) }   -- drop '}'
 def parseAtomPat = (toks) =>
   match toks { case Cons(t, rest) => match t {
-    case TName(s)  => if #seq(s, "_") then Pair(PWild, rest) else if #seq(s, "true") then Pair(PLit(BoolLit(true)), rest) else if #seq(s, "false") then Pair(PLit(BoolLit(false)), rest) else if isUpperName(s) then Pair(PCon(s, Nil), rest) else Pair(PVar(s), rest)
+    case TName(s)  => if #seq(s, "_") then Pair(PWild, rest) else if #seq(s, "true") then Pair(PLit(BoolLit(true)), rest) else if #seq(s, "false") then Pair(PLit(BoolLit(false)), rest) else if isUpperName(s) then Pair(PCon(s, Nil), rest) else (match rest { case Cons(at, r2) => (match at { case TPunct(p) => if #seq(p, "@") then (match parseAtomPat(r2) { case Pair(sub, r3) => Pair(PAs(s, sub), r3) }) else Pair(PVar(s), rest) case _ => Pair(PVar(s), rest) }) case Nil => Pair(PVar(s), rest) })   -- name '@' atom = as-pattern (as a ctor sub-pattern)
     case TNum(n)   => Pair(PLit(Lit(n)), rest)
     case TFloat(s) => Pair(PLit(FloatLit(s)), rest)
     case TStr(s)   => Pair(PLit(StrLit(s)), rest)
@@ -444,9 +444,10 @@ def parseAtomPat = (toks) =>
                       else Pair(PWild, rest)
     } case Nil => Pair(PWild, Nil) }
 def parseAtomPats = (toks) => if patStarts(toks) then match parseAtomPat(toks) { case Pair(p, r) => match parseAtomPats(r) { case Pair(ps, r2) => Pair(Cons(p, ps), r2) } } else Pair(Nil, toks)
-def parseFullPat = (toks) =>           -- `Con atom*`  |  atom   (true/false are lowercase => not PCon)
+def parseFullPat = (toks) =>           -- `Con atom*`  |  name '@' fullpat  |  atom   (true/false are lowercase => not PCon)
   match toks { case Cons(t, rest) => match t {
-    case TName(s) => if isUpperName(s) then match parseAtomPats(rest) { case Pair(ps, r) => Pair(PCon(s, ps), r) } else parseAtomPat(toks)
+    case TName(s) => if isUpperName(s) then match parseAtomPats(rest) { case Pair(ps, r) => Pair(PCon(s, ps), r) }
+                     else (match rest { case Cons(at, r2) => (match at { case TPunct(p) => if #seq(p, "@") then (match parseFullPat(r2) { case Pair(sub, r3) => Pair(PAs(s, sub), r3) }) else parseAtomPat(toks) case _ => parseAtomPat(toks) }) case Nil => parseAtomPat(toks) })
     case _        => parseAtomPat(toks) } case Nil => Pair(PWild, Nil) }
 def parseParenTuple = (toks) =>        -- after ',':  fullpat (',' fullpat)*  (stops at ')')
   match parseFullPat(toks) { case Pair(p, r) => match r { case Cons(t, rest) => match t { case TPunct(q) => if #seq(q, ",") then match parseParenTuple(rest) { case Pair(more, r2) => Pair(Cons(p, more), r2) } else Pair(Cons(p, Nil), r) case _ => Pair(Cons(p, Nil), r) } case Nil => Pair(Cons(p, Nil), Nil) } }
@@ -462,6 +463,7 @@ def armOfPat = (pat, body) => match pat {
     case PLit(l)         => LitArm(l, body)
     case PCon(con, subs) => if allSimplePats(subs) then MArm(con, simpleNames(subs), body) else PatArm(pat, body)
     case PRec(fields)    => PatArm(pat, body)
+    case PAs(x, sub)     => PatArm(pat, body)
   }
 def parseArmBody = (pat, r) => match parseExpr(drop1(r)) { case Pair(body, r3) => Pair(armOfPat(pat, body), r3) }   -- drop '=>'
 -- pattern guard:  pat 'if' cond '=>' body  → PatArm(pat, if cond then body else $guardfail) — $guardfail is
@@ -587,6 +589,7 @@ def compileSubs = (names, subs, success, fail) =>
       case PLit(lit)    => If(litCond(Var(nm), lit), compileSubs(ns, ss, success, fail), fail)
       case PCon(c, sps) => compilePat(Var(nm), sub, compileSubs(ns, ss, success, fail), fail)
       case PRec(fs)     => compilePat(Var(nm), sub, compileSubs(ns, ss, success, fail), fail)
+      case PAs(x, sp)   => compilePat(Var(nm), sub, compileSubs(ns, ss, success, fail), fail)
     } case Nil => success } }
 -- record pattern: records are single-constructor (always match), so bind each field via the type-directed FieldGet
 def compileRecFields = (scrut, fields, success, fail) =>
@@ -615,6 +618,7 @@ def compilePat = (scrut, pat, success, fail) =>
       else if #seq(con, "Cons") then compileConsP(scrut, subs, success, fail)
       else let names = freshFieldNames(subs) in MatchT(scrut, Cons(MArm(con, names, compileSubs(names, subs, success, fail)), Cons(MArm("_", Nil, fail), Nil)))
     case PRec(fields) => compileRecFields(scrut, fields, success, fail)
+    case PAs(x, sub)  => Let(x, scrut, compilePat(scrut, sub, success, fail))   -- bind the whole value to x, then match the sub-pattern
   }
 def compileArms = (scrut, pbs, ff) =>
   match pbs { case Nil => ff case Cons(pb, rest) => match pb { case Pair(pat, body) =>
@@ -750,7 +754,7 @@ def parseProgram = (toks) =>
 def removeStr = (x, xs) => match xs { case Nil => Nil case Cons(h, t) => if #seq(h, x) then removeStr(x, t) else Cons(h, removeStr(x, t)) }
 def removeAll = (xs, fvs) => match xs { case Nil => fvs case Cons(h, t) => removeAll(t, removeStr(h, fvs)) }
 def fvMember = (x, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else fvMember(x, t) }
-def patVars  = (pat) => match pat { case PVar(x) => Cons(x, Nil) case PWild => Nil case PLit(l) => Nil case PCon(con, subs) => patVarsL(subs) case PRec(fields) => recPatVars(fields) }
+def patVars  = (pat) => match pat { case PVar(x) => Cons(x, Nil) case PWild => Nil case PLit(l) => Nil case PCon(con, subs) => patVarsL(subs) case PRec(fields) => recPatVars(fields) case PAs(x, sub) => Cons(x, patVars(sub)) }
 def patVarsL = (subs) => match subs { case Nil => Nil case Cons(s, t) => appendL(patVars(s), patVarsL(t)) }
 def recPatVars = (fields) => match fields { case Nil => Nil case Cons(fp, rest) => match fp { case Pair(name, sp) => appendL(patVars(sp), recPatVars(rest)) } }
 def fvArms = (arms) => match arms { case Nil => Nil case Cons(arm, r) => match arm { case MArm(con, binders, body) => appendL(removeAll(binders, freeVars(body)), fvArms(r)) case LitArm(lit, body) => appendL(freeVars(body), fvArms(r)) case PatArm(pat, body) => appendL(removeAll(patVars(pat), freeVars(body)), fvArms(r)) } }

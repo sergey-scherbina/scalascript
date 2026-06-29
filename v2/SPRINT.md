@@ -578,3 +578,14 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       (uses `elem`) had to be listed before `elem`, else "unbound variable". Also: don't reuse an existing
       example filename (`hm-prelude2.hm` already existed — conformance caught the clobber; used
       `hm-preludecombi.hm`). All green on run-ir/JS/Rust. conformance +5.
+
+## K25 — as-patterns
+
+- [x] **K25.1 — `name@pat`** binds the whole matched value to `name` AND destructures via `pat`. New `PAs(name,
+      sub)` pattern node. `parseFullPat` handles a lowercase name followed by `@` (sub = a full pattern, e.g.
+      `all@(Cons h t)`, `n@5`, `xs@Nil`); `parseAtomPat` also handles `@` (sub = an atom) so an as-pattern works
+      as a *constructor sub-pattern* (`Some xs@(Cons h t)`). `compilePat`'s `PAs` case is `Let(name, scrut,
+      compilePat(scrut, sub, …))` — bind then match; `compileSubs` gets a `PAs` arm (nested), `armOfPat` routes
+      `PAs`→`PatArm`, `patVars` gets a `PAs` arm. Real `dedup` using `Cons a rest@(Cons b t)` runs on all 3
+      backends. No regression. conformance +5. (Note: `match <scalar> { x => … }` — a single var-only arm on a
+      scalar — still crashes at run-ir; that's a PRE-EXISTING issue, unrelated to as-patterns.)

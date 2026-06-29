@@ -1,0 +1,1 @@
+let rec dedup = fun xs => match xs { Cons a rest@(Cons b t) => if a = b then dedup rest else cons a (dedup rest) | Cons a Nil => cons a nil | Nil => nil } in length (dedup [1, 1, 2, 3, 3, 3, 4])
