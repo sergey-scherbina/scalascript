@@ -117,14 +117,37 @@ def pArgs = (toks) =>                            -- after '(' ; parse args up to
 def parenExpr = (toks) =>                        -- after '(' ; expr then ')'
   match pExpr(toks) { case Pair(e, r) => match r { case Cons(t, rest) => Pair(e, rest) case Nil => Pair(e, Nil) } }
 
+-- η-expansion of a bare primitive used as a value: `#op` => (x0..xn-1) => #op(x0..xn-1), n = arity(op).
+-- Max kernel-prim arity is 3, so fixed param names suffice (no string-building needed).
+def isArity0 = (op) => cor(#seq(op, "arr.new"), cor(#seq(op, "map.new"), #seq(op, "io.args")))
+def isArity3 = (op) => cor(#seq(op, "sslice"), cor(#seq(op, "bslice"), cor(#seq(op, "arr.set"), cor(#seq(op, "arr.slice"), #seq(op, "map.put")))))
+def isArity1 = (op) =>
+  cor(cor(cor(#seq(op, "i.neg"), #seq(op, "i.not")), cor(#seq(op, "not"), #seq(op, "f.neg"))),
+  cor(cor(cor(#seq(op, "f.sqrt"), #seq(op, "f.floor")), cor(#seq(op, "i->big"), #seq(op, "big->i"))),
+  cor(cor(cor(#seq(op, "i->f"), #seq(op, "f->i")), cor(#seq(op, "i->str"), #seq(op, "str->i"))),
+  cor(cor(cor(#seq(op, "str->f"), #seq(op, "f->str")), cor(#seq(op, "slen"), #seq(op, "sfromCodes"))),
+  cor(cor(cor(#seq(op, "blen"), #seq(op, "str->utf8")), cor(#seq(op, "utf8->str"), #seq(op, "tagOf"))),
+  cor(cor(cor(#seq(op, "arity"), #seq(op, "arr.len")), cor(#seq(op, "arr.pop"), #seq(op, "cell.new"))),
+  cor(cor(cor(#seq(op, "cell.get"), #seq(op, "map.keys")), cor(#seq(op, "map.size"), #seq(op, "io.print"))),
+      cor(#seq(op, "io.readFile"), #seq(op, "coreir.encode")))))))))
+-- default 2 (the largest group: all binary arith/cmp/string/byte/array/map ops)
+def primArity = (op) => if isArity0(op) then 0 else if isArity3(op) then 3 else if isArity1(op) then 1 else 2
+def etaNamesN = (n) =>
+  if #i.eq(n, 0) then Nil
+  else if #i.eq(n, 1) then Cons("$e0", Nil)
+  else if #i.eq(n, 2) then Cons("$e0", Cons("$e1", Nil))
+  else Cons("$e0", Cons("$e1", Cons("$e2", Nil)))
+def etaVars = (names) => match names { case Nil => Nil case Cons(nm, r) => Cons(SVar(nm), etaVars(r)) }
+def etaExpand = (op) => let names = etaNamesN(primArity(op)) in SLam(names, SPrim(op, etaVars(names)))
+
 def pAtom = (toks) =>
   match toks {
     case Cons(t, rest) =>
       match t {
         case KNum(n) => Pair(SLit(LInt(n)), rest)
         case KStr(s) => Pair(SLit(LStr(s)), rest)
-        case KPrim(op) =>
-          match rest { case Cons(t2, r2) => match t2 { case KP(p) => if #seq(p, "(") then (match pArgs(r2) { case Pair(args, r3) => Pair(SPrim(op, args), r3) }) else Pair(SErr, rest) case _ => Pair(SErr, rest) } case Nil => Pair(SErr, rest) }
+        case KPrim(op) =>      -- `#op(args)` = applied prim; bare `#op` (not followed by `(`) η-expands to (x..) => #op(x..)
+          match rest { case Cons(t2, r2) => match t2 { case KP(p) => if #seq(p, "(") then (match pArgs(r2) { case Pair(args, r3) => Pair(SPrim(op, args), r3) }) else Pair(etaExpand(op), rest) case _ => Pair(etaExpand(op), rest) } case Nil => Pair(etaExpand(op), rest) }
         case KName(s) =>
           if startsUpper(s) then
             match rest { case Cons(t2, r2) => match t2 { case KP(p) => if #seq(p, "(") then (match pArgs(r2) { case Pair(args, r3) => Pair(SCtor(s, args), r3) }) else Pair(SCtor(s, Nil), rest) case _ => Pair(SCtor(s, Nil), rest) } case Nil => Pair(SCtor(s, Nil), rest) }

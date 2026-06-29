@@ -1465,6 +1465,15 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/ssc0c-fact.coreir" | tail -1)
 if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "ssc0c fact -> run-ir" "$got"
 else printf 'FAIL %-26s got [%s] want [120]\n' "ssc0c fact -> run-ir" "$got"; fail=1; fi
 
+# K38 — bare-#prim η-expansion: ssc0c lowers a bare `#op` (not applied) to (x..) => #op(x..) via a prim-arity
+# table, so primitives are first-class values. `map #i.neg` / `foldl #i.add`. (Self-hosted ssc0c only; the
+# bootstrap Scala front stays frozen and still rejects bare prims — compile via bin/ssc0c.ssc0.)
+ssc run bin/ssc0c.ssc0 examples/eta-prim.ssc0 > "${TMPDIR:-/tmp}/eta.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/eta.coreir" | tail -1)
+wanteta='Pair(Cons(-1, Cons(-2, Cons(-3, Nil))), 10)'
+if [ "$got" = "$wanteta" ]; then printf 'ok   %-26s => %s\n' "ssc0c #prim η-expansion" "$got"
+else printf 'FAIL %-26s got [%s] want [%s]\n' "ssc0c #prim η-expansion" "$got" "$wanteta"; fail=1; fi
+
 echo "# self-hosting FIXPOINT: ssc0c (built by the Scala front) run on its OWN source == itself"
 # gen1 = Scala front compiles the self-compiler; gen2 = that bytecode compiling itself.
 gen1=$(ssc compile examples/ssc0c-self.ssc0)

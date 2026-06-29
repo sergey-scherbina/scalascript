@@ -1,0 +1,4 @@
+-- bare primitives used as VALUES (η-expanded by ssc0c): #i.neg (unary) as map's fn, #i.add (binary) as foldl's fn.
+def map = (f, xs) => match xs { case Nil => Nil case Cons(h, t) => Cons(f(h), map(f, t)) }
+def foldl = (f, acc, xs) => match xs { case Nil => acc case Cons(h, t) => foldl(f, f(acc, h), t) }
+def main = () => Pair(map(#i.neg, Cons(1, Cons(2, Cons(3, Nil)))), foldl(#i.add, 0, Cons(1, Cons(2, Cons(3, Cons(4, Nil))))))
