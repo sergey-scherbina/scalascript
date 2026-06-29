@@ -625,8 +625,22 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       ascription parser (`parseParenBody`) runs. `-` is deliberately excluded (it's negation — `(-5)` stays a
       negative literal). `map (+ 1) [1,2,3]`→`[2,3,4]`, `filter (< 3) …`, `(++ "!") "hi"`→`"hi!"` all green on
       run-ir/JS/Rust. No regression: `(e)`, `(a, b)`, `(e : T)`, negation, binary subtraction unchanged. Pure
-      front-end desugar (0 backend change). conformance +5. (Left sections `(e op)` not done — rarer, and the
-      `-` ambiguity makes them fiddly; use `fun x => e op x`.)
+      front-end desugar (0 backend change). conformance +5.
+
+- [x] **K26.2 — left operator sections `(e op)`** = `fun x => e op x`, the complement to K26.1:
+      `(10 -)`, `(100 /)`, `(2 *)`, `(5 <)`, `("hi" ++)`. The `-` ambiguity that excludes `-` from *right*
+      sections doesn't apply here — in a left section `-` *follows* the operand, so `(10 -)` is unambiguously
+      `fun x => 10 - x` (never a negative literal). Parse strategy = **try-then-fallback** (no lookahead needed):
+      `tryLeftSection` runs `parseApp` on the paren body to grab an application-level left operand `e`, then
+      `isLeftSection` checks the remainder is exactly `<op> )` (a `isLeftSectionOp` punct = `-` ∪ `isSectionOp`,
+      then `)`); on a hit it builds `Lam("$lsec", mkSectionOp(op, e, Var "$lsec"))` and drops the `)`, otherwise
+      it re-parses from the *original* tokens via `parseParenBody`. `mkSectionOp` gains a `-`→`Sub` case (reached
+      only from left sections; right sections never pass `-`). `parseParenOrTuple`'s non-right-section branches
+      now call `tryLeftSection`. No false positives: `(a < b)`, `(a, b)`, `(a : T)`, `(3 + 4)`, `(- 5)` negation,
+      binary `10 - 3`, nested `(2 * (3 + 4))` all unchanged (verified — the `parseApp` probe either fails the
+      `isLeftSection` shape or is discarded by the fallback re-parse). `map (100 -) [10,20,30]`→`[90,80,70]`,
+      `(20 /) 4`→`5`, `filter (10 <) …` all green on run-ir/JS/Rust. Pure front-end desugar (0 backend change).
+      conformance +5.
 
 ## K27 — string split / words / lines
 

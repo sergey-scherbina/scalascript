@@ -157,11 +157,19 @@ def parseParenBody = (toks) =>                         -- toks is after the '(' 
 -- `-` is NOT a section op (it's negation, see parseUMinus); use `(fun x => x - n)` for that.
 def isSectionOp = (p) => chOr(chOr(chOr(#seq(p, "+"), #seq(p, "*")), chOr(#seq(p, "/"), #seq(p, "++"))), isCmpOp(p))
 def mkSectionOp = (op, a, b) =>
-  if #seq(op, "+") then Add(nextId(0), a, b) else if #seq(op, "*") then Mul(nextId(0), a, b) else if #seq(op, "/") then Div(nextId(0), a, b) else if #seq(op, "++") then Concat(nextId(0), a, b) else mkCmp(op, a, b)
+  if #seq(op, "+") then Add(nextId(0), a, b) else if #seq(op, "-") then Sub(nextId(0), a, b) else if #seq(op, "*") then Mul(nextId(0), a, b) else if #seq(op, "/") then Div(nextId(0), a, b) else if #seq(op, "++") then Concat(nextId(0), a, b) else mkCmp(op, a, b)
 def parseRightSection = (op, rest) =>
   match parseExpr(rest) { case Pair(e, r) => Pair(Lam("$sec", mkSectionOp(op, Var("$sec"), e)), drop1(r)) }   -- drop ')'
+-- left operator section:  '(' e op ')'  →  fun $lsec => e op $lsec   (e.g. (10 -), (100 /), (5 <))
+-- `-` IS allowed here (it follows the operand, so no negation ambiguity).  e is an application-level term.
+def isLeftSectionOp = (p) => chOr(#seq(p, "-"), isSectionOp(p))
+def isLeftSection = (rest) => match rest { case Cons(o, r2) => (match o { case TPunct(p) => if isLeftSectionOp(p) then (match r2 { case Cons(c, r3) => (match c { case TPunct(q) => #seq(q, ")") case _ => false }) case Nil => false }) else false case _ => false }) case Nil => false }
+def tryLeftSection = (toks) =>                         -- (e op) left section, else fall back to the full paren/tuple/ascription parser
+  match parseApp(toks) { case Pair(e, r) =>
+    if isLeftSection(r) then (match r { case Cons(o, r2) => (match o { case TPunct(p) => Pair(Lam("$lsec", mkSectionOp(p, e, Var("$lsec"))), drop1(r2)) case _ => parseParenBody(toks) }) case Nil => parseParenBody(toks) })
+    else parseParenBody(toks) }
 def parseParenOrTuple = (toks) =>                      -- toks is after the '('
-  match toks { case Cons(t, r1) => (match t { case TPunct(p) => if isSectionOp(p) then parseRightSection(p, r1) else parseParenBody(toks) case _ => parseParenBody(toks) }) case Nil => parseParenBody(toks) }
+  match toks { case Cons(t, r1) => (match t { case TPunct(p) => if isSectionOp(p) then parseRightSection(p, r1) else tryLeftSection(toks) case _ => tryLeftSection(toks) }) case Nil => parseParenBody(toks) }
 -- record literal:  '{' name '=' e ( ',' name '=' e )* '}'
 def parseRecField = (toks) =>
   match toks { case Cons(t, rest) => match t { case TName(nm) => match parseExpr(drop1(rest)) { case Pair(e, r) => Pair(Pair(nm, e), r) } case _ => Pair(Pair("?", ParseErr), Nil) } case Nil => Pair(Pair("?", ParseErr), Nil) }
