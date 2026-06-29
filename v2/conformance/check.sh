@@ -10,12 +10,26 @@ echo "building ssc ..." >&2
 scala-cli --power package src -o "$JAR" -f --assembly --server=false -q >/dev/null 2>&1 \
   || { echo "build failed"; exit 2; }
 ssc() { java -jar "$JAR" "$@" 2>/dev/null; }
+sscx() { java -Xss512m -jar "$JAR" "$@" 2>/dev/null; }
 
 fail=0
 chk() { # mode file want
   got=$(ssc "$1" "$2" | tail -1)
   if [ "$got" = "$3" ]; then printf 'ok   %-26s => %s\n' "$1 ${2##*/}" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "$1 ${2##*/}" "$got" "$3"; fail=1; fi
+}
+chk_raw_targets() { # label file want
+  lbl="$1"; file="$2"; want="$3"
+  if command -v node >/dev/null 2>&1; then
+    sscx run bin/ssc0-js.ssc0 "$file" > "${TMPDIR:-/tmp}/${lbl}.js"
+    got=$(node "${TMPDIR:-/tmp}/${lbl}.js" 2>/dev/null | tail -1)
+    if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s (node)\n' "$lbl -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "$lbl JS" "$got"; fail=1; fi
+  fi
+  if command -v rustc >/dev/null 2>&1; then
+    sscx run bin/ssc0-rust.ssc0 "$file" > "${TMPDIR:-/tmp}/${lbl}.rs"
+    if rustc -O "${TMPDIR:-/tmp}/${lbl}.rs" -o "${TMPDIR:-/tmp}/${lbl}-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/${lbl}-bin"); else got="(rustc err)"; fi
+    if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s (rustc)\n' "$lbl -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "$lbl Rust" "$got"; fail=1; fi
+  fi
 }
 
 echo "# ssc0 source -> ir -> run"
@@ -58,6 +72,20 @@ chk run examples/effects-nondet.ssc0 "Cons(11, Cons(21, Cons(12, Cons(22, Nil)))
 echo "# async: cooperative scheduler on effects (lib/async.ssc0) — yield + fork"
 chk run examples/async-tasks.ssc0 "Cons(1, Cons(10, Cons(2, Cons(20, Cons(3, Nil)))))"
 chk run examples/async-fork.ssc0  "Cons(1, Cons(2, Cons(100, Cons(3, Cons(200, Nil)))))"
+
+echo "# K46 async: futures, channels, buffered channels, mailbox helpers (lib/async.ssc0 runAsync)"
+K46_FUTURE="Cons(1, Cons(2, Cons(10, Cons(20, Cons(7, Cons(7, Nil))))))"
+K46_CHANNEL="Cons(1, Cons(2, Cons(42, Nil)))"
+K46_BUFFER="Cons(1, Cons(5, Cons(6, Nil)))"
+K46_MAILBOX="Cons(0, Cons(1, Cons(2, Cons(3, Cons(4, Nil)))))"
+chk run examples/async-future.ssc0 "$K46_FUTURE"
+chk run examples/async-channel.ssc0 "$K46_CHANNEL"
+chk run examples/async-channel-buffer.ssc0 "$K46_BUFFER"
+chk run examples/async-mailbox.ssc0 "$K46_MAILBOX"
+chk_raw_targets k46_future examples/async-future.ssc0 "$K46_FUTURE"
+chk_raw_targets k46_channel examples/async-channel.ssc0 "$K46_CHANNEL"
+chk_raw_targets k46_buffer examples/async-channel-buffer.ssc0 "$K46_BUFFER"
+chk_raw_targets k46_mailbox examples/async-mailbox.ssc0 "$K46_MAILBOX"
 
 echo "# typeclasses: type-directed instance resolution + dict passing (lib/typeclass.ssc0)"
 chk run examples/typeclass.ssc0        '"[1, 2, 3]"'
@@ -286,7 +314,7 @@ got=$($JX run-ir "${TMPDIR:-/tmp}/json.coreir" | tail -1)
 if [ "$got" = "$JW" ]; then printf 'ok   %-26s => %s\n' "json roundtrip -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [%s]\n' "json run-ir" "$got" "$JW"; fail=1; fi
 if command -v node >/dev/null 2>&1; then $JX run bin/ssct-hm-js.ssc0 examples/hm-json.hm > "${TMPDIR:-/tmp}/json.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/json.js" 2>/dev/null | tail -1); if [ "$got" = "$JW" ]; then printf 'ok   %-26s => %s (node)\n' "json roundtrip -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "json JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then $JX run bin/ssct-hm-rust.ssc0 examples/hm-json.hm > "${TMPDIR:-/tmp}/json.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/json.rs" -o "${TMPDIR:-/tmp}/json-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/json-bin"); else got="(rustc err)"; fi; if [ "$got" = "$JW" ]; then printf 'ok   %-26s => %s (rustc)\n' "json roundtrip -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "json Rust" "$got"; fail=1; fi; fi
-echo "# ssct-hm TYPECLASS Show: one `show` resolves to the instance for the inferred type, on every backend"
+echo '# ssct-hm TYPECLASS Show: one `show` resolves to the instance for the inferred type, on every backend'
 chk_hm examples/hm-show.hm '"String"'
 SHW='"x=42"'
 ssc run bin/ssctc-hm.ssc0 examples/hm-show.hm > "${TMPDIR:-/tmp}/shw.coreir" 2>/dev/null
@@ -405,7 +433,7 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/eq.rs" -o "${TMPDIR:-/tmp}/eq-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eq-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (rustc)\n' "eq -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq Rust" "$got"; fail=1; fi
 fi
-echo "# ssct-hm USER TYPECLASSES: `method m` + `instance m T = impl`, m resolves by arg type-head, on every backend"
+echo '# ssct-hm USER TYPECLASSES: `method m` + `instance m T = impl`, m resolves by arg type-head, on every backend'
 chk_hm examples/hm-userclass.hm '"String"'
 UCW='"int"'
 ssc run bin/ssctc-hm.ssc0 examples/hm-userclass.hm > "${TMPDIR:-/tmp}/uc.coreir" 2>/dev/null
@@ -1090,7 +1118,7 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 echo -n "ok   typed op arg checked     => "; printf 'effect State { get : Dyn -> Int , put : Int -> Dyn } in runE (runStateE (doE { u <- put "x" ; x <- get ; pureE (x + 1) }) 0)' > "${TMPDIR:-/tmp}/tpb.hm"; tpb=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/tpb.hm" | tail -1); if [ "$tpb" = '"TypeError: effect op arg type mismatch for put"' ]; then echo "put String rejected (correct)"; else echo "FAIL [$tpb]"; fail=1; fi
 
-echo "# K39 — TYPED HANDLER RESUMES: for a single-op TYPED effect `effect Ask { ask : Int -> String }`, a handle clause types its arg as Int and its resume k as String->Comp (no Dyn ascriptions). Purely static; erase unchanged → 3 backends"
+echo '# K39 — TYPED HANDLER RESUMES: for a single-op TYPED effect `effect Ask { ask : Int -> String }`, a handle clause types its arg as Int and its resume k as String->Comp (no Dyn ascriptions). Purely static; erase unchanged → 3 backends'
 chk_hm examples/hm-eff-typed-resume.hm '"Int"'                       # handler uses (a + 1):Int and k (showInt ..):String — only checks WITH typed resume
 ssc run bin/ssctc-hm.ssc0 examples/hm-eff-typed-resume.hm > "${TMPDIR:-/tmp}/tr.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tr.coreir" | tail -1)
@@ -1098,7 +1126,7 @@ if [ "$got" = "2" ]; then printf 'ok   %-26s => %s\n' "typed resume -> run-ir" "
 if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-typed-resume.hm > "${TMPDIR:-/tmp}/tr.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tr.js" 2>/dev/null | tail -1); if [ "$got" = "2" ]; then printf 'ok   %-26s => %s (node)\n' "typed resume -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "typed resume JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-typed-resume.hm > "${TMPDIR:-/tmp}/tr.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/tr.rs" -o "${TMPDIR:-/tmp}/tr-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tr-bin"); else got="(rustc err)"; fi; if [ "$got" = "2" ]; then printf 'ok   %-26s => %s (rustc)\n' "typed resume -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "typed resume Rust" "$got"; fail=1; fi; fi
 echo -n "ok   wrong-type resume rejected => "; printf 'effect Ask { ask : Int -> String } in runE (handle "Ask" (bindE (ask 41) (fun s => pureE (strLen s))) (fun v => pureE v) (fun o => fun a => fun k => k (a + 1)))' > "${TMPDIR:-/tmp}/trb.hm"; trb=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/trb.hm" | tail -1); if [ "$trb" = '"TypeError: handle: op clause type mismatch"' ]; then echo "resuming with Int (k expects String) rejected (correct)"; else echo "FAIL [$trb]"; fail=1; fi
-echo "# K11.3b — USER-TYPECLASS POLYMORPHISM: a `method m : R` (result sig) used in a closed fn resolves the instance per use"
+echo '# K11.3b — USER-TYPECLASS POLYMORPHISM: a `method m : R` (result sig) used in a closed fn resolves the instance per use'
 chk_hm examples/hm-method-poly.hm '"(String, String)"'                # let f = fun x => describe x in (f 5, f true): Int & Bool instances
 MPV='Pair("an int", "a bool")'
 ssc run bin/ssctc-hm.ssc0 examples/hm-method-poly.hm > "${TMPDIR:-/tmp}/mp.coreir" 2>/dev/null
@@ -1129,7 +1157,7 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/mo.rs" -o "${TMPDIR:-/tmp}/mo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mo-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method poly (ops) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops Rust" "$got"; fail=1; fi
 fi
-echo "# K11.3c — RECEIVER-RESULT methods: `method negate : self` (result = the receiver type) polymorphic at Int & Float"
+echo '# K11.3c — RECEIVER-RESULT methods: `method negate : self` (result = the receiver type) polymorphic at Int & Float'
 chk_hm examples/hm-method-self.hm '"(Int, Float)"'                    # negate : self; 0-n (Int) / 0.0-x (Float)
 MSV="Pair(-5, -2.5)"
 ssc run bin/ssctc-hm.ssc0 examples/hm-method-self.hm > "${TMPDIR:-/tmp}/ms.coreir" 2>/dev/null
@@ -1159,7 +1187,7 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "true" ]; then printf 'ok   %-26s => %s (rustc)\n' "mutual rec -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   3-way mutual rec         => "; printf 'let rec f = fun n => if n = 0 then 0 else g (n - 1) and g = fun n => if n = 0 then 1 else h (n - 1) and h = fun n => if n = 0 then 2 else f (n - 1) in f 7' > "${TMPDIR:-/tmp}/m3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/m3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/m3.coreir"; m3=$(ssc run-ir "${TMPDIR:-/tmp}/m3.coreir" | tail -1); if [ "$m3" = "1" ]; then echo "1 (f→g→h→f…)"; else echo "FAIL [$m3]"; fail=1; fi
-echo "# 4-TUPLES (Quad): `(a,b,c,d)` no longer silently truncates to Triple; 5+ nest the tail (no data loss)"
+echo '# 4-TUPLES (Quad): `(a,b,c,d)` no longer silently truncates to Triple; 5+ nest the tail (no data loss)'
 echo -n "ok   4-tuple type            => "; printf '(1, 2, 3, 4)' > "${TMPDIR:-/tmp}/q.hm"; qt=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/q.hm" | tail -1); if [ "$qt" = '"(Int, Int, Int, Int)"' ]; then echo "(Int, Int, Int, Int)"; else echo "FAIL [$qt]"; fail=1; fi
 chk_hm examples/hm-quad.hm '"Int"'                                    # 4-tuple pattern (a, b, c, d) => sum
 ssc run bin/ssctc-hm.ssc0 examples/hm-quad.hm > "${TMPDIR:-/tmp}/q.coreir" 2>/dev/null

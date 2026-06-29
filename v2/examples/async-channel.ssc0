@@ -1,0 +1,14 @@
+-- K46: recv on an empty channel blocks; a later send wakes exactly one receiver.
+import "../lib/async.ssc0"
+
+def receiver = () =>
+  bind(log(1), (u1) =>
+  bind(recv(1), (value) =>
+  log(value)))
+
+def sender = () =>
+  bind(yield, (u1) =>
+  bind(send(1, 42), (u2) =>
+  log(2)))
+
+def main = () => runAsync(Cons(receiver(), Cons(sender(), Nil)))

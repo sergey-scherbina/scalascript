@@ -1,0 +1,21 @@
+-- K46: a parent spawns a result-producing child, then awaits its future.
+-- The parent continues until await; the child resolves the future; the parent resumes.
+-- Awaiting the same already-resolved future again resumes immediately.
+import "../lib/async.ssc0"
+
+def child = () =>
+  bind(log(10), (u1) =>
+  bind(yield, (u2) =>
+  bind(log(20), (u3) =>
+  pure(7))))
+
+def parent = () =>
+  bind(log(1), (u1) =>
+  bind(future(child()), (fid) =>
+  bind(log(2), (u2) =>
+  bind(await(fid), (value) =>
+  bind(log(value), (u3) =>
+  bind(await(fid), (again) =>
+  log(again)))))))
+
+def main = () => runAsync(Cons(parent(), Nil))

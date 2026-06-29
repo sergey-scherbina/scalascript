@@ -1,0 +1,16 @@
+-- K46: send with no waiting receiver buffers values; later recv consumes FIFO.
+import "../lib/async.ssc0"
+
+def producer = () =>
+  bind(send(2, 5), (u1) =>
+  bind(send(2, 6), (u2) =>
+  log(1)))
+
+def consumer = () =>
+  bind(yield, (u1) =>
+  bind(recv(2), (a) =>
+  bind(recv(2), (b) =>
+  bind(log(a), (u2) =>
+  log(b)))))
+
+def main = () => runAsync(Cons(producer(), Cons(consumer(), Nil)))

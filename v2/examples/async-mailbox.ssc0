@@ -1,0 +1,19 @@
+-- K46: mailbox helpers are channel aliases for actor-style tasks.
+-- Ping and pong block on their mailbox ids and bounce Int messages until 4.
+import "../lib/async.ssc0"
+
+def ping = () =>
+  bind(mailboxReceive(1), (n) =>
+  bind(log(n), (u1) =>
+  if #i.lt(n, 4) then
+    bind(mailboxSend(2, #i.add(n, 1)), (u2) => ping())
+  else pure(())))
+
+def pong = () =>
+  bind(mailboxReceive(2), (n) =>
+  bind(log(n), (u1) =>
+  if #i.lt(n, 4) then
+    bind(mailboxSend(1, #i.add(n, 1)), (u2) => pong())
+  else pure(())))
+
+def main = () => runAsync(Cons(ping(), Cons(pong(), Cons(mailboxSend(1, 0), Nil))))

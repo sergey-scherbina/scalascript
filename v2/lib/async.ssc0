@@ -4,7 +4,7 @@
 -- at every yield/fork. No kernel support — just the effect machinery.
 import "effects.ssc0"
 
-def yield = perform("yield", ())
+def yield = Op("yield", (), (r) => Pure(r))
 def log   = (x) => perform("log", x)
 def fork  = (child) => perform("fork", child)
 
@@ -22,3 +22,110 @@ def runSched = (queue) =>
           else runSched(rest)
       }
   }
+
+-- K46 scheduler: futures/promises, buffered channels, and mailbox-style actor helpers.
+-- The old runSched intentionally stays small; runAsync is the richer deterministic scheduler.
+def future = (child) => perform("future", child)
+def await  = (id) => perform("await", id)
+def send   = (channel, value) => perform("send", Pair(channel, value))
+def recv   = (channel) => perform("recv", channel)
+def mailboxSend    = (actorId, msg) => send(actorId, msg)
+def mailboxReceive = (actorId) => recv(actorId)
+
+def lookupI = (m, k) =>
+  match m {
+    case Nil => None
+    case Cons(p, t) => match p { case Pair(k2, v) => if #i.eq(k2, k) then Some(v) else lookupI(t, k) }
+  }
+
+def putI = (m, k, v) =>
+  match m {
+    case Nil => Cons(Pair(k, v), Nil)
+    case Cons(p, t) => match p { case Pair(k2, v2) => if #i.eq(k2, k) then Cons(Pair(k, v), t) else Cons(p, putI(t, k, v)) }
+  }
+
+def listI = (m, k) => match lookupI(m, k) { case Some(xs) => xs case None => Nil }
+def addListI = (m, k, v) => putI(m, k, appendE(listI(m, k), Cons(v, Nil)))
+
+def popListI = (m, k) =>
+  match m {
+    case Nil => Pair(None, Nil)
+    case Cons(p, t) =>
+      match p {
+        case Pair(k2, xs) =>
+          if #i.eq(k2, k) then
+            match xs {
+              case Nil => Pair(None, m)
+              case Cons(h, rest) => Pair(Some(h), Cons(Pair(k2, rest), t))
+            }
+          else
+            match popListI(t, k) { case Pair(opt, t2) => Pair(opt, Cons(p, t2)) }
+      }
+  }
+
+def taskifyAsync = (queue) =>
+  match queue {
+    case Nil => Nil
+    case Cons(c, rest) => Cons(Task(0, c), taskifyAsync(rest))
+  }
+
+def reverseAsync = (xs) => reverseAsyncGo(xs, Nil)
+def reverseAsyncGo = (xs, acc) => match xs { case Nil => acc case Cons(h, t) => reverseAsyncGo(t, Cons(h, acc)) }
+
+def waitersToTasks = (ws, value) =>
+  match ws {
+    case Nil => Nil
+    case Cons(w, rest) => match w { case Pair(fid, k) => Cons(Task(fid, k(value)), waitersToTasks(rest, value)) }
+  }
+
+-- queue: [Task(fid, Comp)] ; done/fwait/bufs/rwait: integer-keyed assoc lists.
+def runAsync = (queue) => reverseAsync(runAsyncLoop(taskifyAsync(queue), 1, Nil, Nil, Nil, Nil, Nil))
+
+def runAsyncLoop = (queue, nextId, done, fwait, bufs, rwait, logs) =>
+  match queue {
+    case Nil => logs
+    case Cons(task, rest) =>
+      match task {
+        case Task(fid, c) =>
+          match c {
+            case Pure(v) => runAsyncPure(fid, v, rest, nextId, done, fwait, bufs, rwait, logs)
+            case Op(l, a, k) => runAsyncOp(fid, l, a, k, rest, nextId, done, fwait, bufs, rwait, logs)
+          }
+      }
+  }
+
+def runAsyncPure = (fid, v, rest, nextId, done, fwait, bufs, rwait, logs) =>
+  if #i.eq(fid, 0) then runAsyncLoop(rest, nextId, done, fwait, bufs, rwait, logs)
+  else
+    let ws = listI(fwait, fid) in
+    runAsyncLoop(appendE(rest, waitersToTasks(ws, v)), nextId, putI(done, fid, v), fwait, bufs, rwait, logs)
+
+def runAsyncOp = (fid, l, a, k, rest, nextId, done, fwait, bufs, rwait, logs) =>
+  if #seq(l, "log") then runAsyncLoop(Cons(Task(fid, k(())), rest), nextId, done, fwait, bufs, rwait, Cons(a, logs))
+  else if #seq(l, "yield") then runAsyncLoop(appendE(rest, Cons(Task(fid, k(())), Nil)), nextId, done, fwait, bufs, rwait, logs)
+  else if #seq(l, "fork") then runAsyncLoop(Cons(Task(fid, k(())), appendE(rest, Cons(Task(0, a), Nil))), nextId, done, fwait, bufs, rwait, logs)
+  else if #seq(l, "future") then runAsyncLoop(Cons(Task(fid, k(nextId)), appendE(rest, Cons(Task(nextId, a), Nil))), #i.add(nextId, 1), done, fwait, bufs, rwait, logs)
+  else if #seq(l, "await") then
+    match lookupI(done, a) {
+      case Some(v) => runAsyncLoop(Cons(Task(fid, k(v)), rest), nextId, done, fwait, bufs, rwait, logs)
+      case None => runAsyncLoop(rest, nextId, done, addListI(fwait, a, Pair(fid, k)), bufs, rwait, logs)
+    }
+  else if #seq(l, "send") then
+    match a { case Pair(ch, v) =>
+      match popListI(rwait, ch) {
+        case Pair(opt, rwait2) =>
+          match opt {
+            case Some(w) => match w { case Pair(wfid, wk) => runAsyncLoop(Cons(Task(fid, k(())), appendE(rest, Cons(Task(wfid, wk(v)), Nil))), nextId, done, fwait, bufs, rwait2, logs) }
+            case None => runAsyncLoop(Cons(Task(fid, k(())), rest), nextId, done, fwait, addListI(bufs, ch, v), rwait, logs)
+          }
+      }
+    }
+  else if #seq(l, "recv") then
+    match popListI(bufs, a) {
+      case Pair(opt, bufs2) =>
+        match opt {
+          case Some(v) => runAsyncLoop(Cons(Task(fid, k(v)), rest), nextId, done, fwait, bufs2, rwait, logs)
+          case None => runAsyncLoop(rest, nextId, done, fwait, bufs, addListI(rwait, a, Pair(fid, k)), logs)
+        }
+    }
+  else runAsyncLoop(rest, nextId, done, fwait, bufs, rwait, logs)
