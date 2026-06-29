@@ -19,22 +19,40 @@ def mapEraseArms = (scope, arms) => match arms { case Nil => Nil case Cons(arm, 
 def mapEraseArmsNW = (scope, arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then mapEraseArmsNW(scope, rest) else Cons(IrArm(con, lenB(binders), erase(prependAll(binders, scope), body)), mapEraseArmsNW(scope, rest)) } }
 def findDefault = (scope, arms) => match arms { case Nil => None case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then Some(erase(scope, body)) else findDefault(scope, rest) } }
 
+-- ── dictionary passing for genuinely-polymorphic-numeric `let rec` (see dictFnReg in ssct-hm.ssc0) ──
+-- While erasing such an `f`'s body, `curDictV = Some(dictVar)` and the scope carries "$dict"; an overloaded op
+-- whose resolved type IS that dict var dispatches at runtime via `__nadd`/… (tag, a, b) on the dict-tag string.
+def curDictV     = #cell.new(None)
+def usedNDictCell = #cell.new(false)
+def dictVarMatch = (id) => match #cell.get(curDictV) { case None => false case Some(v) => isVarN(instOf(id), v) }
+def dictLocal    = (scope) => IrLocal(idxOf(scope, "$dict"))
+def nDispatch    = (helper, scope, a, b) => let u = #cell.set(usedNDictCell, true) in IrApp(IrApp(IrApp(IrGlobal(helper), Cons(dictLocal(scope), Nil)), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))
+def tagOfType    = (ty) => match ty { case TyFloat => "Float" case _ => "Int" }
+def tagOfArg     = (e) => match e { case Lit(n) => "Int" case FloatLit(s) => "Float" case Add(id, a, b) => tagOfType(instOf(id)) case Sub(id, a, b) => tagOfType(instOf(id)) case Mul(id, a, b) => tagOfType(instOf(id)) case Div(id, a, b) => tagOfType(instOf(id)) case Ascribe(e2, ty) => tagOfType(ty) case _ => "Int" }
+def spineHead    = (t) => match t { case App(f, a) => spineHead(f) case _ => t }
+def spineArgs    = (t) => match t { case App(f, a) => appendD(spineArgs(f), Cons(a, Nil)) case _ => Nil }
+def nthArg       = (xs, i) => match xs { case Nil => Lit(0) case Cons(h, t) => if #i.eq(i, 0) then h else nthArg(t, #i.sub(i, 1)) }
+def dictPosOf    = (g) => match lookupDictFn(#cell.get(dictFnReg), g) { case Some(info) => match info { case Pair(dv, pos) => pos } case None => 0 }
+def applyArgsE   = (fn, scope, args) => match args { case Nil => fn case Cons(a, r) => applyArgsE(IrApp(fn, Cons(erase(scope, a), Nil)), scope, r) }
+def eraseDictCall = (scope, g, args) =>                 -- emit  g <dict> args...   (dict = enclosing $dict if inside a dict-fn, else a literal tag from the arg)
+  let dval = (match #cell.get(curDictV) { case Some(x) => dictLocal(scope) case None => IrLit(IrStr(tagOfArg(nthArg(args, dictPosOf(g))))) }) in
+  applyArgsE(IrApp(IrLocal(idxOf(scope, g)), Cons(dval, Nil)), scope, args)
 def erase = (scope, term) =>
   match term {
     case Lit(n)       => IrLit(IrInt(n))
     case BoolLit(b)   => IrLit(IrBool(b))
     case Var(x)       => IrLocal(idxOf(scope, x))
     case Lam(x, body) => IrLam(1, erase(Cons(x, scope), body))            -- no type to drop
-    case App(f, a)    => IrApp(erase(scope, f), Cons(erase(scope, a), Nil))
-    case Add(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.add" else "i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Sub(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.sub" else "i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Mul(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.mul" else "i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Div(id, a, b) => IrPrim(if isFloatTy(instOf(id)) then "f.div" else "i.div", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case App(f, a)    => (match spineHead(App(f, a)) { case Var(g) => if isDictFn(g) then eraseDictCall(scope, g, spineArgs(App(f, a))) else IrApp(erase(scope, f), Cons(erase(scope, a), Nil)) case _ => IrApp(erase(scope, f), Cons(erase(scope, a), Nil)) })
+    case Add(id, a, b) => if dictVarMatch(id) then nDispatch("__nadd", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.add" else "i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Sub(id, a, b) => if dictVarMatch(id) then nDispatch("__nsub", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.sub" else "i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Mul(id, a, b) => if dictVarMatch(id) then nDispatch("__nmul", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.mul" else "i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Div(id, a, b) => if dictVarMatch(id) then nDispatch("__ndiv", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.div" else "i.div", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Add(a, b)    => IrPrim("i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))    -- 2-arg = legacy Int (hand-built ASTs)
     case Sub(a, b)    => IrPrim("i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Mul(a, b)    => IrPrim("i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Eq(id, a, b) => if isStrTy(instOf(id)) then IrPrim("seq", Cons(erase(scope, a), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.eq" else "i.eq", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
-    case Lt(id, a, b) => if isStrTy(instOf(id)) then (let u = #cell.set(usedStrLtCell, true) in IrApp(IrApp(IrGlobal("__strLt"), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.lt" else "i.lt", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
+    case Lt(id, a, b) => if dictVarMatch(id) then nDispatch("__nlt", scope, a, b) else if isStrTy(instOf(id)) then (let u = #cell.set(usedStrLtCell, true) in IrApp(IrApp(IrGlobal("__strLt"), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))) else IrPrim(if isFloatTy(instOf(id)) then "f.lt" else "i.lt", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Eq(a, b)     => IrPrim("i.eq",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Lt(a, b)     => IrPrim("i.lt",  Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case StrLit(str)  => IrLit(IrStr(str))
@@ -59,7 +77,14 @@ def erase = (scope, term) =>
     case FSqrt(e)     => IrPrim("f.sqrt", Cons(erase(scope, e), Nil))
     case If(c, t, e)  => IrIf(erase(scope, c), erase(scope, t), erase(scope, e))
     case Let(x, e, body)      => IrLet(Cons(erase(scope, e), Nil), erase(Cons(x, scope), body))
-    case LetRec(f, lam, body) => IrLetRec(Cons(erase(Cons(f, scope), lam), Nil), erase(Cons(f, scope), body))
+    case LetRec(f, lam, body) =>
+      if isDictFn(f) then
+        (match lookupDictFn(#cell.get(dictFnReg), f) { case Some(info) => match info { case Pair(dv, pos) =>
+           let saved = #cell.get(curDictV) in let u1 = #cell.set(curDictV, Some(dv)) in
+           let elam = erase(Cons(f, scope), Lam("$dict", lam)) in            -- λ$dict. <original lam> ; ops on the dict var dispatch via __nX
+           let u2 = #cell.set(curDictV, saved) in
+           IrLetRec(Cons(elam, Nil), erase(Cons(f, scope), body)) } })
+      else IrLetRec(Cons(erase(Cons(f, scope), lam), Nil), erase(Cons(f, scope), body))
     case LetRecM(binds, body) => let sc = prependAll(bindNamesE(binds), scope) in IrLetRec(eraseBindLams(sc, binds), erase(sc, body))   -- mutual recursion (prependAll: last bind = idx 0, matches the IR letrec)
     -- lists: data ctors Nil/Cons; head/tail/isNil deconstruct via a Cons-match (field h=local 1, t=local 0)
     case LNil        => IrCtor("Nil", Nil)
@@ -269,6 +294,10 @@ def strLtDef = IrDef("__strLt", IrLam(1, IrLam(1,
 def appendDef = IrDef("__append", IrLam(1, IrLam(1, IrMatch(IrLocal(1),
     Cons(IrArm("Cons", 2, IrCtor("Cons", Cons(IrLocal(1), Cons(IrApp(IrApp(IrGlobal("__append"), Cons(IrLocal(0), Nil)), Cons(IrLocal(2), Nil)), Nil)))),
     Cons(IrArm("Nil", 0, IrLocal(0)), Nil)), None))))
+-- numeric dict dispatch:  __nadd = λtag.λa.λb. if seq(tag,"Float") then f.add a b else i.add a b   (tag=L2,a=L1,b=L0)
+def nHelperDef = (name, fop, iop) => IrDef(name, IrLam(1, IrLam(1, IrLam(1,
+    IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(lstr("Float"), Nil))), IrPrim(fop, Cons(IrLocal(1), Cons(IrLocal(0), Nil))), IrPrim(iop, Cons(IrLocal(1), Cons(IrLocal(0), Nil))))))))
+def nDictDefs = Cons(nHelperDef("__nadd", "f.add", "i.add"), Cons(nHelperDef("__nsub", "f.sub", "i.sub"), Cons(nHelperDef("__nmul", "f.mul", "i.mul"), Cons(nHelperDef("__ndiv", "f.div", "i.div"), Cons(nHelperDef("__nlt", "f.lt", "i.lt"), Nil)))))
 -- general deep handler: __effHandle = λlbl.λm.λvalf.λopf. match m {
 --   Pure v => valf v                                                          (v=0; opf=1,valf=2,m=3,lbl=4)
 --   Op l a k => l==lbl ? opf (fst a) (snd a) (λr. __effHandle lbl (k r) valf opf)   (k=0,a=1,l=2; opf=3,valf=4,m=5,lbl=6 — a = Pair op realArg)
@@ -293,6 +322,7 @@ def progOf = (term) => let body = erase(Nil, term) in
   let effH  = if #cell.get(usedEffCell) then Cons(effBindDef, Cons(effRunDef, Cons(effRunStDef, Cons(effRevAppDef, Cons(effLogGoDef, Cons(effRunLogDef, Cons(effHandleDef, Nil))))))) else Nil in
   let strH  = if #cell.get(usedStrLtCell) then Cons(strLtDef, Cons(strLtGoDef, Nil)) else Nil in
   let appH  = if #cell.get(usedAppendCell) then Cons(appendDef, Nil) else Nil in
-  IrProg(appendD(appH, appendD(strH, appendD(effH, appendD(listH, #cell.get(helperDefs))))), body)
+  let ndH   = if #cell.get(usedNDictCell) then nDictDefs else Nil in
+  IrProg(appendD(ndH, appendD(appH, appendD(strH, appendD(effH, appendD(listH, #cell.get(helperDefs)))))), body)
 
 def emit = (term) => #coreir.encode(progOf(term))

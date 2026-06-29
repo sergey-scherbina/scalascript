@@ -218,9 +218,13 @@ def infer = (env, c, s, term) =>
         case ErrI(m) => ErrI(m)
         case Ok3(s1, tlam, c1) =>
           match unify(s1, tv, tlam) { case Err(m) => ErrI(m) case Ok(s2) =>
-            let qs = diffList(freeTy(appTy(s2, tv), Nil), freeEnv(env, s2, Nil)) in
-            let s2b = defaultPendingIn(s2, qs) in
-            infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) }
+            let fty = appTy(s2, tv) in
+            let qs = diffList(freeTy(fty, Nil), freeEnv(env, s2, Nil)) in
+            match firstPendingIn(qs) {                                  -- an UNANCHORED numeric var → make `f` a dict-fn (keep it polymorphic)
+              case Some(dv) => let u = registerDictFn(f, dv, dictArgPos(fty, dv)) in let u2 = unpend(dv) in
+                               infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body)
+              case None => let s2b = defaultPendingIn(s2, qs) in
+                           infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) } }
       }
     case LetRecM(binds, body) =>                                  -- mutual recursion: all names in scope in each other
       let k = lenBinds(binds) in let c0 = c in
@@ -482,6 +486,19 @@ def defaultNum   = (s, ns, onlyQ) => match ns { case Nil => s case Cons(n, r) =>
 def alwaysQ      = (n) => true
 def finalDefault = (s) => defaultNum(s, #cell.get(pendingNum), alwaysQ)              -- top level: default ALL remaining
 def defaultPendingIn = (s, qs) => defaultNum(s, qs, isPending)                       -- at generalize: default the quantified Num vars
+-- DICTIONARY PASSING for a genuinely-polymorphic-numeric `let rec` (e.g. `let rec scale = fun x => fun n => …
+-- x + scale x (n-1)`): rather than defaulting its Num var to Int, keep it polymorphic and pass a numeric dict
+-- (a type-tag string) at runtime.  dictFnReg: name -> Pair(dictVar, dictArgPos).
+def dictFnReg     = #cell.new(Nil)
+def registerDictFn = (nm, v, pos) => #cell.set(dictFnReg, Cons(Pair(nm, Pair(v, pos)), #cell.get(dictFnReg)))
+def lookupDictFn  = (reg, nm) => match reg { case Nil => None case Cons(p, r) => match p { case Pair(n, info) => if #seq(n, nm) then Some(info) else lookupDictFn(r, nm) } }
+def isDictFn      = (nm) => match lookupDictFn(#cell.get(dictFnReg), nm) { case Some(x) => true case None => false }
+def firstPendingIn = (qs) => match qs { case Nil => None case Cons(v, r) => if isPending(v) then Some(v) else firstPendingIn(r) }
+def removeI       = (v, xs) => match xs { case Nil => Nil case Cons(h, t) => if #i.eq(h, v) then removeI(v, t) else Cons(h, removeI(v, t)) }
+def unpend        = (v) => #cell.set(pendingNum, removeI(v, #cell.get(pendingNum)))
+def isVarN        = (ty, var) => match ty { case TyVar(n) => #i.eq(n, var) case _ => false }
+def dictArgPosGo  = (ty, var, i) => match ty { case TyFun(a, b) => if isVarN(a, var) then i else dictArgPosGo(b, var, #i.add(i, 1)) case _ => 0 }
+def dictArgPos    = (ty, var) => dictArgPosGo(ty, var, 0)
 def rebakeReg    = (s, reg) => match reg { case Nil => Nil case Cons(p, rest) => match p { case Pair(id, ty) => Cons(Pair(id, appTy(s, ty)), rebakeReg(s, rest)) } }
 -- type-check a resolved instance impl with the receiver type known, so the impl's OWN overloaded-op ids get
 -- resolved (else a deferred method whose impl uses `+`/`<`/… would erase those ops at the default Int → miscompile).

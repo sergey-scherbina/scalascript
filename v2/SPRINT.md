@@ -419,28 +419,30 @@ focused effort, gate conformance after EACH slice. Key cost: `Forall(qs, ty)` mu
       (generalize the rec binding's Num var instead of defaulting) AND dict-param codegen, since one erased copy
       of `scale` can't use both `i.add` and `f.add`.
 
-- [ ] **K13.1 — constraint set in `infer`** (BEHAVIOR-NEUTRAL). `Constraint(className, var)`. Thread a
-      constraint set (reuse/extend the `pendingNum` cell). At an overloaded op / `method` use on a still-
-      unresolved var `a`, record `Num a` / `Ord a` instead of eagerly defaulting; id-tag the node, record
-      "tag from var `a`" in `tcReg`. Top-level still defaults `Num→Int` (so conformance is unchanged). Land
-      green with NO observable change — this is pure machinery.
-- [ ] **K13.2 — `Forall(qs, constraints, ty)`** (BEHAVIOR-NEUTRAL). `generalize` quantifies constrained vars
-      and keeps the constraints mentioning them; `instantiate` freshens both (adds fresh constraints to the
-      current set); a constraint whose var resolves to a concrete type is **discharged** (verify Int·Float is
-      `Num`); one still unresolved at the top is **defaulted** (`Num→Int`) — preserves today's behaviour for
-      every monomorphic program exactly. Update all `Forall(Nil, …)` → `Forall(Nil, Nil, …)`. Still green.
-- [ ] **K13.3 — dict-passing erase for built-in `Num`** (FIRST OBSERVABLE WIN). A `let`-bound value with `k`
-      constraints erases to a lambda with `k` leading dict params (prepend names to `scope` so de Bruijn auto-
-      adjusts). A constrained op erases to a dict application `__nadd(tag, a, b)` (global helpers
-      `__nadd("Int",x,y)=i.add` / `__nadd("Float",x,y)=f.add`, similarly sub/mul/div/lt). Every call supplies
-      the dict: a **literal tag** if the type arg is concrete, else the **enclosing dict param** (via `scope`).
-      Backends unchanged (dicts are plain strings, `__n*` ordinary globals). Demo: `twice` used at Int AND
-      Float in the same program (the case inlining can't do across a recursive/exported binding).
-- [ ] **K13.4 — extend to `Ord` + user classes.** `Ord` dict (compare/lt). User classes need method
-      **signatures** (`method compare : a -> a -> Int`) so a polymorphic use has a known result type; the dict
-      is a **record of the instance's impls**. Generic `min3` over a user `Ord`.
-- [ ] **K13.5 — demo + conformance.** `twice` at Int & Float; generic `min3` over user `Ord`; `r*r*pi`
-      unanchored (stays `Num a ⇒` then defaults). Type + all 3 backends, mirror the existing chk_hm pattern.
+- [x] **K13.1 — DICT-PASSING FOR `Num` SHIPPED (2026-06-29)** — via a TARGETED design (simpler than the
+      Forall-constraints-field plan below). A `let rec f` whose quantified type has a single still-**pending**
+      (unanchored) numeric var `dv` is marked a **dict-fn** (`dictFnReg: name -> (dv, argPos)`) instead of
+      defaulting `dv` to Int — so `f` generalises and is usable at multiple numeric types. Erase: a dict-fn's
+      lam gets a leading `$dict` param (`λ$dict. <lam>`, `curDictV = Some(dv)` + `"$dict"` in scope while
+      erasing its body); an overloaded op whose `instOf(id)` IS `dv` dispatches via `__nadd`/`__nsub`/`__nmul`/
+      `__ndiv`/`__nlt` `(tag, a, b)` (global helpers that branch on `seq(tag,"Float")` → `f.*` else `i.*`). At a
+      call site (`spineHead`/`spineArgs`), the dict is the **enclosing `$dict`** if inside a dict-fn body
+      (recursive call), else a **literal tag** read from the dict-typed argument's syntactic form (`tagOfArg`:
+      `Lit`→"Int", `FloatLit`→"Float", arith op→`instOf`, ascription→its type). **0 kernel / 0 backend change**
+      — `__n*` are ordinary IR globals. `let rec scale = fun x => fun n => if n=0 then x else x + scale x (n-1)`
+      used at BOTH Int (`scale 3 2`=9) and Float (`scale 2.5 1`=5.0) now runs on run-ir/JS/Rust; likewise `*`
+      (`acc 2 3`=16, `acc 1.5 1`=2.25). Scoping is conservative: anchored numeric `let rec` (e.g. `sum`, `fact`)
+      keep a resolved (non-pending) var → NOT dict-fns → unchanged; non-numeric polymorphic recursion (`map`)
+      has no pending var → unchanged. **Limitations:** only the `Num` class; a single dict var per binding; the
+      external-call tag must be readable from the argument's form (a bare `Var` of unknown concrete type
+      defaults to "Int"); the dict-fn must be directly applied (not passed as a value). conformance +5.
+- [ ] **K13.4 — extend to `Ord` + user classes** (remaining). `Ord` dict (compare/lt); user classes need
+      method signatures + a record-of-impls dict. Generic `min3` over a user `Ord`. (The `Num` mechanism above
+      is the template.)
+ORIGINAL PLAN (kept for reference — the targeted K13.1 above subsumes K13.1–K13.3/K13.5 for `Num`): a constraint
+set threaded in `infer`, `Forall(qs, constraints, ty)`, generalize/instantiate/discharge/default, dict-passing
+erase. The targeted approach reuses the existing `pendingNum`/`tcReg`/`instOf` machinery instead of adding a
+`Forall` constraints field, so it touched far fewer sites and stayed green.
 
 Designed-but-larger (not blocked): **typed handler resumes** (per-op typed resume, `specs/54`) — current
 effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separate focused effort.
