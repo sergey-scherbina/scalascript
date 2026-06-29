@@ -837,12 +837,15 @@ def prelude =
   Cons(Pair("last",    "fun l => if isNil (tail l) then head l else last (tail l)"),
   Cons(Pair("null",    "fun l => isNil l"),
   Cons(Pair("join",    "fun sep => fun xs => if isNil xs then \"\" else if isNil (tail xs) then head xs else head xs ++ sep ++ join sep (tail xs)"),
+  Cons(Pair("words",   "fun s => split 32 s"),
+  Cons(Pair("lines",   "fun s => split 10 s"),
+  Cons(Pair("split",   "fun c => fun s => let n = strLen s in let rec go = fun st => fun i => if i >= n then cons (substr s st i) nil else if charAt s i = c then cons (substr s st i) (go (i + 1) (i + 1)) else go st (i + 1) in go 0 0"),
   Cons(Pair("abs",     "fun n => if n < 0 then neg n else n"),
   Cons(Pair("minBy",   "fun lt => fun a => fun b => if lt a b then a else b"),
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil))))))))))))))))))))))))))))))))))))))))))))))
+  Nil)))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }

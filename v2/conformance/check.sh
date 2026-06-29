@@ -1277,6 +1277,15 @@ if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-opsections.hm > "${TMPDIR:-/tmp}/osc.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/osc.rs" -o "${TMPDIR:-/tmp}/osc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/osc-bin"); else got="(rustc err)"; fi; if [ "$got" = "21" ]; then printf 'ok   %-26s => %s (rustc)\n' "op section -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "op section Rust" "$got"; fail=1; fi; fi
 echo -n "ok   section + paren/neg unchanged => "; printf '(++ "!") "hi"' > "${TMPDIR:-/tmp}/os2.hm"; os2=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/os2.hm" | tail -1); printf 'let x = -5 in x * (3 + 1)' > "${TMPDIR:-/tmp}/os3.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/os3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/os3.coreir"; os3=$(ssc run-ir "${TMPDIR:-/tmp}/os3.coreir" | tail -1); if [ "$os2" = '"String"' ] && [ "$os3" = "-20" ]; then echo "(++ \"!\") : String->String ; (3+1) paren + -5 neg => -20"; else echo "FAIL [$os2 / $os3]"; fail=1; fi
 
+echo "# STRING FUNCTIONS: split (by char code) / words / lines — prelude, char-iterating; roundtrips with join"
+chk_hm examples/hm-stringfns.hm '"Int"'                              # split/words + join-split roundtrip
+ssc run bin/ssctc-hm.ssc0 examples/hm-stringfns.hm > "${TMPDIR:-/tmp}/sfc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sfc.coreir" | tail -1)
+if [ "$got" = "431" ]; then printf 'ok   %-26s => %s\n' "string fns -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "string fns" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-stringfns.hm > "${TMPDIR:-/tmp}/sfc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/sfc.js" 2>/dev/null | tail -1); if [ "$got" = "431" ]; then printf 'ok   %-26s => %s (node)\n' "string fns -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "string fns JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-stringfns.hm > "${TMPDIR:-/tmp}/sfc.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/sfc.rs" -o "${TMPDIR:-/tmp}/sfc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sfc-bin"); else got="(rustc err)"; fi; if [ "$got" = "431" ]; then printf 'ok   %-26s => %s (rustc)\n' "string fns -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "string fns Rust" "$got"; fail=1; fi; fi
+echo -n "ok   split by char literal + words => "; printf "length (split ',' \"a,b,c\") * 10 + length (words \"p q r s\")" > "${TMPDIR:-/tmp}/sf2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/sf2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/sf2.coreir"; sf2=$(ssc run-ir "${TMPDIR:-/tmp}/sf2.coreir" | tail -1); if [ "$sf2" = "34" ]; then echo "split ',' (3) *10 + words (4) => 34"; else echo "FAIL [$sf2]"; fail=1; fi
+
 LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
 ssc run bin/ssctc-hm.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)

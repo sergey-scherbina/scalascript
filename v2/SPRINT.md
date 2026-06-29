@@ -601,3 +601,13 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       run-ir/JS/Rust. No regression: `(e)`, `(a, b)`, `(e : T)`, negation, binary subtraction unchanged. Pure
       front-end desugar (0 backend change). conformance +5. (Left sections `(e op)` not done — rarer, and the
       `-` ambiguity makes them fiddly; use `fun x => e op x`.)
+
+## K27 — string split / words / lines
+
+- [x] **K27.1 — `split` / `words` / `lines`** (prelude). `split c s` splits string `s` at every occurrence of
+      separator **char code** `c` (so `split ',' s` works thanks to K21 char literals = Int codes, or `split 44
+      s`); returns `[String]`. Implemented in ssct-hm via a `let rec go` that walks the string with `charAt` +
+      `substr` + `strLen`. `words = split 32` (space), `lines = split 10` (newline). Roundtrips with `join`
+      (`join "," (split ',' "x,y,z")` = `"x,y,z"`). `words`/`lines` are listed BEFORE `split` (depender-before-
+      dependency). Pure prelude — auto-injected when used, 0 backend change, all green on run-ir/JS/Rust.
+      conformance +5. (Basic splitter: consecutive separators yield empty fields, like a naive `split`.)
