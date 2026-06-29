@@ -482,13 +482,15 @@ def parseArm = (toks) =>
     match r { case Cons(t, rest) => match t {
         case TName(x) => if #seq(x, "if") then match parseExpr(rest) { case Pair(cond, r2) => match parseExpr(drop1(r2)) { case Pair(body, r3) => Pair(PatArm(pat, If(cond, body, Var("$guardfail"))), r3) } } else parseArmBody(pat, r)
         case _ => parseArmBody(pat, r) } case Nil => Pair(ParseErr, Nil) } }
-def parseArms = (toks) =>
+def parseArmsGo = (toks) =>
   match parseArm(toks) {
     case Pair(arm, r) => match r {
         case Cons(t, rest) => match t { case TPunct(p) => if #seq(p, "|") then match parseArms(rest) { case Pair(more, r2) => Pair(Cons(arm, more), r2) } else Pair(Cons(arm, Nil), r) case _ => Pair(Cons(arm, Nil), r) }
         case Nil => Pair(Cons(arm, Nil), Nil)
       }
   }
+def parseArms = (toks) =>                               -- an empty `match s { }` → no arms (→ a clean "empty match" type error, not a crash)
+  match toks { case Cons(t, rest) => (match t { case TPunct(p) => if #seq(p, "}") then Pair(Nil, toks) else parseArmsGo(toks) case _ => parseArmsGo(toks) }) case Nil => Pair(Nil, Nil) }
 def parseMatchE = (toks) =>                            -- after 'match':  scrut '{' arms '}'
   match parseExpr(toks) { case Pair(scrut, r1) => match parseArms(drop1(r1)) { case Pair(arms, r2) => Pair(MatchT(scrut, arms), drop1(r2)) } }
 

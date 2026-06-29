@@ -665,3 +665,11 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       `strContains` is a sliding `substr =` search. `trim "  hi  "` ⇒ `"hi"`, `startsWith "he" "hello"` ⇒ true.
       (⚠️ `toUpper`/`toLower` NOT added — they need to rebuild a string from char codes via `sfromCodes`, which
       the JS/Rust gen `genPrim` doesn't expose as an IR prim; would need backend support.) conformance +5.
+
+## K31 — empty match (robustness)
+
+- [x] **K31.1 — `match s { }` (no arms) → clean error, not a crash.** `parseArms` always tried to parse ≥1 arm,
+      choking on the closing `}` → a `ParseErr` that crashed downstream. Now `parseArms` returns no arms when the
+      next token is `}`, so `inferArms` reaches its existing `Nil`→`ErrI("empty match")` branch and reports a
+      clean `TypeError: empty match`. Non-empty matches (ctor/literal/var/guard/as/record/tuple) unchanged.
+      conformance +1.
