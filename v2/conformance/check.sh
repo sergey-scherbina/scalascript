@@ -1268,6 +1268,14 @@ if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-dictord.hm > "${TMPDIR:-/tmp}/do.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/do.rs" -o "${TMPDIR:-/tmp}/do-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/do-bin"); else got="(rustc err)"; fi; if [ "$got" = "511" ]; then printf 'ok   %-26s => %s (rustc)\n' "dict ord -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "dict ord Rust" "$got"; fail=1; fi; fi
 echo -n "ok   dict-fn = at Int & String     => "; printf 'let rec countEq = fun x => fun xs => match xs { Cons h t => if x = h then 1 + countEq x t else countEq x t | Nil => 0 } in (countEq 2 [2, 3, 2, 2]) * 10 + (countEq "a" ["a", "b", "a"])' > "${TMPDIR:-/tmp}/do2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/do2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/do2.coreir"; do2=$(ssc run-ir "${TMPDIR:-/tmp}/do2.coreir" | tail -1); if [ "$do2" = "32" ]; then echo "countEq 2 (3 times) =3*10 ; countEq a (2 times) =2 => 32"; else echo "FAIL [$do2]"; fail=1; fi
 
+echo "# SINGLE VAR-ARM MATCH: match scrut { x => body } == let x = scrut in body (was a run-ir crash on a scalar)"
+chk_hm examples/hm-scalarmatch.hm '"Int"'                            # match 7 { x => x+1 } etc.
+ssc run bin/ssctc-hm.ssc0 examples/hm-scalarmatch.hm > "${TMPDIR:-/tmp}/sm.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sm.coreir" | tail -1)
+if [ "$got" = "861" ]; then printf 'ok   %-26s => %s\n' "scalar var-match -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "scalar var-match" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-scalarmatch.hm > "${TMPDIR:-/tmp}/sm.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/sm.js" 2>/dev/null | tail -1); if [ "$got" = "861" ]; then printf 'ok   %-26s => %s (node)\n' "scalar var-match -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "scalar var-match JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-scalarmatch.hm > "${TMPDIR:-/tmp}/sm.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/sm.rs" -o "${TMPDIR:-/tmp}/sm-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sm-bin"); else got="(rustc err)"; fi; if [ "$got" = "861" ]; then printf 'ok   %-26s => %s (rustc)\n' "scalar var-match -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "scalar var-match Rust" "$got"; fail=1; fi; fi
+
 echo "# PRELUDE BATCH: compose / flip / min / max / elem / notElem / product / last / null / join"
 chk_hm examples/hm-preludecombi.hm '"Int"'                           # min/max/product/last combined
 ssc run bin/ssctc-hm.ssc0 examples/hm-preludecombi.hm > "${TMPDIR:-/tmp}/pc.coreir" 2>/dev/null

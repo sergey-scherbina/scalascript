@@ -623,3 +623,13 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       (`join "," (split ',' "x,y,z")` = `"x,y,z"`). `words`/`lines` are listed BEFORE `split` (depender-before-
       dependency). Pure prelude — auto-injected when used, 0 backend change, all green on run-ir/JS/Rust.
       conformance +5. (Basic splitter: consecutive separators yield empty fields, like a naive `split`.)
+
+## K28 — single var-arm match (robustness)
+
+- [x] **K28.1 — `match scrut { x => body }` no longer crashes.** A match whose only arm is a variable
+      catch-all desugared (via `mkMatch`) to `match x { _ => body }` — a `match` with NO constructor arms — and
+      the VM crashed inspecting a scalar scrutinee's (nonexistent) tag. `mkMatch` now special-cases a single
+      var arm (`dropLast(arms)` is `Nil`) to `Let(x, scrut, body)` — i.e. exactly `let x = scrut in body`, no
+      match node. `match 7 { x => x+1 }` ⇒ 8 on all 3 backends; multi-arm matches with a trailing var arm,
+      ctor/literal/list/tuple/as-patterns all unchanged. (⚠️ ssc0 kernel pattern parser rejects a bare
+      lowercase var pattern like `case others =>` — use `case _ =>`.) conformance +5.

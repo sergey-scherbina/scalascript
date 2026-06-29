@@ -554,7 +554,9 @@ def mkMatch = (scrut, arms) =>
   match lastArm(arms) {
     case None => MatchT(scrut, arms)
     case Some(la) =>
-      if isVarArm(la) then match la { case MArm(x, binders, body) => Let(x, scrut, MatchT(Var(x), appendL(dropLast(arms), Cons(MArm("_", Nil, body), Nil)))) }
+      if isVarArm(la) then match la { case MArm(x, binders, body) =>
+          match dropLast(arms) { case Nil => Let(x, scrut, body)                                                                            -- a single var arm `{ x => body }` is just `let x = scrut in body` (no match → no crash on a scalar)
+                                 case _ => Let(x, scrut, MatchT(Var(x), appendL(dropLast(arms), Cons(MArm("_", Nil, body), Nil)))) } }
       else MatchT(scrut, arms)
   }
 -- desugar arm bodies (MArm or Int-literal LitArm)

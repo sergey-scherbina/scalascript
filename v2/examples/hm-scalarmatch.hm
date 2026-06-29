@@ -1,0 +1,1 @@
+(match 7 { x => x + 1 }) * 100 + (match 5 { 0 => 100 | n => n + 1 }) * 10 + (match [1, 2] { Cons h t => h | Nil => 0 })
