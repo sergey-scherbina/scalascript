@@ -43,6 +43,38 @@ class JsEffectLoopTest extends AnyFunSuite:
         acc
     """
 
+  // base-runtime-cps-hofs — WITHOUT the async runtime bundled, the base CPS-aware _seqForeach / _seqExists
+  // (core-collections.mjs) must still sequence a Free-returning callback: an effectful `foreach` body, or
+  // a predicate that reads a field/enum inside a handler (which compiles to `_bind(...)`). Before the fix
+  // the sync base versions silently dropped a foreach body's effects and `exists` returned a truthy Free
+  // instead of a boolean. (Pairs with busi tests/v2/obligations_all.ssc, which runs base-only via emit-js.)
+  private def runJsBaseOnly(code: String): String =
+    val flush = """process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];"""
+    val js    = JsRuntime + "\n" + JsGen.generate(module(code)) + "\n" + flush
+    val tmp   = java.io.File.createTempFile("ssc-js-base-", ".cjs")
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
+    val proc  = ProcessBuilder("node", tmp.getAbsolutePath).redirectErrorStream(true).start()
+    val out   = Source.fromInputStream(proc.getInputStream).mkString
+    ProcTestUtil.awaitExit(proc)
+    out.trim
+
+  test("JsGen base runtime: effectful foreach sequences its body (no async runtime bundled)"):
+    assume(hasNode, "node not available")
+    val out = runJsBaseOnly("""
+      effect MyLog:
+        def log(msg: String): Unit
+      def program(): Unit ! MyLog =
+        List("a", "b", "c").foreach(x => MyLog.log(x))
+      def run(): List[String] =
+        handle(program()) {
+          case MyLog.log(msg, resume) => msg :: resume(())
+          case Return(_) => List()
+        }
+      println(run())
+    """)
+    assert(out == "List(a, b, c)", s"expected List(a, b, c) (foreach body effects threaded), got '$out'")
+
   test("JsGen: one-shot effect performed in a while-loop compiles + runs"):
     assume(hasNode, "node not available")
     val out = runJs(loopBody + """

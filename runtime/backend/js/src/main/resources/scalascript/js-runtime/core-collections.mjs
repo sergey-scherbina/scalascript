@@ -938,6 +938,39 @@ function _seqFilter(arr, fn, neg) {
   if (_isFree(seq)) return _bind(seq, pick);
   return pick(seq);
 }
+// CPS-aware redefinitions (mirroring _seqMap/_seqFilter above) so foreach/exists/forall/count/find ALSO
+// sequence a Free-returning callback when an effectful caller runs WITHOUT the async runtime bundled —
+// the base runtime already carries Free + _bind + _seq. Pure callbacks are unchanged (_seq short-circuits
+// when nothing is Free). JsRuntimeAsyncB still overrides these identically when Async is present. Without
+// this, the sync versions above silently drop a foreach body's effects, and exists/forall/count see a
+// truthy Free per element (e.g. a predicate that reads a field/enum compiles to `_bind(...)`), returning
+// the wrong answer.
+function _seqForeach(arr, fn) {
+  const s = _seq(arr.map(x => fn(x)));
+  if (_isFree(s)) return _bind(s, () => undefined);
+  return undefined;
+}
+function _seqExists(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.some(b => b));
+  return seq.some(b => b);
+}
+function _seqForall(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.every(b => b));
+  return seq.every(b => b);
+}
+function _seqCount(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.filter(b => b).length);
+  return seq.filter(b => b).length;
+}
+function _seqFind(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  const pick = (bs) => { const i = bs.findIndex(b => b); return i >= 0 ? {_type:'_Some',value:arr[i]} : {_type:'_None'}; };
+  if (_isFree(seq)) return _bind(seq, pick);
+  return pick(seq);
+}
 
 function _perform(eff, op, args) { return new _Perform(eff, op, args); }
 
