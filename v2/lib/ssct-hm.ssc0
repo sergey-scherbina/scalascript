@@ -223,8 +223,13 @@ def infer = (env, c, s, term) =>
             match dictVarOf(s2, #cell.get(pendingNum), qs) {            -- an UNANCHORED Num/Ord var → make `f` a dict-fn (keep it polymorphic)
               case Some(dv) => let u = registerDictFn(f, dv, dictArgPos(fty, dv)) in let u2 = #cell.set(pendingNum, unpendRep(s2, dv, #cell.get(pendingNum))) in
                                infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body)
-              case None => let s2b = defaultPendingIn(s2, qs) in
-                           infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) } }
+              case None => match methodDictOf(s2, #cell.get(pendingMethods), qs) {   -- a USER method on a still-polymorphic receiver → method-dict-fn
+                case Some(pr) => match pr { case Pair(mv, m) =>
+                                   let u1 = registerMethodDictFn(f, m, dictArgPos(fty, mv)) in
+                                   let u2 = addMDictCalls(methodCallIdsFor(s2, #cell.get(pendingMethods), mv)) in
+                                   infer(Cons(Pair(f, generalize(env, s2, tv)), env), c1, s2, body) }
+                case None => let s2b = defaultPendingIn(s2, qs) in
+                             infer(Cons(Pair(f, generalize(env, s2b, tv)), env), c1, s2b, body) } } }
       }
     case LetRecM(binds, body) =>                                  -- mutual recursion: all names in scope in each other
       let k = lenBinds(binds) in let c0 = c in
@@ -499,6 +504,18 @@ def firstPendingIn = (qs) => match qs { case Nil => None case Cons(v, r) => if i
 -- where the recorded pending var ≠ the canonical quantified var.)
 def dictVarOf  = (s, pend, qs) => match pend { case Nil => None case Cons(p, r) => match appTy(s, TyVar(p)) { case TyVar(q) => if memberI(q, qs) then Some(q) else dictVarOf(s, r, qs) case _ => dictVarOf(s, r, qs) } }
 def unpendRep  = (s, q, xs) => match xs { case Nil => Nil case Cons(p, t) => match appTy(s, TyVar(p)) { case TyVar(m) => if #i.eq(m, q) then unpendRep(s, q, t) else Cons(p, unpendRep(s, q, t)) case _ => Cons(p, unpendRep(s, q, t)) } }
+-- USER-CLASS dict passing: a `let rec` using a USER typeclass method on a still-polymorphic receiver becomes a
+-- method-dict-fn — it takes the instance impl as a dict.  methodDictReg: name -> Pair(method, argPos).
+def methodDictReg = #cell.new(Nil)
+def registerMethodDictFn = (nm, m, pos) => #cell.set(methodDictReg, Cons(Pair(nm, Pair(m, pos)), #cell.get(methodDictReg)))
+def lookupMethodDictFn = (reg, nm) => match reg { case Nil => None case Cons(p, r) => match p { case Pair(n, info) => if #seq(n, nm) then Some(info) else lookupMethodDictFn(r, nm) } }
+def isMethodDictFn = (nm) => match lookupMethodDictFn(#cell.get(methodDictReg), nm) { case Some(x) => true case None => false }
+def mdictCallReg  = #cell.new(Nil)                                -- method-call ids that dispatch via the enclosing $mdict
+def isMDictCall   = (id) => memberI(id, #cell.get(mdictCallReg))
+def addMDictCalls = (ids) => match ids { case Nil => 0 case Cons(i, r) => let u = #cell.set(mdictCallReg, Cons(i, #cell.get(mdictCallReg))) in addMDictCalls(r) }
+-- find a deferred method whose receiver var (after subst) is among the binding's quantified vars qs
+def methodDictOf  = (s, pm, qs) => match pm { case Nil => None case Cons(p, r) => match p { case Pair(id, mn) => match mn { case Pair(m, n) => match appTy(s, TyVar(n)) { case TyVar(q) => if memberI(q, qs) then Some(Pair(q, m)) else methodDictOf(s, r, qs) case _ => methodDictOf(s, r, qs) } } } }
+def methodCallIdsFor = (s, pm, q) => match pm { case Nil => Nil case Cons(p, r) => match p { case Pair(id, mn) => match mn { case Pair(m, n) => match appTy(s, TyVar(n)) { case TyVar(qq) => if #i.eq(qq, q) then Cons(id, methodCallIdsFor(s, r, q)) else methodCallIdsFor(s, r, q) case _ => methodCallIdsFor(s, r, q) } } } }
 def removeI       = (v, xs) => match xs { case Nil => Nil case Cons(h, t) => if #i.eq(h, v) then removeI(v, t) else Cons(h, removeI(v, t)) }
 def unpend        = (v) => #cell.set(pendingNum, removeI(v, #cell.get(pendingNum)))
 def isVarN        = (ty, var) => match ty { case TyVar(n) => #i.eq(n, var) case _ => false }

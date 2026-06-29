@@ -446,9 +446,23 @@ focused effort, gate conformance after EACH slice. Key cost: `Forall(qs, ty)` mu
       `__nlt` = Float→`f.lt` / String→`__strLt` / Int→`i.lt`, and a new `__neq` = Float→`f.eq` / String→`seq` /
       Int→`i.eq` (Eq erase now dict-dispatches too). `__strLt` is auto-injected whenever the dict helpers are.
       A single recursive `maxOf` (using `<`) now runs at Int, Float AND String — `Triple(5, 9.5, "z")` — and a
-      `countEq` (using `=`) at Int and String, all on run-ir/JS/Rust. Remaining for true generality: USER-class
-      Ord (record-of-impls dict, method signatures) — the built-in Num/Ord cover the practical cases.
-      conformance +5.
+      `countEq` (using `=`) at Int and String, all on run-ir/JS/Rust. conformance +5.
+- [x] **K13.5 — USER-CLASS dict-passing SHIPPED (2026-06-29)**. A recursive function using a USER typeclass
+      `method` on a still-polymorphic receiver now works (even at one type — it failed before, since
+      `methodImplOf` can't resolve a polymorphic receiver). The **dict is the instance impl itself** (a
+      function), which sidesteps pre-inferring impls. INFER: when the Num/Ord path doesn't fire, `methodDictOf`
+      scans `pendingMethods` for a deferred method whose receiver var (after subst) is quantified → mark `f` a
+      method-dict-fn (`methodDictReg: name → (method, argPos)`) and record the specific method-call ids that
+      dispatch via the dict (`mdictCallReg`). ERASE: the lam gets a leading `$mdict` param; a method call whose
+      id is in `mdictCallReg` becomes `$mdict arg`; at a call site (`eraseMethodDictCall`) the dict is the
+      enclosing `$mdict` (recursive) or the instance impl `lookupInstance(method, tagOfArg(receiver))`.
+      `tagOfArg` gained `Bool` and **user-ADT** support (`ConApp`/`Var` → `conTyName` via `conReg`’s `ConSig`).
+      A recursive `acc` over a user method `tone` runs at user types `Color` AND `Shape` (and at Int/Bool/String)
+      on run-ir/JS/Rust — `(acc Red 2, acc Dot 3)`. **Limitations:** one method dict per binding; impls that
+      themselves use unresolved overloaded ops need pre-inference (no-ops / match / concrete-op impls are fine);
+      a receiver whose type isn't readable from the argument's form (a bare polymorphic `Var` in a monomorphic
+      external call) isn't supported. conformance +5. **Qualified types: closed (inlining) + non-closed
+      dict-passing for Num, Ord, and user classes — COMPLETE.**
 ORIGINAL PLAN (kept for reference — the targeted K13.1 above subsumes K13.1–K13.3/K13.5 for `Num`): a constraint
 set threaded in `infer`, `Forall(qs, constraints, ty)`, generalize/instantiate/discharge/default, dict-passing
 erase. The targeted approach reuses the existing `pendingNum`/`tcReg`/`instOf` machinery instead of adding a

@@ -1276,6 +1276,15 @@ if [ "$got" = "861" ]; then printf 'ok   %-26s => %s\n' "scalar var-match -> run
 if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-scalarmatch.hm > "${TMPDIR:-/tmp}/sm.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/sm.js" 2>/dev/null | tail -1); if [ "$got" = "861" ]; then printf 'ok   %-26s => %s (node)\n' "scalar var-match -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "scalar var-match JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-scalarmatch.hm > "${TMPDIR:-/tmp}/sm.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/sm.rs" -o "${TMPDIR:-/tmp}/sm-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sm-bin"); else got="(rustc err)"; fi; if [ "$got" = "861" ]; then printf 'ok   %-26s => %s (rustc)\n' "scalar var-match -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "scalar var-match Rust" "$got"; fail=1; fi; fi
 
+echo "# USER-CLASS DICT-PASSING: a recursive fn generic over a USER typeclass method, at user types Color & Shape"
+chk_hm examples/hm-userdict.hm '"Int"'                               # let rec acc = ... tone x + acc x ... at Color & Shape
+ssc run bin/ssctc-hm.ssc0 examples/hm-userdict.hm > "${TMPDIR:-/tmp}/ud.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ud.coreir" | tail -1)
+if [ "$got" = "1433" ]; then printf 'ok   %-26s => %s\n' "user-class dict -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "user-class dict" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-userdict.hm > "${TMPDIR:-/tmp}/ud.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ud.js" 2>/dev/null | tail -1); if [ "$got" = "1433" ]; then printf 'ok   %-26s => %s (node)\n' "user-class dict -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "user-class dict JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-userdict.hm > "${TMPDIR:-/tmp}/ud.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/ud.rs" -o "${TMPDIR:-/tmp}/ud-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ud-bin"); else got="(rustc err)"; fi; if [ "$got" = "1433" ]; then printf 'ok   %-26s => %s (rustc)\n' "user-class dict -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "user-class dict Rust" "$got"; fail=1; fi; fi
+echo -n "ok   user method at Int & Bool too => "; printf 'method sz : Int in instance sz Int = fun n => 5 in instance sz Bool = fun b => 9 in let rec count = fun x => fun n => if n = 0 then 0 else sz x + count x (n - 1) in (count 0 3) * 10 + (count true 2)' > "${TMPDIR:-/tmp}/ud2.hm"; ssc run bin/ssctc-hm.ssc0 "${TMPDIR:-/tmp}/ud2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/ud2.coreir"; ud2=$(ssc run-ir "${TMPDIR:-/tmp}/ud2.coreir" | tail -1); if [ "$ud2" = "168" ]; then echo "count(sz) at Int=15 (*10), Bool=18 => 168"; else echo "FAIL [$ud2]"; fail=1; fi
+
 echo "# PRELUDE BATCH: compose / flip / min / max / elem / notElem / product / last / null / join"
 chk_hm examples/hm-preludecombi.hm '"Int"'                           # min/max/product/last combined
 ssc run bin/ssctc-hm.ssc0 examples/hm-preludecombi.hm > "${TMPDIR:-/tmp}/pc.coreir" 2>/dev/null

@@ -28,7 +28,8 @@ def dictVarMatch = (id) => match #cell.get(curDictV) { case None => false case S
 def dictLocal    = (scope) => IrLocal(idxOf(scope, "$dict"))
 def nDispatch    = (helper, scope, a, b) => let u = #cell.set(usedNDictCell, true) in IrApp(IrApp(IrApp(IrGlobal(helper), Cons(dictLocal(scope), Nil)), Cons(erase(scope, a), Nil)), Cons(erase(scope, b), Nil))
 def tagOfType    = (ty) => match ty { case TyFloat => "Float" case TyStr => "String" case _ => "Int" }
-def tagOfArg     = (e) => match e { case Lit(n) => "Int" case FloatLit(s) => "Float" case StrLit(s) => "String" case Add(id, a, b) => tagOfType(instOf(id)) case Sub(id, a, b) => tagOfType(instOf(id)) case Mul(id, a, b) => tagOfType(instOf(id)) case Div(id, a, b) => tagOfType(instOf(id)) case Ascribe(e2, ty) => tagOfType(ty) case _ => "Int" }
+def conTyName    = (c) => match lookupReg(#cell.get(conReg), c) { case Some(sig) => match sig { case ConSig(t, np, fields) => t } case None => "Int" }   -- a user-ADT receiver: tag = its type name (from the constructor)
+def tagOfArg     = (e) => match e { case Lit(n) => "Int" case FloatLit(s) => "Float" case StrLit(s) => "String" case BoolLit(b) => "Bool" case ConApp(name, args) => conTyName(name) case Add(id, a, b) => tagOfType(instOf(id)) case Sub(id, a, b) => tagOfType(instOf(id)) case Mul(id, a, b) => tagOfType(instOf(id)) case Div(id, a, b) => tagOfType(instOf(id)) case Ascribe(e2, ty) => tagOfType(ty) case _ => (match spineHead(e) { case Var(c) => conTyName(c) case _ => "Int" }) }
 def spineHead    = (t) => match t { case App(f, a) => spineHead(f) case _ => t }
 def spineArgs    = (t) => match t { case App(f, a) => appendD(spineArgs(f), Cons(a, Nil)) case _ => Nil }
 def nthArg       = (xs, i) => match xs { case Nil => Lit(0) case Cons(h, t) => if #i.eq(i, 0) then h else nthArg(t, #i.sub(i, 1)) }
@@ -37,13 +38,22 @@ def applyArgsE   = (fn, scope, args) => match args { case Nil => fn case Cons(a,
 def eraseDictCall = (scope, g, args) =>                 -- emit  g <dict> args...   (dict = enclosing $dict if inside a dict-fn, else a literal tag from the arg)
   let dval = (match #cell.get(curDictV) { case Some(x) => dictLocal(scope) case None => IrLit(IrStr(tagOfArg(nthArg(args, dictPosOf(g))))) }) in
   applyArgsE(IrApp(IrLocal(idxOf(scope, g)), Cons(dval, Nil)), scope, args)
+-- USER-CLASS method-dict-fn: the dict is the INSTANCE IMPL (a function), applied in place of the unresolved method.
+def curMDict     = #cell.new("")                        -- name of the method-dict-fn whose body we're erasing (else "")
+def mdMethodOf   = (g) => match lookupMethodDictFn(#cell.get(methodDictReg), g) { case Some(info) => match info { case Pair(m, pos) => m } case None => "" }
+def mdPosOf      = (g) => match lookupMethodDictFn(#cell.get(methodDictReg), g) { case Some(info) => match info { case Pair(m, pos) => pos } case None => 0 }
+def mdictLocal   = (scope) => IrLocal(idxOf(scope, "$mdict"))
+def methodImplFor = (g, arg) => match lookupInstance(mdMethodOf(g), tagOfArg(arg)) { case Some(impl) => impl case None => Lit(0) }
+def eraseMethodDictCall = (scope, g, args) =>           -- emit  g <impl> args...  (impl = enclosing $mdict if inside a method-dict-fn, else the instance impl for the receiver type)
+  let dval = (if #seq(#cell.get(curMDict), "") then erase(scope, methodImplFor(g, nthArg(args, mdPosOf(g)))) else mdictLocal(scope)) in
+  applyArgsE(IrApp(IrLocal(idxOf(scope, g)), Cons(dval, Nil)), scope, args)
 def erase = (scope, term) =>
   match term {
     case Lit(n)       => IrLit(IrInt(n))
     case BoolLit(b)   => IrLit(IrBool(b))
     case Var(x)       => IrLocal(idxOf(scope, x))
     case Lam(x, body) => IrLam(1, erase(Cons(x, scope), body))            -- no type to drop
-    case App(f, a)    => (match spineHead(App(f, a)) { case Var(g) => if isDictFn(g) then eraseDictCall(scope, g, spineArgs(App(f, a))) else IrApp(erase(scope, f), Cons(erase(scope, a), Nil)) case _ => IrApp(erase(scope, f), Cons(erase(scope, a), Nil)) })
+    case App(f, a)    => (match spineHead(App(f, a)) { case Var(g) => if isDictFn(g) then eraseDictCall(scope, g, spineArgs(App(f, a))) else if isMethodDictFn(g) then eraseMethodDictCall(scope, g, spineArgs(App(f, a))) else IrApp(erase(scope, f), Cons(erase(scope, a), Nil)) case _ => IrApp(erase(scope, f), Cons(erase(scope, a), Nil)) })
     case Add(id, a, b) => if dictVarMatch(id) then nDispatch("__nadd", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.add" else "i.add", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Sub(id, a, b) => if dictVarMatch(id) then nDispatch("__nsub", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.sub" else "i.sub", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
     case Mul(id, a, b) => if dictVarMatch(id) then nDispatch("__nmul", scope, a, b) else IrPrim(if isFloatTy(instOf(id)) then "f.mul" else "i.mul", Cons(erase(scope, a), Cons(erase(scope, b), Nil)))
@@ -84,6 +94,11 @@ def erase = (scope, term) =>
            let elam = erase(Cons(f, scope), Lam("$dict", lam)) in            -- λ$dict. <original lam> ; ops on the dict var dispatch via __nX
            let u2 = #cell.set(curDictV, saved) in
            IrLetRec(Cons(elam, Nil), erase(Cons(f, scope), body)) } })
+      else if isMethodDictFn(f) then                                        -- λ$mdict. <original lam> ; method calls on the dict var apply $mdict
+        (let saved = #cell.get(curMDict) in let u1 = #cell.set(curMDict, f) in
+         let elam = erase(Cons(f, scope), Lam("$mdict", lam)) in
+         let u2 = #cell.set(curMDict, saved) in
+         IrLetRec(Cons(elam, Nil), erase(Cons(f, scope), body)))
       else IrLetRec(Cons(erase(Cons(f, scope), lam), Nil), erase(Cons(f, scope), body))
     case LetRecM(binds, body) => let sc = prependAll(bindNamesE(binds), scope) in IrLetRec(eraseBindLams(sc, binds), erase(sc, body))   -- mutual recursion (prependAll: last bind = idx 0, matches the IR letrec)
     -- lists: data ctors Nil/Cons; head/tail/isNil deconstruct via a Cons-match (field h=local 1, t=local 0)
@@ -105,7 +120,7 @@ def erase = (scope, term) =>
       match fieldOf(id) { case Pair(idx, ar) => IrMatch(erase(scope, rc), Cons(IrArm("__rec", ar, IrLocal(#i.sub(#i.sub(ar, 1), idx))), Nil), None) }
     case RecUpd(id, rc, name, newVal) =>                                  -- match rc once (binds all ar fields), rebuild __rec with field idx replaced
       match fieldOf(id) { case Pair(idx, ar) => IrMatch(erase(scope, rc), Cons(IrArm("__rec", ar, IrCtor("__rec", recUpdFields(0, ar, idx, prependN(ar, "$ru", scope), newVal))), Nil), None) }
-    case MethodCall(id, m, arg) => IrApp(erase(scope, methodImplOf(id)), Cons(erase(scope, arg), Nil))   -- apply resolved instance impl
+    case MethodCall(id, m, arg) => if isMDictCall(id) then IrApp(mdictLocal(scope), Cons(erase(scope, arg), Nil)) else IrApp(erase(scope, methodImplOf(id)), Cons(erase(scope, arg), Nil))   -- dict call → apply the $mdict impl ; else the statically-resolved instance impl
     case Ascribe(e, ty) => erase(scope, e)                               -- ascription is erased
     -- effect rows (K10.4b): lower to the universal Comp (Pure | Op) + global helpers
     case EffPure(arg) => IrCtor("Pure", Cons(erase(scope, arg), Nil))

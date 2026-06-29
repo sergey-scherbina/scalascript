@@ -1,0 +1,1 @@
+data Color = Red | Green in data Shape = Dot in method tone : Int in instance tone Color = fun c => 7 in instance tone Shape = fun s => 11 in let rec acc = fun x => fun n => if n = 0 then 0 else tone x + acc x (n - 1) in (acc Red 2) * 100 + (acc Dot 3)
