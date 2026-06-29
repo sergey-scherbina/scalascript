@@ -923,6 +923,16 @@ if command -v rustc >/dev/null 2>&1; then
   if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s (rustc)\n' "two effects -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2 Rust" "$got"; fail=1; fi
 fi
 echo -n "ok   second effect tracked too => "; printf 'runE (runStateE (bindE (logE (7 : Dyn)) (fun w => bindE getE (fun x => pureE ((x : Int) + 1)))) 0)' > "${TMPDIR:-/tmp}/er3.hm"; el=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/er3.hm" | tail -1); if [ "$el" = '"TypeError: effect not handled: Log"' ]; then echo "Log unhandled rejected (correct)"; else echo "FAIL [$el]"; fail=1; fi
+
+echo "# K41 — EFFECT-ROW INFERENCE incl. EFFECT-POLYMORPHIC HOFs: traverseE infers (a -> Comp e b) -> [a] -> Comp e [b] — the row var e threads from the callback through the whole traversal (no annotation). Runs on 3 backends."
+echo -n "ok   traverseE is effect-poly  => "; printf 'let rec traverseE = fun f => fun xs => if isNil xs then pureE nil else bindE (f (head xs)) (fun y => bindE (traverseE f (tail xs)) (fun ys => pureE (cons y ys))) in traverseE' > "${TMPDIR:-/tmp}/tvt.hm"; tvt=$(ssc run bin/ssct-hm.ssc0 "${TMPDIR:-/tmp}/tvt.hm" | tail -1); if [ "$tvt" = '"((t22 -> Comp e21 t20) -> ([t22] -> Comp e21 [t20]))"' ]; then echo "row var e21 inferred + propagated"; else echo "FAIL [$tvt]"; fail=1; fi
+chk_hm examples/hm-eff-traverse.hm '"([Int], Int)"'                  # callback performs State -> whole traversal is Comp {State|e} [Int]
+TVV="Pair(Cons(1, Cons(3, Cons(6, Nil))), 6)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-eff-traverse.hm > "${TMPDIR:-/tmp}/tv.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/tv.coreir" | tail -1)
+if [ "$got" = "$TVV" ]; then printf 'ok   %-26s => %s\n' "eff-poly traverse -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-traverse" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-traverse.hm > "${TMPDIR:-/tmp}/tv.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tv.js" 2>/dev/null | tail -1); if [ "$got" = "$TVV" ]; then printf 'ok   %-26s => %s (node)\n' "eff-poly traverse -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-traverse JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-traverse.hm > "${TMPDIR:-/tmp}/tv.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/tv.rs" -o "${TMPDIR:-/tmp}/tv-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tv-bin"); else got="(rustc err)"; fi; if [ "$got" = "$TVV" ]; then printf 'ok   %-26s => %s (rustc)\n' "eff-poly traverse -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-traverse Rust" "$got"; fail=1; fi; fi
 echo "# K10.4d — USER-EXTENSIBLE effects: 'perform' any effect + general deep 'handle' (incl MULTI-SHOT). No built-in support."
 chk_hm examples/hm-eff-handle.hm '"[Int]"'                            # nondeterminism: flip;flip via a user handler that resumes TWICE
 EHV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"

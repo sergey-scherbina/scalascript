@@ -1,0 +1,7 @@
+// effect-polymorphic traversal: traverseE's effect row is INFERRED from the callback and threaded through
+// the whole traversal. Here the callback performs State (running prefix-sum), so traverseE is used at
+// Comp {State|e} [Int]; runStateE handles State, runE demands the rest empty. => ([1,3,6], finalState 6).
+let rec traverseE = fun f => fun xs =>
+  if isNil xs then pureE nil
+  else bindE (f (head xs)) (fun y => bindE (traverseE f (tail xs)) (fun ys => pureE (cons y ys))) in
+runE (runStateE (traverseE (fun x => bindE getE (fun s => bindE (putE ((s : Int) + x)) (fun u => pureE ((s : Int) + x)))) (cons 1 (cons 2 (cons 3 nil)))) 0)
