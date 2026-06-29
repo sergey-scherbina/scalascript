@@ -838,6 +838,14 @@ def prelude =
   Cons(Pair("enumerate", "fun xs => zip (range 0 (length xs)) xs"),
   Cons(Pair("map",     "fun f => fun l => if isNil l then nil else cons (f (head l)) (map f (tail l))"),
   Cons(Pair("filter",  "fun p => fun l => if isNil l then nil else if p (head l) then cons (head l) (filter p (tail l)) else filter p (tail l)"),
+  Cons(Pair("mapRight", "fun f => fun e => match e { Left x => Left x | Right y => Right (f y) }"),
+  Cons(Pair("mapLeft",  "fun f => fun e => match e { Left x => Left (f x) | Right y => Right y }"),
+  Cons(Pair("either",   "fun fl => fun fr => fun e => match e { Left x => fl x | Right y => fr y }"),
+  Cons(Pair("isLeft",   "fun e => match e { Left x => true | Right y => false }"),
+  Cons(Pair("isRight",  "fun e => match e { Left x => false | Right y => true }"),
+  Cons(Pair("fromRight","fun d => fun e => match e { Left x => d | Right y => y }"),
+  Cons(Pair("fromLeft", "fun d => fun e => match e { Left x => x | Right y => d }"),
+  Cons(Pair("partitionEithers", "fun es => foldr (fun e => fun acc => match acc { (ls, rs) => match e { Left x => (cons x ls, rs) | Right y => (ls, cons y rs) } }) (nil, nil) es"),
   Cons(Pair("foldr",   "fun f => fun z => fun l => if isNil l then z else f (head l) (foldr f z (tail l))"),
   Cons(Pair("foldl",   "fun f => fun z => fun l => if isNil l then z else foldl f (f z (head l)) (tail l)"),
   Cons(Pair("concatMap", "fun f => fun xs => if isNil xs then nil else append (f (head xs)) (concatMap f (tail xs))"),
@@ -909,7 +917,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  Nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }

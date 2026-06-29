@@ -697,6 +697,14 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/oe.rs" -o "${TMPDIR:-/tmp}/oe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/oe-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s (rustc)\n' "option/concatMap -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "option Rust" "$got"; fail=1; fi
 fi
+echo "# K44 — Either/Result combinators: partitionEithers / mapLeft / mapRight / either / fromLeft / fromRight / isLeft / isRight"
+chk_hm examples/hm-either.hm '"Int"'                                 # all 8 combinators exercised, summed -> 143
+EIW="143"
+ssc run bin/ssctc-hm.ssc0 examples/hm-either.hm > "${TMPDIR:-/tmp}/ei.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ei.coreir" | tail -1)
+if [ "$got" = "$EIW" ]; then printf 'ok   %-26s => %s\n' "either combinators -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "either" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then ssc run bin/ssct-hm-js.ssc0 examples/hm-either.hm > "${TMPDIR:-/tmp}/ei.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ei.js" 2>/dev/null | tail -1); if [ "$got" = "$EIW" ]; then printf 'ok   %-26s => %s (node)\n' "either combinators -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "either JS" "$got"; fail=1; fi; fi
+if command -v rustc >/dev/null 2>&1; then ssc run bin/ssct-hm-rust.ssc0 examples/hm-either.hm > "${TMPDIR:-/tmp}/ei.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/ei.rs" -o "${TMPDIR:-/tmp}/ei-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ei-bin"); else got="(rustc err)"; fi; if [ "$got" = "$EIW" ]; then printf 'ok   %-26s => %s (rustc)\n' "either combinators -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "either Rust" "$got"; fail=1; fi; fi
 echo "# ssct-hm DO-NOTATION: do { x <- e ; ... ; r } -> bind/pure (Option monad by default), all backends"
 chk_hm examples/hm-do.hm '"Int"'
 DOW="130"

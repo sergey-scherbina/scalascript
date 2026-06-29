@@ -849,8 +849,10 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       string-DISPLAY divergence (run-ir shows inner quotes raw, JS/Rust escape; value identical). Green on
       run-ir/JS/native-Rust. Big program → VM-interpreted typechecker needs `-Xss512m` (like the ssc0c fixpoint).
       GOTCHAS: ssct-hm equality is `=` (not `==`); comments `//`; `\"` escapes work.
-- [ ] **K44 — Either / Result combinators (ssct-hm prelude).** `mapLeft`/`mapRight`/`either`/`isLeft`/`isRight`/
-      `fromRight`/`partitionEithers` over the built-in `Left`/`Right` ADT — error-handling breadth alongside the
-      existing Option combinators.
+- [x] **K44 — Either / Result combinators DONE** (conformance +4). 8 prelude functions over the built-in
+      `Left`/`Right`: `mapRight`/`mapLeft` (map one side), `either` (eliminate), `isLeft`/`isRight`,
+      `fromRight`/`fromLeft` (with default), `partitionEithers : [Either a b] -> ([a], [b])` (via `foldr`). All
+      properly polymorphic (`mapRight : (b -> c) -> Either a b -> Either a c`). Error-handling breadth alongside
+      the Option combinators. Example exercises all 8 -> `143` on run-ir/JS/Rust. Kernel +0.
 - [ ] **K45 — `lib/set.ssc0` structural Set.** A set keyed by any value (over the K37 `valEq` oracle):
       `setEmpty`/`insert`/`member`/`union`/`inter`/`diff`/`toList`/`size`. VM-only (like `#map`).

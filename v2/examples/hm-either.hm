@@ -1,0 +1,11 @@
+// Either/Result combinators (over the built-in Left/Right): partition, map sides, eliminate, predicates.
+let es = cons (Left 1) (cons (Right 2) (cons (Left 3) (cons (Right 4) nil))) in
+match (partitionEithers es) { (ls, rs) =>
+  let a = sum ls in                                              // 4   (lefts 1,3)
+  let b = sum rs in                                              // 6   (rights 2,4)
+  let c = fromRight 0 (mapRight (fun x => x + 10) (Right 5)) in  // 15
+  let d = fromLeft 0 (mapLeft (fun x => x * 2) (Left 8)) in      // 16
+  let e = either (fun x => x) (fun y => y + 1) (Right 99) in     // 100
+  let f = (if isLeft (Left 0) then 1 else 0) + (if isRight (Right 0) then 1 else 0) in   // 2
+  (((a + b) + (c + d)) + (e + f))                                // = 143
+}
