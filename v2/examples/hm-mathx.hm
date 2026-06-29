@@ -1,0 +1,1 @@
+let near = fun a => fun b => if flt (fabs (a - b)) 0.0001 then 1 else 0 in (near (exp 1.0) 2.718281828459045) * 1000000 + (near (ln (exp 5.0)) 5.0) * 100000 + (near (sin (pi / 6.0)) 0.5) * 10000 + (near (cos pi) (fneg 1.0)) * 1000 + (near (pow 2.0 10.0) 1024.0) * 100 + (near (sqrt 2.0) 1.4142135623730951) * 10 + (near (tan (pi / 4.0)) 1.0)

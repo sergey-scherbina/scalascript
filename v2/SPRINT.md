@@ -106,8 +106,11 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 
 - [ ] bare-`#prim` η-expansion (needs a prim-arity table); Array-env for speed; `v2-bin`
       compact binary ir.
-- [ ] `mathx.*` transcendental floats; structural map keys; `hash.sha256`. (Deferred opens,
-      `10-core-ir.md §8`.)
+- [x] `mathx.*` transcendental floats — **DONE in ssct-hm (K33)**: `exp`/`ln`/`sin`/`cos`/`tan`/
+      `pow`/`sqrt`/`pi` as a pure prelude (Taylor/Maclaurin series over `+ - * /` + the kernel's
+      `fsqrt`/`fneg`; `ln` range-reduced by `e` so it's accurate for all `x>0`). 0 kernel change,
+      0 backend change. Bit-identical across run-ir/JS/Rust (all IEEE-754 doubles, same op order).
+      Still open: structural map keys; `hash.sha256` (needs byte-level work). (`10-core-ir.md §8`.)
 - [ ] K3: stdlib, full type system, effects/actors as libraries, JVM/JS/WASM backends as
       ssc-compiled programs `ir → target`.
 
@@ -700,3 +703,21 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       `chr c = fromCodes (cons c nil)` and `toUpper`/`toLower` (walk the string, shift `a..z`/`A..Z` codes,
       `fromCodes` the result). `toUpper "ab3X!z"` ⇒ `"AB3X!Z"`, `toLower (toUpper "Hi") ` round-trips; all green
       on run-ir/JS/Rust. conformance +5. (String-building is now general — any char-list transform works.)
+
+## K33 — transcendental floats (mathx: exp / ln / sin / cos / tan / pow / sqrt / pi)
+
+- [x] **K33.1 — `exp` / `ln` / `sin` / `cos` / `tan` / `pow` / `sqrt` / `pi`.** The kernel exposes only
+      `fsqrt`/`fneg` as float prims; `fabs`/`fmin`/`fmax`/`fsign` were already prelude-built. This closes the
+      `mathx.*` Backlog open — and entirely as **pure ssct-hm prelude source** (0 kernel change, 0 backend
+      change): each transcendental is a finite Taylor/Maclaurin series over `+ - * /` plus `fneg`, driven by a
+      `let rec go` term-accumulator (`exp` 30 terms, `sin`/`cos` 20, `ln` 40). `ln` is **range-reduced by `e`**
+      first (`let rec red` divides/multiplies `y` by `e` into `[1/e, e]`, accumulating the count `k`, then runs
+      the `atanh`-series `2·Σ t^(2n+1)/(2n+1)` which converges fast there) — so it's accurate for *all* `x>0`,
+      not just `x≈1` (the naive series diverges at `ln (exp 5)≈148`; range reduction fixed `1011111`→`1111111`).
+      `pow x y = exp (y · ln x)`, `tan = sin / cos`, `sqrt = fsqrt`, `pi` a constant. Each is monomorphic
+      `Float -> Float` (the float literals + `flt` anchor the type — no numeric-overload ambiguity). Prelude
+      ordering is depender-before-dependency (`pow` above `exp`/`ln`, `tan` above `sin`/`cos`).
+      **Cross-backend: bit-identical.** run-ir (Scala `Double`), JS (`Number`), Rust (`f64`) are all IEEE-754
+      doubles and the op order is fixed by the shared source, so `exp 1.0` = `2.7182818284590455` *exactly* on all
+      three (conformance asserts this directly). The mathx example sums seven `near`-comparisons → `1111111` on
+      run-ir/JS/Rust; extra checks cover `ln 1000`, `ln 0.01`, `pow 3 4`. conformance +5.

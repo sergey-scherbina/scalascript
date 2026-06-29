@@ -840,6 +840,14 @@ def prelude =
   Cons(Pair("take",    "fun n => fun l => if n < 1 then nil else if isNil l then nil else cons (head l) (take (n - 1) (tail l))"),
   Cons(Pair("drop",    "fun n => fun l => if n < 1 then l else if isNil l then nil else drop (n - 1) (tail l)"),
   Cons(Pair("zip",     "fun a => fun b => if isNil a then nil else if isNil b then nil else cons (Pair (head a) (head b)) (zip (tail a) (tail b))"),
+  Cons(Pair("pow",     "fun x => fun y => exp (y * (ln x))"),
+  Cons(Pair("tan",     "fun x => ((sin x) / (cos x))"),
+  Cons(Pair("exp",     "fun x => let rec go = fun k => fun term => fun acc => if flt 30.0 k then acc else (let t2 = ((term * x) / k) in go (k + 1.0) t2 (acc + t2)) in go 1.0 1.0 1.0"),
+  Cons(Pair("ln",      "fun x => let rec red = fun y => fun k => if flt 2.718281828459045 y then red (y / 2.718281828459045) (k + 1.0) else (if flt y 0.36787944117144233 then red (y * 2.718281828459045) (k - 1.0) else (let t = ((y - 1.0) / (y + 1.0)) in let t2 = (t * t) in let rec go = fun i => fun term => fun acc => if flt 40.0 i then acc else (let nt = (term * t2) in go (i + 1.0) nt (acc + (nt / ((2.0 * i) + 1.0)))) in (k + (2.0 * (go 1.0 t t))))) in red x 0.0"),
+  Cons(Pair("sin",     "fun x => let x2 = (x * x) in let rec go = fun k => fun term => fun acc => if flt 20.0 k then acc else (let denom = ((2.0 * k) * ((2.0 * k) + 1.0)) in let t2 = fneg ((term * x2) / denom) in go (k + 1.0) t2 (acc + t2)) in go 1.0 x x"),
+  Cons(Pair("cos",     "fun x => let x2 = (x * x) in let rec go = fun k => fun term => fun acc => if flt 20.0 k then acc else (let denom = (((2.0 * k) - 1.0) * (2.0 * k)) in let t2 = fneg ((term * x2) / denom) in go (k + 1.0) t2 (acc + t2)) in go 1.0 1.0 1.0"),
+  Cons(Pair("sqrt",    "fun x => fsqrt x"),
+  Cons(Pair("pi",      "3.141592653589793"),
   Cons(Pair("fabs",    "fun x => if flt x 0.0 then fneg x else x"),
   Cons(Pair("fmin",    "fun a => fun b => if flt a b then a else b"),
   Cons(Pair("fmax",    "fun a => fun b => if flt a b then b else a"),
@@ -875,7 +883,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  Nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }
