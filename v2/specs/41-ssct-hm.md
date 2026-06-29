@@ -108,7 +108,10 @@ first-class):
   **type error**. Effects are **user-extensible** without a compiler change: `perform "Eff" "op" arg`
   and a general deep `handle "Eff" comp ret op` (forwards other effects → composes; resume re-enters →
   **multi-shot** and **stateful** handlers). `getE`/`putE`/`runStateE` and `logE`/`runLogE` ship as
-  conveniences. Light scope: payloads are `Dyn`; typed-payload (Koka-style) signatures are deferred.
+  conveniences. Declared operations can carry first-order signatures (`effect E { op : A -> R }`):
+  `perform` checks the argument and returns `Comp {E | rho} R`, and `handleM "E" ... { | op a k => ... }`
+  gives each operation arm its own typed `a : A` and `k : R -> Comp rho b`. Richer Koka-style
+  polymorphic operation signatures and partial typed forwarding remain future work.
 
 ## Typeclasses
 
@@ -148,9 +151,9 @@ all — ordinary pure ssc0, so they run identically on every backend.
 
 | File | Role |
 |---|---|
-| `lib/ssct-hm-front.ssc0` | lexer (+ `//` comments) + combinator parser + desugar (`data`/`method`/`instance`/`match`/lists/tuples/records/strings) |
-| `lib/ssct-hm.ssc0` | the inferrer (Algorithm W), the constructor + method/instance registries (`#cell`s), the erased interpreter (`runHm`) |
-| `lib/ssct-hm-emit.ssc0` | erase a checked Term to a Core IR Data tree (then `coreir.encode`); structural show/eq helper synthesis |
+| `lib/ssct-hm-front.ssc0` | lexer (+ `//` comments) + combinator parser + desugar (`data`/`method`/`instance`/`effect`/`handleM`/`match`/lists/tuples/records/strings) |
+| `lib/ssct-hm.ssc0` | the inferrer (Algorithm W), row/effect inference, constructor + method/instance/effect registries (`#cell`s), the erased interpreter (`runHm`) |
+| `lib/ssct-hm-emit.ssc0` | erase a checked Term to a Core IR Data tree (then `coreir.encode`); structural show/eq helper synthesis; `handleM` lowers to generated `__effHandle` dispatch |
 | `bin/ssct-hm.ssc0` | driver: print the inferred type |
 | `bin/ssctc-hm.ssc0` | compiler: emit Core IR bytecode (run with `ssc run-ir`) |
 | `bin/ssct-hm-js.ssc0`, `bin/ssct-hm-rust.ssc0` | compile to JS / Rust (reuse `backend-{js,rust}-gen.ssc0`) |

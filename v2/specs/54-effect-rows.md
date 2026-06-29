@@ -1,11 +1,11 @@
-# 54 — Effect rows for ssct-hm (implemented; light payloads)
+# 54 — Effect rows for ssct-hm (implemented; typed payloads and handlers)
 
 > Status: **IMPLEMENTED, 2026-06-28.** The light (label-tracking) version is done and **runs on all
 > three backends** (run-ir / JS / native-Rust). Effects are **user-extensible** (`perform` / `handle`,
 > no compiler change per effect), handlers are **deep + multi-shot** and can be **stateful**
 > (parameterized), and `runE` rejects any unhandled effect as a **type error**. This documents the
-> design, the validated row-unification algorithm, the surface as shipped, and the path to a full
-> Koka-style (typed-payload) system, which remains deferred.
+> design, the validated row-unification algorithm, the surface as shipped, and the remaining path
+> to a fuller Koka-style system.
 
 ## Goal
 
@@ -126,13 +126,30 @@ untyped `effect Name op…` decls and string `perform` are unchanged). The built
 (`runStateE`/`runLogE`) are generic over the computation's value type, so they consume the typed replies
 unchanged. `put "x"` ⇒ `TypeError: effect op arg type mismatch`.
 
-## Path to full (Koka-style) — the deeper step still deferred
+## Typed multi-op user handlers — LANDED (K48)
 
-What remains is typing a **user-written handler's resume/return against the signature** — the general
-`handle` currently keeps a `Dyn` resume, and a per-operation handler form (`handler { get -> … ; put k -> … }`)
-would be needed to type each operation's resume precisely. That reuses the constraint/typing machinery
-designed for qualified types ([`55-qualified-types.md`](55-qualified-types.md)); it is a multi-session
-effort, deferred.
+`handleM` types a user-written handler arm against each declared operation signature:
+
+```
+effect QA { ask : Dyn -> Int , tell : String -> String } in
+runE (handleM "QA" prog {
+  | ask a k  => k 21        -- k : Int -> Comp rho b
+  | tell a k => k "done"    -- k : String -> Comp rho b
+} (fun v => pureE v))
+```
+
+The form is total for the handled effect label: every declared operation must appear exactly once,
+and unknown or foreign-label arms are type errors. It still erases to the existing `__effHandle`
+helper; the generated op clause dispatches by operation name, and coverage checking makes the
+fallback unreachable. The dynamic `handle` remains unchanged for partial or stringly-dispatched
+handlers. Full details: [`57-multi-op-handler-resumes.md`](57-multi-op-handler-resumes.md).
+
+## Path to full (Koka-style) — still open beyond K48
+
+K48 covers first-order declared operation signatures and total per-operation handlers. Remaining
+research/design work includes polymorphic or higher-rank operation signatures, a typed partial-forwarding
+handler surface, and richer effect abstraction syntax. Those should reuse the constraint/typing
+machinery designed for qualified types ([`55-qualified-types.md`](55-qualified-types.md)).
 
 The ergonomic sugar around the light system has **landed**: `effect Name op…` operation declarations
 (K11.1) and `{}` / `{l, m}` / `{l | r}` effect-row syntax in the type parser for ascriptions (K11.2).
@@ -141,8 +158,8 @@ The ergonomic sugar around the light system has **landed**: `effect Name op…` 
 
 | Where | What |
 |---|---|
-| `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle` |
-| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `effect Name op…` decl (`effOpReg`, K11.1) and typed `effect Name { op : A -> R }` decl (`effSigReg`, K11.4); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
-| `lib/ssct-hm-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); appended by `progOf` when effects are used |
+| `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle`/`EffHandleM`; `handleM` validates total declared-op coverage and per-arm resume types |
+| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `handleM "L" m { | op a k => body } ret` keyword form; `effect Name op…` decl (`effOpReg`, K11.1) and typed `effect Name { op : A -> R }` decl (`effSigReg`, K11.4); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
+| `lib/ssct-hm-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); `EffHandleM` lowers to `__effHandle` with generated op-name dispatch; appended by `progOf` when effects are used |
 | backends | `f.*`/`i.*` prims already present; effects need no new prim (they are plain `Comp` data) |
-| `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`), `hm-eff-decl`(-choose) (`effect` decl), `hm-eff-rowann` (row ascription), `hm-eff-typed` (typed payloads); + unhandled-effect / type-mismatch programs that are rejected |
+| `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`), `hm-eff-decl`(-choose) (`effect` decl), `hm-eff-rowann` (row ascription), `hm-eff-typed` (typed payloads), `hm-eff-multiop` (`handleM` typed multi-op resumes); + unhandled-effect / type-mismatch programs that are rejected |

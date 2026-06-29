@@ -37,14 +37,14 @@ declarations they fall back to `Dyn`, matching the existing light effect-row sur
 
 ## Behavior
 
-- [ ] A typed effect with multiple operations gives each arm an independent resume type.
-- [ ] Resuming an arm with the wrong reply type is rejected at type-check time.
-- [ ] A missing declared operation arm is rejected before erase/codegen.
-- [ ] Duplicate operation arms are rejected before erase/codegen.
-- [ ] Unknown operations, or operations declared under a different effect label, are rejected.
-- [ ] `handleM` removes exactly the handled effect label from the row and composes with other
+- [x] A typed effect with multiple operations gives each arm an independent resume type.
+- [x] Resuming an arm with the wrong reply type is rejected at type-check time.
+- [x] A missing declared operation arm is rejected before erase/codegen.
+- [x] Duplicate operation arms are rejected before erase/codegen.
+- [x] Unknown operations, or operations declared under a different effect label, are rejected.
+- [x] `handleM` removes exactly the handled effect label from the row and composes with other
       effects through the same row-polymorphic rule as `handle`.
-- [ ] VM IR, JS, and Rust output all use the existing `__effHandle` runtime; no backend or
+- [x] VM IR, JS, and Rust output all use the existing `__effHandle` runtime; no backend or
       kernel change is required.
 
 ## Out of scope
@@ -95,4 +95,11 @@ arm sets.
 
 ## Results
 
-TBD after conformance verification.
+Verified 2026-06-29:
+
+- `./ssc run bin/ssct-hm.ssc0 examples/hm-eff-multiop.hm` => `"Int"`
+- `./ssc run bin/ssctc-hm.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.coreir && ./ssc run-ir /tmp/mo48.coreir` => `42`
+- `./ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.js && node /tmp/mo48.js | tail -1` => `42`
+- `./ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.rs && rustc -O /tmp/mo48.rs -o /tmp/mo48-bin && /tmp/mo48-bin` => `42`
+- Row-composition snippet with `Log` left in the row inferred `"(Int, [Dyn])"` and ran as `Pair(42, Cons("seen", Nil))`.
+- Negatives return `TypeError` for wrong resume reply type, missing arm, foreign-label arm, and duplicate arm.
