@@ -402,6 +402,9 @@ function _ssc_ui_mount(sigs) {
       if (_sv[idStr] !== nv) _notifyBridge(idStr, nv);
     });
   }
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('hashchange', function() { _syncBridgeSignals(); });
+  }
   function _set(id, v, opts) {
     var idStr = String(id);
     var rid = parseInt(idStr, 10);

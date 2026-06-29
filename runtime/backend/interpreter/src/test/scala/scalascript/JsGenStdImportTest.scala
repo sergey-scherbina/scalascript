@@ -98,7 +98,8 @@ class JsGenStdImportTest extends AnyFunSuite:
          |globalThis.window = {
          |  location: { hash: '#/money' },
          |  _listeners: {},
-         |  addEventListener: function(name, fn) { this._listeners[name] = fn; }
+         |  addEventListener: function(name, fn) { (this._listeners[name] = this._listeners[name] || []).push(fn); },
+         |  dispatch: function(name) { (this._listeners[name] || []).forEach(function(fn) { fn(); }); }
          |};
          |globalThis.location = window.location;
          |$runtime
@@ -110,7 +111,7 @@ class JsGenStdImportTest extends AnyFunSuite:
          |const isHome = _ssc_ui_eqSignal(hash, '/home');
          |assertRuntime(isMoney.get() === true, 'initial /money route should match');
          |window.location.hash = '#/home';
-         |window._listeners.hashchange();
+         |window.dispatch('hashchange');
          |assertRuntime(hash.get() === '/home', 'hashchange should update hash signal');
          |assertRuntime(isMoney.get() === false, 'eqSignal should update to false after hashchange');
          |assertRuntime(isHome.get() === true, 'eqSignal should update to true after hashchange');
@@ -153,6 +154,12 @@ class JsGenStdImportTest extends AnyFunSuite:
          |assertRuntime(isMoney.get() === true, 'setSignal bridge should update computed eqSignal');
          |assertRuntime(trueBranch.style.display === 'contents', 'true branch should become visible after setSignal');
          |assertRuntime(falseBranch.style.display === 'none', 'fallback branch should hide after setSignal');
+         |window.location.hash = '#/home';
+         |window.dispatch('hashchange');
+         |assertRuntime(hash.get() === '/home', 'hashchange should update the mounted hash signal');
+         |assertRuntime(isMoney.get() === false, 'mounted eqSignal should recompute after hashchange');
+         |assertRuntime(trueBranch.style.display === 'none', 'true branch should hide after hashchange');
+         |assertRuntime(falseBranch.style.display === 'contents', 'fallback branch should reappear after hashchange');
          |console.log('ok');
          |""".stripMargin
 
