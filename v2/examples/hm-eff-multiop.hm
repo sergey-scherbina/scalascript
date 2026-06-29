@@ -1,0 +1,15 @@
+// K48: multi-op typed handler resumes via `handleM`
+// effect QA { ask : Dyn -> Int , tell : String -> String }
+//   ask reply = Int  =>  k : Int -> Comp r b
+//   tell reply = String  =>  k : String -> Comp r b
+// The handler types each arm's resume independently (no Dyn fallback).
+effect QA { ask : Dyn -> Int , tell : String -> String } in
+let prog = doE {
+  x <- ask ;
+  u <- tell "hello" ;
+  pureE (x * 2)
+} in
+runE (handleM "QA" prog {
+  | ask a k => k 21
+  | tell a k => k "done"
+} (fun v => pureE v))

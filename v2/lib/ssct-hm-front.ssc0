@@ -67,7 +67,7 @@ def snd   = (p) => match p { case Pair(a, b) => b }
 def drop1 = (toks) => match toks { case Cons(t, r) => r case Nil => Nil }
 
 def isKeyword = (s) =>
-  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), chOr(#seq(s, "do"), #seq(s, "doE"))), chOr(chOr(#seq(s, "method"), #seq(s, "effect")), #seq(s, "instance"))))),
+  chOr(chOr(chOr(#seq(s, "fun"), #seq(s, "let")), chOr(chOr(#seq(s, "rec"), #seq(s, "match")), chOr(chOr(#seq(s, "data"), chOr(#seq(s, "do"), #seq(s, "doE"))), chOr(chOr(#seq(s, "method"), #seq(s, "effect")), chOr(#seq(s, "instance"), #seq(s, "handleM")))))),
        chOr(chOr(chOr(#seq(s, "in"), #seq(s, "if")), chOr(#seq(s, "and"), #seq(s, "with"))), chOr(#seq(s, "then"), #seq(s, "else"))))
 
 def atomStart = (t) =>
@@ -519,6 +519,33 @@ def parseDoStmts = (toks, bn) =>                                              --
           case _ => Pair(e, r2) } case Nil => Pair(e, Nil) } }
 def parseDoBody  = (toks) => parseDoStmts(drop1(toks), "bind")                 -- drop '{'
 def parseDoBodyE = (toks) => parseDoStmts(drop1(toks), "bindE")               -- doE: desugars `<-` to bindE (algebraic effects)
+-- handleM "L" m { | op1 a k => b1 | op2 a k => b2 } retf  —  multi-op typed handler (K48)
+-- Each arm types `a` and `k` from the op's signature (per-op resume type, not Dyn).
+def parseHandleMArm = (toks) =>           -- after '|':  opName aBinder kBinder '=>' body
+  match toks { case Cons(t1, r1) => match t1 { case TName(op) =>
+    match r1 { case Cons(t2, r2) => match t2 { case TName(aB) =>
+      match r2 { case Cons(t3, r3) => match t3 { case TName(kB) =>
+        match r3 { case Cons(t4, r4a) => match t4 { case TPunct(p4) => if #seq(p4, "=>") then
+          match parseExpr(r4a) { case Pair(body, r4) => Pair(Pair(op, Pair(aB, Pair(kB, body))), r4) }
+          else Pair(ParseErr, Nil) case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+        case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+      case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+    case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
+def parseHandleMArms = (toks) =>          -- parses ( '|' arm )* '}';  toks is just after '{'
+  match toks { case Cons(t, rest) => match t {
+    case TPunct(p) => if #seq(p, "}") then Pair(Nil, rest)
+                      else if #seq(p, "|") then (match parseHandleMArm(rest) { case Pair(arm, r) =>
+                        match parseHandleMArms(r) { case Pair(more, r2) => Pair(Cons(arm, more), r2) } })
+                      else Pair(Nil, toks)
+    case _ => Pair(Nil, toks) } case Nil => Pair(Nil, Nil) }
+def parseHandleM = (toks) =>              -- after 'handleM':  lbl comp '{' arms '}' retf
+  match toks { case Cons(t0, r0) => match t0 { case TStr(lbl) =>
+    match parseExpr(r0) { case Pair(m, r1) =>
+      match r1 { case Cons(t1, r2) => match t1 { case TPunct(p1) => if #seq(p1, "{") then
+        match parseHandleMArms(r2) { case Pair(arms, r3) =>
+          match parseExpr(r3) { case Pair(retf, r4) => Pair(EffHandleM(lbl, m, retf, arms), r4) } }
+        else Pair(ParseErr, Nil) case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) } }
+    case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
 def parseExpr = (toks) =>
   match toks {
     case Cons(t, rest) =>
@@ -530,6 +557,7 @@ def parseExpr = (toks) =>
           else if #seq(s, "match") then parseMatchE(rest)
           else if #seq(s, "do") then parseDoBody(rest)
           else if #seq(s, "doE") then parseDoBodyE(rest)
+          else if #seq(s, "handleM") then parseHandleM(rest)
           else parseOr(toks)
         case _ => parseOr(toks)
       }
@@ -658,6 +686,8 @@ def mapBindsI = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { 
 def mapBindsS = (nm, repl, bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(bn, l) => Cons(Pair(bn, substVar(nm, repl, l)), mapBindsS(nm, repl, r)) } }
 def fvBinds  = (bs) => match bs { case Nil => Nil case Cons(p, r) => match p { case Pair(nm, l) => appendL(freeVars(l), fvBinds(r)) } }
 def cnoBinds = (bs) => match bs { case Nil => false case Cons(p, r) => match p { case Pair(nm, l) => or2(containsNumOp(l), cnoBinds(r)) } }
+def dsHandleMArms = (arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case Pair(op, inner1) => match inner1 { case Pair(aB, inner2) => match inner2 { case Pair(kB, body) => Cons(Pair(op, Pair(aB, Pair(kB, desugar(body)))), dsHandleMArms(rest)) } } } }
+def fvHandleMArms = (arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case Pair(op, inner1) => match inner1 { case Pair(aB, inner2) => match inner2 { case Pair(kB, body) => appendL(removeStr(kB, removeStr(aB, freeVars(body))), fvHandleMArms(rest)) } } } }
 def desugar = (t) =>
   match t {
     case ParseErr        => ParseErr
@@ -684,6 +714,7 @@ def desugar = (t) =>
     case FieldGet(id, rc, name) => FieldGet(id, desugar(rc), name)
     case RecUpd(id, rc, name, v) => RecUpd(id, desugar(rc), name, desugar(v))
     case Ascribe(e, ty) => Ascribe(desugar(e), ty)
+    case EffHandleM(lbl, m, retf, arms) => EffHandleM(lbl, desugar(m), desugar(retf), dsHandleMArms(arms))
   }
 def dsRecFields = (fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(Pair(nm, desugar(e)), dsRecFields(rest)) } }
 -- ── `data` declarations: parse them, register each constructor's signature into the global cell ──
@@ -811,6 +842,7 @@ def freeVars = (t) =>
     case FieldGet(id, rc, name) => freeVars(rc)
     case RecUpd(id, rc, name, v) => appendL(freeVars(rc), freeVars(v))
     case Ascribe(e, ty) => freeVars(e)
+    case EffHandleM(lbl, m, retf, arms) => appendL(freeVars(m), appendL(freeVars(retf), fvHandleMArms(arms)))
     case _               => Nil
   }
 def parseBody = (src) => fst(parseExpr(lex(src)))

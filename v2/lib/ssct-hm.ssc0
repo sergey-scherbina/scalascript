@@ -337,6 +337,17 @@ def infer = (env, c, s, term) =>
                 } in
                 match unify(s5, to, opClauseTy) { case Err(e) => ErrI("handle: op clause type mismatch") case Ok(s6) =>
                   Ok3(s6, appTy(s6, compRb), #i.add(c3, 3)) } } } } } }
+    case EffHandleM(lbl, m, retf, arms) =>                             -- K48: per-op typed handler — each arm's arg/resume typed from effSigReg
+      match validateHandleMArms(lbl, arms) { case Some(e) => ErrI(e) case None =>
+        match infer(env, c, s, m) { case ErrI(e) => ErrI(e) case Ok3(s1, tm, c1) =>
+          match infer(env, c1, s1, retf) { case ErrI(e) => ErrI(e) case Ok3(s2, tr, c2) =>
+            let rho = TyRowVar(c2) in let ta = TyVar(#i.add(c2, 1)) in let tb = TyVar(#i.add(c2, 2)) in
+            let c3 = #i.add(c2, 3) in
+            let compRb = TyCon("Comp", Cons(rho, Cons(tb, Nil))) in
+            match unify(s2, tm, TyCon("Comp", Cons(TyRowExt(lbl, rho), Cons(ta, Nil)))) { case Err(e) => ErrI(#sconcat("handleM: arg not Comp of ", lbl)) case Ok(s4) =>
+              match unify(s4, tr, TyFun(ta, compRb)) { case Err(e) => ErrI("handleM: return clause type mismatch") case Ok(s5) =>
+                match inferHandleMArms(env, c3, s5, arms, compRb) { case ErrI(e) => ErrI(e) case Ok3(s6, _tb, c6) =>
+                  Ok3(s6, appTy(s6, compRb), c6) } } } } } }
     case MethodCall(id, m, arg) =>                                     -- user typeclass method use: resolve by arg type
       match infer(env, c, s, arg) { case ErrI(e) => ErrI(e) case Ok3(s1, ta, c1) =>
         let taa = appTy(s1, ta) in let tn = typeName(taa) in
@@ -354,6 +365,51 @@ def infer = (env, c, s, term) =>
               match unify(s2, ti, TyFun(appTy(s2, ta), tr)) { case Err(e) => ErrI("method instance type mismatch") case Ok(s3) =>
                 let u = registerMethodImpl(id, impl) in Ok3(s3, appTy(s3, tr), #i.add(c2, 1)) } } }
       }
+  }
+-- per-arm inference for handleM: types each arm's (aB, kB) from effSigOf(opName); unifies body with compRb
+def inferHandleMArms = (env, c, s, arms, compRb) =>
+  match arms {
+    case Nil => Ok3(s, compRb, c)
+    case Cons(arm, rest) => match arm { case Pair(opName, inner1) => match inner1 { case Pair(aB, inner2) => match inner2 { case Pair(kB, body) =>
+      let opSig = effSigOf(opName) in
+      let argT  = match opSig { case Some(sig) => match sig { case Pair(a, r) => a } case None => TyDyn } in
+      let repT  = match opSig { case Some(sig) => match sig { case Pair(a, r) => r } case None => TyDyn } in
+      let envArm = Cons(Pair(kB, Forall(Nil, TyFun(repT, compRb))), Cons(Pair(aB, Forall(Nil, argT)), env)) in
+      match infer(envArm, c, s, body) { case ErrI(e) => ErrI(e) case Ok3(s1, tb2, c1) =>
+        match unify(s1, tb2, compRb) { case Err(e) => ErrI("handleM arm body type mismatch") case Ok(s2) =>
+          inferHandleMArms(env, c1, s2, rest, appTy(s2, compRb)) } } } } }
+  }
+def memberS = (x, xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else memberS(x, t) }
+def handleMHasArm = (op, arms) =>
+  match arms { case Nil => false case Cons(arm, rest) => match arm { case Pair(opName, inner1) => if #seq(opName, op) then true else handleMHasArm(op, rest) } }
+def handleMNoDup = (arms, seen) =>
+  match arms {
+    case Nil => None
+    case Cons(arm, rest) => match arm { case Pair(opName, inner1) =>
+      if memberS(opName, seen) then Some(#sconcat("handleM: duplicate arm ", opName)) else handleMNoDup(rest, Cons(opName, seen)) }
+  }
+def handleMArmsBelong = (lbl, arms) =>
+  match arms {
+    case Nil => None
+    case Cons(arm, rest) => match arm { case Pair(opName, inner1) =>
+      match effOpOf(opName) {
+        case None => Some(#sconcat("handleM: unknown op ", opName))
+        case Some(eff) => if #seq(eff, lbl) then handleMArmsBelong(lbl, rest) else Some(#sconcat("handleM: op not in effect ", opName))
+      } }
+  }
+def handleMCovers = (ops, arms) =>
+  match ops {
+    case Nil => None
+    case Cons(op, rest) => if handleMHasArm(op, arms) then handleMCovers(rest, arms) else Some(#sconcat("handleM: missing arm ", op))
+  }
+def validateHandleMArms = (lbl, arms) =>
+  let ops = opsOfEff(lbl, #cell.get(effOpReg)) in
+  match ops {
+    case Nil => Some(#sconcat("handleM: no declared ops for ", lbl))
+    case _ =>
+      match handleMNoDup(arms, Nil) { case Some(e) => Some(e) case None =>
+        match handleMArmsBelong(lbl, arms) { case Some(e2) => Some(e2) case None =>
+          handleMCovers(ops, arms) } }
   }
 def inferRec = (env, c, s, fields, acc) =>
   match fields {

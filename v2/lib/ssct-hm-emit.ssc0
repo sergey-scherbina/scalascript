@@ -132,6 +132,20 @@ def erase = (scope, term) =>
     case EffRunLog(m)    => let u = #cell.set(usedEffCell, true) in IrApp(IrGlobal("__effRunLog"), Cons(erase(scope, m), Nil))
     case EffHandle(lbl, m, retf, opf) => let u = #cell.set(usedEffCell, true) in
       IrApp(IrApp(IrApp(IrApp(IrGlobal("__effHandle"), Cons(IrLit(IrStr(lbl)), Nil)), Cons(erase(scope, m), Nil)), Cons(erase(scope, retf), Nil)), Cons(erase(scope, opf), Nil))
+    case EffHandleM(lbl, m, retf, arms) => let u = #cell.set(usedEffCell, true) in        -- K48: multi-op handler erases to __effHandle with a generated opf that dispatches by opName
+      let opf = IrLam(1, IrLam(1, IrLam(1, eraseHandleMArms(scope, arms, IrLit(IrInt(0)))))) in
+      IrApp(IrApp(IrApp(IrApp(IrGlobal("__effHandle"), Cons(IrLit(IrStr(lbl)), Nil)), Cons(erase(scope, m), Nil)), Cons(erase(scope, retf), Nil)), Cons(opf, Nil))
+  }
+-- K48: for handleM arms, generate: λopName.λrealArg.λresume. if opName=="op1" then body1 else if "op2" ...
+-- Inside the 3 lambdas: Local(0)=resume (kB), Local(1)=realArg (aB), Local(2)=opName — armScope adds them.
+def eraseHandleMArms = (scope, arms, defaultVal) =>
+  match arms {
+    case Nil => defaultVal
+    case Cons(arm, rest) => match arm { case Pair(opName, inner1) => match inner1 { case Pair(aB, inner2) => match inner2 { case Pair(kB, body) =>
+      let armScope = Cons(kB, Cons(aB, Cons("$opN__", scope))) in
+      IrIf(IrPrim("seq", Cons(IrLocal(2), Cons(IrLit(IrStr(opName)), Nil))),
+           erase(armScope, body),
+           eraseHandleMArms(scope, rest, defaultVal)) } } }
   }
 def eraseRecF = (scope, fields) => match fields { case Nil => Nil case Cons(p, rest) => match p { case Pair(nm, e) => Cons(erase(scope, e), eraseRecF(scope, rest)) } }
 
