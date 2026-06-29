@@ -1,6 +1,0 @@
-feature/v2-multiop-effects 2026-06-29T17:35:37Z
-agent: codex
-heartbeat: 2026-06-29T17:49:43Z
-status: in-progress
-done-so-far: spec/SPRINT commit ca000d325 pushed; handleM parser, typer validation, eraser draft, example, and K48 conformance are under test in /Users/sergiy/work/my/scalascript-wt-v2-multiop-effects
-next: run full v2 conformance, then commit implementation/docs/bookkeeping and release claim
