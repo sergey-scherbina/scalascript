@@ -74,7 +74,9 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       + a delivery loop (route by id, per-actor state, enqueue outputs). Demo: ping-pong
       bounce → Ball 0..5. Spec `53-actors.md`. Kernel +0. NEXT: concurrent actors with blocking
       `receive` on the async scheduler; supervision; wire protocol via `coreir.encode`.
-- [ ] `do`-notation sugar for `bind` in the surface; typed effect rows in `ssct`.
+- [x] `do`-notation sugar + typed effect rows — **DONE in the ssct-hm surface** (`doE { x <- m ; … }`
+      + `Comp {Eff} a` row syntax, K10/K11; row INFERENCE incl. effect-polymorphic HOFs in K41). The original
+      lower `ssct` annotated layer is superseded by ssct-hm for these.
 
 ## K4 — backends (ir → target, each an ssc0 program; "one source, many targets")
 
@@ -104,13 +106,14 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
 
 ## Backlog
 
-- [ ] bare-`#prim` η-expansion (needs a prim-arity table); Array-env for speed; `v2-bin`
-      compact binary ir.
+- [~] bare-`#prim` η-expansion **DONE (K38)** + `v2-bin` compact binary ir **DONE (K40)**. Only **Array-env
+      for speed** (a VM perf optimization, not a feature gap) remains here.
 - [x] `mathx.*` transcendental floats — **DONE in ssct-hm (K33)**: `exp`/`ln`/`sin`/`cos`/`tan`/
       `pow`/`sqrt`/`pi` as a pure prelude (Taylor/Maclaurin series over `+ - * /` + the kernel's
       `fsqrt`/`fneg`; `ln` range-reduced by `e` so it's accurate for all `x>0`). 0 kernel change,
       0 backend change. Bit-identical across run-ir/JS/Rust (all IEEE-754 doubles, same op order).
-      Still open: structural map keys; `hash.sha256` (needs byte-level work). (`10-core-ir.md §8`.)
+      structural map keys **DONE (K37, lib/mapx.ssc0)**; `hash.sha256` **DONE (K36, lib/sha256.ssc0)**.
+      (`10-core-ir.md §8`.)
 - [ ] K3: stdlib, full type system, effects/actors as libraries, JVM/JS/WASM backends as
       ssc-compiled programs `ir → target`.
 
