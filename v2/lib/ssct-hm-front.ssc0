@@ -932,7 +932,7 @@ def inlineClosed = (t) => match t {
     case Lt(id, a, b)    => Lt(id, inlineClosed(a), inlineClosed(b))
     case Concat(id, a, b) => Concat(id, inlineClosed(a), inlineClosed(b))
     case If(c, x, y)     => If(inlineClosed(c), inlineClosed(x), inlineClosed(y))
-    case LetRec(f, l, b) => LetRec(f, inlineClosed(l), inlineClosed(b))
+    case LetRec(f, l, b) => if isParam(f, freeVars(l)) then LetRec(f, inlineClosed(l), inlineClosed(b)) else inlineClosed(Let(f, l, b))   -- a non-self-recursive `let rec` is just a `let` → gets let-polymorphism (incl. numeric, via inlining)
     case LetRecM(binds, b) => LetRecM(mapBindsI(binds), inlineClosed(b))
     case MatchT(s, arms) => MatchT(inlineClosed(s), inlineArms(arms))
     case RecLit(fs)      => RecLit(inlineRec(fs))

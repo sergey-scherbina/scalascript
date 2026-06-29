@@ -405,6 +405,20 @@ focused effort, gate conformance after EACH slice. Key cost: `Forall(qs, ty)` mu
 → touched at ~15+ sites (`generalize`, `instantiate`, `freeEnv`, `envWithRecVars`, every `Forall(Nil, …)` in
 `infer`). `pendingNum` is today's Num-only side-channel — the seed of the constraint set, extend it.
 
+- [x] **K13.0 — non-self-recursive `let rec` gets let-polymorphism** (2026-06-29). Empirically (2026-06-28) the
+      whole practical qualified-types gap was `let rec` poly-numeric bindings used at 2+ types; most such cases
+      are *gratuitous* `let rec` — the binding doesn't actually call itself (e.g. `let rec dbl = fun x => x + x
+      in (dbl 3, dbl 2.5)`). `inlineClosed`'s `LetRec` case now checks `isParam(f, freeVars(l))`: if `f` is NOT
+      free in its own body it's really a plain `let`, so it's rewritten to `Let(f, l, b)` and picks up the
+      existing inlining-based let-polymorphism (incl. numeric). `dbl` now types `(Int, Float)` and runs on all 3
+      backends; genuinely self-recursive functions (`fact`, `sum`, mutual rec) are untouched. conformance +5.
+      **Still open (true dict-passing, K13.1+):** a GENUINELY self-recursive binding polymorphic over a numeric
+      type with no anchoring literal, used at 2+ types — e.g. `let rec scale = fun x => fun n => if n=0 then x
+      else x + scale x (n-1) in (scale 3 2, scale 2.5 1)` — still "cannot unify Int". This is extremely rare
+      (the base case usually anchors the type) and remains sound-reject. It needs the inference change below
+      (generalize the rec binding's Num var instead of defaulting) AND dict-param codegen, since one erased copy
+      of `scale` can't use both `i.add` and `f.add`.
+
 - [ ] **K13.1 — constraint set in `infer`** (BEHAVIOR-NEUTRAL). `Constraint(className, var)`. Thread a
       constraint set (reuse/extend the `pendingNum` cell). At an overloaded op / `method` use on a still-
       unresolved var `a`, record `Num a` / `Ord a` instead of eagerly defaulting; id-tag the node, record

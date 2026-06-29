@@ -1,0 +1,1 @@
+let rec dbl = fun x => x + x in let near = fun a => fun b => if flt (fabs (a - b)) 0.01 then 1 else 0 in (dbl 3) * 100 + (near (dbl 2.5) 5.0) * 10 + (dbl 4)
