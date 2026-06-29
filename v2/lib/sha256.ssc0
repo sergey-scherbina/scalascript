@@ -1,0 +1,160 @@
+-- SHA-256 in raw ssc0 — VM/run-ir only (uses 64-bit kernel bitwise + byte + mutable-array prims;
+-- the JS backend's bitwise is 32-bit-signed so raw bitwise is VM-only, like #arr/#map programs).
+-- sha256Hex : String -> String  (UTF-8 of the input -> 64 lowercase hex chars). Kernel +0.
+
+-- 32-bit helpers (mask = 0xFFFFFFFF = 4294967295)
+def m32 = (x) => #i.and(x, 4294967295)
+def rotr = (x, n) => m32(#i.or(#i.ushr(x, n), #i.shl(x, #i.sub(32, n))))
+def shr = (x, n) => #i.ushr(x, n)
+def xor3 = (a, b, c) => #i.xor(a, #i.xor(b, c))
+def ch = (x, y, z) => #i.xor(#i.and(x, y), #i.and(#i.not(x), z))
+def maj = (x, y, z) => #i.xor(#i.and(x, y), #i.xor(#i.and(x, z), #i.and(y, z)))
+def bsig0 = (x) => xor3(rotr(x, 2), rotr(x, 13), rotr(x, 22))
+def bsig1 = (x) => xor3(rotr(x, 6), rotr(x, 11), rotr(x, 25))
+def ssig0 = (x) => xor3(rotr(x, 7), rotr(x, 18), shr(x, 3))
+def ssig1 = (x) => xor3(rotr(x, 17), rotr(x, 19), shr(x, 10))
+
+def buildK = (k) =>
+  let u0 = #arr.push(k, 1116352408) in
+  let u1 = #arr.push(k, 1899447441) in
+  let u2 = #arr.push(k, 3049323471) in
+  let u3 = #arr.push(k, 3921009573) in
+  let u4 = #arr.push(k, 961987163) in
+  let u5 = #arr.push(k, 1508970993) in
+  let u6 = #arr.push(k, 2453635748) in
+  let u7 = #arr.push(k, 2870763221) in
+  let u8 = #arr.push(k, 3624381080) in
+  let u9 = #arr.push(k, 310598401) in
+  let u10 = #arr.push(k, 607225278) in
+  let u11 = #arr.push(k, 1426881987) in
+  let u12 = #arr.push(k, 1925078388) in
+  let u13 = #arr.push(k, 2162078206) in
+  let u14 = #arr.push(k, 2614888103) in
+  let u15 = #arr.push(k, 3248222580) in
+  let u16 = #arr.push(k, 3835390401) in
+  let u17 = #arr.push(k, 4022224774) in
+  let u18 = #arr.push(k, 264347078) in
+  let u19 = #arr.push(k, 604807628) in
+  let u20 = #arr.push(k, 770255983) in
+  let u21 = #arr.push(k, 1249150122) in
+  let u22 = #arr.push(k, 1555081692) in
+  let u23 = #arr.push(k, 1996064986) in
+  let u24 = #arr.push(k, 2554220882) in
+  let u25 = #arr.push(k, 2821834349) in
+  let u26 = #arr.push(k, 2952996808) in
+  let u27 = #arr.push(k, 3210313671) in
+  let u28 = #arr.push(k, 3336571891) in
+  let u29 = #arr.push(k, 3584528711) in
+  let u30 = #arr.push(k, 113926993) in
+  let u31 = #arr.push(k, 338241895) in
+  let u32 = #arr.push(k, 666307205) in
+  let u33 = #arr.push(k, 773529912) in
+  let u34 = #arr.push(k, 1294757372) in
+  let u35 = #arr.push(k, 1396182291) in
+  let u36 = #arr.push(k, 1695183700) in
+  let u37 = #arr.push(k, 1986661051) in
+  let u38 = #arr.push(k, 2177026350) in
+  let u39 = #arr.push(k, 2456956037) in
+  let u40 = #arr.push(k, 2730485921) in
+  let u41 = #arr.push(k, 2820302411) in
+  let u42 = #arr.push(k, 3259730800) in
+  let u43 = #arr.push(k, 3345764771) in
+  let u44 = #arr.push(k, 3516065817) in
+  let u45 = #arr.push(k, 3600352804) in
+  let u46 = #arr.push(k, 4094571909) in
+  let u47 = #arr.push(k, 275423344) in
+  let u48 = #arr.push(k, 430227734) in
+  let u49 = #arr.push(k, 506948616) in
+  let u50 = #arr.push(k, 659060556) in
+  let u51 = #arr.push(k, 883997877) in
+  let u52 = #arr.push(k, 958139571) in
+  let u53 = #arr.push(k, 1322822218) in
+  let u54 = #arr.push(k, 1537002063) in
+  let u55 = #arr.push(k, 1747873779) in
+  let u56 = #arr.push(k, 1955562222) in
+  let u57 = #arr.push(k, 2024104815) in
+  let u58 = #arr.push(k, 2227730452) in
+  let u59 = #arr.push(k, 2361852424) in
+  let u60 = #arr.push(k, 2428436474) in
+  let u61 = #arr.push(k, 2756734187) in
+  let u62 = #arr.push(k, 3204031479) in
+  let u63 = #arr.push(k, 3329325298) in
+  k
+def buildH = (h) =>
+  let u0 = #arr.push(h, 1779033703) in
+  let u1 = #arr.push(h, 3144134277) in
+  let u2 = #arr.push(h, 1013904242) in
+  let u3 = #arr.push(h, 2773480762) in
+  let u4 = #arr.push(h, 1359893119) in
+  let u5 = #arr.push(h, 2600822924) in
+  let u6 = #arr.push(h, 528734635) in
+  let u7 = #arr.push(h, 1541459225) in
+  h
+
+-- message padding into a mutable byte array (ints 0..255)
+def pushBytes = (arr, bytes, i, n) => if #i.ge(i, n) then arr else (let u = #arr.push(arr, #bget(bytes, i)) in pushBytes(arr, bytes, #i.add(i, 1), n))
+def pushZeros = (arr, count) => if #i.le(count, 0) then arr else (let u = #arr.push(arr, 0) in pushZeros(arr, #i.sub(count, 1)))
+def pushLenBytes = (arr, bitLen) =>
+  let u7 = #arr.push(arr, #i.and(#i.ushr(bitLen, 56), 255)) in
+  let u6 = #arr.push(arr, #i.and(#i.ushr(bitLen, 48), 255)) in
+  let u5 = #arr.push(arr, #i.and(#i.ushr(bitLen, 40), 255)) in
+  let u4 = #arr.push(arr, #i.and(#i.ushr(bitLen, 32), 255)) in
+  let u3 = #arr.push(arr, #i.and(#i.ushr(bitLen, 24), 255)) in
+  let u2 = #arr.push(arr, #i.and(#i.ushr(bitLen, 16), 255)) in
+  let u1 = #arr.push(arr, #i.and(#i.ushr(bitLen, 8), 255)) in
+  let u0 = #arr.push(arr, #i.and(bitLen, 255)) in
+  arr
+def padMessage = (bytes) =>
+  let n = #blen(bytes) in
+  let arr = pushBytes(#arr.new(), bytes, 0, n) in
+  let u1 = #arr.push(arr, 128) in
+  let curLen = #i.add(n, 1) in
+  let rem = #i.mod(curLen, 64) in
+  let zeros = if #i.le(rem, 56) then #i.sub(56, rem) else #i.sub(120, rem) in
+  let u2 = pushZeros(arr, zeros) in
+  let u3 = pushLenBytes(arr, #i.mul(n, 8)) in
+  arr
+
+-- message schedule
+def wordAt = (msg, base) =>
+  m32(#i.or(#i.or(#i.shl(#arr.get(msg, base), 24), #i.shl(#arr.get(msg, #i.add(base, 1)), 16)), #i.or(#i.shl(#arr.get(msg, #i.add(base, 2)), 8), #arr.get(msg, #i.add(base, 3)))))
+def buildW0 = (w, msg, off, t) => if #i.ge(t, 16) then w else (let u = #arr.push(w, wordAt(msg, #i.add(off, #i.mul(t, 4)))) in buildW0(w, msg, off, #i.add(t, 1)))
+def buildW1 = (w, t) => if #i.ge(t, 64) then w else (let s1 = ssig1(#arr.get(w, #i.sub(t, 2))) in let s0 = ssig0(#arr.get(w, #i.sub(t, 15))) in let wv = m32(#i.add(#i.add(s1, #arr.get(w, #i.sub(t, 7))), #i.add(s0, #arr.get(w, #i.sub(t, 16))))) in let u = #arr.push(w, wv) in buildW1(w, #i.add(t, 1)))
+
+-- compression
+def copyH = (st, h, i) => if #i.ge(i, 8) then st else (let u = #arr.push(st, #arr.get(h, i)) in copyH(st, h, #i.add(i, 1)))
+def rounds = (st, w, k, t) =>
+  if #i.ge(t, 64) then st
+  else (
+    let a = #arr.get(st, 0) in let b = #arr.get(st, 1) in let c = #arr.get(st, 2) in let d = #arr.get(st, 3) in
+    let e = #arr.get(st, 4) in let f = #arr.get(st, 5) in let g = #arr.get(st, 6) in let hh = #arr.get(st, 7) in
+    let t1 = m32(#i.add(#i.add(hh, bsig1(e)), #i.add(ch(e, f, g), #i.add(#arr.get(k, t), #arr.get(w, t))))) in
+    let t2 = m32(#i.add(bsig0(a), maj(a, b, c))) in
+    let u7 = #arr.set(st, 7, g) in
+    let u6 = #arr.set(st, 6, f) in
+    let u5 = #arr.set(st, 5, e) in
+    let u4 = #arr.set(st, 4, m32(#i.add(d, t1))) in
+    let u3 = #arr.set(st, 3, c) in
+    let u2 = #arr.set(st, 2, b) in
+    let u1 = #arr.set(st, 1, a) in
+    let u0 = #arr.set(st, 0, m32(#i.add(t1, t2))) in
+    rounds(st, w, k, #i.add(t, 1)))
+def updateH = (h, st, i) => if #i.ge(i, 8) then h else (let u = #arr.set(h, i, m32(#i.add(#arr.get(h, i), #arr.get(st, i)))) in updateH(h, st, #i.add(i, 1)))
+def processBlock = (msg, k, h, off) =>
+  let w = buildW1(buildW0(#arr.new(), msg, off, 0), 16) in
+  let st = rounds(copyH(#arr.new(), h, 0), w, k, 0) in
+  updateH(h, st, 0)
+def processBlocks = (msg, k, h, off, total) => if #i.ge(off, total) then h else (let h2 = processBlock(msg, k, h, off) in processBlocks(msg, k, h2, #i.add(off, 64), total))
+
+-- hex output
+def hexDigit = (d) => if #i.lt(d, 10) then #i.add(48, d) else #i.add(87, d)
+def wordHex = (w) => #sfromCodes(Cons(hexDigit(#i.and(#i.ushr(w, 28), 15)), Cons(hexDigit(#i.and(#i.ushr(w, 24), 15)), Cons(hexDigit(#i.and(#i.ushr(w, 20), 15)), Cons(hexDigit(#i.and(#i.ushr(w, 16), 15)), Cons(hexDigit(#i.and(#i.ushr(w, 12), 15)), Cons(hexDigit(#i.and(#i.ushr(w, 8), 15)), Cons(hexDigit(#i.and(#i.ushr(w, 4), 15)), Cons(hexDigit(#i.and(w, 15)), Nil)))))))))
+def hashHex = (h, i) => if #i.ge(i, 8) then "" else #sconcat(wordHex(#arr.get(h, i)), hashHex(h, #i.add(i, 1)))
+
+def sha256Hex = (s) =>
+  let bytes = #str->utf8(s) in
+  let msg = padMessage(bytes) in
+  let k = buildK(#arr.new()) in
+  let h = buildH(#arr.new()) in
+  let h2 = processBlocks(msg, k, h, 0, #arr.len(msg)) in
+  hashHex(h2, 0)

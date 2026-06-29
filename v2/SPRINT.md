@@ -754,3 +754,35 @@ effects use a uniform `Dyn -> Comp` resume; typing the resume per op is a separa
       across run-ir/JS/Rust (IEEE-754, fixed op order); a 14-check example sums to `14` identically on all three.
       conformance +4. **The float-math story is now complete: arithmetic + comparison + abs/sign/min/max +
       rounding + sqrt/cbrt + exp/ln/log-bases + full trig + inverse trig + hyperbolic + pi/hypot.**
+
+## K36+ — clear the remaining backlog (everything except WASM) — user mandate 2026-06-29
+
+User: "бери все, занеси в спринт, и делай … все кроме wasm". All non-WASM Backlog/Remaining items, planned as slices:
+
+- [x] **K36 — `hash.sha256` DONE** (conformance +1). From-scratch SHA-256 in raw ssc0 (`lib/sha256.ssc0`,
+      ~70 defs) over the kernel's bitwise (`#i.and/or/xor/shl/ushr/not`) + byte (`#str->utf8`/`#blen`/`#bget`) +
+      mutable-array (`#arr.new/push/get/set/len`) prims, masked to 32 bits (`#i.and(x, 4294967295)`); imperative
+      sieve-style threading (`let u = #arr.set(…) in …`). `rotr`/`shr`/`Ch`/`Maj`/`Σ`/`σ` helpers, 64-word
+      schedule, 64-round compression, padded big-endian length, hex via `#sfromCodes`. **VM-only (run-ir) BY
+      DESIGN** — JS bitwise is 32-bit-signed vs run-ir/Rust 64-bit, so raw bitwise isn't cross-backend-sound
+      (same reason `#arr`/`#map` programs are VM-only). **Vector-gated**: `sha256Hex` of `""`/`"abc"`/`"hello"`/
+      an 85-byte multi-block input all match the standard vectors (self-check returns 4). `sha256Hex "abc"` =
+      `ba7816bf…20015ad`. Kernel +0 (still 913).
+- [ ] **K37 — structural map keys.** `lib/map.ssc0` keys by `#seq` (strings only). Add a structural-equality
+      `valEq` (recursive over Data via `#tagOf`/`#arity`/`#fieldAt` + scalar `#i.eq`/`#seq`/`#f.eq`) and a
+      `lib/mapx.ssc0` (or a key-eq parameter) so any value — ints, tuples, ADTs, nested — can be a key. Pure ssc0,
+      runs on all targets. Kernel +0.
+- [ ] **K38 — bare-`#prim` η-expansion.** `#i.add` as a *value* (not applied) currently errors ("wrap it").
+      Add a prim-arity table to the self-hosted **`lib/ssc0c.ssc0`** so a bare `#prim` lowers to
+      `(a, b) => #prim(a, b)`. Keeps the frozen Scala front untouched (it stays the bootstrap; ssc0c is the real
+      compiler). Lets `map #i.neg xs` etc. Kernel +0.
+- [ ] **K39 — typed handler resumes (effects).** The general `handle` keeps an untyped `Dyn` resume; typed
+      per-op resume needs a per-op handler form. Design in specs/54. Attempt a bounded version in `lib/effects`
+      / ssct-hm effect surface; if it needs a full new syntax + infer pass, scope it down and ship what's sound.
+- [ ] **K40 — `v2-bin` compact binary IR.** Core IR is canonical S-expr text today. Add a compact binary
+      encode/decode (tag bytes + varints) as an ssc0 lib over `#arr`/byte prims, round-tripping to the S-expr
+      form (`binEncode (parse sexpr) == bytes`, `decode (binEncode x) == x`). A serialization-format slice; no
+      kernel change (the kernel still reads S-expr; bin is a tooling layer).
+- [ ] **K41 — effect-row inference (attempt/scope).** Static effect-SET tracking in the HM layer (which effects
+      a term may perform, `runE` rejects unhandled). Genuinely research-leaning; attempt a tractable design
+      (annotate-and-check rather than full row-polymorphism) and ship whatever is sound, documenting the boundary.

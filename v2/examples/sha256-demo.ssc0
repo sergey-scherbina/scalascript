@@ -1,0 +1,9 @@
+import "../lib/sha256.ssc0"
+-- self-checking against the standard SHA-256 vectors (empty, "abc", "hello", and an 85-byte multi-block input).
+-- returns the number of vectors that match (4 = all pass).
+def chk = (got, want) => if #seq(got, want) then 1 else 0
+def main = () =>
+  #i.add(chk(sha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+  #i.add(chk(sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+  #i.add(chk(sha256Hex("hello"), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"),
+         chk(sha256Hex("The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs."), "d51712a8d1852b5acf942c19caddf168f80120d2f3a72c2d917227fd37f22788"))))
