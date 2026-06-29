@@ -27,11 +27,12 @@ the `ssc 1.0` tree. Fuses what was scoped as K1 (VM) + K-seed (ssc0 front). Deci
 - [x] Green: `conformance/check.sh` — all three modes, ssc0 examples + ir fixtures + the
       `ssc0 → ir` map-def reproduction, incl. `tco` at 1e6 depth in constant stack.
 
-Deferred (widen as the tower needs): rest of δ (`big.*`/`f.*`/string/bytes/`map.*`/`arr.*`/
-`cell.*`/`io.*` files/`coreir.encode-decode` as a prim); ssc0 `import` (multi-file);
-bare-`#prim` η-expansion; Array-env / binary `ir` (`v2-bin`) for speed.
+Resolved on the tower after the freeze: δ was widened, ssc0 imports became multi-file,
+bare-`#prim` values are eta-expanded by `ssc0c`, and `v2-bin` provides a compact binary IR
+tooling format. Still deliberately open: `coreir.decode` as a kernel primitive, Array-env
+for VM speed, and WASM until a toolchain is available.
 
-## K2 — grow the tower (toward self-hosting)  ◀ current
+## K2 — grow the tower (toward self-hosting)  ✅ COMPLETE (2026-06-27)
 
 Each layer is a program compiled/run by the layer below: `ssc0 → ssc.1 → ssct → …`.
 
@@ -48,13 +49,27 @@ Each layer is a program compiled/run by the layer below: `ssc0 → ssc.1 → ssc
       compiler written in ssc0, compiled by the Scala front and run on its **own source**,
       reproduces itself byte-for-byte (gen1==gen2==gen3). Differential invariant `ssc0c X ==
       ssc compile X` holds on fact/tco/map/calc. `specs/20-bootstrap.md`. **Kernel: +0.**
-- [ ] Richer types (HM/unification, products/sums) — tower growth, all in ssc0.
+- [x] **Richer types / HM layer** — `ssct-hm` grew Algorithm W, let-polymorphism,
+      products/tuples, records, sums/user ADTs, pattern matching, qualified-type-style
+      dictionary passing for Num/Ord/user methods, effect rows, and typed resumes for
+      single-op effects — all in ssc0, Kernel +0.
 
-## K3 — Regrow the world (on the tower)
+## K3 — Regrow the world (on the tower)  ✅ NON-WASM COMPLETE through K45 (2026-06-29)
 
 Incremental dogfood, each an ssc-compiled program: standard library; full type system;
 effects/actors/async as libraries (lowered to ir, no kernel change); JVM/JS/WASM backends
 as programs `ir → target`.
+
+- [x] **Stdlib breadth** — list/string/option/stream helpers, structural `mapx`/`set`,
+      Either/Result combinators, SHA-256, and full pure float math/rounding/trig/log library.
+- [x] **Typed language breadth** — `ssct-hm` is the main typed surface and compiles real programs
+      to VM, JS, and native Rust; `examples/hm-json.hm` is the current whole-language showcase.
+- [x] **Backends** — VM, JS, and native Rust are TCO-correct and covered by conformance.
+- [x] **Effects / async / actors** — algebraic effects, cooperative async, and core actor
+      semantics are libraries on the tower, not kernel features.
+- [ ] **WASM** — blocked on missing `wabt`/`wasmtime`/`wasmer` or a Rust WASM target. Reuse the
+      Rust backend when `rustup target add wasm32-wasip1` is available, or build a binary wasm
+      emitter plus runtime.
 
 ## Invariants across all milestones
 

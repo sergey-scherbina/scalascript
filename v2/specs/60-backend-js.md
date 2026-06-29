@@ -43,4 +43,5 @@ loop, `500000500000`, now runs in constant stack).
 
 The backend is itself a program on the tower (`ssc0c` front + a ~110-line ssc0 code
 generator). To add a target you write a walker over the same IR — the kernel does not change.
-Next: `ir → Rust` (`specs/61-backend-rust.md`), then WASM; a TCO-trampoline pass for JS.
+Rust has since shipped in [`specs/61-backend-rust.md`](61-backend-rust.md), and both JS and
+Rust are TCO-correct. WASM remains the next target once a usable toolchain is available.

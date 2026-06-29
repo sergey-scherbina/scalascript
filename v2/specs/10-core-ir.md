@@ -221,7 +221,7 @@ compare `big.eq big.lt big.le big.gt big.ge` → `Bool`
 **Float — IEEE-754 double (`f.*`):**
 `f.add f.sub f.mul f.div f.neg` · `f.sqrt` · `f.floor f.ceil f.round f.trunc` ·
 compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · `f.isNaN f.isInf` → `Bool`
-(other transcendentals — `sin`/`cos`/`log`/`exp` — deferred to a later `mathx.*` group, §8)
+(transcendentals such as `sin`/`cos`/`log`/`exp` live in the `ssct-hm` prelude, not the kernel)
 
 **Numeric conversions (explicit — the kernel has no implicit coercion):**
 `i->big` · `big->i` (may overflow) · `i->f` · `f->i` (truncate toward zero) · `big->f` ·
@@ -242,7 +242,8 @@ compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · 
 **Data (generic):** `tagOf d`→`Str` · `arity d`→`Int` · `fieldAt d i`→`Value`
 (Match is the normal destructurer; these help generic code)
 
-**Map — `Foreign`, mutable hash map (keys: `Str`|`Int`):**
+**Map — `Foreign`, mutable hash map (keys and values are arbitrary `Value`s, compared
+structurally by the host value representation):**
 `map.new` · `map.get m k`→`Data Option` · `map.put m k v` **[eff]** · `map.has`→`Bool` ·
 `map.del` **[eff]** · `map.keys m`→list · `map.size`→`Int`
 
@@ -284,8 +285,8 @@ canonical S-expr of §12; `IrEncode` in `Runtime.scala`; used by `lib/ssct-emit.
 the `.ssct → ir → run-ir` loop). `Option` results use `Some`/`None`; lists use `Cons`/`Nil`.
 **Strings are UTF-16 code units** (O(1) indexing, matching JVM/JS) — `slen`/`scodeAt`/`sslice`/
 `sfromCodes` index in code units, not code points (a deliberate relaxation of the original
-"code points" wording for practical performance). Still deferred: `coreir.decode`, `mathx.*`
-transcendentals.
+"code points" wording for practical performance). Still deferred at the kernel level:
+`coreir.decode`.
 
 ## 6. Program envelope
 
@@ -332,14 +333,16 @@ Resolved this round (no longer open): **`BigInt` + `Float` are in the kernel** (
 **TCO is a kernel guarantee** (invariant 7); **evaluation is strict CBV, laziness is a
 thunk library** (invariant 2).
 
+Resolved after the freeze, without changing Core IR:
+
+- **`mathx.*`** — shipped as pure `ssct-hm` prelude code (`K33`-`K35`), not as kernel primitives.
+- **Structural map keys** — the runtime `map.*` primitives already accept arbitrary `Value` keys;
+  `lib/mapx.ssc0` and `lib/set.ssc0` build structural map/set helpers on top.
+- **`hash.sha256`** — shipped as `lib/sha256.ssc0`, written in raw ssc0 over existing bitwise,
+  byte, array, and string-building primitives.
+
 Still open / deferred:
 
-- **`mathx.*`** — transcendental floats (`sin cos tan log exp pow atan2`, …). Deferred; a
-  later primitive group, since IEEE-correct versions can't be written in-language.
-- **Structural map keys** — keys are `Str`|`Int` for now; structural-value keys via a
-  `hash`/`eq` primitive pair later if needed.
-- **`hash.sha256 bytes`** — would make content-addressed IR and the fixpoint diff
-  cheaper; tiny, optional, can land with K1.
 - **Surface evaluation default (strict vs lazy)** — a *surface-language* question, decided
   later in the outer compiler; **does not affect the kernel** (invariant 2): a CBV kernel
   hosts either via thunk lowering.

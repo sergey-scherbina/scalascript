@@ -114,8 +114,9 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       0 backend change. Bit-identical across run-ir/JS/Rust (all IEEE-754 doubles, same op order).
       structural map keys **DONE (K37, lib/mapx.ssc0)**; `hash.sha256` **DONE (K36, lib/sha256.ssc0)**.
       (`10-core-ir.md §8`.)
-- [ ] K3: stdlib, full type system, effects/actors as libraries, JVM/JS/WASM backends as
-      ssc-compiled programs `ir → target`.
+- [x] K3 non-WASM breadth **DONE through K45**: stdlib, HM typed surface, effects/actors/async
+      as libraries, and VM/JS/native-Rust backends as ssc-compiled programs. WASM remains the
+      separate toolchain-blocked item above.
 
 ## K5 — ssct-hm: a Hindley-Milner typed language (DONE 2026-06-27)
 
