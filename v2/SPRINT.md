@@ -861,23 +861,20 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       `{1,2,3}` (deduped from `[1,2,3,2,1]`) vs `{2,3,4}` → ∪=4, ∩=2, ∖=1, member ✓; plus structural tuple dedup
       (`{(1,2),(1,2),(3,4)}` → size 2). Result `234211`. Kernel +0.
 
-- [ ] **K46 — reconcile stale v2 status docs + async/actor breadth** (claim:
-      `v2-k46-async-actors-roadmap`). Two slices:
-      1. **Docs/status reconcile first** — update `v2/ROADMAP.md`, `v2/README.md`, and stale
-         spec status notes (`specs/10-core-ir.md`, `specs/60-backend-js.md`, and any directly
-         related status text) so a fresh agent sees K45 reality: HM/richer types, mathx, SHA-256,
-         structural map/set, JS and Rust are done; WASM remains toolchain-blocked.
-      2. **K46 feature slice** — write `v2/specs/56-async-actors-breadth.md` before code, then
-         add a bounded library-level concurrency breadth increment: futures/promises, channels,
-         and mailbox-style actor helpers on the existing effect/scheduler model. Prefer pure
-         `ssct-hm`/ssc0 library/examples and keep the frozen Scala kernel unchanged (`Kernel +0`).
-         Verify on VM/JS/Rust where the feature uses cross-backend-safe primitives.
-      Done when: the spec behavior boxes are checked, examples are covered by `v2/conformance/check.sh`
-      (or a documented narrower command if stack limits require it), docs reflect the shipped boundary,
-      and this item is marked done with commit/result notes.
+- [x] **K46 — reconcile stale v2 status docs + async/actor breadth DONE** (claim:
+      `v2-k46-async-actors-roadmap`). Reconciled `v2/ROADMAP.md`, `v2/README.md`,
+      `specs/10-core-ir.md`, and `specs/60-backend-js.md` with K45 reality. Added
+      `specs/56-async-actors-breadth.md`, then shipped `runAsync` in `lib/async.ssc0`:
+      futures/promises (`future`/`await`), buffered integer channels (`send`/`recv`), and
+      mailbox aliases (`mailboxSend`/`mailboxReceive`) on the existing `Comp` effect model.
+      Examples: `async-future`, `async-channel`, `async-channel-buffer`, `async-mailbox`;
+      all run on VM/JS/Rust via `conformance/check.sh`. Kernel +0. Gotcha: direct `yield =
+      Op(...)` avoids eager top-level value ordering issues in generated JS; JS/Rust generation for
+      the richer raw scheduler uses `java -Xss512m -jar` like the JSON showcase.
 
 **K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
 mapx/set/option/stream + a ~90-fn ssct-hm prelude (incl. Either + full math); the type system is a complete
-HM language (now with tuple-typed ADT fields); effects/actors/async are libraries; backends JS+Rust are ssc0
-programs; and the JSON showcase proves a real program compiles to all 3 targets. Remaining is open-ended
+HM language (now with tuple-typed ADT fields); effects/actors/async are libraries (K46 adds futures/channels/
+mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a real program compiles to all
+3 targets. Remaining is open-ended
 breadth (more libs/showcases on demand) + WASM (toolchain-blocked).

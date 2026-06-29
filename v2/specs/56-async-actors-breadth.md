@@ -29,19 +29,19 @@ continues to cover the minimal v1 scheduler; `runAsync` is the richer K46 schedu
 
 ## Behavior
 
-- [ ] A parent can `future` a child, continue running, then `await` the future; the
+- [x] A parent can `future` a child, continue running, then `await` the future; the
       parent suspends if the child has not resolved and resumes with the child's final
       value after resolution.
-- [ ] `await` on an already-resolved future resumes immediately without re-running the
+- [x] `await` on an already-resolved future resumes immediately without re-running the
       child.
-- [ ] `recv` on an empty channel suspends the task; a later `send` to that channel wakes
+- [x] `recv` on an empty channel suspends the task; a later `send` to that channel wakes
       exactly one receiver with the sent value.
-- [ ] `send` to a channel with no waiting receiver buffers the value; a later `recv`
+- [x] `send` to a channel with no waiting receiver buffers the value; a later `recv`
       consumes buffered values FIFO.
-- [ ] Mailbox helpers are thin actor-facing channel aliases: two actor tasks can block
+- [x] Mailbox helpers are thin actor-facing channel aliases: two actor tasks can block
       on their mailbox ids and exchange messages while the scheduler remains purely
       cooperative.
-- [ ] The new examples run on VM, JS, and native Rust with identical observable logs.
+- [x] The new examples run on VM, JS, and native Rust with identical observable logs.
 
 ## Out of scope
 
@@ -84,4 +84,23 @@ that repeatedly `mailboxReceive self`, update local state in their closure, and
 
 ## Results
 
-Filled after implementation and conformance.
+Implemented in `lib/async.ssc0` as K46 `runAsync`, leaving the existing small `runSched`
+unchanged. Added four examples:
+
+- `examples/async-future.ssc0` -> `Cons(1, Cons(2, Cons(10, Cons(20, Cons(7, Cons(7, Nil))))))`
+  on VM/JS/Rust. The second `7` is a repeat `await` on an already-resolved future.
+- `examples/async-channel.ssc0` -> `Cons(1, Cons(2, Cons(42, Nil)))` on VM/JS/Rust.
+- `examples/async-channel-buffer.ssc0` -> `Cons(1, Cons(5, Cons(6, Nil)))` on VM/JS/Rust.
+- `examples/async-mailbox.ssc0` -> `Cons(0, Cons(1, Cons(2, Cons(3, Cons(4, Nil)))))` on
+  VM/JS/Rust.
+
+Verification: `cd v2 && conformance/check.sh` passed end-to-end after the K46 checks were
+added. The final run also checked captured stdout/stderr for `FAIL` and `command not found`;
+none were present. JS/Rust generation for the new raw ssc0 examples uses the same
+`java -Xss512m -jar` path as the large JSON showcase because the richer scheduler makes the
+backend generator stack-heavy on the Scala VM. Kernel remains unchanged (`Kernel +0`).
+
+Gotcha captured during implementation: raw ssc0 top-level value defs are evaluated before
+all imported value defs are initialized on some generated backends. `yield` is therefore
+defined directly as `Op("yield", (), ...)` instead of as eager `perform("yield", ())`; the
+function-valued ops can still call `perform` lazily.

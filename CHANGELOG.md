@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-29 — v2 K46: async futures/channels/mailboxes + roadmap reconcile
+
+v2 status docs now match the K45 state: `ROADMAP.md`, `README.md`, Core IR notes, and JS backend notes no
+longer list shipped work (`ssct-hm`, mathx, SHA-256, structural map/set, Rust backend) as open. K46 adds
+`v2/specs/56-async-actors-breadth.md` and extends `lib/async.ssc0` with `runAsync`: futures/promises
+(`future`/`await`), buffered integer channels (`send`/`recv`), and mailbox aliases
+(`mailboxSend`/`mailboxReceive`) over the existing `Comp` effect representation. New examples cover future
+await + repeated ready await, blocking receive, FIFO buffered receive, and ping/pong mailbox actors; all are in
+`v2/conformance/check.sh` and run on VM, JS, and native Rust. Kernel remains frozen (`Kernel +0`).
+
+Also fixed a conformance harness quoting bug where Markdown backticks in `echo` headings produced shell
+`command not found` noise despite green assertions.
+
 ## 2026-06-23 — UCC web fixes (rozum/sunny-civet): F1 DataTable rowsPath + E3 def view() client-mode mount
 
 Two compiler-side bugs reported from the Unified Control Center frontend:

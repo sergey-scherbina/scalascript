@@ -12,6 +12,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-conformance-echo-backticks — `fixed` (2026-06-29)
+
+- **Found by:** codex, while running full `v2/conformance/check.sh` for K46 async/actor breadth.
+- **Symptom:** the conformance assertions were green, but the harness printed shell noise such as
+  `show: command not found`, `method: command not found`, `effect: command not found`, and
+  `a,b,c,d: command not found` to stderr.
+- **Repro:** `cd v2 && conformance/check.sh`; the offending `echo "..."` lines contained Markdown
+  backticks, so the shell performed command substitution before printing the heading.
+- **Root cause:** double-quoted shell strings around headings that intentionally contained literal
+  backticks.
+- **FIXED (2026-06-29):** changed those headings to single-quoted strings. `bash -n
+  v2/conformance/check.sh` passes, and the final full K46 conformance rerun completed successfully
+  with captured stdout/stderr checked for `FAIL` and `command not found` (none present).
+
 ## parser-trysplitparse-quadratic-hang — `fixed` (2026-06-28)
 
 - **Found by:** busi (phone-demo hub). A `/api/issue` route used `given` as a local val name: `val given = req.form.getOrElse("number", ""); val number = if given.length > 0 then given else …`. Loading the ~3500-line `demo_server.ssc` pegged one core at ~100% CPU and never bound (>90s); the *same* code in a tiny file instead fast-failed with `illegal start of definition`. (busi originally mis-attributed this to the `if <param> then <param> else …` shape and to a `View[Int]` — both red herrings; the trigger is purely the identifier name.)

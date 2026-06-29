@@ -33,7 +33,9 @@ the other until `n` reaches 5. Starting with `ping ! Ball(0)`, the delivery trac
 
 ssc 1.0 has a full actor runtime (mailboxes, supervision, wire protocol, clustering). v2 gets
 the core semantics — addressing, per-actor state, message-driven behavior — from ~20 lines of
-ssc0. On top of the cooperative scheduler (`specs/51-async.md`) this becomes *concurrent*
-actors with blocking `receive`; supervision is a parent actor watching children; a wire
-protocol is `coreir.encode`/serialization over a transport primitive. All libraries; the
-kernel stays a strict, single-threaded, effect-free 913-line core.
+ssc0. K46 adds mailbox helpers on top of the richer cooperative scheduler
+(`specs/51-async.md`, `specs/56-async-actors-breadth.md`): actor tasks can block on
+`mailboxReceive(id)` and wake each other with `mailboxSend(id, msg)`, still as ordinary
+library code. Supervision is a parent actor watching children; a wire protocol is
+`coreir.encode`/serialization over a transport primitive. All libraries; the kernel stays a
+strict, single-threaded, effect-free 913-line core.
