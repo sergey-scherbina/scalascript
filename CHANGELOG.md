@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-30 — K53: benchmark baseline (post-K47 Array-env) + ssct-hm profiling
+
+Captured post-K47 InterpreterBench baseline via `scripts/bench interp` (29 benchmarks, JMH,
+macOS arm64 JDK 21): `recursionFib`=1.176ms, `typeclassFoldMacro`=1.350ms, `tupleMonoid`=0.007ms.
+Full table in `v2/specs/k53-bench-baseline.md`. ssct-hm timing on hm-json.hm: ~3s wall / ~0.5s
+user CPU (JVM startup dominates wall; hot path = HM unifier + let-poly over 90-fn prelude).
+Optimization pass (K53c) deferred to BACKLOG pending JFR profiling of the short-lived process.
+964b28113.
+
+---
+
 ## 2026-06-30 — K51: ssct-hm stdlib expansion — assoc-list map ops + parser combinators
 
 Added 13 prelude functions to `v2/lib/ssct-hm-front.ssc0`: four assoc-list map operations

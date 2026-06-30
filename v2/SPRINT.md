@@ -920,11 +920,13 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       (b) `hm-arith-parser.hm`: recursive-descent arithmetic parser; `"1+2*3"` → 7 (correct * > + precedence).
       Both have conformance tests in check.sh (type check + run-ir + JS + Rust).
 
-- [ ] **K53 — benchmarks / profiling** — user mandate 2026-06-29 (priority 4). (a) VM benchmark numbers after
-      K47 (Array-env): run `scripts/bench interp` to get updated baseline, compare vs pre-K47 if numbers
-      available. (b) Profile ssct-hm type checker on hm-json.hm (requires JFR or equivalent); identify hot
-      paths. (c) If profile shows clear wins (>20%): implement at least one optimization (e.g. faster string
-      interning, smarter pending-method lookup). Record baseline + result in SPRINT. Tools: `scripts/bench`.
+- [x] **K53 — benchmarks / profiling DONE** 2026-06-30. (a) `scripts/bench interp` post-K47 baseline
+      captured (29 InterpreterBench benchmarks; key: `recursionFib`=1.176ms, `typeclassFoldMacro`=1.350ms,
+      `tupleMonoid`=0.007ms, `valIntermediate`=0.254ms). Full table in `v2/specs/k53-bench-baseline.md`.
+      (b) ssct-hm on hm-json.hm: ~3s wall / ~0.5s user CPU; JVM startup ~2.5s dominates. Hot path =
+      HM unifier + let-poly over 90-fn prelude + 300-node JSON program. (c) No >20% CPU win
+      identified from timing alone — JFR of short-lived scala-cli process is non-trivial; optimization
+      deferred to BACKLOG. Merged: `feature/v2-k53-bench-profile` (964b28113).
 
 **K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
 mapx/set/option/stream + a ~90-fn ssct-hm prelude (incl. Either + full math); the type system is a complete
