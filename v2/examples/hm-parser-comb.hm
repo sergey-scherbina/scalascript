@@ -1,0 +1,42 @@
+// K51: combinator-based arithmetic parser.  "3+4*2" => 11 (* before +).
+// Uses prelude: pChar, pDigit, pStr, pSeq, pAlt, pMap, pMany, pInt.
+// type: Int   out: 11
+// pSpaces skips any spaces (char code 32)
+let pSpaces = pMany (pChar (fun c => c = 32)) in
+// skipSp p = skip leading spaces, then run p
+let skipSp = fun p => pSeq pSpaces p (fun _ => fun x => x) in
+// pAtom = integer literal (one or more digits)
+let pAtom = skipSp pInt in
+// pMul = atom (* atom)*
+let rec pMul = fun s => fun i =>
+  match pAtom s i {
+    None => None
+  | Some r1 => match r1 { (v, j) =>
+      match skipSp (pStr "*") s j {
+        None => Some (v, j)
+      | Some r2 => match r2 { (_, k) =>
+          match pMul s k {
+            None => Some (v, j)
+          | Some r3 => match r3 { (w, m) => Some (v * w, m) }
+          }
+        }
+      }
+    }
+  } in
+// pAdd = mul ('+' mul)*
+let rec pAdd = fun s => fun i =>
+  match pMul s i {
+    None => None
+  | Some r1 => match r1 { (v, j) =>
+      match skipSp (pStr "+") s j {
+        None => Some (v, j)
+      | Some r2 => match r2 { (_, k) =>
+          match pAdd s k {
+            None => Some (v, j)
+          | Some r3 => match r3 { (w, m) => Some (v + w, m) }
+          }
+        }
+      }
+    }
+  } in
+match pAdd "3+4*2" 0 { None => 0 | Some r => match r { (v, _) => v } }
