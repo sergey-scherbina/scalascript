@@ -14,12 +14,12 @@ import java.io.{ByteArrayOutputStream, OutputStream}
  *  tiny Java class that references a runtime type to prove the classpath works. */
 class JitClasspathTest extends AnyFunSuite:
 
-  /** Compile a Java class referencing `scalascript.interpreter.Value`; true iff
+  /** Compile a Java class referencing `scalascript.interpreter.DataValue`; true iff
    *  javac resolved it. Class output is discarded (no cwd pollution). */
   private def canResolveRuntime(opts: java.util.List[String] | Null): Boolean =
     val compiler = ToolProvider.getSystemJavaCompiler
     if compiler == null then return true
-    val src = "public class _SscCpProbe { public static Object f() { return scalascript.interpreter.Value.class; } }"
+    val src = "public class _SscCpProbe { public static Object f() { return scalascript.interpreter.DataValue.class; } }"
     val javaFile = new SimpleJavaFileObject(URI.create("string:///_SscCpProbe.java"), JavaFileObject.Kind.SOURCE):
       override def getCharContent(ignoreEncodingErrors: Boolean): CharSequence = src
     val sink = new ByteArrayOutputStream()
@@ -36,7 +36,7 @@ class JitClasspathTest extends AnyFunSuite:
     assert(!JavacJitBackend.jitClasspathOptions.isEmpty,
       "jitClasspathOptions should harvest classpath entries (classloader URLs / java.class.path)")
     assert(canResolveRuntime(JavacJitBackend.jitClasspathOptions),
-      "javac must resolve scalascript.interpreter.Value with jitClasspathOptions — the JIT compiles regardless of launch mode")
+      "javac must resolve scalascript.interpreter.DataValue with jitClasspathOptions — the JIT compiles regardless of launch mode")
     // NOTE: under sbt's *forked* tests `java.class.path` already carries the runtime
     // classes, so `null` options resolve too here; the fix is load-bearing for the
     // unforked `runMain` / layered-classloader case where it does not. Passing the
