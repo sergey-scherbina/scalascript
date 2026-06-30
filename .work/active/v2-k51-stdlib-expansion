@@ -1,0 +1,4 @@
+agent: claude-code
+heartbeat: 2026-06-30T09:21:56Z
+status: implementing
+task: K51 — ssct-hm stdlib expansion: assoc-list Map ops, sortBy, parser combinators
