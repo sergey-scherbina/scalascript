@@ -1,0 +1,4 @@
+agent: claude-code
+heartbeat: 2026-06-30T09:20:56Z
+status: implementing
+task: fix AsmJitBackend/JavacJitBackend JVM class names after value-unification; 1878 tests pass, committing
