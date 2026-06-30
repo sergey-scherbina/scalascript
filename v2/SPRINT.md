@@ -906,15 +906,14 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       `parseFnType` instead of `parseAscType` so `->` parses in method sigs. Example: `hm-method-binary.hm`
       (`method smaller : self -> Bool`; `myMin`; type `(Int, Float)`; all 3 backends → `Pair(3, 1.5)`).
 
-- [ ] **K51 — ssct-hm stdlib expansion** — user mandate 2026-06-29 (priority 2). Extend the ssct-hm prelude
-      (`v2/lib/ssct-hm-front.ssc0` `prelude` section) with utility functions covering: (a) Map operations on
-      association lists (`lookup`, `insert`, `delete`, `unionWith`, `mapKV`) — these work on `[(k, v)]` lists
-      using existing list primitives + equality; (b) `Writer`/`Reader` as effect wrappers (Writer = `{Log}` eff
-      already in prelude, Reader = `{State}` eff for environment threading); (c) parser combinators as ordinary
-      higher-order functions: `pChar`, `pStr`, `pDigit`, `pSeq`, `pAlt`, `pMap`, `pMany`, `pInt`, `pResult`;
-      (d) `sortBy : (a -> a -> Bool) -> [a] -> [a]` (insertion sort using a comparison function).
-      Example: `examples/hm-stdlib-map.hm` + `examples/hm-parser-comb.hm` (parse `"3+4*2"` → 11 via combinator
-      grammar). Conformance: add chk_hm + run-ir tests for each new example. Kernel +0.
+- [x] **K51 — ssct-hm stdlib expansion** — DONE 2026-06-30 (commit 0152b7d41). Added 13 prelude functions:
+      alist ops `insertKV`/`deleteKV`/`unionKV`/`mapVals` (dict-fns on key type; `nub` + `lookup` already present);
+      parser combinators `pResult`/`pFail`/`pChar`/`pMap`/`pAlt`/`pSeq`/`pInt`/`pMany1`/`pMany`/`pDigit`/`pStr`.
+      Also fixed `tagOfArg` in `ssct-hm-emit.ssc0` to handle desugared `LCons(h,t)` / `ConApp("Pair",[k,v])` forms
+      (was defaulting to "Int" for literal list/alist args, breaking any dict-fn called with a list literal).
+      Examples: `hm-stdlib-map.hm` → 100 (insertKV/deleteKV/unionKV/mapVals/lookup on alists);
+      `hm-parser-comb.hm` → 11 ("3+4*2", mutual-rec pExpr/pTerm, * before +). Both green run-ir/JS/Rust.
+      Conformance: chk_hm + run-ir + JS + Rust added for both examples.
 
 - [x] **K52 — showcase programs** — DONE 2026-06-30. Two self-contained programs on all 3 backends:
       (a) `hm-lambda.hm`: lambda calculus interpreter (ADTs + subst + reduce + showE); `(const (id a) b)` → `"a"`.
