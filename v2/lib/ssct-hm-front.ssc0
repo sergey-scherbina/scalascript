@@ -768,7 +768,7 @@ def parseMethodDecl = (toks) =>                        -- after 'method':  m (':
   match toks { case Cons(t, rest) => match t { case TName(m) =>
       let u = registerMethod(m) in
       match rest { case Cons(t2, r1) => match t2 {
-          case TPunct(p) => if #seq(p, ":") then match parseAscType(r1) { case Pair(rTy, r2) => let u2 = registerMethodSig(m, rTy) in parseProgram(drop1(r2)) } else parseProgram(drop1(rest))
+          case TPunct(p) => if #seq(p, ":") then match parseFnType(Nil, r1) { case Pair(rTy, r2) => let u2 = registerMethodSig(m, rTy) in parseProgram(drop1(r2)) } else parseProgram(drop1(rest))
           case _ => parseProgram(drop1(rest)) } case Nil => Pair(ParseErr, Nil) }
       case _ => Pair(ParseErr, Nil) } case Nil => Pair(ParseErr, Nil) }
 -- ── `instance m T = expr in <prog>` : register the impl for method m at type-head T ──

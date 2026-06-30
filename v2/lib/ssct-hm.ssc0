@@ -500,7 +500,8 @@ def methodReg  = #cell.new(Nil)                                    -- per-use id
 def methodSigReg = #cell.new(Nil)                                  -- list of Pair(method, resultType)
 def registerMethodSig = (m, r) => #cell.set(methodSigReg, Cons(Pair(m, r), #cell.get(methodSigReg)))
 def methodSigOf  = (m) => lookupReg(#cell.get(methodSigReg), m)    -- Some(R) | None
-def selfRes      = (rTy, recv) => match rTy { case TyCon(nm, args) => if #seq(nm, "self") then recv else rTy case _ => rTy }   -- `method m : self` ⇒ result is the receiver type
+def mapSelfRes   = (args, recv) => match args { case Nil => Nil case Cons(a, r) => Cons(selfRes(a, recv), mapSelfRes(r, recv)) }
+def selfRes      = (rTy, recv) => match rTy { case TyCon(nm, args) => if #seq(nm, "self") then recv else TyCon(nm, mapSelfRes(args, recv)) case TyFun(a, b) => TyFun(selfRes(a, recv), selfRes(b, recv)) case TyList(t) => TyList(selfRes(t, recv)) case _ => rTy }   -- `method m : self` ⇒ receiver; `method m : self -> R` ⇒ receiver -> R (recursive substitution)
 def pendingMethods = #cell.new(Nil)                               -- list of Pair(id, Pair(method, receiverVarId)) — resolved at the end
 def recordPendingMethod = (id, m, n) => #cell.set(pendingMethods, Cons(Pair(id, Pair(m, n)), #cell.get(pendingMethods)))
 def registerMethod   = (m) => #cell.set(methodSet, Cons(m, #cell.get(methodSet)))

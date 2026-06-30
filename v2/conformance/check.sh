@@ -1185,6 +1185,21 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ms.rs" -o "${TMPDIR:-/tmp}/ms-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ms-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method self -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self Rust" "$got"; fail=1; fi
 fi
+echo '# K50 — BINARY METHOD SIGS: `method m : self -> R` (parseFnType parses -> in sig; selfRes recurses into TyFun; myMin polymorphic over Int & Float)'
+chk_hm examples/hm-method-binary.hm '"(Int, Float)"'                  # smaller : self -> Bool; myMin 7 3 & 1.5 2.5
+K50W="Pair(3, 1.5)"
+ssc run bin/ssctc-hm.ssc0 examples/hm-method-binary.hm > "${TMPDIR:-/tmp}/mb.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/mb.coreir" | tail -1)
+if [ "$got" = "$K50W" ]; then printf 'ok   %-26s => %s\n' "method binary -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-binary" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-method-binary.hm > "${TMPDIR:-/tmp}/mb.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mb.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K50W" ]; then printf 'ok   %-26s => %s (node)\n' "method binary -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-binary JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-method-binary.hm > "${TMPDIR:-/tmp}/mb.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/mb.rs" -o "${TMPDIR:-/tmp}/mb-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mb-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$K50W" ]; then printf 'ok   %-26s => %s (rustc)\n' "method binary -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-binary Rust" "$got"; fail=1; fi
+fi
 echo "# MUTUAL RECURSION: let rec f = .. and g = .. in ..  (multi-binding IrLetRec; Rust gen got an n-way knot-tie)"
 chk_hm examples/hm-mutual.hm '"Bool"'                                 # isEven/isOdd mutual recursion
 ssc run bin/ssctc-hm.ssc0 examples/hm-mutual.hm > "${TMPDIR:-/tmp}/mut.coreir" 2>/dev/null

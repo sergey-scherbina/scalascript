@@ -1,0 +1,10 @@
+// K50: binary method signature  `method m : self -> R`
+// `smaller : self -> Bool` means "given two values of the SAME polymorphic type,
+// return Bool".  myMin is polymorphic over any type with a `smaller` instance.
+// type: (Int, Float)
+// out:  Pair(3, 1.5)
+method smaller : self -> Bool in
+instance smaller Int   = fun a => fun b => a < b in
+instance smaller Float = fun a => fun b => a < b in
+let myMin = fun x => fun y => if smaller x y then x else y in
+(myMin 7 3, myMin 1.5 2.5)

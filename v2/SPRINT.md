@@ -901,6 +901,42 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       frame-tie unchanged (still `var env`). All changes in `v2/src/Runtime.scala` +
       `v2/src/Main.scala`. `conformance/check.sh` all green. Kernel +0.
 
+- [ ] **K50 — binary method signatures (`method m : self -> R`)** — user mandate 2026-06-29 (priority 1).
+      Fix `selfRes` in `ssct-hm.ssc0` to recursively substitute `self` in compound types (`TyFun`, `TyList`,
+      `TyCon` args). Currently `selfRes(TyFun(self, Bool), ?a) = TyFun(self, Bool)` (unchanged, only handles
+      top-level `self`). After fix: `selfRes(TyFun(self, Bool), ?a) = TyFun(?a, Bool)`, enabling
+      `method smaller : self -> Bool` with binary-method polymorphism. Mechanism: `inlineClosed` runs BEFORE
+      `desugar` on the parsed-level `App(Var("method"), x)` form (where `isMethodApp(Var("m")) = isMethod("m")
+      = true`). So INLINING per call site happens automatically; `selfRes` fix just makes the per-call-site
+      typing succeed. Files: `v2/lib/ssct-hm.ssc0` line 503 (`selfRes`) + add `mapSelfRes` helper before it.
+      New example: `v2/examples/hm-method-binary.hm` (`method smaller : self -> Bool`; `myMin`; `Pair(3, 1.0)`
+      on VM/JS/Rust). Conformance: `chk_hm hm-method-binary.hm '"Pair(Int, Float)"'` + run-ir + JS + Rust.
+      DONE WHEN: `(myMin 3 7, myMin 2.5 1.0)` = `Pair(3, 1.0)` on all 3 backends.
+
+- [ ] **K51 — ssct-hm stdlib expansion** — user mandate 2026-06-29 (priority 2). Extend the ssct-hm prelude
+      (`v2/lib/ssct-hm-front.ssc0` `prelude` section) with utility functions covering: (a) Map operations on
+      association lists (`lookup`, `insert`, `delete`, `unionWith`, `mapKV`) — these work on `[(k, v)]` lists
+      using existing list primitives + equality; (b) `Writer`/`Reader` as effect wrappers (Writer = `{Log}` eff
+      already in prelude, Reader = `{State}` eff for environment threading); (c) parser combinators as ordinary
+      higher-order functions: `pChar`, `pStr`, `pDigit`, `pSeq`, `pAlt`, `pMap`, `pMany`, `pInt`, `pResult`;
+      (d) `sortBy : (a -> a -> Bool) -> [a] -> [a]` (insertion sort using a comparison function).
+      Example: `examples/hm-stdlib-map.hm` + `examples/hm-parser-comb.hm` (parse `"3+4*2"` → 11 via combinator
+      grammar). Conformance: add chk_hm + run-ir tests for each new example. Kernel +0.
+
+- [ ] **K52 — showcase programs** — user mandate 2026-06-29 (priority 3). Two self-contained programs:
+      (a) **Parser combinator demo**: a full arithmetic expression parser (Pratt or recursive descent) using
+      combinator library from K51; parses `"1+2*3"` → 7 with correct precedence; runs on VM/JS/Rust.
+      (b) **Lambda calculus interpreter**: data `Expr = Var String | Lam String Expr | App Expr Expr`; substitution
+      `subst : String -> Expr -> Expr -> Expr`; beta-reduce `reduce : Expr -> Expr`; prints `(λx.x) y → y` and
+      Church numeral addition `(λm.λn.λf.λx.m f (n f x)) 2 3 = 5` (encoded). Runs on VM/JS/Rust. DONE WHEN:
+      both examples run correctly on all 3 backends via conformance tests.
+
+- [ ] **K53 — benchmarks / profiling** — user mandate 2026-06-29 (priority 4). (a) VM benchmark numbers after
+      K47 (Array-env): run `scripts/bench interp` to get updated baseline, compare vs pre-K47 if numbers
+      available. (b) Profile ssct-hm type checker on hm-json.hm (requires JFR or equivalent); identify hot
+      paths. (c) If profile shows clear wins (>20%): implement at least one optimization (e.g. faster string
+      interning, smarter pending-method lookup). Record baseline + result in SPRINT. Tools: `scripts/bench`.
+
 **K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
 mapx/set/option/stream + a ~90-fn ssct-hm prelude (incl. Either + full math); the type system is a complete
 HM language (now with tuple-typed ADT fields); effects/actors/async are libraries (K46 adds futures/channels/
