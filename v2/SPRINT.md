@@ -929,8 +929,81 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       deferred to BACKLOG. Merged: `feature/v2-k53-bench-profile` (964b28113).
 
 **K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
-mapx/set/option/stream + a ~90-fn ssct-hm prelude (incl. Either + full math); the type system is a complete
+mapx/set/option/stream + a ~90-fn Lark prelude (incl. Either + full math); the type system is a complete
 HM language (now with tuple-typed ADT fields); effects/actors/async are libraries (K46 adds futures/channels/
 mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a real program compiles to all
-3 targets. Remaining is open-ended
-breadth (more libs/showcases on demand) + WASM (toolchain-blocked).
+3 targets. Remaining is open-ended breadth (more libs/showcases on demand) + WASM (toolchain-blocked).
+
+---
+
+## K6 — Lark rename + fence language registry
+
+- [ ] **K54 — rename ssct-hm → Lark** — `ssct-hm` was the internal working name; the language is
+      now called **Lark** (ML/Haskell-family, HM inference, effects, type classes, ~90-fn prelude).
+      Rename throughout:
+      - Files: `lib/ssct-hm-front.ssc0` → `lib/lark-front.ssc0`, `lib/ssct-hm-emit.ssc0` →
+        `lib/lark-emit.ssc0`, `lib/ssct-hm.ssc0` → `lib/lark.ssc0`.
+      - Launcher dirs: `v2/ssct-hm` → `v2/lark`, `v2/ssct-hm-js` → `v2/lark-js`,
+        `v2/ssct-hm-rust` → `v2/lark-rust`.
+      - Bin: `bin/ssct-hm.ssc0` → `bin/lark.ssc0`, etc.
+      - Conformance `check.sh`: rename sections.
+      - Specs: `specs/41-ssct-hm.md` → `specs/41-lark.md`.
+      - SPRINT/ROADMAP/CHANGELOG: replace `ssct-hm` with `Lark` (except in historical entries).
+      - File extension: `.lark` preferred; `.hm` accepted as alias.
+      Done-when: `v2/lark examples/hm-json.hm` type-checks + runs. Conformance all green.
+
+- [ ] **K55 — Markdown extractor** (KC1) — parse `.ssc` Markdown → `(lang, source)` list.
+      Written in Lark using K51 parser combinators (`pChar`/`pStr`/`pSeq`/`pMany`/`pAlt`/`pMap`).
+      Fence blocks: ` ```lang\nsrc\n``` `. Handle YAML front matter (scan to first `---` / `#`).
+      Launcher `v2/ssc-front` (entry: `bin/ssc-front.ssc0`). Conformance: extract from a sample
+      `.ssc` file and verify `(lang, source)` list.
+      Done-when: `v2/ssc-front examples/hm-json.hm` returns `[("lark", "...source...")]`.
+      Spec: `specs/61-fence-languages.md`.
+
+---
+
+## K7 — v1.0-compat frontend
+
+Goal: run existing v1.0 `.ssc` files on the v2 kernel (functional subset first, OOP later).
+All written in Lark. Spec: `specs/60-compat-frontend.md`.
+Prerequisite: K55 (Markdown extractor).
+
+- [ ] **KC2 — v1.0 lexer** — Lex `scalascript` fence blocks into a token stream. Tokens: keywords
+      (`def val var class trait object case given using import match if else for yield return type
+      sealed abstract override extends with new`), identifiers, operators, literals (Int/Float/
+      String/Bool), punctuation. Written in Lark using K51 parser combinators or hand-rolled.
+      Done-when: `lex("def f(x: Int) = x + 1")` → correct token list.
+
+- [ ] **KC3 — v1.0 parser (functional subset)** — token stream → AST. Nodes: `Def`, `ValDef`,
+      `Import`, `CaseCls`, `SealedTrait`, `App`, `Lam`, `Let`, `LetRec`, `If`, `Match`, `Block`,
+      `Tuple`, `Select`, `Lit`, `Var`, `StringInterp`. OOP nodes (KC7) deferred.
+      Done-when: parses factorial/fibonacci/list pipeline examples from v1.0 `examples/`.
+
+- [ ] **KC4 — functional lowering → Core IR** — AST → Core IR. De Bruijn name resolution.
+      Mapping: `def` → LetRec, `val` → Let, `case class` → ADT ctor, `match` → Match, `if` →
+      If, arithmetic → `Prim("i.add", ...)` etc. Adds kernel prim `scatstr` (string concat).
+      `println(x)` → `Prim("io.print", [x])`. Entry point: v1.0 `main()` or top-level block.
+      Done-when: `println("Hello, World!")` from a `.ssc` file runs on `ssc run-ir`.
+
+- [ ] **KC6 — intrinsics mapping** — Map v1.0 stdlib calls to v2 primitives.
+      New kernel prims needed: `scatstr` (str concat), `str->i` (toInt), `str->f` (toDouble),
+      `slen` (strLen — check if already present under that name). Add to `v2/src/Runtime.scala`.
+      Map `List(...)` → `cons(..., nil)`, `Option.Some(x)` → `Ctor("Some", [x])`, `None` →
+      `Ctor("None", [])`. Map `List.map/filter/foldLeft` → ssc0 `lib/list.ssc0` equivalents.
+      Done-when: basic string ops (`+`, `length`, `charAt`, `substring`) + List/Option work.
+
+- [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Lark's Algorithm W
+      (`lib/lark.ssc0`) as reference. Scala-like type syntax: `Int`, `String`, `List[A]`,
+      `Option[A]`, `(A, B)`, `A => B`. Type aliases. Sealed hierarchies (flat subtyping).
+      Deferred: class hierarchy, variance, implicit resolution.
+      Done-when: type-checks functional examples; rejects `1 + "a"` with a clear error.
+
+- [ ] **KC7 — OOP lowering** — class/trait/object → records + vtable dicts.
+      Strategy: `class C(x: T) { def m = ... }` → ADT `Ctor("C_inst", [x])` + dict `{m: fn}`.
+      `trait T { def m }` → dict type (same as Lark type class). `object O` → singleton global.
+      `extends/with` → dict merge. `override` → field replacement in child dict.
+      Done-when: simple one-level inheritance works; `sealed trait + case class` compiles.
+
+- [ ] **KC8 — given/using** — `given T = ...` → explicit dict. `using` → dict arg.
+      Resolution: same HM-style instance lookup as Lark type classes.
+      Done-when: a `given Show[Int]` / `def show[A: Show](x: A)` compiles and runs.

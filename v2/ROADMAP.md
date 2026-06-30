@@ -62,14 +62,41 @@ as programs `ir → target`.
 
 - [x] **Stdlib breadth** — list/string/option/stream helpers, structural `mapx`/`set`,
       Either/Result combinators, SHA-256, and full pure float math/rounding/trig/log library.
-- [x] **Typed language breadth** — `ssct-hm` is the main typed surface and compiles real programs
-      to VM, JS, and native Rust; `examples/hm-json.hm` is the current whole-language showcase.
+- [x] **Typed language breadth** — **Lark** (formerly `ssct-hm`) is the main typed surface
+      and compiles real programs to VM, JS, and native Rust; `examples/hm-json.hm` is the
+      current whole-language showcase.
 - [x] **Backends** — VM, JS, and native Rust are TCO-correct and covered by conformance.
 - [x] **Effects / async / actors** — algebraic effects, cooperative async, and core actor
       semantics are libraries on the tower, not kernel features.
 - [ ] **WASM** — blocked on missing `wabt`/`wasmtime`/`wasmer` or a Rust WASM target. Reuse the
       Rust backend when `rustup target add wasm32-wasip1` is available, or build a binary wasm
       emitter plus runtime.
+
+## K6 — Lark: rename + fence language registry
+
+Rename `ssct-hm` → **Lark** throughout (files, binaries, conformance, docs).
+Register Lark as a first-class fence language in v2 (` ```lark` blocks).
+Spec: `specs/61-fence-languages.md`.
+
+- [ ] **K54** — rename: files (`ssct-hm-front.ssc0` → `lark-front.ssc0`, etc.),
+      launchers (`v2/lark`), conformance sections, SPRINT/ROADMAP.
+- [ ] **K55** — Markdown extractor (KC1): `.ssc` → `(lang, source)` list, written in Lark.
+      Fence-language dispatch table wired to existing compilers.
+
+## K7 — v1.0-compat frontend (KC1–KC8)
+
+Full `.ssc` v1.0 file support on the v2 kernel. Spec: `specs/60-compat-frontend.md`.
+Phases: KC1 Markdown extractor → KC2 lexer → KC3 parser → KC4 functional lowering →
+KC5 type checker → KC6 intrinsics → KC7 OOP lowering → KC8 given/using.
+
+- [ ] **KC1** — Markdown extractor: written in Lark using K51 parser combinators.
+- [ ] **KC2** — v1.0 lexer (keywords, identifiers, operators, literals, comments).
+- [ ] **KC3** — v1.0 parser: functional subset AST (def/val/match/case class/import).
+- [ ] **KC4** — functional subset lowering to Core IR. `println("hello")` works.
+- [ ] **KC5** — HM-style type checker for the functional subset.
+- [ ] **KC6** — intrinsics mapping: string/int/IO primitives. Add `scatstr`/`str->i`/`str->f`.
+- [ ] **KC7** — OOP lowering: class/trait/object → records + vtable dicts.
+- [ ] **KC8** — given/using → dict passing (same mechanism as Lark type classes).
 
 ## Invariants across all milestones
 
