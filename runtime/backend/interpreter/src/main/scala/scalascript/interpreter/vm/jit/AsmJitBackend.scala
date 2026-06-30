@@ -30,16 +30,19 @@ object AsmJitBackend extends JitBackend:
   private val builtinAdtCtorNames: Set[String] =
     Set("Some", "None", "Right", "Left", "List", "Set", "Map", "Nil", "Vector", "Seq", "Range")
 
-  // JVM internal names for interpreter types.
-  private val instVInt   = "scalascript/interpreter/Value$InstanceV"
-  private val tupleVInt  = "scalascript/interpreter/Value$TupleV"
+  // JVM internal names for interpreter types (value-unification layout).
+  // ValueRest subclasses live in object Value → Value$package$Value$XxxV.
+  // DataValue enum cases live in DataValue → DataValue$XxxV.
+  // Value (union type DataValue|ValueRest) erases to java/lang/Object.
+  private val instVInt   = "scalascript/interpreter/Value$package$Value$InstanceV"
+  private val tupleVInt  = "scalascript/interpreter/Value$package$Value$TupleV"
   private val scalaList  = "scala/collection/immutable/List"
-  private val intVInt    = "scalascript/interpreter/Value$IntV"
-  private val dblVInt    = "scalascript/interpreter/Value$DoubleV"
-  private val boolVInt   = "scalascript/interpreter/Value$BoolV"
-  private val stringVInt = "scalascript/interpreter/Value$StringV"
-  private val optionVInt = "scalascript/interpreter/Value$OptionV"
-  private val valueInt   = "scalascript/interpreter/Value"
+  private val intVInt    = "scalascript/interpreter/DataValue$IntV"
+  private val dblVInt    = "scalascript/interpreter/DataValue$DoubleV"
+  private val boolVInt   = "scalascript/interpreter/DataValue$BoolV"
+  private val stringVInt = "scalascript/interpreter/DataValue$StringV"
+  private val optionVInt = "scalascript/interpreter/Value$package$Value$OptionV"
+  private val valueInt   = "java/lang/Object"
   private val globalsInt = "scalascript/interpreter/vm/jit/JitGlobals$"
   private val refDispatchInt = "scalascript/interpreter/vm/jit/JitRefDispatch$"
   private val hofDispatchInt = "scalascript/interpreter/vm/jit/JitHofDispatch$"
@@ -333,7 +336,7 @@ object AsmJitBackend extends JitBackend:
   // `def build(d: Int): Expr = if d<=0 then Num(1) else Add(build(d-1), …)`)
   // into a `LongToObject` direct interface — no interpreter re-entry per node.
 
-  private val valueModuleInt = "scalascript/interpreter/Value$"
+  private val valueModuleInt = "scalascript/interpreter/Value$package$Value$"
 
   private def tryCompileLongToObject(
     f:     Value.FunV,
@@ -4146,9 +4149,9 @@ object AsmJitBackend extends JitBackend:
     emitIconst(mv, 0)
     mv.visitInsn(AALOAD)
     mv.visitTypeInsn(CHECKCAST,
-      if receiverIsSet then "scalascript/interpreter/Value$SetV"
+      if receiverIsSet then "scalascript/interpreter/Value$package$Value$SetV"
       else if doInline then "[Ljava/lang/Object;"   // pre-extracted Object[] for inline match path
-      else "scalascript/interpreter/Value$ListV")
+      else "scalascript/interpreter/Value$package$Value$ListV")
     mv.visitVarInsn(ASTORE, receiverSlot)
 
     k = 0
@@ -4494,7 +4497,7 @@ object AsmJitBackend extends JitBackend:
     val head = new Label
     val done = new Label
     mv.visitVarInsn(ALOAD, receiverSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$ListV", "items",
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$package$Value$ListV", "items",
       "()Lscala/collection/immutable/List;", false)
     mv.visitVarInsn(ASTORE, itemsSlot)
     mv.visitLabel(head)
@@ -4543,7 +4546,7 @@ object AsmJitBackend extends JitBackend:
     val head = new Label
     val done = new Label
     mv.visitVarInsn(ALOAD, receiverSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$SetV", "items",
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$package$Value$SetV", "items",
       "()Lscala/collection/immutable/Set;", false)
     mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/IterableOnce", "iterator",
       "()Lscala/collection/Iterator;", true)
@@ -4695,7 +4698,7 @@ object AsmJitBackend extends JitBackend:
     val head = new Label
     val done = new Label
     mv.visitVarInsn(ALOAD, receiverSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$SetV", "items",
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$package$Value$SetV", "items",
       "()Lscala/collection/immutable/Set;", false)
     mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/IterableOnce", "iterator",
       "()Lscala/collection/Iterator;", true)

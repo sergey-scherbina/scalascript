@@ -243,10 +243,10 @@ object JavacJitBackend extends JitBackend:
           s"""public class $className implements $ifaceName {
              |${statics.valuesIterator.mkString}
              |  @SuppressWarnings("unchecked")
-             |  private static scalascript.interpreter.Value.InstanceV __inst(String typeName, int tag, scalascript.interpreter.Value[] fields, String[] names) {
-             |    scalascript.interpreter.Value.InstanceV inst = new scalascript.interpreter.Value.InstanceV(
+             |  private static scalascript.interpreter.Value$$package$$Value$$InstanceV __inst(String typeName, int tag, Object[] fields, String[] names) {
+             |    scalascript.interpreter.Value$$package$$Value$$InstanceV inst = new scalascript.interpreter.Value$$package$$Value$$InstanceV(
              |      typeName.intern(),
-             |      (scala.collection.immutable.Map<String, scalascript.interpreter.Value>) (scala.collection.immutable.Map<?, ?>) scala.collection.immutable.Map$$.MODULE$$.empty()
+             |      (scala.collection.immutable.Map<String, Object>) (scala.collection.immutable.Map<?, ?>) scala.collection.immutable.Map$$.MODULE$$.empty()
              |    );
              |    inst.fieldsArr_$$eq(fields);
              |    inst.fieldNames_$$eq(names);
@@ -978,7 +978,7 @@ object JavacJitBackend extends JitBackend:
             val recv = emitNumericObjectValue(lhs, ctx)
             val other = emitValueObject(argClause.values.head, ctx)
             if recv == null || other == null then null
-            else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.$helper((scalascript.interpreter.Value) ($recv), $other)"
+            else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.$helper((Object) ($recv), $other)"
         case "+" | "-" | "*" | "/" | "%" =>
           val l = walkLong(lhs, ctx); if l == null then return null
           val r = walkLong(argClause.values.head, ctx); if r == null then return null
@@ -1284,32 +1284,32 @@ object JavacJitBackend extends JitBackend:
       case Term.Apply.After_4_6_0(Term.Name("BigInt"), _) =>
         method match
           case "abs" if args.isEmpty =>
-            s"$jrd.bigIntAbs((scalascript.interpreter.Value) ($recvValue))"
+            s"$jrd.bigIntAbs((Object) ($recvValue))"
           case "negate" if args.isEmpty =>
-            s"$jrd.bigIntNegate((scalascript.interpreter.Value) ($recvValue))"
+            s"$jrd.bigIntNegate((Object) ($recvValue))"
           case "pow" if args.lengthCompare(1) == 0 =>
             val e = walkLong(args.head, ctx)
-            if e == null then null else s"$jrd.bigIntPow((scalascript.interpreter.Value) ($recvValue), $e)"
+            if e == null then null else s"$jrd.bigIntPow((Object) ($recvValue), $e)"
           case "gcd" if args.lengthCompare(1) == 0 =>
             val other = emitValueObject(args.head, ctx)
-            if other == null then null else s"$jrd.bigIntGcd((scalascript.interpreter.Value) ($recvValue), $other)"
+            if other == null then null else s"$jrd.bigIntGcd((Object) ($recvValue), $other)"
           case "toDecimal" if args.isEmpty =>
-            s"$jrd.bigIntToDecimal((scalascript.interpreter.Value) ($recvValue))"
+            s"$jrd.bigIntToDecimal((Object) ($recvValue))"
           case _ => null
       case Term.Apply.After_4_6_0(Term.Name("Decimal"), _) =>
         method match
           case "abs" if args.isEmpty =>
-            s"$jrd.decimalAbs((scalascript.interpreter.Value) ($recvValue))"
+            s"$jrd.decimalAbs((Object) ($recvValue))"
           case "negate" if args.isEmpty =>
-            s"$jrd.decimalNegate((scalascript.interpreter.Value) ($recvValue))"
+            s"$jrd.decimalNegate((Object) ($recvValue))"
           case "pow" if args.lengthCompare(1) == 0 =>
             val e = walkLong(args.head, ctx)
-            if e == null then null else s"$jrd.decimalPow((scalascript.interpreter.Value) ($recvValue), $e)"
+            if e == null then null else s"$jrd.decimalPow((Object) ($recvValue), $e)"
           case "setScale" if args.lengthCompare(1) == 0 =>
             val scale = walkLong(args.head, ctx)
-            if scale == null then null else s"$jrd.decimalSetScale((scalascript.interpreter.Value) ($recvValue), $scale)"
+            if scale == null then null else s"$jrd.decimalSetScale((Object) ($recvValue), $scale)"
           case "toBigInt" if args.isEmpty =>
-            s"$jrd.decimalToBigInt((scalascript.interpreter.Value) ($recvValue))"
+            s"$jrd.decimalToBigInt((Object) ($recvValue))"
           case _ => null
       case _ => null
 
@@ -1449,9 +1449,9 @@ object JavacJitBackend extends JitBackend:
     else if ftype != "Int" && ftype != "Long" then return null
     val jvar    = ctx.resolveLocal(objName)
     if jvar == null then return null
-    val wrapper = if wantDouble then "scalascript.interpreter.Value.DoubleV"
-                  else              "scalascript.interpreter.Value.IntV"
-    val inst    = s"((scalascript.interpreter.Value.InstanceV) $jvar)"
+    val wrapper = if wantDouble then "scalascript.interpreter.DataValue.DoubleV"
+                  else              "scalascript.interpreter.DataValue.IntV"
+    val inst    = s"((scalascript.interpreter.Value$$package$$Value$$InstanceV) $jvar)"
     val arr     = s"$inst.fieldsArr()[$idx]"
     val mapVal  = s"""$inst.fields().apply("${escape(field)}")"""
     val raw     = s"($inst.fieldsArr() != null ? $arr : $mapVal)"
@@ -1460,9 +1460,9 @@ object JavacJitBackend extends JitBackend:
   /** Emit a Java `Object`-typed expression. Handles ref params, 1-stmt blocks,
    *  and ref-typed ADT field access (`obj.field` where field is non-numeric). */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
-    case Term.Name("None") => "scalascript.interpreter.Value$.MODULE$.NoneV()"
+    case Term.Name("None") => "scalascript.interpreter.Value$package.Value$.MODULE$.NoneV()"
     // Stage 8: String literal as ref-typed value.
-    case Lit.String(v) => s"""new scalascript.interpreter.Value.StringV("${escape(v)}")"""
+    case Lit.String(v) => s"""scalascript.interpreter.Value$$package.Value$$.MODULE$$.StringV().apply("${escape(v)}")"""
     // Stage 8: builtin empty collections.
     case Term.Name("Nil") =>
       "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.NilRef()"
@@ -1533,7 +1533,7 @@ object JavacJitBackend extends JitBackend:
         if !ok then null
         else
           val tag = ctx.interp.typeTagMap.getOrElse(typeName, 0)
-          val arr = parts.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
+          val arr = parts.mkString("new Object[] { ", ", ", " }")
           val nms = fieldNames.map(fn => "\"" + escape(fn) + "\"").mkString("new String[] { ", ", ", " }")
           s"""scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.newInstanceRef("${escape(typeName)}", $tag, $arr, $nms)"""
     // T3: tuple literal `(a, b, …)` → TupleV via JitRefDispatch.newTupleRef.
@@ -1546,7 +1546,7 @@ object JavacJitBackend extends JitBackend:
         if v == null then ok = false else { parts(i) = v; i += 1 }
       if !ok then null
       else
-        val arr = parts.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
+        val arr = parts.mkString("new Object[] { ", ", ", " }")
         s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.newTupleRef($arr)"
     // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit as StringV(string-concat).
     // Each arg compiled via walkLong (numeric → direct String concat) or walkRef
@@ -1554,7 +1554,7 @@ object JavacJitBackend extends JitBackend:
     // f/md/html/css are deferred to the tree-walker.
     case Term.Interpolate(Term.Name("s"), parts, args) if parts.lengthCompare(args.length + 1) == 0 =>
       val sb = new StringBuilder
-      sb.append("new scalascript.interpreter.Value.StringV(")
+      sb.append("scalascript.interpreter.Value$package.Value$.MODULE$.StringV().apply(")
       var idx = 0
       var first = true
       while idx < parts.length do
@@ -1572,7 +1572,7 @@ object JavacJitBackend extends JitBackend:
           else
             val asRef = walkRef(arg, ctx)
             if asRef == null then return null
-            sb.append(" + scalascript.interpreter.Value$.MODULE$.show((scalascript.interpreter.Value) ($asRef))")
+            sb.append(" + scalascript.interpreter.Value$package.Value$.MODULE$.show((" + asRef + "))")
         idx += 1
       sb.append(")")
       sb.toString
@@ -1594,7 +1594,7 @@ object JavacJitBackend extends JitBackend:
           else
             val parts = args.map(a => emitValueObject(a, ctx))
             if parts.exists(_ == null) then null
-            else parts.mkString("scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.newTupleRef(new scalascript.interpreter.Value[] { ", ", ", " })")
+            else parts.mkString("scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.newTupleRef(new Object[] { ", ", ", " })")
         if rhsRef == null then null
         else
           s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.collectionConcat(" +
@@ -1619,7 +1619,7 @@ object JavacJitBackend extends JitBackend:
         val recv = emitNumericObjectValue(lhs, ctx)
         val other = emitValueObject(argClause.values.head, ctx)
         if recv == null || other == null then null
-        else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.$helper((scalascript.interpreter.Value) ($recv), $other)"
+        else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.$helper((Object) ($recv), $other)"
     // Stage 8: `ref + x` where lhs is a ref expression (String/etc.) — emit
     // `new StringV(Value.show(lhs) + (Long-or-show(rhs)))`. Result is StringV.
     // Routes ApplyInfixRefOp `+` calls (string concat shape) through walkRef.
@@ -1634,9 +1634,9 @@ object JavacJitBackend extends JitBackend:
         else
           val asRef = walkRef(rhs, ctx)
           if asRef == null then return null
-          s"scalascript.interpreter.Value$$.MODULE$$.show((scalascript.interpreter.Value) ($asRef))"
-      s"new scalascript.interpreter.Value.StringV(" +
-        s"scalascript.interpreter.Value$$.MODULE$$.show((scalascript.interpreter.Value) ($lhsRef)) " +
+          s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.show(($asRef))"
+      s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.StringV().apply(" +
+        s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.show(($lhsRef)) " +
         s"+ $rhsExpr)"
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
     case tn: Term.Name =>
@@ -1662,7 +1662,7 @@ object JavacJitBackend extends JitBackend:
       ap.fun match
         case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
           val inner = emitValueObject(ap.argClause.values.head, ctx)
-          if inner == null then null else s"new scalascript.interpreter.Value.OptionV($inner)"
+          if inner == null then null else s"new scalascript.interpreter.Value$$package$$Value$$OptionV($inner)"
         case fn: Term.Name if (fn.value == "Right" || fn.value == "Left") && ap.argClause.values.lengthCompare(1) == 0 =>
           emitBuiltinEitherObject(fn.value, ap.argClause.values.head, ctx)
         case fn: Term.Name =>
@@ -1690,7 +1690,7 @@ object JavacJitBackend extends JitBackend:
       if ftype == "Int" || ftype == "Long" || ftype == "Double" then return null
       val jvar = ctx.resolveLocal(objName)
       if jvar == null then return null
-      val ivar = s"((scalascript.interpreter.Value.InstanceV) $jvar)"
+      val ivar = s"((scalascript.interpreter.Value$$package$$Value$$InstanceV) $jvar)"
       val arr  = s"$ivar.fieldsArr()[$idx]"
       val map  = s"""$ivar.fields().apply("${escape(field)}")"""
       s"($ivar.fieldsArr() != null ? $arr : $map)"
@@ -1716,7 +1716,7 @@ object JavacJitBackend extends JitBackend:
     statics: scala.collection.mutable.LinkedHashMap[String, String]
   ): String | Null = t match
     case Term.Name("None") =>
-      "scalascript.interpreter.Value$.MODULE$.NoneV()"
+      "scalascript.interpreter.Value$package.Value$.MODULE$.NoneV()"
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkObject(inner, ctx, statics)
@@ -1733,7 +1733,7 @@ object JavacJitBackend extends JitBackend:
         case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
           val inner = emitValueObject(ap.argClause.values.head, ctx)
           if inner == null then null
-          else s"new scalascript.interpreter.Value.OptionV($inner)"
+          else s"new scalascript.interpreter.Value$$package$$Value$$OptionV($inner)"
         case fn: Term.Name if (fn.value == "Right" || fn.value == "Left") && ap.argClause.values.lengthCompare(1) == 0 =>
           emitBuiltinEitherObject(fn.value, ap.argClause.values.head, ctx)
         case fn: Term.Name if fn.value == ctx.funName =>
@@ -1770,20 +1770,20 @@ object JavacJitBackend extends JitBackend:
     if isNumericObjectValueShape(t) then
       val numeric = emitNumericObjectValue(t, ctx)
       if numeric == null then return null
-      return s"(scalascript.interpreter.Value) ($numeric)"
+      return s"(Object) ($numeric)"
     t match
       case Lit.Boolean(_) =>
         val b = walkBool(t, ctx); if b == null then null
-        else s"scalascript.interpreter.Value$$.MODULE$$.boolV($b)"
+        else s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.boolV($b)"
       case _ =>
         val l = walkLong(t, ctx)
-        if l != null then s"scalascript.interpreter.Value$$.MODULE$$.intV($l)"
+        if l != null then s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.intV($l)"
         else
           val s = walkString(t, ctx)
-          if s != null then s"new scalascript.interpreter.Value.StringV($s)"
+          if s != null then s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.StringV().apply($s)"
           else
             val r = walkRef(t, ctx)
-            if r != null then s"(scalascript.interpreter.Value) ($r)"
+            if r != null then s"(Object) ($r)"
             else null
 
   private def emitConstructorObject(
@@ -1804,7 +1804,7 @@ object JavacJitBackend extends JitBackend:
         if isPrimitiveFieldType(ft) then emitPrimitiveValue(rest.head, ft, ctx)
         else
           val obj = walkObject(rest.head, ctx, statics)
-          if obj == null then null else s"(scalascript.interpreter.Value) ($obj)"
+          if obj == null then null else s"(Object) ($obj)"
       if v == null then return null
       values(i) = v
       i += 1
@@ -1812,8 +1812,8 @@ object JavacJitBackend extends JitBackend:
     val namesField = constructorNamesField(typeName, fieldNames, statics)
     val tag = ctx.interp.typeTagMap.getOrElse(typeName, 0)
     val arr =
-      if values.isEmpty then "new scalascript.interpreter.Value[0]"
-      else values.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
+      if values.isEmpty then "new Object[0]"
+      else values.mkString("new Object[] { ", ", ", " }")
     s"""__inst("${escape(typeName)}", $tag, $arr, $namesField)"""
 
   private def isPrimitiveFieldType(t: String): Boolean =
@@ -1823,16 +1823,16 @@ object JavacJitBackend extends JitBackend:
     fieldType match
       case "Int" | "Long" =>
         val e = walkLong(t, ctx); if e == null then null
-        else s"scalascript.interpreter.Value$$.MODULE$$.intV($e)"
+        else s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.intV($e)"
       case "Double" =>
         val e = walkDouble(t, ctx); if e == null then null
-        else s"scalascript.interpreter.Value$$.MODULE$$.doubleV($e)"
+        else s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.doubleV($e)"
       case "Boolean" =>
         val e = walkBool(t, ctx); if e == null then null
-        else s"scalascript.interpreter.Value$$.MODULE$$.boolV($e)"
+        else s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.boolV($e)"
       case "String" =>
         val e = walkString(t, ctx); if e == null then null
-        else s"new scalascript.interpreter.Value.StringV($e)"
+        else s"scalascript.interpreter.Value$$package.Value$$.MODULE$$.StringV().apply($e)"
       case _ => null
 
   private def constructorNamesField(
@@ -2050,7 +2050,7 @@ object JavacJitBackend extends JitBackend:
     val multiTuple = tupleCnt > 1
     val sb = new StringBuilder
     sb.append(scrutDecl)
-    sb.append(s"scala.collection.immutable.List _telems = (scala.collection.immutable.List) ((scalascript.interpreter.Value.TupleV) $scrutJava).elems();\n    ")
+    sb.append(s"scala.collection.immutable.List _telems = (scala.collection.immutable.List) ((scalascript.interpreter.Value$$package$$Value$$TupleV) $scrutJava).elems();\n    ")
     var restList = cases
     var hasDefault = false
     while restList.nonEmpty do
@@ -2089,9 +2089,9 @@ object JavacJitBackend extends JitBackend:
               else if ctx.isDouble then
                 val raw = s"_rft${k}_"
                 sb.append(s"Object $raw = $elem;\n    ")
-                sb.append(s"double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n    ")
+                sb.append(s"double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n    ")
               else
-                sb.append(s"long $jvar = ((scalascript.interpreter.Value.IntV) ($elem)).v();\n    ")
+                sb.append(s"long $jvar = ((scalascript.interpreter.DataValue.IntV) ($elem)).v();\n    ")
             k += 1
           if c.cond.nonEmpty then
             val guardJava = guardBoolExpr(c.cond.get, newCtx)
@@ -2214,7 +2214,7 @@ object JavacJitBackend extends JitBackend:
       ai += 1
     val sb = new StringBuilder
     sb.append(scrutDecl)
-    sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n    ")
+    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV inst = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n    ")
     // If any arm carries a guard, fall back to a sequential if-chain because a
     // Java switch can't re-dispatch on guard failure: when `case A(n) if n > 0`
     // fails its guard, execution must continue to the next arm rather than
@@ -2313,7 +2313,7 @@ object JavacJitBackend extends JitBackend:
     val supplierIface = if ctx.isDouble then "java.util.function.DoubleSupplier" else "java.util.function.LongSupplier"
     val getterMethod  = if ctx.isDouble then "getAsDouble"                       else "getAsLong"
     sb.append(s"(($supplierIface)(() -> {\n      ")
-    sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n      ")
+    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV inst = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n      ")
     val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
     // A supertype `case _: T` arm can't be an exact-tag switch — route to the
     // if-chain, where `walkArmAsIfBranch` emits a `JitGlobals.isSubtype` check
@@ -2402,7 +2402,7 @@ object JavacJitBackend extends JitBackend:
         if intTag > 0 then sb.append(s"      case $intTag -> {\n        ")
         else               sb.append(s"""      case "${escape(ctorName)}" -> {\n        """)
         val faVar = s"__fa_${sanitize(ctorName)}"
-        if n > 0 then sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n        ")
+        if n > 0 then sb.append(s"Object[] $faVar = inst.fieldsArr();\n        ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2413,9 +2413,9 @@ object JavacJitBackend extends JitBackend:
             else if ctx.isDouble then
               val raw = s"_rf${fi}_${sanitize(ctorName)}"
               sb.append(s"""Object $raw = $readExpr;\n        """)
-              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n        """)
+              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n        """)
             else
-              sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n        """)
+              sb.append(s"""long $jvar = ((scalascript.interpreter.DataValue.IntV) ($readExpr)).v();\n        """)
           fi += 1
         val armBodyJava =
           if ctx.isDouble then walkDouble(c.body, newCtx)
@@ -2478,7 +2478,7 @@ object JavacJitBackend extends JitBackend:
         else
           sb.append(s"""if ("${escape(ctorName)}".equals(inst.typeName())) {\n      """)
         val faVar = s"__fa_${sanitize(ctorName)}"
-        if n > 0 then sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n      ")
+        if n > 0 then sb.append(s"Object[] $faVar = inst.fieldsArr();\n      ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2489,9 +2489,9 @@ object JavacJitBackend extends JitBackend:
             else if ctx.isDouble then
               val raw = s"_rf${fi}_${sanitize(ctorName)}"
               sb.append(s"""Object $raw = $readExpr;\n      """)
-              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n      """)
+              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n      """)
             else
-              sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n      """)
+              sb.append(s"""long $jvar = ((scalascript.interpreter.DataValue.IntV) ($readExpr)).v();\n      """)
           fi += 1
         val armBodyJava =
           if ctx.isDouble then walkDouble(c.body, newCtx)
@@ -2639,7 +2639,7 @@ object JavacJitBackend extends JitBackend:
         // Hoist the fieldsArr lookup once per arm. inst is already typed as InstanceV.
         val faVar = s"__fa_${sanitize(ctorName)}"
         if n > 0 then
-          sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n      ")
+          sb.append(s"Object[] $faVar = inst.fieldsArr();\n      ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2651,9 +2651,9 @@ object JavacJitBackend extends JitBackend:
               // Flexible DoubleV/IntV extraction for double-returning functions.
               val raw = s"_rf${fi}_${sanitize(ctorName)}"
               sb.append(s"""Object $raw = $readExpr;\n      """)
-              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n      """)
+              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n      """)
             else
-              sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n      """)
+              sb.append(s"""long $jvar = ((scalascript.interpreter.DataValue.IntV) ($readExpr)).v();\n      """)
           fi += 1
         val armBodyJava =
           if ctx.isDouble then walkDouble(c.body, newCtx)
@@ -2775,7 +2775,7 @@ object JavacJitBackend extends JitBackend:
         if intTag > 0 then sb.append(s"  case $intTag: {\n")
         else               sb.append(s"""  case 0: { // untagged fallback\n""")
         val faVar = s"__fa_${sanitize(ctorName)}"
-        if n > 0 then sb.append(s"    scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n")
+        if n > 0 then sb.append(s"    Object[] $faVar = inst.fieldsArr();\n")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2786,9 +2786,9 @@ object JavacJitBackend extends JitBackend:
             else if accIsDouble then
               val raw = s"_rf${fi}_${sanitize(ctorName)}"
               sb.append(s"    Object $raw = $readExpr;\n")
-              sb.append(s"    double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n")
+              sb.append(s"    double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n")
             else
-              sb.append(s"    long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n")
+              sb.append(s"    long $jvar = ((scalascript.interpreter.DataValue.IntV) ($readExpr)).v();\n")
           fi += 1
         val armBodyJava = if accIsDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
@@ -2848,14 +2848,14 @@ object JavacJitBackend extends JitBackend:
         if intTag > 0 then sb.append(s"  case $intTag: {\n      ")
         else               sb.append(s"""  case "${escape(ctorName)}": {\n      """)
         val faVar = s"__fa_${sanitize(ctorName)}"
-        if n > 0 then sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n      ")
+        if n > 0 then sb.append(s"Object[] $faVar = inst.fieldsArr();\n      ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
             val (jvar, isRef) = bindingMap(bindNames(fi))
             val readExpr = s"$faVar[$fi]"
             if isRef then sb.append(s"Object $jvar = $readExpr;\n      ")
-            else          sb.append(s"long $jvar = ((scalascript.interpreter.Value.IntV)($readExpr)).v();\n      ")
+            else          sb.append(s"long $jvar = ((scalascript.interpreter.DataValue.IntV)($readExpr)).v();\n      ")
           fi += 1
         val armBodyJava = walkRef(c.body, newCtx)
         if armBodyJava == null then return null
@@ -2901,7 +2901,7 @@ object JavacJitBackend extends JitBackend:
         case _ => allTagged = false
       ai += 1
     val sb = new StringBuilder
-    sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n    ")
+    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV inst = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n    ")
     if allTagged then sb.append("switch (inst.typeTag()) {\n    ")
     else
       sb.append("String tn = inst.typeName();\n    ")
@@ -3734,8 +3734,8 @@ object JavacJitBackend extends JitBackend:
     // Direct-unbox snippet for an identity item expression (Long/Double acc).
     val valuePkgE = "scalascript.interpreter"
     def idUnbox(itemExpr: String): String =
-      if accIsDouble then s"(($valuePkgE.Value.DoubleV) $itemExpr).v()"
-      else                s"(($valuePkgE.Value.IntV) $itemExpr).v()"
+      if accIsDouble then s"(($valuePkgE.DataValue.DoubleV) $itemExpr).v()"
+      else                s"(($valuePkgE.DataValue.IntV) $itemExpr).v()"
 
     // Try to inline the match body — eliminates ObjToLong virtual dispatch.
     val funVTyped =
@@ -3787,13 +3787,13 @@ object JavacJitBackend extends JitBackend:
       else
         sb.append(s"    $jitPkg.ObjToLong _fn0 = $jitPkg.JitGlobals.getRefFns()[0];\n")
     if receiverIsSet then
-      sb.append(s"    $valuePkg.Value.SetV _set0 = ($valuePkg.Value.SetV) $jitPkg.JitGlobals.getRefs()[0];\n")
+      sb.append(s"    $valuePkg.Value$$package$$Value$$SetV _set0 = ($valuePkg.Value$$package$$Value$$SetV) $jitPkg.JitGlobals.getRefs()[0];\n")
     else if inlineMatchSwitch != null then
       // Pre-extracted Object[] — EvalRuntime converts ListV to array before invocation.
       sb.append(s"    Object[] _larr = (Object[]) $jitPkg.JitGlobals.getRefs()[0];\n")
       sb.append(s"    int _llen = _larr.length;\n")
     else
-      sb.append(s"    $valuePkg.Value.ListV _list0 = ($valuePkg.Value.ListV) $jitPkg.JitGlobals.getRefs()[0];\n")
+      sb.append(s"    $valuePkg.Value$$package$$Value$$ListV _list0 = ($valuePkg.Value$$package$$Value$$ListV) $jitPkg.JitGlobals.getRefs()[0];\n")
     // Load int slots.
     k = 0
     while k < names.length do
@@ -3814,7 +3814,7 @@ object JavacJitBackend extends JitBackend:
       if isIdentity then
         sb.append(s"      _invSum += ${idUnbox("_invIter.next()")};\n")
       else if invSumMatchSwitch != null then
-        sb.append(s"      $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _invIter.next();\n")
+        sb.append(s"      $valuePkg.Value$$package$$Value$$InstanceV inst = ($valuePkg.Value$$package$$Value$$InstanceV) _invIter.next();\n")
         sb.append(s"      $invSumMatchSwitch\n")
       else if accIsDouble then
         sb.append(s"      _invSum += _dfn0.apply(_invIter.next());\n")
@@ -3824,7 +3824,7 @@ object JavacJitBackend extends JitBackend:
     else if invSumMatchSwitch != null then
       // List + inline match: pre-extracted array (no virtual dispatch).
       sb.append(s"    for (int _li = 0; _li < _llen; _li++) {\n")
-      sb.append(s"      $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
+      sb.append(s"      $valuePkg.Value$$package$$Value$$InstanceV inst = ($valuePkg.Value$$package$$Value$$InstanceV) _larr[_li];\n")
       sb.append(s"      $invSumMatchSwitch\n")
       sb.append(s"    }\n")
     else
@@ -3972,9 +3972,9 @@ object JavacJitBackend extends JitBackend:
     sb.append(s"    for (int _mi = 0; _mi < _mlen; _mi++) {\n")
     if accIsDouble then
       sb.append(s"      Object _mval = _mvals[_mi];\n")
-      sb.append(s"      _invSum += _mval instanceof $valuePkg.Value.DoubleV ? (($valuePkg.Value.DoubleV)_mval).v() : (double)(($valuePkg.Value.IntV)_mval).v();\n")
+      sb.append(s"      _invSum += _mval instanceof $valuePkg.DataValue.DoubleV ? (($valuePkg.DataValue.DoubleV)_mval).v() : (double)(($valuePkg.DataValue.IntV)_mval).v();\n")
     else
-      sb.append(s"      _invSum += (($valuePkg.Value.IntV)_mvals[_mi]).v();\n")
+      sb.append(s"      _invSum += (($valuePkg.DataValue.IntV)_mvals[_mi]).v();\n")
     sb.append(s"    }\n")
     sb.append(s"    while ($condJava) {\n")
     sb.append(s"      _acc += _invSum;\n")
