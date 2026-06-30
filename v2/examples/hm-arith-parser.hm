@@ -1,0 +1,39 @@
+// K52: arithmetic expression parser — recursive descent, correct precedence.
+// Parses "1+2*3" → 7  (multiplication before addition).
+// Grammar:  expr = term ('+' term)*    term = atom ('*' atom)*    atom = digit+
+// type: Int   out: 7
+let skipSpaces = fun s =>
+  let rec go = fun i =>
+    if i >= strLen s then i
+    else if charAt s i = 32 then go (i + 1)
+    else i in
+  substr s (go 0) (strLen s) in
+let parseAtom = fun s =>
+  let s1 = skipSpaces s in
+  let rec goD = fun i =>
+    if i >= strLen s1 then i
+    else if charAt s1 i >= 48 && charAt s1 i <= 57 then goD (i + 1)
+    else i in
+  let n = goD 0 in
+  if n = 0 then None
+  else Some (foldl (fun acc => fun i => acc * 10 + (charAt s1 i - 48)) 0 (range 0 n),
+             substr s1 n (strLen s1)) in
+let rec parseTerm = fun s =>
+  match parseAtom s { None => None | Some r1 => match r1 { (v, s1) =>
+    let s2 = skipSpaces s1 in
+    if strLen s2 = 0 || charAt s2 0 = 43 || charAt s2 0 = 41 then Some (v, s2)
+    else if charAt s2 0 = 42 then
+      match parseTerm (substr s2 1 (strLen s2)) {
+        None    => Some (v, s2)
+      | Some r2 => match r2 { (w, s3) => Some (v * w, s3) } }
+    else Some (v, s2) } } in
+let rec parseExpr = fun s =>
+  match parseTerm s { None => None | Some r1 => match r1 { (v, s1) =>
+    let s2 = skipSpaces s1 in
+    if strLen s2 = 0 then Some (v, s2)
+    else if charAt s2 0 = 43 then
+      match parseExpr (substr s2 1 (strLen s2)) {
+        None    => Some (v, s2)
+      | Some r2 => match r2 { (w, s3) => Some (v + w, s3) } }
+    else Some (v, s2) } } in
+match parseExpr "1+2*3" { None => 0 | Some r => match r { (v, _) => v } }

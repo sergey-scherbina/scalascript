@@ -1,0 +1,26 @@
+// K52: lambda calculus interpreter — ADTs, substitution, beta-reduction.
+// Demonstrates: (const (id a) b) beta-reduces to "a".
+// type: String   out: "a"
+data Expr = Var String | Lam String Expr | App Expr Expr in
+let rec showE = fun e => match e {
+    Var x   => x
+  | Lam x b => "(fun " ++ x ++ " . " ++ showE b ++ ")"
+  | App f a => "(" ++ showE f ++ " " ++ showE a ++ ")"
+} in
+let rec subst = fun x => fun v => fun e => match e {
+    Var y   => if x = y then v else Var y
+  | Lam y b => if x = y then Lam y b else Lam y (subst x v b)
+  | App f a => App (subst x v f) (subst x v a)
+} in
+let rec reduce = fun e => match e {
+    Var x   => Var x
+  | Lam x b => Lam x (reduce b)
+  | App f a => match reduce f {
+      Lam x b => reduce (subst x (reduce a) b)
+    | g       => App g (reduce a)
+    }
+} in
+// (const (id a) b)  ==>  a
+let idK    = Lam "x" (Var "x") in
+let constK = Lam "x" (Lam "y" (Var "x")) in
+showE (reduce (App (App constK (App idK (Var "a"))) (Var "b")))

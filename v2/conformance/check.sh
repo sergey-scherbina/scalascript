@@ -1669,6 +1669,36 @@ chkargv() { # want -- file args...
   if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s\n' "run ${file##*/} [${*:2}]" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "run ${file##*/} [${*:2}]" "$got" "$want"; fail=1; fi
 }
+echo '# K52 — SHOWCASE: lambda calculus interpreter (ADTs + subst + reduce; showE as string) all 3 backends'
+chk_hm examples/hm-lambda.hm '"String"'                               # (const (id a) b) => "a"
+K52LV='"a"'
+ssc run bin/ssctc-hm.ssc0 examples/hm-lambda.hm > "${TMPDIR:-/tmp}/lc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/lc.coreir" | tail -1)
+if [ "$got" = "$K52LV" ]; then printf 'ok   %-26s => %s\n' "lambda calc -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "lambda-calc" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-lambda.hm > "${TMPDIR:-/tmp}/lc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/lc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K52LV" ]; then printf 'ok   %-26s => %s (node)\n' "lambda calc -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "lambda-calc JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-lambda.hm > "${TMPDIR:-/tmp}/lc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/lc.rs" -o "${TMPDIR:-/tmp}/lc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/lc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$K52LV" ]; then printf 'ok   %-26s => %s (rustc)\n' "lambda calc -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "lambda-calc Rust" "$got"; fail=1; fi
+fi
+echo '# K52 — SHOWCASE: arithmetic expression parser (recursive descent; "1+2*3" => 7, * before +) all 3 backends'
+chk_hm examples/hm-arith-parser.hm '"Int"'                            # parseExpr "1+2*3" = 7
+K52AV="7"
+ssc run bin/ssctc-hm.ssc0 examples/hm-arith-parser.hm > "${TMPDIR:-/tmp}/ap.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/ap.coreir" | tail -1)
+if [ "$got" = "$K52AV" ]; then printf 'ok   %-26s => %s\n' "arith parser -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith-parser" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-arith-parser.hm > "${TMPDIR:-/tmp}/ap.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ap.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K52AV" ]; then printf 'ok   %-26s => %s (node)\n' "arith parser -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith-parser JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-arith-parser.hm > "${TMPDIR:-/tmp}/ap.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/ap.rs" -o "${TMPDIR:-/tmp}/ap-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ap-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$K52AV" ]; then printf 'ok   %-26s => %s (rustc)\n' "arith parser -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith-parser Rust" "$got"; fail=1; fi
+fi
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy
