@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-30 — K51: ssct-hm stdlib expansion — assoc-list map ops + parser combinators
+
+Added 13 prelude functions to `v2/lib/ssct-hm-front.ssc0`: four assoc-list map operations
+(`assocInsert`, `assocDelete`, `assocMapKV`, `assocUnionWith`) and nine parser combinators
+(`pResult`, `pChar`, `pStr`, `pDigit`, `pSeq`, `pAlt`, `pMap`, `pMany`, `pInt`).
+Key fix: `injectPrelude` is a left-fold so new entries must appear BEFORE the existing prelude
+entries they depend on (dependencies processed later = outermost = in scope first).
+`assocUnionWith` works on JS (polymorphic `===`); VM/Rust have a known light-qualified-types
+limitation for String-keyed maps. Examples: `hm-stdlib-map.hm` (30055) + `hm-parser-comb.hm`
+(parse `"3+4*2"` → 11, all 3 backends). Conformance tests added. 2c0824c73.
+
+---
+
 ## 2026-06-29 — JS SPA hash-route bridge sync for mounted UIs
 
 Fixed a browser SPA runtime bridge bug that affected hash-routed std/ui apps such as rozum UCC
