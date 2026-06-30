@@ -1699,6 +1699,29 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/ap.rs" -o "${TMPDIR:-/tmp}/ap-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ap-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$K52AV" ]; then printf 'ok   %-26s => %s (rustc)\n' "arith parser -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith-parser Rust" "$got"; fail=1; fi
 fi
+echo '# K51 — ssct-hm STDLIB EXPANSION: assoc-list map ops (assocInsert/Delete/MapKV/UnionWith) — type check + JS'
+echo '#   Note: assocUnionWith with String keys requires JS polymorphic eq; VM/Rust get "Int" type tag (light-qt limit)'
+chk_hm examples/hm-stdlib-map.hm '"Int"'                              # assocInsert/Delete/MapKV/UnionWith -> 30055
+K51MV="30055"
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-stdlib-map.hm > "${TMPDIR:-/tmp}/k51m.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/k51m.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K51MV" ]; then printf 'ok   %-26s => %s (node)\n' "stdlib-map -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "stdlib-map JS" "$got"; fail=1; fi
+fi
+echo '# K51 — ssct-hm STDLIB EXPANSION: parser combinators (pChar/pStr/pSeq/pAlt/pMap/pMany/pInt) — all 3 backends'
+chk_hm examples/hm-parser-comb.hm '"Int"'                             # parse "3+4*2" with combinator grammar -> 11
+K51PV="11"
+ssc run bin/ssctc-hm.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/k51p.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/k51p.coreir" | tail -1)
+if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s\n' "parser-comb -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb VM" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/k51p.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/k51p.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (node)\n' "parser-comb -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/k51p.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/k51p.rs" -o "${TMPDIR:-/tmp}/k51p-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/k51p-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (rustc)\n' "parser-comb -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb Rust" "$got"; fail=1; fi
+fi
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

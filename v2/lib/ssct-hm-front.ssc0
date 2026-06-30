@@ -850,6 +850,23 @@ def parseBody = (src) => fst(parseExpr(lex(src)))
 -- AFTER its user (later = outer = visible in the earlier function's body). Transitive deps are pulled
 -- in automatically by neededPrelude below, so a program only carries what it (transitively) uses.
 def prelude =
+  -- K51 entries PRECEDE their dependencies so they end up INNER in the LetRec chain
+  -- (injectPrelude is a left fold: entries processed later = outermost = in scope first).
+  -- Dependency order within this group: pInt before pMap/pSeq/pDigit/pMany;
+  --   pDigit before pChar; assocUnionWith before assocInsert.
+  Cons(Pair("pInt",     "pMap (foldl (fun acc => fun d => acc * 10 + (d - 48)) 0) (pSeq pDigit (pMany pDigit) (fun a => fun bs => cons a bs))"),
+  Cons(Pair("pMany",    "fun p => fun s => fun i => let rec go = fun acc => fun j => match p s j { None => Some (reverse acc, j) | Some r => match r { (a, k) => go (cons a acc) k } } in go nil i"),
+  Cons(Pair("pMap",     "fun f => fun p => fun s => fun i => match p s i { None => None | Some r => match r { (a, j) => Some (f a, j) } }"),
+  Cons(Pair("pAlt",     "fun p1 => fun p2 => fun s => fun i => match p1 s i { Some r => Some r | None => p2 s i }"),
+  Cons(Pair("pSeq",     "fun p1 => fun p2 => fun f => fun s => fun i => match p1 s i { None => None | Some r1 => match r1 { (a, j) => match p2 s j { None => None | Some r2 => match r2 { (b, k) => Some (f a b, k) } } } }"),
+  Cons(Pair("pStr",     "fun tok => fun s => fun i => if i + strLen tok > strLen s then None else if substr s i (i + strLen tok) = tok then Some (tok, i + strLen tok) else None"),
+  Cons(Pair("pDigit",   "pChar (fun c => c >= 48 && c <= 57)"),
+  Cons(Pair("pChar",    "fun pred => fun s => fun i => if i >= strLen s then None else let c = charAt s i in if pred c then Some (c, i + 1) else None"),
+  Cons(Pair("pResult",  "fun v => fun s => fun i => Some (v, i)"),
+  Cons(Pair("assocUnionWith","fun f => fun xs => fun ys => foldl (fun acc => fun kv => match kv { (k, v) => match lookup k acc { Some v2 => assocInsert k (f v2 v) acc | None => assocInsert k v acc } }) xs ys"),
+  Cons(Pair("assocMapKV",    "fun f => fun ps => map (fun kv => match kv { (k, v) => (k, f k v) }) ps"),
+  Cons(Pair("assocDelete",   "fun k => fun ps => if isNil ps then nil else match head ps { (a, b) => if a = k then tail ps else cons (head ps) (assocDelete k (tail ps)) }"),
+  Cons(Pair("assocInsert",   "fun k => fun v => fun ps => if isNil ps then cons (k, v) nil else match head ps { (a, b) => if a = k then cons (k, v) (tail ps) else cons (head ps) (assocInsert k v (tail ps)) }"),
   Cons(Pair("chr",        "fun c => fromCodes (cons c nil)"),
   Cons(Pair("toUpper",    "fun s => let n = strLen s in let rec go = fun i => if i >= n then nil else (let c = charAt s i in cons (if c >= 97 then (if c <= 122 then c - 32 else c) else c) (go (i + 1))) in fromCodes (go 0)"),
   Cons(Pair("toLower",    "fun s => let n = strLen s in let rec go = fun i => if i >= n then nil else (let c = charAt s i in cons (if c >= 65 then (if c <= 90 then c + 32 else c) else c) (go (i + 1))) in fromCodes (go 0)"),
@@ -949,7 +966,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }

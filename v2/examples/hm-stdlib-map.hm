@@ -1,0 +1,17 @@
+// K51: assoc-list map operations — insert, delete, mapKV, unionWith (lookup from prelude).
+// m0 = [("a",1),("b",2),("c",3)].  Encoded result = 30055.
+// type: Int   out: 30055
+let m0 = assocInsert "a" 1 (assocInsert "b" 2 (assocInsert "c" 3 nil)) in
+let va = match lookup "a" m0 { Some x => x | None => 0 } in          // 1
+let m1 = assocInsert "b" 20 m0 in                                     // update "b"
+let vb = match lookup "b" m1 { Some x => x | None => 0 } in          // 20
+let m2 = assocDelete "a" m0 in                                         // remove "a"
+let v0 = match lookup "a" m2 { Some x => x | None => 0 } in          // 0 (absent)
+let m3 = assocMapKV (fun k => fun v => v + 1) m0 in                   // map values +1
+let vc = match lookup "c" m3 { Some x => x | None => 0 } in          // 4
+let ma = assocInsert "a" 10 nil in
+let mb = assocInsert "a" 5 nil in
+let mc = assocUnionWith (fun a => fun b => a + b) ma mb in             // merge: "a"->15
+let vu = match lookup "a" mc { Some x => x | None => 0 } in          // 15
+// 1*10000 + 20*1000 + 0*100 + 4*10 + 15 = 30055
+va * 10000 + vb * 1000 + v0 * 100 + vc * 10 + vu
