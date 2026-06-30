@@ -1,0 +1,28 @@
+// K51: parser combinators — pChar / pDigit / pMany1 / pInt / pAlt / pSeq / pMap / pStr.
+// Grammar: expr = term ('+' term)*   term = atom ('*' atom)*   atom = pInt
+// Parses "3+4*2" → 11 (multiplication before addition).
+// type: Int   out: 11
+let pPlus = pChar (fun c => c = 43) in
+let pStar = pChar (fun c => c = 42) in
+let rec pExpr = fun s =>
+  match pTerm s {
+    None => None
+  | Some r => match r { (v, s1) =>
+      match pPlus s1 {
+        None => Some (v, s1)
+      | Some r2 => match r2 { (_, s2) =>
+          match pExpr s2 {
+            None => Some (v, s1)
+          | Some r3 => match r3 { (w, s3) => Some (v + w, s3) } } } } } }
+and pTerm = fun s =>
+  match pInt s {
+    None => None
+  | Some r => match r { (v, s1) =>
+      match pStar s1 {
+        None => Some (v, s1)
+      | Some r2 => match r2 { (_, s2) =>
+          match pTerm s2 {
+            None => Some (v, s1)
+          | Some r3 => match r3 { (w, s3) => Some (v * w, s3) } } } } } }
+in
+match pExpr "3+4*2" { None => 0 | Some r => match r { (n, _) => n } }

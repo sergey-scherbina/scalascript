@@ -1,0 +1,12 @@
+// K51: alist operations — insertKV / deleteKV / unionKV / mapVals / lookup / sortBy.
+// Builds a phone-book, inserts/deletes entries, maps values, looks up.
+// type: Int   out: 100
+let book = [("alice", 1), ("bob", 2), ("carol", 3)] in
+let book2 = insertKV "dave" 4 book in
+let book3 = deleteKV "carol" book2 in
+let doubled = mapVals (fun n => n * 10) book3 in
+let merged = unionKV [("eve", 50), ("alice", 99)] [("frank", 60)] in
+let aliceVal = match lookup "alice" doubled { None => 0 | Some x => x } in
+let daveVal  = match lookup "dave" doubled { None => 0 | Some x => x } in
+let eveVal   = match lookup "eve" merged { None => 0 | Some x => x } in
+aliceVal + daveVal + eveVal

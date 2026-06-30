@@ -1669,6 +1669,35 @@ chkargv() { # want -- file args...
   if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s\n' "run ${file##*/} [${*:2}]" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "run ${file##*/} [${*:2}]" "$got" "$want"; fail=1; fi
 }
+echo '# K51 — STDLIB EXPANSION: alist ops (insertKV/deleteKV/unionKV/mapVals) + parser combinators (pChar/pInt/pMany/pAlt/pSeq); tagOfArg LCons/Pair fix'
+chk_hm examples/hm-stdlib-map.hm '"Int"'                               # insertKV/deleteKV/unionKV/mapVals/lookup on alists -> 100
+K51MV="100"
+ssc run bin/ssctc-hm.ssc0 examples/hm-stdlib-map.hm > "${TMPDIR:-/tmp}/sm.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/sm.coreir" | tail -1)
+if [ "$got" = "$K51MV" ]; then printf 'ok   %-26s => %s\n' "alist ops -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "stdlib-map" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-stdlib-map.hm > "${TMPDIR:-/tmp}/sm.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/sm.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K51MV" ]; then printf 'ok   %-26s => %s (node)\n' "alist ops -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "stdlib-map JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-stdlib-map.hm > "${TMPDIR:-/tmp}/sm.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/sm.rs" -o "${TMPDIR:-/tmp}/sm-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sm-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$K51MV" ]; then printf 'ok   %-26s => %s (rustc)\n' "alist ops -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "stdlib-map Rust" "$got"; fail=1; fi
+fi
+chk_hm examples/hm-parser-comb.hm '"Int"'                             # pChar/pInt/pMany1/pAlt/pSeq; "3+4*2" -> 11 (* before +)
+K51PV="11"
+ssc run bin/ssctc-hm.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/pc.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/pc.coreir" | tail -1)
+if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s\n' "parser comb -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb" "$got"; fail=1; fi
+if command -v node >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-js.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/pc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/pc.js" 2>/dev/null | tail -1)
+  if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (node)\n' "parser comb -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb JS" "$got"; fail=1; fi
+fi
+if command -v rustc >/dev/null 2>&1; then
+  ssc run bin/ssct-hm-rust.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/pc.rs" 2>/dev/null
+  if rustc -O "${TMPDIR:-/tmp}/pc.rs" -o "${TMPDIR:-/tmp}/pc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pc-bin"); else got="(rustc err)"; fi
+  if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (rustc)\n' "parser comb -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb Rust" "$got"; fail=1; fi
+fi
 echo '# K52 — SHOWCASE: lambda calculus interpreter (ADTs + subst + reduce; showE as string) all 3 backends'
 chk_hm examples/hm-lambda.hm '"String"'                               # (const (id a) b) => "a"
 K52LV='"a"'

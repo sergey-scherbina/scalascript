@@ -863,6 +863,21 @@ def prelude =
   Cons(Pair("partition", "fun p => fun xs => (filter p xs, filter (fun y => if p y then false else true) xs)"),
   Cons(Pair("scanl",     "fun f => fun z => fun xs => if isNil xs then cons z nil else cons z (scanl f (f z (head xs)) (tail xs))"),
   Cons(Pair("lookup",    "fun k => fun ps => if isNil ps then None else match head ps { (a, b) => if a = k then Some b else lookup k (tail ps) }"),
+  Cons(Pair("insertKV",  "fun k => fun v => fun ps => if isNil ps then cons (k, v) nil else match head ps { (a, b) => if a = k then insertKV k v (tail ps) else cons (a, b) (insertKV k v (tail ps)) }"),
+  Cons(Pair("deleteKV",  "fun k => fun ps => if isNil ps then nil else (match head ps { (a, b) => if a = k then deleteKV k (tail ps) else cons (a, b) (deleteKV k (tail ps)) })"),
+  Cons(Pair("mapVals",   "fun f => fun ps => map (fun p => match p { (a, b) => (a, f b) }) ps"),
+  Cons(Pair("unionKV",   "fun ps => fun qs => if isNil qs then ps else match head qs { (k, v) => let rec mem = fun xs => if isNil xs then false else match head xs { (a, b) => if a = k then true else mem (tail xs) } in unionKV (if mem ps then ps else cons (k, v) ps) (tail qs) }"),
+  Cons(Pair("pResult",   "fun a => fun s => Some (a, s)"),
+  Cons(Pair("pFail",     "fun s => None"),
+  Cons(Pair("pChar",     "fun pred => fun s => if strLen s = 0 then None else (let c = charAt s 0 in if pred c then Some (c, substr s 1 (strLen s)) else None)"),
+  Cons(Pair("pMap",      "fun f => fun p => fun s => match p s { None => None | Some r => match r { (a, s1) => Some (f a, s1) } }"),
+  Cons(Pair("pAlt",      "fun p => fun q => fun s => match p s { None => q s | Some r => Some r }"),
+  Cons(Pair("pSeq",      "fun p => fun q => fun s => match p s { None => None | Some r1 => match r1 { (a, s1) => match q s1 { None => None | Some r2 => match r2 { (b, s2) => Some ((a, b), s2) } } } }"),
+  Cons(Pair("pInt",      "fun s => match pMany1 pDigit s { None => None | Some r => match r { (ds, s1) => let rec toInt = fun acc => fun xs => if isNil xs then acc else toInt (acc * 10 + (head xs - 48)) (tail xs) in Some (toInt 0 ds, s1) } }"),
+  Cons(Pair("pMany1",    "fun p => fun s => match p s { None => None | Some r => match r { (a, s1) => match pMany p s1 { None => Some (cons a nil, s1) | Some r2 => match r2 { (xs2, s2) => Some (cons a xs2, s2) } } } }"),
+  Cons(Pair("pMany",     "fun p => fun s => match p s { None => Some (nil, s) | Some r => match r { (a, s1) => match pMany p s1 { None => Some (cons a nil, s1) | Some r2 => match r2 { (xs2, s2) => Some (cons a xs2, s2) } } } }"),
+  Cons(Pair("pDigit",    "fun s => if strLen s = 0 then None else (let c = charAt s 0 in if c >= 48 then (if c <= 57 then Some (c, substr s 1 (strLen s)) else None) else None)"),
+  Cons(Pair("pStr",      "fun t => fun s => if strLen s < strLen t then None else (if substr s 0 (strLen t) = t then Some (t, substr s (strLen t) (strLen s)) else None)"),
   Cons(Pair("maximum",   "fun xs => foldl (fun a => fun b => if a < b then b else a) (head xs) (tail xs)"),
   Cons(Pair("minimum",   "fun xs => foldl (fun a => fun b => if a < b then a else b) (head xs) (tail xs)"),
   Cons(Pair("count",     "fun p => fun xs => length (filter p xs)"),
@@ -949,7 +964,7 @@ def prelude =
   Cons(Pair("maxBy",   "fun lt => fun a => fun b => if lt a b then b else a"),
   Cons(Pair("pure",    "fun x => Some x"),
   Cons(Pair("bind",    "fun m => fun f => match m { Some x => f x | None => None }"),
-  Nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 -- transitive prelude closure: collect prelude names reachable from the program's free vars
 def preludeHas = (pl, nm) => match pl { case Nil => false case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then true else preludeHas(r, nm) } }
 def preludeSrc = (pl, nm) => match pl { case Nil => "" case Cons(p, r) => match p { case Pair(n, s) => if #seq(n, nm) then s else preludeSrc(r, nm) } }
