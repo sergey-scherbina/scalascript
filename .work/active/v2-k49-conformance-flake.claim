@@ -1,6 +1,6 @@
 feature/v2-k49-conformance-flake 2026-07-01T16:16:39Z
 agent: codex
-heartbeat: 2026-07-01T16:30:09Z
+heartbeat: 2026-07-01T16:36:20Z
 status: in-progress
-done-so-far: patched diagnostics/retry; fixed bash helper scoping; bash -n green; first full v2/conformance/check.sh run passed
-next: run second full v2/conformance/check.sh; if green, update BUGS/SPRINT/CHANGELOG, commit, push, release claim
+done-so-far: patched diagnostics/retry; fixed bash helper scoping; bash -n green; one confirmed full v2/conformance/check.sh run passed; extra full run completed but final exit capture was lost
+next: run one more full v2/conformance/check.sh for confirmed second green, then update BUGS/SPRINT/CHANGELOG, commit, push, release claim
