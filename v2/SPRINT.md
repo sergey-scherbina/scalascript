@@ -959,11 +959,12 @@ Goal: run existing v1.0 `.ssc` files on the v2 kernel (functional subset first, 
 All written in Lark. Spec: `specs/60-compat-frontend.md`.
 Prerequisite: K55 (Markdown extractor).
 
-- [ ] **KC2 — v1.0 lexer** — Lex `scalascript` fence blocks into a token stream. Tokens: keywords
-      (`def val var class trait object case given using import match if else for yield return type
-      sealed abstract override extends with new`), identifiers, operators, literals (Int/Float/
-      String/Bool), punctuation. Written in Lark using K51 parser combinators or hand-rolled.
-      Done-when: `lex("def f(x: Int) = x + 1")` → correct token list.
+- [x] **KC2 — v1.0 lexer DONE** 2026-07-01. `examples/hm-lex.lark` (Lark, 130 lines):
+      Token ADT (TKw/TId/TUId/TOp/TInt/TStr/TLParen-TRBrace/TComma/TDot/TColon/TSemi/TEq/TArrow/
+      TUArrow/TAt/THash/TColonColon/TEof), skipWS+line-comments, scanEnd, scanStr/buildStr,
+      parseIntR, lexPunct/lexOp helpers (split to reduce HM unifier depth), lex1 main loop.
+      `lex "def f(x: Int) = x + 1"` → 12-token list. VM+JS+Rust all pass.
+      Needs `-Xss512m` for type-checking (same as hm-json.hm). Conformance in check.sh.
 
 - [ ] **KC3 — v1.0 parser (functional subset)** — token stream → AST. Nodes: `Def`, `ValDef`,
       `Import`, `CaseCls`, `SealedTrait`, `App`, `Lam`, `Let`, `LetRec`, `If`, `Match`, `Block`,

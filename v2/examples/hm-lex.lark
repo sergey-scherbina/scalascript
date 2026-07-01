@@ -1,0 +1,161 @@
+// KC2: v1.0 ScalaScript lexer written in Lark (K61).
+// Input: a ScalaScript source string.  Output: token stream [Token].
+// type: [Token]
+
+data Token =
+    TKw String | TId String | TUId String | TOp String | TInt Int | TStr String
+  | TLParen | TRParen | TLBrack | TRBrack | TLBrace | TRBrace
+  | TComma | TDot | TColon | TSemi | TEq | TArrow | TUArrow
+  | TAt | THash | TColonColon | TEof
+in
+
+// ── char predicates ────────────────────────────────────────────────────────
+let isDigit    = fun c => c >= 48 && c <= 57 in
+let isLower    = fun c => c >= 97 && c <= 122 in
+let isUpper    = fun c => c >= 65 && c <= 90 in
+let isAlpha    = fun c => isLower c || isUpper c in
+let isAlphaNum = fun c => isAlpha c || isDigit c || c = 95 in
+let isWS       = fun c => c = 32 || c = 9 || c = 10 || c = 13 in
+
+let ch = fun s => fun i => charAt s i in
+let nc = fun s => fun i =>
+  if i >= strLen s then -1 else charAt s i in
+
+// ── keyword test (split to avoid deep unifier recursion) ─────────────────
+let isKwA = fun s =>
+  s = "def" || s = "val" || s = "var" || s = "class" || s = "trait"  ||
+  s = "object" || s = "case" || s = "given" || s = "using" in
+let isKwB = fun s =>
+  s = "import" || s = "match" || s = "if" || s = "else" || s = "for" ||
+  s = "yield" || s = "return" || s = "type" || s = "sealed" in
+let isKwC = fun s =>
+  s = "abstract" || s = "override" || s = "extends" || s = "with" ||
+  s = "new" || s = "then" || s = "do" || s = "while" in
+let isKwD = fun s =>
+  s = "throw" || s = "try" || s = "catch" || s = "finally" ||
+  s = "null" || s = "this" || s = "super" || s = "true" || s = "false" in
+let isKw = fun s => isKwA s || isKwB s || isKwC s || isKwD s in
+
+// ── skip whitespace + line comments ───────────────────────────────────────
+let rec skipWS = fun s => fun i =>
+  if i >= strLen s then i
+  else let c = ch s i in
+    if isWS c then skipWS s (i + 1)
+    else if c = 47 && nc s (i+1) = 47 then  // '//'
+      let rec skipLine = fun j =>
+        if j >= strLen s || ch s j = 10 then j else skipLine (j+1) in
+      skipWS s (skipLine (i+2))
+    else i in
+
+// ── scan while predicate ───────────────────────────────────────────────────
+let rec scanEnd = fun p => fun s => fun i =>
+  if i >= strLen s then i
+  else if p (ch s i) then scanEnd p s (i+1) else i in
+
+// ── scan string literal (find closing ") ──────────────────────────────────
+let rec scanStr = fun s => fun i =>
+  if i >= strLen s then i
+  else let c = ch s i in
+    if c = 34 then i
+    else if c = 92 then scanStr s (i+2)   // skip backslash + next char
+    else scanStr s (i+1) in
+
+// ── build string content (process escapes) ────────────────────────────────
+let rec buildStr = fun s => fun i => fun acc =>
+  if i >= strLen s then acc
+  else let c = ch s i in
+    if c = 34 then acc
+    else if c = 92 then
+      let e = nc s (i+1) in
+      let ec = if e = 110 then "\n"
+               else if e = 116 then "\t"
+               else if e = 114 then "\r"
+               else if e = 92  then "\\"
+               else if e = 34  then "\""
+               else chr e in
+      buildStr s (i+2) (acc ++ ec)
+    else buildStr s (i+1) (acc ++ chr c) in
+
+// ── parse decimal integer ──────────────────────────────────────────────────
+let rec parseIntR = fun s => fun i => fun n =>
+  if i >= strLen s then n
+  else let c = ch s i in
+    if isDigit c then parseIntR s (i+1) (n * 10 + (c - 48))
+    else n in
+
+// ── classify one non-alphanumeric char, return (tok, nextPos) ─────────────
+// Split from lex1 to reduce HM unifier depth.
+let lexPunct = fun src => fun i2 => fun c =>
+  if c = 40  then (TLParen,  i2+1)
+  else if c = 41  then (TRParen,  i2+1)
+  else if c = 91  then (TLBrack,  i2+1)
+  else if c = 93  then (TRBrack,  i2+1)
+  else if c = 123 then (TLBrace,  i2+1)
+  else if c = 125 then (TRBrace,  i2+1)
+  else if c = 44  then (TComma,   i2+1)
+  else if c = 59  then (TSemi,    i2+1)
+  else if c = 64  then (TAt,      i2+1)
+  else if c = 35  then (THash,    i2+1)
+  else                 (THash,    i2+1) in   // placeholder; real ops below
+
+let lexOp = fun src => fun i2 => fun c =>
+  if c = 61 then
+    if nc src (i2+1) = 62 then (TArrow,       i2+2)
+    else                       (TEq,           i2+1)
+  else if c = 45 then
+    if nc src (i2+1) = 62 then (TUArrow,      i2+2)
+    else                       (TOp "-",       i2+1)
+  else if c = 58 then
+    if nc src (i2+1) = 58 then (TColonColon,  i2+2)
+    else                       (TColon,        i2+1)
+  else if c = 46 then
+    if nc src (i2+1) = 46 then (TOp "..",     i2+2)
+    else                       (TDot,          i2+1)
+  else if c = 60 then
+    if nc src (i2+1) = 61 then (TOp "<=",     i2+2)
+    else                       (TOp "<",       i2+1)
+  else if c = 62 then
+    if nc src (i2+1) = 61 then (TOp ">=",     i2+2)
+    else                       (TOp ">",       i2+1)
+  else if c = 33 then
+    if nc src (i2+1) = 61 then (TOp "!=",     i2+2)
+    else                       (TOp "!",       i2+1)
+  else if c = 38 then
+    if nc src (i2+1) = 38 then (TOp "&&",     i2+2)
+    else                       (TOp "&",       i2+1)
+  else if c = 124 then
+    if nc src (i2+1) = 124 then (TOp "||",    i2+2)
+    else                        (TOp "|",      i2+1)
+  else if c = 43 then
+    if nc src (i2+1) = 43 then (TOp "++",     i2+2)
+    else                       (TOp "+",       i2+1)
+  else (TOp (substr src i2 (i2+1)), i2+1) in
+
+// ── main lexer loop ────────────────────────────────────────────────────────
+let rec lex1 = fun src => fun i =>
+  let i2 = skipWS src i in
+  if i2 >= strLen src then [TEof]
+  else let c = ch src i2 in
+    if isAlpha c || c = 95 then
+      let e = scanEnd isAlphaNum src (i2+1) in
+      let w = substr src i2 e in
+      let tok = if w = "_" then TId "_"
+                else if isKw w then TKw w
+                else if isUpper c then TUId w
+                else TId w in
+      cons tok (lex1 src e)
+    else if isDigit c then
+      let e = scanEnd isDigit src (i2+1) in
+      cons (TInt (parseIntR (substr src i2 e) 0 0)) (lex1 src e)
+    else if c = 34 then
+      let e = scanStr src (i2+1) in
+      cons (TStr (buildStr src (i2+1) "")) (lex1 src (e+1))
+    else if c = 40 || c = 41 || c = 91 || c = 93 || c = 123 || c = 125 || c = 44 || c = 59 then
+      match lexPunct src i2 c { (tok, e) => cons tok (lex1 src e) }
+    else
+      match lexOp src i2 c { (tok, e) => cons tok (lex1 src e) } in
+
+let lex = fun src => lex1 src 0 in
+
+// ── conformance test ───────────────────────────────────────────────────────
+lex "def f(x: Int) = x + 1"

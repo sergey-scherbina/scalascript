@@ -1728,6 +1728,16 @@ K55WANT=$'```lark\n// type: Int\nlet x = 42 in x + 1\n```\n```ssc0\ndef double =
 if [ "$K55GOT" = "$K55WANT" ]; then printf 'ok   %-26s => 2 blocks extracted\n' "ssc-front hm-md-demo.ssc"
 else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "ssc-front hm-md-demo.ssc" "$K55GOT" "$K55WANT"; fail=1; fi
 
+echo '# KC2 — v1.0 Lark lexer (examples/hm-lex.lark, needs -Xss512m like hm-json)'
+KC2WANT='Cons(TKw("def"), Cons(TId("f"), Cons(TLParen, Cons(TId("x"), Cons(TColon, Cons(TUId("Int"), Cons(TRParen, Cons(TEq, Cons(TId("x"), Cons(TOp("+"), Cons(TInt(1), Cons(TEof, Nil))))))))))))'
+kc2t=$(sscx run bin/lark.ssc0 examples/hm-lex.lark | tail -1)
+if [ "$kc2t" = '"[Token]"' ]; then printf 'ok   %-26s => [Token]\n' "lark type hm-lex.lark"
+else printf 'FAIL %-26s got [%s]\n' "lark type hm-lex.lark" "$kc2t"; fail=1; fi
+sscx run bin/larkc.ssc0 examples/hm-lex.lark > "${TMPDIR:-/tmp}/kc2.coreir" 2>/dev/null
+got=$(ssc run-ir "${TMPDIR:-/tmp}/kc2.coreir" | tail -1)
+if [ "$got" = "$KC2WANT" ]; then printf 'ok   %-26s => 12 tokens\n' "lex \"def f(x: Int) = x + 1\""
+else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "hm-lex -> VM" "$got" "$KC2WANT"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

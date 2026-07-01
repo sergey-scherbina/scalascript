@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC2: v1.0 ScalaScript lexer in Lark (`examples/hm-lex.lark`)
+
+`examples/hm-lex.lark` (130 lines Lark): full lexer for ScalaScript v1.0 source code.
+Token ADT with 23 constructors. Features: whitespace+line-comment skipping, identifier/keyword/
+integer/string scanning, all standard operators (=> -> :: ++ <= >= != && || etc.). Split into
+`lexPunct`+`lexOp` helpers to reduce HM unifier stack depth. `lex "def f(x: Int) = x + 1"` → 12
+correct tokens. VM + JS + Rust backends all produce identical output. Needs `-Xss512m` for type-
+checking (same as hm-json). Conformance test added to `check.sh`.
+
+---
+
 ## 2026-07-01 — K55: Markdown fence extractor (`ssc-front`)
 
 `lib/lark-md.ssc0` (130 lines, ssc0): full Markdown fence-block extractor. Parses `.ssc`
