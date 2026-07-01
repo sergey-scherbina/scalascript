@@ -1753,6 +1753,20 @@ kc4fact=$(ssc run bin/ssc1c.ssc0 examples/kc4-fact.ssc | ssc run-ir /dev/stdin |
 if [ "$kc4fact" = "120" ]; then printf 'ok   %-26s => %s\n' "ssc1c fact.ssc -> run-ir" "$kc4fact"
 else printf 'FAIL %-26s\n  got:  [%s]\n  want: [120]\n' "ssc1c fact.ssc" "$kc4fact"; fail=1; fi
 
+echo '# KC6 — v1.0 intrinsics: ctors (List/Some/None/Cons), string ops, list ops'
+kc6str=$(ssc run bin/ssc1c.ssc0 examples/kc6-str.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc6str" = "5" ]; then printf 'ok   %-26s => %s\n' "kc6 string.length" "$kc6str"
+else printf 'FAIL %-26s\n  got: [%s] want: [5]\n' "kc6 string.length" "$kc6str"; fail=1; fi
+kc6sub=$(ssc run bin/ssc1c.ssc0 examples/kc6-substr.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc6sub" = "ell" ]; then printf 'ok   %-26s => %s\n' "kc6 string.substring" "$kc6sub"
+else printf 'FAIL %-26s\n  got: [%s] want: [ell]\n' "kc6 string.substring" "$kc6sub"; fail=1; fi
+kc6lhd=$(ssc run bin/ssc1c.ssc0 examples/kc6-list.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc6lhd" = "20" ]; then printf 'ok   %-26s => %s\n' "kc6 list.map.head" "$kc6lhd"
+else printf 'FAIL %-26s\n  got: [%s] want: [20]\n' "kc6 list.map.head" "$kc6lhd"; fail=1; fi
+kc6sum=$(ssc run bin/ssc1c.ssc0 examples/kc6-fold.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc6sum" = "6" ]; then printf 'ok   %-26s => %s\n' "kc6 list.foldLeft sum" "$kc6sum"
+else printf 'FAIL %-26s\n  got: [%s] want: [6]\n' "kc6 list.foldLeft sum" "$kc6sum"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC6: v1.0 intrinsics mapping (`lib/ssc1-lower.ssc0`)
+
+Resolve-pass (`resolveE`) added to `ssc1-lower.ssc0`: pre-processes the KC3 AST before de Bruijn
+lowering, transforming known v1.0 patterns. No kernel changes — prims already existed.
+- **Constructor recognition:** `None`/`Nil` → IrCtor; `Some(x)`/`Cons(h,t)`/`Left`/`Right`/`List(...)` → IrCtor
+- **String fields:** `.length/.size` → `slen`, `.substring(f,t)` → `sslice`, `.charAt(i)` → `scodeAt`, `.toString` → `i->str`, `.toInt` → `__str_toInt` helper
+- **List fields:** `.head/.tail/.isEmpty/.nonEmpty` → injected IR helper defs
+- **List methods:** `.map(f)`/`.filter(f)` → 2-arg `_sel_map`/`_sel_filter` with letrec; `.foldLeft(z)(f)` → curried `_sel_foldLeft`
+- **Infix `::` :** cons prepend added to lowerE
+- Conformance: 4 new KC6 tests all green (string.length=5, substring=ell, list.map.head=20, foldLeft sum=6)
+
 ## 2026-07-01 — Lark → Mira rename (71 files)
 
 Language formerly named Lark renamed to **Mira** (user preference). lib/lark*.ssc0 → lib/mira*.ssc0,

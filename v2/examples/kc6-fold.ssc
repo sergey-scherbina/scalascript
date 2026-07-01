@@ -1,0 +1,2 @@
+def add(acc: Int, n: Int): Int = acc + n
+def main(): Unit = println(List(1, 2, 3).foldLeft(0)(add))

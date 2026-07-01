@@ -1,9 +1,12 @@
--- KC4: lower v1.0 ScalaScript AST (from ssc1-front.ssc0) to Core IR Data.
+-- KC4+KC6: lower v1.0 ScalaScript AST (from ssc1-front.ssc0) to Core IR Data.
+-- KC4 = de Bruijn lowering; KC6 = pre-lowering resolve pass (intrinsics, ctors).
 -- Written in ssc0 to avoid Mira HM stack overflow on large inputs.
 -- Import this, then call:  #coreir.encode(lowerProg(parse(src)))
 import "../lib/ssc1-front.ssc0"
 
--- Unwrap Option[Int] from #str->i (safe because parser only emits valid int strings)
+-- ── Utilities ──────────────────────────────────────────────────────────────
+
+-- Unwrap Option[Int] from #str->i (parser only emits valid int strings)
 def parseI = (s) => match #str->i(s) { case Some(n) => n case None => 0 }
 
 -- Reverse a list (used to build de Bruijn scope from params)
@@ -29,6 +32,131 @@ def lookupVar = (scope, name) =>
     } in
   go(scope, 0)
 
+-- ── KC6: pre-lowering resolve pass ─────────────────────────────────────────
+-- Transforms known v1.0 patterns into canonical IR tags before lowering.
+-- New tags produced:
+--   ("ctorap", Pair(name, args_list)) → IrCtor(name, lowered args)
+--   ("prim",   Pair(op,   args_list)) → IrPrim(op,   lowered args)
+--                                        or IrApp(IrGlobal helper, ...) for pseudo-ops
+
+-- Resolve a list of args
+def resolveArgs = (args) =>
+  match args { case Nil => Nil case Cons(e, rest) => Cons(resolveE(e), resolveArgs(rest)) }
+
+-- Build a List literal as nested ctorap nodes
+def buildListExpr = (args) =>
+  match args {
+    case Nil => Pair("ctorap", Pair("Nil", Nil))
+    case Cons(h, rest) =>
+      Pair("ctorap", Pair("Cons", Cons(h, Cons(buildListExpr(rest), Nil))))
+  }
+
+-- Resolve a method call obj.method(rargs) — obj and rargs already resolved
+def resolveMethodCall = (robj, method, rargs) =>
+  if #seq(method, "charAt") then
+    match rargs {
+      case Cons(idx, idxRest) =>
+        Pair("prim", Pair("scodeAt", Cons(robj, Cons(idx, Nil))))
+    }
+  else if #seq(method, "substring") then
+    match rargs {
+      case Cons(frm, r0) =>
+        match r0 {
+          case Cons(too, r1) =>
+            Pair("prim", Pair("sslice", Cons(robj, Cons(frm, Cons(too, Nil)))))
+        }
+    }
+  else
+    -- Unknown method: keep as _sel_method(obj, arg1, ...)
+    Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+
+-- Resolve a pure field access obj.field (no args)
+def resolveField = (robj, field) =>
+  if #seq(field, "length") then
+    Pair("prim", Pair("slen", Cons(robj, Nil)))
+  else if #seq(field, "size") then
+    Pair("prim", Pair("slen", Cons(robj, Nil)))
+  else if #seq(field, "toString") then
+    Pair("prim", Pair("i->str", Cons(robj, Nil)))
+  else if #seq(field, "toInt") then
+    Pair("prim", Pair("_str_toInt", Cons(robj, Nil)))
+  else if #seq(field, "head") then
+    Pair("prim", Pair("_list_head", Cons(robj, Nil)))
+  else if #seq(field, "tail") then
+    Pair("prim", Pair("_list_tail", Cons(robj, Nil)))
+  else if #seq(field, "isEmpty") then
+    Pair("prim", Pair("_list_isEmpty", Cons(robj, Nil)))
+  else if #seq(field, "nonEmpty") then
+    Pair("prim", Pair("_list_nonEmpty", Cons(robj, Nil)))
+  else
+    Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+
+-- Main resolve function — transforms one AST node
+def resolveE = (expr) =>
+  match expr {
+    case Pair(tag, data) =>
+      if #seq(tag, "int") then expr
+      else if #seq(tag, "str") then expr
+      else if #seq(tag, "bool") then expr
+      else if #seq(tag, "var") then expr
+      else if #seq(tag, "uid") then
+        if #seq(data, "None") then Pair("ctorap", Pair("None", Nil))
+        else if #seq(data, "Nil") then Pair("ctorap", Pair("Nil", Nil))
+        else expr
+      else if #seq(tag, "app") then
+        match data {
+          case Pair(fn, args) =>
+            let rargs = resolveArgs(args) in
+            match fn {
+              case Pair(ftag, fdata) =>
+                if #seq(ftag, "uid") then
+                  if #seq(fdata, "Some") then Pair("ctorap", Pair("Some", rargs))
+                  else if #seq(fdata, "Cons") then Pair("ctorap", Pair("Cons", rargs))
+                  else if #seq(fdata, "Left") then Pair("ctorap", Pair("Left", rargs))
+                  else if #seq(fdata, "Right") then Pair("ctorap", Pair("Right", rargs))
+                  else if #seq(fdata, "List") then buildListExpr(rargs)
+                  else Pair("app", Pair(fn, rargs))
+                else if #seq(ftag, "sel") then
+                  match fdata {
+                    case Pair(obj, method) =>
+                      resolveMethodCall(resolveE(obj), method, rargs)
+                  }
+                else Pair("app", Pair(resolveE(fn), rargs))
+            }
+        }
+      else if #seq(tag, "sel") then
+        match data {
+          case Pair(obj, field) =>
+            resolveField(resolveE(obj), field)
+        }
+      else if #seq(tag, "if") then
+        match data {
+          case Pair(c, rest) =>
+            match rest {
+              case Pair(t, e) =>
+                Pair("if", Pair(resolveE(c), Pair(resolveE(t), resolveE(e))))
+            }
+        }
+      else if #seq(tag, "inf") then
+        match data {
+          case Pair(op, lr) =>
+            match lr {
+              case Pair(l, r) =>
+                Pair("inf", Pair(op, Pair(resolveE(l), resolveE(r))))
+            }
+        }
+      else if #seq(tag, "pre") then
+        match data {
+          case Pair(op, sub) => Pair("pre", Pair(op, resolveE(sub)))
+        }
+      else if #seq(tag, "tup") then
+        Pair("tup", resolveArgs(data))
+      else
+        expr
+  }
+
+-- ── KC4: de Bruijn lowering ─────────────────────────────────────────────────
+
 -- Lower a list of expressions with the same scope
 def lowerArgs = (scope, args) =>
   match args { case Nil => Nil case Cons(e, rest) => Cons(lowerE(scope, e), lowerArgs(scope, rest)) }
@@ -50,11 +178,37 @@ def lowerTuple = (scope, elems) =>
       }
   }
 
--- Lower a single expression node (tag-encoded Pair from ssc1-front)
-def lowerE = (scope, expr) =>
+-- Lower a single expression node; first resolves known KC6 intrinsics
+def lowerE = (scope, rawExpr) =>
+  let expr = resolveE(rawExpr) in
   match expr {
     case Pair(tag, data) =>
-      if #seq(tag, "int") then
+      if #seq(tag, "ctorap") then
+        match data {
+          case Pair(name, args) => IrCtor(name, lowerArgs(scope, args))
+        }
+      else if #seq(tag, "prim") then
+        match data {
+          case Pair(op, args) =>
+            if #seq(op, "_list_head") then
+              match args { case Cons(xs, xsRest) =>
+                IrApp(IrGlobal("__list_head"), Cons(lowerE(scope, xs), Nil)) }
+            else if #seq(op, "_list_tail") then
+              match args { case Cons(xs, xsRest) =>
+                IrApp(IrGlobal("__list_tail"), Cons(lowerE(scope, xs), Nil)) }
+            else if #seq(op, "_list_isEmpty") then
+              match args { case Cons(xs, xsRest) =>
+                IrApp(IrGlobal("__list_isEmpty"), Cons(lowerE(scope, xs), Nil)) }
+            else if #seq(op, "_list_nonEmpty") then
+              match args { case Cons(xs, xsRest) =>
+                IrApp(IrGlobal("__list_nonEmpty"), Cons(lowerE(scope, xs), Nil)) }
+            else if #seq(op, "_str_toInt") then
+              match args { case Cons(s, sRest) =>
+                IrApp(IrGlobal("__str_toInt"), Cons(lowerE(scope, s), Nil)) }
+            else
+              IrPrim(op, lowerArgs(scope, args))
+        }
+      else if #seq(tag, "int") then
         IrLit(IrInt(parseI(data)))
       else if #seq(tag, "str") then
         IrLit(IrStr(data))
@@ -81,21 +235,22 @@ def lowerE = (scope, expr) =>
               case Pair(l, r) =>
                 let lv = lowerE(scope, l) in
                 let rv = lowerE(scope, r) in
-                if #seq(op, "+") then  IrPrim("i.add", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "-") then  IrPrim("i.sub", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "*") then  IrPrim("i.mul", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "/") then  IrPrim("i.div", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "%") then  IrPrim("i.mod", Cons(lv, Cons(rv, Nil)))
+                if #seq(op, "+")  then IrPrim("i.add", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "-")  then IrPrim("i.sub", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "*")  then IrPrim("i.mul", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "/")  then IrPrim("i.div", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "%")  then IrPrim("i.mod", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "==") then IrPrim("i.eq",  Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "<") then  IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "<")  then IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "++") then IrPrim("sconcat", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "&&") then IrIf(lv, rv, IrLit(IrBool(false)))
                 else if #seq(op, "||") then IrIf(lv, IrLit(IrBool(true)), rv)
                 else if #seq(op, "!=") then
                   IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(false)), IrLit(IrBool(true)))
                 else if #seq(op, "<=") then
                   IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(lv, Cons(rv, Nil))))
-                else if #seq(op, ">") then
+                else if #seq(op, ">")  then
                   IrPrim("i.lt", Cons(rv, Cons(lv, Nil)))
                 else if #seq(op, ">=") then
                   IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(rv, Cons(lv, Nil))))
@@ -117,7 +272,7 @@ def lowerE = (scope, expr) =>
             IrApp(lowerE(scope, fn), lowerArgs(scope, args))
         }
       else if #seq(tag, "sel") then
-        -- field selection: lower to a helper call; KC6/KC7 will map these
+        -- field selection not resolved by KC6: emit placeholder
         match data {
           case Pair(obj, field) =>
             IrApp(IrGlobal(#sconcat("_sel_", field)), Cons(lowerE(scope, obj), Nil))
@@ -125,6 +280,117 @@ def lowerE = (scope, expr) =>
       else
         IrLit(IrUnit)
   }
+
+-- ── KC6: injected runtime helpers ────────────────────────────────────────────
+-- These are IrDef Data values injected into every program's def list.
+-- De Bruijn indexing: in IrLam(n, body), last param = local 0.
+-- In IrArm(tag, k, body), last bound field = local 0 (all k fields shift outer scope by k).
+
+-- _sel_map(list, f) = map f over list
+-- lam(2): f=local0, list=local1
+-- letrec go: go=local0, f=local1, list=local2
+-- go=lam(1): xs=local0, go=local1, f=local2, list=local3
+-- Cons arm (2 fields): t=local0, h=local1; go=local3, f=local4
+def selMapDef =
+  IrDef("_sel_map",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrMatch(IrLocal(0),
+            Cons(IrArm("Nil", 0, IrCtor("Nil", Nil)),
+            Cons(IrArm("Cons", 2,
+              IrCtor("Cons",
+                Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)),
+                Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)),
+                Nil)))),
+            Nil)), None)),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- _sel_filter(list, f) = keep elements where f(elem) is true
+-- Same scope chain as _sel_map; Cons arm: t=local0, h=local1; go=local3, f=local4
+def selFilterDef =
+  IrDef("_sel_filter",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrMatch(IrLocal(0),
+            Cons(IrArm("Nil", 0, IrCtor("Nil", Nil)),
+            Cons(IrArm("Cons", 2,
+              IrIf(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)),
+                IrCtor("Cons",
+                  Cons(IrLocal(1),
+                  Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
+                IrApp(IrLocal(3), Cons(IrLocal(0), Nil)))),
+            Nil)), None)),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- _sel_foldLeft(list, z) returns fun(f) => foldLeft f z list
+-- lam(2): z=local0, list=local1
+-- lam(1): f=local0, z=local1, list=local2
+-- letrec go: go=local0, f=local1, z=local2, list=local3
+-- go=lam(2): acc=local0, xs=local1; go=local2, f=local3, z=local4, list=local5
+-- Cons arm (2 fields): t=local0, h=local1; acc=local2, xs=local3, go=local4, f=local5
+def selFoldLeftDef =
+  IrDef("_sel_foldLeft",
+    IrLam(2,
+      IrLam(1,
+        IrLetRec(
+          Cons(IrLam(2,
+            IrMatch(IrLocal(1),
+              Cons(IrArm("Nil", 0, IrLocal(0)),
+              Cons(IrArm("Cons", 2,
+                IrApp(IrLocal(4),
+                  Cons(IrLocal(0),
+                  Cons(IrApp(IrLocal(5),
+                    Cons(IrLocal(2), Cons(IrLocal(1), Nil))),
+                  Nil)))),
+              Nil)), None)),
+          Nil),
+          IrApp(IrLocal(0), Cons(IrLocal(3), Cons(IrLocal(2), Nil)))))))
+
+-- __list_head(xs): match xs { Cons(t,h) => h } — Cons arm: t=local0, h=local1
+def listHeadDef =
+  IrDef("__list_head",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Cons", 2, IrLocal(1)), Nil),
+        None)))
+
+-- __list_tail(xs): match xs { Cons(t,h) => t } — Cons arm: t=local0, h=local1
+def listTailDef =
+  IrDef("__list_tail",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Cons", 2, IrLocal(0)), Nil),
+        None)))
+
+-- __list_isEmpty(xs): true if Nil, else false
+def listIsEmptyDef =
+  IrDef("__list_isEmpty",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Nil),
+        Some(IrLit(IrBool(false))))))
+
+-- __list_nonEmpty(xs): false if Nil, else true
+def listNonEmptyDef =
+  IrDef("__list_nonEmpty",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Nil", 0, IrLit(IrBool(false))), Nil),
+        Some(IrLit(IrBool(true))))))
+
+-- __str_toInt(s): parse s as integer, default 0 on failure
+def strToIntDef =
+  IrDef("__str_toInt",
+    IrLam(1,
+      IrMatch(IrPrim("str->i", Cons(IrLocal(0), Nil)),
+        Cons(IrArm("Some", 1, IrLocal(0)), Nil),
+        Some(IrLit(IrInt(0))))))
+
+-- ── Statement lowering ────────────────────────────────────────────────────────
 
 -- Lower a single def or val statement to an IrDef node
 def lowerStmt = (stmt) =>
@@ -135,7 +401,6 @@ def lowerStmt = (stmt) =>
           case Pair(name, rest) =>
             match rest {
               case Pair(params, body) =>
-                -- scope: params reversed so last param = local 0
                 let scope = revL(params) in
                 Some(IrDef(name, IrLam(lenL(params), lowerE(scope, body))))
             }
@@ -149,7 +414,7 @@ def lowerStmt = (stmt) =>
         None
   }
 
--- Lower all statements to a list of IrDef nodes (skip exprs)
+-- Lower all statements to a list of IrDef nodes (skip non-def stmts)
 def lowerStmts = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -160,11 +425,10 @@ def lowerStmts = (stmts) =>
       }
   }
 
--- Built-in: println(x) = io.print(x)
-def printlnDef = IrDef("println", IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+-- ── Built-in defs ─────────────────────────────────────────────────────────────
 
--- Built-in: print(x) = io.print(x)  (alias)
-def printDef = IrDef("print", IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+def printlnDef = IrDef("println", IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+def printDef   = IrDef("print",   IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
 
 -- Check whether a main def with 0 params exists
 def hasZeroArgMain = (stmts) =>
@@ -190,12 +454,30 @@ def hasZeroArgMain = (stmts) =>
       }
   }
 
+-- All injected KC6 helpers
+def kc6Defs =
+  Cons(selMapDef,
+  Cons(selFilterDef,
+  Cons(selFoldLeftDef,
+  Cons(listHeadDef,
+  Cons(listTailDef,
+  Cons(listIsEmptyDef,
+  Cons(listNonEmptyDef,
+  Cons(strToIntDef,
+  Nil))))))))
+
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
-  let defs = Cons(printlnDef, Cons(printDef, lowerStmts(stmts))) in
+  let defs =
+    Cons(printlnDef,
+    Cons(printDef,
+    kc6Defs)) in
+  let userDefs = lowerStmts(stmts) in
+  let allDefs =
+    let rec appendL = (xs, ys) =>
+      match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) } in
+    appendL(defs, userDefs) in
   let entry =
-    if hasZeroArgMain(stmts) then
-      IrApp(IrGlobal("main"), Nil)
-    else
-      IrLit(IrUnit) in
-  IrProg(defs, entry)
+    if hasZeroArgMain(stmts) then IrApp(IrGlobal("main"), Nil)
+    else IrLit(IrUnit) in
+  IrProg(allDefs, entry)

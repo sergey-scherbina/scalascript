@@ -984,12 +984,24 @@ Prerequisite: K55 (Markdown extractor).
       Cons(_, t)`) is INVALID in kernel parser — use real var names (`u`, `bodyIgnored`, etc.).
       Done-when test: `kc4-hello.ssc` ("Hello, World!") + `kc4-fact.ssc` (120) both run via `ssc run-ir`.
 
-- [ ] **KC6 — intrinsics mapping** — Map v1.0 stdlib calls to v2 primitives.
-      New kernel prims needed: `scatstr` (str concat), `str->i` (toInt), `str->f` (toDouble),
-      `slen` (strLen — check if already present under that name). Add to `v2/src/Runtime.scala`.
-      Map `List(...)` → `cons(..., nil)`, `Option.Some(x)` → `Ctor("Some", [x])`, `None` →
-      `Ctor("None", [])`. Map `List.map/filter/foldLeft` → ssc0 `lib/list.ssc0` equivalents.
-      Done-when: basic string ops (`+`, `length`, `charAt`, `substring`) + List/Option work.
+- [x] **KC6 — intrinsics mapping** — Map v1.0 stdlib calls to v2 primitives.
+      Implemented as a **resolve-pass** (`resolveE`) in `lib/ssc1-lower.ssc0` that pre-processes
+      the KC3 AST before de Bruijn lowering. No kernel changes needed — prims `slen`/`scodeAt`/
+      `sslice`/`str->i`/`sconcat` all already existed.
+      **New AST tags:** `"ctorap"` (IrCtor), `"prim"` (IrPrim/IrApp-to-helper).
+      **Resolved:** `None`→IrCtor("None",[]), `Nil`→IrCtor("Nil",[]), `Some(x)`→IrCtor("Some",[x]),
+      `List(...)` → nested Cons/Nil, `Left(x)/Right(x)/Cons(h,t)`.
+      **String fields:** `.length/.size` → `slen`, `.substring(f,t)` → `sslice`,
+      `.charAt(i)` → `scodeAt`, `.toString` → `i->str`, `.toInt` → helper `__str_toInt`.
+      **List fields:** `.head/.tail/.isEmpty/.nonEmpty` → injected helper defs.
+      **List methods:** `.map(f)/.filter(f)` → injected 2-arg `_sel_map/_sel_filter` defs.
+      `.foldLeft(z)(f)` → curried 2-arg+1-arg `_sel_foldLeft` def (all with letrec, de Bruijn).
+      **Infix `::` added:** `elem :: list` → `IrCtor("Cons",[elem,list])`.
+      **Conformance:** kc6-str ("hello".length=5), kc6-substr (substring→"ell"),
+      kc6-list (List.map.head=20), kc6-fold (List.foldLeft sum=6) — all green.
+      **Deferred:** string `+` (type-ambiguous without KC5), list `.length` (vs string `.length`),
+      `str.split`, `str.toUpperCase/toLowerCase`, `list.append(++)`.
+      Done-when: ✓ string length/charAt/substring + List.map/filter/foldLeft + ctors.
 
 - [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
       (`lib/mira.ssc0`) as reference. Scala-like type syntax: `Int`, `String`, `List[A]`,

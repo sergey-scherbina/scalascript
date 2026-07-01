@@ -1,0 +1,1 @@
+def main(): Unit = println("hello".substring(1, 4))

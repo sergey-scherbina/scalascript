@@ -1,0 +1,2 @@
+def double(n: Int): Int = n * 2
+def main(): Unit = println(List(10, 20, 30).map(double).head)
