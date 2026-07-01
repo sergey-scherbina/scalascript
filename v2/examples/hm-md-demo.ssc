@@ -7,7 +7,7 @@ description: Demo .ssc file for K55 Markdown extractor conformance test.
 
 This is a `.ssc` Markdown file containing fence blocks.
 
-```lark
+```mira
 // type: Int
 let x = 42 in x + 1
 ```

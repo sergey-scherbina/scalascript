@@ -1,2 +1,2 @@
-import "../lib/lark.ssc0"
+import "../lib/mira.ssc0"
 def main = () => hm(ConApp("Node", Cons(ConApp("Leaf", Cons(Lit(1), Nil)), Cons(ConApp("Leaf", Cons(Lit(2), Nil)), Nil))))

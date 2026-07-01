@@ -51,11 +51,11 @@ observable semantics — including **multi-shot continuations** — as ~40 lines
 kernel that knows nothing about effects. To add an effect you write a `perform` + a handler;
 no kernel change. Forwarding (`else Op(...)`) composes handlers.
 
-## Typed surface (Lark) — K7, 2026-06-28
+## Typed surface (Mira) — K7, 2026-06-28
 
-The same effects are now available in the **typed** `Lark` surface (HM-inferred, compiling
+The same effects are now available in the **typed** `Mira` surface (HM-inferred, compiling
 to VM / JS / native Rust), via two complementary designs. `do`-notation provides the `bind`
-sugar (`specs/41-Lark.md`).
+sugar (`specs/41-Mira.md`).
 
 **Track P — type-safe, per-effect free monads** (no `Dyn`, no existentials). Each effect is a
 free monad over its *own* functor — an ordinary `data` type with **function-typed fields**:

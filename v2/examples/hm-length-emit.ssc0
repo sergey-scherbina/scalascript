@@ -1,2 +1,2 @@
-import "../lib/lark-emit.ssc0"
+import "../lib/mira-emit.ssc0"
 def main = () => #io.print(emit(LetRec("length", Lam("l", If(LIsNil(Var("l")), Lit(0), Add(Lit(1), App(Var("length"), LTail(Var("l")))))), App(Var("length"), LCons(Lit(1), LCons(Lit(2), LCons(Lit(3), LNil)))))))

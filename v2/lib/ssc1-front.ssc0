@@ -1,5 +1,5 @@
 -- ssc1-front.ssc0 — KC2+KC3: lexer + functional-subset parser for ScalaScript v1.0 (K61).
--- Written in ssc0 (avoids HM-unifier stack overflow; matches pattern of lark-md.ssc0).
+-- Written in ssc0 (avoids HM-unifier stack overflow; matches pattern of mira-md.ssc0).
 --
 -- Public API:
 --   lex(src)        : String -> [Token]

@@ -1,4 +1,4 @@
-// KC2: v1.0 ScalaScript lexer written in Lark (K61).
+// KC2: v1.0 ScalaScript lexer written in Mira (K61).
 // Input: a ScalaScript source string.  Output: token stream [Token].
 // type: [Token]
 

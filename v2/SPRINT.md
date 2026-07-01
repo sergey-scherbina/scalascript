@@ -118,16 +118,16 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       as libraries, and VM/JS/native-Rust backends as ssc-compiled programs. WASM remains the
       separate toolchain-blocked item above.
 
-## K5 — Lark (ssct-hm): a Hindley-Milner typed language (DONE 2026-06-27)
+## K5 — Mira (ssct-hm): a Hindley-Milner typed language (DONE 2026-06-27)
 
 - [x] **ssct-hm** — a complete HM-inferred typed FP language in ssc0 (`lib/ssct-hm*.ssc0`):
       Algorithm-W inference + let-polymorphism; Int/Bool/String; polymorphic lists `[a]` with
       literals; **user `data` types + pattern matching** (`match { | }`); full arith/cmp/string
       ops. Source text → infer → interpret OR erase → Core IR → **VM / JS / native Rust**.
       Showcases: factorial, map, quicksort (dups), a typed expression interpreter — all compile
-      to native code. Spec `41-lark.md`. 161 conformance checks. Kernel +0 (still 913).
+      to native code. Spec `41-mira.md`. 161 conformance checks. Kernel +0 (still 913).
 
-## K6 — Lark (ssct-hm): feature parity backlog (plan)
+## K6 — Mira (ssct-hm): feature parity backlog (plan)
 
 Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->f`**, and
 **reflection** (`tagOf`/`arity`/`fieldAt`) — so generic `show`/`eq`/`compare` are expressible.
@@ -149,7 +149,7 @@ Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->
       comments; **monadic do-notation**; **type ascription** `(e : T)`; a 32-function auto-injected prelude.
       Conformance 161 → 277, all 3 backends.
 
-## K7 — Typed algebraic effects in the Lark surface
+## K7 — Typed algebraic effects in the Mira surface
 
 Bring ssc 1.0's signature feature — algebraic effects + handlers (one-shot AND multi-shot) — into the
 TYPED surface, all 3 backends. The untyped library (`lib/effects.ssc0`, `Comp = Pure | Op(label,arg,
@@ -173,7 +173,7 @@ Track E — **universal `Comp` via a localized `Dyn` escape-hatch** (option B): 
 - [x] **E2. universal `Comp` + `perform`/`pure`/`bind` + a multi-op handler** using `Dyn` payloads;
       typed operation wrappers (`get : Comp Int`, …) so user code stays type-safe.
 
-- [x] **DOC/CONF** — `specs/50-effects.md` (typed-surface section) + `specs/41-lark.md`; conformance for
+- [x] **DOC/CONF** — `specs/50-effects.md` (typed-surface section) + `specs/41-mira.md`; conformance for
       State (one-shot) + Nondeterminism (multi-shot), both tracks, all backends.
 
 OPEN (deferred, research): **full effect-row inference** — `Comp` tracks WHICH effects (row polymorphism,
@@ -929,26 +929,26 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       deferred to BACKLOG. Merged: `feature/v2-k53-bench-profile` (964b28113).
 
 **K3 BREADTH STATUS:** the actionable K3 roadmap is substantially delivered — stdlib now has list/string/map/
-mapx/set/option/stream + a ~90-fn Lark prelude (incl. Either + full math); the type system is a complete
+mapx/set/option/stream + a ~90-fn Mira prelude (incl. Either + full math); the type system is a complete
 HM language (now with tuple-typed ADT fields); effects/actors/async are libraries (K46 adds futures/channels/
 mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a real program compiles to all
 3 targets. Remaining is open-ended breadth (more libs/showcases on demand) + WASM (toolchain-blocked).
 
 ---
 
-## K60 — Lark rename + fence language registry
+## K60 — Mira rename + fence language registry
 
-- [x] **K54 — rename ssct-hm → Lark DONE** 2026-07-01. 66 files changed: lib/ssct-hm*.ssc0 →
-      lib/lark*.ssc0; bin/ssct-hm*.ssc0 → bin/lark*.ssc0/larkc.ssc0; launchers v2/ssct-hm → v2/lark
-      + v2/lark-js + v2/lark-rust; specs/41-ssct-hm.md → specs/41-lark.md; all imports+comments
-      updated; conformance green (all 568+ ok). `v2/lark examples/hm-fact.hm` → "Int";
-      `v2/lark-js` → 120 (node); `larkc` → Core IR → run-ir → 120. Merged: 84d6b28c6.
+- [x] **K54 — rename ssct-hm → Mira DONE** 2026-07-01. 66 files changed: lib/ssct-hm*.ssc0 →
+      lib/mira*.ssc0; bin/ssct-hm*.ssc0 → bin/mira*.ssc0/mirac.ssc0; launchers v2/ssct-hm → v2/mira
+      + v2/mira-js + v2/mira-rust; specs/41-ssct-hm.md → specs/41-mira.md; all imports+comments
+      updated; conformance green (all 568+ ok). `v2/mira examples/hm-fact.hm` → "Int";
+      `v2/mira-js` → 120 (node); `mirac` → Core IR → run-ir → 120. Merged: 84d6b28c6.
 
-- [x] **K55 — Markdown extractor DONE** 2026-07-01. `lib/lark-md.ssc0` (ssc0, 130 lines):
+- [x] **K55 — Markdown extractor DONE** 2026-07-01. `lib/mira-md.ssc0` (ssc0, 130 lines):
       splitLines/stripYaml/startsWith3bt/isClosingFence/getFenceLang/go/extractFences.
       `bin/ssc-front.ssc0` driver + `v2/ssc-front` launcher. Conformance: `ssc run
-      bin/ssc-front.ssc0 examples/hm-md-demo.ssc` → 2 blocks (lark + ssc0), YAML skipped.
-      Implementation in ssc0 (not Lark) — avoids cross-language FFI; same pattern as lark.ssc0.
+      bin/ssc-front.ssc0 examples/hm-md-demo.ssc` → 2 blocks (mira + ssc0), YAML skipped.
+      Implementation in ssc0 (not Mira) — avoids cross-language FFI; same pattern as mira.ssc0.
       Spec: `specs/61-fence-languages.md`.
 
 ---
@@ -956,10 +956,10 @@ mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a r
 ## K61 — v1.0-compat frontend (KC1–KC8)
 
 Goal: run existing v1.0 `.ssc` files on the v2 kernel (functional subset first, OOP later).
-All written in Lark. Spec: `specs/60-compat-frontend.md`.
+All written in Mira. Spec: `specs/60-compat-frontend.md`.
 Prerequisite: K55 (Markdown extractor).
 
-- [x] **KC2 — v1.0 lexer DONE** 2026-07-01. `examples/hm-lex.lark` (Lark, 130 lines):
+- [x] **KC2 — v1.0 lexer DONE** 2026-07-01. `examples/hm-lex.mira` (Mira, 130 lines):
       Token ADT (TKw/TId/TUId/TOp/TInt/TStr/TLParen-TRBrace/TComma/TDot/TColon/TSemi/TEq/TArrow/
       TUArrow/TAt/THash/TColonColon/TEof), skipWS+line-comments, scanEnd, scanStr/buildStr,
       parseIntR, lexPunct/lexOp helpers (split to reduce HM unifier depth), lex1 main loop.
@@ -989,18 +989,18 @@ Prerequisite: K55 (Markdown extractor).
       `Ctor("None", [])`. Map `List.map/filter/foldLeft` → ssc0 `lib/list.ssc0` equivalents.
       Done-when: basic string ops (`+`, `length`, `charAt`, `substring`) + List/Option work.
 
-- [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Lark's Algorithm W
-      (`lib/lark.ssc0`) as reference. Scala-like type syntax: `Int`, `String`, `List[A]`,
+- [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
+      (`lib/mira.ssc0`) as reference. Scala-like type syntax: `Int`, `String`, `List[A]`,
       `Option[A]`, `(A, B)`, `A => B`. Type aliases. Sealed hierarchies (flat subtyping).
       Deferred: class hierarchy, variance, implicit resolution.
       Done-when: type-checks functional examples; rejects `1 + "a"` with a clear error.
 
 - [ ] **KC7 — OOP lowering** — class/trait/object → records + vtable dicts.
       Strategy: `class C(x: T) { def m = ... }` → ADT `Ctor("C_inst", [x])` + dict `{m: fn}`.
-      `trait T { def m }` → dict type (same as Lark type class). `object O` → singleton global.
+      `trait T { def m }` → dict type (same as Mira type class). `object O` → singleton global.
       `extends/with` → dict merge. `override` → field replacement in child dict.
       Done-when: simple one-level inheritance works; `sealed trait + case class` compiles.
 
 - [ ] **KC8 — given/using** — `given T = ...` → explicit dict. `using` → dict arg.
-      Resolution: same HM-style instance lookup as Lark type classes.
+      Resolution: same HM-style instance lookup as Mira type classes.
       Done-when: a `given Show[Int]` / `def show[A: Show](x: A)` compiles and runs.

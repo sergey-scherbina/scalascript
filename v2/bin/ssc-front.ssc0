@@ -5,7 +5,7 @@
 --
 -- For now: prints each block as  <lang>:---:  followed by the source lines,
 -- then a separator line  ---end---  after each block.
-import "../lib/lark-md.ssc0"
+import "../lib/mira-md.ssc0"
 
 def printBlock = (b) =>
   match b {

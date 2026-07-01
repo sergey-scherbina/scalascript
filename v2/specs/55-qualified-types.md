@@ -1,4 +1,4 @@
-# 55 — Qualified types for Lark (light subset shipped; full design)
+# 55 — Qualified types for Mira (light subset shipped; full design)
 
 > Status: **2026-06-28.** A **light subset shipped** (K11.3 / K11.3b / K11.3c) covering, in *closed*
 > functions, **numeric** polymorphism (`twice` at Int & Float), **fixed-result user methods**
@@ -111,7 +111,7 @@ tag-dispatching helpers; no record dictionaries, no per-class plumbing for the b
 
 | Where | What |
 |---|---|
-| `lib/Lark.ssc0` | `Constraint`; constraint set threaded in `infer`; `Forall` w/ constraints; discharge + top-level default; `tcReg` records the dict source per node |
-| `lib/Lark-front.ssc0` | (user classes) `method m : T` signature syntax |
-| `lib/Lark-emit.ssc0` | dict-param prepend on constrained lets; op/method → dict application; call-site dict args; `__nadd`/`__nsub`/… global helpers |
+| `lib/Mira.ssc0` | `Constraint`; constraint set threaded in `infer`; `Forall` w/ constraints; discharge + top-level default; `tcReg` records the dict source per node |
+| `lib/Mira-front.ssc0` | (user classes) `method m : T` signature syntax |
+| `lib/Mira-emit.ssc0` | dict-param prepend on constrained lets; op/method → dict application; call-site dict args; `__nadd`/`__nsub`/… global helpers |
 | backends | none — dicts are plain values, helpers are ordinary globals |

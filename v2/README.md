@@ -28,7 +28,7 @@ ssc0 source ──► ir (bytecode) ──► ssc (VM: compile-to-closures + tra
 | **kernel** (compiler + VM + ssc0 front + `coreir.encode`) | `src/*.scala`, **frozen 913 LOC** | untyped Core IR ([`10-core-ir`](specs/10-core-ir.md)), a compile-to-closures VM with a trampoline (constant-stack TCO), the ssc0 lexer/parser/lower, and canonical IR serialization |
 | **self-hosting compiler** | `lib/ssc0c.ssc0` (+ `loader.ssc0`) | the ssc0 compiler **written in ssc0**; compiles itself byte-for-byte (single- and **multi-file** fixpoints) — [`20-bootstrap`](specs/20-bootstrap.md) |
 | **typed layer `ssct`** | `lib/ssct*.ssc0` | a typed lambda calculus: type checker, textual `.ssct` surface (lexer+parser in ssc0), erase-to-ir, and **typeclasses resolved by the typer** — [`40`](specs/40-typer-as-library.md), [`52`](specs/52-typeclasses.md) |
-| **typed language `Lark`** | `lib/Lark*.ssc0` | a **feature-complete Hindley-Milner** functional language: inference + let-polymorphism, recursion + currying, Int/Bool/String/**Float**, polymorphic lists `[a]`, **tuples**, **records**, **user `data` types**, pattern matching (constructor / wildcard / variable / **literal** / **nested**), built-in **Show/Eq/Ord** + **user `method`/`instance` typeclasses**, monadic **do-notation**, **type ascription** `(e : T)`, **algebraic effects** (one-shot + multi-shot, effect rows, and typed resumes for declared single- and multi-op effects), an auto-injected **standard prelude** (~90 functions), `//` comments — written as source text, compiled to **VM / JS / native Rust** — [`41`](specs/41-Lark.md) |
+| **typed language `Mira`** | `lib/Mira*.ssc0` | a **feature-complete Hindley-Milner** functional language: inference + let-polymorphism, recursion + currying, Int/Bool/String/**Float**, polymorphic lists `[a]`, **tuples**, **records**, **user `data` types**, pattern matching (constructor / wildcard / variable / **literal** / **nested**), built-in **Show/Eq/Ord** + **user `method`/`instance` typeclasses**, monadic **do-notation**, **type ascription** `(e : T)`, **algebraic effects** (one-shot + multi-shot, effect rows, and typed resumes for declared single- and multi-op effects), an auto-injected **standard prelude** (~90 functions), `//` comments — written as source text, compiled to **VM / JS / native Rust** — [`41`](specs/41-Mira.md) |
 | **effects** | `lib/effects.ssc0` | algebraic effects + handlers, incl. **multi-shot** continuations — [`50`](specs/50-effects.md) |
 | **concurrency** | `lib/async.ssc0`, `lib/actors.ssc0` | cooperative schedulers (`yield`/`fork`, plus futures/await/channels/mailboxes) and the actor model — [`51`](specs/51-async.md), [`53`](specs/53-actors.md), [`56`](specs/56-async-actors-breadth.md) |
 | **backends** | `lib/backend-js.ssc0`, `lib/backend-rust.ssc0` | `ir → JS` and `ir → Rust`, both TCO-correct and multi-file — [`60`](specs/60-backend-js.md), [`61`](specs/61-backend-rust.md) |
@@ -50,15 +50,15 @@ actors, a JIT-to-bytecode, or any target backend. Each is an ssc0 program on the
 ./ssct examples/id.ssct                    # => Typed("Int", 42)
 
 # the HM-inferred typed language:  infer a type, or compile it to any of three targets
-./Lark      examples/hm-qsort.hm                # => "[Int]"   (Algorithm-W inferred)
-./Lark-rust examples/hm-eval.hm > e.rs && rustc -O e.rs -o e && ./e   # => 7  (a typed interpreter, native)
+./Mira      examples/hm-qsort.hm                # => "[Int]"   (Algorithm-W inferred)
+./Mira-rust examples/hm-eval.hm > e.rs && rustc -O e.rs -o e && ./e   # => 7  (a typed interpreter, native)
 
 # the backends — one source, three targets, identical output:
 ./ssc0-js   examples/quicksort.ssc0 | node                          # => Cons(1, …)
 ./ssc0-rust examples/quicksort.ssc0 > q.rs && rustc -O q.rs -o q && ./q   # => Cons(1, …)
 ```
 
-(`./ssc`, `./ssc0c`, `./ssct`, `./ssctc`, `./Lark`, `./Lark-{js,rust}`, `./ssc0-js`,
+(`./ssc`, `./ssc0c`, `./ssct`, `./ssctc`, `./Mira`, `./Mira-{js,rust}`, `./ssc0-js`,
 `./ssc0-rust` are thin scala-cli launchers over [`src/`](src) running the corresponding ssc0
 driver in `bin/`.)
 

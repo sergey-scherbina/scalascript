@@ -1,9 +1,9 @@
--- ssctc-hm — the lark COMPILER: read source text, INFER its type (reject if ill-typed),
+-- ssctc-hm — the mira COMPILER: read source text, INFER its type (reject if ill-typed),
 -- and emit real Core IR bytecode (which `ssc run-ir` then runs). The whole compiler is ssc0.
 --   ssctc-hm foo.hm > foo.coreir ; ssc run-ir foo.coreir
-import "../lib/lark-front.ssc0"
-import "../lib/lark.ssc0"
-import "../lib/lark-emit.ssc0"
+import "../lib/mira-front.ssc0"
+import "../lib/mira.ssc0"
+import "../lib/mira-emit.ssc0"
 
 def main = () =>
   match #io.args() {

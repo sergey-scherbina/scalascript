@@ -1,4 +1,4 @@
--- lark: type INFERENCE (Algorithm W) for an UNANNOTATED lambda calculus, written in ssc0.
+-- mira: type INFERENCE (Algorithm W) for an UNANNOTATED lambda calculus, written in ssc0.
 -- Unlike ssct.ssc0 (which checks user-annotated lambdas), here lambdas carry NO type — the
 -- checker INFERS a principal type via fresh type variables + unification + a substitution.
 -- Type = TyInt | TyBool | TyVar(n) | TyFun(a, b).

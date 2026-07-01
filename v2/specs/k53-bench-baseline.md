@@ -37,9 +37,9 @@ Machine: macOS arm64, JDK 21. All times in ms/op, lower is better.
 | `valIntermediate`                | 0.254  | ± 0.002 |
 | `valMatch`                       | 0.478  | ± 0.026 |
 
-## Lark type checker timing (hm-json.hm)
+## Mira type checker timing (hm-json.hm)
 
-Measured via `time v2/Lark examples/hm-json.hm` (3 runs, best):
+Measured via `time v2/Mira examples/hm-json.hm` (3 runs, best):
 - Wall clock: ~3.0 s
 - User CPU:   ~0.5 s
 - JVM startup accounts for ~2.5 s of wall clock.
@@ -49,7 +49,7 @@ instantiation over the ~90-fn prelude + the ~300-node JSON showcase program.
 
 JFR profiling of a scala-cli-launched short-lived JVM is non-trivial (custom agent
 attach, sub-second window). No >20% win identified from timing alone → K53(c)
-optimization pass deferred (BACKLOG: "profile Lark unifier with JFR and implement
+optimization pass deferred (BACKLOG: "profile Mira unifier with JFR and implement
 if >20% win visible").
 
 ## Comparison to pre-K47 (pre-Array-env) reference

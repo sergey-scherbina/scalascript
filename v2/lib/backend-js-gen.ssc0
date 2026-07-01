@@ -1,5 +1,5 @@
 -- Shared JS codegen: Core IR (IrProg Data) -> JavaScript. NO front bundled, so ANY producer of
--- IrProg Data (the ssc0c front, ssct-emit, lark-emit, ...) can reuse it. Trampolined (bounce/
+-- IrProg Data (the ssc0c front, ssct-emit, mira-emit, ...) can reuse it. Trampolined (bounce/
 -- app) => constant stack; letrecE supports recursive local bindings. The kernel knows nothing of JS.
 
 def joinStr = (parts, sep) =>
