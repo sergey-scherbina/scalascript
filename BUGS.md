@@ -12,6 +12,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-conformance-empty-output-flake — `fixed` (2026-07-01)
+
+- **Found by:** codex, while continuing K49 after the K48 multi-op typed handler work.
+- **Symptom:** `cd v2 && ./conformance/check.sh` can report a contiguous block of unrelated
+  `got []` failures. Direct reruns of the first failing examples pass, so the useful failure
+  signal is lost when Java/Rust stderr is discarded.
+- **Repro:** run the assembled-jar harness, not a dev runner: `cd v2 && ./conformance/check.sh`.
+  K48 observed two full runs failing in different sections after otherwise unrelated Rust/Java
+  activity.
+- **Root cause:** the harness built every run into the shared path `/tmp/ssc-conformance.jar`.
+  Parallel agents or repeated harness runs could overwrite that jar while an earlier run was still
+  executing it, producing `NoClassDefFoundError: ssc/Program$` followed by `Invalid or corrupt
+  jarfile`. Rust failures were downstream: empty generated `.rs` files had no `main`.
+- **FIXED (2026-07-01, `d4ca120bf`):** `check.sh` now builds the assembled jar inside the run's
+  unique diagnostic log directory, captures Java/Rust stderr and stdout artifacts, retries empty
+  Java stdout once, and prints a diagnostic summary on failure.
+- **Verified:** `bash -n v2/conformance/check.sh`; reproduced the old flake once and captured the
+  corrupt-jar root cause; after switching to the per-run jar, two consecutive full
+  `cd v2 && ./conformance/check.sh` runs passed (`run1 exit=0`, `run2 exit=0`). After rebasing on
+  KC7, a final full run with the KC7 tests also passed (`final exit=0`).
+
 ## js-spa-hashchange-bridge-sync — `fixed` (2026-06-29)
 
 - **Reported by:** Sergiy, from the rozum Unified Control Center (`clients/control/control-center-live.ssc`).

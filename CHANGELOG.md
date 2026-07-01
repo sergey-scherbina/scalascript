@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — K49: conformance harness jar isolation + diagnostics
+
+`v2/conformance/check.sh` no longer shares `/tmp/ssc-conformance.jar` across runs. Each run builds
+its assembled jar inside a unique diagnostic log directory, captures Java/Rust stderr and stdout
+artifacts, retries empty Java stdout once, and prints a failure summary. Root cause was concurrent
+or repeated harness runs overwriting the shared jar mid-run (`NoClassDefFoundError` / corrupt jar).
+Verified with two consecutive full `cd v2 && ./conformance/check.sh` passes after the fix, plus a
+final full pass after rebasing on KC7.
+
 ## 2026-07-01 — KC7: match expressions + case class OOP lowering
 
 Parser extensions (`ssc1-front.ssc0`): `parsePat` (cpat/vpat/wpat), `parseMatchArm/Arms/Expr`

@@ -884,7 +884,7 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       `"Int"`, VM/JS/Rust `42`, negatives as `TypeError`. Full `conformance/check.sh` exposed an
       unrelated intermittent empty-output/rustc flake, queued as K49 below.
 
-- [ ] **K49 — full conformance intermittent empty-output flake** — `./conformance/check.sh`
+- [x] **K49 — full conformance intermittent empty-output flake DONE** — `./conformance/check.sh`
       twice produced a contiguous block of unrelated `got []` failures after an unrelated Rust
       backend `(rustc err)` while direct reruns of the first failing examples passed. Observed
       2026-06-29 while testing K48: first run failed around `hm-method-self`/mutual/quad; second
@@ -893,6 +893,15 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       VM/JS/Rust `42`, negatives as TypeError). Likely harness/tooling flake, not a feature
       regression. Done when `check.sh` captures per-command stderr/logs (especially Java/rustc),
       avoids opaque empty stdout failures, and a full run is stable across two consecutive runs.
+      Closed 2026-07-01 in `d4ca120bf`: diagnostics reproduced the real cause as the shared
+      `/tmp/ssc-conformance.jar` being overwritten/corrupted by concurrent or repeated harness runs
+      while Java was still executing it (`NoClassDefFoundError: ssc/Program$`, then `Invalid or
+      corrupt jarfile`). The harness now builds the jar under its unique
+      `$TMPDIR/ssc-conformance-logs-$$/` directory, captures Java/Rust stderr and stdout artifacts,
+      retries empty Java stdout once, and prints a diagnostic summary on failure. Verification:
+      `bash -n v2/conformance/check.sh`; two consecutive full `cd v2 && ./conformance/check.sh`
+      runs passed after the per-run jar change (`run1 exit=0`, `run2 exit=0`); after rebasing on
+      KC7, a final full run including KC7 checks also passed (`final exit=0`).
 
 - [x] **K47 — Array-env VM optimization DONE** (`type Env = Array[Value]` replacing
       `List[Value]`; `Local(i)` is now O(1) via `env(env.length - 1 - i)` instead of
