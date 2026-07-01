@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — Lark → Mira rename (71 files)
+
+Language formerly named Lark renamed to **Mira** (user preference). lib/lark*.ssc0 → lib/mira*.ssc0,
+launchers v2/lark → v2/mira, examples/hm-lex.lark → hm-lex.mira, all imports/comments/docs updated.
+Conformance green (33 ok, 0 FAIL). See commit 9b7d146bb.
+
+## 2026-07-01 — KC4: v1.0 ScalaScript → Core IR lowering (`lib/ssc1-lower.ssc0`)
+
+`lib/ssc1-lower.ssc0` (~200 lines, ssc0): full lowering of KC3 AST to Core IR Data. De Bruijn name
+resolution, all arithmetic/comparison/string ops → prims, def/val → IrDef, if/app/tup all handled.
+Injected builtins: println/print. Entry = IrApp(IrGlobal("main"), Nil). `bin/ssc1c.ssc0` driver +
+`v2/ssc1c` launcher. Pipeline: `ssc1c hello.ssc | ssc run-ir /dev/stdin` → "Hello, World!" end-to-end.
+ssc0 GOTCHA: `_` inside constructor patterns invalid in kernel — use real var names.
+
 ## 2026-07-01 — KC3: v1.0 ScalaScript parser (`lib/ssc1-front.ssc0`)
 
 `lib/ssc1-front.ssc0` (~350 lines, ssc0): combined KC2+KC3 lexer+parser for ScalaScript v1.0

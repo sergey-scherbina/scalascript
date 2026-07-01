@@ -976,11 +976,13 @@ Prerequisite: K55 (Markdown extractor).
       Conformance: `ssc run examples/kc3-test.ssc0` → `SDef("f",[x],EInfix("+",EVar(x),EInt(1)))`.
       Tests: factorial, main(println(f(5))), multi-stmt parsing all pass.
 
-- [ ] **KC4 — functional lowering → Core IR** — AST → Core IR. De Bruijn name resolution.
-      Mapping: `def` → LetRec, `val` → Let, `case class` → ADT ctor, `match` → Match, `if` →
-      If, arithmetic → `Prim("i.add", ...)` etc. Adds kernel prim `scatstr` (string concat).
-      `println(x)` → `Prim("io.print", [x])`. Entry point: v1.0 `main()` or top-level block.
-      Done-when: `println("Hello, World!")` from a `.ssc` file runs on `ssc run-ir`.
+- [x] **KC4 — functional lowering → Core IR DONE** 2026-07-01. `lib/ssc1-lower.ssc0` (~200 lines
+      ssc0): de Bruijn name resolution (`lookupVar`), all arithmetic/comparison/boolean/string ops →
+      Core IR prims, `def`→IrDef+IrLam, `val`→IrDef, `if`/`app`/`tup`/`pre`/infix all lowered.
+      Injected builtins: `println`/`print` → `IrPrim("io.print")`. Entry = `IrApp(IrGlobal("main"),Nil)`.
+      `bin/ssc1c.ssc0` + `v2/ssc1c` launcher. ssc0 GOTCHA: `_` inside constructor patterns (`case
+      Cons(_, t)`) is INVALID in kernel parser — use real var names (`u`, `bodyIgnored`, etc.).
+      Done-when test: `kc4-hello.ssc` ("Hello, World!") + `kc4-fact.ssc` (120) both run via `ssc run-ir`.
 
 - [ ] **KC6 — intrinsics mapping** — Map v1.0 stdlib calls to v2 primitives.
       New kernel prims needed: `scatstr` (str concat), `str->i` (toInt), `str->f` (toDouble),

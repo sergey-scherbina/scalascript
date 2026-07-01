@@ -1,0 +1,201 @@
+-- KC4: lower v1.0 ScalaScript AST (from ssc1-front.ssc0) to Core IR Data.
+-- Written in ssc0 to avoid Mira HM stack overflow on large inputs.
+-- Import this, then call:  #coreir.encode(lowerProg(parse(src)))
+import "../lib/ssc1-front.ssc0"
+
+-- Unwrap Option[Int] from #str->i (safe because parser only emits valid int strings)
+def parseI = (s) => match #str->i(s) { case Some(n) => n case None => 0 }
+
+-- Reverse a list (used to build de Bruijn scope from params)
+def revL = (xs) =>
+  let rec go = (xs2, acc) =>
+    match xs2 { case Nil => acc case Cons(h, t) => go(t, Cons(h, acc)) } in
+  go(xs, Nil)
+
+-- Length of a list
+def lenL = (xs) =>
+  let rec go = (xs2, n) =>
+    match xs2 { case Nil => n case Cons(u, t) => go(t, #i.add(n, 1)) } in
+  go(xs, 0)
+
+-- De Bruijn lookup: returns IrLocal(i) if found, else IrGlobal(name)
+def lookupVar = (scope, name) =>
+  let rec go = (sc, d) =>
+    match sc {
+      case Nil => IrGlobal(name)
+      case Cons(h, t) =>
+        if #seq(h, name) then IrLocal(d)
+        else go(t, #i.add(d, 1))
+    } in
+  go(scope, 0)
+
+-- Lower a list of expressions with the same scope
+def lowerArgs = (scope, args) =>
+  match args { case Nil => Nil case Cons(e, rest) => Cons(lowerE(scope, e), lowerArgs(scope, rest)) }
+
+-- Lower a tuple literal to nested IrCtor("Pair", ...) nodes
+def lowerTuple = (scope, elems) =>
+  match elems {
+    case Nil => IrLit(IrUnit)
+    case Cons(a, rest1) =>
+      match rest1 {
+        case Nil => lowerE(scope, a)
+        case Cons(b, rest2) =>
+          match rest2 {
+            case Nil =>
+              IrCtor("Pair", Cons(lowerE(scope, a), Cons(lowerE(scope, b), Nil)))
+            case Cons(c, rest3) =>
+              IrCtor("Pair", Cons(lowerE(scope, a), Cons(lowerTuple(scope, rest1), Nil)))
+          }
+      }
+  }
+
+-- Lower a single expression node (tag-encoded Pair from ssc1-front)
+def lowerE = (scope, expr) =>
+  match expr {
+    case Pair(tag, data) =>
+      if #seq(tag, "int") then
+        IrLit(IrInt(parseI(data)))
+      else if #seq(tag, "str") then
+        IrLit(IrStr(data))
+      else if #seq(tag, "bool") then
+        IrLit(IrBool(if #seq(data, "true") then true else false))
+      else if #seq(tag, "var") then
+        lookupVar(scope, data)
+      else if #seq(tag, "uid") then
+        IrGlobal(data)
+      else if #seq(tag, "tup") then
+        lowerTuple(scope, data)
+      else if #seq(tag, "if") then
+        match data {
+          case Pair(cond, rest) =>
+            match rest {
+              case Pair(thn, els) =>
+                IrIf(lowerE(scope, cond), lowerE(scope, thn), lowerE(scope, els))
+            }
+        }
+      else if #seq(tag, "inf") then
+        match data {
+          case Pair(op, lr) =>
+            match lr {
+              case Pair(l, r) =>
+                let lv = lowerE(scope, l) in
+                let rv = lowerE(scope, r) in
+                if #seq(op, "+") then  IrPrim("i.add", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "-") then  IrPrim("i.sub", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "*") then  IrPrim("i.mul", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "/") then  IrPrim("i.div", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "%") then  IrPrim("i.mod", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "==") then IrPrim("i.eq",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "<") then  IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "++") then IrPrim("sconcat", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "&&") then IrIf(lv, rv, IrLit(IrBool(false)))
+                else if #seq(op, "||") then IrIf(lv, IrLit(IrBool(true)), rv)
+                else if #seq(op, "!=") then
+                  IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(false)), IrLit(IrBool(true)))
+                else if #seq(op, "<=") then
+                  IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, ">") then
+                  IrPrim("i.lt", Cons(rv, Cons(lv, Nil)))
+                else if #seq(op, ">=") then
+                  IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(rv, Cons(lv, Nil))))
+                else
+                  IrPrim("i.add", Cons(lv, Cons(rv, Nil)))
+            }
+        }
+      else if #seq(tag, "pre") then
+        match data {
+          case Pair(op, sub) =>
+            let sv = lowerE(scope, sub) in
+            if #seq(op, "-") then IrPrim("i.sub", Cons(IrLit(IrInt(0)), Cons(sv, Nil)))
+            else if #seq(op, "!") then IrIf(sv, IrLit(IrBool(false)), IrLit(IrBool(true)))
+            else sv
+        }
+      else if #seq(tag, "app") then
+        match data {
+          case Pair(fn, args) =>
+            IrApp(lowerE(scope, fn), lowerArgs(scope, args))
+        }
+      else if #seq(tag, "sel") then
+        -- field selection: lower to a helper call; KC6/KC7 will map these
+        match data {
+          case Pair(obj, field) =>
+            IrApp(IrGlobal(#sconcat("_sel_", field)), Cons(lowerE(scope, obj), Nil))
+        }
+      else
+        IrLit(IrUnit)
+  }
+
+-- Lower a single def or val statement to an IrDef node
+def lowerStmt = (stmt) =>
+  match stmt {
+    case Pair(tag, data) =>
+      if #seq(tag, "def") then
+        match data {
+          case Pair(name, rest) =>
+            match rest {
+              case Pair(params, body) =>
+                -- scope: params reversed so last param = local 0
+                let scope = revL(params) in
+                Some(IrDef(name, IrLam(lenL(params), lowerE(scope, body))))
+            }
+        }
+      else if #seq(tag, "val") then
+        match data {
+          case Pair(name, body) =>
+            Some(IrDef(name, lowerE(Nil, body)))
+        }
+      else
+        None
+  }
+
+-- Lower all statements to a list of IrDef nodes (skip exprs)
+def lowerStmts = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match lowerStmt(s) {
+        case Some(d) => Cons(d, lowerStmts(rest))
+        case None => lowerStmts(rest)
+      }
+  }
+
+-- Built-in: println(x) = io.print(x)
+def printlnDef = IrDef("println", IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+
+-- Built-in: print(x) = io.print(x)  (alias)
+def printDef = IrDef("print", IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+
+-- Check whether a main def with 0 params exists
+def hasZeroArgMain = (stmts) =>
+  match stmts {
+    case Nil => false
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, rest2) =>
+                if #seq(name, "main") then
+                  match rest2 {
+                    case Pair(params, bodyIgnored) =>
+                      match params {
+                        case Nil => true
+                        case Cons(p, ps) => false
+                      }
+                  }
+                else hasZeroArgMain(rest)
+            }
+          else hasZeroArgMain(rest)
+      }
+  }
+
+-- Build a complete IrProg from parsed statements
+def lowerProg = (stmts) =>
+  let defs = Cons(printlnDef, Cons(printDef, lowerStmts(stmts))) in
+  let entry =
+    if hasZeroArgMain(stmts) then
+      IrApp(IrGlobal("main"), Nil)
+    else
+      IrLit(IrUnit) in
+  IrProg(defs, entry)
