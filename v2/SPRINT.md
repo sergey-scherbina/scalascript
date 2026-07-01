@@ -1062,6 +1062,19 @@ Prerequisite: K55 (Markdown extractor).
       as `O_def → IrDef("O_def", IrLam(...))`. Add `skipToBrace` parser helper.
       Done-when: `kc5-strcat` ("Hello, World!") + `kc7b-object` (Math.square+double=31) pass.
 
+- [x] **KC11 — lambda expressions + return DONE** 2026-07-01.
+      **Lambda**: `(x: T) => body` and `x => body` (param type annotations stripped).
+      `tryLamParams` speculatively parses `(name [: T], ...)` list → `Some(names)` or `None`;
+      `parseExpr` checks `id =>` and `(params) =>` before falling to `parseInfix`.
+      `return` in `parseAtom`: keyword → `Pair("return", parseExpr)`.
+      **Lowering**: `lowerE` for `"lam"` → `IrLam(n, lowerE(appendL(revL(params), scope), body))`.
+      `lowerBlock` for `"return"` → evaluate return value (ignore remaining stmts).
+      `if (cond) return e; rest` in block → `IrIf(cond, e, lowerBlock(rest))`.
+      GOTCHA: ssc0 pattern match can't have string literals as pattern args (`case Pair("if", x)`
+      is invalid — use variable + `#seq` guard).
+      Done: `kc11-lambda.ssc` (`compose(double, inc)(5)` = 12),
+            `kc11-return.ssc` (`abs(-7) + abs(3)` = 10).
+
 - [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
       Resolution: same HM-style instance lookup as Mira type classes.
       Done-when: a `given Show[Int]` / `def show[A: Show](x: A)` compiles and runs.

@@ -1,0 +1,5 @@
+def abs(n: Int): Int = {
+  if (n < 0) return -n
+  n
+}
+def main(): Unit = println(abs(-7) + abs(3))

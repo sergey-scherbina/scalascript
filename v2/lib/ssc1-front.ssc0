@@ -246,6 +246,9 @@ def parseAtom = (toks) =>
     else if #seq(v, "false") then pr(mkBool("false"), advance(toks))
     else if #seq(v, "if")    then parseIfExpr(advance(toks))
     else if #seq(v, "match") then parseMatchExpr(advance(toks))
+    else if #seq(v, "return") then
+      let r = parseExpr(advance(toks)) in
+      pr(Pair("return", prV(r)), prT(r))
     else pr(mkVar(v), advance(toks))
   else if #seq(k, "(") then
     let toks2 = advance(toks) in
@@ -309,6 +312,10 @@ def parseBlock = (toks) =>
       let rBody = if kindIs("{", ts4) then parseBlock(advance(ts4))
                   else parseExpr(ts4) in
       go(prT(rBody), Cons(Pair("while", Pair(cond, prV(rBody))), acc))
+    else if kwIs("return", ts2) then
+      -- return expr  →  ("return", expr)
+      let r = parseExpr(advance(ts2)) in
+      go(prT(r), Cons(Pair("return", prV(r)), acc))
     else if kindIs("id", ts2) then
       -- look ahead: id = expr is assignment; else parse as expression
       let name = tokVal(peek(ts2)) in
@@ -410,8 +417,47 @@ def parseInfix = (minPrec, lhs, toks) =>
       parseInfix(minPrec, mkInf(op, lhs, prV(r2)), prT(r2))
   else pr(lhs, toks)
 
+-- KC11: try to parse a lambda param list after `(` — returns pr(Some(names), rest-after-)) or pr(None, toks-before-()
+-- Stops (fails) if it sees anything other than id [: T] (, id [: T])* )
+def tryLamParamsMore = (toks, acc) =>
+  if kindIs("id", toks) then
+    let name = tokVal(peek(toks)) in
+    let ts2 = skipTypeAnnot(advance(toks)) in
+    if kindIs(",", ts2) then tryLamParamsMore(advance(ts2), Cons(name, acc))
+    else if kindIs(")", ts2) then pr(Some(reverse(Cons(name, acc))), advance(ts2))
+    else pr(None, Nil)
+  else pr(None, Nil)
+
+def tryLamParams = (toksAfterParen) =>
+  if kindIs(")", toksAfterParen) then pr(Some(Nil), advance(toksAfterParen))
+  else tryLamParamsMore(toksAfterParen, Nil)
+
+-- KC11: parse expression, with lambda short-circuit before infix parsing
 def parseExpr = (toks) =>
-  let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
+  if kindIs("id", toks) then
+    -- peek: id => body  →  lambda with one param
+    let name = tokVal(peek(toks)) in
+    let ts2 = advance(toks) in
+    if kindIs("=>", ts2) then
+      let rBody = parseExpr(advance(ts2)) in
+      pr(Pair("lam", Pair(Cons(name, Nil), prV(rBody))), prT(rBody))
+    else
+      let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
+  else if kindIs("(", toks) then
+    -- peek: (params) => body  vs  (expr)
+    let rTry = tryLamParams(advance(toks)) in
+    match prV(rTry) {
+      case Some(params) =>
+        if kindIs("=>", prT(rTry)) then
+          let rBody = parseExpr(advance(prT(rTry))) in
+          pr(Pair("lam", Pair(params, prV(rBody))), prT(rBody))
+        else
+          let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
+      case None =>
+        let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
+    }
+  else
+    let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
 
 -- ── Statement parser ──────────────────────────────────────────────────────────
 -- Skip type params [A, B, ...]

@@ -1863,6 +1863,14 @@ kc7vp=$(ssc run bin/ssc1c.ssc0 examples/kc7-opt.ssc | ssc run-ir /dev/stdin | ta
 if [ "$kc7vp" = "10" ]; then printf 'ok   %-26s => %s\n' "kc7 vpat catch-all" "$kc7vp"
 else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc7 vpat catch-all" "$kc7vp"; fail=1; fi
 
+echo '# KC11 — lambda expressions + return statement'
+kc11la=$(ssc run bin/ssc1c.ssc0 examples/kc11-lambda.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc11la" = "12" ]; then printf 'ok   %-26s => %s\n' "kc11 lambda/compose" "$kc11la"
+else printf 'FAIL %-26s\n  got: [%s] want: [12]\n' "kc11 lambda/compose" "$kc11la"; fail=1; fi
+kc11re=$(ssc run bin/ssc1c.ssc0 examples/kc11-return.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc11re" = "10" ]; then printf 'ok   %-26s => %s\n' "kc11 return in block" "$kc11re"
+else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc11 return in block" "$kc11re"; fail=1; fi
+
 echo '# KC10 — var/while loops + if-without-else'
 kc10wh=$(ssc run bin/ssc1c.ssc0 examples/kc10-while.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc10wh" = "10" ]; then printf 'ok   %-26s => %s\n' "kc10 var/while sumTo(5)" "$kc10wh"

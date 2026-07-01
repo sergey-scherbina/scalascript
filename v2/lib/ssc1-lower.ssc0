@@ -201,6 +201,11 @@ def resolveE = (expr) =>
               } in
             Pair("match", Pair(re, rArms(arms)))
         }
+      else if #seq(tag, "lam") then
+        -- KC11: anonymous function  params => body
+        match data {
+          case Pair(params, body) => Pair("lam", Pair(params, resolveE(body)))
+        }
       else if #seq(tag, "block") then
         -- KC9: resolve each block item
         let rec resolveBlock = (ss) =>
@@ -237,6 +242,8 @@ def resolveE = (expr) =>
                       case Pair(name, expr) =>
                         Cons(Pair("assign", Pair(name, resolveE(expr))), resolveBlock(rest))
                     }
+                  else if #seq(stag, "return") then
+                    Cons(Pair("return", resolveE(sdata)), resolveBlock(rest))
                   else if #seq(stag, "expr") then
                     Cons(Pair("expr", resolveE(sdata)), resolveBlock(rest))
                   else Cons(s, resolveBlock(rest))
@@ -384,6 +391,17 @@ def lowerE = (scope, rawExpr) =>
         match data {
           case Pair(scrutE, arms) => lowerMatch(scope, scrutE, arms)
         }
+      else if #seq(tag, "lam") then
+        -- KC11: (params) => body  →  IrLam(n, body_lowered)
+        match data {
+          case Pair(params, body) =>
+            let n = lenL(params) in
+            let lamScope = appendL(revL(params), scope) in
+            IrLam(n, lowerE(lamScope, body))
+        }
+      else if #seq(tag, "return") then
+        -- KC11: return e  →  just evaluate e (early-exit semantics handled in lowerBlock)
+        lowerE(scope, data)
       else if #seq(tag, "block") then
         lowerBlock(scope, data)
       else
@@ -641,14 +659,38 @@ def lowerBlock = (scope, stmts) =>
                     IrLetRec(Cons(lam, Nil), lowerBlock(letrecScope, rest))
                 }
             }
+          else if #seq(tag, "return") then
+            -- KC11: explicit return — value is the block result (ignore remaining stmts)
+            lowerE(scope, data)
           else if #seq(tag, "expr") then
             match rest {
               case Nil =>
                 -- Last item: it IS the block result
                 lowerE(scope, data)
               case _ =>
-                -- Side-effect: evaluate + discard (IrLet shifts scope by 1)
-                IrLet(Cons(lowerE(scope, data), Nil), lowerBlock(Cons("_blk_", scope), rest))
+                -- Check for if (cond) return e  →  IrIf(cond, e, rest_block)
+                -- (ssc0 can't pattern-match string literals; use #seq guards)
+                match data {
+                  case Pair(dtag, ifData) =>
+                    if #seq(dtag, "if") then
+                      match ifData {
+                        case Pair(cond, branches) =>
+                          match branches {
+                            case Pair(thn, els) =>
+                              match thn {
+                                case Pair(rtag, retVal) =>
+                                  if #seq(rtag, "return") then
+                                    -- if cond then return e; rest  →  IrIf(cond, e, rest)
+                                    IrIf(lowerE(scope, cond), lowerE(scope, retVal), lowerBlock(scope, rest))
+                                  else
+                                    IrLet(Cons(lowerE(scope, data), Nil), lowerBlock(Cons("_blk_", scope), rest))
+                              }
+                          }
+                      }
+                    else
+                      -- Side-effect: evaluate + discard
+                      IrLet(Cons(lowerE(scope, data), Nil), lowerBlock(Cons("_blk_", scope), rest))
+                }
             }
           else lowerBlock(scope, rest)
       }

@@ -1,0 +1,7 @@
+def apply(f: Int => Int, x: Int): Int = f(x)
+def compose(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))
+def main(): Unit = {
+  val double = (x: Int) => x * 2
+  val inc = (x: Int) => x + 1
+  println(apply(compose(double, inc), 5))
+}

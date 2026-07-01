@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC11: lambda expressions + return statement
+
+Added anonymous functions and `return` to the K61 v1.0-compat pipeline.
+**Lambda parsing** (`ssc1-front.ssc0`): `tryLamParams` speculatively parses `(name [: T], ...)`
+returning `Some(names)` or `None` (no backtracking needed). `parseExpr` checks `id =>` (single
+param) and `(params) =>` (multi-param) before falling through to infix. `return` keyword in
+`parseAtom` → `Pair("return", parseExpr(rest))` so it works inside `if`-then bodies (else `return -n`
+would parse as `return - n = subtraction`). **Lowering** (`ssc1-lower.ssc0`): `lowerE` for `"lam"`
+→ `IrLam(n, lowerE(appendL(revL(params), scope), body))`. `lowerBlock` for `"return"` → evaluate
+value and stop (ignore trailing stmts). `if (cond) return e; rest` pattern in block → `IrIf(cond, e,
+lowerBlock(rest))`. **GOTCHA**: ssc0 patterns can't have string literals as ctor arguments
+(`case Pair("if", x)` is a parse error — use a variable + `#seq` guard).
+`compose(double, inc)(5)` = 12; `abs(-7) + abs(3)` = 10.
+
 ## 2026-07-01 — KC10: var/while loops + if-without-else
 
 **`var x = e`** → `IrPrim("cell.new", [e])` bound as `"@x"` in scope. Reads of `x` in `lowerE`
