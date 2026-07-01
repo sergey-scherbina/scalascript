@@ -1767,6 +1767,17 @@ kc6sum=$(ssc run bin/ssc1c.ssc0 examples/kc6-fold.ssc | ssc run-ir /dev/stdin | 
 if [ "$kc6sum" = "6" ]; then printf 'ok   %-26s => %s\n' "kc6 list.foldLeft sum" "$kc6sum"
 else printf 'FAIL %-26s\n  got: [%s] want: [6]\n' "kc6 list.foldLeft sum" "$kc6sum"; fail=1; fi
 
+echo '# KC7 — OOP lowering: match expressions + case class'
+kc7mat=$(ssc run bin/ssc1c.ssc0 examples/kc7-match.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc7mat" = "42" ]; then printf 'ok   %-26s => %s\n' "kc7 match Cons/Nil" "$kc7mat"
+else printf 'FAIL %-26s\n  got: [%s] want: [42]\n' "kc7 match Cons/Nil" "$kc7mat"; fail=1; fi
+kc7cls=$(ssc run bin/ssc1c.ssc0 examples/kc7-casecls.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc7cls" = "7" ]; then printf 'ok   %-26s => %s\n' "kc7 case class Point" "$kc7cls"
+else printf 'FAIL %-26s\n  got: [%s] want: [7]\n' "kc7 case class Point" "$kc7cls"; fail=1; fi
+kc7vp=$(ssc run bin/ssc1c.ssc0 examples/kc7-opt.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc7vp" = "10" ]; then printf 'ok   %-26s => %s\n' "kc7 vpat catch-all" "$kc7vp"
+else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc7 vpat catch-all" "$kc7vp"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

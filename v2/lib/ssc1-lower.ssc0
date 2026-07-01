@@ -21,6 +21,10 @@ def lenL = (xs) =>
     match xs2 { case Nil => n case Cons(u, t) => go(t, #i.add(n, 1)) } in
   go(xs, 0)
 
+-- Append two lists
+def appendL = (xs, ys) =>
+  match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) }
+
 -- De Bruijn lookup: returns IrLocal(i) if found, else IrGlobal(name)
 def lookupVar = (scope, name) =>
   let rec go = (sc, d) =>
@@ -151,6 +155,21 @@ def resolveE = (expr) =>
         }
       else if #seq(tag, "tup") then
         Pair("tup", resolveArgs(data))
+      else if #seq(tag, "match") then
+        match data {
+          case Pair(scrutE, arms) =>
+            let re = resolveE(scrutE) in
+            let rec rArms = (as) =>
+              match as {
+                case Nil => Nil
+                case Cons(arm, rest) =>
+                  match arm {
+                    case Pair(pat, body) =>
+                      Cons(Pair(pat, resolveE(body)), rArms(rest))
+                  }
+              } in
+            Pair("match", Pair(re, rArms(arms)))
+        }
       else
         expr
   }
@@ -277,6 +296,10 @@ def lowerE = (scope, rawExpr) =>
           case Pair(obj, field) =>
             IrApp(IrGlobal(#sconcat("_sel_", field)), Cons(lowerE(scope, obj), Nil))
         }
+      else if #seq(tag, "match") then
+        match data {
+          case Pair(scrutE, arms) => lowerMatch(scope, scrutE, arms)
+        }
       else
         IrLit(IrUnit)
   }
@@ -390,10 +413,86 @@ def strToIntDef =
         Cons(IrArm("Some", 1, IrLocal(0)), Nil),
         Some(IrLit(IrInt(0))))))
 
+-- ── KC7: match lowering + case class ────────────────────────────────────────
+
+-- Build [IrLocal(n-1), IrLocal(n-2), ..., IrLocal(0)] for IrCtor arg list
+-- Called with (0, n, Nil): i counts up, each prepend builds descending list
+def buildCtorArgs = (i, n, acc) =>
+  if #i.eq(i, n) then acc
+  else buildCtorArgs(#i.add(i, 1), n, Cons(IrLocal(i), acc))
+
+-- Lower a match expression to IrLet(scrutinee) + IrMatch(local0, arms, default)
+-- letScope: __scr__ = local0; outer vars shift by 1
+-- armScope: revL(patVars) ++ letScope  (arity fields shift letScope by arity)
+-- vpat default: Cons(varName, outerScope)  (var = local0 = scrutinee)
+-- wpat default: lowerE(letScope, body)
+def lowerMatch = (scope, scrutinee, arms) =>
+  let eIr = lowerE(scope, scrutinee) in
+  let letScope = Cons("__scr__", scope) in
+  let rec procArms = (armsLeft, irAcc, defAcc) =>
+    match armsLeft {
+      case Nil => Pair(irAcc, defAcc)
+      case Cons(arm, rest) =>
+        match arm {
+          case Pair(pat, body) =>
+            match pat {
+              case Pair(ptag, pdata) =>
+                if #seq(ptag, "cpat") then
+                  match pdata {
+                    case Pair(ctorName, patVars) =>
+                      let armScope = appendL(revL(patVars), letScope) in
+                      let irArm = IrArm(ctorName, lenL(patVars), lowerE(armScope, body)) in
+                      procArms(rest, appendL(irAcc, Cons(irArm, Nil)), defAcc)
+                  }
+                else if #seq(ptag, "vpat") then
+                  let defScope = Cons(pdata, scope) in
+                  procArms(rest, irAcc, Some(lowerE(defScope, body)))
+                else
+                  procArms(rest, irAcc, Some(lowerE(letScope, body)))
+            }
+        }
+    } in
+  let result = procArms(arms, Nil, None) in
+  match result {
+    case Pair(irArms, defOpt) =>
+      match irArms {
+        case Nil =>
+          -- No ctor arms: skip IrMatch (would crash on non-Data scrutinee).
+          -- vpat/wpat defaults already embed lowerE(...) directly.
+          match defOpt {
+            case Some(defBody) => IrLet(Cons(eIr, Nil), defBody)
+            case None => eIr
+          }
+        case _ =>
+          IrLet(Cons(eIr, Nil), IrMatch(IrLocal(0), irArms, defOpt))
+      }
+  }
+
+-- Generate IrDef list for a case class: constructor def + field accessor defs
+-- Constructor: IrDef(name, IrLam(n, IrCtor(name, [IrLocal(n-1)..IrLocal(0)])))
+-- Accessor _sel_f: IrLam(1, IrMatch(IrLocal(0), [IrArm(name,n,IrLocal(fieldIdx))], None))
+-- In IrArm(name, n, body): last field = local0, first field = local(n-1)
+def lowerCaseCls = (name, params) =>
+  let n = lenL(params) in
+  let ctorArgs = buildCtorArgs(0, n, Nil) in
+  let ctorDef = IrDef(name, IrLam(n, IrCtor(name, ctorArgs))) in
+  let rec mkAcc = (ps, idx) =>
+    match ps {
+      case Nil => Nil
+      case Cons(field, rest) =>
+        let fieldLocal = #i.sub(#i.sub(n, 1), idx) in
+        let accDef = IrDef(#sconcat("_sel_", field),
+          IrLam(1, IrMatch(IrLocal(0),
+            Cons(IrArm(name, n, IrLocal(fieldLocal)), Nil),
+            None))) in
+        Cons(accDef, mkAcc(rest, #i.add(idx, 1)))
+    } in
+  Cons(ctorDef, mkAcc(params, 0))
+
 -- ── Statement lowering ────────────────────────────────────────────────────────
 
--- Lower a single def or val statement to an IrDef node
-def lowerStmt = (stmt) =>
+-- Lower a statement to a list of IrDef nodes (case class → multiple defs)
+def lowerStmtToList = (stmt) =>
   match stmt {
     case Pair(tag, data) =>
       if #seq(tag, "def") then
@@ -402,27 +501,27 @@ def lowerStmt = (stmt) =>
             match rest {
               case Pair(params, body) =>
                 let scope = revL(params) in
-                Some(IrDef(name, IrLam(lenL(params), lowerE(scope, body))))
+                Cons(IrDef(name, IrLam(lenL(params), lowerE(scope, body))), Nil)
             }
         }
       else if #seq(tag, "val") then
         match data {
           case Pair(name, body) =>
-            Some(IrDef(name, lowerE(Nil, body)))
+            Cons(IrDef(name, lowerE(Nil, body)), Nil)
         }
-      else
-        None
+      else if #seq(tag, "casecls") then
+        match data {
+          case Pair(name, params) => lowerCaseCls(name, params)
+        }
+      else Nil
   }
 
--- Lower all statements to a list of IrDef nodes (skip non-def stmts)
+-- Lower all statements to a flat list of IrDef nodes
 def lowerStmts = (stmts) =>
   match stmts {
     case Nil => Nil
     case Cons(s, rest) =>
-      match lowerStmt(s) {
-        case Some(d) => Cons(d, lowerStmts(rest))
-        case None => lowerStmts(rest)
-      }
+      appendL(lowerStmtToList(s), lowerStmts(rest))
   }
 
 -- ── Built-in defs ─────────────────────────────────────────────────────────────
@@ -473,10 +572,7 @@ def lowerProg = (stmts) =>
     Cons(printDef,
     kc6Defs)) in
   let userDefs = lowerStmts(stmts) in
-  let allDefs =
-    let rec appendL = (xs, ys) =>
-      match xs { case Nil => ys case Cons(h, t) => Cons(h, appendL(t, ys)) } in
-    appendL(defs, userDefs) in
+  let allDefs = appendL(defs, userDefs) in
   let entry =
     if hasZeroArgMain(stmts) then IrApp(IrGlobal("main"), Nil)
     else IrLit(IrUnit) in

@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC7: match expressions + case class OOP lowering
+
+Parser extensions (`ssc1-front.ssc0`): `parsePat` (cpat/vpat/wpat), `parseMatchArm/Arms/Expr`
+(prefix `match e {}` + postfix `e match {}` in `buildPostfix`), `parseCaseClass` + `skipToStmt`;
+`parseOneStmt` now handles `case class`, `sealed`/`abstract` (skip), `object` (skip body).
+Two new AST tags: `"match"` (Pair(scrutinee, arms)), `"casecls"` (Pair(name, params)).
+
+Lowering extensions (`ssc1-lower.ssc0`): global `appendL`; `buildCtorArgs` (builds
+`[IrLocal(n-1)..IrLocal(0)]` for ctor field order); `lowerMatch` (emits `IrLet + IrMatch`;
+pure vpat/wpat with no ctor arms skips `IrMatch` to avoid crashing on non-Data values);
+`lowerCaseCls` (injects constructor `IrDef` + `_sel_field` accessor defs per field);
+`lowerStmtToList` (replaces `lowerStmt`; `casecls` emits multiple IrDef via `appendL`).
+`resolveE` + `lowerE` handle `"match"` tag (recursively resolve arm bodies).
+
+Conformance: 3 new KC7 tests (kc7-match=42, kc7-casecls=7, kc7-opt=10) all green.
+
 ## 2026-07-01 — KC6: v1.0 intrinsics mapping (`lib/ssc1-lower.ssc0`)
 
 Resolve-pass (`resolveE`) added to `ssc1-lower.ssc0`: pre-processes the KC3 AST before de Bruijn

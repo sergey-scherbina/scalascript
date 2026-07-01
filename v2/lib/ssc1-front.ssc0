@@ -244,7 +244,8 @@ def parseAtom = (toks) =>
   else if #seq(k, "kw") then
     if #seq(v, "true")  then pr(mkBool("true"),  advance(toks))
     else if #seq(v, "false") then pr(mkBool("false"), advance(toks))
-    else if #seq(v, "if")   then parseIfExpr(advance(toks))
+    else if #seq(v, "if")    then parseIfExpr(advance(toks))
+    else if #seq(v, "match") then parseMatchExpr(advance(toks))
     else pr(mkVar(v), advance(toks))
   else if #seq(k, "(") then
     let toks2 = advance(toks) in
@@ -315,6 +316,12 @@ def buildPostfix = (e, toks) =>
       else if kindIs("EOF", ts) then ts
       else skipBrack(advance(ts)) in
     buildPostfix(e, skipBrack(advance(toks)))
+  else if #seq(k, "kw") then
+    if kwIs("match", toks) then
+      let ts2 = skipKind("{", advance(toks)) in
+      let rArms = parseMatchArms(ts2) in
+      buildPostfix(mkMatch(e, prV(rArms)), prT(rArms))
+    else pr(e, toks)
   else pr(e, toks)
 
 def parsePostfix = (toks) =>
@@ -394,11 +401,147 @@ def parseVal = (toks) =>
   let re = parseExpr(toks4) in
   pr(mkVal(name, prV(re)), prT(re))
 
+-- ── KC7: match + case class parsing ─────────────────────────────────────────
+
+def mkMatch   = (e, arms) => Pair("match",   Pair(e, arms))
+def mkCaseCls = (n, ps)   => Pair("casecls", Pair(n, ps))
+
+-- parsePat: single flat pattern; returns (pat, remaining-toks)
+-- Supports: Ctor(v1,v2), lowercase-var, _ wildcard, kw-literal
+def parsePat = (toks) =>
+  let t  = peek(toks) in
+  let k  = tokKind(t) in
+  let v  = tokVal(t) in
+  if #seq(k, "uid") then
+    let ts2 = advance(toks) in
+    if kindIs("(", ts2) then
+      let ts3 = advance(ts2) in
+      if kindIs(")", ts3) then pr(Pair("cpat", Pair(v, Nil)), advance(ts3))
+      else
+        let rec goVars = (ts, acc) =>
+          let vt  = peek(ts) in
+          let vk  = tokKind(vt) in
+          let vv  = tokVal(vt) in
+          let nm  = if #seq(vk, "id") then vv else if #seq(vk, "uid") then vv else "_v" in
+          let ts2v = advance(ts) in
+          let ts3v = if kindIs("(", ts2v) then
+            let rec skipNest = (ts4) =>
+              if kindIs(")", ts4) then advance(ts4)
+              else if kindIs("EOF", ts4) then ts4
+              else skipNest(advance(ts4)) in
+            skipNest(advance(ts2v))
+          else ts2v in
+          let tsTyp = skipTypeAnnot(ts3v) in
+          if kindIs(",", tsTyp) then goVars(advance(tsTyp), Cons(nm, acc))
+          else pr(reverse(Cons(nm, acc)), tsTyp) in
+        let rVars = goVars(ts3, Nil) in
+        pr(Pair("cpat", Pair(v, prV(rVars))), skipKind(")", prT(rVars)))
+    else pr(Pair("cpat", Pair(v, Nil)), ts2)
+  else if #seq(k, "id") then
+    let ts2 = advance(toks) in
+    if #seq(v, "_") then pr(Pair("wpat", ""), ts2)
+    else pr(Pair("vpat", v), ts2)
+  else if #seq(k, "kw") then
+    pr(Pair("cpat", Pair(v, Nil)), advance(toks))
+  else pr(Pair("wpat", ""), advance(toks))
+
+-- parseMatchArm: `case Pat => expr`  (keyword `case` already consumed)
+def parseMatchArm = (toks) =>
+  let rPat = parsePat(toks) in
+  let ts1  = skipTypeAnnot(prT(rPat)) in
+  let ts2  = skipKind("=>", ts1) in
+  let re   = parseExpr(ts2) in
+  pr(Pair(prV(rPat), prV(re)), prT(re))
+
+-- parseMatchArms: all arms inside `{ case ... }` (opening `{` already consumed)
+def parseMatchArms = (toks) =>
+  let rec go = (ts, acc) =>
+    let ts2 = skipSemis(ts) in
+    if kwIs("case", ts2) then
+      let r = parseMatchArm(advance(ts2)) in
+      go(prT(r), Cons(prV(r), acc))
+    else if kindIs("}", ts2) then pr(reverse(acc), advance(ts2))
+    else pr(reverse(acc), ts2) in
+  go(toks, Nil)
+
+-- parseMatchExpr: `match e { arms }`  (keyword `match` already consumed)
+def parseMatchExpr = (toks) =>
+  let re    = parseExpr(toks) in
+  let ts1   = skipKind("{", prT(re)) in
+  let rArms = parseMatchArms(ts1) in
+  pr(mkMatch(prV(re), prV(rArms)), prT(rArms))
+
+-- parseCaseClass: `case class Name(params)`  (keywords `case class` consumed)
+def parseCaseClass = (toks) =>
+  let name = tokVal(peek(toks)) in
+  let ts1  = skipTypeParams(advance(toks)) in
+  let rp   = parseParamList(ts1) in
+  let rec skipExt = (ts) =>
+    let tok = peek(ts) in
+    let k2  = tokKind(tok) in
+    if #seq(k2, "EOF")  then ts
+    else if #seq(k2, "{") then ts
+    else if #seq(k2, ";") then ts
+    else if #seq(k2, "kw") then
+      if kwIs("def",      ts) then ts
+      else if kwIs("val",    ts) then ts
+      else if kwIs("case",   ts) then ts
+      else if kwIs("sealed", ts) then ts
+      else if kwIs("object", ts) then ts
+      else if kwIs("class",  ts) then ts
+      else skipExt(advance(ts))
+    else skipExt(advance(ts)) in
+  let ts2 = skipExt(prT(rp)) in
+  let ts3 = if kindIs("{", ts2) then
+    let rec skipBody = (ts) =>
+      if kindIs("}", ts) then advance(ts)
+      else if kindIs("EOF", ts) then ts
+      else skipBody(advance(ts)) in
+    skipBody(advance(ts2))
+  else ts2 in
+  pr(mkCaseCls(name, prV(rp)), ts3)
+
+-- skipToStmt: advance until next top-level statement keyword
+def skipToStmt = (ts) =>
+  let tok = peek(ts) in
+  let k2  = tokKind(tok) in
+  if #seq(k2, "EOF") then ts
+  else if #seq(k2, ";") then ts
+  else if #seq(k2, "kw") then
+    if kwIs("def",      ts) then ts
+    else if kwIs("val",    ts) then ts
+    else if kwIs("case",   ts) then ts
+    else if kwIs("sealed", ts) then ts
+    else if kwIs("object", ts) then ts
+    else if kwIs("abstract", ts) then ts
+    else skipToStmt(advance(ts))
+  else skipToStmt(advance(ts))
+
 def parseOneStmt = (toks) =>
   let t = peek(toks) in
-  if #seq(tokKind(t), "kw") then
-    if #seq(tokVal(t), "def") then parseDef(advance(toks))
-    else if #seq(tokVal(t), "val") then parseVal(advance(toks))
+  let k = tokKind(t) in
+  let v = tokVal(t) in
+  if #seq(k, "kw") then
+    if #seq(v, "def") then parseDef(advance(toks))
+    else if #seq(v, "val") then parseVal(advance(toks))
+    else if #seq(v, "case") then
+      let ts2 = advance(toks) in
+      if kwIs("class", ts2) then parseCaseClass(advance(ts2))
+      else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+    else if #seq(v, "sealed") then
+      pr(Pair("sealed", ""), skipToStmt(advance(toks)))
+    else if #seq(v, "abstract") then
+      pr(Pair("sealed", ""), skipToStmt(advance(toks)))
+    else if #seq(v, "object") then
+      let ts2 = skipToStmt(advance(toks)) in
+      let ts3 = if kindIs("{", ts2) then
+        let rec skipObj = (ts) =>
+          if kindIs("}", ts) then advance(ts)
+          else if kindIs("EOF", ts) then ts
+          else skipObj(advance(ts)) in
+        skipObj(advance(ts2))
+      else ts2 in
+      pr(Pair("sealed", ""), ts3)
     else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
   else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
 

@@ -1,0 +1,5 @@
+def maybeHead(xs: List[Int]): Int = xs match {
+  case Cons(h, t) => h
+  case Nil => 0
+}
+def main(): Unit = println(maybeHead(List(42, 10, 5)))

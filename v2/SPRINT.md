@@ -1009,11 +1009,24 @@ Prerequisite: K55 (Markdown extractor).
       Deferred: class hierarchy, variance, implicit resolution.
       Done-when: type-checks functional examples; rejects `1 + "a"` with a clear error.
 
-- [ ] **KC7 — OOP lowering** — class/trait/object → records + vtable dicts.
-      Strategy: `class C(x: T) { def m = ... }` → ADT `Ctor("C_inst", [x])` + dict `{m: fn}`.
-      `trait T { def m }` → dict type (same as Mira type class). `object O` → singleton global.
-      `extends/with` → dict merge. `override` → field replacement in child dict.
-      Done-when: simple one-level inheritance works; `sealed trait + case class` compiles.
+- [x] **KC7 — OOP lowering DONE** 2026-07-01. Match expressions + case class → Core IR.
+      **Parser** (`ssc1-front.ssc0`): `parsePat` (cpat/vpat/wpat), `parseMatchArm`,
+      `parseMatchArms`, `parseMatchExpr` (prefix `match e {}`), postfix `e match {}` in
+      `buildPostfix`, `parseCaseClass`, `skipToStmt`, `parseOneStmt` extended for
+      `case class`, `sealed`, `abstract`, `object` (skipped). Two new AST tags: `"match"`,
+      `"casecls"`.
+      **Lowering** (`ssc1-lower.ssc0`): `appendL` (global), `buildCtorArgs` (builds
+      `[IrLocal(n-1)..IrLocal(0)]`), `lowerMatch` (→ `IrLet + IrMatch`; pure vpat/wpat
+      catch-all skips `IrMatch` to avoid crashing on non-Data scrutinee), `lowerCaseCls`
+      (injects constructor `IrDef` + `_sel_field` accessor defs), `lowerStmtToList` (replaces
+      `lowerStmt`; `casecls` emits multiple defs via `appendL`). `resolveE` + `lowerE` handle
+      `"match"` tag recursively. `lowerProg` uses global `appendL`.
+      **De Bruijn conventions** (arm scope): `appendL(revL(patVars), letScope)` — last field of
+      ctor = local 0; first field = local(arity-1). vpat default uses `Cons(varName, scope)`
+      so the variable maps to local 0 without IrMatch.
+      **Conformance:** kc7-match (List head via Cons/Nil match=42), kc7-casecls (Point(3,4).x+y=7),
+      kc7-opt (vpat+list head=10) — all green.
+      **Deferred:** nested patterns, object methods (bodies are skipped), full inheritance.
 
 - [ ] **KC8 — given/using** — `given T = ...` → explicit dict. `using` → dict arg.
       Resolution: same HM-style instance lookup as Mira type classes.

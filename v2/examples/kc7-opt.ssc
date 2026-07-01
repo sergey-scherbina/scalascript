@@ -1,0 +1,8 @@
+def getOpt(x: Int): Int = x match {
+  case n => n * 2
+}
+def unwrap(xs: List[Int]): Int = xs match {
+  case Cons(h, t) => h
+  case Nil => -1
+}
+def main(): Unit = println(unwrap(List(getOpt(5), 0)))

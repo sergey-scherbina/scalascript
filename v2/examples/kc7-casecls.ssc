@@ -1,0 +1,3 @@
+case class Point(x: Int, y: Int)
+def sumCoords(p: Point): Int = p.x + p.y
+def main(): Unit = println(sumCoords(Point(3, 4)))
