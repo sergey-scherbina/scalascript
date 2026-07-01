@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC3: v1.0 ScalaScript parser (`lib/ssc1-front.ssc0`)
+
+`lib/ssc1-front.ssc0` (~350 lines, ssc0): combined KC2+KC3 lexer+parser for ScalaScript v1.0
+functional subset. Written in ssc0 (not Lark) to avoid HM unifier stack overflow. Lexer: 26 token
+kinds including `==`, `=>`, `->`, `::`. Parser: recursive-descent, tag-encoded AST using `Pair`
+instead of ADTs (avoids ssc0 pattern nesting limitations). Handles: `def`/`val` statements, infix
+precedence climbing (prec 3–8), postfix `.field`/`(args)`/`[types]`, `if/then/else`, tuples,
+literals. Type annotations stripped. Conformance: `parse "def f(x: Int): Int = x + 1"` →
+`SDef("f",[x],EInfix("+",EVar(x),EInt(1)))`. Factorial, main(), multi-stmt all tested.
+Gotchas: ssc0 forbids nested constructor patterns (use nested match); no `-1` literal (use `#i.neg(1)`).
+
+---
+
 ## 2026-07-01 — KC2: v1.0 ScalaScript lexer in Lark (`examples/hm-lex.lark`)
 
 `examples/hm-lex.lark` (130 lines Lark): full lexer for ScalaScript v1.0 source code.

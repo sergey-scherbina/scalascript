@@ -1738,6 +1738,12 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/kc2.coreir" | tail -1)
 if [ "$got" = "$KC2WANT" ]; then printf 'ok   %-26s => 12 tokens\n' "lex \"def f(x: Int) = x + 1\""
 else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "hm-lex -> VM" "$got" "$KC2WANT"; fail=1; fi
 
+echo '# KC3 — v1.0 ScalaScript parser (lib/ssc1-front.ssc0)'
+KC3WANT='SDef("f",[x],EInfix("+",EVar(x),EInt(1)))'
+kc3got=$(ssc run examples/kc3-test.ssc0 | tail -1)
+if [ "$kc3got" = "$KC3WANT" ]; then printf 'ok   %-26s => %s\n' "ssc1-front parse def" "$kc3got"
+else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "ssc1-front parse def" "$kc3got" "$KC3WANT"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

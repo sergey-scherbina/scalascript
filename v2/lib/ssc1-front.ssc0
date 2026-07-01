@@ -1,0 +1,505 @@
+-- ssc1-front.ssc0 — KC2+KC3: lexer + functional-subset parser for ScalaScript v1.0 (K61).
+-- Written in ssc0 (avoids HM-unifier stack overflow; matches pattern of lark-md.ssc0).
+--
+-- Public API:
+--   lex(src)        : String -> [Token]
+--   parse(src)      : String -> [Stmt]
+--   showStmts(ss)   : [Stmt] -> String
+-- Token = Pair(kind, value).  Kinds: "kw" "id" "uid" "op" "int" "str"
+--   "(" ")" "[" "]" "{" "}" "," ";" "." ":" "=" "=>" "->" "::" "@" "#" "EOF"
+-- Stmt = Pair(tag, data).  Tags: "def" "val" "expr"
+-- Expr = Pair(tag, data).  Tags: "int" "str" "bool" "var" "uid" "app" "sel" "if" "inf" "pre" "tup"
+
+import "../lib/list.ssc0"
+
+-- ── Token helpers ─────────────────────────────────────────────────────────────
+def mkTok  = (kind, val) => Pair(kind, val)
+def tokKind = (t) => match t { case Pair(k, v) => k }
+def tokVal  = (t) => match t { case Pair(k, v) => v }
+
+-- ── Char predicates ───────────────────────────────────────────────────────────
+def isDigit    = (c) => if #i.lt(c, 48) then false else #i.le(c, 57)
+def isLower    = (c) => if #i.lt(c, 97) then false else #i.le(c, 122)
+def isUpper    = (c) => if #i.lt(c, 65) then false else #i.le(c, 90)
+def isAlpha    = (c) => if isLower(c) then true else isUpper(c)
+def isAlphaNum = (c) => if isAlpha(c) then true else if isDigit(c) then true else #i.eq(c, 95)
+def isWS       = (c) => if #i.eq(c, 32) then true else if #i.eq(c, 9) then true
+                        else if #i.eq(c, 10) then true else #i.eq(c, 13)
+
+def slen = (s) => #slen(s)
+def sget = (s, i) => #scodeAt(s, i)
+def nget = (s, i) => if #i.ge(i, slen(s)) then #i.neg(1) else sget(s, i)
+def scat = (a, b) => #sconcat(a, b)
+
+-- ── Keyword test ──────────────────────────────────────────────────────────────
+def isKwA = (s) =>
+  if #seq(s, "def") then true else if #seq(s, "val") then true
+  else if #seq(s, "var") then true else if #seq(s, "class") then true
+  else if #seq(s, "trait") then true else if #seq(s, "object") then true
+  else if #seq(s, "case") then true else if #seq(s, "given") then true else false
+def isKwB = (s) =>
+  if #seq(s, "using") then true else if #seq(s, "import") then true
+  else if #seq(s, "match") then true else if #seq(s, "if") then true
+  else if #seq(s, "else") then true else if #seq(s, "for") then true
+  else if #seq(s, "yield") then true else if #seq(s, "return") then true else false
+def isKwC = (s) =>
+  if #seq(s, "sealed") then true else if #seq(s, "abstract") then true
+  else if #seq(s, "override") then true else if #seq(s, "extends") then true
+  else if #seq(s, "with") then true else if #seq(s, "new") then true
+  else if #seq(s, "then") then true else if #seq(s, "do") then true else false
+def isKwD = (s) =>
+  if #seq(s, "true") then true else if #seq(s, "false") then true
+  else if #seq(s, "null") then true else if #seq(s, "this") then true
+  else if #seq(s, "type") then true else if #seq(s, "while") then true else false
+def isKw = (s) =>
+  if isKwA(s) then true else if isKwB(s) then true
+  else if isKwC(s) then true else isKwD(s)
+
+-- ── String utilities ──────────────────────────────────────────────────────────
+def scanEnd = (pred, s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else if pred(sget(s, i)) then scanEnd(pred, s, #i.add(i, 1))
+  else i
+def scanStr = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if #i.eq(c, 34) then i
+    else if #i.eq(c, 92) then scanStr(s, #i.add(i, 2))
+    else scanStr(s, #i.add(i, 1))
+def buildStr = (s, i, acc) =>
+  if #i.ge(i, slen(s)) then acc
+  else let c = sget(s, i) in
+    if #i.eq(c, 34) then acc
+    else if #i.eq(c, 92) then
+      let e = nget(s, #i.add(i, 1)) in
+      let ec = if #i.eq(e, 110) then "\n" else if #i.eq(e, 116) then "\t"
+               else #sfromCodes(Cons(e, Nil)) in
+      buildStr(s, #i.add(i, 2), scat(acc, ec))
+    else buildStr(s, #i.add(i, 1), scat(acc, #sfromCodes(Cons(c, Nil))))
+
+-- ── Lexer ─────────────────────────────────────────────────────────────────────
+def skipWS = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if isWS(c) then skipWS(s, #i.add(i, 1))
+    else if #i.eq(c, 47) then
+      if #i.eq(nget(s, #i.add(i, 1)), 47) then
+        let j = scanEnd((c2) => if #i.eq(c2, 10) then false else true, s, #i.add(i, 2)) in
+        skipWS(s, j)
+      else i
+    else i
+
+def lexFrom = (s, i) =>
+  let i2 = skipWS(s, i) in
+  if #i.ge(i2, slen(s)) then Cons(mkTok("EOF", ""), Nil)
+  else let c = sget(s, i2) in
+    let n = nget(s, #i.add(i2, 1)) in
+    if isAlpha(c) then
+      let e = scanEnd(isAlphaNum, s, #i.add(i2, 1)) in
+      let w = #sslice(s, i2, e) in
+      let kind = if isKw(w) then "kw" else if isUpper(c) then "uid" else "id" in
+      Cons(mkTok(kind, w), lexFrom(s, e))
+    else if #i.eq(c, 95) then
+      let e = scanEnd(isAlphaNum, s, #i.add(i2, 1)) in
+      Cons(mkTok("id", #sslice(s, i2, e)), lexFrom(s, e))
+    else if isDigit(c) then
+      let e = scanEnd(isDigit, s, #i.add(i2, 1)) in
+      Cons(mkTok("int", #sslice(s, i2, e)), lexFrom(s, e))
+    else if #i.eq(c, 34) then
+      let e = scanStr(s, #i.add(i2, 1)) in
+      Cons(mkTok("str", buildStr(s, #i.add(i2, 1), "")), lexFrom(s, #i.add(e, 1)))
+    else if #i.eq(c, 40)  then Cons(mkTok("(", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 41)  then Cons(mkTok(")", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 91)  then Cons(mkTok("[", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 93)  then Cons(mkTok("]", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 123) then Cons(mkTok("{", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 125) then Cons(mkTok("}", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 44)  then Cons(mkTok(",", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 59)  then Cons(mkTok(";", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 64)  then Cons(mkTok("@", ""),   lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 35)  then Cons(mkTok("#", ""),   lexFrom(s, #i.add(i2, 1)))
+    -- two-char operators that get own kind
+    else if #i.eq(c, 61) then
+      if #i.eq(n, 62) then Cons(mkTok("=>", ""), lexFrom(s, #i.add(i2, 2)))    -- =>
+      else if #i.eq(n, 61) then Cons(mkTok("op", "=="), lexFrom(s, #i.add(i2, 2))) -- ==
+      else Cons(mkTok("=", ""), lexFrom(s, #i.add(i2, 1)))                       -- =
+    else if #i.eq(c, 58) then
+      if #i.eq(n, 58) then Cons(mkTok("::", ""), lexFrom(s, #i.add(i2, 2)))     -- ::
+      else Cons(mkTok(":", ""), lexFrom(s, #i.add(i2, 1)))                       -- :
+    else if #i.eq(c, 46) then
+      if #i.eq(n, 46) then Cons(mkTok("op", ".."), lexFrom(s, #i.add(i2, 2)))   -- ..
+      else Cons(mkTok(".", ""), lexFrom(s, #i.add(i2, 1)))                       -- .
+    else if #i.eq(c, 45) then
+      if #i.eq(n, 62) then Cons(mkTok("->", ""), lexFrom(s, #i.add(i2, 2)))     -- ->
+      else Cons(mkTok("op", "-"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 60) then
+      if #i.eq(n, 61) then Cons(mkTok("op", "<="), lexFrom(s, #i.add(i2, 2)))
+      else if #i.eq(n, 62) then Cons(mkTok("op", "<>"), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", "<"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 62) then
+      if #i.eq(n, 61) then Cons(mkTok("op", ">="), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", ">"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 33) then
+      if #i.eq(n, 61) then Cons(mkTok("op", "!="), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", "!"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 38) then
+      if #i.eq(n, 38) then Cons(mkTok("op", "&&"), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", "&"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 124) then
+      if #i.eq(n, 124) then Cons(mkTok("op", "||"), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", "|"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 43) then
+      if #i.eq(n, 43) then Cons(mkTok("op", "++"), lexFrom(s, #i.add(i2, 2)))
+      else if #i.eq(n, 61) then Cons(mkTok("op", "+="), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", "+"), lexFrom(s, #i.add(i2, 1)))
+    else if #i.eq(c, 42) then
+      if #i.eq(n, 42) then Cons(mkTok("op", "**"), lexFrom(s, #i.add(i2, 2)))
+      else Cons(mkTok("op", "*"), lexFrom(s, #i.add(i2, 1)))
+    else
+      Cons(mkTok("op", #sslice(s, i2, #i.add(i2, 1))), lexFrom(s, #i.add(i2, 1)))
+
+def lex = (src) => lexFrom(src, 0)
+
+-- ── AST (tag-based encoding) ──────────────────────────────────────────────────
+def mkInt  = (n)        => Pair("int",  n)
+def mkStr  = (s)        => Pair("str",  s)
+def mkBool = (b)        => Pair("bool", b)
+def mkVar  = (n)        => Pair("var",  n)
+def mkUVar = (n)        => Pair("uid",  n)
+def mkSel  = (e, n)     => Pair("sel",  Pair(e, n))
+def mkApp  = (f, args)  => Pair("app",  Pair(f, args))
+def mkLam  = (ps, e)    => Pair("lam",  Pair(ps, e))
+def mkIf   = (c, t, el) => Pair("if",   Pair(c, Pair(t, el)))
+def mkInf  = (op, l, r) => Pair("inf",  Pair(op, Pair(l, r)))
+def mkPre  = (op, e)    => Pair("pre",  Pair(op, e))
+def mkTup  = (es)       => Pair("tup",  es)
+def mkDef  = (n, ps, e) => Pair("def",  Pair(n, Pair(ps, e)))
+def mkVal  = (n, e)     => Pair("val",  Pair(n, e))
+def mkSExpr = (e)       => Pair("expr", e)
+
+-- ParseResult helpers
+def pr     = (v, ts)    => Pair(v, ts)
+def prV    = (r)        => match r { case Pair(v, t) => v }
+def prT    = (r)        => match r { case Pair(v, t) => t }
+
+-- ── Parser utilities ──────────────────────────────────────────────────────────
+def peek = (toks) =>
+  match toks { case Nil => mkTok("EOF", "") case Cons(t, r) => t }
+def advance = (toks) =>
+  match toks { case Nil => Nil case Cons(t, r) => r }
+def kindIs  = (k, toks) => #seq(tokKind(peek(toks)), k)
+def kwIs    = (kw, toks) =>
+  if #seq(tokKind(peek(toks)), "kw") then #seq(tokVal(peek(toks)), kw) else false
+def opIs    = (op, toks) =>
+  if #seq(tokKind(peek(toks)), "op") then #seq(tokVal(peek(toks)), op) else false
+def skipKind = (k, toks) => if kindIs(k, toks) then advance(toks) else toks
+def skipKw   = (kw, toks) => if kwIs(kw, toks) then advance(toks) else toks
+
+-- Skip type annotation  ': Type'  (stop at '=' ')' ',' '{' 'EOF')
+def skipType = (toks) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  if #seq(k, "=") then toks
+  else if #seq(k, ")") then toks
+  else if #seq(k, ",") then toks
+  else if #seq(k, "{") then toks
+  else if #seq(k, "EOF") then toks
+  else skipType(advance(toks))
+
+def skipTypeAnnot = (toks) =>
+  if kindIs(":", toks) then skipType(advance(toks)) else toks
+
+-- ── Parameter list parser ─────────────────────────────────────────────────────
+def parseParam = (toks) =>
+  if #seq(tokKind(peek(toks)), "id") then
+    let name = tokVal(peek(toks)) in
+    pr(name, skipTypeAnnot(advance(toks)))
+  else pr("_", toks)
+
+def parseParamList = (toks) =>
+  if kindIs("(", toks) then
+    let toks2 = advance(toks) in
+    if kindIs(")", toks2) then pr(Nil, advance(toks2))
+    else
+      let rec goParams = (ts, acc) =>
+        let r = parseParam(ts) in
+        let acc2 = Cons(prV(r), acc) in
+        let ts2 = prT(r) in
+        if kindIs(",", ts2) then goParams(advance(ts2), acc2)
+        else pr(reverse(acc2), ts2) in
+      let r = goParams(toks2, Nil) in
+      pr(prV(r), skipKind(")", prT(r)))
+  else pr(Nil, toks)
+
+-- ── Expression parser ─────────────────────────────────────────────────────────
+-- parseAtom: handles literals, variables, parenthesized, if, prefix
+def parseAtom = (toks) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  let v = tokVal(t) in
+  if #seq(k, "int") then pr(mkInt(v), advance(toks))
+  else if #seq(k, "str") then pr(mkStr(v), advance(toks))
+  else if #seq(k, "id")  then pr(mkVar(v), advance(toks))
+  else if #seq(k, "uid") then pr(mkUVar(v), advance(toks))
+  else if #seq(k, "kw") then
+    if #seq(v, "true")  then pr(mkBool("true"),  advance(toks))
+    else if #seq(v, "false") then pr(mkBool("false"), advance(toks))
+    else if #seq(v, "if")   then parseIfExpr(advance(toks))
+    else pr(mkVar(v), advance(toks))
+  else if #seq(k, "(") then
+    let toks2 = advance(toks) in
+    if kindIs(")", toks2) then pr(mkTup(Nil), advance(toks2))
+    else
+      let r = parseExpr(toks2) in
+      let e = prV(r) in
+      let ts = prT(r) in
+      if kindIs(",", ts) then
+        -- tuple
+        let rec moreTup = (ts2, acc) =>
+          let r2 = parseExpr(ts2) in
+          let acc2 = Cons(prV(r2), acc) in
+          let ts3 = prT(r2) in
+          if kindIs(",", ts3) then moreTup(advance(ts3), acc2)
+          else pr(reverse(acc2), ts3) in
+        let r2 = moreTup(advance(ts), Cons(e, Nil)) in
+        pr(mkTup(prV(r2)), skipKind(")", prT(r2)))
+      else pr(e, skipKind(")", ts))
+  else if #seq(k, "op") then
+    if #seq(v, "-") then
+      let r = parseAtom(advance(toks)) in pr(mkPre("-", prV(r)), prT(r))
+    else if #seq(v, "!") then
+      let r = parseAtom(advance(toks)) in pr(mkPre("!", prV(r)), prT(r))
+    else pr(mkVar("_err"), advance(toks))
+  else pr(mkVar("_err"), advance(toks))
+
+-- parseIfExpr: toks has consumed 'if'
+def parseIfExpr = (toks) =>
+  -- accept both 'if (cond) e1 else e2'  and  'if cond then e1 else e2'
+  let rCond = if kindIs("(", toks) then
+    let r = parseExpr(advance(toks)) in pr(prV(r), skipKind(")", prT(r)))
+  else
+    let r = parseExpr(toks) in pr(prV(r), skipKw("then", prT(r))) in
+  let cond = prV(rCond) in
+  let rt = parseExpr(prT(rCond)) in
+  let thenE = prV(rt) in
+  let re = parseExpr(skipKw("else", prT(rt))) in
+  pr(mkIf(cond, thenE, prV(re)), prT(re))
+
+-- buildPostfix: e . name | e (args)  (left-recursive, iterative)
+def buildPostfix = (e, toks) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  if #seq(k, ".") then
+    let toks2 = advance(toks) in
+    let ft = peek(toks2) in
+    let fk = tokKind(ft) in
+    if #seq(fk, "id") then buildPostfix(mkSel(e, tokVal(ft)), advance(toks2))
+    else if #seq(fk, "uid") then buildPostfix(mkSel(e, tokVal(ft)), advance(toks2))
+    else pr(e, toks)
+  else if #seq(k, "(") then
+    let toks2 = advance(toks) in
+    if kindIs(")", toks2) then buildPostfix(mkApp(e, Nil), advance(toks2))
+    else
+      let rec moreArgs = (ts, acc) =>
+        let r = parseExpr(ts) in
+        let acc2 = Cons(prV(r), acc) in
+        let ts2 = prT(r) in
+        if kindIs(",", ts2) then moreArgs(advance(ts2), acc2)
+        else pr(reverse(acc2), ts2) in
+      let ra = moreArgs(toks2, Nil) in
+      buildPostfix(mkApp(e, prV(ra)), skipKind(")", prT(ra)))
+  else if #seq(k, "[") then
+    -- skip type argument list [A, B] (type applications, not real args)
+    let rec skipBrack = (ts) =>
+      if kindIs("]", ts) then advance(ts)
+      else if kindIs("EOF", ts) then ts
+      else skipBrack(advance(ts)) in
+    buildPostfix(e, skipBrack(advance(toks)))
+  else pr(e, toks)
+
+def parsePostfix = (toks) =>
+  let r = parseAtom(toks) in buildPostfix(prV(r), prT(r))
+
+-- operator precedence: 0 = not an infix op
+def opPrec = (op) =>
+  if #seq(op, "*") then 8 else if #seq(op, "/") then 8 else if #seq(op, "%") then 8
+  else if #seq(op, "+") then 7 else if #seq(op, "-") then 7
+  else if #seq(op, "++") then 6
+  else if #seq(op, "==") then 5 else if #seq(op, "!=") then 5
+  else if #seq(op, "<")  then 5 else if #seq(op, ">")  then 5
+  else if #seq(op, "<=") then 5 else if #seq(op, ">=") then 5
+  else if #seq(op, "&&") then 4
+  else if #seq(op, "||") then 3
+  else 0
+
+def isInfixOp = (toks) =>
+  if #seq(tokKind(peek(toks)), "op") then #i.gt(opPrec(tokVal(peek(toks))), 0)
+  else false
+
+def parseInfix = (minPrec, lhs, toks) =>
+  if isInfixOp(toks) then
+    let op = tokVal(peek(toks)) in
+    let prec = opPrec(op) in
+    if #i.lt(prec, minPrec) then pr(lhs, toks)
+    else
+      let r = parsePostfix(advance(toks)) in
+      let r2 = parseInfix(#i.add(prec, 1), prV(r), prT(r)) in
+      parseInfix(minPrec, mkInf(op, lhs, prV(r2)), prT(r2))
+  else pr(lhs, toks)
+
+def parseExpr = (toks) =>
+  let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
+
+-- ── Statement parser ──────────────────────────────────────────────────────────
+-- Skip type params [A, B, ...]
+def skipTypeParams = (toks) =>
+  if kindIs("[", toks) then
+    let rec skip = (ts) =>
+      if kindIs("]", ts) then advance(ts)
+      else if kindIs("EOF", ts) then ts
+      else skip(advance(ts)) in
+    skip(advance(toks))
+  else toks
+
+def parseDef = (toks) =>
+  -- name
+  let name = tokVal(peek(toks)) in
+  let toks2 = advance(toks) in
+  -- optional type params
+  let toks3 = skipTypeParams(toks2) in
+  -- parameter lists (possibly multiple)
+  let rp = parseParamList(toks3) in
+  let params = prV(rp) in
+  let toks4 = prT(rp) in
+  -- skip second param list (implicit/using)
+  let toks5 = if kwIs("using", toks4) then
+    let rec skip = (ts) => if kindIs(")", ts) then advance(ts) else skip(advance(ts)) in
+    skip(advance(advance(toks4)))
+  else if kindIs("(", toks4) then
+    -- second explicit param list
+    let rp2 = parseParamList(toks4) in prT(rp2)
+  else toks4 in
+  -- optional return type
+  let toks6 = skipTypeAnnot(toks5) in
+  -- '='
+  let toks7 = skipKind("=", toks6) in
+  let re = parseExpr(toks7) in
+  pr(mkDef(name, params, prV(re)), prT(re))
+
+def parseVal = (toks) =>
+  let name = tokVal(peek(toks)) in
+  let toks2 = advance(toks) in
+  let toks3 = skipTypeAnnot(toks2) in
+  let toks4 = skipKind("=", toks3) in
+  let re = parseExpr(toks4) in
+  pr(mkVal(name, prV(re)), prT(re))
+
+def parseOneStmt = (toks) =>
+  let t = peek(toks) in
+  if #seq(tokKind(t), "kw") then
+    if #seq(tokVal(t), "def") then parseDef(advance(toks))
+    else if #seq(tokVal(t), "val") then parseVal(advance(toks))
+    else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+  else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+
+def skipSemis = (toks) =>
+  if kindIs(";", toks) then skipSemis(advance(toks)) else toks
+
+def parseStmts = (toks) =>
+  let rec go = (ts, acc) =>
+    let ts2 = skipSemis(ts) in
+    if kindIs("EOF", ts2) then reverse(acc)
+    else
+      let r = parseOneStmt(ts2) in
+      go(prT(r), Cons(prV(r), acc)) in
+  go(toks, Nil)
+
+def parse = (src) => parseStmts(lex(src))
+
+-- ── Pretty-print ──────────────────────────────────────────────────────────────
+-- ssc0 does NOT support nested constructor patterns (case Cons(x, Nil) not allowed).
+-- Use nested match instead.
+def showList = (f, xs) =>
+  let rec go = (xs2, acc) =>
+    match xs2 {
+      case Nil => acc
+      case Cons(x, rest) =>
+        match rest {
+          case Nil => scat(acc, f(x))
+          case _ => go(rest, scat(acc, scat(f(x), ",")))
+        }
+    } in
+  scat("[", scat(go(xs, ""), "]"))
+
+def showExpr = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      if #seq(tag, "int") then scat("EInt(", scat(data, ")"))
+      else if #seq(tag, "str") then scat("EStr(\"", scat(data, "\")"))
+      else if #seq(tag, "bool") then scat("EBool(", scat(data, ")"))
+      else if #seq(tag, "var")  then scat("EVar(", scat(data, ")"))
+      else if #seq(tag, "uid")  then scat("EUVar(", scat(data, ")"))
+      else if #seq(tag, "inf") then
+        match data {
+          case Pair(op, lr) =>
+            match lr {
+              case Pair(l, r) =>
+                scat("EInfix(\"", scat(op, scat("\",", scat(showExpr(l), scat(",", scat(showExpr(r), ")"))))))
+            }
+        }
+      else if #seq(tag, "app") then
+        match data {
+          case Pair(f, args) =>
+            scat("EApp(", scat(showExpr(f), scat(",", scat(showList(showExpr, args), ")"))))
+        }
+      else if #seq(tag, "sel") then
+        match data {
+          case Pair(e2, n) => scat("ESel(", scat(showExpr(e2), scat(".", scat(n, ")"))))
+        }
+      else if #seq(tag, "if") then
+        match data {
+          case Pair(c, tel) =>
+            match tel {
+              case Pair(t, el) =>
+                scat("EIf(", scat(showExpr(c), scat(",", scat(showExpr(t), scat(",", scat(showExpr(el), ")"))))))
+            }
+        }
+      else if #seq(tag, "tup") then scat("ETuple(", scat(showList(showExpr, data), ")"))
+      else if #seq(tag, "pre") then
+        match data {
+          case Pair(op, e2) => scat("EPre(", scat(op, scat(",", scat(showExpr(e2), ")"))))
+        }
+      else scat("E?(", scat(tag, ")"))
+  }
+
+def showStmt = (s) =>
+  match s {
+    case Pair(tag, data) =>
+      if #seq(tag, "def") then
+        match data {
+          case Pair(name, psb) =>
+            match psb {
+              case Pair(params, body) =>
+                scat("SDef(\"", scat(name, scat("\",", scat(showList((p) => p, params), scat(",", scat(showExpr(body), ")"))))))
+            }
+        }
+      else if #seq(tag, "val") then
+        match data {
+          case Pair(name, body) =>
+            scat("SVal(\"", scat(name, scat("\",", scat(showExpr(body), ")"))))
+        }
+      else if #seq(tag, "expr") then scat("SExpr(", scat(showExpr(data), ")"))
+      else scat("S?(", scat(tag, ")"))
+  }
+
+def showStmts = (ss) =>
+  let rec go = (xs, acc) =>
+    match xs {
+      case Nil => acc
+      case Cons(x, rest) =>
+        match rest {
+          case Nil => scat(acc, showStmt(x))
+          case _ => go(rest, scat(acc, scat(showStmt(x), "\n")))
+        }
+    } in
+  go(ss, "")
