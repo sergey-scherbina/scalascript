@@ -1,0 +1,10 @@
+-- ssc1c: v1.0 ScalaScript → Core IR compiler (KC4)
+-- Usage: ssc run bin/ssc1c.ssc0 <file.ssc>
+import "../lib/ssc1-lower.ssc0"
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) =>
+      let src = #utf8->str(#io.readFile(path)) in
+      #io.print(#coreir.encode(lowerProg(parse(src))))
+    case Nil => #io.eprint("usage: ssc1c <file.ssc>")
+  }

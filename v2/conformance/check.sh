@@ -1744,6 +1744,15 @@ kc3got=$(ssc run examples/kc3-test.ssc0 | tail -1)
 if [ "$kc3got" = "$KC3WANT" ]; then printf 'ok   %-26s => %s\n' "ssc1-front parse def" "$kc3got"
 else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "ssc1-front parse def" "$kc3got" "$KC3WANT"; fail=1; fi
 
+echo '# KC4 — v1.0 ScalaScript → Core IR lowering (lib/ssc1-lower.ssc0)'
+kc4ir=$(ssc run examples/kc4-test.ssc0)
+kc4got=$(printf '%s' "$kc4ir" | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc4got" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "ssc1-lower hello world" "$kc4got"
+else printf 'FAIL %-26s\n  got:  [%s]\n  want: [Hello, World!]\n' "ssc1-lower hello world" "$kc4got"; fail=1; fi
+kc4fact=$(ssc run bin/ssc1c.ssc0 examples/kc4-fact.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc4fact" = "120" ]; then printf 'ok   %-26s => %s\n' "ssc1c fact.ssc -> run-ir" "$kc4fact"
+else printf 'FAIL %-26s\n  got:  [%s]\n  want: [120]\n' "ssc1c fact.ssc" "$kc4fact"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc1c — v1.0 ScalaScript → Core IR compiler (KC4)
+# Usage: ssc1c <file.ssc>  → emits Core IR to stdout
+# Pipeline: ssc1c hello.ssc | ssc run-ir /dev/stdin
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc1c.ssc0" "$@"

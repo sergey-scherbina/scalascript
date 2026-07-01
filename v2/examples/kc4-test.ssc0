@@ -1,0 +1,5 @@
+-- KC4 conformance: lower "def main(): Unit = println("Hello, World!")" to Core IR and run it
+import "../lib/ssc1-lower.ssc0"
+def main = () =>
+  let src = "def main(): Unit = println(\"Hello, World!\")" in
+  #io.print(#coreir.encode(lowerProg(parse(src))))
