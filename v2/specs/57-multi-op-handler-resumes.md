@@ -97,9 +97,9 @@ arm sets.
 
 Verified 2026-06-29:
 
-- `./ssc run bin/ssct-hm.ssc0 examples/hm-eff-multiop.hm` => `"Int"`
+- `./ssc run bin/Lark.ssc0 examples/hm-eff-multiop.hm` => `"Int"`
 - `./ssc run bin/ssctc-hm.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.coreir && ./ssc run-ir /tmp/mo48.coreir` => `42`
-- `./ssc run bin/ssct-hm-js.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.js && node /tmp/mo48.js | tail -1` => `42`
-- `./ssc run bin/ssct-hm-rust.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.rs && rustc -O /tmp/mo48.rs -o /tmp/mo48-bin && /tmp/mo48-bin` => `42`
+- `./ssc run bin/Lark-js.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.js && node /tmp/mo48.js | tail -1` => `42`
+- `./ssc run bin/Lark-rust.ssc0 examples/hm-eff-multiop.hm > /tmp/mo48.rs && rustc -O /tmp/mo48.rs -o /tmp/mo48-bin && /tmp/mo48-bin` => `42`
 - Row-composition snippet with `Log` left in the row inferred `"(Int, [Dyn])"` and ran as `Pair(42, Cons("seen", Nil))`.
 - Negatives return `TypeError` for wrong resume reply type, missing arm, foreign-label arm, and duplicate arm.

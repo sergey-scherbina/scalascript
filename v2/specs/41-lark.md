@@ -1,8 +1,8 @@
-# 41 — ssct-hm: a Hindley-Milner typed language
+# 41 — Lark: a Hindley-Milner typed language
 
-`ssct-hm` is a **complete, user-extensible typed functional language** that grows on the
+`Lark` is a **complete, user-extensible typed functional language** that grows on the
 frozen Core IR kernel, written entirely in ssc0. Unlike `ssct` (which *checks* fully-annotated
-terms, [`40`](40-typer-as-library.md)), `ssct-hm` **infers** types: you write unannotated
+terms, [`40`](40-typer-as-library.md)), `Lark` **infers** types: you write unannotated
 source text, it deduces principal types by **Algorithm W** (unification + let-polymorphism),
 and then either interprets the program or compiles it — through the same Core IR — to **the VM,
 JavaScript, and native Rust**. The kernel gains **zero** lines for any of this.
@@ -151,12 +151,12 @@ all — ordinary pure ssc0, so they run identically on every backend.
 
 | File | Role |
 |---|---|
-| `lib/ssct-hm-front.ssc0` | lexer (+ `//` comments) + combinator parser + desugar (`data`/`method`/`instance`/`effect`/`handleM`/`match`/lists/tuples/records/strings) |
-| `lib/ssct-hm.ssc0` | the inferrer (Algorithm W), row/effect inference, constructor + method/instance/effect registries (`#cell`s), the erased interpreter (`runHm`) |
-| `lib/ssct-hm-emit.ssc0` | erase a checked Term to a Core IR Data tree (then `coreir.encode`); structural show/eq helper synthesis; `handleM` lowers to generated `__effHandle` dispatch |
-| `bin/ssct-hm.ssc0` | driver: print the inferred type |
+| `lib/Lark-front.ssc0` | lexer (+ `//` comments) + combinator parser + desugar (`data`/`method`/`instance`/`effect`/`handleM`/`match`/lists/tuples/records/strings) |
+| `lib/Lark.ssc0` | the inferrer (Algorithm W), row/effect inference, constructor + method/instance/effect registries (`#cell`s), the erased interpreter (`runHm`) |
+| `lib/Lark-emit.ssc0` | erase a checked Term to a Core IR Data tree (then `coreir.encode`); structural show/eq helper synthesis; `handleM` lowers to generated `__effHandle` dispatch |
+| `bin/Lark.ssc0` | driver: print the inferred type |
 | `bin/ssctc-hm.ssc0` | compiler: emit Core IR bytecode (run with `ssc run-ir`) |
-| `bin/ssct-hm-js.ssc0`, `bin/ssct-hm-rust.ssc0` | compile to JS / Rust (reuse `backend-{js,rust}-gen.ssc0`) |
+| `bin/Lark-js.ssc0`, `bin/Lark-rust.ssc0` | compile to JS / Rust (reuse `backend-{js,rust}-gen.ssc0`) |
 
 The backend codegens were split (`backend-{js,rust}-gen.ssc0`) so any front — including this
 one — reuses them; that is why an inferred-typed program reaches all three targets.

@@ -1,2 +1,2 @@
-import "../lib/ssct-hm.ssc0"
+import "../lib/lark.ssc0"
 def main = () => runHm(LetRec("fact", Lam("n", If(Eq(Var("n"), Lit(0)), Lit(1), Mul(Var("n"), App(Var("fact"), Sub(Var("n"), Lit(1)))))), App(Var("fact"), Lit(5))))

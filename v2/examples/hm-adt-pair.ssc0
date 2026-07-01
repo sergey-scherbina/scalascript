@@ -1,2 +1,2 @@
-import "../lib/ssct-hm.ssc0"
+import "../lib/lark.ssc0"
 def main = () => hm(ConApp("Pair", Cons(Lit(1), Cons(BoolLit(true), Nil))))

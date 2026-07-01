@@ -1,2 +1,2 @@
-import "../lib/ssct-hm.ssc0"
+import "../lib/lark.ssc0"
 def main = () => runHm(If(BoolLit(true), Lit(10), Lit(20)))

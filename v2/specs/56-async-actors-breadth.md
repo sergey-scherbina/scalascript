@@ -51,7 +51,7 @@ continues to cover the minimal v1 scheduler; `runAsync` is the richer K46 schedu
 - A distributed actor wire protocol. Serialization remains a separate layer
   (`coreir.encode`, `irbin`, or a future transport primitive).
 - Typed channel/future payloads in the raw `ssc0` library. The untyped scheduler carries
-  arbitrary Core IR values; typed wrappers can be added in `ssct-hm` later.
+  arbitrary Core IR values; typed wrappers can be added in `Lark` later.
 
 ## Design
 

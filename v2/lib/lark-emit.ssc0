@@ -1,8 +1,8 @@
--- ssct-hm erasure: lower a (type-INFERRED) ssct-hm Term to a Core IR Data tree, then
+-- lark erasure: lower a (type-INFERRED) lark Term to a Core IR Data tree, then
 -- #coreir.encode it to canonical bytecode. Identical to ssct-emit except Lam carries no
 -- type (it was never annotated — it was inferred). Closes the loop: inferred-typed source
 -- text -> ir -> ssc(VM) -> cpu (and, being plain Core IR, the JS/Rust backends could run it too).
-import "ssct-hm.ssc0"                                  -- for instOf (the typeclass instance resolved by infer)
+import "lark.ssc0"                                  -- for instOf (the typeclass instance resolved by infer)
 
 def idxOf = (scope, x) => match scope { case Nil => 0 case Cons(h, t) => if #seq(h, x) then 0 else #i.add(1, idxOf(t, x)) }
 def lenB  = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenB(t)) }
@@ -19,7 +19,7 @@ def mapEraseArms = (scope, arms) => match arms { case Nil => Nil case Cons(arm, 
 def mapEraseArmsNW = (scope, arms) => match arms { case Nil => Nil case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then mapEraseArmsNW(scope, rest) else Cons(IrArm(con, lenB(binders), erase(prependAll(binders, scope), body)), mapEraseArmsNW(scope, rest)) } }
 def findDefault = (scope, arms) => match arms { case Nil => None case Cons(arm, rest) => match arm { case MArm(con, binders, body) => if #seq(con, "_") then Some(erase(scope, body)) else findDefault(scope, rest) } }
 
--- ── dictionary passing for genuinely-polymorphic-numeric `let rec` (see dictFnReg in ssct-hm.ssc0) ──
+-- ── dictionary passing for genuinely-polymorphic-numeric `let rec` (see dictFnReg in lark.ssc0) ──
 -- While erasing such an `f`'s body, `curDictV = Some(dictVar)` and the scope carries "$dict"; an overloaded op
 -- whose resolved type IS that dict var dispatches at runtime via `__nadd`/… (tag, a, b) on the dict-tag string.
 def curDictV     = #cell.new(None)

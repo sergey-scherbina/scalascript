@@ -49,7 +49,7 @@ Each layer is a program compiled/run by the layer below: `ssc0 → ssc.1 → ssc
       compiler written in ssc0, compiled by the Scala front and run on its **own source**,
       reproduces itself byte-for-byte (gen1==gen2==gen3). Differential invariant `ssc0c X ==
       ssc compile X` holds on fact/tco/map/calc. `specs/20-bootstrap.md`. **Kernel: +0.**
-- [x] **Richer types / HM layer** — `ssct-hm` grew Algorithm W, let-polymorphism,
+- [x] **Richer types / HM layer** — `Lark` grew Algorithm W, let-polymorphism,
       products/tuples, records, sums/user ADTs, pattern matching, qualified-type-style
       dictionary passing for Num/Ord/user methods, effect rows, and typed resumes for
       single-op effects — all in ssc0, Kernel +0.
@@ -62,7 +62,7 @@ as programs `ir → target`.
 
 - [x] **Stdlib breadth** — list/string/option/stream helpers, structural `mapx`/`set`,
       Either/Result combinators, SHA-256, and full pure float math/rounding/trig/log library.
-- [x] **Typed language breadth** — **Lark** (formerly `ssct-hm`) is the main typed surface
+- [x] **Typed language breadth** — **Lark** (formerly `Lark`) is the main typed surface
       and compiles real programs to VM, JS, and native Rust; `examples/hm-json.hm` is the
       current whole-language showcase.
 - [x] **Backends** — VM, JS, and native Rust are TCO-correct and covered by conformance.
@@ -72,18 +72,18 @@ as programs `ir → target`.
       Rust backend when `rustup target add wasm32-wasip1` is available, or build a binary wasm
       emitter plus runtime.
 
-## K6 — Lark: rename + fence language registry
+## K60 — Lark: rename + fence language registry
 
-Rename `ssct-hm` → **Lark** throughout (files, binaries, conformance, docs).
+Rename `Lark` → **Lark** throughout (files, binaries, conformance, docs).
 Register Lark as a first-class fence language in v2 (` ```lark` blocks).
 Spec: `specs/61-fence-languages.md`.
 
-- [ ] **K54** — rename: files (`ssct-hm-front.ssc0` → `lark-front.ssc0`, etc.),
+- [ ] **K54** — rename: files (`Lark-front.ssc0` → `lark-front.ssc0`, etc.),
       launchers (`v2/lark`), conformance sections, SPRINT/ROADMAP.
 - [ ] **K55** — Markdown extractor (KC1): `.ssc` → `(lang, source)` list, written in Lark.
       Fence-language dispatch table wired to existing compilers.
 
-## K7 — v1.0-compat frontend (KC1–KC8)
+## K61 — v1.0-compat frontend (KC1–KC8)
 
 Full `.ssc` v1.0 file support on the v2 kernel. Spec: `specs/60-compat-frontend.md`.
 Phases: KC1 Markdown extractor → KC2 lexer → KC3 parser → KC4 functional lowering →

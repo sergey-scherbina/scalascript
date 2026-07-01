@@ -1,2 +1,2 @@
-import "../lib/ssct-hm.ssc0"
+import "../lib/lark.ssc0"
 def main = () => hm(MatchT(ConApp("Some", Cons(Lit(5), Nil)), Cons(MArm("Some", Cons("x", Nil), Var("x")), Cons(MArm("None", Nil, BoolLit(true)), Nil))))
