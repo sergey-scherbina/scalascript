@@ -1,6 +1,0 @@
-feature/v2-k49-conformance-flake 2026-07-01T16:16:39Z
-agent: codex
-heartbeat: 2026-07-01T16:43:27Z
-status: in-progress
-done-so-far: diagnostics reproduced K49 root cause: shared /tmp/ssc-conformance.jar was overwritten/corrupted during concurrent runs; patched check.sh to use a per-run jar under its unique log dir; bash -n green
-next: run two full v2/conformance/check.sh passes with per-run jar, then update BUGS/SPRINT/CHANGELOG, commit, push, release claim
