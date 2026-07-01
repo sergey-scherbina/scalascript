@@ -1,6 +1,6 @@
 feature/v2-k49-conformance-flake 2026-07-01T16:16:39Z
 agent: codex
-heartbeat: 2026-07-01T16:16:39Z
+heartbeat: 2026-07-01T16:23:05Z
 status: in-progress
-done-so-far: claimed K49 from v2/SPRINT.md; no implementation yet
-next: create isolated worktree, patch v2/conformance/check.sh diagnostics/retry, run focused and full verification
+done-so-far: patched v2/conformance/check.sh with stderr/stdout diagnostic logs, empty-stdout retry, BUGS.md entry, bash -n green
+next: run full v2/conformance/check.sh twice if first run is green; inspect diagnostics if red
