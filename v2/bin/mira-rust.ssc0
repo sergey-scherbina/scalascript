@@ -1,8 +1,8 @@
--- lark-rust: compile INFERRED-typed source text to Rust (reusing the shared Rust codegen).
+-- mira-rust: compile INFERRED-typed source text to Rust (reusing the shared Rust codegen).
 -- text -> lex/parse -> HM infer (reject if ill-typed) -> erase to IR -> genRProg -> Rust.
-import "../lib/lark-front.ssc0"
-import "../lib/lark.ssc0"
-import "../lib/lark-emit.ssc0"
+import "../lib/mira-front.ssc0"
+import "../lib/mira.ssc0"
+import "../lib/mira-emit.ssc0"
 import "../lib/backend-rust-gen.ssc0"
 
 def main = () =>
@@ -13,5 +13,5 @@ def main = () =>
         case Ok3(s, t, c) => let z = resolveNum(s) in #io.print(genRProg(progOf(term)))
         case ErrI(m)      => #io.eprint(#sconcat("type error: ", m))
       }
-    case Nil => #io.eprint("usage: lark-rust <file>")
+    case Nil => #io.eprint("usage: mira-rust <file>")
   }

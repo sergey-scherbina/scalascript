@@ -1,4 +1,4 @@
--- lark-md.ssc0 — Markdown fence-block extractor (K55).
+-- mira-md.ssc0 — Markdown fence-block extractor (K55).
 -- Parses .ssc Markdown and returns a list of Pair(lang, source) for every
 -- fenced code block.  Also strips optional YAML front matter.
 --

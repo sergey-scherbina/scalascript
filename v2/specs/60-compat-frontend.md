@@ -26,8 +26,8 @@ stdlib libraries that compile on the v2 kernel should produce identical results.
                            └─ ssc VM / JS / Rust backends (existing)
 ```
 
-All stages KC1–KC8 are written in **Lark** (the v2 typed surface language, formerly
-Lark). They are themselves `.lark` programs running on the v2 kernel.
+All stages KC1–KC8 are written in **Mira** (the v2 typed surface language, formerly
+Mira). They are themselves `.mira` programs running on the v2 kernel.
 
 ## Phases
 
@@ -37,7 +37,7 @@ Lark). They are themselves `.lark` programs running on the v2 kernel.
 **Output:** `(Option YamlStr, List (FenceLang, SourceStr))`.
 
 Reuses K51 parser combinators (`pChar`/`pStr`/`pSeq`/`pMany`/`pAlt`/`pMap`/`pInt`)
-from the Lark prelude. Written in Lark.
+from the Mira prelude. Written in Mira.
 
 Tasks:
 - Parse optional YAML front-matter (up to first blank line or `#` heading).
@@ -61,7 +61,7 @@ Token kinds:
 - Punctuation: `( ) [ ] { } , . : ; =`.
 - Comments: `//` line and `/* */` block (discarded).
 
-Written in Lark using K51 parser combinators. The same combinator library that
+Written in Mira using K51 parser combinators. The same combinator library that
 parsed arithmetic (`hm-arith-parser.hm`) is the foundation.
 
 Done-when: `lex("def f(x: Int) = x + 1")` → correct token list, all types.
@@ -129,10 +129,10 @@ Done-when: `println("hello")` → Core IR → `io.print` primitive → "hello" o
 
 ### KC5 — Type checker (functional subset)
 
-HM-style inference for the functional subset, written in Lark.
+HM-style inference for the functional subset, written in Mira.
 
-Reuses the Algorithm W implementation from `lib/lark.ssc0` as a reference.
-Key additions vs Lark:
+Reuses the Algorithm W implementation from `lib/mira.ssc0` as a reference.
+Key additions vs Mira:
 - Scala-like type syntax: `Int`, `String`, `List[A]`, `Option[A]`, `(A, B)`, `A => B`.
 - Subtyping within sealed hierarchies: `sealed trait T; case class C() extends T`.
 - Type aliases: `type Alias[A] = ...` → expand before unification.
@@ -194,7 +194,7 @@ The lowering translates `List(1, 2, 3)` → ssc0 `cons(1, cons(2, cons(3, nil)))
 
 **Hardest phase. Deferred until KC4–KC6 are solid.**
 
-Strategy: structural records + vtable dicts (same as qualified types in Lark).
+Strategy: structural records + vtable dicts (same as qualified types in Mira).
 
 | v1.0 construct           | v2 lowering                                         |
 |--------------------------|-----------------------------------------------------|
@@ -212,7 +212,7 @@ Subtyping is structural at the dict level: if `C` provides all methods of `T`, t
 
 ### KC8 — given/using (implicits)
 
-v1.0's `given`/`using` maps naturally to Lark's qualified-type dict passing.
+v1.0's `given`/`using` maps naturally to Mira's qualified-type dict passing.
 
 | v1.0                          | v2 lowering                                      |
 |-------------------------------|--------------------------------------------------|
@@ -221,7 +221,7 @@ v1.0's `given`/`using` maps naturally to Lark's qualified-type dict passing.
 | `f(42)` (implicit resolution) | type checker resolves `showA = showInt`; inserts |
 | `using` parameter             | explicit dict argument (same as above)           |
 
-The resolution algorithm is the same as Lark's `closeDeps` + instance lookup.
+The resolution algorithm is the same as Mira's `closeDeps` + instance lookup.
 
 ### Scope and non-goals for v1.0-compat
 
@@ -244,7 +244,7 @@ The resolution algorithm is the same as Lark's `closeDeps` + instance lookup.
 - Reflection (`getClass`, `isInstanceOf` beyond `match`)
 
 The v2 kernel has no plugin system. Plugins that wrap JVM code need to be
-reimplemented as ssc0/Lark programs over the v2 primitive set, or deferred.
+reimplemented as ssc0/Mira programs over the v2 primitive set, or deferred.
 
 ## Intrinsics strategy
 
@@ -263,8 +263,8 @@ New kernel primitives needed: `scatstr` (string concat), `str->i`/`str->f` (pars
 | Extension  | Contents                              | Pipeline             |
 |------------|---------------------------------------|----------------------|
 | `.ssc`     | Markdown with fence blocks            | Markdown extractor   |
-| `.lark`    | Lark source (bare, no Markdown)       | Lark compiler direct |
-| `.hm`      | Lark source (legacy name, still works)| Lark compiler direct |
+| `.mira`    | Mira source (bare, no Markdown)       | Mira compiler direct |
+| `.hm`      | Mira source (legacy name, still works)| Mira compiler direct |
 | `.ssc0`    | ssc₀ source                           | ssc compile          |
 | `.coreir`  | Core IR S-expr                        | ssc run-ir           |
 | `.irbin`   | Core IR compact binary (K40)          | ssc run-irbin        |

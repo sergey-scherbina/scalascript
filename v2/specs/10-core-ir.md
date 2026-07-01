@@ -221,7 +221,7 @@ compare `big.eq big.lt big.le big.gt big.ge` → `Bool`
 **Float — IEEE-754 double (`f.*`):**
 `f.add f.sub f.mul f.div f.neg` · `f.sqrt` · `f.floor f.ceil f.round f.trunc` ·
 compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · `f.isNaN f.isInf` → `Bool`
-(transcendentals such as `sin`/`cos`/`log`/`exp` live in the `Lark` prelude, not the kernel)
+(transcendentals such as `sin`/`cos`/`log`/`exp` live in the `Mira` prelude, not the kernel)
 
 **Numeric conversions (explicit — the kernel has no implicit coercion):**
 `i->big` · `big->i` (may overflow) · `i->f` · `f->i` (truncate toward zero) · `big->f` ·
@@ -335,7 +335,7 @@ thunk library** (invariant 2).
 
 Resolved after the freeze, without changing Core IR:
 
-- **`mathx.*`** — shipped as pure `Lark` prelude code (`K33`-`K35`), not as kernel primitives.
+- **`mathx.*`** — shipped as pure `Mira` prelude code (`K33`-`K35`), not as kernel primitives.
 - **Structural map keys** — the runtime `map.*` primitives already accept arbitrary `Value` keys;
   `lib/mapx.ssc0` and `lib/set.ssc0` build structural map/set helpers on top.
 - **`hash.sha256`** — shipped as `lib/sha256.ssc0`, written in raw ssc0 over existing bitwise,

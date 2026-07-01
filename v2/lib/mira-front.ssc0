@@ -1,5 +1,5 @@
--- lark front: a LEXER + PARSER for the UNANNOTATED textual surface, written in ssc0.
--- text  ->  [token]  ->  Term  (the AST that lib/lark.ssc0 INFERS a type for & runs).
+-- mira front: a LEXER + PARSER for the UNANNOTATED textual surface, written in ssc0.
+-- text  ->  [token]  ->  Term  (the AST that lib/mira.ssc0 INFERS a type for & runs).
 -- Same grammar as ssct-front EXCEPT `fun` carries no type annotation — the type is inferred.
 --
 -- Concrete syntax:
@@ -8,7 +8,7 @@
 --   add  := app ('+' app)*            app := atom atom*
 --   atom := int | 'true' | 'false' | ident | '(' expr ')'
 --   prog := ('data' Name param* '=' con ('|' con)* 'in')* expr      con := Con fieldtype*
-import "lark.ssc0"
+import "mira.ssc0"
 
 -- ── char predicates (codes) ──────────────────────────────────────────────────
 def chOr  = (a, b) => if a then true else b

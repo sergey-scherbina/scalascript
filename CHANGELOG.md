@@ -7,7 +7,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 ## 2026-07-01 — KC3: v1.0 ScalaScript parser (`lib/ssc1-front.ssc0`)
 
 `lib/ssc1-front.ssc0` (~350 lines, ssc0): combined KC2+KC3 lexer+parser for ScalaScript v1.0
-functional subset. Written in ssc0 (not Lark) to avoid HM unifier stack overflow. Lexer: 26 token
+functional subset. Written in ssc0 (not Mira) to avoid HM unifier stack overflow. Lexer: 26 token
 kinds including `==`, `=>`, `->`, `::`. Parser: recursive-descent, tag-encoded AST using `Pair`
 instead of ADTs (avoids ssc0 pattern nesting limitations). Handles: `def`/`val` statements, infix
 precedence climbing (prec 3–8), postfix `.field`/`(args)`/`[types]`, `if/then/else`, tuples,
@@ -17,9 +17,9 @@ Gotchas: ssc0 forbids nested constructor patterns (use nested match); no `-1` li
 
 ---
 
-## 2026-07-01 — KC2: v1.0 ScalaScript lexer in Lark (`examples/hm-lex.lark`)
+## 2026-07-01 — KC2: v1.0 ScalaScript lexer in Mira (`examples/hm-lex.mira`)
 
-`examples/hm-lex.lark` (130 lines Lark): full lexer for ScalaScript v1.0 source code.
+`examples/hm-lex.mira` (130 lines Mira): full lexer for ScalaScript v1.0 source code.
 Token ADT with 23 constructors. Features: whitespace+line-comment skipping, identifier/keyword/
 integer/string scanning, all standard operators (=> -> :: ++ <= >= != && || etc.). Split into
 `lexPunct`+`lexOp` helpers to reduce HM unifier stack depth. `lex "def f(x: Int) = x + 1"` → 12
@@ -30,7 +30,7 @@ checking (same as hm-json). Conformance test added to `check.sh`.
 
 ## 2026-07-01 — K55: Markdown fence extractor (`ssc-front`)
 
-`lib/lark-md.ssc0` (130 lines, ssc0): full Markdown fence-block extractor. Parses `.ssc`
+`lib/mira-md.ssc0` (130 lines, ssc0): full Markdown fence-block extractor. Parses `.ssc`
 Markdown files into `[(lang, source)]` pairs. Features: YAML front-matter stripping (--- ... ---),
 line-by-line scanner, backtick fence detection (startsWith3bt / isClosingFence), CR/LF handling.
 Driver `bin/ssc-front.ssc0` + `v2/ssc-front` launcher. Test: `examples/hm-md-demo.ssc` (2 blocks,
@@ -38,14 +38,14 @@ YAML skipped). Conformance test added to `conformance/check.sh`.
 
 ---
 
-## 2026-07-01 — K54: rename ssct-hm → Lark + K60/K61 roadmap (v1.0-compat frontend)
+## 2026-07-01 — K54: rename ssct-hm → Mira + K60/K61 roadmap (v1.0-compat frontend)
 
-ssct-hm is now **Lark** — a complete ML/Haskell-family typed FP language with HM inference,
-algebraic effects, type classes, ADTs, and ~90-fn prelude. Renamed across 66 files: lib/lark*.ssc0,
-bin/lark.ssc0/lark-js.ssc0/lark-rust.ssc0/larkc.ssc0, launchers v2/lark/lark-js/lark-rust,
-specs/41-lark.md. Fence tag: ` ```lark`. File extension: `.lark` (`.hm` accepted).
+ssct-hm is now **Mira** — a complete ML/Haskell-family typed FP language with HM inference,
+algebraic effects, type classes, ADTs, and ~90-fn prelude. Renamed across 66 files: lib/mira*.ssc0,
+bin/mira.ssc0/mira-js.ssc0/mira-rust.ssc0/mirac.ssc0, launchers v2/mira/mira-js/mira-rust,
+specs/41-mira.md. Fence tag: ` ```mira`. File extension: `.mira` (`.hm` accepted).
 New specs: `60-compat-frontend.md` (KC1–KC8 v1.0-compat design) + `61-fence-languages.md`
-(fence registry). New milestones K60 (Lark rename + Markdown extractor K55) + K61 (v1.0-compat
+(fence registry). New milestones K60 (Mira rename + Markdown extractor K55) + K61 (v1.0-compat
 frontend). Conformance all green. 84d6b28c6.
 
 ---

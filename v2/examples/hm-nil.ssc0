@@ -1,2 +1,2 @@
-import "../lib/lark.ssc0"
+import "../lib/mira.ssc0"
 def main = () => hm(LNil)
