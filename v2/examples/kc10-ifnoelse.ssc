@@ -1,0 +1,5 @@
+def check(n: Int): Unit = {
+  if (n > 0) println("positive")
+  println("done")
+}
+def main(): Unit = check(5)

@@ -1863,6 +1863,14 @@ kc7vp=$(ssc run bin/ssc1c.ssc0 examples/kc7-opt.ssc | ssc run-ir /dev/stdin | ta
 if [ "$kc7vp" = "10" ]; then printf 'ok   %-26s => %s\n' "kc7 vpat catch-all" "$kc7vp"
 else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc7 vpat catch-all" "$kc7vp"; fail=1; fi
 
+echo '# KC10 — var/while loops + if-without-else'
+kc10wh=$(ssc run bin/ssc1c.ssc0 examples/kc10-while.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc10wh" = "10" ]; then printf 'ok   %-26s => %s\n' "kc10 var/while sumTo(5)" "$kc10wh"
+else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc10 var/while sumTo(5)" "$kc10wh"; fail=1; fi
+kc10ie=$(ssc run bin/ssc1c.ssc0 examples/kc10-ifnoelse.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc10ie" = "positivedone" ]; then printf 'ok   %-26s => %s\n' "kc10 if-without-else" "$kc10ie"
+else printf 'FAIL %-26s\n  got: [%s] want: [positivedone]\n' "kc10 if-without-else" "$kc10ie"; fail=1; fi
+
 echo '# KC9 — block expressions: { val/def/expr; ...; result }'
 kc9bl=$(ssc run bin/ssc1c.ssc0 examples/kc9-block.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc9bl" = "49" ]; then printf 'ok   %-26s => %s\n' "kc9 val bindings block" "$kc9bl"

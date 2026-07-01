@@ -1037,6 +1037,13 @@ Prerequisite: K55 (Markdown extractor).
       kc7-opt (vpat+list head=10) — all green.
       **Deferred:** nested patterns, object methods (bodies are skipped), full inheritance.
 
+- [x] **KC10 — var/while loops + if-without-else DONE** 2026-07-01.
+      `var x = e` → `cell.new(e)` with scope entry `"@x"`. `x = v` → `cell.set`. Reads of `x`
+      check for `"@x"` in scope → `cell.get`. `while (cond) body` → IrLetRec([IrLam(0,
+      IrIf(cond, IrLet([body], recurse-via-Local(1)), Unit))], call). `if (cond) sideEffect`
+      without else → else branch = mkTup(Nil) = Unit. All lowered in `lowerBlock`+`lowerE`.
+      Done: kc10-while (sumTo(5)=10), kc10-ifnoelse (positivedone).
+
 - [x] **KC9 — block expressions DONE** 2026-07-01.
       `{ val x=e; def f(p)=body; sideEffect; result }` in function bodies.
       Parser: `parseBlock` on `{` in `parseAtom` (val/def/expr stmts until `}`).

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC10: var/while loops + if-without-else
+
+**`var x = e`** → `IrPrim("cell.new", [e])` bound as `"@x"` in scope. Reads of `x` in `lowerE`
+detect `"@x"` in scope → `IrPrim("cell.get", [ref])`. **`x = v`** in blocks → `cell.set`. 
+**`while (cond) body`** → `IrLetRec([IrLam(0, IrIf(cond, IrLet([body], recurse), Unit))],
+IrApp(go, Nil))` — 0-arity letrec loop function. Scope inside loop: `"$go$"` at Local(0).
+**`if (cond) sideEffect`** without `else` → parser now makes the else branch `mkTup(Nil)` (Unit).
+kc10-while: `sumTo(5)=0+1+2+3+4=10`; kc10-ifnoelse: `check(5)→"positivedone"`.
+
 ## 2026-07-01 — KC9: block expressions `{ val/def/expr; ...; result }`
 
 Added full block expression support to the K61 v1.0-compat pipeline.

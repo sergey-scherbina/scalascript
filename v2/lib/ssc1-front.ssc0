@@ -274,7 +274,8 @@ def parseAtom = (toks) =>
     else pr(mkVar("_err"), advance(toks))
   else pr(mkVar("_err"), advance(toks))
 
--- KC9: parseBlock — `{` already consumed; parse val/def/expr stmts until `}`
+-- KC9+KC10: parseBlock — `{` already consumed; parse stmts until `}`
+-- Handles: val/var/def/while/assignment(id=)/expr stmts
 def parseBlock = (toks) =>
   let rec go = (ts, acc) =>
     let ts2 = skipSemis(ts) in
@@ -285,9 +286,39 @@ def parseBlock = (toks) =>
     else if kwIs("val", ts2) then
       let r = parseVal(advance(ts2)) in
       go(prT(r), Cons(prV(r), acc))
+    else if kwIs("var", ts2) then
+      -- var x [: T] = expr  →  ("var", (name, expr))
+      let r = parseVal(advance(ts2)) in
+      let valStmt = prV(r) in
+      let varStmt = match valStmt {
+        case Pair(tag, data) => Pair("var", data)
+      } in
+      go(prT(r), Cons(varStmt, acc))
     else if kwIs("def", ts2) then
       let r = parseDef(advance(ts2)) in
       go(prT(r), Cons(prV(r), acc))
+    else if kwIs("while", ts2) then
+      -- while (cond) body
+      let ts3 = advance(ts2) in
+      let rCond = if kindIs("(", ts3) then
+        let r = parseExpr(advance(ts3)) in
+        pr(prV(r), skipKind(")", prT(r)))
+      else parseExpr(ts3) in
+      let cond = prV(rCond) in
+      let ts4 = prT(rCond) in
+      let rBody = if kindIs("{", ts4) then parseBlock(advance(ts4))
+                  else parseExpr(ts4) in
+      go(prT(rBody), Cons(Pair("while", Pair(cond, prV(rBody))), acc))
+    else if kindIs("id", ts2) then
+      -- look ahead: id = expr is assignment; else parse as expression
+      let name = tokVal(peek(ts2)) in
+      let ts3 = advance(ts2) in
+      if kindIs("=", ts3) then
+        let r = parseExpr(advance(ts3)) in
+        go(prT(r), Cons(Pair("assign", Pair(name, prV(r))), acc))
+      else
+        let r = parseExpr(ts2) in
+        go(prT(r), Cons(Pair("expr", prV(r)), acc))
     else
       let r = parseExpr(ts2) in
       go(prT(r), Cons(Pair("expr", prV(r)), acc)) in
@@ -303,8 +334,13 @@ def parseIfExpr = (toks) =>
   let cond = prV(rCond) in
   let rt = parseExpr(prT(rCond)) in
   let thenE = prV(rt) in
-  let re = parseExpr(skipKw("else", prT(rt))) in
-  pr(mkIf(cond, thenE, prV(re)), prT(re))
+  let ts2 = prT(rt) in
+  -- else is optional: if missing, emit Unit as else branch
+  if kwIs("else", ts2) then
+    let re = parseExpr(advance(ts2)) in
+    pr(mkIf(cond, thenE, prV(re)), prT(re))
+  else
+    pr(mkIf(cond, thenE, mkTup(Nil)), ts2)
 
 -- buildPostfix: e . name | e (args)  (left-recursive, iterative)
 def buildPostfix = (e, toks) =>

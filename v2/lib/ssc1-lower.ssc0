@@ -214,6 +214,11 @@ def resolveE = (expr) =>
                       case Pair(name, expr) =>
                         Cons(Pair("val", Pair(name, resolveE(expr))), resolveBlock(rest))
                     }
+                  else if #seq(stag, "var") then
+                    match sdata {
+                      case Pair(name, expr) =>
+                        Cons(Pair("var", Pair(name, resolveE(expr))), resolveBlock(rest))
+                    }
                   else if #seq(stag, "def") then
                     match sdata {
                       case Pair(name, rest2) =>
@@ -221,6 +226,16 @@ def resolveE = (expr) =>
                           case Pair(params, body) =>
                             Cons(Pair("def", Pair(name, Pair(params, resolveE(body)))), resolveBlock(rest))
                         }
+                    }
+                  else if #seq(stag, "while") then
+                    match sdata {
+                      case Pair(cond, body) =>
+                        Cons(Pair("while", Pair(resolveE(cond), resolveE(body))), resolveBlock(rest))
+                    }
+                  else if #seq(stag, "assign") then
+                    match sdata {
+                      case Pair(name, expr) =>
+                        Cons(Pair("assign", Pair(name, resolveE(expr))), resolveBlock(rest))
                     }
                   else if #seq(stag, "expr") then
                     Cons(Pair("expr", resolveE(sdata)), resolveBlock(rest))
@@ -292,7 +307,18 @@ def lowerE = (scope, rawExpr) =>
       else if #seq(tag, "bool") then
         IrLit(IrBool(if #seq(data, "true") then true else false))
       else if #seq(tag, "var") then
-        lookupVar(scope, data)
+        -- KC10: check for mutable var ("@name" in scope → cell.get)
+        let plain = lookupVar(scope, data) in
+        match plain {
+          case IrGlobal(gname) =>
+            let cellName = #sconcat("@", data) in
+            let cellRef = lookupVar(scope, cellName) in
+            match cellRef {
+              case IrLocal(ci) => IrPrim("cell.get", Cons(IrLocal(ci), Nil))
+              case IrGlobal(ng) => IrGlobal(data)
+            }
+          case IrLocal(li) => IrLocal(li)
+        }
       else if #seq(tag, "uid") then
         IrGlobal(data)
       else if #seq(tag, "tup") then
@@ -563,6 +589,42 @@ def lowerBlock = (scope, stmts) =>
             match data {
               case Pair(name, expr) =>
                 IrLet(Cons(lowerE(scope, expr), Nil), lowerBlock(Cons(name, scope), rest))
+            }
+          else if #seq(tag, "var") then
+            -- KC10: mutable var x = e → cell.new(e), bound as "@x" in scope
+            match data {
+              case Pair(name, expr) =>
+                let cellExpr = IrPrim("cell.new", Cons(lowerE(scope, expr), Nil)) in
+                IrLet(Cons(cellExpr, Nil), lowerBlock(Cons(#sconcat("@", name), scope), rest))
+            }
+          else if #seq(tag, "assign") then
+            -- KC10: x = expr → cell.set(cell_ref, val)
+            match data {
+              case Pair(name, expr) =>
+                let cellName = #sconcat("@", name) in
+                let cellRef = lookupVar(scope, cellName) in
+                let setExpr = IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil))) in
+                match rest {
+                  case Nil => setExpr
+                  case _ => IrLet(Cons(setExpr, Nil), lowerBlock(Cons("_blk_", scope), rest))
+                }
+            }
+          else if #seq(tag, "while") then
+            -- KC10: while (cond) body → IrLetRec([IrLam(0, IrIf(cond, IrLet([body], recurse), Unit))], call)
+            -- Scope inside loop lam (0 params): "go" at Local(0), outer vars at Local(1+)
+            match data {
+              case Pair(cond, body) =>
+                let loopScope = Cons("$go$", scope) in
+                let condIr = lowerE(loopScope, cond) in
+                let bodyIr = lowerE(loopScope, body) in
+                -- after IrLet([bodyIr], ...) inside loop, go shifts to Local(1)
+                let recurse = IrApp(IrLocal(1), Nil) in
+                let lamBody = IrIf(condIr, IrLet(Cons(bodyIr, Nil), recurse), IrLit(IrUnit)) in
+                let loopExpr = IrLetRec(Cons(IrLam(0, lamBody), Nil), IrApp(IrLocal(0), Nil)) in
+                match rest {
+                  case Nil => loopExpr
+                  case _ => IrLet(Cons(loopExpr, Nil), lowerBlock(Cons("_blk_", scope), rest))
+                }
             }
           else if #seq(tag, "def") then
             -- Local def: IrLetRec so the function can reference itself (recursion)
