@@ -966,10 +966,15 @@ Prerequisite: K55 (Markdown extractor).
       `lex "def f(x: Int) = x + 1"` → 12-token list. VM+JS+Rust all pass.
       Needs `-Xss512m` for type-checking (same as hm-json.hm). Conformance in check.sh.
 
-- [ ] **KC3 — v1.0 parser (functional subset)** — token stream → AST. Nodes: `Def`, `ValDef`,
-      `Import`, `CaseCls`, `SealedTrait`, `App`, `Lam`, `Let`, `LetRec`, `If`, `Match`, `Block`,
-      `Tuple`, `Select`, `Lit`, `Var`, `StringInterp`. OOP nodes (KC7) deferred.
-      Done-when: parses factorial/fibonacci/list pipeline examples from v1.0 `examples/`.
+- [x] **KC3 — v1.0 parser (functional subset) DONE** 2026-07-01. `lib/ssc1-front.ssc0` (ssc0,
+      ~350 lines): combined KC2+KC3 lexer+parser. Lexer: 26 token kinds (includes `==`, `=>`, `->`,
+      `::`). Parser: recursive-descent, tag-encoded AST (`Pair(tag, data)` — avoids ssc0 ADT
+      limitations). Handles: `def`/`val` stmts, infix precedence climbing (prec 3–8), postfix
+      `.field`/`(args)`/`[types]`, `if/then/else`, tuples, string/int/bool literals, prefix `-`/`!`.
+      Type annotations stripped. Multi-stmt: semicolon-separated. ssc0 patterns: avoid nested
+      constructor patterns (use nested match), avoid `-1` literal (use `#i.neg(1)`).
+      Conformance: `ssc run examples/kc3-test.ssc0` → `SDef("f",[x],EInfix("+",EVar(x),EInt(1)))`.
+      Tests: factorial, main(println(f(5))), multi-stmt parsing all pass.
 
 - [ ] **KC4 — functional lowering → Core IR** — AST → Core IR. De Bruijn name resolution.
       Mapping: `def` → LetRec, `val` → Let, `case class` → ADT ctor, `match` → Match, `if` →

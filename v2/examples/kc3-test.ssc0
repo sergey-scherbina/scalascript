@@ -1,0 +1,5 @@
+-- KC3 conformance: parse "def f(x: Int): Int = x + 1" -> SDef(...)
+import "../lib/ssc1-front.ssc0"
+def main = () =>
+  let src = "def f(x: Int): Int = x + 1" in
+  #io.print(#sconcat(showStmts(parse(src)), "\n"))
