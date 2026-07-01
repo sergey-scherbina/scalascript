@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC9: block expressions `{ val/def/expr; ...; result }`
+
+Added full block expression support to the K61 v1.0-compat pipeline.
+**Parser** (`ssc1-front.ssc0`): `{` in `parseAtom` calls `parseBlock`; handles `val`/`def`/
+side-effect expressions until `}`. **Lowering** (`ssc1-lower.ssc0`): `lowerBlock(scope, stmts)` —
+`val` → `IrLet`, local `def` → `IrLetRec` (with `Cons(name, scope)` so recursive self-calls resolve),
+intermediate expression → `IrLet` with `_blk_` discard, final expression → `lowerE` directly.
+`resolveE` recurses into each block item. `f(3)` with two `val` intermediates → 49; `{println("a");
+println("b"); println("c")}` → "abc"; local `def square(x)=x*x` → 49.
+
 ## 2026-07-01 — KC5-micro + KC7b: string `+` heuristic + object static dispatch
 
 **KC5-micro** (`ssc1-lower.ssc0`): `isStrExpr` predicate + `resolveE` inf branch upgrades `"+"` to

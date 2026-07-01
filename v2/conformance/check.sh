@@ -1863,6 +1863,17 @@ kc7vp=$(ssc run bin/ssc1c.ssc0 examples/kc7-opt.ssc | ssc run-ir /dev/stdin | ta
 if [ "$kc7vp" = "10" ]; then printf 'ok   %-26s => %s\n' "kc7 vpat catch-all" "$kc7vp"
 else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc7 vpat catch-all" "$kc7vp"; fail=1; fi
 
+echo '# KC9 — block expressions: { val/def/expr; ...; result }'
+kc9bl=$(ssc run bin/ssc1c.ssc0 examples/kc9-block.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc9bl" = "49" ]; then printf 'ok   %-26s => %s\n' "kc9 val bindings block" "$kc9bl"
+else printf 'FAIL %-26s\n  got: [%s] want: [49]\n' "kc9 val bindings block" "$kc9bl"; fail=1; fi
+kc9se=$(ssc run bin/ssc1c.ssc0 examples/kc9-sideeffects.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc9se" = "abc" ]; then printf 'ok   %-26s => %s\n' "kc9 side-effects seq" "$kc9se"
+else printf 'FAIL %-26s\n  got: [%s] want: [abc]\n' "kc9 side-effects seq" "$kc9se"; fail=1; fi
+kc9ld=$(ssc run bin/ssc1c.ssc0 examples/kc9-localdef.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc9ld" = "49" ]; then printf 'ok   %-26s => %s\n' "kc9 local def block" "$kc9ld"
+else printf 'FAIL %-26s\n  got: [%s] want: [49]\n' "kc9 local def block" "$kc9ld"; fail=1; fi
+
 echo '# KC5-micro + KC7b — string + heuristic + object static dispatch'
 kc5sc=$(ssc run bin/ssc1c.ssc0 examples/kc5-strcat.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc5sc" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc5 string concat +" "$kc5sc"

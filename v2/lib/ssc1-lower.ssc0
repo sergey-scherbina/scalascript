@@ -201,6 +201,33 @@ def resolveE = (expr) =>
               } in
             Pair("match", Pair(re, rArms(arms)))
         }
+      else if #seq(tag, "block") then
+        -- KC9: resolve each block item
+        let rec resolveBlock = (ss) =>
+          match ss {
+            case Nil => Nil
+            case Cons(s, rest) =>
+              match s {
+                case Pair(stag, sdata) =>
+                  if #seq(stag, "val") then
+                    match sdata {
+                      case Pair(name, expr) =>
+                        Cons(Pair("val", Pair(name, resolveE(expr))), resolveBlock(rest))
+                    }
+                  else if #seq(stag, "def") then
+                    match sdata {
+                      case Pair(name, rest2) =>
+                        match rest2 {
+                          case Pair(params, body) =>
+                            Cons(Pair("def", Pair(name, Pair(params, resolveE(body)))), resolveBlock(rest))
+                        }
+                    }
+                  else if #seq(stag, "expr") then
+                    Cons(Pair("expr", resolveE(sdata)), resolveBlock(rest))
+                  else Cons(s, resolveBlock(rest))
+              }
+          } in
+        Pair("block", resolveBlock(data))
       else
         expr
   }
@@ -331,6 +358,8 @@ def lowerE = (scope, rawExpr) =>
         match data {
           case Pair(scrutE, arms) => lowerMatch(scope, scrutE, arms)
         }
+      else if #seq(tag, "block") then
+        lowerBlock(scope, data)
       else
         IrLit(IrUnit)
   }
@@ -519,6 +548,49 @@ def lowerCaseCls = (name, params) =>
         Cons(accDef, mkAcc(rest, #i.add(idx, 1)))
     } in
   Cons(ctorDef, mkAcc(params, 0))
+
+-- ── KC9: block expression lowering ──────────────────────────────────────────
+-- Blocks: { val x=e; def f(p)=b; sideEffect; result }
+-- val → IrLet; def → IrLetRec (with self-reference via letrec scope); expr → IrLet discard or result
+
+def lowerBlock = (scope, stmts) =>
+  match stmts {
+    case Nil => IrLit(IrUnit)
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "val") then
+            match data {
+              case Pair(name, expr) =>
+                IrLet(Cons(lowerE(scope, expr), Nil), lowerBlock(Cons(name, scope), rest))
+            }
+          else if #seq(tag, "def") then
+            -- Local def: IrLetRec so the function can reference itself (recursion)
+            -- Inside IrLetRec([IrLam(k, body)], rest2):
+            --   in body: local(0)=last param, ..., local(k-1)=first param, local(k)=fun itself
+            --   in rest2: local(0) = the letrec function
+            match data {
+              case Pair(name, rest2) =>
+                match rest2 {
+                  case Pair(params, body) =>
+                    let letrecScope = Cons(name, scope) in
+                    let defScope = appendL(revL(params), letrecScope) in
+                    let lam = IrLam(lenL(params), lowerE(defScope, body)) in
+                    IrLetRec(Cons(lam, Nil), lowerBlock(letrecScope, rest))
+                }
+            }
+          else if #seq(tag, "expr") then
+            match rest {
+              case Nil =>
+                -- Last item: it IS the block result
+                lowerE(scope, data)
+              case _ =>
+                -- Side-effect: evaluate + discard (IrLet shifts scope by 1)
+                IrLet(Cons(lowerE(scope, data), Nil), lowerBlock(Cons("_blk_", scope), rest))
+            }
+          else lowerBlock(scope, rest)
+      }
+  }
 
 -- ── Statement lowering ────────────────────────────────────────────────────────
 

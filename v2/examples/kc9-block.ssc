@@ -1,0 +1,6 @@
+def f(n: Int): Int = {
+  val doubled = n * 2
+  val incremented = doubled + 1
+  incremented * incremented
+}
+def main(): Unit = println(f(3))

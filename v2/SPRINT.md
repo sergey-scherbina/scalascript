@@ -1037,6 +1037,14 @@ Prerequisite: K55 (Markdown extractor).
       kc7-opt (vpat+list head=10) — all green.
       **Deferred:** nested patterns, object methods (bodies are skipped), full inheritance.
 
+- [x] **KC9 — block expressions DONE** 2026-07-01.
+      `{ val x=e; def f(p)=body; sideEffect; result }` in function bodies.
+      Parser: `parseBlock` on `{` in `parseAtom` (val/def/expr stmts until `}`).
+      Lowering: `lowerBlock(scope, stmts)` — val→IrLet, def→IrLetRec (self-scope for recursion),
+      side-effect expr → IrLet with `_blk_` discard, final expr → lowerE directly.
+      resolveE handles `"block"` recursively (each item's subexpressions resolved).
+      Done: kc9-block (49), kc9-sideeffects (abc), kc9-localdef (49).
+
 - [x] **KC5-micro + KC7b — string `+` heuristic + object methods DONE** 2026-07-01.
       **KC5-micro**: In `resolveE`, for `inf("+")`, if either side is a string literal/prim
       → upgrade op to `"++"` (sconcat). Handles `"Hello, " + name + "!"` without type env.

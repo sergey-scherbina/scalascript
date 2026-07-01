@@ -265,6 +265,7 @@ def parseAtom = (toks) =>
         let r2 = moreTup(advance(ts), Cons(e, Nil)) in
         pr(mkTup(prV(r2)), skipKind(")", prT(r2)))
       else pr(e, skipKind(")", ts))
+  else if #seq(k, "{") then parseBlock(advance(toks))
   else if #seq(k, "op") then
     if #seq(v, "-") then
       let r = parseAtom(advance(toks)) in pr(mkPre("-", prV(r)), prT(r))
@@ -272,6 +273,25 @@ def parseAtom = (toks) =>
       let r = parseAtom(advance(toks)) in pr(mkPre("!", prV(r)), prT(r))
     else pr(mkVar("_err"), advance(toks))
   else pr(mkVar("_err"), advance(toks))
+
+-- KC9: parseBlock — `{` already consumed; parse val/def/expr stmts until `}`
+def parseBlock = (toks) =>
+  let rec go = (ts, acc) =>
+    let ts2 = skipSemis(ts) in
+    if kindIs("}", ts2) then
+      pr(Pair("block", reverse(acc)), advance(ts2))
+    else if kindIs("EOF", ts2) then
+      pr(Pair("block", reverse(acc)), ts2)
+    else if kwIs("val", ts2) then
+      let r = parseVal(advance(ts2)) in
+      go(prT(r), Cons(prV(r), acc))
+    else if kwIs("def", ts2) then
+      let r = parseDef(advance(ts2)) in
+      go(prT(r), Cons(prV(r), acc))
+    else
+      let r = parseExpr(ts2) in
+      go(prT(r), Cons(Pair("expr", prV(r)), acc)) in
+  go(toks, Nil)
 
 -- parseIfExpr: toks has consumed 'if'
 def parseIfExpr = (toks) =>
