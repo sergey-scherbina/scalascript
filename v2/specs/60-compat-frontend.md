@@ -27,7 +27,7 @@ stdlib libraries that compile on the v2 kernel should produce identical results.
 ```
 
 All stages KC1–KC8 are written in **Lark** (the v2 typed surface language, formerly
-ssct-hm). They are themselves `.lark` programs running on the v2 kernel.
+Lark). They are themselves `.lark` programs running on the v2 kernel.
 
 ## Phases
 
@@ -131,8 +131,8 @@ Done-when: `println("hello")` → Core IR → `io.print` primitive → "hello" o
 
 HM-style inference for the functional subset, written in Lark.
 
-Reuses the Algorithm W implementation from `lib/ssct-hm.ssc0` as a reference.
-Key additions vs ssct-hm:
+Reuses the Algorithm W implementation from `lib/Lark.ssc0` as a reference.
+Key additions vs Lark:
 - Scala-like type syntax: `Int`, `String`, `List[A]`, `Option[A]`, `(A, B)`, `A => B`.
 - Subtyping within sealed hierarchies: `sealed trait T; case class C() extends T`.
 - Type aliases: `type Alias[A] = ...` → expand before unification.

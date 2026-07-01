@@ -1,2 +1,2 @@
-import "../lib/ssct-hm-emit.ssc0"
+import "../lib/lark-emit.ssc0"
 def main = () => #io.print(emit(LetRec("map", Lam("f", Lam("l", If(LIsNil(Var("l")), LNil, LCons(App(Var("f"), LHead(Var("l"))), App(App(Var("map"), Var("f")), LTail(Var("l"))))))), App(App(Var("map"), Lam("x", Mul(Var("x"), Var("x")))), LCons(Lit(1), LCons(Lit(2), LCons(Lit(3), LNil)))))))

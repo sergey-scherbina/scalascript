@@ -1,4 +1,4 @@
-# 54 — Effect rows for ssct-hm (implemented; typed payloads and handlers)
+# 54 — Effect rows for Lark (implemented; typed payloads and handlers)
 
 > Status: **IMPLEMENTED, 2026-06-28.** The light (label-tracking) version is done and **runs on all
 > three backends** (run-ir / JS / native-Rust). Effects are **user-extensible** (`perform` / `handle`,
@@ -9,7 +9,7 @@
 
 ## Goal
 
-Today ssct-hm has **algebraic effects** in the typed surface ([`50`](50-effects.md)): type-safe
+Today Lark has **algebraic effects** in the typed surface ([`50`](50-effects.md)): type-safe
 per-effect free monads (Track P) and a universal `Comp` over a `Dyn` escape-hatch (Track E). What's
 missing is **effect tracking in the type**: nothing stops you from running a computation that still
 has unhandled effects. Effect rows fix that — the type of a computation records *which* effects it
@@ -35,7 +35,7 @@ version adds (2) — see *Path to full* below.
 ## Representation
 
 A row is `REmpty | RExt(label, rest) | RVar(n)` (scoped-labels / Rémy style), unordered as a set —
-unification reorders. As ssct-hm `Type`s: `TyRowEmpty`, `TyRowExt(label, row)`, `TyRowVar(n)` (row
+unification reorders. As Lark `Type`s: `TyRowEmpty`, `TyRowExt(label, row)`, `TyRowVar(n)` (row
 variables are a *separate* constructor from `TyVar` so kinds don't mix — the shared fresh-var counter
 still gives unique `n`). The effect monad is `TyCon("Comp", [row, resultType])`.
 
@@ -158,8 +158,8 @@ The ergonomic sugar around the light system has **landed**: `effect Name op…` 
 
 | Where | What |
 |---|---|
-| `lib/ssct-hm.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle`/`EffHandleM`; `handleM` validates total declared-op coverage and per-arm resume types |
-| `lib/ssct-hm-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `handleM "L" m { | op a k => body } ret` keyword form; `effect Name op…` decl (`effOpReg`, K11.1) and typed `effect Name { op : A -> R }` decl (`effSigReg`, K11.4); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
-| `lib/ssct-hm-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); `EffHandleM` lowers to `__effHandle` with generated op-name dispatch; appended by `progOf` when effects are used |
+| `lib/Lark.ssc0` | `TyRow*` type forms + `rowUnify`/`rowRewrite` + `unify` dispatch + appTy/occurs/freeTy/renameTy/showTyR; `asRow` row-var instantiation; infer for `EffOp`/`EffBind`/`EffRun`/`EffRunSt`/`EffRunLog`/`EffHandle`/`EffHandleM`; `handleM` validates total declared-op coverage and per-arm resume types |
+| `lib/Lark-front.ssc0` | `perform` (3-arg) / `handle` (4-arg) recognized in `dsApp` via the application spine (`strOf` extracts the literal label); `handleM "L" m { | op a k => body } ret` keyword form; `effect Name op…` decl (`effOpReg`, K11.1) and typed `effect Name { op : A -> R }` decl (`effSigReg`, K11.4); `doE` block (`parseDoStmts` parameterized by bind name); `{}`/`{l,m}`/`{l\|r}` row syntax in the type parser (K11.2); `getE`/`putE`/`logE`/`runStateE`/`runLogE` built-ins |
+| `lib/Lark-emit.ssc0` | `erase` lowers to the universal `Comp` + global helpers `__effBind`/`__effRun`/`__effRunSt`/`__effRunLog`/`__effHandle` (+`__effRevApp`, `irFst`/`irSnd`); `EffHandleM` lowers to `__effHandle` with generated op-name dispatch; appended by `progOf` when effects are used |
 | backends | `f.*`/`i.*` prims already present; effects need no new prim (they are plain `Comp` data) |
 | `examples/` | `hm-effrow` (State), `hm-eff2` (State+Log, both must be handled), `hm-eff-handle` (multi-shot nondeterminism, user effect), `hm-eff-userstate` (State via general `handle`), `hm-eff-do`(-nondet) (`doE`), `hm-eff-decl`(-choose) (`effect` decl), `hm-eff-rowann` (row ascription), `hm-eff-typed` (typed payloads), `hm-eff-multiop` (`handleM` typed multi-op resumes); + unhandled-effect / type-mismatch programs that are rejected |

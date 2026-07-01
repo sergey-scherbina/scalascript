@@ -1,2 +1,2 @@
-import "../lib/ssct-hm.ssc0"
+import "../lib/lark.ssc0"
 def main = () => hm(Let("id", Lam("x", Var("x")), App(Var("id"), Lit(1))))

@@ -118,16 +118,16 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       as libraries, and VM/JS/native-Rust backends as ssc-compiled programs. WASM remains the
       separate toolchain-blocked item above.
 
-## K5 — ssct-hm: a Hindley-Milner typed language (DONE 2026-06-27)
+## K5 — Lark (ssct-hm): a Hindley-Milner typed language (DONE 2026-06-27)
 
 - [x] **ssct-hm** — a complete HM-inferred typed FP language in ssc0 (`lib/ssct-hm*.ssc0`):
       Algorithm-W inference + let-polymorphism; Int/Bool/String; polymorphic lists `[a]` with
       literals; **user `data` types + pattern matching** (`match { | }`); full arith/cmp/string
       ops. Source text → infer → interpret OR erase → Core IR → **VM / JS / native Rust**.
       Showcases: factorial, map, quicksort (dups), a typed expression interpreter — all compile
-      to native code. Spec `41-ssct-hm.md`. 161 conformance checks. Kernel +0 (still 913).
+      to native code. Spec `41-lark.md`. 161 conformance checks. Kernel +0 (still 913).
 
-## K6 — ssct-hm: full ssc 1.0 feature parity (plan)
+## K6 — Lark (ssct-hm): feature parity backlog (plan)
 
 Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->f`**, and
 **reflection** (`tagOf`/`arity`/`fieldAt`) — so generic `show`/`eq`/`compare` are expressible.
@@ -149,7 +149,7 @@ Toolchain confirmed: kernel has the full **`f.*`** float group + **`i->f`/`str->
       comments; **monadic do-notation**; **type ascription** `(e : T)`; a 32-function auto-injected prelude.
       Conformance 161 → 277, all 3 backends.
 
-## K7 — Typed algebraic effects in the ssct-hm surface
+## K7 — Typed algebraic effects in the Lark surface
 
 Bring ssc 1.0's signature feature — algebraic effects + handlers (one-shot AND multi-shot) — into the
 TYPED surface, all 3 backends. The untyped library (`lib/effects.ssc0`, `Comp = Pure | Op(label,arg,
@@ -173,7 +173,7 @@ Track E — **universal `Comp` via a localized `Dyn` escape-hatch** (option B): 
 - [x] **E2. universal `Comp` + `perform`/`pure`/`bind` + a multi-op handler** using `Dyn` payloads;
       typed operation wrappers (`get : Comp Int`, …) so user code stays type-safe.
 
-- [x] **DOC/CONF** — `specs/50-effects.md` (typed-surface section) + `specs/41-ssct-hm.md`; conformance for
+- [x] **DOC/CONF** — `specs/50-effects.md` (typed-surface section) + `specs/41-lark.md`; conformance for
       State (one-shot) + Nondeterminism (multi-shot), both tracks, all backends.
 
 OPEN (deferred, research): **full effect-row inference** — `Comp` tracks WHICH effects (row polymorphism,
@@ -936,7 +936,7 @@ mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a r
 
 ---
 
-## K6 — Lark rename + fence language registry
+## K60 — Lark rename + fence language registry
 
 - [ ] **K54 — rename ssct-hm → Lark** — `ssct-hm` was the internal working name; the language is
       now called **Lark** (ML/Haskell-family, HM inference, effects, type classes, ~90-fn prelude).
@@ -947,7 +947,7 @@ mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a r
         `v2/ssct-hm-rust` → `v2/lark-rust`.
       - Bin: `bin/ssct-hm.ssc0` → `bin/lark.ssc0`, etc.
       - Conformance `check.sh`: rename sections.
-      - Specs: `specs/41-ssct-hm.md` → `specs/41-lark.md`.
+      - Specs: `specs/41-lark.md` → `specs/41-lark.md`.
       - SPRINT/ROADMAP/CHANGELOG: replace `ssct-hm` with `Lark` (except in historical entries).
       - File extension: `.lark` preferred; `.hm` accepted as alias.
       Done-when: `v2/lark examples/hm-json.hm` type-checks + runs. Conformance all green.
@@ -962,7 +962,7 @@ mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a r
 
 ---
 
-## K7 — v1.0-compat frontend
+## K61 — v1.0-compat frontend (KC1–KC8)
 
 Goal: run existing v1.0 `.ssc` files on the v2 kernel (functional subset first, OOP later).
 All written in Lark. Spec: `specs/60-compat-frontend.md`.

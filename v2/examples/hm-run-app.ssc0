@@ -1,2 +1,2 @@
-import "../lib/ssct-hm.ssc0"
+import "../lib/lark.ssc0"
 def main = () => runHm(App(Lam("x", Add(Var("x"), Lit(1))), Lit(41)))

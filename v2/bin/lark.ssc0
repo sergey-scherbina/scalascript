@@ -1,0 +1,9 @@
+-- lark driver: read a source file, lex+parse (ssc0), INFER its principal type (ssc0), print.
+import "../lib/lark-front.ssc0"
+import "../lib/lark.ssc0"
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) => hm(parse(#utf8->str(#io.readFile(path))))
+    case Nil              => "usage: lark <file>"
+  }
