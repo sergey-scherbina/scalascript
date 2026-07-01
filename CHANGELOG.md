@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — KC5-micro + KC7b: string `+` heuristic + object static dispatch
+
+**KC5-micro** (`ssc1-lower.ssc0`): `isStrExpr` predicate + `resolveE` inf branch upgrades `"+"` to
+`"++"` when either operand is a string literal or string-returning prim. Handles `"Hello, " + name`.
+**KC7b**: `object O { defs }` parsed into `("object",(name,stmts))`; `skipToBrace` helper for
+`extends T {`; `resolveMethodCall` uid receiver → `O_method(args)` static dispatch;
+`lowerStmtToList` prefixes object defs. Conformance: kc5-strcat + kc7b-object both green.
+
 ## 2026-07-01 — K49: conformance harness jar isolation + diagnostics
 
 `v2/conformance/check.sh` no longer shares `/tmp/ssc-conformance.jar` across runs. Each run builds

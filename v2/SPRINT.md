@@ -1037,6 +1037,16 @@ Prerequisite: K55 (Markdown extractor).
       kc7-opt (vpat+list head=10) — all green.
       **Deferred:** nested patterns, object methods (bodies are skipped), full inheritance.
 
-- [ ] **KC8 — given/using** — `given T = ...` → explicit dict. `using` → dict arg.
+- [x] **KC5-micro + KC7b — string `+` heuristic + object methods DONE** 2026-07-01.
+      **KC5-micro**: In `resolveE`, for `inf("+")`, if either side is a string literal/prim
+      → upgrade op to `"++"` (sconcat). Handles `"Hello, " + name + "!"` without type env.
+      `isStrExpr(e)` checks tag="str", or prim op in {i->str, sslice}.
+      **KC7b**: Parse `object O { defs }` body into `Pair("object", Pair(name, stmts))` instead
+      of skipping. Resolver: uid receiver in `resolveMethodCall` → static dispatch `O_method(args)`
+      instead of `_sel_method(O, args)`. Lowering: `lowerStmtToList("object")` prefixes each def
+      as `O_def → IrDef("O_def", IrLam(...))`. Add `skipToBrace` parser helper.
+      Done-when: `kc5-strcat` ("Hello, World!") + `kc7b-object` (Math.square+double=31) pass.
+
+- [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
       Resolution: same HM-style instance lookup as Mira type classes.
       Done-when: a `given Show[Int]` / `def show[A: Show](x: A)` compiles and runs.

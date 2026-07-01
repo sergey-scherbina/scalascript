@@ -71,8 +71,14 @@ def resolveMethodCall = (robj, method, rargs) =>
         }
     }
   else
-    -- Unknown method: keep as _sel_method(obj, arg1, ...)
-    Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+    -- KC7b: if receiver is still a plain uid (object singleton), static dispatch O_method(args)
+    match robj {
+      case Pair(rtag, rname) =>
+        if #seq(rtag, "uid") then
+          Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+        else
+          Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+    }
 
 -- Resolve a pure field access obj.field (no args)
 def resolveField = (robj, field) =>
@@ -94,6 +100,23 @@ def resolveField = (robj, field) =>
     Pair("prim", Pair("_list_nonEmpty", Cons(robj, Nil)))
   else
     Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+
+-- KC5-micro: detect string-producing expressions after resolve (for + upgrade)
+def isStrExpr = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      if #seq(tag, "str") then true
+      else if #seq(tag, "prim") then
+        match data {
+          case Pair(op, args) =>
+            if #seq(op, "i->str") then true
+            else if #seq(op, "sslice") then true
+            else false
+        }
+      else if #seq(tag, "inf") then
+        match data { case Pair(op2, lr2) => #seq(op2, "++") }
+      else false
+  }
 
 -- Main resolve function — transforms one AST node
 def resolveE = (expr) =>
@@ -146,7 +169,15 @@ def resolveE = (expr) =>
           case Pair(op, lr) =>
             match lr {
               case Pair(l, r) =>
-                Pair("inf", Pair(op, Pair(resolveE(l), resolveE(r))))
+                let rl = resolveE(l) in
+                let rr = resolveE(r) in
+                -- KC5-micro: upgrade int + to string ++ when a literal/prim string side detected
+                let op2 = if #seq(op, "+") then
+                  if isStrExpr(rl) then "++"
+                  else if isStrExpr(rr) then "++"
+                  else op
+                else op in
+                Pair("inf", Pair(op2, Pair(rl, rr)))
             }
         }
       else if #seq(tag, "pre") then
@@ -512,6 +543,28 @@ def lowerStmtToList = (stmt) =>
       else if #seq(tag, "casecls") then
         match data {
           case Pair(name, params) => lowerCaseCls(name, params)
+        }
+      else if #seq(tag, "object") then
+        -- KC7b: object O { def f(x) = ... } → IrDef("O_f", IrLam(1, ...))
+        match data {
+          case Pair(name, stmts) =>
+            let prefix = #sconcat(name, "_") in
+            let rec prefixDefs = (ss) =>
+              match ss {
+                case Nil => Nil
+                case Cons(s, rest) =>
+                  match s {
+                    case Pair(stag, sdata) =>
+                      if #seq(stag, "def") then
+                        match sdata {
+                          case Pair(dname, drest) =>
+                            let prefixed = Pair("def", Pair(#sconcat(prefix, dname), drest)) in
+                            appendL(lowerStmtToList(prefixed), prefixDefs(rest))
+                        }
+                      else prefixDefs(rest)
+                  }
+              } in
+            prefixDefs(stmts)
         }
       else Nil
   }

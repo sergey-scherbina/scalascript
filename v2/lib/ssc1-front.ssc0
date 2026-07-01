@@ -501,6 +501,13 @@ def parseCaseClass = (toks) =>
   else ts2 in
   pr(mkCaseCls(name, prV(rp)), ts3)
 
+-- skipToBrace: advance past extends/with clauses until `{` or EOF/;
+def skipToBrace = (ts) =>
+  if kindIs("{",   ts) then ts
+  else if kindIs("EOF", ts) then ts
+  else if kindIs(";",   ts) then ts
+  else skipToBrace(advance(ts))
+
 -- skipToStmt: advance until next top-level statement keyword
 def skipToStmt = (ts) =>
   let tok = peek(ts) in
@@ -533,15 +540,20 @@ def parseOneStmt = (toks) =>
     else if #seq(v, "abstract") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else if #seq(v, "object") then
-      let ts2 = skipToStmt(advance(toks)) in
-      let ts3 = if kindIs("{", ts2) then
-        let rec skipObj = (ts) =>
-          if kindIs("}", ts) then advance(ts)
-          else if kindIs("EOF", ts) then ts
-          else skipObj(advance(ts)) in
-        skipObj(advance(ts2))
-      else ts2 in
-      pr(Pair("sealed", ""), ts3)
+      -- KC7b: parse object body into ("object", (name, [stmts]))
+      let ts1 = advance(toks) in
+      let name = tokVal(peek(ts1)) in
+      let ts2 = skipToBrace(advance(ts1)) in
+      if kindIs("{", ts2) then
+        let rec parseObj = (ts, acc) =>
+          let ts5 = skipSemis(ts) in
+          if kindIs("}", ts5) then pr(Pair("object", Pair(name, reverse(acc))), advance(ts5))
+          else if kindIs("EOF", ts5) then pr(Pair("object", Pair(name, reverse(acc))), ts5)
+          else
+            let r = parseOneStmt(ts5) in
+            parseObj(prT(r), Cons(prV(r), acc)) in
+        parseObj(advance(ts2), Nil)
+      else pr(Pair("object", Pair(name, Nil)), ts2)
     else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
   else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
 

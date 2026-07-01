@@ -1,0 +1,5 @@
+object Math {
+  def square(n: Int): Int = n * n
+  def double(n: Int): Int = n * 2
+}
+def main(): Unit = println(Math.square(5) + Math.double(3))

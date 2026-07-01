@@ -1863,6 +1863,14 @@ kc7vp=$(ssc run bin/ssc1c.ssc0 examples/kc7-opt.ssc | ssc run-ir /dev/stdin | ta
 if [ "$kc7vp" = "10" ]; then printf 'ok   %-26s => %s\n' "kc7 vpat catch-all" "$kc7vp"
 else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc7 vpat catch-all" "$kc7vp"; fail=1; fi
 
+echo '# KC5-micro + KC7b — string + heuristic + object static dispatch'
+kc5sc=$(ssc run bin/ssc1c.ssc0 examples/kc5-strcat.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc5sc" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc5 string concat +" "$kc5sc"
+else printf 'FAIL %-26s\n  got: [%s] want: [Hello, World!]\n' "kc5 string concat +" "$kc5sc"; fail=1; fi
+kc7bo=$(ssc run bin/ssc1c.ssc0 examples/kc7b-object.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc7bo" = "31" ]; then printf 'ok   %-26s => %s\n' "kc7b object methods" "$kc7bo"
+else printf 'FAIL %-26s\n  got: [%s] want: [31]\n' "kc7b object methods" "$kc7bo"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy
