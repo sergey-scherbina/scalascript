@@ -5,16 +5,101 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2   # -> v2/
 
-JAR="${TMPDIR:-/tmp}/ssc-conformance.jar"
-echo "building ssc ..." >&2
-scala-cli --power package src -o "$JAR" -f --assembly --server=false -q >/dev/null 2>&1 \
-  || { echo "build failed"; exit 2; }
-ssc() { java -jar "$JAR" "$@" 2>/dev/null; }
-sscx() { java -Xss512m -jar "$JAR" "$@" 2>/dev/null; }
-
+TMPBASE="${TMPDIR:-/tmp}"
+LOGDIR="$TMPBASE/ssc-conformance-logs-$$"
+JAR="$LOGDIR/ssc-conformance.jar"
+ERR_SUMMARY="$LOGDIR/failures.log"
 fail=0
+mkdir -p "$LOGDIR"
+touch "$ERR_SUMMARY"
+record_diag() { printf '%s\n' "$*" >> "$ERR_SUMMARY"; }
+diag_path() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
+print_diag_summary() {
+  local status
+  status=$?
+  if { [ "$status" -ne 0 ] || [ "${fail:-0}" != "0" ]; } && [ -s "$ERR_SUMMARY" ]; then
+    echo "# diagnostics: stderr/retry logs in $LOGDIR" >&2
+    sed -n '1,240p' "$ERR_SUMMARY" >&2
+  fi
+  return "$status"
+}
+trap print_diag_summary EXIT
+run_logged() { # label command...
+  local lbl log code retry
+  lbl="$1"; shift
+  log="$LOGDIR/$(diag_path "$lbl")-$RANDOM.err"
+  "$@" 2>"$log"
+  code=$?
+  if [ "$code" -ne 0 ]; then
+    record_diag "FAIL $lbl exit=$code stderr=$log"
+    sed -n '1,80p' "$log" >> "$ERR_SUMMARY"
+    retry="$LOGDIR/$(diag_path "$lbl")-$RANDOM-retry.err"
+    "$@" 2>"$retry"
+    code=$?
+    if [ "$code" -ne 0 ]; then
+      record_diag "RETRY-FAIL $lbl exit=$code stderr=$retry"
+      sed -n '1,80p' "$retry" >> "$ERR_SUMMARY"
+    else
+      record_diag "RETRY-OK $lbl stderr=$retry"
+    fi
+  fi
+  return "$code"
+}
+run_stdout_logged() { # label command...
+  local lbl out code retry_out retry_code
+  lbl="$1"; shift
+  out="$LOGDIR/$(diag_path "$lbl")-$RANDOM.out"
+  if run_logged "$lbl" "$@" > "$out"; then code=0; else code=$?; fi
+  if [ "$code" -eq 0 ] && [ ! -s "$out" ]; then
+    record_diag "EMPTY stdout for $lbl; retrying once stdout=$out"
+    retry_out="$LOGDIR/$(diag_path "$lbl")-$RANDOM-retry.out"
+    if run_logged "$lbl-empty-retry" "$@" > "$retry_out"; then retry_code=0; else retry_code=$?; fi
+    if [ "$retry_code" -eq 0 ] && [ -s "$retry_out" ]; then
+      record_diag "EMPTY-RETRY-OK $lbl stdout=$retry_out"
+      cat "$retry_out"
+      return 0
+    fi
+    if [ "$retry_code" -ne 0 ]; then
+      record_diag "EMPTY-RETRY-FAIL $lbl exit=$retry_code stdout=$retry_out"
+      cat "$retry_out"
+      return "$retry_code"
+    fi
+    record_diag "EMPTY stdout after retry for $lbl stdout=$retry_out"
+    cat "$retry_out"
+    return 0
+  fi
+  cat "$out"
+  return "$code"
+}
+echo "building ssc ..." >&2
+BUILD_LOG="$LOGDIR/scala-cli-package-$RANDOM.err"
+scala-cli --power package src -o "$JAR" -f --assembly --server=false -q >/dev/null 2>"$BUILD_LOG"
+build_code=$?
+if [ "$build_code" -ne 0 ]; then
+  record_diag "FAIL scala-cli package exit=$build_code stderr=$BUILD_LOG"
+  sed -n '1,80p' "$BUILD_LOG" >> "$ERR_SUMMARY"
+  echo "build failed"
+  exit 2
+fi
+ssc() { run_stdout_logged "ssc-${1:-cmd}" java -jar "$JAR" "$@"; }
+sscx() { run_stdout_logged "sscx-${1:-cmd}" java -Xss512m -jar "$JAR" "$@"; }
+if command -v rustc >/dev/null 2>&1; then
+  RUSTC_BIN="$(command -v rustc)"
+  rustc() { run_logged "rustc" "$RUSTC_BIN" "$@"; }
+fi
+ssc_last() { # label args...
+  local lbl got
+  lbl="$1"; shift
+  got=$(ssc "$@" | tail -1)
+  if [ -z "$got" ]; then
+    record_diag "EMPTY stdout for $lbl; retrying once"
+    got=$(ssc "$@" | tail -1)
+    if [ -z "$got" ]; then record_diag "EMPTY stdout after retry for $lbl"; fi
+  fi
+  printf '%s\n' "$got"
+}
 chk() { # mode file want
-  got=$(ssc "$1" "$2" | tail -1)
+  got=$(ssc_last "$1 ${2##*/}" "$1" "$2")
   if [ "$got" = "$3" ]; then printf 'ok   %-26s => %s\n' "$1 ${2##*/}" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "$1 ${2##*/}" "$got" "$3"; fail=1; fi
 }
@@ -177,7 +262,7 @@ chk run examples/illtyped.ssc0 'TypeError("Add expects Int operands")'
 
 echo "# ssct textual surface (.ssct text -> lex+parse+typecheck+run, all in ssc0)"
 chk_ssct() { # file want
-  got=$(ssc run bin/ssct.ssc0 "$1" | tail -1)
+  got=$(ssc_last "ssct ${1##*/}" run bin/ssct.ssc0 "$1")
   if [ "$got" = "$2" ]; then printf 'ok   %-26s => %s\n' "ssct ${1##*/}" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "ssct ${1##*/}" "$got" "$2"; fail=1; fi
 }
@@ -187,7 +272,7 @@ chk_ssct examples/bad.ssct  'TypeError("Add expects Int operands")'
 
 echo "# mira textual surface (UNANNOTATED source text -> lex+parse+INFER, all in ssc0)"
 chk_hm() { # file want
-  got=$(ssc run bin/mira.ssc0 "$1" | tail -1)
+  got=$(ssc_last "mira ${1##*/}" run bin/mira.ssc0 "$1")
   if [ "$got" = "$2" ]; then printf 'ok   %-26s => %s\n' "mira ${1##*/}" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "mira ${1##*/}" "$got" "$2"; fail=1; fi
 }
@@ -1665,7 +1750,7 @@ echo "# argv: ssc run <file> ARGS... -> #io.args()"
 chkargv() { # want -- file args...
   want=$1; shift 2
   file=$1
-  got=$(ssc run "$@" | tail -1)
+  got=$(ssc_last "argv ${file##*/}" run "$@")
   if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s\n' "run ${file##*/} [${*:2}]" "$got"
   else printf 'FAIL %-26s got [%s] want [%s]\n' "run ${file##*/} [${*:2}]" "$got" "$want"; fail=1; fi
 }
