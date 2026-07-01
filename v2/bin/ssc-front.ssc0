@@ -1,0 +1,35 @@
+-- ssc-front — Markdown fence extractor for .ssc files (K55).
+-- Usage: ssc-front <file.ssc>
+-- Output: one line per extracted block: <lang>\t<escaped-source>
+-- In a pipeline, consumers split on tab and un-escape.
+--
+-- For now: prints each block as  <lang>:---:  followed by the source lines,
+-- then a separator line  ---end---  after each block.
+import "../lib/lark-md.ssc0"
+
+def printBlock = (b) =>
+  match b {
+    case Pair(lang, src) =>
+      let u1 = #io.print(#sconcat("```", #sconcat(lang, "\n"))) in
+      let u2 = #io.print(#sconcat(src, "\n")) in
+      #io.print("```\n")
+  }
+
+def printBlocks = (bs) =>
+  match bs {
+    case Nil => ()
+    case Cons(b, rest) =>
+      let u = printBlock(b) in
+      printBlocks(rest)
+  }
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) =>
+      let bytes = #io.readFile(path) in
+      let src = #utf8->str(bytes) in
+      let blocks = extractFences(src) in
+      printBlocks(blocks)
+    case Nil =>
+      #io.print("usage: ssc-front <file.ssc>\n")
+  }

@@ -1,0 +1,22 @@
+---
+name: hm-md-demo
+description: Demo .ssc file for K55 Markdown extractor conformance test.
+---
+
+# Markdown extractor demo
+
+This is a `.ssc` Markdown file containing fence blocks.
+
+```lark
+// type: Int
+let x = 42 in x + 1
+```
+
+Some prose between blocks.
+
+```ssc0
+def double = (x) => #i.mul(x, 2)
+def main = () => #io.print(#i->str(double(21)))
+```
+
+End of file.

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — K55: Markdown fence extractor (`ssc-front`)
+
+`lib/lark-md.ssc0` (130 lines, ssc0): full Markdown fence-block extractor. Parses `.ssc`
+Markdown files into `[(lang, source)]` pairs. Features: YAML front-matter stripping (--- ... ---),
+line-by-line scanner, backtick fence detection (startsWith3bt / isClosingFence), CR/LF handling.
+Driver `bin/ssc-front.ssc0` + `v2/ssc-front` launcher. Test: `examples/hm-md-demo.ssc` (2 blocks,
+YAML skipped). Conformance test added to `conformance/check.sh`.
+
+---
+
 ## 2026-07-01 — K54: rename ssct-hm → Lark + K60/K61 roadmap (v1.0-compat frontend)
 
 ssct-hm is now **Lark** — a complete ML/Haskell-family typed FP language with HM inference,

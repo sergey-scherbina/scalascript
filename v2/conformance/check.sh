@@ -1722,6 +1722,12 @@ if command -v rustc >/dev/null 2>&1; then
   if rustc -O "${TMPDIR:-/tmp}/k51p.rs" -o "${TMPDIR:-/tmp}/k51p-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/k51p-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (rustc)\n' "parser-comb -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb Rust" "$got"; fail=1; fi
 fi
+echo '# K55 — Markdown fence extractor (ssc-front / bin/ssc-front.ssc0)'
+K55GOT=$(ssc run bin/ssc-front.ssc0 examples/hm-md-demo.ssc 2>/dev/null)
+K55WANT=$'```lark\n// type: Int\nlet x = 42 in x + 1\n```\n```ssc0\ndef double = (x) => #i.mul(x, 2)\ndef main = () => #io.print(#i->str(double(21)))\n```'
+if [ "$K55GOT" = "$K55WANT" ]; then printf 'ok   %-26s => 2 blocks extracted\n' "ssc-front hm-md-demo.ssc"
+else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "ssc-front hm-md-demo.ssc" "$K55GOT" "$K55WANT"; fail=1; fi
+
 chkargv '"hello"'           -- examples/args.ssc0 hello world
 chkargv '"(no args)"'       -- examples/args.ssc0
 chkargv '"Hello, Sergiy!"'  -- examples/greet.ssc0 Sergiy

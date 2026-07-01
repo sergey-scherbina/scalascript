@@ -944,12 +944,11 @@ mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a r
       updated; conformance green (all 568+ ok). `v2/lark examples/hm-fact.hm` → "Int";
       `v2/lark-js` → 120 (node); `larkc` → Core IR → run-ir → 120. Merged: 84d6b28c6.
 
-- [ ] **K55 — Markdown extractor** (KC1) — parse `.ssc` Markdown → `(lang, source)` list.
-      Written in Lark using K51 parser combinators (`pChar`/`pStr`/`pSeq`/`pMany`/`pAlt`/`pMap`).
-      Fence blocks: ` ```lang\nsrc\n``` `. Handle YAML front matter (scan to first `---` / `#`).
-      Launcher `v2/ssc-front` (entry: `bin/ssc-front.ssc0`). Conformance: extract from a sample
-      `.ssc` file and verify `(lang, source)` list.
-      Done-when: `v2/ssc-front examples/hm-json.hm` returns `[("lark", "...source...")]`.
+- [x] **K55 — Markdown extractor DONE** 2026-07-01. `lib/lark-md.ssc0` (ssc0, 130 lines):
+      splitLines/stripYaml/startsWith3bt/isClosingFence/getFenceLang/go/extractFences.
+      `bin/ssc-front.ssc0` driver + `v2/ssc-front` launcher. Conformance: `ssc run
+      bin/ssc-front.ssc0 examples/hm-md-demo.ssc` → 2 blocks (lark + ssc0), YAML skipped.
+      Implementation in ssc0 (not Lark) — avoids cross-language FFI; same pattern as lark.ssc0.
       Spec: `specs/61-fence-languages.md`.
 
 ---

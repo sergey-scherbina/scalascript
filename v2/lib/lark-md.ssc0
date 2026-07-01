@@ -1,0 +1,150 @@
+-- lark-md.ssc0 — Markdown fence-block extractor (K55).
+-- Parses .ssc Markdown and returns a list of Pair(lang, source) for every
+-- fenced code block.  Also strips optional YAML front matter.
+--
+-- Public API (called from bin/ssc-front.ssc0):
+--   extractFences(src)  : String -> List Pair(String, String)
+--
+-- Fence detection: a line whose stripped prefix is exactly ``` opens/closes a block.
+-- Opening: ```lang   (lang is trimmed; "" if bare ```)
+-- Closing: ``` alone (stripped = exactly 3 backticks)
+-- YAML front matter: a block starting with "---" before any ``` — skipped.
+
+import "../lib/list.ssc0"
+
+-- ── character predicates ────────────────────────────────────────────────────
+
+def bt = 96   -- backtick (char code)
+
+def isSpace = (c) => if #i.eq(c, 32) then true else #i.eq(c, 9)
+def isCR    = (c) => #i.eq(c, 13)
+
+-- ── string utilities ────────────────────────────────────────────────────────
+
+def slen = (s) => #slen(s)
+def sget  = (s, i) => #scodeAt(s, i)
+def scat  = (a, b) => #sconcat(a, b)
+
+def dropLeft = (s, i) =>
+  if #i.ge(i, slen(s)) then ""
+  else if isSpace(sget(s, i)) then dropLeft(s, #i.add(i, 1))
+  else #sslice(s, i, slen(s))
+
+def dropRight = (s) =>
+  let n = slen(s) in
+  if #i.eq(n, 0) then ""
+  else let last = sget(s, #i.sub(n, 1)) in
+    if isSpace(last) then dropRight(#sslice(s, 0, #i.sub(n, 1)))
+    else if isCR(last) then dropRight(#sslice(s, 0, #i.sub(n, 1)))
+    else s
+
+def strip = (s) => dropRight(dropLeft(s, 0))
+
+-- Does string s start with ``` ?
+def startsWith3bt = (s) =>
+  if #i.lt(slen(s), 3) then false
+  else if #i.eq(sget(s, 0), bt) then
+    if #i.eq(sget(s, 1), bt) then #i.eq(sget(s, 2), bt)
+    else false
+  else false
+
+-- Language tag from opening fence line (content after ```, stripped)
+def getFenceLang = (s) =>
+  if #i.le(slen(s), 3) then ""
+  else strip(#sslice(s, 3, slen(s)))
+
+-- Is this line a closing fence (stripped = exactly ```)?
+def isClosingFence = (line) =>
+  let t = strip(line) in
+  if #i.eq(slen(t), 3) then startsWith3bt(t) else false
+
+-- ── line splitting ──────────────────────────────────────────────────────────
+
+-- Find the position just after the next newline (code 10) from i.
+-- Returns slen(s) when no newline found.
+def nextNL = (s, i) =>
+  if #i.ge(i, slen(s)) then slen(s)
+  else if #i.eq(sget(s, i), 10) then #i.add(i, 1)
+  else nextNL(s, #i.add(i, 1))
+
+-- Extract one line (without the trailing \n / \r\n) starting at from.
+-- nlPos = position just after the \n (or slen(s)).
+def lineAt = (s, from, nlPos) =>
+  let end = if #i.gt(nlPos, from) then
+    if #i.eq(sget(s, #i.sub(nlPos, 1)), 10) then #i.sub(nlPos, 1)
+    else nlPos
+  else nlPos in
+  let end2 = if #i.gt(end, from) then
+    if #i.eq(sget(s, #i.sub(end, 1)), 13) then #i.sub(end, 1)
+    else end
+  else end in
+  #sslice(s, from, end2)
+
+-- Split a string into lines (List String, in order).
+def splitLines = (s, i, acc) =>
+  if #i.ge(i, slen(s)) then reverse(acc)
+  else let nl = nextNL(s, i) in
+    splitLines(s, nl, Cons(lineAt(s, i, nl), acc))
+
+-- ── string joining ──────────────────────────────────────────────────────────
+
+def joinWith = (sep, xs) =>
+  match xs {
+    case Nil => ""
+    case Cons(x, rest) =>
+      match rest {
+        case Nil => x
+        case _ => scat(x, scat(sep, joinWith(sep, rest)))
+      }
+  }
+
+def joinLines = (xs) => joinWith("\n", xs)
+
+-- ── YAML front-matter detection ─────────────────────────────────────────────
+
+def isYamlMarker = (line) => #seq(strip(line), "---")
+
+def skipUntilEnd = (ls) =>
+  match ls {
+    case Nil => Nil
+    case Cons(l, r) =>
+      if isYamlMarker(l) then r else skipUntilEnd(r)
+  }
+
+-- If the file begins with "---", skip until the closing "---".
+def skipYaml = (ls) =>
+  match ls {
+    case Nil => Nil
+    case Cons(first, rest) =>
+      if isYamlMarker(first) then skipUntilEnd(rest)
+      else ls
+  }
+
+-- ── main extractor ──────────────────────────────────────────────────────────
+
+-- go ls inFence curLang curLines acc
+def go = (ls, inFence, curLang, curLines, acc) =>
+  match ls {
+    case Nil =>
+      if inFence then
+        reverse(Cons(Pair(curLang, joinLines(reverse(curLines))), acc))
+      else
+        reverse(acc)
+    case Cons(line, rest) =>
+      if inFence then
+        if isClosingFence(line) then
+          go(rest, false, "", Nil, Cons(Pair(curLang, joinLines(reverse(curLines))), acc))
+        else
+          go(rest, true, curLang, Cons(line, curLines), acc)
+      else
+        if startsWith3bt(line) then
+          go(rest, true, getFenceLang(line), Nil, acc)
+        else
+          go(rest, false, "", Nil, acc)
+  }
+
+-- Public entry point.
+def extractFences = (src) =>
+  let allLines = splitLines(src, 0, Nil) in
+  let bodyLines = skipYaml(allLines) in
+  go(bodyLines, false, "", Nil, Nil)

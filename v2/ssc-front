@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc-front — Markdown fence extractor for .ssc files (K55).
+# An ssc0 program (bin/ssc-front.ssc0) on the ssc VM.
+# Usage: ./ssc-front <file.ssc>
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc-front.ssc0" "$@"
