@@ -938,19 +938,11 @@ mailboxes); backends JS+Rust are ssc0 programs; and the JSON showcase proves a r
 
 ## K60 — Lark rename + fence language registry
 
-- [ ] **K54 — rename ssct-hm → Lark** — `ssct-hm` was the internal working name; the language is
-      now called **Lark** (ML/Haskell-family, HM inference, effects, type classes, ~90-fn prelude).
-      Rename throughout:
-      - Files: `lib/ssct-hm-front.ssc0` → `lib/lark-front.ssc0`, `lib/ssct-hm-emit.ssc0` →
-        `lib/lark-emit.ssc0`, `lib/ssct-hm.ssc0` → `lib/lark.ssc0`.
-      - Launcher dirs: `v2/ssct-hm` → `v2/lark`, `v2/ssct-hm-js` → `v2/lark-js`,
-        `v2/ssct-hm-rust` → `v2/lark-rust`.
-      - Bin: `bin/ssct-hm.ssc0` → `bin/lark.ssc0`, etc.
-      - Conformance `check.sh`: rename sections.
-      - Specs: `specs/41-lark.md` → `specs/41-lark.md`.
-      - SPRINT/ROADMAP/CHANGELOG: replace `ssct-hm` with `Lark` (except in historical entries).
-      - File extension: `.lark` preferred; `.hm` accepted as alias.
-      Done-when: `v2/lark examples/hm-json.hm` type-checks + runs. Conformance all green.
+- [x] **K54 — rename ssct-hm → Lark DONE** 2026-07-01. 66 files changed: lib/ssct-hm*.ssc0 →
+      lib/lark*.ssc0; bin/ssct-hm*.ssc0 → bin/lark*.ssc0/larkc.ssc0; launchers v2/ssct-hm → v2/lark
+      + v2/lark-js + v2/lark-rust; specs/41-ssct-hm.md → specs/41-lark.md; all imports+comments
+      updated; conformance green (all 568+ ok). `v2/lark examples/hm-fact.hm` → "Int";
+      `v2/lark-js` → 120 (node); `larkc` → Core IR → run-ir → 120. Merged: 84d6b28c6.
 
 - [ ] **K55 — Markdown extractor** (KC1) — parse `.ssc` Markdown → `(lang, source)` list.
       Written in Lark using K51 parser combinators (`pChar`/`pStr`/`pSeq`/`pMany`/`pAlt`/`pMap`).

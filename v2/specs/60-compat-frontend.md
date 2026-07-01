@@ -131,7 +131,7 @@ Done-when: `println("hello")` → Core IR → `io.print` primitive → "hello" o
 
 HM-style inference for the functional subset, written in Lark.
 
-Reuses the Algorithm W implementation from `lib/Lark.ssc0` as a reference.
+Reuses the Algorithm W implementation from `lib/lark.ssc0` as a reference.
 Key additions vs Lark:
 - Scala-like type syntax: `Int`, `String`, `List[A]`, `Option[A]`, `(A, B)`, `A => B`.
 - Subtyping within sealed hierarchies: `sealed trait T; case class C() extends T`.

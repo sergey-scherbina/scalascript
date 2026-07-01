@@ -13,7 +13,7 @@ appropriate compiler pipeline.
 |-------------------------|----------------------------------------------|-----------------|
 | `scalascript` / `ssc`   | v1.0-compat frontend → Core IR → VM/JS/Rust  | planned (KC1–8) |
 | `scala`                 | Standard Scala 3 (passthrough / JVM only)    | deferred        |
-| `lark`                  | Lark (Lark): HM-typed FP language → Core IR → VM/JS/Rust | done (K5–K53) |
+| `lark`                  | Lark (formerly ssct-hm): HM-typed FP language → Core IR → VM/JS/Rust | done (K5–K53) |
 | `ssc0`                  | Raw ssc₀ seed language → Core IR → VM        | done (K0)       |
 | `rust`                  | Rust source — passthrough into Cargo crate   | done (K4)       |
 | `javascript` / `js`     | JS source — passthrough                      | deferred        |
@@ -27,7 +27,7 @@ Routing is itself a Lark/ssc0 program (not a kernel feature):
 .ssc file
   └─ Markdown extractor (KC1, written in Lark)
        ├─ (scalascript, src) → v1.0-compat frontend (KC2–8) → Core IR
-       ├─ (lark, src)        → Lark compiler (Lark-front.ssc0) → Core IR
+       ├─ (lark, src)        → Lark compiler (lark-front.ssc0) → Core IR
        ├─ (ssc0, src)        → ssc compile → Core IR
        └─ (rust, src)        → passthrough → Cargo
 ```
@@ -37,7 +37,7 @@ the kernel.
 
 ## Lark language identity
 
-**Lark** is the v2 typed surface language. It was previously called `Lark`.
+**Lark** is the v2 typed surface language. It was previously called `ssct-hm`.
 
 - ML/Haskell-family: HM type inference + let-polymorphism + algebraic effects
 - ADTs + pattern matching + mutual recursion

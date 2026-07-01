@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-01 — K54: rename ssct-hm → Lark + K60/K61 roadmap (v1.0-compat frontend)
+
+ssct-hm is now **Lark** — a complete ML/Haskell-family typed FP language with HM inference,
+algebraic effects, type classes, ADTs, and ~90-fn prelude. Renamed across 66 files: lib/lark*.ssc0,
+bin/lark.ssc0/lark-js.ssc0/lark-rust.ssc0/larkc.ssc0, launchers v2/lark/lark-js/lark-rust,
+specs/41-lark.md. Fence tag: ` ```lark`. File extension: `.lark` (`.hm` accepted).
+New specs: `60-compat-frontend.md` (KC1–KC8 v1.0-compat design) + `61-fence-languages.md`
+(fence registry). New milestones K60 (Lark rename + Markdown extractor K55) + K61 (v1.0-compat
+frontend). Conformance all green. 84d6b28c6.
+
+---
+
 ## 2026-06-30 — K53: benchmark baseline (post-K47 Array-env) + ssct-hm profiling
 
 Captured post-K47 InterpreterBench baseline via `scripts/bench interp` (29 benchmarks, JMH,
