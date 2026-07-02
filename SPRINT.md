@@ -239,6 +239,7 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
 done (each is genuinely codeable; the external parts are called out). Drive top-to-bottom.
 
+- [x] **coremin-actors-codemove** ✓ DONE 2026-07-02 (4578c8e4f, feature/actors-plugin-move → main) — ActorScheduler.scala (2846 lines) + ActorClusterRoutes.scala extracted to actors-plugin; ActorInterp.scala slimmed 2956 → 98 lines (provider/session + host bridge only); MissingActorRuntimeProvider default (clear error if plugin not loaded); 23 actor/cluster tests moved to backendInterpreterPluginTests (install ActorsInterpreterPlugin); backendInterpreterPluginTests 839 pass; all actor suites 66/0 green.
 - [ ] **coremin-actors-codemove** (A, big — multi-session refactor) — move the actor scheduler/cluster runtime
       out of `core` into the bundled `actors-plugin`, completing the coremin extraction. Scope (probed): it is an
       ATOMIC ~3500-LOC move — `ActorInterp.scala` (2904) + `ActorGlobals` (519) + `ActorWireProtocol` (55), all

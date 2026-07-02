@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-02 — coremin-actors-codemove: ActorScheduler extracted to actors-plugin
+
+Completed the coremin extraction of the actor cooperative scheduler and distributed
+cluster runtime. ActorInterp.scala shrunk from 2956 → 98 lines; all scheduler and
+cluster logic is now in ActorScheduler (2846 lines) + ActorClusterRoutes (280 lines)
+inside `runtime/std/actors-plugin`. ActorRuntimeHost gained `actorRegisterHttpRoute`,
+`actorRemoteHandlerInfos`, and `actorCodeIdentity`. Default provider is
+`MissingActorRuntimeProvider` (fails with a clear message if plugin not loaded).
+23 actor/cluster tests moved to `backendInterpreterPluginTests` and updated to install
+`ActorsInterpreterPlugin`. 839 plugin tests pass; all 66 actor suite tests green.
+
 ## 2026-07-02 — KC5: HM type checker for K61 compat pipeline
 
 `lib/ssc1-check.ssc0` (425 lines): Hindley-Milner Algorithm W type inference over the ssc1-front
