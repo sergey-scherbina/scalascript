@@ -1,8 +1,0 @@
-agent: codex
-branch: feature/stable-spi-phase3-load-compat
-worktree: .worktrees/feature/stable-spi-phase3-load-compat
-started: 2026-07-02
-task: stable-plugin-spi Phase 3 — load-time API compatibility check
-  A plugin declares the PluginApiVersion it was compiled against;
-  the host warns/refuses on incompatible (same MAJOR, host MINOR >= plugin MINOR).
-  Touches Backend SPI + plugin loader, mirrors spiRange pattern.
