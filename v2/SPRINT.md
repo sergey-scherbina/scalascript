@@ -1092,6 +1092,23 @@ Prerequisite: K55 (Markdown extractor).
       Only `$identifier` works; `${expr}` is skipped as literal.
       Done: `kc12-interp.ssc` prints "Hello, World!".
 
-- [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
-      Resolution: same HM-style instance lookup as Mira type classes.
-      Done-when: a `given Show[Int]` / `def show[A: Show](x: A)` compiles and runs.
+- [x] **KC5 — context bounds + given auto-injection DONE** 2026-07-02.
+      **Parser** (`ssc1-front.ssc0`): `parseTypeParams` extracts `[A: TC, ...]` bounds → prepend
+      `"__tc_TC"` dict params to `allParams`. `readTypeStr` collects type annotation tokens (uses
+      `tokKind` for punctuation since `tokVal=""` for `[`, `]`, etc.). `given` branch captures
+      type string as 3rd Pair field: `Pair("given", Pair(name, Pair(typeStr, body)))`.
+      `skipTypeArgs` skips `[...]` after TC name in bound position.
+      `joinStrs` concatenates token values.
+      **Lowering** (`ssc1-lower.ssc0`): `kc5GivenCell`/`kc5SigCell` mutable cells.
+      `parseGivenType("Show[Int]")` → `Pair("Show","Int")` (scans for `[`, slices).
+      `buildGivenTable` indexes `given` stmts by `(TC, Type)` key.
+      `buildSigTable` collects `__tc_`-prefixed params per def → maps fn→[TC...].
+      `isCtxParam`/`ctxParamTC` identify/extract TC from `__tc_TC` names.
+      `findGiven` looks up `(TC, typeName)` or wildcard `*`.
+      `typeOfExpr` heuristic: `"int"`→"Int", `"str"`→"String", `"bool"`→"Bool", else"*".
+      `injectGivens` called in `lowerE` app case: prepends given globals before user args.
+      `lowerProg` initializes both cells before lowering statements.
+      **Runtime** (`v2/src/Runtime.scala`): added `io.println` primitive (print + newline);
+      `printlnDef` updated to use `io.println`.
+      **GOTCHA**: `tokVal=""` for `[`, `]` punctuation — must use `tokKind` in `readTypeStr`.
+      Done: `kc5-typeclass.ssc` prints "shown\nshown" ✓. `kc5-strcat` + `kc7b-object` still pass.

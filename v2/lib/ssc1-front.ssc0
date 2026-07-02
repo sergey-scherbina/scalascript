@@ -556,6 +556,70 @@ def skipTypeParams = (toks) =>
     skip(advance(toks))
   else toks
 
+-- KC5: skip a single [T] type argument list after a TC name
+def skipTypeArgs = (ts) =>
+  if kindIs("[", ts) then
+    let rec skipBr = (tss) =>
+      if kindIs("]", tss) then advance(tss)
+      else if kindIs("EOF", tss) then tss
+      else skipBr(advance(tss)) in
+    skipBr(advance(ts))
+  else ts
+
+-- KC5: make a context dict param name from a bound: (tv, TC) → "__tc_TC"
+def mkCtxParam = (bound) =>
+  match bound { case Pair(tv, tc) => #sconcat("__tc_", tc) }
+
+-- KC5: parse [A: Show, B: Eq, C] → List of Pair(tv, TC) for bounded type vars
+-- Unbounded type vars (no `:`) are silently skipped.
+def parseTypeParams = (toks) =>
+  if kindIs("[", toks) then
+    let rec go = (ts, acc) =>
+      if kindIs("]", ts) then pr(reverse(acc), advance(ts))
+      else if kindIs("EOF", ts) then pr(reverse(acc), ts)
+      else
+        let tv = tokVal(peek(ts)) in
+        let ts2 = advance(ts) in
+        if kindIs(":", ts2) then
+          -- bounded: read TC name (next id or uid token)
+          let ts3 = advance(ts2) in
+          let tc = tokVal(peek(ts3)) in
+          let ts4 = advance(ts3) in
+          -- skip optional [TypeArg] after TC name
+          let ts5 = skipTypeArgs(ts4) in
+          let acc2 = Cons(Pair(tv, tc), acc) in
+          if kindIs(",", ts5) then go(advance(ts5), acc2)
+          else go(ts5, acc2)
+        else
+          -- unbounded type var: skip
+          if kindIs(",", ts2) then go(advance(ts2), acc)
+          else go(ts2, acc) in
+    go(advance(toks), Nil)
+  else pr(Nil, toks)
+
+-- KC5: join a list of strings into one string (no separator)
+def joinStrs = (ss) =>
+  match ss {
+    case Nil => ""
+    case Cons(s, rest) => #sconcat(s, joinStrs(rest))
+  }
+
+-- KC5: collect type annotation tokens into a string, stopping at '=' ';' or EOF
+-- Punctuation tokens have tokVal="" so we use tokKind as their string representation.
+def readTypeStr = (toks) =>
+  let rec go = (ts, acc) =>
+    let t = peek(ts) in
+    let k = tokKind(t) in
+    let v = tokVal(t) in
+    if #seq(k, "=") then pr(joinStrs(reverse(acc)), ts)
+    else if #seq(k, ";") then pr(joinStrs(reverse(acc)), ts)
+    else if #seq(k, "EOF") then pr(joinStrs(reverse(acc)), ts)
+    else
+      -- punctuation tokens have empty val; use the kind char itself
+      let sv = if #seq(v, "") then k else v in
+      go(advance(ts), Cons(sv, acc)) in
+  go(toks, Nil)
+
 -- KC8: parse `using p: T, q: U)` (after the `using` keyword; closing `)` consumed)
 def parseUsingParams = (toks) =>
   let rec goU = (ts, acc) =>
@@ -574,8 +638,12 @@ def parseDef = (toks) =>
   -- name
   let name = tokVal(peek(toks)) in
   let toks2 = advance(toks) in
-  -- optional type params
-  let toks3 = skipTypeParams(toks2) in
+  -- KC5: parse type params → extract context bounds [A: TC, ...]
+  let rCtx = parseTypeParams(toks2) in
+  let ctxBounds = prV(rCtx) in
+  let toks3 = prT(rCtx) in
+  -- context dict params: prepend "__tc_TC" for each (tv, TC) bound
+  let ctxParams = map(mkCtxParam, ctxBounds) in
   -- first parameter list
   let rp = parseParamList(toks3) in
   let params = prV(rp) in
@@ -587,7 +655,8 @@ def parseDef = (toks) =>
       if kwIs("using", ts4b) then parseUsingParams(advance(ts4b))
       else parseParamList(toks4)
     else pr(Nil, toks4) in
-  let allParams = append(params, prV(rp2)) in
+  -- ctxParams first, then regular params, then using params
+  let allParams = append(ctxParams, append(params, prV(rp2))) in
   let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
@@ -743,24 +812,25 @@ def parseOneStmt = (toks) =>
     else if #seq(v, "abstract") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else if #seq(v, "given") then
-      -- KC8: `given name: T = body` → val; `given T = body` → skip
+      -- KC5+KC8: `given name: T = body` → ("given", (name, typeStr, body)) for KC5 injection
       let ts1 = advance(toks) in
       if kindIs("id", ts1) then
         let gname = tokVal(peek(ts1)) in
         let ts2 = advance(ts1) in
         if kindIs(":", ts2) then
-          -- `given name: T = body`
-          let ts3 = skipType(advance(ts2)) in
+          -- KC5: capture type annotation as a string for the given table
+          let rTyp = readTypeStr(advance(ts2)) in
+          let typeStr = prV(rTyp) in
+          let ts3 = prT(rTyp) in
           if kindIs("=", ts3) then
             let re = parseExpr(advance(ts3)) in
-            pr(mkVal(gname, prV(re)), prT(re))
+            pr(Pair("given", Pair(gname, Pair(typeStr, prV(re)))), prT(re))
           else pr(Pair("sealed", ""), skipToStmt(ts3))
         else if kindIs("=", ts2) then
-          -- `given name = body` (no type annotation)
+          -- `given name = body` (no type annotation) → treat as val
           let re = parseExpr(advance(ts2)) in
           pr(mkVal(gname, prV(re)), prT(re))
         else
-          -- Starts with lowercase but isn't `name:` — skip
           pr(Pair("sealed", ""), skipToStmt(ts1))
       else
         -- Anonymous given (starts with uppercase type) — skip

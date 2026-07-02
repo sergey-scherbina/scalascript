@@ -1871,6 +1871,11 @@ echo '# KC8 — given/using context parameters'
 kc8gi=$(ssc run bin/ssc1c.ssc0 examples/kc8-given.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc8gi" = "hello, world" ]; then printf 'ok   %-26s => %s\n' "kc8 given/using join" "$kc8gi"
 else printf 'FAIL %-26s\n  got: [%s] want: [hello, world]\n' "kc8 given/using join" "$kc8gi"; fail=1; fi
+echo '# KC5 — context bounds [A: TC] + given auto-injection'
+kc5tc1=$(ssc run bin/ssc1c.ssc0 examples/kc5-typeclass.ssc | ssc run-ir /dev/stdin | head -1)
+kc5tc2=$(ssc run bin/ssc1c.ssc0 examples/kc5-typeclass.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc5tc1" = "shown" ] && [ "$kc5tc2" = "shown" ]; then printf 'ok   %-26s => %s\n' "kc5 typeclass inject" "shown shown"
+else printf 'FAIL %-26s\n  got: [%s] [%s] want: [shown] [shown]\n' "kc5 typeclass inject" "$kc5tc1" "$kc5tc2"; fail=1; fi
 echo '# KC11 — lambda expressions + return statement'
 kc11la=$(ssc run bin/ssc1c.ssc0 examples/kc11-lambda.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc11la" = "12" ]; then printf 'ok   %-26s => %s\n' "kc11 lambda/compose" "$kc11la"

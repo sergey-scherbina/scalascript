@@ -259,8 +259,9 @@ object Prims:
     case "cell.get" => a => asCell(a(0))(0)
     case "cell.set" => a => asCell(a(0))(0) = a(1); UnitV
     // I/O [eff]
-    case "io.print"  => a => out(a(0), Console.out); UnitV
-    case "io.eprint" => a => out(a(0), Console.err); UnitV
+    case "io.print"   => a => out(a(0), Console.out); UnitV
+    case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
+    case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)
     case "io.readFile"  => a => BytesV(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(str(a, 0))).toVector)
     case "io.writeFile" => a => java.nio.file.Files.write(java.nio.file.Path.of(str(a, 0)), bytes(a, 1).toArray); UnitV

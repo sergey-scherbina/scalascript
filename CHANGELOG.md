@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-02 — KC5: context bounds + given auto-injection
+
+Added context bounds `[A: TC]` and `given`/implicit-dict injection to the K61 pipeline.
+`parseTypeParams` extracts bounds from `[A: TC, ...]` → prepends `__tc_TC` dict params.
+`readTypeStr` captures type annotations using `tokKind` for punctuation (not `tokVal`, which is `""` for `[`, `]`).
+`given` branch emits `Pair("given", Pair(name, Pair(typeStr, body)))` with type string.
+Lowering: `buildGivenTable` + `buildSigTable` (using `#cell`) → `injectGivens` in app case.
+`typeOfExpr` heuristic infers `Int`/`String`/`Bool` from literal AST tags.
+`io.println` primitive added to `v2/src/Runtime.scala`; `printlnDef` updated.
+`kc5-typeclass.ssc`: `given showInt: Show[Int]` / `def display[A: Show](x: A)` → "shown\nshown".
+
 ## 2026-07-02 — KC8 + KC12: given/using context params + string interpolation
 
 Added two parser features to the K61 v1.0-compat pipeline.

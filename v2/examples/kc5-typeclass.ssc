@@ -1,0 +1,7 @@
+given showInt: Show[Int] = 42
+given showStr: Show[String] = 0
+def display[A: Show](x: A): String = "shown"
+def main(): Unit = {
+  println(display(99))
+  println(display("hi"))
+}

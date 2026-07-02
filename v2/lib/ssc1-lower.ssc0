@@ -36,6 +36,159 @@ def lookupVar = (scope, name) =>
     } in
   go(scope, 0)
 
+-- ── KC5: given auto-injection ────────────────────────────────────────────────
+-- Given table: List[Pair(Pair(TC_name, T_name), given_var_name)]
+-- Sig table:   List[Pair(fn_name, List[TC_name])] — fns with ctx dict params
+-- Uses mutable cells (same pattern as mira.ssc0 rowFreshCell).
+
+def kc5GivenCell = #cell.new(Nil)
+def kc5SigCell   = #cell.new(Nil)
+
+-- Parse "Show[Int]" → Pair("Show","Int"); "String" → Pair("String","*")
+-- ASCII 91='[', 93=']'
+def parseGivenType = (typeStr) =>
+  let len = #slen(typeStr) in
+  let rec findBr = (i) =>
+    if #i.ge(i, len) then #i.neg(1)
+    else if #i.eq(#scodeAt(typeStr, i), 91) then i
+    else findBr(#i.add(i, 1)) in
+  let bi = findBr(0) in
+  if #i.lt(bi, 0) then Pair(typeStr, "*")
+  else
+    let tc = #sslice(typeStr, 0, bi) in
+    let inner = #sslice(typeStr, #i.add(bi, 1), #i.sub(len, 1)) in
+    Pair(tc, inner)
+
+-- Build given table from parsed stmts — "given" tags only
+def buildGivenTable = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      let more = buildGivenTable(rest) in
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "given") then
+            match data {
+              case Pair(gname, rest2) =>
+                match rest2 {
+                  case Pair(typeStr, body) =>
+                    Cons(Pair(parseGivenType(typeStr), gname), more)
+                }
+            }
+          else more
+      }
+  }
+
+-- True if param name starts with "__tc_" (context dict param marker)
+def isCtxParam = (p) =>
+  if #i.lt(#slen(p), 5) then false
+  else #seq(#sslice(p, 0, 5), "__tc_")
+
+-- Extract TC name: "__tc_Show" → "Show"
+def ctxParamTC = (p) => #sslice(p, 5, #slen(p))
+
+-- Get list of TC names from param list (ctx params only)
+def ctxTCsOf = (params) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) =>
+      if isCtxParam(p) then Cons(ctxParamTC(p), ctxTCsOf(rest))
+      else ctxTCsOf(rest)
+  }
+
+-- Build sig table: fns that have context dict params
+def buildSigTable = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      let more = buildSigTable(rest) in
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, rest2) =>
+                match rest2 {
+                  case Pair(params, body) =>
+                    let tcs = ctxTCsOf(params) in
+                    match tcs {
+                      case Nil => more
+                      case _   => Cons(Pair(name, tcs), more)
+                    }
+                }
+            }
+          else more
+      }
+  }
+
+-- Look up TC list for a function name
+def lookupSig = (sigTab, name) =>
+  match sigTab {
+    case Nil => None
+    case Cons(entry, rest) =>
+      match entry {
+        case Pair(n, tcs) =>
+          if #seq(n, name) then Some(tcs)
+          else lookupSig(rest, name)
+      }
+  }
+
+-- Find given name for (TC, typeName); "*" is a wildcard T_name
+def findGiven = (givenTab, tc, typeName) =>
+  match givenTab {
+    case Nil => None
+    case Cons(entry, rest) =>
+      match entry {
+        case Pair(gtype, gname) =>
+          match gtype {
+            case Pair(gtc, gt) =>
+              if #seq(gtc, tc) then
+                if #seq(gt, typeName) then Some(gname)
+                else if #seq(gt, "*") then Some(gname)
+                else findGiven(rest, tc, typeName)
+              else findGiven(rest, tc, typeName)
+          }
+      }
+  }
+
+-- Best-effort type of a parsed expression (no full HM; literal-only)
+def typeOfExpr = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      if #seq(tag, "int") then "Int"
+      else if #seq(tag, "str") then "String"
+      else if #seq(tag, "bool") then "Bool"
+      else "?"
+  }
+
+-- Build given-injected arg list: prepend one given per TC name, before actual args
+def buildGivenArgs = (givenTab, tcNames, actualArgs) =>
+  match tcNames {
+    case Nil => actualArgs
+    case Cons(tc, restTCs) =>
+      let argType = match actualArgs {
+        case Nil => "?"
+        case Cons(firstArg, restA) => typeOfExpr(firstArg)
+      } in
+      let injArg = match findGiven(givenTab, tc, argType) {
+        case None    => Pair("var", #sconcat("__missing_tc_", tc))
+        case Some(g) => Pair("var", g)
+      } in
+      Cons(injArg, buildGivenArgs(givenTab, restTCs, actualArgs))
+  }
+
+-- At call site f(args): if f is a global with ctx params, inject givens
+def injectGivens = (fn, args) =>
+  match fn {
+    case Pair(ftag, fdata) =>
+      if #seq(ftag, "var") then
+        match lookupSig(#cell.get(kc5SigCell), fdata) {
+          case None     => args
+          case Some(tcs) =>
+            buildGivenArgs(#cell.get(kc5GivenCell), tcs, args)
+        }
+      else args
+  }
+
 -- ── KC6: pre-lowering resolve pass ─────────────────────────────────────────
 -- Transforms known v1.0 patterns into canonical IR tags before lowering.
 -- New tags produced:
@@ -379,7 +532,9 @@ def lowerE = (scope, rawExpr) =>
       else if #seq(tag, "app") then
         match data {
           case Pair(fn, args) =>
-            IrApp(lowerE(scope, fn), lowerArgs(scope, args))
+            -- KC5: auto-inject given instances for context dict params
+            let injArgs = injectGivens(fn, args) in
+            IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
         }
       else if #seq(tag, "sel") then
         -- field selection not resolved by KC6: emit placeholder
@@ -716,6 +871,15 @@ def lowerStmtToList = (stmt) =>
           case Pair(name, body) =>
             Cons(IrDef(name, lowerE(Nil, body)), Nil)
         }
+      else if #seq(tag, "given") then
+        -- KC5: given emits as a regular IrDef val
+        match data {
+          case Pair(gname, rest2) =>
+            match rest2 {
+              case Pair(typeStr, body) =>
+                Cons(IrDef(gname, lowerE(Nil, body)), Nil)
+            }
+        }
       else if #seq(tag, "casecls") then
         match data {
           case Pair(name, params) => lowerCaseCls(name, params)
@@ -755,7 +919,7 @@ def lowerStmts = (stmts) =>
 
 -- ── Built-in defs ─────────────────────────────────────────────────────────────
 
-def printlnDef = IrDef("println", IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+def printlnDef = IrDef("println", IrLam(1, IrPrim("io.println", Cons(IrLocal(0), Nil))))
 def printDef   = IrDef("print",   IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
 
 -- Check whether a main def with 0 params exists
@@ -796,6 +960,9 @@ def kc6Defs =
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
+  -- KC5: initialize given table and sig table from parsed stmts
+  let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
+  let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
   let defs =
     Cons(printlnDef,
     Cons(printDef,
