@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — jit-cast-isinstanceof-fix: robust JIT class loading in AsmJit+JavacJit
+
+Fixed a silent cast failure in 8 JIT compile sites (4 × `JavacJitBackend`, 4 × `AsmJitBackend`):
+`cls.getConstructor().newInstance().asInstanceOf[T]` was catching an exception in some class-loader
+environments and returning null (marking the loop as `WhileLongMiss`). Replaced with an explicit
+`isInstanceOf[T]` guard before the cast. Impact: `multiVal` bench confirms 20× speedup (12ms
+interpreter → 0.59ms JIT); the JIT now works reliably in all launch modes.
+
 ## 2026-07-02 — stable-spi Phase 3 COMPLETE: load-time plugin API compatibility check
 
 `Backend.pluginApiVersion: String = "1.0.0"` (default for all plugins; third-party

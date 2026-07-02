@@ -235,6 +235,14 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       (~2.7M recursive calls as native JVM). Phase C delivered 23.8× over tree-walk (was ~28 ms).
       No further improvement feasible without changing algorithm semantics. Verdict: floor, not a JIT gap.
 
+- [x] **jit-cast-isinstanceof-fix** ✓ DONE 2026-07-03 (feature/jit-cast-isinstanceof-fix) — fixed silent
+      exception in `asInstanceOf[WhileLongRunFn]` cast after `cls.getConstructor().newInstance()` in all 8
+      JIT compile sites (4 in `JavacJitBackend`, 4 in `AsmJitBackend`). Root cause: Scala 3 catches an
+      exception silently when `asInstanceOf` follows `newInstance()` in certain class-loader contexts; fix
+      splits into `isInstanceOf` check before the cast. Confirmed with `ssc.jit.bytecode=off` bench:
+      `multiVal` 12ms (interpreter) → 0.59ms (JIT) = 20× speedup. Remaining gap vs `instanceFieldAccess`
+      (0.05ms) is inherent: polynomial sum needs all 1M iters; closed-form poly recognition is BACKLOG.
+
 ### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
 done (each is genuinely codeable; the external parts are called out). Drive top-to-bottom.

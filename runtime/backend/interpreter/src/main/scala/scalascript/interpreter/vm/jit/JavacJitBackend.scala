@@ -3413,7 +3413,7 @@ object JavacJitBackend extends JitBackend:
       whileLongGlobalCache.put(cond, WhileLongMiss)
       return null
     val runFn: WhileLongRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongRunFn] then i.asInstanceOf[WhileLongRunFn] else null }
       catch case _: Throwable => null
     if runFn == null then
       whileLongGlobalCache.put(cond, WhileLongMiss)
@@ -3564,7 +3564,7 @@ object JavacJitBackend extends JitBackend:
     val cls = try loader.loadClass(className) catch case _: Throwable =>
       whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
     val runFn: WhileLongEmitRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongEmitRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongEmitRunFn] then i.asInstanceOf[WhileLongEmitRunFn] else null }
       catch case _: Throwable => null
     if runFn == null then
       whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
@@ -3890,7 +3890,7 @@ object JavacJitBackend extends JitBackend:
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
     val runFn: WhileLongRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongRunFn] then i.asInstanceOf[WhileLongRunFn] else null }
       catch case _: Throwable => null
     if runFn == null then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
@@ -4024,7 +4024,7 @@ object JavacJitBackend extends JitBackend:
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
     val runFn: WhileLongRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongRunFn] then i.asInstanceOf[WhileLongRunFn] else null }
       catch case _: Throwable => null
     if runFn == null then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)

@@ -3797,7 +3797,7 @@ object AsmJitBackend extends JitBackend:
     val cls    = try loader.define(cname.replace('/', '.'), bytes)
                  catch case _: Throwable => { whileCache.put(cond, WhileMiss); return null }
     val runFn0: WhileLongRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongRunFn] then i.asInstanceOf[WhileLongRunFn] else null }
       catch case _: Throwable => null
     if runFn0 == null then
       whileCache.put(cond, WhileMiss)
@@ -3944,7 +3944,7 @@ object AsmJitBackend extends JitBackend:
     val cls = try loader.define(cname.replace('/', '.'), bytes)
               catch case _: Throwable => { whileEmitCache.put(cond, WhileEmitMiss); return null }
     val runFn0: WhileLongEmitRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongEmitRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongEmitRunFn] then i.asInstanceOf[WhileLongEmitRunFn] else null }
       catch case _: Throwable => null
     if runFn0 == null then { whileEmitCache.put(cond, WhileEmitMiss); return null }
     whileEmitCache.put(cond, runFn0.asInstanceOf[AnyRef])
@@ -4249,7 +4249,7 @@ object AsmJitBackend extends JitBackend:
     val cls = try loader.define(cname.replace('/', '.'), bytes)
               catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
     val runFn1: WhileLongRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongRunFn] then i.asInstanceOf[WhileLongRunFn] else null }
       catch case _: Throwable => null
     if runFn1 == null then
       whileMixedCache.put(foreachApply, WhileMixedMiss)
@@ -4414,7 +4414,7 @@ object AsmJitBackend extends JitBackend:
     val cls = try loader.define(cname.replace('/', '.'), bytes)
               catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
     val runFn2: WhileLongRunFn | Null =
-      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
+      try { val i = cls.getConstructor().newInstance(); if i.isInstanceOf[WhileLongRunFn] then i.asInstanceOf[WhileLongRunFn] else null }
       catch case _: Throwable => null
     if runFn2 == null then
       whileMixedCache.put(foreachApply, WhileMixedMiss)
