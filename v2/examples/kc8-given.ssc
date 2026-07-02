@@ -1,0 +1,3 @@
+given separator: String = ", "
+def join(a: String, b: String)(using sep: String): String = a ++ sep ++ b
+def main(): Unit = println(join("hello", "world")(using separator))

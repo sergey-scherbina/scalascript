@@ -1,0 +1,5 @@
+def greet(name: String): String = s"Hello, $name!"
+def main(): Unit = {
+  val who = "World"
+  println(greet(who))
+}

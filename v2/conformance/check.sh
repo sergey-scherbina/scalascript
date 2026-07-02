@@ -1863,6 +1863,14 @@ kc7vp=$(ssc run bin/ssc1c.ssc0 examples/kc7-opt.ssc | ssc run-ir /dev/stdin | ta
 if [ "$kc7vp" = "10" ]; then printf 'ok   %-26s => %s\n' "kc7 vpat catch-all" "$kc7vp"
 else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc7 vpat catch-all" "$kc7vp"; fail=1; fi
 
+echo '# KC12 — string interpolation s"..."'
+kc12si=$(ssc run bin/ssc1c.ssc0 examples/kc12-interp.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc12si" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc12 s-interp greet" "$kc12si"
+else printf 'FAIL %-26s\n  got: [%s] want: [Hello, World!]\n' "kc12 s-interp greet" "$kc12si"; fail=1; fi
+echo '# KC8 — given/using context parameters'
+kc8gi=$(ssc run bin/ssc1c.ssc0 examples/kc8-given.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc8gi" = "hello, world" ]; then printf 'ok   %-26s => %s\n' "kc8 given/using join" "$kc8gi"
+else printf 'FAIL %-26s\n  got: [%s] want: [hello, world]\n' "kc8 given/using join" "$kc8gi"; fail=1; fi
 echo '# KC11 — lambda expressions + return statement'
 kc11la=$(ssc run bin/ssc1c.ssc0 examples/kc11-lambda.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc11la" = "12" ]; then printf 'ok   %-26s => %s\n' "kc11 lambda/compose" "$kc11la"

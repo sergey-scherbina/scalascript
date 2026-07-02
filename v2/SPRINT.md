@@ -1075,22 +1075,22 @@ Prerequisite: K55 (Markdown extractor).
       Done: `kc11-lambda.ssc` (`compose(double, inc)(5)` = 12),
             `kc11-return.ssc` (`abs(-7) + abs(3)` = 10).
 
-- [ ] **KC8 — `given`/`using` syntax support** — Parse Scala 3 contextual abstractions in K61.
-      **Parser only** (no auto-injection — requires KC5 for that).
-      `given name: T = body` → emit as `val name = body`.
-      `(using p: T, q: U)` in param lists → include as regular explicit params.
-      Anonymous `given T = body` → skip (no name to resolve to).
-      `parseOneStmt` gets a `given` branch; `parseDef` gets `parseUsingParams` helper.
-      Limitation: only explicit passing works; auto-injection needs KC5.
-      Done-when: `kc8-given.ssc` (named given + explicit using param) runs correctly.
+- [x] **KC8 — `given`/`using` DONE** 2026-07-02.
+      `given name: T = body` → `val name = body` via `parseOneStmt` `given` branch.
+      `(using p: T, ...)` in def param lists → `parseUsingParams` helper in `parseDef`.
+      `f(a, b)(using sep)` at call sites: `buildPostfix` strips `using` keyword and
+      merges the using arg list into the preceding call (`append(eargs, newArgs)`) so the
+      runtime sees a single N-arg call (no partial application needed).
+      GOTCHA: `appendL` does not exist in `ssc1-front.ssc0` — use `append` from `list.ssc0`.
+      Done: `kc8-given.ssc` prints "hello, world".
 
-- [ ] **KC12 — string interpolation `s"..."` / `f"..."` / `raw"..."`**
-      `s"Hello, $name!"` → `"Hello, " ++ name ++ "!"` (concatenation AST).
-      Only `$identifier` supported; `${expr}` skipped as literal (no re-parse needed).
-      Add `readInterpId`/`interpParts`/`partsToExpr`/`buildSInterp` to `ssc1-front.ssc0`.
-      In `parseAtom`: detect `id("s"|"f"|"raw")` + `str` token → call `buildSInterp`.
-      `++` → `IrPrim("sconcat", ...)` already works (KC5-micro). Works for string vars.
-      Done-when: `kc12-interp.ssc` (`s"Hello, $name!"`) prints "Hello, World!".
+- [x] **KC12 — string interpolation DONE** 2026-07-02.
+      `s"Hello, $name!"` → `"Hello, " ++ name ++ "!"` concatenation AST via
+      `readInterpId`/`interpParts`/`partsToExpr`/`buildSInterp` in `ssc1-front.ssc0`.
+      `parseAtom` detects `id("s"|"f"|"raw")` + next token `str` → `buildSInterp`.
+      `++` lowered to `IrPrim("sconcat", ...)` already in place (KC5-micro).
+      Only `$identifier` works; `${expr}` is skipped as literal.
+      Done: `kc12-interp.ssc` prints "Hello, World!".
 
 - [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
       Resolution: same HM-style instance lookup as Mira type classes.

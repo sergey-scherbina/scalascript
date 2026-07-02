@@ -231,6 +231,63 @@ def parseParamList = (toks) =>
       pr(prV(r), skipKind(")", prT(r)))
   else pr(Nil, toks)
 
+-- ── KC12: string interpolation helpers ───────────────────────────────────────
+-- Walk string raw from i, return index of first non-alphanumeric-or-underscore
+def readInterpId = (raw, i) =>
+  if #i.ge(i, slen(raw)) then i
+  else if isAlphaNum(sget(raw, i)) then readInterpId(raw, #i.add(i, 1))
+  else i
+
+-- Split interpolated string into list of Pair("str",literal)|Pair("var",name)
+def interpParts = (raw) =>
+  let len = slen(raw) in
+  let rec go = (i, litStart, acc) =>
+    if #i.ge(i, len) then
+      let lit = #sslice(raw, litStart, len) in
+      let acc2 = if #i.eq(slen(lit), 0) then acc else Cons(Pair("str", lit), acc) in
+      reverse(acc2)
+    else
+      let c = sget(raw, i) in
+      if #i.eq(c, 36) then
+        let i1 = #i.add(i, 1) in
+        if #i.ge(i1, len) then go(#i.add(i, 1), litStart, acc)
+        else
+          let c2 = sget(raw, i1) in
+          if #i.eq(c2, 123) then
+            -- ${ ... }: skip to matching }, emit as literal (no re-parse)
+            let rec skipB = (j) =>
+              if #i.ge(j, len) then j
+              else if #i.eq(sget(raw, j), 125) then #i.add(j, 1)
+              else skipB(#i.add(j, 1)) in
+            go(skipB(#i.add(i1, 1)), litStart, acc)
+          else if isAlpha(c2) then
+            -- $name: flush literal, extract identifier
+            let lit = #sslice(raw, litStart, i) in
+            let acc2 = if #i.eq(slen(lit), 0) then acc else Cons(Pair("str", lit), acc) in
+            let endId = readInterpId(raw, i1) in
+            let name = #sslice(raw, i1, endId) in
+            go(endId, endId, Cons(Pair("var", name), acc2))
+          else go(#i.add(i, 1), litStart, acc)
+      else go(#i.add(i, 1), litStart, acc) in
+  go(0, 0, Nil)
+
+-- Build ++ concatenation AST from parts list
+def partsToExpr = (parts) =>
+  match parts {
+    case Nil => mkStr("")
+    case Cons(p, rest) =>
+      let pexpr = match p {
+        case Pair(pkind, pval) =>
+          if #seq(pkind, "str") then mkStr(pval) else mkVar(pval)
+      } in
+      match rest {
+        case Nil => pexpr
+        case _ => Pair("inf", Pair("++", Pair(pexpr, partsToExpr(rest))))
+      }
+  }
+
+def buildSInterp = (raw) => partsToExpr(interpParts(raw))
+
 -- ── Expression parser ─────────────────────────────────────────────────────────
 -- parseAtom: handles literals, variables, parenthesized, if, prefix
 def parseAtom = (toks) =>
@@ -239,7 +296,21 @@ def parseAtom = (toks) =>
   let v = tokVal(t) in
   if #seq(k, "int") then pr(mkInt(v), advance(toks))
   else if #seq(k, "str") then pr(mkStr(v), advance(toks))
-  else if #seq(k, "id")  then pr(mkVar(v), advance(toks))
+  else if #seq(k, "id")  then
+    -- KC12: detect s"..." / f"..." / raw"..." string interpolation
+    if #seq(v, "s") then
+      let ts2 = advance(toks) in
+      if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
+      else pr(mkVar(v), ts2)
+    else if #seq(v, "f") then
+      let ts2 = advance(toks) in
+      if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
+      else pr(mkVar(v), ts2)
+    else if #seq(v, "raw") then
+      let ts2 = advance(toks) in
+      if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
+      else pr(mkVar(v), ts2)
+    else pr(mkVar(v), advance(toks))
   else if #seq(k, "uid") then pr(mkUVar(v), advance(toks))
   else if #seq(k, "kw") then
     if #seq(v, "true")  then pr(mkBool("true"),  advance(toks))
@@ -362,7 +433,22 @@ def buildPostfix = (e, toks) =>
     else pr(e, toks)
   else if #seq(k, "(") then
     let toks2 = advance(toks) in
-    if kindIs(")", toks2) then buildPostfix(mkApp(e, Nil), advance(toks2))
+    -- KC8: detect `(using args)` call sites — strip `using`, merge args into caller
+    let wasUsing = kwIs("using", toks2) in
+    let toks2b = if wasUsing then advance(toks2) else toks2 in
+    -- KC8: merge `(using args)` into the preceding call's arg list (avoid curried apply)
+    let mergeWithE = (newArgs) =>
+      if wasUsing then
+        match e {
+          case Pair(etag, edata) =>
+            if #seq(etag, "app") then
+              match edata {
+                case Pair(ef, eargs) => mkApp(ef, append(eargs, newArgs))
+              }
+            else mkApp(e, newArgs)
+        }
+      else mkApp(e, newArgs) in
+    if kindIs(")", toks2b) then buildPostfix(mergeWithE(Nil), advance(toks2b))
     else
       let rec moreArgs = (ts, acc) =>
         let r = parseExpr(ts) in
@@ -370,8 +456,8 @@ def buildPostfix = (e, toks) =>
         let ts2 = prT(r) in
         if kindIs(",", ts2) then moreArgs(advance(ts2), acc2)
         else pr(reverse(acc2), ts2) in
-      let ra = moreArgs(toks2, Nil) in
-      buildPostfix(mkApp(e, prV(ra)), skipKind(")", prT(ra)))
+      let ra = moreArgs(toks2b, Nil) in
+      buildPostfix(mergeWithE(prV(ra)), skipKind(")", prT(ra)))
   else if #seq(k, "[") then
     -- skip type argument list [A, B] (type applications, not real args)
     let rec skipBrack = (ts) =>
@@ -470,30 +556,45 @@ def skipTypeParams = (toks) =>
     skip(advance(toks))
   else toks
 
+-- KC8: parse `using p: T, q: U)` (after the `using` keyword; closing `)` consumed)
+def parseUsingParams = (toks) =>
+  let rec goU = (ts, acc) =>
+    if kindIs(")", ts) then pr(reverse(acc), advance(ts))
+    else if kindIs("EOF", ts) then pr(reverse(acc), ts)
+    else
+      let name = tokVal(peek(ts)) in
+      let ts2 = skipTypeAnnot(advance(ts)) in
+      let acc2 = Cons(name, acc) in
+      if kindIs(",", ts2) then goU(advance(ts2), acc2)
+      else if kindIs(")", ts2) then pr(reverse(acc2), advance(ts2))
+      else pr(reverse(acc2), ts2) in
+  goU(toks, Nil)
+
 def parseDef = (toks) =>
   -- name
   let name = tokVal(peek(toks)) in
   let toks2 = advance(toks) in
   -- optional type params
   let toks3 = skipTypeParams(toks2) in
-  -- parameter lists (possibly multiple)
+  -- first parameter list
   let rp = parseParamList(toks3) in
   let params = prV(rp) in
   let toks4 = prT(rp) in
-  -- skip second param list (implicit/using)
-  let toks5 = if kwIs("using", toks4) then
-    let rec skip = (ts) => if kindIs(")", ts) then advance(ts) else skip(advance(ts)) in
-    skip(advance(advance(toks4)))
-  else if kindIs("(", toks4) then
-    -- second explicit param list
-    let rp2 = parseParamList(toks4) in prT(rp2)
-  else toks4 in
+  -- KC8: handle (using p: T, ...) or a second regular param list
+  let rp2 =
+    if kindIs("(", toks4) then
+      let ts4b = advance(toks4) in
+      if kwIs("using", ts4b) then parseUsingParams(advance(ts4b))
+      else parseParamList(toks4)
+    else pr(Nil, toks4) in
+  let allParams = append(params, prV(rp2)) in
+  let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
   -- '='
   let toks7 = skipKind("=", toks6) in
   let re = parseExpr(toks7) in
-  pr(mkDef(name, params, prV(re)), prT(re))
+  pr(mkDef(name, allParams, prV(re)), prT(re))
 
 def parseVal = (toks) =>
   let name = tokVal(peek(toks)) in
@@ -641,6 +742,29 @@ def parseOneStmt = (toks) =>
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else if #seq(v, "abstract") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
+    else if #seq(v, "given") then
+      -- KC8: `given name: T = body` → val; `given T = body` → skip
+      let ts1 = advance(toks) in
+      if kindIs("id", ts1) then
+        let gname = tokVal(peek(ts1)) in
+        let ts2 = advance(ts1) in
+        if kindIs(":", ts2) then
+          -- `given name: T = body`
+          let ts3 = skipType(advance(ts2)) in
+          if kindIs("=", ts3) then
+            let re = parseExpr(advance(ts3)) in
+            pr(mkVal(gname, prV(re)), prT(re))
+          else pr(Pair("sealed", ""), skipToStmt(ts3))
+        else if kindIs("=", ts2) then
+          -- `given name = body` (no type annotation)
+          let re = parseExpr(advance(ts2)) in
+          pr(mkVal(gname, prV(re)), prT(re))
+        else
+          -- Starts with lowercase but isn't `name:` — skip
+          pr(Pair("sealed", ""), skipToStmt(ts1))
+      else
+        -- Anonymous given (starts with uppercase type) — skip
+        pr(Pair("sealed", ""), skipToStmt(ts1))
     else if #seq(v, "object") then
       -- KC7b: parse object body into ("object", (name, [stmts]))
       let ts1 = advance(toks) in

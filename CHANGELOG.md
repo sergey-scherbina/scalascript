@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-02 — KC8 + KC12: given/using context params + string interpolation
+
+Added two parser features to the K61 v1.0-compat pipeline.
+**KC12 — string interpolation** (`ssc1-front.ssc0`): `buildSInterp` splits raw string content
+at `$identifier` occurrences (`interpParts` + `partsToExpr`); `parseAtom` detects `id("s"|"f"|"raw")`
+followed by a `str` token and calls `buildSInterp`. Result is `"Hello, " ++ name ++ "!"` concatenation
+AST, which `lowerE` already handles via `IrPrim("sconcat", ...)` (KC5-micro). `${expr}` unsupported
+(skipped as literal).
+**KC8 — given/using** (`ssc1-front.ssc0`): `parseOneStmt` gets a `given` branch:
+`given name: T = body` → `mkVal(name, body)` (anonymous given skipped). `parseDef` calls
+`parseUsingParams` on a `(using ...)` second param list, appending them as regular params.
+`buildPostfix`: `(using args)` call sites strip `using` keyword and merge the arg list into the
+preceding call's args so the runtime sees a single N-arg application (avoiding absent partial-application support).
+GOTCHA: `appendL` does not exist in `ssc1-front.ssc0`; use `append` from the imported `list.ssc0`.
+`greet(who)` = "Hello, World!"; `join("hello","world")(using separator)` = "hello, world".
+
 ## 2026-07-01 — KC11: lambda expressions + return statement
 
 Added anonymous functions and `return` to the K61 v1.0-compat pipeline.
