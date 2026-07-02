@@ -98,12 +98,6 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       (DFS, load-once loader; `parseImports` + `parseTop` skips imports). `uselib.ssc0` (imports
       `lib/list.ssc0`) compiles byte-identically to Scala; **multi-file fixpoint**: `bin/ssc0c.ssc0`
       compiles itself across the import, reproduces itself (22533 bytes). Self-hosting spans files.
-- [ ] **backend: ir → WASM** — BLOCKED on toolchain: only `node`'s WebAssembly API is present
-      (binary `.wasm` only; no `wat2wasm`/`wasmtime`/rust-wasm-target). A from-scratch binary-wasm
-      backend would need a kernel byte-builder primitive + a heap/GC runtime for closures/ADTs, and
-      runs only integer programs without it. Options: install `wabt`/`wasmtime` or
-      `rustup target add wasm32-wasip1` (then reuse the Rust backend), or build the binary emitter.
-
 ## Backlog
 
 - [~] bare-`#prim` η-expansion **DONE (K38)** + `v2-bin` compact binary ir **DONE (K40)**. Only **Array-env
@@ -115,8 +109,9 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       structural map keys **DONE (K37, lib/mapx.ssc0)**; `hash.sha256` **DONE (K36, lib/sha256.ssc0)**.
       (`10-core-ir.md §8`.)
 - [x] K3 non-WASM breadth **DONE through K45**: stdlib, HM typed surface, effects/actors/async
-      as libraries, and VM/JS/native-Rust backends as ssc-compiled programs. WASM remains the
-      separate toolchain-blocked item above.
+      as libraries, and VM/JS/native-Rust backends as ssc-compiled programs.
+- [ ] **backend: ir → WASM** — BLOCKED on toolchain: no `rustup`/`wabt`/`wasmtime` in this env.
+      Unblock = `rustup target add wasm32-wasip1` (reuse Rust backend) or install `wabt`+`wasmtime`.
 
 ## K5 — Mira (ssct-hm): a Hindley-Milner typed language (DONE 2026-06-27)
 

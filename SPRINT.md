@@ -222,6 +222,20 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       shares as base64, shares space-separated); round-trip tests through the interpreter +
       `examples/totp-shamir-demo.ssc`.
 
+### ▶ JVM / interp perf (2026-07-02 — "JVM, interp perf -> sprint")
+
+- [x] **jit-value-class-names** — ALREADY IN MAIN (commit `2a563020c`, branch `feature/jit-class-names-fix`).
+      AsmJitBackend + JavacJitBackend updated for value-unification: scalar leaves in `DataValue$XxxV`,
+      container types in `Value$package$Value$XxxV`, `Value` union erases to `java/lang/Object`.
+      JitClasspathTest probe updated to reference `DataValue.class`. 1878 backendInterpreter tests pass.
+
+- [ ] **recursionFib-perf** — `recursionFib` = 1.176 ms/op (K53 baseline). Pure recursive Fibonacci
+      that exercises tree-walk eval on deeply recursive `FunV` calls. Goal: identify whether this is
+      treewalk-irreducible or has a JIT-reachable fast path.
+      Approach: (a) profile with JFR; (b) check if the JIT could recognize the recursive self-call
+      pattern and emit a bytecode loop with a stack frame; (c) if no JIT path, confirm it as the floor.
+      Done-when: either a measured improvement ≥20% or a documented "floor — no JIT path" verdict.
+
 ### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
 done (each is genuinely codeable; the external parts are called out). Drive top-to-bottom.
