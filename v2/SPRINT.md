@@ -1075,6 +1075,23 @@ Prerequisite: K55 (Markdown extractor).
       Done: `kc11-lambda.ssc` (`compose(double, inc)(5)` = 12),
             `kc11-return.ssc` (`abs(-7) + abs(3)` = 10).
 
+- [ ] **KC8 — `given`/`using` syntax support** — Parse Scala 3 contextual abstractions in K61.
+      **Parser only** (no auto-injection — requires KC5 for that).
+      `given name: T = body` → emit as `val name = body`.
+      `(using p: T, q: U)` in param lists → include as regular explicit params.
+      Anonymous `given T = body` → skip (no name to resolve to).
+      `parseOneStmt` gets a `given` branch; `parseDef` gets `parseUsingParams` helper.
+      Limitation: only explicit passing works; auto-injection needs KC5.
+      Done-when: `kc8-given.ssc` (named given + explicit using param) runs correctly.
+
+- [ ] **KC12 — string interpolation `s"..."` / `f"..."` / `raw"..."`**
+      `s"Hello, $name!"` → `"Hello, " ++ name ++ "!"` (concatenation AST).
+      Only `$identifier` supported; `${expr}` skipped as literal (no re-parse needed).
+      Add `readInterpId`/`interpParts`/`partsToExpr`/`buildSInterp` to `ssc1-front.ssc0`.
+      In `parseAtom`: detect `id("s"|"f"|"raw")` + `str` token → call `buildSInterp`.
+      `++` → `IrPrim("sconcat", ...)` already works (KC5-micro). Works for string vars.
+      Done-when: `kc12-interp.ssc` (`s"Hello, $name!"`) prints "Hello, World!".
+
 - [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
       Resolution: same HM-style instance lookup as Mira type classes.
       Done-when: a `given Show[Int]` / `def show[A: Show](x: A)` compiles and runs.
