@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-02 — stable-spi Phase 3 COMPLETE: load-time plugin API compatibility check
+
+`Backend.pluginApiVersion: String = "1.0.0"` (default for all plugins; third-party
+plugins override with `PluginApiVersion.Current` at their build time). `BackendRegistry`
+warns at load time when a plugin declares an incompatible API version (different MAJOR,
+or plugin MINOR > host MINOR) — for both in-process (ServiceLoader) and `.sscpkg`
+archives. `PluginManifest` + `SscpkgManifest` gain an optional `pluginApiVersion` field.
+`applyTargetedIntrinsicOverlays` propagates `pluginApiVersion` through the wrapper.
+Tests: `PluginApiVersionCompatTest` (7), `PluginManifestTest` +2 (7), core (1033),
+pluginApi (22). Phase 3 fully complete (migration → signature lock → compat check).
+
 ## 2026-07-02 — coremin-actors-codemove: ActorScheduler extracted to actors-plugin
 
 Completed the coremin extraction of the actor cooperative scheduler and distributed

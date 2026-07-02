@@ -276,7 +276,7 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       scheduler/cluster implementation into `runtime/std/actors-plugin` in a dedicated worktree step; keep
       `receive` syntax + host bridge in core.
 
-- [~] **theme-a-stable-plugin-spi — Phase 3 (versioning)** — the stable surface exists AND the migration is complete (27/28 plugins on `scalascript-plugin-api`; `StableSpiEnforcementTest` locks it). VERSIONING: ✓ `PluginApiVersion.Current = "1.0.0"` + `isCompatible` (SemVer: same MAJOR, host MINOR >= plugin MINOR); ✓ `PluginApiSignatureTest` — a GOLDEN signature lock that reflects the binary surface (185 members: all `PluginValue` ctors/extractors/extension methods, the 16 extractor objects, `PluginError`/`PluginComputation`/`JsonCodec`/`PluginNative`/the capability traits) and fails on ANY change until the version is bumped + golden updated. REMAINING: a load-time compat check (a plugin declares the API version it built against; the host warns/refuses on incompatible — touches the `Backend` SPI + plugin loader, mirrors `spiRange`).
+- [x] **theme-a-stable-plugin-spi — Phase 3 (versioning)** ✓ DONE 2026-07-02 (a3b3f6d31, feature/stable-spi-phase3-load-compat → main) — load-time API compat check COMPLETE: `Backend.pluginApiVersion: String = "1.0.0"` (default; third-party plugins override with `PluginApiVersion.Current` at build time); `BackendRegistry` warns on incompatible `pluginApiVersion` for in-process + `.sscpkg` loads (non-fatal, mirrors `spiVersion` pattern); `PluginManifest` + `SscpkgManifest` gain optional `pluginApiVersion` field; `PluginApiVersionCompatTest` 7/0 + `PluginManifestTest` 7/0 + core 1033/0 + pluginApi 22/0 all green. Phase 3 FULLY COMPLETE (migration + signature lock + compat check).
 
 - [~] **remote-package-registry** (Tier 3 strategic — unlocks the 3rd-party plugin ecosystem) — the local story
       is done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, `.sscpkg`). **Slice 1 DONE
@@ -801,7 +801,7 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       a shared-trampoline change → not worth it. The two new SPI capabilities (terminate-signal + callGlobal)
       are designed + validated (runWithHandler: a resolver returning `Pure(term)` abandons the body) — add
       them only when a clean consumer appears. No code changed for this closeout.
-- [~] **coremin-actors-migrate** (A, entangled) — SPEC + PROVIDER SEAM LANDED 2026-06-22.
+- [x] **coremin-actors-migrate** ✓ DONE (superseded by coremin-actors-codemove, 4578c8e4f) — provider seam + prelude migration + session slice all landed 2026-06-22/23; the "optional hard code-move" was completed by the dedicated `coremin-actors-codemove` task (2026-07-02). Full history:
       `specs/coremin-actors-plugin.md` (`6538c10c6`) defines the interpreter-local actor runtime seam.
       `ea898ca82` adds `ActorRuntimeProvider` / `ActorRuntimeHost`; `ActorInterp.actorInterp` now dispatches
       through `CoreActorRuntimeProvider`, which delegates to the existing core scheduler, so behavior is unchanged.
