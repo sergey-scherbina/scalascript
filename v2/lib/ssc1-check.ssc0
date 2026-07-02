@@ -1,0 +1,621 @@
+-- ssc1-check.ssc0 — KC5: HM type inference for the ssc1-front AST.
+-- Adapts Mira's Algorithm W to the Pair-tagged ssc1 AST.
+-- Types: TyInt | TyStr | TyBool | TyFloat | TyDyn | TyVar(n) | TyFun(a,b) | TyList(e) | TyTup(es)
+-- TyDyn = escape hatch for OOP, constructors, unknowns (unifies with anything)
+-- Result: TcOk(s, ty) | TcErr(msg)    Scheme: Forall(qs, ty)
+
+import "../lib/ssc1-front.ssc0"
+
+-- ── Fresh type-variable counter (global cell, like mira.ssc0 rowFreshCell) ───
+def ssc1chkFreshCell = #cell.new(0)
+def ssc1chkFresh = (u) =>
+  let n = #cell.get(ssc1chkFreshCell) in
+  let z = #cell.set(ssc1chkFreshCell, #i.add(n, 1)) in
+  n
+
+-- ── Substitution helpers ──────────────────────────────────────────────────────
+-- Subst = List[Pair(Int, Type)]
+def ssc1chkLookupS = (s, n) =>
+  match s {
+    case Nil => None
+    case Cons(p, rest) =>
+      match p { case Pair(k, v) => if #i.eq(k, n) then Some(v) else ssc1chkLookupS(rest, n) }
+  }
+
+def ssc1chkAppTy = (s, t) =>
+  match t {
+    case TyInt   => TyInt
+    case TyStr   => TyStr
+    case TyBool  => TyBool
+    case TyFloat => TyFloat
+    case TyDyn   => TyDyn
+    case TyVar(n) =>
+      match ssc1chkLookupS(s, n) { case None => TyVar(n) case Some(u) => ssc1chkAppTy(s, u) }
+    case TyFun(a, b) => TyFun(ssc1chkAppTy(s, a), ssc1chkAppTy(s, b))
+    case TyList(e)   => TyList(ssc1chkAppTy(s, e))
+    case TyTup(es)   => TyTup(ssc1chkAppTyList(s, es))
+  }
+
+def ssc1chkAppTyList = (s, ts) =>
+  match ts { case Nil => Nil case Cons(h, rest) => Cons(ssc1chkAppTy(s, h), ssc1chkAppTyList(s, rest)) }
+
+-- ── Occurs check ──────────────────────────────────────────────────────────────
+def ssc1chkOccurs = (n, t) =>
+  match t {
+    case TyInt => false case TyStr => false case TyBool => false
+    case TyFloat => false case TyDyn => false
+    case TyVar(m)    => #i.eq(n, m)
+    case TyFun(a, b) => if ssc1chkOccurs(n, a) then true else ssc1chkOccurs(n, b)
+    case TyList(e)   => ssc1chkOccurs(n, e)
+    case TyTup(es)   => ssc1chkOccursList(n, es)
+  }
+
+def ssc1chkOccursList = (n, ts) =>
+  match ts { case Nil => false case Cons(h, rest) =>
+    if ssc1chkOccurs(n, h) then true else ssc1chkOccursList(n, rest) }
+
+-- ── Unification: Ok(s') | Err(msg) ───────────────────────────────────────────
+def ssc1chkUnify = (s, t1, t2) =>
+  let a = ssc1chkAppTy(s, t1) in
+  let b = ssc1chkAppTy(s, t2) in
+  match a {
+    case TyDyn => Ok(s)
+    case TyVar(n) =>
+      match b {
+        case TyVar(m) => if #i.eq(n, m) then Ok(s) else Ok(Cons(Pair(n, b), s))
+        case _ =>
+          if ssc1chkOccurs(n, b) then Err("occurs check: infinite type")
+          else Ok(Cons(Pair(n, b), s))
+      }
+    case TyInt =>
+      match b {
+        case TyInt    => Ok(s)
+        case TyDyn    => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, TyInt), s))
+        case _        => Err("cannot unify Int with non-Int")
+      }
+    case TyStr =>
+      match b {
+        case TyStr    => Ok(s)
+        case TyDyn    => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, TyStr), s))
+        case _        => Err("cannot unify String with non-String")
+      }
+    case TyBool =>
+      match b {
+        case TyBool   => Ok(s)
+        case TyDyn    => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, TyBool), s))
+        case _        => Err("cannot unify Bool with non-Bool")
+      }
+    case TyFloat =>
+      match b {
+        case TyFloat  => Ok(s)
+        case TyDyn    => Ok(s)
+        case TyVar(m) => Ok(Cons(Pair(m, TyFloat), s))
+        case _        => Err("cannot unify Float with non-Float")
+      }
+    case TyFun(a1, a2) =>
+      match b {
+        case TyFun(b1, b2) =>
+          match ssc1chkUnify(s, a1, b1) { case Err(m) => Err(m) case Ok(s2) => ssc1chkUnify(s2, a2, b2) }
+        case TyDyn    => Ok(s)
+        case TyVar(m) =>
+          if ssc1chkOccurs(m, a) then Err("occurs check") else Ok(Cons(Pair(m, a), s))
+        case _ => Err("cannot unify function with non-function")
+      }
+    case TyList(ea) =>
+      match b {
+        case TyList(eb) => ssc1chkUnify(s, ea, eb)
+        case TyDyn      => Ok(s)
+        case TyVar(m)   =>
+          if ssc1chkOccurs(m, a) then Err("occurs check") else Ok(Cons(Pair(m, a), s))
+        case _ => Err("cannot unify List with non-List")
+      }
+    case TyTup(eas) =>
+      match b {
+        case TyTup(ebs) => ssc1chkUnifyList(s, eas, ebs)
+        case TyDyn      => Ok(s)
+        case TyVar(m)   =>
+          if ssc1chkOccurs(m, a) then Err("occurs check") else Ok(Cons(Pair(m, a), s))
+        case _ => Err("cannot unify Tuple with non-Tuple")
+      }
+  }
+
+def ssc1chkUnifyList = (s, as, bs) =>
+  match as {
+    case Nil => match bs { case Nil => Ok(s) case _ => Err("tuple arity mismatch") }
+    case Cons(ah, at) =>
+      match bs {
+        case Nil => Err("tuple arity mismatch")
+        case Cons(bh, bt) =>
+          match ssc1chkUnify(s, ah, bh) { case Err(m) => Err(m) case Ok(s2) => ssc1chkUnifyList(s2, at, bt) }
+      }
+  }
+
+-- ── Environment: List[Pair(String, Scheme)] ───────────────────────────────────
+-- Scheme = Forall(qs, ty)  where qs = List[Int] (quantified var ids)
+def ssc1chkLookupE = (env, x) =>
+  match env {
+    case Nil => None
+    case Cons(p, rest) =>
+      match p { case Pair(k, v) => if #seq(k, x) then Some(v) else ssc1chkLookupE(rest, x) }
+  }
+
+-- Free type vars in a type
+def ssc1chkFreeTV = (t, acc) =>
+  match t {
+    case TyInt => acc case TyStr => acc case TyBool => acc case TyFloat => acc case TyDyn => acc
+    case TyVar(n)    => if ssc1chkMemberI(n, acc) then acc else Cons(n, acc)
+    case TyFun(a, b) => ssc1chkFreeTV(b, ssc1chkFreeTV(a, acc))
+    case TyList(e)   => ssc1chkFreeTV(e, acc)
+    case TyTup(es)   => ssc1chkFreeTVList(es, acc)
+  }
+
+def ssc1chkFreeTVList = (ts, acc) =>
+  match ts { case Nil => acc case Cons(h, rest) => ssc1chkFreeTVList(rest, ssc1chkFreeTV(h, acc)) }
+
+def ssc1chkMemberI = (n, xs) =>
+  match xs { case Nil => false case Cons(h, t) => if #i.eq(h, n) then true else ssc1chkMemberI(n, t) }
+
+def ssc1chkDiffList = (xs, ys) =>
+  match xs {
+    case Nil => Nil
+    case Cons(x, rest) =>
+      if ssc1chkMemberI(x, ys) then ssc1chkDiffList(rest, ys)
+      else Cons(x, ssc1chkDiffList(rest, ys))
+  }
+
+def ssc1chkFreeEnv = (env, s, acc) =>
+  match env {
+    case Nil => acc
+    case Cons(p, rest) =>
+      match p { case Pair(k, sch) =>
+        match sch { case Forall(qs, t) =>
+          let freeInT = ssc1chkFreeTV(ssc1chkAppTy(s, t), Nil) in
+          let newFree = ssc1chkAddFree(freeInT, qs, acc) in
+          ssc1chkFreeEnv(rest, s, newFree) } }
+  }
+
+def ssc1chkAddFree = (vars, qs, acc) =>
+  match vars {
+    case Nil => acc
+    case Cons(v, rest) =>
+      if ssc1chkMemberI(v, qs) then ssc1chkAddFree(rest, qs, acc)
+      else ssc1chkAddFree(rest, qs, if ssc1chkMemberI(v, acc) then acc else Cons(v, acc))
+  }
+
+-- Generalize: quantify vars free in ty but not in env
+def ssc1chkGeneralize = (env, s, ty) =>
+  let t     = ssc1chkAppTy(s, ty) in
+  let free  = ssc1chkFreeTV(t, Nil) in
+  let envFr = ssc1chkFreeEnv(env, s, Nil) in
+  Forall(ssc1chkDiffList(free, envFr), t)
+
+-- Instantiate: give each quantified var a fresh var
+def ssc1chkInstFresh = (qs) =>
+  match qs {
+    case Nil => Nil
+    case Cons(q, rest) =>
+      let n = ssc1chkFresh(0) in
+      Cons(Pair(q, TyVar(n)), ssc1chkInstFresh(rest))
+  }
+
+def ssc1chkInstantiate = (sch) =>
+  match sch {
+    case Forall(qs, t) =>
+      let ren = ssc1chkInstFresh(qs) in
+      ssc1chkAppTy(ren, t)
+  }
+
+-- ── Inference ─────────────────────────────────────────────────────────────────
+-- inferE1 : (env, s, expr) -> TcOk(s, ty) | TcErr(msg)
+
+def ssc1inferE = (env, s, expr) =>
+  match expr {
+    case Pair(tag, data) =>
+      if #seq(tag, "int")   then TcOk(s, TyInt)
+      else if #seq(tag, "str")   then TcOk(s, TyStr)
+      else if #seq(tag, "bool")  then TcOk(s, TyBool)
+      else if #seq(tag, "uid")   then TcOk(s, TyDyn)
+      else if #seq(tag, "var")   then ssc1inferVar(env, s, data)
+      else if #seq(tag, "lam")   then
+        match data { case Pair(ps, body) => ssc1inferLam(env, s, ps, body) }
+      else if #seq(tag, "app")   then
+        match data { case Pair(f, args) => ssc1inferApp(env, s, f, args) }
+      else if #seq(tag, "if")    then
+        match data { case Pair(cnd, rest2) => match rest2 { case Pair(th, el) =>
+          ssc1inferIf(env, s, cnd, th, el) } }
+      else if #seq(tag, "inf")   then
+        match data { case Pair(op, rest2) => match rest2 { case Pair(l, r) =>
+          ssc1inferInf(env, s, op, l, r) } }
+      else if #seq(tag, "pre")   then
+        match data { case Pair(op, e) => ssc1inferPre(env, s, op, e) }
+      else if #seq(tag, "tup")   then ssc1inferTup(env, s, data)
+      else if #seq(tag, "block") then ssc1inferBlock(env, s, data)
+      else if #seq(tag, "sel")   then TcOk(s, TyDyn)
+      else if #seq(tag, "match") then TcOk(s, TyDyn)
+      else if #seq(tag, "while") then TcOk(s, TyDyn)
+      else if #seq(tag, "assign") then TcOk(s, TyDyn)
+      else if #seq(tag, "return") then TcOk(s, TyDyn)
+      else TcOk(s, TyDyn)
+  }
+
+-- Variable lookup: unknown names → TyDyn (builtins, forward refs, OOP)
+def ssc1inferVar = (env, s, name) =>
+  match ssc1chkLookupE(env, name) {
+    case None => TcOk(s, TyDyn)
+    case Some(sch) => TcOk(s, ssc1chkInstantiate(sch))
+  }
+
+-- Lambda: bind each param to a fresh var, infer body
+def ssc1inferLam = (env, s, ps, body) =>
+  match ps {
+    case Nil =>
+      -- 0-param lambda: type = body type
+      ssc1inferE(env, s, body)
+    case Cons(p, restPs) =>
+      let n = ssc1chkFresh(0) in
+      let env2 = Cons(Pair(p, Forall(Nil, TyVar(n))), env) in
+      match ssc1inferLam(env2, s, restPs, body) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tb) =>
+          TcOk(s2, TyFun(ssc1chkAppTy(s2, TyVar(n)), tb))
+      }
+  }
+
+-- Application: infer function type, apply args one at a time
+def ssc1inferApp = (env, s, f, args) =>
+  match ssc1inferE(env, s, f) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tf) => ssc1inferAppArgs(env, s1, tf, args)
+  }
+
+def ssc1inferAppArgs = (env, s, tf, args) =>
+  match args {
+    case Nil => TcOk(s, tf)
+    case Cons(arg, restArgs) =>
+      match ssc1inferE(env, s, arg) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, ta) =>
+          let rn = ssc1chkFresh(0) in
+          let tr = TyVar(rn) in
+          match ssc1chkUnify(s2, ssc1chkAppTy(s2, tf), TyFun(ta, tr)) {
+            case Err(m) => TcErr(m)
+            case Ok(s3) => ssc1inferAppArgs(env, s3, ssc1chkAppTy(s3, tr), restArgs)
+          }
+      }
+  }
+
+-- If: condition = Bool, branches same type
+def ssc1inferIf = (env, s, cnd, th, el) =>
+  match ssc1inferE(env, s, cnd) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tc) =>
+      match ssc1chkUnify(s1, tc, TyBool) {
+        case Err(m) => TcErr("if condition must be Bool")
+        case Ok(s2) =>
+          match ssc1inferE(env, s2, th) {
+            case TcErr(m) => TcErr(m)
+            case TcOk(s3, tt) =>
+              match ssc1inferE(env, s3, el) {
+                case TcErr(m) => TcErr(m)
+                case TcOk(s4, te) =>
+                  match ssc1chkUnify(s4, tt, te) {
+                    case Err(m) => TcErr("if branches must have the same type")
+                    case Ok(s5) => TcOk(s5, ssc1chkAppTy(s5, tt))
+                  }
+              }
+          }
+      }
+  }
+
+-- Infix: dispatch on operator
+def ssc1inferInf = (env, s, op, l, r) =>
+  if #seq(op, "+")  then ssc1inferPlus(env, s, l, r)
+  else if #seq(op, "-")  then ssc1inferArith(env, s, op, l, r)
+  else if #seq(op, "*")  then ssc1inferArith(env, s, op, l, r)
+  else if #seq(op, "/")  then ssc1inferArith(env, s, op, l, r)
+  else if #seq(op, "%")  then ssc1inferArith(env, s, op, l, r)
+  else if #seq(op, "==") then ssc1inferCmp(env, s, op, l, r)
+  else if #seq(op, "!=") then ssc1inferCmp(env, s, op, l, r)
+  else if #seq(op, "<")  then ssc1inferCmp(env, s, op, l, r)
+  else if #seq(op, "<=") then ssc1inferCmp(env, s, op, l, r)
+  else if #seq(op, ">")  then ssc1inferCmp(env, s, op, l, r)
+  else if #seq(op, ">=") then ssc1inferCmp(env, s, op, l, r)
+  else if #seq(op, "&&") then ssc1inferBool(env, s, op, l, r)
+  else if #seq(op, "||") then ssc1inferBool(env, s, op, l, r)
+  else if #seq(op, "++") then ssc1inferConcat(env, s, l, r)
+  else if #seq(op, "::") then ssc1inferCons(env, s, l, r)
+  else TcOk(s, TyDyn)
+
+-- "+" is overloaded: Int+Int or Str+Str; reject Int+Str
+def ssc1inferPlus = (env, s, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          match ssc1chkUnify(s2, tl, tr) {
+            case Err(m) => TcErr(#sconcat("type mismatch in (+): ", m))
+            case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, tl))
+          }
+      }
+  }
+
+-- "-", "*", "/", "%" — Int only
+def ssc1inferArith = (env, s, op, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1chkUnify(s1, tl, TyInt) {
+        case Err(m) => TcErr(#sconcat(op, " requires Int left operand"))
+        case Ok(s2) =>
+          match ssc1inferE(env, s2, r) {
+            case TcErr(m) => TcErr(m)
+            case TcOk(s3, tr) =>
+              match ssc1chkUnify(s3, tr, TyInt) {
+                case Err(m) => TcErr(#sconcat(op, " requires Int right operand"))
+                case Ok(s4) => TcOk(s4, TyInt)
+              }
+          }
+      }
+  }
+
+-- Comparison: both operands same type → Bool
+def ssc1inferCmp = (env, s, op, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          match ssc1chkUnify(s2, tl, tr) {
+            case Err(m) => TcErr(#sconcat("type mismatch in comparison: ", m))
+            case Ok(s3) => TcOk(s3, TyBool)
+          }
+      }
+  }
+
+-- "&&", "||" — both Bool → Bool
+def ssc1inferBool = (env, s, op, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1chkUnify(s1, tl, TyBool) {
+        case Err(m) => TcErr(#sconcat(op, " requires Bool operands"))
+        case Ok(s2) =>
+          match ssc1inferE(env, s2, r) {
+            case TcErr(m) => TcErr(m)
+            case TcOk(s3, tr) =>
+              match ssc1chkUnify(s3, tr, TyBool) {
+                case Err(m) => TcErr(#sconcat(op, " requires Bool operands"))
+                case Ok(s4) => TcOk(s4, TyBool)
+              }
+          }
+      }
+  }
+
+-- "++" — same type (Str or List)
+def ssc1inferConcat = (env, s, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          match ssc1chkUnify(s2, tl, tr) {
+            case Err(m) => TcErr(#sconcat("type mismatch in (++): ", m))
+            case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, tl))
+          }
+      }
+  }
+
+-- "::" — head :: List[head]
+def ssc1inferCons = (env, s, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          match ssc1chkUnify(s2, tr, TyList(tl)) {
+            case Err(m) => TcErr(":: right side must be a list of the head type")
+            case Ok(s3) => TcOk(s3, TyList(ssc1chkAppTy(s3, tl)))
+          }
+      }
+  }
+
+-- Prefix
+def ssc1inferPre = (env, s, op, e) =>
+  if #seq(op, "-") then
+    match ssc1inferE(env, s, e) {
+      case TcErr(m) => TcErr(m)
+      case TcOk(s1, te) =>
+        match ssc1chkUnify(s1, te, TyInt) {
+          case Err(m) => TcErr("unary - requires Int")
+          case Ok(s2) => TcOk(s2, TyInt)
+        }
+    }
+  else if #seq(op, "!") then
+    match ssc1inferE(env, s, e) {
+      case TcErr(m) => TcErr(m)
+      case TcOk(s1, te) =>
+        match ssc1chkUnify(s1, te, TyBool) {
+          case Err(m) => TcErr("! requires Bool")
+          case Ok(s2) => TcOk(s2, TyBool)
+        }
+    }
+  else TcOk(s, TyDyn)
+
+-- Tuple
+def ssc1inferTup = (env, s, elems) =>
+  ssc1inferTupElems(env, s, elems, Nil)
+
+def ssc1inferTupElems = (env, s, elems, acc) =>
+  match elems {
+    case Nil => TcOk(s, TyTup(reverse(acc)))
+    case Cons(e, rest) =>
+      match ssc1inferE(env, s, e) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, te) =>
+          ssc1inferTupElems(env, s2, rest, Cons(te, acc))
+      }
+  }
+
+-- Block: process each statement, return type of last expr
+def ssc1inferBlock = (env, s, stmts) =>
+  ssc1inferBlockStmts(env, s, stmts, TyDyn)
+
+def ssc1inferBlockStmts = (env, s, stmts, lastTy) =>
+  match stmts {
+    case Nil => TcOk(s, lastTy)
+    case Cons(stmt, rest) =>
+      match stmt {
+        case Pair(tag, data) =>
+          if #seq(tag, "val") then
+            match data {
+              case Pair(name, e) =>
+                match ssc1inferE(env, s, e) {
+                  case TcErr(m) => TcErr(m)
+                  case TcOk(s2, te) =>
+                    let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, te)), env) in
+                    ssc1inferBlockStmts(env2, s2, rest, te)
+                }
+            }
+          else if #seq(tag, "var") then
+            match data {
+              case Pair(name, e) =>
+                match ssc1inferE(env, s, e) {
+                  case TcErr(m) => TcErr(m)
+                  case TcOk(s2, te) =>
+                    -- var is mutable: bind to TyDyn in env (writes can change type)
+                    let env2 = Cons(Pair(name, Forall(Nil, TyDyn)), env) in
+                    ssc1inferBlockStmts(env2, s2, rest, TyDyn)
+                }
+            }
+          else if #seq(tag, "def") then
+            match data {
+              case Pair(name, rest2) =>
+                match rest2 {
+                  case Pair(params, body) =>
+                    match ssc1inferLam(env, s, params, body) {
+                      case TcErr(m) => TcErr(m)
+                      case TcOk(s2, tf) =>
+                        let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, tf)), env) in
+                        ssc1inferBlockStmts(env2, s2, rest, TyDyn)
+                    }
+                }
+            }
+          else if #seq(tag, "while") then
+            ssc1inferBlockStmts(env, s, rest, TyDyn)
+          else if #seq(tag, "assign") then
+            ssc1inferBlockStmts(env, s, rest, TyDyn)
+          else if #seq(tag, "return") then
+            match ssc1inferE(env, s, data) {
+              case TcErr(m) => TcErr(m)
+              case TcOk(s2, te) => TcOk(s2, te)
+            }
+          else
+            -- bare expression statement
+            match ssc1inferE(env, s, stmt) {
+              case TcErr(m) => TcErr(m)
+              case TcOk(s2, te) =>
+                ssc1inferBlockStmts(env, s2, rest, te)
+            }
+      }
+  }
+
+-- ── Top-level type checking ───────────────────────────────────────────────────
+-- Pass 1: collect all def/val/given names → TyDyn (handles forward refs + recursion)
+def ssc1chkCollect = (stmts, acc) =>
+  match stmts {
+    case Nil => acc
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, rest2) =>
+                ssc1chkCollect(rest, Cons(Pair(name, Forall(Nil, TyDyn)), acc))
+            }
+          else if #seq(tag, "given") then
+            match data {
+              case Pair(name, rest2) =>
+                ssc1chkCollect(rest, Cons(Pair(name, Forall(Nil, TyDyn)), acc))
+            }
+          else if #seq(tag, "val") then
+            match data {
+              case Pair(name, e) =>
+                ssc1chkCollect(rest, Cons(Pair(name, Forall(Nil, TyDyn)), acc))
+            }
+          else if #seq(tag, "var") then
+            match data {
+              case Pair(name, e) =>
+                ssc1chkCollect(rest, Cons(Pair(name, Forall(Nil, TyDyn)), acc))
+            }
+          else ssc1chkCollect(rest, acc)
+      }
+  }
+
+-- Pass 2: infer each stmt body; report first type error
+def ssc1chkTopStmts = (env, s, stmts) =>
+  match stmts {
+    case Nil => TcOk(s, TyDyn)
+    case Cons(stmt, rest) =>
+      match stmt {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, rest2) =>
+                match rest2 {
+                  case Pair(params, body) =>
+                    -- skip context-dict params (__tc_*) during body inference;
+                    -- they're resolved at runtime by given injection, not type-checked here
+                    let realParams = ssc1chkFilterCtxParams(params) in
+                    match ssc1inferLam(env, s, realParams, body) {
+                      case TcErr(m) =>
+                        TcErr(#sconcat(#sconcat("in def ", name), #sconcat(": ", m)))
+                      case TcOk(s2, tf) =>
+                        -- Re-bind with inferred type (improves precision vs TyDyn seed)
+                        let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, tf)), env) in
+                        ssc1chkTopStmts(env2, s2, rest)
+                    }
+                }
+            }
+          else if #seq(tag, "expr") then
+            match ssc1inferE(env, s, data) {
+              case TcErr(m) => TcErr(m)
+              case TcOk(s2, te) => ssc1chkTopStmts(env, s2, rest)
+            }
+          else if #seq(tag, "val") then
+            match data {
+              case Pair(name, e) =>
+                match ssc1inferE(env, s, e) {
+                  case TcErr(m) => TcErr(m)
+                  case TcOk(s2, te) =>
+                    let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, te)), env) in
+                    ssc1chkTopStmts(env2, s2, rest)
+                }
+            }
+          else ssc1chkTopStmts(env, s, rest)
+      }
+  }
+
+-- Skip context-dict params (__tc_*) — they're injected at runtime, not checked
+def ssc1chkFilterCtxParams = (params) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) =>
+      if isCtxParam(p) then ssc1chkFilterCtxParams(rest)
+      else Cons(p, ssc1chkFilterCtxParams(rest))
+  }
+
+-- Main entry: Ok(0) | Err(msg)
+def ssc1TypeCheck = (stmts) =>
+  let env0 = ssc1chkCollect(stmts, Nil) in
+  match ssc1chkTopStmts(env0, Nil, stmts) {
+    case TcErr(m) => Err(m)
+    case TcOk(s, ty) => Ok(0)
+  }

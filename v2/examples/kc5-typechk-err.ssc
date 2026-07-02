@@ -1,0 +1,2 @@
+def bad() = 1 + "a"
+def main() = println(bad())
