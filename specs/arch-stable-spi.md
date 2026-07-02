@@ -176,7 +176,56 @@ Callers of existing plugin APIs are not affected (API is additive).
   interpreter imports are removed.
 - Phase 3: regression — all existing plugin tests must stay green.
 
-## 7. Open questions
+## 7. Load-time API compatibility check (Phase 3 versioning)
+
+### 7a. Goals
+
+When a plugin is loaded into the host, the host verifies that the plugin was compiled
+against a compatible version of `scalascript-plugin-api`.  Incompatible plugins (wrong
+MAJOR, or plugin MINOR > host MINOR) emit a warning — same severity as the existing
+`spiVersion` mismatch warning; not a hard failure (keeps old plugins usable).
+
+### 7b. Mechanism
+
+**Plugin side** — `Backend` trait (in `backendSpi`) gains a default method:
+```scala
+def pluginApiVersion: String = "1.0.0"
+```
+A third-party plugin built against `scalascript-plugin-api` declares:
+```scala
+def pluginApiVersion: String = PluginApiVersion.Current  // "1.0.0" at build time
+```
+Because `backendSpi` cannot import from `pluginApi` (would be circular), the default
+`"1.0.0"` is a string literal matching the current release.  Third-party authors who
+care override it; bundled plugins inherit the default (they are always co-compiled with
+the host, so the version is always correct).
+
+**Host side** — `BackendRegistry` (in `core`) holds a local host constant:
+```scala
+private val HostPluginApiVersion = "1.0.0"   // keep in sync with PluginApiVersion.Current
+```
+and a local SemVer compatibility check (same logic as `PluginApiVersion.isCompatible`).
+
+At load time, for every in-process backend:
+```scala
+if pv.nonEmpty && !isPluginApiCompatible(pv) then
+  log.warn(s"[ssc] warning: plugin '${b.id}' pluginApiVersion=$pv, host plugin-api=${HostPluginApiVersion} — may be incompatible")
+```
+
+For out-of-process plugins (subprocess + `.sscpkg`): `PluginManifest` gains an optional
+`pluginApiVersion: Option[String]` field parsed from `plugin.yaml`; the same check fires
+when the field is present.
+
+### 7c. When the check fires in practice
+
+With the current setup (all `1.0.0`), no warning ever fires.  The check becomes
+relevant when:
+- We ship `scalascript-plugin-api 2.0.0` (MAJOR bump) — old plugins built against
+  `1.x.x` would emit a warning on load.
+- A third-party plugin is built against a FUTURE `1.3.0` and loaded into a host
+  that only has `1.1.0` — the plugin declared a higher MINOR than the host can satisfy.
+
+## 8. Open questions
 
 1. Should `PluginComputation` be a true monad or stay `Future[Any]`-backed?
    The opaque alias hides this, but it matters for plugin authors.
