@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Regression for "Unhandled effect: Actor.self" when `stop()` is called
@@ -21,7 +22,7 @@ class ActorStopOutsideTest extends AnyFunSuite with Matchers:
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()
     val ps  = java.io.PrintStream(buf, true)
-    Interpreter(ps).run(Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n"))
+    val _i = Interpreter(ps); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n"))
     ps.flush()
     buf.toString.trim
 

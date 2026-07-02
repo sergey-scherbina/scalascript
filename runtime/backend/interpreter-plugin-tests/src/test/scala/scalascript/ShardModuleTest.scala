@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** In-process smoke test for `std/cluster/shard.ssc`. */
@@ -12,7 +13,7 @@ class ShardModuleTest extends AnyFunSuite with Matchers:
     scalascript.server.Routes.clear()
     val repoRoot = os.pwd / os.up
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf), baseDir = Some(repoRoot)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf), baseDir = Some(repoRoot)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     buf.toString.linesIterator.toList
 
   test("Shard.owner / isOwner / send semantics on a solo node"):

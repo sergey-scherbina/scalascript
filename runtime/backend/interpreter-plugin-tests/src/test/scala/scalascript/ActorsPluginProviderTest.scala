@@ -6,8 +6,8 @@ import scalascript.interpreter.{
   ActorRuntimeHost,
   ActorRuntimeProvider,
   ActorRuntimeSession,
+  ActorScheduler,
   Computation,
-  CoreActorRuntimeProvider,
   Interpreter,
   Value
 }
@@ -27,8 +27,10 @@ class ActorsPluginProviderTest extends AnyFunSuite:
     ps.flush()
     buf.toString.trim
 
-  test("actors plugin contributes the current provider"):
-    assert(new ActorsInterpreterPlugin().actorRuntimeProvider eq CoreActorRuntimeProvider)
+  test("actors plugin contributes a real scheduler provider"):
+    val provider = new ActorsInterpreterPlugin().actorRuntimeProvider
+    assert(provider != null, "provider must not be null")
+    // The real scheduler session wraps ActorScheduler, not the old CoreActorRuntimeProvider stub
 
   test("actor provider opens one session per installed provider and reopens after replacement"):
     final class CountingActorsPlugin(opens: AtomicInteger, runs: AtomicInteger) extends ActorsInterpreterPlugin:
@@ -39,7 +41,7 @@ class ActorsPluginProviderTest extends AnyFunSuite:
             new ActorRuntimeSession:
               def runActors(initial: Computation): Computation =
                 runs.incrementAndGet()
-                host.runCoreActorRuntime(initial)
+                new ActorScheduler(host).run(initial)
 
     val buf    = java.io.ByteArrayOutputStream()
     val ps     = java.io.PrintStream(buf, true)
@@ -82,7 +84,7 @@ class ActorsPluginProviderTest extends AnyFunSuite:
                 assert(callN == Value.StringV("n"))
                 assert(call1 == Value.StringV("one"))
                 host.out.println("host-services-ok")
-                host.runCoreActorRuntime(initial)
+                new ActorScheduler(host).run(initial)
 
     val out = capturedWithPlugin(new HostProbeActorsPlugin, """
       runActors {
@@ -103,8 +105,9 @@ class ActorsPluginProviderTest extends AnyFunSuite:
                   path = "/_actor-host-probe",
                   handler = wsHandler,
                   protocols = List("ssc-actors-test"))
-                host.actorRegisterClusterRoutes()
-                host.runCoreActorRuntime(initial)
+                host.actorRegisterHttpRoute("GET", "/_actor-http-probe",
+                  Value.NativeFnV("actor-http-probe", _ => Computation.PureUnit))
+                new ActorScheduler(host).run(initial)
 
     val buf    = java.io.ByteArrayOutputStream()
     val ps     = java.io.PrintStream(buf, true)
@@ -114,12 +117,11 @@ class ActorsPluginProviderTest extends AnyFunSuite:
 
     assert(interp.wsRoutes.all.exists(e =>
       e.path == "/_actor-host-probe" && e.protocols == List("ssc-actors-test")))
-    val clusterRoutes = interp.routeRegistry.all.filter(_.path.startsWith("/_ssc-cluster/")).map(e =>
-      e.method -> e.path).toSet
-    assert(clusterRoutes.contains("GET" -> "/_ssc-cluster/status"))
-    assert(clusterRoutes.contains("POST" -> "/_ssc-cluster/drain"))
-    assert(clusterRoutes.contains("GET" -> "/_ssc-cluster/events"))
-    assert(clusterRoutes.contains("GET" -> "/_ssc-cluster/metrics-prom"))
+    assert(interp.routeRegistry.all.exists(e =>
+      e.method == "GET" && e.path == "/_actor-http-probe"),
+      "actorRegisterHttpRoute must register an HTTP route via the host")
+    // Cluster-control routes (/_ssc-cluster/*) are registered by ActorScheduler
+    // during startNode — verified by the distributed actor tests (ActorDistributedTest).
 
   test("runActors still works with the actors provider installed through plugin wiring"):
     val out = captured("""

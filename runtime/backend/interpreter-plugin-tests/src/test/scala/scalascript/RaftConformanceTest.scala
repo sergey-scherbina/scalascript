@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Smoke test for `conformance/actors-cluster-raft.ssc` on the
@@ -14,7 +15,7 @@ class RaftConformanceTest extends AnyFunSuite with Matchers:
   test("Raft single-node election claims self"):
     val src = os.read(TestPaths.repoRoot / "tests" / "conformance" / "actors-cluster-raft.ssc")
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     val out = buf.toString.linesIterator.toList
     info(out.mkString("\n"))
     out should contain ("proto=raft")

@@ -4,8 +4,8 @@ package scalascript.interpreter
  *
  *  Actors own a cooperative scheduler and must step `Computation` trees, so they cannot use
  *  the host-neutral `BlockForm` SPI without leaking interpreter internals into every plugin.
- *  This narrow seam lets the current core implementation be delegated first, then moved into
- *  an interpreter-only actors plugin in a later slice.
+ *  The scheduler implementation lives in `runtime/std/actors-plugin/ActorScheduler.scala`;
+ *  this file holds only the seam interfaces and the fallback stub.
  */
 trait ActorRuntimeProvider:
   def open(host: ActorRuntimeHost): ActorRuntimeSession
@@ -28,12 +28,26 @@ trait ActorRuntimeHost:
       protocols: List[String]
   ): InterpreterWsClientSession
   def actorRegisterWsRoute(path: String, handler: Value, protocols: List[String]): Unit
+  def actorRegisterHttpRoute(method: String, path: String, handler: Value): Unit
+  def actorRemoteHandlerInfos: List[scalascript.backend.spi.RemoteHandlerInfo]
+  def actorCodeIdentity: Value
   def actorRegisterClusterRoutes(): Unit
+  def actorIsRuntimeActive: Boolean
+  def actorSetRuntimeActive(on: Boolean): Unit
   def runCoreActorRuntime(initial: Computation): Computation
 
 trait ActorRuntimeProviderBackend:
   def actorRuntimeProvider: ActorRuntimeProvider
 
+/** Fallback provider used when no actors plugin has been installed.
+ *  Fails with a clear diagnostic so the user knows to load the plugin. */
+object MissingActorRuntimeProvider extends ActorRuntimeProvider:
+  def open(host: ActorRuntimeHost): ActorRuntimeSession =
+    new ActorRuntimeSession:
+      def runActors(initial: Computation): Computation =
+        throw InterpretError("runActors requires the actors plugin — load ActorsInterpreterPlugin or call installPlugins")
+
+/** @deprecated kept for test backwards-compat; will be removed in a follow-up. */
 object CoreActorRuntimeProvider extends ActorRuntimeProvider:
   def open(host: ActorRuntimeHost): ActorRuntimeSession =
     new ActorRuntimeSession:

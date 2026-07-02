@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Unit tests for v1.6.x scheduled sends — sendAfter / sendInterval / cancelTimer. */
@@ -13,7 +14,7 @@ class ScheduledSendsTest extends AnyFunSuite with Matchers:
     val ps  = java.io.PrintStream(buf, true)
     val src = s"# Test\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
-    Interpreter(ps).run(module)
+    val _i = Interpreter(ps); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(module)
     ps.flush()
     buf.toString.trim
 

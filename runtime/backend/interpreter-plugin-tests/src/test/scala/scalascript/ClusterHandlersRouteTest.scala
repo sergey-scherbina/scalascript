@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Tests for `GET /_ssc-cluster/handlers`: registered automatically when
@@ -18,7 +19,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
 
     val entry = scalascript.server.Routes.matchRequest("GET", "/_ssc-cluster/handlers")
     assert(entry.nonEmpty, "GET /_ssc-cluster/handlers not registered")
@@ -55,7 +56,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
 
     val Some((e, _)) = scalascript.server.Routes.matchRequest("GET", "/_ssc-cluster/handlers"): @unchecked
     val resp = e.interpreter.invoke(e.handler, List(Value.InstanceV("Request", Map.empty)))

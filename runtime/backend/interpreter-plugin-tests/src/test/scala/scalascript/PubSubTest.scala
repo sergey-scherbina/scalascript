@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** In-process smoke tests for cluster-wide pub/sub.
@@ -19,7 +20,9 @@ class PubSubTest extends AnyFunSuite with Matchers:
   private def runScript(src: String): List[String] = {
     scalascript.server.Routes.clear()
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val interp = Interpreter(java.io.PrintStream(buf))
+    interp.installPlugins(List(new ActorsInterpreterPlugin))
+    interp.run(Parser.parse(src))
     buf.toString.linesIterator.toList
   }
 

@@ -1279,30 +1279,6 @@ class Interpreter(
   private[interpreter] def registerOpenApiDefaults(): Unit =
     OpenApiRuntime.registerOpenApiDefaults(this)
 
-  private[interpreter] def registerClusterDrainRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterDrainRoute(this)
-
-  private[interpreter] def registerClusterStepDownRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterStepDownRoute(this)
-
-  private[interpreter] def registerClusterMetricsPromRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterMetricsPromRoute(this)
-
-  private[interpreter] def registerClusterEventsRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterEventsRoute(this)
-
-  private[interpreter] def registerClusterStatusRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterStatusRoute(this)
-
-  private[interpreter] def registerClusterHandlersRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterHandlersRoute(this)
-
-  private[interpreter] def registerClusterAuditRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterAuditRoute(this)
-
-  private[interpreter] def registerClusterWorkersRoute(): Unit =
-    ClusterRoutesRuntime.registerClusterWorkersRoute(this)
-
   // ─── Built-ins — see BuiltinsRuntime.scala ────────────────────────────
 
   def invoke(fn: Value, args: List[Value]): Value =

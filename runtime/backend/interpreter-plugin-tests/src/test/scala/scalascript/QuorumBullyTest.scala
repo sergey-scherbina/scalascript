@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Quorum-aware Bully: a single node with quorum=3 should refuse to
@@ -22,7 +23,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     val out = buf.toString.linesIterator.toList
     info(out.mkString("\n"))
     // Quorum=3, visible=1 ⇒ self-claim declined, currentLeader stays "".
@@ -40,7 +41,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     val out = buf.toString.linesIterator.toList
     info(out.mkString("\n"))
     out should contain ("LEADER:solo")
@@ -58,7 +59,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     val out = buf.toString.linesIterator.toList
     info(out.mkString("\n"))
     out should contain ("LEADER:solo")

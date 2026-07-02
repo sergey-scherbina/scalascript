@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Integration tests for v1.6 Phase 2 — Supervisor library in std/actors.ssc.
@@ -28,7 +29,7 @@ class SupervisorTest extends AnyFunSuite with Matchers:
          |```
          |""".stripMargin
     val module = Parser.parse(src)
-    Interpreter(ps, baseDir = Some(repoRoot)).run(module)
+    val _i = Interpreter(ps, baseDir = Some(repoRoot)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(module)
     ps.flush()
     buf.toString.trim
 

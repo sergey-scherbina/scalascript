@@ -1,7 +1,7 @@
 package scalascript.interpreter.actors
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.{ActorRuntimeProvider, ActorRuntimeProviderBackend, CoreActorRuntimeProvider}
+import scalascript.interpreter.{ActorRuntimeHost, ActorRuntimeProvider, ActorRuntimeProviderBackend, ActorRuntimeSession, ActorScheduler, Computation}
 import scalascript.ir.{ExportedSymbol, NormalizedModule, QualifiedName}
 
 /** Interpreter-only Actors runtime provider.
@@ -21,16 +21,21 @@ class ActorsInterpreterPlugin extends Backend, ActorRuntimeProviderBackend:
   def intrinsics:      Map[QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                       = Set.empty
 
-  def actorRuntimeProvider: ActorRuntimeProvider = CoreActorRuntimeProvider
+  def actorRuntimeProvider: ActorRuntimeProvider =
+    new ActorRuntimeProvider:
+      def open(host: ActorRuntimeHost): ActorRuntimeSession =
+        new ActorRuntimeSession:
+          def runActors(initial: Computation): Computation =
+            new ActorScheduler(host).run(initial)
 
   private def sym(n: String): ExportedSymbol = ExportedSymbol(n, n, "def", "Any")
 
   /** core-min-prelude-migrate (actors): the actor/process/cluster keyword set, DECLARED here for
    *  `ssc check` (the keystone) and removed from the hardcoded Typer prelude `effectBuiltins`. The
    *  actors plugin is bundled (installBin stages it), so `BackendRegistry.inProcess` loads these in
-   *  production. The runtime stays in core (the provider seam delegates to `CoreActorRuntimeProvider`),
-   *  so these names still resolve at run time through `ActorInterp`/`ActorGlobals` — the typer does
-   *  not enforce effect discharge, so a plain `Any` declaration is sufficient for `ssc check`. */
+   *  production. The runtime now lives in ActorScheduler (actors-plugin), so these names resolve at
+   *  run time through `ActorInterp`/`ActorGlobals` → ActorScheduler — the typer does not enforce
+   *  effect discharge, so a plain `Any` declaration is sufficient for `ssc check`. */
   override def preludeSymbols: List[ExportedSymbol] =
     List(
       // the runner

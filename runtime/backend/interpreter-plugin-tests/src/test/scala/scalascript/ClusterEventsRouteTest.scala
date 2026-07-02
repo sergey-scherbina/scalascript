@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Smoke test for `GET /_ssc-cluster/events`: drives a few events
@@ -22,7 +23,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
 
     val Some((e, _)) = scalascript.server.Routes.matchRequest("GET", "/_ssc-cluster/events"): @unchecked
     val resp = e.interpreter.invoke(e.handler, List(Value.InstanceV("Request", Map.empty)))
@@ -52,7 +53,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
 
     val Some((e, _)) = scalascript.server.Routes.matchRequest("GET", "/_ssc-cluster/events"): @unchecked
     // since = far-future epoch ms ⇒ zero matches

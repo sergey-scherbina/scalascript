@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Bearer-token gate on the cluster endpoints.  Three cases:
@@ -14,7 +15,7 @@ class ClusterAuthTest extends AnyFunSuite with Matchers:
   private def runWithRoutes(src: String): Unit =
     scalascript.server.Routes.clear()
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
 
   private def call(method: String, path: String, headers: Map[String, String]): (Int, String) =
     val Some((e, _)) = scalascript.server.Routes.matchRequest(method, path): @unchecked

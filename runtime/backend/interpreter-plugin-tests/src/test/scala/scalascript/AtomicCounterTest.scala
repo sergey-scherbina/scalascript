@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** In-process smoke test for cluster-wide atomic counters.  Single
@@ -15,7 +16,7 @@ class AtomicCounterTest extends AnyFunSuite with Matchers:
   private def runScript(src: String): List[String] = {
     scalascript.server.Routes.clear()
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     buf.toString.linesIterator.toList
   }
 

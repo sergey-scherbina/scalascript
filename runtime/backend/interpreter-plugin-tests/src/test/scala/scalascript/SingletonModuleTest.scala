@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** In-process smoke test for `std/cluster/singleton.ssc`.  A single
@@ -61,7 +62,7 @@ runActors {
 }
 ```"""
     val buf = java.io.ByteArrayOutputStream()
-    Interpreter(java.io.PrintStream(buf), baseDir = Some(repoRoot)).run(Parser.parse(src))
+    val _i = Interpreter(java.io.PrintStream(buf), baseDir = Some(repoRoot)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
     val out = buf.toString.linesIterator.toList
     info(out.mkString("\n"))
     // All three sends should have a globalWhereis target by the time

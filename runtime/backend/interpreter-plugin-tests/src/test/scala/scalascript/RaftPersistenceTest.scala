@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
+import scalascript.interpreter.actors.ActorsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Raft persistence: single-node election writes `(currentTerm,
@@ -29,7 +30,7 @@ runActors {
 ```"""
     val buf = java.io.ByteArrayOutputStream()
     try
-      Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
+      val _i = Interpreter(java.io.PrintStream(buf)); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(Parser.parse(src))
       buf.toString should include ("ok")
 
       assert(os.exists(path), s"expected $path to exist after Raft election")
