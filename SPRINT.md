@@ -229,12 +229,11 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       container types in `Value$package$Value$XxxV`, `Value` union erases to `java/lang/Object`.
       JitClasspathTest probe updated to reference `DataValue.class`. 1878 backendInterpreter tests pass.
 
-- [ ] **recursionFib-perf** — `recursionFib` = 1.176 ms/op (K53 baseline). Pure recursive Fibonacci
-      that exercises tree-walk eval on deeply recursive `FunV` calls. Goal: identify whether this is
-      treewalk-irreducible or has a JIT-reachable fast path.
-      Approach: (a) profile with JFR; (b) check if the JIT could recognize the recursive self-call
-      pattern and emit a bytecode loop with a stack frame; (c) if no JIT path, confirm it as the floor.
-      Done-when: either a measured improvement ≥20% or a documented "floor — no JIT path" verdict.
+- [x] **recursionFib-perf** — FLOOR CONFIRMED. `JavacJitBackend.tryCompile` (Phase C) already compiles
+      `def fib(n)` body to JVM bytecode via javac → static `long fib(long)` method; HotSpot JIT-compiles
+      that further to native code. The 1.193 ms/op IS the compiled floor for binary-recursive fib(30)
+      (~2.7M recursive calls as native JVM). Phase C delivered 23.8× over tree-walk (was ~28 ms).
+      No further improvement feasible without changing algorithm semantics. Verdict: floor, not a JIT gap.
 
 ### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
