@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-02 — KC5: HM type checker for K61 compat pipeline
+
+`lib/ssc1-check.ssc0` (425 lines): Hindley-Milner Algorithm W type inference over the ssc1-front
+Pair-tagged AST. Types: `TyInt | TyStr | TyBool | TyFloat | TyDyn | TyVar(n) | TyFun(a,b) |
+TyList(e) | TyTup(es)`. `TyDyn` is an escape hatch for OOP/constructors/builtins (unifies with
+anything). Two-pass design: first pass collects all def/val names → `Forall(Nil, TyDyn)`
+(handles forward references and mutual recursion), then second pass infers each body.
+Let-generalization + fresh type vars (via global cell). Context dict params (`__tc_*`) filtered
+before inference (injected at runtime by given injection). Operators: `+` unifies both operands
+(rejects `Int + Str`); `-/*///%` force Int; `==/</>` require same type → Bool.
+`ssc1c.ssc0` calls `ssc1TypeCheck` before lowering; exits 1 with `type error: …` on stderr.
+All 21 KC examples pass. `kc5-typechk-err.ssc` + conformance test added.
+
 ## 2026-07-02 — KC5: context bounds + given auto-injection
 
 Added context bounds `[A: TC]` and `given`/implicit-dict injection to the K61 pipeline.

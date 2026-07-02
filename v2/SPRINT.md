@@ -1007,11 +1007,14 @@ Prerequisite: K55 (Markdown extractor).
       `str.split`, `str.toUpperCase/toLowerCase`, `list.append(++)`.
       Done-when: ✓ string length/charAt/substring + List.map/filter/foldLeft + ctors.
 
-- [ ] **KC5 — type checker** — HM inference for the functional subset. Reuse Mira's Algorithm W
-      (`lib/mira.ssc0`) as reference. Scala-like type syntax: `Int`, `String`, `List[A]`,
-      `Option[A]`, `(A, B)`, `A => B`. Type aliases. Sealed hierarchies (flat subtyping).
-      Deferred: class hierarchy, variance, implicit resolution.
-      Done-when: type-checks functional examples; rejects `1 + "a"` with a clear error.
+- [x] **KC5 — type checker** DONE 2026-07-02. `lib/ssc1-check.ssc0` (425 lines): HM type
+      inference (Algorithm W) over ssc1-front Pair-tagged AST. Types: Int|Str|Bool|Float|Dyn|
+      Var(n)|Fun(a,b)|List(e)|Tup(es). TyDyn = escape hatch for OOP/constructors/builtins.
+      Two-pass: collect all names → TyDyn, then infer bodies. Let-generalization + fresh vars
+      (global cell). Context dict params (__tc_*) filtered before inference. Operators: `+`
+      unifies operands (Int+Str → error); `-/*///%` force Int; `==/</>` same-type → Bool.
+      ssc1c.ssc0 exits 1 with clear error on type mismatch. All 21 KC examples pass.
+      conformance/check.sh: kc5 type-error 1+"a" test added.
 
 - [x] **KC7 — OOP lowering DONE** 2026-07-01. Match expressions + case class → Core IR.
       **Parser** (`ssc1-front.ssc0`): `parsePat` (cpat/vpat/wpat), `parseMatchArm`,
