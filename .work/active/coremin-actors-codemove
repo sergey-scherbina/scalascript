@@ -1,4 +1,0 @@
-coremin-actors-codemove
-Started: 2026-07-02
-Agent: coord-main
-Slice: actors-plugin-move (move scheduler+cluster into runtime/std/actors-plugin; host-service + server/WS seams already done)
