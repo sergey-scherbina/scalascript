@@ -21,6 +21,9 @@ case class SscpkgManifest(
   featuresRequired: List[String]      = Nil,
   featuresDeclared: List[String]      = Nil,
   dependencies:     Map[String, String] = Map.empty,  // depId → version constraint
+  /** `scalascript-plugin-api` version the plugin's intrinsics were compiled against.
+   *  Checked at load time; a mismatch emits a warning.  Omit for legacy packages. */
+  pluginApiVersion: Option[String]      = None,
 ):
   def isLibrary: Boolean = kind.contains("library")
   def isPlugin:  Boolean = kind.contains("plugin")
@@ -78,5 +81,6 @@ object SscpkgManifest:
       featuresRequired = nestedStrList("capabilities", "features"),
       featuresDeclared = nestedStrList("capabilities", "declares"),
       dependencies     = parseDeps(),
+      pluginApiVersion = m.get("pluginApiVersion").map(_.toString),
     )
   }

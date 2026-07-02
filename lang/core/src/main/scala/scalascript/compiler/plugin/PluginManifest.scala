@@ -27,6 +27,9 @@ case class PluginManifest(
   aliases:         Set[String]   = Set.empty,
   /** Plugin declares `openSession` support.  Stage 6+/B. */
   interactive:     Boolean      = false,
+  /** `scalascript-plugin-api` version the plugin was compiled against.
+   *  Checked at load time; a mismatch emits a warning.  Omit for legacy plugins. */
+  pluginApiVersion: Option[String] = None,
   // Originating manifest path — useful for resolving relative `executable`.
   manifestPath:    Option[os.Path] = None
 ):
@@ -100,7 +103,8 @@ object PluginManifest:
                           case b: java.lang.Boolean => b.booleanValue()
                           case s: String            => s == "true"
                           case _                    => false
-                        }
+                        },
+      pluginApiVersion = optString("pluginApiVersion")
     )
   }
 

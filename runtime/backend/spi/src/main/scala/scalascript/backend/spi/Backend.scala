@@ -12,6 +12,13 @@ trait Backend:
   def id: String                                    // e.g. "jvm", "js", "wasm"
   def displayName: String                           // human-friendly
   def spiVersion: String                            // SPI version this plugin was built against
+  /** Version of `scalascript-plugin-api` this plugin was compiled against.
+   *  Checked at load time; a mismatch emits a compatibility warning.
+   *  Third-party plugins override this to `PluginApiVersion.Current` (the version
+   *  at their build time).  Bundled plugins inherit the default — they are
+   *  always co-compiled with the host, so the version is always correct.
+   *  Empty string = "not declared" (skips the check). */
+  def pluginApiVersion: String = "1.0.0"
   def capabilities: Capabilities
   def intrinsics: Map[QualifiedName, IntrinsicImpl] // §8 — platform operations
   def acceptedSources: Set[String]                  // §9 — canonical source-language names this target can embed

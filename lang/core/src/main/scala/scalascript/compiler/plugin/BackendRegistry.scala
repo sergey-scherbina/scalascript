@@ -134,6 +134,18 @@ object BackendRegistry extends PluginRegistry:
   /** Supported SPI version for compatibility checks. */
   val SpiVersion = "0.1.0"
 
+  /** `scalascript-plugin-api` version this host ships — keep in sync with PluginApiVersion.Current. */
+  private val HostPluginApiVersion = "1.0.0"
+
+  /** SemVer compat check: same MAJOR, host MINOR >= plugin MINOR. Empty string skips check. */
+  private def isPluginApiCompatible(v: String): Boolean =
+    def parts(s: String): Option[(Int, Int)] = s.split('.') match
+      case Array(a, b, _) => for x <- a.toIntOption; y <- b.toIntOption yield (x, y)
+      case _              => None
+    (parts(v), parts(HostPluginApiVersion)) match
+      case (Some((pMaj, pMin)), Some((hMaj, hMin))) => pMaj == hMaj && hMin >= pMin
+      case _                                        => false
+
   /** IDs of .sscpkg archives already fully loaded — used for cycle detection. */
   private val loadedPkgIds = scala.collection.mutable.Set.empty[String]
 
@@ -158,6 +170,12 @@ object BackendRegistry extends PluginRegistry:
       log.warn(
         s"[ssc] warning: plugin '${manifest.id}' spiVersion=${manifest.spiVersion}," +
         s" compiler supports $SpiVersion — may be incompatible")
+    manifest.pluginApiVersion.foreach { pv =>
+      if !isPluginApiCompatible(pv) then
+        log.warn(
+          s"[ssc] warning: plugin '${manifest.id}' pluginApiVersion=$pv," +
+          s" host plugin-api=${HostPluginApiVersion} — may be incompatible")
+    }
 
     // Resolve transitive dependencies first (depth-first, post-order).
     if manifest.dependencies.nonEmpty then
@@ -217,6 +235,13 @@ object BackendRegistry extends PluginRegistry:
           log.warn(s"[ssc] skipping backend plugin (missing dependency): ${e.getMessage.take(120)}")
       inProcessCache = backends.toList
       inProcessCache.foreach(registerDslHooks)
+      inProcessCache.foreach { b =>
+        val pv = b.pluginApiVersion
+        if pv.nonEmpty && !isPluginApiCompatible(pv) then
+          log.warn(
+            s"[ssc] warning: plugin '${b.id}' pluginApiVersion=$pv," +
+            s" host plugin-api=${HostPluginApiVersion} — may be incompatible")
+      }
     inProcessCache
 
   /** A file import matches a provided prefix `p` when it equals `p` or is under it (`p + "."`).
@@ -330,6 +355,7 @@ object BackendRegistry extends PluginRegistry:
         def id: String = backend.id
         def displayName: String = backend.displayName
         def spiVersion: String = backend.spiVersion
+        override def pluginApiVersion: String = backend.pluginApiVersion
         def capabilities = backend.capabilities
         def intrinsics =
           providers.foldLeft(backend.intrinsics) { (acc, provider) => acc ++ provider.intrinsics }

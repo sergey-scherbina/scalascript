@@ -76,6 +76,27 @@ class PluginManifestTest extends AnyFunSuite:
     val result = PluginManifest.parseString(yaml)
     assert(result.isFailure)
 
+  test("parses pluginApiVersion when present"):
+    val yaml =
+      """id: my-plugin
+        |spiVersion: "0.1.0"
+        |protocol: stdio-json
+        |executable: ./bin/my-plugin
+        |pluginApiVersion: "1.0.0"
+        |""".stripMargin
+    val m = PluginManifest.parseString(yaml).get
+    assert(m.pluginApiVersion.contains("1.0.0"))
+
+  test("pluginApiVersion defaults to None when absent"):
+    val yaml =
+      """id: legacy-plugin
+        |spiVersion: "0.1.0"
+        |protocol: stdio-json
+        |executable: ./bin/legacy
+        |""".stripMargin
+    val m = PluginManifest.parseString(yaml).get
+    assert(m.pluginApiVersion.isEmpty)
+
   test("discover walks the search paths and parses one-level-deep manifests"):
     val sandbox = os.temp.dir(prefix = "ssc-plugin-test-")
     os.makeDir.all(sandbox / "p1")
