@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-bench-compat KV9: effect-multishot (List monad CPS) — 31/31 bench programs on v2
+
+`multi effect NonDet { def choose(options: List[Int]): Int }` + List monad transform in `ssc1c`:
+- `ssc1-front.ssc0`: `multi effect E { ... }` parsed as `("multi_effect", "E")` stmt
+- `ssc1-front.ssc0` `parseBlock` val branch: trailing `{ block }` after val RHS consumed as thunk arg (fixes `val all = handle(prog(s)) { handler }`)
+- `ssc1-lower.ssc0`: `multiEffectsCell` registry + `isMultiShotVarName` (prefix match `"EffectName_"`)
+- `lowerStmtToList`: `"multi_effect"` → registers name; `"def"` → detects multi-shot calls in body via `blockHasMultiShotResolved` → CPS-transforms with extra `k` param via `lowerBlockCps`
+- `lowerBlockCps`: `val x = Effect.op(opts)` → `_list_flatMap(opts, x => rest)`, final expr → `k(expr)`
+- `resolveE` handle case: `handle(multiShotFn(args))` → `multiShotFn(args, x => Cons(x, Nil))` (initial continuation)
+- `kc6Defs`: added `_list_concat` (list append) and `_list_flatMap` (concatMap for List monad)
+
+`effect-multishot` now runs at **4.36 ms** (was SKIP). **31/31 bench corpus programs have timing.**
+
 ## 2026-07-03 — v2-bench-compat KV8: effect-oneshot — 30/31 bench programs on v2
 
 Parser and lowering fixes in `ssc1-front.ssc0` + `ssc1-lower.ssc0`:

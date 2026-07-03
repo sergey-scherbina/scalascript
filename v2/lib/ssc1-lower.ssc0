@@ -91,12 +91,87 @@ def arrVarsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
 -- List variable name registry (for .length dispatch to _sel_length vs slen)
 def listVarsCell = #cell.new(Nil)
+-- KV9: multi-shot effect names (from "multi effect E { ... }" declarations)
+def multiEffectsCell = #cell.new(Nil)
+-- KV9: function names that were CPS-transformed for multi-shot effects
+def multiShotFnsCell = #cell.new(Nil)
 
 -- Check if a name is a registered list variable
 def isListVar = (name) =>
   let rec go = (xs) =>
     match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
   go(#cell.get(listVarsCell))
+
+-- KV9: check if string s has the given prefix
+def shasprefix = (s, prefix) =>
+  let plen = #slen(prefix) in
+  if #i.gt(plen, #slen(s)) then false
+  else #seq(#sslice(s, 0, plen), prefix)
+
+-- KV9: check if var name "E_op" where E is a registered multi-shot effect
+def isMultiShotVarName = (name) =>
+  let rec go = (effects) =>
+    match effects {
+      case Nil => false
+      case Cons(eName, rest) =>
+        if shasprefix(name, #sconcat(eName, "_")) then true
+        else go(rest)
+    } in
+  go(#cell.get(multiEffectsCell))
+
+-- KV9: check if resolved expr is a call to a multi-shot effect op: app(var("E_op"), args)
+def isMultiShotCallExprResolved = (expr) =>
+  match expr {
+    case Pair(tag, data) =>
+      if #seq(tag, "app") then
+        match data {
+          case Pair(fn, args) =>
+            match fn {
+              case Pair(ftag, fdata) =>
+                if #seq(ftag, "var") then isMultiShotVarName(fdata) else false
+            }
+        }
+      else false
+  }
+
+-- KV9: get the opts arg (first arg) from a resolved multi-shot call
+def getMultiShotOptsResolved = (expr) =>
+  match expr {
+    case Pair(tag, data) =>
+      match data {
+        case Pair(fn, args) =>
+          match args {
+            case Cons(opts, optsTail) => opts
+            case Nil => Pair("ctorap", Pair("Nil", Nil))
+          }
+      }
+  }
+
+-- KV9: check if any val-binding in resolved stmts is a multi-shot call
+def blockHasMultiShotResolved = (stmts) =>
+  match stmts {
+    case Nil => false
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "val") then
+            match data {
+              case Pair(vname, vexpr) =>
+                if isMultiShotCallExprResolved(vexpr) then true
+                else blockHasMultiShotResolved(rest)
+            }
+          else blockHasMultiShotResolved(rest)
+      }
+  }
+
+-- KV9: check if a function name is CPS-registered as multi-shot
+def isMultiShotFn = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(n, rest) => if #seq(n, name) then true else go(rest)
+    } in
+  go(#cell.get(multiShotFnsCell))
 
 -- Check if a resolved expression returns a list (call to a list-returning selector)
 def isListConstruction = (rb) =>
@@ -538,7 +613,30 @@ def resolveE = (expr) =>
                         match innerArgs {
                           case Cons(computExpr, innerArgRest) =>
                             match innerArgRest {
-                              case Nil => resolveE(computExpr)
+                              case Nil =>
+                                -- KV9: if computExpr calls a multi-shot fn, add k=x=>List(x)
+                                let resolvedCompute = resolveE(computExpr) in
+                                match resolvedCompute {
+                                  case Pair(ctag, cdata) =>
+                                    if #seq(ctag, "app") then
+                                      match cdata {
+                                        case Pair(cfn, cargs) =>
+                                          match cfn {
+                                            case Pair(fntag, fnname) =>
+                                              if #seq(fntag, "var") then
+                                                if isMultiShotFn(fnname) then
+                                                  let kLam = Pair("lam",
+                                                    Pair(Cons("__result__", Nil),
+                                                      Pair("ctorap", Pair("Cons",
+                                                        Cons(Pair("var", "__result__"),
+                                                        Cons(Pair("ctorap", Pair("Nil", Nil)), Nil)))))) in
+                                                  Pair("app", Pair(cfn, appendL(cargs, Cons(kLam, Nil))))
+                                                else resolvedCompute
+                                              else resolvedCompute
+                                          }
+                                      }
+                                    else resolvedCompute
+                                }
                               case _ => Pair("app", Pair(resolveE(fn), rargs))
                             }
                           case _ => Pair("app", Pair(resolveE(fn), rargs))
@@ -1272,6 +1370,45 @@ def lowerBlock = (scope, stmts) =>
       }
   }
 
+-- KV9: CPS-lower a block containing multi-shot effect calls.
+-- scope: current De Bruijn scope (kName must be in scope)
+-- kName: name of the continuation param added by the CPS transform
+-- stmts: resolved block stmts (output of resolveBlock)
+-- Each "val x = E.op(opts)" → _list_flatMap(opts, lam(1, rest_cps))
+-- Final "expr e" → app(lookupVar(scope,kName), [e])
+def lowerBlockCps = (scope, kName, stmts) =>
+  match stmts {
+    case Nil => IrLit(IrUnit)
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "val") then
+            match data {
+              case Pair(vname, vexpr) =>
+                if isMultiShotCallExprResolved(vexpr) then
+                  -- multi-shot call: flatMap over opts, bind result as vname
+                  let opts = getMultiShotOptsResolved(vexpr) in
+                  let optsIr = lowerE(scope, opts) in
+                  let newScope = Cons(vname, scope) in
+                  let restIr = lowerBlockCps(newScope, kName, rest) in
+                  IrApp(IrGlobal("_list_flatMap"), Cons(optsIr, Cons(IrLam(1, restIr), Nil)))
+                else
+                  -- regular val: IrLet, shift scope
+                  let exprIr = lowerE(scope, vexpr) in
+                  let newScope = Cons(vname, scope) in
+                  let restIr = lowerBlockCps(newScope, kName, rest) in
+                  IrLet(Cons(exprIr, Nil), restIr)
+            }
+          else if #seq(tag, "expr") then
+            -- final expr: apply continuation k
+            let eIr = lowerE(scope, data) in
+            IrApp(lookupVar(scope, kName), Cons(eIr, Nil))
+          else
+            -- unsupported stmt in CPS mode (assign/while/etc.) — skip
+            lowerBlockCps(scope, kName, rest)
+      }
+  }
+
 -- ── Statement lowering ────────────────────────────────────────────────────────
 
 -- Lower a statement to a list of IrDef nodes (case class → multiple defs)
@@ -1287,7 +1424,21 @@ def lowerStmtToList = (stmt) =>
                 -- KC5b: set active ctx for summon dispatch within this def body
                 let prevCtx = #cell.get(kc5ActiveCtxCell) in
                 let _setCtx = #cell.set(kc5ActiveCtxCell, computeActiveCtx(params)) in
-                let ir = IrDef(name, IrLam(lenL(params), lowerE(scope, body))) in
+                -- KV9: detect multi-shot calls in body → CPS transform
+                let resolvedBody = resolveE(body) in
+                let ir = match resolvedBody {
+                  case Pair(btag, bdata) =>
+                    if #seq(btag, "block") then
+                      if blockHasMultiShotResolved(bdata) then
+                        let kName = "__k__" in
+                        let cpsScope = Cons(kName, scope) in
+                        let _regCps = #cell.set(multiShotFnsCell, Cons(name, #cell.get(multiShotFnsCell))) in
+                        IrDef(name, IrLam(#i.add(lenL(params), 1), lowerBlockCps(cpsScope, kName, bdata)))
+                      else
+                        IrDef(name, IrLam(lenL(params), lowerBlock(scope, bdata)))
+                    else
+                      IrDef(name, IrLam(lenL(params), lowerE(scope, resolvedBody)))
+                } in
                 let _restCtx = #cell.set(kc5ActiveCtxCell, prevCtx) in
                 Cons(ir, Nil)
             }
@@ -1377,6 +1528,10 @@ def lowerStmtToList = (stmt) =>
                 appendL(prefixDefs(stmts), Cons(IrDef(name, IrLit(IrInt(0))), Nil))
             }
         }
+      else if #seq(tag, "multi_effect") then
+        -- KV9: register effect name as multi-shot for CPS detection
+        let _reg = #cell.set(multiEffectsCell, Cons(data, #cell.get(multiEffectsCell))) in
+        Nil
       else Nil
   }
 
@@ -1752,6 +1907,49 @@ def bumpTickDef =
     IrLam(0,
       IrApp(IrPrim("cell.get", Cons(IrGlobal("Bump_tick_cell"), Nil)), Nil)))
 
+-- KV9: _list_concat(xs, ys) — List append (xs ++ ys)
+-- IrLam(2): local(0)=ys, local(1)=xs
+-- IrLetRec: go=local(0), ys=local(1), xs=local(2); call go(xs)=go(local(2))
+-- go=IrLam(1): xs2=local(0), go=local(1), ys=local(2)
+-- Nil arm: return ys=local(2)
+-- Cons arm (2 fields: t=local0, h=local1): Cons(h, go(t))
+def listConcatDef =
+  IrDef("_list_concat",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrMatch(IrLocal(0),
+            Cons(IrArm("Nil", 0, IrLocal(2)),
+            Cons(IrArm("Cons", 2,
+              IrCtor("Cons",
+                Cons(IrLocal(1),
+                Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil)))),
+            Nil)), None)),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- KV9: _list_flatMap(xs, f) — concatMap: flatMap for List monad
+-- IrLam(2): local(0)=f, local(1)=xs
+-- IrLetRec: go=local(0), f=local(1), xs=local(2); call go(xs)=go(local(2))
+-- go=IrLam(1): xs2=local(0), go=local(1), f=local(2)
+-- Nil arm: return Nil
+-- Cons arm (2 fields: t=local0, h=local1): _list_concat(f(h), go(t))
+def listFlatMapDef =
+  IrDef("_list_flatMap",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrMatch(IrLocal(0),
+            Cons(IrArm("Nil", 0, IrCtor("Nil", Nil)),
+            Cons(IrArm("Cons", 2,
+              IrApp(IrGlobal("_list_concat"),
+                Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)),
+                Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)),
+                Nil)))),
+            Nil)), None)),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
 -- All injected KC6 helpers
 def kc6Defs =
   Cons(bumpTickCellDef,
@@ -1790,7 +1988,9 @@ def kc6Defs =
   Cons(runStreamDef,
   Cons(selRunToListDef,
   Cons(selLengthDef,
-  Nil))))))))))))))))))))))))))))))))))))
+  Cons(listConcatDef,
+  Cons(listFlatMapDef,
+  Nil))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>

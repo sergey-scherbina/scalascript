@@ -401,7 +401,20 @@ def parseBlock = (toks) =>
       pr(Pair("block", reverse(acc)), ts2)
     else if kwIs("val", ts2) then
       let r = parseVal(advance(ts2)) in
-      go(prT(r), Cons(prV(r), acc))
+      -- val name = fn(args) { block } → val name = fn(args)(() => block)
+      if kindIs("{", prT(r)) then
+        let rb = parseBlock(advance(prT(r))) in
+        let valStmt = match prV(r) {
+          case Pair(vtag, vdata) =>
+            match vdata {
+              case Pair(vname, vrhs) =>
+                let newRhs = mkApp(vrhs, Cons(mkLam(Nil, prV(rb)), Nil)) in
+                Pair("val", Pair(vname, newRhs))
+            }
+        } in
+        go(prT(rb), Cons(valStmt, acc))
+      else
+        go(prT(r), Cons(prV(r), acc))
     else if kwIs("var", ts2) then
       -- var x [: T] = expr  →  ("var", (name, expr))
       let r = parseVal(advance(ts2)) in
@@ -1022,7 +1035,22 @@ def parseOneStmt = (toks) =>
         parseObj(advance(ts2), Nil)
       else pr(Pair("object", Pair(name, Nil)), ts2)
     else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
-  else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+  else
+    -- KV9: check for "multi effect E { ... }" multi-shot effect declaration
+    if #seq(k, "id") then
+      if #seq(v, "multi") then
+        let ts1 = advance(toks) in
+        if kindIs("kw", ts1) then
+          if #seq(tokVal(peek(ts1)), "effect") then
+            let ts2 = advance(ts1) in
+            let ename = tokVal(peek(ts2)) in
+            let ts3 = skipToBrace(advance(ts2)) in
+            let ts4 = if kindIs("{", ts3) then skipBraceBlock(ts3) else ts3 in
+            pr(Pair("multi_effect", ename), ts4)
+          else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+        else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+      else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+    else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
 
 def skipSemis = (toks) =>
   if kindIs(";", toks) then skipSemis(advance(toks)) else toks
