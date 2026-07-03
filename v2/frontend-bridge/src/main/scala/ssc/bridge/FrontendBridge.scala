@@ -183,7 +183,12 @@ object FrontendBridge:
       case (v: Defn.Val) :: rest if isSimplePat(v.pats) =>
         val name = patName(v.pats.head)
         val rhs  = convertExpr(v.rhs, scope)
-        CT.Let(List(rhs), convertBlock(rest, name :: scope))
+        // Track array vals with ## prefix so a(idx) can use arr.get instead of App
+        val isArray = v.rhs match
+          case Term.Apply.After_4_6_0(Term.Name("Array"), _) => true
+          case _ => false
+        val scopeName = if isArray then s"##$name" else name
+        CT.Let(List(rhs), convertBlock(rest, scopeName :: scope))
 
       // val (a, b) = rhs; rest (tuple destructuring)
       case (v: Defn.Val) :: rest =>
@@ -446,8 +451,10 @@ object FrontendBridge:
     else
       val lcell = scope.indexOf(s"@@$name")
       val cell  = scope.indexOf(s"@$name")
+      val arr   = scope.indexOf(s"##$name")
       if lcell >= 0 then CT.Prim("lcell.get", List(CT.Local(lcell)))
       else if cell >= 0 then CT.Prim("cell.get", List(CT.Local(cell)))
+      else if arr >= 0 then CT.Local(arr)  // array val — return raw local
       else if isCtorName(name) then CT.Ctor(name, Nil)  // e.g. Nil, None, True
       else CT.Global(name)
 
@@ -470,6 +477,10 @@ object FrontendBridge:
   private def convertApply(fn: Term, rawArgs: List[Term], scope: List[String]): CT =
     val args = rawArgs.map(e => convertExpr(wrapIfPH(e), scope))
     fn match
+      // Array(name) indexed read — ## prefix means it's a ForeignV(ArrayBuffer)
+      case Term.Name(name) if scope.contains(s"##$name") && args.length == 1 =>
+        val idx = scope.indexOf(s"##$name")
+        CT.Prim("arr.get", List(CT.Local(idx), args.head))
       // List/Seq/Vector factory → linked list
       case Term.Name("List") | Term.Name("Seq") | Term.Name("Vector") | Term.Name("IArray") =>
         val nil: CT = CT.Ctor("Nil", Nil)

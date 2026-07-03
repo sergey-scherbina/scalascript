@@ -260,6 +260,15 @@ object FastCode:
       val n = i; Some((env: Env) =>
         val cell = env(env.length - 1 - n).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
         cell(0) match { case IntV(x) => x; case _ => 0L })
+    // arr.get — optimistic: array element is an Int; used in tight loops (e.g. array-update)
+    case Prim("arr.get", List(a0, a1)) =>
+      tryFC(a0, globals).flatMap { fca => tryFLC(a1, globals).map { fci =>
+        (env: Env) => fca(env) match
+          case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
+            ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](fci(env).toInt) match
+              case IntV(x) => x; case _ => 0L
+          case _ => 0L
+      } }
     case Prim("i.add", List(a0, a1)) =>
       tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) + f1(env)))
     case Prim("i.sub", List(a0, a1)) =>
@@ -275,6 +284,19 @@ object FastCode:
           case "%" => _ % _; case "/" => _ / _; case _   => (_, _) => 0L
         (env: Env) => fn(f0(env), f1(env))
       } }
+    // __method__("toInt"/"toLong", recv) — common Int conversions, fast-path via FLC (returns Long)
+    case Prim("__method__", List(Lit(Const.CStr("toInt")), recv)) =>
+      tryFLC(recv, globals).map { fr => env => fr(env).toInt.toLong }
+    case Prim("__method__", List(Lit(Const.CStr("toLong")), recv)) =>
+      tryFLC(recv, globals).map { fr => env => fr(env) }
+    // __method__("_N", recv) — tuple field accessor; returns Long only if the field is Int/Long
+    case Prim("__method__", List(Lit(Const.CStr(n)), recv)) if n.matches("_\\d+") =>
+      val idx = n.drop(1).toInt - 1
+      tryFC(recv, globals).map { fcr => (env: Env) =>
+        fcr(env) match
+          case DataV(_, fields) => fields(idx) match { case IntV(x) => x; case _ => 0L }
+          case _ => 0L
+      }
     case _ => None
 
   /** Try to compile a cell.set to a FastCode that stores a raw Long (no IntV alloc). */
@@ -308,9 +330,33 @@ object FastCode:
     // lcell.get: return IntV(c.v) but for FC callers who need a Value
     case Prim("lcell.get", List(Local(i))) =>
       val n = i; Some((env: Env) => IntV(env(env.length - 1 - n).asInstanceOf[LongCellV].v))
+    // cell.get: return IntV from ForeignV cell
+    case Prim("cell.get", List(Local(i))) =>
+      val n = i; Some((env: Env) =>
+        env(env.length - 1 - n).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]](0) match
+          case v: IntV => v; case v => v)
     // lcell.set and cell.set: delegate to tryFCLongSet for unboxed path
     case Prim("lcell.set", _) | Prim("cell.set", _) =>
       tryFCLongSet(t, globals)
+    // __arith__ with literal op — try FLC (unboxed Long) first, wrap result in IntV
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
+      val flcOpt: Option[FC] = tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
+      flcOpt orElse
+        // Non-numeric ops (++, string concat, etc.) — fall through to general dispatch
+        tryFC(a0, globals).flatMap { fc0 => tryFC(a1, globals).map { fc1 =>
+          (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+        } }
+    // __method__ with literal method name — try FLC for Int conversions, else general dispatch
+    case Prim("__method__", Lit(Const.CStr(m)) :: recv :: args) =>
+      val flcOpt: Option[FC] = tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
+      flcOpt orElse
+        tryFC(recv, globals).flatMap { fcr =>
+          val argOpts = args.map(tryFC(_, globals))
+          if argOpts.forall(_.isDefined) then
+            val fca = argOpts.map(_.get)
+            Some((env: Env) => Prims.methodOp(m, fcr(env), fca.map(f => f(env))): Value)
+          else None
+        }
     case Prim(op, List(a0)) =>
       Prims.resolve1(op).flatMap { fn1 =>
         tryFC(a0, globals).map { fc0 => env => fn1(fc0(env)) }
@@ -356,6 +402,44 @@ object FastCode:
             fbody(e)
         }
       else None
+    case Ctor(tag, fields) =>
+      val opts = fields.map(tryFC(_, globals))
+      if opts.forall(_.isDefined) then
+        val fcs = opts.map(_.get)
+        // Constant Ctor: all fields are Lit → precompute once, return cached
+        if fields.forall(_.isInstanceOf[Lit]) then
+          val precomputed = DataV(tag, fcs.map(fc => fc(Array.empty)).toVector)
+          Some(_ => precomputed)
+        else
+          val n = fcs.length; val fcsArr = fcs.toArray
+          Some(env => DataV(tag, (0 until n).map(i => fcsArr(i)(env)).toVector))
+      else None
+    // __arith__("++") — tuple/string concat fast-path (avoids full trampoline for DataV++)
+    case Prim("__arith__", List(Lit(Const.CStr("++")), a0, a1)) =>
+      tryFC(a0, globals).flatMap { f0 => tryFC(a1, globals).map { f1 =>
+        // If RHS is constant (all-Lit Ctor), precompute once and capture in closure
+        val isConstRHS = a1.isInstanceOf[Ctor] && a1.asInstanceOf[Ctor].fields.forall(_.isInstanceOf[Lit])
+        if isConstRHS then
+          val constR = f1(Array.empty)
+          (env: Env) =>
+            (f0(env), constR) match
+              case (DataV(lt, lf), DataV(rt, rf)) =>
+                val combined = lf ++ rf; DataV(s"Tuple${combined.length}", combined)
+              case (StrV(l), StrV(r)) => StrV(l + r)
+              case (l, r) => Prims.arithOp("++", l, r)
+        else
+          (env: Env) =>
+            (f0(env), f1(env)) match
+              case (DataV(lt, lf), DataV(rt, rf)) if lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
+                val combined = lf ++ rf; DataV(s"Tuple${combined.length}", combined)
+              case (StrV(l), StrV(r))  => StrV(l + r)
+              case (StrV(l), IntV(r))  => StrV(l + r.toString)
+              case (StrV(l), v)        => StrV(l + Show.show(v))
+              case (l, r)              => Prims.arithOp("++", l, r)
+      } }
+    case Match(scrut, arms, default) if arms.isEmpty =>
+      // Degenerate: no arms — fall through to default
+      default.flatMap(d => tryFC(scrut, globals).flatMap(_ => tryFC(d, globals)))
     case _ => None
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
@@ -926,6 +1010,14 @@ object Prims:
       V2PluginRegistry.lookup(op) match
         case Some(fn) => fn
         case None => (_: List[Value]) => sys.error(s"unimplemented primitive: $op")
+
+  /** Dispatch `__arith__(op, l, r)` without trampoline — for FastCode. */
+  def arithOp(op: String, l: Value, r: Value): Value =
+    resolve("__arith__")(List(StrV(op), l, r))
+
+  /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
+  def methodOp(name: String, recv: Value, args: List[Value]): Value =
+    resolve("__method__")(StrV(name) :: recv :: args)
 
   // ── Allocation-free fast paths for 1/2/3-arg primitives ─────────────────────
   // These avoid creating a List[Value] for arg passing on the hot path.
