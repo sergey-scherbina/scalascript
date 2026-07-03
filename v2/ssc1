@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# ssc1 — end-to-end v1.0 .ssc Markdown runner (KC13)
+# Usage: ./ssc1 <file.ssc>
+# Pipeline: extract scalascript blocks → compile → run on v2 VM
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+IR=$(command scala-cli run "$DIR/src" --server=false --quiet -- run "$DIR/bin/ssc1-run.ssc0" "$@")
+echo "$IR" | command scala-cli run "$DIR/src" --server=false --quiet -- run-ir /dev/stdin

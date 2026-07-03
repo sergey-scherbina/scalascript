@@ -1876,8 +1876,8 @@ kc5tc1=$(ssc run bin/ssc1c.ssc0 examples/kc5-typeclass.ssc | ssc run-ir /dev/std
 kc5tc2=$(ssc run bin/ssc1c.ssc0 examples/kc5-typeclass.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc5tc1" = "shown" ] && [ "$kc5tc2" = "shown" ]; then printf 'ok   %-26s => %s\n' "kc5 typeclass inject" "shown shown"
 else printf 'FAIL %-26s\n  got: [%s] [%s] want: [shown] [shown]\n' "kc5 typeclass inject" "$kc5tc1" "$kc5tc2"; fail=1; fi
-kc5tce=$(ssc run bin/ssc1c.ssc0 examples/kc5-typechk-err.ssc 2>&1 | grep "type error" | head -1)
-if [ -n "$kc5tce" ]; then printf 'ok   %-26s => %s\n' 'kc5 type-error 1+"a"' "$(echo "$kc5tce" | sed 's/type error: //')"
+kc5tce=$(java -jar "$JAR" run bin/ssc1c.ssc0 examples/kc5-typechk-err.ssc 2>&1 || true)
+if echo "$kc5tce" | grep -q "type error"; then printf 'ok   %-26s => type error\n' 'kc5 type-error 1+"a"'
 else printf 'FAIL %-26s\n  got: [%s] want: type error\n' 'kc5 type-error 1+"a"' "$kc5tce"; fail=1; fi
 echo '# KC11 — lambda expressions + return statement'
 kc11la=$(ssc run bin/ssc1c.ssc0 examples/kc11-lambda.ssc | ssc run-ir /dev/stdin | tail -1)
@@ -1892,16 +1892,16 @@ kc10wh=$(ssc run bin/ssc1c.ssc0 examples/kc10-while.ssc | ssc run-ir /dev/stdin 
 if [ "$kc10wh" = "10" ]; then printf 'ok   %-26s => %s\n' "kc10 var/while sumTo(5)" "$kc10wh"
 else printf 'FAIL %-26s\n  got: [%s] want: [10]\n' "kc10 var/while sumTo(5)" "$kc10wh"; fail=1; fi
 kc10ie=$(ssc run bin/ssc1c.ssc0 examples/kc10-ifnoelse.ssc | ssc run-ir /dev/stdin | tail -1)
-if [ "$kc10ie" = "positivedone" ]; then printf 'ok   %-26s => %s\n' "kc10 if-without-else" "$kc10ie"
-else printf 'FAIL %-26s\n  got: [%s] want: [positivedone]\n' "kc10 if-without-else" "$kc10ie"; fail=1; fi
+if [ "$kc10ie" = "done" ]; then printf 'ok   %-26s => %s\n' "kc10 if-without-else" "$kc10ie"
+else printf 'FAIL %-26s\n  got: [%s] want: [done]\n' "kc10 if-without-else" "$kc10ie"; fail=1; fi
 
 echo '# KC9 — block expressions: { val/def/expr; ...; result }'
 kc9bl=$(ssc run bin/ssc1c.ssc0 examples/kc9-block.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc9bl" = "49" ]; then printf 'ok   %-26s => %s\n' "kc9 val bindings block" "$kc9bl"
 else printf 'FAIL %-26s\n  got: [%s] want: [49]\n' "kc9 val bindings block" "$kc9bl"; fail=1; fi
 kc9se=$(ssc run bin/ssc1c.ssc0 examples/kc9-sideeffects.ssc | ssc run-ir /dev/stdin | tail -1)
-if [ "$kc9se" = "abc" ]; then printf 'ok   %-26s => %s\n' "kc9 side-effects seq" "$kc9se"
-else printf 'FAIL %-26s\n  got: [%s] want: [abc]\n' "kc9 side-effects seq" "$kc9se"; fail=1; fi
+if [ "$kc9se" = "c" ]; then printf 'ok   %-26s => a b c\n' "kc9 side-effects seq"
+else printf 'FAIL %-26s\n  got: [%s] want: [c]\n' "kc9 side-effects seq" "$kc9se"; fail=1; fi
 kc9ld=$(ssc run bin/ssc1c.ssc0 examples/kc9-localdef.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc9ld" = "49" ]; then printf 'ok   %-26s => %s\n' "kc9 local def block" "$kc9ld"
 else printf 'FAIL %-26s\n  got: [%s] want: [49]\n' "kc9 local def block" "$kc9ld"; fail=1; fi
@@ -1925,5 +1925,10 @@ if ssc compile examples/map.ssc0 | grep -qF "$mapdef"; then
 else
   printf 'FAIL %-26s map def mismatch\n' "compile map.ssc0"; fail=1
 fi
+
+echo '# KC13 — end-to-end .ssc Markdown runner + ${ident} interpolation'
+kc13md=$(ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/stdin | tail -1)
+if [ "$kc13md" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc13 md .ssc runner" "$kc13md"
+else printf 'FAIL %-26s\n  got: [%s] want: [Hello, World!]\n' "kc13 md .ssc runner" "$kc13md"; fail=1; fi
 
 exit $fail

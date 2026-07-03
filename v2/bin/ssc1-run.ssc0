@@ -1,0 +1,40 @@
+-- ssc1-run: end-to-end .ssc Markdown runner (KC13)
+-- Usage: ssc run bin/ssc1-run.ssc0 <file.ssc>
+-- Pipeline: extractFences → filter scalascript blocks → concat → lex/parse/lower → emit Core IR
+import "../lib/mira-md.ssc0"
+import "../lib/ssc1-lower.ssc0"
+
+-- Collect source of every "scalascript" fenced block into one string.
+def joinScalaScript = (blocks) =>
+  let rec go = (bs, acc) =>
+    match bs {
+      case Nil => acc
+      case Cons(b, rest) =>
+        match b {
+          case Pair(lang, src) =>
+            if #seq(lang, "scalascript") then
+              let sep = if #i.eq(slen(acc), 0) then "" else "\n\n" in
+              go(rest, #sconcat(acc, #sconcat(sep, src)))
+            else
+              go(rest, acc)
+        }
+    } in
+  go(blocks, "")
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) =>
+      let bytes = #io.readFile(path) in
+      let fileStr = #utf8->str(bytes) in
+      let blocks = extractFences(fileStr) in
+      let src = joinScalaScript(blocks) in
+      if #i.eq(slen(src), 0) then
+        let z = #io.eprint("ssc1-run: no scalascript blocks found\n") in
+        #io.exit(1)
+      else
+        let stmts = parse(src) in
+        #io.print(#coreir.encode(lowerProg(stmts)))
+    case Nil =>
+      let z = #io.eprint("usage: ssc1-run <file.ssc>\n") in
+      #io.exit(1)
+  }

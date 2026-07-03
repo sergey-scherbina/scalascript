@@ -1,0 +1,16 @@
+---
+name: kc13-hello
+description: KC13 end-to-end .ssc runner smoke test
+---
+
+# Hello World (KC13)
+
+Two `scalascript` blocks and `${ident}` interpolation — both must survive the pipeline.
+
+```scalascript
+def greet(name: String): String = s"Hello, ${name}!"
+```
+
+```scalascript
+def main(): Unit = println(greet("World"))
+```

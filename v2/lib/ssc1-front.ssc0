@@ -254,12 +254,24 @@ def interpParts = (raw) =>
         else
           let c2 = sget(raw, i1) in
           if #i.eq(c2, 123) then
-            -- ${ ... }: skip to matching }, emit as literal (no re-parse)
-            let rec skipB = (j) =>
-              if #i.ge(j, len) then j
-              else if #i.eq(sget(raw, j), 125) then #i.add(j, 1)
-              else skipB(#i.add(j, 1)) in
-            go(skipB(#i.add(i1, 1)), litStart, acc)
+            -- ${ident}: flush literal, emit as var, skip }; complex: skip to }
+            let i2 = #i.add(i1, 1) in
+            let c3 = if #i.lt(i2, len) then sget(raw, i2) else 0 in
+            if isAlpha(c3) then
+              let lit = #sslice(raw, litStart, i) in
+              let acc2 = if #i.eq(slen(lit), 0) then acc else Cons(Pair("str", lit), acc) in
+              let endId = readInterpId(raw, i2) in
+              let name = #sslice(raw, i2, endId) in
+              let iClose = if #i.lt(endId, len) then
+                if #i.eq(sget(raw, endId), 125) then #i.add(endId, 1) else endId
+              else endId in
+              go(iClose, iClose, Cons(Pair("var", name), acc2))
+            else
+              let rec skipBx = (j) =>
+                if #i.ge(j, len) then j
+                else if #i.eq(sget(raw, j), 125) then #i.add(j, 1)
+                else skipBx(#i.add(j, 1)) in
+              go(skipBx(i2), litStart, acc)
           else if isAlpha(c2) then
             -- $name: flush literal, extract identifier
             let lit = #sslice(raw, litStart, i) in
