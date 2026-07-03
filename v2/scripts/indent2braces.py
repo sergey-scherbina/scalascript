@@ -87,8 +87,12 @@ def convert(src):
                 continue
 
             # Fallback: if none of the above, just open a brace
-            out.append(raw + ' {')
-            stack.append(indent)
+            # But don't brace multi-line function calls (line ends with open paren)
+            if not stripped.rstrip().endswith('('):
+                out.append(raw + ' {')
+                stack.append(indent)
+            else:
+                out.append(raw)
         else:
             out.append(raw)
 

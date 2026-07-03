@@ -156,12 +156,12 @@ object Prims:
   type Fn = List[Value] => Value
 
   def resolve(op: String): Fn = op match
-    case "i.add" => a => IntV(int(a, 0) + int(a, 1))
-    case "i.sub" => a => IntV(int(a, 0) - int(a, 1))
-    case "i.mul" => a => IntV(int(a, 0) * int(a, 1))
-    case "i.div" => a => IntV(int(a, 0) / int(a, 1))
-    case "i.mod" => a => IntV(int(a, 0) % int(a, 1))
-    case "i.neg" => a => IntV(-int(a, 0))
+    case "i.add" => a => numBin(a, _ + _, _ + _)
+    case "i.sub" => a => numBin(a, _ - _, _ - _)
+    case "i.mul" => a => numBin(a, _ * _, _ * _)
+    case "i.div" => a => numBin(a, _ / _, _ / _)
+    case "i.mod" => a => numBin(a, _ % _, _ % _)
+    case "i.neg" => a => numUn(a, -_, -_)
     case "i.and" => a => IntV(int(a, 0) & int(a, 1))
     case "i.or"  => a => IntV(int(a, 0) | int(a, 1))
     case "i.xor" => a => IntV(int(a, 0) ^ int(a, 1))
@@ -169,11 +169,11 @@ object Prims:
     case "i.shl" => a => IntV(int(a, 0) << int(a, 1))
     case "i.shr" => a => IntV(int(a, 0) >> int(a, 1))
     case "i.ushr"=> a => IntV(int(a, 0) >>> int(a, 1))
-    case "i.eq"  => a => BoolV(int(a, 0) == int(a, 1))
-    case "i.lt"  => a => BoolV(int(a, 0) <  int(a, 1))
-    case "i.le"  => a => BoolV(int(a, 0) <= int(a, 1))
-    case "i.gt"  => a => BoolV(int(a, 0) >  int(a, 1))
-    case "i.ge"  => a => BoolV(int(a, 0) >= int(a, 1))
+    case "i.eq"  => a => numCmp(a, _ == _, _ == _)
+    case "i.lt"  => a => numCmp(a, _ <  _, _ <  _)
+    case "i.le"  => a => numCmp(a, _ <= _, _ <= _)
+    case "i.gt"  => a => numCmp(a, _ >  _, _ >  _)
+    case "i.ge"  => a => numCmp(a, _ >= _, _ >= _)
     case "not"   => a => BoolV(!bool(a, 0))
     // BigInt
     case "big.add" => a => BigV(big(a, 0) + big(a, 1))
@@ -220,7 +220,11 @@ object Prims:
     case "str->f"  => a => str(a, 0).toDoubleOption.fold(none)(d => some(FloatV(d)))
     // String (UTF-16 code units; O(1) indexing)
     case "slen"      => a => IntV(str(a, 0).length.toLong)
-    case "sconcat"   => a => StrV(anyStr(a(0)) + anyStr(a(1)))
+    case "sconcat"   => a => (a(0), a(1)) match {
+      case (DataV(_, f1), DataV(_, f2)) =>
+        val n = f1.length + f2.length; DataV(s"Tuple$n", f1 ++ f2)
+      case _ => StrV(anyStr(a(0)) + anyStr(a(1)))
+    }
     case "sslice"    => a => StrV(str(a, 0).substring(int(a, 1).toInt, int(a, 2).toInt))
     case "scodeAt"   => a => IntV(str(a, 0).charAt(int(a, 1).toInt).toLong)
     case "sfromCodes"=> a => StrV(unlist(a(0)).map(v => asInt(v).toChar).mkString)
@@ -270,6 +274,24 @@ object Prims:
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
     case _ => sys.error(s"unimplemented primitive: $op")
+
+  // numeric dispatch helpers: promote to Float when either operand is FloatV
+  private def numBin(a: List[Value], fi: (Long, Long) => Long, ff: (Double, Double) => Double): Value =
+    (a(0), a(1)) match {
+      case (FloatV(x), FloatV(y)) => FloatV(ff(x, y))
+      case (FloatV(x), IntV(y))   => FloatV(ff(x, y.toDouble))
+      case (IntV(x), FloatV(y))   => FloatV(ff(x.toDouble, y))
+      case _                      => IntV(fi(int(a, 0), int(a, 1)))
+    }
+  private def numUn(a: List[Value], fi: Long => Long, ff: Double => Double): Value =
+    a(0) match { case FloatV(x) => FloatV(ff(x)); case _ => IntV(fi(int(a, 0))) }
+  private def numCmp(a: List[Value], fi: (Long, Long) => Boolean, ff: (Double, Double) => Boolean): Value =
+    (a(0), a(1)) match {
+      case (FloatV(x), FloatV(y)) => BoolV(ff(x, y))
+      case (FloatV(x), IntV(y))   => BoolV(ff(x, y.toDouble))
+      case (IntV(x), FloatV(y))   => BoolV(ff(x.toDouble, y))
+      case _                      => BoolV(fi(int(a, 0), int(a, 1)))
+    }
 
   // typed argument accessors
   private def int(a: List[Value], k: Int): Long = asInt(a(k))

@@ -468,6 +468,11 @@ def lowerE = (scope, rawExpr) =>
         }
       else if #seq(tag, "int") then
         IrLit(IrInt(parseI(data)))
+      else if #seq(tag, "float") then
+        match #str->f(data) {
+          case Some(d) => IrLit(IrFloat(d))
+          case None    => IrLit(IrFloat(0.0))
+        }
       else if #seq(tag, "str") then
         IrLit(IrStr(data))
       else if #seq(tag, "bool") then
@@ -1003,6 +1008,37 @@ def lowerStmts = (stmts) =>
 def printlnDef = IrDef("println", IrLam(1, IrPrim("io.println", Cons(IrLocal(0), Nil))))
 def printDef   = IrDef("print",   IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
 
+-- ── Tuple accessors: ._1 through ._4 ─────────────────────────────────────────
+-- Pair(a,b): 2 fields, local(0)=b local(1)=a
+-- Tuple4(a,b,c,d): 4 fields, local(0)=d local(1)=c local(2)=b local(3)=a
+def sel1Def =
+  IrDef("_sel__1",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Pair",   2, IrLocal(1)),
+        Cons(IrArm("Tuple4", 4, IrLocal(3)),
+        Nil)), None)))
+
+def sel2Def =
+  IrDef("_sel__2",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Pair",   2, IrLocal(0)),
+        Cons(IrArm("Tuple4", 4, IrLocal(2)),
+        Nil)), None)))
+
+def sel3Def =
+  IrDef("_sel__3",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Tuple4", 4, IrLocal(1)), Nil), None)))
+
+def sel4Def =
+  IrDef("_sel__4",
+    IrLam(1,
+      IrMatch(IrLocal(0),
+        Cons(IrArm("Tuple4", 4, IrLocal(0)), Nil), None)))
+
 -- Check whether a main def with 0 params exists
 def hasZeroArgMain = (stmts) =>
   match stmts {
@@ -1041,7 +1077,11 @@ def kc6Defs =
   Cons(listIsEmptyDef,
   Cons(listNonEmptyDef,
   Cons(strToIntDef,
-  Nil))))))))))))
+  Cons(sel1Def,
+  Cons(sel2Def,
+  Cons(sel3Def,
+  Cons(sel4Def,
+  Nil))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>

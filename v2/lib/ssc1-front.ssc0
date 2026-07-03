@@ -104,6 +104,16 @@ def lexFrom = (s, i) =>
       Cons(mkTok("id", #sslice(s, i2, e)), lexFrom(s, e))
     else if isDigit(c) then
       let e = scanEnd(isDigit, s, #i.add(i2, 1)) in
+      -- float: digit '.' digit (e.g. 3.14159, 0.5, 1.0)
+      let nextIsDot = if #i.lt(e, slen(s)) then #i.eq(sget(s, e), 46) else false in
+      let nextDotIsFloat = if nextIsDot then
+        if #i.lt(#i.add(e, 1), slen(s)) then isDigit(sget(s, #i.add(e, 1)))
+        else false
+      else false in
+      if nextDotIsFloat then
+        let e2 = scanEnd(isDigit, s, #i.add(e, 2)) in
+        Cons(mkTok("float", #sslice(s, i2, e2)), lexFrom(s, e2))
+      else
       -- strip Long suffix L/l (e.g. 0L, 2862933555777941757L)
       let eL = if #i.lt(e, slen(s)) then
         let lc = sget(s, e) in
@@ -168,7 +178,8 @@ def lexFrom = (s, i) =>
 def lex = (src) => lexFrom(src, 0)
 
 -- ── AST (tag-based encoding) ──────────────────────────────────────────────────
-def mkInt  = (n)        => Pair("int",  n)
+def mkInt   = (n)        => Pair("int",   n)
+def mkFloat = (n)        => Pair("float", n)
 def mkStr  = (s)        => Pair("str",  s)
 def mkBool = (b)        => Pair("bool", b)
 def mkVar  = (n)        => Pair("var",  n)
@@ -323,6 +334,7 @@ def parseAtom = (toks) =>
   let k = tokKind(t) in
   let v = tokVal(t) in
   if #seq(k, "int") then pr(mkInt(v), advance(toks))
+  else if #seq(k, "float") then pr(mkFloat(v), advance(toks))
   else if #seq(k, "str") then pr(mkStr(v), advance(toks))
   else if #seq(k, "id")  then
     -- KC12: detect s"..." / f"..." / raw"..." string interpolation
