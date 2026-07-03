@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — agent-mcp-roundtrip: AgentMcpRoundTripTest (agent-sdk P3b)
+
+End-to-end round-trip test for the `std.agent.mcp` bridge (`runtime/std/agent-mcp.ssc`).
+`AgentMcpRoundTripTest.scala` (3 tests): exercises the bridge mapping in both directions —
+`serveAgentToolsMcp` (AgentTool → MCP tool registration + JSON marshalling) and `mcpToolSource`
+(MCP descriptors → AgentTool wrapping + result mapping). Transport: in-process
+`LinkedBlockingQueue` pair, mirroring `McpEndToEndTest`. Spec: `specs/agent-mcp-roundtrip.md`.
+
+---
+
 ## 2026-07-03 — v2-bench-compat KV9: effect-multishot (List monad CPS) — 31/31 bench programs on v2
 
 `multi effect NonDet { def choose(options: List[Int]): Int }` + List monad transform in `ssc1c`:

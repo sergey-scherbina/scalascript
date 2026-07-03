@@ -16,12 +16,9 @@ Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + gold
 Spec: `specs/agent-sdk.md`. The MCP bridge (`runtime/std/agent-mcp.ssc`) is done in both directions;
 what's missing is an end-to-end test that runs both sides.
 
-- [ ] **agent-mcp-roundtrip-test** — round-trip test: `serveAgentToolsMcp` (server) + `mcpToolSource`
-      (client) connected over a testable transport (in-process queue or Stdio pipe). Mirror `McpEndToEndTest`.
-      **How:** a JVM-hosted in-process `McpTransport` that connects server+client without a real network;
-      or use `ProcessBuilder` + Stdio (like existing MCP tests). Gate: a tool call round-trips (request →
-      server executes → response) and the result matches. Files: `runtime/std/agent-mcp.ssc`,
-      `runtime/interp/src/test/scala/.../AgentMcpRoundTripTest.scala`.
+- [x] **agent-mcp-roundtrip-test** — DONE 2026-07-03. `AgentMcpRoundTripTest.scala` (3 tests, all
+      green): contentJson round-trip, isError propagation, multiple tools. In-process
+      LinkedBlockingQueue transport; mirrors McpEndToEndTest. Spec: `specs/agent-mcp-roundtrip.md`.
 - [ ] **agent-mock-gateway** — mock LLM gateway for conformance tests. Replay golden transcripts
       without hitting a real API. **How:** a `ModelClient` impl backed by a recorded sequence of
       `ModelResponse`s; inject into `AgentLoop.run`. Gate: `AgentConformanceTest` runs 3 golden
