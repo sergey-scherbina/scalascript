@@ -66,7 +66,10 @@ object Compiler:
   import Value.*, Term.*
 
   /** Compile a whole program; returns the entry Code (globals captured inside). */
-  def compile(p: Program): Code =
+  def compile(p: Program): Code = compileWithGlobals(p)._1
+
+  /** Compile a whole program; returns (entry Code, live globals map) for bench use. */
+  def compileWithGlobals(p: Program): (Code, collection.mutable.Map[String, Value]) =
     val globals = collection.mutable.HashMap[String, Value]()
     val c = new C(globals)
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
@@ -77,7 +80,7 @@ object Compiler:
     for d <- p.defs do d.body match
       case Lam(_, _) => ()
       case other => globals(d.name) = Runtime.run(c.compile(other), Array.empty[Value])
-    c.compile(p.entry)
+    (c.compile(p.entry), globals)
 
   final class C(globals: collection.mutable.Map[String, Value]):
     def compile(t: Term): Code = t match
@@ -156,12 +159,12 @@ object Prims:
   type Fn = List[Value] => Value
 
   def resolve(op: String): Fn = op match
-    case "i.add" => a => IntV(int(a, 0) + int(a, 1))
-    case "i.sub" => a => IntV(int(a, 0) - int(a, 1))
-    case "i.mul" => a => IntV(int(a, 0) * int(a, 1))
-    case "i.div" => a => IntV(int(a, 0) / int(a, 1))
-    case "i.mod" => a => IntV(int(a, 0) % int(a, 1))
-    case "i.neg" => a => IntV(-int(a, 0))
+    case "i.add" => a => numBin(a, _ + _, _ + _)
+    case "i.sub" => a => numBin(a, _ - _, _ - _)
+    case "i.mul" => a => numBin(a, _ * _, _ * _)
+    case "i.div" => a => numBin(a, _ / _, _ / _)
+    case "i.mod" => a => numBin(a, _ % _, _ % _)
+    case "i.neg" => a => numUn(a, -_, -_)
     case "i.and" => a => IntV(int(a, 0) & int(a, 1))
     case "i.or"  => a => IntV(int(a, 0) | int(a, 1))
     case "i.xor" => a => IntV(int(a, 0) ^ int(a, 1))
@@ -169,11 +172,11 @@ object Prims:
     case "i.shl" => a => IntV(int(a, 0) << int(a, 1))
     case "i.shr" => a => IntV(int(a, 0) >> int(a, 1))
     case "i.ushr"=> a => IntV(int(a, 0) >>> int(a, 1))
-    case "i.eq"  => a => BoolV(int(a, 0) == int(a, 1))
-    case "i.lt"  => a => BoolV(int(a, 0) <  int(a, 1))
-    case "i.le"  => a => BoolV(int(a, 0) <= int(a, 1))
-    case "i.gt"  => a => BoolV(int(a, 0) >  int(a, 1))
-    case "i.ge"  => a => BoolV(int(a, 0) >= int(a, 1))
+    case "i.eq"  => a => numCmp(a, _ == _, _ == _)
+    case "i.lt"  => a => numCmp(a, _ <  _, _ <  _)
+    case "i.le"  => a => numCmp(a, _ <= _, _ <= _)
+    case "i.gt"  => a => numCmp(a, _ >  _, _ >  _)
+    case "i.ge"  => a => numCmp(a, _ >= _, _ >= _)
     case "not"   => a => BoolV(!bool(a, 0))
     // BigInt
     case "big.add" => a => BigV(big(a, 0) + big(a, 1))
@@ -220,13 +223,20 @@ object Prims:
     case "str->f"  => a => str(a, 0).toDoubleOption.fold(none)(d => some(FloatV(d)))
     // String (UTF-16 code units; O(1) indexing)
     case "slen"      => a => IntV(str(a, 0).length.toLong)
-    case "sconcat"   => a => StrV(str(a, 0) + str(a, 1))
+    case "sconcat"   => a => (a(0), a(1)) match {
+      case (DataV(_, f1), DataV(_, f2)) =>
+        val n = f1.length + f2.length; DataV(s"Tuple$n", f1 ++ f2)
+      case _ => StrV(anyStr(a(0)) + anyStr(a(1)))
+    }
     case "sslice"    => a => StrV(str(a, 0).substring(int(a, 1).toInt, int(a, 2).toInt))
     case "scodeAt"   => a => IntV(str(a, 0).charAt(int(a, 1).toInt).toLong)
     case "sfromCodes"=> a => StrV(unlist(a(0)).map(v => asInt(v).toChar).mkString)
     case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
     case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
+    case "str.split" => a => { val parts = str(a, 0).split(java.util.regex.Pattern.quote(str(a, 1)), -1); val nilV: Value = DataV("Nil", Vector.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", Vector(StrV(s), acc))) }
+    case "str.trim"  => a => StrV(str(a, 0).trim)
+    case "str.lines" => a => { val parts = str(a, 0).split("\n", -1); val nilV: Value = DataV("Nil", Vector.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", Vector(StrV(s), acc))) }
     // Bytes
     case "blen"      => a => IntV(bytes(a, 0).length.toLong)
     case "bget"      => a => IntV((bytes(a, 0)(int(a, 1).toInt) & 0xff).toLong)
@@ -271,12 +281,31 @@ object Prims:
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
     case _ => sys.error(s"unimplemented primitive: $op")
 
+  // numeric dispatch helpers: promote to Float when either operand is FloatV
+  private def numBin(a: List[Value], fi: (Long, Long) => Long, ff: (Double, Double) => Double): Value =
+    (a(0), a(1)) match {
+      case (FloatV(x), FloatV(y)) => FloatV(ff(x, y))
+      case (FloatV(x), IntV(y))   => FloatV(ff(x, y.toDouble))
+      case (IntV(x), FloatV(y))   => FloatV(ff(x.toDouble, y))
+      case _                      => IntV(fi(int(a, 0), int(a, 1)))
+    }
+  private def numUn(a: List[Value], fi: Long => Long, ff: Double => Double): Value =
+    a(0) match { case FloatV(x) => FloatV(ff(x)); case _ => IntV(fi(int(a, 0))) }
+  private def numCmp(a: List[Value], fi: (Long, Long) => Boolean, ff: (Double, Double) => Boolean): Value =
+    (a(0), a(1)) match {
+      case (FloatV(x), FloatV(y)) => BoolV(ff(x, y))
+      case (FloatV(x), IntV(y))   => BoolV(ff(x, y.toDouble))
+      case (IntV(x), FloatV(y))   => BoolV(ff(x.toDouble, y))
+      case _                      => BoolV(fi(int(a, 0), int(a, 1)))
+    }
+
   // typed argument accessors
   private def int(a: List[Value], k: Int): Long = asInt(a(k))
   private def asInt(v: Value): Long = v match { case IntV(n) => n; case x => sys.error(s"expected Int, got ${Show.show(x)}") }
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
+  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => d.toString; case _ => Show.show(v) }
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, Vector[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }

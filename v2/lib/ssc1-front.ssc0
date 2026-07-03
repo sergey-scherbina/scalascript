@@ -50,7 +50,8 @@ def isKwC = (s) =>
 def isKwD = (s) =>
   if #seq(s, "true") then true else if #seq(s, "false") then true
   else if #seq(s, "null") then true else if #seq(s, "this") then true
-  else if #seq(s, "type") then true else if #seq(s, "while") then true else false
+  else if #seq(s, "type") then true else if #seq(s, "while") then true
+  else if #seq(s, "effect") then true else false
 def isKw = (s) =>
   if isKwA(s) then true else if isKwB(s) then true
   else if isKwC(s) then true else isKwD(s)
@@ -104,7 +105,24 @@ def lexFrom = (s, i) =>
       Cons(mkTok("id", #sslice(s, i2, e)), lexFrom(s, e))
     else if isDigit(c) then
       let e = scanEnd(isDigit, s, #i.add(i2, 1)) in
-      Cons(mkTok("int", #sslice(s, i2, e)), lexFrom(s, e))
+      -- float: digit '.' digit (e.g. 3.14159, 0.5, 1.0)
+      let nextIsDot = if #i.lt(e, slen(s)) then #i.eq(sget(s, e), 46) else false in
+      let nextDotIsFloat = if nextIsDot then
+        if #i.lt(#i.add(e, 1), slen(s)) then isDigit(sget(s, #i.add(e, 1)))
+        else false
+      else false in
+      if nextDotIsFloat then
+        let e2 = scanEnd(isDigit, s, #i.add(e, 2)) in
+        Cons(mkTok("float", #sslice(s, i2, e2)), lexFrom(s, e2))
+      else
+      -- strip Long suffix L/l (e.g. 0L, 2862933555777941757L)
+      let eL = if #i.lt(e, slen(s)) then
+        let lc = sget(s, e) in
+        if #i.eq(lc, 76) then #i.add(e, 1)
+        else if #i.eq(lc, 108) then #i.add(e, 1)
+        else e
+      else e in
+      Cons(mkTok("int", #sslice(s, i2, e)), lexFrom(s, eL))
     else if #i.eq(c, 34) then
       let e = scanStr(s, #i.add(i2, 1)) in
       Cons(mkTok("str", buildStr(s, #i.add(i2, 1), "")), lexFrom(s, #i.add(e, 1)))
@@ -161,7 +179,8 @@ def lexFrom = (s, i) =>
 def lex = (src) => lexFrom(src, 0)
 
 -- ── AST (tag-based encoding) ──────────────────────────────────────────────────
-def mkInt  = (n)        => Pair("int",  n)
+def mkInt   = (n)        => Pair("int",   n)
+def mkFloat = (n)        => Pair("float", n)
 def mkStr  = (s)        => Pair("str",  s)
 def mkBool = (b)        => Pair("bool", b)
 def mkVar  = (n)        => Pair("var",  n)
@@ -196,15 +215,25 @@ def skipKind = (k, toks) => if kindIs(k, toks) then advance(toks) else toks
 def skipKw   = (kw, toks) => if kwIs(kw, toks) then advance(toks) else toks
 
 -- Skip type annotation  ': Type'  (stop at '=' ')' ',' '{' 'EOF')
-def skipType = (toks) =>
+-- skipType: skip a type expression, respecting nested [...] brackets
+-- Stops at = ) , { EOF at depth 0; continues through , inside [...]
+def skipTypeAt = (depth, toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
-  if #seq(k, "=") then toks
+  if #seq(k, "EOF") then toks
+  else if #seq(k, "[") then skipTypeAt(#i.add(depth, 1), advance(toks))
+  else if #seq(k, "]") then
+    if #i.eq(depth, 0) then toks
+    else skipTypeAt(#i.sub(depth, 1), advance(toks))
+  else if #i.gt(depth, 0) then skipTypeAt(depth, advance(toks))
+  else if #seq(k, "=") then toks
   else if #seq(k, ")") then toks
   else if #seq(k, ",") then toks
   else if #seq(k, "{") then toks
-  else if #seq(k, "EOF") then toks
-  else skipType(advance(toks))
+  else if #seq(k, "}") then toks
+  else skipTypeAt(depth, advance(toks))
+
+def skipType = (toks) => skipTypeAt(0, toks)
 
 def skipTypeAnnot = (toks) =>
   if kindIs(":", toks) then skipType(advance(toks)) else toks
@@ -307,6 +336,7 @@ def parseAtom = (toks) =>
   let k = tokKind(t) in
   let v = tokVal(t) in
   if #seq(k, "int") then pr(mkInt(v), advance(toks))
+  else if #seq(k, "float") then pr(mkFloat(v), advance(toks))
   else if #seq(k, "str") then pr(mkStr(v), advance(toks))
   else if #seq(k, "id")  then
     -- KC12: detect s"..." / f"..." / raw"..." string interpolation
@@ -371,7 +401,20 @@ def parseBlock = (toks) =>
       pr(Pair("block", reverse(acc)), ts2)
     else if kwIs("val", ts2) then
       let r = parseVal(advance(ts2)) in
-      go(prT(r), Cons(prV(r), acc))
+      -- val name = fn(args) { block } → val name = fn(args)(() => block)
+      if kindIs("{", prT(r)) then
+        let rb = parseBlock(advance(prT(r))) in
+        let valStmt = match prV(r) {
+          case Pair(vtag, vdata) =>
+            match vdata {
+              case Pair(vname, vrhs) =>
+                let newRhs = mkApp(vrhs, Cons(mkLam(Nil, prV(rb)), Nil)) in
+                Pair("val", Pair(vname, newRhs))
+            }
+        } in
+        go(prT(rb), Cons(valStmt, acc))
+      else
+        go(prT(r), Cons(prV(r), acc))
     else if kwIs("var", ts2) then
       -- var x [: T] = expr  →  ("var", (name, expr))
       let r = parseVal(advance(ts2)) in
@@ -400,19 +443,46 @@ def parseBlock = (toks) =>
       let r = parseExpr(advance(ts2)) in
       go(prT(r), Cons(Pair("return", prV(r)), acc))
     else if kindIs("id", ts2) then
-      -- look ahead: id = expr is assignment; else parse as expression
+      -- look ahead: id = expr is assignment; id { block } is call-with-thunk; else expr
       let name = tokVal(peek(ts2)) in
       let ts3 = advance(ts2) in
       if kindIs("=", ts3) then
         let r = parseExpr(advance(ts3)) in
         go(prT(r), Cons(Pair("assign", Pair(name, prV(r))), acc))
+      else if kindIs("{", ts3) then
+        -- name { body }  →  name(() => body)  (e.g. runLogger/runStream block arg)
+        let rb = parseBlock(advance(ts3)) in
+        let call = mkApp(Pair("var", name), Cons(mkLam(Nil, prV(rb)), Nil)) in
+        go(prT(rb), Cons(Pair("expr", call), acc))
       else
         let r = parseExpr(ts2) in
-        go(prT(r), Cons(Pair("expr", prV(r)), acc))
+        -- Check for a(idx) = rhs  →  idx_assign
+        if kindIs("=", prT(r)) then
+          let r2 = parseExpr(advance(prT(r))) in
+          go(prT(r2), Cons(Pair("idx_assign", Pair(prV(r), prV(r2))), acc))
+        -- handle(expr) { handler } — consume trailing { block } as thunk arg
+        else if kindIs("{", prT(r)) then
+          let rb = parseBlock(advance(prT(r))) in
+          let call = mkApp(prV(r), Cons(mkLam(Nil, prV(rb)), Nil)) in
+          go(prT(rb), Cons(Pair("expr", call), acc))
+        else
+          go(prT(r), Cons(Pair("expr", prV(r)), acc))
     else
       let r = parseExpr(ts2) in
       go(prT(r), Cons(Pair("expr", prV(r)), acc)) in
   go(toks, Nil)
+
+-- parseStmtOrExpr: parse assignment (id = expr) or a regular expression
+-- Used for if-then/else branches which can be assignments in Scala 3 style
+def parseStmtOrExpr = (toks) =>
+  if kindIs("id", toks) then
+    let name = tokVal(peek(toks)) in
+    let ts2 = advance(toks) in
+    if kindIs("=", ts2) then
+      let r = parseExpr(advance(ts2)) in
+      pr(Pair("assign", Pair(name, prV(r))), prT(r))
+    else parseExpr(toks)
+  else parseExpr(toks)
 
 -- parseIfExpr: toks has consumed 'if'
 def parseIfExpr = (toks) =>
@@ -422,12 +492,13 @@ def parseIfExpr = (toks) =>
   else
     let r = parseExpr(toks) in pr(prV(r), skipKw("then", prT(r))) in
   let cond = prV(rCond) in
-  let rt = parseExpr(prT(rCond)) in
+  -- then-branch may be an assignment (Scala 3: if cond then x = expr)
+  let rt = parseStmtOrExpr(prT(rCond)) in
   let thenE = prV(rt) in
   let ts2 = prT(rt) in
   -- else is optional: if missing, emit Unit as else branch
   if kwIs("else", ts2) then
-    let re = parseExpr(advance(ts2)) in
+    let re = parseStmtOrExpr(advance(ts2)) in
     pr(mkIf(cond, thenE, prV(re)), prT(re))
   else
     pr(mkIf(cond, thenE, mkTup(Nil)), ts2)
@@ -471,12 +542,16 @@ def buildPostfix = (e, toks) =>
       let ra = moreArgs(toks2b, Nil) in
       buildPostfix(mergeWithE(prV(ra)), skipKind(")", prT(ra)))
   else if #seq(k, "[") then
-    -- skip type argument list [A, B] (type applications, not real args)
-    let rec skipBrack = (ts) =>
-      if kindIs("]", ts) then advance(ts)
-      else if kindIs("EOF", ts) then ts
-      else skipBrack(advance(ts)) in
-    buildPostfix(e, skipBrack(advance(toks)))
+    -- skip type argument list [A, B, C[D]] (type applications, not real args)
+    -- depth-tracking to handle nested brackets like [Monoid[A]]
+    let rec skipBrackD = (ts, depth) =>
+      if kindIs("EOF", ts) then ts
+      else if kindIs("[", ts) then skipBrackD(advance(ts), #i.add(depth, 1))
+      else if kindIs("]", ts) then
+        if #i.le(depth, 1) then advance(ts)
+        else skipBrackD(advance(ts), #i.sub(depth, 1))
+      else skipBrackD(advance(ts), depth) in
+    buildPostfix(e, skipBrackD(advance(toks), 1))
   else if #seq(k, "kw") then
     if kwIs("match", toks) then
       let ts2 = skipKind("{", advance(toks)) in
@@ -513,6 +588,15 @@ def parseInfix = (minPrec, lhs, toks) =>
       let r = parsePostfix(advance(toks)) in
       let r2 = parseInfix(#i.add(prec, 1), prV(r), prT(r)) in
       parseInfix(minPrec, mkInf(op, lhs, prV(r2)), prT(r2))
+  else if kindIs("id", toks) then
+    let name = tokVal(peek(toks)) in
+    if #seq(name, "until") then
+      let r = parsePostfix(advance(toks)) in
+      parseInfix(minPrec, mkApp(mkSel(lhs, "until"), Cons(prV(r), Nil)), prT(r))
+    else if #seq(name, "to") then
+      let r = parsePostfix(advance(toks)) in
+      parseInfix(minPrec, mkApp(mkSel(lhs, "to"), Cons(prV(r), Nil)), prT(r))
+    else pr(lhs, toks)
   else pr(lhs, toks)
 
 -- KC11: try to parse a lambda param list after `(` — returns pr(Some(names), rest-after-)) or pr(None, toks-before-()
@@ -571,11 +655,14 @@ def skipTypeParams = (toks) =>
 -- KC5: skip a single [T] type argument list after a TC name
 def skipTypeArgs = (ts) =>
   if kindIs("[", ts) then
-    let rec skipBr = (tss) =>
-      if kindIs("]", tss) then advance(tss)
-      else if kindIs("EOF", tss) then tss
-      else skipBr(advance(tss)) in
-    skipBr(advance(ts))
+    let rec skipBr = (tss, depth) =>
+      if kindIs("EOF", tss) then tss
+      else if kindIs("[", tss) then skipBr(advance(tss), #i.add(depth, 1))
+      else if kindIs("]", tss) then
+        if #i.le(depth, 1) then advance(tss)
+        else skipBr(advance(tss), #i.sub(depth, 1))
+      else skipBr(advance(tss), depth) in
+    skipBr(advance(ts), 1)
   else ts
 
 -- KC5: make a context dict param name from a bound: (tv, TC) → "__tc_TC"
@@ -626,6 +713,12 @@ def readTypeStr = (toks) =>
     if #seq(k, "=") then pr(joinStrs(reverse(acc)), ts)
     else if #seq(k, ";") then pr(joinStrs(reverse(acc)), ts)
     else if #seq(k, "EOF") then pr(joinStrs(reverse(acc)), ts)
+    else if #seq(k, "{") then pr(joinStrs(reverse(acc)), ts)
+    else if #seq(k, "kw") then
+      if #seq(v, "with") then pr(joinStrs(reverse(acc)), ts)
+      else
+        let sv = v in
+        go(advance(ts), Cons(sv, acc))
     else
       -- punctuation tokens have empty val; use the kind char itself
       let sv = if #seq(v, "") then k else v in
@@ -672,18 +765,45 @@ def parseDef = (toks) =>
   let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
-  -- '='
-  let toks7 = skipKind("=", toks6) in
-  let re = parseExpr(toks7) in
-  pr(mkDef(name, allParams, prV(re)), prT(re))
+  -- '=' is optional: abstract defs (in traits/effects) have no body
+  if kindIs("=", toks6) then
+    let re = parseExpr(advance(toks6)) in
+    pr(mkDef(name, allParams, prV(re)), prT(re))
+  else
+    pr(mkDef(name, allParams, mkTup(Nil)), toks6)
+
+-- consumeBlockArg: if next token is '{', parse it as a 0-arg thunk and apply to expr
+def consumeBlockArg = (expr, toks) =>
+  if kindIs("{", toks) then
+    let rb = parseBlock(advance(toks)) in
+    pr(mkApp(expr, Cons(mkLam(Nil, prV(rb)), Nil)), prT(rb))
+  else pr(expr, toks)
 
 def parseVal = (toks) =>
-  let name = tokVal(peek(toks)) in
-  let toks2 = advance(toks) in
-  let toks3 = skipTypeAnnot(toks2) in
-  let toks4 = skipKind("=", toks3) in
-  let re = parseExpr(toks4) in
-  pr(mkVal(name, prV(re)), prT(re))
+  -- Tuple pattern: val (a, b) = expr  →  ("tuppat", (names, expr))
+  if kindIs("(", toks) then
+    let ts1 = advance(toks) in
+    let rec goNames = (ts, acc) =>
+      let name = tokVal(peek(ts)) in
+      let ts2 = advance(ts) in
+      let acc2 = Cons(name, acc) in
+      if kindIs(",", ts2) then goNames(advance(ts2), acc2)
+      else pr(reverse(acc2), skipKind(")", ts2)) in
+    let rNames = goNames(ts1, Nil) in
+    let ts2 = prT(rNames) in
+    let ts3 = skipTypeAnnot(ts2) in
+    let ts4 = skipKind("=", ts3) in
+    let re = parseExpr(ts4) in
+    -- If followed by { body }, treat it as a block arg to the expr (e.g. runStream { ... })
+    let reFinal = consumeBlockArg(prV(re), prT(re)) in
+    pr(Pair("tuppat", Pair(prV(rNames), prV(reFinal))), prT(reFinal))
+  else
+    let name = tokVal(peek(toks)) in
+    let toks2 = advance(toks) in
+    let toks3 = skipTypeAnnot(toks2) in
+    let toks4 = skipKind("=", toks3) in
+    let re = parseExpr(toks4) in
+    pr(mkVal(name, prV(re)), prT(re))
 
 -- ── KC7: match + case class parsing ─────────────────────────────────────────
 
@@ -792,6 +912,18 @@ def skipToBrace = (ts) =>
   else if kindIs(";",   ts) then ts
   else skipToBrace(advance(ts))
 
+-- skipBraceBlock: skip a balanced {…} block (ts must start at `{`)
+def skipBraceBlock = (ts) =>
+  let rec go = (t, depth) =>
+    if kindIs("EOF", t) then t
+    else if kindIs("{", t) then go(advance(t), #i.add(depth, 1))
+    else if kindIs("}", t) then
+      if #i.le(depth, 1) then advance(t)
+      else go(advance(t), #i.sub(depth, 1))
+    else go(advance(t), depth) in
+  if kindIs("{", ts) then go(advance(ts), 1)
+  else ts
+
 -- skipToStmt: advance until next top-level statement keyword
 def skipToStmt = (ts) =>
   let tok = peek(ts) in
@@ -803,6 +935,8 @@ def skipToStmt = (ts) =>
     else if kwIs("val",    ts) then ts
     else if kwIs("case",   ts) then ts
     else if kwIs("sealed", ts) then ts
+    else if kwIs("trait",  ts) then ts
+    else if kwIs("given",  ts) then ts
     else if kwIs("object", ts) then ts
     else if kwIs("abstract", ts) then ts
     else skipToStmt(advance(ts))
@@ -823,6 +957,27 @@ def parseOneStmt = (toks) =>
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else if #seq(v, "abstract") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
+    else if #seq(v, "trait") then
+      -- Skip trait declarations entirely (abstract, no impl to lower).
+      -- Use a stmt-keyword-aware skip so we don't eat following case class declarations.
+      -- If a body `{...}` is encountered, skip it; otherwise stop at the next statement.
+      let rec skipTrait = (ts) =>
+        if kindIs("EOF", ts) then ts
+        else if kindIs(";",  ts) then ts
+        else if kindIs("{",  ts) then skipBraceBlock(ts)
+        else if kindIs("kw", ts) then
+          if kwIs("def",      ts) then ts
+          else if kwIs("val",    ts) then ts
+          else if kwIs("var",    ts) then ts
+          else if kwIs("case",   ts) then ts
+          else if kwIs("sealed", ts) then ts
+          else if kwIs("trait",  ts) then ts
+          else if kwIs("given",  ts) then ts
+          else if kwIs("object", ts) then ts
+          else if kwIs("abstract", ts) then ts
+          else skipTrait(advance(ts))
+        else skipTrait(advance(ts)) in
+      pr(Pair("sealed", ""), skipTrait(advance(toks)))
     else if #seq(v, "given") then
       -- KC5+KC8: `given name: T = body` → ("given", (name, typeStr, body)) for KC5 injection
       let ts1 = advance(toks) in
@@ -837,6 +992,18 @@ def parseOneStmt = (toks) =>
           if kindIs("=", ts3) then
             let re = parseExpr(advance(ts3)) in
             pr(Pair("given", Pair(gname, Pair(typeStr, prV(re)))), prT(re))
+          else if kwIs("with", ts3) then
+            -- given name: T with { defs } → ("given_obj", (name, typeStr, stmts))
+            let ts4 = skipToBrace(advance(ts3)) in
+            let rec parseObj = (ts, acc) =>
+              let ts5 = skipSemis(ts) in
+              if kindIs("}", ts5) then pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), advance(ts5))
+              else if kindIs("EOF", ts5) then pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), ts5)
+              else
+                let r = parseOneStmt(ts5) in
+                parseObj(prT(r), Cons(prV(r), acc)) in
+            if kindIs("{", ts4) then parseObj(advance(ts4), Nil)
+            else pr(Pair("given_obj", Pair(gname, Pair(typeStr, Nil))), ts4)
           else pr(Pair("sealed", ""), skipToStmt(ts3))
         else if kindIs("=", ts2) then
           -- `given name = body` (no type annotation) → treat as val
@@ -847,6 +1014,11 @@ def parseOneStmt = (toks) =>
       else
         -- Anonymous given (starts with uppercase type) — skip
         pr(Pair("sealed", ""), skipToStmt(ts1))
+    else if #seq(v, "effect") then
+      -- Skip "effect E: { defs }" effect-type declaration (no runtime representation)
+      let ts1 = skipToBrace(advance(toks)) in
+      let ts2 = if kindIs("{", ts1) then skipBraceBlock(ts1) else ts1 in
+      pr(Pair("sealed", ""), ts2)
     else if #seq(v, "object") then
       -- KC7b: parse object body into ("object", (name, [stmts]))
       let ts1 = advance(toks) in
@@ -863,7 +1035,22 @@ def parseOneStmt = (toks) =>
         parseObj(advance(ts2), Nil)
       else pr(Pair("object", Pair(name, Nil)), ts2)
     else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
-  else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+  else
+    -- KV9: check for "multi effect E { ... }" multi-shot effect declaration
+    if #seq(k, "id") then
+      if #seq(v, "multi") then
+        let ts1 = advance(toks) in
+        if kindIs("kw", ts1) then
+          if #seq(tokVal(peek(ts1)), "effect") then
+            let ts2 = advance(ts1) in
+            let ename = tokVal(peek(ts2)) in
+            let ts3 = skipToBrace(advance(ts2)) in
+            let ts4 = if kindIs("{", ts3) then skipBraceBlock(ts3) else ts3 in
+            pr(Pair("multi_effect", ename), ts4)
+          else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+        else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+      else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+    else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
 
 def skipSemis = (toks) =>
   if kindIs(";", toks) then skipSemis(advance(toks)) else toks
