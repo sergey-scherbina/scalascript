@@ -38,6 +38,38 @@ var _waChallengeTtlMs = 5 * 60 * 1000;
 var _waChallenges = new Map();   // challenge -> { userId, issuedMs }
 var _waCreds = new Map();        // userId -> [ { credentialId, publicKey, signCount } ]
 
+// ── Optional disk persistence — JS-backend counterpart of scalascript.server.WebAuthn's
+// configureStore/persist. Without it _waCreds is wiped by every process restart. Self-contained
+// require('fs') (not relying on another module's _nodeFs) so this file has no load-order dependency.
+var _waFs = (typeof require !== 'undefined') ? require('fs') : null;
+var _waStorePath = null;
+
+function _webauthnConfigureStore(path) {
+  _waStorePath = path;
+  _waCreds = new Map();
+  if (_waFs && _waFs.existsSync(path)) {
+    var lines = _waFs.readFileSync(path, 'utf8').split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (!lines[i]) continue;
+      var f = lines[i].split('\t');
+      if (f.length !== 4) continue;
+      var list = _waCreds.get(f[0]) || [];
+      list.push({ credentialId: f[1], publicKey: f[2], signCount: parseInt(f[3], 10) || 0 });
+      _waCreds.set(f[0], list);
+    }
+  }
+}
+function _waPersist() {
+  if (!_waFs || !_waStorePath) return;
+  var lines = [];
+  _waCreds.forEach(function(list, userId) {
+    list.forEach(function(c) { lines.push([userId, c.credentialId, c.publicKey, c.signCount].join('\t')); });
+  });
+  var tmp = _waStorePath + '.tmp';
+  _waFs.writeFileSync(tmp, lines.join('\n') + (lines.length ? '\n' : ''));
+  _waFs.renameSync(tmp, _waStorePath);
+}
+
 function _webauthnChallenge(userId) {
   var c = _waBytesToB64u(_nodeCrypto.randomBytes(32));
   _waChallenges.set(c, { userId: userId, issuedMs: Date.now() });
@@ -57,13 +89,14 @@ function _webauthnStorePut(userId, credentialId, publicKey, signCount) {
   var i = -1; for (var k = 0; k < list.length; k++) if (list[k].credentialId === credentialId) i = k;
   if (i >= 0) list[i] = c; else list.push(c);
   _waCreds.set(userId, list);
+  _waPersist();
   return undefined;
 }
 function _waCredMap(c) { return _Map(['credentialId', c.credentialId], ['publicKey', c.publicKey], ['signCount', c.signCount]); }
 function _webauthnStoreGet(userId) { return (_waCreds.get(userId) || []).map(_waCredMap); }
 function _waFindRaw(userId, credentialId) { var list = _waCreds.get(userId) || []; for (var i = 0; i < list.length; i++) if (list[i].credentialId === credentialId) return list[i]; return null; }
 function _webauthnStoreFind(userId, credentialId) { var c = _waFindRaw(userId, credentialId); return c ? _Some(_waCredMap(c)) : None; }
-function _webauthnUpdateSignCount(userId, credentialId, newCount) { var c = _waFindRaw(userId, credentialId); if (!c || newCount <= c.signCount) return false; c.signCount = newCount; return true; }
+function _webauthnUpdateSignCount(userId, credentialId, newCount) { var c = _waFindRaw(userId, credentialId); if (!c || newCount <= c.signCount) return false; c.signCount = newCount; _waPersist(); return true; }
 
 function _waJsonField(json, key) { try { var o = JSON.parse(json); var v = o[key]; return typeof v === 'string' ? v : null; } catch (e) { return null; } }
 function _waUint32BE(b, o) { return ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0; }

@@ -81,6 +81,62 @@ object WebAuthn:
 
   private val store = ConcurrentHashMap[String, java.util.List[Credential]]()
 
+  // ── Optional disk persistence ──────────────────────────────────────
+  // Without this, `store` is wiped by every server restart (deploy, crash,
+  // reboot) — every enrolled passkey is lost and every device falls back to
+  // whatever bootstrap mechanism guards enrolment. `configureStore` is a no-op
+  // (in-memory only, unchanged default) until a caller opts in with a path.
+  // Format: one line per credential, tab-separated
+  // `userId\tcredentialId\tpublicKey\tsignCount` — no JSON dependency, mirrors
+  // the plain-text-store convention already used elsewhere in this codebase
+  // (e.g. busi's own TSV identity/session files).
+  private val storeLock = Object()
+  private var storePath: Option[java.nio.file.Path] = None
+
+  /** Opt into disk persistence at `path`, loading any existing entries from it
+   *  immediately (e.g. on server startup, before any request is served). Safe
+   *  to call more than once (e.g. from a test); each call reloads from `path`. */
+  def configureStore(path: String): Unit =
+    val p = java.nio.file.Paths.get(path)
+    storeLock.synchronized {
+      storePath = Some(p)
+      store.clear()
+      if java.nio.file.Files.exists(p) then
+        val lines = java.nio.file.Files.readAllLines(p)
+        val it = lines.iterator()
+        while it.hasNext do
+          val line = it.next()
+          if line.nonEmpty then
+            line.split("\t", -1) match
+              case Array(userId, credentialId, publicKey, signCountStr) =>
+                val list = store.computeIfAbsent(userId, _ => java.util.ArrayList[Credential]())
+                list.add(Credential(credentialId, publicKey, signCountStr.toLongOption.getOrElse(0L)))
+              case _ => () // skip a malformed/partial line rather than fail startup
+    }
+
+  /** Rewrite the whole store file from the in-memory map (small store, simple
+   *  full-rewrite; tmp-file + atomic move avoids a torn write on crash). No-op
+   *  if `configureStore` was never called. Must be invoked under `storeLock`. */
+  private def persist(): Unit =
+    storePath.foreach { p =>
+      val tmp = p.resolveSibling(p.getFileName.toString + ".tmp")
+      val sb = StringBuilder()
+      val entries = scala.jdk.CollectionConverters.MapHasAsScala(store).asScala
+      entries.foreach { (userId, list) =>
+        list.synchronized {
+          val it = list.iterator()
+          while it.hasNext do
+            val c = it.next()
+            sb.append(userId).append('\t').append(c.credentialId).append('\t')
+              .append(c.publicKey).append('\t').append(c.signCount).append('\n')
+        }
+      }
+      java.nio.file.Files.createDirectories(p.getParent)
+      java.nio.file.Files.write(tmp, sb.toString.getBytes("UTF-8"))
+      java.nio.file.Files.move(tmp, p,
+        java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    }
+
   def storePut(userId: String, c: Credential): Unit =
     val list = store.computeIfAbsent(userId, _ => java.util.ArrayList[Credential]())
     list.synchronized {
@@ -91,6 +147,7 @@ object WebAuthn:
         if it.next().credentialId == c.credentialId then it.remove()
       list.add(c)
     }
+    storeLock.synchronized { persist() }
 
   def storeGet(userId: String): List[Credential] =
     Option(store.get(userId))
@@ -106,7 +163,7 @@ object WebAuthn:
    *  authenticator counter advanced as expected); false on cloned /
    *  replayed signatures. */
   def storeUpdateSignCount(userId: String, credentialId: String, newCount: Long): Boolean =
-    Option(store.get(userId)) match
+    val ok = Option(store.get(userId)) match
       case None       => false
       case Some(list) =>
         list.synchronized {
@@ -123,11 +180,15 @@ object WebAuthn:
             else i += 1
           ok
         }
+    if ok then storeLock.synchronized { persist() }
+    ok
 
-  /** Wipe everything — tests. */
+  /** Wipe everything — tests. Also clears any configured store path (the next
+   *  `configureStore` call starts fresh rather than reloading stale data). */
   def reset(): Unit =
     pending.clear()
     store.clear()
+    storeLock.synchronized { storePath = None }
 
   // ── Registration verification ─────────────────────────────────────
   // Parses a `navigator.credentials.create()` response (clientDataJSON

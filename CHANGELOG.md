@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — webauthn-persist: disk-persist the WebAuthn credential store
+
+`scalascript.server.WebAuthn`'s `CredentialStore` was process-local (`ConcurrentHashMap`), wiped by
+every server restart — busi's szykownia PWA silently lost every enrolled Face ID passkey on every
+deploy, falling back to a pairing code the owner had to fetch off the remote server's disk. Added
+opt-in `configureStore(path)` (tab-separated file, no JSON dep) + persistence on `storePut`/
+`storeUpdateSignCount` (tmp-file + atomic move); no-op/unchanged behavior unless called. New extern
+`webauthnConfigureStore`, wired on both JVM (native) and JS (Node `fs`-based) backends, declared in
+`std/auth.ssc`. `WebAuthnPersistTest.scala` (6 cases); `runtimeServerCommon/test` 146 green, no
+regressions; `authPlugin`/`backendJs` both compile clean.
+
 ## 2026-07-03 — agent-mcp-roundtrip: AgentMcpRoundTripTest (agent-sdk P3b)
 
 End-to-end round-trip test for the `std.agent.mcp` bridge (`runtime/std/agent-mcp.ssc`).

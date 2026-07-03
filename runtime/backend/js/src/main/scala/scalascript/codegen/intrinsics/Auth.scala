@@ -13,6 +13,7 @@ val JsAuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // → the standalone Node verifier in JsRuntimeWebAuthn (emitted under Capability.WebAuthn).
   // Non-identity targets so the std/auth extern namespace member falls back to the real
   // `_webauthn*` impl under Node (host `_ssc_ui_webauthn*` still wins in the browser).
+  QualifiedName("webauthnConfigureStore")      -> RuntimeCall("_webauthnConfigureStore"),
   QualifiedName("webauthnChallenge")           -> RuntimeCall("_webauthnChallenge"),
   QualifiedName("webauthnConsumeChallenge")    -> RuntimeCall("_webauthnConsumeChallenge"),
   QualifiedName("webauthnStorePut")            -> RuntimeCall("_webauthnStorePut"),

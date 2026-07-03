@@ -22,6 +22,7 @@ exports:
   - totpUri
   - totpCode
   - totpValid
+  - webauthnConfigureStore
   - webauthnChallenge
   - webauthnConsumeChallenge
   - webauthnStorePut
@@ -79,6 +80,9 @@ extern def totpCode(secret: String): String
 extern def totpValid(secret: String, code: String): Boolean
 
 // WebAuthn / passkeys (FIDO2 Level 2)
+// Opt into disk persistence for the credential store — call once at server startup with a file
+// path. Without it the store is in-memory only and every enrolled passkey is lost on restart.
+extern def webauthnConfigureStore(path: String): Unit
 extern def webauthnChallenge(userId: String): String
 extern def webauthnConsumeChallenge(userId: String): Option[String]
 extern def webauthnStorePut(userId: String, credentialId: String, publicKey: String, signCount: Int): Unit

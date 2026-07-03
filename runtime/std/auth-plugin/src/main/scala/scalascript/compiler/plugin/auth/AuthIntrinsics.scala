@@ -76,6 +76,14 @@ object AuthIntrinsics:
 
     // ── WebAuthn / passkeys ───────────────────────────────────────────────
 
+    // Opt into disk persistence for the credential store (else in-memory only,
+    // wiped on every restart) — call once at server startup with a file path.
+    QualifiedName("webauthnConfigureStore") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(path: String) => scalascript.server.WebAuthn.configureStore(path); ()
+        case _ => PluginError.raise("webauthnConfigureStore(path: String)")
+    },
+
     QualifiedName("webauthnChallenge") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(uid: String) => PluginValue.string(scalascript.server.WebAuthn.challenge(uid))
