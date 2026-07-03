@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v1-restructure: Phase 1 of v1→v2 migration
+
+Moved `lang/`, `runtime/`, `tools/` into `v1/` using `git mv` (history preserved). Updated all 75
+`.in(file("..."))` entries in `build.sbt`, plus `install.sh`, `scripts/runtime-bench.sh`,
+`tests/perf/{coldstart,serverrss}/run.sh`, and 3 CI workflows (ci.yml, native-release.yml,
+registry-pages.yml). `sbt compile` exits 0; `ssc run examples/hello.ssc` prints `Hello, World!`.
+Module names and `dependsOn` references are unchanged — pure path restructure.
+
 ## 2026-07-03 — webauthn-persist: disk-persist the WebAuthn credential store
 
 `scalascript.server.WebAuthn`'s `CredentialStore` was process-local (`ConcurrentHashMap`), wiped by

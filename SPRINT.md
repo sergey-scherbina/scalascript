@@ -16,9 +16,10 @@ Spec: `specs/v1-to-v2-migration.md`
 
 Three phases — execute in order, each phase gated by the previous:
 
-- [ ] **Phase 1: restructure** — `git mv lang/ → v1/lang/`, `runtime/ → v1/runtime/`,
-      `tools/ → v1/tools/`. Update `.in(file("..."))` paths in `build.sbt` (mechanical prefix).
-      Module names + `dependsOn` unchanged. Done-when: `sbt compile` green, `ssc run` works.
+- [x] **Phase 1: restructure** — DONE 2026-07-03. `git mv lang/ → v1/lang/`, `runtime/ → v1/runtime/`,
+      `tools/ → v1/tools/`. Updated `.in(file("..."))` paths in `build.sbt` (75 entries). Also updated
+      `install.sh`, `scripts/runtime-bench.sh`, `tests/perf/{coldstart,serverrss}/run.sh`, and 3 CI
+      workflows. `sbt compile` green, `ssc run examples/hello.ssc` prints `Hello, World!`.
 - [ ] **Phase 2a: v2 sbt module** — add `v2/` to root `build.sbt` as `lazy val v2Core`.
 - [ ] **Phase 2b: plugin SPI via shift/reset** — new `v2/runtime/backend/spi/` implements
       `BackendSpi` using v2 effect system (`_eff_perform`/`_eff_handle`) instead of v1 trampoline.
