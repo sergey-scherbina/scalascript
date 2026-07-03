@@ -1,6 +1,0 @@
-feature/v2-plugin-bridge 2026-07-03T16:15:41Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-07-03T16:15:41Z
-status: in-progress
-done-so-far: worktree created, read source files
-next: modify Runtime.scala + create bridge module + build.sbt entry
