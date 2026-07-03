@@ -1,0 +1,4 @@
+agent: claude
+branch: feature/webauthn-persist
+started: 2026-07-03
+task: webauthn-persist — persist WebAuthn CredentialStore to disk (currently in-memory ConcurrentHashMap, wiped on every server restart); requested by busi (szykownia PWA auth redesign, owner-driven).
