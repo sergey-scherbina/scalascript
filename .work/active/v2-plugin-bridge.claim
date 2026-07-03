@@ -1,0 +1,6 @@
+feature/v2-plugin-bridge 2026-07-03T16:13:12Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-07-03T16:13:12Z
+status: not-started
+done-so-far:
+next: read source files, then modify v2/src/Runtime.scala
