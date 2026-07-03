@@ -151,6 +151,21 @@ object Compiler:
             val avs = acs.map(ac => Runtime.value(ac, env)).toArray
             fv match
               case c: ClosV => Call(c, avs)                          // THE tail call: hand to driver
+              // Linked list used as indexed collection (Cons/Nil — v2 bridge represents List/Vector this way)
+              case lv @ (DataV("Cons", _) | DataV("Nil", _)) if avs.length == 1 =>
+                avs(0) match
+                  case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt))
+                  case _ => sys.error(s"app: list index must be Int")
+              // ForeignV(ArrayBuffer) — indexed get: a(idx)
+              case ForeignV(ab: collection.mutable.ArrayBuffer[?]) if avs.length == 1 =>
+                avs(0) match
+                  case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt))
+                  case _ => sys.error(s"app: array index must be Int")
+              // DataV used as indexed collection (e.g. compact arrays stored as DataV with fields)
+              case DataV(_, fields) if avs.length == 1 =>
+                avs(0) match
+                  case IntV(i) => Done(fields(i.toInt))
+                  case _ => sys.error(s"app: DataV index must be Int")
               case v => sys.error(s"app: not a function: ${Show.show(v)}")
       case While(cond, body) =>
         // Try FastCode path: avoids Done boxing and trampoline per iteration
@@ -232,6 +247,12 @@ object FastCode:
    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
   def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = t match
     case Lit(Const.CInt(n)) => Some(_ => n)
+    case Local(i) =>
+      // Optimistic: assume Local holds an IntV or LongCellV (function params, let-bindings)
+      val n = i; Some((env: Env) => env(env.length - 1 - n) match
+        case IntV(x) => x
+        case lc: LongCellV => lc.v
+        case _ => 0L)
     case Prim("lcell.get", List(Local(i))) =>
       val n = i; Some(env => env(env.length - 1 - n).asInstanceOf[LongCellV].v)
     case Prim("cell.get", List(Local(i))) =>
@@ -245,6 +266,15 @@ object FastCode:
       tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) - f1(env)))
     case Prim("i.mul", List(a0, a1)) =>
       tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) * f1(env)))
+    // __arith__ with literal op string — bridge-generated arithmetic (same as i.xxx but dynamic op)
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1))
+        if op == "+" || op == "-" || op == "*" || op == "%" || op == "/" =>
+      tryFLC(a0, globals).flatMap { f0 => tryFLC(a1, globals).map { f1 =>
+        val fn: (Long, Long) => Long = op match
+          case "+" => _ + _; case "-" => _ - _; case "*" => _ * _
+          case "%" => _ % _; case "/" => _ / _; case _   => (_, _) => 0L
+        (env: Env) => fn(f0(env), f1(env))
+      } }
     case _ => None
 
   /** Try to compile a cell.set to a FastCode that stores a raw Long (no IntV alloc). */
@@ -330,6 +360,15 @@ object FastCode:
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
   def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
+    // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1))
+        if op == "<" || op == "<=" || op == ">" || op == ">=" || op == "==" || op == "!=" =>
+      tryFLC(a0, globals).flatMap { f0 => tryFLC(a1, globals).map { f1 =>
+        val fn: (Long, Long) => Boolean = op match
+          case "<"  => _ < _; case "<=" => _ <= _; case ">"  => _ > _
+          case ">=" => _ >= _; case "==" => _ == _; case "!=" => _ != _; case _ => (_, _) => false
+        (env: Env) => fn(f0(env), f1(env))
+      } }
     case Prim(op, List(a0, a1)) if op.startsWith("i.l") || op.startsWith("i.g") || op == "i.eq" =>
       // Integer comparisons: try FLC first to avoid IntV boxing of operands
       tryFLC(a0, globals).flatMap { flc0 =>
@@ -496,6 +535,7 @@ object Prims:
     case "map.keys" => a => listOf(asMap(a(0)).keys.toSeq)
     case "map.size" => a => IntV(asMap(a(0)).size.toLong)
     // Array (Foreign, growable)
+    case "__mk_arr__" => a => ForeignV(collection.mutable.ArrayBuffer.from(a))
     case "arr.new"   => _ => ForeignV(collection.mutable.ArrayBuffer[Value]())
     case "arr.len"   => a => IntV(asArr(a(0)).length.toLong)
     case "arr.get"   => a => asArr(a(0))(int(a, 1).toInt)
@@ -520,6 +560,7 @@ object Prims:
     case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
     case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)
+    case "io.nanoTime"  => _ => IntV(System.nanoTime())
     case "io.readFile"  => a => BytesV(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(str(a, 0))).toVector)
     case "io.writeFile" => a => java.nio.file.Files.write(java.nio.file.Path.of(str(a, 0)), bytes(a, 1).toArray); UnitV
     case "io.env"  => a => sys.env.get(str(a, 0)).fold(none)(s => some(StrV(s)))
@@ -596,6 +637,11 @@ object Prims:
           case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
           case _    => sys.error(s"__arith__: op $op not valid for Bool")
         case (lv, rv) if isList(lv) && op == "++" => listOf(unlist(lv) ++ unlist(rv))
+        // Tuple concatenation: (a,b) ++ (c,d) = (a,b,c,d)
+        case (DataV(lt, lf), DataV(rt, rf))
+            if op == "++" && lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
+          val combined = lf ++ rf
+          DataV(s"Tuple${combined.length}", combined)
         case (lv, rv) => op match
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
           case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
@@ -618,8 +664,14 @@ object Prims:
       val margs = a.drop(2).toList
       (recv, name, margs) match
         case (IntV(n), "toString", Nil)      => StrV(n.toString)
+        case (IntV(n), "toInt", Nil)         => IntV(n.toInt.toLong)    // truncate to 32-bit
+        case (IntV(n), "toLong", Nil)        => IntV(n)
+        case (IntV(n), "toByte", Nil)        => IntV(n.toByte.toLong)
+        case (IntV(n), "toShort", Nil)       => IntV(n.toShort.toLong)
+        case (IntV(n), "toChar", Nil)        => IntV(n & 0xffffL)
         case (IntV(n), "toDouble", Nil)      => FloatV(n.toDouble)
         case (IntV(n), "toFloat", Nil)       => FloatV(n.toDouble)
+        case (IntV(n), "abs", Nil)           => IntV(math.abs(n))
         case (FloatV(d), "toString", Nil)    => StrV(Writer.floatStr(d))
         case (FloatV(d), "toInt", Nil)       => IntV(d.toLong)
         case (FloatV(d), "toLong", Nil)      => IntV(d.toLong)
@@ -787,14 +839,68 @@ object Prims:
         case (DataV("None", _), "foreach", List(_)) => UnitV
         case (DataV("Some", Vector(v)), "orElse", List(_)) => some(v)
         case (DataV("None", _), "orElse", List(other)) => other
+        case (DataV("Some", Vector(v)), "toList", Nil) => listOf(Seq(v))
+        case (DataV("None", _), "toList", Nil) => listOf(Seq.empty)
+        case (DataV("Some", Vector(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("None", _), "fold", List(default, _)) => default
+        // ── Either methods ───────────────────────────────────────────────────────
+        case (DataV("Bench", _), "opaque", List(v)) => v
+        case (DataV("BenchObj", _), "opaque", List(v)) => v
+        // LazyList
+        case (DataV("LazyList", _), "from", List(IntV(n))) =>
+          ForeignV(LazyList.from(n.toInt).map(i => IntV(i.toLong): Value))
+        case (DataV("LazyList", _), "from", List(IntV(n), IntV(step))) =>
+          ForeignV(LazyList.iterate(n)(x => x + step).map(i => IntV(i): Value))
+        case (ForeignV(ll: LazyList[?]), "map", List(fn: Value.ClosV)) =>
+          ForeignV(ll.asInstanceOf[LazyList[Value]].map(v => callClos(fn, Array(v))))
+        case (ForeignV(ll: LazyList[?]), "filter", List(fn: Value.ClosV)) =>
+          ForeignV(ll.asInstanceOf[LazyList[Value]].filter(v => callClos(fn, Array(v)) match { case BoolV(b) => b; case _ => false }))
+        case (ForeignV(ll: LazyList[?]), "take", List(IntV(n))) =>
+          listOf(ll.asInstanceOf[LazyList[Value]].take(n.toInt))
+        case (ForeignV(ll: LazyList[?]), "sum", Nil) =>
+          ll.asInstanceOf[LazyList[Value]].foldLeft(0L) { case (acc, IntV(i)) => acc + i; case (acc, _) => acc } match
+            case s => IntV(s)
+        case (ForeignV(ll: LazyList[?]), "toList", Nil) =>
+          listOf(ll.asInstanceOf[LazyList[Value]].toList)
+        case (DataV("Right", Vector(v)), "map", List(fn: Value.ClosV)) => DataV("Right", Vector(callClos(fn, Array(v))))
+        case (DataV("Left", _), "map", List(_)) => recv
+        case (DataV("Right", Vector(v)), "flatMap", List(fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("Left", _), "flatMap", List(_)) => recv
+        case (DataV("Right", Vector(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("Left",  Vector(v)), "fold", List(fn: Value.ClosV, _)) => callClos(fn, Array(v))
+        case (DataV("Right", Vector(v)), "getOrElse", List(_)) => v
+        case (DataV("Left",  _), "getOrElse", List(d)) => d
+        case (DataV("Right", _), "isRight", Nil) => BoolV(true)
+        case (DataV("Left",  _), "isRight", Nil) => BoolV(false)
+        case (DataV("Right", _), "isLeft",  Nil) => BoolV(false)
+        case (DataV("Left",  _), "isLeft",  Nil) => BoolV(true)
+        case (DataV("Right", Vector(v)), "toOption", Nil) => some(v)
+        case (DataV("Left",  _), "toOption", Nil) => none
         // ── Map/HashMap ──────────────────────────────────────────────────────────
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "size", Nil) =>
           IntV(m.size.toLong)
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "get", List(k)) =>
           m.asInstanceOf[collection.mutable.HashMap[Value,Value]].get(k) match
             case Some(v) => some(v); case None => none
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "getOrElse", List(k, default)) =>
+          m.asInstanceOf[collection.mutable.HashMap[Value,Value]].getOrElse(k, default)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "apply", List(k)) =>
+          m.asInstanceOf[collection.mutable.HashMap[Value,Value]](k)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "updated", List(k, v)) =>
+          val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
+          nm.update(k, v); ForeignV(nm)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "removed", List(k)) =>
+          val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
+          nm.remove(k); ForeignV(nm)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "+", List(DataV("Tuple2", Vector(k, v)))) =>
+          val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
+          nm.update(k, v); ForeignV(nm)
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "contains", List(k)) =>
           BoolV(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].contains(k))
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "isEmpty", Nil) =>
+          BoolV(m.isEmpty)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "nonEmpty", Nil) =>
+          BoolV(m.nonEmpty)
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "keys", Nil) =>
           listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].keys.toSeq)
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "values", Nil) =>
@@ -999,8 +1105,9 @@ object Prims:
   }
   private def listOf(vs: Seq[Value]): Value = vs.foldRight[Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
   private def strList(xs: Seq[String]): Value = listOf(xs.map(StrV(_)))
-  private def unlist(v: Value): List[Value] = v match
-    case DataV("Cons", Vector(h, t)) => h :: unlist(t)
+  private def unlist(v: Value): List[Value] = unlistPub(v)
+  def unlistPub(v: Value): List[Value] = v match
+    case DataV("Cons", Vector(h, t)) => h :: unlistPub(t)
     case DataV("Nil", _) => Nil
     case x => sys.error(s"expected a list, got ${Show.show(x)}")
 

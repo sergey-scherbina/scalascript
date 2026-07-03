@@ -166,6 +166,11 @@ object FrontendBridge:
     CDef("__unsupported__", CT.Lam(1, CT.Prim("io.println",
       List(CT.Prim("__arith__", List(CT.Lit(Const.CStr("++")),
         CT.Lit(Const.CStr("Unsupported: ")), CT.Local(0))))))),
+    CDef("nanoTime", CT.Lam(0, CT.Prim("io.nanoTime", Nil))),
+    // Bench harness stub — Bench.opaque(x) = identity (prevents constant folding)
+    CDef("Bench", CT.Ctor("BenchObj", Nil)),
+    // LazyList object (accessed as LazyList.from — isCtorName("LazyList")==true → Ctor handled in __method__)
+    CDef("LazyList", CT.Ctor("LazyList", Nil)),
   )
 
   // ── Block lowering ────────────────────────────────────────────────────────────
@@ -310,7 +315,10 @@ object FrontendBridge:
             convertApply(fn, ac.values.toList.map(a => if hasPH(a) then Term.AnonymousFunction(a) else a), innerScope.drop(arity))
           case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
             val l = go(lhs)
-            val r = argClause.values.headOption.map(go).getOrElse(CT.Lit(Const.CUnit))
+            val r = argClause.values.toList match
+              case Nil     => CT.Lit(Const.CUnit)
+              case List(e) => go(e)
+              case es      => CT.Ctor(s"Tuple${es.length}", es.map(go))
             convertInfix(op.value, l, r, innerScope)
           case _ => convertExpr(t, innerScope)
         CT.Lam(arity, go(body))
@@ -332,7 +340,11 @@ object FrontendBridge:
     // ── Infix ─────────────────────────────────────────────────────────────────
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val l = convertExpr(lhs, scope)
-      val r = argClause.values.headOption.map(e => convertExpr(e, scope)).getOrElse(CT.Lit(Const.CUnit))
+      // Multi-arg RHS (e.g. `a ++ (b, c)` parses as two args, not a Tuple)
+      val r = argClause.values.toList match
+        case Nil      => CT.Lit(Const.CUnit)
+        case List(e)  => convertExpr(e, scope)
+        case es       => CT.Ctor(s"Tuple${es.length}", es.map(e => convertExpr(e, scope)))
       convertInfix(op.value, l, r, scope)
 
     // ── Unary prefix ──────────────────────────────────────────────────────────
@@ -462,6 +474,9 @@ object FrontendBridge:
       case Term.Name("List") | Term.Name("Seq") | Term.Name("Vector") | Term.Name("IArray") =>
         val nil: CT = CT.Ctor("Nil", Nil)
         args.foldRight(nil)((h, t) => CT.Ctor("Cons", List(h, t)))
+      // Array factory → mutable array
+      case Term.Name("Array") =>
+        CT.Prim("__mk_arr__", args)
       // Map factory: Map(k1->v1, k2->v2) → map.new + map.put
       case Term.Name("Map") =>
         CT.Prim("__mk_map__", args)
