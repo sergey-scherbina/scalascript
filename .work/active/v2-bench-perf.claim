@@ -1,4 +1,0 @@
-agent: claude
-branch: feature/v2-bench-perf
-started: 2026-07-03
-task: v2-bench-perf — investigate and improve v2 VM bench performance (arith-loop, recursion-fib, etc.)
