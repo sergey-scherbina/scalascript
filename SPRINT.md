@@ -52,6 +52,60 @@ Three phases — execute in order, each phase gated by the previous:
       GOTCHA: macOS `echo` processes `\n` as a real newline (unlike Linux). Use `program > file` (redirect) or `printf '%s\n' "$var"` when writing backend output to files. The generated Scala/Rust code contains literal `\n` in preamble strings; `echo "$VAR"` corrupts them silently.
 - [ ] **Phase 3: switch** — CLI default → v2; `ssc --v1` escape hatch retained.
 
+### ▶ v2 full compatibility (2026-07-03 — Track 1 through 5)
+Spec: `specs/v2-full-compat.md`
+Goal: v2 handles ALL v1 programs with full language features + performance parity.
+Phase 3 (CLI switch) is gated on this entire track completing.
+
+**Track 1 — v1 IrExpr → Core IR (foundation — do first)**
+- [ ] **T1.1: FrontendBridge** — new sbt module `v2/frontend-bridge/`; converts v1 `IrExpr`
+      → Core IR `Term`. Scope tracker (List[String]), de Bruijn indexing, Block→Let chain,
+      Lambda→Lam, MatchTree→Match, Perform/Handle/Resume → v2 effect primitives.
+      INVESTIGATION FIRST: read interpreter to understand how Block/VarRef are resolved in v1.
+      Files: `v2/frontend-bridge/src/main/scala/ssc/bridge/FrontendBridge.scala`
+      Gate: unit tests converting simple IrExpr trees + at least one effect example.
+- [ ] **T1.2: NormalizedModule → Program** — top-level converter: sections → defs + entry.
+      Extracts `CodeBlock.body: List[IrExpr]` from NormalizedModule sections, identifies
+      top-level defs, builds `Program(defs, entry)`.
+      Gate: `examples/hello.ssc` converts to Core IR and runs under v2 VM.
+- [ ] **T1.3: CLI wiring** — `ssc run --v2 foo.ssc` → v1 frontend → FrontendBridge → v2 VM.
+      Also: `ssc compile --emit-coreir foo.ssc` → Core IR text to stdout (feeds v2 backends).
+      Gate: `ssc run --v2 examples/hello.ssc` prints `Hello, World!`
+- [ ] **T1.4: Examples verification** — run all `examples/` through `ssc run --v2`.
+      Fix each miss. Gate: 0 failures across all examples/
+
+**Track 2 — Plugin parity**
+- [ ] **T2.1: BlockForm effects** — Logger/State/Retry/Cache/Env/Random/Clock BlockForm
+      runners wired to v2 shift/reset mechanism. Each BlockForm → v2 `_eff_handle`-compatible
+      wrapper in PluginBridge. Gate: logger/state effect examples work under v2.
+- [ ] **T2.2: HTTP/SQL intrinsics** — verify end-to-end: HTTP GET + SQL query through v2
+      runtime (T1.3 must be complete). Gate: a real HTTP fetch returns correct response.
+- [ ] **T2.3: Actors (spike)** — investigate Java VirtualThread-per-actor model.
+      Gate: actor ping-pong program works under v2.
+
+**Track 3 — Performance parity**
+- [ ] **T3.1: Baseline benchmarks** — run bench corpus through all pipelines, produce table:
+      `program | v1-interp | v2-VM | v2-JVM | v1-JVM`. Identify top gaps.
+- [ ] **T3.2: v2 VM hot paths** — HOF fast paths (foldLeft/map/filter), string/collection ops.
+      Gate: no program more than 5× slower than v1 interpreter on bench corpus.
+- [ ] **T3.3: v2 JVM backend quality** — profile generated Scala vs v1 JVM output.
+      Gate: within 2× of v1 JVM backend on bench corpus.
+- [ ] **T3.4: v2 Rust backend ownership** — replace hot `Rc<RefCell>` paths with direct ownership.
+      Gate: within 1.5× of v1 Rust backend on bench corpus.
+
+**Track 4 — Full compatibility verification**
+- [ ] **T4.1: All examples** — run every `examples/` file under `ssc run --v2`. 0 failures.
+- [ ] **T4.2: Stdlib plugins** — run `v1/runtime/std/*.ssc` tests under v2. 0 failures.
+- [ ] **T4.3: Full application** — pick busi or payments demo, run end-to-end under v2.
+      Gate: HTTP server starts, handles requests, DB queries work.
+- [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2 pipeline.
+      Gate: v2 conformance score ≥ v1.
+
+**Track 5 — ssc1c fixes**
+- [ ] **T5.1: @count/@sum bug** — ssc1c emits `@`-prefixed globals for `var` cells instead of
+      `lcell.new` bindings. Fix in `v2/lib/ssc1-lower.ssc0`.
+      Gate: `bool-predicate` and `mutual-recursion` bench programs pass on all 3 backends.
+
 ### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)
 Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + golden transcripts.
 Spec: `specs/agent-sdk.md`. The MCP bridge (`runtime/std/agent-mcp.ssc`) is done in both directions;
