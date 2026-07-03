@@ -231,6 +231,9 @@ object Prims:
     case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
     case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
+    case "str.split" => a => { val parts = str(a, 0).split(java.util.regex.Pattern.quote(str(a, 1)), -1); val nilV: Value = DataV("Nil", Vector.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", Vector(StrV(s), acc))) }
+    case "str.trim"  => a => StrV(str(a, 0).trim)
+    case "str.lines" => a => { val parts = str(a, 0).split("\n", -1); val nilV: Value = DataV("Nil", Vector.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", Vector(StrV(s), acc))) }
     // Bytes
     case "blen"      => a => IntV(bytes(a, 0).length.toLong)
     case "bget"      => a => IntV((bytes(a, 0)(int(a, 1).toInt) & 0xff).toLong)

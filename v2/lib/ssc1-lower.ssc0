@@ -274,6 +274,18 @@ def isStrExpr = (e) =>
         }
       else if #seq(tag, "inf") then
         match data { case Pair(op2, lr2) => #seq(op2, "++") }
+      else if #seq(tag, "app") then
+        -- detect _sel_trim(s) and _sel_split(s, delim) results (string-producing)
+        match data {
+          case Pair(fn, args) =>
+            match fn {
+              case Pair(fntag, fndata) =>
+                if #seq(fntag, "var") then
+                  if #seq(fndata, "_sel_trim") then true
+                  else false
+                else false
+            }
+        }
       else false
   }
 
@@ -1039,6 +1051,47 @@ def sel4Def =
       IrMatch(IrLocal(0),
         Cons(IrArm("Tuple4", 4, IrLocal(0)), Nil), None)))
 
+-- ── String methods ────────────────────────────────────────────────────────────
+-- _sel_split(obj, delim) → str.split
+def selSplitDef =
+  IrDef("_sel_split",
+    IrLam(2, IrPrim("str.split", Cons(IrLocal(1), Cons(IrLocal(0), Nil)))))
+
+-- _sel_trim(obj) → str.trim  (0 extra args)
+def selTrimDef =
+  IrDef("_sel_trim",
+    IrLam(1, IrPrim("str.trim", Cons(IrLocal(0), Nil))))
+
+-- _sel_mkString(obj, sep) → join list with separator
+-- IrLam(2): sep=local0, obj=local1
+-- IrLetRec: go=local0, sep=local1, obj=local2; call=go(obj)
+-- go IrLam(1): xs=local0, go=local1, obj=local2, sep=local3
+-- Cons arm (2 fields): tail=local0, head=local1, xs=local2, go=local3, sep=local5
+-- inner Nil arm body: head is local1 (0-field arm, no shift)
+-- inner default: sconcat(head=local1, sconcat(sep=local5, go(tail=local0)))
+-- sconcat(x, "") converts x to string via anyStr (correct for any element)
+def selMkStringDef =
+  let nilArm  = IrArm("Nil", 0, IrLit(IrStr(""))) in
+  let consBody =
+    IrMatch(IrLocal(0),
+      Cons(IrArm("Nil", 0,
+        IrPrim("sconcat", Cons(IrLocal(1), Cons(IrLit(IrStr("")), Nil)))),
+      Nil),
+      Some(IrPrim("sconcat",
+        Cons(IrLocal(1),
+        Cons(IrPrim("sconcat",
+          Cons(IrLocal(5),
+          Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)),
+          Nil))),
+        Nil))))) in
+  let consArm = IrArm("Cons", 2, consBody) in
+  let goBody  = IrMatch(IrLocal(0), Cons(nilArm, Cons(consArm, Nil)), None) in
+  IrDef("_sel_mkString",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1, goBody), Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
 -- Check whether a main def with 0 params exists
 def hasZeroArgMain = (stmts) =>
   match stmts {
@@ -1081,7 +1134,10 @@ def kc6Defs =
   Cons(sel2Def,
   Cons(sel3Def,
   Cons(sel4Def,
-  Nil))))))))))))))))
+  Cons(selSplitDef,
+  Cons(selTrimDef,
+  Cons(selMkStringDef,
+  Nil)))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
