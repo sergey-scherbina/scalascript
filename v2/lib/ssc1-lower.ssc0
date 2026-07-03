@@ -582,11 +582,13 @@ def lowerE = (scope, rawExpr) =>
 -- De Bruijn indexing: in IrLam(n, body), last param = local 0.
 -- In IrArm(tag, k, body), last bound field = local 0 (all k fields shift outer scope by k).
 
--- _sel_map(list, f) = map f over list
--- lam(2): f=local0, list=local1
--- letrec go: go=local0, f=local1, list=local2
--- go=lam(1): xs=local0, go=local1, f=local2, list=local3
--- Cons arm (2 fields): t=local0, h=local1; go=local3, f=local4
+-- _sel_map(obj, f) — polymorphic map over List, Option, Either
+-- IrLam(2): f=local0, obj=local1
+-- IrLetRec: go=local0, f=local1, obj=local2
+-- go=IrLam(1): xs=local0; go=local1, f=local2, obj=local3
+-- Cons arm (2 fields): t=local0, h=local1, xs=local2, go=local3, f=local4
+-- 1-field arms (Some/Right/Left): v=local0, xs=local1, go=local2, f=local3
+-- 0-field arms (Nil/None): xs=local0, go=local1, f=local2
 def selMapDef =
   IrDef("_sel_map",
     IrLam(2,
@@ -599,9 +601,74 @@ def selMapDef =
                 Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)),
                 Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)),
                 Nil)))),
+            Cons(IrArm("Some", 1,
+              IrCtor("Some", Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
+            Cons(IrArm("None", 0, IrCtor("None", Nil)),
+            Cons(IrArm("Right", 1,
+              IrCtor("Right", Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
+            Cons(IrArm("Left", 1, IrCtor("Left", Cons(IrLocal(0), Nil))),
+            Nil)))))), None)),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- _sel_foreach(list, f) — iterate list for side effects; return Unit
+-- lam(2): f=local0, list=local1
+-- letrec go: go=local0, f=local1, list=local2
+-- go=lam(1): xs=local0, go=local1, f=local2
+-- Cons arm (2 fields): t=local0, h=local1; xs=local2, go=local3, f=local4
+-- Inside IrLet([f(h)]) body the env shifts by 1:
+--   f(h)_result=local0, t=local1, h=local2, xs=local3, go=local4, f=local5
+def selForeachDef =
+  IrDef("_sel_foreach",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrMatch(IrLocal(0),
+            Cons(IrArm("Nil", 0, IrLit(IrUnit)),
+            Cons(IrArm("Cons", 2,
+              IrLet(Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)), Nil),
+                IrApp(IrLocal(4), Cons(IrLocal(1), Nil)))),
             Nil)), None)),
         Nil),
         IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- _sel_flatMap(obj, f) — flatMap over Option/Either
+-- lam(2): f=local0, obj=local1
+-- Some arm (1 field): v=local0, f=local1 → f(v)
+-- None arm (0 fields): f=local0 → None
+-- Right arm (1 field): v=local0, f=local1 → f(v)
+-- Left arm (1 field): e=local0, f=local1 → Left(e)
+def selFlatMapDef =
+  IrDef("_sel_flatMap",
+    IrLam(2,
+      IrMatch(IrLocal(1),
+        Cons(IrArm("Some", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
+        Cons(IrArm("None", 0, IrCtor("None", Nil)),
+        Cons(IrArm("Right", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
+        Cons(IrArm("Left", 1, IrCtor("Left", Cons(IrLocal(0), Nil))),
+        Nil)))), None)))
+
+-- _sel_fold(either, fa, fb) — Either.fold; IrLam(3): fb=local0, fa=local1, either=local2
+-- Left arm (1 field): v=local0, fb=local1, fa=local2 → fa(v)
+-- Right arm (1 field): v=local0, fb=local1, fa=local2 → fb(v)
+def selFoldDef =
+  IrDef("_sel_fold",
+    IrLam(3,
+      IrMatch(IrLocal(2),
+        Cons(IrArm("Left", 1, IrApp(IrLocal(2), Cons(IrLocal(0), Nil))),
+        Cons(IrArm("Right", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
+        Nil)), None)))
+
+-- _sel_getOrElse(opt, default) — Option.getOrElse
+-- IrLam(2): default=local0, opt=local1
+-- Some arm (1 field): v=local0 → v
+-- default case (None): local0 = default
+def selGetOrElseDef =
+  IrDef("_sel_getOrElse",
+    IrLam(2,
+      IrMatch(IrLocal(1),
+        Cons(IrArm("Some", 1, IrLocal(0)), Nil),
+        Some(IrLocal(0)))))
 
 -- _sel_filter(list, f) = keep elements where f(elem) is true
 -- Same scope chain as _sel_map; Cons arm: t=local0, h=local1; go=local3, f=local4
@@ -963,14 +1030,18 @@ def hasZeroArgMain = (stmts) =>
 -- All injected KC6 helpers
 def kc6Defs =
   Cons(selMapDef,
+  Cons(selForeachDef,
   Cons(selFilterDef,
   Cons(selFoldLeftDef,
+  Cons(selFlatMapDef,
+  Cons(selFoldDef,
+  Cons(selGetOrElseDef,
   Cons(listHeadDef,
   Cons(listTailDef,
   Cons(listIsEmptyDef,
   Cons(listNonEmptyDef,
   Cons(strToIntDef,
-  Nil))))))))
+  Nil))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
