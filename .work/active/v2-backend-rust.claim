@@ -1,6 +1,6 @@
-feature/v2-backend-rust 2026-07-03T16:14:37Z
+feature/v2-backend-rust 2026-07-03T17:00:00Z
 agent: claude-sonnet-4-6
-heartbeat: 2026-07-03T16:14:37Z
-status: not-started
-done-so-far:
-next: create worktree and implement RustBackend.scala
+heartbeat: 2026-07-03T16:14:49Z
+status: in-progress
+done-so-far: worktree created at scalascript-wt-v2-backend-rust
+next: write RustBackend.scala core IR -> Rust code generator
