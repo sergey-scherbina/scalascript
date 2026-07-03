@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-bench-compat KV6: Array/Vector/Map/LazyList — 29/31 bench programs on v2
+
+Added to `ssc1-lower.ssc0`+`ssc1-front.ssc0`:
+- `Array(v0..vN)` / `Vector(v0..vN)` → `_arr_fill(list)` (mutable ArrayBuffer push-init)
+- `a(idx)` indexed read → `arr.get(a,idx)`; `a(idx) = x` → `arr.set` (new `idx_assign` parse tag)
+- `Map[K,V]()` → `map.new()`; `m.updated(k,v)` → `_sel_mapUpdated`; `m.getOrElse(k,d)` → `_sel_mapGetOrElse`
+- `LazyList.from(n)` → infinite `LazyCons` stream via letrec+thunk; `_sel_take` for LazyList/List
+- `_sel_sum` tail-recursive; `_sel_map` extended with `LazyCons`/`LazyNil` arms
+- `arrVarsCell`/`mapVarsCell` tracked in BOTH `resolveBlock` (so dispatch works within same block)
+  and `lowerBlock`; fixes "unbound global" for map ops following `var m = Map()` in same function.
+
+Programs now running: array-update, vector-index, map-ops, lazylist-take.
+Total: **29/31** (effect-pure + effect-stream deferred: need full `runLogger`/`runStream` infra).
+
 ## 2026-07-03 — v2-kc13-ssc1-runner: end-to-end `.ssc` Markdown runner (KC13)
 
 `ssc1-run.ssc0`: imports `mira-md.ssc0` + `ssc1-lower.ssc0`; reads a real `.ssc` file,
