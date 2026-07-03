@@ -1,0 +1,6 @@
+feature/v1-restructure 2026-07-03T15:54:18Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-07-03T15:54:18Z
+status: not-started
+done-so-far:
+next: create worktree and move lang/ runtime/ tools/ to v1/
