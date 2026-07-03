@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-backend-js: Phase 2c — Core IR → JavaScript code generator
+
+`v2/backend/js/JsBackend.scala` (scala-cli runnable): reads Core IR (S-expression text),
+emits a self-contained .js file that when run with `node` produces output identical to
+`ssc run-ir`. Trampoline TCO ($tco/$c loop), all Core IR nodes, full primitive set,
+ADTs as {t,f} objects, cells as [v] arrays, maps as {m,k} wrappers. Passes all 5
+conformance/*.coreir fixtures and 15 kc examples; 100k-deep tail recursion ok.
+Spec: v2/specs/60-backend-js.md (v2 section added).
+
+---
+
 ## 2026-07-03 — v2-backend-jvm: Phase 2c — Core IR → Scala 3 source code generator
 
 `v2/backend/jvm/JvmBackend.scala` (712 lines, scala-cli runnable): reads Core IR (S-expression text

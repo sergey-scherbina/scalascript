@@ -33,7 +33,10 @@ Three phases — execute in order, each phase gated by the previous:
       with `scalac` and run with `java`, produces byte-identical output to `ssc run-ir`. 28/29 pass
       (conformance + all 23 v2 examples); only `tco.coreir` (1M tail calls, no trampolining) is
       out of scope by design. Preamble handles all Core IR constructs + full prim set.
-- [ ] **Phase 2c: v2 JS backend** — Core IR → JavaScript (ES2020+). Parity with v1 JS.
+- [x] **Phase 2c: v2 JS backend** — DONE 2026-07-03. `v2/backend/js/JsBackend.scala`:
+      reads Core IR S-expr, emits a self-contained .js file. Trampoline TCO ($tco/$c),
+      full prim set, ADTs as {t,f}, cells as arrays, maps as wrappers. All 5 conformance
+      fixtures + 15 kc examples pass (output identical to ssc run-ir); 100k-deep TCO ok.
 - [ ] **Phase 2c: v2 Rust backend** — Core IR → Rust source. Parity with v1 Rust.
 - [ ] **Phase 2d: full checklist** — 31/31 bench on all backends, all plugin categories,
       conformance suite green, domain libs (payments/crypto/frontend) work, TUI works.
