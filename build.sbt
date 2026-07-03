@@ -105,6 +105,19 @@ lazy val v2PluginBridge = project
     libraryDependencies ++= Seq(scalatestTest),
   )
 
+// ── v2 frontend bridge — scalameta AST → Core IR converter (T1.1) ────────────────
+// Converts output of the v1 pipeline (scalameta AST from parser+typer+linker)
+// to v2 Core IR so ANY .ssc program can run on the v2 VM/backends.
+// Depends on: v2Core (ssc.Term/Const/Program), core (scalameta + v1 pipeline types).
+lazy val v2FrontendBridge = project
+  .in(file("v2/frontend-bridge"))
+  .dependsOn(v2Core, core)
+  .settings(
+    name := "scalascript-v2-frontend-bridge",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+    libraryDependencies ++= Seq(scalatestTest),
+  )
+
 // ── value-data — shared pure-data scalar leaves (value-unification, scalars-only) ──
 // A leaf module (depends on nothing) holding `enum DataValue` — the host-neutral scalar
 // leaves of the interpreter's `Value` (and, later, of `SpiValue`). Lives below `core` and
@@ -3786,7 +3799,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    v2Core, v2PluginBridge,
+    v2Core, v2PluginBridge, v2FrontendBridge,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,

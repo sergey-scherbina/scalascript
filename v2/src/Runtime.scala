@@ -484,6 +484,9 @@ object Prims:
     case "tagOf"   => a => StrV(asData(a(0))._1)
     case "arity"   => a => IntV(asData(a(0))._2.length.toLong)
     case "fieldAt" => a => asData(a(0))._2(int(a, 1).toInt)
+    case "__isTag__" => a => a(0) match
+      case DataV(t, fs) => BoolV(t == str(a, 1) && fs.length == int(a, 2).toInt)
+      case _            => BoolV(false)
     // Map (Foreign, mutable; keys/values are Values)
     case "map.new"  => _ => ForeignV(collection.mutable.HashMap[Value, Value]())
     case "map.get"  => a => asMap(a(0)).get(a(1)).fold(none)(some)
@@ -501,6 +504,10 @@ object Prims:
     case "arr.pop"   => a => asArr(a(0)).remove(asArr(a(0)).length - 1)
     case "arr.slice" => a => ForeignV(collection.mutable.ArrayBuffer.from(asArr(a(0)).slice(int(a, 1).toInt, int(a, 2).toInt)))
     // Cell (Foreign, single mutable ref)
+    case "__mk_method_obj__" => a =>
+      val pairs = a.grouped(2).map { case List(StrV(k), v) => k -> v; case g => g(0).toString -> g(1) }.toList
+      ForeignV(collection.immutable.Map.from(pairs))
+    case "__math_obj__" => _ => ForeignV("__math__")
     case "cell.new" => a => ForeignV(scala.Array[Value](a(0)))
     case "cell.get" => a => asCell(a(0))(0)
     case "cell.set" => a => asCell(a(0))(0) = a(1); UnitV
@@ -519,6 +526,296 @@ object Prims:
     case "io.exit" => a => sys.exit(int(a, 0).toInt); UnitV
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
+    // ── FrontendBridge collection factories ────────────────────────────────────────
+    // Map(k->v, ...) factory: args are Tuple2 pairs (DataV("Tuple2", [k, v]))
+    case "__mk_map__" => a =>
+      val m = collection.mutable.HashMap[Value, Value]()
+      a.foreach {
+        case DataV("Tuple2", Vector(k, v)) => m(k) = v
+        case DataV("->", Vector(k, v))     => m(k) = v
+        case pair => sys.error(s"Map factory: expected k->v pair, got ${Show.show(pair)}")
+      }
+      ForeignV(m)
+    // ── Dynamic dispatch primitives (for FrontendBridge — no static type info) ────
+    // __arith__(op, lhs, rhs): type-dispatched arithmetic/comparison/string concat.
+    // Covers the cases that ssc1c maps to typed i.*/f.* ops.
+    case "__arith__" => a =>
+      val op = str(a, 0)
+      if op == "->" then DataV("Tuple2", Vector(a(1), a(2)))
+      else (a(1), a(2)) match
+        case (IntV(x), IntV(y)) => op match
+          case "+"   => IntV(x + y);   case "-"   => IntV(x - y);   case "*"  => IntV(x * y)
+          case "/"   => IntV(x / y);   case "%"   => IntV(x % y)
+          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+          case "<"   => BoolV(x < y);  case "<=" => BoolV(x <= y)
+          case ">"   => BoolV(x > y);  case ">=" => BoolV(x >= y)
+          case "&"   => IntV(x & y);   case "|"   => IntV(x | y);   case "^"  => IntV(x ^ y)
+          case "<<"  => IntV(x << y.toInt); case ">>" => IntV(x >> y.toInt); case ">>>" => IntV(x >>> y.toInt)
+          case "++"  => StrV(x.toString + y.toString)
+          case "to"    => { val nilV: Value = DataV("Nil", Vector.empty); (x to y).foldRight(nilV)((i, acc) => DataV("Cons", Vector(IntV(i), acc))) }
+          case "until" => { val nilV: Value = DataV("Nil", Vector.empty); (x until y).foldRight(nilV)((i, acc) => DataV("Cons", Vector(IntV(i), acc))) }
+          case _     => sys.error(s"__arith__: unknown op $op for Int")
+        case (FloatV(x), FloatV(y)) => op match
+          case "+"  => FloatV(x + y); case "-"  => FloatV(x - y); case "*"  => FloatV(x * y)
+          case "/"  => FloatV(x / y); case "%"  => FloatV(x % y)
+          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+          case "<"  => BoolV(x < y);  case "<=" => BoolV(x <= y)
+          case ">"  => BoolV(x > y);  case ">=" => BoolV(x >= y)
+          case "++" => StrV(x.toString + y.toString)
+          case _    => sys.error(s"__arith__: unknown op $op for Float")
+        case (IntV(x), FloatV(y)) => op match  // widening
+          case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
+          case "/" => FloatV(x / y); case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+          case "<" => BoolV(x < y); case "<=" => BoolV(x <= y); case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
+          case _ => sys.error(s"__arith__: unknown op $op for Int+Float")
+        case (FloatV(x), IntV(y)) => op match
+          case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
+          case "/" => FloatV(x / y); case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+          case "<" => BoolV(x < y); case "<=" => BoolV(x <= y); case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
+          case _ => sys.error(s"__arith__: unknown op $op for Float+Int")
+        case (StrV(x), StrV(y)) => op match
+          case "++" | "+" => StrV(x + y)
+          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+          case "<" => BoolV(x < y); case "<=" => BoolV(x <= y)
+          case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
+          case _    => sys.error(s"__arith__: unknown op $op for String")
+        case (StrV(x), IntV(y)) => op match
+          case "*"        => StrV(x * y.toInt)
+          case "+" | "++" => StrV(x + y.toString)
+          case _   => sys.error(s"__arith__: unknown op $op for String+Int")
+        case (IntV(x), StrV(y)) => op match
+          case "+" | "++" => StrV(x.toString + y)
+          case _   => sys.error(s"__arith__: unknown op $op for Int+String")
+        case (FloatV(x), StrV(y)) => op match
+          case "+" | "++" => StrV(x.toString + y)
+          case _   => sys.error(s"__arith__: unknown op $op for Float+String")
+        case (StrV(x), FloatV(y)) => op match
+          case "+" | "++" => StrV(x + y.toString)
+          case _   => sys.error(s"__arith__: unknown op $op for String+Float")
+        case (BoolV(x), BoolV(y)) => op match
+          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+          case _    => sys.error(s"__arith__: op $op not valid for Bool")
+        case (lv, rv) if isList(lv) && op == "++" => listOf(unlist(lv) ++ unlist(rv))
+        case (lv, rv) => op match
+          case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
+          case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
+          case "->" => DataV("Tuple2", Vector(lv, rv))  // k -> v pair
+          case _    => sys.error(s"__arith__: type mismatch for $op: ${Show.show(lv)}, ${Show.show(rv)}")
+    // __unary__(op, val): type-dispatched unary operators
+    case "__unary__" => a =>
+      val op = str(a, 0)
+      a(1) match
+        case IntV(n)   => op match { case "-" => IntV(-n); case "~" => IntV(~n); case _ => sys.error(s"__unary__: $op on Int") }
+        case FloatV(d) => op match { case "-" => FloatV(-d); case _ => sys.error(s"__unary__: $op on Float") }
+        case BoolV(b)  => op match { case "!" => BoolV(!b); case _ => sys.error(s"__unary__: $op on Bool") }
+        case v => sys.error(s"__unary__: $op on ${Show.show(v)}")
+    // __eq__(a, b): structural equality (works on all Value types including ADTs)
+    case "__eq__" => a => BoolV(a(0) == a(1))
+    // __method__(name, receiver, args...): method dispatch on receiver type
+    case "__method__" => a =>
+      val name = str(a, 0)
+      val recv = a(1)
+      val margs = a.drop(2).toList
+      (recv, name, margs) match
+        case (IntV(n), "toString", Nil)      => StrV(n.toString)
+        case (IntV(n), "toDouble", Nil)      => FloatV(n.toDouble)
+        case (IntV(n), "toFloat", Nil)       => FloatV(n.toDouble)
+        case (FloatV(d), "toString", Nil)    => StrV(Writer.floatStr(d))
+        case (FloatV(d), "toInt", Nil)       => IntV(d.toLong)
+        case (FloatV(d), "toLong", Nil)      => IntV(d.toLong)
+        case (StrV(s), "length", Nil)        => IntV(s.length.toLong)
+        case (StrV(s), "size", Nil)          => IntV(s.length.toLong)
+        case (StrV(s), "isEmpty", Nil)       => BoolV(s.isEmpty)
+        case (StrV(s), "nonEmpty", Nil)      => BoolV(s.nonEmpty)
+        case (StrV(s), "toInt", Nil)         => s.toLongOption.fold(none)(n => some(IntV(n)))
+        case (StrV(s), "toDouble", Nil)      => s.toDoubleOption.fold(none)(d => some(FloatV(d)))
+        case (StrV(s), "trim", Nil)          => StrV(s.trim)
+        case (StrV(s), "toUpperCase", Nil)   => StrV(s.toUpperCase)
+        case (StrV(s), "toLowerCase", Nil)   => StrV(s.toLowerCase)
+        case (StrV(s), "reverse", Nil)       => StrV(s.reverse)
+        case (StrV(s), "split", List(StrV(d))) => {
+          val parts = s.split(java.util.regex.Pattern.quote(d), -1)
+          val nilV: Value = DataV("Nil", Vector.empty)
+          parts.foldRight(nilV)((x, acc) => DataV("Cons", Vector(StrV(x), acc)))
+        }
+        case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
+        case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
+        case (StrV(s), "endsWith", List(StrV(sfx)))   => BoolV(s.endsWith(sfx))
+        case (StrV(s), "substring", List(IntV(i)))      => StrV(s.substring(i.toInt))
+        case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
+        case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
+        case (StrV(s), "indexOf", List(StrV(sub)))      => IntV(s.indexOf(sub).toLong)
+        // ── scala.math object ──────────────────────────────────────────────────────
+        case (ForeignV("__math__"), "Pi", Nil)         => FloatV(math.Pi)
+        case (ForeignV("__math__"), "E", Nil)          => FloatV(math.E)
+        case (ForeignV("__math__"), "abs", List(IntV(x)))   => IntV(math.abs(x))
+        case (ForeignV("__math__"), "abs", List(FloatV(x))) => FloatV(math.abs(x))
+        case (ForeignV("__math__"), "round", List(FloatV(x))) => IntV(math.round(x))
+        case (ForeignV("__math__"), "round", List(IntV(x)))   => IntV(x)
+        case (ForeignV("__math__"), "floor", List(FloatV(x))) => FloatV(math.floor(x))
+        case (ForeignV("__math__"), "ceil", List(FloatV(x)))  => FloatV(math.ceil(x))
+        case (ForeignV("__math__"), "sqrt", List(FloatV(x)))  => FloatV(math.sqrt(x))
+        case (ForeignV("__math__"), "sqrt", List(IntV(x)))    => FloatV(math.sqrt(x.toDouble))
+        case (ForeignV("__math__"), "pow", List(FloatV(b), FloatV(e)))  => FloatV(math.pow(b, e))
+        case (ForeignV("__math__"), "pow", List(IntV(b), IntV(e)))      => FloatV(math.pow(b.toDouble, e.toDouble))
+        case (ForeignV("__math__"), "sin", List(FloatV(x)))   => FloatV(math.sin(x))
+        case (ForeignV("__math__"), "cos", List(FloatV(x)))   => FloatV(math.cos(x))
+        case (ForeignV("__math__"), "tan", List(FloatV(x)))   => FloatV(math.tan(x))
+        case (ForeignV("__math__"), "log", List(FloatV(x)))   => FloatV(math.log(x))
+        case (ForeignV("__math__"), "log10", List(FloatV(x))) => FloatV(math.log10(x))
+        case (ForeignV("__math__"), "exp", List(FloatV(x)))   => FloatV(math.exp(x))
+        case (ForeignV("__math__"), "min", List(IntV(a), IntV(b)))      => IntV(math.min(a, b))
+        case (ForeignV("__math__"), "max", List(IntV(a), IntV(b)))      => IntV(math.max(a, b))
+        case (ForeignV("__math__"), "min", List(FloatV(a), FloatV(b)))  => FloatV(math.min(a, b))
+        case (ForeignV("__math__"), "max", List(FloatV(a), FloatV(b)))  => FloatV(math.max(a, b))
+        case (DataV("Nil", _), "isEmpty", Nil)  => BoolV(true)
+        case (DataV("Cons", _), "isEmpty", Nil) => BoolV(false)
+        case (DataV("Nil", _), "nonEmpty", Nil)  => BoolV(false)
+        case (DataV("Cons", _), "nonEmpty", Nil) => BoolV(true)
+        case (DataV("Nil", _), "length", Nil) | (DataV("Nil", _), "size", Nil) =>
+          IntV(unlist(recv).length.toLong)
+        case (DataV("Cons", _), "length", Nil) | (DataV("Cons", _), "size", Nil) =>
+          IntV(unlist(recv).length.toLong)
+        case (DataV("Nil", _), "head", Nil)  => sys.error("head on empty list")
+        case (DataV("Cons", f), "head", Nil) => f(0)
+        case (DataV("Cons", f), "tail", Nil) => f(1)
+        case (DataV("Nil", _), "tail", Nil)  => sys.error("tail on empty list")
+        // ── List HOFs (DataV Cons/Nil linked list) ──────────────────────────────
+        case (ls, "map", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).map(x => callClos(fn, Array(x))))
+        case (ls, "flatMap", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).flatMap(x => unlist(callClos(fn, Array(x)))))
+        case (ls, "filter", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).filter(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+        case (ls, "filterNot", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).filterNot(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+        case (ls, "foldLeft", List(z, fn: Value.ClosV)) if isList(ls) =>
+          unlist(ls).foldLeft(z)((acc, x) => callClos(fn, Array(acc, x)))
+        case (ls, "foldRight", List(z, fn: Value.ClosV)) if isList(ls) =>
+          unlist(ls).foldRight(z)((x, acc) => callClos(fn, Array(x, acc)))
+        case (ls, "foreach", List(fn: Value.ClosV)) if isList(ls) =>
+          unlist(ls).foreach(x => callClos(fn, Array(x))); UnitV
+        case (ls, "find", List(fn: Value.ClosV)) if isList(ls) =>
+          unlist(ls).find(x => callClos(fn, Array(x)) == Value.BoolV(true)) match
+            case Some(v) => some(v); case None => none
+        case (ls, "exists", List(fn: Value.ClosV)) if isList(ls) =>
+          BoolV(unlist(ls).exists(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+        case (ls, "forall", List(fn: Value.ClosV)) if isList(ls) =>
+          BoolV(unlist(ls).forall(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+        case (ls, "count", List(fn: Value.ClosV)) if isList(ls) =>
+          IntV(unlist(ls).count(x => callClos(fn, Array(x)) == Value.BoolV(true)).toLong)
+        case (ls, "sortBy", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).sortBy(x => callClos(fn, Array(x)))(valueOrdering))
+        case (ls, "sortWith", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).sortWith((a, b) => callClos(fn, Array(a, b)) == Value.BoolV(true)))
+        case (ls, "groupBy", List(fn: Value.ClosV)) if isList(ls) =>
+          val groups = unlist(ls).groupBy(x => callClos(fn, Array(x)))
+          val pairs = groups.map { case (k, vs) => DataV("Tuple2", Vector(k, listOf(vs))) }.toList
+          listOf(pairs)
+        case (ls, "zip", List(other)) if isList(ls) =>
+          listOf(unlist(ls).zip(unlist(other)).map { case (a, b) => DataV("Tuple2", Vector(a, b)) })
+        case (ls, "zipWithIndex", Nil) if isList(ls) =>
+          listOf(unlist(ls).zipWithIndex.map { case (a, i) => DataV("Tuple2", Vector(a, IntV(i.toLong))) })
+        case (ls, "take", List(IntV(n))) if isList(ls) => listOf(unlist(ls).take(n.toInt))
+        case (ls, "drop", List(IntV(n))) if isList(ls) => listOf(unlist(ls).drop(n.toInt))
+        case (ls, "takeWhile", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).takeWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+        case (ls, "dropWhile", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).dropWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+        case (ls, "flatten", Nil) if isList(ls) => listOf(unlist(ls).flatMap(unlist))
+        case (ls, "reverse", Nil) if isList(ls) => listOf(unlist(ls).reverse)
+        case (ls, "distinct", Nil) if isList(ls) => listOf(unlist(ls).distinct)
+        case (ls, "last", Nil) if isList(ls) => unlist(ls).last
+        case (ls, "init", Nil) if isList(ls) => listOf(unlist(ls).init)
+        case (ls, "sum", Nil) if isList(ls) =>
+          unlist(ls).foldLeft[Value](IntV(0)) {
+            case (IntV(a), IntV(b)) => IntV(a + b)
+            case (FloatV(a), FloatV(b)) => FloatV(a + b)
+            case (IntV(a), FloatV(b)) => FloatV(a + b)
+            case (FloatV(a), IntV(b)) => FloatV(a + b)
+            case (a, b) => sys.error(s"sum: cannot add ${Show.show(a)} and ${Show.show(b)}")
+          }
+        case (ls, "max", Nil) if isList(ls) => unlist(ls).max(valueOrdering)
+        case (ls, "min", Nil) if isList(ls) => unlist(ls).min(valueOrdering)
+        case (ls, "maxBy", List(fn: Value.ClosV)) if isList(ls) =>
+          unlist(ls).maxBy(x => callClos(fn, Array(x)))(valueOrdering)
+        case (ls, "minBy", List(fn: Value.ClosV)) if isList(ls) =>
+          unlist(ls).minBy(x => callClos(fn, Array(x)))(valueOrdering)
+        case (ls, "mkString", Nil) if isList(ls) =>
+          StrV(unlist(ls).map(anyStr).mkString)
+        case (ls, "mkString", List(StrV(sep))) if isList(ls) =>
+          StrV(unlist(ls).map(anyStr).mkString(sep))
+        case (ls, "mkString", List(StrV(pre), StrV(sep), StrV(post))) if isList(ls) =>
+          StrV(unlist(ls).map(anyStr).mkString(pre, sep, post))
+        case (ls, "toList", Nil) if isList(ls) => ls
+        case (ls, "toSet", Nil) if isList(ls) =>
+          listOf(unlist(ls).distinct)  // approximate set as distinct list
+        case (ls, "toVector", Nil) if isList(ls) => ls
+        case (ls, "contains", List(v)) if isList(ls) => BoolV(unlist(ls).contains(v))
+        case (ls, "indexOf", List(v)) if isList(ls) => IntV(unlist(ls).indexOf(v).toLong)
+        case (ls, "+:", List(v)) if isList(ls) => DataV("Cons", Vector(v, ls))
+        case (ls, ":+", List(v)) if isList(ls) => listOf(unlist(ls) :+ v)
+        case (ls, "++", List(other)) if isList(ls) => listOf(unlist(ls) ++ unlist(other))
+        case (ls, "splitAt", List(IntV(n))) if isList(ls) =>
+          val (a, b) = unlist(ls).splitAt(n.toInt)
+          DataV("Tuple2", Vector(listOf(a), listOf(b)))
+        case (ls, "partition", List(fn: Value.ClosV)) if isList(ls) =>
+          val (yes, no) = unlist(ls).partition(x => callClos(fn, Array(x)) == Value.BoolV(true))
+          DataV("Tuple2", Vector(listOf(yes), listOf(no)))
+        // ── Tuple accessors ──────────────────────────────────────────────────────
+        case (DataV(tag, fields), n, Nil) if tag.startsWith("Tuple") && n.matches("_\\d+") =>
+          fields(n.drop(1).toInt - 1)
+        case (DataV(_, fields), "fieldAt", List(IntV(i))) => fields(i.toInt)
+        // ── Option methods ───────────────────────────────────────────────────────
+        case (DataV("Some", Vector(v)), "get", Nil) => v
+        case (DataV("None", _), "get", Nil) => sys.error("None.get")
+        case (DataV("Some", _), "isEmpty", Nil)  => BoolV(false)
+        case (DataV("None", _), "isEmpty", Nil)  => BoolV(true)
+        case (DataV("Some", _), "isDefined", Nil) => BoolV(true)
+        case (DataV("None", _), "isDefined", Nil) => BoolV(false)
+        case (DataV("Some", Vector(v)), "getOrElse", List(_)) => v
+        case (DataV("None", _), "getOrElse", List(d)) => d
+        case (DataV("Some", Vector(v)), "map", List(fn: Value.ClosV)) => some(callClos(fn, Array(v)))
+        case (DataV("None", _), "map", List(_)) => none
+        case (DataV("Some", Vector(v)), "flatMap", List(fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("None", _), "flatMap", List(_)) => none
+        case (DataV("Some", Vector(v)), "filter", List(fn: Value.ClosV)) =>
+          if callClos(fn, Array(v)) == BoolV(true) then some(v) else none
+        case (DataV("None", _), "filter", List(_)) => none
+        case (DataV("Some", Vector(v)), "foreach", List(fn: Value.ClosV)) =>
+          callClos(fn, Array(v)); UnitV
+        case (DataV("None", _), "foreach", List(_)) => UnitV
+        case (DataV("Some", Vector(v)), "orElse", List(_)) => some(v)
+        case (DataV("None", _), "orElse", List(other)) => other
+        // ── Map/HashMap ──────────────────────────────────────────────────────────
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "size", Nil) =>
+          IntV(m.size.toLong)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "get", List(k)) =>
+          m.asInstanceOf[collection.mutable.HashMap[Value,Value]].get(k) match
+            case Some(v) => some(v); case None => none
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "contains", List(k)) =>
+          BoolV(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].contains(k))
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "keys", Nil) =>
+          listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].keys.toSeq)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "values", Nil) =>
+          listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].values.toSeq)
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "toList", Nil) =>
+          listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].toList.map {
+            case (k, v) => DataV("Tuple2", Vector(k, v))
+          })
+        // ── Method object (given/typeclass instances) ─────────────────────────────
+        case (ForeignV(m: collection.immutable.Map[?, ?]), _, _) =>
+          val mm = m.asInstanceOf[collection.immutable.Map[String, Value]]
+          mm.get(name) match
+            case Some(fn: ClosV) if margs.isEmpty && fn.arity > 0 => fn  // eta-expand
+            case Some(fn: ClosV) => callClos(fn, margs.toArray)
+            case Some(v) if margs.isEmpty => v
+            case _ => sys.error(s"__method__: no method '$name' in method-object")
+        case (v, "toString", Nil) => StrV(anyStr(v))
+        case _ =>
+          V2PluginRegistry.lookup(s"__method__.$name") match
+            case Some(fn) => fn(a)
+            case None => sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
       V2PluginRegistry.lookup(op) match
         case Some(fn) => fn
@@ -687,6 +984,19 @@ object Prims:
   // Option / list helpers (the ssc0 ADT encoding the kernel speaks)
   private val none: Value = DataV("None", Vector.empty)
   private def some(v: Value): Value = DataV("Some", Vector(v))
+  private def isList(v: Value): Boolean = v match
+    case DataV("Nil", _) | DataV("Cons", _) => true
+    case _ => false
+  private def callClos(fn: Value.ClosV, args: Array[Value]): Value =
+    Runtime.run(fn.code, if args.isEmpty then fn.env else Runtime.extend(fn.env, args))
+  private val valueOrdering: Ordering[Value] = Ordering.fromLessThan {
+    case (IntV(a), IntV(b))     => a < b
+    case (FloatV(a), FloatV(b)) => a < b
+    case (StrV(a), StrV(b))     => a < b
+    case (IntV(a), FloatV(b))   => a.toDouble < b
+    case (FloatV(a), IntV(b))   => a < b.toDouble
+    case _                      => false
+  }
   private def listOf(vs: Seq[Value]): Value = vs.foldRight[Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
   private def strList(xs: Seq[String]): Value = listOf(xs.map(StrV(_)))
   private def unlist(v: Value): List[Value] = v match
