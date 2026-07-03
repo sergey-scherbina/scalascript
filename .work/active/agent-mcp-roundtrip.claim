@@ -1,0 +1,5 @@
+agent: claude
+branch: feature/agent-mcp-roundtrip
+worktree: ../scalascript-wt-agent-mcp-roundtrip
+started: 2026-07-03
+task: agent-mcp-roundtrip — end-to-end round-trip test for agent-mcp.ssc bridge (serveAgentToolsMcp + mcpToolSource)
