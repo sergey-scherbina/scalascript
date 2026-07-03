@@ -1,0 +1,963 @@
+package ssc.backend.rust
+
+import ssc.{Term, Const, Arm, Def, Program, Reader}
+import Term.*
+import Const.*
+
+// Core IR → self-contained Rust source generator.
+// Usage: echo "<core-ir-s-expr>" | scala-cli run v2/backend/rust/ -- /dev/stdin
+// or pipe to stdin (no arg = stdin).
+object RustBackend:
+
+  def main(args: Array[String]): Unit =
+    val src =
+      if args.nonEmpty && args(0) != "/dev/stdin" then
+        scala.io.Source.fromFile(args(0)).mkString
+      else
+        scala.io.Source.stdin.mkString
+    val prog = Reader.parseProgram(src)
+    print(generate(prog))
+
+  // ── top-level generate ────────────────────────────────────────────────────
+
+  // Rust names of global Lam defs — used in genLam/genLetRec to choose
+  // cell-based vs direct access for forward-ref safety.
+  private var topLamDefNames: Set[String] = Set.empty
+
+  def generate(p: Program): String =
+    val sb = new StringBuilder
+    sb ++= RUNTIME_HEADER
+    sb ++= "\n"
+
+    // Classify defs: Lam bodies get forward-ref cells for mutual/self recursion.
+    topLamDefNames = p.defs.collect {
+      case Def(n, Lam(_, _)) => rustDefName(n)
+    }.toSet
+
+    sb ++= "fn ssc_run() {\n"
+
+    // Phase 1: forward-ref cells for all Lam defs (declared before any closure)
+    for d <- p.defs do d.body match
+      case Lam(_, _) =>
+        val n = rustDefName(d.name)
+        sb ++= s"    let ${n}__fwd: Rc<RefCell<Option<V>>> = Rc::new(RefCell::new(None));\n"
+      case _ => ()
+
+    // Phase 2: emit defs in program order
+    for d <- p.defs do
+      val name = rustDefName(d.name)
+      d.body match
+        case Lam(_, _) =>
+          val expr = genExpr(d.body, Nil, 0)
+          sb ++= s"    let $name: V = $expr;\n"
+          sb ++= s"    *${name}__fwd.borrow_mut() = Some($name.clone());\n"
+        case _ =>
+          val expr = genExpr(d.body, Nil, 0)
+          sb ++= s"    let $name: V = $expr;\n"
+
+    // Entry expression
+    sb ++= s"    let _result: V = ${genExpr(p.entry, Nil, 0)};\n"
+    sb ++= "}\n"
+    // Thin main: spawn ssc_run in a thread with a large stack for deep recursion.
+    sb ++= "fn main() {\n"
+    sb ++= "    std::thread::Builder::new()\n"
+    sb ++= "        .stack_size(256 * 1024 * 1024)\n"
+    sb ++= "        .spawn(ssc_run)\n"
+    sb ++= "        .unwrap()\n"
+    sb ++= "        .join()\n"
+    sb ++= "        .unwrap();\n"
+    sb ++= "}\n"
+    sb.toString
+
+  // ── free global analysis ─────────────────────────────────────────────────
+  // Returns names of all Global() references in a term (at any nesting depth).
+  // Used to pre-clone globals before nested move closures.
+  def freeGlobals(t: Term): Set[String] = t match
+    case Global(n) => Set(n)
+    case Local(_) | Lit(_) => Set.empty
+    case Lam(_, body) => freeGlobals(body)
+    case App(fn, args) => (fn :: args).map(freeGlobals).fold(Set.empty)(_ | _)
+    case Let(rhs, body) => (rhs :+ body).map(freeGlobals).fold(Set.empty)(_ | _)
+    case LetRec(lams, body) => (lams :+ body).map(freeGlobals).fold(Set.empty)(_ | _)
+    case If(c, th, el) => freeGlobals(c) | freeGlobals(th) | freeGlobals(el)
+    case Ctor(_, fields) => fields.map(freeGlobals).fold(Set.empty)(_ | _)
+    case Match(s, arms, d) =>
+      freeGlobals(s) | arms.map(a => freeGlobals(a.body)).fold(Set.empty)(_ | _) |
+        d.map(freeGlobals).getOrElse(Set.empty)
+    case Prim(_, args) => args.map(freeGlobals).fold(Set.empty)(_ | _)
+    case While(c, b) => freeGlobals(c) | freeGlobals(b)
+    case Seq(ts) => ts.map(freeGlobals).fold(Set.empty)(_ | _)
+
+  // ── name helpers ─────────────────────────────────────────────────────────
+
+  // Global def names: prefix with g_ to avoid collisions with keywords
+  def rustDefName(n: String): String =
+    "g_" + n.replace('.', '_').replace('-', '_').replace('>', '_').replace('<', '_')
+      .replace('/', '_').replace('~', '_').replace('!', '_').replace('?', '_')
+      .replace('@', '_').replace('*', '_').replace('+', '_').replace('%', '_')
+      .replace('=', '_').replace('&', '_').replace('^', '_').replace('|', '_')
+
+  // fresh variable counter (thread-local is fine for single-threaded generation)
+  private var _cnt = 0
+  def fresh(prefix: String = "v"): String = { _cnt += 1; s"_${prefix}${_cnt}" }
+
+  // Resolve Local(i) from context.
+  // ctx is ordered so ctx.last = Local(0), ctx(ctx.length-2) = Local(1), ...
+  def localName(ctx: List[String], i: Int): String =
+    val idx = ctx.length - 1 - i
+    if idx < 0 || idx >= ctx.length then s"/*LOCAL_OOB($i of ${ctx.length})*/ V::Unit"
+    else ctx(idx)
+
+  // ── expression generation ─────────────────────────────────────────────────
+  // indent: number of 4-space levels for block content
+
+  def genExpr(t: Term, ctx: List[String], indent: Int): String =
+    val pad = "    " * indent
+    t match
+
+      // ── Literals ─────────────────────────────────────────────────────────
+      case Lit(CUnit)    => "V::Unit"
+      case Lit(CBool(b)) => s"V::Bool($b)"
+      case Lit(CInt(n))  => s"V::Int(${n}i64)"
+      case Lit(CBig(n))  =>
+        // represent BigInt as i64 (lossy but handles common cases)
+        s"V::Int(${n.toLong}i64) /*big*/"
+      case Lit(CFloat(d)) =>
+        val s = if d.isNaN then "f64::NAN"
+          else if d.isInfinite && d > 0 then "f64::INFINITY"
+          else if d.isInfinite then "f64::NEG_INFINITY"
+          else s"${d}f64"
+        s"V::Float($s)"
+      case Lit(CStr(s))  => s"V::Str(${rustStrLit(s)}.to_string())"
+      case Lit(CBytes(b)) =>
+        val hex = b.map(x => f"${x & 0xff}%02x").mkString
+        if b.isEmpty then "V::Bytes(vec![])"
+        else s"V::Bytes(hex_bytes(\"$hex\"))"
+
+      // ── Variable references ───────────────────────────────────────────────
+      case Local(i) => s"${localName(ctx, i)}.clone()"
+      case Global(n) => s"${rustDefName(n)}.clone()"
+
+      // ── Lambda ───────────────────────────────────────────────────────────
+      // Generates a V::Fn closure capturing the current context
+      case Lam(arity, body) =>
+        genLam(arity, body, ctx, indent)
+
+      // ── Application ──────────────────────────────────────────────────────
+      case App(fn, args) =>
+        val fnExpr = genExpr(fn, ctx, indent)
+        if args.isEmpty then
+          s"call_fn($fnExpr, vec![])"
+        else
+          val argExprs = args.map(a => genExpr(a, ctx, indent)).mkString(", ")
+          s"call_fn($fnExpr, vec![$argExprs])"
+
+      // ── Let ──────────────────────────────────────────────────────────────
+      case Let(rhs, body) =>
+        val names = rhs.map(_ => fresh("l"))
+        val bodyCtx = ctx ++ names   // appended left to right; Local(0) = names.last
+        val sb = new StringBuilder(s"{\n")
+        var curCtx = ctx
+        for (r, n) <- rhs.zip(names) do
+          val rExpr = genExpr(r, curCtx, indent + 1)
+          sb ++= s"${pad}    let $n: V = $rExpr;\n"
+          curCtx = curCtx :+ n
+        sb ++= s"${pad}    ${genExpr(body, bodyCtx, indent + 1)}\n"
+        sb ++= s"${pad}}"
+        sb.toString
+
+      // ── LetRec ───────────────────────────────────────────────────────────
+      case LetRec(lams, body) =>
+        genLetRec(lams, body, ctx, indent)
+
+      // ── If ───────────────────────────────────────────────────────────────
+      case If(c, th, el) =>
+        val cExpr = genExpr(c, ctx, indent)
+        val tExpr = genExpr(th, ctx, indent + 1)
+        val eExpr = genExpr(el, ctx, indent + 1)
+        s"if as_bool($cExpr) {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
+
+      // ── Constructor ──────────────────────────────────────────────────────
+      case Ctor(tag, fields) =>
+        val tagStr = rustStrLit(tag)
+        if fields.isEmpty then
+          s"V::Data($tagStr.to_string(), vec![])"
+        else
+          val fieldExprs = fields.map(f => genExpr(f, ctx, indent)).mkString(", ")
+          s"V::Data($tagStr.to_string(), vec![$fieldExprs])"
+
+      // ── Match ─────────────────────────────────────────────────────────────
+      case Match(scrut, arms, default) =>
+        genMatch(scrut, arms, default, ctx, indent)
+
+      // ── Primitives ────────────────────────────────────────────────────────
+      case Prim(op, args) =>
+        genPrim(op, args, ctx, indent)
+
+      // ── While ─────────────────────────────────────────────────────────────
+      case While(cond, body) =>
+        val condExpr = genExpr(cond, ctx, indent + 1)
+        val bodyExpr = genExpr(body, ctx, indent + 1)
+        s"{\n${pad}    while as_bool($condExpr) {\n${pad}        $bodyExpr;\n${pad}    }\n${pad}    V::Unit\n${pad}}"
+
+      // ── Seq ──────────────────────────────────────────────────────────────
+      case Seq(terms) =>
+        if terms.isEmpty then "V::Unit"
+        else if terms.length == 1 then genExpr(terms.head, ctx, indent)
+        else
+          val sb = new StringBuilder("{\n")
+          for t <- terms.init do
+            sb ++= s"${pad}    ${genExpr(t, ctx, indent + 1)};\n"
+          sb ++= s"${pad}    ${genExpr(terms.last, ctx, indent + 1)}\n"
+          sb ++= s"${pad}}"
+          sb.toString
+
+  // ── Lambda generation ─────────────────────────────────────────────────────
+  // genLam uses per-lambda unique tag for capture names so that:
+  // - outer ctx locals are pre-cloned with unique names (avoids move-after-use)
+  // - globals referenced in body are also pre-cloned (avoids move-out-of-Fn-closure)
+  // Inside the closure, all are rebound to their canonical names.
+
+  def genLam(arity: Int, body: Term, ctx: List[String], indent: Int): String =
+    val pad = "    " * indent
+    val lamTag = fresh("lam")
+    val captureLocals = ctx.distinct
+    val allGlobals = freeGlobals(body).toList.sorted.map(rustDefName)
+    // Split: Lam defs accessed via forward-ref cells; others accessed directly.
+    val (lamGlobals, directGlobals) = allGlobals.partition(topLamDefNames.contains)
+    val argNames = (0 until arity).toList.map(_ => fresh("a"))
+    // ctx inside body: outer ctx + arg names (Local(0) = last arg)
+    val bodyCtx = ctx ++ argNames
+
+    // Pre-clone locals with unique per-lam names (avoids same-name shadow conflicts)
+    val localPreClones = captureLocals.map { n =>
+      s"let ${n}_cap_$lamTag = $n.clone();"
+    }
+    // Lam defs: pre-clone their forward-ref cells (always available even for self-ref)
+    val lamCellPreClones = lamGlobals.map { g =>
+      s"let ${g}__fwd_cap_$lamTag = ${g}__fwd.clone();"
+    }
+    // Non-Lam globals: pre-clone values directly
+    val directGlobalPreClones = directGlobals.map { g =>
+      s"let ${g}_cap_$lamTag = $g.clone();"
+    }
+    val allPreClones =
+      (localPreClones ++ lamCellPreClones ++ directGlobalPreClones).mkString(s"\n${pad}    ") +
+      (if localPreClones.nonEmpty || lamCellPreClones.nonEmpty || directGlobalPreClones.nonEmpty
+       then s"\n${pad}    " else "")
+
+    // Inside closure: rebind to canonical names
+    val localRebinds = captureLocals.map { n =>
+      s"let $n: V = ${n}_cap_$lamTag.clone();"
+    }
+    // Lam globals: unwrap from forward-ref cell at call time (handles forward/self/mutual refs)
+    val lamGlobalRebinds = lamGlobals.map { g =>
+      s"let $g: V = ${g}__fwd_cap_$lamTag.borrow().clone().unwrap();"
+    }
+    val directGlobalRebinds = directGlobals.map { g =>
+      s"let $g: V = ${g}_cap_$lamTag.clone();"
+    }
+    val allRebinds =
+      (localRebinds ++ lamGlobalRebinds ++ directGlobalRebinds).mkString(s"\n${pad}        ") +
+      (if localRebinds.nonEmpty || lamGlobalRebinds.nonEmpty || directGlobalRebinds.nonEmpty
+       then s"\n${pad}        " else "")
+
+    val bodyExpr = genExpr(body, bodyCtx, indent + 1)
+
+    if arity == 0 then
+      s"""|{
+${pad}    ${allPreClones}V::Fn(Rc::new(move |_args: Vec<V>| {
+${pad}        ${allRebinds}$bodyExpr
+${pad}    }))
+${pad}}""".stripMargin
+    else
+      val argUnpack = argNames.zipWithIndex.map { case (n, i) =>
+        s"let $n: V = _args[${i}].clone();"
+      }.mkString(s"\n${pad}        ")
+      s"""|{
+${pad}    ${allPreClones}V::Fn(Rc::new(move |_args: Vec<V>| {
+${pad}        ${allRebinds}$argUnpack
+${pad}        $bodyExpr
+${pad}    }))
+${pad}}""".stripMargin
+
+  // ── LetRec generation ────────────────────────────────────────────────────
+
+  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int): String =
+    val pad = "    " * indent
+    // Names for the recursive bindings
+    val recNames = lams.map(_ => fresh("r"))
+    // ctx after binding all recs: Local(0) = recNames.last
+    val recCtx = ctx ++ recNames
+
+    val sb = new StringBuilder("{\n")
+
+    // Create forward-ref cells for each lam
+    for n <- recNames do
+      sb ++= s"${pad}    let ${n}_cell: Rc<RefCell<Option<V>>> = Rc::new(RefCell::new(None));\n"
+
+    // Build each closure
+    for (lam, recName) <- lams.zip(recNames) do
+      val (arity, lamBody) = lam match
+        case Lam(ar, b) => (ar, b)
+        case _ => sys.error(s"letrec binding must be a lam, got $lam")
+
+      val argNames = (0 until arity).toList.map(_ => fresh("a"))
+      // Context inside lam body: recCtx + argNames
+      val lamBodyCtx = recCtx ++ argNames
+
+      // Outer context vars need per-closure clones so the original remains available.
+      val outerCaptures = ctx.distinct
+      // Globals referenced anywhere in lamBody — split into Lam (use cells) vs direct.
+      val allGlobalCaptures = freeGlobals(lamBody).toList.sorted.map(rustDefName)
+      val (lamGlobalCaptures, directGlobalCaptures) = allGlobalCaptures.partition(topLamDefNames.contains)
+      val closureTag = recName  // unique per closure
+
+      // Pre-clone outer locals with unique names
+      val preCloneStmts = outerCaptures.map { n =>
+        val capN = s"${n}_cap_${closureTag}"
+        s"let $capN = $n.clone();"
+      }.mkString(s"\n${pad}    ") + (if outerCaptures.nonEmpty then s"\n${pad}    " else "")
+
+      // Lam globals: pre-clone their forward-ref cells (always available, handles forward refs)
+      val lamGlobalCellPreCloneStmts = lamGlobalCaptures.map { g =>
+        s"let ${g}__fwd_cap_${closureTag} = ${g}__fwd.clone();"
+      }.mkString(s"\n${pad}    ") + (if lamGlobalCaptures.nonEmpty then s"\n${pad}    " else "")
+
+      // Non-Lam globals: pre-clone values directly
+      val directGlobalPreCloneStmts = directGlobalCaptures.map { g =>
+        val capN = s"${g}_cap_${closureTag}"
+        s"let $capN = $g.clone();"
+      }.mkString(s"\n${pad}    ") + (if directGlobalCaptures.nonEmpty then s"\n${pad}    " else "")
+
+      // Pre-clone cell refs with unique names
+      val cellPreCloneStmts = recNames.map { n =>
+        val cellRef = s"${n}_cell_cap_${closureTag}"
+        s"let $cellRef = ${n}_cell.clone();"
+      }.mkString(s"\n${pad}    ") + s"\n${pad}    "
+
+      // Inside the closure: rebind pre-clones back to canonical names
+      val outerRebindStmts = outerCaptures.map { n =>
+        val capN = s"${n}_cap_${closureTag}"
+        s"let $n: V = $capN.clone();"
+      }.mkString(s"\n${pad}        ")
+      val outerRebindPart = if outerCaptures.nonEmpty then outerRebindStmts + s"\n${pad}        " else ""
+
+      // Lam globals: unwrap from forward-ref cell at call time
+      val lamGlobalRebindStmts = lamGlobalCaptures.map { g =>
+        s"let $g: V = ${g}__fwd_cap_${closureTag}.borrow().clone().unwrap();"
+      }.mkString(s"\n${pad}        ")
+      val lamGlobalRebindPart = if lamGlobalCaptures.nonEmpty then lamGlobalRebindStmts + s"\n${pad}        " else ""
+
+      val directGlobalRebindStmts = directGlobalCaptures.map { g =>
+        val capN = s"${g}_cap_${closureTag}"
+        s"let $g: V = $capN.clone();"
+      }.mkString(s"\n${pad}        ")
+      val directGlobalRebindPart = if directGlobalCaptures.nonEmpty then directGlobalRebindStmts + s"\n${pad}        " else ""
+
+      // Rebind cell refs inside closure
+      val cellRebindStmts = recNames.map { n =>
+        val cellRef = s"${n}_cell_cap_${closureTag}"
+        s"let ${n}_cell = $cellRef.clone();"
+      }.mkString(s"\n${pad}        ")
+
+      // Unpack rec bindings from their cells in the closure body
+      val recUnpack = recNames.map(n =>
+        s"let $n: V = ${n}_cell.borrow().clone().unwrap();"
+      ).mkString(s"\n${pad}        ")
+
+      val argUnpack = argNames.zipWithIndex.map { case (n, i) =>
+        s"let $n: V = _args[$i].clone();"
+      }.mkString(s"\n${pad}        ")
+
+      val bodyExpr = genExpr(lamBody, lamBodyCtx, indent + 2)
+
+      val preClones = preCloneStmts + lamGlobalCellPreCloneStmts + directGlobalPreCloneStmts + cellPreCloneStmts
+      val innerRebinds = outerRebindPart + lamGlobalRebindPart + directGlobalRebindPart + cellRebindStmts + s"\n${pad}        "
+      if arity == 0 then
+        sb ++= s"""${pad}    ${preClones}let $recName: V = V::Fn(Rc::new(move |_args: Vec<V>| {
+${pad}        ${innerRebinds}$recUnpack
+${pad}        $bodyExpr
+${pad}    }));\n"""
+      else
+        sb ++= s"""${pad}    ${preClones}let $recName: V = V::Fn(Rc::new(move |_args: Vec<V>| {
+${pad}        ${innerRebinds}$recUnpack
+${pad}        $argUnpack
+${pad}        $bodyExpr
+${pad}    }));\n"""
+
+    // Store into cells
+    for n <- recNames do
+      sb ++= s"${pad}    *${n}_cell.borrow_mut() = Some($n.clone());\n"
+
+    // Body
+    val bodyExpr = genExpr(body, recCtx, indent + 1)
+    sb ++= s"${pad}    $bodyExpr\n"
+    sb ++= s"${pad}}"
+    sb.toString
+
+  // ── Match generation ──────────────────────────────────────────────────────
+
+  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int): String =
+    val pad = "    " * indent
+    val sName = fresh("s")
+    val scrutExpr = genExpr(scrut, ctx, indent)
+    val sb = new StringBuilder(s"{\n${pad}    let $sName: V = $scrutExpr;\n")
+    sb ++= s"${pad}    match &$sName {\n"
+    for arm <- arms do
+      val fieldNames = (0 until arm.arity).toList.map(_ => fresh("f"))
+      // arm body ctx: ctx extended by fields in order
+      // Local(0) = last field = fields[arity-1]
+      // Local(arity-1) = first field = fields[0]
+      val armCtx = ctx ++ fieldNames  // fieldNames(0) = fields[0] = Local(arity-1-0) = Local(arity-1)
+      // Actually: fields are added so Local(0) = last = fieldNames.last
+      // fieldNames ordered so fieldNames(i) = fields[i]
+      // and Local(j) in arm body = ctx_after_extend[len-1-j]
+      // ctx_after_extend = ctx ++ fieldNames, len = ctx.length + arm.arity
+      // Local(0) = fieldNames.last = fields[arity-1] ✓
+      // Local(arity-1) = fieldNames(0) = fields[0] ✓
+
+      val tagStr = rustStrLit(arm.tag)
+      if arm.arity == 0 then
+        val bodyExpr = genExpr(arm.body, ctx, indent + 2)
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == 0 => {\n"""
+        sb ++= s"""${pad}            $bodyExpr\n"""
+        sb ++= s"""${pad}        }\n"""
+      else
+        val fieldPatterns = fieldNames.zipWithIndex.map { case (n, i) =>
+          s"let $n = _fields[$i].clone();"
+        }.mkString(s"\n${pad}            ")
+        val bodyExpr = genExpr(arm.body, armCtx, indent + 2)
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == ${arm.arity} => {\n"""
+        sb ++= s"""${pad}            $fieldPatterns\n"""
+        sb ++= s"""${pad}            $bodyExpr\n"""
+        sb ++= s"""${pad}        }\n"""
+    // Default or panic
+    val defaultExpr = default match
+      case Some(d) => genExpr(d, ctx, indent + 2)
+      case None    => s"""panic!("match: no arm matched {}", show(&$sName))"""
+    sb ++= s"""${pad}        _ => { $defaultExpr }\n"""
+    sb ++= s"${pad}    }\n"
+    sb ++= s"${pad}}"
+    sb.toString
+
+  // ── Primitive generation ──────────────────────────────────────────────────
+
+  def genPrim(op: String, args: List[Term], ctx: List[String], indent: Int): String =
+    val a = args.map(x => genExpr(x, ctx, indent))
+    def a0 = a(0); def a1 = a(1); def a2 = a(2)
+    op match
+      // Integer arithmetic
+      case "i.add"  => s"v_iadd($a0, $a1)"
+      case "i.sub"  => s"v_isub($a0, $a1)"
+      case "i.mul"  => s"v_imul($a0, $a1)"
+      case "i.div"  => s"v_idiv($a0, $a1)"
+      case "i.mod"  => s"v_imod($a0, $a1)"
+      case "i.neg"  => s"v_ineg($a0)"
+      case "i.and"  => s"V::Int(as_int($a0) & as_int($a1))"
+      case "i.or"   => s"V::Int(as_int($a0) | as_int($a1))"
+      case "i.xor"  => s"V::Int(as_int($a0) ^ as_int($a1))"
+      case "i.not"  => s"V::Int(!as_int($a0))"
+      case "i.shl"  => s"V::Int(as_int($a0) << as_int($a1))"
+      case "i.shr"  => s"V::Int(as_int($a0) >> as_int($a1))"
+      case "i.ushr" => s"V::Int(((as_int($a0) as u64) >> (as_int($a1) as u64)) as i64)"
+      case "i.eq"   => s"v_ieq($a0, $a1)"
+      case "i.lt"   => s"v_ilt($a0, $a1)"
+      case "i.le"   => s"v_ile($a0, $a1)"
+      case "i.gt"   => s"v_igt($a0, $a1)"
+      case "i.ge"   => s"v_ige($a0, $a1)"
+      case "not"    => s"V::Bool(!as_bool($a0))"
+      // Float
+      case "f.add"   => s"V::Float(as_float($a0) + as_float($a1))"
+      case "f.sub"   => s"V::Float(as_float($a0) - as_float($a1))"
+      case "f.mul"   => s"V::Float(as_float($a0) * as_float($a1))"
+      case "f.div"   => s"V::Float(as_float($a0) / as_float($a1))"
+      case "f.neg"   => s"V::Float(-as_float($a0))"
+      case "f.sqrt"  => s"V::Float(as_float($a0).sqrt())"
+      case "f.floor" => s"V::Float(as_float($a0).floor())"
+      case "f.ceil"  => s"V::Float(as_float($a0).ceil())"
+      case "f.round" => s"V::Float(as_float($a0).round())"
+      case "f.trunc" => s"V::Float(as_float($a0).trunc())"
+      case "f.eq"    => s"V::Bool(as_float($a0) == as_float($a1))"
+      case "f.lt"    => s"V::Bool(as_float($a0) < as_float($a1))"
+      case "f.le"    => s"V::Bool(as_float($a0) <= as_float($a1))"
+      case "f.gt"    => s"V::Bool(as_float($a0) > as_float($a1))"
+      case "f.ge"    => s"V::Bool(as_float($a0) >= as_float($a1))"
+      case "f.isNaN" => s"V::Bool(as_float($a0).is_nan())"
+      case "f.isInf" => s"V::Bool(as_float($a0).is_infinite())"
+      // Numeric conversions
+      case "i->big"   => a0  // keep as Int
+      case "big->i"   => a0
+      case "i->f"     => s"V::Float(as_int($a0) as f64)"
+      case "f->i"     => s"V::Int(as_float($a0) as i64)"
+      case "big->f"   => s"V::Float(as_int($a0) as f64)"
+      case "f->big"   => s"V::Int(as_float($a0) as i64)"
+      case "i->str"   => s"V::Str(as_int($a0).to_string())"
+      case "big->str" => s"V::Str(as_int($a0).to_string())"
+      case "f->str"   => s"V::Str(float_to_str(as_float($a0)))"
+      case "str->i"   => s"v_str_to_i($a0)"
+      case "str->big" => s"v_str_to_i($a0)"
+      case "str->f"   => s"v_str_to_f($a0)"
+      // String
+      case "slen"       => s"V::Int(as_str($a0).len() as i64)"
+      case "sconcat"    => s"v_sconcat($a0, $a1)"
+      case "sslice"     => s"V::Str(as_str($a0)[as_int($a1) as usize..as_int($a2) as usize].to_string())"
+      case "scodeAt"    => s"V::Int(as_str($a0).chars().nth(as_int($a1) as usize).unwrap_or('\\0') as i64)"
+      case "sfromCodes" => s"v_from_codes($a0)"
+      case "seq"        => s"V::Bool(as_str($a0) == as_str($a1))"
+      case "scmp"       => s"V::Int(as_str($a0).cmp(&as_str($a1)) as i64)"
+      case "sindexOf"   => s"v_str_index_of($a0, $a1)"
+      case "str.split"  => s"v_str_split($a0, $a1)"
+      case "str.trim"   => s"V::Str(as_str($a0).trim().to_string())"
+      case "str.lines"  => s"v_str_lines($a0)"
+      // Bytes
+      case "blen"      => s"V::Int(as_bytes($a0).len() as i64)"
+      case "bget"      => s"V::Int(as_bytes($a0)[as_int($a1) as usize] as i64)"
+      case "bslice"    => s"V::Bytes(as_bytes($a0)[as_int($a1) as usize..as_int($a2) as usize].to_vec())"
+      case "bconcat"   => s"{ let mut _b = as_bytes($a0).clone(); _b.extend_from_slice(&as_bytes($a1)); V::Bytes(_b) }"
+      case "str->utf8" => s"V::Bytes(as_str($a0).as_bytes().to_vec())"
+      case "utf8->str" => s"V::Str(String::from_utf8(as_bytes($a0).clone()).unwrap())"
+      // Data reflection
+      case "tagOf"   => s"V::Str(as_data_tag($a0))"
+      case "arity"   => s"V::Int(as_data_fields($a0).len() as i64)"
+      case "fieldAt" => s"as_data_fields($a0)[as_int($a1) as usize].clone()"
+      // Map
+      case "map.new"  => "V::Map(Rc::new(RefCell::new(std::collections::HashMap::new())))"
+      case "map.get"  => s"v_map_get($a0, $a1)"
+      case "map.put"  => s"{ as_map($a0).borrow_mut().insert(VKey::from(&$a1), $a2); V::Unit }"
+      case "map.has"  => s"V::Bool(as_map($a0).borrow().contains_key(&VKey::from(&$a1)))"
+      case "map.del"  => s"{ as_map($a0).borrow_mut().remove(&VKey::from(&$a1)); V::Unit }"
+      case "map.keys" => s"v_map_keys($a0)"
+      case "map.size" => s"V::Int(as_map($a0).borrow().len() as i64)"
+      // Array
+      case "arr.new"   => "V::Arr(Rc::new(RefCell::new(vec![])))"
+      case "arr.len"   => s"V::Int(as_arr($a0).borrow().len() as i64)"
+      case "arr.get"   => s"as_arr($a0).borrow()[as_int($a1) as usize].clone()"
+      case "arr.set"   => s"{ as_arr($a0).borrow_mut()[as_int($a1) as usize] = $a2; V::Unit }"
+      case "arr.push"  => s"{ as_arr($a0).borrow_mut().push($a1); V::Unit }"
+      case "arr.pop"   => s"as_arr($a0).borrow_mut().pop().unwrap_or(V::Unit)"
+      case "arr.slice" =>
+        s"V::Arr(Rc::new(RefCell::new(as_arr($a0).borrow()[as_int($a1) as usize..as_int($a2) as usize].to_vec())))"
+      // Cell — evaluate new value BEFORE borrow_mut to avoid double-borrow
+      case "cell.new" => s"V::Cell(Rc::new(RefCell::new($a0)))"
+      case "cell.get" => s"as_cell($a0).borrow().clone()"
+      case "cell.set" =>
+        val cellN = fresh("c"); val valN = fresh("v")
+        s"{ let $cellN = $a0; let $valN = $a1; *as_cell($cellN).borrow_mut() = $valN; V::Unit }"
+      // LongCell (mutable i64, same semantics as cell but int-only)
+      case "lcell.new" => s"V::LCell(Rc::new(RefCell::new(as_int($a0))))"
+      case "lcell.get" => s"V::Int(*as_lcell($a0).borrow())"
+      case "lcell.set" =>
+        val cellN = fresh("c"); val valN = fresh("v")
+        s"{ let $cellN = $a0; let $valN = as_int($a1); *as_lcell($cellN).borrow_mut() = $valN; V::Unit }"
+      // I/O
+      case "io.print"    => s"{ v_print($a0); V::Unit }"
+      case "io.println"  => s"{ v_println($a0); V::Unit }"
+      case "io.eprint"   => s"{ eprint!(\"{{}}\", show(&$a0)); V::Unit }"
+      case "io.args"     => "v_io_args()"
+      case "io.readFile" => s"V::Bytes(std::fs::read(as_str($a0)).expect(\"readFile\"))"
+      case "io.writeFile"=> s"{ std::fs::write(as_str($a0), &as_bytes($a1)).expect(\"writeFile\"); V::Unit }"
+      case "io.env"      => s"v_io_env($a0)"
+      case "io.exit"     => s"{ std::process::exit(as_int($a0) as i32); }"
+      // coreir.encode: not needed at runtime, stub
+      case "coreir.encode" => s"""V::Str("[coreir.encode not supported in Rust backend]".to_string())"""
+      // runLogger (effects infra)
+      case "runLogger"   => s"call_fn($a0, vec![])"
+      case unknown =>
+        // emit a runtime panic for unknown primitives
+        s"""{ panic!("unimplemented prim: {}", ${rustStrLit(unknown)}); }"""
+
+  // ── Rust string literal ───────────────────────────────────────────────────
+
+  def rustStrLit(s: String): String =
+    val sb = new StringBuilder("\"")
+    s.foreach {
+      case '"'  => sb ++= "\\\""
+      case '\\' => sb ++= "\\\\"
+      case '\n' => sb ++= "\\n"
+      case '\r' => sb ++= "\\r"
+      case '\t' => sb ++= "\\t"
+      case c if c.isControl => sb ++= f"\\u{${c.toInt}%04x}"
+      case c => sb += c
+    }
+    sb += '"'
+    sb.toString
+
+  // ── Rust runtime header ───────────────────────────────────────────────────
+
+  val RUNTIME_HEADER: String = """// Generated by v2/backend/rust/RustBackend.scala
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt;
+
+// ── Value type ────────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+enum V {
+    Unit,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Bytes(Vec<u8>),
+    Data(String, Vec<V>),
+    Fn(Rc<dyn Fn(Vec<V>) -> V>),
+    Cell(Rc<RefCell<V>>),
+    LCell(Rc<RefCell<i64>>),
+    Map(Rc<RefCell<HashMap<VKey, V>>>),
+    Arr(Rc<RefCell<Vec<V>>>),
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+struct VKey(String);
+
+impl From<&V> for VKey {
+    fn from(v: &V) -> Self { VKey(show(v)) }
+}
+
+impl fmt::Debug for V {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", show(self))
+    }
+}
+
+// ── Show ──────────────────────────────────────────────────────────────────────
+
+fn show(v: &V) -> String {
+    match v {
+        V::Unit        => "()".to_string(),
+        V::Bool(b)     => b.to_string(),
+        V::Int(n)      => n.to_string(),
+        V::Float(d)    => float_to_str(*d),
+        V::Str(s)      => s.clone(),
+        V::Bytes(b)    => format!("Bytes({})", b.iter().map(|x| format!("{:02x}", x)).collect::<String>()),
+        V::Data(tag, fields) if fields.is_empty() => tag.clone(),
+        V::Data(tag, fields) => {
+            let fs: Vec<String> = fields.iter().map(show).collect();
+            format!("{}({})", tag, fs.join(", "))
+        }
+        V::Fn(_)       => "<fn>".to_string(),
+        V::Cell(c)     => format!("Cell({})", show(&*c.borrow())),
+        V::LCell(c)    => format!("LCell({})", c.borrow()),
+        V::Map(m)      => format!("Map({})", m.borrow().len()),
+        V::Arr(a)      => {
+            let items: Vec<String> = a.borrow().iter().map(show).collect();
+            format!("[{}]", items.join(", "))
+        }
+    }
+}
+
+fn float_to_str(d: f64) -> String {
+    if d.is_nan() { return "NaN".to_string(); }
+    if d.is_infinite() { return if d > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }; }
+    // Match Scala's Double.toString: always include decimal point
+    let s = format!("{}", d);
+    if s.contains('.') || s.contains('e') || s.contains('E') { s } else { s + ".0" }
+}
+
+// ── Coercions ─────────────────────────────────────────────────────────────────
+
+fn as_int(v: V) -> i64 {
+    match v {
+        V::Int(n)   => n,
+        V::Bool(b)  => if b { 1 } else { 0 },
+        V::Float(d) => d as i64,
+        other => panic!("expected Int, got {:?}", other),
+    }
+}
+
+fn as_bool(v: V) -> bool {
+    match v {
+        V::Bool(b) => b,
+        V::Int(n)  => n != 0,
+        other => panic!("expected Bool, got {:?}", other),
+    }
+}
+
+fn as_float(v: V) -> f64 {
+    match v {
+        V::Float(d) => d,
+        V::Int(n)   => n as f64,
+        other => panic!("expected Float, got {:?}", other),
+    }
+}
+
+fn as_str(v: V) -> String {
+    match v {
+        V::Str(s) => s,
+        other => panic!("expected Str, got {:?}", other),
+    }
+}
+
+fn as_bytes(v: V) -> Vec<u8> {
+    match v {
+        V::Bytes(b) => b,
+        other => panic!("expected Bytes, got {:?}", other),
+    }
+}
+
+fn as_cell(v: V) -> Rc<RefCell<V>> {
+    match v {
+        V::Cell(c) => c,
+        other => panic!("expected Cell, got {:?}", other),
+    }
+}
+
+fn as_lcell(v: V) -> Rc<RefCell<i64>> {
+    match v {
+        V::LCell(c) => c,
+        // fall back to Cell of Int
+        other => panic!("expected LCell, got {:?}", other),
+    }
+}
+
+fn as_map(v: V) -> Rc<RefCell<HashMap<VKey, V>>> {
+    match v {
+        V::Map(m) => m,
+        other => panic!("expected Map, got {:?}", other),
+    }
+}
+
+fn as_arr(v: V) -> Rc<RefCell<Vec<V>>> {
+    match v {
+        V::Arr(a) => a,
+        other => panic!("expected Arr, got {:?}", other),
+    }
+}
+
+fn as_data_tag(v: V) -> String {
+    match v {
+        V::Data(tag, _) => tag,
+        other => panic!("expected Data, got {:?}", other),
+    }
+}
+
+fn as_data_fields(v: V) -> Vec<V> {
+    match v {
+        V::Data(_, fields) => fields,
+        other => panic!("expected Data, got {:?}", other),
+    }
+}
+
+// ── Function call ─────────────────────────────────────────────────────────────
+
+fn call_fn(f: V, args: Vec<V>) -> V {
+    match f {
+        V::Fn(func) => func(args),
+        other => panic!("call_fn: not a function: {:?}", other),
+    }
+}
+
+// ── Arithmetic ────────────────────────────────────────────────────────────────
+
+fn v_iadd(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y))     => V::Int(x.wrapping_add(y)),
+        (V::Float(x), V::Float(y)) => V::Float(x + y),
+        (V::Float(x), V::Int(y))   => V::Float(x + y as f64),
+        (V::Int(x), V::Float(y))   => V::Float(x as f64 + y),
+        (a, b) => V::Int(as_int(a).wrapping_add(as_int(b))),
+    }
+}
+
+fn v_isub(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y))     => V::Int(x.wrapping_sub(y)),
+        (V::Float(x), V::Float(y)) => V::Float(x - y),
+        (a, b) => V::Int(as_int(a).wrapping_sub(as_int(b))),
+    }
+}
+
+fn v_imul(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y))     => V::Int(x.wrapping_mul(y)),
+        (V::Float(x), V::Float(y)) => V::Float(x * y),
+        (a, b) => V::Int(as_int(a).wrapping_mul(as_int(b))),
+    }
+}
+
+fn v_idiv(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y)) => V::Int(x / y),
+        (a, b) => V::Int(as_int(a) / as_int(b)),
+    }
+}
+
+fn v_imod(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y)) => V::Int(x % y),
+        (a, b) => V::Int(as_int(a) % as_int(b)),
+    }
+}
+
+fn v_ineg(a: V) -> V {
+    match a {
+        V::Int(n) => V::Int(n.wrapping_neg()),
+        V::Float(d) => V::Float(-d),
+        other => V::Int(-as_int(other)),
+    }
+}
+
+fn v_ieq(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y))     => V::Bool(x == y),
+        (V::Float(x), V::Float(y)) => V::Bool(x == y),
+        (a, b) => V::Bool(as_int(a) == as_int(b)),
+    }
+}
+
+fn v_ilt(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y))     => V::Bool(x < y),
+        (V::Float(x), V::Float(y)) => V::Bool(x < y),
+        (a, b) => V::Bool(as_int(a) < as_int(b)),
+    }
+}
+
+fn v_ile(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y)) => V::Bool(x <= y),
+        (a, b) => V::Bool(as_int(a) <= as_int(b)),
+    }
+}
+
+fn v_igt(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y)) => V::Bool(x > y),
+        (a, b) => V::Bool(as_int(a) > as_int(b)),
+    }
+}
+
+fn v_ige(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Int(x), V::Int(y)) => V::Bool(x >= y),
+        (a, b) => V::Bool(as_int(a) >= as_int(b)),
+    }
+}
+
+// ── String ────────────────────────────────────────────────────────────────────
+
+fn v_sconcat(a: V, b: V) -> V {
+    match (a, b) {
+        (V::Str(x), V::Str(y)) => V::Str(x + &y),
+        // tuple/ADT concat: any two Data values concatenate their fields
+        (V::Data(_t1, f1), V::Data(_t2, f2)) => {
+            let mut fields = f1;
+            fields.extend(f2);
+            let n = fields.len();
+            V::Data(format!("Tuple{}", n), fields)
+        }
+        (a, b) => V::Str(show(&a) + &show(&b)),
+    }
+}
+
+fn v_str_to_i(v: V) -> V {
+    let s = as_str(v);
+    match s.parse::<i64>() {
+        Ok(n) => V::Data("Some".to_string(), vec![V::Int(n)]),
+        Err(_) => V::Data("None".to_string(), vec![]),
+    }
+}
+
+fn v_str_to_f(v: V) -> V {
+    let s = as_str(v);
+    match s.parse::<f64>() {
+        Ok(d) => V::Data("Some".to_string(), vec![V::Float(d)]),
+        Err(_) => V::Data("None".to_string(), vec![]),
+    }
+}
+
+fn v_from_codes(v: V) -> V {
+    let mut s = String::new();
+    let mut cur = v;
+    loop {
+        match cur {
+            V::Data(ref tag, ref fields) if tag == "Cons" => {
+                let code = as_int(fields[0].clone()) as u32;
+                s.push(char::from_u32(code).unwrap_or('?'));
+                cur = fields[1].clone();
+            }
+            _ => break,
+        }
+    }
+    V::Str(s)
+}
+
+fn v_str_index_of(a: V, b: V) -> V {
+    let haystack = as_str(a);
+    let needle = as_str(b);
+    match haystack.find(&needle) {
+        Some(i) => V::Int(i as i64),
+        None    => V::Int(-1i64),
+    }
+}
+
+fn v_str_split(s: V, sep: V) -> V {
+    let src = as_str(s);
+    let sep = as_str(sep);
+    let parts: Vec<&str> = src.split(sep.as_str()).collect();
+    let nil: V = V::Data("Nil".to_string(), vec![]);
+    parts.iter().rev().fold(nil, |acc, &p| {
+        V::Data("Cons".to_string(), vec![V::Str(p.to_string()), acc])
+    })
+}
+
+fn v_str_lines(s: V) -> V {
+    let src = as_str(s);
+    let parts: Vec<&str> = src.split('\n').collect();
+    let nil: V = V::Data("Nil".to_string(), vec![]);
+    parts.iter().rev().fold(nil, |acc, &p| {
+        V::Data("Cons".to_string(), vec![V::Str(p.to_string()), acc])
+    })
+}
+
+// ── Map ───────────────────────────────────────────────────────────────────────
+
+fn v_map_get(m: V, k: V) -> V {
+    let key = VKey::from(&k);
+    match as_map(m).borrow().get(&key).cloned() {
+        Some(v) => V::Data("Some".to_string(), vec![v]),
+        None    => V::Data("None".to_string(), vec![]),
+    }
+}
+
+fn v_map_keys(m: V) -> V {
+    let keys: Vec<V> = as_map(m).borrow().keys()
+        .map(|k| V::Str(k.0.clone()))
+        .collect();
+    let nil: V = V::Data("Nil".to_string(), vec![]);
+    keys.into_iter().rev().fold(nil, |acc, k| {
+        V::Data("Cons".to_string(), vec![k, acc])
+    })
+}
+
+// ── I/O ───────────────────────────────────────────────────────────────────────
+
+fn v_print(v: V) { print!("{}", show(&v)); }
+fn v_println(v: V) { println!("{}", show(&v)); }
+
+fn v_io_args() -> V {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let nil: V = V::Data("Nil".to_string(), vec![]);
+    args.into_iter().rev().fold(nil, |acc, s| {
+        V::Data("Cons".to_string(), vec![V::Str(s), acc])
+    })
+}
+
+fn v_io_env(k: V) -> V {
+    match std::env::var(as_str(k)) {
+        Ok(v)  => V::Data("Some".to_string(), vec![V::Str(v)]),
+        Err(_) => V::Data("None".to_string(), vec![]),
+    }
+}
+
+// ── Bytes ─────────────────────────────────────────────────────────────────────
+
+fn hex_bytes(s: &str) -> Vec<u8> {
+    (0..s.len()).step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i+2], 16).unwrap())
+        .collect()
+}
+
+"""
