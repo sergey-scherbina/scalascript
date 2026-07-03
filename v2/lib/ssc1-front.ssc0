@@ -428,12 +428,17 @@ def parseBlock = (toks) =>
       let r = parseExpr(advance(ts2)) in
       go(prT(r), Cons(Pair("return", prV(r)), acc))
     else if kindIs("id", ts2) then
-      -- look ahead: id = expr is assignment; else parse as expression
+      -- look ahead: id = expr is assignment; id { block } is call-with-thunk; else expr
       let name = tokVal(peek(ts2)) in
       let ts3 = advance(ts2) in
       if kindIs("=", ts3) then
         let r = parseExpr(advance(ts3)) in
         go(prT(r), Cons(Pair("assign", Pair(name, prV(r))), acc))
+      else if kindIs("{", ts3) then
+        -- name { body }  →  name(() => body)  (e.g. runLogger/runStream block arg)
+        let rb = parseBlock(advance(ts3)) in
+        let call = mkApp(Pair("var", name), Cons(mkLam(Nil, prV(rb)), Nil)) in
+        go(prT(rb), Cons(Pair("expr", call), acc))
       else
         let r = parseExpr(ts2) in
         -- Check for a(idx) = rhs  →  idx_assign
@@ -745,13 +750,38 @@ def parseDef = (toks) =>
   let re = parseExpr(toks7) in
   pr(mkDef(name, allParams, prV(re)), prT(re))
 
+-- consumeBlockArg: if next token is '{', parse it as a 0-arg thunk and apply to expr
+def consumeBlockArg = (expr, toks) =>
+  if kindIs("{", toks) then
+    let rb = parseBlock(advance(toks)) in
+    pr(mkApp(expr, Cons(mkLam(Nil, prV(rb)), Nil)), prT(rb))
+  else pr(expr, toks)
+
 def parseVal = (toks) =>
-  let name = tokVal(peek(toks)) in
-  let toks2 = advance(toks) in
-  let toks3 = skipTypeAnnot(toks2) in
-  let toks4 = skipKind("=", toks3) in
-  let re = parseExpr(toks4) in
-  pr(mkVal(name, prV(re)), prT(re))
+  -- Tuple pattern: val (a, b) = expr  →  ("tuppat", (names, expr))
+  if kindIs("(", toks) then
+    let ts1 = advance(toks) in
+    let rec goNames = (ts, acc) =>
+      let name = tokVal(peek(ts)) in
+      let ts2 = advance(ts) in
+      let acc2 = Cons(name, acc) in
+      if kindIs(",", ts2) then goNames(advance(ts2), acc2)
+      else pr(reverse(acc2), skipKind(")", ts2)) in
+    let rNames = goNames(ts1, Nil) in
+    let ts2 = prT(rNames) in
+    let ts3 = skipTypeAnnot(ts2) in
+    let ts4 = skipKind("=", ts3) in
+    let re = parseExpr(ts4) in
+    -- If followed by { body }, treat it as a block arg to the expr (e.g. runStream { ... })
+    let reFinal = consumeBlockArg(prV(re), prT(re)) in
+    pr(Pair("tuppat", Pair(prV(rNames), prV(reFinal))), prT(reFinal))
+  else
+    let name = tokVal(peek(toks)) in
+    let toks2 = advance(toks) in
+    let toks3 = skipTypeAnnot(toks2) in
+    let toks4 = skipKind("=", toks3) in
+    let re = parseExpr(toks4) in
+    pr(mkVal(name, prV(re)), prT(re))
 
 -- ── KC7: match + case class parsing ─────────────────────────────────────────
 

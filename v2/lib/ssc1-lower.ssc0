@@ -89,6 +89,36 @@ def kc7bObjectsCell = #cell.new(Nil)
 -- Array and Map variable name registries (for indexed read/write lowering)
 def arrVarsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
+-- List variable name registry (for .length dispatch to _sel_length vs slen)
+def listVarsCell = #cell.new(Nil)
+
+-- Check if a name is a registered list variable
+def isListVar = (name) =>
+  let rec go = (xs) =>
+    match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
+  go(#cell.get(listVarsCell))
+
+-- Check if a resolved expression returns a list (call to a list-returning selector)
+def isListConstruction = (rb) =>
+  match rb {
+    case Pair(rtag, rdata) =>
+      if #seq(rtag, "app") then
+        match rdata {
+          case Pair(fn, args) =>
+            match fn {
+              case Pair(ftag, fname) =>
+                if #seq(ftag, "var") then
+                  if #seq(fname, "_sel_runToList") then true
+                  else if #seq(fname, "_sel_filter") then true
+                  else if #seq(fname, "_sel_map") then true
+                  else if #seq(fname, "_sel_flatMap") then true
+                  else if #seq(fname, "_sel_take") then true
+                  else false
+                else false
+            }
+        }
+      else false
+  }
 
 def isKnownObject = (name) =>
   let rec go = (xs) =>
@@ -373,9 +403,21 @@ def resolveMethodCall = (robj, method, rargs) =>
 -- Resolve a pure field access obj.field (no args)
 def resolveField = (robj, field) =>
   if #seq(field, "length") then
-    Pair("prim", Pair("slen", Cons(robj, Nil)))
+    let rname = match robj { case Pair(rt, rd) => if #seq(rt, "var") then rd else "" } in
+    if isListVar(rname) then
+      Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
+    else if isListConstruction(robj) then
+      Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
+    else
+      Pair("prim", Pair("slen", Cons(robj, Nil)))
   else if #seq(field, "size") then
-    Pair("prim", Pair("slen", Cons(robj, Nil)))
+    let rname2 = match robj { case Pair(rt, rd) => if #seq(rt, "var") then rd else "" } in
+    if isListVar(rname2) then
+      Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
+    else if isListConstruction(robj) then
+      Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
+    else
+      Pair("prim", Pair("slen", Cons(robj, Nil)))
   else if #seq(field, "toString") then
     Pair("prim", Pair("i->str", Cons(robj, Nil)))
   else if #seq(field, "toInt") then
@@ -549,10 +591,13 @@ def resolveE = (expr) =>
                   if #seq(stag, "val") then
                     match sdata {
                       case Pair(name, expr) =>
-                        -- Register array vars NOW so subsequent stmts can use arr.get dispatch
+                        -- Register array/list vars NOW so subsequent stmts dispatch correctly
                         let rb = resolveE(expr) in
                         let _reg = if isArrayConstruction(rb) then
                           #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
+                        else () in
+                        let _reg2 = if isListConstruction(rb) then
+                          #cell.set(listVarsCell, Cons(name, #cell.get(listVarsCell)))
                         else () in
                         Cons(Pair("val", Pair(name, rb)), resolveBlock(rest))
                     }
@@ -592,6 +637,11 @@ def resolveE = (expr) =>
                     match sdata {
                       case Pair(lhs, rhs) =>
                         Cons(Pair("idx_assign", Pair(resolveE(lhs), resolveE(rhs))), resolveBlock(rest))
+                    }
+                  else if #seq(stag, "tuppat") then
+                    match sdata {
+                      case Pair(names, expr) =>
+                        Cons(Pair("tuppat", Pair(names, resolveE(expr))), resolveBlock(rest))
                     }
                   else Cons(s, resolveBlock(rest))
               }
@@ -1180,6 +1230,21 @@ def lowerBlock = (scope, stmts) =>
                       IrLet(Cons(lowerE(scope, data), Nil), lowerBlock(Cons("_blk_", scope), rest))
                 }
             }
+          else if #seq(tag, "tuppat") then
+            -- val (n1, n2) = expr  →  let _tup = expr in let n1 = _sel__1(_tup) in rest
+            -- Only the first binding (n1) is surfaced; n2/_/etc are treated as ignored
+            -- De Bruijn: after IrLet([expr]) _tup=L0; after IrLet([_sel__1(L0)]) n1=L0 _tup=L1
+            match data {
+              case Pair(names, expr) =>
+                match names {
+                  case Cons(n1, namesRest) =>
+                    IrLet(Cons(lowerE(scope, expr), Nil),
+                      IrLet(Cons(IrApp(IrGlobal("_sel__1"), Cons(IrLocal(0), Nil)), Nil),
+                        lowerBlock(Cons(n1, Cons("__tup", scope)), rest)
+                      )
+                    )
+                }
+            }
           else lowerBlock(scope, rest)
       }
   }
@@ -1578,6 +1643,81 @@ def selMapGetOrElseDef =
         Nil)),
         None)))
 
+-- runLogger(thunk) — call the thunk, return its result (effect-pure: Logger effects are no-ops)
+-- IrLam(1): thunk=local(0)
+-- → thunk()
+def runLoggerDef =
+  IrDef("runLogger", IrLam(1, IrApp(IrLocal(0), Nil)))
+
+-- __streamBuf — global mutable cell holding current stream elements (Nil when not in runStream)
+def streamBufDef =
+  IrDef("__streamBuf", IrPrim("cell.new", Cons(IrCtor("Nil", Nil), Nil)))
+
+-- Stream_emit(x) — push x to the front of __streamBuf
+-- IrLam(1): x=local(0)
+-- → cell.set(__streamBuf, Cons(x, cell.get(__streamBuf)))
+def streamEmitDef =
+  IrDef("Stream_emit",
+    IrLam(1,
+      IrPrim("cell.set",
+        Cons(IrGlobal("__streamBuf"),
+        Cons(IrCtor("Cons",
+          Cons(IrLocal(0),
+          Cons(IrPrim("cell.get", Cons(IrGlobal("__streamBuf"), Nil)),
+          Nil))),
+        Nil)))))
+
+-- runStream(thunk) — set up buffer, run thunk, collect emitted values, return Pair(list, ())
+-- IrLam(1): thunk=L0
+-- let old = cell.get(__streamBuf)   → old=L0, thunk=L1
+-- let _ = cell.set(__streamBuf, Nil) → _=L0, old=L1, thunk=L2
+-- let _ = thunk()                    → _=L0, _=L1, old=L2, thunk=L3
+-- let collected = cell.get(__streamBuf) → collected=L0, _=L1, _=L2, old=L3, thunk=L4
+-- let _ = cell.set(__streamBuf, old) → _=L0, collected=L1, _=L2, _=L3, old=L4, thunk=L5
+-- → Pair(collected, ())  = Pair(L1, unit)
+def runStreamDef =
+  IrDef("runStream",
+    IrLam(1,
+      IrLet(Cons(IrPrim("cell.get", Cons(IrGlobal("__streamBuf"), Nil)), Nil),
+        IrLet(Cons(IrPrim("cell.set",
+          Cons(IrGlobal("__streamBuf"), Cons(IrCtor("Nil", Nil), Nil))), Nil),
+          IrLet(Cons(IrApp(IrLocal(2), Nil), Nil),
+            IrLet(Cons(IrPrim("cell.get", Cons(IrGlobal("__streamBuf"), Nil)), Nil),
+              IrLet(Cons(IrPrim("cell.set",
+                Cons(IrGlobal("__streamBuf"), Cons(IrLocal(3), Nil))), Nil),
+                IrCtor("Pair",
+                  Cons(IrLocal(1),
+                  Cons(IrLit(IrUnit),
+                  Nil))))))))))
+
+-- _sel_runToList(src) — src is already a collected list, return it
+def selRunToListDef =
+  IrDef("_sel_runToList", IrLam(1, IrLocal(0)))
+
+-- _sel_length(lst) — tail-recursive list length; falls back to slen for strings/arrays
+-- IrLam(1): lst=L0
+-- IrLetRec: go=L0, lst=L1; call go(lst, 0) = IrApp(L0, [L1, lit(0)])
+-- go=IrLam(2): L0=acc, L1=xs, L2=go
+--   Nil arm (0 fields): return acc=L0
+--   Cons arm (2 fields): t=L0, h=L1; acc=L2, go=L4 → go(t, acc+1)
+--   default: slen(xs=L1) for strings and arrays
+def selLengthDef =
+  IrDef("_sel_length",
+    IrLam(1,
+      IrLetRec(
+        Cons(IrLam(2,
+          IrMatch(IrLocal(1),
+            Cons(IrArm("Nil", 0, IrLocal(0)),
+            Cons(IrArm("Cons", 2,
+              IrApp(IrLocal(4),
+                Cons(IrLocal(0),
+                Cons(IrPrim("i.add", Cons(IrLocal(2), Cons(IrLit(IrInt(1)), Nil))),
+                Nil)))),
+            Nil)),
+            Some(IrPrim("slen", Cons(IrLocal(1), Nil))))),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(1), Cons(IrLit(IrInt(0)), Nil))))))
+
 -- All injected KC6 helpers
 def kc6Defs =
   Cons(selMapDef,
@@ -1608,7 +1748,13 @@ def kc6Defs =
   Cons(selSumDef,
   Cons(selMapUpdatedDef,
   Cons(selMapGetOrElseDef,
-  Nil))))))))))))))))))))))))))))
+  Cons(runLoggerDef,
+  Cons(streamBufDef,
+  Cons(streamEmitDef,
+  Cons(runStreamDef,
+  Cons(selRunToListDef,
+  Cons(selLengthDef,
+  Nil))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
@@ -1619,9 +1765,10 @@ def lowerProg = (stmts) =>
   let _ko = #cell.set(kc7bObjectsCell, Nil) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
-  -- Reset array/map variable registries
+  -- Reset array/map/list variable registries
   let _av = #cell.set(arrVarsCell, Nil) in
   let _mv = #cell.set(mapVarsCell, Nil) in
+  let _lv = #cell.set(listVarsCell, Nil) in
   let defs =
     Cons(printlnDef,
     Cons(printDef,

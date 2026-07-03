@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-bench-compat KV7: effect-pure + effect-stream + _sel_length — 31/31 bench programs on v2
+
+Added to `ssc1-lower.ssc0` + `ssc1-front.ssc0`:
+- `id { body }` → `id(() => body)` parse in `parseBlock` `id` branch (top-level statement only)
+- `val (a, b) = expr` → `tuppat` AST node (tuple destructuring); `consumeBlockArg` helper for block args after tuple-pattern RHS
+- `runLogger` kc6 def: `lam(1, app(local(0), Nil))` — calls the passed thunk
+- `__streamBuf` global cell, `Stream_emit`, `runStream` kc6 defs — stream collection machinery
+- `_sel_runToList` kc6 def: identity (stream already collected to list)
+- `_sel_length` kc6 def: tail-recursive list-length counter; `listVarsCell` + `isListVar` + `isListConstruction` to dispatch `.length` to `_sel_length` for list vars, `slen` for strings/arrays
+
+All **31/31** bench corpus programs now pass on v2.
+
 ## 2026-07-03 — v2-bench-compat KV6: Array/Vector/Map/LazyList — 29/31 bench programs on v2
 
 Added to `ssc1-lower.ssc0`+`ssc1-front.ssc0`:
