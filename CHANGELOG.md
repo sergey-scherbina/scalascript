@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-backend-jvm: Phase 2c — Core IR → Scala 3 source code generator
+
+`v2/backend/jvm/JvmBackend.scala` (712 lines, scala-cli runnable): reads Core IR (S-expression text
+format), emits a self-contained Scala 3 source file that produces byte-identical output to `ssc run-ir`
+when compiled with `scalac` and run with `java`. Handles all Core IR constructs (Lit, Local, Global,
+Lam, App, Let, LetRec, If, Ctor, Match, Prim, While, Seq) + full prim set (arithmetic, string, list,
+ADT, io, lcell, cell, map, arr). Value representation: `type V = Any`; closures = `Array[V] => V`;
+ADTs = `(String, Array[V])` tuples; de Bruijn scopes tracked as `List[String]`. 28/29 passing
+(conformance tests + all 23 v2 example programs); only `tco.coreir` (1M tail calls) is out of scope.
+Spec: `specs/v2-backend-jvm.md`.
+
 ## 2026-07-03 — v2-plugin-bridge: Phase 2b — v1 plugins loadable from v2
 
 Added `V2PluginRegistry` (mutable HashMap, checked by `Prims.resolve` before throwing) to

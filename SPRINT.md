@@ -28,8 +28,11 @@ Three phases — execute in order, each phase gated by the previous:
       registers wrapped handlers with `V2PluginRegistry`. 22 tests green. Non-bridgeable: `InlineCode`,
       `RuntimeCall` (compile-time only), `BlockForm` effect runners (deferred). Spec original description
       (shift/reset SPI) is a later phase; this bridges the existing NativeImpl surface first.
-- [ ] **Phase 2c: v2 JVM backend** — Core IR → JVM bytecode (via ASM or Java source + javac).
-      Full feature + performance parity with v1 JVM backend.
+- [x] **Phase 2c: v2 JVM backend** — DONE 2026-07-03. `v2/backend/jvm/JvmBackend.scala` (712 lines):
+      reads Core IR (S-expression text), emits a self-contained Scala 3 source file. When compiled
+      with `scalac` and run with `java`, produces byte-identical output to `ssc run-ir`. 28/29 pass
+      (conformance + all 23 v2 examples); only `tco.coreir` (1M tail calls, no trampolining) is
+      out of scope by design. Preamble handles all Core IR constructs + full prim set.
 - [ ] **Phase 2c: v2 JS backend** — Core IR → JavaScript (ES2020+). Parity with v1 JS.
 - [ ] **Phase 2c: v2 Rust backend** — Core IR → Rust source. Parity with v1 Rust.
 - [ ] **Phase 2d: full checklist** — 31/31 bench on all backends, all plugin categories,

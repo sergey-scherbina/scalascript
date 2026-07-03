@@ -1,6 +1,0 @@
-feature/v2-backend-jvm 2026-07-03T16:18:23Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-07-03T16:18:23Z
-status: not-started
-done-so-far:
-next: write spec + implement JVM backend codegen
