@@ -1,0 +1,6 @@
+feature/v2-backend-js 2026-07-03T16:13:34Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-07-03T16:13:34Z
+status: not-started
+done-so-far:
+next: create worktree and write JsBackend.scala
