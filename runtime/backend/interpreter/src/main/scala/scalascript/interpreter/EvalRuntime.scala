@@ -1873,6 +1873,68 @@ private[interpreter] object EvalRuntime:
         case _           => null
     case _ => null
 
+  /** Walk `term` as a degree-≤2 polynomial `a2*counter^2 + a1*counter + a0`.
+   *  Returns null on non-polynomial shapes, degree > 2, function calls, or if
+   *  `acc` (the accumulator variable) appears — that would be unsound. */
+  private def walkQuadPoly(
+    term: Term, counter: String, acc: String, interp: Interpreter
+  ): (Long, Long, Long) | Null = term match
+    case Lit.Int(n)  => (0L, 0L, n.toLong)
+    case Lit.Long(n) => (0L, 0L, n)
+    case n: Term.Name if n.value == counter => (0L, 1L, 0L)
+    case n: Term.Name if n.value == acc     => null
+    case n: Term.Name if interp.valNames.contains(n.value) =>
+      interp.globals.getOrElse(n.value, null) match
+        case Value.IntV(v) => (0L, 0L, v)
+        case _             => null
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("+"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val r1 = walkQuadPoly(lhs, counter, acc, interp); if r1 == null then return null
+      val r2 = walkQuadPoly(ac.values.head, counter, acc, interp); if r2 == null then return null
+      (r1._1 + r2._1, r1._2 + r2._2, r1._3 + r2._3)
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("-"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val r1 = walkQuadPoly(lhs, counter, acc, interp); if r1 == null then return null
+      val r2 = walkQuadPoly(ac.values.head, counter, acc, interp); if r2 == null then return null
+      (r1._1 - r2._1, r1._2 - r2._2, r1._3 - r2._3)
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("*"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val r1 = walkQuadPoly(lhs, counter, acc, interp); if r1 == null then return null
+      val r2 = walkQuadPoly(ac.values.head, counter, acc, interp); if r2 == null then return null
+      val deg1 = if r1._1 != 0 then 2 else if r1._2 != 0 then 1 else 0
+      val deg2 = if r2._1 != 0 then 2 else if r2._2 != 0 then 1 else 0
+      if deg1 + deg2 > 2 then return null
+      val (a2, a1, a0) = r1; val (b2, b1, b0) = r2
+      (a2*b0 + a0*b2 + a1*b1, a1*b0 + a0*b1, a0*b0)
+    case Term.ApplyUnary(op, arg) if op.value == "-" =>
+      val r = walkQuadPoly(arg, counter, acc, interp); if r == null then return null
+      (-r._1, -r._2, -r._3)
+    case blk: Term.Block if blk.stats.lengthCompare(1) == 0 =>
+      blk.stats.head match
+        case inner: Term => walkQuadPoly(inner, counter, acc, interp)
+        case _           => null
+    case _ => null
+
+  /** Parse `rhs` as `acc + poly(counter)` in left-associative `+` chain.
+   *  Returns `(a2, a1, a0)` coefficients of the addend, or null on mismatch. */
+  private def tryExtractPolyAddend(
+    accName: String, rhs: Term, ctrName: String, interp: Interpreter
+  ): (Long, Long, Long) | Null = rhs match
+    case Term.Name(`accName`) => (0L, 0L, 0L)
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("+"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val rhsTerm = ac.values.head
+      lhs match
+        case Term.Name(`accName`) =>
+          walkQuadPoly(rhsTerm, ctrName, accName, interp)
+        case _ =>
+          val rest = tryExtractPolyAddend(accName, lhs, ctrName, interp)
+          if rest == null then return null
+          val rp = walkQuadPoly(rhsTerm, ctrName, accName, interp)
+          if rp == null then return null
+          (rest._1 + rp._1, rest._2 + rp._2, rest._3 + rp._3)
+    case _ => null
+
   /** Replace `while counter < N do { acc = acc + f(counter); counter += step }`
    *  with the Gauss closed form, bypassing bytecode JIT entirely.
    *
@@ -1923,6 +1985,27 @@ private[interpreter] object EvalRuntime:
           case Lit.Int(s) if s > 0 => s.toLong
           case _ => return null
       case _ => return null
+    // Fast path: inline degree-≤2 polynomial addend `acc = acc + poly(counter)`.
+    // Handles left-assoc chains like `acc + X1 + X2` (e.g. after val-inlining).
+    val inlinePoly = tryExtractPolyAddend(accName, body.rhs(accIdx), ctrName, interp)
+    if inlinePoly != null then
+      val (a2, a1, a0) = inlinePoly
+      val K   = BigInt(counter.iterations)
+      val S   = BigInt(ctrStart)
+      val stp = BigInt(step)
+      // Σ_{j=0}^{K-1} [a2*(S+j*stp)^2 + a1*(S+j*stp) + a0]
+      val sumQuad = S*S*K + S*stp*K*(K-1) + stp*stp*K*(K-1)*(2*K-1)/6
+      val sumLin  = S*K + stp*K*(K-1)/2
+      val sumBig  = BigInt(a2)*sumQuad + BigInt(a1)*sumLin + BigInt(a0)*K
+      val finalAccBig = BigInt(accStart) + sumBig
+      if finalAccBig < BigInt(Long.MinValue) || finalAccBig > BigInt(Long.MaxValue) then
+        return null
+      val local = frameView.underlying
+      val accV  = Value.intV(finalAccBig.toLong)
+      val ctrV  = Value.intV(counter.finalValue)
+      local(accName) = accV; interp.globals(accName) = accV
+      local(ctrName) = ctrV; interp.globals(ctrName) = ctrV
+      return Computation.PureUnit
     val addTerm = invariantAddend(accName, body.rhs(accIdx))
     if addTerm == null then return null
     // addTerm must be a plain call f(counter) or f(counter, counter)

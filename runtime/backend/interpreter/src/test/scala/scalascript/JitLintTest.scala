@@ -802,11 +802,14 @@ class JitLintTest extends AnyFunSuite with Matchers:
     reports.head.bailReasons should contain (JitBailReason.WhileCondShape)
 
   test("while with two Int assigns — lintWhileLoops reports [JIT OK]"):
+    // acc + i % 3: modulo makes it non-polynomial so the closed-form path does not fire;
+    // the loop goes through tryWhileJit → whileJitCache → appears in lintWhileLoops.
+    // (acc = acc + i alone is now caught by tryClosedFormPolyLoop before reaching the JIT.)
     val reports = lintWhileFor(
       """|var i = 0
          |var acc = 0
          |while i < 100 do
-         |  acc = acc + i
+         |  acc = acc + i % 3
          |  i = i + 1""".stripMargin
     )
     reports should not be empty
