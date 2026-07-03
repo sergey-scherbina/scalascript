@@ -39,7 +39,11 @@ Three phases — execute in order, each phase gated by the previous:
       reads Core IR S-expr, emits a self-contained .js file. Trampoline TCO ($tco/$c),
       full prim set, ADTs as {t,f}, cells as arrays, maps as wrappers. All 5 conformance
       fixtures + 15 kc examples pass (output identical to ssc run-ir); 100k-deep TCO ok.
-- [ ] **Phase 2c: v2 Rust backend** — Core IR → Rust source. Parity with v1 Rust.
+- [x] **Phase 2c: v2 Rust backend** — DONE 2026-07-03. `v2/backend/rust/RustBackend.scala`:
+      Core IR → self-contained Rust source via `scala-cli run v2/backend/rust/`. 29/31 bench corpus
+      pass (2 failures are pre-existing ssc1c IR bugs that also fail the v2 VM). Key: forward-ref
+      cells (`__fwd`) for all global Lam defs (self/mutual recursion), 256MB thread for deep
+      tail recursion, `v_sconcat` handles any Data++Data (Pair++Pair→Tuple4).
 - [ ] **Phase 2d: full checklist** — 31/31 bench on all backends, all plugin categories,
       conformance suite green, domain libs (payments/crypto/frontend) work, TUI works.
 - [ ] **Phase 3: switch** — CLI default → v2; `ssc --v1` escape hatch retained.

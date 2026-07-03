@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-backend-rust: Phase 2c Core IR → Rust code generator
+
+`v2/backend/rust/RustBackend.scala` — self-contained Scala 3 program that reads Core IR
+S-expressions from stdin and emits compilable Rust source. Design: `enum V` with
+Unit/Bool/Int/Float/Str/Bytes/Data/Fn/Cell/LCell/Map/Arr; `Rc<dyn Fn>` closures; forward-ref
+cells (`__fwd`) for all top-level Lam defs; 256MB thread for deep tail recursion; `v_sconcat`
+handles any ADT concat. 29/31 bench corpus pass; 2 failures are pre-existing ssc1c IR bugs.
+
+---
+
 ## 2026-07-03 — v2-jvm-tco: TCO for v2 JVM backend (@tailrec)
 
 `v2/backend/jvm/JvmBackend.scala`: added tail-call elimination for self-recursive global `Def`s
@@ -45,7 +55,6 @@ Added `V2PluginRegistry` (mutable HashMap, checked by `Prims.resolve` before thr
 `NativeImpl` intrinsics, translates `v2Value ↔ v1Value` (scalars + DataV↔InstanceV + List→Cons/Nil
 + Option + Tuple), and registers wrapped handlers in `V2PluginRegistry`. 22 unit tests green.
 Non-bridgeable: `InlineCode`/`RuntimeCall` (codegen only) and `BlockForm` effect runners (deferred).
-
 ## 2026-07-03 — v1-restructure: Phase 1 of v1→v2 migration
 
 Moved `lang/`, `runtime/`, `tools/` into `v1/` using `git mv` (history preserved). Updated all 75
