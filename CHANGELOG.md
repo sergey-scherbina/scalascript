@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-plugin-bridge: Phase 2b — v1 plugins loadable from v2
+
+Added `V2PluginRegistry` (mutable HashMap, checked by `Prims.resolve` before throwing) to
+`v2/src/Runtime.scala`. Created `v2/plugin-bridge/` sbt module (`scalascript-v2-plugin-bridge`):
+`PluginBridge.loadAll()` discovers all v1 `Backend` plugins via `ServiceLoader`, extracts their
+`NativeImpl` intrinsics, translates `v2Value ↔ v1Value` (scalars + DataV↔InstanceV + List→Cons/Nil
++ Option + Tuple), and registers wrapped handlers in `V2PluginRegistry`. 22 unit tests green.
+Non-bridgeable: `InlineCode`/`RuntimeCall` (codegen only) and `BlockForm` effect runners (deferred).
+
 ## 2026-07-03 — v1-restructure: Phase 1 of v1→v2 migration
 
 Moved `lang/`, `runtime/`, `tools/` into `v1/` using `git mv` (history preserved). Updated all 75
