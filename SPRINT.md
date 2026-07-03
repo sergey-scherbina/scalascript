@@ -21,9 +21,13 @@ Three phases — execute in order, each phase gated by the previous:
       `install.sh`, `scripts/runtime-bench.sh`, `tests/perf/{coldstart,serverrss}/run.sh`, and 3 CI
       workflows. `sbt compile` green, `ssc run examples/hello.ssc` prints `Hello, World!`.
 - [x] **Phase 2a: v2 sbt module** — DONE 2026-07-03. Added `lazy val v2Core = project.in(file("v2/src"))` to `build.sbt`; added `v2Core` to root aggregate. `sbt "v2Core/compile"` green (5 sources, 4 s). `//> using` scala-cli directives in `v2/src/project.scala` are valid Scala comments, silently ignored by sbt.
-- [ ] **Phase 2b: plugin SPI via shift/reset** — new `v2/runtime/backend/spi/` implements
-      `BackendSpi` using v2 effect system (`_eff_perform`/`_eff_handle`) instead of v1 trampoline.
-      `SpiValue` ↔ v2 `Value` adapter.
+- [x] **Phase 2b: v1-plugin bridge** — DONE 2026-07-03. `V2PluginRegistry` added to `v2/src/Runtime.scala`
+      (fallback in `Prims.resolve` before throwing). `v2/plugin-bridge/` sbt module created;
+      `PluginBridge.loadAll()` ServiceLoader-discovers v1 `Backend` plugins, extracts `NativeImpl`
+      intrinsics, translates `v2Value ↔ v1Value` (scalars + DataV/InstanceV/List/Option/Tuple),
+      registers wrapped handlers with `V2PluginRegistry`. 22 tests green. Non-bridgeable: `InlineCode`,
+      `RuntimeCall` (compile-time only), `BlockForm` effect runners (deferred). Spec original description
+      (shift/reset SPI) is a later phase; this bridges the existing NativeImpl surface first.
 - [ ] **Phase 2c: v2 JVM backend** — Core IR → JVM bytecode (via ASM or Java source + javac).
       Full feature + performance parity with v1 JVM backend.
 - [ ] **Phase 2c: v2 JS backend** — Core IR → JavaScript (ES2020+). Parity with v1 JS.

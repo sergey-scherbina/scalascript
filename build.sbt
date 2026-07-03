@@ -89,6 +89,22 @@ lazy val v2Core = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// ── v2 plugin bridge — loads v1 Backend plugins into the v2 VM ────────────────
+// Bridges v1 Backend.intrinsics (NativeImpl) into v2's V2PluginRegistry so the
+// v2 VM can dispatch unknown Prim ops to v1 plugins.  Depends on both v2Core
+// (for ssc.Value / ssc.V2PluginRegistry) and the v1 SPI stack (backendSpi,
+// valueData, core) for Backend/DataValue/Value types.
+// Scope: NativeImpl intrinsics only; effect-based plugins (BlockForm) are a
+// known limitation documented in v2/plugin-bridge/src/.../PluginBridge.scala.
+lazy val v2PluginBridge = project
+  .in(file("v2/plugin-bridge"))
+  .dependsOn(v2Core, backendSpi, valueData, core)
+  .settings(
+    name := "scalascript-v2-plugin-bridge",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+    libraryDependencies ++= Seq(scalatestTest),
+  )
+
 // ── value-data — shared pure-data scalar leaves (value-unification, scalars-only) ──
 // A leaf module (depends on nothing) holding `enum DataValue` — the host-neutral scalar
 // leaves of the interpreter's `Value` (and, later, of `SpiValue`). Lives below `core` and
@@ -3770,7 +3786,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    v2Core,
+    v2Core, v2PluginBridge,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,

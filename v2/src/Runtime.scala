@@ -378,6 +378,16 @@ object FastCode:
       // Fallback: try FC and unbox BoolV
       tryFC(t, globals).map { fc => (env: Env) => fc(env) match { case BoolV(b) => b; case _ => false } }
 
+// ── Plugin registry — lets external code add Prim handlers (v2-plugin-bridge) ──
+// External bridge modules call V2PluginRegistry.register(op, fn) at startup
+// to supply handlers for Prim ops unknown to the built-in Prims table.
+// Prims.resolve falls back here before throwing "unimplemented primitive".
+object V2PluginRegistry:
+  type Fn = List[Value] => Value
+  private val handlers = collection.mutable.HashMap[String, Fn]()
+  def register(op: String, fn: Fn): Unit = handlers(op) = fn
+  def lookup(op: String): Option[Fn] = handlers.get(op)
+
 // ── Primitives δ — resolved once at compile time (specs/10-core-ir.md §5) ─────
 
 object Prims:
@@ -509,7 +519,10 @@ object Prims:
     case "io.exit" => a => sys.exit(int(a, 0).toInt); UnitV
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
-    case _ => sys.error(s"unimplemented primitive: $op")
+    case op =>
+      V2PluginRegistry.lookup(op) match
+        case Some(fn) => fn
+        case None => (_: List[Value]) => sys.error(s"unimplemented primitive: $op")
 
   // ── Allocation-free fast paths for 1/2/3-arg primitives ─────────────────────
   // These avoid creating a List[Value] for arg passing on the hot path.
