@@ -20,7 +20,7 @@ Three phases — execute in order, each phase gated by the previous:
       `tools/ → v1/tools/`. Updated `.in(file("..."))` paths in `build.sbt` (75 entries). Also updated
       `install.sh`, `scripts/runtime-bench.sh`, `tests/perf/{coldstart,serverrss}/run.sh`, and 3 CI
       workflows. `sbt compile` green, `ssc run examples/hello.ssc` prints `Hello, World!`.
-- [ ] **Phase 2a: v2 sbt module** — add `v2/` to root `build.sbt` as `lazy val v2Core`.
+- [x] **Phase 2a: v2 sbt module** — DONE 2026-07-03. Added `lazy val v2Core = project.in(file("v2/src"))` to `build.sbt`; added `v2Core` to root aggregate. `sbt "v2Core/compile"` green (5 sources, 4 s). `//> using` scala-cli directives in `v2/src/project.scala` are valid Scala comments, silently ignored by sbt.
 - [ ] **Phase 2b: plugin SPI via shift/reset** — new `v2/runtime/backend/spi/` implements
       `BackendSpi` using v2 effect system (`_eff_perform`/`_eff_handle`) instead of v1 trampoline.
       `SpiValue` ↔ v2 `Value` adapter.
