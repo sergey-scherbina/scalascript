@@ -1,0 +1,6 @@
+feature/v2-jvm-tco 2026-07-03T16:55:17Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-07-03T16:55:17Z
+status: not-started
+done-so-far:
+next: create worktree and implement @tailrec TCO for global Lam defs
