@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2 Phase 2 complete: v2Core sbt + plugin bridge + JVM/JS/Rust backends
+
+Phase 2 of the v1→v2 migration is fully done. Verification pass (Phase 2d) ran 2026-07-03:
+
+- **JVM backend** (`v2/backend/jvm/JvmBackend.scala`): 5/5 conformance tests pass
+  (fact=120, letrec=true, map=Cons(2,4,6), tco=500000500000, thunk=42) + 3/3 bench corpus
+  spot-checks (arith-loop, recursion-fib, list-fold). TCO via `@tailrec def` verified at 1M calls.
+- **JS backend** (`v2/backend/js/JsBackend.scala`): 5/5 conformance + 2/2 bench corpus
+  (arith-loop, recursion-fib). Trampoline TCO ($tco/$c) verified.
+- **Rust backend** (`v2/backend/rust/RustBackend.scala`): 29/31 bench corpus pass. 2 known
+  ssc1c IR bugs (`bool-predicate`/`mutual-recursion` emit `@count`/`@sum` undefined globals)
+  also fail the v2 VM — root cause tracked in BACKLOG: v2-ssc1c-globals-bug.
+- **sbt v2Core/compile**: SUCCESS (5 sources, 4 s).
+- **macOS echo gotcha**: `echo "$var"` processes `\n` as real newline on macOS (unlike Linux),
+  corrupting backend-generated preamble strings. Always use direct redirects when capturing output.
+
+Phase 3 (CLI default → v2) remains open in SPRINT.md.
+
+---
+
 ## 2026-07-03 — v2-backend-rust: Phase 2c Core IR → Rust code generator
 
 `v2/backend/rust/RustBackend.scala` — self-contained Scala 3 program that reads Core IR

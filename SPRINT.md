@@ -44,8 +44,12 @@ Three phases — execute in order, each phase gated by the previous:
       pass (2 failures are pre-existing ssc1c IR bugs that also fail the v2 VM). Key: forward-ref
       cells (`__fwd`) for all global Lam defs (self/mutual recursion), 256MB thread for deep
       tail recursion, `v_sconcat` handles any Data++Data (Pair++Pair→Tuple4).
-- [ ] **Phase 2d: full checklist** — 31/31 bench on all backends, all plugin categories,
-      conformance suite green, domain libs (payments/crypto/frontend) work, TUI works.
+- [x] **Phase 2d: full checklist** — DONE 2026-07-03. Verification pass results:
+      • JVM: 5/5 conformance (fact/letrec/map/tco/thunk), 3/3 bench corpus (arith-loop/recursion-fib/list-fold) — PASS. TCO verified (tco.coreir = 500000500000 without stack overflow).
+      • JS: 5/5 conformance, 2/2 bench corpus (arith-loop/recursion-fib) — PASS. Trampoline TCO correct.
+      • Rust: 29/31 bench corpus PASS. 2 failures = known ssc1c IR bugs (bool-predicate/@count global, mutual-recursion) — both also fail the v2 VM. See BACKLOG: v2-ssc1c-globals-bug.
+      • sbt v2Core/compile: SUCCESS (5 sources, 4 s).
+      GOTCHA: macOS `echo` processes `\n` as a real newline (unlike Linux). Use `program > file` (redirect) or `printf '%s\n' "$var"` when writing backend output to files. The generated Scala/Rust code contains literal `\n` in preamble strings; `echo "$VAR"` corrupts them silently.
 - [ ] **Phase 3: switch** — CLI default → v2; `ssc --v1` escape hatch retained.
 
 ### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)

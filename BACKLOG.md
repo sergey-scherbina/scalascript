@@ -14,6 +14,22 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## v1→v2 migration follow-ups (2026-07-03)
+
+- [ ] **v2-ssc1c-globals-bug** — `bool-predicate` and `mutual-recursion` ssc1c lowers to IR
+      with `@count`/`@sum` global refs not present in the defs list (they are `var` cells that
+      ssc1c emits as unnamed `@`-prefixed globals instead of letrec-bound locals). Both fail the
+      v2 VM with "trailing input at offset 6" and also fail `rustc` (invalid global name). Fix:
+      trace where ssc1c emits `@count`/`@sum`-style names for var cells and replace with proper
+      `lcell.new`/`lcell.get`/`lcell.set` IR. Confirmed 2026-07-03 during Phase 2d verification.
+- [ ] **v2-jvm-backend-echo-macos** — On macOS, `echo "$var"` processes `\n` in strings as real
+      newlines, corrupting the JVM/Rust backend output when captured via shell `$(...)` and written
+      with `echo`. The generated preamble has `split("\n", -1)` which becomes `split("` + newline +
+      `", -1)` and breaks scalac. Fix: use direct redirect (`backend > file`) or `printf '%s\n'`
+      instead of `echo`. NOTE: already documented in Phase 2d SPRINT entry. This is a testing-harness
+      gotcha, not a backend bug. Low priority since the `check.sh` conformance harness uses direct
+      redirects.
+
 ## Crypto/finance roadmap — later epics (2026-06-23, with Sergiy)
 
 The larger / later items of the crypto/blockchain/identity/payments roadmap. Near-term codeable slices are in
