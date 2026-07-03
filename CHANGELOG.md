@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — interp-poly-closed-form: degree-≤2 inline polynomial accumulation in O(1)
+
+`tryClosedFormPolyLoop` now handles inline polynomial addends in left-associative form
+(e.g. `acc + (i-500)*(i-500) + (i-500)*2` after val-inlining). `walkQuadPoly` returns
+`(a2, a1, a0)` for degree-≤2 polynomials; `tryExtractPolyAddend` peels `acc` from the
+left-assoc chain. Closed form `Σ a2*(S+j*stp)^2 + a1*(S+j*stp) + a0` computed in O(1)
+BigInt. `multiVal` bench: 0.59 ms (JIT) → effectively 0. `PolyClosedFormTest` 7/7 pass.
+
 ## 2026-07-03 — jit-cast-isinstanceof-fix: robust JIT class loading in AsmJit+JavacJit
 
 Fixed a silent cast failure in 8 JIT compile sites (4 × `JavacJitBackend`, 4 × `AsmJitBackend`):

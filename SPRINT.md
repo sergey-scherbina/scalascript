@@ -240,8 +240,14 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       JIT compile sites (4 in `JavacJitBackend`, 4 in `AsmJitBackend`). Root cause: Scala 3 catches an
       exception silently when `asInstanceOf` follows `newInstance()` in certain class-loader contexts; fix
       splits into `isInstanceOf` check before the cast. Confirmed with `ssc.jit.bytecode=off` bench:
-      `multiVal` 12ms (interpreter) → 0.59ms (JIT) = 20× speedup. Remaining gap vs `instanceFieldAccess`
-      (0.05ms) is inherent: polynomial sum needs all 1M iters; closed-form poly recognition is BACKLOG.
+      `multiVal` 12ms (interpreter) → 0.59ms (JIT) = 20× speedup. Poly closed form done next.
+
+- [x] **interp-poly-closed-form** ✓ DONE 2026-07-03 (f7b243288, feature/interp-poly-closed-form → main) —
+      `walkQuadPoly` + `tryExtractPolyAddend` + inline-poly fast path in `tryClosedFormPolyLoop`.
+      Peels `acc` from left-assoc `acc + X1 + X2 + …` chains, sums `walkQuadPoly` coefficients, then
+      computes `Σ a2*(S+j*stp)^2 + a1*(S+j*stp) + a0` in O(1) BigInt. `multiVal` bench: was 0.59ms (JIT)
+      → effectively 0 (O(1) closed form). `PolyClosedFormTest` 7/7 differential tests green. Also catches
+      linear inline addends. `JitLintTest` updated (linear acc now closed-form not JIT path). 189/189 pass.
 
 ### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
