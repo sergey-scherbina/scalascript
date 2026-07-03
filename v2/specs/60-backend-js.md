@@ -1,47 +1,63 @@
 # 60 — Backend: Core IR → JavaScript
 
-> Status: **v1 (2026-06-27)** — `v2/lib/backend-js.ssc0`. The first *target* backend: a
-> translator from Core IR to JavaScript, **written in ssc0**. v2 now emits runnable artifacts
-> with no JVM. This is "one source, many targets": same `ir`, a new target, all on the frozen
-> kernel.
+## v1: ssc0-written backend (2026-06-27)
 
-## How
+> `v2/lib/backend-js.ssc0`. The first *target* backend: a translator from Core IR to
+> JavaScript, **written in ssc0**. v2 now emits runnable artifacts with no JVM.
 
-The backend reuses `ssc0c`'s front (`source → IrProg` Data), then walks the IR emitting JS —
-the same tree `coreir.encode` serializes, rendered as JavaScript instead of S-expr:
+The backend reuses `ssc0c`'s front (`source → IrProg` Data), then walks the IR emitting JS.
+A `show` prelude renders values exactly like the VM's `Show`. TCO via a trampoline
+(`bounce(f,a)` step objects; tail `IrApp` emits `bounce` instead of calling).
+`./ssc0-js f.ssc0 | node`.
 
-| Core IR | JavaScript |
+## v2: Scala 3 backend (2026-07-03)
+
+> `v2/backend/js/JsBackend.scala` — reads the v2 Core IR S-expr format (via `ssc.Reader`)
+> and emits a self-contained JS file. Run with `scala-cli run v2/backend/js/ v2/src/ --main-class ssc.js.main -- file.coreir | node`.
+
+Pipeline:
+```
+.ssc  →  indent2braces.py  →  ssc1c.ssc0 (via VM)  →  Core IR  →  JsBackend  →  .js  →  node
+```
+
+### Representation
+
+| Core IR type | JavaScript |
 |---|---|
-| `IrLocal i` (de Bruijn) | `v{d-1-i}` — a named var by absolute binder depth |
-| `IrLam n body` | `(v{d}, …) => body` (arrow) |
-| `IrApp f args` | `f(args…)` |
-| `IrGlobal name` | `$name` (top-level `const`) |
-| `IrIf` | `(c ? t : e)` |
-| `IrPrim "i.add" …` | `(a + b)`, etc. |
-| `IrCtor tag fs` | `({t:"tag", f:[fs…]})` |
-| `IrMatch` | IIFE dispatching on `$s.t`, binding `$s.f[j]` |
-| `IrLet` / `IrLetRec` | IIFE with consts |
+| Unit | null |
+| Bool | true / false |
+| Int (64-bit) | JS number |
+| Big | JS bigint |
+| Float | JS number |
+| Str | JS string |
+| Bytes | Uint8Array |
+| ADT Ctor(tag, fs) | {t: "tag", f: [f0, f1, ...]} |
+| cell / lcell | single-element array [v] |
+| map | wrapper {m: Map, k: Map} |
 
-A small `show` prelude renders values exactly like the VM's `Show`, so outputs are
-comparable. `./ssc0-js f.ssc0 | node`.
+### De Bruijn scope
 
-## TCO via a trampoline (2026-06-27)
+`Scope = List[String]` newest-first. `Local(i)` → `scope(i)`.
+- `Lam(N, body)`: N params, newest (last) = `local(0)`
+- `Let([e1..eN], body)`: N bindings, eN = `local(0)`, e1 = `local(N-1)`
+- `LetRec([l1..lN], body)`: recScope shared (lN = `local(0)`)
+- `Arm(tag, N, body)`: N fields, field[N-1] = `local(0)`
+- `While(cond, body)` / `Seq(terms)`: inherit enclosing scope (no new bindings)
 
-JavaScript has no guaranteed tail calls, so the codegen is **tail-aware**: functions take an
-args array and return a *Step* — a value, or a `bounce(f, a)` object. A tail `IrApp` emits a
-`bounce` instead of calling; the universal `app(f, a)` loops over bounces in a `while`. So a
-tail call runs in **constant stack** — the IR/VM TCO guarantee (invariant 7), now honored in
-JS. `genE(d, term, tail)` carries the tail flag: it bounces only a tail `IrApp`, and threads
-`tail` through `If`/`Match`/`Let`/`LetRec` tail positions; everything else is value mode.
+### TCO
 
-## Conformance (`conformance/check.sh`)
+Tail `App` emits `$tco(fn,[args])` (a `{$k,  $a}` thunk). Non-tail emits `$c(fn,[args])`
+which drives the trampoline loop until a non-thunk is returned.
 
-`node (ssc0-js X)` == `ssc run X` for `fact`, `map`, `calc`, **and `tco`** (the 1e6-deep tail
-loop, `500000500000`, now runs in constant stack).
+### Entry value
 
-## Why this matters
+Like `Main.scala out()`: Unit (null) is silent; other values printed with `$show()`.
 
-The backend is itself a program on the tower (`ssc0c` front + a ~110-line ssc0 code
-generator). To add a target you write a walker over the same IR — the kernel does not change.
-Rust has since shipped in [`specs/61-backend-rust.md`](61-backend-rust.md), and both JS and
-Rust are TCO-correct. WASM remains the next target once a usable toolchain is available.
+### Conformance
+
+All 5 `v2/conformance/*.coreir` fixtures match `ssc run-ir` output:
+- fact=120, tco=500000500000, letrec=true, thunk=42, map=Cons(2,Cons(4,Cons(6,Nil)))
+
+Tested kc examples (all match VM): hello, fact, strcat, list, fold, str, substr,
+match, casecls, opt, while, lambda, return, block.
+TCO: 100k-deep tail recursion produces 5000050000 without stack overflow.
