@@ -1110,3 +1110,39 @@ Prerequisite: K55 (Markdown extractor).
       `printlnDef` updated to use `io.println`.
       **GOTCHA**: `tokVal=""` for `[`, `]` punctuation — must use `tokKind` in `readTypeStr`.
       Done: `kc5-typeclass.ssc` prints "shown\nshown" ✓. `kc5-strcat` + `kc7b-object` still pass.
+
+## [x] KC13 — end-to-end `.ssc` runner + `${ident}` interpolation fix (2026-07-03)
+
+`ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/stdin` → "Hello, World!" ✓.
+Conformance clean (also fixed 3 pre-existing harness bugs: kc5-type-error, kc9-sideeffects, kc10-ifnoelse).
+
+**Goal:** `v2/ssc1 file.ssc` runs a real v1.0 `.ssc` Markdown file end-to-end on the v2 kernel.
+
+**Slices:**
+
+1. **`${ident}` interpolation** — KC12 only handles `$name` (bare). `examples/hello.ssc` uses
+   `s"Hello, ${name}!"`. Fix `readInterpId` in `ssc1-front.ssc0`: if next char after `$` is `{`
+   read the identifier inside braces, skip the `}`. Pure front-end; no backend/kernel change.
+
+2. **Multi-block concatenation** — real `.ssc` files have multiple `scalascript` fenced blocks.
+   `bin/ssc1-run.ssc0` (ssc0): import `mira-md.ssc0` + `ssc1-front.ssc0` + `ssc1-lower.ssc0`;
+   read file → `extractFences` → filter `Pair("scalascript",src)` blocks → join with `"\n\n"` →
+   lex → parse → lower → emit Core IR. Reuses all KC3-KC12 machinery; no new language features.
+
+3. **`v2/ssc1` launcher** (bash): `exec scala-cli run "$DIR/src" -- run "$DIR/bin/ssc1-run.ssc0" "$@"`
+
+4. **`v2/examples/kc13-hello.ssc`** — the canonical Markdown-wrapped hello example (YAML front-matter +
+   two `scalascript` blocks, `greet` + `main`). Tests `${ident}` + multi-block.
+
+5. **Conformance** — `check.sh` entry: `ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir`
+   → "Hello, World!".
+
+**How / files to touch:**
+- `v2/lib/ssc1-front.ssc0`: fix `readInterpId` for `${...}` (add `{`/`}` branch).
+- `v2/bin/ssc1-run.ssc0` (NEW): Markdown → `extractFences` → filter scalascript → join → parse/lower/emit.
+- `v2/ssc1` (NEW launcher script).
+- `v2/examples/kc13-hello.ssc` (NEW).
+- `v2/conformance/check.sh` (append KC13 check).
+
+**Done-when:** `cd v2 && ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/stdin`
+outputs "Hello, World!"; `./conformance/check.sh` exits 0.
