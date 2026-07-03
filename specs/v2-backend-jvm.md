@@ -13,8 +13,11 @@ running the same program through the v2 VM (`ssc run-ir`).
 
 - **In scope:** all Core IR constructs (Lit, Local, Global, Lam, App, Let, LetRec, If,
   Ctor, Match, Prim, While, Seq) and all primitives that appear in the bench corpus.
-- **Out of scope:** TCO/trampolining (deep tail-recursive programs may overflow); WASM/JS
-  targets; multi-file compilation.
+- **Out of scope:** WASM/JS targets; multi-file compilation.
+- **TCO:** global self-tail-recursive `Def`s and single-lam `LetRec`s with a self-tail-call
+  are emitted as `@tailrec def` (Scala compiler enforces tail-call elimination).
+  Mutual recursion (`LetRec` with 2+ lams that call each other) falls back to closure vars
+  (no trampoline — suitable for shallow mutual recursion like even/odd).
 
 ## Design
 

@@ -443,10 +443,98 @@ object R:
               else throw new RuntimeException(s"unknown primN[$${args.length}]: $op")
 """
 
+  // ── Tail-call detection ───────────────────────────────────────────────────────
+
+  // Returns the list of "is-in-tail-position" flags for every App(Global(name), ...)
+  // occurrence in `t`, given that `t` itself is in tail position iff `isTail`.
+  // Used to decide whether @tailrec is safe for a global def named `name`.
+  private def globalTailPositions(name: String, t: Term, isTail: Boolean): List[Boolean] =
+    import Term.*
+    t match
+      case App(Global(n), args) if n == name =>
+        List(isTail) ++ args.flatMap(a => globalTailPositions(name, a, false))
+      case App(fn, args) =>
+        globalTailPositions(name, fn, false) ++ args.flatMap(a => globalTailPositions(name, a, false))
+      case Global(n) if n == name => List(isTail)
+      case Global(_) | Lit(_) | Local(_) => Nil
+      case Lam(_, body) => globalTailPositions(name, body, false) // new scope
+      case If(c, th, el) =>
+        globalTailPositions(name, c, false) ++
+        globalTailPositions(name, th, isTail) ++
+        globalTailPositions(name, el, isTail)
+      case Let(rhs, body) =>
+        rhs.flatMap(r => globalTailPositions(name, r, false)) ++
+        globalTailPositions(name, body, isTail)
+      case LetRec(lams, body) =>
+        lams.flatMap(l => globalTailPositions(name, l, false)) ++
+        globalTailPositions(name, body, isTail)
+      case Seq(ts) if ts.nonEmpty =>
+        ts.init.flatMap(t2 => globalTailPositions(name, t2, false)) ++
+        globalTailPositions(name, ts.last, isTail)
+      case Seq(_) => Nil
+      case Match(scrut, arms, default) =>
+        globalTailPositions(name, scrut, false) ++
+        arms.flatMap(a => globalTailPositions(name, a.body, isTail)) ++
+        default.toList.flatMap(d => globalTailPositions(name, d, isTail))
+      case Prim(_, args) => args.flatMap(a => globalTailPositions(name, a, false))
+      case Ctor(_, fields) => fields.flatMap(f => globalTailPositions(name, f, false))
+      case While(cond, body) =>
+        globalTailPositions(name, cond, false) ++ globalTailPositions(name, body, false)
+
+  // True iff the global def `name` is safely @tailrec:
+  // it has at least one self-call and ALL self-calls are in tail position.
+  private def isSafeTailRecGlobal(name: String, lamBody: Term): Boolean =
+    val positions = globalTailPositions(name, lamBody, true)
+    positions.nonEmpty && positions.forall(identity)
+
+  // Same for LetRec single-lam: self-call is App(Local(selfIdx), ...).
+  // selfIdx = arity of the lam (params are 0..arity-1, self-ref is at arity).
+  private def localTailPositions(selfIdx: Int, t: Term, isTail: Boolean): List[Boolean] =
+    import Term.*
+    t match
+      case App(Local(i), args) if i == selfIdx =>
+        List(isTail) ++ args.flatMap(a => localTailPositions(selfIdx, a, false))
+      case App(fn, args) =>
+        localTailPositions(selfIdx, fn, false) ++ args.flatMap(a => localTailPositions(selfIdx, a, false))
+      case Local(_) | Global(_) | Lit(_) => Nil
+      case Lam(_, body) => localTailPositions(selfIdx + 1, body, false) // params shift selfIdx
+      case If(c, th, el) =>
+        localTailPositions(selfIdx, c, false) ++
+        localTailPositions(selfIdx, th, isTail) ++
+        localTailPositions(selfIdx, el, isTail)
+      case Let(rhs, body) =>
+        rhs.flatMap(r => localTailPositions(selfIdx, r, false)) ++
+        localTailPositions(selfIdx + rhs.length, body, isTail)
+      case LetRec(lams, body) =>
+        lams.flatMap(l => localTailPositions(selfIdx, l, false)) ++
+        localTailPositions(selfIdx + lams.length, body, isTail)
+      case Seq(ts) if ts.nonEmpty =>
+        ts.init.flatMap(t2 => localTailPositions(selfIdx, t2, false)) ++
+        localTailPositions(selfIdx, ts.last, isTail)
+      case Seq(_) => Nil
+      case Match(scrut, arms, default) =>
+        localTailPositions(selfIdx, scrut, false) ++
+        arms.flatMap(a => localTailPositions(selfIdx + a.arity, a.body, isTail)) ++
+        default.toList.flatMap(d => localTailPositions(selfIdx, d, isTail))
+      case Prim(_, args) => args.flatMap(a => localTailPositions(selfIdx, a, false))
+      case Ctor(_, fields) => fields.flatMap(f => localTailPositions(selfIdx, f, false))
+      case While(cond, body) =>
+        localTailPositions(selfIdx, cond, false) ++ localTailPositions(selfIdx, body, false)
+
+  private def isSafeTailRecLocal(selfIdx: Int, lamBody: Term): Boolean =
+    val positions = localTailPositions(selfIdx, lamBody, true)
+    positions.nonEmpty && positions.forall(identity)
+
   // ── Code generator: Term → Scala 3 expression string ─────────────────────────
 
   // scope(i) = name for Local(i); scope.head = Local(0) = innermost binder
-  def genTerm(t: Term, scope: List[String]): String =
+  // directDefs: global names that have a `<name>_direct(...)` def — call them directly
+  //             (instead of through the closure lazy val) to enable @tailrec.
+  // directLocals: local indices that have a `<varname>_direct(...)` def (for single LetRec @tailrec).
+  //               Maps local index (in current scope) → (directDefName, arity).
+  def genTerm(t: Term, scope: List[String],
+              directDefs: Map[String, Int] = Map.empty,
+              directLocals: Map[Int, (String, Int)] = Map.empty): String =
     import Term.*
     t match
       case Lit(c)       => genConst(c)
@@ -460,24 +548,37 @@ object R:
         val params = (0 until n).map(k => s"p${k}_$d")
         // scope for body: [p{n-1}_d, ..., p0_d] ++ outer scope
         val bodyScope = params.reverse.toList ++ scope
+        // Shift directLocals indices by n (params consume n spots)
+        val shiftedLocals = directLocals.map { case (k, v) => (k + n, v) }
         if n == 0 then
           // 0-arity: thunk
-          val body_s = genTerm(body, scope)
+          val body_s = genTerm(body, scope, directDefs, shiftedLocals)
           s"((_a$d: Array[V]) => { val _unused$d = _a$d; $body_s }): V"
         else
           val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$d($k)" }.mkString("; ")
-          val body_s = genTerm(body, bodyScope)
+          val body_s = genTerm(body, bodyScope, directDefs, shiftedLocals)
           s"((_a$d: Array[V]) => { $paramBinds; $body_s }): V"
 
       case App(fn, args) =>
-        val fn_s = genTerm(fn, scope)
-        val args_s = args.map(a => genTerm(a, scope)).mkString(", ")
-        val n = args.length
-        if n == 0 then s"_call0($fn_s)"
-        else if n == 1 then s"_call1($fn_s, $args_s)"
-        else if n == 2 then s"_call2($fn_s, $args_s)"
-        else if n == 3 then s"_call3($fn_s, $args_s)"
-        else s"_call($fn_s, Array($args_s))"
+        // Check for direct-callable global
+        fn match
+          case Global(name) if directDefs.contains(name) =>
+            val sn = safeName(name)
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
+            s"${sn}_direct($args_s)"
+          case Local(i) if directLocals.contains(i) =>
+            val (dname, _) = directLocals(i)
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
+            s"${dname}_direct($args_s)"
+          case _ =>
+            val fn_s = genTerm(fn, scope, directDefs, directLocals)
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
+            val n = args.length
+            if n == 0 then s"_call0($fn_s)"
+            else if n == 1 then s"_call1($fn_s, $args_s)"
+            else if n == 2 then s"_call2($fn_s, $args_s)"
+            else if n == 3 then s"_call3($fn_s, $args_s)"
+            else s"_call($fn_s, Array($args_s))"
 
       case Let(rhs, body) =>
         val d = fresh()
@@ -486,16 +587,19 @@ object R:
         // l0_d = first binding = local(n-1) in body; l{n-1}_d = last = local(0)
         val parts = new StringBuilder
         var curScope = scope
+        var curLocals = directLocals
         val lnames = (0 until n).map { k =>
           val name = s"l${k}_$d"
-          val rhs_s = genTerm(rhs(k), curScope)
+          val rhs_s = genTerm(rhs(k), curScope, directDefs, curLocals)
           parts.append(s"val $name: V = $rhs_s; ")
-          curScope = name :: curScope  // each new binding becomes Local(0) for subsequent
+          curScope = name :: curScope
+          curLocals = curLocals.map { case (idx, v) => (idx + 1, v) }
           name
         }
         // body scope: [l{n-1}_d, ..., l0_d] ++ outer (lnames.reverse = [l{n-1}, ..., l0])
         val bodyScope = lnames.reverse.toList ++ scope
-        val body_s = genTerm(body, bodyScope)
+        val bodyLocals = directLocals.map { case (idx, v) => (idx + n, v) }
+        val body_s = genTerm(body, bodyScope, directDefs, bodyLocals)
         s"{ ${parts.toString}$body_s }"
 
       case LetRec(lams, body) =>
@@ -506,66 +610,102 @@ object R:
         val letrecScope = rnames.reverse ++ scope
         // For each lam body: params (innermost) ++ letrec vars ++ outer
         val sb = new StringBuilder
-        // Declare all var bindings
-        rnames.foreach { rn => sb.append(s"var $rn: V = null.asInstanceOf[V]; ") }
-        // Assign each lam
-        lams.zip(rnames).foreach { case (lam, rn) =>
-          lam match
-            case Lam(lamArity, lamBody) =>
-              val ld = fresh()
-              val params = (0 until lamArity).map(k => s"p${k}_$ld")
-              // lam body scope: params (innermost) ++ letrec vars ++ outer
-              val lamBodyScope = params.reverse.toList ++ letrecScope
-              if lamArity == 0 then
-                val body_s = genTerm(lamBody, letrecScope)
-                sb.append(s"$rn = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V; ")
-              else
-                val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
-                val body_s = genTerm(lamBody, lamBodyScope)
-                sb.append(s"$rn = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V; ")
-            case _ => sys.error(s"letrec binding must be a Lam, got: $lam")
-        }
-        val body_s = genTerm(body, letrecScope)
-        s"{ ${sb.toString}$body_s }"
+
+        // Single-lam @tailrec optimization:
+        // If there's exactly one lam and its body has only tail self-calls
+        // (via Local(lamArity) after params are pushed), emit @tailrec def.
+        val singleTailRec: Option[(String, Int, List[String], Term)] =
+          if n == 1 then
+            lams(0) match
+              case Lam(lamArity, lamBody) if lamArity > 0 =>
+                // self-call index in lam body scope = lamArity (after params shifted by lamArity)
+                if isSafeTailRecLocal(lamArity, lamBody) then
+                  Some((rnames(0), lamArity, rnames, lamBody))
+                else None
+              case _ => None
+          else None
+
+        singleTailRec match
+          case Some((rn, lamArity, _, lamBody)) =>
+            val ld = fresh()
+            val params = (0 until lamArity).map(k => s"p${k}_$ld")
+            val lamBodyScope = params.reverse.toList ++ letrecScope
+            // Self-call in lam body: Local(lamArity) → rn_direct
+            val innerLocals = directLocals.map { case (k, v) => (k + lamArity + 1, v) } +
+              (lamArity -> (rn, lamArity))
+            val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals)
+            val paramDecls = params.map(p => s"$p: V").mkString(", ")
+            sb.append(s"import scala.annotation.tailrec; ")
+            sb.append(s"@tailrec def ${rn}_direct($paramDecls): V = $body_s; ")
+            // Wrapper closure
+            val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_aw$ld($k)" }.mkString(", ")
+            sb.append(s"var $rn: V = ((_aw$ld: Array[V]) => ${rn}_direct($wrapArgs)): V; ")
+            val bodyLocals = directLocals.map { case (k, v) => (k + 1, v) }
+            val body2_s = genTerm(body, letrecScope, directDefs, bodyLocals)
+            s"{ ${sb.toString}$body2_s }"
+
+          case None =>
+            // Standard LetRec: var bindings for mutual recursion
+            rnames.foreach { rn => sb.append(s"var $rn: V = null.asInstanceOf[V]; ") }
+            lams.zip(rnames).foreach { case (lam, rn) =>
+              lam match
+                case Lam(lamArity, lamBody) =>
+                  val ld = fresh()
+                  val params = (0 until lamArity).map(k => s"p${k}_$ld")
+                  val lamBodyScope = params.reverse.toList ++ letrecScope
+                  val innerLocals = directLocals.map { case (k, v) => (k + lamArity + n, v) }
+                  if lamArity == 0 then
+                    val body_s = genTerm(lamBody, letrecScope, directDefs, innerLocals)
+                    sb.append(s"$rn = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V; ")
+                  else
+                    val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
+                    val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals)
+                    sb.append(s"$rn = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V; ")
+                case _ => sys.error(s"letrec binding must be a Lam, got: $lam")
+            }
+            val bodyLocals = directLocals.map { case (k, v) => (k + n, v) }
+            val body_s = genTerm(body, letrecScope, directDefs, bodyLocals)
+            s"{ ${sb.toString}$body_s }"
 
       case If(c, th, el) =>
-        val c_s  = genTerm(c,  scope)
-        val th_s = genTerm(th, scope)
-        val el_s = genTerm(el, scope)
+        val c_s  = genTerm(c,  scope, directDefs, directLocals)
+        val th_s = genTerm(th, scope, directDefs, directLocals)
+        val el_s = genTerm(el, scope, directDefs, directLocals)
         s"(if ($c_s).asInstanceOf[Boolean] then $th_s else $el_s)"
 
       case Ctor(tag, fields) =>
         if fields.isEmpty then
           s"""("$tag", Array.empty[V])"""
         else
-          val fields_s = fields.map(f => genTerm(f, scope)).mkString(", ")
+          val fields_s = fields.map(f => genTerm(f, scope, directDefs, directLocals)).mkString(", ")
           s"""("$tag", Array[V]($fields_s))"""
 
       case Match(scrut, arms, default) =>
         val d = fresh()
-        val scrut_s = genTerm(scrut, scope)
+        val scrut_s = genTerm(scrut, scope, directDefs, directLocals)
         val sb = new StringBuilder
         sb.append(s"{ val _sv$d: V = $scrut_s; ")
         sb.append(s"val _st$d: String = _adtTag(_sv$d); val _sf$d: Array[V] = _adtFields(_sv$d); ")
         sb.append("(")
-        val conditions = arms.zipWithIndex.map { case (arm, armIdx) =>
+        val conditions = arms.zipWithIndex.map { case (arm, _) =>
           val ld = fresh()
           val armN = arm.arity
           // field vars: f0_ld = fields(0), f1_ld = fields(1), ...
           // arm body scope: [f{n-1}_ld, ..., f0_ld] ++ outer
           val fnames = (0 until armN).map(k => s"f${k}_$ld")
           val armBodyScope = fnames.reverse.toList ++ scope
+          val armLocals = directLocals.map { case (k, v) => (k + armN, v) }
           val fieldBinds = fnames.zipWithIndex.map { case (fn, k) =>
             s"val $fn: V = _sf$d($k)"
           }.mkString("; ")
-          val body_s = genTerm(arm.body, armBodyScope)
+          val body_s = genTerm(arm.body, armBodyScope, directDefs, armLocals)
           val guard = if armN > 0 then s""" && _sf$d.length == $armN""" else s""" && _sf$d.length == 0"""
           s"""if (_st$d == "${arm.tag}"$guard) { $fieldBinds; $body_s }"""
         }
         sb.append(conditions.mkString("\nelse "))
         default match
           case Some(d_term) =>
-            val def_s = genTerm(d_term, scope)
+            val def_s = genTerm(d_term, scope, directDefs, directLocals)
             sb.append(s"\nelse { $def_s }")
           case None =>
             sb.append(s"""\nelse throw new RuntimeException("match: no arm for " + _st$d)""")
@@ -574,7 +714,7 @@ object R:
 
       case Prim(op, args) =>
         val n = args.length
-        val args_s = args.map(a => genTerm(a, scope)).mkString(", ")
+        val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
         if n == 0 then s"""R.primN("$op", Array.empty[V])"""
         else if n == 1 then s"""R.prim1("$op", $args_s)"""
         else if n == 2 then s"""R.prim2("$op", $args_s)"""
@@ -582,14 +722,14 @@ object R:
         else s"""R.primN("$op", Array[V]($args_s))"""
 
       case While(cond, body) =>
-        val c_s = genTerm(cond, scope)
-        val b_s = genTerm(body, scope)
+        val c_s = genTerm(cond, scope, directDefs, directLocals)
+        val b_s = genTerm(body, scope, directDefs, directLocals)
         s"{ while (($c_s).asInstanceOf[Boolean]) do { $b_s; () }; () }"
 
       case Seq(terms) =>
         if terms.isEmpty then "()"
         else
-          val parts = terms.map(t => genTerm(t, scope))
+          val parts = terms.map(t2 => genTerm(t2, scope, directDefs, directLocals))
           s"{ ${parts.init.map(s => s"$s; ()").mkString("; ")}; ${parts.last} }"
 
   def genConst(c: Const): String = c match
@@ -651,12 +791,22 @@ object R:
     val lamDefs = p.defs.filter { d => d.body match { case Term.Lam(_, _) => true; case _ => false } }
     val valDefs = p.defs.filter { d => d.body match { case Term.Lam(_, _) => false; case _ => true } }
 
-    // All lambda defs: generate as lazy vals holding closures
+    // All lambda defs: generate as lazy vals holding closures, OR as @tailrec defs
+    // when the lam body is self-tail-recursive.
     // Bodies reference globals by name, which will be defined in this same scope.
     // Scala closures capture by reference (ObjectRef), so forward refs are OK as long as
     // all vals are set before any closure is called.
     if lamDefs.nonEmpty || valDefs.nonEmpty then
-      // Emit all global vals
+      // Pre-scan: determine which global lam defs are safe to @tailrec.
+      // directGlobalDefs: name -> arity for defs that get a <name>_direct def.
+      val directGlobalDefs: Map[String, Int] = lamDefs.flatMap { d =>
+        d.body match
+          case Term.Lam(n, body) if n > 0 && isSafeTailRecGlobal(d.name, body) =>
+            Some(d.name -> n)
+          case _ => None
+      }.toMap
+
+      // Emit all global lam defs
       for d <- lamDefs do
         val sname = safeName(d.name)
         d.body match
@@ -665,18 +815,26 @@ object R:
             val params = (0 until n).map(k => s"p${k}_$ld")
             // Top-level lam bodies have empty outer scope (globals accessed by name)
             val bodyScope = params.reverse.toList
-            if n == 0 then
-              val body_s = genTerm(body, List.empty)
+            if directGlobalDefs.contains(d.name) && n > 0 then
+              // @tailrec def + lazy val wrapper
+              val paramDecls = params.map(p => s"$p: V").mkString(", ")
+              val body_s = genTerm(body, bodyScope, directGlobalDefs, Map.empty)
+              sb.append(s"  import scala.annotation.tailrec\n")
+              sb.append(s"  @tailrec def ${sname}_direct($paramDecls): V = $body_s\n")
+              val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_aw$ld($k)" }.mkString(", ")
+              sb.append(s"  lazy val $sname: V = ((_aw$ld: Array[V]) => ${sname}_direct($wrapArgs)): V\n")
+            else if n == 0 then
+              val body_s = genTerm(body, List.empty, directGlobalDefs, Map.empty)
               sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V\n")
             else
               val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
-              val body_s = genTerm(body, bodyScope)
+              val body_s = genTerm(body, bodyScope, directGlobalDefs, Map.empty)
               sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V\n")
           case _ => () // shouldn't happen
 
       for d <- valDefs do
         val sname = safeName(d.name)
-        val body_s = genTerm(d.body, List.empty)
+        val body_s = genTerm(d.body, List.empty, directGlobalDefs, Map.empty)
         sb.append(s"  lazy val $sname: V = $body_s\n")
 
     // Generate stubs for Global names referenced but not defined (e.g. _err from type errors)
@@ -688,7 +846,13 @@ object R:
 
     // Entry: compute and print result if non-Unit (same as VM's `out` function).
     // Use Console.out.println directly to avoid shadowing by user-defined `println` global.
-    val entry_s = genTerm(p.entry, List.empty)
+    val directGlobalDefsForEntry = lamDefs.flatMap { d =>
+      d.body match
+        case Term.Lam(n, body) if n > 0 && isSafeTailRecGlobal(d.name, body) =>
+          Some(d.name -> n)
+        case _ => None
+    }.toMap
+    val entry_s = genTerm(p.entry, List.empty, directGlobalDefsForEntry, Map.empty)
     sb.append(s"  val _entry: V = $entry_s\n")
     sb.append("  if !_entry.isInstanceOf[Unit] then Console.out.println(_show(_entry))\n")
     sb.toString
