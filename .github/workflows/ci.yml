@@ -43,7 +43,7 @@ jobs:
           jvm: temurin:21
 
       - name: Validate front-matter
-        run: scala-cli --server=false ./tools/scripts/validate-frontmatter.scala
+        run: scala-cli --server=false ./v1/tools/scripts/validate-frontmatter.scala
 
       - name: Check example files exist
         run: |

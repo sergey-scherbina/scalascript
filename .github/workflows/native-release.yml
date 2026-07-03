@@ -50,9 +50,9 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p dist/lib
-          cp tools/cli/target/graalvm-native-image/ssc dist/${{ matrix.artifact }}
+          cp v1/tools/cli/target/graalvm-native-image/ssc dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
-          PLUGIN_HOST=$(find tools/plugin-host/target -name "ssc-plugin-host.jar" | head -1)
+          PLUGIN_HOST=$(find v1/tools/plugin-host/target -name "ssc-plugin-host.jar" | head -1)
           cp "$PLUGIN_HOST" dist/lib/ssc-plugin-host.jar
 
       - name: Create release archive

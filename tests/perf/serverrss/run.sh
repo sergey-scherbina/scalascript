@@ -31,7 +31,7 @@ for arg in "$@"; do
     interval=*) INTERVAL="${arg#interval=}" ;;
   esac
 done
-[ -n "$JAR" ] || JAR="$(find "$ROOT/tools/cli/target" -name 'ssc.jar' 2>/dev/null | head -1 || true)"
+[ -n "$JAR" ] || JAR="$(find "$ROOT/v1/tools/cli/target" -name 'ssc.jar' 2>/dev/null | head -1 || true)"
 if [ -z "$JAR" ] || [ ! -f "$JAR" ]; then
   echo "serverrss: no ssc.jar found. Build it:  sbt cli/assembly  (or pass jar=<path>)" >&2
   exit 1

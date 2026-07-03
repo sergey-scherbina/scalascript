@@ -37,7 +37,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "$JAR" ]]; then
-  JAR="$(find "$ROOT/tools/cli/target" -name 'ssc.jar' 2>/dev/null | head -1 || true)"
+  JAR="$(find "$ROOT/v1/tools/cli/target" -name 'ssc.jar' 2>/dev/null | head -1 || true)"
 fi
 if [[ -z "$JAR" || ! -f "$JAR" ]]; then
   echo "coldstart: no ssc.jar found. Build it first:  sbt cli/assembly" >&2

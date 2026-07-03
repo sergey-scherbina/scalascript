@@ -109,9 +109,9 @@ exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
 LAUNCHER
 chmod +x "$BIN/ssc"
 
-for launcher in "$ROOT"/tools/scripts/launchers/*; do
+for launcher in "$ROOT"/v1/tools/scripts/launchers/*; do
     name="$(basename "$launcher")"
-    ln -sf "../tools/scripts/launchers/$name" "$BIN/$name"
+    ln -sf "../v1/tools/scripts/launchers/$name" "$BIN/$name"
 done
 
 echo "Staged bin/ launchers:"

@@ -81,7 +81,7 @@ val javafxClassifier: String = {
 // leaves of the interpreter's `Value` (and, later, of `SpiValue`). Lives below `core` and
 // `backendSpi` so both can share the same scalar cases. See specs/value-unification.md.
 lazy val valueData = project
-  .in(file("lang/value-data"))
+  .in(file("v1/lang/value-data"))
   .settings(
     name := "scalascript-value-data",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -89,7 +89,7 @@ lazy val valueData = project
   )
 
 lazy val ir = project
-  .in(file("lang/ir"))
+  .in(file("v1/lang/ir"))
   .settings(
     name := "scalascript-ir",
     libraryDependencies ++= Seq(
@@ -100,7 +100,7 @@ lazy val ir = project
   )
 
 lazy val backendSpi = project
-  .in(file("runtime/backend/spi"))
+  .in(file("v1/runtime/backend/spi"))
   .dependsOn(valueData, ir, markupCore)
   .settings(
     name := "scalascript-backend-spi",
@@ -114,7 +114,7 @@ lazy val backendSpi = project
 // PluginComputation, JsonCodec, PluginContext.  Plugins depend only on
 // this module; they never import scalascript.interpreter.* directly.
 lazy val pluginApi = project
-  .in(file("runtime/scalascript-plugin-api"))
+  .in(file("v1/runtime/scalascript-plugin-api"))
   // stable-spi-p3: pluginApi depends on `core` so it can expose a stable Value-surface
   // (PluginValue accessors/constructors backed by the interpreter `Value`) — the ONE controlled
   // seam, moving the interpreter coupling out of the 28 plugins. Acyclic: core does not depend on
@@ -167,7 +167,7 @@ lazy val logger = project
   )
 
 lazy val yaml = project
-  .in(file("lang/yaml"))
+  .in(file("v1/lang/yaml"))
   .settings(
     name := "scalascript-yaml",
     libraryDependencies ++= Seq(scalatestTest),
@@ -176,7 +176,7 @@ lazy val yaml = project
   )
 
 lazy val core = project
-  .in(file("lang/core"))
+  .in(file("v1/lang/core"))
   .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
   .settings(
     name := "scalascript-core",
@@ -207,7 +207,7 @@ lazy val core = project
 // JvmGen / Interpreter / scalameta when all they need is the facade
 // table + reflection helpers.
 lazy val interop = project
-  .in(file("lang/interop"))
+  .in(file("v1/lang/interop"))
   .dependsOn(ir, core)
   .settings(
     name := "scalascript-interop",
@@ -231,7 +231,7 @@ addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;
 // JvmGen.serveRuntime.  No interpreter coupling — all definitions are
 // self-contained Scala classes / objects.
 lazy val runtimeServerCommon = project
-  .in(file("runtime/http-server/common"))
+  .in(file("v1/runtime/http-server/common"))
   .dependsOn(logger)
   .settings(
     name := "scalascript-runtime-server-common",
@@ -285,7 +285,7 @@ lazy val mcpCommon = project
 // Depends on runtimeServerCommon for the POJO HTTP model
 // (Request / Response / StreamResponse) the traits reference.
 lazy val runtimeServerSpi = project
-  .in(file("runtime/http-server/spi"))
+  .in(file("v1/runtime/http-server/spi"))
   .dependsOn(runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-spi",
@@ -325,7 +325,7 @@ lazy val runtimeServerSpi = project
 // already live there.  Now also dependsOn(runtimeServerSpi) so the
 // JdkServerBackend can implement HttpServerSpi.
 lazy val runtimeServerJvm = project
-  .in(file("runtime/http-server/jvm"))
+  .in(file("v1/runtime/http-server/jvm"))
   .dependsOn(runtimeServerCommon, runtimeServerSpi)
   .settings(
     name := "scalascript-runtime-server-jvm",
@@ -352,7 +352,7 @@ lazy val runtimeServerJvm = project
 // registration in place so the SPI is discoverable.  S2 fills in
 // the actual Jetty integration.
 lazy val runtimeServerJvmJetty = project
-  .in(file("runtime/http-server/jvm-jetty"))
+  .in(file("v1/runtime/http-server/jvm-jetty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-jvm-jetty",
@@ -375,7 +375,7 @@ lazy val runtimeServerJvmJetty = project
 // stub — module declaration + dep + ServiceLoader registration in
 // place.  S3 fills in the actual Netty integration.
 lazy val runtimeServerJvmNetty = project
-  .in(file("runtime/http-server/jvm-netty"))
+  .in(file("v1/runtime/http-server/jvm-netty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-jvm-netty",
@@ -563,7 +563,7 @@ lazy val frontendExamples = project
   )
 
 lazy val backendJvm = project
-  .in(file("runtime/backend/jvm"))
+  .in(file("v1/runtime/backend/jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime)
   .settings(
     name := "scalascript-backend-jvm",
@@ -572,7 +572,7 @@ lazy val backendJvm = project
   )
 
 lazy val backendJs = project
-  .in(file("runtime/backend/js"))
+  .in(file("v1/runtime/backend/js"))
   .dependsOn(backendSpi, core, backendSqlRuntimeJs, backendTypedDataRuntime)
   .settings(
     name := "scalascript-backend-js",
@@ -585,7 +585,7 @@ lazy val backendJs = project
 // blocks verbatim as a glue prefix.  Depends on backendJs to share
 // JsGen + JsCapabilities helpers and intrinsic tables.
 lazy val backendNode = project
-  .in(file("runtime/backend/node"))
+  .in(file("v1/runtime/backend/node"))
   .dependsOn(backendSpi, core, backendJs)
   .settings(
     name := "scalascript-backend-node",
@@ -595,7 +595,7 @@ lazy val backendNode = project
   )
 
 lazy val backendScalajs = project
-  .in(file("runtime/backend/scalajs"))
+  .in(file("v1/runtime/backend/scalajs"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scalajs",
@@ -604,7 +604,7 @@ lazy val backendScalajs = project
   )
 
 lazy val backendWasm = project
-  .in(file("runtime/backend/wasm"))
+  .in(file("v1/runtime/backend/wasm"))
   // v1.27 Phase 5 — backendSqlRuntimeJs for ProviderId / SqlRuntimeJsEmit
   // shared with backend-js + backend-node.  sql blocks routed through the
   // JS shim that already accompanies the .wasm blob.
@@ -623,7 +623,7 @@ lazy val backendWasm = project
 // Skeleton has only `Feature.ConsoleIO` in its capabilities; `compile`
 // returns Segmented(Nil) until the hello-emit slice lands.
 lazy val backendRust = project
-  .in(file("runtime/backend/rust"))
+  .in(file("v1/runtime/backend/rust"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-rust",
@@ -637,7 +637,7 @@ lazy val backendRust = project
 // existing in-core `scala`-block handling stays in place until the
 // follow-up actually routes through here.
 lazy val backendScalaSource = project
-  .in(file("runtime/backend/scala-source"))
+  .in(file("v1/runtime/backend/scala-source"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scala-source",
@@ -654,7 +654,7 @@ lazy val backendScalaSource = project
 // real DSL / interpolator / containerTagNames logic out of the
 // codegens.
 lazy val backendHtml = project
-  .in(file("runtime/backend/html"))
+  .in(file("v1/runtime/backend/html"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-html",
@@ -666,7 +666,7 @@ lazy val backendHtml = project
 // `css"…"` interpolator and `Css` type via prelude.  Stage 9+/C.1
 // skeleton — same shape as backend-html.
 lazy val backendCss = project
-  .in(file("runtime/backend/css"))
+  .in(file("v1/runtime/backend/css"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-css",
@@ -680,7 +680,7 @@ lazy val backendCss = project
 // HTTP/WS intrinsics) extracts this so the server lives behind the SPI and
 // backends no longer reference each other.
 lazy val backendInterpreter = project
-  .in(file("runtime/backend/interpreter"))
+  .in(file("v1/runtime/backend/interpreter"))
   .dependsOn(wireCore, backendSpi, markupCore, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
   .settings(
     name := "scalascript-backend-interpreter",
@@ -714,7 +714,7 @@ lazy val backendInterpreter = project
 // Run: sbt "interpreterBench/Jmh/run"
 // Save JSON: sbt "interpreterBench/Jmh/run -rff bench/jmh-results.json -rf json"
 lazy val interpreterBench = project
-  .in(file("runtime/backend/interpreter-bench"))
+  .in(file("v1/runtime/backend/interpreter-bench"))
   .dependsOn(backendInterpreter, backendJvm, backendJs)
   .enablePlugins(JmhPlugin)
   .settings(
@@ -729,7 +729,7 @@ lazy val interpreterBench = project
 // Run: sbt "compilerBench/Jmh/run"
 // Run with GC profiler: sbt "compilerBench/Jmh/run -prof gc -wi 3 -i 5"
 lazy val compilerBench = project
-  .in(file("lang/core-bench"))
+  .in(file("v1/lang/core-bench"))
   .dependsOn(core)
   .enablePlugins(JmhPlugin)
   .settings(
@@ -744,7 +744,7 @@ lazy val compilerBench = project
 // startup, fallback page rendering, WS sessions, and in-process transport now
 // compile as a separate module behind InterpreterServerSupport.
 lazy val backendInterpreterServer = project
-  .in(file("runtime/backend/interpreter-server"))
+  .in(file("v1/runtime/backend/interpreter-server"))
   .dependsOn(backendInterpreter, httpPlugin % Test, wsPlugin % Test, frontendPlugin % Test, contentPlugin % Test, sqlPlugin % Test, frontendReact % Test, fetchPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter-server",
@@ -754,7 +754,7 @@ lazy val backendInterpreterServer = project
   )
 
 lazy val testUtils = project
-  .in(file("runtime/backend/test-utils"))
+  .in(file("v1/runtime/backend/test-utils"))
   .dependsOn(backendSpi, backendInterpreter)
   .settings(
     name := "scalascript-test-utils",
@@ -769,7 +769,7 @@ lazy val testUtils = project
 // cli depends on this % Test only so the DAP classes are on cli's test CP;
 // DebugCommand links against it at compile time via the normal dependency.
 lazy val backendDap = project
-  .in(file("runtime/backend/dap"))
+  .in(file("v1/runtime/backend/dap"))
   .dependsOn(backendInterpreter, ir)
   .settings(
     name := "scalascript-backend-dap",
@@ -784,7 +784,7 @@ lazy val backendDap = project
 // needed on the sbt compile classpath; they are resolved at runtime via
 // `scala-cli --dep` flags when the generated program is executed.
 lazy val backendSpark = project
-  .in(file("runtime/backend/spark"))
+  .in(file("v1/runtime/backend/spark"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-spark",
@@ -794,7 +794,7 @@ lazy val backendSpark = project
   )
 
 lazy val backendKafkaStreams = project
-  .in(file("runtime/backend/kafka-streams"))
+  .in(file("v1/runtime/backend/kafka-streams"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-kafka-streams",
@@ -804,7 +804,7 @@ lazy val backendKafkaStreams = project
   )
 
 lazy val backendFlink = project
-  .in(file("runtime/backend/flink"))
+  .in(file("v1/runtime/backend/flink"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-flink",
@@ -814,7 +814,7 @@ lazy val backendFlink = project
   )
 
 lazy val backendConformance = project
-  .in(file("runtime/backend/conformance"))
+  .in(file("v1/runtime/backend/conformance"))
   .dependsOn(backendSpark, backendKafkaStreams, backendFlink)
   .settings(
     name := "scalascript-backend-conformance",
@@ -828,7 +828,7 @@ lazy val backendConformance = project
 // cli/stage copies this module's JAR to lib/compiler/jars/ and CompilerLoader
 // picks it up via URLClassLoader + ServiceLoader on first compile command.
 lazy val compilerDriver = project
-  .in(file("lang/compiler/driver"))
+  .in(file("v1/lang/compiler/driver"))
   .dependsOn(core)
   .settings(
     name := "scalascript-compiler-driver",
@@ -892,7 +892,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 )
 
 lazy val cli = project
-  .in(file("tools/cli"))
+  .in(file("v1/tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
   .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
@@ -1207,7 +1207,7 @@ lazy val cli = project
 // Build: sbt pluginHost/assembly
 // Output: tools/plugin-host/target/scala-3.8.3/ssc-plugin-host.jar
 lazy val pluginHost = project
-  .in(file("tools/plugin-host"))
+  .in(file("v1/tools/plugin-host"))
   .dependsOn(core)
   .settings(
     name                           := "ssc-plugin-host",
@@ -2618,7 +2618,7 @@ lazy val micropaymentHydra = project
 // `backendInterpreterPluginTests`; per-plugin suites use `testUtils % Test`.
 
 lazy val jsonPlugin = project
-  .in(file("runtime/std/json-plugin"))
+  .in(file("v1/runtime/std/json-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-json-plugin",
@@ -2629,7 +2629,7 @@ lazy val jsonPlugin = project
   .settings(sscpkgSettings("scalascript.std.json"))
 
 lazy val contentPlugin = project
-  .in(file("runtime/std/content-plugin"))
+  .in(file("v1/runtime/std/content-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, testUtils % Test)
   .settings(
     name := "scalascript-content-plugin",
@@ -2640,7 +2640,7 @@ lazy val contentPlugin = project
   .settings(sscpkgSettings("scalascript.std.content"))
 
 lazy val frontendPlugin = project
-  .in(file("runtime/std/frontend-plugin"))
+  .in(file("v1/runtime/std/frontend-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test, testUtils % Test)
   .settings(
     name := "scalascript-frontend-plugin",
@@ -2651,7 +2651,7 @@ lazy val frontendPlugin = project
   .settings(sscpkgSettings("scalascript.std.frontend"))
 
 lazy val swingPlugin = project
-  .in(file("runtime/std/swing-plugin"))
+  .in(file("v1/runtime/std/swing-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-swing-plugin",
@@ -2662,7 +2662,7 @@ lazy val swingPlugin = project
   .settings(sscpkgSettings("scalascript.std.swing"))
 
 lazy val requestPlugin = project
-  .in(file("runtime/std/request-plugin"))
+  .in(file("v1/runtime/std/request-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-request-plugin",
@@ -2673,7 +2673,7 @@ lazy val requestPlugin = project
   .settings(sscpkgSettings("scalascript.std.request"))
 
 lazy val authPlugin = project
-  .in(file("runtime/std/auth-plugin"))
+  .in(file("v1/runtime/std/auth-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-auth-plugin",
@@ -2684,7 +2684,7 @@ lazy val authPlugin = project
   .settings(sscpkgSettings("scalascript.std.auth"))
 
 lazy val oauthPlugin = project
-  .in(file("runtime/std/oauth-plugin"))
+  .in(file("v1/runtime/std/oauth-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-oauth-plugin",
@@ -2695,7 +2695,7 @@ lazy val oauthPlugin = project
   .settings(sscpkgSettings("scalascript.std.oauth"))
 
 lazy val fetchPlugin = project
-  .in(file("runtime/std/fetch-plugin"))
+  .in(file("v1/runtime/std/fetch-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-fetch-plugin",
@@ -2706,7 +2706,7 @@ lazy val fetchPlugin = project
   .settings(sscpkgSettings("scalascript.std.fetch"))
 
 lazy val graphPlugin = project
-  .in(file("runtime/std/graph-plugin"))
+  .in(file("v1/runtime/std/graph-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-graph-plugin",
@@ -2717,7 +2717,7 @@ lazy val graphPlugin = project
   .settings(sscpkgSettings("scalascript.std.graph"))
 
 lazy val sqlPlugin = project
-  .in(file("runtime/std/sql-plugin"))
+  .in(file("v1/runtime/std/sql-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, backendSqlRuntime, testUtils % Test)
   .settings(
     name := "scalascript-sql-plugin",
@@ -2728,7 +2728,7 @@ lazy val sqlPlugin = project
   .settings(sscpkgSettings("scalascript.std.sql"))
 
 lazy val httpPlugin = project
-  .in(file("runtime/std/http-plugin"))
+  .in(file("v1/runtime/std/http-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-http-plugin",
@@ -2739,7 +2739,7 @@ lazy val httpPlugin = project
   .settings(sscpkgSettings("scalascript.std.http"))
 
 lazy val wsPlugin = project
-  .in(file("runtime/std/ws-plugin"))
+  .in(file("v1/runtime/std/ws-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, runtimeServerCommon, runtimeServerSpi, testUtils % Test)
   .settings(
     name := "scalascript-ws-plugin",
@@ -2750,7 +2750,7 @@ lazy val wsPlugin = project
   .settings(sscpkgSettings("scalascript.std.ws"))
 
 lazy val mcpPlugin = project
-  .in(file("runtime/std/mcp-plugin"))
+  .in(file("v1/runtime/std/mcp-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-mcp-plugin",
@@ -2761,7 +2761,7 @@ lazy val mcpPlugin = project
   .settings(sscpkgSettings("scalascript.std.mcp"))
 
 lazy val remotePlugin = project
-  .in(file("runtime/std/remote-plugin"))
+  .in(file("v1/runtime/std/remote-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-remote-plugin",
@@ -2772,7 +2772,7 @@ lazy val remotePlugin = project
   .settings(sscpkgSettings("scalascript.std.remote"))
 
 lazy val pwaPlugin = project
-  .in(file("runtime/std/pwa-plugin"))
+  .in(file("v1/runtime/std/pwa-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-pwa-plugin",
@@ -2783,7 +2783,7 @@ lazy val pwaPlugin = project
 
 // ── std.nfc — NFC NDEF status/read/write declarations ───────────────────
 lazy val nfcPlugin = project
-  .in(file("runtime/std/nfc-plugin"))
+  .in(file("v1/runtime/std/nfc-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-nfc-plugin",
@@ -2794,7 +2794,7 @@ lazy val nfcPlugin = project
   .settings(sscpkgSettings("scalascript.std.nfc"))
 
 lazy val backendInterpreterPluginTests = project
-  .in(file("runtime/backend/interpreter-plugin-tests"))
+  .in(file("v1/runtime/backend/interpreter-plugin-tests"))
   .dependsOn(
     backendInterpreter % "compile->compile;test->test",
     backendInterpreterServer,
@@ -2809,7 +2809,7 @@ lazy val backendInterpreterPluginTests = project
 
 // ── Streams — interpreter plugin ─────────────────────────────────────────
 lazy val streamsPlugin = project
-  .in(file("runtime/std/streams-plugin"))
+  .in(file("v1/runtime/std/streams-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-streams-plugin",
@@ -2821,7 +2821,7 @@ lazy val streamsPlugin = project
 
 // ── DStreams — interpreter plugin ─────────────────────────────────────────
 lazy val dstreamsPlugin = project
-  .in(file("runtime/std/dstreams-plugin"))
+  .in(file("v1/runtime/std/dstreams-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test, streamsPlugin % Test)
   .settings(
     name := "scalascript-dstreams-plugin",
@@ -2833,7 +2833,7 @@ lazy val dstreamsPlugin = project
 
 // ── GraphQL — interpreter plugin (Phase 1) ────────────────────────────────
 lazy val graphqlPlugin = project
-  .in(file("runtime/std/graphql-plugin"))
+  .in(file("v1/runtime/std/graphql-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-graphql-plugin",
@@ -2849,7 +2849,7 @@ lazy val graphqlPlugin = project
 
 // ── Deploy — CLI-time plugin ───────────────────────────────────────────────
 lazy val deployPlugin = project
-  .in(file("runtime/std/deploy-plugin"))
+  .in(file("v1/runtime/std/deploy-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-deploy-plugin",
@@ -2876,7 +2876,7 @@ lazy val cryptoPlugin = project
 
 // ── PDF generation — htmlToPdfBase64 via OpenHTMLtoPDF (opt-in, JVM only) ──
 lazy val pdfPlugin = project
-  .in(file("runtime/std/pdf-plugin"))
+  .in(file("v1/runtime/std/pdf-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-pdf-plugin",
@@ -2892,7 +2892,7 @@ lazy val pdfPlugin = project
 
 // ── MIME assembly — buildMimeMessage RFC 5322 multipart/mixed (hand-rolled) ──
 lazy val mimePlugin = project
-  .in(file("runtime/std/mime-plugin"))
+  .in(file("v1/runtime/std/mime-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-mime-plugin",
@@ -2908,7 +2908,7 @@ lazy val mimePlugin = project
   .settings(sscpkgSettings("scalascript.std.mime"))
 
 lazy val smtpPlugin = project
-  .in(file("runtime/std/smtp-plugin"))
+  .in(file("v1/runtime/std/smtp-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-smtp-plugin",
@@ -2925,7 +2925,7 @@ lazy val smtpPlugin = project
 
 // ── TCP — raw line-oriented server/client sockets (IMAP/POP3/SMTP/Redis etc.) ──
 lazy val tcpPlugin = project
-  .in(file("runtime/std/tcp-plugin"))
+  .in(file("v1/runtime/std/tcp-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-tcp-plugin",
@@ -2938,7 +2938,7 @@ lazy val tcpPlugin = project
 
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
-  .in(file("runtime/std/bench-plugin"))
+  .in(file("v1/runtime/std/bench-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-bench-plugin",
@@ -2951,7 +2951,7 @@ lazy val benchPlugin = project
 // ── Logger effect — runLogger/runLoggerJson/runLoggerToList block-forms ───
 // Extracted from interpreter core into a ServiceLoader plugin (polyglot-libraries §2d).
 lazy val loggerEffectPlugin = project
-  .in(file("runtime/std/logger-effect-plugin"))
+  .in(file("v1/runtime/std/logger-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-logger-effect-plugin",
@@ -2963,7 +2963,7 @@ lazy val loggerEffectPlugin = project
 
 // ── Random effect — runRandom / runRandomSeeded as block-form plugins ──────
 lazy val randomEffectPlugin = project
-  .in(file("runtime/std/random-effect-plugin"))
+  .in(file("v1/runtime/std/random-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-random-effect-plugin",
@@ -2975,7 +2975,7 @@ lazy val randomEffectPlugin = project
 
 // ── Clock effect — runClock / runClockAt as block-form plugins ─────────────
 lazy val clockEffectPlugin = project
-  .in(file("runtime/std/clock-effect-plugin"))
+  .in(file("v1/runtime/std/clock-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-clock-effect-plugin",
@@ -2987,7 +2987,7 @@ lazy val clockEffectPlugin = project
 
 // ── Env effect — runEnv / runEnvWith as block-form plugins ─────────────────
 lazy val envEffectPlugin = project
-  .in(file("runtime/std/env-effect-plugin"))
+  .in(file("v1/runtime/std/env-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-env-effect-plugin",
@@ -2999,7 +2999,7 @@ lazy val envEffectPlugin = project
 
 // ── State effect — runState(s0) as a block-form plugin (uses applyFn) ──────
 lazy val stateEffectPlugin = project
-  .in(file("runtime/std/state-effect-plugin"))
+  .in(file("v1/runtime/std/state-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-state-effect-plugin",
@@ -3011,7 +3011,7 @@ lazy val stateEffectPlugin = project
 
 // ── Retry effect — runRetry/runRetryNoSleep as block-form plugins (uses applyFn) ──
 lazy val retryEffectPlugin = project
-  .in(file("runtime/std/retry-effect-plugin"))
+  .in(file("v1/runtime/std/retry-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-retry-effect-plugin",
@@ -3023,7 +3023,7 @@ lazy val retryEffectPlugin = project
 
 // ── Cache effect — runCache/runCacheBypass as block-form plugins (uses applyFn) ──
 lazy val cacheEffectPlugin = project
-  .in(file("runtime/std/cache-effect-plugin"))
+  .in(file("v1/runtime/std/cache-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-cache-effect-plugin",
@@ -3035,7 +3035,7 @@ lazy val cacheEffectPlugin = project
 
 // ── Actors runtime — runActors provider skeleton; runtime move follows ────
 lazy val actorsPlugin = project
-  .in(file("runtime/std/actors-plugin"))
+  .in(file("v1/runtime/std/actors-plugin"))
   .dependsOn(backendSpi, backendInterpreter, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-actors-plugin",
@@ -3047,7 +3047,7 @@ lazy val actorsPlugin = project
 
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
-  .in(file("runtime/std/uuid-plugin"))
+  .in(file("v1/runtime/std/uuid-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-uuid-plugin",
@@ -3136,7 +3136,7 @@ lazy val paymentsPlugin = project
 
 // ── std.fs — filesystem operations ──────────────────────────────────────
 lazy val fsPlugin = project
-  .in(file("runtime/std/fs-plugin"))
+  .in(file("v1/runtime/std/fs-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-fs-plugin",
@@ -3148,7 +3148,7 @@ lazy val fsPlugin = project
 
 // ── std.os / std.process — OS environment + process management ───────────
 lazy val osPlugin = project
-  .in(file("runtime/std/os-plugin"))
+  .in(file("v1/runtime/std/os-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-os-plugin",
@@ -3160,7 +3160,7 @@ lazy val osPlugin = project
 
 // ── std.yaml — YAML parse + stringify ────────────────────────────────────
 lazy val yamlPlugin = project
-  .in(file("runtime/std/yaml-plugin"))
+  .in(file("v1/runtime/std/yaml-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, yaml, testUtils % Test)
   .settings(
     name := "scalascript-yaml-plugin",
@@ -3343,7 +3343,7 @@ lazy val paymentsBankRails = project
 lazy val markupCoreCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("runtime/std/markup-core"))
+    .in(file("v1/runtime/std/markup-core"))
     .settings(
       name := "scalascript-markup-core",
       libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
@@ -3364,7 +3364,7 @@ lazy val markupCore    = markupCoreJvm
 // Test: sbt markupJs/test (Scala.js Node.js runner — DOMParser tests are
 // structural mock tests; real DOMParser integration requires a browser or jsdom).
 lazy val markupJs = project
-  .in(file("runtime/std/markup-js"))
+  .in(file("v1/runtime/std/markup-js"))
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(markupCoreJs)
   .settings(
@@ -3380,7 +3380,7 @@ lazy val markupJs = project
 // Requires `npm install` in runtime/std/markup-node/ before running tests.
 // sbt markupNode/test  — real @xmldom/xmldom parse + walk integration tests.
 lazy val markupNode = project
-  .in(file("runtime/std/markup-node"))
+  .in(file("v1/runtime/std/markup-node"))
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(markupCoreJs)
   .settings(

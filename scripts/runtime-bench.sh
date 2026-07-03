@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-JAR="$ROOT/tools/cli/target/scala-3.8.3/ssc.jar"
+JAR="$ROOT/v1/tools/cli/target/scala-3.8.3/ssc.jar"
 CORPUS="$ROOT/bench/corpus"
 BASELINE_OUT="$ROOT/bench/BASELINE_RUNTIME.md"
 

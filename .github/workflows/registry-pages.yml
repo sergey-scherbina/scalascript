@@ -6,14 +6,14 @@ on:
     paths:
       - registry/packages.yaml
       - registry/site/**
-      - tools/registry-site/generate.sc
+      - v1/tools/registry-site/generate.sc
       - .github/workflows/registry-pages.yml
   pull_request:
     branches: [main]
     paths:
       - registry/packages.yaml
       - registry/site/**
-      - tools/registry-site/generate.sc
+      - v1/tools/registry-site/generate.sc
       - .github/workflows/registry-pages.yml
 
 permissions:
@@ -42,7 +42,7 @@ jobs:
           jvm: temurin:21
 
       - name: Generate registry site
-        run: scala-cli --server=false tools/registry-site/generate.sc -- registry/packages.yaml registry/site
+        run: scala-cli --server=false v1/tools/registry-site/generate.sc -- registry/packages.yaml registry/site
 
       - name: Check generated registry artifact
         run: |
