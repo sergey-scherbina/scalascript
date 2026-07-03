@@ -11,6 +11,26 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ## Active tasks
 
+### ▶ v1→v2 migration (2026-07-03 — planned, not started)
+Spec: `specs/v1-to-v2-migration.md`
+
+Three phases — execute in order, each phase gated by the previous:
+
+- [ ] **Phase 1: restructure** — `git mv lang/ → v1/lang/`, `runtime/ → v1/runtime/`,
+      `tools/ → v1/tools/`. Update `.in(file("..."))` paths in `build.sbt` (mechanical prefix).
+      Module names + `dependsOn` unchanged. Done-when: `sbt compile` green, `ssc run` works.
+- [ ] **Phase 2a: v2 sbt module** — add `v2/` to root `build.sbt` as `lazy val v2Core`.
+- [ ] **Phase 2b: plugin SPI via shift/reset** — new `v2/runtime/backend/spi/` implements
+      `BackendSpi` using v2 effect system (`_eff_perform`/`_eff_handle`) instead of v1 trampoline.
+      `SpiValue` ↔ v2 `Value` adapter.
+- [ ] **Phase 2c: v2 JVM backend** — Core IR → JVM bytecode (via ASM or Java source + javac).
+      Full feature + performance parity with v1 JVM backend.
+- [ ] **Phase 2c: v2 JS backend** — Core IR → JavaScript (ES2020+). Parity with v1 JS.
+- [ ] **Phase 2c: v2 Rust backend** — Core IR → Rust source. Parity with v1 Rust.
+- [ ] **Phase 2d: full checklist** — 31/31 bench on all backends, all plugin categories,
+      conformance suite green, domain libs (payments/crypto/frontend) work, TUI works.
+- [ ] **Phase 3: switch** — CLI default → v2; `ssc --v1` escape hatch retained.
+
 ### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)
 Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + golden transcripts.
 Spec: `specs/agent-sdk.md`. The MCP bridge (`runtime/std/agent-mcp.ssc`) is done in both directions;
