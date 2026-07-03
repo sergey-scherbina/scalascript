@@ -1,0 +1,6 @@
+feature/v2-sbt-module 2026-07-03T16:11:17Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-07-03T16:11:17Z
+status: not-started
+done-so-far:
+next: add v2Core lazy val to build.sbt and add to root aggregate
