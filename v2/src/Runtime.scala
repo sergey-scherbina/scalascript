@@ -317,8 +317,26 @@ object FastCode:
       tryFLC(recv, globals).map { fr => env => fr(env).toInt.toLong }
     case Prim("__method__", List(Lit(Const.CStr("toLong")), recv)) =>
       tryFLC(recv, globals).map { fr => env => fr(env) }
-    // __method__("length"/"size", recv) — string/collection length returning Long.
-    // Uses tryFC(recv) so it composes with string-returning App(Global) fast path.
+    // App(Global).length/size — resolves a global function call and measures the returned
+    // string/collection length in a single FLC step.  Specific pattern avoids adding a
+    // general App(Global) case to tryFC (which causes JVM JIT interference on other benches).
+    case Prim("__method__", List(Lit(Const.CStr(n)), App(Global(fname), fargs)))
+        if n == "length" || n == "size" =>
+      val argOpts = fargs.map(tryFC(_, globals))
+      if argOpts.forall(_.isDefined) then
+        val fca = argOpts.map(_.get).toArray
+        Some((env: Env) =>
+          globals.getOrElse(fname, sys.error(s"FLC AppLen: unbound: $fname")) match
+            case c: ClosV =>
+              val argEnv = c.env ++ fca.map(f => f(env): Value)
+              Runtime.run(c.code, argEnv) match
+                case StrV(s)        => s.length.toLong
+                case DataV(_, fs)   => fs.length.toLong
+                case _              => 0L
+            case _ => 0L
+        )
+      else None
+    // __method__("length"/"size", recv) — string/collection length for local/lit receivers.
     case Prim("__method__", List(Lit(Const.CStr(n)), recv)) if n == "length" || n == "size" =>
       tryFC(recv, globals).map { fcr => (env: Env) =>
         fcr(env) match
@@ -364,19 +382,6 @@ object FastCode:
       val n = i; Some(env => env(env.length - 1 - n))
     case Global(g) =>
       Some(_ => globals.getOrElse(g, sys.error(s"unbound global: $g")))
-    // App(Global, nonEmpty args) — call a known global function and return its Value.
-    // Only nonEmpty to avoid fast-compiling the benchRun outer while (workload() = 0 args),
-    // which would change JVM JIT context and regress arith-loop by ~60%.
-    case App(Global(name), args) if args.nonEmpty =>
-      val argOpts = args.map(tryFC(_, globals))
-      if argOpts.forall(_.isDefined) then
-        val fca = argOpts.map(_.get).toArray
-        Some((env: Env) =>
-          globals.getOrElse(name, sys.error(s"FC App: unbound global: $name")) match
-            case c: ClosV => Runtime.run(c.code, c.env ++ fca.map(f => f(env): Value))
-            case other => sys.error(s"FC App: not a ClosV: ${Show.show(other)}")
-        )
-      else None
     // lcell.get: return IntV(c.v) but for FC callers who need a Value
     case Prim("lcell.get", List(Local(i))) =>
       val n = i; Some((env: Env) => IntV(env(env.length - 1 - n).asInstanceOf[LongCellV].v))
