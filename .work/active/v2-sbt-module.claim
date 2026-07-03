@@ -1,6 +1,0 @@
-feature/v2-sbt-module 2026-07-03T16:11:17Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-07-03T16:11:30Z
-status: in-progress
-done-so-far: worktree created at scalascript-wt-v2-sbt-module
-next: add v2Core lazy val to build.sbt and add to root aggregate
