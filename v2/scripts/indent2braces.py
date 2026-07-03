@@ -87,8 +87,10 @@ def convert(src):
                 continue
 
             # Fallback: if none of the above, just open a brace
-            # But don't brace multi-line function calls (line ends with open paren)
-            if not stripped.rstrip().endswith('('):
+            # Skip: multi-line function calls (line ends with '('), chained calls,
+            # or next line is a method continuation starting with '.'
+            s = stripped.rstrip()
+            if not s.endswith('(') and not s.endswith(')') and not next_stripped.startswith('.'):
                 out.append(raw + ' {')
                 stack.append(indent)
             else:

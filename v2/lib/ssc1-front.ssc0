@@ -436,7 +436,12 @@ def parseBlock = (toks) =>
         go(prT(r), Cons(Pair("assign", Pair(name, prV(r))), acc))
       else
         let r = parseExpr(ts2) in
-        go(prT(r), Cons(Pair("expr", prV(r)), acc))
+        -- Check for a(idx) = rhs  →  idx_assign
+        if kindIs("=", prT(r)) then
+          let r2 = parseExpr(advance(prT(r))) in
+          go(prT(r2), Cons(Pair("idx_assign", Pair(prV(r), prV(r2))), acc))
+        else
+          go(prT(r), Cons(Pair("expr", prV(r)), acc))
     else
       let r = parseExpr(ts2) in
       go(prT(r), Cons(Pair("expr", prV(r)), acc)) in
@@ -512,12 +517,16 @@ def buildPostfix = (e, toks) =>
       let ra = moreArgs(toks2b, Nil) in
       buildPostfix(mergeWithE(prV(ra)), skipKind(")", prT(ra)))
   else if #seq(k, "[") then
-    -- skip type argument list [A, B] (type applications, not real args)
-    let rec skipBrack = (ts) =>
-      if kindIs("]", ts) then advance(ts)
-      else if kindIs("EOF", ts) then ts
-      else skipBrack(advance(ts)) in
-    buildPostfix(e, skipBrack(advance(toks)))
+    -- skip type argument list [A, B, C[D]] (type applications, not real args)
+    -- depth-tracking to handle nested brackets like [Monoid[A]]
+    let rec skipBrackD = (ts, depth) =>
+      if kindIs("EOF", ts) then ts
+      else if kindIs("[", ts) then skipBrackD(advance(ts), #i.add(depth, 1))
+      else if kindIs("]", ts) then
+        if #i.le(depth, 1) then advance(ts)
+        else skipBrackD(advance(ts), #i.sub(depth, 1))
+      else skipBrackD(advance(ts), depth) in
+    buildPostfix(e, skipBrackD(advance(toks), 1))
   else if #seq(k, "kw") then
     if kwIs("match", toks) then
       let ts2 = skipKind("{", advance(toks)) in
@@ -554,6 +563,15 @@ def parseInfix = (minPrec, lhs, toks) =>
       let r = parsePostfix(advance(toks)) in
       let r2 = parseInfix(#i.add(prec, 1), prV(r), prT(r)) in
       parseInfix(minPrec, mkInf(op, lhs, prV(r2)), prT(r2))
+  else if kindIs("id", toks) then
+    let name = tokVal(peek(toks)) in
+    if #seq(name, "until") then
+      let r = parsePostfix(advance(toks)) in
+      parseInfix(minPrec, mkApp(mkSel(lhs, "until"), Cons(prV(r), Nil)), prT(r))
+    else if #seq(name, "to") then
+      let r = parsePostfix(advance(toks)) in
+      parseInfix(minPrec, mkApp(mkSel(lhs, "to"), Cons(prV(r), Nil)), prT(r))
+    else pr(lhs, toks)
   else pr(lhs, toks)
 
 -- KC11: try to parse a lambda param list after `(` — returns pr(Some(names), rest-after-)) or pr(None, toks-before-()
@@ -612,11 +630,14 @@ def skipTypeParams = (toks) =>
 -- KC5: skip a single [T] type argument list after a TC name
 def skipTypeArgs = (ts) =>
   if kindIs("[", ts) then
-    let rec skipBr = (tss) =>
-      if kindIs("]", tss) then advance(tss)
-      else if kindIs("EOF", tss) then tss
-      else skipBr(advance(tss)) in
-    skipBr(advance(ts))
+    let rec skipBr = (tss, depth) =>
+      if kindIs("EOF", tss) then tss
+      else if kindIs("[", tss) then skipBr(advance(tss), #i.add(depth, 1))
+      else if kindIs("]", tss) then
+        if #i.le(depth, 1) then advance(tss)
+        else skipBr(advance(tss), #i.sub(depth, 1))
+      else skipBr(advance(tss), depth) in
+    skipBr(advance(ts), 1)
   else ts
 
 -- KC5: make a context dict param name from a bound: (tv, TC) → "__tc_TC"
@@ -667,6 +688,12 @@ def readTypeStr = (toks) =>
     if #seq(k, "=") then pr(joinStrs(reverse(acc)), ts)
     else if #seq(k, ";") then pr(joinStrs(reverse(acc)), ts)
     else if #seq(k, "EOF") then pr(joinStrs(reverse(acc)), ts)
+    else if #seq(k, "{") then pr(joinStrs(reverse(acc)), ts)
+    else if #seq(k, "kw") then
+      if #seq(v, "with") then pr(joinStrs(reverse(acc)), ts)
+      else
+        let sv = v in
+        go(advance(ts), Cons(sv, acc))
     else
       -- punctuation tokens have empty val; use the kind char itself
       let sv = if #seq(v, "") then k else v in
@@ -833,6 +860,18 @@ def skipToBrace = (ts) =>
   else if kindIs(";",   ts) then ts
   else skipToBrace(advance(ts))
 
+-- skipBraceBlock: skip a balanced {…} block (ts must start at `{`)
+def skipBraceBlock = (ts) =>
+  let rec go = (t, depth) =>
+    if kindIs("EOF", t) then t
+    else if kindIs("{", t) then go(advance(t), #i.add(depth, 1))
+    else if kindIs("}", t) then
+      if #i.le(depth, 1) then advance(t)
+      else go(advance(t), #i.sub(depth, 1))
+    else go(advance(t), depth) in
+  if kindIs("{", ts) then go(advance(ts), 1)
+  else ts
+
 -- skipToStmt: advance until next top-level statement keyword
 def skipToStmt = (ts) =>
   let tok = peek(ts) in
@@ -844,6 +883,8 @@ def skipToStmt = (ts) =>
     else if kwIs("val",    ts) then ts
     else if kwIs("case",   ts) then ts
     else if kwIs("sealed", ts) then ts
+    else if kwIs("trait",  ts) then ts
+    else if kwIs("given",  ts) then ts
     else if kwIs("object", ts) then ts
     else if kwIs("abstract", ts) then ts
     else skipToStmt(advance(ts))
@@ -864,6 +905,27 @@ def parseOneStmt = (toks) =>
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else if #seq(v, "abstract") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
+    else if #seq(v, "trait") then
+      -- Skip trait declarations entirely (abstract, no impl to lower).
+      -- Use a stmt-keyword-aware skip so we don't eat following case class declarations.
+      -- If a body `{...}` is encountered, skip it; otherwise stop at the next statement.
+      let rec skipTrait = (ts) =>
+        if kindIs("EOF", ts) then ts
+        else if kindIs(";",  ts) then ts
+        else if kindIs("{",  ts) then skipBraceBlock(ts)
+        else if kindIs("kw", ts) then
+          if kwIs("def",      ts) then ts
+          else if kwIs("val",    ts) then ts
+          else if kwIs("var",    ts) then ts
+          else if kwIs("case",   ts) then ts
+          else if kwIs("sealed", ts) then ts
+          else if kwIs("trait",  ts) then ts
+          else if kwIs("given",  ts) then ts
+          else if kwIs("object", ts) then ts
+          else if kwIs("abstract", ts) then ts
+          else skipTrait(advance(ts))
+        else skipTrait(advance(ts)) in
+      pr(Pair("sealed", ""), skipTrait(advance(toks)))
     else if #seq(v, "given") then
       -- KC5+KC8: `given name: T = body` → ("given", (name, typeStr, body)) for KC5 injection
       let ts1 = advance(toks) in
@@ -878,6 +940,18 @@ def parseOneStmt = (toks) =>
           if kindIs("=", ts3) then
             let re = parseExpr(advance(ts3)) in
             pr(Pair("given", Pair(gname, Pair(typeStr, prV(re)))), prT(re))
+          else if kwIs("with", ts3) then
+            -- given name: T with { defs } → ("given_obj", (name, typeStr, stmts))
+            let ts4 = skipToBrace(advance(ts3)) in
+            let rec parseObj = (ts, acc) =>
+              let ts5 = skipSemis(ts) in
+              if kindIs("}", ts5) then pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), advance(ts5))
+              else if kindIs("EOF", ts5) then pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), ts5)
+              else
+                let r = parseOneStmt(ts5) in
+                parseObj(prT(r), Cons(prV(r), acc)) in
+            if kindIs("{", ts4) then parseObj(advance(ts4), Nil)
+            else pr(Pair("given_obj", Pair(gname, Pair(typeStr, Nil))), ts4)
           else pr(Pair("sealed", ""), skipToStmt(ts3))
         else if kindIs("=", ts2) then
           -- `given name = body` (no type annotation) → treat as val

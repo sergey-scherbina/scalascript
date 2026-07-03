@@ -36,6 +36,45 @@ def lookupVar = (scope, name) =>
     } in
   go(scope, 0)
 
+-- Check if a name is a registered array/vector variable
+def isArrVar = (name) =>
+  let rec go = (xs) =>
+    match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
+  go(#cell.get(arrVarsCell))
+
+-- Check if a name is a registered map variable
+def isMapVar = (name) =>
+  let rec go = (xs) =>
+    match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
+  go(#cell.get(mapVarsCell))
+
+-- Check if a resolved expression is Array/Vector construction
+def isArrayConstruction = (rb) =>
+  match rb {
+    case Pair(rtag, rdata) =>
+      if #seq(rtag, "app") then
+        match rdata {
+          case Pair(fn, args) =>
+            match fn {
+              case Pair(ftag, fname) =>
+                if #seq(ftag, "var") then #seq(fname, "_arr_fill")
+                else false
+            }
+        }
+      else false
+  }
+
+-- Check if a resolved expression is Map construction
+def isMapConstruction = (rb) =>
+  match rb {
+    case Pair(rtag, rdata) =>
+      if #seq(rtag, "prim") then
+        match rdata {
+          case Pair(op, args) => #seq(op, "map.new")
+        }
+      else false
+  }
+
 -- ── KC5: given auto-injection ────────────────────────────────────────────────
 -- Given table: List[Pair(Pair(TC_name, T_name), given_var_name)]
 -- Sig table:   List[Pair(fn_name, List[TC_name])] — fns with ctx dict params
@@ -43,6 +82,21 @@ def lookupVar = (scope, name) =>
 
 def kc5GivenCell = #cell.new(Nil)
 def kc5SigCell   = #cell.new(Nil)
+-- Active TC context: List[Pair(given_name, tc_name)] for current def body
+def kc5ActiveCtxCell = #cell.new(Nil)
+-- Set of object names (lowercase given instances) for static dispatch
+def kc7bObjectsCell = #cell.new(Nil)
+-- Array and Map variable name registries (for indexed read/write lowering)
+def arrVarsCell = #cell.new(Nil)
+def mapVarsCell = #cell.new(Nil)
+
+def isKnownObject = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(h, t) => if #seq(h, name) then true else go(t)
+    } in
+  go(#cell.get(kc7bObjectsCell))
 
 -- Parse "Show[Int]" → Pair("Show","Int"); "String" → Pair("String","*")
 -- ASCII 91='[', 93=']'
@@ -59,7 +113,7 @@ def parseGivenType = (typeStr) =>
     let inner = #sslice(typeStr, #i.add(bi, 1), #i.sub(len, 1)) in
     Pair(tc, inner)
 
--- Build given table from parsed stmts — "given" tags only
+-- Build given table from parsed stmts — "given" and "given_obj" tags
 def buildGivenTable = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -72,6 +126,14 @@ def buildGivenTable = (stmts) =>
               case Pair(gname, rest2) =>
                 match rest2 {
                   case Pair(typeStr, body) =>
+                    Cons(Pair(parseGivenType(typeStr), gname), more)
+                }
+            }
+          else if #seq(tag, "given_obj") then
+            match data {
+              case Pair(gname, rest2) =>
+                match rest2 {
+                  case Pair(typeStr, stmts2) =>
                     Cons(Pair(parseGivenType(typeStr), gname), more)
                 }
             }
@@ -150,6 +212,59 @@ def findGiven = (givenTab, tc, typeName) =>
       }
   }
 
+-- Find any given for a TC (ignores type arg)
+def findAnyGiven = (givenTab, tc) =>
+  match givenTab {
+    case Nil => None
+    case Cons(entry, rest) =>
+      match entry {
+        case Pair(gtype, gname) =>
+          match gtype {
+            case Pair(gtc, gt) =>
+              if #seq(gtc, tc) then Some(gname) else findAnyGiven(rest, tc)
+          }
+      }
+  }
+
+-- Compute active ctx list from params: List[Pair(given_name, tc_name)]
+def computeActiveCtx = (params) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) =>
+      if isCtxParam(p) then
+        let tc = ctxParamTC(p) in
+        let given = match findGiven(#cell.get(kc5GivenCell), tc, "*") {
+          case Some(g) => g
+          case None => match findAnyGiven(#cell.get(kc5GivenCell), tc) {
+            case Some(g) => g
+            case None => #sconcat("__missing_", tc)
+          }
+        } in
+        Cons(Pair(given, tc), computeActiveCtx(rest))
+      else computeActiveCtx(rest)
+  }
+
+-- Lookup given name for TC from active ctx (for summon dispatch)
+def lookupActiveCtx = (tc) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => None
+      case Cons(pair, rest) =>
+        match pair {
+          case Pair(gname, gtc) =>
+            if #seq(gtc, tc) then Some(gname) else go(rest)
+        }
+    } in
+  go(#cell.get(kc5ActiveCtxCell))
+
+-- Get first given name from active ctx (for summon[] without explicit TC arg)
+def firstActiveGiven = (dummy) =>
+  match #cell.get(kc5ActiveCtxCell) {
+    case Nil => None
+    case Cons(pair, rest) =>
+      match pair { case Pair(gname, tc) => Some(gname) }
+  }
+
 -- Best-effort type of a parsed expression (no full HM; literal-only)
 def typeOfExpr = (e) =>
   match e {
@@ -170,7 +285,10 @@ def buildGivenArgs = (givenTab, tcNames, actualArgs) =>
         case Cons(firstArg, restA) => typeOfExpr(firstArg)
       } in
       let injArg = match findGiven(givenTab, tc, argType) {
-        case None    => Pair("var", #sconcat("__missing_tc_", tc))
+        case None    => match findAnyGiven(givenTab, tc) {
+          case None => Pair("var", #sconcat("__missing_tc_", tc))
+          case Some(g) => Pair("var", g)
+        }
         case Some(g) => Pair("var", g)
       } in
       Cons(injArg, buildGivenArgs(givenTab, restTCs, actualArgs))
@@ -224,11 +342,30 @@ def resolveMethodCall = (robj, method, rargs) =>
         }
     }
   else
-    -- KC7b: if receiver is still a plain uid (object singleton), static dispatch O_method(args)
+    -- KC7b: if receiver is a plain uid or known given-object var, static dispatch O_method(args)
     match robj {
       case Pair(rtag, rname) =>
         if #seq(rtag, "uid") then
           Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+        else if #seq(rtag, "var") then
+          if #seq(rname, "summon") then
+            -- summon[TC].method → static dispatch via active ctx cell
+            match firstActiveGiven(0) {
+              case None => Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+              case Some(gname) =>
+                Pair("app", Pair(Pair("var", #sconcat(gname, #sconcat("_", method))), rargs))
+            }
+          else if isKnownObject(rname) then
+            Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+          else if isMapVar(rname) then
+            if #seq(method, "updated") then
+              Pair("app", Pair(Pair("var", "_sel_mapUpdated"), Cons(robj, rargs)))
+            else if #seq(method, "getOrElse") then
+              Pair("app", Pair(Pair("var", "_sel_mapGetOrElse"), Cons(robj, rargs)))
+            else
+              Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+          else
+            Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
         else
           Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
     }
@@ -258,7 +395,25 @@ def resolveField = (robj, field) =>
   else if #seq(field, "nonEmpty") then
     Pair("prim", Pair("_list_nonEmpty", Cons(robj, Nil)))
   else
-    Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+    -- KC7b: static dispatch for known given-object vars
+    match robj {
+      case Pair(rtag, rname) =>
+        if #seq(rtag, "var") then
+          if #seq(rname, "summon") then
+            -- summon[TC].field → static dispatch via active ctx cell
+            match firstActiveGiven(0) {
+              case None => Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+              case Some(gname) =>
+                Pair("var", #sconcat(gname, #sconcat("_", field)))
+            }
+          else if isKnownObject(rname) then
+            -- 0-param method accessed as a value; return the global directly
+            Pair("var", #sconcat(rname, #sconcat("_", field)))
+          else
+            Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+        else
+          Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+    }
 
 -- KC5-micro: detect string-producing expressions after resolve (for + upgrade)
 def isStrExpr = (e) =>
@@ -313,6 +468,12 @@ def resolveE = (expr) =>
                   else if #seq(fdata, "Left") then Pair("ctorap", Pair("Left", rargs))
                   else if #seq(fdata, "Right") then Pair("ctorap", Pair("Right", rargs))
                   else if #seq(fdata, "List") then buildListExpr(rargs)
+                  else if #seq(fdata, "Array") then
+                    Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
+                  else if #seq(fdata, "Vector") then
+                    Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
+                  else if #seq(fdata, "Map") then
+                    Pair("prim", Pair("map.new", Nil))
                   else Pair("app", Pair(fn, rargs))
                 else if #seq(ftag, "sel") then
                   match fdata {
@@ -388,12 +549,22 @@ def resolveE = (expr) =>
                   if #seq(stag, "val") then
                     match sdata {
                       case Pair(name, expr) =>
-                        Cons(Pair("val", Pair(name, resolveE(expr))), resolveBlock(rest))
+                        -- Register array vars NOW so subsequent stmts can use arr.get dispatch
+                        let rb = resolveE(expr) in
+                        let _reg = if isArrayConstruction(rb) then
+                          #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
+                        else () in
+                        Cons(Pair("val", Pair(name, rb)), resolveBlock(rest))
                     }
                   else if #seq(stag, "var") then
                     match sdata {
                       case Pair(name, expr) =>
-                        Cons(Pair("var", Pair(name, resolveE(expr))), resolveBlock(rest))
+                        -- Register map vars NOW so subsequent stmts in this block can dispatch correctly
+                        let rb = resolveE(expr) in
+                        let _reg = if isMapConstruction(rb) then
+                          #cell.set(mapVarsCell, Cons(name, #cell.get(mapVarsCell)))
+                        else () in
+                        Cons(Pair("var", Pair(name, rb)), resolveBlock(rest))
                     }
                   else if #seq(stag, "def") then
                     match sdata {
@@ -417,6 +588,11 @@ def resolveE = (expr) =>
                     Cons(Pair("return", resolveE(sdata)), resolveBlock(rest))
                   else if #seq(stag, "expr") then
                     Cons(Pair("expr", resolveE(sdata)), resolveBlock(rest))
+                  else if #seq(stag, "idx_assign") then
+                    match sdata {
+                      case Pair(lhs, rhs) =>
+                        Cons(Pair("idx_assign", Pair(resolveE(lhs), resolveE(rhs))), resolveBlock(rest))
+                    }
                   else Cons(s, resolveBlock(rest))
               }
           } in
@@ -557,7 +733,25 @@ def lowerE = (scope, rawExpr) =>
           case Pair(fn, args) =>
             -- KC5: auto-inject given instances for context dict params
             let injArgs = injectGivens(fn, args) in
-            IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+            -- Check if calling a registered array var with a single index → arr.get
+            match fn {
+              case Pair(ftag, fname) =>
+                if #seq(ftag, "var") then
+                  if isArrVar(fname) then
+                    match injArgs {
+                      case Cons(idx, idxRest) =>
+                        match idxRest {
+                          case Nil =>
+                            IrPrim("arr.get", Cons(lowerE(scope, fn), Cons(lowerE(scope, idx), Nil)))
+                          case _ =>
+                            IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+                        }
+                      case _ =>
+                        IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+                    }
+                  else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+                else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+            }
         }
       else if #seq(tag, "sel") then
         -- field selection not resolved by KC6: emit placeholder
@@ -606,6 +800,9 @@ def lowerE = (scope, rawExpr) =>
 -- Cons arm (2 fields): t=local0, h=local1, xs=local2, go=local3, f=local4
 -- 1-field arms (Some/Right/Left): v=local0, xs=local1, go=local2, f=local3
 -- 0-field arms (Nil/None): xs=local0, go=local1, f=local2
+-- _sel_map extended for LazyCons/LazyNil (lazy list map returns lazy list)
+-- LazyCons arm (2 fields): thunk=local0, h=local1; go=local3, f=local4
+--   → LazyCons(f(h), () => go(thunk()))
 def selMapDef =
   IrDef("_sel_map",
     IrLam(2,
@@ -618,13 +815,19 @@ def selMapDef =
                 Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)),
                 Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)),
                 Nil)))),
+            Cons(IrArm("LazyCons", 2,
+              IrCtor("LazyCons",
+                Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)),
+                Cons(IrLam(0, IrApp(IrLocal(3), Cons(IrApp(IrLocal(0), Nil), Nil))),
+                Nil)))),
+            Cons(IrArm("LazyNil", 0, IrCtor("LazyNil", Nil)),
             Cons(IrArm("Some", 1,
               IrCtor("Some", Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
             Cons(IrArm("None", 0, IrCtor("None", Nil)),
             Cons(IrArm("Right", 1,
               IrCtor("Right", Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
             Cons(IrArm("Left", 1, IrCtor("Left", Cons(IrLocal(0), Nil))),
-            Nil)))))), None)),
+            Nil)))))))), None)),
         Nil),
         IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
 
@@ -859,14 +1062,46 @@ def lowerBlock = (scope, stmts) =>
           if #seq(tag, "val") then
             match data {
               case Pair(name, expr) =>
+                -- Track array/vector variables for indexed-read lowering
+                let rb = resolveE(expr) in
+                let _reg = if isArrayConstruction(rb) then
+                  #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
+                else () in
                 IrLet(Cons(lowerE(scope, expr), Nil), lowerBlock(Cons(name, scope), rest))
             }
           else if #seq(tag, "var") then
             -- KC10: mutable var x = e → cell.new(e), bound as "@x" in scope
             match data {
               case Pair(name, expr) =>
+                -- Track map variables for .updated/.getOrElse dispatch
+                let rb = resolveE(expr) in
+                let _reg = if isMapConstruction(rb) then
+                  #cell.set(mapVarsCell, Cons(name, #cell.get(mapVarsCell)))
+                else () in
                 let cellExpr = IrPrim("cell.new", Cons(lowerE(scope, expr), Nil)) in
                 IrLet(Cons(cellExpr, Nil), lowerBlock(Cons(#sconcat("@", name), scope), rest))
+            }
+          else if #seq(tag, "idx_assign") then
+            -- a(idx) = rhs  →  arr.set(a, idx, rhs)
+            match data {
+              case Pair(lhs, rhs) =>
+                match lhs {
+                  case Pair(ltag, ldata) =>
+                    match ldata {
+                      case Pair(arrFn, idxArgs) =>
+                        match idxArgs {
+                          case Cons(idxE, idxRest) =>
+                            let setE = IrPrim("arr.set",
+                              Cons(lowerE(scope, arrFn),
+                              Cons(lowerE(scope, idxE),
+                              Cons(lowerE(scope, rhs), Nil)))) in
+                            match rest {
+                              case Nil => setE
+                              case _ => IrLet(Cons(setE, Nil), lowerBlock(Cons("_blk_", scope), rest))
+                            }
+                        }
+                    }
+                }
             }
           else if #seq(tag, "assign") then
             -- KC10: x = expr → cell.set(cell_ref, val)
@@ -961,12 +1196,22 @@ def lowerStmtToList = (stmt) =>
             match rest {
               case Pair(params, body) =>
                 let scope = revL(params) in
-                Cons(IrDef(name, IrLam(lenL(params), lowerE(scope, body))), Nil)
+                -- KC5b: set active ctx for summon dispatch within this def body
+                let prevCtx = #cell.get(kc5ActiveCtxCell) in
+                let _setCtx = #cell.set(kc5ActiveCtxCell, computeActiveCtx(params)) in
+                let ir = IrDef(name, IrLam(lenL(params), lowerE(scope, body))) in
+                let _restCtx = #cell.set(kc5ActiveCtxCell, prevCtx) in
+                Cons(ir, Nil)
             }
         }
       else if #seq(tag, "val") then
         match data {
           case Pair(name, body) =>
+            -- Track top-level array/vector globals for indexed-read lowering
+            let rb = resolveE(body) in
+            let _reg = if isArrayConstruction(rb) then
+              #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
+            else () in
             Cons(IrDef(name, lowerE(Nil, body)), Nil)
         }
       else if #seq(tag, "given") then
@@ -986,6 +1231,8 @@ def lowerStmtToList = (stmt) =>
         -- KC7b: object O { def f(x) = ... } → IrDef("O_f", IrLam(1, ...))
         match data {
           case Pair(name, stmts) =>
+            -- register as known object for static dispatch on lowercase names
+            let _reg = #cell.set(kc7bObjectsCell, Cons(name, #cell.get(kc7bObjectsCell))) in
             let prefix = #sconcat(name, "_") in
             let rec prefixDefs = (ss) =>
               match ss {
@@ -1003,6 +1250,44 @@ def lowerStmtToList = (stmt) =>
                   }
               } in
             prefixDefs(stmts)
+        }
+      else if #seq(tag, "given_obj") then
+        -- KC5+KC7b: given name: T with { defs } → emit prefixed defs + dummy sentinel
+        match data {
+          case Pair(name, rest2) =>
+            match rest2 {
+              case Pair(typeStr, stmts) =>
+                let _reg = #cell.set(kc7bObjectsCell, Cons(name, #cell.get(kc7bObjectsCell))) in
+                let prefix = #sconcat(name, "_") in
+                let rec prefixDefs = (ss) =>
+                  match ss {
+                    case Nil => Nil
+                    case Cons(s2, rest3) =>
+                      match s2 {
+                        case Pair(stag, sdata) =>
+                          if #seq(stag, "def") then
+                            match sdata {
+                              case Pair(dname, drest) =>
+                                match drest {
+                                  case Pair(dparams, dbody) =>
+                                    -- 0-param method = a value (e.g. def empty = 0); emit as val
+                                    -- N-param method = a function; emit as def
+                                    let pfxName = #sconcat(prefix, dname) in
+                                    let lowered =
+                                      if #i.eq(lenL(dparams), 0) then
+                                        Cons(IrDef(pfxName, lowerE(Nil, dbody)), Nil)
+                                      else
+                                        let prefixed = Pair("def", Pair(pfxName, drest)) in
+                                        lowerStmtToList(prefixed) in
+                                    appendL(lowered, prefixDefs(rest3))
+                                }
+                            }
+                          else prefixDefs(rest3)
+                      }
+                  } in
+                -- emit prefixed method defs + sentinel val (for KC5 injection at call sites)
+                appendL(prefixDefs(stmts), Cons(IrDef(name, IrLit(IrInt(0))), Nil))
+            }
         }
       else Nil
   }
@@ -1116,6 +1401,183 @@ def hasZeroArgMain = (stmts) =>
       }
   }
 
+-- _sel_until(lo, hi) — range [lo, hi)
+-- IrLam(2): hi=local0, lo=local1
+-- IrLetRec: go=local0, hi=local1, lo=local2
+-- go=IrLam(1): i=local0, go=local1, hi=local2, lo=local3
+def selUntilDef =
+  IrDef("_sel_until",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrIf(IrPrim("i.ge", Cons(IrLocal(0), Cons(IrLocal(2), Nil))),
+            IrCtor("Nil", Nil),
+            IrCtor("Cons",
+              Cons(IrLocal(0),
+              Cons(IrApp(IrLocal(1),
+                Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))),
+                Nil)),
+              Nil))))),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- _sel_to(lo, hi) — range [lo, hi] inclusive
+-- Same shape as _sel_until but uses i.gt
+def selToDef =
+  IrDef("_sel_to",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrIf(IrPrim("i.gt", Cons(IrLocal(0), Cons(IrLocal(2), Nil))),
+            IrCtor("Nil", Nil),
+            IrCtor("Cons",
+              Cons(IrLocal(0),
+              Cons(IrApp(IrLocal(1),
+                Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))),
+                Nil)),
+              Nil))))),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+
+-- Bench.opaque(x) — identity for benchmarking (prevents constant-folding)
+def benchOpaqueDef =
+  IrDef("Bench_opaque", IrLam(1, IrLocal(0)))
+
+-- _arr_fill(xs: List) → mutable ArrayBuffer — pushes each element in order
+-- IrLam(1): xs=local(0)
+-- IrLet([arr.new]): arr=local(0), xs=local(1)
+-- IrLetRec([IrLam(2, go_body)]): go=local(0), arr=local(1), xs=local(2)
+-- IrApp(go, [xs, arr])
+-- go lam (2 params): arr=local(0), lst=local(1), go=local(2)
+-- Cons arm (2 fields): t=local(0), h=local(1); arr=local(2), lst=local(3), go=local(4)
+-- After IrLet([arr.push]): unit=local(0), t=local(1), h=local(2), arr=local(3), lst=local(4), go=local(5)
+-- → go(t, arr)
+def arrFillDef =
+  let nilArm = IrArm("Nil", 0, IrLocal(0)) in
+  let pushExpr = IrPrim("arr.push", Cons(IrLocal(2), Cons(IrLocal(1), Nil))) in
+  let afterPush = IrApp(IrLocal(5), Cons(IrLocal(1), Cons(IrLocal(3), Nil))) in
+  let consBody = IrLet(Cons(pushExpr, Nil), afterPush) in
+  let consArm = IrArm("Cons", 2, consBody) in
+  let goBody = IrMatch(IrLocal(1), Cons(nilArm, Cons(consArm, Nil)), None) in
+  IrDef("_arr_fill",
+    IrLam(1,
+      IrLet(Cons(IrPrim("arr.new", Nil), Nil),
+        IrLetRec(
+          Cons(IrLam(2, goBody), Nil),
+          IrApp(IrLocal(0), Cons(IrLocal(2), Cons(IrLocal(1), Nil)))))))
+
+-- LazyList_from(n) — infinite lazy stream starting at n
+-- IrLam(1): n=local(0)
+-- IrLetRec([from_lam]): from=local(0), n=local(1)
+-- → from(n) = IrApp(local(0), [local(1)])
+-- from_lam IrLam(1): n_cur=local(0), from=local(1), n_outer=local(2)
+-- → LazyCons(n_cur, thunk)
+-- thunk IrLam(0) captures env; inside: n_cur=local(0), from=local(1)
+-- → from(n_cur + 1)
+def lazyListFromDef =
+  IrDef("LazyList_from",
+    IrLam(1,
+      IrLetRec(
+        Cons(IrLam(1,
+          IrCtor("LazyCons",
+            Cons(IrLocal(0),
+            Cons(IrLam(0,
+              IrApp(IrLocal(1),
+                Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))),
+                Nil))),
+            Nil)))),
+        Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(1), Nil)))))
+
+-- _sel_take(xs, k) — take first k elements from a List or LazyList
+-- IrLam(2): k=local(0), xs=local(1)
+-- IrLetRec([take_lam]): take=local(0), k=local(1), xs=local(2)
+-- → take(xs, k) = IrApp(local(0), [local(2), local(1)])
+-- take_lam IrLam(2): n=local(0), lst=local(1), take=local(2)
+-- → if n<=0 then Nil else match lst
+-- LazyCons arm (2 fields): thunk=local(0), h=local(1); n=local(2), lst=local(3), take=local(4)
+--   → Cons(h, take(thunk(), n-1))
+-- Cons arm (2 fields): t=local(0), h=local(1); n=local(2), lst=local(3), take=local(4)
+--   → Cons(h, take(t, n-1))
+def selTakeDef =
+  let lazyConsBody =
+    IrCtor("Cons",
+      Cons(IrLocal(1),
+      Cons(IrApp(IrLocal(4),
+        Cons(IrApp(IrLocal(0), Nil),
+        Cons(IrPrim("i.sub", Cons(IrLocal(2), Cons(IrLit(IrInt(1)), Nil))),
+        Nil))),
+      Nil))) in
+  let consBody =
+    IrCtor("Cons",
+      Cons(IrLocal(1),
+      Cons(IrApp(IrLocal(4),
+        Cons(IrLocal(0),
+        Cons(IrPrim("i.sub", Cons(IrLocal(2), Cons(IrLit(IrInt(1)), Nil))),
+        Nil))),
+      Nil))) in
+  let matchExpr =
+    IrMatch(IrLocal(1),
+      Cons(IrArm("LazyCons", 2, lazyConsBody),
+      Cons(IrArm("LazyNil", 0, IrCtor("Nil", Nil)),
+      Cons(IrArm("Cons", 2, consBody),
+      Cons(IrArm("Nil", 0, IrCtor("Nil", Nil)),
+      Nil)))),
+      None) in
+  let takeBody = IrIf(IrPrim("i.le", Cons(IrLocal(0), Cons(IrLit(IrInt(0)), Nil))), IrCtor("Nil", Nil), matchExpr) in
+  IrDef("_sel_take",
+    IrLam(2,
+      IrLetRec(
+        Cons(IrLam(2, takeBody), Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(2), Cons(IrLocal(1), Nil))))))
+
+-- _sel_sum(xs: List[Int]) → sum of elements (tail-recursive accumulator)
+-- IrLam(1): xs=local(0)
+-- IrLetRec([go_lam]): go=local(0), xs=local(1)
+-- → go(xs, 0) = IrApp(local(0), [local(1), IrLit(0)])
+-- go_lam IrLam(2): acc=local(0), lst=local(1), go=local(2)
+-- Nil arm: return acc = local(0)
+-- Cons arm (2 fields): t=local(0), h=local(1); acc=local(2), lst=local(3), go=local(4)
+--   → go(t, acc + h)
+def selSumDef =
+  let nilArm = IrArm("Nil", 0, IrLocal(0)) in
+  let consBody = IrApp(IrLocal(4),
+    Cons(IrLocal(0),
+    Cons(IrPrim("i.add", Cons(IrLocal(2), Cons(IrLocal(1), Nil))),
+    Nil))) in
+  let consArm = IrArm("Cons", 2, consBody) in
+  let goBody = IrMatch(IrLocal(1), Cons(nilArm, Cons(consArm, Nil)), None) in
+  IrDef("_sel_sum",
+    IrLam(1,
+      IrLetRec(
+        Cons(IrLam(2, goBody), Nil),
+        IrApp(IrLocal(0), Cons(IrLocal(1), Cons(IrLit(IrInt(0)), Nil))))))
+
+-- _sel_mapUpdated(m, k, v) — mutate HashMap m[k]=v, return m
+-- IrLam(3): v=local(0), k=local(1), m=local(2)
+-- IrLet([map.put(m, k, v)]): unit=local(0), v=local(1), k=local(2), m=local(3)
+-- → local(3) = m
+def selMapUpdatedDef =
+  IrDef("_sel_mapUpdated",
+    IrLam(3,
+      IrLet(Cons(IrPrim("map.put", Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLocal(0), Nil)))), Nil),
+        IrLocal(3))))
+
+-- _sel_mapGetOrElse(m, k, d) — map.get(m, k) → Some(v)→v, None→d
+-- IrLam(3): d=local(0), k=local(1), m=local(2)
+-- map.get(m, k) → Some(v) or None
+-- Some arm (1 field): v=local(0) → local(0) = v
+-- None arm (0 fields): d=local(0) → local(0) = d
+def selMapGetOrElseDef =
+  IrDef("_sel_mapGetOrElse",
+    IrLam(3,
+      IrMatch(
+        IrPrim("map.get", Cons(IrLocal(2), Cons(IrLocal(1), Nil))),
+        Cons(IrArm("Some", 1, IrLocal(0)),
+        Cons(IrArm("None", 0, IrLocal(0)),
+        Nil)),
+        None)))
+
 -- All injected KC6 helpers
 def kc6Defs =
   Cons(selMapDef,
@@ -1137,13 +1599,29 @@ def kc6Defs =
   Cons(selSplitDef,
   Cons(selTrimDef,
   Cons(selMkStringDef,
-  Nil)))))))))))))))))))
+  Cons(selUntilDef,
+  Cons(selToDef,
+  Cons(benchOpaqueDef,
+  Cons(arrFillDef,
+  Cons(lazyListFromDef,
+  Cons(selTakeDef,
+  Cons(selSumDef,
+  Cons(selMapUpdatedDef,
+  Cons(selMapGetOrElseDef,
+  Nil))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
   -- KC5: initialize given table and sig table from parsed stmts
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
+  -- KC7b: reset known-objects registry (lower-case given instances)
+  let _ko = #cell.set(kc7bObjectsCell, Nil) in
+  -- KC5b: reset active ctx (summon dispatch)
+  let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
+  -- Reset array/map variable registries
+  let _av = #cell.set(arrVarsCell, Nil) in
+  let _mv = #cell.set(mapVarsCell, Nil) in
   let defs =
     Cons(printlnDef,
     Cons(printDef,
