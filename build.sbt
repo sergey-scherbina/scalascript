@@ -76,6 +76,19 @@ val javafxClassifier: String = {
 // Stage 1.2: sources moved out of compiler/ into the new modules.
 // ---------------------------------------------------------------------------
 
+// ── v2 kernel ─────────────────────────────────────────────────────────────────
+// The frozen ~913-line Scala kernel in v2/src/ — currently built with scala-cli.
+// This sbt subproject makes it buildable via sbt as well.
+// `//> using ...` lines in v2/src/project.scala are valid Scala comments; sbt ignores them.
+lazy val v2Core = project
+  .in(file("v2/src"))
+  .settings(
+    name := "scalascript-v2-core",
+    // Exclude scala-cli directives (//> using ...) from sbt compilation
+    // by overriding managed source dirs — sbt ignores //> comments naturally
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 // ── value-data — shared pure-data scalar leaves (value-unification, scalars-only) ──
 // A leaf module (depends on nothing) holding `enum DataValue` — the host-neutral scalar
 // leaves of the interpreter's `Value` (and, later, of `SpiValue`). Lives below `core` and
@@ -3757,6 +3770,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
+    v2Core,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
