@@ -25,6 +25,9 @@ object Value:
   final case class DataV(tag: String, fields: Vector[Value]) extends Value
   final class ClosV(var env: Env, val arity: Int, val code: Code) extends Value  // var env: cyclic letrec frames
   final case class ForeignV(h: AnyRef)                extends Value
+  // Mutable long cell: avoids IntV boxing on every cell.set in tight arithmetic loops.
+  // Lowered from `var x: Long = 0` via `lcell.new`.
+  final class LongCellV(var v: Long)                  extends Value
 
 object Runtime:
   import Value.*
@@ -32,6 +35,9 @@ object Runtime:
   // Process argv — the trailing CLI args of `ssc run <file> ARGS...`, exposed to
   // the program through the `io.args` primitive. Set by Main before running.
   var argv: List[String] = Nil
+
+  // Singleton empty env; reused for arity-0 closures to avoid allocation.
+  val emptyEnv: Env = Array.empty[Value]
 
   // Trampoline: run a compiled Code to a final Value, bouncing tail Calls in
   // CONSTANT STACK (specs/10-core-ir.md invariant 7).
@@ -42,7 +48,8 @@ object Runtime:
         case Done(v) => return v
         case Call(c, args) =>
           if c.arity != args.length then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
-          env = Runtime.extend(c.env, args)
+          // Fast path: empty args = reuse closure env directly (no array copy)
+          env = if args.isEmpty then c.env else Runtime.extend(c.env, args)
           code = c.code
     sys.error("unreachable")
 
@@ -130,18 +137,77 @@ object Compiler:
                 case Some(d) => d(env)
                 case None => sys.error(s"match: no arm for $tag/${fs.length}")
           case v => sys.error(s"match: scrutinee not Data: ${Show.show(v)}")
-      case Prim(op, args) =>
-        val fn = Prims.resolve(op)                                   // resolved once, at compile
-        val acs = args.map(compile)
-        (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
       case App(fn, args) =>
-        val fc = compile(fn); val acs = args.map(compile)
-        (env: Env) =>
-          val fv  = Runtime.value(fc, env)                           // fn + args: non-tail
-          val avs = acs.map(ac => Runtime.value(ac, env)).toArray
-          fv match
-            case c: ClosV => Call(c, avs)                            // THE tail call: hand to driver
-            case v => sys.error(s"app: not a function: ${Show.show(v)}")
+        if args.isEmpty then
+          val fc = compile(fn)
+          (env: Env) =>
+            Runtime.value(fc, env) match
+              case c: ClosV => Call(c, Runtime.emptyEnv)             // avoid toArray on empty list
+              case v => sys.error(s"app: not a function: ${Show.show(v)}")
+        else
+          val fc = compile(fn); val acs = args.map(compile)
+          (env: Env) =>
+            val fv  = Runtime.value(fc, env)                         // fn + args: non-tail
+            val avs = acs.map(ac => Runtime.value(ac, env)).toArray
+            fv match
+              case c: ClosV => Call(c, avs)                          // THE tail call: hand to driver
+              case v => sys.error(s"app: not a function: ${Show.show(v)}")
+      case While(cond, body) =>
+        // Try FastCode path: avoids Done boxing and trampoline per iteration
+        (FastCode.tryFBc(cond, globals), FastCode.tryFC(body, globals)) match
+          case (Some(fbc), Some(fb)) =>
+            (env: Env) => { while fbc(env) do fb(env); Done(Value.UnitV) }
+          case _ =>
+            val cc = compile(cond); val bc = compile(body)
+            (env: Env) =>
+              while (Runtime.value(cc, env) match { case Value.BoolV(b) => b; case _ => false }) do
+                Runtime.value(bc, env)
+              Done(Value.UnitV)                                       // no trampoline bounce per iteration
+      case Seq(terms) =>
+        // Try FastCode path: prefer FLC-based long-set for arithmetic, then general FC
+        val fastOpts = terms.map(t => FastCode.tryFCLongSet(t, globals).orElse(FastCode.tryFC(t, globals)))
+        if fastOpts.forall(_.isDefined) then
+          val fcs = fastOpts.map(_.get)
+          (env: Env) =>
+            var last: Value = Value.UnitV
+            for fc <- fcs do last = fc(env)
+            Done(last)
+        else
+          val tcs = terms.map(compile)
+          (env: Env) =>
+            var last: Value = Value.UnitV
+            for tc <- tcs do last = Runtime.value(tc, env)           // same env for all, no appendOne
+            Done(last)
+      case Prim(op, args) =>
+        // Fast paths for 1/2/3-arg primitives: avoid List[Value] allocation for args
+        args match
+          case List(a0) =>
+            Prims.resolve1(op) match
+              case Some(fn1) =>
+                val ac0 = compile(a0)
+                (env: Env) => Done(fn1(Runtime.value(ac0, env)))
+              case None =>
+                val fn = Prims.resolve(op); val ac0 = compile(a0)
+                (env: Env) => Done(fn(List(Runtime.value(ac0, env))))
+          case List(a0, a1) =>
+            Prims.resolve2(op) match
+              case Some(fn2) =>
+                val ac0 = compile(a0); val ac1 = compile(a1)
+                (env: Env) => Done(fn2(Runtime.value(ac0, env), Runtime.value(ac1, env)))
+              case None =>
+                val fn = Prims.resolve(op); val ac0 = compile(a0); val ac1 = compile(a1)
+                (env: Env) => Done(fn(List(Runtime.value(ac0, env), Runtime.value(ac1, env))))
+          case List(a0, a1, a2) =>
+            Prims.resolve3(op) match
+              case Some(fn3) =>
+                val ac0 = compile(a0); val ac1 = compile(a1); val ac2 = compile(a2)
+                (env: Env) => Done(fn3(Runtime.value(ac0, env), Runtime.value(ac1, env), Runtime.value(ac2, env)))
+              case None =>
+                val fn = Prims.resolve(op); val acs = args.map(compile)
+                (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
+          case _ =>                                                    // 0 or 4+ args: generic path
+            val fn = Prims.resolve(op); val acs = args.map(compile)
+            (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
 
   def constV(c: Const): Value = c match
     case Const.CUnit     => Value.UnitV
@@ -151,6 +217,166 @@ object Compiler:
     case Const.CFloat(d) => Value.FloatV(d)
     case Const.CStr(s)   => Value.StrV(s)
     case Const.CBytes(b) => Value.BytesV(b)
+
+// ── FastCode: Value-returning closures (no Done boxing) ──────────────────────
+// Used in While/If fast-paths to avoid 20+ Done allocations per iteration.
+// Only covers expressions that are provably non-tail (primitives, locals, lits, seq).
+object FastCode:
+  import Value.*, Term.*
+
+  type FC  = Env => Value         // fast: returns Value directly (no Done wrapping)
+  type FLC = Env => Long          // fast long: returns unboxed Long (avoids IntV boxing)
+  type FBc = Env => Boolean       // fast bool: avoids BoolV boxing for conditions
+
+  /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
+   *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
+  def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = t match
+    case Lit(Const.CInt(n)) => Some(_ => n)
+    case Prim("lcell.get", List(Local(i))) =>
+      val n = i; Some(env => env(env.length - 1 - n).asInstanceOf[LongCellV].v)
+    case Prim("cell.get", List(Local(i))) =>
+      // Optimistic: read IntV directly from foreign cell (works when cell holds IntV)
+      val n = i; Some((env: Env) =>
+        val cell = env(env.length - 1 - n).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
+        cell(0) match { case IntV(x) => x; case _ => 0L })
+    case Prim("i.add", List(a0, a1)) =>
+      tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) + f1(env)))
+    case Prim("i.sub", List(a0, a1)) =>
+      tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) - f1(env)))
+    case Prim("i.mul", List(a0, a1)) =>
+      tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) * f1(env)))
+    case _ => None
+
+  /** Try to compile a cell.set to a FastCode that stores a raw Long (no IntV alloc). */
+  def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+    case Prim("lcell.set", List(Local(c), body)) =>
+      tryFLC(body, globals).map { flc =>
+        val cn = c
+        (env: Env) => { env(env.length - 1 - cn).asInstanceOf[LongCellV].v = flc(env); UnitV }
+      }
+    case Prim("cell.set", List(Local(c), body)) =>
+      // Optimistic: if the cell holds IntV, store new IntV (still 1 alloc but skips boxing chain)
+      tryFLC(body, globals).map { flc =>
+        val cn = c
+        (env: Env) => {
+          val cell = env(env.length - 1 - cn).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
+          cell(0) = IntV(flc(env))   // still 1 IntV alloc (but avoids nested IntV chain)
+          UnitV
+        }
+      }
+    case _ => None
+
+  /** Try to compile a term to a FastCode.  Returns None if the term
+   *  requires a tail call (Lam, App, LetRec, Match with complex arms). */
+  def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+    case Lit(k) =>
+      val v = Compiler.constV(k); Some(_ => v)
+    case Local(i) =>
+      val n = i; Some(env => env(env.length - 1 - n))
+    case Global(g) =>
+      Some(_ => globals.getOrElse(g, sys.error(s"unbound global: $g")))
+    // lcell.get: return IntV(c.v) but for FC callers who need a Value
+    case Prim("lcell.get", List(Local(i))) =>
+      val n = i; Some((env: Env) => IntV(env(env.length - 1 - n).asInstanceOf[LongCellV].v))
+    // lcell.set and cell.set: delegate to tryFCLongSet for unboxed path
+    case Prim("lcell.set", _) | Prim("cell.set", _) =>
+      tryFCLongSet(t, globals)
+    case Prim(op, List(a0)) =>
+      Prims.resolve1(op).flatMap { fn1 =>
+        tryFC(a0, globals).map { fc0 => env => fn1(fc0(env)) }
+      }
+    case Prim(op, List(a0, a1)) =>
+      Prims.resolve2(op).flatMap { fn2 =>
+        tryFC(a0, globals).flatMap { fc0 =>
+          tryFC(a1, globals).map { fc1 => env => fn2(fc0(env), fc1(env)) }
+        }
+      }
+    case Prim(op, List(a0, a1, a2)) =>
+      Prims.resolve3(op).flatMap { fn3 =>
+        tryFC(a0, globals).flatMap { fc0 =>
+          tryFC(a1, globals).flatMap { fc1 =>
+            tryFC(a2, globals).map { fc2 => env => fn3(fc0(env), fc1(env), fc2(env)) }
+          }
+        }
+      }
+    case Seq(terms) =>
+      val opts = terms.map(tryFC(_, globals))
+      if opts.forall(_.isDefined) then
+        val fcs = opts.map(_.get)
+        Some(env => { var last: Value = UnitV; for fc <- fcs do last = fc(env); last })
+      else None
+    case If(c, th, el) =>
+      tryFC(c, globals).flatMap { fcc =>
+        tryFC(th, globals).flatMap { fct =>
+          tryFC(el, globals).map { fce =>
+            env => (fcc(env) match { case BoolV(b) => b; case _ => false }) match
+              case true  => fct(env)
+              case false => fce(env)
+          }
+        }
+      }
+    case Let(rhs, body) =>
+      val rOpts = rhs.map(tryFC(_, globals))
+      if rOpts.forall(_.isDefined) then
+        val rFcs = rOpts.map(_.get)
+        tryFC(body, globals).map { fbody =>
+          env =>
+            var e = env
+            for rfc <- rFcs do e = Runtime.appendOne(e, rfc(e))
+            fbody(e)
+        }
+      else None
+    case _ => None
+
+  /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
+  def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
+    case Prim(op, List(a0, a1)) if op.startsWith("i.l") || op.startsWith("i.g") || op == "i.eq" =>
+      // Integer comparisons: try FLC first to avoid IntV boxing of operands
+      tryFLC(a0, globals).flatMap { flc0 =>
+        tryFLC(a1, globals).map { flc1 =>
+          val cmpFn: (Long, Long) => Boolean = op match
+            case "i.lt" => _ < _
+            case "i.le" => _ <= _
+            case "i.gt" => _ > _
+            case "i.ge" => _ >= _
+            case "i.eq" => _ == _
+            case _      => (_, _) => false
+          (env: Env) => cmpFn(flc0(env), flc1(env))
+        }
+      } orElse {
+        // Fallback to Value-based comparison
+        val fn2bOpt: Option[(Value, Value) => Boolean] = op match
+          case "i.lt"  => Some { case (IntV(x), IntV(y)) => x < y;  case _ => false }
+          case "i.le"  => Some { case (IntV(x), IntV(y)) => x <= y; case _ => false }
+          case "i.gt"  => Some { case (IntV(x), IntV(y)) => x > y;  case _ => false }
+          case "i.ge"  => Some { case (IntV(x), IntV(y)) => x >= y; case _ => false }
+          case "i.eq"  => Some { case (IntV(x), IntV(y)) => x == y; case (a,b) => a==b }
+          case _       => None
+        fn2bOpt.flatMap { fn2b =>
+          tryFC(a0, globals).flatMap { fc0 =>
+            tryFC(a1, globals).map { fc1 => (env: Env) => fn2b(fc0(env), fc1(env)) }
+          }
+        }
+      }
+    case Prim(op, List(a0, a1)) =>
+      val fn2bOpt: Option[(Value, Value) => Boolean] = op match
+        case "f.lt"  => Some { case (FloatV(x), FloatV(y)) => x < y; case _ => false }
+        case "f.le"  => Some { case (FloatV(x), FloatV(y)) => x <= y; case _ => false }
+        case "f.gt"  => Some { case (FloatV(x), FloatV(y)) => x > y; case _ => false }
+        case "f.ge"  => Some { case (FloatV(x), FloatV(y)) => x >= y; case _ => false }
+        case "f.eq"  => Some { case (FloatV(x), FloatV(y)) => x == y; case _ => false }
+        case "seq"   => Some { case (StrV(a), StrV(b)) => a == b; case _ => false }
+        case _       => None
+      fn2bOpt.flatMap { fn2b =>
+        tryFC(a0, globals).flatMap { fc0 =>
+          tryFC(a1, globals).map { fc1 => (env: Env) => fn2b(fc0(env), fc1(env)) }
+        }
+      }
+    case Prim("not", List(a0)) =>
+      tryFBc(a0, globals).map { fbc => (env: Env) => !fbc(env) }
+    case _ =>
+      // Fallback: try FC and unbox BoolV
+      tryFC(t, globals).map { fc => (env: Env) => fc(env) match { case BoolV(b) => b; case _ => false } }
 
 // ── Primitives δ — resolved once at compile time (specs/10-core-ir.md §5) ─────
 
@@ -268,6 +494,10 @@ object Prims:
     case "cell.new" => a => ForeignV(scala.Array[Value](a(0)))
     case "cell.get" => a => asCell(a(0))(0)
     case "cell.set" => a => asCell(a(0))(0) = a(1); UnitV
+    // Long cell: mutable long without Value boxing per store (for tight integer loops)
+    case "lcell.new" => a => new LongCellV(asInt1(a(0)))
+    case "lcell.get" => a => IntV(a(0).asInstanceOf[LongCellV].v)
+    case "lcell.set" => a => a(0).asInstanceOf[LongCellV].v = asInt1(a(1)); UnitV
     // I/O [eff]
     case "io.print"   => a => out(a(0), Console.out); UnitV
     case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
@@ -280,6 +510,134 @@ object Prims:
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
     case _ => sys.error(s"unimplemented primitive: $op")
+
+  // ── Allocation-free fast paths for 1/2/3-arg primitives ─────────────────────
+  // These avoid creating a List[Value] for arg passing on the hot path.
+  type Fn1 = Value => Value
+  type Fn2 = (Value, Value) => Value
+  type Fn3 = (Value, Value, Value) => Value
+
+  def resolve1(op: String): Option[Fn1] = op match
+    case "cell.get" => Some(c  => asCell(c)(0))
+    case "cell.new" => Some(v  => ForeignV(scala.Array[Value](v)))
+    case "lcell.get"=> Some(c  => IntV(c.asInstanceOf[LongCellV].v))
+    case "lcell.new"=> Some(v  => new LongCellV(asInt1(v)))
+    case "i.neg"    => Some { case IntV(n) => IntV(-n);  case v => IntV(-asInt1(v)) }
+    case "i.not"    => Some { case IntV(n) => IntV(~n);  case v => IntV(~asInt1(v)) }
+    case "not"      => Some { case BoolV(b) => BoolV(!b); case v => sys.error(s"not: not Bool: ${Show.show(v)}") }
+    case "slen"     => Some { case StrV(s) => IntV(s.length.toLong); case v => sys.error(s"slen: not Str: ${Show.show(v)}") }
+    case "arr.len"  => Some(a  => IntV(asArr(a).length.toLong))
+    case "arr.new"  => Some(_ => ForeignV(collection.mutable.ArrayBuffer[Value]()))
+    case "arr.pop"  => Some(a  => { val buf = asArr(a); buf.remove(buf.length - 1) })
+    case "arr.push" => None  // 2-arg
+    case "tagOf"    => Some(v  => StrV(asData(v)._1))
+    case "arity"    => Some(v  => IntV(asData(v)._2.length.toLong))
+    case "map.size" => Some(m  => IntV(asMap(m).size.toLong))
+    case "map.new"  => None  // 0-arg
+    case "map.keys" => Some(m  => listOf(asMap(m).keys.toSeq))
+    case "io.args"  => None  // 0-arg
+    case "blen"     => Some { case BytesV(b) => IntV(b.length.toLong); case v => sys.error(s"blen: not Bytes") }
+    case "str->utf8"=> Some { case StrV(s) => BytesV(s.getBytes("UTF-8").toVector); case v => sys.error("str->utf8: not Str") }
+    case "utf8->str"=> Some { case BytesV(b) => StrV(new String(b.toArray, "UTF-8")); case v => sys.error("utf8->str: not Bytes") }
+    case "str.trim" => Some { case StrV(s) => StrV(s.trim); case v => sys.error("str.trim: not Str") }
+    case "str.lines"=> Some { case StrV(s) =>
+                         val parts = s.split("\n", -1); val nilV: Value = DataV("Nil", Vector.empty)
+                         parts.foldRight(nilV)((x, acc) => DataV("Cons", Vector(StrV(x), acc)))
+                         case v => sys.error("str.lines: not Str") }
+    case "i->str"   => Some { case IntV(n) => StrV(n.toString);   case v => sys.error("i->str: not Int") }
+    case "i->big"   => Some { case IntV(n) => BigV(BigInt(n));     case v => sys.error("i->big: not Int") }
+    case "big->i"   => Some { case BigV(n) => IntV(n.toLong);      case v => sys.error("big->i: not BigInt") }
+    case "i->f"     => Some { case IntV(n) => FloatV(n.toDouble);  case v => sys.error("i->f: not Int") }
+    case "f->i"     => Some { case FloatV(d) => IntV(d.toLong);    case v => sys.error("f->i: not Float") }
+    case "f->str"   => Some { case FloatV(d) => StrV(Writer.floatStr(d)); case v => sys.error("f->str: not Float") }
+    case "big->str" => Some { case BigV(n) => StrV(n.toString);    case v => sys.error("big->str: not BigInt") }
+    case "runLogger"=> Some(f  => { Runtime.run(f.asInstanceOf[ClosV].code, f.asInstanceOf[ClosV].env); UnitV })
+    case _          => None
+
+  def resolve2(op: String): Option[Fn2] = op match
+    case "i.add"    => Some { case (IntV(x),   IntV(y))   => IntV(x + y)
+                              case (FloatV(x), FloatV(y)) => FloatV(x + y)
+                              case (FloatV(x), IntV(y))   => FloatV(x + y.toDouble)
+                              case (IntV(x),  FloatV(y))  => FloatV(x.toDouble + y)
+                              case (a, b)                  => sys.error(s"i.add: bad args") }
+    case "i.sub"    => Some { case (IntV(x),   IntV(y))   => IntV(x - y)
+                              case (FloatV(x), FloatV(y)) => FloatV(x - y)
+                              case (a, b)                  => IntV(asInt1(a) - asInt1(b)) }
+    case "i.mul"    => Some { case (IntV(x),   IntV(y))   => IntV(x * y)
+                              case (FloatV(x), FloatV(y)) => FloatV(x * y)
+                              case (a, b)                  => IntV(asInt1(a) * asInt1(b)) }
+    case "i.div"    => Some { case (IntV(x),   IntV(y))   => IntV(x / y)
+                              case (a, b)                  => IntV(asInt1(a) / asInt1(b)) }
+    case "i.mod"    => Some { case (IntV(x),   IntV(y))   => IntV(x % y)
+                              case (a, b)                  => IntV(asInt1(a) % asInt1(b)) }
+    case "i.eq"     => Some { case (IntV(x),   IntV(y))   => BoolV(x == y)
+                              case (a, b)                  => BoolV(asInt1(a) == asInt1(b)) }
+    case "i.lt"     => Some { case (IntV(x),   IntV(y))   => BoolV(x < y)
+                              case (FloatV(x), FloatV(y)) => BoolV(x < y)
+                              case (a, b)                  => BoolV(asInt1(a) < asInt1(b)) }
+    case "i.le"     => Some { case (IntV(x),   IntV(y))   => BoolV(x <= y)
+                              case (a, b)                  => BoolV(asInt1(a) <= asInt1(b)) }
+    case "i.gt"     => Some { case (IntV(x),   IntV(y))   => BoolV(x > y)
+                              case (a, b)                  => BoolV(asInt1(a) > asInt1(b)) }
+    case "i.ge"     => Some { case (IntV(x),   IntV(y))   => BoolV(x >= y)
+                              case (a, b)                  => BoolV(asInt1(a) >= asInt1(b)) }
+    case "i.and"    => Some { case (IntV(x),   IntV(y))   => IntV(x & y);  case (a,b) => IntV(asInt1(a) & asInt1(b)) }
+    case "i.or"     => Some { case (IntV(x),   IntV(y))   => IntV(x | y);  case (a,b) => IntV(asInt1(a) | asInt1(b)) }
+    case "i.xor"    => Some { case (IntV(x),   IntV(y))   => IntV(x ^ y);  case (a,b) => IntV(asInt1(a) ^ asInt1(b)) }
+    case "i.shl"    => Some { case (IntV(x),   IntV(y))   => IntV(x << y); case (a,b) => IntV(asInt1(a) << asInt1(b)) }
+    case "i.shr"    => Some { case (IntV(x),   IntV(y))   => IntV(x >> y); case (a,b) => IntV(asInt1(a) >> asInt1(b)) }
+    case "i.ushr"   => Some { case (IntV(x),   IntV(y))   => IntV(x >>> y);case (a,b) => IntV(asInt1(a) >>> asInt1(b)) }
+    case "f.add"    => Some { case (FloatV(x), FloatV(y)) => FloatV(x + y); case (a,b) => sys.error("f.add: not Float") }
+    case "f.sub"    => Some { case (FloatV(x), FloatV(y)) => FloatV(x - y); case (a,b) => sys.error("f.sub: not Float") }
+    case "f.mul"    => Some { case (FloatV(x), FloatV(y)) => FloatV(x * y); case (a,b) => sys.error("f.mul: not Float") }
+    case "f.div"    => Some { case (FloatV(x), FloatV(y)) => FloatV(x / y); case (a,b) => sys.error("f.div: not Float") }
+    case "f.eq"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x == y); case (a,b) => sys.error("f.eq: not Float") }
+    case "f.lt"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x <  y); case (a,b) => sys.error("f.lt: not Float") }
+    case "f.le"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x <= y); case (a,b) => sys.error("f.le: not Float") }
+    case "f.gt"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x >  y); case (a,b) => sys.error("f.gt: not Float") }
+    case "f.ge"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x >= y); case (a,b) => sys.error("f.ge: not Float") }
+    case "sconcat"  => Some { case (StrV(a),  StrV(b))    => StrV(a + b)
+                              case (DataV(_, f1), DataV(_, f2)) =>
+                                val n = f1.length + f2.length; DataV(s"Tuple$n", f1 ++ f2)
+                              case (a, b) => sys.error("sconcat: bad types") }
+    case "seq"      => Some { case (StrV(a),  StrV(b))    => BoolV(a == b); case (a,b) => sys.error("seq: not Str") }
+    case "scmp"     => Some { case (StrV(a),  StrV(b))    => IntV(a.compareTo(b).toLong); case _ => sys.error("scmp: not Str") }
+    case "sindexOf" => Some { case (StrV(a),  StrV(b))    => IntV(a.indexOf(b).toLong); case _ => sys.error("sindexOf: not Str") }
+    case "str.split"=> Some { case (StrV(a),  StrV(b))    =>
+                                val parts = a.split(java.util.regex.Pattern.quote(b), -1)
+                                val nilV: Value = DataV("Nil", Vector.empty)
+                                parts.foldRight(nilV)((x, acc) => DataV("Cons", Vector(StrV(x), acc)))
+                              case _ => sys.error("str.split: not Str") }
+    case "cell.set" => Some { (c, v) => asCell(c)(0) = v; UnitV }
+    case "lcell.set"=> Some { (c, v) => c.asInstanceOf[LongCellV].v = asInt1(v); UnitV }
+    case "map.get"  => Some { (m, k) => asMap(m).get(k).fold(none)(some) }
+    case "map.has"  => Some { (m, k) => BoolV(asMap(m).contains(k)) }
+    case "map.del"  => Some { (m, k) => asMap(m).remove(k); UnitV }
+    case "arr.get"  => Some { (a, i) => asArr(a)(asInt1(i).toInt) }
+    case "arr.push" => Some { (a, v) => asArr(a) += v; UnitV }
+    case "bget"     => Some { case (BytesV(b), IntV(i)) => IntV((b(i.toInt) & 0xff).toLong); case _ => sys.error("bget: bad args") }
+    case "bconcat"  => Some { case (BytesV(a), BytesV(b)) => BytesV(a ++ b); case _ => sys.error("bconcat: bad args") }
+    case "fieldAt"  => Some { (v, i) => asData(v)._2(asInt1(i).toInt) }
+    case "big.add"  => Some { case (BigV(x),BigV(y)) => BigV(x+y); case _ => sys.error("big.add") }
+    case "big.sub"  => Some { case (BigV(x),BigV(y)) => BigV(x-y); case _ => sys.error("big.sub") }
+    case "big.mul"  => Some { case (BigV(x),BigV(y)) => BigV(x*y); case _ => sys.error("big.mul") }
+    case "big.div"  => Some { case (BigV(x),BigV(y)) => BigV(x/y); case _ => sys.error("big.div") }
+    case "big.mod"  => Some { case (BigV(x),BigV(y)) => BigV(x%y); case _ => sys.error("big.mod") }
+    case "big.eq"   => Some { case (BigV(x),BigV(y)) => BoolV(x==y); case _ => sys.error("big.eq") }
+    case "big.lt"   => Some { case (BigV(x),BigV(y)) => BoolV(x<y);  case _ => sys.error("big.lt") }
+    case "big.le"   => Some { case (BigV(x),BigV(y)) => BoolV(x<=y); case _ => sys.error("big.le") }
+    case "big.gt"   => Some { case (BigV(x),BigV(y)) => BoolV(x>y);  case _ => sys.error("big.gt") }
+    case "big.ge"   => Some { case (BigV(x),BigV(y)) => BoolV(x>=y); case _ => sys.error("big.ge") }
+    case _          => None
+
+  def resolve3(op: String): Option[Fn3] = op match
+    case "sslice"   => Some { case (StrV(s), IntV(i), IntV(j)) => StrV(s.substring(i.toInt, j.toInt)); case _ => sys.error("sslice") }
+    case "map.put"  => Some { (m, k, v) => asMap(m).update(k, v); UnitV }
+    case "arr.set"  => Some { (a, i, v) => asArr(a)(asInt1(i).toInt) = v; UnitV }
+    case "bslice"   => Some { case (BytesV(b), IntV(i), IntV(j)) => BytesV(b.slice(i.toInt, j.toInt)); case _ => sys.error("bslice") }
+    case _          => None
+
+  private def asInt1(v: Value): Long = v match { case IntV(n) => n; case x => sys.error(s"expected Int, got ${Show.show(x)}") }
 
   // numeric dispatch helpers: promote to Float when either operand is FloatV
   private def numBin(a: List[Value], fi: (Long, Long) => Long, ff: (Double, Double) => Double): Value =
@@ -355,6 +713,8 @@ object IrEncode:
     case DataV("IrIf", Vector(c, t, e))       => s"(if ${term(c)} ${term(t)} ${term(e)})"
     case DataV("IrCtor", Vector(StrV(tg), fs))=> s"(ctor $tg${list(fs).map(x => " " + term(x)).mkString})"
     case DataV("IrPrim", Vector(StrV(op), as))=> s"(prim $op${list(as).map(x => " " + term(x)).mkString})"
+    case DataV("IrWhile", Vector(c, b))       => s"(while ${term(c)} ${term(b)})"
+    case DataV("IrSeq",   Vector(ts))         => s"(seq${list(ts).map(x => " " + term(x)).mkString})"
     case DataV("IrMatch", Vector(s, arms, d)) =>
       val a = list(arms).map {
         case DataV("IrArm", Vector(StrV(tg), IntV(ar), b)) => s"(arm $tg $ar ${term(b)})"
@@ -394,3 +754,4 @@ object Show:
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(_)  => "<foreign>"
+    case c: LongCellV => s"<lcell:${c.v}>"

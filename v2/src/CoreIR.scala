@@ -26,6 +26,10 @@ enum Term:
   case Ctor(tag: String, fields: List[Term])
   case Match(scrut: Term, arms: List[Arm], default: Option[Term])
   case Prim(op: String, args: List[Term])
+  // Optimization: Java while-loop (no trampoline bounce per iteration)
+  case While(cond: Term, body: Term)
+  // Optimization: evaluate terms in sequence with same env (no Let-binding overhead)
+  case Seq(terms: List[Term])
 
 case class Arm(tag: String, arity: Int, body: Term)
 case class Def(name: String, body: Term)
@@ -129,6 +133,8 @@ object Reader:
       case "if"     => rest match { case c :: t :: e :: Nil => Term.If(toTerm(c), toTerm(t), toTerm(e)); case _ => sys.error("bad if") }
       case "ctor"   => rest match { case Sx.Atom(t) :: fs => Term.Ctor(t, fs.map(toTerm)); case _ => sys.error("bad ctor") }
       case "prim"   => rest match { case Sx.Atom(o) :: as => Term.Prim(o, as.map(toTerm)); case _ => sys.error("bad prim") }
+      case "while"  => rest match { case c :: b :: Nil => Term.While(toTerm(c), toTerm(b)); case _ => sys.error("bad while") }
+      case "seq"    => Term.Seq(rest.map(toTerm))
       case "match"  => rest match
         case s :: Sx.Lst(arms) :: tail =>
           val default = tail match
@@ -176,6 +182,8 @@ object Writer:
     case If(c, t, e)     => s"(if ${term(c)} ${term(t)} ${term(e)})"
     case Ctor(tag, fs)   => s"(ctor $tag${fs.map(f => " " + term(f)).mkString})"
     case Prim(op, as)    => s"(prim $op${as.map(a => " " + term(a)).mkString})"
+    case While(c, b)     => s"(while ${term(c)} ${term(b)})"
+    case Seq(ts)         => s"(seq${ts.map(t => " " + term(t)).mkString})"
     case Match(s, arms, d) =>
       val a = arms.map(m => s"(arm ${m.tag} ${m.arity} ${term(m.body)})").mkString(" ")
       val dd = d.map(x => s" (default ${term(x)})").getOrElse("")

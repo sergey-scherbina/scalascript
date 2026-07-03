@@ -14,6 +14,19 @@ End-to-end round-trip test for the `std.agent.mcp` bridge (`runtime/std/agent-mc
 
 ---
 
+## 2026-07-03 — v2-bench-perf: arith-loop 258ms → 17ms (15×), nested-loop < 20ms
+
+Six-layer optimization stack achieving < 20ms target for tight integer counter loops:
+
+1. **`Term.While` + `Term.Seq` in CoreIR** (`v2/src/CoreIR.scala`): new IR terms; While = Java while-loop (no trampoline bounce per iteration); Seq = evaluate terms with same env (no `appendOne` per statement). Reader/Writer/IrEncode all updated.
+2. **IrWhile + IrSeq in `ssc1-lower.ssc0`**: while-block lowering changed from letrec-based tail recursion to `IrWhile(condIr, bodyIr)`; assign chains use `IrSeq` instead of `IrLet` with `_blk_` scope extension (avoids env-array alloc per sequential assign).
+3. **FastCode + FastLongCode** (`v2/src/Runtime.scala` — `FastCode` object): `FC = Env => Value` (no Done boxing); `FLC = Env => Long` (no IntV boxing for arithmetic); `FBc = Env => Boolean` (no BoolV boxing for conditions). The While compiler uses FBc/FC fast paths when cond+body are fully compilable.
+4. **`LongCellV(var v: Long)`** in `Value`: mutable long cell avoids IntV allocation per cell.set in tight loops. `lcell.new/get/set` primitives added; `ssc1-lower.ssc0` emits `lcell.new/get/set` instead of `cell.new/get/set` for integer-literal-initialized vars (using `@@name` scope prefix).
+5. **`resolve1/2/3` in `Prims`**: allocation-free fast paths for 1/2/3-arg primitives; avoids `List[Value]` creation per Prim call on the hot path.
+6. **Empty-App fast path**: `Call(c, emptyEnv)` singleton reuse for 0-arg applications.
+
+Result: `arith-loop` 258ms → 17ms (bench.sh); `nested-loop` 18ms; both under 20ms target. All 31 bench programs still pass (same outputs).
+
 ## 2026-07-03 — v2-bench-compat KV9: effect-multishot (List monad CPS) — 31/31 bench programs on v2
 
 `multi effect NonDet { def choose(options: List[Int]): Int }` + List monad transform in `ssc1c`:

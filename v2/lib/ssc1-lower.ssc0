@@ -36,6 +36,23 @@ def lookupVar = (scope, name) =>
     } in
   go(scope, 0)
 
+-- Optional De Bruijn lookup: returns Some(IrLocal(i)) if found, None if not
+def lookupVarOpt = (scope, name) =>
+  let rec go = (sc, d) =>
+    match sc {
+      case Nil => None
+      case Cons(h, t) =>
+        if #seq(h, name) then Some(IrLocal(d))
+        else go(t, #i.add(d, 1))
+    } in
+  go(scope, 0)
+
+-- Is this expression an integer literal? (for lcell optimization)
+def isIntLitExpr = (expr) =>
+  match expr {
+    case Pair(etag, edata) => #seq(etag, "int")
+  }
+
 -- Check if a name is a registered array/vector variable
 def isArrVar = (name) =>
   let rec go = (xs) =>
@@ -837,15 +854,21 @@ def lowerE = (scope, rawExpr) =>
       else if #seq(tag, "bool") then
         IrLit(IrBool(if #seq(data, "true") then true else false))
       else if #seq(tag, "var") then
-        -- KC10: check for mutable var ("@name" in scope → cell.get)
+        -- KC10: check for mutable var ("@name" or "@@name" in scope → cell.get/lcell.get)
         let plain = lookupVar(scope, data) in
         match plain {
           case IrGlobal(gname) =>
-            let cellName = #sconcat("@", data) in
-            let cellRef = lookupVar(scope, cellName) in
-            match cellRef {
-              case IrLocal(ci) => IrPrim("cell.get", Cons(IrLocal(ci), Nil))
-              case IrGlobal(ng) => IrGlobal(data)
+            -- Check long cell (@@) first, then regular cell (@)
+            let llName = #sconcat("@@", data) in
+            match lookupVarOpt(scope, llName) {
+              case Some(lcellRef) => IrPrim("lcell.get", Cons(lcellRef, Nil))
+              case None =>
+                let cellName = #sconcat("@", data) in
+                let cellRef = lookupVar(scope, cellName) in
+                match cellRef {
+                  case IrLocal(ci) => IrPrim("cell.get", Cons(IrLocal(ci), Nil))
+                  case IrGlobal(ng) => IrGlobal(data)
+                }
             }
           case IrLocal(li) => IrLocal(li)
         }
@@ -1242,6 +1265,8 @@ def lowerBlock = (scope, stmts) =>
             }
           else if #seq(tag, "var") then
             -- KC10: mutable var x = e → cell.new(e), bound as "@x" in scope
+            -- Optimization: if init is integer literal, use lcell.new (LongCellV) and "@@x" scope
+            -- This avoids IntV boxing on every iteration in tight arithmetic loops.
             match data {
               case Pair(name, expr) =>
                 -- Track map variables for .updated/.getOrElse dispatch
@@ -1249,8 +1274,13 @@ def lowerBlock = (scope, stmts) =>
                 let _reg = if isMapConstruction(rb) then
                   #cell.set(mapVarsCell, Cons(name, #cell.get(mapVarsCell)))
                 else () in
-                let cellExpr = IrPrim("cell.new", Cons(lowerE(scope, expr), Nil)) in
-                IrLet(Cons(cellExpr, Nil), lowerBlock(Cons(#sconcat("@", name), scope), rest))
+                if isIntLitExpr(expr) then
+                  -- Integer literal init: use long cell (no IntV boxing per store)
+                  let lcellExpr = IrPrim("lcell.new", Cons(lowerE(scope, expr), Nil)) in
+                  IrLet(Cons(lcellExpr, Nil), lowerBlock(Cons(#sconcat("@@", name), scope), rest))
+                else
+                  let cellExpr = IrPrim("cell.new", Cons(lowerE(scope, expr), Nil)) in
+                  IrLet(Cons(cellExpr, Nil), lowerBlock(Cons(#sconcat("@", name), scope), rest))
             }
           else if #seq(tag, "idx_assign") then
             -- a(idx) = rhs  →  arr.set(a, idx, rhs)
@@ -1268,7 +1298,7 @@ def lowerBlock = (scope, stmts) =>
                               Cons(lowerE(scope, rhs), Nil)))) in
                             match rest {
                               case Nil => setE
-                              case _ => IrLet(Cons(setE, Nil), lowerBlock(Cons("_blk_", scope), rest))
+                              case _ => IrSeq(Cons(setE, Cons(lowerBlock(scope, rest), Nil)))
                             }
                         }
                     }
@@ -1276,28 +1306,32 @@ def lowerBlock = (scope, stmts) =>
             }
           else if #seq(tag, "assign") then
             -- KC10: x = expr → cell.set(cell_ref, val)
+            -- Use IrSeq instead of IrLet to avoid env-array allocation per assign.
+            -- For long cell vars (@@name), use lcell.set to avoid IntV boxing per store.
             match data {
               case Pair(name, expr) =>
-                let cellName = #sconcat("@", name) in
-                let cellRef = lookupVar(scope, cellName) in
-                let setExpr = IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil))) in
+                let llName = #sconcat("@@", name) in
+                let setExpr = match lookupVarOpt(scope, llName) {
+                  case Some(lcellRef) =>
+                    -- Long cell: use lcell.set (body evaluated as raw Long in FastCode path)
+                    IrPrim("lcell.set", Cons(lcellRef, Cons(lowerE(scope, expr), Nil)))
+                  case None =>
+                    let cellRef = lookupVar(scope, #sconcat("@", name)) in
+                    IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+                } in
                 match rest {
                   case Nil => setExpr
-                  case _ => IrLet(Cons(setExpr, Nil), lowerBlock(Cons("_blk_", scope), rest))
+                  case _ => IrSeq(Cons(setExpr, Cons(lowerBlock(scope, rest), Nil)))
                 }
             }
           else if #seq(tag, "while") then
-            -- KC10: while (cond) body → IrLetRec([IrLam(0, IrIf(cond, IrLet([body], recurse), Unit))], call)
-            -- Scope inside loop lam (0 params): "go" at Local(0), outer vars at Local(1+)
+            -- KC10: while (cond) body → IrWhile(cond, body)
+            -- No $go$ in scope: body uses caller's scope directly (no letrec overhead)
             match data {
               case Pair(cond, body) =>
-                let loopScope = Cons("$go$", scope) in
-                let condIr = lowerE(loopScope, cond) in
-                let bodyIr = lowerE(loopScope, body) in
-                -- after IrLet([bodyIr], ...) inside loop, go shifts to Local(1)
-                let recurse = IrApp(IrLocal(1), Nil) in
-                let lamBody = IrIf(condIr, IrLet(Cons(bodyIr, Nil), recurse), IrLit(IrUnit)) in
-                let loopExpr = IrLetRec(Cons(IrLam(0, lamBody), Nil), IrApp(IrLocal(0), Nil)) in
+                let condIr = lowerE(scope, cond) in
+                let bodyIr = lowerE(scope, body) in
+                let loopExpr = IrWhile(condIr, bodyIr) in
                 match rest {
                   case Nil => loopExpr
                   case _ => IrLet(Cons(loopExpr, Nil), lowerBlock(Cons("_blk_", scope), rest))

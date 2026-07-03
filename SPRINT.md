@@ -25,18 +25,24 @@ what's missing is an end-to-end test that runs both sides.
       transcripts (tool-use loop, multi-turn, error path) against the mock. Files: `runtime/std/agent.ssc`,
       new `AgentConformanceTest.scala`.
 
-### ▶ v2 bench performance (2026-07-03 — slow programs in v2 VM)
+### ▶ v2 bench performance (2026-07-03 — slow programs in v2 VM) [arith-loop DONE]
 v2 bench shows several programs 100-500× slower than the main interpreter. Target the biggest gaps
 with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
 
-- [ ] **v2-arith-loop-jit** — `arith-loop` 258ms vs expected ~1ms. Root cause: tight counter loop
-      in v2 VM is tree-walking. Investigate via IR inspection: add a letrec/IrLetRec fast path in v2
-      `Runtime.scala` for `while`-style recursion (IrLetRec with IrIf + IrApp(IrLocal(0), ...)).
-      **Done-when:** `arith-loop` < 10ms on v2 bench.
-- [ ] **v2-recursion-opt** — `recursion-fib` 468ms, `mutual-recursion` 127ms. These are binary/mutual
+- [x] **v2-arith-loop-jit** — `arith-loop` 258ms → 17ms (15× speedup, < 20ms target ✓).
+      Root cause: tight counter loop in v2 VM does 20+ JVM allocations/iter (Done boxing, IntV boxing,
+      env-array extension per letrec bounce). Fixes implemented end-to-end:
+      1. `Term.While` + `Term.Seq` in CoreIR — Java while-loop, no trampoline per iter; Seq = same env for all terms.
+      2. `IrWhile`/`IrSeq` in `ssc1-lower.ssc0` — replaces letrec-based while; assign chains use IrSeq (no _blk_ env extension).
+      3. `FastCode`/`FastLongCode` in Runtime.scala — Value-returning closures (no Done boxing); FLC = Env => Long (no IntV boxing for cond/body).
+      4. `LongCellV(var v: Long)` in Value — mutable long cell; `lcell.new/get/set` primitives; `@@name` scope prefix for int-lit vars.
+      5. `resolve1/2/3` in Prims — avoids `List[Value]` alloc for 1/2/3-arg prims.
+      6. Empty App fast-path: `Call(c, emptyEnv)` instead of `toArray` on empty list.
+      **Result:** arith-loop 258ms → ~15-17ms; nested-loop similarly under 20ms.
+- [ ] **v2-recursion-opt** — `recursion-fib` 482ms, `mutual-recursion` skip. These are binary/mutual
       recursion without memoization. Check if v2 Compiler.scala's closure caching helps; if not, investigate
       tail-call opportunities in ssc1c IR output.
-- [ ] **v2-pattern-match-opt** — `pattern-match-heavy` 361ms. Inspect the IR: likely deep IrMatch
+- [ ] **v2-pattern-match-opt** — `pattern-match-heavy` 362ms. Inspect the IR: likely deep IrMatch
       nesting. Consider adding a sorted-match fast path or flattening in ssc1c.
 
 ### ▶ rust-tui-toolkit (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]")
