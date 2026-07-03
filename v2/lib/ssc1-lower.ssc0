@@ -242,7 +242,13 @@ def resolveField = (robj, field) =>
   else if #seq(field, "toString") then
     Pair("prim", Pair("i->str", Cons(robj, Nil)))
   else if #seq(field, "toInt") then
-    Pair("prim", Pair("_str_toInt", Cons(robj, Nil)))
+    -- identity for arithmetic; string→int only when obj is a string expression
+    if isStrExpr(robj) then Pair("prim", Pair("_str_toInt", Cons(robj, Nil)))
+    else robj
+  else if #seq(field, "toLong") then robj
+  else if #seq(field, "toDouble") then robj
+  else if #seq(field, "toFloat") then robj
+  else if #seq(field, "toShort") then robj
   else if #seq(field, "head") then
     Pair("prim", Pair("_list_head", Cons(robj, Nil)))
   else if #seq(field, "tail") then
@@ -559,6 +565,14 @@ def lowerE = (scope, rawExpr) =>
         lowerE(scope, data)
       else if #seq(tag, "block") then
         lowerBlock(scope, data)
+      else if #seq(tag, "assign") then
+        -- assignment in expression position (e.g. then-branch of if-then)
+        match data {
+          case Pair(name, expr) =>
+            let cellName = #sconcat("@", name) in
+            let cellRef = lookupVar(scope, cellName) in
+            IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+        }
       else
         IrLit(IrUnit)
   }

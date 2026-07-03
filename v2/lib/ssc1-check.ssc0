@@ -54,6 +54,13 @@ def ssc1chkOccursList = (n, ts) =>
   match ts { case Nil => false case Cons(h, rest) =>
     if ssc1chkOccurs(n, h) then true else ssc1chkOccursList(n, rest) }
 
+-- Helper: is this type (after substitution) a known String?
+def ssc1chkIsStr = (t) =>
+  match t {
+    case TyStr => true
+    case _     => false
+  }
+
 -- ── Unification: Ok(s') | Err(msg) ───────────────────────────────────────────
 def ssc1chkUnify = (s, t1, t2) =>
   let a = ssc1chkAppTy(s, t1) in
@@ -329,7 +336,7 @@ def ssc1inferInf = (env, s, op, l, r) =>
   else if #seq(op, "::") then ssc1inferCons(env, s, l, r)
   else TcOk(s, TyDyn)
 
--- "+" is overloaded: Int+Int or Str+Str; reject Int+Str
+-- "+" is overloaded: Int+Int or Str+Any (Scala toString-concat); never reject Str+T
 def ssc1inferPlus = (env, s, l, r) =>
   match ssc1inferE(env, s, l) {
     case TcErr(m) => TcErr(m)
@@ -337,7 +344,10 @@ def ssc1inferPlus = (env, s, l, r) =>
       match ssc1inferE(env, s1, r) {
         case TcErr(m) => TcErr(m)
         case TcOk(s2, tr) =>
-          match ssc1chkUnify(s2, tl, tr) {
+          -- If either side is String, result is String (Scala's Any->toString concat)
+          if ssc1chkIsStr(tl) then TcOk(s2, TyStr)
+          else if ssc1chkIsStr(tr) then TcOk(s2, TyStr)
+          else match ssc1chkUnify(s2, tl, tr) {
             case Err(m) => TcErr(#sconcat("type mismatch in (+): ", m))
             case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, tl))
           }
