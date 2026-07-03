@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-bench-compat KV8: effect-oneshot — 30/31 bench programs on v2
+
+Parser and lowering fixes in `ssc1-front.ssc0` + `ssc1-lower.ssc0`:
+- `effect` added to keyword list (`isKwD`) → no longer parsed as identifier
+- `parseOneStmt`: `kw("effect")` case skips `effect E: { ... }` declaration block
+- `skipTypeAt`: added `}` to stop set — prevented `def tick(): Int }` from consuming the closing brace
+- `parseDef`: body (`= expr`) now conditional — abstract defs (no `=`) return unit body, fixing parse corruption where everything after an `effect` block was swallowed
+- `parseBlock` id branch: trailing `{ block }` after `parseExpr` result consumed as thunk arg → `handle(expr) { handler }` becomes `app(handle(expr), [() => handler])`
+- `ssc1-lower.ssc0` `kc6Defs`: added `bumpTickCellDef` (`cell.new(() => 1)`) + `bumpTickDef` (`() => cell.get(Bump_tick_cell)()`)
+- `resolveE` app case: `handle(computExpr)(thunk)` → lowered as just `computExpr` (cell default is already the handler)
+
+`effect-oneshot` now runs at **0.64 ms** (was SKIP(no-main)). 30/31 bench corpus programs have timing; `effect-multishot` remains SKIP (needs multi-shot delimited continuations, separate effort).
+
 ## 2026-07-03 — v2-bench-compat KV7: effect-pure + effect-stream + _sel_length — 31/31 bench programs on v2
 
 Added to `ssc1-lower.ssc0` + `ssc1-front.ssc0`:

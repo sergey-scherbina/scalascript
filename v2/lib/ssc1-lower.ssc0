@@ -522,6 +522,29 @@ def resolveE = (expr) =>
                     case Pair(obj, method) =>
                       resolveMethodCall(resolveE(obj), method, rargs)
                   }
+                else if #seq(ftag, "app") then
+                  -- detect handle(computExpr)(thunk) — strip the handler, lower just computExpr
+                  -- ssc0 does not support nested ctor patterns; use nested match
+                  let isHandleCall = match fdata {
+                    case Pair(innerFn, innerArgs) =>
+                      match innerFn {
+                        case Pair(iftag, ifdata) =>
+                          if #seq(iftag, "var") then #seq(ifdata, "handle") else false
+                      }
+                  } in
+                  if isHandleCall then
+                    match fdata {
+                      case Pair(innerFn, innerArgs) =>
+                        match innerArgs {
+                          case Cons(computExpr, innerArgRest) =>
+                            match innerArgRest {
+                              case Nil => resolveE(computExpr)
+                              case _ => Pair("app", Pair(resolveE(fn), rargs))
+                            }
+                          case _ => Pair("app", Pair(resolveE(fn), rargs))
+                        }
+                    }
+                  else Pair("app", Pair(resolveE(fn), rargs))
                 else Pair("app", Pair(resolveE(fn), rargs))
             }
         }
@@ -1718,8 +1741,21 @@ def selLengthDef =
         Nil),
         IrApp(IrLocal(0), Cons(IrLocal(1), Cons(IrLit(IrInt(0)), Nil))))))
 
+-- Effect handler cell: Bump_tick_cell holds current () => Int handler (default: () => 1)
+def bumpTickCellDef =
+  IrDef("Bump_tick_cell", IrPrim("cell.new", Cons(IrLam(0, IrLit(IrInt(1))), Nil)))
+
+-- Bump_tick() — calls the handler stored in Bump_tick_cell
+-- IrLam(0, IrApp(cell.get(Bump_tick_cell), []))
+def bumpTickDef =
+  IrDef("Bump_tick",
+    IrLam(0,
+      IrApp(IrPrim("cell.get", Cons(IrGlobal("Bump_tick_cell"), Nil)), Nil)))
+
 -- All injected KC6 helpers
 def kc6Defs =
+  Cons(bumpTickCellDef,
+  Cons(bumpTickDef,
   Cons(selMapDef,
   Cons(selForeachDef,
   Cons(selFilterDef,
@@ -1754,7 +1790,7 @@ def kc6Defs =
   Cons(runStreamDef,
   Cons(selRunToListDef,
   Cons(selLengthDef,
-  Nil))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>

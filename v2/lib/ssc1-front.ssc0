@@ -50,7 +50,8 @@ def isKwC = (s) =>
 def isKwD = (s) =>
   if #seq(s, "true") then true else if #seq(s, "false") then true
   else if #seq(s, "null") then true else if #seq(s, "this") then true
-  else if #seq(s, "type") then true else if #seq(s, "while") then true else false
+  else if #seq(s, "type") then true else if #seq(s, "while") then true
+  else if #seq(s, "effect") then true else false
 def isKw = (s) =>
   if isKwA(s) then true else if isKwB(s) then true
   else if isKwC(s) then true else isKwD(s)
@@ -229,6 +230,7 @@ def skipTypeAt = (depth, toks) =>
   else if #seq(k, ")") then toks
   else if #seq(k, ",") then toks
   else if #seq(k, "{") then toks
+  else if #seq(k, "}") then toks
   else skipTypeAt(depth, advance(toks))
 
 def skipType = (toks) => skipTypeAt(0, toks)
@@ -445,6 +447,11 @@ def parseBlock = (toks) =>
         if kindIs("=", prT(r)) then
           let r2 = parseExpr(advance(prT(r))) in
           go(prT(r2), Cons(Pair("idx_assign", Pair(prV(r), prV(r2))), acc))
+        -- handle(expr) { handler } — consume trailing { block } as thunk arg
+        else if kindIs("{", prT(r)) then
+          let rb = parseBlock(advance(prT(r))) in
+          let call = mkApp(prV(r), Cons(mkLam(Nil, prV(rb)), Nil)) in
+          go(prT(rb), Cons(Pair("expr", call), acc))
         else
           go(prT(r), Cons(Pair("expr", prV(r)), acc))
     else
@@ -745,10 +752,12 @@ def parseDef = (toks) =>
   let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
-  -- '='
-  let toks7 = skipKind("=", toks6) in
-  let re = parseExpr(toks7) in
-  pr(mkDef(name, allParams, prV(re)), prT(re))
+  -- '=' is optional: abstract defs (in traits/effects) have no body
+  if kindIs("=", toks6) then
+    let re = parseExpr(advance(toks6)) in
+    pr(mkDef(name, allParams, prV(re)), prT(re))
+  else
+    pr(mkDef(name, allParams, mkTup(Nil)), toks6)
 
 -- consumeBlockArg: if next token is '{', parse it as a 0-arg thunk and apply to expr
 def consumeBlockArg = (expr, toks) =>
@@ -992,6 +1001,11 @@ def parseOneStmt = (toks) =>
       else
         -- Anonymous given (starts with uppercase type) — skip
         pr(Pair("sealed", ""), skipToStmt(ts1))
+    else if #seq(v, "effect") then
+      -- Skip "effect E: { defs }" effect-type declaration (no runtime representation)
+      let ts1 = skipToBrace(advance(toks)) in
+      let ts2 = if kindIs("{", ts1) then skipBraceBlock(ts1) else ts1 in
+      pr(Pair("sealed", ""), ts2)
     else if #seq(v, "object") then
       -- KC7b: parse object body into ("object", (name, [stmts]))
       let ts1 = advance(toks) in
