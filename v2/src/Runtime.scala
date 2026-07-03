@@ -269,6 +269,34 @@ object FastCode:
               case IntV(x) => x; case _ => 0L
           case _ => 0L
       } }
+    // fieldAt with literal index — optimistic: field is an Int (DataV with Int fields)
+    case Prim("fieldAt", List(recv, Lit(Const.CInt(k)))) =>
+      tryFC(recv, globals).map { fcr => (env: Env) =>
+        fcr(env) match
+          case DataV(_, fields) => fields(k.toInt) match { case IntV(x) => x; case _ => 0L }
+          case _ => 0L
+      }
+    // App(Global(name), args) — run a known global function inline, coerce result to Long.
+    // ONLY in tryFLC so it applies when result is used as a numeric value (lcell.set / __arith__
+    // operands). NOT added to tryFC to avoid breaking JVM JIT for the harness loops.
+    // Handles: ClosV function calls (result coerced to Long) and DataV list indexed access.
+    case App(Global(name), args) =>
+      val argOpts = args.map(tryFC(_, globals))
+      if argOpts.forall(_.isDefined) then
+        val fca = argOpts.map(_.get).toArray
+        Some((env: Env) =>
+          val fn = globals.getOrElse(name, sys.error(s"FLC App: unbound global: $name"))
+          fn match
+            case c: ClosV =>
+              val argEnv = c.env ++ fca.map(f => f(env): Value)
+              Runtime.run(c.code, argEnv) match { case IntV(x) => x; case _ => 0L }
+            case DataV("Cons", _) | DataV("Nil", _) if fca.length == 1 =>
+              fca(0)(env) match
+                case IntV(i) => Prims.listAt(fn, i.toInt) match { case IntV(x) => x; case _ => 0L }
+                case _ => 0L
+            case _ => 0L
+        )
+      else None
     case Prim("i.add", List(a0, a1)) =>
       tryFLC(a0, globals).flatMap(f0 => tryFLC(a1, globals).map(f1 => env => f0(env) + f1(env)))
     case Prim("i.sub", List(a0, a1)) =>
@@ -1202,6 +1230,12 @@ object Prims:
     case DataV("Cons", Vector(h, t)) => h :: unlistPub(t)
     case DataV("Nil", _) => Nil
     case x => sys.error(s"expected a list, got ${Show.show(x)}")
+
+  // O(i) list indexed access without materializing the whole list; used by tryFLC App path.
+  def listAt(v: Value, i: Int): Value = v match
+    case DataV("Cons", Vector(h, _)) if i == 0 => h
+    case DataV("Cons", Vector(_, t))            => listAt(t, i - 1)
+    case _ => sys.error(s"list index out of bounds: $i")
 
   private def out(v: Value, ps: java.io.PrintStream): Unit = v match
     case StrV(s) => ps.print(s)
