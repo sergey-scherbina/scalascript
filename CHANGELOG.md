@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-kc13-ssc1-runner: end-to-end `.ssc` Markdown runner (KC13)
+
+`ssc1-run.ssc0`: imports `mira-md.ssc0` + `ssc1-lower.ssc0`; reads a real `.ssc` file,
+extracts all `scalascript` fence blocks, concatenates, parses and lowers to Core IR, emits.
+`${ident}` interpolation fixed in `ssc1-front.ssc0` (braces branch in `interpParts`).
+Removed duplicate `slen`/`sget`/`scat` wrappers from `mira-md.ssc0` (conflict on import).
+New: `v2/bin/ssc1-run.ssc0`, `v2/examples/kc13-hello.ssc`, `v2/ssc1` launcher.
+Also fixed 3 pre-existing conformance harness bugs (kc5-type-error, kc9-sideeffects, kc10-ifnoelse).
+
 ## 2026-07-03 — interp-poly-closed-form: degree-≤2 inline polynomial accumulation in O(1)
 
 `tryClosedFormPolyLoop` now handles inline polynomial addends in left-associative form
