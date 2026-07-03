@@ -1,6 +1,0 @@
-feature/v2-jvm-tco 2026-07-03T00:00:00Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-07-03T16:55:30Z
-status: in-progress
-done-so-far: worktree created
-next: implement @tailrec TCO detection + generation in JvmBackend.scala
