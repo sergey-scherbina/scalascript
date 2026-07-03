@@ -66,7 +66,10 @@ object Compiler:
   import Value.*, Term.*
 
   /** Compile a whole program; returns the entry Code (globals captured inside). */
-  def compile(p: Program): Code =
+  def compile(p: Program): Code = compileWithGlobals(p)._1
+
+  /** Compile a whole program; returns (entry Code, live globals map) for bench use. */
+  def compileWithGlobals(p: Program): (Code, collection.mutable.Map[String, Value]) =
     val globals = collection.mutable.HashMap[String, Value]()
     val c = new C(globals)
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
@@ -77,7 +80,7 @@ object Compiler:
     for d <- p.defs do d.body match
       case Lam(_, _) => ()
       case other => globals(d.name) = Runtime.run(c.compile(other), Array.empty[Value])
-    c.compile(p.entry)
+    (c.compile(p.entry), globals)
 
   final class C(globals: collection.mutable.Map[String, Value]):
     def compile(t: Term): Code = t match

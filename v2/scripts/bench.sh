@@ -6,8 +6,8 @@
 #   1. Extracts the scalascript block from the .ssc file
 #   2. Converts Scala 3 indentation to brace style (indent2braces.py)
 #   3. Adds a main() wrapper if none exists
-#   4. Compiles through ssc1c -> Core IR -> runs on v2 VM
-#   5. Times N=20 cold runs, reports median ms/op
+#   4. Compiles through ssc1c -> Core IR
+#   5. Runs bench-ir (in-process warmup + timed reps, no JVM cold-start overhead)
 #
 # Output: a markdown table comparable to bench/BASELINE.md
 
@@ -16,7 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 V2_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CORPUS_DIR="$(cd "$V2_DIR/../bench/corpus" && pwd)"
 INDENT_PY="$SCRIPT_DIR/indent2braces.py"
-REPS="${BENCH_REPS:-20}"
+WARMUP="${BENCH_WARMUP:-10}"
+REPS="${BENCH_REPS:-100}"
 PATTERN="${1:-}"
 
 # ── build JAR ────────────────────────────────────────────────────────────────
@@ -151,40 +152,22 @@ def main(): Unit = { val _ = workload(); () }"
     fi
   fi
 
-  # Compile test (check for unsupported features)
-  if ! echo "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin >/dev/null 2>/dev/null; then
+  # Compile to IR (also acts as the ssc1c compatibility check)
+  ir=$(echo "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null) || true
+  if [ -z "$ir" ]; then
     printf "| %-30s | %-8s |\n" "$prog" "SKIP(ssc1c)"
     continue
   fi
 
-  # Compile to IR
-  ir=$(echo "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null)
-
-  # Time run-ir N times
-  times=""
-  for _ in $(seq 1 "$REPS"); do
-    t=$(python3 -c "
-import subprocess, time, sys
-ir=open('/dev/stdin').read()
-jar=sys.argv[1]
-t0=time.perf_counter()
-subprocess.run(['java','-jar',jar,'run-ir','/dev/stdin'],input=ir.encode(),capture_output=True)
-print((time.perf_counter()-t0)*1000)
-" "$JAR" <<< "$ir")
-    times="$times$t
-"
-  done
-
-  med=$(echo "$times" | python3 -c "
-import sys
-nums = sorted(float(x) for x in sys.stdin if x.strip())
-n = len(nums)
-if n==0: print('N/A')
-elif n%2: print(f'{nums[n//2]:.2f}')
-else: print(f'{(nums[n//2-1]+nums[n//2])/2:.2f}')
-")
-  printf "| %-30s | %8s |\n" "$prog" "${med} ms"
+  # bench-ir: one JVM, in-process warmup + reps, prints median ms/op
+  # (|| med="" handles programs whose IR has no main/workload — set -e would abort otherwise)
+  med=$(echo "$ir" | java -jar "$JAR" bench-ir /dev/stdin --warmup "$WARMUP" --reps "$REPS" 2>/dev/null) || med=""
+  if [ -z "$med" ]; then
+    printf "| %-30s | %-8s |\n" "$prog" "SKIP(no-main)"
+  else
+    printf "| %-30s | %8s |\n" "$prog" "${med} ms"
+  fi
 done
 
 echo ""
-echo "Reps=$REPS, JAR=$JAR"
+echo "Warmup=$WARMUP Reps=$REPS, JAR=$JAR"
