@@ -1,0 +1,709 @@
+package ssc.backend.jvm
+
+// v2 JVM backend: Core IR (text S-expr) → self-contained Scala 3 source file.
+// The generated file, when compiled with `scalac` and run with `scala`, produces
+// the same output as `ssc run-ir` on the same Core IR program.
+//
+// Usage: java -jar <generator.jar> [<file.coreir>]
+//   If no file given, reads Core IR from stdin.
+//   Output: Scala 3 source to stdout.
+//
+// The generated file is self-contained: it embeds the runtime preamble and the
+// compiled user code in a single @main function.
+
+// ── Core IR AST (copied from v2/src/CoreIR.scala) ────────────────────────────
+
+enum Const:
+  case CUnit
+  case CBool(b: Boolean)
+  case CInt(n: Long)
+  case CBig(n: BigInt)
+  case CFloat(d: Double)
+  case CStr(s: String)
+  case CBytes(b: Vector[Byte])
+
+enum Term:
+  case Lit(c: Const)
+  case Local(i: Int)
+  case Global(name: String)
+  case Lam(arity: Int, body: Term)
+  case App(fn: Term, args: List[Term])
+  case Let(rhs: List[Term], body: Term)
+  case LetRec(lams: List[Term], body: Term)
+  case If(c: Term, t: Term, e: Term)
+  case Ctor(tag: String, fields: List[Term])
+  case Match(scrut: Term, arms: List[Arm], default: Option[Term])
+  case Prim(op: String, args: List[Term])
+  case While(cond: Term, body: Term)
+  case Seq(terms: List[Term])
+
+case class Arm(tag: String, arity: Int, body: Term)
+case class Def(name: String, body: Term)
+case class Program(defs: List[Def], entry: Term)
+
+// ── S-expression reader (same as CoreIR.scala) ───────────────────────────────
+
+enum Sx:
+  case Atom(s: String)
+  case Str(s: String)
+  case Lst(xs: List[Sx])
+
+object Reader:
+  def parseProgram(src: String): Program = toProgram(parseOne(src))
+
+  def parseOne(src: String): Sx =
+    val p = new P(src)
+    p.skipWs(); val sx = p.sexpr(); p.skipWs()
+    sx
+
+  final class P(val s: String):
+    var pos = 0
+    def atEnd = pos >= s.length
+    def peek = s.charAt(pos)
+    def isDelim(c: Char) = c.isWhitespace || c == '(' || c == ')' || c == ';' || c == '"'
+    def skipWs(): Unit =
+      var go = true
+      while go do
+        if atEnd then go = false
+        else if peek == ';' then while !atEnd && peek != '\n' do pos += 1
+        else if peek.isWhitespace then pos += 1
+        else go = false
+    def sexpr(): Sx =
+      skipWs()
+      if atEnd then sys.error("unexpected EOF")
+      peek match
+        case '(' =>
+          pos += 1
+          val buf = collection.mutable.ListBuffer[Sx]()
+          var go = true
+          while go do
+            skipWs()
+            if atEnd then sys.error("unterminated list")
+            else if peek == ')' then { pos += 1; go = false }
+            else buf += sexpr()
+          Sx.Lst(buf.toList)
+        case ')' => sys.error(s"unexpected ')' at offset $pos")
+        case '"' => Sx.Str(readString())
+        case _   => Sx.Atom(readAtom())
+    def readAtom(): String =
+      val start = pos
+      while !atEnd && !isDelim(peek) do pos += 1
+      s.substring(start, pos)
+    def readString(): String =
+      pos += 1
+      val sb = new StringBuilder
+      var go = true
+      while go do
+        if atEnd then sys.error("unterminated string")
+        val c = peek; pos += 1
+        if c == '"' then go = false
+        else if c == '\\' then
+          val e = peek; pos += 1
+          e match
+            case '"'  => sb += '"'
+            case '\\' => sb += '\\'
+            case 'n'  => sb += '\n'
+            case 'r'  => sb += '\r'
+            case 't'  => sb += '\t'
+            case 'u'  =>
+              sb += Integer.parseInt(s.substring(pos, pos + 4), 16).toChar; pos += 4
+            case o => sys.error(s"bad escape \\$o")
+        else sb += c
+      sb.toString
+
+  def toProgram(sx: Sx): Program = sx match
+    case Sx.Lst(Sx.Atom("program") :: d :: e :: Nil) =>
+      val defs = d match
+        case Sx.Lst(Sx.Atom("defs") :: ds) => ds.map(toDef)
+        case _ => sys.error("expected (defs ...)")
+      val entry = e match
+        case Sx.Lst(Sx.Atom("entry") :: t :: Nil) => toTerm(t)
+        case _ => sys.error("expected (entry <term>)")
+      Program(defs, entry)
+    case _ => sys.error("expected (program <defs> <entry>)")
+
+  def toDef(sx: Sx): Def = sx match
+    case Sx.Lst(Sx.Atom("def") :: Sx.Atom(n) :: b :: Nil) => Def(n, toTerm(b))
+    case _ => sys.error(s"bad def: $sx")
+
+  def toArm(sx: Sx): Arm = sx match
+    case Sx.Lst(Sx.Atom("arm") :: Sx.Atom(t) :: Sx.Atom(a) :: b :: Nil) =>
+      Arm(t, a.toInt, toTerm(b))
+    case _ => sys.error(s"bad arm: $sx")
+
+  def toTerm(sx: Sx): Term = sx match
+    case Sx.Lst(Sx.Atom(h) :: rest) => h match
+      case "lit"    => Term.Lit(toConst(rest))
+      case "local"  => rest match
+        case Sx.Atom(i) :: Nil => Term.Local(i.toInt)
+        case _ => sys.error("bad local")
+      case "global" => rest match
+        case Sx.Atom(n) :: Nil => Term.Global(n)
+        case _ => sys.error("bad global")
+      case "lam"    => rest match
+        case Sx.Atom(a) :: b :: Nil => Term.Lam(a.toInt, toTerm(b))
+        case _ => sys.error("bad lam")
+      case "app"    => rest match
+        case fn :: as => Term.App(toTerm(fn), as.map(toTerm))
+        case _ => sys.error("bad app")
+      case "let"    => rest match
+        case Sx.Lst(r) :: b :: Nil => Term.Let(r.map(toTerm), toTerm(b))
+        case _ => sys.error("bad let")
+      case "letrec" => rest match
+        case Sx.Lst(l) :: b :: Nil => Term.LetRec(l.map(toTerm), toTerm(b))
+        case _ => sys.error("bad letrec")
+      case "if"     => rest match
+        case c :: t :: e :: Nil => Term.If(toTerm(c), toTerm(t), toTerm(e))
+        case _ => sys.error("bad if")
+      case "ctor"   => rest match
+        case Sx.Atom(t) :: fs => Term.Ctor(t, fs.map(toTerm))
+        case _ => sys.error("bad ctor")
+      case "prim"   => rest match
+        case Sx.Atom(o) :: as => Term.Prim(o, as.map(toTerm))
+        case _ => sys.error("bad prim")
+      case "while"  => rest match
+        case c :: b :: Nil => Term.While(toTerm(c), toTerm(b))
+        case _ => sys.error("bad while")
+      case "seq"    => Term.Seq(rest.map(toTerm))
+      case "match"  => rest match
+        case s :: Sx.Lst(arms) :: tail =>
+          val default = tail match
+            case Nil => None
+            case Sx.Lst(Sx.Atom("default") :: d :: Nil) :: Nil => Some(toTerm(d))
+            case _ => sys.error("bad match default")
+          Term.Match(toTerm(s), arms.map(toArm), default)
+        case _ => sys.error("bad match")
+      case other => sys.error(s"unknown term head: ($other ...)")
+    case other => sys.error(s"not a term: $other")
+
+  def toConst(rest: List[Sx]): Const = rest match
+    case Sx.Atom("unit")  :: Nil => Const.CUnit
+    case Sx.Atom("true")  :: Nil => Const.CBool(true)
+    case Sx.Atom("false") :: Nil => Const.CBool(false)
+    case Sx.Lst(Sx.Atom("int")   :: Sx.Atom(n) :: Nil) :: Nil => Const.CInt(n.toLong)
+    case Sx.Lst(Sx.Atom("big")   :: Sx.Atom(n) :: Nil) :: Nil => Const.CBig(BigInt(n))
+    case Sx.Lst(Sx.Atom("float") :: Sx.Atom(x) :: Nil) :: Nil => Const.CFloat(parseFloat(x))
+    case Sx.Lst(Sx.Atom("str")   :: Sx.Str(s)  :: Nil) :: Nil => Const.CStr(s)
+    case Sx.Lst(Sx.Atom("bytes") :: Sx.Atom(h) :: Nil) :: Nil =>
+      Const.CBytes(h.grouped(2).map(p => Integer.parseInt(p, 16).toByte).toVector)
+    case Sx.Lst(Sx.Atom("bytes") :: Nil) :: Nil => Const.CBytes(Vector.empty)
+    case _ => sys.error(s"bad const: $rest")
+
+  def parseFloat(x: String): Double = x match
+    case "nan"  => Double.NaN
+    case "inf"  => Double.PositiveInfinity
+    case "-inf" => Double.NegativeInfinity
+    case _      => x.toDouble
+
+// ── Code generator ────────────────────────────────────────────────────────────
+
+object CodeGen:
+  import Term.*
+
+  // Mutable counter for fresh variable names (thread-local to the generator invocation).
+  private var counter = 0
+  private def fresh(): Int = { val n = counter; counter += 1; n }
+
+  // Sanitize a Def name to a valid Scala identifier.
+  private def safeName(s: String): String =
+    s.replace(".", "_").replace("-", "_").replace("@", "_at_").replace("?", "_q_")
+     .replace("!", "_bang_").replace("'", "_p_")
+
+  // ── Runtime preamble embedded in every generated file ────────────────────────
+  private val preamble: String = """
+import scala.collection.mutable
+
+type V = Any
+type Fn = Array[V] => V
+
+// ADT helper: (tag, fields) tuple
+private def _mkAdt(tag: String, fields: Array[V]): V = (tag, fields)
+private def _adtTag(v: V): String   = v.asInstanceOf[(String, Array[V])]._1
+private def _adtFields(v: V): Array[V] = v.asInstanceOf[(String, Array[V])]._2
+private def _adtField(v: V, i: Int): V = v.asInstanceOf[(String, Array[V])]._2(i)
+
+// Closure call helpers
+private def _call(fn: V, args: Array[V]): V = fn.asInstanceOf[Fn](args)
+private def _call0(fn: V): V = fn.asInstanceOf[Fn](Array.empty)
+private def _call1(fn: V, a: V): V = fn.asInstanceOf[Fn](Array(a))
+private def _call2(fn: V, a: V, b: V): V = fn.asInstanceOf[Fn](Array(a, b))
+private def _call3(fn: V, a: V, b: V, c: V): V = fn.asInstanceOf[Fn](Array(a, b, c))
+
+// Show: convert a Value to a string (for display, not serialization)
+private def _show(v: V): String = v match
+  case ()         => "()"
+  case b: Boolean => b.toString
+  case n: Long    => n.toString
+  case d: Double  => _showDouble(d)
+  case s: String  => s
+  case bi: BigInt => bi.toString
+  case (tag: String, fields: Array[V]) =>
+    if fields.isEmpty then tag else s"$tag(${fields.map(_show).mkString(", ")})"
+  case v: Vector[?] => v.asInstanceOf[Vector[Byte]].map(b => f"${b & 0xff}%02x").mkString("#", "", "")
+  case _: Function1[?, ?] => "<closure>"
+  case _ => v.toString
+
+private def _showDouble(d: Double): String =
+  if d.isNaN then "NaN"
+  else if d == Double.PositiveInfinity then "Infinity"
+  else if d == Double.NegativeInfinity then "-Infinity"
+  else d.toString
+
+// ADT list helpers (Cons/Nil encoding used by many primitives)
+private val _None: V = ("None", Array.empty[V])
+private def _Some(v: V): V = ("Some", Array[V](v))
+private def _Nil: V = ("Nil", Array.empty[V])
+private def _Cons(h: V, t: V): V = ("Cons", Array[V](h, t))
+private def _strList(xs: Seq[String]): V = xs.foldRight(_Nil)((s, acc) => _Cons(s, acc))
+private def _valList(vs: Seq[V]): V = vs.foldRight(_Nil)((v, acc) => _Cons(v, acc))
+private def _unlist(v: V): List[V] =
+  var cur = v; val buf = scala.collection.mutable.ListBuffer[V]()
+  while cur.asInstanceOf[(String, Array[V])]._1 == "Cons" do
+    val f = cur.asInstanceOf[(String, Array[V])]._2
+    buf += f(0); cur = f(1)
+  buf.toList
+
+// Runtime object: all primitives
+object R:
+  private def _asLong(v: V): Long = v match
+    case n: Long   => n
+    case b: Byte   => b.toLong
+    case x => throw new RuntimeException(s"expected Long, got $x")
+  private def _asDouble(v: V): Double = v match
+    case d: Double => d
+    case n: Long   => n.toDouble
+    case x => throw new RuntimeException(s"expected Double, got $x")
+  private def _asStr(v: V): String = v match
+    case s: String => s
+    case x => throw new RuntimeException(s"expected String, got $x")
+  private def _asBool(v: V): Boolean = v match
+    case b: Boolean => b
+    case x => throw new RuntimeException(s"expected Boolean, got $x")
+  private def _asBig(v: V): BigInt = v match
+    case n: BigInt => n
+    case n: Long   => BigInt(n)
+    case x => throw new RuntimeException(s"expected BigInt, got $x")
+  private def _asBytes(v: V): Vector[Byte] = v.asInstanceOf[Vector[Byte]]
+  private def _asMap(v: V) = v.asInstanceOf[mutable.HashMap[V, V]]
+  private def _asArr(v: V) = v.asInstanceOf[mutable.ArrayBuffer[V]]
+  private def _asCell(v: V) = v.asInstanceOf[Array[V]]
+  private def _asLCell(v: V) = v.asInstanceOf[Array[Long]]
+
+  private def _numBinI(a: V, b: V, fi: (Long,Long) => Long, ff: (Double,Double) => Double): V =
+    (a, b) match
+      case (x: Long, y: Long)     => fi(x, y)
+      case (x: Double, y: Double) => ff(x, y)
+      case (x: Double, y: Long)   => ff(x, y.toDouble)
+      case (x: Long, y: Double)   => ff(x.toDouble, y)
+      case _ => fi(_asLong(a), _asLong(b))
+
+  private def _numCmpI(a: V, b: V, fi: (Long,Long) => Boolean, ff: (Double,Double) => Boolean): V =
+    (a, b) match
+      case (x: Long, y: Long)     => fi(x, y)
+      case (x: Double, y: Double) => ff(x, y)
+      case (x: Double, y: Long)   => ff(x, y.toDouble)
+      case (x: Long, y: Double)   => ff(x.toDouble, y)
+      case _ => fi(_asLong(a), _asLong(b))
+
+  private def _out(v: V, ps: java.io.PrintStream): Unit = v match
+    case s: String => ps.print(s)
+    case _ => ps.print(_show(v))
+
+  // argv set before v2main is called (set via R.argv = args)
+  var argv: List[String] = Nil
+
+  def prim1(op: String, a0: V): V = op match
+    case "i.neg"    => -_asLong(a0)
+    case "i.not"    => ~_asLong(a0)
+    case "not"      => !_asBool(a0)
+    case "slen"     => _asStr(a0).length.toLong
+    case "str.trim" => _asStr(a0).trim
+    case "str.lines"=> val s = _asStr(a0); val parts = s.split("\n", -1)
+                       parts.foldRight(_Nil)((x, acc) => _Cons(x, acc))
+    case "str->utf8"=> _asStr(a0).getBytes("UTF-8").toVector
+    case "utf8->str"=> new String(_asBytes(a0).toArray, "UTF-8")
+    case "i->f"     => _asLong(a0).toDouble
+    case "f->i"     => _asDouble(a0).toLong
+    case "i->big"   => BigInt(_asLong(a0))
+    case "big->i"   => _asBig(a0).toLong
+    case "i->str"   => _asLong(a0).toString
+    case "f->str"   => _showDouble(_asDouble(a0))
+    case "big->str" => _asBig(a0).toString
+    case "f.sqrt"   => math.sqrt(_asDouble(a0))
+    case "f.floor"  => math.floor(_asDouble(a0))
+    case "f.ceil"   => math.ceil(_asDouble(a0))
+    case "f.round"  => math.rint(_asDouble(a0))
+    case "f.trunc"  => _asDouble(a0).toLong.toDouble
+    case "f.neg"    => -_asDouble(a0)
+    case "f.isNaN"  => _asDouble(a0).isNaN
+    case "f.isInf"  => _asDouble(a0).isInfinite
+    case "tagOf"    => _adtTag(a0)
+    case "arity"    => _adtFields(a0).length.toLong
+    case "blen"     => _asBytes(a0).length.toLong
+    case "cell.new" => Array[V](a0)
+    case "cell.get" => _asCell(a0)(0)
+    case "lcell.new"=> Array[Long](_asLong(a0))
+    case "lcell.get"=> _asLCell(a0)(0)
+    case "arr.new"  => mutable.ArrayBuffer[V]()
+    case "arr.len"  => _asArr(a0).length.toLong
+    case "arr.pop"  => val buf = _asArr(a0); buf.remove(buf.length - 1)
+    case "map.new"  => mutable.HashMap[V, V]()
+    case "map.size" => _asMap(a0).size.toLong
+    case "map.keys" => _valList(_asMap(a0).keys.toSeq)
+    case "io.args"  => _strList(argv)
+    case "io.print" => _out(a0, Console.out); ()
+    case "io.println"=> _out(a0, Console.out); Console.out.println(); ()
+    case "io.eprint"=> _out(a0, Console.err); ()
+    case "big->f"   => _asBig(a0).toDouble
+    case "str->i"   => _asStr(a0).toLongOption.map(_Some(_)).getOrElse(_None)
+    case "str->big" => scala.util.Try(BigInt(_asStr(a0))).toOption.map(_Some(_)).getOrElse(_None)
+    case "str->f"   => _asStr(a0).toDoubleOption.map(_Some(_)).getOrElse(_None)
+    case "big.neg"  => -_asBig(a0)
+    case _ => throw new RuntimeException(s"unknown prim1: $op")
+
+  def prim2(op: String, a0: V, a1: V): V = op match
+    case "i.add"    => _numBinI(a0, a1, _ + _, _ + _)
+    case "i.sub"    => _numBinI(a0, a1, _ - _, _ - _)
+    case "i.mul"    => _numBinI(a0, a1, _ * _, _ * _)
+    case "i.div"    => _asLong(a0) / _asLong(a1)
+    case "i.mod"    => _asLong(a0) % _asLong(a1)
+    case "i.and"    => _asLong(a0) & _asLong(a1)
+    case "i.or"     => _asLong(a0) | _asLong(a1)
+    case "i.xor"    => _asLong(a0) ^ _asLong(a1)
+    case "i.shl"    => _asLong(a0) << _asLong(a1)
+    case "i.shr"    => _asLong(a0) >> _asLong(a1)
+    case "i.ushr"   => _asLong(a0) >>> _asLong(a1)
+    case "i.eq"     => _numCmpI(a0, a1, _ == _, _ == _)
+    case "i.lt"     => _numCmpI(a0, a1, _ < _,  _ < _)
+    case "i.le"     => _numCmpI(a0, a1, _ <= _, _ <= _)
+    case "i.gt"     => _numCmpI(a0, a1, _ > _,  _ > _)
+    case "i.ge"     => _numCmpI(a0, a1, _ >= _, _ >= _)
+    case "f.add"    => _asDouble(a0) + _asDouble(a1)
+    case "f.sub"    => _asDouble(a0) - _asDouble(a1)
+    case "f.mul"    => _asDouble(a0) * _asDouble(a1)
+    case "f.div"    => _asDouble(a0) / _asDouble(a1)
+    case "f.eq"     => _asDouble(a0) == _asDouble(a1)
+    case "f.lt"     => _asDouble(a0) <  _asDouble(a1)
+    case "f.le"     => _asDouble(a0) <= _asDouble(a1)
+    case "f.gt"     => _asDouble(a0) >  _asDouble(a1)
+    case "f.ge"     => _asDouble(a0) >= _asDouble(a1)
+    case "sconcat"  => (a0, a1) match
+                         case (s1: String, s2: String) => s1 + s2
+                         case ((t1: String, f1: Array[V]), (t2: String, f2: Array[V])) =>
+                           val n = f1.length + f2.length; (s"Tuple$n", (f1 ++ f2).asInstanceOf[Array[V]])
+                         case _ => _asStr(a0) + _asStr(a1)
+    case "seq"      => _asStr(a0) == _asStr(a1)
+    case "scmp"     => _asStr(a0).compareTo(_asStr(a1)).toLong
+    case "sindexOf" => _asStr(a0).indexOf(_asStr(a1)).toLong
+    case "sslice"   => _asStr(a0).substring(_asLong(a1).toInt)  // fallback: no end
+    case "scodeAt"  => _asStr(a0).charAt(_asLong(a1).toInt).toLong
+    case "str.split"=> val parts = _asStr(a0).split(java.util.regex.Pattern.quote(_asStr(a1)), -1)
+                       parts.foldRight(_Nil)((s, acc) => _Cons(s, acc))
+    case "bconcat"  => _asBytes(a0) ++ _asBytes(a1)
+    case "bget"     => (_asBytes(a0)(_asLong(a1).toInt) & 0xff).toLong
+    case "fieldAt"  => _adtField(a0, _asLong(a1).toInt)
+    case "cell.set" => _asCell(a0)(0) = a1; ()
+    case "lcell.set"=> _asLCell(a0)(0) = _asLong(a1); ()
+    case "arr.get"  => _asArr(a0)(_asLong(a1).toInt)
+    case "arr.push" => _asArr(a0) += a1; ()
+    case "map.get"  => _asMap(a0).get(a1).map(_Some(_)).getOrElse(_None)
+    case "map.has"  => _asMap(a0).contains(a1)
+    case "map.del"  => _asMap(a0).remove(a1); ()
+    case "big.add"  => _asBig(a0) + _asBig(a1)
+    case "big.sub"  => _asBig(a0) - _asBig(a1)
+    case "big.mul"  => _asBig(a0) * _asBig(a1)
+    case "big.div"  => _asBig(a0) / _asBig(a1)
+    case "big.mod"  => _asBig(a0) % _asBig(a1)
+    case "big.eq"   => _asBig(a0) == _asBig(a1)
+    case "big.lt"   => _asBig(a0) <  _asBig(a1)
+    case "big.le"   => _asBig(a0) <= _asBig(a1)
+    case "big.gt"   => _asBig(a0) >  _asBig(a1)
+    case "big.ge"   => _asBig(a0) >= _asBig(a1)
+    case "io.writeFile" => java.nio.file.Files.write(java.nio.file.Path.of(_asStr(a0)), _asBytes(a1).toArray); ()
+    case "io.env"   => sys.env.get(_asStr(a0)).map(_Some(_)).getOrElse(_None)
+    case "io.readFile" => java.nio.file.Files.readAllBytes(java.nio.file.Path.of(_asStr(a0))).toVector
+    case _ => throw new RuntimeException(s"unknown prim2: $op")
+
+  def prim3(op: String, a0: V, a1: V, a2: V): V = op match
+    case "sslice"   => _asStr(a0).substring(_asLong(a1).toInt, _asLong(a2).toInt)
+    case "map.put"  => _asMap(a0).update(a1, a2); ()
+    case "arr.set"  => _asArr(a0)(_asLong(a1).toInt) = a2; ()
+    case "bslice"   => _asBytes(a0).slice(_asLong(a1).toInt, _asLong(a2).toInt)
+    case _ => throw new RuntimeException(s"unknown prim3: $op")
+
+  def primN(op: String, args: Array[V]): V = op match
+    case "io.args"  => _strList(argv)
+    case "map.new"  => mutable.HashMap[V, V]()
+    case "arr.new"  => mutable.ArrayBuffer[V]()
+    case "sfromCodes" => String(_unlist(args(0)).map(v => _asLong(v).toChar).toArray)
+    case "io.exit"  => sys.exit(args(0).asInstanceOf[Long].toInt); ()
+    case _ => if args.length == 1 then prim1(op, args(0))
+              else if args.length == 2 then prim2(op, args(0), args(1))
+              else if args.length == 3 then prim3(op, args(0), args(1), args(2))
+              else throw new RuntimeException(s"unknown primN[$${args.length}]: $op")
+"""
+
+  // ── Code generator: Term → Scala 3 expression string ─────────────────────────
+
+  // scope(i) = name for Local(i); scope.head = Local(0) = innermost binder
+  def genTerm(t: Term, scope: List[String]): String =
+    import Term.*
+    t match
+      case Lit(c)       => genConst(c)
+      case Local(i)     =>
+        if i < scope.length then scope(i)
+        else sys.error(s"local($i) out of scope (depth=${scope.length})")
+      case Global(name) => safeName(name)
+      case Lam(n, body) =>
+        val d = fresh()
+        // params: p0_d = first arg, p{n-1}_d = last arg = Local(0)
+        val params = (0 until n).map(k => s"p${k}_$d")
+        // scope for body: [p{n-1}_d, ..., p0_d] ++ outer scope
+        val bodyScope = params.reverse.toList ++ scope
+        if n == 0 then
+          // 0-arity: thunk
+          val body_s = genTerm(body, scope)
+          s"((_a$d: Array[V]) => { val _unused$d = _a$d; $body_s }): V"
+        else
+          val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$d($k)" }.mkString("; ")
+          val body_s = genTerm(body, bodyScope)
+          s"((_a$d: Array[V]) => { $paramBinds; $body_s }): V"
+
+      case App(fn, args) =>
+        val fn_s = genTerm(fn, scope)
+        val args_s = args.map(a => genTerm(a, scope)).mkString(", ")
+        val n = args.length
+        if n == 0 then s"_call0($fn_s)"
+        else if n == 1 then s"_call1($fn_s, $args_s)"
+        else if n == 2 then s"_call2($fn_s, $args_s)"
+        else if n == 3 then s"_call3($fn_s, $args_s)"
+        else s"_call($fn_s, Array($args_s))"
+
+      case Let(rhs, body) =>
+        val d = fresh()
+        val n = rhs.length
+        // Bind each rhs sequentially; each can see previous bindings
+        // l0_d = first binding = local(n-1) in body; l{n-1}_d = last = local(0)
+        val parts = new StringBuilder
+        var curScope = scope
+        val lnames = (0 until n).map { k =>
+          val name = s"l${k}_$d"
+          val rhs_s = genTerm(rhs(k), curScope)
+          parts.append(s"val $name: V = $rhs_s; ")
+          curScope = name :: curScope  // each new binding becomes Local(0) for subsequent
+          name
+        }
+        // body scope: [l{n-1}_d, ..., l0_d] ++ outer (lnames.reverse = [l{n-1}, ..., l0])
+        val bodyScope = lnames.reverse.toList ++ scope
+        val body_s = genTerm(body, bodyScope)
+        s"{ ${parts.toString}$body_s }"
+
+      case LetRec(lams, body) =>
+        val d = fresh()
+        val n = lams.length
+        val rnames = (0 until n).map(k => s"r${k}_$d").toList
+        // letrec scope for body: [r{n-1}_d, ..., r0_d] ++ outer
+        val letrecScope = rnames.reverse ++ scope
+        // For each lam body: params (innermost) ++ letrec vars ++ outer
+        val sb = new StringBuilder
+        // Declare all var bindings
+        rnames.foreach { rn => sb.append(s"var $rn: V = null.asInstanceOf[V]; ") }
+        // Assign each lam
+        lams.zip(rnames).foreach { case (lam, rn) =>
+          lam match
+            case Lam(lamArity, lamBody) =>
+              val ld = fresh()
+              val params = (0 until lamArity).map(k => s"p${k}_$ld")
+              // lam body scope: params (innermost) ++ letrec vars ++ outer
+              val lamBodyScope = params.reverse.toList ++ letrecScope
+              if lamArity == 0 then
+                val body_s = genTerm(lamBody, letrecScope)
+                sb.append(s"$rn = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V; ")
+              else
+                val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
+                val body_s = genTerm(lamBody, lamBodyScope)
+                sb.append(s"$rn = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V; ")
+            case _ => sys.error(s"letrec binding must be a Lam, got: $lam")
+        }
+        val body_s = genTerm(body, letrecScope)
+        s"{ ${sb.toString}$body_s }"
+
+      case If(c, th, el) =>
+        val c_s  = genTerm(c,  scope)
+        val th_s = genTerm(th, scope)
+        val el_s = genTerm(el, scope)
+        s"(if ($c_s).asInstanceOf[Boolean] then $th_s else $el_s)"
+
+      case Ctor(tag, fields) =>
+        if fields.isEmpty then
+          s"""("$tag", Array.empty[V])"""
+        else
+          val fields_s = fields.map(f => genTerm(f, scope)).mkString(", ")
+          s"""("$tag", Array[V]($fields_s))"""
+
+      case Match(scrut, arms, default) =>
+        val d = fresh()
+        val scrut_s = genTerm(scrut, scope)
+        val sb = new StringBuilder
+        sb.append(s"{ val _sv$d: V = $scrut_s; ")
+        sb.append(s"val _st$d: String = _adtTag(_sv$d); val _sf$d: Array[V] = _adtFields(_sv$d); ")
+        sb.append("(")
+        val conditions = arms.zipWithIndex.map { case (arm, armIdx) =>
+          val ld = fresh()
+          val armN = arm.arity
+          // field vars: f0_ld = fields(0), f1_ld = fields(1), ...
+          // arm body scope: [f{n-1}_ld, ..., f0_ld] ++ outer
+          val fnames = (0 until armN).map(k => s"f${k}_$ld")
+          val armBodyScope = fnames.reverse.toList ++ scope
+          val fieldBinds = fnames.zipWithIndex.map { case (fn, k) =>
+            s"val $fn: V = _sf$d($k)"
+          }.mkString("; ")
+          val body_s = genTerm(arm.body, armBodyScope)
+          val guard = if armN > 0 then s""" && _sf$d.length == $armN""" else s""" && _sf$d.length == 0"""
+          s"""if (_st$d == "${arm.tag}"$guard) { $fieldBinds; $body_s }"""
+        }
+        sb.append(conditions.mkString("\nelse "))
+        default match
+          case Some(d_term) =>
+            val def_s = genTerm(d_term, scope)
+            sb.append(s"\nelse { $def_s }")
+          case None =>
+            sb.append(s"""\nelse throw new RuntimeException("match: no arm for " + _st$d)""")
+        sb.append(") }")
+        sb.toString
+
+      case Prim(op, args) =>
+        val n = args.length
+        val args_s = args.map(a => genTerm(a, scope)).mkString(", ")
+        if n == 0 then s"""R.primN("$op", Array.empty[V])"""
+        else if n == 1 then s"""R.prim1("$op", $args_s)"""
+        else if n == 2 then s"""R.prim2("$op", $args_s)"""
+        else if n == 3 then s"""R.prim3("$op", $args_s)"""
+        else s"""R.primN("$op", Array[V]($args_s))"""
+
+      case While(cond, body) =>
+        val c_s = genTerm(cond, scope)
+        val b_s = genTerm(body, scope)
+        s"{ while (($c_s).asInstanceOf[Boolean]) do { $b_s; () }; () }"
+
+      case Seq(terms) =>
+        if terms.isEmpty then "()"
+        else
+          val parts = terms.map(t => genTerm(t, scope))
+          s"{ ${parts.init.map(s => s"$s; ()").mkString("; ")}; ${parts.last} }"
+
+  def genConst(c: Const): String = c match
+    case Const.CUnit      => "()"
+    case Const.CBool(b)   => b.toString
+    case Const.CInt(n)    => s"(${n}L: V)"
+    case Const.CBig(n)    => s"""BigInt("$n"): V"""
+    case Const.CFloat(d)  =>
+      if d.isNaN then "(Double.NaN: V)"
+      else if d == Double.PositiveInfinity then "(Double.PositiveInfinity: V)"
+      else if d == Double.NegativeInfinity then "(Double.NegativeInfinity: V)"
+      else s"(${d}d: V)"
+    case Const.CStr(s)    => s""""${escapeStr(s)}": V"""
+    case Const.CBytes(bs) =>
+      if bs.isEmpty then "(Vector.empty[Byte]: V)"
+      else s"Vector[Byte](${bs.map(b => s"${b & 0xff}.toByte").mkString(", ")}): V"
+
+  def escapeStr(s: String): String =
+    val sb = new StringBuilder
+    s.foreach {
+      case '"'  => sb ++= "\\\""
+      case '\\' => sb ++= "\\\\"
+      case '\n' => sb ++= "\\n"
+      case '\r' => sb ++= "\\r"
+      case '\t' => sb ++= "\\t"
+      case c if c.isControl => sb ++= f"\\u${c.toInt}%04x"
+      case c    => sb += c
+    }
+    sb.toString
+
+  // Collect all Global names referenced in a term (for stub generation).
+  private def collectGlobals(t: Term): Set[String] =
+    import Term.*
+    t match
+      case Global(n)        => Set(n)
+      case Lit(_) | Local(_) => Set.empty
+      case Lam(_, b)        => collectGlobals(b)
+      case App(fn, args)    => args.foldLeft(collectGlobals(fn))(_ | collectGlobals(_))
+      case Let(rhs, b)      => rhs.foldLeft(collectGlobals(b))(_ | collectGlobals(_))
+      case LetRec(ls, b)    => ls.foldLeft(collectGlobals(b))(_ | collectGlobals(_))
+      case If(c, th, el)    => collectGlobals(c) | collectGlobals(th) | collectGlobals(el)
+      case Ctor(_, fs)      => fs.foldLeft(Set.empty[String])(_ | collectGlobals(_))
+      case Match(s, arms, d)=>
+        val base = collectGlobals(s) | d.fold(Set.empty[String])(collectGlobals)
+        arms.foldLeft(base)((acc, arm) => acc | collectGlobals(arm.body))
+      case Prim(_, args)    => args.foldLeft(Set.empty[String])(_ | collectGlobals(_))
+      case While(c, b)      => collectGlobals(c) | collectGlobals(b)
+      case Seq(ts)          => ts.foldLeft(Set.empty[String])(_ | collectGlobals(_))
+
+  // Generate the full Scala 3 source file for a Program.
+  def generate(p: Program): String =
+    counter = 0  // reset per invocation
+    val sb = new StringBuilder
+    sb.append("// v2 JVM backend — generated Scala 3 source\n")
+    sb.append(preamble)
+    sb.append("\n@main def v2main(): Unit =\n")
+
+    // Pass 1: lambda defs (generate before value defs, same as VM two-pass)
+    val lamDefs = p.defs.filter { d => d.body match { case Term.Lam(_, _) => true; case _ => false } }
+    val valDefs = p.defs.filter { d => d.body match { case Term.Lam(_, _) => false; case _ => true } }
+
+    // All lambda defs: generate as lazy vals holding closures
+    // Bodies reference globals by name, which will be defined in this same scope.
+    // Scala closures capture by reference (ObjectRef), so forward refs are OK as long as
+    // all vals are set before any closure is called.
+    if lamDefs.nonEmpty || valDefs.nonEmpty then
+      // Emit all global vals
+      for d <- lamDefs do
+        val sname = safeName(d.name)
+        d.body match
+          case Term.Lam(n, body) =>
+            val ld = fresh()
+            val params = (0 until n).map(k => s"p${k}_$ld")
+            // Top-level lam bodies have empty outer scope (globals accessed by name)
+            val bodyScope = params.reverse.toList
+            if n == 0 then
+              val body_s = genTerm(body, List.empty)
+              sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V\n")
+            else
+              val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
+              val body_s = genTerm(body, bodyScope)
+              sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V\n")
+          case _ => () // shouldn't happen
+
+      for d <- valDefs do
+        val sname = safeName(d.name)
+        val body_s = genTerm(d.body, List.empty)
+        sb.append(s"  lazy val $sname: V = $body_s\n")
+
+    // Generate stubs for Global names referenced but not defined (e.g. _err from type errors)
+    val definedNames = p.defs.map(d => safeName(d.name)).toSet
+    val allRefs = p.defs.foldLeft(collectGlobals(p.entry)) { (acc, d) => acc | collectGlobals(d.body) }
+    val undefinedRefs = allRefs.map(safeName).diff(definedNames)
+    for name <- undefinedRefs.toSeq.sorted do
+      sb.append(s"""  lazy val $name: V = throw new RuntimeException("unbound global: $name")\n""")
+
+    // Entry: compute and print result if non-Unit (same as VM's `out` function).
+    // Use Console.out.println directly to avoid shadowing by user-defined `println` global.
+    val entry_s = genTerm(p.entry, List.empty)
+    sb.append(s"  val _entry: V = $entry_s\n")
+    sb.append("  if !_entry.isInstanceOf[Unit] then Console.out.println(_show(_entry))\n")
+    sb.toString
+
+// ── Main entry point ──────────────────────────────────────────────────────────
+
+@main def JvmBackend(args: String*): Unit =
+  val src = args.toList match
+    case Nil | List("-") =>
+      io.Source.fromInputStream(System.in)(using io.Codec.UTF8).mkString
+    case List(file) =>
+      io.Source.fromFile(file)(using io.Codec.UTF8).mkString
+    case _ =>
+      Console.err.println("usage: JvmBackend [<file.coreir>]  (reads stdin if no file)")
+      sys.exit(1)
+  val prog = Reader.parseProgram(src)
+  val code = CodeGen.generate(prog)
+  println(code)
