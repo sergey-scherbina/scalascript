@@ -28,11 +28,13 @@ Three phases — execute in order, each phase gated by the previous:
       registers wrapped handlers with `V2PluginRegistry`. 22 tests green. Non-bridgeable: `InlineCode`,
       `RuntimeCall` (compile-time only), `BlockForm` effect runners (deferred). Spec original description
       (shift/reset SPI) is a later phase; this bridges the existing NativeImpl surface first.
-- [x] **Phase 2c: v2 JVM backend** — DONE 2026-07-03. `v2/backend/jvm/JvmBackend.scala` (712 lines):
-      reads Core IR (S-expression text), emits a self-contained Scala 3 source file. When compiled
-      with `scalac` and run with `java`, produces byte-identical output to `ssc run-ir`. 28/29 pass
-      (conformance + all 23 v2 examples); only `tco.coreir` (1M tail calls, no trampolining) is
-      out of scope by design. Preamble handles all Core IR constructs + full prim set.
+- [x] **Phase 2c: v2 JVM backend** — DONE 2026-07-03; TCO fixed 2026-07-03.
+      `v2/backend/jvm/JvmBackend.scala`: reads Core IR (S-expression text), emits a self-contained
+      Scala 3 source file. When compiled with `scalac` and run with `java`, produces byte-identical
+      output to `ssc run-ir`. 29/29 pass (all conformance + all 23 v2 examples incl. `tco.coreir`
+      — 1M tail calls complete without stack overflow via `@tailrec def`). Preamble handles all
+      Core IR constructs + full prim set. TCO: global self-tail-recursive defs → `@tailrec def`;
+      single-lam LetRec self-tail-calls → `@tailrec def`; mutual LetRec → closure vars (no trampoline).
 - [x] **Phase 2c: v2 JS backend** — DONE 2026-07-03. `v2/backend/js/JsBackend.scala`:
       reads Core IR S-expr, emits a self-contained .js file. Trampoline TCO ($tco/$c),
       full prim set, ADTs as {t,f}, cells as arrays, maps as wrappers. All 5 conformance

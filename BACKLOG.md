@@ -171,6 +171,8 @@ last — after everything else.**
 > publication, browser/device harnesses, hardware, or a concrete demand signal), not an unclaimed
 > "just build it" queue.
 
+- [ ] **v2-jvm-tco-manual** — hand-rolled `while`-loop trampoline instead of `@tailrec` / `TailCalls` (lower overhead for very hot mutual-recursive functions in the v2 JVM backend).
+
 ## Architecture Review follow-ups (2026-06-14)
 
 Whole-project architecture survey (231 sbt modules, ~145K LOC main Scala). The project is

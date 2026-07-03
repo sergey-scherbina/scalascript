@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-03 — v2-jvm-tco: TCO for v2 JVM backend (@tailrec)
+
+`v2/backend/jvm/JvmBackend.scala`: added tail-call elimination for self-recursive global `Def`s
+and single-lam `LetRec`s. Detection via `selfCallTailPositions` — all self-calls must be in tail
+position (conservative: only adds `@tailrec` when guaranteed safe). Emits `@tailrec def <name>_direct`
++ a `lazy val <name>` closure wrapper so callers can still pass the function as a value. `tco.coreir`
+(1M tail calls, sum 1..1_000_000 = 500000500000) now passes without stack overflow.
+All 29 conformance tests pass (fact, letrec, map, thunk, tco). Backlog: `v2-jvm-tco-manual`.
+
+---
+
 ## 2026-07-03 — v2-backend-js: Phase 2c — Core IR → JavaScript code generator
 
 `v2/backend/js/JsBackend.scala` (scala-cli runnable): reads Core IR (S-expression text),
