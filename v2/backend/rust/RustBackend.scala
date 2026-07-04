@@ -447,6 +447,12 @@ ${pad}    }));\n"""
     val a = args.map(x => genExpr(x, ctx, indent))
     def a0 = a(0); def a1 = a(1); def a2 = a(2)
     op match
+      // __arith__ with literal op string (FrontendBridge-generated): dispatch to v_arith runtime helper
+      case "__arith__" => s"v_arith(${a0}, ${a1}, ${a2})"
+      // __unary__ with literal op string (FrontendBridge-generated): dispatch to v_unary
+      case "__unary__" => s"v_unary(${a0}, ${a1})"
+      // __method__: dispatch to v_method runtime helper
+      case "__method__" => s"v_method(${a0}, ${a1})"
       // Integer arithmetic
       case "i.add"  => s"v_iadd($a0, $a1)"
       case "i.sub"  => s"v_isub($a0, $a1)"
@@ -748,6 +754,67 @@ fn call_fn(f: V, args: Vec<V>) -> V {
     match f {
         V::Fn(func) => func(args),
         other => panic!("call_fn: not a function: {:?}", other),
+    }
+}
+
+// ── __arith__ / __method__ dispatchers (FrontendBridge IR) ───────────────────
+
+fn v_unary(op: V, a: V) -> V {
+    let op_s: &str = match &op { V::Str(s) => s.as_str(), _ => panic!("v_unary: op must be Str") };
+    match op_s {
+        "-" | "unary_-" => match a { V::Int(n) => V::Int(-n), V::Float(f) => V::Float(-f), v => panic!("v_unary(-): expected numeric, got {:?}", v) },
+        "!" | "unary_!" => V::Bool(!as_bool(a)),
+        "~"             => V::Int(!as_int(a)),
+        _               => panic!("v_unary: unknown op '{}'", op_s),
+    }
+}
+
+fn v_arith(op: V, a: V, b: V) -> V {
+    let op_s: &str = match &op { V::Str(s) => s.as_str(), _ => panic!("v_arith: op must be Str") };
+    match op_s {
+        "+"  => v_iadd(a, b),
+        "-"  => v_isub(a, b),
+        "*"  => v_imul(a, b),
+        "/"  => v_idiv(a, b),
+        "%"  => v_imod(a, b),
+        "==" => v_ieq(a, b),
+        "!=" => V::Bool(!as_bool(v_ieq(a, b))),
+        "<"  => v_ilt(a, b),
+        "<=" => v_ile(a, b),
+        ">"  => v_igt(a, b),
+        ">=" => v_ige(a, b),
+        "++" => v_sconcat(a, b),
+        "&&" => V::Bool(as_bool(a) && as_bool(b)),
+        "||" => V::Bool(as_bool(a) || as_bool(b)),
+        "&"  => V::Int(as_int(a) & as_int(b)),
+        "|"  => V::Int(as_int(a) | as_int(b)),
+        "^"  => V::Int(as_int(a) ^ as_int(b)),
+        "<<" => V::Int(as_int(a) << as_int(b)),
+        ">>" => V::Int(as_int(a) >> as_int(b)),
+        ">>>"=> V::Int(((as_int(a) as u64) >> (as_int(b) as u64)) as i64),
+        _    => panic!("v_arith: unknown op '{}'", op_s),
+    }
+}
+
+fn v_method(name: V, recv: V) -> V {
+    let m: &str = match &name { V::Str(s) => s.as_str(), _ => panic!("v_method: name must be Str") };
+    match m {
+        "toInt"    => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, V::Str(s) => s.parse::<i64>().unwrap_or(0), _ => 0 }),
+        "toLong"   => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, _ => 0 }),
+        "toFloat"  => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64, V::Str(s) => s.parse::<f64>().unwrap_or(0.0), _ => 0.0 }),
+        "toDouble" => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64, _ => 0.0 }),
+        "toChar"   => V::Str(match recv { V::Int(n) => char::from_u32(n as u32).map(|c| c.to_string()).unwrap_or_default(), _ => String::new() }),
+        "toString" => V::Str(show(&recv)),
+        "length"   => V::Int(match &recv { V::Str(s) => s.len() as i64, _ => 0 }),
+        "size"     => V::Int(match &recv { V::Str(s) => s.len() as i64, V::Data(_, fs) => fs.len() as i64, _ => 0 }),
+        "isEmpty"  => V::Bool(match &recv { V::Str(s) => s.is_empty(), V::Data(t, _) => t == "Nil", _ => false }),
+        "nonEmpty" => V::Bool(match &recv { V::Str(s) => !s.is_empty(), V::Data(t, _) => t != "Nil", _ => true }),
+        "abs"      => match recv { V::Int(n) => V::Int(n.abs()), V::Float(f) => V::Float(f.abs()), v => v },
+        "negate"   => match recv { V::Int(n) => V::Int(-n), V::Float(f) => V::Float(-f), v => v },
+        "not"      => V::Bool(!as_bool(recv)),
+        "unary_-"  => match recv { V::Int(n) => V::Int(-n), V::Float(f) => V::Float(-f), v => v },
+        "unary_!"  => V::Bool(!as_bool(recv)),
+        _          => panic!("v_method: unknown method '{}'", m),
     }
 }
 
