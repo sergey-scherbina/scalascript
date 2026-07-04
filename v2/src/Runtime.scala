@@ -99,16 +99,6 @@ object Compiler:
         globals(d.name) = closV
         closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global
       case _ => ()
-    // pass 1b: retry fcEntry for mutually-recursive defs (tryFC blocked App; now all globals present).
-    // selfName blocks self-recursive calls so TCO functions keep using the trampoline (no stack overflow).
-    // App-FCs capture ClosV directly, so sibling fcEntry updates are visible at runtime without recompile.
-    for d <- p.defs do d.body match
-      case Lam(ar, b) =>
-        globals(d.name) match
-          case closV: ClosV if closV.fcEntry.isEmpty =>
-            FastCode.tryFCMutual(b, globals, d.name).foreach(fc => closV.fcEntry = Some(fc))
-          case _ => ()
-      case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
       case Lam(_, _) => ()
