@@ -76,11 +76,15 @@ object Runtime:
     System.arraycopy(vals, 0, r, base.length, vals.length)
     r
 
-  def appendOne(base: Env, v: Value): Env =
-    val r = new Array[Value](base.length + 1)
-    System.arraycopy(base, 0, r, 0, base.length)
-    r(base.length) = v
-    r
+  def appendOne(base: Env, v: Value): Env = base.length match
+    // Explicit writes for small sizes: avoids System.arraycopy, enabling JVM escape analysis
+    // to stack-allocate the result when it doesn't outlive the call (e.g. match-arm extEnv).
+    case 0 => Array(v)
+    case 1 => Array(base(0), v)
+    case 2 => Array(base(0), base(1), v)
+    case 3 => Array(base(0), base(1), base(2), v)
+    case 4 => Array(base(0), base(1), base(2), base(3), v)
+    case n => val r = new Array[Value](n + 1); System.arraycopy(base, 0, r, 0, n); r(n) = v; r
 
 object Compiler:
   import Value.*, Term.*
@@ -265,16 +269,20 @@ object Compiler:
         // Try FastCode path: prefer FLC-based long-set for arithmetic, then general FC
         val fastOpts = terms.map(t => FastCode.tryFCLongSet(t, globals).orElse(FastCode.tryFC(t, globals)))
         if fastOpts.forall(_.isDefined) then
-          val fcs = fastOpts.map(_.get)
+          // Use Array + while instead of for-over-List: avoids ObjectRef alloc for the
+          // `var last` capture that Scala generates when a mutable var escapes into a foreach lambda.
+          val fcsArr = fastOpts.map(_.get).toArray
+          val nFcs   = fcsArr.length
           (env: Env) =>
-            var last: Value = Value.UnitV
-            for fc <- fcs do last = fc(env)
+            var k = 0; var last: Value = Value.UnitV
+            while k < nFcs do { last = fcsArr(k)(env); k += 1 }
             Done(last)
         else
-          val tcs = terms.map(compile)
+          val tcsArr = terms.map(compile).toArray
+          val nTcs   = tcsArr.length
           (env: Env) =>
-            var last: Value = Value.UnitV
-            for tc <- tcs do last = Runtime.value(tc, env)           // same env for all, no appendOne
+            var k = 0; var last: Value = Value.UnitV
+            while k < nTcs do { last = Runtime.value(tcsArr(k), env); k += 1 }
             Done(last)
       case Prim(op, args) =>
         // Fast paths for 1/2/3-arg primitives: avoid List[Value] allocation for args
@@ -343,6 +351,17 @@ object FastCode:
       var i = 0; var last: Value = Value.UnitV
       while i < n do { last = fcs(i)(env); i += 1 }
       last
+
+  /** True if t (a match arm body) only references Local(k) for k < arity.
+   *  When true, the arm can be called with a compact env of length = arity,
+   *  avoiding the appendOne/extend that would prepend the base (scrutinee) env. */
+  private def armBodyCompact(t: Term, arity: Int): Boolean = t match
+    case Local(k)       => k < arity
+    case Lit(_) | Global(_) => true
+    case Prim(_, args)  => args.forall(armBodyCompact(_, arity))
+    case Seq(terms)     => terms.forall(armBodyCompact(_, arity))
+    case If(c, th, el)  => armBodyCompact(c, arity) && armBodyCompact(th, arity) && armBodyCompact(el, arity)
+    case _              => false  // conservative: complex terms may reference outer locals
 
   /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
@@ -482,7 +501,13 @@ object FastCode:
     case Local(i) =>
       val n = i; Some(env => env(env.length - 1 - n))
     case Global(g) =>
-      Some(_ => globals.getOrElse(g, sys.error(s"unbound global: $g")))
+      // If the global is already set at compile time (def, val, or previously evaluated top-level term),
+      // capture it directly as a constant — avoids a HashMap lookup per call in hot paths like
+      // `shapes.foreach(...)` where `shapes` is a top-level val (100k HashMap.get → 0).
+      val gn = g
+      globals.get(gn) match
+        case Some(v) => Some(_ => v)
+        case None    => Some(_ => globals.getOrElse(gn, sys.error(s"unbound global: $gn")))
     // lcell.get: return IntV(c.v) but for FC callers who need a Value
     case Prim("lcell.get", List(Local(i))) =>
       val n = i; Some((env: Env) => IntV(env(env.length - 1 - n).asInstanceOf[LongCellV].v))
@@ -714,21 +739,40 @@ object FastCode:
         val armFCOpts = arms.map(arm => tryFCValue(arm.body, globals).map(fcBody => (arm.tag, arm.arity, fcBody)))
         val defFCOpt  = default.map(d => tryFCValue(d, globals))
         if armFCOpts.forall(_.isDefined) && (default.isEmpty || defFCOpt.exists(_.isDefined)) then
-          val armFCs = armFCOpts.map(_.get)
-          val armMap = armFCs.map { case (tag, ar, fcBody) => tag -> (ar, fcBody) }.toMap
-          val defFC  = defFCOpt.flatten
+          val armFCs  = armFCOpts.map(_.get)
+          // Linear scan over Array is faster than HashMap for small (≤~8) arm counts:
+          // avoids hash-compute + modulo + collision checks (~15ns saved per dispatch).
+          val armTags    = armFCs.map(_._1).toArray
+          val armArs     = armFCs.map(_._2).toArray
+          val armBods    = armFCs.map(_._3).toArray
+          val nArms      = armTags.length
+          val defFC      = defFCOpt.flatten
+          // For arms whose body only uses Local(0)..Local(arity-1) (pattern fields only, no outer
+          // env vars), we can call armBod with a compact env of length = arity instead of
+          // appendOne(baseEnv, field).  The JVM's escape-analysis can then stack-allocate the
+          // compact env (a small fresh Array that doesn't outlive the armBod call).
+          val armCompact = arms.zip(armFCOpts.map(_.get)).map { case (arm, (_, ar, _)) =>
+            armBodyCompact(arm.body, ar)
+          }.toArray
           Some((env: Env) =>
             fcScrut(env) match
               case DataV(tag, fs) =>
-                armMap.get(tag) match
-                  case Some((ar, fcBody)) =>
-                    val extEnv = ar match
+                var k = 0; while k < nArms && armTags(k) != tag do k += 1
+                if k < nArms then
+                  val ar = armArs(k)
+                  val extEnv =
+                    if armCompact(k) then ar match
+                      case 0 => Runtime.emptyEnv
+                      case 1 => Array(fs(0))
+                      case 2 => Array(fs(0), fs(1))
+                      case _ => fs.toArray
+                    else ar match
                       case 0 => env
                       case 1 => Runtime.appendOne(env, fs(0))
                       case 2 => Runtime.extend(env, Array(fs(0), fs(1)))
                       case _ => Runtime.extend(env, fs.toArray)
-                    fcBody(extEnv)
-                  case None => defFC.map(_(env)).getOrElse(Value.UnitV)
+                  armBods(k)(extEnv)
+                else defFC.map(_(env)).getOrElse(Value.UnitV)
               case _ => defFC.map(_(env)).getOrElse(Value.UnitV)
           )
         else None
