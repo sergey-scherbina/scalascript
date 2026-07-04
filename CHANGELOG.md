@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — T5.1: bool-predicate + mutual-recursion pass on all 3 v2 backends
+
+Root cause: Rust backend eagerly evaluated `prim __math_obj__` (prelude `def math = ...`)
+at startup → `panic!()` before any user code ran. Fix: emit a lazy stub closure for
+`__math_obj__` in RustBackend.scala. JVM and JS backends already worked.
+All 3 backends (JVM/JS/Rust) now run both bench programs without error.
+
 ## 2026-07-04 — T2.3: Actors spike — VirtualThread-per-actor works under v2
 
 `examples/actors-pingpong.ssc` runs fully under v2: spawn/receive/self/exit/runActors

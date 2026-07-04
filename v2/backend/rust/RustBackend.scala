@@ -561,6 +561,8 @@ ${pad}    }));\n"""
       case "io.exit"     => s"{ std::process::exit(as_int($a0) as i32); }"
       // coreir.encode: not needed at runtime, stub
       case "coreir.encode" => s"""V::Str("[coreir.encode not supported in Rust backend]".to_string())"""
+      // __math_obj__: lazy stub — accessed as g_math but only used if math.xxx is called
+      case "__math_obj__" => """V::Fn(Rc::new(move |_args: Vec<V>| { panic!("math object not supported in Rust backend"); }))"""
       // runLogger (effects infra)
       case "runLogger"   => s"call_fn($a0, vec![])"
       case unknown =>

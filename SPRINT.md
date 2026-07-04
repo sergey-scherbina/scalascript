@@ -203,9 +203,11 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Gate: v2 conformance score ≥ v1.
 
 **Track 5 — ssc1c fixes**
-- [ ] **T5.1: @count/@sum bug** — ssc1c emits `@`-prefixed globals for `var` cells instead of
-      `lcell.new` bindings. Fix in `v2/lib/ssc1-lower.ssc0`.
-      Gate: `bool-predicate` and `mutual-recursion` bench programs pass on all 3 backends.
+- [x] **T5.1: @count/@sum bug** — DONE 2026-07-04. Root cause was NOT @-prefixed globals in
+      ssc1-lower.ssc0 (those use proper lcell.new). Actual failure: Rust backend eagerly evaluated
+      `prim __math_obj__` at startup (in `def math = prim __math_obj__` prelude) → `panic!`.
+      Fix: Rust backend emits a lazy stub closure for `__math_obj__` instead of an eager panic.
+      Gate: bool-predicate and mutual-recursion pass on all 3 backends (JVM/JS/Rust). ✓
 
 ### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)
 Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + golden transcripts.
