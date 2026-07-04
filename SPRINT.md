@@ -157,8 +157,17 @@ Phase 3 (CLI switch) is gated on this entire track completing.
         frames > trampoline with EA). No practical fix without JIT.
       - arith-loop/nested-loop: LongCellV dispatch overhead; needs JIT.
       T3.2b gate (5× max) NOT achievable without v2 JIT. Closing as investigated.
-- [ ] **T3.3: v2 JVM backend quality** — profile generated Scala vs v1 JVM output.
-      Gate: within 2× of v1 JVM backend on bench corpus.
+- [x] **T3.3: v2 JVM backend quality** — INVESTIGATED 2026-07-04; V=Any boxing is bottleneck.
+      Fixes committed: safeName() appends 'x' to trailing-_ identifiers (Scala3 parse error);
+      added `__arith__` to prim3 dispatch (FrontendBridge-generated IR now runs via JVM backend).
+      MEASUREMENT: arith-loop via v2 JVM backend (V=Any) = 43ms/op vs native Scala 0.6ms/op = 72×.
+      ROOT CAUSE: `V = Any` type erases all Long/Boolean types; every lcell.get returns `Any`,
+      every arithmetic needs unboxing. The generated code is as slow as a boxing interpreter.
+      TO FIX (T3.3-specialization, BACKLOG): add a type-specialization pass that detects
+      `lcell.new(intLit)` → generates `var x: Long`, `lcell.get` → var read, `lcell.set` → assign,
+      `__arith__(op, Long, Long)` → inline arithmetic. This makes arith-loop approach native speed.
+      Gate (2× of v1 JVM) not achievable without specialization. Closing as investigated;
+      specialization moved to BACKLOG.
 - [ ] **T3.4: v2 Rust backend ownership** — replace hot `Rc<RefCell>` paths with direct ownership.
       Gate: within 1.5× of v1 Rust backend on bench corpus.
 

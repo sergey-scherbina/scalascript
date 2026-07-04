@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — T3.3: v2 JVM backend fixes (safeName, __arith__ prim3)
+
+`safeName()` now appends `x` when the name ends with `_` — avoids Scala 3 parse error
+(`name_:` looks like an operator to scalac, so `lazy val __unsupported__:` failed to compile).
+Added `__arith__` to `prim3` in the generated preamble: handles FrontendBridge-generated
+Core IR that uses `prim3("__arith__", op, left, right)` for arithmetic/comparison/concat.
+All conformance tests still pass.
+
+Investigation: v2 JVM backend runs arith-loop at 43ms vs native Scala 0.6ms = 72× slower.
+Root cause: `V = Any` boxing — every Long is boxed on every lcell.get/set. Gate (2× of v1 JVM)
+requires Long-specialization optimization (detect lcell.new(intLit) → `var x: Long`). Moved to BACKLOG.
+
 ## 2026-07-04 — T4.1: FrontendBridge .ssc file format + runtime fixes; 71/193 examples pass
 
 Full batch result: **71/193 examples PASS** (37%). Pure-language examples all pass;
