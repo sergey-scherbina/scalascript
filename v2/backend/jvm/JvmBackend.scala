@@ -206,8 +206,10 @@ object CodeGen:
 
   // Sanitize a Def name to a valid Scala identifier.
   private def safeName(s: String): String =
-    s.replace(".", "_").replace("-", "_").replace("@", "_at_").replace("?", "_q_")
-     .replace("!", "_bang_").replace("'", "_p_")
+    val base = s.replace(".", "_").replace("-", "_").replace("@", "_at_").replace("?", "_q_")
+                .replace("!", "_bang_").replace("'", "_p_")
+    // In Scala 3, `name_:` is parsed as if `:` is an operator — add a trailing digit to avoid.
+    if base.endsWith("_") then base + "x" else base
 
   // ── Runtime preamble embedded in every generated file ────────────────────────
   private val preamble: String = """
@@ -424,7 +426,41 @@ object R:
     case "io.readFile" => java.nio.file.Files.readAllBytes(java.nio.file.Path.of(_asStr(a0))).toVector
     case _ => throw new RuntimeException(s"unknown prim2: $op")
 
+  // Bridge-generated arithmetic: prim3("__arith__", op, left, right)
+  private def _arith(op: V, l: V, r: V): V = (l, r) match
+    case (x: Long, y: Long) => (op: @unchecked) match
+      case "+"   => x + y;   case "-"   => x - y;   case "*"   => x * y
+      case "/"   => x / y;   case "%"   => x % y
+      case "=="  => x == y;  case "!="  => x != y
+      case "<"   => x < y;   case "<="  => x <= y;  case ">"   => x > y;  case ">="  => x >= y
+      case "&"   => x & y;   case "|"   => x | y;   case "^"   => x ^ y
+      case "<<"  => x << y.toInt; case ">>" => x >> y.toInt; case ">>>" => x >>> y.toInt
+      case "++"  => x.toString + y.toString
+      case s => throw new RuntimeException(s"__arith__ Int×Int unknown op: $s")
+    case (x: Double, y: Double) => (op: @unchecked) match
+      case "+"  => x + y;  case "-" => x - y;  case "*" => x * y;  case "/" => x / y; case "%" => x % y
+      case "==" => x == y; case "!=" => x != y; case "<" => x < y; case "<=" => x <= y; case ">" => x > y; case ">=" => x >= y
+      case "++" => x.toString + y.toString
+      case s => throw new RuntimeException(s"__arith__ Double×Double unknown op: $s")
+    case (x: Long, y: Double) => (op: @unchecked) match
+      case "+"  => x + y;  case "-" => x - y;  case "*" => x * y;  case "/" => x / y; case "%" => x % y
+      case "==" => x == y; case "!=" => x != y; case "<" => x < y; case "<=" => x <= y; case ">" => x > y; case ">=" => x >= y
+      case s => throw new RuntimeException(s"__arith__ Long×Double unknown op: $s")
+    case (x: Double, y: Long) => (op: @unchecked) match
+      case "+"  => x + y;  case "-" => x - y;  case "*" => x * y;  case "/" => x / y; case "%" => x % y
+      case "==" => x == y; case "!=" => x != y; case "<" => x < y; case "<=" => x <= y; case ">" => x > y; case ">=" => x >= y
+      case s => throw new RuntimeException(s"__arith__ Double×Long unknown op: $s")
+    case (x: String, y: String) => (op: @unchecked) match
+      case "++" | "+" => x + y
+      case "==" => x == y; case "!=" => x != y; case "<" => x < y; case "<=" => x <= y; case ">" => x > y; case ">=" => x >= y
+      case s => throw new RuntimeException(s"__arith__ Str×Str unknown op: $s")
+    case _ =>
+      val opS = op.asInstanceOf[String]
+      if opS == "++" || opS == "+" then _show(l) + _show(r)
+      else throw new RuntimeException(s"__arith__ $opS: unsupported types ${l.getClass.getSimpleName}×${r.getClass.getSimpleName}")
+
   def prim3(op: String, a0: V, a1: V, a2: V): V = op match
+    case "__arith__" => _arith(a0, a1, a2)
     case "sslice"   => _asStr(a0).substring(_asLong(a1).toInt, _asLong(a2).toInt)
     case "map.put"  => _asMap(a0).update(a1, a2); ()
     case "arr.set"  => _asArr(a0)(_asLong(a1).toInt) = a2; ()
