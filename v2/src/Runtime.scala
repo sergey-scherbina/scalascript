@@ -838,6 +838,14 @@ object FastCode:
       val bodyC = Compiler.C(globals).compile(body)
       val ar = arity
       Some((env: Env) => ClosV(env, ar, bodyC))
+    // While as an FC term: used when a while loop appears inside a Seq, Let body, or foreach.
+    // Both condition and body must be FC-able (otherwise fall back to compile path).
+    case While(cond, body) =>
+      tryFBc(cond, globals).flatMap { fbc =>
+        tryFC(body, globals).map { fb =>
+          (env: Env) => { while fbc(env) do fb(env); Value.UnitV }
+        }
+      }
     case _ => None
 
   /** tryFC with App(Global) support, for computing fcEntry of mutually-recursive functions.
@@ -851,11 +859,32 @@ object FastCode:
         val argOpts = args.map(a => tryFCMutual(a, globals, selfName))
         if argOpts.forall(_.isDefined) then
           val fca = argOpts.map(_.get).toArray
-          Some((env: Env) =>
-            val argEnv = fca.map(f => f(env): Value)
-            closV.fcEntry match
-              case Some(bodyFC) => bodyFC(argEnv)
-              case None => Runtime.run(closV.code, argEnv)
+          // Carrier optimisation: for a single Long-typed arg, preallocate a LongCellV +
+          // Array[Value](1) at compile time and reuse across all recursive calls.
+          // Safe for tail-recursive mutual calls: each level reads carrier.v BEFORE the
+          // recursive call overwrites it, so there is no aliasing hazard.
+          // tryFLC(args(0)) gives the unboxed Long computation; carrier replaces IntV alloc.
+          val carrierOpt: Option[FC] =
+            if fca.length == 1 then
+              tryFLC(args(0), globals).map { flc0 =>
+                val carrier      = new LongCellV(0L)
+                val sharedArgEnv = new Array[Value](1); sharedArgEnv(0) = carrier
+                (env: Env) =>
+                  carrier.v = flc0(env)
+                  closV.fcEntry match
+                    case Some(bodyFC) => bodyFC(sharedArgEnv)
+                    case None =>
+                      val fresh = new Array[Value](1); fresh(0) = IntV(carrier.v)
+                      Runtime.run(closV.code, fresh)
+              }
+            else None
+          carrierOpt.orElse(
+            Some((env: Env) =>
+              val argEnv = fca.map(f => f(env): Value)
+              closV.fcEntry match
+                case Some(bodyFC) => bodyFC(argEnv)
+                case None => Runtime.run(closV.code, argEnv)
+            )
           )
         else None
       }.flatten
