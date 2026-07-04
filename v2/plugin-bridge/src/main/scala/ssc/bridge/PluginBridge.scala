@@ -35,11 +35,18 @@ object PluginBridge:
           val op = qn.toString
           impl match
             case NativeImpl(eval) =>
-              V2PluginRegistry.register(op, args => {
-                val v1Args: List[Any] = args.map(v2ToV1)
-                val v1Result: Any = eval(MinimalCtx, v1Args)
-                v1ToV2(v1Result)
-              })
+              val nativeFn: List[V2Value] => V2Value = args => {
+                val rawArgs: List[Any] = args.map(v2ToRaw)
+                val rawResult: Any = eval(MinimalCtx, rawArgs)
+                rawToV2(rawResult)
+              }
+              // Register as prim (for Prim(op, args) IR nodes)
+              V2PluginRegistry.register(op, args => nativeFn(args))
+              // Register as global (for App(Global(name), args) IR nodes)
+              // env holds all args passed positionally; convert env to arg list.
+              V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+                Done(nativeFn(env.toList))
+              }))
               count += 1
             case _ => // InlineCode / RuntimeCall: compile-time only, skip
         }
@@ -58,11 +65,12 @@ object PluginBridge:
       val op = qn.toString
       impl match
         case NativeImpl(eval) =>
-          V2PluginRegistry.register(op, args => {
-            val v1Args: List[Any] = args.map(v2ToV1)
-            val v1Result: Any = eval(MinimalCtx, v1Args)
-            v1ToV2(v1Result)
-          })
+          val nativeFn: List[V2Value] => V2Value = args => {
+            val rawArgs: List[Any] = args.map(v2ToRaw)
+            rawToV2(eval(MinimalCtx, rawArgs))
+          }
+          V2PluginRegistry.register(op, args => nativeFn(args))
+          V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, 1, env => Done(nativeFn(env.toList))))
           count += 1
         case _ => // compile-time variants; not bridgeable
     }
@@ -218,6 +226,37 @@ object PluginBridge:
       V2Value.DataV(s"Tuple${elems.length}", elems.map(spiToV2).toVector)
     case SpiValue.Opaque(v: V2Value) => v
     case SpiValue.Opaque(v)          => V2Value.ForeignV(v.asInstanceOf[AnyRef])
+
+  // ── v2 ↔ raw-Any for NativeImpl (mirrors Interpreter.unwrapValueAsAny) ────────
+
+  /** Convert v2 value to the raw-Any type that NativeImpl.eval expects.
+   *  Scalars become JVM primitives; complex values become v1 Values (for
+   *  plugins that pattern-match on v1 InstanceV / ListV / etc.). */
+  private def v2ToRaw(v: V2Value): Any = v match
+    case V2Value.StrV(s)   => s
+    case V2Value.IntV(n)   => n
+    case V2Value.FloatV(d) => d
+    case V2Value.BoolV(b)  => b
+    case V2Value.UnitV     => ()
+    case _                 => v2ToV1(v)  // complex → v1Value
+
+  /** Convert the raw-Any returned by NativeImpl.eval back to a v2 value.
+   *  Mirrors Interpreter.wrapAnyAsValue + the v1→v2 path. */
+  private def rawToV2(a: Any): V2Value = a match
+    case s: String  => V2Value.StrV(s)
+    case n: Long    => V2Value.IntV(n)
+    case i: Int     => V2Value.IntV(i.toLong)
+    case d: Double  => V2Value.FloatV(d)
+    case f: Float   => V2Value.FloatV(f.toDouble)
+    case b: Boolean => V2Value.BoolV(b)
+    case ()         => V2Value.UnitV
+    case v1: V1Value => v1ToV2(v1)
+    case lst: scala.collection.immutable.List[?] =>
+      lst.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (x, acc) =>
+        V2Value.DataV("Cons", Vector(rawToV2(x.asInstanceOf[Any]), acc))
+      }
+    case null       => V2Value.DataV("None", Vector.empty)
+    case other      => V2Value.ForeignV(other.asInstanceOf[AnyRef])
 
   // ── Value translation: v2 Value → v1 Value ─────────────────────────────
 

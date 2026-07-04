@@ -81,8 +81,12 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Seq → added Lam(0) thunk wrap for statement blocks (lambdas detected by
       `Block(List(Function|AnonFn))` heuristic); (3) `__arith__` unknown-op catch-all for
       `effect Logger:` declaration prims. Gate: runLogger+runLoggerToList+runState all correct.
-- [ ] **T2.2: HTTP/SQL intrinsics** — verify end-to-end: HTTP GET + SQL query through v2
-      runtime (T1.3 must be complete). Gate: a real HTTP fetch returns correct response.
+- [x] **T2.2: HTTP/SQL intrinsics** — DONE 2026-07-04. httpPlugin+sqlPlugin added to
+      v2PluginBridge deps; NativeImpl registration now also registers as v2 global ClosV
+      (env-as-arglist) so App(Global(name), args) resolves correctly. Fixed raw-arg
+      conversion: NativeImpl expects unwrapped primitives (String/Long/Boolean) not v1 Value
+      objects — added v2ToRaw/rawToV2 helpers (mirrors Interpreter.unwrapValueAsAny).
+      Gate: `httpGet("https://httpbin.org/get")` returns HTTP 200 Response with JSON body.
 - [ ] **T2.3: Actors (spike)** — investigate Java VirtualThread-per-actor model.
       Gate: actor ping-pong program works under v2.
 

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — T2.2: HTTP/SQL intrinsics work under v2 (httpGet → HTTP 200)
+
+Added httpPlugin+sqlPlugin to v2PluginBridge classpath. NativeImpl intrinsics now
+also register as v2 global ClosV in addition to prim handlers (needed because
+FrontendBridge emits `App(Global("httpGet"), args)`, not `Prim("httpGet", args)`).
+Fixed raw-arg mismatch: NativeImpl expects unwrapped primitives (String/Long/Boolean)
+not v1 DataValue objects; `v2ToRaw`/`rawToV2` helpers mirror `Interpreter.unwrapValueAsAny`.
+
 ## 2026-07-04 — T2.1: v2 BlockForm effects (Logger/State/Random/Clock/Env/Retry/Cache)
 
 All 7 v1 effect plugins wired to v2 VM via `V2EffectContext` ThreadLocal handlers + `PluginBridge.loadAll()`.
