@@ -28,6 +28,7 @@ object PluginBridge:
     registerActors()
     registerSys()
     registerInterpreterBuiltins()
+    registerComputedCellDispatch()
     var count = 0
     val cl = Thread.currentThread().getContextClassLoader
     val loader = java.util.ServiceLoader.load(classOf[Backend], cl)
@@ -185,13 +186,15 @@ object PluginBridge:
           case c: ClosV => callClosure(c, Nil)
           case v => v)
       }))
-    // computed(f) — returns a lazy wrapper (no reactive tracking in v2)
+    // computed(f) — returns a thunk-based pseudo-signal cell that re-evaluates on .get
     if V2PluginRegistry.lookupGlobal("computed").isEmpty then
       V2PluginRegistry.registerGlobal("computed", ClosV(Runtime.emptyEnv, -1, env => {
         val thunk = env.last
+        // Wrap thunk in a special ComputedCell: ForeignV(Array) where Array holds the thunk
+        // The .get dispatch will call the thunk to get the current value
         thunk match
-          case c: ClosV => Done(callClosure(c, Nil))
-          case v => Done(v)
+          case c: ClosV => Done(ForeignV(new ComputedCell(c).asInstanceOf[AnyRef]))
+          case v => Done(ForeignV(Array[V2Value](v).asInstanceOf[AnyRef]))
       }))
     // generator { body } — returns a stub generator that always ends
     if V2PluginRegistry.lookupGlobal("generator").isEmpty then
@@ -222,6 +225,26 @@ object PluginBridge:
     if V2PluginRegistry.lookupGlobal("contentBlock").isEmpty then
       V2PluginRegistry.registerGlobal("contentBlock", ClosV(Runtime.emptyEnv, -1, env =>
         Done(env.lastOption.getOrElse(UnitV))))
+
+  /** Register dispatch for ComputedCell.get (re-evaluates on every access). */
+  private def registerComputedCellDispatch(): Unit =
+    V2PluginRegistry.register("__method__.get", args => {
+      // args = [StrV("get"), recv, ...margs]
+      if args.length >= 2 then args(1) match
+        case V2Value.ForeignV(cell: ComputedCell) => cell.get()
+        case other => sys.error(s"__method__.get: no handler for $other")
+      else sys.error(s"__method__.get: too few args")
+    })
+    V2PluginRegistry.register("__method__.apply", args => {
+      if args.length >= 2 then args(1) match
+        case V2Value.ForeignV(cell: ComputedCell) => cell.get()
+        case other => sys.error(s"__method__.apply: no handler for $other")
+      else sys.error(s"__method__.apply: too few args")
+    })
+
+  /** Computed signal: re-evaluates its thunk on every .get call (no reactive tracking). */
+  private class ComputedCell(val thunk: V2Value.ClosV):
+    def get(): V2Value = callClosure(thunk, Nil)
 
   /** Minimal stub generator (no yield support; stateless). */
   private class StubGenerator(thunk: V2Value):

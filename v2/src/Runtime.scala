@@ -155,6 +155,10 @@ object Compiler:
           cs.foreach(_.env = envP)                                   // tie the cyclic frame
           bc(envP)                                                   // body: tail
       case Ctor(tag, fields) =>
+        // Signal/ComputedSignal → mutable cell (ForeignV(Array)) so .get/.set work in-place
+        if tag == "Signal" || tag == "ComputedSignal" then
+          val initCode: Code = if fields.isEmpty then (_ => Done(UnitV)) else compile(fields.head)
+          return (env: Env) => Done(ForeignV(Array[Value](Runtime.value(initCode, env))))
         val fcs = fields.map(compile)
         fcs.length match
           case 0 =>
@@ -1508,6 +1512,14 @@ object Prims:
           listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].toList.map {
             case (k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))
           })
+        // ── Signal/cell — ForeignV(Array[Value]) with .get/.set/.update ──────────
+        case (ForeignV(arr: Array[?]), "get", Nil) => arr.asInstanceOf[Array[Value]](0)
+        case (ForeignV(arr: Array[?]), "set", List(v)) => arr.asInstanceOf[Array[Value]](0) = v; UnitV
+        case (ForeignV(arr: Array[?]), "update", List(fn: ClosV)) =>
+          val cur = arr.asInstanceOf[Array[Value]](0)
+          arr.asInstanceOf[Array[Value]](0) = callClos(fn, Array(cur))
+          UnitV
+        case (ForeignV(arr: Array[?]), "apply", Nil) => arr.asInstanceOf[Array[Value]](0)
         // ── Method object (given/typeclass instances) ─────────────────────────────
         case (ForeignV(m: collection.immutable.Map[?, ?]), _, _) =>
           val mm = m.asInstanceOf[collection.immutable.Map[String, Value]]
