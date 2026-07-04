@@ -453,22 +453,15 @@ object FastCode:
       }
     case _ => None
 
-  /** Try to compile a cell.set to a FastCode that stores a raw Long (no IntV alloc). */
+  /** Try to compile a cell.set to a FastCode that stores a raw Long (no IntV alloc).
+   *  Only handles `lcell.set` (typed Long cell — always safe to use FLC).
+   *  `cell.set` is intentionally excluded: it can hold FloatV, StrV, etc., so using
+   *  tryFLC (which coerces Float→0L) would silently corrupt non-Int cells. */
   def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
     case Prim("lcell.set", List(Local(c), body)) =>
       tryFLC(body, globals).map { flc =>
         val cn = c
         (env: Env) => { env(env.length - 1 - cn).asInstanceOf[LongCellV].v = flc(env); UnitV }
-      }
-    case Prim("cell.set", List(Local(c), body)) =>
-      // Optimistic: if the cell holds IntV, store new IntV (still 1 alloc but skips boxing chain)
-      tryFLC(body, globals).map { flc =>
-        val cn = c
-        (env: Env) => {
-          val cell = env(env.length - 1 - cn).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
-          cell(0) = IntV(flc(env))   // still 1 IntV alloc (but avoids nested IntV chain)
-          UnitV
-        }
       }
     case _ => None
 
