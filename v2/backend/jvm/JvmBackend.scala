@@ -563,14 +563,46 @@ object R:
 
   // ── Code generator: Term → Scala 3 expression string ─────────────────────────
 
+  // Returns true if term is statically known to produce a Long (unboxed).
+  // Used to decide whether to generate direct Long arithmetic or boxed prim dispatch.
+  private def isLongTyped(t: Term, scope: List[String], longVars: Set[String]): Boolean =
+    import Term.*
+    t match
+      case Lit(Const.CInt(_))  => true
+      case Local(i) if i < scope.length && longVars.contains(scope(i)) => true
+      case Prim("lcell.get", List(Local(i))) if i < scope.length && longVars.contains(scope(i)) => true
+      case Prim("__arith__", List(Lit(Const.CStr(op)), l, r)) =>
+        val isArith = Set("+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>").contains(op)
+        isArith && isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars)
+      case _ => false
+
+  // Generate a Long-typed expression (assumes isLongTyped returned true, or falls back to _asLong).
+  private def genTermAsLong(t: Term, scope: List[String],
+                             directDefs: Map[String, Int], directLocals: Map[Int, (String, Int)],
+                             longVars: Set[String]): String =
+    import Term.*
+    t match
+      case Lit(Const.CInt(n))  => s"${n}L"
+      case Local(i) if i < scope.length && longVars.contains(scope(i)) => scope(i)
+      case Prim("lcell.get", List(Local(i))) if i < scope.length && longVars.contains(scope(i)) => scope(i)
+      case Prim("__arith__", List(Lit(Const.CStr(op)), l, r))
+           if isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars) =>
+        val l_s = genTermAsLong(l, scope, directDefs, directLocals, longVars)
+        val r_s = genTermAsLong(r, scope, directDefs, directLocals, longVars)
+        s"($l_s $op $r_s)"
+      case _ =>
+        s"_asLong(${genTerm(t, scope, directDefs, directLocals, longVars)})"
+
   // scope(i) = name for Local(i); scope.head = Local(0) = innermost binder
   // directDefs: global names that have a `<name>_direct(...)` def — call them directly
   //             (instead of through the closure lazy val) to enable @tailrec.
   // directLocals: local indices that have a `<varname>_direct(...)` def (for single LetRec @tailrec).
   //               Maps local index (in current scope) → (directDefName, arity).
+  // longVars: names of let-bindings that were emitted as `var name: Long` (Long-cell optimization).
   def genTerm(t: Term, scope: List[String],
               directDefs: Map[String, Int] = Map.empty,
-              directLocals: Map[Int, (String, Int)] = Map.empty): String =
+              directLocals: Map[Int, (String, Int)] = Map.empty,
+              longVars: Set[String] = Set.empty): String =
     import Term.*
     t match
       case Lit(c)       => genConst(c)
@@ -587,7 +619,7 @@ object R:
         // Shift directLocals indices by n (params consume n spots)
         val shiftedLocals = directLocals.map { case (k, v) => (k + n, v) }
         if n == 0 then
-          // 0-arity: thunk
+          // 0-arity: thunk — longVars not passed into lambda body (params reset scope)
           val body_s = genTerm(body, scope, directDefs, shiftedLocals)
           s"((_a$d: Array[V]) => { val _unused$d = _a$d; $body_s }): V"
         else
@@ -600,15 +632,15 @@ object R:
         fn match
           case Global(name) if directDefs.contains(name) =>
             val sn = safeName(name)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
             s"${sn}_direct($args_s)"
           case Local(i) if directLocals.contains(i) =>
             val (dname, _) = directLocals(i)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
             s"${dname}_direct($args_s)"
           case _ =>
-            val fn_s = genTerm(fn, scope, directDefs, directLocals)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
+            val fn_s = genTerm(fn, scope, directDefs, directLocals, longVars)
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
             val n = args.length
             if n == 0 then s"_call0($fn_s)"
             else if n == 1 then s"_call1($fn_s, $args_s)"
@@ -624,10 +656,17 @@ object R:
         val parts = new StringBuilder
         var curScope = scope
         var curLocals = directLocals
+        var curLongs = longVars  // track long-cell var names
         val lnames = (0 until n).map { k =>
           val name = s"l${k}_$d"
-          val rhs_s = genTerm(rhs(k), curScope, directDefs, curLocals)
-          parts.append(s"val $name: V = $rhs_s; ")
+          rhs(k) match
+            case Prim("lcell.new", List(Lit(Const.CInt(v)))) =>
+              // Long-cell optimization: emit `var name: Long = v` instead of boxed V
+              parts.append(s"var $name: Long = ${v}L; ")
+              curLongs = curLongs + name
+            case r =>
+              val rhs_s = genTerm(r, curScope, directDefs, curLocals, curLongs)
+              parts.append(s"val $name: V = $rhs_s; ")
           curScope = name :: curScope
           curLocals = curLocals.map { case (idx, v) => (idx + 1, v) }
           name
@@ -635,7 +674,7 @@ object R:
         // body scope: [l{n-1}_d, ..., l0_d] ++ outer (lnames.reverse = [l{n-1}, ..., l0])
         val bodyScope = lnames.reverse.toList ++ scope
         val bodyLocals = directLocals.map { case (idx, v) => (idx + n, v) }
-        val body_s = genTerm(body, bodyScope, directDefs, bodyLocals)
+        val body_s = genTerm(body, bodyScope, directDefs, bodyLocals, curLongs)
         s"{ ${parts.toString}$body_s }"
 
       case LetRec(lams, body) =>
@@ -669,7 +708,7 @@ object R:
             // Self-call in lam body: Local(lamArity) → rn_direct
             val innerLocals = directLocals.map { case (k, v) => (k + lamArity + 1, v) } +
               (lamArity -> (rn, lamArity))
-            val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals)
+            val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals, longVars)
             val paramDecls = params.map(p => s"$p: V").mkString(", ")
             sb.append(s"import scala.annotation.tailrec; ")
             sb.append(s"@tailrec def ${rn}_direct($paramDecls): V = $body_s; ")
@@ -677,7 +716,7 @@ object R:
             val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_aw$ld($k)" }.mkString(", ")
             sb.append(s"var $rn: V = ((_aw$ld: Array[V]) => ${rn}_direct($wrapArgs)): V; ")
             val bodyLocals = directLocals.map { case (k, v) => (k + 1, v) }
-            val body2_s = genTerm(body, letrecScope, directDefs, bodyLocals)
+            val body2_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars)
             s"{ ${sb.toString}$body2_s }"
 
           case None =>
@@ -691,34 +730,34 @@ object R:
                   val lamBodyScope = params.reverse.toList ++ letrecScope
                   val innerLocals = directLocals.map { case (k, v) => (k + lamArity + n, v) }
                   if lamArity == 0 then
-                    val body_s = genTerm(lamBody, letrecScope, directDefs, innerLocals)
+                    val body_s = genTerm(lamBody, letrecScope, directDefs, innerLocals, longVars)
                     sb.append(s"$rn = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V; ")
                   else
                     val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
-                    val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals)
+                    val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals, longVars)
                     sb.append(s"$rn = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V; ")
                 case _ => sys.error(s"letrec binding must be a Lam, got: $lam")
             }
             val bodyLocals = directLocals.map { case (k, v) => (k + n, v) }
-            val body_s = genTerm(body, letrecScope, directDefs, bodyLocals)
+            val body_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars)
             s"{ ${sb.toString}$body_s }"
 
       case If(c, th, el) =>
-        val c_s  = genTerm(c,  scope, directDefs, directLocals)
-        val th_s = genTerm(th, scope, directDefs, directLocals)
-        val el_s = genTerm(el, scope, directDefs, directLocals)
+        val c_s  = genTerm(c,  scope, directDefs, directLocals, longVars)
+        val th_s = genTerm(th, scope, directDefs, directLocals, longVars)
+        val el_s = genTerm(el, scope, directDefs, directLocals, longVars)
         s"(if ($c_s).asInstanceOf[Boolean] then $th_s else $el_s)"
 
       case Ctor(tag, fields) =>
         if fields.isEmpty then
           s"""("$tag", Array.empty[V])"""
         else
-          val fields_s = fields.map(f => genTerm(f, scope, directDefs, directLocals)).mkString(", ")
+          val fields_s = fields.map(f => genTerm(f, scope, directDefs, directLocals, longVars)).mkString(", ")
           s"""("$tag", Array[V]($fields_s))"""
 
       case Match(scrut, arms, default) =>
         val d = fresh()
-        val scrut_s = genTerm(scrut, scope, directDefs, directLocals)
+        val scrut_s = genTerm(scrut, scope, directDefs, directLocals, longVars)
         val sb = new StringBuilder
         sb.append(s"{ val _sv$d: V = $scrut_s; ")
         sb.append(s"val _st$d: String = _adtTag(_sv$d); val _sf$d: Array[V] = _adtFields(_sv$d); ")
@@ -734,14 +773,14 @@ object R:
           val fieldBinds = fnames.zipWithIndex.map { case (fn, k) =>
             s"val $fn: V = _sf$d($k)"
           }.mkString("; ")
-          val body_s = genTerm(arm.body, armBodyScope, directDefs, armLocals)
+          val body_s = genTerm(arm.body, armBodyScope, directDefs, armLocals, longVars)
           val guard = if armN > 0 then s""" && _sf$d.length == $armN""" else s""" && _sf$d.length == 0"""
           s"""if (_st$d == "${arm.tag}"$guard) { $fieldBinds; $body_s }"""
         }
         sb.append(conditions.mkString("\nelse "))
         default match
           case Some(d_term) =>
-            val def_s = genTerm(d_term, scope, directDefs, directLocals)
+            val def_s = genTerm(d_term, scope, directDefs, directLocals, longVars)
             sb.append(s"\nelse { $def_s }")
           case None =>
             sb.append(s"""\nelse throw new RuntimeException("match: no arm for " + _st$d)""")
@@ -749,23 +788,51 @@ object R:
         sb.toString
 
       case Prim(op, args) =>
-        val n = args.length
-        val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals)).mkString(", ")
-        if n == 0 then s"""R.primN("$op", Array.empty[V])"""
-        else if n == 1 then s"""R.prim1("$op", $args_s)"""
-        else if n == 2 then s"""R.prim2("$op", $args_s)"""
-        else if n == 3 then s"""R.prim3("$op", $args_s)"""
-        else s"""R.primN("$op", Array[V]($args_s))"""
+        import Term.*
+        // ── Long-cell fast paths (avoid V=Any boxing in tight loops) ────────────
+        (op, args) match
+          case ("lcell.get", List(Local(i))) if i < scope.length && longVars.contains(scope(i)) =>
+            scope(i)  // direct Long var read — no boxing or prim dispatch
+          case ("lcell.set", List(Local(i), expr)) if i < scope.length && longVars.contains(scope(i)) =>
+            val varName = scope(i)
+            val exprStr = if isLongTyped(expr, scope, longVars)
+              then genTermAsLong(expr, scope, directDefs, directLocals, longVars)
+              else s"_asLong(${genTerm(expr, scope, directDefs, directLocals, longVars)})"
+            s"$varName = $exprStr"
+          case ("__arith__", List(Lit(Const.CStr(aop)), l, r))
+               if isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars) =>
+            val l_s = genTermAsLong(l, scope, directDefs, directLocals, longVars)
+            val r_s = genTermAsLong(r, scope, directDefs, directLocals, longVars)
+            aop match
+              case "==" | "!=" | "<" | "<=" | ">" | ">=" => s"($l_s $aop $r_s)"  // returns Boolean
+              case "++"                                   => s"($l_s.toString + $r_s.toString)"
+              case _                                      => s"($l_s $aop $r_s): V"  // arithmetic, returns Long
+          case _ =>
+            // Generic fallback
+            val n = args.length
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+            if n == 0 then s"""R.primN("$op", Array.empty[V])"""
+            else if n == 1 then s"""R.prim1("$op", $args_s)"""
+            else if n == 2 then s"""R.prim2("$op", $args_s)"""
+            else if n == 3 then s"""R.prim3("$op", $args_s)"""
+            else s"""R.primN("$op", Array[V]($args_s))"""
 
       case While(cond, body) =>
-        val c_s = genTerm(cond, scope, directDefs, directLocals)
-        val b_s = genTerm(body, scope, directDefs, directLocals)
-        s"{ while (($c_s).asInstanceOf[Boolean]) do { $b_s; () }; () }"
+        // If condition is a Long comparison, generate it directly (no .asInstanceOf[Boolean])
+        val isBoolExpr = cond match
+          case Prim("__arith__", List(Lit(Const.CStr(op)), l, r)) =>
+            Set("==", "!=", "<", "<=", ">", ">=").contains(op) &&
+            isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars)
+          case _ => false
+        val c_s = if isBoolExpr then genTerm(cond, scope, directDefs, directLocals, longVars)
+                  else s"(${genTerm(cond, scope, directDefs, directLocals, longVars)}).asInstanceOf[Boolean]"
+        val b_s = genTerm(body, scope, directDefs, directLocals, longVars)
+        s"{ while ($c_s) do { $b_s; () }; () }"
 
       case Seq(terms) =>
         if terms.isEmpty then "()"
         else
-          val parts = terms.map(t2 => genTerm(t2, scope, directDefs, directLocals))
+          val parts = terms.map(t2 => genTerm(t2, scope, directDefs, directLocals, longVars))
           s"{ ${parts.init.map(s => s"$s; ()").mkString("; ")}; ${parts.last} }"
 
   def genConst(c: Const): String = c match
