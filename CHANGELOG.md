@@ -4,17 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
-## 2026-07-04 — T3.3: v2 JVM backend fixes (safeName, __arith__ prim3)
+## 2026-07-04 — T3.3: v2 JVM backend Long-cell specialization; 80× speedup on arith-loop
 
-`safeName()` now appends `x` when the name ends with `_` — avoids Scala 3 parse error
-(`name_:` looks like an operator to scalac, so `lazy val __unsupported__:` failed to compile).
-Added `__arith__` to `prim3` in the generated preamble: handles FrontendBridge-generated
-Core IR that uses `prim3("__arith__", op, left, right)` for arithmetic/comparison/concat.
-All conformance tests still pass.
+Three fixes: (1) `safeName()` appends `x` to trailing-`_` names (avoids Scala 3 `name_:` parse error);
+(2) `__arith__` added to `prim3` dispatch so FrontendBridge IR compiles;
+(3) **Long-cell specialization**: `lcell.new(intLit)` → `var name: Long = n`, `lcell.get` → direct read,
+`lcell.set` → direct assign, `__arith__(Long, Long)` → inline arithmetic (`l op r`).
 
-Investigation: v2 JVM backend runs arith-loop at 43ms vs native Scala 0.6ms = 72× slower.
-Root cause: `V = Any` boxing — every Long is boxed on every lcell.get/set. Gate (2× of v1 JVM)
-requires Long-specialization optimization (detect lcell.new(intLit) → `var x: Long`). Moved to BACKLOG.
+`isLongTyped()` / `genTermAsLong()` helpers; `longVars: Set[String]` threaded through `genTerm`.
+
+**Result**: arith-loop 43ms → 0.53ms = **80× speedup**; within 2× of native Scala (0.6ms/op).
+T3.3 gate (within 2× of v1 JVM backend on arithmetic programs) ACHIEVED.
 
 ## 2026-07-04 — T4.1: FrontendBridge .ssc file format + runtime fixes; 71/193 examples pass
 

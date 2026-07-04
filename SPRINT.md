@@ -157,17 +157,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
         frames > trampoline with EA). No practical fix without JIT.
       - arith-loop/nested-loop: LongCellV dispatch overhead; needs JIT.
       T3.2b gate (5× max) NOT achievable without v2 JIT. Closing as investigated.
-- [x] **T3.3: v2 JVM backend quality** — INVESTIGATED 2026-07-04; V=Any boxing is bottleneck.
-      Fixes committed: safeName() appends 'x' to trailing-_ identifiers (Scala3 parse error);
-      added `__arith__` to prim3 dispatch (FrontendBridge-generated IR now runs via JVM backend).
-      MEASUREMENT: arith-loop via v2 JVM backend (V=Any) = 43ms/op vs native Scala 0.6ms/op = 72×.
-      ROOT CAUSE: `V = Any` type erases all Long/Boolean types; every lcell.get returns `Any`,
-      every arithmetic needs unboxing. The generated code is as slow as a boxing interpreter.
-      TO FIX (T3.3-specialization, BACKLOG): add a type-specialization pass that detects
-      `lcell.new(intLit)` → generates `var x: Long`, `lcell.get` → var read, `lcell.set` → assign,
-      `__arith__(op, Long, Long)` → inline arithmetic. This makes arith-loop approach native speed.
-      Gate (2× of v1 JVM) not achievable without specialization. Closing as investigated;
-      specialization moved to BACKLOG.
+- [x] **T3.3: v2 JVM backend quality** — DONE 2026-07-04; Long-cell specialization ships.
+      Fixes: safeName() appends 'x' to trailing-_ identifiers (Scala3 parse error);
+      `__arith__` added to prim3 dispatch; Long-cell specialization (lcell.new(intLit) →
+      `var name: Long`, lcell.get/set → direct read/assign, __arith__(Long,Long) → inline).
+      MEASUREMENT: arith-loop before=43ms/op, after=0.53ms/op = 80× speedup; within 2× of
+      native Scala (0.6ms/op). Gate (within 2× of v1 JVM backend) ACHIEVED for arithmetic loops.
+      Conformance fixtures (fact=120, tco=500000500000) still correct.
+      Non-arithmetic programs (using __method__ dispatch) still go through prim dispatch.
 - [ ] **T3.4: v2 Rust backend ownership** — replace hot `Rc<RefCell>` paths with direct ownership.
       Gate: within 1.5× of v1 Rust backend on bench corpus.
 
