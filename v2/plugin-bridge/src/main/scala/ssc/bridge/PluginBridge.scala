@@ -205,9 +205,14 @@ object PluginBridge:
     if V2PluginRegistry.lookupGlobal("runEphemeralStorage").isEmpty then
       V2PluginRegistry.registerGlobal("runEphemeralStorage", ClosV(Runtime.emptyEnv, -1, env => {
         val thunk = env.last
-        thunk match
-          case c: ClosV => Done(callClosure(c, Nil))
-          case v => Done(v)
+        val map = scala.collection.mutable.LinkedHashMap.empty[String, String]
+        val prev = storageLocal.get()
+        storageLocal.set(map)
+        val result = try thunk match
+          case c: ClosV => callClosure(c, Nil)
+          case v => v
+        finally storageLocal.set(prev)
+        Done(result)
       }))
     // args — command-line args as a Cons/Nil list
     if V2PluginRegistry.lookupGlobal("args").isEmpty then
@@ -226,14 +231,62 @@ object PluginBridge:
       V2PluginRegistry.registerGlobal("contentBlock", ClosV(Runtime.emptyEnv, -1, env =>
         Done(env.lastOption.getOrElse(UnitV))))
 
-  /** Register dispatch for ComputedCell.get (re-evaluates on every access). */
+  /** Register dispatch for ComputedCell.get and Storage.get. */
   private def registerComputedCellDispatch(): Unit =
     V2PluginRegistry.register("__method__.get", args => {
       // args = [StrV("get"), recv, ...margs]
       if args.length >= 2 then args(1) match
         case V2Value.ForeignV(cell: ComputedCell) => cell.get()
+        case V2Value.DataV("Storage", _) =>
+          val key = if args.length >= 3 then args(2) match { case V2Value.StrV(s) => s; case v => v.toString } else ""
+          val map = storageLocal.get()
+          if map == null then sys.error("Storage.get called outside runEphemeralStorage / runStorage")
+          val sv = map.getOrElse(key, null)
+          if sv != null then V2Value.DataV("Some", Vector(V2Value.StrV(sv)))
+          else V2Value.DataV("None", Vector.empty)
         case other => sys.error(s"__method__.get: no handler for $other")
       else sys.error(s"__method__.get: too few args")
+    })
+    V2PluginRegistry.register("__method__.put", args => {
+      if args.length >= 4 then args(1) match
+        case V2Value.DataV("Storage", _) =>
+          val key = args(2) match { case V2Value.StrV(s) => s; case v => v.toString }
+          val value = args(3) match { case V2Value.StrV(s) => s; case v => v.toString }
+          val map = storageLocal.get()
+          if map != null then map(key) = value
+          V2Value.UnitV
+        case other => sys.error(s"__method__.put: no handler for $other")
+      else sys.error(s"__method__.put: too few args")
+    })
+    V2PluginRegistry.register("__method__.remove", args => {
+      if args.length >= 3 then args(1) match
+        case V2Value.DataV("Storage", _) =>
+          val key = args(2) match { case V2Value.StrV(s) => s; case v => v.toString }
+          val map = storageLocal.get()
+          if map != null then map.remove(key)
+          V2Value.UnitV
+        case other => sys.error(s"__method__.remove: no handler for $other")
+      else sys.error(s"__method__.remove: too few args")
+    })
+    V2PluginRegistry.register("__method__.has", args => {
+      if args.length >= 3 then args(1) match
+        case V2Value.DataV("Storage", _) =>
+          val key = args(2) match { case V2Value.StrV(s) => s; case v => v.toString }
+          val map = storageLocal.get()
+          V2Value.BoolV(map != null && map.contains(key))
+        case other => sys.error(s"__method__.has: no handler for $other")
+      else sys.error(s"__method__.has: too few args")
+    })
+    V2PluginRegistry.register("__method__.keys", args => {
+      if args.length >= 2 then args(1) match
+        case V2Value.DataV("Storage", _) =>
+          val map = storageLocal.get()
+          val keys = if map != null then map.keys.toList else Nil
+          keys.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (k, acc) =>
+            V2Value.DataV("Cons", Vector(V2Value.StrV(k), acc))
+          }
+        case other => sys.error(s"__method__.keys: no handler for $other")
+      else sys.error(s"__method__.keys: too few args")
     })
     V2PluginRegistry.register("__method__.apply", args => {
       if args.length >= 2 then args(1) match
@@ -241,6 +294,10 @@ object PluginBridge:
         case other => sys.error(s"__method__.apply: no handler for $other")
       else sys.error(s"__method__.apply: too few args")
     })
+
+  /** Thread-local in-memory storage map for runEphemeralStorage / runStorage. */
+  private val storageLocal: ThreadLocal[scala.collection.mutable.LinkedHashMap[String, String]] =
+    new ThreadLocal()
 
   /** Computed signal: re-evaluates its thunk on every .get call (no reactive tracking). */
   private class ComputedCell(val thunk: V2Value.ClosV):

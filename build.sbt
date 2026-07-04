@@ -102,7 +102,7 @@ lazy val v2PluginBridge = project
     loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin,
     clockEffectPlugin, envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
     httpPlugin, sqlPlugin, frontendPlugin, wsPlugin, fetchPlugin, contentPlugin,
-    cryptoPlugin, uuidPlugin, mcpPlugin, streamsPlugin)
+    cryptoPlugin, uuidPlugin, mcpPlugin, streamsPlugin, authPlugin)
   .settings(
     name := "scalascript-v2-plugin-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),

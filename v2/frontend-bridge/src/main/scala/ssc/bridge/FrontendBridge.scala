@@ -405,13 +405,16 @@ object FrontendBridge:
 
     // ── Member select (field/method as value, no args) ────────────────────────
     case Term.Select(qual, Term.Name(name)) =>
-      val q = convertExpr(qual, scope)
-      if extensionMethods.contains(name) then
-        CT.App(CT.Global(name), List(q))
+      // Namespace.CtorName → CT.Ctor (e.g. Transport.Stdio, Either.Left, Option.None)
+      if isCtorName(name) && !fieldRegistry.contains(name) then CT.Ctor(name, Nil)
       else
-        fieldIndex(name) match
-          case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i))))
-          case None    => CT.Prim("__method__", List(CT.Lit(Const.CStr(name)), q))
+        val q = convertExpr(qual, scope)
+        if extensionMethods.contains(name) then
+          CT.App(CT.Global(name), List(q))
+        else
+          fieldIndex(name) match
+            case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i))))
+            case None    => CT.Prim("__method__", List(CT.Lit(Const.CStr(name)), q))
 
     // ── Assign ────────────────────────────────────────────────────────────────
     case a: Term.Assign => convertAssign(a, scope)

@@ -115,10 +115,10 @@ object PluginValue:
     /** Human-readable form (delegates to the interpreter's `Value.show`). */
     def show: String = Value.show(pv.asInstanceOf[Value])
     // ── Extractors (None if the runtime value is a different shape) ──
-    def asString: Option[String]  = pv match { case Value.StringV(s) => Some(s); case _ => None }
-    def asInt:    Option[Long]    = pv match { case Value.IntV(n)    => Some(n); case _ => None }
-    def asDouble: Option[Double]  = pv match { case Value.DoubleV(d) => Some(d); case _ => None }
-    def asBool:   Option[Boolean] = pv match { case Value.BoolV(b)   => Some(b); case _ => None }
+    def asString: Option[String]  = pv match { case Value.StringV(s) => Some(s); case s: String => Some(s); case _ => None }
+    def asInt:    Option[Long]    = pv match { case Value.IntV(n)    => Some(n); case n: Long   => Some(n); case n: Int => Some(n.toLong); case _ => None }
+    def asDouble: Option[Double]  = pv match { case Value.DoubleV(d) => Some(d); case d: Double => Some(d); case _ => None }
+    def asBool:   Option[Boolean] = pv match { case Value.BoolV(b)   => Some(b); case b: Boolean => Some(b); case _ => None }
     def asChar:   Option[Char]    = pv match { case Value.CharV(c)   => Some(c); case _ => None }
     def asList:   Option[List[PluginValue]]  = pv match { case Value.ListV(xs)  => Some(xs.map(wrap)); case _ => None }
     def asTuple:  Option[List[PluginValue]]  = pv match { case Value.TupleV(xs) => Some(xs.map(wrap)); case _ => None }
