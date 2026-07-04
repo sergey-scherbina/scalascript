@@ -117,7 +117,12 @@ object Compiler:
         (env: Env) => Done(env(env.length - 1 - i))
       case Global(g) =>
         (_: Env) => Done(globals.getOrElse(g,
-          V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))))
+          V2PluginRegistry.lookupGlobal(g).getOrElse(
+            // Auto-create cells for @xxx named-arg globals (lazy init on first access)
+            if g.startsWith("@") then
+              val cell = ForeignV(Array[Value](UnitV))
+              globals(g) = cell; cell
+            else sys.error(s"unbound global: $g"))))
       case Lam(ar, b) =>
         val bc = compile(b); (env: Env) => Done(ClosV(env, ar, bc))
       case If(c, th, el) =>
@@ -527,7 +532,9 @@ object FastCode:
       val gn = g
       globals.get(gn) match
         case Some(v) => Some(_ => v)
-        case None    => Some(_ => globals.getOrElse(gn, V2PluginRegistry.lookupGlobal(gn).getOrElse(sys.error(s"unbound global: $gn"))))
+        case None    => Some(_ => globals.getOrElse(gn, V2PluginRegistry.lookupGlobal(gn).getOrElse(
+          if gn.startsWith("@") then { val cell = ForeignV(Array[Value](UnitV)); globals(gn) = cell; cell }
+          else sys.error(s"unbound global: $gn"))))
     // lcell.get: return IntV(c.v) but for FC callers who need a Value
     case Prim("lcell.get", List(Local(i))) =>
       val n = i; Some((env: Env) => IntV(env(env.length - 1 - n).asInstanceOf[LongCellV].v))
