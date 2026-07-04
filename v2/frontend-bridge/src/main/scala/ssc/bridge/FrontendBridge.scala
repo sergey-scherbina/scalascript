@@ -517,6 +517,26 @@ object FrontendBridge:
         args.foldRight(nil)((h, t) => CT.Ctor("Cons", List(h, t)))
       // Constructor application
       case Term.Name(name) if isCtorName(name) => CT.Ctor(name, args)
+      // .copy(field = val, ...) — case class copy with named field overrides.
+      // Intercept before the generic __method__ path so we can use the field registry
+      // to find indices and emit Ctor with field-at fallbacks, avoiding @field globals.
+      case Term.Select(qual, Term.Name("copy"))
+          if rawArgs.nonEmpty && rawArgs.forall(_.isInstanceOf[Term.Assign]) =>
+        val overrides: Map[String, CT] = rawArgs.collect {
+          case Term.Assign(Term.Name(n), rhs) => n -> convertExpr(rhs, scope)
+        }.toMap
+        val classOpt = fieldRegistry.find { case (_, fields) =>
+          overrides.keys.forall(k => fields.contains(k))
+        }
+        classOpt match
+          case Some((tag, fields)) =>
+            val q = convertExpr(qual, scope)
+            CT.Let(List(q), CT.Ctor(tag, fields.zipWithIndex.map { case (fn, i) =>
+              overrides.getOrElse(fn, CT.Prim("fieldAt", List(CT.Local(0), CT.Lit(Const.CInt(i)))))
+            }.toList))
+          case None =>
+            val q = convertExpr(qual, scope)
+            CT.Prim("__method__", CT.Lit(Const.CStr("copy")) :: q :: args)
       // Method call: qual.method(args)
       case Term.Select(qual, Term.Name(mname)) =>
         if isCtorName(mname) then CT.Ctor(mname, args)
