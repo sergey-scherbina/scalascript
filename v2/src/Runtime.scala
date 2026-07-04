@@ -144,29 +144,40 @@ object Compiler:
             Runtime.value(fc, env) match
               case c: ClosV => Call(c, Runtime.emptyEnv)             // avoid toArray on empty list
               case v => sys.error(s"app: not a function: ${Show.show(v)}")
-        else
-          val fc = compile(fn); val acs = args.map(compile)
-          (env: Env) =>
-            val fv  = Runtime.value(fc, env)                         // fn + args: non-tail
-            val avs = acs.map(ac => Runtime.value(ac, env)).toArray
-            fv match
-              case c: ClosV => Call(c, avs)                          // THE tail call: hand to driver
-              // Linked list used as indexed collection (Cons/Nil — v2 bridge represents List/Vector this way)
-              case lv @ (DataV("Cons", _) | DataV("Nil", _)) if avs.length == 1 =>
-                avs(0) match
-                  case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt))
-                  case _ => sys.error(s"app: list index must be Int")
-              // ForeignV(ArrayBuffer) — indexed get: a(idx)
-              case ForeignV(ab: collection.mutable.ArrayBuffer[?]) if avs.length == 1 =>
-                avs(0) match
-                  case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt))
-                  case _ => sys.error(s"app: array index must be Int")
-              // DataV used as indexed collection (e.g. compact arrays stored as DataV with fields)
-              case DataV(_, fields) if avs.length == 1 =>
-                avs(0) match
-                  case IntV(i) => Done(fields(i.toInt))
-                  case _ => sys.error(s"app: DataV index must be Int")
-              case v => sys.error(s"app: not a function: ${Show.show(v)}")
+        else args match
+          // 1-arg fast path: avoid List alloc from acs.map(...).toArray
+          case List(a0) =>
+            val fc = compile(fn); val ac0 = compile(a0)
+            (env: Env) =>
+              val fv = Runtime.value(fc, env); val v0 = Runtime.value(ac0, env)
+              fv match
+                case c: ClosV =>
+                  val avs = new Array[Value](1); avs(0) = v0; Call(c, avs)
+                case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
+                  v0 match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
+                case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
+                  v0 match { case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt)); case _ => sys.error("app: array index must be Int") }
+                case DataV(_, fields) =>
+                  v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
+                case v => sys.error(s"app: not a function: ${Show.show(v)}")
+          // 2-arg fast path: avoid List alloc from acs.map(...).toArray
+          case List(a0, a1) =>
+            val fc = compile(fn); val ac0 = compile(a0); val ac1 = compile(a1)
+            (env: Env) =>
+              val fv = Runtime.value(fc, env)
+              val avs = new Array[Value](2); avs(0) = Runtime.value(ac0, env); avs(1) = Runtime.value(ac1, env)
+              fv match
+                case c: ClosV => Call(c, avs)
+                case v => sys.error(s"app: not a function: ${Show.show(v)}")
+          // generic path for 3+ args
+          case _ =>
+            val fc = compile(fn); val acs = args.map(compile)
+            (env: Env) =>
+              val fv  = Runtime.value(fc, env)
+              val avs = acs.map(ac => Runtime.value(ac, env)).toArray
+              fv match
+                case c: ClosV => Call(c, avs)
+                case v => sys.error(s"app: not a function: ${Show.show(v)}")
       case While(cond, body) =>
         // Try FastCode path: avoids Done boxing and trampoline per iteration
         (FastCode.tryFBc(cond, globals), FastCode.tryFC(body, globals)) match
