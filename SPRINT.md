@@ -87,8 +87,15 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       conversion: NativeImpl expects unwrapped primitives (String/Long/Boolean) not v1 Value
       objects — added v2ToRaw/rawToV2 helpers (mirrors Interpreter.unwrapValueAsAny).
       Gate: `httpGet("https://httpbin.org/get")` returns HTTP 200 Response with JSON body.
-- [ ] **T2.3: Actors (spike)** — investigate Java VirtualThread-per-actor model.
-      Gate: actor ping-pong program works under v2.
+- [x] **T2.3: Actors (spike)** — DONE 2026-07-04. VirtualThread-per-actor model implemented in
+      PluginBridge: spawn/receive/self/exit/runActors registered as v2 globals; `!` wired via
+      __arith__ → actor.send. Fixes: (1) v2 Match non-DataV scrutinees fall through to default arm
+      instead of erroring (needed for `case s: String => ...` on StrV); (2) @timeout cell registered
+      as ForeignV so cell.set works; new FastCode path in Runtime.scala also needed lookupGlobal
+      fallback; (3) exit() needs dead flag (interrupt alone races with LinkedBlockingQueue.take if msg
+      already present); (4) 2-arg globals (exit) need arity=2 (v2 App is non-curried n-arg).
+      Gate: examples/actors-pingpong.ssc passes all checks (ping-pong, timeout-None, timeout-Some,
+      exit+ignored message, done).
 
 **Track 3 — Performance parity**
 - [x] **T3.1: Baseline benchmarks** — DONE 2026-07-03. All 22 bench programs run through v2 bridge.

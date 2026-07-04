@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — T2.3: Actors spike — VirtualThread-per-actor works under v2
+
+`examples/actors-pingpong.ssc` runs fully under v2: spawn/receive/self/exit/runActors
+all pass, including receive-with-timeout and exit+drop-send. Implementation in
+PluginBridge.scala: VirtualThread per actor, LinkedBlockingQueue mailbox, @timeout cell,
+dead flag (interrupt alone races if msg is already queued). Runtime.scala: non-DataV
+scrutinees in Match fall through to default arm (for `case s: String =>`); FastCode
+global-lookup path also needed lookupGlobal fallback for @timeout.
+
 ## 2026-07-04 — T2.2: HTTP/SQL intrinsics work under v2 (httpGet → HTTP 200)
 
 Added httpPlugin+sqlPlugin to v2PluginBridge classpath. NativeImpl intrinsics now

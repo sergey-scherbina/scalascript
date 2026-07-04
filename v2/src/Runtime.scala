@@ -193,7 +193,9 @@ object Compiler:
               case None => dc match
                 case Some(d) => d(env)
                 case None => sys.error(s"match: no arm for $tag/${fs.length}")
-          case v => sys.error(s"match: scrutinee not Data: ${Show.show(v)}")
+          case _ => dc match  // non-ADT scrutinee (String, Int, etc.) — fall to default
+            case Some(d) => d(env)
+            case None => sys.error(s"match: scrutinee not Data: ${Show.show(Runtime.value(sc, env))}")
       case App(fn, args) =>
         // Global-call FC fast path: skip Done/run for the function lookup.
         // Uses tryFC for args (not tryFLC) so FloatV/StrV args pass through unchanged.
@@ -214,7 +216,7 @@ object Compiler:
                   FastCode.tryFC(a1, globals).map { f1 =>
                     (env: Env) =>
                       val avs = new Array[Value](2); avs(0) = f0(env); avs(1) = f1(env)
-                      globals.getOrElse(g, sys.error(s"unbound global: $g")) match
+                      globals.getOrElse(g, V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))) match
                         case c: ClosV => Call(c, avs)
                         case v => sys.error(s"app: not a function: ${Show.show(v)}")
                   }
@@ -525,7 +527,7 @@ object FastCode:
       val gn = g
       globals.get(gn) match
         case Some(v) => Some(_ => v)
-        case None    => Some(_ => globals.getOrElse(gn, sys.error(s"unbound global: $gn")))
+        case None    => Some(_ => globals.getOrElse(gn, V2PluginRegistry.lookupGlobal(gn).getOrElse(sys.error(s"unbound global: $gn"))))
     // lcell.get: return IntV(c.v) but for FC callers who need a Value
     case Prim("lcell.get", List(Local(i))) =>
       val n = i; Some((env: Env) => IntV(env(env.length - 1 - n).asInstanceOf[LongCellV].v))
@@ -1217,6 +1219,11 @@ object Prims:
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
           case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
           case "->" => DataV("Tuple2", collection.immutable.ArraySeq(lv, rv))  // k -> v pair
+          case "!"  =>
+            // Actor send: actorRef ! msg
+            V2PluginRegistry.lookup("actor.send") match
+              case Some(sendFn) => sendFn(List(lv, rv))
+              case None => UnitV  // actor runtime not loaded
           case _    =>
             // Unknown operator with non-numeric types: treat as a declaration-style statement
             // (e.g. `effect Logger:` compiles to __arith__("Logger", effectClosure, ()) in v2)

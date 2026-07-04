@@ -25,6 +25,7 @@ object PluginBridge:
    *  BlockForm runners. Also registers the built-in `handle` global. */
   def loadAll(): Int =
     registerHandle()
+    registerActors()
     var count = 0
     val cl = Thread.currentThread().getContextClassLoader
     val loader = java.util.ServiceLoader.load(classOf[Backend], cl)
@@ -197,6 +198,139 @@ object PluginBridge:
     case _ =>
       // Pure result — call handler with Return(v)
       callClosure(handler, List(V2Value.DataV("Return", Vector(v))))
+
+  // ── Actor runtime — VirtualThread-per-actor model ───────────────────────────
+
+  /** One actor's mailbox + thread state. */
+  private class ActorMailbox:
+    val queue = new java.util.concurrent.LinkedBlockingQueue[V2Value]()
+    @volatile var thread: Thread | Null = null
+    @volatile var dead: Boolean = false
+
+  private val actorTL = new ThreadLocal[ActorMailbox | Null]:
+    override def initialValue(): ActorMailbox | Null = null
+
+
+  /** Register actor globals: spawn, receive, self, exit, runActors.
+   *  `!` is dispatched via __arith__("!", actorRef, msg) in Runtime.scala's
+   *  dispatch table (separate patch), so it is wired via V2PluginRegistry.register. */
+  /** Build a receive-with-timeout closure. Returns a ClosV(arity=1) that takes a handler
+   *  and either calls it with the message (returning Some(result)) or returns None on timeout. */
+  private def receiveWithTimeout(ms: Long): V2Value =
+    V2Value.ClosV(Array(V2Value.IntV(ms)), 1, env2 => {
+      val handler = env2.last
+      val timeoutMs = env2(0).asInstanceOf[V2Value.IntV].n
+      val mb = actorTL.get()
+      if mb == null then sys.error("receive(timeout) called outside an actor")
+      val msg = if timeoutMs < 0 then mb.queue.take()
+                else mb.queue.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+      if msg == null || mb.dead then Done(V2Value.DataV("None", Vector.empty))
+      else Done(V2Value.DataV("Some", Vector(callClosure(handler.asInstanceOf[V2Value.ClosV], List(msg)))))
+    })
+
+  /** Read the @timeout cell registered by registerActors. Returns -1 if unset. */
+  private def readTimeoutMs(): Long =
+    V2PluginRegistry.lookupGlobal("@timeout") match
+      case Some(V2Value.ForeignV(arr: Array[V2Value] @unchecked)) =>
+        arr(0) match { case V2Value.IntV(n) => n; case _ => -1L }
+      case _ => -1L
+
+  private def registerActors(): Unit =
+    if V2PluginRegistry.lookupGlobal("runActors").isDefined then return
+    // Register @timeout cell (used by receive(timeout = n) named-arg pattern)
+    val timeoutCell = Array[V2Value](V2Value.IntV(-1))
+    V2PluginRegistry.registerGlobal("@timeout", V2Value.ForeignV(timeoutCell.asInstanceOf[AnyRef]))
+
+    // spawn { () => body } — starts a VirtualThread, returns ForeignV(mailbox)
+    V2PluginRegistry.registerGlobal("spawn", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val thunk = env.last
+      val mb = new ActorMailbox()
+      val t = Thread.ofVirtual().start(() => {
+        actorTL.set(mb)
+        mb.thread = Thread.currentThread()
+        try callThunk(thunk.asInstanceOf[V2Value.ClosV])
+        catch case _: InterruptedException => ()
+        ()
+      })
+      mb.thread = t
+      Done(V2Value.ForeignV(mb))
+    }))
+
+    // receive { case msg => ... } — blocks on mailbox, calls handler with msg
+    // receive(timeout = n) { case msg => ... } — with timeout (returns Some/None)
+    V2PluginRegistry.registerGlobal("receive", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val arg = env.last
+      arg match
+        case handler: V2Value.ClosV =>
+          // Direct receive: receive { case msg => ... }
+          val mb = actorTL.get()
+          if mb == null then sys.error("receive called outside an actor")
+          val msg = mb.queue.take()
+          if mb.dead then Done(V2Value.UnitV) else Done(callClosure(handler, List(msg)))
+        case V2Value.UnitV =>
+          // receive(timeout = n) {...}: named arg emits cell.set(@timeout, n) → UnitV
+          // read the @timeout cell that was just set by cell.set
+          val ms = readTimeoutMs()
+          Done(receiveWithTimeout(ms))
+        case V2Value.IntV(ms) =>
+          // receive(ms)(handler) — directly passed Int timeout
+          Done(receiveWithTimeout(ms))
+        case _ =>
+          sys.error(s"receive: unexpected arg $arg")
+    }))
+
+    // self() — returns current actor's mailbox ref
+    V2PluginRegistry.registerGlobal("self", V2Value.ClosV(Runtime.emptyEnv, 0, env => {
+      val mb = actorTL.get()
+      if mb == null then sys.error("self() called outside an actor")
+      Done(V2Value.ForeignV(mb))
+    }))
+
+    // exit(actorRef, reason) — mark dead + interrupt actor thread (2-arg, reason ignored)
+    V2PluginRegistry.registerGlobal("exit", V2Value.ClosV(Runtime.emptyEnv, 2, env => {
+      val ref = env(env.length - 2)  // first of 2 args
+      ref match
+        case V2Value.ForeignV(mb: ActorMailbox) =>
+          mb.dead = true
+          val t = mb.thread
+          if t != null then t.interrupt()
+        case _ => ()
+      Done(V2Value.UnitV)
+    }))
+
+    // runActors { body } — BlockForm-like: runs body in a main actor VirtualThread
+    // and waits for it to complete
+    V2PluginRegistry.registerGlobal("runActors", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val thunk = env.last.asInstanceOf[V2Value.ClosV]
+      val mb = new ActorMailbox()
+      @volatile var result: V2Value = V2Value.UnitV
+      @volatile var err: Throwable | Null = null
+      val latch = new java.util.concurrent.CountDownLatch(1)
+      val t = Thread.ofVirtual().start(() => {
+        actorTL.set(mb)
+        mb.thread = Thread.currentThread()
+        try
+          result = callThunk(thunk)
+        catch
+          case e: InterruptedException => ()
+          case e: Throwable => err = e
+        finally latch.countDown()
+        ()
+      })
+      mb.thread = t
+      latch.await()
+      val e = err
+      if e != null then throw e
+      Done(result)
+    }))
+
+    // Register "!" operator handler in __arith__ dispatch (ForeignV send)
+    V2PluginRegistry.register("actor.send", args => args match
+      case List(V2Value.ForeignV(mb: ActorMailbox), msg) =>
+        if !mb.dead then mb.queue.put(msg)
+        V2Value.UnitV
+      case _ => V2Value.UnitV
+    )
 
   // ── SpiValue ↔ V2Value conversion ─────────────────────────────────────────
 
