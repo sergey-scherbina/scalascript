@@ -1508,7 +1508,16 @@ object Prims:
             case Some(fn: ClosV) if margs.isEmpty && fn.arity > 0 => fn  // eta-expand
             case Some(fn: ClosV) => callClos(fn, margs.toArray)
             case Some(v) if margs.isEmpty => v
-            case _ => sys.error(s"__method__: no method '$name' in method-object")
+            // When margs non-empty and value is not a ClosV, try calling with args
+            case Some(v: ForeignV) =>
+              V2PluginRegistry.lookup(s"__method__.$name") match
+                case Some(fn) => fn(a)
+                case None => sys.error(s"__method__: no method '$name' in method-object")
+            case _ =>
+              // Fall through to plugin registry before erroring
+              V2PluginRegistry.lookup(s"__method__.$name") match
+                case Some(fn) => fn(a)
+                case None => sys.error(s"__method__: no method '$name' in method-object")
         case (v, "toString", Nil) => StrV(anyStr(v))
         case _ =>
           V2PluginRegistry.lookup(s"__method__.$name") match

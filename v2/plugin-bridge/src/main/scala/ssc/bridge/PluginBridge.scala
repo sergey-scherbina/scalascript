@@ -26,6 +26,7 @@ object PluginBridge:
   def loadAll(): Int =
     registerHandle()
     registerActors()
+    registerSys()
     var count = 0
     val cl = Thread.currentThread().getContextClassLoader
     val loader = java.util.ServiceLoader.load(classOf[Backend], cl)
@@ -158,6 +159,43 @@ object PluginBridge:
    *  The handler lambda has shape: `lam 1 (match x { case op(args, resume) => ...; case Return(_) => ... })`
    *  so we call it with DataV(opName, [arg, resumeFn]) or DataV("Return", [result]).
    */
+  /** Register `sys` global: sys.env(key) / sys.env.getOrElse(k,d) / sys.exit(code). */
+  private def registerSys(): Unit =
+    import V2Value.*
+    if V2PluginRegistry.lookupGlobal("sys").isDefined then return
+    // envGetOrElse: called when sys.env.getOrElse(key, default) is used
+    val envGetOrElse = ClosV(Runtime.emptyEnv, 2, env => {
+      val key = env(env.length - 2) match { case StrV(s) => s; case v => v.toString }
+      val dflt = env.last
+      Done(Option(System.getenv(key)).map(StrV.apply).getOrElse(dflt))
+    })
+    val envGet = ClosV(Runtime.emptyEnv, 1, env => {
+      val key = env.last match { case StrV(s) => s; case v => v.toString }
+      Done(Option(System.getenv(key)).map(s => DataV("Some", Vector(StrV(s)))).getOrElse(DataV("None", Vector.empty)))
+    })
+    // envObj: sys.env alone → ForeignV(Map) with getOrElse/get methods for chaining
+    val envObj = ForeignV(scala.collection.immutable.Map[String, V2Value](
+      "getOrElse" -> envGetOrElse,
+      "get"       -> envGet,
+    ).asInstanceOf[AnyRef])
+    // Register __method__.env handler: called when sys.env("KEY") or sys.env is accessed
+    // (Runtime.scala ForeignV(Map) dispatch falls through to plugin when value is a ForeignV)
+    V2PluginRegistry.register("__method__.env", args => {
+      val margs = args.drop(2)  // args = [name, recv, ...margs]
+      margs match
+        case Nil           => envObj  // sys.env alone → envObj for chaining
+        case List(StrV(k)) => Option(System.getenv(k)).map(StrV.apply).getOrElse(DataV("None", Vector.empty))
+        case _             => DataV("None", Vector.empty)
+    })
+    val sysObj = ForeignV(scala.collection.immutable.Map[String, V2Value](
+      "env"  -> envObj,  // 0-arg: sys.env → envObj; "KEY"-arg: handled by __method__.env plugin
+      "exit" -> ClosV(Runtime.emptyEnv, 1, env => {
+        System.exit(env.last match { case IntV(n) => n.toInt; case _ => 0 })
+        Done(UnitV)
+      }),
+    ).asInstanceOf[AnyRef])
+    V2PluginRegistry.registerGlobal("sys", sysObj)
+
   private def registerHandle(): Unit =
     if V2PluginRegistry.lookupGlobal("handle").isDefined then return // idempotent
     // handle(bodyResult)(handlerFn) — curried, 2 sequential arity-1 applications
