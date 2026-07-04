@@ -19,6 +19,7 @@ val JsAuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("webauthnStorePut")            -> RuntimeCall("_webauthnStorePut"),
   QualifiedName("webauthnStoreGet")            -> RuntimeCall("_webauthnStoreGet"),
   QualifiedName("webauthnStoreFind")           -> RuntimeCall("_webauthnStoreFind"),
+  QualifiedName("webauthnStoreRemove")         -> RuntimeCall("_webauthnStoreRemove"),
   QualifiedName("webauthnUpdateSignCount")     -> RuntimeCall("_webauthnUpdateSignCount"),
   QualifiedName("webauthnVerifyAssertion")     -> RuntimeCall("_webauthnVerifyAssertion"),
   QualifiedName("webauthnVerifyRegistration")  -> RuntimeCall("_webauthnVerifyRegistration"),

@@ -136,6 +136,13 @@ object AuthIntrinsics:
         case _ => PluginError.raise("webauthnStoreFind(userId, credentialId)")
     },
 
+    // Remove every credential enrolled for a user ("disable Face ID" on an account).
+    QualifiedName("webauthnStoreRemove") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(uid: String) => PluginValue.bool(scalascript.server.WebAuthn.storeRemove(uid))
+        case _ => PluginError.raise("webauthnStoreRemove(userId: String)")
+    },
+
     QualifiedName("webauthnUpdateSignCount") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(_: String, _: String, _: Long) =>

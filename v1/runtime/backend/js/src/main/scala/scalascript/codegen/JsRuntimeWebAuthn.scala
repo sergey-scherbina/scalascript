@@ -96,6 +96,7 @@ function _waCredMap(c) { return _Map(['credentialId', c.credentialId], ['publicK
 function _webauthnStoreGet(userId) { return (_waCreds.get(userId) || []).map(_waCredMap); }
 function _waFindRaw(userId, credentialId) { var list = _waCreds.get(userId) || []; for (var i = 0; i < list.length; i++) if (list[i].credentialId === credentialId) return list[i]; return null; }
 function _webauthnStoreFind(userId, credentialId) { var c = _waFindRaw(userId, credentialId); return c ? _Some(_waCredMap(c)) : None; }
+function _webauthnStoreRemove(userId) { var had = (_waCreds.get(userId) || []).length > 0; _waCreds.delete(userId); if (had) _waPersist(); return had; }
 function _webauthnUpdateSignCount(userId, credentialId, newCount) { var c = _waFindRaw(userId, credentialId); if (!c || newCount <= c.signCount) return false; c.signCount = newCount; _waPersist(); return true; }
 
 function _waJsonField(json, key) { try { var o = JSON.parse(json); var v = o[key]; return typeof v === 'string' ? v : null; } catch (e) { return null; } }

@@ -78,3 +78,33 @@ class WebAuthnPersistTest extends AnyFunSuite with Matchers with BeforeAndAfterE
     WebAuthn.storeGet("alice").map(_.credentialId).toSet shouldBe Set("cred-a1", "cred-a2")
     WebAuthn.storeGet("bob").map(_.credentialId) shouldBe List("cred-b1")
   }
+
+  test("storeRemove clears all of a user's credentials and returns true") {
+    WebAuthn.storePut("alice", WebAuthn.Credential("cred-a1", "pk-a1", 0))
+    WebAuthn.storePut("alice", WebAuthn.Credential("cred-a2", "pk-a2", 0))
+    WebAuthn.storeRemove("alice") shouldBe true
+    WebAuthn.storeGet("alice") shouldBe empty
+  }
+
+  test("storeRemove on a user with no credentials returns false") {
+    WebAuthn.storeRemove("nobody") shouldBe false
+  }
+
+  test("storeRemove only affects the named user") {
+    WebAuthn.storePut("alice", WebAuthn.Credential("cred-a1", "pk-a1", 0))
+    WebAuthn.storePut("bob", WebAuthn.Credential("cred-b1", "pk-b1", 0))
+    WebAuthn.storeRemove("alice") shouldBe true
+    WebAuthn.storeGet("alice") shouldBe empty
+    WebAuthn.storeGet("bob") shouldBe List(WebAuthn.Credential("cred-b1", "pk-b1", 0))
+  }
+
+  test("storeRemove persists across a reload") {
+    val path = tmpPath()
+    WebAuthn.configureStore(path)
+    WebAuthn.storePut("alice", WebAuthn.Credential("cred-a1", "pk-a1", 0))
+    WebAuthn.storeRemove("alice") shouldBe true
+
+    WebAuthn.reset()
+    WebAuthn.configureStore(path)
+    WebAuthn.storeGet("alice") shouldBe empty
+  }
