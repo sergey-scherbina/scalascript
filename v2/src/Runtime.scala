@@ -48,8 +48,8 @@ object Runtime:
         case Done(v) => return v
         case Call(c, args) =>
           if c.arity != args.length then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
-          // Fast path: empty args = reuse closure env directly (no array copy)
-          env = if args.isEmpty then c.env else Runtime.extend(c.env, args)
+          // Fast paths: empty args reuse closure env; empty closure env reuses args (no copy)
+          env = if args.isEmpty then c.env else if c.env.isEmpty then args else Runtime.extend(c.env, args)
           code = c.code
     sys.error("unreachable")
 
