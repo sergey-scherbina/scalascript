@@ -1388,6 +1388,15 @@ object Prims:
         // ── Either methods ───────────────────────────────────────────────────────
         case (DataV("Bench", _), "opaque", List(v)) => v
         case (DataV("BenchObj", _), "opaque", List(v)) => v
+        // List companion-object factories (recv = DataV("List", _) from CT.Ctor("List", Nil))
+        case (DataV("List", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
+          listOf((0 until n.toInt).map(i => callClos(fn, Array(IntV(i.toLong)))))
+        case (DataV("List", _), "fill", List(IntV(n), elem)) =>
+          listOf(Seq.fill(n.toInt)(elem))
+        case (DataV("List", _), "range", List(IntV(from), IntV(to))) =>
+          listOf((from until to).map(i => IntV(i): Value))
+        case (DataV("List", _), "range", List(IntV(from), IntV(to), IntV(step))) =>
+          listOf((from until to by step).map(i => IntV(i): Value))
         // LazyList
         case (DataV("LazyList", _), "from", List(IntV(n))) =>
           ForeignV(LazyList.from(n.toInt).map(i => IntV(i.toLong): Value))
