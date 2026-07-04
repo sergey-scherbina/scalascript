@@ -93,7 +93,13 @@ object FrontendBridge:
       else noShebang
     val fence = "```scalascript\n"
     val fenceStart = noFront.indexOf(fence)
-    if fenceStart < 0 then noFront.trim
+    // No fence: if the content looks like markdown prose (starts with # or ---), it's
+    // a doc-only example with no runnable code — return empty so it compiles as a no-op.
+    // Otherwise treat as raw Scala source (for test-style usage with no front matter).
+    if fenceStart < 0 then
+      val trimmed = noFront.trim
+      if trimmed.startsWith("#") || trimmed.startsWith("[") || trimmed.isEmpty then ""
+      else trimmed
     else
       val codeStart = fenceStart + fence.length
       val fenceEnd  = noFront.indexOf("\n```", codeStart)
