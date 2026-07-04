@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — FastCode phase 1: fcEntry + tryFC(Match) + Float-safe arm bodies
+
+`ClosV.fcEntry: Option[FC]` — set by Compiler for each lambda def; callers skip the trampoline and
+call the body FC directly (no Done alloc per call). `tryFCValue` uses `Prims.arithOp` for `__arith__`
+(Float-correct vs FLC-first which coerces Float→0L). `tryFC(Match)` full implementation: armMap O(1)
+tag dispatch, field binding via appendOne, arm bodies via tryFCValue. `cell.set resolveArg` compile-time
+fast path: if callee's fcEntry is already set and env is empty, capture bodyFC + pre-allocate sharedArgEnv
+(safe: bodyFC runs synchronously, no trampoline). Net improvements:
+
+| program          | v2 before | v2 after | improvement |
+|------------------|-----------|----------|-------------|
+| pattern-match    | 194 ms    | ~22 ms   | 8.8×        |
+| list-fold        | 16.5 ms   | ~1.4 ms  | 12×         |
+| recursion-tco    | 10.9 ms   | ~2.5 ms  | 4.4×        |
+| mutual-recursion | 81.2 ms   | ~18 ms   | 4.5×        |
+| tuple-monoid     | 407 ms    | ~15 ms   | 27×         |
+| instance-field   | 8.4 ms    | ~3 ms    | 2.8×        |
+
 ## 2026-07-03 — v2 Phase 2 complete: v2Core sbt + plugin bridge + JVM/JS/Rust backends
 
 Phase 2 of the v1→v2 migration is fully done. Verification pass (Phase 2d) ran 2026-07-03:

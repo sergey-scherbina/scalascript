@@ -121,7 +121,31 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Root cause: v2 FastCode is ~25-100× slower than v1 JIT for arithmetic loops (JVM lambda call overhead
       vs JIT-compiled bytecode); no v2 JIT yet.
       Gate: baselines recorded ✓. Top gaps identified.
-- [ ] **T3.2: v2 VM hot paths** — HOF fast paths (foldLeft/map/filter), string/collection ops.
+- [x] **T3.2a: FastCode phase 1** — DONE 2026-07-04. `ClosV.fcEntry` (direct body call, no trampoline
+      Done alloc per call), `tryFCValue` (Float-safe arm body FC via `Prims.arithOp` instead of FLC-first),
+      `tryFC(Match)` (full arm dispatch: armMap O(1) lookup, field binding, avoids Done allocs from match),
+      `tryFLC(App)` uses `fcEntry` (direct call when callee is simple), `cell.set resolveArg` with compile-time
+      fcEntry fast path + pre-allocated sharedArgEnv (safe: bodyFC is synchronous, no trampoline).
+      Results (v1 baseline → v2 before → v2 after):
+      | program          | v1 (ms) | v2 before | v2 after | ratio |
+      |------------------|---------|-----------|----------|-------|
+      | pattern-match    | ~2      | 194       | ~22      | 11×   |
+      | instance-field   | ~0.5    | 8.4       | ~3       | 6×    |
+      | list-fold        | ~0.5    | 16.5      | ~1.4     | 2.8×  |
+      | recursion-tco    | ~0.5    | 10.9      | ~2.5     | 5×    |
+      | nested-loop      | 0.256   | 31.6      | ~20      | 78×   |
+      | mutual-recursion | ~1      | 81.2      | ~18      | 18×   |
+      | tuple-monoid     | ~0.5    | 407       | ~15      | 30×   |
+      GOTCHA: sharedArgEnv unsafe in tryFLC(App) for Runtime.run path (trampoline aliases env=argEnv,
+      recursive fns corrupt it) — use `.clone()` or fresh array for the fcEntry=None branch.
+      GOTCHA: tryFC(While) regressed nested-loop 19.6→22ms despite fewer allocs (JVM JIT unfavorable
+      code shape) — left reverted.
+      Gate: T3.2 ongoing. Still above 5× on several programs.
+- [ ] **T3.2b: FastCode phase 2** — eliminate remaining hot allocs. Targets:
+      - mutual-recursion 18×: 3 allocs/bounce (IntV + Array + Call); needs LongCall or inline FCentry
+      - nested-loop 78×: env indirection bottleneck; needs javac JIT for scalarization
+      - tuple-monoid 30×: Ctor ++ Ctor → pre-allocated shared tuple; needs CtorFC direct construction
+      - pattern-match 11×: Float boxing (2 FloatV/arm); needs tryFFC (Env=>Double) arm fast code
       Gate: no program more than 5× slower than v1 interpreter on bench corpus.
 - [ ] **T3.3: v2 JVM backend quality** — profile generated Scala vs v1 JVM output.
       Gate: within 2× of v1 JVM backend on bench corpus.

@@ -23,7 +23,10 @@ object Value:
   final case class StrV(s: String)                    extends Value
   final case class BytesV(b: Vector[Byte])            extends Value
   final case class DataV(tag: String, fields: Vector[Value]) extends Value
-  final class ClosV(var env: Env, val arity: Int, val code: Code) extends Value  // var env: cyclic letrec frames
+  final class ClosV(var env: Env, val arity: Int, val code: Code) extends Value:  // var env: cyclic letrec frames
+    // Direct-call fast entry: set by Compiler for simple defs whose body is tryFC-able.
+    // Callers can invoke this instead of trampoline to eliminate Done allocs.
+    var fcEntry: Option[FastCode.FC] = None
   final case class ForeignV(h: AnyRef)                extends Value
   // Mutable long cell: avoids IntV boxing on every cell.set in tight arithmetic loops.
   // Lowered from `var x: Long = 0` via `lcell.new`.
@@ -81,7 +84,10 @@ object Compiler:
     val c = new C(globals)
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match
-      case Lam(ar, b) => globals(d.name) = ClosV(Array.empty[Value], ar, c.compile(b))
+      case Lam(ar, b) =>
+        val closV = ClosV(Array.empty[Value], ar, c.compile(b))
+        globals(d.name) = closV
+        closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global
       case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
@@ -231,11 +237,20 @@ object Compiler:
           case (Some(fbc), Some(fb)) =>
             (env: Env) => { while fbc(env) do fb(env); Done(Value.UnitV) }
           case _ =>
-            val cc = compile(cond); val bc = compile(body)
-            (env: Env) =>
-              while (Runtime.value(cc, env) match { case Value.BoolV(b) => b; case _ => false }) do
-                Runtime.value(bc, env)
-              Done(Value.UnitV)                                       // no trampoline bounce per iteration
+            // Mixed: use tryFBc for condition even if body is slow (saves BoolV alloc per check)
+            val fbcOpt = FastCode.tryFBc(cond, globals)
+            val bc = compile(body)
+            fbcOpt match
+              case Some(fbc) =>
+                (env: Env) =>
+                  while fbc(env) do Runtime.value(bc, env)
+                  Done(Value.UnitV)
+              case None =>
+                val cc = compile(cond)
+                (env: Env) =>
+                  while (Runtime.value(cc, env) match { case Value.BoolV(b) => b; case _ => false }) do
+                    Runtime.value(bc, env)
+                  Done(Value.UnitV)                                   // no trampoline bounce per iteration
       case Seq(terms) =>
         // Try FastCode path: prefer FLC-based long-set for arithmetic, then general FC
         val fastOpts = terms.map(t => FastCode.tryFCLongSet(t, globals).orElse(FastCode.tryFC(t, globals)))
@@ -352,24 +367,22 @@ object FastCode:
           case DataV(_, fields) => fields(k.toInt) match { case IntV(x) => x; case _ => 0L }
           case _ => 0L
       }
-    // App(Global(name), args) — run a known global function inline, coerce result to Long.
-    // ONLY in tryFLC so it applies when result is used as a numeric value (lcell.set / __arith__
-    // operands). NOT added to tryFC to avoid breaking JVM JIT for the harness loops.
-    // Handles: ClosV function calls (result coerced to Long) and DataV list indexed access.
+    // App(Global) — optimistic: returns 0L for non-Int-returning functions (Float→0L).
+    // Safe for lcell.set callers (normSq, Int-valued globals). NOT used for cell.set bodies.
+    // Uses fcEntry if available to skip the trampoline (one fewer Done alloc per call).
+    // Pre-allocates sharedArgEnv once per call-site (safe: body reads it synchronously, no aliasing).
     case App(Global(name), args) =>
       val argOpts = args.map(tryFC(_, globals))
       if argOpts.forall(_.isDefined) then
         val fca = argOpts.map(_.get).toArray
         Some((env: Env) =>
-          val fn = globals.getOrElse(name, sys.error(s"FLC App: unbound global: $name"))
+          val fn = globals.getOrElse(name, sys.error(s"tryFLC App: unbound global: $name"))
           fn match
             case c: ClosV =>
-              val argEnv = c.env ++ fca.map(f => f(env): Value)
-              Runtime.run(c.code, argEnv) match { case IntV(x) => x; case _ => 0L }
-            case DataV("Cons", _) | DataV("Nil", _) if fca.length == 1 =>
-              fca(0)(env) match
-                case IntV(i) => Prims.listAt(fn, i.toInt) match { case IntV(x) => x; case _ => 0L }
-                case _ => 0L
+              val argEnv = if c.env.isEmpty then fca.map(f => f(env): Value) else c.env ++ fca.map(f => f(env): Value)
+              c.fcEntry match
+                case Some(bodyFC) => bodyFC(argEnv) match { case IntV(x) => x; case _ => 0L }
+                case None => Runtime.run(c.code, argEnv) match { case IntV(x) => x; case _ => 0L }
             case _ => 0L
         )
       else None
@@ -449,6 +462,15 @@ object FastCode:
       }
     case _ => None
 
+  /** Float-safe FC for arm bodies and cell.set values: for __arith__, uses arithOp directly
+   *  (correct for Float operands) instead of the FLC-first shortcut (which coerces Float→0L). */
+  def tryFCValue(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
+      tryFCValue(a0, globals).flatMap { fc0 => tryFCValue(a1, globals).map { fc1 =>
+        (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+      } }
+    case _ => tryFC(t, globals)
+
   /** Try to compile a term to a FastCode.  Returns None if the term
    *  requires a tail call (Lam, App, LetRec, Match with complex arms). */
   def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
@@ -466,9 +488,60 @@ object FastCode:
       val n = i; Some((env: Env) =>
         env(env.length - 1 - n).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]](0) match
           case v: IntV => v; case v => v)
-    // lcell.set and cell.set: delegate to tryFCLongSet for unboxed path
-    case Prim("lcell.set", _) | Prim("cell.set", _) =>
+    // lcell.set: delegate to tryFCLongSet (lcell always holds Long — safe)
+    case Prim("lcell.set", _) =>
       tryFCLongSet(t, globals)
+    // cell.set: Float-safe body evaluation.
+    // NOT using tryFCLongSet: FLC coerces Float→0L (wrong for var x: Double cells).
+    // For __arith__ bodies, go straight to arithOp (handles FloatV+FloatV → FloatV).
+    // App args handled via a LOCAL resolveArg — NOT exposed to global tryFC — so the
+    // resulting App-FC class never appears in SeqFastCode and causes no JIT call-site
+    // pollution for unrelated benchmarks (instance-field, mutual-recursion).
+    case Prim("cell.set", List(Local(c), body)) =>
+      // resolveArg: Float-safe argument compilation for cell.set.
+      // Handles App inline (not in global tryFC) to avoid JIT call-site pollution in SeqFastCode.
+      // Uses fcEntry for App targets: skips trampoline, direct FC call.
+      def resolveArg(t: Term): Option[FC] = t match
+        case App(Global(g), appArgs) =>
+          val appArgFCs = appArgs.map(tryFC(_, globals))
+          if appArgFCs.forall(_.isDefined) then
+            val fca = appArgFCs.map(_.get).toArray; val gn = g
+            // Compile-time fast path: if the callee's fcEntry is already set (defs compiled in
+            // pass 1 before any call-site), capture it and use a pre-allocated argEnv.
+            // Safe: bodyFC is pure (no trampoline, no mutation of argEnv), runs synchronously.
+            globals.get(g).collect { case closV: ClosV if closV.fcEntry.isDefined && closV.env.isEmpty =>
+              val bodyFC = closV.fcEntry.get
+              val sharedArgEnv = new Array[Value](fca.length)
+              (env: Env) =>
+                var i = 0; while i < fca.length do { sharedArgEnv(i) = fca(i)(env); i += 1 }
+                bodyFC(sharedArgEnv)
+            }.orElse(Some((env: Env) =>
+              globals.getOrElse(gn, sys.error(s"cell.set: unbound: $gn")) match
+                case closV: ClosV =>
+                  val argEnv = if closV.env.isEmpty then fca.map(f => f(env): Value)
+                               else closV.env ++ fca.map(f => f(env): Value)
+                  closV.fcEntry match
+                    case Some(bodyFC) => bodyFC(argEnv)
+                    case None         => Runtime.run(closV.code, argEnv)
+                case _ => sys.error("cell.set: not a function")
+            ))
+          else None
+        case _ => tryFCValue(t, globals)
+      val fcBodyOpt: Option[FC] = body match
+        case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
+          resolveArg(a0).flatMap { fc0 =>
+            resolveArg(a1).map { fc1 =>
+              (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+            }
+          }
+        case _ => tryFCValue(body, globals)
+      fcBodyOpt.map { fcBody =>
+        val cn = c
+        (env: Env) =>
+          val cell = env(env.length - 1 - cn).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
+          cell(0) = fcBody(env)
+          UnitV
+      }
     // __arith__ with literal op — try FLC (unboxed Long) first, wrap result in IntV
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
       val flcOpt: Option[FC] = tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
@@ -481,16 +554,32 @@ object FastCode:
     // materialising a Vector (avoids unlist() O(n) alloc per call).
     case Prim("__method__", Lit(Const.CStr("foreach")) :: recv :: lambdaArg :: Nil) =>
       tryFC(recv, globals).flatMap { fcr =>
-        tryFC(lambdaArg, globals).map { fcl =>
-          (env: Env) =>
-            val lam = fcl(env).asInstanceOf[ClosV]
-            var cur = fcr(env)
-            while cur.isInstanceOf[DataV] && cur.asInstanceOf[DataV].tag == "Cons" do
-              val cons = cur.asInstanceOf[DataV]
-              Runtime.run(lam.code, Runtime.appendOne(lam.env, cons.fields(0)))
-              cur = cons.fields(1)
-            UnitV
-        }
+        // Inline-body path for Lam(1, body): skip closure creation + trampoline per element.
+        // fcb receives extended env with the list element appended.
+        val inlinePath: Option[FC] = lambdaArg match
+          case Lam(1, lambdaBody) =>
+            tryFC(lambdaBody, globals).map { fcb =>
+              (env: Env) =>
+                var cur = fcr(env)
+                while cur.isInstanceOf[DataV] && cur.asInstanceOf[DataV].tag == "Cons" do
+                  val cons = cur.asInstanceOf[DataV]
+                  fcb(Runtime.appendOne(env, cons.fields(0)))
+                  cur = cons.fields(1)
+                UnitV
+            }
+          case _ => None
+        inlinePath orElse
+          // ClosV path for Global-referenced lambdas
+          tryFC(lambdaArg, globals).map { fcl =>
+            (env: Env) =>
+              val lam = fcl(env).asInstanceOf[ClosV]
+              var cur = fcr(env)
+              while cur.isInstanceOf[DataV] && cur.asInstanceOf[DataV].tag == "Cons" do
+                val cons = cur.asInstanceOf[DataV]
+                Runtime.run(lam.code, Runtime.appendOne(lam.env, cons.fields(0)))
+                cur = cons.fields(1)
+              UnitV
+          }
       }
     // __method__ with literal method name — try FLC for Int conversions, else general dispatch
     case Prim("__method__", Lit(Const.CStr(m)) :: recv :: args) =>
@@ -592,16 +681,38 @@ object FastCode:
               case (StrV(l), v)        => StrV(l + Show.show(v))
               case (l, r)              => Prims.arithOp("++", l, r)
       } }
-    case Match(scrut, arms, default) if arms.isEmpty =>
-      // Degenerate: no arms — fall through to default
-      default.flatMap(d => tryFC(scrut, globals).flatMap(_ => tryFC(d, globals)))
+    case Match(scrut, arms, default) =>
+      // Fast match: compile scrutinee and ALL arm bodies (using float-safe tryFCValue).
+      // Returns None if any arm body isn't FC-able (e.g. recursive App, LetRec).
+      tryFC(scrut, globals).flatMap { fcScrut =>
+        val armFCOpts = arms.map(arm => tryFCValue(arm.body, globals).map(fcBody => (arm.tag, arm.arity, fcBody)))
+        val defFCOpt  = default.map(d => tryFCValue(d, globals))
+        if armFCOpts.forall(_.isDefined) && (default.isEmpty || defFCOpt.exists(_.isDefined)) then
+          val armFCs = armFCOpts.map(_.get)
+          val armMap = armFCs.map { case (tag, ar, fcBody) => tag -> (ar, fcBody) }.toMap
+          val defFC  = defFCOpt.flatten
+          Some((env: Env) =>
+            fcScrut(env) match
+              case DataV(tag, fs) =>
+                armMap.get(tag) match
+                  case Some((ar, fcBody)) =>
+                    val extEnv = ar match
+                      case 0 => env
+                      case 1 => Runtime.appendOne(env, fs(0))
+                      case 2 => Runtime.extend(env, Array(fs(0), fs(1)))
+                      case _ => Runtime.extend(env, fs.toArray)
+                    fcBody(extEnv)
+                  case None => defFC.map(_(env)).getOrElse(Value.UnitV)
+              case _ => defFC.map(_(env)).getOrElse(Value.UnitV)
+          )
+        else None
+      }
     // Lam in while body: compile body once; create ClosV capturing current env per call.
     // This allows `shapes.foreach(s => ...)` in a while loop to fast-compile the outer loop.
     case Lam(arity, body) =>
       val bodyC = Compiler.C(globals).compile(body)
       val ar = arity
       Some((env: Env) => ClosV(env, ar, bodyC))
-    // While not in tryFC — requires Call/trampoline path
     case _ => None
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
