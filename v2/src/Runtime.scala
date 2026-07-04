@@ -218,8 +218,17 @@ object Compiler:
                 val ac0 = compile(a0); val ac1 = compile(a1); val ac2 = compile(a2)
                 (env: Env) => Done(fn3(Runtime.value(ac0, env), Runtime.value(ac1, env), Runtime.value(ac2, env)))
               case None =>
-                val fn = Prims.resolve(op); val acs = args.map(compile)
-                (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
+                // Special fast path: __arith__ with literal op — avoid List alloc on every call
+                if op == "__arith__" then a0 match
+                  case Lit(Const.CStr(fixedOp)) =>
+                    val ac1 = compile(a1); val ac2 = compile(a2)
+                    (env: Env) => Done(Prims.arithOp(fixedOp, Runtime.value(ac1, env), Runtime.value(ac2, env)))
+                  case _ =>
+                    val fn = Prims.resolve(op); val acs = args.map(compile)
+                    (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
+                else
+                  val fn = Prims.resolve(op); val acs = args.map(compile)
+                  (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
           case _ =>                                                    // 0 or 4+ args: generic path
             val fn = Prims.resolve(op); val acs = args.map(compile)
             (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
@@ -1087,9 +1096,40 @@ object Prims:
         case Some(fn) => fn
         case None => (_: List[Value]) => sys.error(s"unimplemented primitive: $op")
 
-  /** Dispatch `__arith__(op, l, r)` without trampoline — for FastCode. */
-  def arithOp(op: String, l: Value, r: Value): Value =
-    resolve("__arith__")(List(StrV(op), l, r))
+  /** Dispatch `__arith__(op, l, r)` without allocating a List[Value] for the common cases. */
+  def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
+    case (IntV(x), IntV(y)) => op match
+      case "+"  => IntV(x + y);  case "-"  => IntV(x - y);  case "*"  => IntV(x * y)
+      case "/"  => IntV(x / y);  case "%"  => IntV(x % y)
+      case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+      case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
+      case "&"  => IntV(x & y);  case "|"  => IntV(x | y);  case "^"  => IntV(x ^ y)
+      case "<<" => IntV(x << y.toInt); case ">>" => IntV(x >> y.toInt); case ">>>" => IntV(x >>> y.toInt)
+      case _ => resolve("__arith__")(List(StrV(op), l, r))
+    case (FloatV(x), FloatV(y)) => op match
+      case "+"  => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
+      case "/"  => FloatV(x / y); case "%" => FloatV(x % y)
+      case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+      case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
+      case _ => resolve("__arith__")(List(StrV(op), l, r))
+    case (IntV(x), FloatV(y)) => op match
+      case "+"  => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
+      case "/"  => FloatV(x / y)
+      case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+      case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
+      case _ => resolve("__arith__")(List(StrV(op), l, r))
+    case (FloatV(x), IntV(y)) => op match
+      case "+"  => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
+      case "/"  => FloatV(x / y)
+      case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+      case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
+      case _ => resolve("__arith__")(List(StrV(op), l, r))
+    case (StrV(x), StrV(y)) => op match
+      case "++" | "+" => StrV(x + y)
+      case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+      case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
+      case _ => resolve("__arith__")(List(StrV(op), l, r))
+    case _ => resolve("__arith__")(List(StrV(op), l, r))
 
   /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
   def methodOp(name: String, recv: Value, args: List[Value]): Value =
