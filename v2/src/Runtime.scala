@@ -276,6 +276,15 @@ object FastCode:
   type FLC = Env => Long          // fast long: returns unboxed Long (avoids IntV boxing)
   type FBc = Env => Boolean       // fast bool: avoids BoolV boxing for conditions
 
+  // Explicit Seq FC class — all Seq FCs share ONE class, so the `fb(env)` call site
+  // in the fast While loop stays monomorphic regardless of Seq length.
+  // `var last` in apply() is a plain JVM local — no ObjectRef boxing.
+  final class SeqFastCode(private val fcs: Array[FC], private val n: Int) extends (Env => Value):
+    def apply(env: Env): Value =
+      var i = 0; var last: Value = Value.UnitV
+      while i < n do { last = fcs(i)(env); i += 1 }
+      last
+
   /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
   def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = t match
@@ -481,8 +490,14 @@ object FastCode:
     case Seq(terms) =>
       val opts = terms.map(tryFC(_, globals))
       if opts.forall(_.isDefined) then
-        val fcs = opts.map(_.get)
-        Some(env => { var last: Value = UnitV; for fc <- fcs do last = fc(env); last })
+        // Direct captures for 1/2/3 terms: JIT inlines f0/f1/f2 as known types.
+        // SeqFastCode fallback for n≥4 keeps class diversity bounded.
+        val fcsArr = opts.map(_.get).toArray
+        fcsArr.length match
+          case 1 => val f0 = fcsArr(0); Some(env => f0(env))
+          case 2 => val f0 = fcsArr(0); val f1 = fcsArr(1); Some(env => { f0(env); f1(env) })
+          case 3 => val f0 = fcsArr(0); val f1 = fcsArr(1); val f2 = fcsArr(2); Some(env => { f0(env); f1(env); f2(env) })
+          case n => Some(new SeqFastCode(fcsArr, n))
       else None
     case If(c, th, el) =>
       tryFC(c, globals).flatMap { fcc =>
@@ -552,6 +567,7 @@ object FastCode:
       val bodyC = Compiler.C(globals).compile(body)
       val ar = arity
       Some((env: Env) => ClosV(env, ar, bodyC))
+    // While not in tryFC — requires Call/trampoline path
     case _ => None
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
