@@ -103,8 +103,14 @@ object FrontendBridge:
     else
       val codeStart = fenceStart + fence.length
       val fenceEnd  = noFront.indexOf("\n```", codeStart)
-      if fenceEnd < 0 then noFront.drop(codeStart).trim
-      else noFront.slice(codeStart, fenceEnd)
+      val code = if fenceEnd < 0 then noFront.drop(codeStart).trim
+                 else noFront.slice(codeStart, fenceEnd)
+      // Strip v1 multi-import lines: [name1, name2, ...](path/to/file.ssc)
+      // These are a v1-specific import syntax that scalameta can't parse as Scala 3.
+      code.linesIterator.filterNot { line =>
+        val t = line.trim
+        t.startsWith("[") && t.contains("](") && (t.endsWith(")") || t.endsWith(".ssc)"))
+      }.mkString("\n")
 
   /** Convert a list of scalameta Trees (parsed body of a .ssc module) to Program. */
   def convertTrees(trees: List[Tree]): Program =
