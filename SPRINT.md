@@ -164,6 +164,19 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 
 **Track 4 — Full compatibility verification**
 - [ ] **T4.1: All examples** — run every `examples/` file under `ssc run --v2`. 0 failures.
+      Progress 2026-07-04: Fixed extractCode (shebang+YAML front matter+fence extraction),
+      .copy(named=) via field registry, List.tabulate/fill/range factories, doc-only examples
+      (no fence → empty no-op). Tested 25+ examples. Known PASS: hello, bitwise-operators,
+      data-types, enums, extensions, functional, default-params, dsl-calc-parser,
+      dsl-json-parser, dsl-mini-language, dsl-sql-recovery, dsl-yaml-like, recursion, imports,
+      lenses, content, lang-split, js-glue-component, graph-fullstack (doc-only), and others.
+      Known FAIL categories (require plugin work beyond this sprint):
+      - Plugin globals: runActors, serve, signal, agentTool, mcpConnect, htmlToPdfBase64,
+        lower, generator, spanMerge, Graph.*, etc. (need v1 plugin bridge activation).
+      - Effect syntax: `effect Foo: ...` (need FrontendBridge effect decl handling).
+      - Multi-import syntax: `[X,Y](file.ssc)` (parse error; need pre-processing).
+      - Scala 3 derives/mirrors: `derives`, `Mirror.Of[T]` (complex metaprogramming).
+      Next: run complete batch to count pass/fail; fix remaining pure-language gaps.
 - [ ] **T4.2: Stdlib plugins** — run `v1/runtime/std/*.ssc` tests under v2. 0 failures.
 - [ ] **T4.3: Full application** — pick busi or payments demo, run end-to-end under v2.
       Gate: HTTP server starts, handles requests, DB queries work.

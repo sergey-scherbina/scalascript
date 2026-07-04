@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — T4.1 partial: FrontendBridge .ssc file format + runtime fixes
+
+`extractCode`: strips shebang, YAML front matter, and markdown fences so any .ssc
+example file can be passed directly to `v2FrontendBridge/run run`. Doc-only examples
+(no ` ```scalascript ``` ` fence) return empty code → compile as no-op programs.
+`.copy(named=)` fix: intercepts `qual.copy(field=val, ...)` in convertApply, uses
+fieldRegistry to emit `Let([q], Ctor(tag, [fieldAt/overrides]))` — avoids unbound
+`@field` globals. List companion-object factories: `tabulate(n)(f)`, `fill(n)(v)`,
+`range(from, to)`, `range(from, to, step)` added to `__method__` dispatch.
+~20 examples now PASS; plugin-dependent examples architecturally blocked.
+
 ## 2026-07-04 — FastCode phase 2: DataV→IndexedSeq/ArraySeq + While FC case
 
 `DataV.fields: Vector[Value]` changed to `IndexedSeq[Value]`. All hot-path Ctor creation
