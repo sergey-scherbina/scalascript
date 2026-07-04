@@ -60,7 +60,7 @@ object Runtime:
       code(env) match
         case Done(v) => return v
         case Call(c, args) =>
-          if c.arity != args.length then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
+          if c.arity >= 0 && c.arity != args.length then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
           // Fast paths: empty args reuse closure env; empty closure env reuses args (no copy)
           env = if args.isEmpty then c.env else if c.env.isEmpty then args else Runtime.extend(c.env, args)
           code = c.code

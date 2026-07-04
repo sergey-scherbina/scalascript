@@ -45,8 +45,8 @@ object PluginBridge:
               // Register as prim (for Prim(op, args) IR nodes)
               V2PluginRegistry.register(op, args => nativeFn(args))
               // Register as global (for App(Global(name), args) IR nodes)
-              // env holds all args passed positionally; convert env to arg list.
-              V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+              // arity=-1 = variadic: env = all call args (no captured env), skip arity check.
+              V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, -1, env => {
                 Done(nativeFn(env.toList))
               }))
               count += 1
@@ -72,7 +72,7 @@ object PluginBridge:
             rawToV2(eval(MinimalCtx, rawArgs))
           }
           V2PluginRegistry.register(op, args => nativeFn(args))
-          V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, 1, env => Done(nativeFn(env.toList))))
+          V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, -1, env => Done(nativeFn(env.toList))))
           count += 1
         case _ => // compile-time variants; not bridgeable
     }
@@ -423,6 +423,14 @@ object PluginBridge:
     case b: Boolean => V2Value.BoolV(b)
     case ()         => V2Value.UnitV
     case v1: V1Value => v1ToV2(v1)
+    // v1 NativeFnV → variadic v2 ClosV (arity=-1, accepts any number of args)
+    case nfv: scalascript.interpreter.Value.NativeFnV =>
+      V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+        val v1Args = env.toList.map(v2ToV1)
+        val computation = nfv.f(v1Args)
+        import scalascript.interpreter.Computation
+        Done(v1ToV2(Computation.run(computation)))
+      })
     case lst: scala.collection.immutable.List[?] =>
       lst.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (x, acc) =>
         V2Value.DataV("Cons", Vector(rawToV2(x.asInstanceOf[Any]), acc))
@@ -500,6 +508,12 @@ object PluginBridge:
       V2Value.DataV(s"Tuple${elems.length}", elems.map(v1ToV2).toVector)
     case scalascript.interpreter.Value.Foreign(_, h: AnyRef) =>
       V2Value.ForeignV(h)
+    // v1 NativeFnV → variadic v2 ClosV
+    case nfv: scalascript.interpreter.Value.NativeFnV =>
+      V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+        val v1Args = env.toList.map(v2ToV1)
+        Done(v1ToV2(scalascript.interpreter.Computation.run(nfv.f(v1Args))))
+      })
     case _ =>
       // Closures and other complex v1 values: wrap in ForeignV
       V2Value.ForeignV(v.asInstanceOf[AnyRef])
