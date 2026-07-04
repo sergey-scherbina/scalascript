@@ -77,8 +77,28 @@ object FrontendBridge:
   // ── Entry points ─────────────────────────────────────────────────────────────
 
   /** Parse a source string and convert to Core IR Program.
-   *  Supports script mode: bare expressions at the top level are wrapped in a block. */
-  def convertSource(src: String): Program = convertStats(parseStats(src))
+   *  Supports script mode: bare expressions at the top level are wrapped in a block.
+   *  Handles .ssc file format: optional shebang + YAML front matter + markdown prose +
+   *  ```scalascript...``` fence; if no fence, uses the whole source. */
+  def convertSource(src: String): Program = convertStats(parseStats(extractCode(src)))
+
+  /** Extract the scalascript code block from a .ssc file (strips shebang, front matter, fences). */
+  def extractCode(raw: String): String =
+    val noShebang = if raw.startsWith("#!/") then raw.dropWhile(_ != '\n').drop(1) else raw
+    val noFront =
+      if noShebang.stripLeading().startsWith("---") then
+        val start = noShebang.indexOf("---")
+        val after = noShebang.indexOf("\n---", start + 3)
+        if after >= 0 then noShebang.drop(after + 4) else noShebang
+      else noShebang
+    val fence = "```scalascript\n"
+    val fenceStart = noFront.indexOf(fence)
+    if fenceStart < 0 then noFront.trim
+    else
+      val codeStart = fenceStart + fence.length
+      val fenceEnd  = noFront.indexOf("\n```", codeStart)
+      if fenceEnd < 0 then noFront.drop(codeStart).trim
+      else noFront.slice(codeStart, fenceEnd)
 
   /** Convert a list of scalameta Trees (parsed body of a .ssc module) to Program. */
   def convertTrees(trees: List[Tree]): Program =
