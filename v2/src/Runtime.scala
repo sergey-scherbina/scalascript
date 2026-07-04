@@ -1388,7 +1388,9 @@ object Prims:
         // ── Either methods ───────────────────────────────────────────────────────
         case (DataV("Bench", _), "opaque", List(v)) => v
         case (DataV("BenchObj", _), "opaque", List(v)) => v
-        // List companion-object factories (recv = DataV("List", _) from CT.Ctor("List", Nil))
+        // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
+        case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
+        case (DataV("Map", _), "empty", Nil) => ForeignV(collection.mutable.HashMap[Value, Value]())
         case (DataV("List", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
           listOf((0 until n.toInt).map(i => callClos(fn, Array(IntV(i.toLong)))))
         case (DataV("List", _), "fill", List(IntV(n), elem)) =>
