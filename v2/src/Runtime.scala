@@ -124,15 +124,28 @@ object Compiler:
           bc(envP)                                                   // body: tail
       case Ctor(tag, fields) =>
         val fcs = fields.map(compile)
-        (env: Env) => Done(DataV(tag, fcs.map(fc => Runtime.value(fc, env)).toVector))
+        fcs.length match
+          case 0 => val v = DataV(tag, Vector.empty); (_: Env) => Done(v)
+          case 1 => val fc0 = fcs(0); (env: Env) => Done(DataV(tag, Vector(Runtime.value(fc0, env))))
+          case 2 => val fc0 = fcs(0); val fc1 = fcs(1); (env: Env) => Done(DataV(tag, Vector(Runtime.value(fc0, env), Runtime.value(fc1, env))))
+          case 3 => val fc0 = fcs(0); val fc1 = fcs(1); val fc2 = fcs(2); (env: Env) => Done(DataV(tag, Vector(Runtime.value(fc0, env), Runtime.value(fc1, env), Runtime.value(fc2, env))))
+          case _ => (env: Env) => Done(DataV(tag, fcs.map(fc => Runtime.value(fc, env)).toVector))
       case Match(scrut, arms, default) =>
         val sc = compile(scrut)
         val acs = arms.map(a => (a.tag, a.arity, compile(a.body)))
+        val armMap = acs.map { case (t, ar, b) => (t, ar) -> b }.toMap
         val dc = default.map(compile)
         (env: Env) => Runtime.value(sc, env) match                   // scrutinee: non-tail
           case DataV(tag, fs) =>
-            acs.find { case (t, ar, _) => t == tag && ar == fs.length } match
-              case Some((_, _, body)) => body(Runtime.extend(env, fs.toArray))    // arm: tail
+            armMap.get((tag, fs.length)) match
+              case Some(body) =>
+                // Avoid fs.toArray (Vector→Array alloc) for the common 0/1/2-field cases
+                val extEnv = fs.length match
+                  case 0 => env
+                  case 1 => Runtime.appendOne(env, fs(0))
+                  case 2 => Runtime.extend(env, Array(fs(0), fs(1)))
+                  case _ => Runtime.extend(env, fs.toArray)
+                body(extEnv)
               case None => dc match
                 case Some(d) => d(env)
                 case None => sys.error(s"match: no arm for $tag/${fs.length}")
@@ -500,9 +513,12 @@ object FastCode:
         if fields.forall(_.isInstanceOf[Lit]) then
           val precomputed = DataV(tag, fcs.map(fc => fc(Array.empty)).toVector)
           Some(_ => precomputed)
-        else
-          val n = fcs.length; val fcsArr = fcs.toArray
-          Some(env => DataV(tag, (0 until n).map(i => fcsArr(i)(env)).toVector))
+        else fcs.length match
+          // Inline Vector(...) construction to avoid intermediate Range/Seq allocs
+          case 1 => val fc0 = fcs(0); Some(env => DataV(tag, Vector(fc0(env))))
+          case 2 => val fc0 = fcs(0); val fc1 = fcs(1); Some(env => DataV(tag, Vector(fc0(env), fc1(env))))
+          case 3 => val fc0 = fcs(0); val fc1 = fcs(1); val fc2 = fcs(2); Some(env => DataV(tag, Vector(fc0(env), fc1(env), fc2(env))))
+          case n => val fcsArr = fcs.toArray; Some(env => DataV(tag, (0 until n).map(i => fcsArr(i)(env)).toVector))
       else None
     // __arith__("++") — tuple/string concat fast-path (avoids full trampoline for DataV++)
     case Prim("__arith__", List(Lit(Const.CStr("++")), a0, a1)) =>
