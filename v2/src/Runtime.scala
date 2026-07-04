@@ -100,11 +100,17 @@ object Compiler:
       case Lam(ar, b) =>
         val bc = compile(b); (env: Env) => Done(ClosV(env, ar, bc))
       case If(c, th, el) =>
-        val cc = compile(c); val tc = compile(th); val ec = compile(el)
-        (env: Env) => Runtime.value(cc, env) match                   // condition: non-tail
-          case BoolV(true)  => tc(env)                               // branch: tail (returns its Step)
-          case BoolV(false) => ec(env)
-          case v => sys.error(s"if: condition not Bool: ${Show.show(v)}")
+        val tc = compile(th); val ec = compile(el)
+        FastCode.tryFBc(c, globals) match
+          // Fast path: condition is pure boolean — no Done/BoolV alloc per call
+          case Some(fbc) =>
+            (env: Env) => if fbc(env) then tc(env) else ec(env)
+          case None =>
+            val cc = compile(c)
+            (env: Env) => Runtime.value(cc, env) match              // condition: non-tail
+              case BoolV(true)  => tc(env)                          // branch: tail (returns Step)
+              case BoolV(false) => ec(env)
+              case v => sys.error(s"if: condition not Bool: ${Show.show(v)}")
       case Let(rhs, body) =>
         val rcs = rhs.map(compile); val bc = compile(body)
         (env: Env) =>
@@ -151,6 +157,33 @@ object Compiler:
                 case None => sys.error(s"match: no arm for $tag/${fs.length}")
           case v => sys.error(s"match: scrutinee not Data: ${Show.show(v)}")
       case App(fn, args) =>
+        // Global-call FC fast path: skip Done/run for the function lookup.
+        // Uses tryFC for args (not tryFLC) so FloatV/StrV args pass through unchanged.
+        // Uses lazy globals lookup to handle self-recursion (global not set during body compilation).
+        val globalFastPath: Option[Code] = fn match
+          case Global(g) if args.nonEmpty =>
+            args match
+              case List(a0) =>
+                FastCode.tryFC(a0, globals).map { f0 =>
+                  (env: Env) =>
+                    val avs = new Array[Value](1); avs(0) = f0(env)
+                    globals.getOrElse(g, sys.error(s"unbound global: $g")) match
+                      case c: ClosV => Call(c, avs)
+                      case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                }
+              case List(a0, a1) =>
+                FastCode.tryFC(a0, globals).flatMap { f0 =>
+                  FastCode.tryFC(a1, globals).map { f1 =>
+                    (env: Env) =>
+                      val avs = new Array[Value](2); avs(0) = f0(env); avs(1) = f1(env)
+                      globals.getOrElse(g, sys.error(s"unbound global: $g")) match
+                        case c: ClosV => Call(c, avs)
+                        case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                  }
+                }
+              case _ => None
+          case _ => None
+        globalFastPath.getOrElse {
         if args.isEmpty then
           val fc = compile(fn)
           (env: Env) =>
@@ -191,6 +224,7 @@ object Compiler:
               fv match
                 case c: ClosV => Call(c, avs)
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
+        }   // end globalFastPath.getOrElse
       case While(cond, body) =>
         // Try FastCode path: avoids Done boxing and trampoline per iteration
         (FastCode.tryFBc(cond, globals), FastCode.tryFC(body, globals)) match
