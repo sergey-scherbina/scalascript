@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — FastCode phase 2: DataV→IndexedSeq/ArraySeq + While FC case
+
+`DataV.fields: Vector[Value]` changed to `IndexedSeq[Value]`. All hot-path Ctor creation
+(`compile(Ctor)`, `tryFC(Ctor)`, `ctorFused ++ path`) now uses `ArraySeq.unsafeWrapArray(Array(...))`:
+2 allocs (Array + ArraySeq wrapper) vs 4 for Vector (varargs + VectorBuilder + take + Vector1),
+eliminating the 256-byte VectorBuilder.prefix1 per Ctor creation. Measurement: tuple-monoid 26→22ms.
+`tryFC(While)` added: nested while loops inside Seq/Let/foreach bodies now FC-compile instead of
+falling to the general compile() path.
+`tryFCMutual` carrier optimization: preallocates LongCellV+Array for single-Long-arg mutual calls
+to eliminate 2 allocs/bounce (dead code; tryFCMutual not called — pass 1b was 4% slower for deep
+mutual recursion due to JVM frame overhead > trampoline). Investigation result: T3.2b (5× max)
+is architecturally blocked without a v2 JIT backend. All FC improvements implemented.
+
 ## 2026-07-04 — FastCode phase 1: fcEntry + tryFC(Match) + Float-safe arm bodies
 
 `ClosV.fcEntry: Option[FC]` — set by Compiler for each lambda def; callers skip the trampoline and

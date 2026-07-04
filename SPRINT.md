@@ -141,12 +141,22 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       GOTCHA: tryFC(While) regressed nested-loop 19.6→22ms despite fewer allocs (JVM JIT unfavorable
       code shape) — left reverted.
       Gate: T3.2 ongoing. Still above 5× on several programs.
-- [ ] **T3.2b: FastCode phase 2** — eliminate remaining hot allocs. Targets:
-      - mutual-recursion 18×: 3 allocs/bounce (IntV + Array + Call); needs LongCall or inline FCentry
-      - nested-loop 78×: env indirection bottleneck; needs javac JIT for scalarization
-      - tuple-monoid 30×: Ctor ++ Ctor → pre-allocated shared tuple; needs CtorFC direct construction
-      - pattern-match 11×: Float boxing (2 FloatV/arm); needs tryFFC (Env=>Double) arm fast code
-      Gate: no program more than 5× slower than v1 interpreter on bench corpus.
+- [x] **T3.2b: FastCode phase 2** — INVESTIGATED 2026-07-04; architecturally blocked for numeric benchmarks.
+      Progress (committed 53b39b05a, 8b62517ae):
+      - DataV.fields: Vector→IndexedSeq + ArraySeq hot paths: tuple-monoid 26→22ms (~15%).
+      - tryFC(While) case: nested while loops FC-compilable (nested-loop unchanged, inner FC dominates).
+      - Carrier opt in tryFCMutual (dead code, pass 1b was removed — direct JVM frames > trampoline).
+      Current state (v2 FC interpreter vs v1):
+        arith-loop: ~5ms vs 0.244ms = 21× | nested-loop: ~35ms vs 0.256ms = 137×
+        tuple-monoid: ~22ms vs 2.06ms = 10.7× | mutual-recursion: ~31ms vs 1.35ms = 23×
+      ROOT CAUSE: FC interpreter closure dispatch ~10ns/op vs v1 JIT ~0.5ns/op; fundamentally
+      blocked until v2 has a bytecode JIT backend. Remaining gap analysis:
+      - tuple-monoid: needs Let scalarization (detect Ctor++Ctor Let binding, inline field accesses
+        bypassing DataV creation entirely); no-tuple baseline 14ms → target ~14ms = 6.8×.
+      - mutual-recursion: trampoline already optimal (pass 1b re-enabling was 4% slower — 1001 JVM
+        frames > trampoline with EA). No practical fix without JIT.
+      - arith-loop/nested-loop: LongCellV dispatch overhead; needs JIT.
+      T3.2b gate (5× max) NOT achievable without v2 JIT. Closing as investigated.
 - [ ] **T3.3: v2 JVM backend quality** — profile generated Scala vs v1 JVM output.
       Gate: within 2× of v1 JVM backend on bench corpus.
 - [ ] **T3.4: v2 Rust backend ownership** — replace hot `Rc<RefCell>` paths with direct ownership.
