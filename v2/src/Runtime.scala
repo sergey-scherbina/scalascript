@@ -32,7 +32,7 @@ object Value:
   final case class FloatV(d: Double)                  extends Value
   final case class StrV(s: String)                    extends Value
   final case class BytesV(b: Vector[Byte])            extends Value
-  final case class DataV(tag: String, fields: Vector[Value]) extends Value
+  final case class DataV(tag: String, fields: IndexedSeq[Value]) extends Value
   final class ClosV(var env: Env, val arity: Int, val code: Code) extends Value:  // var env: cyclic letrec frames
     // Direct-call fast entry: set by Compiler for simple defs whose body is tryFC-able.
     // Callers can invoke this instead of trampoline to eliminate Done allocs.
@@ -151,11 +151,28 @@ object Compiler:
       case Ctor(tag, fields) =>
         val fcs = fields.map(compile)
         fcs.length match
-          case 0 => val v = DataV(tag, Vector.empty); (_: Env) => Done(v)
-          case 1 => val fc0 = fcs(0); (env: Env) => Done(DataV(tag, Vector(Runtime.value(fc0, env))))
-          case 2 => val fc0 = fcs(0); val fc1 = fcs(1); (env: Env) => Done(DataV(tag, Vector(Runtime.value(fc0, env), Runtime.value(fc1, env))))
-          case 3 => val fc0 = fcs(0); val fc1 = fcs(1); val fc2 = fcs(2); (env: Env) => Done(DataV(tag, Vector(Runtime.value(fc0, env), Runtime.value(fc1, env), Runtime.value(fc2, env))))
-          case _ => (env: Env) => Done(DataV(tag, fcs.map(fc => Runtime.value(fc, env)).toVector))
+          case 0 =>
+            val v = DataV(tag, IndexedSeq.empty); (_: Env) => Done(v)
+          case 1 =>
+            val fc0 = fcs(0)
+            (env: Env) =>
+              val a = new Array[Value](1); a(0) = Runtime.value(fc0, env)
+              Done(DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
+          case 2 =>
+            val fc0 = fcs(0); val fc1 = fcs(1)
+            (env: Env) =>
+              val a = new Array[Value](2); a(0) = Runtime.value(fc0, env); a(1) = Runtime.value(fc1, env)
+              Done(DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
+          case 3 =>
+            val fc0 = fcs(0); val fc1 = fcs(1); val fc2 = fcs(2)
+            (env: Env) =>
+              val a = new Array[Value](3); a(0) = Runtime.value(fc0, env); a(1) = Runtime.value(fc1, env); a(2) = Runtime.value(fc2, env)
+              Done(DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
+          case n =>
+            val fcsArr = fcs.toArray
+            (env: Env) =>
+              val a = new Array[Value](n); var k = 0; while k < n do { a(k) = Runtime.value(fcsArr(k), env); k += 1 }
+              Done(DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
       case Match(scrut, arms, default) =>
         val sc = compile(scrut)
         val acs = arms.map(a => (a.tag, a.arity, compile(a.body)))
@@ -555,20 +572,32 @@ object FastCode:
             ))
           else None
         case _ => tryFCValue(t, globals)
-      val fcBodyOpt: Option[FC] = body match
-        case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
-          resolveArg(a0).flatMap { fc0 =>
-            resolveArg(a1).map { fc1 =>
-              (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
-            }
-          }
-        case _ => tryFCValue(body, globals)
-      fcBodyOpt.map { fcBody =>
-        val cn = c
+      // FLC fast path: if body is pure Int arithmetic, compute unboxed Long → single IntV.
+      // Safe: tryFLC fails for Float/String expressions (returns None), so we only
+      // reach this for Int-valued bodies that would store an IntV anyway.
+      // Avoids the 2 intermediate IntV allocs that the arithOp chain produces.
+      val flcBody: Option[FC] = tryFLC(body, globals).map { flc =>
+        val cn2 = c
         (env: Env) =>
-          val cell = env(env.length - 1 - cn).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
-          cell(0) = fcBody(env)
-          UnitV
+          val cell = env(env.length - 1 - cn2).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
+          cell(0) = IntV(flc(env)); UnitV
+      }
+      flcBody.orElse {
+        val fcBodyOpt: Option[FC] = body match
+          case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
+            resolveArg(a0).flatMap { fc0 =>
+              resolveArg(a1).map { fc1 =>
+                (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+              }
+            }
+          case _ => tryFCValue(body, globals)
+        fcBodyOpt.map { fcBody =>
+          val cn = c
+          (env: Env) =>
+            val cell = env(env.length - 1 - cn).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
+            cell(0) = fcBody(env)
+            UnitV
+        }
       }
     // __arith__ with literal op — try FLC (unboxed Long) first, wrap result in IntV
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
@@ -639,7 +668,10 @@ object FastCode:
         }
       }
     case Seq(terms) =>
-      val opts = terms.map(tryFC(_, globals))
+      // tryFCLongSet before tryFC: allows lcell.set terms inside a Seq body (e.g., inside Let
+      // bindings in a while loop).  Enables the full FC path for loops with val-bindings +
+      // lcell mutations (e.g., tuple-monoid's while body).
+      val opts = terms.map(t => tryFCLongSet(t, globals).orElse(tryFC(t, globals)))
       if opts.forall(_.isDefined) then
         // Direct captures for 1/2/3 terms: JIT inlines f0/f1/f2 as known types.
         // SeqFastCode fallback for n≥4 keeps class diversity bounded.
@@ -677,14 +709,31 @@ object FastCode:
         val fcs = opts.map(_.get)
         // Constant Ctor: all fields are Lit → precompute once, return cached
         if fields.forall(_.isInstanceOf[Lit]) then
-          val precomputed = DataV(tag, fcs.map(fc => fc(Array.empty)).toVector)
+          val arr0 = fcs.map(fc => fc(Array.empty)).toArray
+          val precomputed = DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(arr0))
           Some(_ => precomputed)
         else fcs.length match
-          // Inline Vector(...) construction to avoid intermediate Range/Seq allocs
-          case 1 => val fc0 = fcs(0); Some(env => DataV(tag, Vector(fc0(env))))
-          case 2 => val fc0 = fcs(0); val fc1 = fcs(1); Some(env => DataV(tag, Vector(fc0(env), fc1(env))))
-          case 3 => val fc0 = fcs(0); val fc1 = fcs(1); val fc2 = fcs(2); Some(env => DataV(tag, Vector(fc0(env), fc1(env), fc2(env))))
-          case n => val fcsArr = fcs.toArray; Some(env => DataV(tag, (0 until n).map(i => fcsArr(i)(env)).toVector))
+          // Use ArraySeq.unsafeWrapArray: 2 allocs (Array+wrapper) vs 4 for Vector
+          case 1 =>
+            val fc0 = fcs(0)
+            Some((env: Env) =>
+              val a = new Array[Value](1); a(0) = fc0(env)
+              DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
+          case 2 =>
+            val fc0 = fcs(0); val fc1 = fcs(1)
+            Some((env: Env) =>
+              val a = new Array[Value](2); a(0) = fc0(env); a(1) = fc1(env)
+              DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
+          case 3 =>
+            val fc0 = fcs(0); val fc1 = fcs(1); val fc2 = fcs(2)
+            Some((env: Env) =>
+              val a = new Array[Value](3); a(0) = fc0(env); a(1) = fc1(env); a(2) = fc2(env)
+              DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
+          case n =>
+            val fcsArr = fcs.toArray
+            Some((env: Env) =>
+              val a = new Array[Value](n); var k = 0; while k < n do { a(k) = fcsArr(k)(env); k += 1 }
+              DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a)))
       else None
     // __arith__("++") — tuple/string concat fast-path (avoids full trampoline for DataV++)
     case Prim("__arith__", List(Lit(Const.CStr("++")), a0, a1)) =>
@@ -700,12 +749,18 @@ object FastCode:
             Some(n match
               case 4 =>
                 val f0 = fcs(0); val f1 = fcs(1); val f2 = fcs(2); val f3 = fcs(3)
-                (env: Env) => DataV(tag, Vector(f0(env), f1(env), f2(env), f3(env)))
+                (env: Env) =>
+                  val a = new Array[Value](4); a(0) = f0(env); a(1) = f1(env); a(2) = f2(env); a(3) = f3(env)
+                  DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a))
               case 2 =>
                 val f0 = fcs(0); val f1 = fcs(1)
-                (env: Env) => DataV(tag, Vector(f0(env), f1(env)))
+                (env: Env) =>
+                  val a = new Array[Value](2); a(0) = f0(env); a(1) = f1(env)
+                  DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a))
               case _ =>
-                (env: Env) => DataV(tag, fcs.map(f => f(env): Value).toVector)
+                (env: Env) =>
+                  val a = new Array[Value](n); var k = 0; while k < n do { a(k) = fcs(k)(env); k += 1 }
+                  DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(a))
             )
           else None
         case _ => None
@@ -967,9 +1022,9 @@ object Prims:
     case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
     case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
-    case "str.split" => a => { val parts = str(a, 0).split(java.util.regex.Pattern.quote(str(a, 1)), -1); val nilV: Value = DataV("Nil", Vector.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", Vector(StrV(s), acc))) }
+    case "str.split" => a => { val parts = str(a, 0).split(java.util.regex.Pattern.quote(str(a, 1)), -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
     case "str.trim"  => a => StrV(str(a, 0).trim)
-    case "str.lines" => a => { val parts = str(a, 0).split("\n", -1); val nilV: Value = DataV("Nil", Vector.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", Vector(StrV(s), acc))) }
+    case "str.lines" => a => { val parts = str(a, 0).split("\n", -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
     // Bytes
     case "blen"      => a => IntV(bytes(a, 0).length.toLong)
     case "bget"      => a => IntV((bytes(a, 0)(int(a, 1).toInt) & 0xff).toLong)
@@ -1030,8 +1085,8 @@ object Prims:
     case "__mk_map__" => a =>
       val m = collection.mutable.HashMap[Value, Value]()
       a.foreach {
-        case DataV("Tuple2", Vector(k, v)) => m(k) = v
-        case DataV("->", Vector(k, v))     => m(k) = v
+        case DataV("Tuple2", Seq(k, v)) => m(k) = v
+        case DataV("->", Seq(k, v))     => m(k) = v
         case pair => sys.error(s"Map factory: expected k->v pair, got ${Show.show(pair)}")
       }
       ForeignV(m)
@@ -1040,7 +1095,7 @@ object Prims:
     // Covers the cases that ssc1c maps to typed i.*/f.* ops.
     case "__arith__" => a =>
       val op = str(a, 0)
-      if op == "->" then DataV("Tuple2", Vector(a(1), a(2)))
+      if op == "->" then DataV("Tuple2", collection.immutable.ArraySeq(a(1), a(2)))
       else (a(1), a(2)) match
         case (IntV(x), IntV(y)) => op match
           case "+"   => IntV(x + y);   case "-"   => IntV(x - y);   case "*"  => IntV(x * y)
@@ -1051,8 +1106,8 @@ object Prims:
           case "&"   => IntV(x & y);   case "|"   => IntV(x | y);   case "^"  => IntV(x ^ y)
           case "<<"  => IntV(x << y.toInt); case ">>" => IntV(x >> y.toInt); case ">>>" => IntV(x >>> y.toInt)
           case "++"  => StrV(x.toString + y.toString)
-          case "to"    => { val nilV: Value = DataV("Nil", Vector.empty); (x to y).foldRight(nilV)((i, acc) => DataV("Cons", Vector(IntV(i), acc))) }
-          case "until" => { val nilV: Value = DataV("Nil", Vector.empty); (x until y).foldRight(nilV)((i, acc) => DataV("Cons", Vector(IntV(i), acc))) }
+          case "to"    => { val nilV: Value = DataV("Nil", IndexedSeq.empty); (x to y).foldRight(nilV)((i, acc) => DataV("Cons", collection.immutable.ArraySeq(IntV(i), acc))) }
+          case "until" => { val nilV: Value = DataV("Nil", IndexedSeq.empty); (x until y).foldRight(nilV)((i, acc) => DataV("Cons", collection.immutable.ArraySeq(IntV(i), acc))) }
           case _     => sys.error(s"__arith__: unknown op $op for Int")
         case (FloatV(x), FloatV(y)) => op match
           case "+"  => FloatV(x + y); case "-"  => FloatV(x - y); case "*"  => FloatV(x * y)
@@ -1103,7 +1158,7 @@ object Prims:
         case (lv, rv) => op match
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
           case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
-          case "->" => DataV("Tuple2", Vector(lv, rv))  // k -> v pair
+          case "->" => DataV("Tuple2", collection.immutable.ArraySeq(lv, rv))  // k -> v pair
           case _    => sys.error(s"__arith__: type mismatch for $op: ${Show.show(lv)}, ${Show.show(rv)}")
     // __unary__(op, val): type-dispatched unary operators
     case "__unary__" => a =>
@@ -1145,8 +1200,8 @@ object Prims:
         case (StrV(s), "reverse", Nil)       => StrV(s.reverse)
         case (StrV(s), "split", List(StrV(d))) => {
           val parts = s.split(java.util.regex.Pattern.quote(d), -1)
-          val nilV: Value = DataV("Nil", Vector.empty)
-          parts.foldRight(nilV)((x, acc) => DataV("Cons", Vector(StrV(x), acc)))
+          val nilV: Value = DataV("Nil", IndexedSeq.empty)
+          parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
         }
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
@@ -1220,12 +1275,12 @@ object Prims:
           listOf(unlist(ls).sortWith((a, b) => callClos(fn, Array(a, b)) == Value.BoolV(true)))
         case (ls, "groupBy", List(fn: Value.ClosV)) if isList(ls) =>
           val groups = unlist(ls).groupBy(x => callClos(fn, Array(x)))
-          val pairs = groups.map { case (k, vs) => DataV("Tuple2", Vector(k, listOf(vs))) }.toList
+          val pairs = groups.map { case (k, vs) => DataV("Tuple2", collection.immutable.ArraySeq(k, listOf(vs))) }.toList
           listOf(pairs)
         case (ls, "zip", List(other)) if isList(ls) =>
-          listOf(unlist(ls).zip(unlist(other)).map { case (a, b) => DataV("Tuple2", Vector(a, b)) })
+          listOf(unlist(ls).zip(unlist(other)).map { case (a, b) => DataV("Tuple2", collection.immutable.ArraySeq(a, b)) })
         case (ls, "zipWithIndex", Nil) if isList(ls) =>
-          listOf(unlist(ls).zipWithIndex.map { case (a, i) => DataV("Tuple2", Vector(a, IntV(i.toLong))) })
+          listOf(unlist(ls).zipWithIndex.map { case (a, i) => DataV("Tuple2", collection.immutable.ArraySeq(a, IntV(i.toLong))) })
         case (ls, "take", List(IntV(n))) if isList(ls) => listOf(unlist(ls).take(n.toInt))
         case (ls, "drop", List(IntV(n))) if isList(ls) => listOf(unlist(ls).drop(n.toInt))
         case (ls, "takeWhile", List(fn: Value.ClosV)) if isList(ls) =>
@@ -1263,43 +1318,43 @@ object Prims:
         case (ls, "toVector", Nil) if isList(ls) => ls
         case (ls, "contains", List(v)) if isList(ls) => BoolV(unlist(ls).contains(v))
         case (ls, "indexOf", List(v)) if isList(ls) => IntV(unlist(ls).indexOf(v).toLong)
-        case (ls, "+:", List(v)) if isList(ls) => DataV("Cons", Vector(v, ls))
+        case (ls, "+:", List(v)) if isList(ls) => DataV("Cons", collection.immutable.ArraySeq(v, ls))
         case (ls, ":+", List(v)) if isList(ls) => listOf(unlist(ls) :+ v)
         case (ls, "++", List(other)) if isList(ls) => listOf(unlist(ls) ++ unlist(other))
         case (ls, "splitAt", List(IntV(n))) if isList(ls) =>
           val (a, b) = unlist(ls).splitAt(n.toInt)
-          DataV("Tuple2", Vector(listOf(a), listOf(b)))
+          DataV("Tuple2", collection.immutable.ArraySeq(listOf(a), listOf(b)))
         case (ls, "partition", List(fn: Value.ClosV)) if isList(ls) =>
           val (yes, no) = unlist(ls).partition(x => callClos(fn, Array(x)) == Value.BoolV(true))
-          DataV("Tuple2", Vector(listOf(yes), listOf(no)))
+          DataV("Tuple2", collection.immutable.ArraySeq(listOf(yes), listOf(no)))
         // ── Tuple accessors ──────────────────────────────────────────────────────
         case (DataV(tag, fields), n, Nil) if tag.startsWith("Tuple") && n.matches("_\\d+") =>
           fields(n.drop(1).toInt - 1)
         case (DataV(_, fields), "fieldAt", List(IntV(i))) => fields(i.toInt)
         // ── Option methods ───────────────────────────────────────────────────────
-        case (DataV("Some", Vector(v)), "get", Nil) => v
+        case (DataV("Some", Seq(v)), "get", Nil) => v
         case (DataV("None", _), "get", Nil) => sys.error("None.get")
         case (DataV("Some", _), "isEmpty", Nil)  => BoolV(false)
         case (DataV("None", _), "isEmpty", Nil)  => BoolV(true)
         case (DataV("Some", _), "isDefined", Nil) => BoolV(true)
         case (DataV("None", _), "isDefined", Nil) => BoolV(false)
-        case (DataV("Some", Vector(v)), "getOrElse", List(_)) => v
+        case (DataV("Some", Seq(v)), "getOrElse", List(_)) => v
         case (DataV("None", _), "getOrElse", List(d)) => d
-        case (DataV("Some", Vector(v)), "map", List(fn: Value.ClosV)) => some(callClos(fn, Array(v)))
+        case (DataV("Some", Seq(v)), "map", List(fn: Value.ClosV)) => some(callClos(fn, Array(v)))
         case (DataV("None", _), "map", List(_)) => none
-        case (DataV("Some", Vector(v)), "flatMap", List(fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("Some", Seq(v)), "flatMap", List(fn: Value.ClosV)) => callClos(fn, Array(v))
         case (DataV("None", _), "flatMap", List(_)) => none
-        case (DataV("Some", Vector(v)), "filter", List(fn: Value.ClosV)) =>
+        case (DataV("Some", Seq(v)), "filter", List(fn: Value.ClosV)) =>
           if callClos(fn, Array(v)) == BoolV(true) then some(v) else none
         case (DataV("None", _), "filter", List(_)) => none
-        case (DataV("Some", Vector(v)), "foreach", List(fn: Value.ClosV)) =>
+        case (DataV("Some", Seq(v)), "foreach", List(fn: Value.ClosV)) =>
           callClos(fn, Array(v)); UnitV
         case (DataV("None", _), "foreach", List(_)) => UnitV
-        case (DataV("Some", Vector(v)), "orElse", List(_)) => some(v)
+        case (DataV("Some", Seq(v)), "orElse", List(_)) => some(v)
         case (DataV("None", _), "orElse", List(other)) => other
-        case (DataV("Some", Vector(v)), "toList", Nil) => listOf(Seq(v))
+        case (DataV("Some", Seq(v)), "toList", Nil) => listOf(Seq(v))
         case (DataV("None", _), "toList", Nil) => listOf(Seq.empty)
-        case (DataV("Some", Vector(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("Some", Seq(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
         case (DataV("None", _), "fold", List(default, _)) => default
         // ── Either methods ───────────────────────────────────────────────────────
         case (DataV("Bench", _), "opaque", List(v)) => v
@@ -1320,19 +1375,19 @@ object Prims:
             case s => IntV(s)
         case (ForeignV(ll: LazyList[?]), "toList", Nil) =>
           listOf(ll.asInstanceOf[LazyList[Value]].toList)
-        case (DataV("Right", Vector(v)), "map", List(fn: Value.ClosV)) => DataV("Right", Vector(callClos(fn, Array(v))))
+        case (DataV("Right", Seq(v)), "map", List(fn: Value.ClosV)) => DataV("Right", collection.immutable.ArraySeq(callClos(fn, Array(v))))
         case (DataV("Left", _), "map", List(_)) => recv
-        case (DataV("Right", Vector(v)), "flatMap", List(fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("Right", Seq(v)), "flatMap", List(fn: Value.ClosV)) => callClos(fn, Array(v))
         case (DataV("Left", _), "flatMap", List(_)) => recv
-        case (DataV("Right", Vector(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
-        case (DataV("Left",  Vector(v)), "fold", List(fn: Value.ClosV, _)) => callClos(fn, Array(v))
-        case (DataV("Right", Vector(v)), "getOrElse", List(_)) => v
+        case (DataV("Right", Seq(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
+        case (DataV("Left",  Seq(v)), "fold", List(fn: Value.ClosV, _)) => callClos(fn, Array(v))
+        case (DataV("Right", Seq(v)), "getOrElse", List(_)) => v
         case (DataV("Left",  _), "getOrElse", List(d)) => d
         case (DataV("Right", _), "isRight", Nil) => BoolV(true)
         case (DataV("Left",  _), "isRight", Nil) => BoolV(false)
         case (DataV("Right", _), "isLeft",  Nil) => BoolV(false)
         case (DataV("Left",  _), "isLeft",  Nil) => BoolV(true)
-        case (DataV("Right", Vector(v)), "toOption", Nil) => some(v)
+        case (DataV("Right", Seq(v)), "toOption", Nil) => some(v)
         case (DataV("Left",  _), "toOption", Nil) => none
         // ── Map/HashMap ──────────────────────────────────────────────────────────
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "size", Nil) =>
@@ -1350,7 +1405,7 @@ object Prims:
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "removed", List(k)) =>
           val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
           nm.remove(k); ForeignV(nm)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "+", List(DataV("Tuple2", Vector(k, v)))) =>
+        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "+", List(DataV("Tuple2", Seq(k, v)))) =>
           val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
           nm.update(k, v); ForeignV(nm)
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "contains", List(k)) =>
@@ -1365,7 +1420,7 @@ object Prims:
           listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].values.toSeq)
         case (ForeignV(m: collection.mutable.HashMap[?, ?]), "toList", Nil) =>
           listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].toList.map {
-            case (k, v) => DataV("Tuple2", Vector(k, v))
+            case (k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))
           })
         // ── Method object (given/typeclass instances) ─────────────────────────────
         case (ForeignV(m: collection.immutable.Map[?, ?]), _, _) =>
@@ -1454,8 +1509,8 @@ object Prims:
     case "utf8->str"=> Some { case BytesV(b) => StrV(new String(b.toArray, "UTF-8")); case v => sys.error("utf8->str: not Bytes") }
     case "str.trim" => Some { case StrV(s) => StrV(s.trim); case v => sys.error("str.trim: not Str") }
     case "str.lines"=> Some { case StrV(s) =>
-                         val parts = s.split("\n", -1); val nilV: Value = DataV("Nil", Vector.empty)
-                         parts.foldRight(nilV)((x, acc) => DataV("Cons", Vector(StrV(x), acc)))
+                         val parts = s.split("\n", -1); val nilV: Value = DataV("Nil", IndexedSeq.empty)
+                         parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
                          case v => sys.error("str.lines: not Str") }
     case "i->str"   => Some { case IntV(n) => StrV(n.toString);   case v => sys.error("i->str: not Int") }
     case "i->big"   => Some { case IntV(n) => BigV(BigInt(n));     case v => sys.error("i->big: not Int") }
@@ -1518,8 +1573,8 @@ object Prims:
     case "sindexOf" => Some { case (StrV(a),  StrV(b))    => IntV(a.indexOf(b).toLong); case _ => sys.error("sindexOf: not Str") }
     case "str.split"=> Some { case (StrV(a),  StrV(b))    =>
                                 val parts = a.split(java.util.regex.Pattern.quote(b), -1)
-                                val nilV: Value = DataV("Nil", Vector.empty)
-                                parts.foldRight(nilV)((x, acc) => DataV("Cons", Vector(StrV(x), acc)))
+                                val nilV: Value = DataV("Nil", IndexedSeq.empty)
+                                parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
                               case _ => sys.error("str.split: not Str") }
     case "cell.set" => Some { (c, v) => asCell(c)(0) = v; UnitV }
     case "lcell.set"=> Some { (c, v) => c.asInstanceOf[LongCellV].v = asInt1(v); UnitV }
@@ -1579,14 +1634,14 @@ object Prims:
   private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => d.toString; case _ => Show.show(v) }
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
-  private def asData(v: Value): (String, Vector[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
+  private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
   private def asMap(v: Value) = v match { case ForeignV(m: collection.mutable.HashMap[Value, Value] @unchecked) => m; case x => sys.error(s"expected Map, got ${Show.show(x)}") }
   private def asArr(v: Value) = v match { case ForeignV(a: collection.mutable.ArrayBuffer[Value] @unchecked) => a; case x => sys.error(s"expected Array, got ${Show.show(x)}") }
   private def asCell(v: Value) = v match { case ForeignV(c: Array[Value] @unchecked) => c; case x => sys.error(s"expected Cell, got ${Show.show(x)}") }
 
   // Option / list helpers (the ssc0 ADT encoding the kernel speaks)
-  private val none: Value = DataV("None", Vector.empty)
-  private def some(v: Value): Value = DataV("Some", Vector(v))
+  private val none: Value = DataV("None", IndexedSeq.empty)
+  private def some(v: Value): Value = DataV("Some", collection.immutable.ArraySeq(v))
   private def isList(v: Value): Boolean = v match
     case DataV("Nil", _) | DataV("Cons", _) => true
     case _ => false
@@ -1600,18 +1655,18 @@ object Prims:
     case (FloatV(a), IntV(b))   => a < b.toDouble
     case _                      => false
   }
-  private def listOf(vs: Seq[Value]): Value = vs.foldRight[Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
+  private def listOf(vs: Seq[Value]): Value = vs.foldRight[Value](DataV("Nil", IndexedSeq.empty))((x, acc) => DataV("Cons", collection.immutable.ArraySeq(x, acc)))
   private def strList(xs: Seq[String]): Value = listOf(xs.map(StrV(_)))
   private def unlist(v: Value): List[Value] = unlistPub(v)
   def unlistPub(v: Value): List[Value] = v match
-    case DataV("Cons", Vector(h, t)) => h :: unlistPub(t)
+    case DataV("Cons", Seq(h, t)) => h :: unlistPub(t)
     case DataV("Nil", _) => Nil
     case x => sys.error(s"expected a list, got ${Show.show(x)}")
 
   // O(i) list indexed access without materializing the whole list; used by tryFLC App path.
   def listAt(v: Value, i: Int): Value = v match
-    case DataV("Cons", Vector(h, _)) if i == 0 => h
-    case DataV("Cons", Vector(_, t))            => listAt(t, i - 1)
+    case DataV("Cons", Seq(h, _)) if i == 0 => h
+    case DataV("Cons", Seq(_, t))            => listAt(t, i - 1)
     case _ => sys.error(s"list index out of bounds: $i")
 
   private def out(v: Value, ps: java.io.PrintStream): Unit = v match
@@ -1626,9 +1681,9 @@ object Prims:
 object IrEncode:
   import Value.*
   def program(v: Value): String = v match
-    case DataV("IrProg", Vector(defs, entry)) =>
+    case DataV("IrProg", Seq(defs, entry)) =>
       val ds = list(defs).map {
-        case DataV("IrDef", Vector(StrV(n), b)) => s"(def $n ${term(b)})"
+        case DataV("IrDef", Seq(StrV(n), b)) => s"(def $n ${term(b)})"
         case x => sys.error(s"coreir.encode: bad IrDef ${Show.show(x)}")
       }
       val defsStr = if ds.isEmpty then "(defs)" else s"(defs ${ds.mkString(" ")})"
@@ -1636,25 +1691,25 @@ object IrEncode:
     case x => sys.error(s"coreir.encode: expected IrProg, got ${Show.show(x)}")
 
   private def term(v: Value): String = v match
-    case DataV("IrLit", Vector(c))            => s"(lit ${const(c)})"
-    case DataV("IrLocal", Vector(IntV(i)))    => s"(local $i)"
-    case DataV("IrGlobal", Vector(StrV(n)))   => s"(global $n)"
-    case DataV("IrLam", Vector(IntV(ar), b))  => s"(lam $ar ${term(b)})"
-    case DataV("IrApp", Vector(f, args))      => s"(app ${term(f)}${list(args).map(x => " " + term(x)).mkString})"
-    case DataV("IrLet", Vector(rhs, b))       => s"(let (${list(rhs).map(term).mkString(" ")}) ${term(b)})"
-    case DataV("IrLetRec", Vector(lams, b))   => s"(letrec (${list(lams).map(term).mkString(" ")}) ${term(b)})"
-    case DataV("IrIf", Vector(c, t, e))       => s"(if ${term(c)} ${term(t)} ${term(e)})"
-    case DataV("IrCtor", Vector(StrV(tg), fs))=> s"(ctor $tg${list(fs).map(x => " " + term(x)).mkString})"
-    case DataV("IrPrim", Vector(StrV(op), as))=> s"(prim $op${list(as).map(x => " " + term(x)).mkString})"
-    case DataV("IrWhile", Vector(c, b))       => s"(while ${term(c)} ${term(b)})"
-    case DataV("IrSeq",   Vector(ts))         => s"(seq${list(ts).map(x => " " + term(x)).mkString})"
-    case DataV("IrMatch", Vector(s, arms, d)) =>
+    case DataV("IrLit", Seq(c))            => s"(lit ${const(c)})"
+    case DataV("IrLocal", Seq(IntV(i)))    => s"(local $i)"
+    case DataV("IrGlobal", Seq(StrV(n)))   => s"(global $n)"
+    case DataV("IrLam", Seq(IntV(ar), b))  => s"(lam $ar ${term(b)})"
+    case DataV("IrApp", Seq(f, args))      => s"(app ${term(f)}${list(args).map(x => " " + term(x)).mkString})"
+    case DataV("IrLet", Seq(rhs, b))       => s"(let (${list(rhs).map(term).mkString(" ")}) ${term(b)})"
+    case DataV("IrLetRec", Seq(lams, b))   => s"(letrec (${list(lams).map(term).mkString(" ")}) ${term(b)})"
+    case DataV("IrIf", Seq(c, t, e))       => s"(if ${term(c)} ${term(t)} ${term(e)})"
+    case DataV("IrCtor", Seq(StrV(tg), fs))=> s"(ctor $tg${list(fs).map(x => " " + term(x)).mkString})"
+    case DataV("IrPrim", Seq(StrV(op), as))=> s"(prim $op${list(as).map(x => " " + term(x)).mkString})"
+    case DataV("IrWhile", Seq(c, b))       => s"(while ${term(c)} ${term(b)})"
+    case DataV("IrSeq",   Seq(ts))         => s"(seq${list(ts).map(x => " " + term(x)).mkString})"
+    case DataV("IrMatch", Seq(s, arms, d)) =>
       val a = list(arms).map {
-        case DataV("IrArm", Vector(StrV(tg), IntV(ar), b)) => s"(arm $tg $ar ${term(b)})"
+        case DataV("IrArm", Seq(StrV(tg), IntV(ar), b)) => s"(arm $tg $ar ${term(b)})"
         case x => sys.error(s"coreir.encode: bad IrArm ${Show.show(x)}")
       }.mkString(" ")
       val dd = d match
-        case DataV("Some", Vector(t)) => s" (default ${term(t)})"
+        case DataV("Some", Seq(t)) => s" (default ${term(t)})"
         case DataV("None", _) => ""
         case x => sys.error(s"coreir.encode: bad default ${Show.show(x)}")
       s"(match ${term(s)} ($a)$dd)"
@@ -1662,15 +1717,15 @@ object IrEncode:
 
   private def const(v: Value): String = v match
     case DataV("IrUnit", _)                 => "unit"
-    case DataV("IrBool", Vector(BoolV(b)))  => b.toString
-    case DataV("IrInt", Vector(IntV(n)))    => s"(int $n)"
-    case DataV("IrBig", Vector(BigV(n)))    => s"(big $n)"
-    case DataV("IrFloat", Vector(FloatV(d)))=> s"(float ${Writer.floatStr(d)})"
-    case DataV("IrStr", Vector(StrV(s)))    => s"(str ${Writer.strLit(s)})"
+    case DataV("IrBool", Seq(BoolV(b)))  => b.toString
+    case DataV("IrInt", Seq(IntV(n)))    => s"(int $n)"
+    case DataV("IrBig", Seq(BigV(n)))    => s"(big $n)"
+    case DataV("IrFloat", Seq(FloatV(d)))=> s"(float ${Writer.floatStr(d)})"
+    case DataV("IrStr", Seq(StrV(s)))    => s"(str ${Writer.strLit(s)})"
     case x => sys.error(s"coreir.encode: bad const ${Show.show(x)}")
 
   private def list(v: Value): List[Value] = v match
-    case DataV("Cons", Vector(h, t)) => h :: list(t)
+    case DataV("Cons", Seq(h, t)) => h :: list(t)
     case DataV("Nil", _) => Nil
     case x => sys.error(s"coreir.encode: expected list, got ${Show.show(x)}")
 
