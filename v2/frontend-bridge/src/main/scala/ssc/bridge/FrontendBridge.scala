@@ -521,7 +521,17 @@ object FrontendBridge:
       case Term.Name("Set") =>
         val nil: CT = CT.Ctor("Nil", Nil)
         args.foldRight(nil)((h, t) => CT.Ctor("Cons", List(h, t)))
-      // Constructor application
+      // Constructor application — named args case: Ctor(field = val, ...) → positional
+      // Named args arrive as Term.Assign inside rawArgs; field registry gives positional order.
+      case Term.Name(name) if isCtorName(name) && rawArgs.exists(_.isInstanceOf[Term.Assign]) =>
+        val overrides: Map[String, CT] = rawArgs.collect {
+          case Term.Assign(Term.Name(n), rhs) => n -> convertExpr(rhs, scope)
+        }.toMap
+        fieldRegistry.get(name) match
+          case Some(fields) =>
+            CT.Ctor(name, fields.map(fn => overrides.getOrElse(fn, CT.Lit(Const.CUnit))).toList)
+          case None => CT.Ctor(name, args)
+      // Constructor application — positional args
       case Term.Name(name) if isCtorName(name) => CT.Ctor(name, args)
       // .copy(field = val, ...) — case class copy with named field overrides.
       // Intercept before the generic __method__ path so we can use the field registry
