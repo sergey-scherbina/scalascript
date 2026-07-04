@@ -1,0 +1,4 @@
+agent: claude
+branch: feature/v1-runtime-compat-symlink
+started: 2026-07-04
+task: v1-runtime-compat-symlink — Phase-1 v1→v2 migration (b433a41e4) moved runtime/ → v1/runtime/ but ImportResolver.scala:140's installed-mode fallback (libPath / "runtime" / ...) was not updated, and several TestPaths-based test helpers still reference repoRoot/"runtime" too. Empirically verified: fresh `install.sh --dev` + `ssc <script importing any std/*.ssc>` fails with "Import not found: std/crypto.ssc" — every fresh installed build is broken for stdlib imports right now, not just busi's. Fix: add a top-level `runtime -> v1/runtime` symlink as a minimal compat shim (blocks busi's webauthn-remove task and would block any other fresh consumer install).
