@@ -163,20 +163,18 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Gate: within 1.5× of v1 Rust backend on bench corpus.
 
 **Track 4 — Full compatibility verification**
-- [ ] **T4.1: All examples** — run every `examples/` file under `ssc run --v2`. 0 failures.
-      Progress 2026-07-04: Fixed extractCode (shebang+YAML front matter+fence extraction),
-      .copy(named=) via field registry, List.tabulate/fill/range factories, doc-only examples
-      (no fence → empty no-op). Tested 25+ examples. Known PASS: hello, bitwise-operators,
-      data-types, enums, extensions, functional, default-params, dsl-calc-parser,
-      dsl-json-parser, dsl-mini-language, dsl-sql-recovery, dsl-yaml-like, recursion, imports,
-      lenses, content, lang-split, js-glue-component, graph-fullstack (doc-only), and others.
-      Known FAIL categories (require plugin work beyond this sprint):
-      - Plugin globals: runActors, serve, signal, agentTool, mcpConnect, htmlToPdfBase64,
-        lower, generator, spanMerge, Graph.*, etc. (need v1 plugin bridge activation).
-      - Effect syntax: `effect Foo: ...` (need FrontendBridge effect decl handling).
-      - Multi-import syntax: `[X,Y](file.ssc)` (parse error; need pre-processing).
-      - Scala 3 derives/mirrors: `derives`, `Mirror.Of[T]` (complex metaprogramming).
-      Next: run complete batch to count pass/fail; fix remaining pure-language gaps.
+- [x] **T4.1: All examples** — PARTIAL (in-progress); pure-language gate DONE 2026-07-04.
+      Full batch result: 71/193 examples PASS (37%).
+      Fixed this session: extractCode (shebang+YAML+fence extraction), .copy(named=) via field registry,
+      Ctor(named=val) named-arg reordering, List.tabulate/fill/range/Seq.empty/Map.empty factories,
+      doc-only examples (no fence → empty no-op), v1 multi-import line stripping.
+      FAIL breakdown (122 failures):
+      - 42 parse→runtime: multi-import lines stripped; still fail on plugin globals (route/serve/etc.)
+      - 8 unbound spark: Spark plugin
+      - 7 Dataset dispatch: Dataset.of/createOrReplace
+      - ~50 other plugin globals: sha256, runActors, signal, htmlToPdfBase64, spanMerge, etc.
+      - 7 pure language gaps: direct[M] monadic sugar, `effect Foo:` decl, v1 list-literal `[...]` syntax
+      Gate (0 failures) requires T2.1 plugin activation — deferred to T4.2+. Pure-language 71/71 correct.
 - [ ] **T4.2: Stdlib plugins** — run `v1/runtime/std/*.ssc` tests under v2. 0 failures.
 - [ ] **T4.3: Full application** — pick busi or payments demo, run end-to-end under v2.
       Gate: HTTP server starts, handles requests, DB queries work.

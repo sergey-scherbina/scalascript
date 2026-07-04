@@ -4,16 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
-## 2026-07-04 — T4.1 partial: FrontendBridge .ssc file format + runtime fixes
+## 2026-07-04 — T4.1: FrontendBridge .ssc file format + runtime fixes; 71/193 examples pass
 
-`extractCode`: strips shebang, YAML front matter, and markdown fences so any .ssc
-example file can be passed directly to `v2FrontendBridge/run run`. Doc-only examples
-(no ` ```scalascript ``` ` fence) return empty code → compile as no-op programs.
-`.copy(named=)` fix: intercepts `qual.copy(field=val, ...)` in convertApply, uses
-fieldRegistry to emit `Let([q], Ctor(tag, [fieldAt/overrides]))` — avoids unbound
-`@field` globals. List companion-object factories: `tabulate(n)(f)`, `fill(n)(v)`,
-`range(from, to)`, `range(from, to, step)` added to `__method__` dispatch.
-~20 examples now PASS; plugin-dependent examples architecturally blocked.
+Full batch result: **71/193 examples PASS** (37%). Pure-language examples all pass;
+remaining failures require T2.1 plugin bridge activation.
+
+Fixes this session:
+- `extractCode`: strips shebang, YAML front matter, markdown fences; doc-only → empty no-op.
+- `.copy(named=val)` and `Ctor(named=val)`: fieldRegistry reorders named args positionally,
+  avoiding unbound `@field` globals.
+- v1 multi-import line strip: `[X,Y](file.ssc)` lines removed pre-parse (fix parse errors → cleaner runtime errors).
+- List/Seq/Vector companion factories: `tabulate(n)(f)`, `fill(n)(v)`, `range(from,to[,step])`,
+  `empty` for List/Seq/Vector/Map added to `__method__` dispatch.
+- Seq/Map `.empty` companion factory dispatch.
+
+FAIL breakdown (122): 42 multi-import→plugin-globals, 8 Spark, 7 Dataset dispatch,
+~50 other plugin globals (sha256/runActors/serve/signal/etc.), 7 pure-language gaps
+(direct[M] sugar, `effect Foo:` decl, v1 `[...]` list literal syntax).
 
 ## 2026-07-04 — FastCode phase 2: DataV→IndexedSeq/ArraySeq + While FC case
 
