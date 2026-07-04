@@ -17,7 +17,17 @@ sealed trait Value
 object Value:
   case object UnitV                                    extends Value
   final case class BoolV(b: Boolean)                  extends Value
-  final case class IntV(n: Long)                      extends Value
+  final class IntV(val n: Long) extends Value:
+    override def equals(o: Any): Boolean = o match { case iv: IntV => iv.n == n; case _ => false }
+    override def hashCode: Int = java.lang.Long.hashCode(n)
+    override def toString: String = s"IntV($n)"
+  object IntV:
+    private val CacheMin  = -128L
+    private val CacheMax  = 4096L
+    private val cache = Array.tabulate((CacheMax - CacheMin + 1).toInt)(i => new IntV(i + CacheMin))
+    def apply(n: Long): IntV =
+      if n >= CacheMin && n <= CacheMax then cache((n - CacheMin).toInt) else new IntV(n)
+    def unapply(v: IntV): Some[Long] = Some(v.n)
   final case class BigV(n: BigInt)                    extends Value
   final case class FloatV(d: Double)                  extends Value
   final case class StrV(s: String)                    extends Value
