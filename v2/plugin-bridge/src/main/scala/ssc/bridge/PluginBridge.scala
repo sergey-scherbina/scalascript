@@ -27,6 +27,7 @@ object PluginBridge:
     registerHandle()
     registerActors()
     registerSys()
+    registerInterpreterBuiltins()
     var count = 0
     val cl = Thread.currentThread().getContextClassLoader
     val loader = java.util.ServiceLoader.load(classOf[Backend], cl)
@@ -159,6 +160,74 @@ object PluginBridge:
    *  The handler lambda has shape: `lam 1 (match x { case op(args, resume) => ...; case Return(_) => ... })`
    *  so we call it with DataV(opName, [arg, resumeFn]) or DataV("Return", [result]).
    */
+  /** Register stubs for interpreter-internal globals that aren't in any SPI plugin.
+   *  These are complex language features (async, generators, signals, storage, setArgs).
+   *  Stubs allow programs to load/initialize without crashing on unbound; actual
+   *  functionality requires proper implementation (open TODO). */
+  private def registerInterpreterBuiltins(): Unit =
+    import V2Value.*
+    // setHttpServerBackend(name) — no-op in v2 (backend is fixed)
+    if V2PluginRegistry.lookupGlobal("setHttpServerBackend").isEmpty then
+      V2PluginRegistry.registerGlobal("setHttpServerBackend", ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    // runAsync { body } — run the body immediately (no async in v2 yet)
+    if V2PluginRegistry.lookupGlobal("runAsync").isEmpty then
+      V2PluginRegistry.registerGlobal("runAsync", ClosV(Runtime.emptyEnv, -1, env => {
+        val thunk = env.last
+        Done(thunk match
+          case c: ClosV => callClosure(c, Nil)
+          case v => v)
+      }))
+    // runAsyncParallel { body } — same stub as runAsync
+    if V2PluginRegistry.lookupGlobal("runAsyncParallel").isEmpty then
+      V2PluginRegistry.registerGlobal("runAsyncParallel", ClosV(Runtime.emptyEnv, -1, env => {
+        val thunk = env.last
+        Done(thunk match
+          case c: ClosV => callClosure(c, Nil)
+          case v => v)
+      }))
+    // computed(f) — returns a lazy wrapper (no reactive tracking in v2)
+    if V2PluginRegistry.lookupGlobal("computed").isEmpty then
+      V2PluginRegistry.registerGlobal("computed", ClosV(Runtime.emptyEnv, -1, env => {
+        val thunk = env.last
+        thunk match
+          case c: ClosV => Done(callClosure(c, Nil))
+          case v => Done(v)
+      }))
+    // generator { body } — returns a stub generator that always ends
+    if V2PluginRegistry.lookupGlobal("generator").isEmpty then
+      V2PluginRegistry.registerGlobal("generator", ClosV(Runtime.emptyEnv, -1, env => {
+        Done(ForeignV(new StubGenerator(env.lastOption.getOrElse(UnitV)).asInstanceOf[AnyRef]))
+      }))
+    // runEphemeralStorage { body } — run body with an in-memory map store
+    if V2PluginRegistry.lookupGlobal("runEphemeralStorage").isEmpty then
+      V2PluginRegistry.registerGlobal("runEphemeralStorage", ClosV(Runtime.emptyEnv, -1, env => {
+        val thunk = env.last
+        thunk match
+          case c: ClosV => Done(callClosure(c, Nil))
+          case v => Done(v)
+      }))
+    // args — command-line args as a Cons/Nil list
+    if V2PluginRegistry.lookupGlobal("args").isEmpty then
+      val argsList = sys.props.get("scalascript.args")
+        .map(_.split(",").toList)
+        .getOrElse(Nil)
+        .foldRight[V2Value](DataV("Nil", Vector.empty)) { (a, acc) =>
+          DataV("Cons", Vector(StrV(a), acc))
+        }
+      V2PluginRegistry.registerGlobal("args", argsList)
+    // startNode — cluster node stub
+    if V2PluginRegistry.lookupGlobal("startNode").isEmpty then
+      V2PluginRegistry.registerGlobal("startNode", ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    // contentBlock — content rendering stub
+    if V2PluginRegistry.lookupGlobal("contentBlock").isEmpty then
+      V2PluginRegistry.registerGlobal("contentBlock", ClosV(Runtime.emptyEnv, -1, env =>
+        Done(env.lastOption.getOrElse(UnitV))))
+
+  /** Minimal stub generator (no yield support; stateless). */
+  private class StubGenerator(thunk: V2Value):
+    def hasNext: Boolean = false
+    def next(): V2Value = sys.error("generator: hasNext was false")
+
   /** Register `sys` global: sys.env(key) / sys.env.getOrElse(k,d) / sys.exit(code). */
   private def registerSys(): Unit =
     import V2Value.*
