@@ -99,6 +99,16 @@ object Compiler:
         globals(d.name) = closV
         closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global
       case _ => ()
+    // pass 1b: retry fcEntry for mutually-recursive defs (tryFC blocked App; now all globals present).
+    // selfName blocks self-recursive calls so TCO functions keep using the trampoline (no stack overflow).
+    // App-FCs capture ClosV directly, so sibling fcEntry updates are visible at runtime without recompile.
+    for d <- p.defs do d.body match
+      case Lam(ar, b) =>
+        globals(d.name) match
+          case closV: ClosV if closV.fcEntry.isEmpty =>
+            FastCode.tryFCMutual(b, globals, d.name).foreach(fc => closV.fcEntry = Some(fc))
+          case _ => ()
+      case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
       case Lam(_, _) => ()
@@ -724,6 +734,37 @@ object FastCode:
       val ar = arity
       Some((env: Env) => ClosV(env, ar, bodyC))
     case _ => None
+
+  /** tryFC with App(Global) support, for computing fcEntry of mutually-recursive functions.
+   *  selfName: blocks App(Global(selfName)) to prevent direct self-recursion
+   *  (self-recursive defs use the trampoline for TCO safety).
+   *  App(Global) FCs capture the target ClosV directly — so fcEntry updates in the
+   *  sibling def are visible at runtime without re-compilation. */
+  def tryFCMutual(t: Term, globals: collection.mutable.Map[String, Value], selfName: String): Option[FC] = t match
+    case App(Global(name), args) if name != selfName =>
+      globals.get(name).collect { case closV: ClosV if closV.env.isEmpty =>
+        val argOpts = args.map(a => tryFCMutual(a, globals, selfName))
+        if argOpts.forall(_.isDefined) then
+          val fca = argOpts.map(_.get).toArray
+          Some((env: Env) =>
+            val argEnv = fca.map(f => f(env): Value)
+            closV.fcEntry match
+              case Some(bodyFC) => bodyFC(argEnv)
+              case None => Runtime.run(closV.code, argEnv)
+          )
+        else None
+      }.flatten
+    case If(c, th, el) =>
+      tryFBc(c, globals).flatMap { fcc =>
+        tryFCMutual(th, globals, selfName).flatMap { fct =>
+          tryFCMutual(el, globals, selfName).map { fce =>
+            (env: Env) => (fcc(env)) match
+              case true  => fct(env)
+              case false => fce(env)
+          }
+        }
+      }
+    case _ => tryFC(t, globals)
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
   def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
