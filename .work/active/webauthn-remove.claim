@@ -1,4 +1,0 @@
-agent: claude
-branch: feature/webauthn-remove
-started: 2026-07-04
-task: webauthn-remove — add a way to delete a stored WebAuthn credential (currently only Put/Get/Find/UpdateSignCount exist, no Delete); requested by busi (owner wants a "disable Face ID on this device" button in the szykownia PWA profile page, currently only possible by hand-editing the credentials TSV file on the server).
