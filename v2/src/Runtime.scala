@@ -390,7 +390,7 @@ object FastCode:
     // App(Global) — optimistic: returns 0L for non-Int-returning functions (Float→0L).
     // Safe for lcell.set callers (normSq, Int-valued globals). NOT used for cell.set bodies.
     // Uses fcEntry if available to skip the trampoline (one fewer Done alloc per call).
-    // Pre-allocates sharedArgEnv once per call-site (safe: body reads it synchronously, no aliasing).
+    // The per-call fca.map alloc is stack-allocated by JVM escape analysis (fresh, short-lived).
     case App(Global(name), args) =>
       val argOpts = args.map(tryFC(_, globals))
       if argOpts.forall(_.isDefined) then
@@ -680,27 +680,50 @@ object FastCode:
       else None
     // __arith__("++") — tuple/string concat fast-path (avoids full trampoline for DataV++)
     case Prim("__arith__", List(Lit(Const.CStr("++")), a0, a1)) =>
-      tryFC(a0, globals).flatMap { f0 => tryFC(a1, globals).map { f1 =>
-        // If RHS is constant (all-Lit Ctor), precompute once and capture in closure
-        val isConstRHS = a1.isInstanceOf[Ctor] && a1.asInstanceOf[Ctor].fields.forall(_.isInstanceOf[Lit])
-        if isConstRHS then
-          val constR = f1(Array.empty)
-          (env: Env) =>
-            (f0(env), constR) match
-              case (DataV(lt, lf), DataV(rt, rf)) =>
-                val combined = lf ++ rf; DataV(s"Tuple${combined.length}", combined)
-              case (StrV(l), StrV(r)) => StrV(l + r)
-              case (l, r) => Prims.arithOp("++", l, r)
-        else
-          (env: Env) =>
-            (f0(env), f1(env)) match
-              case (DataV(lt, lf), DataV(rt, rf)) if lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
-                val combined = lf ++ rf; DataV(s"Tuple${combined.length}", combined)
-              case (StrV(l), StrV(r))  => StrV(l + r)
-              case (StrV(l), IntV(r))  => StrV(l + r.toString)
-              case (StrV(l), v)        => StrV(l + Show.show(v))
-              case (l, r)              => Prims.arithOp("++", l, r)
-      } }
+      // Ctor ++ Ctor fast path: build result DataV directly from combined field FCs (no intermediate DataV).
+      // Avoids: (1) creating an intermediate LHS DataV, (2) a Vector.++ call per iteration.
+      val ctorFused: Option[FC] = (a0, a1) match
+        case (Ctor(_, lf), Ctor(_, rf)) =>
+          val allOpts = (lf ++ rf).map(tryFC(_, globals))
+          if allOpts.forall(_.isDefined) then
+            val fcs = allOpts.map(_.get).toArray
+            val n   = fcs.length
+            val tag = s"Tuple$n"
+            Some(n match
+              case 4 =>
+                val f0 = fcs(0); val f1 = fcs(1); val f2 = fcs(2); val f3 = fcs(3)
+                (env: Env) => DataV(tag, Vector(f0(env), f1(env), f2(env), f3(env)))
+              case 2 =>
+                val f0 = fcs(0); val f1 = fcs(1)
+                (env: Env) => DataV(tag, Vector(f0(env), f1(env)))
+              case _ =>
+                (env: Env) => DataV(tag, fcs.map(f => f(env): Value).toVector)
+            )
+          else None
+        case _ => None
+      ctorFused.orElse {
+        tryFC(a0, globals).flatMap { f0 => tryFC(a1, globals).map { f1 =>
+          // If RHS is constant (all-Lit Ctor), precompute once and capture in closure
+          val isConstRHS = a1.isInstanceOf[Ctor] && a1.asInstanceOf[Ctor].fields.forall(_.isInstanceOf[Lit])
+          if isConstRHS then
+            val constR = f1(Array.empty)
+            (env: Env) =>
+              (f0(env), constR) match
+                case (DataV(lt, lf), DataV(rt, rf)) =>
+                  val combined = lf ++ rf; DataV(s"Tuple${combined.length}", combined)
+                case (StrV(l), StrV(r)) => StrV(l + r)
+                case (l, r) => Prims.arithOp("++", l, r)
+          else
+            (env: Env) =>
+              (f0(env), f1(env)) match
+                case (DataV(lt, lf), DataV(rt, rf)) if lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
+                  val combined = lf ++ rf; DataV(s"Tuple${combined.length}", combined)
+                case (StrV(l), StrV(r))  => StrV(l + r)
+                case (StrV(l), IntV(r))  => StrV(l + r.toString)
+                case (StrV(l), v)        => StrV(l + Show.show(v))
+                case (l, r)              => Prims.arithOp("++", l, r)
+        } }
+      }
     case Match(scrut, arms, default) =>
       // Fast match: compile scrutinee and ALL arm bodies (using float-safe tryFCValue).
       // Returns None if any arm body isn't FC-able (e.g. recursive App, LetRec).
