@@ -10,7 +10,9 @@ import ssc.*
  *  Commands:
  *    run  <file>        Parse .ssc via scalameta → Core IR → v2 VM
  *    emit <file>        Print Core IR text (for debugging) */
-@main def bridgeCli(args: String*): Unit = args.toList match
+@main def bridgeCli(args: String*): Unit =
+  PluginBridge.loadAll()
+  args.toList match
   case "run" :: file :: rest =>
     Runtime.argv = rest
     val src  = scala.io.Source.fromFile(file).mkString

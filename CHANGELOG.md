@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-04 — T2.1: v2 BlockForm effects (Logger/State/Random/Clock/Env/Retry/Cache)
+
+All 7 v1 effect plugins wired to v2 VM via `V2EffectContext` ThreadLocal handlers + `PluginBridge.loadAll()`.
+Three fixes: (1) FastCode global-lookup paths (`globalFastPath`, `tryFLC`) had separate `globals` maps
+that bypassed `V2PluginRegistry` → added `lookupGlobal` fallback; (2) FrontendBridge emitted block args
+(e.g. `runLogger { ... }`) as eager `Seq` — effects ran before handler installed → wrap statement
+`Term.Block` args in `CT.Lam(0, ...)` thunk; lambda blocks detected by `Block(List(Fn|AnonFn))` heuristic;
+(3) `__arith__` catch-all for `effect Logger:` declaration prims returns `UnitV` instead of crashing.
+Gate: `runLogger`, `runLoggerToList`, `runState` all produce correct output under v2.
+
 ## 2026-07-04 — T3.3: v2 JVM backend Long-cell specialization; 80× speedup on arith-loop
 
 Three fixes: (1) `safeName()` appends `x` to trailing-`_` names (avoids Scala 3 `name_:` parse error);

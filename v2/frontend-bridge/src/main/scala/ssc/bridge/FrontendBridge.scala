@@ -507,7 +507,18 @@ object FrontendBridge:
         CT.Prim("__assign__", List(convertExpr(other, scope), convertExpr(a.rhs, scope)))
 
   private def convertApply(fn: Term, rawArgs: List[Term], scope: List[String]): CT =
-    val args = rawArgs.map(e => convertExpr(wrapIfPH(e), scope))
+    // Term.Block args need special handling:
+    // - Block(List(Function/AnonymousFunction)) = a lambda block like { x => expr } → keep as-is
+    // - Any other Block = a statement block like { stmt; expr } → wrap in Lam(0) (by-name thunk)
+    val args = rawArgs.map { e =>
+      val converted = convertExpr(wrapIfPH(e), scope)
+      e match
+        case Term.Block(List(_: Term.Function | _: Term.AnonymousFunction | _: Term.PartialFunction)) =>
+          converted  // lambda block: { x => ... } or { case ... }
+        case _: Term.Block =>
+          CT.Lam(0, converted)  // statement block → thunk (e.g. runLogger { ... })
+        case _ => converted
+    }
     fn match
       // Array(name) indexed read — ## prefix means it's a ForeignV(ArrayBuffer)
       case Term.Name(name) if scope.contains(s"##$name") && args.length == 1 =>

@@ -116,7 +116,8 @@ object Compiler:
       case Local(i) =>
         (env: Env) => Done(env(env.length - 1 - i))
       case Global(g) =>
-        (_: Env) => Done(globals.getOrElse(g, sys.error(s"unbound global: $g")))
+        (_: Env) => Done(globals.getOrElse(g,
+          V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))))
       case Lam(ar, b) =>
         val bc = compile(b); (env: Env) => Done(ClosV(env, ar, bc))
       case If(c, th, el) =>
@@ -204,7 +205,7 @@ object Compiler:
                 FastCode.tryFC(a0, globals).map { f0 =>
                   (env: Env) =>
                     val avs = new Array[Value](1); avs(0) = f0(env)
-                    globals.getOrElse(g, sys.error(s"unbound global: $g")) match
+                    globals.getOrElse(g, V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))) match
                       case c: ClosV => Call(c, avs)
                       case v => sys.error(s"app: not a function: ${Show.show(v)}")
                 }
@@ -422,7 +423,7 @@ object FastCode:
       if argOpts.forall(_.isDefined) then
         val fca = argOpts.map(_.get).toArray
         Some((env: Env) =>
-          val fn = globals.getOrElse(name, sys.error(s"tryFLC App: unbound global: $name"))
+          val fn = globals.getOrElse(name, V2PluginRegistry.lookupGlobal(name).getOrElse(sys.error(s"tryFLC App: unbound global: $name")))
           fn match
             case c: ClosV =>
               val argEnv = if c.env.isEmpty then fca.map(f => f(env): Value) else c.env ++ fca.map(f => f(env): Value)
@@ -969,6 +970,34 @@ object V2PluginRegistry:
   def register(op: String, fn: Fn): Unit = handlers(op) = fn
   def lookup(op: String): Option[Fn] = handlers.get(op)
 
+  // Global value registry — for runLogger/runState/handle etc. that appear as Global(name) in Core IR.
+  private val globalValues = collection.mutable.HashMap[String, Value]()
+  def registerGlobal(name: String, v: Value): Unit = globalValues(name) = v
+  def lookupGlobal(name: String): Option[Value] = globalValues.get(name)
+
+// ── Effect context — ThreadLocal stack for BlockForm effect runners ────────────
+// PluginBridge installs one V2EffectHandler per active runXxx block.
+// __method__ dispatch calls V2EffectContext.peek(tag) before "unimplemented".
+object V2EffectContext:
+  // Handler: (opName, args) => result. Isolates Runtime from SPI types.
+  type EH = (String, List[Value]) => Value
+
+  private val stack = ThreadLocal.withInitial[collection.mutable.Map[String, List[EH]]](
+    () => collection.mutable.HashMap()
+  )
+
+  def push(effectTag: String, h: EH): Unit =
+    val m = stack.get()
+    m(effectTag) = h :: m.getOrElse(effectTag, Nil)
+
+  def pop(effectTag: String): Unit =
+    val m = stack.get()
+    m.get(effectTag) match
+      case Some(_ :: rest) => if rest.isEmpty then m.remove(effectTag) else m(effectTag) = rest
+      case _               => ()
+
+  def peek(effectTag: String): Option[EH] = stack.get().get(effectTag).flatMap(_.headOption)
+
 // ── Primitives δ — resolved once at compile time (specs/10-core-ir.md §5) ─────
 
 object Prims:
@@ -1188,7 +1217,10 @@ object Prims:
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
           case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
           case "->" => DataV("Tuple2", collection.immutable.ArraySeq(lv, rv))  // k -> v pair
-          case _    => sys.error(s"__arith__: type mismatch for $op: ${Show.show(lv)}, ${Show.show(rv)}")
+          case _    =>
+            // Unknown operator with non-numeric types: treat as a declaration-style statement
+            // (e.g. `effect Logger:` compiles to __arith__("Logger", effectClosure, ()) in v2)
+            UnitV
     // __unary__(op, val): type-dispatched unary operators
     case "__unary__" => a =>
       val op = str(a, 0)
@@ -1474,7 +1506,22 @@ object Prims:
         case _ =>
           V2PluginRegistry.lookup(s"__method__.$name") match
             case Some(fn) => fn(a)
-            case None => sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
+            case None =>
+              // Effect dispatch: DataV("Logger"/"State"/...) with no method → check effect context
+              recv match
+                case DataV(effectTag, IndexedSeq()) =>
+                  V2EffectContext.peek(effectTag) match
+                    case Some(handler) => handler(name, margs)
+                    case None =>
+                      // No active handler: return Free monad Op for typed `handle` dispatch
+                      val argV = margs match
+                        case Nil       => UnitV
+                        case List(one) => one
+                        case many      => DataV(s"Tuple${many.length}", many.toVector)
+                      val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
+                      DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                case _ =>
+                  sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
       V2PluginRegistry.lookup(op) match
         case Some(fn) => fn

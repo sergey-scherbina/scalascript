@@ -98,7 +98,9 @@ lazy val v2Core = project
 // known limitation documented in v2/plugin-bridge/src/.../PluginBridge.scala.
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
-  .dependsOn(v2Core, backendSpi, valueData, core)
+  .dependsOn(v2Core, backendSpi, valueData, core,
+    loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin,
+    clockEffectPlugin, envEffectPlugin, retryEffectPlugin, cacheEffectPlugin)
   .settings(
     name := "scalascript-v2-plugin-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),
@@ -111,7 +113,7 @@ lazy val v2PluginBridge = project
 // Depends on: v2Core (ssc.Term/Const/Program), core (scalameta + v1 pipeline types).
 lazy val v2FrontendBridge = project
   .in(file("v2/frontend-bridge"))
-  .dependsOn(v2Core, core)
+  .dependsOn(v2Core, v2PluginBridge, core)
   .settings(
     name := "scalascript-v2-frontend-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),

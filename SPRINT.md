@@ -74,9 +74,13 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Gate: 8/8 pure language examples pass; 0 unexpected failures.
 
 **Track 2 — Plugin parity**
-- [ ] **T2.1: BlockForm effects** — Logger/State/Retry/Cache/Env/Random/Clock BlockForm
-      runners wired to v2 shift/reset mechanism. Each BlockForm → v2 `_eff_handle`-compatible
-      wrapper in PluginBridge. Gate: logger/state effect examples work under v2.
+- [x] **T2.1: BlockForm effects** — DONE 2026-07-04. All 7 effect plugins (Logger/State/
+      Random/Clock/Env/Retry/Cache) wired to v2 via V2EffectContext ThreadLocal + PluginBridge.
+      Three fixes needed: (1) FastCode global-lookup paths bypass V2PluginRegistry → added
+      lookupGlobal fallback to all 3 paths; (2) FrontendBridge emitted block args as eager
+      Seq → added Lam(0) thunk wrap for statement blocks (lambdas detected by
+      `Block(List(Function|AnonFn))` heuristic); (3) `__arith__` unknown-op catch-all for
+      `effect Logger:` declaration prims. Gate: runLogger+runLoggerToList+runState all correct.
 - [ ] **T2.2: HTTP/SQL intrinsics** — verify end-to-end: HTTP GET + SQL query through v2
       runtime (T1.3 must be complete). Gate: a real HTTP fetch returns correct response.
 - [ ] **T2.3: Actors (spike)** — investigate Java VirtualThread-per-actor model.
