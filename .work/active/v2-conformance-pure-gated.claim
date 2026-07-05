@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/v2-conf-pure-gated
+worktree: ../scalascript-wt-conf
+started: 2026-07-05T20:22:46Z
+heartbeat: 2026-07-05T20:22:46Z
+status: in-progress
+task: v2-conformance-pure-gated — bridge the PURE-LOGIC plugin-gated conformance tests to v2 (webauthn-server-verify, html-dsl, rest-validate — no network/threads), by registering their natives in PluginBridge; remove from V2ConformanceTest skipSet as they pass. Then build the v1-vs-v2 output-parity harness (uses ssc run --v2). NOT touching the environmental-hang tests (actors/cluster/distributed/coroutines/ws/tls) — those stay a sibling/env concern.
