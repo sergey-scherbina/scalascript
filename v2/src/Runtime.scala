@@ -299,6 +299,7 @@ object Compiler:
                         avs(0) match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
                       case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
                         Done(m.asInstanceOf[collection.mutable.HashMap[Value,Value]](avs(0)))
+                      case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                       case v => sys.error(s"app: not a function: ${Show.show(v)}")
                 }
               case List(a0, a1) =>
@@ -335,6 +336,7 @@ object Compiler:
                   v0 match { case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt)); case _ => sys.error("app: array index must be Int") }
                 case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
                   Done(m.asInstanceOf[collection.mutable.HashMap[Value, Value]](v0))
+                case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                 case DataV(_, fields) =>
                   v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
@@ -346,6 +348,7 @@ object Compiler:
               val avs = new Array[Value](2); avs(0) = Runtime.value(ac0, env); avs(1) = Runtime.value(ac1, env)
               fv match
                 case c: ClosV => Call(c, avs)
+                case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
           // generic path for 3+ args
           case _ =>
@@ -355,6 +358,7 @@ object Compiler:
               val avs = acs.map(ac => Runtime.value(ac, env)).toArray
               fv match
                 case c: ClosV => Call(c, avs)
+                case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
         }   // end globalFastPath.getOrElse
       case While(cond, body) =>
@@ -505,6 +509,7 @@ object FastCode:
     case Prim("fieldAt", List(recv, Lit(Const.CInt(k)))) =>
       tryFC(recv, globals).map { fcr => (env: Env) =>
         fcr(env) match
+          case DataV("Stub", _) => 0L  // stub: field of stub is 0
           case DataV(_, fields) => fields(k.toInt) match { case IntV(x) => x; case _ => 0L }
           case _ => 0L
       }
@@ -1214,7 +1219,12 @@ object Prims:
     // Data (generic reflection)
     case "tagOf"   => a => StrV(asData(a(0))._1)
     case "arity"   => a => IntV(asData(a(0))._2.length.toLong)
-    case "fieldAt" => a => asData(a(0))._2(int(a, 1).toInt)
+    case "fieldAt" => a => a(0) match
+      case DataV("Stub", _) => DataV("Stub", Vector.empty)  // stub: field access on Stub returns stub
+      case DataV(_, fields) =>
+        val i = int(a, 1).toInt
+        if i < fields.length then fields(i) else DataV("Stub", Vector.empty)  // graceful OOB
+      case _ => asData(a(0))._2(int(a, 1).toInt)
     case "__isTag__" => a => a(0) match
       case DataV(t, fs) => BoolV(t == str(a, 1) && fs.length == int(a, 2).toInt)
       case _            => BoolV(false)
@@ -1315,15 +1325,19 @@ object Prims:
         case (StrV(x), IntV(y)) => op match
           case "*"        => StrV(x * y.toInt)
           case "+" | "++" => StrV(x + y.toString)
+          case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for String+Int")
         case (IntV(x), StrV(y)) => op match
           case "+" | "++" => StrV(x.toString + y)
+          case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for Int+String")
         case (FloatV(x), StrV(y)) => op match
           case "+" | "++" => StrV(x.toString + y)
+          case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for Float+String")
         case (StrV(x), FloatV(y)) => op match
           case "+" | "++" => StrV(x + y.toString)
+          case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for String+Float")
         case (BoolV(x), BoolV(y)) => op match
           case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
@@ -1369,7 +1383,8 @@ object Prims:
             case _    => sys.error(s"__arith__: op $op not valid for Int+Decimal")
         case (lv, rv) => op match
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
-          case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
+          case "++" | "+" => if isList(lv) then listOf(unlist(lv) ++ unlist(rv)) else StrV(anyStr(lv) + anyStr(rv))
+          case ":+" if isList(lv) => listOf(unlist(lv) :+ rv)
           case "->" => DataV("Tuple2", collection.immutable.ArraySeq(lv, rv))  // k -> v pair
           case "!"  =>
             // Actor send: actorRef ! msg
@@ -1426,6 +1441,10 @@ object Prims:
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
         case (StrV(s), "endsWith", List(StrV(sfx)))   => BoolV(s.endsWith(sfx))
+        case (StrV(s), "take", List(IntV(n)))            => StrV(s.take(n.toInt))
+        case (StrV(s), "drop", List(IntV(n)))            => StrV(s.drop(n.toInt))
+        case (StrV(s), "takeRight", List(IntV(n)))       => StrV(s.takeRight(n.toInt))
+        case (StrV(s), "dropRight", List(IntV(n)))       => StrV(s.dropRight(n.toInt))
         case (StrV(s), "substring", List(IntV(i)))      => StrV(s.substring(i.toInt))
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
         case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
@@ -1586,8 +1605,13 @@ object Prims:
           val (yes, no) = unlist(ls).partition(x => callClos(fn, Array(x)) == Value.BoolV(true))
           DataV("Tuple2", collection.immutable.ArraySeq(listOf(yes), listOf(no)))
         // ── Tuple accessors ──────────────────────────────────────────────────────
+        case (DataV("Stub", _), n, _) if n.matches("_\\d+") || n == "fieldAt" =>
+          DataV("Stub", Vector.empty)  // stub tuple/field accessor
         case (DataV(tag, fields), n, Nil) if tag.startsWith("Tuple") && n.matches("_\\d+") =>
           fields(n.drop(1).toInt - 1)
+        case (DataV("Mirror", fields), "label", Nil)      => fields(0)
+        case (DataV("Mirror", fields), "elemLabels", Nil) => fields(1)
+        case (DataV("Mirror", fields), "elemTypes", Nil)  => fields(2)
         case (DataV(_, fields), "fieldAt", List(IntV(i))) => fields(i.toInt)
         // ── Option methods ───────────────────────────────────────────────────────
         case (DataV("Some", Seq(v)), "get", Nil) => v
@@ -1743,6 +1767,9 @@ object Prims:
                         case many      => DataV(s"Tuple${many.length}", many.toVector)
                       val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
                       DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                case DataV(_, _) =>
+                  // Non-effect DataV (Op, Stub, or unknown type): return a stub in batch mode
+                  DataV("Stub", Vector.empty)
                 case _ =>
                   sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
@@ -1783,6 +1810,9 @@ object Prims:
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
       case _ => resolve("__arith__")(List(StrV(op), l, r))
+    // List :+ and ++ — bridge compiles infix ops as __arith__, but list ops live here too
+    case (lv, rv) if op == ":+" && isList(lv) => listOf(unlist(lv) :+ rv)
+    case (lv, rv) if op == "++" && isList(lv) => listOf(unlist(lv) ++ unlist(rv))
     case _ => resolve("__arith__")(List(StrV(op), l, r))
 
   /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
@@ -1895,7 +1925,7 @@ object Prims:
     case "arr.push" => Some { (a, v) => asArr(a) += v; UnitV }
     case "bget"     => Some { case (BytesV(b), IntV(i)) => IntV((b(i.toInt) & 0xff).toLong); case _ => sys.error("bget: bad args") }
     case "bconcat"  => Some { case (BytesV(a), BytesV(b)) => BytesV(a ++ b); case _ => sys.error("bconcat: bad args") }
-    case "fieldAt"  => Some { (v, i) => asData(v)._2(asInt1(i).toInt) }
+    case "fieldAt"  => Some { (v, i) => v match { case DataV("Stub", _) => DataV("Stub", Vector.empty); case _ => asData(v)._2(asInt1(i).toInt) } }
     case "big.add"  => Some { case (BigV(x),BigV(y)) => BigV(x+y); case _ => sys.error("big.add") }
     case "big.sub"  => Some { case (BigV(x),BigV(y)) => BigV(x-y); case _ => sys.error("big.sub") }
     case "big.mul"  => Some { case (BigV(x),BigV(y)) => BigV(x*y); case _ => sys.error("big.mul") }

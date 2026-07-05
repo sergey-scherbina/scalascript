@@ -21,10 +21,14 @@ import ssc.V2PluginRegistry
 object FrontendBridge:
 
   /** Case class / enum field map: className → ordered field names.
-   *  Built during first pass over stats; used when resolving field selects. */
-  private val fieldRegistry = collection.mutable.HashMap[String, Vector[String]]()
+   *  Built during first pass over stats; used when resolving field selects.
+   *  LinkedHashMap preserves insertion order so fieldIndex returns the index from
+   *  whichever case class was registered FIRST (import order) — deterministic. */
+  private val fieldRegistry = collection.mutable.LinkedHashMap[String, Vector[String]]()
 
-  /** Lookup field index for a class member field, if known. */
+  /** Lookup field index for a class member field, if known.
+   *  Returns the index from the FIRST registered class that contains the field.
+   *  Deterministic because fieldRegistry is insertion-ordered (LinkedHashMap). */
   private def fieldIndex(name: String): Option[Int] =
     fieldRegistry.values.collectFirst {
       case fields if fields.contains(name) => fields.indexOf(name)
@@ -41,8 +45,27 @@ object FrontendBridge:
     val names = params.map(_.name.value).toVector
     fieldRegistry(name) = names
     ssc.V2PluginRegistry.registerFieldNames(name, names)  // shared with PluginBridge.v2ToV1
+    val types = params.map(p => p.decltpe.map(_.syntax).getOrElse("Any")).toVector
+    fieldTypeRegistry(name) = types
     val defs = params.map(p => p.default.map(d => convertExpr(d, Nil))).toVector
     if defs.exists(_.isDefined) then defaultParams(name) = defs
+
+  /** Reset all per-compilation mutable state.  Call between batch examples to prevent
+   *  field-registry pollution from one example affecting the next. */
+  def resetState(): Unit =
+    fieldRegistry.clear()
+    // Mirror is a built-in type with known fields at fixed indices.
+    fieldRegistry("Mirror") = Vector("label", "elemLabels", "elemTypes")
+    fieldTypeRegistry.clear()
+    derivedSchemas.clear()
+    generalDerives.clear()
+    givenRegistry.clear()
+    extensionMethods.clear()
+    defaultParams.clear()
+    defParamNames.clear()
+    varargDefs.clear()
+    zeroArgDefs.clear()
+    curryFirstClauseDefaults.clear()
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
@@ -82,6 +105,16 @@ object FrontendBridge:
     case d: Defn.Class if d.mods.exists(_.is[Mod.Case]) =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList
       registerCaseClass(d.name.value, params)
+      d.templ.derives.foreach { derivedType =>
+        val tcName = derivedType match
+          case Type.Name(n) => n
+          case _            => derivedType.syntax
+        if tcName == "AgentSchema" || tcName == "McpSchema" then
+          derivedSchemas(d.name.value) = tcName
+        else
+          val cn = d.name.value
+          generalDerives(cn) = generalDerives.getOrElse(cn, Nil) :+ tcName
+      }
     case d: Defn.Trait => ()
     case d: Defn.Object => ()
     case Defn.Enum(_, name, _, _, templ) =>
@@ -421,6 +454,7 @@ object FrontendBridge:
       case v: Defn.Val if isSimplePat(v.pats) => List(patName(v.pats.head))
       case g: Defn.Given                      => List(g.name.value)
       case eg: Defn.ExtensionGroup            => extMethods(eg).map(_.name.value)
+      case obj: Defn.Object                   => List(obj.name.value)
     }).flatten.toSet
 
     stats.foreach {
@@ -485,12 +519,30 @@ object FrontendBridge:
           val lam    = CT.Lam(params.length, body)
           defsB += CDef(m.name.value, lam)
         }
+      case obj: Defn.Object if !V2PluginRegistry.hasGlobal(obj.name.value) =>
+        // object Foo { def m(...) = ... } → Foo = __mk_method_obj__(["m", lam, ...])
+        val methods = obj.templ.stats.collect { case m: Defn.Def => m }
+        if methods.nonEmpty then
+          val pairs = methods.flatMap { m =>
+            val ps  = allParams(m)
+            val sc  = ps.reverse
+            val bod = convertExpr(m.body, sc)
+            val lam = if ps.isEmpty then CT.Lam(0, bod) else CT.Lam(ps.length, bod)
+            List(CT.Lit(Const.CStr(m.name.value)), lam)
+          }
+          defsB += CDef(obj.name.value, CT.Prim("__mk_method_obj__", pairs))
       case other =>
         entryB += other
     }
 
     val stdDefs = standardPrelude.filterNot(d => userDefNames.contains(d.name))
-    val defs  = stdDefs ++ defsB.result()
+    val derivedDefs = derivedSchemas.toList.flatMap { case (cn, tc) => makeDerivedSchemaCDef(cn, tc) }
+    // Only derive for typeclasses defined locally (not imported from plugins).
+    // A locally-defined typeclass companion shows up in userDefNames as a Defn.Object.
+    val generalDerivedDefs = generalDerives.toList.flatMap { case (cn, tcs) =>
+      tcs.filter(userDefNames.contains).flatMap(tc => makeDerivedGeneralCDef(cn, tc))
+    }
+    val defs  = stdDefs ++ defsB.result() ++ derivedDefs ++ generalDerivedDefs
     val entryStmts = entryB.result()
     val entry =
       if entryStmts.nonEmpty then convertBlock(entryStmts, Nil)
@@ -718,7 +770,18 @@ object FrontendBridge:
         case _ => "?"
       givenRegistry.get(typeSig) match
         case Some(name) => CT.Global(name)
-        case None       => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
+        case None =>
+          // summon[Mirror.Of[X]] — if X is a known case class, build an inline Mirror ctor.
+          val mirrorTypePat = """^Mirror\.Of\[(.+)\]$""".r
+          typeSig match
+            case mirrorTypePat(className) if fieldRegistry.contains(className) =>
+              val fields    = fieldRegistry(className)
+              val labelLit  = CT.Lit(Const.CStr(className))
+              val elemLbls  = listOf(fields.map(f => CT.Lit(Const.CStr(f))).toList)
+              val elemTypes = listOf(fields.map(_ => CT.Lit(Const.CStr("Any"))).toList)
+              CT.Ctor("Mirror", List(labelLit, elemLbls, elemTypes))
+            case _ =>
+              CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
     case Term.ApplyType.After_4_6_0(fn, _) =>
       convertExpr(fn, scope)
 
@@ -1091,6 +1154,14 @@ object FrontendBridge:
             case Pat.Var(Term.Name(n)) if isCtorName(n) => true
             case _ => false
           }
+        // Tuple with nested non-variable sub-patterns (e.g. `(x :: xs, y :: ys)`) needs
+        // general if-chain so flattenPattern can recursively extract the sub-bindings.
+        case Pat.Tuple(pats) =>
+          pats.exists {
+            case _: Pat.Extract | _: Pat.ExtractInfix | _: Lit => true
+            case Pat.Var(Term.Name(n)) if isCtorName(n) => true
+            case _ => false
+          }
         case _ => false
     }
 
@@ -1373,6 +1444,16 @@ object FrontendBridge:
   /** Given registry: type-string → given name (for summon) */
   private val givenRegistry = collection.mutable.HashMap[String, String]()
 
+  /** Field type registry: class name → field type strings (parallel to fieldRegistry). */
+  private val fieldTypeRegistry = collection.mutable.LinkedHashMap[String, Vector[String]]()
+
+  /** Classes with `derives AgentSchema` or `derives McpSchema`: class name → typeclass name. */
+  private val derivedSchemas = collection.mutable.LinkedHashMap[String, String]()
+
+  /** General typeclass derivation via `T.derived(mirror)`: class name → list of typeclass names.
+   *  Populated from `case class X(...) derives Tc` for any Tc not handled specially. */
+  private val generalDerives = collection.mutable.LinkedHashMap[String, List[String]]()
+
   /** Convert a `given name: T with { defs }` to a method-object prim. */
   private def convertGiven(g: Defn.Given): CT =
     // Extract the parent type sig (e.g. "Show[Int]") from template.inits
@@ -1387,3 +1468,47 @@ object FrontendBridge:
       List(CT.Lit(Const.CStr(m.name.value)), lam)
     }
     CT.Prim("__mk_method_obj__", pairs)
+
+  /** Generate a synthetic CDef for a `derives AgentSchema` / `derives McpSchema` case class.
+   *  Calls the schema functions from agent.ssc / mcp.ssc at runtime to produce the instance. */
+  private def makeDerivedSchemaCDef(className: String, tcName: String): Option[CDef] =
+    val fields = fieldRegistry.getOrElse(className, return None).toList
+    val types  = fieldTypeRegistry.getOrElse(className, Vector.fill(fields.length)("Any")).toList
+    val n      = fields.length
+    val genName = s"__${tcName.toLowerCase}_${className}__"
+    givenRegistry(s"$tcName[$className]") = genName
+
+    def strList(ss: List[String]): CT =
+      ss.foldRight(CT.Ctor("Nil", Nil): CT)((s, acc) => CT.Ctor("Cons", List(CT.Lit(Const.CStr(s)), acc)))
+
+    val labelsIR = strList(fields)
+    val typesIR  = strList(types)
+
+    // Decode fn: argsJson → PostTransaction(values(0), values(1), ...)
+    // Lambda Local(0) = argsJson
+    // After Let([jsonValue(argsJson)]): Local(0) = args
+    // After Let([agentSchemaDecodeFields(labels, types, args)]): Local(0) = values
+    val decodeFn = CT.Lam(1,
+      CT.Let(List(CT.App(CT.Global("jsonValue"), List(CT.Local(0)))),
+        CT.Let(List(CT.App(CT.Global("agentSchemaDecodeFields"), List(labelsIR, typesIR, CT.Local(0)))),
+          CT.Ctor(className, (0 until n).toList.map(i => CT.App(CT.Local(0), List(CT.Lit(Const.CInt(i)))))))))
+
+    val paramsJson = CT.App(CT.Global("objectSchema"), List(
+      CT.App(CT.Global("agentSchemaProperties"), List(labelsIR, typesIR)),
+      CT.App(CT.Global("agentSchemaRequired"),   List(labelsIR, typesIR))))
+
+    Some(CDef(genName, CT.Ctor("AgentSchemaInstance", List(paramsJson, decodeFn))))
+
+  /** Generate a synthetic CDef for `case class X(...) derives Tc` by calling `Tc.derived(mirror)`.
+   *  The mirror is built from the class's field registry. */
+  private def makeDerivedGeneralCDef(className: String, tcName: String): Option[CDef] =
+    val fields = fieldRegistry.getOrElse(className, return None).toList
+    val genName = s"__${tcName.toLowerCase}_${className}__"
+    givenRegistry(s"$tcName[$className]") = genName
+    val mirror = CT.Ctor("Mirror", List(
+      CT.Lit(Const.CStr(className)),
+      fields.foldRight(CT.Ctor("Nil", Nil): CT)((f, acc) => CT.Ctor("Cons", List(CT.Lit(Const.CStr(f)), acc))),
+      fields.foldRight(CT.Ctor("Nil", Nil): CT)((_, acc) => CT.Ctor("Cons", List(CT.Lit(Const.CStr("Any")), acc)))
+    ))
+    // Call Tc.derived(mirror) — compiled as __method__("derived", TcCompanion, mirror)
+    Some(CDef(genName, CT.Prim("__method__", List(CT.Lit(Const.CStr("derived")), CT.Global(tcName), mirror))))
