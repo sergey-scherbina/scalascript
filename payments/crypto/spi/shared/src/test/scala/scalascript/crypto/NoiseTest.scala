@@ -66,6 +66,33 @@ class NoiseTest extends AnyFunSuite with Matchers:
     assertTransport(ini, res)
   }
 
+  test("Noise_N — one-way sealed box: anonymous sender, known + authenticated recipient") {
+    val ini = new Noise.HandshakeState(Noise.N, initiator = true,  null, rsKnown = rStatic.pub)
+    val res = new Noise.HandshakeState(Noise.N, initiator = false, rStatic)
+    drive(ini, res, Noise.N.messages.length)
+    hex(ini.remoteStatic) shouldBe hex(rStatic.pub)     // recipient pre-known
+    res.remoteStatic shouldBe null                       // sender stays anonymous
+    assertTransport(ini, res)
+  }
+
+  test("Noise_NK — responder pre-known + authenticated, anonymous initiator") {
+    val ini = new Noise.HandshakeState(Noise.NK, initiator = true,  null, rsKnown = rStatic.pub)
+    val res = new Noise.HandshakeState(Noise.NK, initiator = false, rStatic)
+    drive(ini, res, Noise.NK.messages.length)
+    hex(ini.remoteStatic) shouldBe hex(rStatic.pub)
+    res.remoteStatic shouldBe null
+    assertTransport(ini, res)
+  }
+
+  test("Noise_XK — responder pre-known; initiator transmits its static for mutual auth") {
+    val ini = new Noise.HandshakeState(Noise.XK, initiator = true,  iStatic, rsKnown = rStatic.pub)
+    val res = new Noise.HandshakeState(Noise.XK, initiator = false, rStatic)
+    drive(ini, res, Noise.XK.messages.length)
+    hex(ini.remoteStatic) shouldBe hex(rStatic.pub)
+    hex(res.remoteStatic) shouldBe hex(iStatic.pub)      // learned in the final message
+    assertTransport(ini, res)
+  }
+
   test("a tampered handshake message fails authentication") {
     val ini = new Noise.HandshakeState(Noise.XX, initiator = true,  iStatic)
     val res = new Noise.HandshakeState(Noise.XX, initiator = false, rStatic)

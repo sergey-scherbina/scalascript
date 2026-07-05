@@ -17,9 +17,15 @@ object Noise:
    *  token lists in order. Tokens: `e s ee es se ss`. */
   final case class Pattern(name: String, preIni: Seq[String], preRes: Seq[String], messages: Seq[Seq[String]])
 
-  val NN: Pattern = Pattern("NN", Nil, Nil, Seq(Seq("e"), Seq("e", "ee")))
-  val XX: Pattern = Pattern("XX", Nil, Nil, Seq(Seq("e"), Seq("e", "ee", "s", "es"), Seq("s", "se")))
+  val NN: Pattern = Pattern("NN", Nil, Nil,      Seq(Seq("e"), Seq("e", "ee")))
+  val XX: Pattern = Pattern("XX", Nil, Nil,      Seq(Seq("e"), Seq("e", "ee", "s", "es"), Seq("s", "se")))
   val IK: Pattern = Pattern("IK", Nil, Seq("s"), Seq(Seq("e", "es", "s", "ss"), Seq("e", "ee", "se")))
+  /** One-way "sealed box": anonymous sender → known recipient, a single message. */
+  val N:  Pattern = Pattern("N",  Nil, Seq("s"), Seq(Seq("e", "es")))
+  /** Interactive, responder pre-known + authenticated; the initiator stays anonymous. */
+  val NK: Pattern = Pattern("NK", Nil, Seq("s"), Seq(Seq("e", "es"), Seq("e", "ee")))
+  /** Interactive, responder pre-known; the initiator transmits + proves its static (mutual auth). */
+  val XK: Pattern = Pattern("XK", Nil, Seq("s"), Seq(Seq("e", "es"), Seq("e", "ee"), Seq("s", "se")))
 
   private val HashLen = 32
   private val TagLen  = 16
