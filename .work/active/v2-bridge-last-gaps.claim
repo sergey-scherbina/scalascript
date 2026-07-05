@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-bridge-last-gaps
-worktree: ../scalascript-wt-v2-bridge-last-gaps
-started: 2026-07-05
-status: in-progress
-task: the 5 last real compat FAILs: Dataset codec Op/3 arm, trapExit x2, runDistributed, registerBehavior (typed remote spawn)

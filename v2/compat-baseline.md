@@ -19,9 +19,16 @@ Reproduce: `scripts/v2-compat-coverage` (one JVM via `ssc.bridge.batchCli`).
 The hang-list is GONE: every entry terminates; the real batch killer was a bridged
 v1 `exit` intrinsic shadowing the actor exit (System.exit killed the batch JVM) —
 fixed with Runtime.exitHandler + polymorphic exit + registration order.
-The 5 real FAILs: `registerBehavior` (typed remote spawn), `trapExit` ×2,
-`runDistributed`, Dataset codec `Op/3` arm. Next enhancement: output-equality
-vs the v1 interpreter (PASS = exit-0 today).
+Remaining real FAILs (trapExit landed 2026-07-05 evening; wire files moved one gap
+forward): `link`/`monitor` supervision surface ×2, `registerBehavior` (typed remote
+spawn), `runDistributed`/`runDistributedWire`/`runDistributedShuffleWire` (distributed
+MapReduce drivers), Dataset codec `Op/3` (DatasetCodec/DatasetWire need typed-codec
+bridging — the Op/3 is the "unhandled plugin method → free-monad Op" fallback
+reaching a user match). `pg-listen-notify` needs a real database (env-ish).
+KNOWN HAZARD: batch PASS counts are ±1 order-dependent — plugin state (e.g. a
+registered 'default' database) leaks between files in the one-JVM batch; a per-file
+state reset or forked-per-file mode would make counts exact.
+Next enhancement: output-equality vs the v1 interpreter (PASS = exit-0 today).
 
 ## Prior baseline — 2026-07-05 morning, @ `f3e087b3a` (post Track 1+2 merge)
 
