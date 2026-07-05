@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/webauthn-server-verify
+worktree: ../scalascript-wt-webauthn
+started: 2026-07-05T14:25:44Z
+heartbeat: 2026-07-05T14:25:44Z
+status: in-progress
+task: webauthn-server-verify — portable WebAuthn assertion verification core in crypto-spi/shared: parse COSE_Key (EC2/ES256 + OKP/EdDSA) via Cbor + verify the assertion signature over authenticatorData||SHA256(clientDataJSON) using P256Ecdsa (DER) / Ed25519 (raw); round-trip + parse + negative tests, JVM+JS. Capstone of the token-formats/COSE/P-256 line.
