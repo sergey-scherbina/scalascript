@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/v2-cli-run-flag
-worktree: ../scalascript-wt-v2cli
-started: 2026-07-05T20:04:23Z
-heartbeat: 2026-07-05T20:04:23Z
-status: in-progress
-task: v2-cli-run-flag — wire 'ssc run --v2 <file>' in the CLI to route through the v1 frontend -> FrontendBridge -> v2 VM (additive flag; does NOT change the default or touch conformance/bridge-gap files). Phase-3 mechanism + unblocks v1-vs-v2 output parity. Gate: ssc run --v2 examples/hello.ssc prints Hello, World!

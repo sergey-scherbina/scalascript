@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 migration: `ssc run --v2` flag (Phase-3 preview mechanism)
+
+Wired `ssc run --v2 <file.ssc>` in the CLI to route a v1 source through the v1 frontend → `FrontendBridge`
+→ the ssc 2.0 VM, instead of the v1 tree-walking interpreter (new `RunV2.scala`; `cli` now `dependsOn`
+`v2FrontendBridge`; additive flag — the v1 interpreter stays the default). This is the migration preview
+mechanism the Phase-3 CLI switch will build on, and it makes v1-vs-v2 **output parity** checkable from the
+normal CLI. Gate: `ssc run --v2 examples/hello.ssc` prints `Hello, World!`, byte-identical to the default.
+
+**Finding it immediately surfaced:** `examples/algebraic-effects.ssc` exits 0 on v2 (so it counts as PASS
+in the exit-0 coverage harness) but prints **different output** than v1 — a real effects-semantics gap that
+the current 96.4% coverage number hides. Concrete evidence that the Phase-3 gate needs an output-equality
+check, not just exit-0. Logged for the Track-4 conformance work.
+
 ## 2026-07-05 — crypto: Noise interactive matrix — NX / XN / KK / IN / IX
 
 Added five more interactive Noise patterns to `Noise.scala`, covering the immediate-static (`I…`) and

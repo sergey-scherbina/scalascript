@@ -51,6 +51,15 @@ Three phases — execute in order, each phase gated by the previous:
       • sbt v2Core/compile: SUCCESS (5 sources, 4 s).
       GOTCHA: macOS `echo` processes `\n` as a real newline (unlike Linux). Use `program > file` (redirect) or `printf '%s\n' "$var"` when writing backend output to files. The generated Scala/Rust code contains literal `\n` in preamble strings; `echo "$VAR"` corrupts them silently.
 - [ ] **Phase 3: switch** — CLI default → v2; `ssc --v1` escape hatch retained.
+      - [x] **`ssc run --v2` flag** DONE 2026-07-05 (`RunV2.scala`, `feature/v2-cli-run-flag`): additive
+        preview flag routing a source through the v1 frontend → FrontendBridge → v2 VM (default runner
+        unchanged). `ssc run --v2 examples/hello.ssc` == v1 output. Makes v1-vs-v2 output parity checkable
+        from the CLI; the eventual default-switch builds on this.
+      - **OUTPUT-PARITY FINDING (for Track 4 / conformance):** `examples/algebraic-effects.ssc` exits 0 on
+        v2 (PASS in the exit-0 coverage harness) but prints DIFFERENT output than v1 (v2: `List() / 1 / …`
+        vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`). The 96.4% exit-0 coverage OVERSTATES real
+        compat; the Phase-3 gate needs an **output-equality** check. First concrete effects-semantics gap
+        found this way — a v2 VM effects divergence, not a bridge/flag bug (the flag mirrors `bridgeCli`).
 
 ### ▶ v2 full compatibility (2026-07-03 — Track 1 through 5)
 Spec: `specs/v2-full-compat.md`
