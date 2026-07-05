@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/paseto-v4-public
-worktree: ../scalascript-wt-paseto-v4
-started: 2026-07-05T11:48:50Z
-heartbeat: 2026-07-05T11:48:50Z
-status: in-progress
-task: paseto-v4-public — portable PASETO v4.public sign+verify (Ed25519 + PAE) in crypto-spi/shared; PAE spec vectors + official v4 test vector + round-trip, JVM+JS. Next slice of BACKLOG token-formats (after JWS).

@@ -91,8 +91,12 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       **JWS/JWT DONE 2026-07-05** (`Jws.scala` + `Jwt` in `crypto-spi/shared`): portable compact JWS
       (RFC 7515) sign+verify for **HS256** (HmacSha256) and **EdDSA** (Ed25519) on the portable crypto
       primitives — byte-exact vs RFC 7515 A.1 + RFC 8037 A.4, JVM+JS, with constant-time MAC compare and
-      tamper/malformed-token rejection. **REMAINING:** ES256/ES256K for JWS (needs ECDSA fixed-length R‖S
-      ↔ DER); PASETO v4 (public/local); COSE (RFC 8152, CBOR — pairs with `webauthn-server-verify`).
+      tamper/malformed-token rejection.
+      **PASETO v4.public DONE 2026-07-05** (`PasetoV4.scala` in `crypto-spi/shared`): portable
+      `v4.public` sign+verify (Ed25519 over PAE), footer + implicit-assertion binding, version/purpose/
+      tamper rejection — PAE pinned to the PASETO spec vectors + verified against the official `v4.json`
+      "4-S-1" public key, JVM+JS. **REMAINING:** ES256/ES256K for JWS (ECDSA fixed-length R‖S ↔ DER);
+      PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE (RFC 8152, CBOR — pairs with `webauthn-server-verify`).
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
 - [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the

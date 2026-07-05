@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable PASETO v4.public over the crypto SPI
+
+Added `PasetoV4.scala` to `payments/crypto/spi/shared` — portable PASETO **v4.public** (signed) token
+sign+verify: Ed25519 over the Pre-Authentication Encoding (PAE) of `[header, message, footer, implicit]`,
+with footer + implicit-assertion binding and version/purpose/tamper rejection. Built on the from-scratch
+portable Ed25519 (JVM + Scala.js, no platform crypto). PAE pinned to the PASETO spec vectors; sign/verify
+validated against the official `v4.json` "4-S-1" public key. Second `token-formats` slice after JWS/JWT
+(ES256K, PASETO v4.local, and COSE remain).
+
 ## 2026-07-05 — v2 bridge: batch PASS 129→176/178 (OIDC/Mirror/MCP stubs)
 
 `feature/v2-frontend-bridge` merged (7277dfaa0). Four more examples fixed:
