@@ -1454,7 +1454,7 @@ final class RunCmd extends CliCommand:
   def name = "run"
   override def summary = "Execute .ssc via the tree-walking interpreter (the default runner)"
   override def category = "Run & develop"
-  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser")
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --v2  (run on the ssc 2.0 VM via FrontendBridge — migration preview)")
   def run(args: List[String]): Unit =
     if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -1476,6 +1476,7 @@ final class RunCmd extends CliCommand:
     var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
     var deviceFlag:        Boolean        = false  // --device
     var deviceIdFlag:      Option[String] = None   // --device-id <udid>
+    var v2Flag:            Boolean        = false  // --v2 (run on the ssc 2.0 VM via FrontendBridge)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
@@ -1498,6 +1499,7 @@ final class RunCmd extends CliCommand:
         case "--rebuild"                   => rebuildFlag  = true
         case "--no-rebuild"                => rebuildFlag  = false
         case "--device"                    => deviceFlag   = true
+        case "--v2"                        => v2Flag       = true
         case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
         case "--frontend"         if it.hasNext =>
           val name = it.next()
@@ -1506,6 +1508,13 @@ final class RunCmd extends CliCommand:
             System.exit(1)
           frontendFlag = Some(name)
         case f => fileArgs += f
+
+    // `--v2`: run on the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime). Separate path; the
+    // v1 interpreter remains the default. This is the Phase-3 migration preview mechanism.
+    if v2Flag then
+      if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
+      RunV2.run(fileArgs.toList, Nil)
+      return
 
     val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
     val runMode = modeFlag.map(_.trim.toLowerCase)
