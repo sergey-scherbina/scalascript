@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/noise-more-patterns
-worktree: ../scalascript-wt-noise-more
-started: 2026-07-05T18:03:22Z
-heartbeat: 2026-07-05T18:03:22Z
-status: in-progress
-task: noise-more-patterns — add N (one-way sealed-box), NK, XK patterns to the Noise engine; functional gate: handshake round-trip + correct auth semantics per pattern, JVM+JS. Reuses the validated pattern engine; no vector recall.

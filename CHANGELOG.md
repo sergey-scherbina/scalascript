@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: more Noise patterns — N (sealed box), NK, XK
+
+Added three more built-in Noise patterns to the `Noise.scala` engine: `N` (a one-way "sealed box" —
+anonymous sender to a known, authenticated recipient, a single message), `NK` (interactive, responder
+pre-known + authenticated, anonymous initiator), and `XK` (responder pre-known, initiator transmits +
+proves its static for mutual auth). Reuses the validated pattern engine (pre-messages + the DH-token
+handling). Functional gate per pattern: a full handshake with matching transport keys and the correct
+authentication semantics (N/NK: anonymous initiator; XK: mutual), JVM + Scala.js. The engine now ships
+N / NN / NK / XX / XK / IK.
+
 ## 2026-07-05 — crypto: Noise pattern engine — NN / XX / IK
 
 Generalised the Noise handshake into a pattern-driven engine (`Noise.scala`, replacing the XX-only
