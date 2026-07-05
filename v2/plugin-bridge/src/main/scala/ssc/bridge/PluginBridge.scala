@@ -48,6 +48,7 @@ object PluginBridge:
     registerHandle()
     registerSys()
     registerInterpreterBuiltins()
+    registerAmbientEffectOps()
     registerComputedCellDispatch()
     var count = 0
     val cl = Thread.currentThread().getContextClassLoader
@@ -536,6 +537,20 @@ object PluginBridge:
    *  These are complex language features (async, generators, signals, storage, setArgs).
    *  Stubs allow programs to load/initialize without crashing on unbound; actual
    *  functionality requires proper implementation (open TODO). */
+  /** Ambient effect ops: in v1 the core effects (Random/Clock) work WITHOUT an
+   *  explicit handler block (ambient defaults). The bridge's dispatch tries plugin
+   *  lookup before the free-monad Op fallback, so registering these here gives the
+   *  same ambient semantics (mapreduce's jobId = Random.uuid() etc.). */
+  private def registerAmbientEffectOps(): Unit =
+    V2PluginRegistry.register("Random.uuid", _ => V2Value.StrV(java.util.UUID.randomUUID().toString))
+    V2PluginRegistry.register("Random.int", {
+      case List(V2Value.IntV(n)) => V2Value.IntV(scala.util.Random.nextLong(n))
+      case _                     => V2Value.IntV(scala.util.Random.nextLong())
+    })
+    V2PluginRegistry.register("Random.double", _ => V2Value.FloatV(scala.util.Random.nextDouble()))
+    V2PluginRegistry.register("Clock.now", _ => V2Value.IntV(System.currentTimeMillis()))
+    V2PluginRegistry.register("Clock.nanos", _ => V2Value.IntV(System.nanoTime()))
+
   private def registerInterpreterBuiltins(): Unit =
     import V2Value.*
     // println / print — variadic so println() works (0-arg prints a blank line)

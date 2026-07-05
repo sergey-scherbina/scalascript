@@ -304,7 +304,7 @@ object Compiler:
                         avs(0) match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
                       case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
                         Done(m.asInstanceOf[collection.mutable.HashMap[Value,Value]](avs(0)))
-                      case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
+                      case DataV("Stub", fs) => Done(DataV("Stub", fs))  // propagate the missed-method breadcrumb
                       case v => sys.error(s"app: not a function: ${Show.show(v)}")
                 }
               case List(a0, a1) =>
@@ -1331,7 +1331,7 @@ object Prims:
           case "*"        => StrV(x * y.toInt)
           case "+" | "++" => StrV(x + y.toString)
           case "==" => BoolV(false); case "!=" => BoolV(true)
-          case _   => sys.error(s"__arith__: unknown op $op for String+Int")
+          case _   => sys.error(s"__arith__: unknown op $op for String+Int (l=\"$x\", r=$y)")
         case (IntV(x), StrV(y)) => op match
           case "+" | "++" => StrV(x.toString + y)
           case "==" => BoolV(false); case "!=" => BoolV(true)
@@ -1416,6 +1416,8 @@ object Prims:
       val recv = a(1)
       val margs = a.drop(2).toList
       (recv, name, margs) match
+        // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
+        case (v, "asInstanceOf", _)          => v
         case (IntV(n), "toString", Nil)      => StrV(n.toString)
         case (IntV(n), "toInt", Nil)         => IntV(n.toInt.toLong)    // truncate to 32-bit
         case (IntV(n), "toLong", Nil)        => IntV(n)
@@ -1777,9 +1779,15 @@ object Prims:
                             case many      => DataV(s"Tuple${many.length}", many.toVector)
                           val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
                           DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
-                case DataV(_, _) =>
-                  // Non-effect DataV (Op, Stub, or unknown type): return a stub in batch mode
-                  DataV("Stub", Vector.empty)
+                case DataV("Stub", fs) =>
+                  // A method ON a stub stays that stub — keep the ORIGINAL missed-method
+                  // breadcrumb instead of burying it under Stub.<name> chains.
+                  DataV("Stub", fs)
+                case DataV(dtag, _) =>
+                  // Non-effect DataV (Op, or unknown type): return a stub in batch
+                  // mode — carrying WHICH method missed, so downstream errors say
+                  // Stub(Tag.method) instead of a bare Stub (debugging breadcrumb).
+                  DataV("Stub", Vector(StrV(s"$dtag.$name")))
                 case _ =>
                   sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
