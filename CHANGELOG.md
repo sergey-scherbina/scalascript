@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable X25519 (Curve25519 Diffie-Hellman, RFC 7748)
+
+Added `X25519.scala` to `payments/crypto/spi/shared` — a from-scratch X25519: the Montgomery ladder over
+`BigInt` in `2^255 − 19`, with RFC 7748 scalar clamping + u-coordinate decoding, plus `derivePublicKey`
+and `sharedSecret`. Pure Scala, identical on JVM + Scala.js, no platform crypto. Verified byte-exact
+against the RFC 7748 vectors — §5.2 scalar multiplication (both) and the §6.1 Diffie-Hellman shared
+secret. The last major missing primitive: with the portable ChaCha20-Poly1305, this unblocks the Noise
+protocol and `age` encryption.
+
 ## 2026-07-05 — crypto: COSE_Encrypt0 (ChaCha20-Poly1305) — encrypted COSE
 
 Added `CoseEncrypt0.scala` to `payments/crypto/spi/shared` — COSE_Encrypt0 (RFC 8152 §5.2, single

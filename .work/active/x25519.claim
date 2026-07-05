@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/x25519
-worktree: ../scalascript-wt-x25519
-started: 2026-07-05T14:57:51Z
-heartbeat: 2026-07-05T14:57:51Z
-status: in-progress
-task: x25519 — portable Curve25519 X25519 Diffie-Hellman (RFC 7748) in crypto-spi/shared: Montgomery ladder over BigInt (p=2^255-19), scalar clamping, u-coordinate; gated byte-exact by RFC 7748 §5.2 scalar-mult vectors + §6.1 DH shared-secret, JVM+JS. Last major missing primitive; unblocks Noise + age.

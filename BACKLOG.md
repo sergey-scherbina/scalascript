@@ -125,10 +125,11 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       `ChaCha20Poly1305` with HChaCha20 + add keyed `Blake2b`); multi-recipient COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
-      **ChaCha20-Poly1305 now portable** (`ChaCha20Poly1305.scala`, RFC 8439, JVM+JS, 2026-07-05); the
-      remaining prerequisite is a portable **X25519** reference (curve25519 DH) — then the AEAD + DH + a
-      HKDF/SHA-256 CipherState complete Noise. This same AEAD unblocks `age-encryption`, PASETO **v4.local**
-      (needs the XChaCha20 extended-nonce variant = HChaCha20 subkey + the AEAD), and **COSE_Encrypt**.
+      **Both primitives now portable** — `ChaCha20Poly1305.scala` (RFC 8439) + `X25519.scala` (RFC 7748
+      Montgomery-ladder DH), byte-exact, JVM+JS (2026-07-05). Noise is now unblocked: it needs only the
+      symmetric/CipherState/HandshakeState machine (HKDF-SHA-256 + the mix/split rules) on top. The same
+      pair unblocks `age-encryption` (X25519 + ChaCha20-Poly1305, fully available now). PASETO **v4.local**
+      additionally needs the XChaCha20 extended-nonce variant (HChaCha20 subkey) + keyed BLAKE2b.
 - [~] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
       crypto SPI; a whole decentralized-identity stack. Gate: W3C DID/VC test suites.
       **did:key DONE 2026-07-05** (`DidKey.scala` + a portable `Base58` btc codec in `crypto-spi/shared`):
