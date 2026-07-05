@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: Noise_XX handshake (25519 / ChaChaPoly / SHA256)
+
+Added `NoiseXX.scala` to `payments/crypto/spi/shared` — a portable `Noise_XX_25519_ChaChaPoly_SHA256`
+handshake (CipherState + SymmetricState + HandshakeState) composed entirely from the from-scratch X25519,
+ChaCha20-Poly1305, HKDF-SHA256, and SHA-256. Pure Scala, JVM + Scala.js. The first full protocol assembled
+on the portable primitive stack. Functional gate: a complete initiator↔responder handshake derives
+matching transport keys, both parties authenticate the peer's static key (XX mutual auth), encrypted
+transport round-trips in both directions, and a tampered handshake message fails authentication.
+
 ## 2026-07-05 — crypto: portable HKDF-SHA256 (RFC 5869)
 
 Added `HkdfSha256.scala` to `payments/crypto/spi/shared` — HMAC-based extract-and-expand KDF over the

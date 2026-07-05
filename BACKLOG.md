@@ -123,13 +123,17 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       round-trip + tamper/wrong-key/wrong-AAD rejection, JVM+JS — COSE now covers sign (COSE_Sign1) and
       encrypt (COSE_Encrypt0). **REMAINING:** PASETO **v4.local** (XChaCha20 + keyed BLAKE2b — extend
       `ChaCha20Poly1305` with HChaCha20 + add keyed `Blake2b`); multi-recipient COSE_Encrypt.
-- [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
+- [~] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
-      **Both primitives now portable** — `ChaCha20Poly1305.scala` (RFC 8439) + `X25519.scala` (RFC 7748
-      Montgomery-ladder DH) + `HkdfSha256.scala` (RFC 5869), all byte-exact, JVM+JS (2026-07-05). Noise is
-      now unblocked: it needs only the symmetric/CipherState/HandshakeState machine (the mix/split rules)
-      on top of X25519 + ChaCha20-Poly1305 + HKDF. The same pieces unblock `age-encryption`. PASETO **v4.local**
-      additionally needs the XChaCha20 extended-nonce variant (HChaCha20 subkey) + keyed BLAKE2b.
+      Primitives portable: `ChaCha20Poly1305.scala` (RFC 8439) + `X25519.scala` (RFC 7748) +
+      `HkdfSha256.scala` (RFC 5869), byte-exact, JVM+JS.
+      **Noise_XX DONE 2026-07-05** (`NoiseXX.scala`): CipherState + SymmetricState + HandshakeState for
+      `Noise_XX_25519_ChaChaPoly_SHA256` (the mutual-auth `e / e,ee,s,es / s,se` pattern). Functional gate:
+      a full initiator↔responder handshake derives matching transport keys, both sides authenticate the
+      peer static key, encrypted transport round-trips both ways, and a tampered message fails auth — JVM+JS.
+      **REMAINING:** more patterns (NN/NK/IK…) + a byte-exact check against the cacophony/snow Noise
+      test-vectors. The same primitives still unblock `age-encryption`; PASETO **v4.local** additionally
+      needs the XChaCha20 extended-nonce variant (HChaCha20 subkey) + keyed BLAKE2b.
 - [~] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
       crypto SPI; a whole decentralized-identity stack. Gate: W3C DID/VC test suites.
       **did:key DONE 2026-07-05** (`DidKey.scala` + a portable `Base58` btc codec in `crypto-spi/shared`):
