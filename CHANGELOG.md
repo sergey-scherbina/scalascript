@@ -4,6 +4,35 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2-ssc1c-globals-bug + JS 64-bit ints + backend parity harness
+
+Three fixes restoring full 31/31 bench-corpus compatibility on v2 and hardening the
+Phase 2c code generators (SPRINT Track 5, T5.1–T5.3):
+
+- **ssc1c @count/@sum bug (T5.1)**: `lowerE`'s expression-position `"assign"` case in
+  `v2/lib/ssc1-lower.ssc0` missed `@@name` LongCell vars, emitting a bogus
+  `(global @count)`. Assigns inside `if`-then branches (e.g. `if p then count = count+1`)
+  broke; statement-position assigns were fine. bool-predicate (243) and mutual-recursion
+  (1000) now run correctly on VM + JVM + JS + Rust.
+- **JS backend 64-bit ints (T5.2)**: `v2/backend/js/JsBackend.scala` used plain JS numbers
+  for `i.*` — programs with real 64-bit overflow (the corpus LCG anti-fold idiom) silently
+  computed wrong values (bool-predicate: 6 ≠ 243). Ints are now BigInt end-to-end with
+  `BigInt.asIntN(64,…)` wrapping, masked shift counts, `Number(…)` bridges at index sites,
+  and previously-missing conversion prims (`i->str`/`i->f`/`f->i`/`tagOf`/`arity`/…).
+  Also: `backend/js/project.scala` gained the missing `//> using file ../../src/CoreIR.scala`.
+- **VM sconcat fast-path regression (T5.4)**: `string-concat` crashed with
+  `sconcat: bad types` — the `Prims.resolve2` fast path (v2-arith-loop-jit) shadowed the
+  general table's lenient coercion (`"item-" + n`). bench.sh masked it as `SKIP(no-main)`.
+  Now mirrors the general table; corpus is a true 31/31 (188890 on VM + JS + Rust).
+- **kc5 conformance probe fix (T5.5)**: the type-error probe used `1 + "a"` — legal Scala
+  (string concat), correctly lowered by KC5-micro — so the check was red on origin/main.
+  Probe now uses genuinely ill-typed `1 - "a"`; conformance fully green (634 ok).
+- **Backend parity harness (T5.3)**: new `v2/backend/check.sh` — every conformance
+  `.coreir` fixture + the two regression programs through run-ir vs JVM vs JS vs Rust,
+  byte-identical outputs required; ALL GREEN (7×3). It immediately caught two more Rust
+  generator bugs (non-Unit entry result never printed; tco stack overflow at 256MB —
+  now a 2GB virtual reservation, real trampoline TCO queued as v2-rust-backend-tco).
+
 ## 2026-07-05 — agent-mock-gateway: golden-transcript conformance for std.agent
 
 `AgentConformanceTest.scala` drives the agent loop against an in-process HttpServer fake gateway

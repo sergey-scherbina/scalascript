@@ -16,12 +16,22 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 ## v1→v2 migration follow-ups (2026-07-03)
 
-- [ ] **v2-ssc1c-globals-bug** — `bool-predicate` and `mutual-recursion` ssc1c lowers to IR
-      with `@count`/`@sum` global refs not present in the defs list (they are `var` cells that
-      ssc1c emits as unnamed `@`-prefixed globals instead of letrec-bound locals). Both fail the
-      v2 VM with "trailing input at offset 6" and also fail `rustc` (invalid global name). Fix:
-      trace where ssc1c emits `@count`/`@sum`-style names for var cells and replace with proper
-      `lcell.new`/`lcell.get`/`lcell.set` IR. Confirmed 2026-07-03 during Phase 2d verification.
+- [x] **v2-ssc1c-globals-bug** — ✓ Landed (2026-07-05). Root cause: `lowerE`'s
+      expression-position `"assign"` case missed `@@name` LongCell vars → bogus
+      `(global @count)`. Fixed in `v2/lib/ssc1-lower.ssc0`; bool-predicate +
+      mutual-recursion now correct on VM/JVM/JS/Rust. See SPRINT T5.1 and
+      `v2/backend/check.sh` (new parity harness).
+- [ ] **v2-rust-backend-tco** — `v2/backend/rust/RustBackend.scala` has no real TCO: deep
+      tail recursion just gets a big thread stack (bumped 256MB → 2GB virtual reservation
+      2026-07-05 so `tco.coreir`'s 1M frames pass). Proper fix: trampoline (closures return
+      `Step::Val|Bounce`, `call_fn` loops) — the design already exists in the ssc0-level
+      backend (`v2/lib/backend-rust.ssc0`, spec `v2/specs/61-backend-rust.md`); port it, or
+      mirror the JVM backend's self-tail-loop detection (`selfCallTailPositions`).
+- [ ] **v2-js-backend-smallint-fastmode** — after the 2026-07-05 BigInt correctness fix
+      (SPRINT T5.2), all v2 JS-backend ints are BigInt → JS bench regresses vs plain
+      doubles. Future perf item: hybrid representation (numbers while provably in ±2^53,
+      BigInt on overflow) or a typed-IR-informed selective lowering once the compat
+      frontend carries types.
 - [ ] **v2-jvm-backend-echo-macos** — On macOS, `echo "$var"` processes `\n` in strings as real
       newlines, corrupting the JVM/Rust backend output when captured via shell `$(...)` and written
       with `echo`. The generated preamble has `split("\n", -1)` which becomes `split("` + newline +

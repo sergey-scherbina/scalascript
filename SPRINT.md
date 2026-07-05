@@ -203,14 +203,58 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Gate: v2 conformance score ≥ v1.
 
 **Track 5 — ssc1c fixes**
-- [x] **T5.1: @count/@sum bug** — DONE 2026-07-04. Root cause was NOT @-prefixed globals in
-      ssc1-lower.ssc0 (those use proper lcell.new). Actual failure: Rust backend eagerly evaluated
-      `prim __math_obj__` at startup (in `def math = prim __math_obj__` prelude) → `panic!`.
-      Fix: Rust backend emits a lazy stub closure for `__math_obj__` instead of an eager panic.
-      Gate: bool-predicate and mutual-recursion pass on all 3 backends (JVM/JS/Rust). ✓
-      NOTE 2026-07-05: an active claim `.work/active/v2-ssc1c-globals-bug.claim` targets this
-      same bug — it is ALREADY DONE on this branch (root cause = Rust eager-eval, not @-globals);
-      the claim can be released as a duplicate.
+- [x] **T5.1: @count/@sum bug** — DONE. TWO independent root causes, one per pipeline,
+      both fixed:
+      (a) 2026-07-04, FrontendBridge pipeline: Rust backend eagerly evaluated
+      `prim __math_obj__` at startup (`def math = prim __math_obj__` prelude) → `panic!`;
+      fix = lazy stub closure in RustBackend.
+      (b) 2026-07-05, ssc1c pipeline (`feature/v2-ssc1c-globals-bug`): the
+      expression-position `"assign"` case in `lowerE` (`v2/lib/ssc1-lower.ssc0`) only
+      looked up `@name` — it missed `@@name` LongCell vars (introduced by
+      v2-arith-loop-jit), and `lookupVar`'s IrGlobal fallback then emitted a bogus
+      `(global @count)` (byte-verified in the emitted IR). Statement-position assigns were
+      correct; only assigns inside `if`-then branches (expression position) broke. Fix
+      mirrors the statement-position logic (`lookupVarOpt` on `@@name` → `lcell.set`,
+      else `@name` → `cell.set`).
+      Gate met on the ssc1c pipeline: bool-predicate (243) + mutual-recursion (1000)
+      correct on VM + JVM + JS + Rust (see `v2/backend/check.sh`); conformance green.
+- [x] **T5.2: JS backend 64-bit ints (BigInt)** — DONE 2026-07-05, found while verifying
+      T5.1: `v2/backend/js/JsBackend.scala` emitted plain JS numbers for `i.*`, so any
+      program with real 64-bit overflow — the corpus LCG anti-fold idiom — silently
+      computed WRONG values on JS (bool-predicate: 6 instead of 243; arith-loop/
+      recursion-fib stay under 2^53 so Phase 2d missed it). Fix: ints are BigInt
+      end-to-end (literals `Nn`; `i.add/sub/mul/neg/shl` wrapped in `BigInt.asIntN(64,…)`;
+      shift counts masked `&63n`; string/array index sites bridged via `Number(…)`;
+      `slen`/`scodeAt`/`arr.len`/`scmp`/`map.size` return BigInt; conversions
+      `i->str`/`i->f`/`f->i`/`i->big`/`big->i`/`big->f`/`big->str`/`f->str`/`tagOf`/`arity`
+      added — they previously hit the `$prim` throw; `$strToI`/`$sfromCodes` fixed;
+      match-error `JSON.stringify` → `$show` since stringify throws on BigInt).
+      NOTE: JS bench numbers will regress (BigInt is slower than doubles) — correctness
+      first; a hybrid small-int fast mode is a future perf item.
+      Also fixed: `backend/js/project.scala` lacked `//> using file ../../src/CoreIR.scala`
+      (JsBackend only compiled when extra sources were passed by hand).
+- [x] **T5.3: backend parity harness** — DONE 2026-07-05: `v2/backend/check.sh` runs every
+      `conformance/*.coreir` + the bool-predicate/mutual-recursion IRs through
+      run-ir vs JVM vs JS vs Rust; outputs must be byte-identical. ALL GREEN
+      (7 fixtures × 3 backends). (Phase 2c/2d verification was manual — nothing guarded
+      the three generators until now.) Two more generator bugs it caught, both fixed:
+      (a) the Rust backend never printed a non-Unit entry result (VM `Main.out`
+      semantics; bench programs print explicitly so 29/31 hid it) — added
+      `show_entry` (strings quoted) + entry match; (b) `tco.coreir` (1M non-TCO frames)
+      overflowed the 256MB thread — stack bumped to a 2GB virtual reservation; real
+      trampoline TCO queued as **v2-rust-backend-tco** in BACKLOG.
+- [x] **T5.4: VM sconcat fast-path regression** — DONE 2026-07-05, found chasing the last
+      bench SKIP: `string-concat` crashed the VM with `sconcat: bad types` — the
+      `Prims.resolve2` fast path (added by v2-arith-loop-jit) shadowed the general prim
+      table's lenient `sconcat` (`anyStr(a)+anyStr(b)` coercion, i.e. `"item-" + n`) with
+      a strict Str+Str-only version. Fast path now mirrors the general table. bench.sh
+      masked the crash as `SKIP(no-main)` — with T5.1+T5.4 the corpus is a true **31/31**
+      (string-concat = 188890 verified on VM + JS + Rust).
+- [x] **T5.5: kc5 type-error conformance probe was wrong** — DONE 2026-07-05 (pre-existing
+      FAIL on origin/main, the ONLY red conformance check): the probe used `1 + "a"`, which
+      is LEGAL Scala (string concat "1a") and KC5-micro correctly lowers it to sconcat, so
+      ssc1c rightly does not reject it. Probe changed to a genuinely ill-typed `1 - "a"`
+      (checker: `- requires Int right operand`). conformance now fully green: 634 ok / 0 FAIL.
 
 **Track 6 — WASM unblock (new 2026-07-05)**
 - [ ] **v2-wasm-unblock** — `rustup` is now present in this environment. Try
@@ -242,12 +286,15 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       (~10), Spark/Dataset free-monad (~8), and plugin-object method dispatch (Graph/SQL/vault).
       FOLLOW-UP (next slices, ranked in the baseline doc): content-toolkit context → Dataset executor
       → method-dispatch breadth. Harness enhancement: diff stdout vs v1 (output-equality, not just exit).
-- [ ] **T5.2: Float/Double infix lowered as integer prims in ssc1 (CORRECTNESS)** — in
+- [ ] **T5.6: Float/Double infix lowered as integer prims in ssc1 (CORRECTNESS)**
+      (renumbered from T5.2 — that number is taken by the completed 2026-07-05 JS-BigInt item
+      in Track 5 above) — in
       `v2/lib/ssc1-lower.ssc0`, infix `+ - * / < <= > >=` ALWAYS emit `i.add`/`i.mul`/`i.lt`, so
       Double math is *silently wrong* in the ssc1 self-hosted path. Dispatch to `f.*` prims when an
       operand is Float/Double. (ssc1 path only; FrontendBridge already handles mixed arithmetic.)
       Gate: a Double-arithmetic example matches v1 output via ssc1.
-- [ ] **T5.3: ssc1 top-level statements silently dropped** — `lowerProg` runs only a 0-arg
+- [ ] **T5.7: ssc1 top-level statements silently dropped**
+      (renumbered from T5.3 — taken by the completed parity-harness item above) — `lowerProg` runs only a 0-arg
       `def main`; top-level `expr`/`val`/`var` return `Nil` → silent no-op on ~190/194 files.
       Collect them into a synthetic entry sequence. ssc1 path only (Track 1 sidesteps it); do it so
       ssc1 stops *silently* mis-running. Gate: `examples/recursion.ssc` prints its output via ssc1.
