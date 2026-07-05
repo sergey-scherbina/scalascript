@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-wasm-unblock
+worktree: ../scalascript-wt-v2-wasm-unblock
+started: 2026-07-05
+status: in-progress
+task: v2-wasm-unblock — rustup now present; wasm32-wasip1 target installed; quicksort.ssc0 verified byte-identical under Node WASI. Ship launcher + conformance gate + docs.
