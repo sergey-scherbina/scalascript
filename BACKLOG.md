@@ -81,9 +81,14 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       reference**). Gate: VRF + BLS aggregate verify and match RFC/IETF vectors.
 
 **Track 3 — identity & token services (clusters):**
-- [ ] **webauthn-server-verify** — server-side passkey assertion verification (P-256/Ed25519 verify + CBOR
+- [~] **webauthn-server-verify** — server-side passkey assertion verification (P-256/Ed25519 verify + CBOR
       attestation), closing the loop with our existing client-assertion path (ERC-4337 passkey owner). Gate:
       W3C WebAuthn vectors + round-trip with our own client assertions.
+      **Assertion-verify core DONE 2026-07-05** (`WebAuthnVerify.scala` in `crypto-spi/shared`): COSE_Key
+      parse (EC2/P-256 → ES256, OKP/Ed25519 → EdDSA) via `Cbor` + signature check over
+      `authenticatorData ‖ SHA-256(clientDataJSON)` (ES256 DER via `P256Ecdsa`, EdDSA raw via `Ed25519`),
+      round-trip + tamper/wrong-key rejection, JVM+JS. **REMAINING:** registration/attestation-statement
+      verification (packed/tpm/…) and the caller-side policy checks (challenge/origin/rpIdHash/UP-UV/signCount).
 - [~] **token-formats** — PASETO / JWT / COSE token sign+verify over the crypto SPI (COSE pairs with
       webauthn-server-verify). Gate: RFC 7519 (JWT) / PASETO / RFC 8152 (COSE) vectors.
       **JWS/JWT DONE 2026-07-05** (`Jws.scala` + `Jwt` in `crypto-spi/shared`): portable compact JWS

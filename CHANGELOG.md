@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: WebAuthn assertion verification core (COSE_Key + ES256/EdDSA)
+
+Added `WebAuthnVerify.scala` to `payments/crypto/spi/shared` — the portable crypto core of a WebAuthn /
+FIDO2 login: parse the credential's **COSE_Key** (EC2/P-256 → ES256, OKP/Ed25519 → EdDSA) via `Cbor`, then
+verify the assertion signature over `authenticatorData ‖ SHA-256(clientDataJSON)` (ES256 as ASN.1/DER via
+`P256Ecdsa`, EdDSA raw via `Ed25519`). Pure Scala, JVM + Scala.js, no platform crypto. Tests: COSE_Key
+decode + ES256/EdDSA round-trip + tamper (clientData/authData) and wrong-key rejection. This is the
+capstone of the token-formats/COSE/P-256 line; registration/attestation + policy checks remain.
+
 ## 2026-07-05 — crypto: ES256 (ECDSA P-256) wired into JWS + COSE
 
 `Jws.signES256`/`verifyES256` (+ `Jwt.es256`) and `CoseSign1.signES256`/`verifyES256` (COSE alg `-7`,
