@@ -296,14 +296,29 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       FOLLOW-UP (next slices, ranked in the baseline doc): content-toolkit context → Dataset executor
       → method-dispatch breadth. Harness enhancement: diff stdout vs v1 (output-equality, not just exit).
 - [ ] **T5.6: Float/Double infix lowered as integer prims in ssc1 (CORRECTNESS)**
-      (renumbered from T5.2 — that number is taken by the completed 2026-07-05 JS-BigInt item
-      in Track 5 above) — in
+      (renumbered from T5.2) — IN PROGRESS 2026-07-05 (`feature/v2-ssc1-float-toplevel`).
+      REFINED DIAGNOSIS: the VM's GENERAL prim table already treats `i.add/sub/mul/div/mod`
+      + `i.eq/lt/le/gt/ge` as numeric-POLYMORPHIC (`numBin`/`numCmp`: Int, Float, mixed) —
+      so ssc1's `i.*` emission is fine BY THE VM'S OWN SEMANTICS. The real bugs:
+      (1) the `resolve2` fast paths are an inconsistent patchwork (i.add fully poly,
+      i.sub/i.mul same-type only, i.div/i.mod/i.le/i.ge/i.gt/i.eq Int-ONLY → `7.5 / 2.5`
+      crashes `expected Int`); (2) the three source generators are Int-strict on `i.*`
+      (JVM `_asLong`, JS BigInt-only, Rust TBD) → cross-backend divergence for float
+      programs. PLAN: (a) align every numeric resolve2 case to `numBin`/`numCmp` (keep the
+      IntV,IntV hot inline case; cold fallback delegates); (b) align JVM/JS/Rust generator
+      numeric prims to the same poly semantics; (c) new float conformance fixture
+      (div + mixed + comparisons) picked up by both check.sh and backend/check.sh.
+      This is the sconcat lesson again: fast path stricter than the general table. — in
       `v2/lib/ssc1-lower.ssc0`, infix `+ - * / < <= > >=` ALWAYS emit `i.add`/`i.mul`/`i.lt`, so
       Double math is *silently wrong* in the ssc1 self-hosted path. Dispatch to `f.*` prims when an
       operand is Float/Double. (ssc1 path only; FrontendBridge already handles mixed arithmetic.)
       Gate: a Double-arithmetic example matches v1 output via ssc1.
 - [ ] **T5.7: ssc1 top-level statements silently dropped**
-      (renumbered from T5.3 — taken by the completed parity-harness item above) — `lowerProg` runs only a 0-arg
+      (renumbered from T5.3) — IN PROGRESS 2026-07-05 (same branch). PLAN: `lowerProg`
+      collects top-level non-def statements in document order into the entry
+      (`IrSeq(stmts…, main() if present)`); top-level `val x = e` becomes a VALUE IrDef
+      (pass-2 evaluated, referencable from defs); top-level `var` deferred (needs global
+      cells — documented). Gate: `examples/recursion.ssc` prints its outputs via ssc1. — `lowerProg` runs only a 0-arg
       `def main`; top-level `expr`/`val`/`var` return `Nil` → silent no-op on ~190/194 files.
       Collect them into a synthetic entry sequence. ssc1 path only (Track 1 sidesteps it); do it so
       ssc1 stops *silently* mis-running. Gate: `examples/recursion.ssc` prints its output via ssc1.
