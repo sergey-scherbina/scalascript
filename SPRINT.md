@@ -130,6 +130,44 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       `ssc0-rust → rustc --target wasm32-wasip1` runs under a WASI host with output
       identical to the VM.
 
+**Track 7 — empirical baseline + coverage instrument + correctness bugs (addendum 2026-07-05)**
+> Grounding for Tracks 1/4/5 from a two-agent audit of the *current* state (ran the real
+> `examples/*.ssc` corpus through ssc1; audited plugin-bridge + JVM backend). Three findings
+> that the plan above did not yet capture:
+> - **Measured baseline.** The self-hosted **ssc1** frontend runs **1 of 194** real
+>   `examples/*.ssc` cleanly today (only `hello.ssc`; on a 20-file sample: 1 pass, 1 partial,
+>   18 fail). It is a *toy-example runner*, not a v1 runtime. TWO structural gaps gate
+>   everything **before any plugin gap matters**: (i) top-level statements are silently
+>   dropped (~190/194), (ii) Scala-3 significant-indentation / optional-braces is unsupported.
+> - **Strategic confirmation.** This is exactly *why* **Track 1 (FrontendBridge — reuse the v1
+>   frontend) is the compat road, NOT growing ssc1's parser.** ssc1/Track 5 exists for the pure
+>   self-hosted story (a `.ssc` running on all 3 backends without the JVM v1 tree). Do **not**
+>   spend ssc1 parser effort chasing example coverage — that is Track 1's job. Keep the two
+>   goals separate so neither agent duplicates the other.
+> - **plugin-bridge is a scaffold, not E2E-functional yet** (unit tests only; no test loads a
+>   real plugin or runs the VM). Three wiring gaps to call one real plugin (e.g. json) from the
+>   VM: (a) lower `ExternCall`→`Prim` [Track 1's IrExpr map already does this], (b) call
+>   `PluginBridge.loadAll()` in the VM run path, (c) put the v1 plugin jars on the v2 classpath.
+>   T2.2 silently depends on all three — surface them as its sub-steps.
+
+- [ ] **T7.1: compat-coverage harness + baseline snapshot** — `scripts/v2-compat-coverage`:
+      run every `examples/*.ssc` through BOTH `ssc run` (v1) and `ssc run --v2`, diff stdout,
+      emit a `pass/partial/fail` table + a coverage % + a checked-in baseline file. Turns the
+      single "0 failures" gate of T1.4/T4.1 into an incremental metric so every later slice
+      shows movement. Do FIRST. Gate: report generated + baseline committed (today: v2 path
+      pending T1.3; ssc1 path = 1/194).
+- [ ] **T5.2: Float/Double infix lowered as integer prims (CORRECTNESS — silent wrong answers)**
+      — in `v2/lib/ssc1-lower.ssc0`, infix `+ - * / < <= > >=` ALWAYS emit `i.add`/`i.mul`/`i.lt`,
+      so Double math is *silently wrong* even when the program "runs". Dispatch to `f.*` prims
+      when an operand is Float/Double (KC5 type info already flows for literals). Highest-priority
+      of the three — a silent wrong-result bug. Gate: a Double-arithmetic example matches v1 output.
+- [ ] **T5.3: top-level statements silently dropped** — `lowerProg` runs only a 0-arg `def main`;
+      top-level `expr`/`val`/`var` return `Nil` → silent no-op on ~190/194 files. Collect top-level
+      statements in order into a synthetic entry sequence (val→Let, expr→run-for-effect). Only
+      relevant to the ssc1 self-hosted path (Track 1 sidesteps it); do it so ssc1 stops
+      *silently* mis-running rather than to chase coverage. Gate: `examples/recursion.ssc`
+      (top-level `println`s, no `def main`) prints its output.
+
 
 ### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)
 Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + golden transcripts.
