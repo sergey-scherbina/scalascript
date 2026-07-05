@@ -1836,11 +1836,20 @@ object PluginBridge:
       val hm = scala.collection.mutable.HashMap[V2Value, V2Value]()
       entries.foreach { case (k, v) => hm(v1ToV2(k)) = v1ToV2(v) }
       V2Value.ForeignV(hm)
-    case scalascript.interpreter.Value.Foreign(_, s: scalascript.frontend.Signal[?]) =>
-      // Signal[T]: callable with 0 args → returns current value; 1 arg → sets value
-      V2Value.ClosV(Runtime.emptyEnv, -1, env =>
-        if env.isEmpty then Done(rawToV2(s.apply().asInstanceOf[Any]))
-        else { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToV1(env.last)); Done(V2Value.UnitV) })
+    case orig @ scalascript.interpreter.Value.Foreign(_, s: scalascript.frontend.Signal[?]) =>
+      // Signal[T]: callable (0 args → get, 1 arg → set) AND round-trip-safe —
+      // a bare ClosV here DESTROYED the Foreign("ReactiveSignal") identity, so
+      // natives like fetchUrlSignal(_,_,tick) failed their Foreign match after
+      // one v1→v2→v1 trip. NamedMethodObj keeps the original as `underlying`
+      // (v2ToV1 restores it exactly) and stays callable via applyFallback.
+      V2Value.ForeignV(new ssc.Value.NamedMethodObj {
+        def underlying: AnyRef = orig
+        def getField(name: String): Option[V2Value] = name match
+          case "apply" => Some(V2Value.ClosV(Runtime.emptyEnv, -1, env =>
+            if env.isEmpty then Done(rawToV2(s.apply().asInstanceOf[Any]))
+            else { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToV1(env.last)); Done(V2Value.UnitV) }))
+          case _ => None
+      })
     case scalascript.interpreter.Value.Foreign(tag, h: AnyRef) =>
       V2Value.ForeignV(TaggedForeign(tag, h))
     // v1 NativeFnV → variadic v2 ClosV

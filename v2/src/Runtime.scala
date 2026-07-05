@@ -362,6 +362,8 @@ object Compiler:
                 case ForeignV(m: collection.mutable.Map[?, ?]) =>
                   Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](v0))
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
+                case opv @ DataV("Op", _) =>
+                  val avs1 = new Array[Value](1); avs1(0) = v0; Runtime.applyFallback(opv, avs1)
                 case DataV(_, fields) =>
                   v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
                 case v => val avs = new Array[Value](1); avs(0) = v0; Runtime.applyFallback(v, avs)
