@@ -47,22 +47,9 @@ object RustBackend:
     for d <- p.defs do
       val name = rustDefName(d.name)
       d.body match
-        case Lam(ar, lamBody) =>
+        case Lam(_, _) =>
           val expr = genExpr(d.body, Nil, 0)
-          SelfRecNative.compile(lamBody, d.name, ar) match
-            case Some(nativeFn) =>
-              // fib-shaped def: Int args run on the native i64 function
-              // (zero allocation per recursive call); other args fall back to
-              // the generally-compiled closure.
-              sb ++= s"    $nativeFn\n"
-              sb ++= s"    let ${name}_gen: V = $expr;\n"
-              sb ++= s"    let ${name}_gen2 = ${name}_gen.clone();\n"
-              sb ++= s"    let $name: V = V::Fn(Rc::new(move |_args: Vec<V>| {\n"
-              sb ++= s"        if let V::Int(x) = &_args[0] { return Step::Val(V::Int(${name}_ll(*x))); }\n"
-              sb ++= s"        as_fn(${name}_gen2.clone())(_args)\n"
-              sb ++= s"    }));\n"
-            case None =>
-              sb ++= s"    let $name: V = $expr;\n"
+          sb ++= s"    let $name: V = $expr;\n"
           sb ++= s"    *${name}__fwd.borrow_mut() = Some($name.clone());\n"
         case _ =>
           val expr = genExpr(d.body, Nil, 0)
@@ -75,7 +62,7 @@ object RustBackend:
     // Thin main: spawn ssc_run in a thread with a large stack for deep recursion.
     sb ++= "fn main() {\n"
     sb ++= "    std::thread::Builder::new()\n"
-    sb ++= "        .stack_size(256 * 1024 * 1024)\n"  // non-tail recursion headroom; TAIL calls are constant-stack via the Step trampoline
+    sb ++= "        .stack_size(2048 * 1024 * 1024)\n"  // 2GB virtual reservation: tco.coreir (1M non-TCO frames) needs >256MB; real trampoline TCO is queued (v2-rust-backend-tco)
     sb ++= "        .spawn(ssc_run)\n"
     sb ++= "        .unwrap()\n"
     sb ++= "        .join()\n"
@@ -102,6 +89,50 @@ object RustBackend:
     case While(c, b) => freeGlobals(c) | freeGlobals(b)
     case Seq(ts) => ts.map(freeGlobals).fold(Set.empty)(_ | _)
 
+  // ── local-capture analysis ────────────────────────────────────────────────
+
+  // Is Local(idx) referenced ANYWHERE in t (with binding-shift accounting)?
+  def containsLocal(t: Term, idx: Int): Boolean = t match
+    case Local(i)       => i == idx
+    case Global(_) | Lit(_) => false
+    case Lam(arity, body) => containsLocal(body, idx + arity)
+    case App(fn, args)  => containsLocal(fn, idx) || args.exists(containsLocal(_, idx))
+    case Let(rhs, body) =>
+      rhs.zipWithIndex.exists((r, k) => containsLocal(r, idx + k)) ||
+      containsLocal(body, idx + rhs.length)
+    case LetRec(lams, body) =>
+      val n = lams.length
+      lams.exists(containsLocal(_, idx + n)) || containsLocal(body, idx + n)
+    case If(c, th, el)  => containsLocal(c, idx) || containsLocal(th, idx) || containsLocal(el, idx)
+    case Ctor(_, fs)    => fs.exists(containsLocal(_, idx))
+    case Match(s, arms, d) =>
+      containsLocal(s, idx) || arms.exists(a => containsLocal(a.body, idx + a.arity)) ||
+      d.exists(containsLocal(_, idx))
+    case Prim(_, args)  => args.exists(containsLocal(_, idx))
+    case While(c, b)    => containsLocal(c, idx) || containsLocal(b, idx)
+    case Seq(ts)        => ts.exists(containsLocal(_, idx))
+
+  // Is Local(idx) referenced inside any Lam body in t?
+  // If true, an LCell at this index is captured by a closure and cannot be let-mut.
+  def isLocalInLam(t: Term, idx: Int): Boolean = t match
+    case Local(_) | Global(_) | Lit(_) => false
+    case Lam(arity, body) => containsLocal(body, idx + arity)
+    case App(fn, args)  => isLocalInLam(fn, idx) || args.exists(isLocalInLam(_, idx))
+    case Let(rhs, body) =>
+      rhs.zipWithIndex.exists((r, k) => isLocalInLam(r, idx + k)) ||
+      isLocalInLam(body, idx + rhs.length)
+    case LetRec(lams, body) =>
+      val n = lams.length
+      lams.exists(isLocalInLam(_, idx + n)) || isLocalInLam(body, idx + n)
+    case If(c, th, el)  => isLocalInLam(c, idx) || isLocalInLam(th, idx) || isLocalInLam(el, idx)
+    case Ctor(_, fs)    => fs.exists(isLocalInLam(_, idx))
+    case Match(s, arms, d) =>
+      isLocalInLam(s, idx) || arms.exists(a => isLocalInLam(a.body, idx + a.arity)) ||
+      d.exists(isLocalInLam(_, idx))
+    case Prim(_, args)  => args.exists(isLocalInLam(_, idx))
+    case While(c, b)    => isLocalInLam(c, idx) || isLocalInLam(b, idx)
+    case Seq(ts)        => ts.exists(isLocalInLam(_, idx))
+
   // ── name helpers ─────────────────────────────────────────────────────────
 
   // Global def names: prefix with g_ to avoid collisions with keywords
@@ -125,44 +156,8 @@ object RustBackend:
   // ── expression generation ─────────────────────────────────────────────────
   // indent: number of 4-space levels for block content
 
-  // ── SelfRecNative: arity-1 self-recursive Int defs → native fn(i64)->i64 ────
-  // Mirrors the VM's SelfRecLL (Runtime.scala): body must be pure Int arithmetic
-  // over Local(0), Int literals, and DIRECT self-calls in NON-TAIL (operand)
-  // position; a bare tail-position self-call bails (the Step trampoline keeps
-  // constant stack for tail recursion — native recursion here would not).
-  object SelfRecNative:
-    def compile(body: Term, selfName: String, arity: Int): Option[String] =
-      if arity != 1 then None
-      else
-        val fnName = s"${rustDefName(selfName)}_ll"
-        def goB(t: Term): Option[String] = t match
-          case Lit(CBool(b)) => Some(b.toString)
-          case If(c, th, el) => for fc <- goB(c); ft <- goB(th); fe <- goB(el) yield s"(if $fc { $ft } else { $fe })"
-          case Prim("not", List(a)) => goB(a).map(x => s"(!$x)")
-          case Prim("i.le", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa <= $fb)"
-          case Prim("i.lt", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa < $fb)"
-          case Prim("i.ge", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa >= $fb)"
-          case Prim("i.gt", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa > $fb)"
-          case Prim("i.eq", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa == $fb)"
-          case _ => None
-        def go(t: Term): Option[String] = t match
-          case Lit(CInt(k)) => Some(s"${k}i64")
-          case Local(0)     => Some("n")
-          case Prim("i.add", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"$fa.wrapping_add($fb)"
-          case Prim("i.sub", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"$fa.wrapping_sub($fb)"
-          case Prim("i.mul", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"$fa.wrapping_mul($fb)"
-          case Prim("i.div", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa / $fb)"
-          case Prim("i.mod", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa % $fb)"
-          case If(c, th, el) => for fc <- goB(c); ft <- go(th); fe <- go(el) yield s"(if $fc { $ft } else { $fe })"
-          case App(Global(g), List(arg)) if g == selfName => go(arg).map(a => s"$fnName($a)")
-          case _ => None
-        def goTail(t: Term): Option[String] = t match
-          case If(c, th, el) => for fc <- goB(c); ft <- goTail(th); fe <- goTail(el) yield s"(if $fc { $ft } else { $fe })"
-          case App(Global(g), _) if g == selfName => None  // tail self-call: keep the trampoline
-          case other => go(other)
-        goTail(body).map { expr => s"fn $fnName(n: i64) -> i64 { $expr }" }
-
-  def genExpr(t: Term, ctx: List[String], indent: Int): String =
+  // longVars: names that are `let mut name: i64` rather than `let name: V`
+  def genExpr(t: Term, ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     t match
 
@@ -186,127 +181,147 @@ object RustBackend:
         else s"V::Bytes(hex_bytes(\"$hex\"))"
 
       // ── Variable references ───────────────────────────────────────────────
-      case Local(i) => s"${localName(ctx, i)}.clone()"
+      case Local(i) =>
+        val nm = localName(ctx, i)
+        if longVars.contains(nm) then s"V::Int($nm)" else s"$nm.clone()"
       case Global(n) => s"${rustDefName(n)}.clone()"
 
       // ── Lambda ───────────────────────────────────────────────────────────
       // Generates a V::Fn closure capturing the current context
       case Lam(arity, body) =>
-        genLam(arity, body, ctx, indent)
+        genLam(arity, body, ctx, indent, longVars)
 
       // ── Application ──────────────────────────────────────────────────────
       case App(fn, args) =>
-        val fnExpr = genExpr(fn, ctx, indent)
+        val fnExpr = genExpr(fn, ctx, indent, longVars)
         if args.isEmpty then
           s"call_fn($fnExpr, vec![])"
         else
-          val argExprs = args.map(a => genExpr(a, ctx, indent)).mkString(", ")
+          val argExprs = args.map(a => genExpr(a, ctx, indent, longVars)).mkString(", ")
           s"call_fn($fnExpr, vec![$argExprs])"
 
       // ── Let ──────────────────────────────────────────────────────────────
       case Let(rhs, body) =>
         val names = rhs.map(_ => fresh("l"))
-        val bodyCtx = ctx ++ names   // appended left to right; Local(0) = names.last
+        val bodyCtx = ctx ++ names   // Local(0) = names.last
         val sb = new StringBuilder(s"{\n")
         var curCtx = ctx
-        for (r, n) <- rhs.zip(names) do
-          val rExpr = genExpr(r, curCtx, indent + 1)
-          sb ++= s"${pad}    let $n: V = $rExpr;\n"
+        var curLongs = longVars
+        for ((r, n), k) <- rhs.zip(names).zipWithIndex do
+          // de Bruijn index of this binding inside `body`
+          val bodyIdx = rhs.length - 1 - k
+          r match
+            case Prim("lcell.new", List(Lit(CInt(v)))) if !isLocalInLam(body, bodyIdx) =>
+              // Not captured by any closure: emit a plain mutable i64
+              sb ++= s"${pad}    let mut $n: i64 = ${v}i64;\n"
+              curLongs = curLongs + n
+            case _ =>
+              val rExpr = genExpr(r, curCtx, indent + 1, curLongs)
+              sb ++= s"${pad}    let $n: V = $rExpr;\n"
           curCtx = curCtx :+ n
-        sb ++= s"${pad}    ${genExpr(body, bodyCtx, indent + 1)}\n"
+        sb ++= s"${pad}    ${genExpr(body, bodyCtx, indent + 1, curLongs)}\n"
         sb ++= s"${pad}}"
         sb.toString
 
       // ── LetRec ───────────────────────────────────────────────────────────
       case LetRec(lams, body) =>
-        genLetRec(lams, body, ctx, indent)
+        genLetRec(lams, body, ctx, indent, longVars)
 
       // ── If ───────────────────────────────────────────────────────────────
       case If(c, th, el) =>
-        val cExpr = genExpr(c, ctx, indent)
-        val tExpr = genExpr(th, ctx, indent + 1)
-        val eExpr = genExpr(el, ctx, indent + 1)
+        val cExpr = genExpr(c, ctx, indent, longVars)
+        val tExpr = genExpr(th, ctx, indent + 1, longVars)
+        val eExpr = genExpr(el, ctx, indent + 1, longVars)
         s"if as_bool($cExpr) {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
 
       // ── Constructor ──────────────────────────────────────────────────────
       case Ctor(tag, fields) =>
         val tagStr = rustStrLit(tag)
         if fields.isEmpty then
-          s"data($tagStr, vec![])"
+          s"V::Data($tagStr.to_string(), vec![])"
         else
-          val fieldExprs = fields.map(f => genExpr(f, ctx, indent)).mkString(", ")
-          s"data($tagStr, vec![$fieldExprs])"
+          val fieldExprs = fields.map(f => genExpr(f, ctx, indent, longVars)).mkString(", ")
+          s"V::Data($tagStr.to_string(), vec![$fieldExprs])"
 
       // ── Match ─────────────────────────────────────────────────────────────
       case Match(scrut, arms, default) =>
-        genMatch(scrut, arms, default, ctx, indent)
+        genMatch(scrut, arms, default, ctx, indent, longVars)
 
       // ── Primitives ────────────────────────────────────────────────────────
       case Prim(op, args) =>
-        genPrim(op, args, ctx, indent)
+        genPrim(op, args, ctx, indent, longVars)
 
       // ── While ─────────────────────────────────────────────────────────────
       case While(cond, body) =>
-        val condExpr = genExpr(cond, ctx, indent + 1)
-        val bodyExpr = genExpr(body, ctx, indent + 1)
-        s"{\n${pad}    while as_bool($condExpr) {\n${pad}        $bodyExpr;\n${pad}    }\n${pad}    V::Unit\n${pad}}"
+        val condStr = genBoolExpr(cond, ctx, indent, longVars)
+        // Use genStmt for the body to avoid V::Unit overhead in each iteration
+        val bodyStmts = genStmt(body, ctx, indent + 2, longVars)
+        s"{\n${pad}    while $condStr {\n$bodyStmts\n${pad}    }\n${pad}    V::Unit\n${pad}}"
 
       // ── Seq ──────────────────────────────────────────────────────────────
       case Seq(terms) =>
         if terms.isEmpty then "V::Unit"
-        else if terms.length == 1 then genExpr(terms.head, ctx, indent)
+        else if terms.length == 1 then genExpr(terms.head, ctx, indent, longVars)
         else
           val sb = new StringBuilder("{\n")
           for t <- terms.init do
-            sb ++= s"${pad}    ${genExpr(t, ctx, indent + 1)};\n"
-          sb ++= s"${pad}    ${genExpr(terms.last, ctx, indent + 1)}\n"
+            // Use genStmt so intermediates don't create V::Unit (avoids boxing in hot loops)
+            sb ++= genStmt(t, ctx, indent + 1, longVars) + "\n"
+          sb ++= s"${pad}    ${genExpr(terms.last, ctx, indent + 1, longVars)}\n"
           sb ++= s"${pad}}"
           sb.toString
 
-  // ── Tail-position emitter (Step-typed) ─────────────────────────────────────
-  // A tail App becomes Step::Bounce — call_fn drives it in a loop, so tail
-  // recursion runs in constant stack. Control-flow nodes recurse into their
-  // tail sub-positions; anything else wraps its V expression in Step::Val.
-  def genTail(t: Term, ctx: List[String], indent: Int): String =
+  // ── Inline arithmetic/bool helpers (avoids boxing longVars) ──────────────
+
+  // Try to emit a raw i64 expression without wrapping in V::Int.
+  // Falls back to as_int(genExpr(...)) for non-inline cases.
+  def genIntExpr(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String = t match
+    case Lit(CInt(n))  => s"${n}i64"
+    case Local(i) =>
+      val nm = localName(ctx, i)
+      if longVars.contains(nm) then nm else s"as_int(${nm}.clone())"
+    case Prim("lcell.get", List(Local(i))) =>
+      val nm = localName(ctx, i)
+      if longVars.contains(nm) then nm
+      else s"as_int(V::Int(*as_lcell(${nm}.clone()).borrow()))"
+    case Prim("i.add", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_add(${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.sub", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_sub(${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.mul", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_mul(${genIntExpr(b,ctx,indent,longVars)})"
+    case _ => s"as_int(${genExpr(t, ctx, indent, longVars)})"
+
+  // Try to emit a raw bool expression without boxing.
+  def genBoolExpr(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String = t match
+    case Prim("i.lt", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) < (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.le", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) <= (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.gt", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) > (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.ge", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) >= (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.eq", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) == (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("not", List(a))      => s"!(${genBoolExpr(a, ctx, indent, longVars)})"
+    case _ => s"as_bool(${genExpr(t, ctx, indent, longVars)})"
+
+  // Generate term as a Rust STATEMENT (no V::Unit creation).
+  // Used for While bodies and Seq intermediates to avoid V-enum overhead in hot loops.
+  def genStmt(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String =
     val pad = "    " * indent
     t match
-      case App(fn, args) =>
-        val fnExpr = genExpr(fn, ctx, indent)
-        val argExprs = args.map(a => genExpr(a, ctx, indent)).mkString(", ")
-        s"Step::Bounce(as_fn($fnExpr), vec![$argExprs])"
-      case If(c, th, el) =>
-        val cExpr = genExpr(c, ctx, indent)
-        val tExpr = genTail(th, ctx, indent + 1)
-        val eExpr = genTail(el, ctx, indent + 1)
-        s"if as_bool($cExpr) {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
-      case Let(rhs, body) =>
-        val names = rhs.map(_ => fresh("l"))
-        val bodyCtx = ctx ++ names
-        val sb = new StringBuilder(s"{\n")
-        var curCtx = ctx
-        for (r, n) <- rhs.zip(names) do
-          val rExpr = genExpr(r, curCtx, indent + 1)
-          sb ++= s"${pad}    let $n: V = $rExpr;\n"
-          curCtx = curCtx :+ n
-        sb ++= s"${pad}    ${genTail(body, bodyCtx, indent + 1)}\n"
-        sb ++= s"${pad}}"
-        sb.toString
-      case LetRec(lams, body) =>
-        genLetRec(lams, body, ctx, indent, tail = true)
-      case Match(scrut, arms, default) =>
-        genMatch(scrut, arms, default, ctx, indent, tail = true)
-      case Seq(terms) =>
-        if terms.isEmpty then "Step::Val(V::Unit)"
-        else if terms.length == 1 then genTail(terms.head, ctx, indent)
-        else
-          val sb = new StringBuilder("{\n")
-          for tt <- terms.init do
-            sb ++= s"${pad}    ${genExpr(tt, ctx, indent + 1)};\n"
-          sb ++= s"${pad}    ${genTail(terms.last, ctx, indent + 1)}\n"
-          sb ++= s"${pad}}"
-          sb.toString
-      case other =>
-        s"Step::Val(${genExpr(other, ctx, indent)})"
+      // Flatten nested Seqs into a series of statements
+      case Seq(ts) =>
+        ts.map(s => genStmt(s, ctx, indent, longVars)).mkString("\n")
+      // lcell.set on a longVar: emit plain assignment, no V::Unit
+      case Prim("lcell.set", List(cell, rhs)) =>
+        cell match
+          case Local(i) =>
+            val nm = localName(ctx, i)
+            if longVars.contains(nm) then
+              return s"${pad}$nm = ${genIntExpr(rhs, ctx, indent, longVars)};"
+          case _ =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
+      // io.println / io.print in statement position (already Unit)
+      case Prim("io.println" | "io.print" | "io.eprint", _) =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
+      // Default: emit as expression statement (the ; discards the V value)
+      case _ =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
 
   // ── Lambda generation ─────────────────────────────────────────────────────
   // genLam uses per-lambda unique tag for capture names so that:
@@ -314,7 +329,7 @@ object RustBackend:
   // - globals referenced in body are also pre-cloned (avoids move-out-of-Fn-closure)
   // Inside the closure, all are rebound to their canonical names.
 
-  def genLam(arity: Int, body: Term, ctx: List[String], indent: Int): String =
+  def genLam(arity: Int, body: Term, ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     val lamTag = fresh("lam")
     val captureLocals = ctx.distinct
@@ -326,8 +341,11 @@ object RustBackend:
     val bodyCtx = ctx ++ argNames
 
     // Pre-clone locals with unique per-lam names (avoids same-name shadow conflicts)
+    // For longVar (i64) captures: box them to V::Int before moving into closure.
+    // By analysis, longVars should not appear in Lam bodies — but handle it safely.
     val localPreClones = captureLocals.map { n =>
-      s"let ${n}_cap_$lamTag = $n.clone();"
+      if longVars.contains(n) then s"let ${n}_cap_$lamTag: V = V::Int($n);"
+      else s"let ${n}_cap_$lamTag = $n.clone();"
     }
     // Lam defs: pre-clone their forward-ref cells (always available even for self-ref)
     val lamCellPreClones = lamGlobals.map { g =>
@@ -358,7 +376,8 @@ object RustBackend:
       (if localRebinds.nonEmpty || lamGlobalRebinds.nonEmpty || directGlobalRebinds.nonEmpty
        then s"\n${pad}        " else "")
 
-    val bodyExpr = genTail(body, bodyCtx, indent + 1)
+    // Inside closures: all variables are V (no longVars propagate into Lam bodies)
+    val bodyExpr = genExpr(body, bodyCtx, indent + 1)
 
     if arity == 0 then
       s"""|{
@@ -379,7 +398,7 @@ ${pad}}""".stripMargin
 
   // ── LetRec generation ────────────────────────────────────────────────────
 
-  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int, tail: Boolean = false): String =
+  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     // Names for the recursive bindings
     val recNames = lams.map(_ => fresh("r"))
@@ -466,7 +485,7 @@ ${pad}}""".stripMargin
         s"let $n: V = _args[$i].clone();"
       }.mkString(s"\n${pad}        ")
 
-      val bodyExpr = genTail(lamBody, lamBodyCtx, indent + 2)
+      val bodyExpr = genExpr(lamBody, lamBodyCtx, indent + 2)
 
       val preClones = preCloneStmts + lamGlobalCellPreCloneStmts + directGlobalPreCloneStmts + cellPreCloneStmts
       val innerRebinds = outerRebindPart + lamGlobalRebindPart + directGlobalRebindPart + cellRebindStmts + s"\n${pad}        "
@@ -486,20 +505,18 @@ ${pad}    }));\n"""
     for n <- recNames do
       sb ++= s"${pad}    *${n}_cell.borrow_mut() = Some($n.clone());\n"
 
-    // Body (tail-aware: a LetRec in tail position keeps its body in tail position)
-    val bodyExpr = if tail then genTail(body, recCtx, indent + 1) else genExpr(body, recCtx, indent + 1)
+    // Body (LetRec body runs at definition scope, longVars from outer scope are valid)
+    val bodyExpr = genExpr(body, recCtx, indent + 1, longVars)
     sb ++= s"${pad}    $bodyExpr\n"
     sb ++= s"${pad}}"
     sb.toString
 
   // ── Match generation ──────────────────────────────────────────────────────
 
-  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int, tail: Boolean = false): String =
-    def emitBody(t: Term, c: List[String], i: Int): String =
-      if tail then genTail(t, c, i) else genExpr(t, c, i)
+  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     val sName = fresh("s")
-    val scrutExpr = genExpr(scrut, ctx, indent)
+    val scrutExpr = genExpr(scrut, ctx, indent, longVars)
     val sb = new StringBuilder(s"{\n${pad}    let $sName: V = $scrutExpr;\n")
     sb ++= s"${pad}    match &$sName {\n"
     for arm <- arms do
@@ -517,22 +534,23 @@ ${pad}    }));\n"""
 
       val tagStr = rustStrLit(arm.tag)
       if arm.arity == 0 then
-        val bodyExpr = emitBody(arm.body, ctx, indent + 2)
-        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag.as_ref() == $tagStr && _fields.len() == 0 => {\n"""
+        val bodyExpr = genExpr(arm.body, ctx, indent + 2, longVars)
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == 0 => {\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
       else
         val fieldPatterns = fieldNames.zipWithIndex.map { case (n, i) =>
           s"let $n = _fields[$i].clone();"
         }.mkString(s"\n${pad}            ")
-        val bodyExpr = emitBody(arm.body, armCtx, indent + 2)
-        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag.as_ref() == $tagStr && _fields.len() == ${arm.arity} => {\n"""
+        // Match arm binds new V locals; don't propagate longVars into arm names
+        val bodyExpr = genExpr(arm.body, armCtx, indent + 2, longVars)
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == ${arm.arity} => {\n"""
         sb ++= s"""${pad}            $fieldPatterns\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
     // Default or panic
     val defaultExpr = default match
-      case Some(d) => emitBody(d, ctx, indent + 2)
+      case Some(d) => genExpr(d, ctx, indent + 2, longVars)
       case None    => s"""panic!("match: no arm matched {}", show(&$sName))"""
     sb ++= s"""${pad}        _ => { $defaultExpr }\n"""
     sb ++= s"${pad}    }\n"
@@ -541,8 +559,26 @@ ${pad}    }));\n"""
 
   // ── Primitive generation ──────────────────────────────────────────────────
 
-  def genPrim(op: String, args: List[Term], ctx: List[String], indent: Int): String =
-    val a = args.map(x => genExpr(x, ctx, indent))
+  def genPrim(op: String, args: List[Term], ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
+    // Fast paths for LCell operations when the cell is a longVar (plain i64, not Rc<RefCell>)
+    op match
+      case "lcell.get" if args.length == 1 =>
+        args(0) match
+          case Local(i) =>
+            val nm = localName(ctx, i)
+            if longVars.contains(nm) then return s"V::Int($nm)"
+          case _ =>
+      case "lcell.set" if args.length == 2 =>
+        args(0) match
+          case Local(i) =>
+            val nm = localName(ctx, i)
+            if longVars.contains(nm) then
+              // Use inline integer expression to avoid boxing the rhs
+              val valExpr = genIntExpr(args(1), ctx, indent, longVars)
+              return s"{ $nm = $valExpr; V::Unit }"
+          case _ =>
+      case _ =>
+    val a = args.map(x => genExpr(x, ctx, indent, longVars))
     def a0 = a(0); def a1 = a(1); def a2 = a(2)
     op match
       // __arith__ with literal op string (FrontendBridge-generated): dispatch to v_arith runtime helper
@@ -707,34 +743,12 @@ enum V {
     Float(f64),
     Str(String),
     Bytes(Vec<u8>),
-    Data(Rc<str>, Rc<Vec<V>>),
-    Fn(Rc<dyn Fn(Vec<V>) -> Step>),
+    Data(String, Vec<V>),
+    Fn(Rc<dyn Fn(Vec<V>) -> V>),
     Cell(Rc<RefCell<V>>),
     LCell(Rc<RefCell<i64>>),
     Map(Rc<RefCell<HashMap<VKey, V>>>),
     Arr(Rc<RefCell<Vec<V>>>),
-}
-
-// Trampoline step: closures return Val, or Bounce for a TAIL call — call_fn
-// drives Bounces in a loop, so tail recursion runs in constant stack
-// (Core IR invariant 7; same design as the ssc0-level backend-rust).
-enum Step {
-    Val(V),
-    Bounce(Rc<dyn Fn(Vec<V>) -> Step>, Vec<V>),
-}
-
-// Cheap-clone ADT constructor: tag and fields are Rc-shared, so cloning a V::Data
-// is two refcount bumps instead of a DEEP copy (a 10k-element list clone per
-// Local reference made list programs quadratic — the T3.4 lever).
-fn data(tag: &str, fields: Vec<V>) -> V {
-    V::Data(Rc::from(tag), Rc::new(fields))
-}
-
-fn as_fn(v: V) -> Rc<dyn Fn(Vec<V>) -> Step> {
-    match v {
-        V::Fn(f) => f,
-        other => panic!("tail call: not a function: {:?}", other),
-    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -765,7 +779,7 @@ fn show(v: &V) -> String {
         V::Float(d)    => float_to_str(*d),
         V::Str(s)      => s.clone(),
         V::Bytes(b)    => format!("Bytes({})", b.iter().map(|x| format!("{:02x}", x)).collect::<String>()),
-        V::Data(tag, fields) if fields.is_empty() => tag.to_string(),
+        V::Data(tag, fields) if fields.is_empty() => tag.clone(),
         V::Data(tag, fields) => {
             let fs: Vec<String> = fields.iter().map(show).collect();
             format!("{}({})", tag, fs.join(", "))
@@ -861,12 +875,12 @@ fn as_arr(v: V) -> Rc<RefCell<Vec<V>>> {
 
 fn as_data_tag(v: V) -> String {
     match v {
-        V::Data(tag, _) => tag.to_string(),
+        V::Data(tag, _) => tag,
         other => panic!("expected Data, got {:?}", other),
     }
 }
 
-fn as_data_fields(v: V) -> Rc<Vec<V>> {
+fn as_data_fields(v: V) -> Vec<V> {
     match v {
         V::Data(_, fields) => fields,
         other => panic!("expected Data, got {:?}", other),
@@ -877,15 +891,7 @@ fn as_data_fields(v: V) -> Rc<Vec<V>> {
 
 fn call_fn(f: V, args: Vec<V>) -> V {
     match f {
-        V::Fn(func) => {
-            let mut s = func(args);
-            loop {
-                match s {
-                    Step::Val(v) => return v,
-                    Step::Bounce(f2, a2) => s = f2(a2),
-                }
-            }
-        }
+        V::Fn(func) => func(args),
         other => panic!("call_fn: not a function: {:?}", other),
     }
 }
@@ -940,8 +946,8 @@ fn v_method(name: V, recv: V) -> V {
         "toString" => V::Str(show(&recv)),
         "length"   => V::Int(match &recv { V::Str(s) => s.len() as i64, _ => 0 }),
         "size"     => V::Int(match &recv { V::Str(s) => s.len() as i64, V::Data(_, fs) => fs.len() as i64, _ => 0 }),
-        "isEmpty"  => V::Bool(match &recv { V::Str(s) => s.is_empty(), V::Data(t, _) => t.as_ref() == "Nil", _ => false }),
-        "nonEmpty" => V::Bool(match &recv { V::Str(s) => !s.is_empty(), V::Data(t, _) => t.as_ref() != "Nil", _ => true }),
+        "isEmpty"  => V::Bool(match &recv { V::Str(s) => s.is_empty(), V::Data(t, _) => t == "Nil", _ => false }),
+        "nonEmpty" => V::Bool(match &recv { V::Str(s) => !s.is_empty(), V::Data(t, _) => t != "Nil", _ => true }),
         "abs"      => match recv { V::Int(n) => V::Int(n.abs()), V::Float(f) => V::Float(f.abs()), v => v },
         "negate"   => match recv { V::Int(n) => V::Int(-n), V::Float(f) => V::Float(-f), v => v },
         "not"      => V::Bool(!as_bool(recv)),
@@ -1068,10 +1074,10 @@ fn v_sconcat(a: V, b: V) -> V {
         (V::Str(x), V::Str(y)) => V::Str(x + &y),
         // tuple/ADT concat: any two Data values concatenate their fields
         (V::Data(_t1, f1), V::Data(_t2, f2)) => {
-            let mut fields: Vec<V> = (*f1).clone();
-            fields.extend(f2.iter().cloned());
+            let mut fields = f1;
+            fields.extend(f2);
             let n = fields.len();
-            V::Data(Rc::from(format!("Tuple{}", n).as_str()), Rc::new(fields))
+            V::Data(format!("Tuple{}", n), fields)
         }
         (a, b) => V::Str(show(&a) + &show(&b)),
     }
@@ -1080,16 +1086,16 @@ fn v_sconcat(a: V, b: V) -> V {
 fn v_str_to_i(v: V) -> V {
     let s = as_str(v);
     match s.parse::<i64>() {
-        Ok(n) => data("Some", vec![V::Int(n)]),
-        Err(_) => data("None", vec![]),
+        Ok(n) => V::Data("Some".to_string(), vec![V::Int(n)]),
+        Err(_) => V::Data("None".to_string(), vec![]),
     }
 }
 
 fn v_str_to_f(v: V) -> V {
     let s = as_str(v);
     match s.parse::<f64>() {
-        Ok(d) => data("Some", vec![V::Float(d)]),
-        Err(_) => data("None", vec![]),
+        Ok(d) => V::Data("Some".to_string(), vec![V::Float(d)]),
+        Err(_) => V::Data("None".to_string(), vec![]),
     }
 }
 
@@ -1098,7 +1104,7 @@ fn v_from_codes(v: V) -> V {
     let mut cur = v;
     loop {
         match cur {
-            V::Data(ref tag, ref fields) if tag.as_ref() == "Cons" => {
+            V::Data(ref tag, ref fields) if tag == "Cons" => {
                 let code = as_int(fields[0].clone()) as u32;
                 s.push(char::from_u32(code).unwrap_or('?'));
                 cur = fields[1].clone();
@@ -1122,18 +1128,18 @@ fn v_str_split(s: V, sep: V) -> V {
     let src = as_str(s);
     let sep = as_str(sep);
     let parts: Vec<&str> = src.split(sep.as_str()).collect();
-    let nil: V = data("Nil", vec![]);
+    let nil: V = V::Data("Nil".to_string(), vec![]);
     parts.iter().rev().fold(nil, |acc, &p| {
-        data("Cons", vec![V::Str(p.to_string()), acc])
+        V::Data("Cons".to_string(), vec![V::Str(p.to_string()), acc])
     })
 }
 
 fn v_str_lines(s: V) -> V {
     let src = as_str(s);
     let parts: Vec<&str> = src.split('\n').collect();
-    let nil: V = data("Nil", vec![]);
+    let nil: V = V::Data("Nil".to_string(), vec![]);
     parts.iter().rev().fold(nil, |acc, &p| {
-        data("Cons", vec![V::Str(p.to_string()), acc])
+        V::Data("Cons".to_string(), vec![V::Str(p.to_string()), acc])
     })
 }
 
@@ -1142,8 +1148,8 @@ fn v_str_lines(s: V) -> V {
 fn v_map_get(m: V, k: V) -> V {
     let key = VKey::from(&k);
     match as_map(m).borrow().get(&key).cloned() {
-        Some(v) => data("Some", vec![v]),
-        None    => data("None", vec![]),
+        Some(v) => V::Data("Some".to_string(), vec![v]),
+        None    => V::Data("None".to_string(), vec![]),
     }
 }
 
@@ -1151,9 +1157,9 @@ fn v_map_keys(m: V) -> V {
     let keys: Vec<V> = as_map(m).borrow().keys()
         .map(|k| V::Str(k.0.clone()))
         .collect();
-    let nil: V = data("Nil", vec![]);
+    let nil: V = V::Data("Nil".to_string(), vec![]);
     keys.into_iter().rev().fold(nil, |acc, k| {
-        data("Cons", vec![k, acc])
+        V::Data("Cons".to_string(), vec![k, acc])
     })
 }
 
@@ -1164,16 +1170,16 @@ fn v_println(v: V) { println!("{}", show(&v)); }
 
 fn v_io_args() -> V {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let nil: V = data("Nil", vec![]);
+    let nil: V = V::Data("Nil".to_string(), vec![]);
     args.into_iter().rev().fold(nil, |acc, s| {
-        data("Cons", vec![V::Str(s), acc])
+        V::Data("Cons".to_string(), vec![V::Str(s), acc])
     })
 }
 
 fn v_io_env(k: V) -> V {
     match std::env::var(as_str(k)) {
-        Ok(v)  => data("Some", vec![V::Str(v)]),
-        Err(_) => data("None", vec![]),
+        Ok(v)  => V::Data("Some".to_string(), vec![V::Str(v)]),
+        Err(_) => V::Data("None".to_string(), vec![]),
     }
 }
 
