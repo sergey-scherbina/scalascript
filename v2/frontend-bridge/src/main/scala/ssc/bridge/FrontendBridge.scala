@@ -74,6 +74,9 @@ object FrontendBridge:
     givenByTcHead.clear()
     tcParents.clear()
     defUsingBounds.clear()
+    enumCaseNames.clear()
+    objMethodDefaults.clear()
+    objMethodVarargs.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -132,6 +135,18 @@ object FrontendBridge:
    *  givenByTcHead: (tcName, typeHead) → given global name (from `given x: TC[T] with`). */
   private val defContextBounds = collection.mutable.LinkedHashMap[String, (List[(String, String)], Int)]()
   private val givenByTcHead    = collection.mutable.LinkedHashMap[(String, String), String]()
+  /** (object, method) → (param names, raw default terms) for OBJECT methods
+   *  with default params — Resource.text(s, mimeType = "text/plain") called
+   *  with 1 arg crashed the 2-ary method lam (Local out of range). */
+  private val objMethodDefaults =
+    collection.mutable.LinkedHashMap[(String, String), (Vector[String], Vector[Option[scala.meta.Term]])]()
+
+  /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
+  private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
+
+  /** enum name → its zero-arg case names, for EnumName.values. */
+  private val enumCaseNames = collection.mutable.LinkedHashMap[String, List[String]]()
+
   /** trait child → parent (one hop; walked transitively in dictArgsFor). */
   private val tcParents        = collection.mutable.HashMap[String, String]()
   /** USING-clause defs: name → (per-using (tc, drill), user param count).
@@ -264,12 +279,15 @@ object FrontendBridge:
       if d.mods.exists(_.is[Mod.Case]) then caseObjectNames += d.name.value
       else if d.templ.stats.exists(_.isInstanceOf[Defn.Def]) then methodObjectNames += d.name.value
     case Defn.Enum(_, name, _, _, templ) =>
+      val caseNames = List.newBuilder[String]
       templ.stats.foreach {
         case ec: Defn.EnumCase =>
           val params = ec.ctor.paramClauses.flatMap(_.values).toList
           registerCaseClass(ec.name.value, params)
+          if params.isEmpty then caseNames += ec.name.value
         case _ => ()
       }
+      enumCaseNames(name.value) = caseNames.result()
     case eg: Defn.ExtensionGroup =>
       extMethods(eg).foreach { m => extensionMethods += m.name.value }
     case g: Defn.Given =>
@@ -814,6 +832,12 @@ object FrontendBridge:
         if methods.nonEmpty then
           val pairs = methods.flatMap { m =>
             val ps  = allParams(m)
+            val mParams = m.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+            if mParams.exists(_.default.isDefined) then
+              objMethodDefaults((obj.name.value, m.name.value)) =
+                (mParams.map(_.name.value).toVector, mParams.map(_.default).toVector)
+            if mParams.lastOption.exists(_.decltpe.exists(_.isInstanceOf[Type.Repeated])) then
+              objMethodVarargs += ((obj.name.value, m.name.value))
             val sc  = ps.reverse
             val bod = convertExpr(m.body, sc)
             val lam = if ps.isEmpty then CT.Lam(0, bod) else CT.Lam(ps.length, bod)
@@ -1093,6 +1117,10 @@ object FrontendBridge:
       convertApply(fn, argClause.values.toList, scope)
 
     // ── Member select (field/method as value, no args) ────────────────────────
+    // EnumName.values (bare, no parens) → list of the enum's zero-arg cases
+    case Term.Select(Term.Name(en), Term.Name("values")) if enumCaseNames.contains(en) =>
+      enumCaseNames(en).foldRight(CT.Ctor("Nil", Nil): CT)((c, acc) =>
+        CT.Ctor("Cons", List(CT.Ctor(c, Nil), acc)))
     case Term.Select(qual, Term.Name(name)) =>
       // Namespace.CtorName → CT.Ctor (e.g. Transport.Stdio, Either.Left, Option.None)
       // Also handles zero-arg enum cases (fieldRegistry has empty vector for them).
@@ -1132,7 +1160,12 @@ object FrontendBridge:
     case Term.Throw(expr) =>
       CT.App(CT.Global("__throw__"), List(convertExpr(expr, scope)))
 
-    // ── Try/catch (run body, ignore handlers for now) ─────────────────────────
+    // ── Try/catch: __try__(bodyThunk, handlerLam) — the runtime catches
+    // BridgeThrow (carries the thrown v2 VALUE) and calls the handler with it.
+    case Term.Try(expr, catchCases, _) if catchCases.nonEmpty =>
+      val bodyThunk = CT.Lam(0, convertExpr(expr, "_unit_" :: scope))
+      val handler   = CT.Lam(1, convertMatch(CT.Local(0), catchCases, "_exc_" :: scope))
+      CT.Prim("__try__", List(bodyThunk, handler))
     case Term.Try(expr, _, _) => convertExpr(expr, scope)
 
     // ── Partial function {case p => e} as lambda+match ────────────────────────
@@ -1324,6 +1357,43 @@ object FrontendBridge:
               positional.flatMap { case (i, v) => List(CT.Lit(Const.CStr(s"#$i")), v) } ++
               named.toList.flatMap { case (n, v) => List(CT.Lit(Const.CStr(n)), v) }
             CT.Prim("__method__", CT.Lit(Const.CStr("copy")) :: q :: pairs)
+      // Object VARARG method: wrap the args in a list (Prompt.messages(m1, m2))
+      case Term.Select(Term.Name(objn), Term.Name(mname))
+          if objMethodVarargs.contains((objn, mname)) =>
+        val q = convertExpr(Term.Name(objn), scope)
+        CT.Prim("__method__", List(CT.Lit(Const.CStr(mname)), q, listOf(args)))
+      // Object method with DEFAULT params called with fewer args: wrap like
+      // buildWithDefaults — missing defaults evaluate in scope of earlier params.
+      case Term.Select(Term.Name(objn), Term.Name(mname))
+          if objMethodDefaults.contains((objn, mname))
+             && args.length < objMethodDefaults((objn, mname))._2.length =>
+        val (pnames, defs) = objMethodDefaults((objn, mname))
+        val k     = args.length
+        val total = defs.length
+        var dscope = pnames.take(k).reverse.toList
+        val lets  = collection.mutable.ListBuffer.empty[CT]
+        var ok    = true
+        defs.drop(k).zipWithIndex.foreach { case (dOpt, j) =>
+          dOpt match
+            case Some(d) => lets += convertExpr(d, dscope); dscope = pnames(k + j) :: dscope
+            case None    => ok = false
+        }
+        if !ok then
+          val q = convertExpr(Term.Name(objn), scope)
+          CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
+        else
+          val refs = (0 until total).toList.map(i => CT.Local(total - 1 - i))
+          // receiver converted OUTSIDE the wrapper (scope unchanged), then shifted:
+          // simplest safe form — resolve the object as a Global/Ctor with no locals.
+          val q = convertExpr(Term.Name(objn), Nil)
+          val core = CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: refs)
+          val body = if lets.isEmpty then core else CT.Let(lets.toList, core)
+          CT.App(CT.Lam(k, body), args)
+      // EnumName.values → list of the enum's zero-arg cases (convert time)
+      case Term.Select(Term.Name(en), Term.Name("values"))
+          if enumCaseNames.contains(en) && args.isEmpty =>
+        enumCaseNames(en).foldRight(CT.Ctor("Nil", Nil): CT)((c, acc) =>
+          CT.Ctor("Cons", List(CT.Ctor(c, Nil), acc)))
       // Method call: qual.method(args)
       case Term.Select(qual, Term.Name(mname)) =>
         if isCtorName(mname) then CT.Ctor(mname, fillDefaults(mname, args))
@@ -1444,14 +1514,23 @@ object FrontendBridge:
    *  `x = expr` → expr.flatMap { x => rest }
    *  `val x = expr` → let x = expr in rest (pure)
    *  bare expr → expr.flatMap { _ => rest } */
-  private def desugarDirect(stmts: List[scala.meta.Stat], scope: List[String]): CT =
+  private def desugarDirect(stmts: List[scala.meta.Stat], scope: List[String],
+                            vars: Set[String] = Set.empty): CT =
     import scala.meta.*
     stmts match
       case Nil => CT.Lit(Const.CUnit)
       case (last: Term) :: Nil => convertExpr(last, scope)
+      // `var x = e` in a direct block: plain let; later `x = …` REASSIGNS via a
+      // shadowing let (straight-line code) instead of becoming a monadic bind.
+      case (dv: Defn.Var) :: rest =>
+        val x = dv.pats match { case List(Pat.Var(n)) => n.value; case _ => "_" }
+        val rhsT = dv.body
+        CT.Let(List(convertExpr(rhsT, scope)), desugarDirect(rest, x :: scope, vars + x))
+      case Term.Assign(Term.Name(x), rhs) :: rest if vars(x) =>
+        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, x :: scope, vars))
       case Term.Assign(Term.Name(x), rhs) :: rest =>
         val bindedScope = x :: scope
-        val body = desugarDirect(rest, bindedScope)
+        val body = desugarDirect(rest, bindedScope, vars)
         CT.Prim("__method__", List(
           CT.Lit(Const.CStr("flatMap")),
           convertExpr(rhs, scope),
@@ -1459,13 +1538,13 @@ object FrontendBridge:
       case Defn.Val(_, List(Pat.Var(n)), _, rhs) :: rest =>
         val x = n.value
         val letScope = x :: scope
-        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, letScope))
+        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, letScope, vars))
       case (t: Term) :: rest =>
         CT.Prim("__method__", List(
           CT.Lit(Const.CStr("flatMap")),
           convertExpr(t, scope),
-          CT.Lam(1, desugarDirect(rest, "_" :: scope))))
-      case _ :: rest => desugarDirect(rest, scope)
+          CT.Lam(1, desugarDirect(rest, "_" :: scope, vars))))
+      case _ :: rest => desugarDirect(rest, scope, vars)
 
   private def convertInfix(op: String, l: CT, r: CT, scope: List[String]): CT = op match
     case "&&" => CT.If(l, r, CT.Lit(Const.CBool(false)))
@@ -1565,6 +1644,9 @@ object FrontendBridge:
       (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
     case Term.Name(n) if isCtorName(n) =>
       (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
+    case Term.Select(_, Term.Name(n)) if isCtorName(n) =>
+      // Qualified zero-arg case pattern: `case Role.User =>` — tag test on the case name
+      (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
     case l: Lit =>
       (List(CT.Prim("__arith__", List(CT.Lit(Const.CStr("==")), scrutRef, convertExpr(l, scope)))), Nil)
     case Pat.Typed(inner, _) => flattenPattern(inner, scrutRef, scope)
@@ -1622,6 +1704,8 @@ object FrontendBridge:
       case Pat.Wildcard()                                   => (None, Nil)
       // Scala3: uppercase stable-id patterns are Term.Name (not Pat.Var)
       case Term.Name(n) if isCtorName(n)                   => (Some((n, 0)), Nil)
+      // Qualified zero-arg case pattern: `case Role.User =>`
+      case Term.Select(_, Term.Name(n)) if isCtorName(n)  => (Some((n, 0)), Nil)
       // Uppercase name in Pat.Var = constructor (enum case or zero-arity case class)
       case Pat.Var(Term.Name(n)) if isCtorName(n)          => (Some((n, 0)), Nil)
       case Pat.Var(Term.Name(n))                            => (None, List(n))

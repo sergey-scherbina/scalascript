@@ -17,6 +17,11 @@ import ssc.{Done, Runtime, Show, Value as V2Value, V2EffectContext, V2PluginRegi
 /** Preserves the tag from v1 Value.Foreign("tag", h) through the v2 ForeignV round-trip. */
 private final case class TaggedForeign(tag: String, value: AnyRef)
 
+/** `throw expr` in bridged code: carries the thrown v2 VALUE so try/catch
+ *  handlers can pattern-match it (message-only InterpretError lost the value). */
+final case class BridgeThrow(value: ssc.Value) extends RuntimeException:
+  override def getMessage: String = value.toString
+
 object PluginBridge:
 
   // ── DB connection registry for `databases:` frontmatter ─────────────────
@@ -881,12 +886,16 @@ object PluginBridge:
     // __throw__ — lowered from throw expressions in FrontendBridge
     if V2PluginRegistry.lookupGlobal("__throw__").isEmpty then
       V2PluginRegistry.registerGlobal("__throw__", ClosV(Runtime.emptyEnv, 1, env => {
-        val msg = env.last match
-          case StrV(s) => s
-          case DataV(tag, fields) => s"$tag(${fields.mkString(", ")})"
-          case v => v.toString
-        throw new scalascript.interpreter.InterpretError(msg)
+        throw new BridgeThrow(env.last)
       }))
+    V2PluginRegistry.register("__try__", args => args match
+      case List(thunk: ClosV, handler: ClosV) =>
+        try callClosure(thunk, Nil)
+        catch
+          case BridgeThrow(v) => callClosure(handler, List(v))
+          case e: scalascript.interpreter.InterpretError =>
+            callClosure(handler, List(StrV(e.getMessage)))
+      case _ => sys.error("__try__(thunk, handler)"))
     // getenv(key[, default]) — interpreter built-in not in any SPI plugin
     if V2PluginRegistry.lookupGlobal("getenv").isEmpty then
       V2PluginRegistry.registerGlobal("getenv", ClosV(Runtime.emptyEnv, -1, env => {
