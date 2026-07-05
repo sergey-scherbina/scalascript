@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-typeddata-bridge
-worktree: ../scalascript-wt-v2-typeddata-bridge
-started: 2026-07-05
-status: in-progress
-task: bridge the typed-data surface (DatasetCodec/DatasetWire/DistributedDataset.runShuffle/WorkerProtocol collect+toList) + registerBehavior — the single root of the 6 remaining compat FAILs
