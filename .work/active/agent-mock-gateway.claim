@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/agent-mock-gateway
-worktree: ../scalascript-wt-agent-mock-gateway
-started: 2026-07-05T09:18:18Z
-heartbeat: 2026-07-05T09:18:18Z
-status: in-progress
-task: agent-mock-gateway — mock ModelClient (recorded ModelResponses) + AgentConformanceTest (3 golden transcripts: tool-use loop, multi-turn, error path)

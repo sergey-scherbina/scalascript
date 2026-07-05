@@ -261,11 +261,12 @@ what's missing is an end-to-end test that runs both sides.
 - [x] **agent-mcp-roundtrip-test** — DONE 2026-07-03. `AgentMcpRoundTripTest.scala` (3 tests, all
       green): contentJson round-trip, isError propagation, multiple tools. In-process
       LinkedBlockingQueue transport; mirrors McpEndToEndTest. Spec: `specs/agent-mcp-roundtrip.md`.
-- [ ] **agent-mock-gateway** — mock LLM gateway for conformance tests. Replay golden transcripts
-      without hitting a real API. **How:** a `ModelClient` impl backed by a recorded sequence of
-      `ModelResponse`s; inject into `AgentLoop.run`. Gate: `AgentConformanceTest` runs 3 golden
-      transcripts (tool-use loop, multi-turn, error path) against the mock. Files: `runtime/std/agent.ssc`,
-      new `AgentConformanceTest.scala`.
+- [x] **agent-mock-gateway** — DONE 2026-07-05. `AgentConformanceTest.scala`: a fake gateway
+      (in-process HttpServer) replays a recorded FIFO sequence of model responses; 3 golden
+      transcripts (tool-use loop, multi-turn, error path) assert run STRUCTURE. 3/3 green. No
+      `agent.ssc` change needed — the loop's only seam is the endpoint URL, so the mock is a Scala
+      test fixture (the spec's suggested `ModelClient` injection seam does not exist; not invented
+      for a test). Complements the content-keyed `AgentSdkInterpreterTest`; adds the multi-turn case.
 
 ### ▶ v2 bench performance (2026-07-03 — slow programs in v2 VM) [arith-loop DONE]
 v2 bench shows several programs 100-500× slower than the main interpreter. Target the biggest gaps

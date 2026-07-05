@@ -120,8 +120,9 @@ runtime" follow-up). Document as a follow-up; do not build the scalascript side 
       (tool_calls → dispatch → tool result → final text + transcript), direct final text,
       unknown-tool-fed-back-as-error, handler-validation error, `maxSteps` cap, and 503 failover.
 - [ ] **P3b** Embedded transport — DEFERRED until rozum ships the `rozum-embed` crate (cross-repo).
-- [ ] Golden-transcript harness + live-rozum smoke — optional follow-ups (existing tests already
-      assert transcript structure).
+- [x] Golden-transcript harness — DONE 2026-07-05 (`AgentConformanceTest.scala`): a FIFO-scripted
+      fake gateway (recorded model responses) + 3 golden transcripts (tool-use loop, multi-turn,
+      error path) asserting transcript STRUCTURE. Live-rozum smoke remains an optional follow-up.
 
 **Status: agent-sdk-remainder's actionable scope is DONE** (2026-06-17) — consolidated spec, P3a
 MCP bridge (both directions), loop conformance. Remaining items above are DEFERRED with reasons.

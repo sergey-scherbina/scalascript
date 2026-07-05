@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — agent-mock-gateway: golden-transcript conformance for std.agent
+
+`AgentConformanceTest.scala` drives the agent loop against an in-process HttpServer fake gateway
+that replays a **recorded, FIFO sequence of model responses** (the "mock gateway" the agent-sdk
+spec asked for) and asserts run STRUCTURE (stop reason, executed ops, request sequence), not model
+prose. Three golden transcripts: tool-use loop, multi-turn (two sequential tool round-trips), and
+the error path (non-2xx turn). Complements the content-keyed `AgentSdkInterpreterTest` and adds the
+previously-missing multi-turn case. 3/3 green; no `agent.ssc` change needed.
+
 ## 2026-07-04 — T5.1: bool-predicate + mutual-recursion pass on all 3 v2 backends
 
 Root cause: Rust backend eagerly evaluated `prim __math_obj__` (prelude `def math = ...`)
