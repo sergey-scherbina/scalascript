@@ -63,6 +63,15 @@ object Runtime:
    *  e.g. the json plugin's JsonValue) expose an `apply` FIELD — call it.
    *  Everything else is the familiar error. */
   def applyFallback(v: Value, avs: Array[Value]): Step = v match
+    case Value.DataV("Op", IndexedSeq(l, a, k)) =>
+      val kc = k.asInstanceOf[Value.ClosV]
+      val k2 = Value.ClosV(Array[Value](kc), 1, env2 => {
+        val base = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
+        base match
+          case c: Value.ClosV => Call(c, avs)
+          case other => applyFallback(other, avs)
+      })
+      Done(Value.DataV("Op", Vector(l, a, k2)))
     case Value.ForeignV(nmo: Value.NamedMethodObj) =>
       nmo.getField("apply") match
         case Some(c: Value.ClosV) => Call(c, avs)
@@ -313,8 +322,8 @@ object Compiler:
                       case c: ClosV => Call(c, avs)
                       case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
                         avs(0) match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
-                      case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
-                        Done(m.asInstanceOf[collection.mutable.HashMap[Value,Value]](avs(0)))
+                      case ForeignV(m: collection.mutable.Map[?, ?]) =>
+                        Done(m.asInstanceOf[collection.mutable.Map[Value,Value]](avs(0)))
                       case DataV("Stub", fs) => Done(DataV("Stub", fs))  // propagate the missed-method breadcrumb
                       case v => Runtime.applyFallback(v, avs)
                 }
@@ -350,8 +359,8 @@ object Compiler:
                   v0 match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
                 case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
                   v0 match { case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt)); case _ => sys.error("app: array index must be Int") }
-                case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
-                  Done(m.asInstanceOf[collection.mutable.HashMap[Value, Value]](v0))
+                case ForeignV(m: collection.mutable.Map[?, ?]) =>
+                  Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](v0))
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                 case DataV(_, fields) =>
                   v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
@@ -1438,6 +1447,13 @@ object Prims:
       val recv = a(1)
       val margs = a.drop(2).toList
       (recv, name, margs) match
+        // Free-monad lifting: a method ON an unresolved effect Op defers itself
+        // into the op's continuation (sequencing through blocks without CPS):
+        // Box.read(n).foldLeft(z)(f) => Op(read, n, r -> k(r).foldLeft(z)(f))
+        case (DataV("Op", IndexedSeq(l, ag, k)), _, _) =>
+          val k2 = ClosV(Array[Value](k), 1, env2 =>
+            Done(methodOp(name, runClos1(env2(0).asInstanceOf[ClosV], env2.last), margs)))
+          DataV("Op", Vector(l, ag, k2))
         // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
         case (v, "asInstanceOf", _)          => v
         // Runtime .copy on a record: overrides arrive as (name, value) pairs; the
@@ -1470,7 +1486,11 @@ object Prims:
         case (StrV(s), "size", Nil)          => IntV(s.length.toLong)
         case (StrV(s), "isEmpty", Nil)       => BoolV(s.isEmpty)
         case (StrV(s), "nonEmpty", Nil)      => BoolV(s.nonEmpty)
-        case (StrV(s), "toInt", Nil)         => s.toLongOption.fold(none)(n => some(IntV(n)))
+        // v1 parity: String.toInt is PLAIN (throws on junk) — the FLC fast path
+        // already returned a bare Long, so Option-wrapping here made the same
+        // program behave differently depending on which path compiled it.
+        case (StrV(s), "toInt", Nil)         => IntV(s.trim.toLong)
+        case (StrV(s), "toIntOption", Nil)   => s.toLongOption.fold(none)(n => some(IntV(n)))
         case (StrV(s), "toDouble", Nil)      => s.toDoubleOption.fold(none)(d => some(FloatV(d)))
         case (StrV(s), "trim", Nil)          => StrV(s.trim)
         case (StrV(s), "matchPrefix", List(StrV(pat))) =>
@@ -1574,7 +1594,11 @@ object Prims:
         case (ls, "map", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).map(x => callClos(fn, Array(x))))
         case (ls, "flatMap", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).flatMap(x => unlist(callClos(fn, Array(x)))))
+          listOf(unlist(ls).flatMap { x =>
+            callClos(fn, Array(x)) match
+              case r @ (DataV("Cons", _) | DataV("Nil", _)) => unlist(r)
+              case scalar => List(scalar)  // v1: multishot resume yields the plain body value
+          })
         case (ls, "filter", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).filter(x => callClos(fn, Array(x)) == Value.BoolV(true)))
         case (ls, "filterNot", List(fn: Value.ClosV)) if isList(ls) =>
@@ -1740,36 +1764,36 @@ object Prims:
         case (DataV("Right", Seq(v)), "toOption", Nil) => some(v)
         case (DataV("Left",  _), "toOption", Nil) => none
         // ── Map/HashMap ──────────────────────────────────────────────────────────
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "size", Nil) =>
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "size", Nil) =>
           IntV(m.size.toLong)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "get", List(k)) =>
-          m.asInstanceOf[collection.mutable.HashMap[Value,Value]].get(k) match
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "get", List(k)) =>
+          m.asInstanceOf[collection.mutable.Map[Value,Value]].get(k) match
             case Some(v) => some(v); case None => none
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "getOrElse", List(k, default)) =>
-          m.asInstanceOf[collection.mutable.HashMap[Value,Value]].getOrElse(k, default)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "apply", List(k)) =>
-          m.asInstanceOf[collection.mutable.HashMap[Value,Value]](k)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "updated", List(k, v)) =>
-          val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "getOrElse", List(k, default)) =>
+          m.asInstanceOf[collection.mutable.Map[Value,Value]].getOrElse(k, default)
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "apply", List(k)) =>
+          m.asInstanceOf[collection.mutable.Map[Value,Value]](k)
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "updated", List(k, v)) =>
+          val nm = m.asInstanceOf[collection.mutable.Map[Value,Value]].clone()
           nm.update(k, v); ForeignV(nm)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "removed", List(k)) =>
-          val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "removed", List(k)) =>
+          val nm = m.asInstanceOf[collection.mutable.Map[Value,Value]].clone()
           nm.remove(k); ForeignV(nm)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "+", List(DataV("Tuple2", Seq(k, v)))) =>
-          val nm = m.asInstanceOf[collection.mutable.HashMap[Value,Value]].clone()
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "+", List(DataV("Tuple2", Seq(k, v)))) =>
+          val nm = m.asInstanceOf[collection.mutable.Map[Value,Value]].clone()
           nm.update(k, v); ForeignV(nm)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "contains", List(k)) =>
-          BoolV(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].contains(k))
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "isEmpty", Nil) =>
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "contains", List(k)) =>
+          BoolV(m.asInstanceOf[collection.mutable.Map[Value,Value]].contains(k))
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "isEmpty", Nil) =>
           BoolV(m.isEmpty)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "nonEmpty", Nil) =>
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "nonEmpty", Nil) =>
           BoolV(m.nonEmpty)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "keys", Nil) =>
-          listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].keys.toSeq)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "values", Nil) =>
-          listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].values.toSeq)
-        case (ForeignV(m: collection.mutable.HashMap[?, ?]), "toList", Nil) =>
-          listOf(m.asInstanceOf[collection.mutable.HashMap[Value,Value]].toList.map {
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "keys", Nil) =>
+          listOf(m.asInstanceOf[collection.mutable.Map[Value,Value]].keys.toSeq)
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "values", Nil) =>
+          listOf(m.asInstanceOf[collection.mutable.Map[Value,Value]].values.toSeq)
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "toList", Nil) =>
+          listOf(m.asInstanceOf[collection.mutable.Map[Value,Value]].toList.map {
             case (k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))
           })
         // ── Signal/cell — ForeignV(Array[Value]) with .get/.set/.update ──────────
@@ -1852,8 +1876,8 @@ object Prims:
                             margs.head match
                               case IntV(ix) => unlistPub(lv)(ix.toInt)
                               case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
-                          case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
-                            m.asInstanceOf[collection.mutable.HashMap[Value, Value]](margs.head)
+                          case ForeignV(m: collection.mutable.Map[?, ?]) =>
+                            m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
                           case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
                       else DataV("Stub", Vector(StrV(s"$tag.$name")))
                     case None => DataV("Stub", Vector(StrV(s"$tag.$name")))
@@ -1865,7 +1889,20 @@ object Prims:
         case None => (_: List[Value]) => sys.error(s"unimplemented primitive: $op")
 
   /** Dispatch `__arith__(op, l, r)` without allocating a List[Value] for the common cases. */
+  /** Run a 1-arg closure to a finished Value (trampolined). */
+  def runClos1(k: ClosV, arg: Value): Value =
+    Runtime.run(k.code, Runtime.extend(k.env, Array(arg)))
+
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
+    // Free-monad lifting (see methodOp): x + y where x or y is an effect Op
+    case (DataV("Op", IndexedSeq(lb, a, k)), _) =>
+      val k2 = ClosV(Array[Value](k), 1, env2 =>
+        Done(arithOp(op, runClos1(env2(0).asInstanceOf[ClosV], env2.last), r)))
+      DataV("Op", Vector(lb, a, k2))
+    case (_, DataV("Op", IndexedSeq(lb, a, k))) =>
+      val k2 = ClosV(Array[Value](k), 1, env2 =>
+        Done(arithOp(op, l, runClos1(env2(0).asInstanceOf[ClosV], env2.last))))
+      DataV("Op", Vector(lb, a, k2))
     case (IntV(x), IntV(y)) => op match
       case "+"  => IntV(x + y);  case "-"  => IntV(x - y);  case "*"  => IntV(x * y)
       case "/"  => IntV(x / y);  case "%"  => IntV(x % y)
@@ -2060,7 +2097,7 @@ object Prims:
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
-  private def asMap(v: Value) = v match { case ForeignV(m: collection.mutable.HashMap[Value, Value] @unchecked) => m; case x => sys.error(s"expected Map, got ${Show.show(x)}") }
+  private def asMap(v: Value) = v match { case ForeignV(m: collection.mutable.Map[Value, Value] @unchecked) => m; case x => sys.error(s"expected Map, got ${Show.show(x)}") }
   private def asArr(v: Value) = v match { case ForeignV(a: collection.mutable.ArrayBuffer[Value] @unchecked) => a; case x => sys.error(s"expected Array, got ${Show.show(x)}") }
   private def asCell(v: Value) = v match { case ForeignV(c: Array[Value] @unchecked) => c; case x => sys.error(s"expected Cell, got ${Show.show(x)}") }
 

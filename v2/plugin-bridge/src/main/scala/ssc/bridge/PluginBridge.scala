@@ -146,7 +146,7 @@ object PluginBridge:
       case ujson.Arr(xs) => xs.foldRight(DataV("Nil", Vector.empty): V2Value)((x, acc) =>
         DataV("Cons", Vector(ujsonToV2(x), acc)))
       case ujson.Obj(kvs) =>
-        val hm = collection.mutable.HashMap.empty[V2Value, V2Value]
+        val hm = collection.mutable.LinkedHashMap.empty[V2Value, V2Value]
         kvs.foreach { case (k, v) => hm(StrV(k)) = ujsonToV2(v) }
         ForeignV(hm.asInstanceOf[AnyRef])
 
@@ -157,7 +157,7 @@ object PluginBridge:
           case Some(idp) => ujsonToV2(idp.discoveryJson())
           case None =>
             // Minimal discovery doc for unknown localhost issuers
-            val hm = collection.mutable.HashMap.empty[V2Value, V2Value]
+            val hm = collection.mutable.LinkedHashMap.empty[V2Value, V2Value]
             hm(StrV("issuer"))                = StrV(issuer)
             hm(StrV("authorization_endpoint"))= StrV(s"$issuer/authorize")
             hm(StrV("token_endpoint"))        = StrV(s"$issuer/token")
@@ -168,7 +168,7 @@ object PluginBridge:
 
     V2PluginRegistry.registerGlobal("oauth.client.exchangeAuthorizationCode",
       ClosV(Runtime.emptyEnv, -1, _ => Done({
-        val hm = collection.mutable.HashMap.empty[V2Value, V2Value]
+        val hm = collection.mutable.LinkedHashMap.empty[V2Value, V2Value]
         hm(StrV("accessToken"))  = StrV("batch-stub-access-token")
         hm(StrV("idToken"))      = StrV("batch-stub-id-token")
         hm(StrV("refreshToken")) = StrV("batch-stub-refresh-token")
@@ -560,8 +560,8 @@ object PluginBridge:
       val xs = unlist(v)
       if i < 0 || i >= xs.length then v
       else xs.updated(i.toInt, nv).foldRight[V2Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
-    def mapOf(v: V2Value): Option[collection.mutable.HashMap[V2Value, V2Value]] = v match
-      case ForeignV(m: collection.mutable.HashMap[?, ?]) => Some(m.asInstanceOf[collection.mutable.HashMap[V2Value, V2Value]])
+    def mapOf(v: V2Value): Option[collection.mutable.Map[V2Value, V2Value]] = v match
+      case ForeignV(m: collection.mutable.Map[?, ?]) => Some(m.asInstanceOf[collection.mutable.Map[V2Value, V2Value]])
       case _ => None
 
     def getOpt(target: V2Value, ss: List[V2Value]): Option[V2Value] = ss match
@@ -774,10 +774,18 @@ object PluginBridge:
         items.mkString("List(", ", ", ")")
       case V2Value.DataV(tag, fs) if fs.isEmpty => tag
       case V2Value.DataV(tag, fs) => tag + fs.map(v1Show).mkString("(", ", ", ")")
+      case V2Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
+        m.asInstanceOf[collection.mutable.Map[V2Value, V2Value]]
+          .map { case (k, vv) => s"${v1Show(k)} -> ${v1Show(vv)}" }.mkString("Map(", ", ", ")")
       case V2Value.ForeignV(nmo: ssc.Value.NamedMethodObj) =>
         nmo.getField("_show") match
           case Some(V2Value.StrV(s)) => s
-          case _ => Show.show(v)
+          case _ =>
+            // v1 facades (json wrapJson etc.): render the INNER value via the
+            // 0-arg `raw` field, the way v1 prints the wrapped value itself.
+            nmo.getField("raw") match
+              case Some(c: V2Value.ClosV) => v1Show(callClosure(c, Nil))
+              case _ => Show.show(v)
       case other => Show.show(other)
     def showForPrint(v: V2Value): String = v1Show(v)
     if V2PluginRegistry.lookupGlobal("println").isEmpty then
@@ -1272,7 +1280,11 @@ object PluginBridge:
       // extend([bodyResult], [handler]) = [bodyResult, handler]
       // Local(0) = handler = env2.last; Local(1) = bodyResult = env2(0)
       Done(V2Value.ClosV(Array(bodyResult), 1, env2 => {
-        val body    = env2(0)    // captured bodyResult
+        // `handle { expr }` may arrive as a 0-arg THUNK (block-arg convention) —
+        // force it before entering the loop, else Return(thunk) leaks a closure.
+        val body = env2(0) match
+          case t: V2Value.ClosV if t.arity == 0 => callClosure(t, Nil)
+          case v => v
         val handler = env2.last  // new arg = handlerFn
         Done(runEffectLoop(body, handler))
       }))
@@ -1301,8 +1313,13 @@ object PluginBridge:
         case _             => List(arg, resumeFn)
       callClosure(handler, List(V2Value.DataV(opName, margs.toVector)))
     case _ =>
-      // Pure result — call handler with Return(v)
-      callClosure(handler, List(V2Value.DataV("Return", Vector(v))))
+      // Pure result — call handler with Return(v). A handler WITHOUT a Return
+      // clause passes the value through unchanged (v1 semantics: the return
+      // clause is optional).
+      try callClosure(handler, List(V2Value.DataV("Return", Vector(v))))
+      catch
+        case e: RuntimeException if e.getMessage != null
+            && e.getMessage.startsWith("match: no arm for Return") => v
 
   // ── Actor runtime — VirtualThread-per-actor model ───────────────────────────
 
@@ -1721,9 +1738,9 @@ object PluginBridge:
       inst.fieldsArr = arr
       inst.fieldNames = names
       inst
-    case V2Value.ForeignV(m: scala.collection.mutable.HashMap[?, ?]) =>
+    case V2Value.ForeignV(m: scala.collection.mutable.Map[?, ?]) =>
       // v2 Map (from __mk_map__) → v1 MapV so plugins can MapVal.unapply
-      val converted = m.asInstanceOf[scala.collection.mutable.HashMap[V2Value, V2Value]]
+      val converted = m.asInstanceOf[scala.collection.mutable.Map[V2Value, V2Value]]
         .map { case (k, v2) => v2ToV1(k) -> v2ToV1(v2) }.toMap
       scalascript.interpreter.Value.MapV(converted)
     case V2Value.ForeignV(m: scala.collection.immutable.Map[?, ?]) if {

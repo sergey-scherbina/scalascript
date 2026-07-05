@@ -73,6 +73,7 @@ object FrontendBridge:
     defContextBounds.clear()
     givenByTcHead.clear()
     tcParents.clear()
+    defUsingBounds.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -133,6 +134,10 @@ object FrontendBridge:
   private val givenByTcHead    = collection.mutable.LinkedHashMap[(String, String), String]()
   /** trait child → parent (one hop; walked transitively in dictArgsFor). */
   private val tcParents        = collection.mutable.HashMap[String, String]()
+  /** USING-clause defs: name → (per-using (tc, drill), user param count).
+   *  `def display[A](a: A)(using s: Show[A])` — call sites append a synthesized
+   *  clause App(App(f, args), dicts); explicit trailing clause still accepted. */
+  private val defUsingBounds   = collection.mutable.LinkedHashMap[String, (List[(String, String)], Int)]()
 
   /** Default-param registry: def name → per-param default CT exprs (None = required). */
   private val defaultParams = collection.mutable.HashMap[String, Vector[Option[CT]]]()
@@ -198,6 +203,17 @@ object FrontendBridge:
   /** Context-bound dictionary args for a call to `name` (Nil when none). The
    *  instance table for each bound is embedded at the call site; the runtime
    *  __resolve_given__ picks by the witness value's type head. */
+  /** (typeHead, given) table for tc, honoring the typeclass hierarchy. */
+  private def usingTableFor(tc: String): List[CT] =
+    def satisfies(t: String): Boolean =
+      var cur = t
+      var hops = 0
+      while cur != tc && hops < 8 && tcParents.contains(cur) do { cur = tcParents(cur); hops += 1 }
+      cur == tc
+    givenByTcHead.collect {
+      case ((t, head), g) if satisfies(t) => List(CT.Lit(Const.CStr(head)), CT.Global(g))
+    }.flatten.toList
+
   private def dictArgsFor(name: String, args: List[CT]): List[CT] =
     defContextBounds.get(name).fold(List.empty[CT]) { case (bs, userCount) =>
       if args.length != userCount then Nil  // explicit instance(s) passed — don't synthesize
@@ -700,6 +716,20 @@ object FrontendBridge:
         // Dict params go LAST (v1 using-clause convention: an explicit instance may
         // be passed as the trailing argument — combineAll(xs, intSum)).
         val dictParams = bounds.map { case (tc, _) => s"__tc_$tc" }.toList
+        // USING clauses: register for call-site clause synthesis
+        val allPcs = d.paramClauseGroups.flatMap(_.paramClauses)
+        val usingParams = allPcs.flatMap(_.values).filter(_.mods.exists(_.is[Mod.Using]))
+        if usingParams.nonEmpty then
+          val userCount = allPcs.flatMap(_.values).count(!_.mods.exists(_.is[Mod.Using]))
+          val firstTpe  = allPcs.flatMap(_.values).filter(!_.mods.exists(_.is[Mod.Using]))
+            .headOption.flatMap(_.decltpe).map(_.syntax).getOrElse("")
+          val ubs = usingParams.flatMap(_.decltpe).map { t =>
+            val tc = t.syntax.takeWhile(c => c != '[' && c != ' ')
+            val tv = t.syntax.dropWhile(_ != '[').drop(1).dropRight(1)
+            val drill = if firstTpe.matches(s"List\\[\\s*$tv\\s*\\]") then "elem" else "self"
+            (tc, drill)
+          }.toList
+          defUsingBounds(d.name.value) = (ubs, userCount)
         val params = allParams(d) ++ dictParams
         val scope  = params.reverse  // Local(0) = last param
         val body   = convertExpr(d.body, scope)
@@ -1373,7 +1403,13 @@ object FrontendBridge:
         convertApply(inner, rawArgs, scope)
       // Curried constructor application f(a)(b) — if f is a known vararg def, wrap vararg args in a list
       case Term.Apply.After_4_6_0(inner, innerClause) =>
-        val innerApp = convertApply(inner, innerClause.values.toList, scope)
+        val innerApp = inner match
+          // f(a)(using x) / f(a)(x) where f has a using clause and THIS apply
+          // supplies it explicitly — build the inner app WITHOUT synthesis
+          case Term.Name(iname) if !scope.contains(iname) && defUsingBounds.contains(iname)
+              && defUsingBounds(iname)._2 == innerClause.values.length =>
+            CT.App(CT.Global(iname), innerClause.values.toList.map(a => convertExpr(a, scope)))
+          case _ => convertApply(inner, innerClause.values.toList, scope)
         val isVararg = inner match
           case Term.Name(n) if !scope.contains(n) => varargDefs.contains(n)
           case _ => false
@@ -1387,6 +1423,17 @@ object FrontendBridge:
       // Context-bound def WITHOUT defaults: synthesize the dictionary args only
       case Term.Name(name) if !scope.contains(name) && defContextBounds.contains(name) =>
         CT.App(CT.Global(name), args ++ dictArgsFor(name, args))
+      // USING-clause def called with only the user clause → synthesize the using clause
+      case Term.Name(name) if !scope.contains(name) && defUsingBounds.contains(name)
+          && defUsingBounds(name)._2 == args.length =>
+        val (ubs, _) = defUsingBounds(name)
+        val dicts = ubs.map { case (tc, drill) =>
+          val table = usingTableFor(tc)
+          val witness = args.headOption.getOrElse(CT.Lit(Const.CUnit))
+          CT.Prim("__resolve_given__",
+            CT.Lit(Const.CStr(tc)) :: CT.Lit(Const.CStr(drill)) :: witness :: table)
+        }
+        CT.App(CT.App(CT.Global(name), args), dicts)
       // Direct single-clause vararg call: f(a, b, c) where f has vararg — always wrap in list
       // (single-arg calls f(x) must also wrap: body expects a List, e.g. body.toList)
       case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) =>
