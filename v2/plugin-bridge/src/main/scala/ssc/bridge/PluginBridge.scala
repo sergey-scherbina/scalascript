@@ -767,7 +767,7 @@ object PluginBridge:
     case V2Value.FloatV(d)      => d
     case V2Value.BoolV(b)       => b
     case V2Value.UnitV          => ()
-    case V2Value.DataV("None", _) => DataValue.NullV  // null-default compat: isNullish(NullV)=true
+    case V2Value.DataV("None", _) => null  // null works for isNullish(), optionalStringArg, PluginValue.Opt(None)
     case _                      => v2ToV1(v)  // complex → v1Value
 
   /** Convert the raw-Any returned by NativeImpl.eval back to a v2 value.
@@ -902,23 +902,29 @@ object PluginBridge:
     case scalascript.interpreter.Value.InstanceV(tag, _) =>
       val inst = v.asInstanceOf[scalascript.interpreter.Value.InstanceV]
       val effFields = inst.effectiveFields
-      // If fields have real names (not just _0, _1…), wrap as NamedMethodObj so:
-      //   (a) __method__ dispatch looks up by name, and
-      //   (b) v2ToV1 round-trips back to the original InstanceV unchanged.
-      val hasRealNames = effFields.nonEmpty &&
-        !effFields.keys.forall(k => k.matches("_\\d+"))
-      if hasRealNames then
-        V2Value.ForeignV(new ssc.Value.NamedMethodObj {
-          def getField(n: String): Option[ssc.Value] = effFields.get(n).map(v1ToV2)
-          def underlying: AnyRef = inst
-          override def toString: String = s"$tag(${effFields.keys.mkString(", ")})"
-        })
+      val arr = inst.fieldsArr
+      if arr != null then
+        // orderedInstance: positional array → DataV preserves fieldAt compatibility
+        V2Value.DataV(tag, arr.toVector.map(v1ToV2))
       else
-        val arr = inst.fieldsArr
-        if arr != null then
-          V2Value.DataV(tag, arr.toVector.map(v1ToV2))
-        else
-          V2Value.DataV(tag, effFields.values.toVector.map(v1ToV2))
+        // If the tag has registered field names (from case class in imported .ssc lib),
+        // build DataV in declaration order so fieldAt(obj, i) works correctly.
+        V2PluginRegistry.lookupFieldNames(tag) match
+          case Some(orderedNames) if effFields.nonEmpty =>
+            val orderedVals = orderedNames.map(n =>
+              effFields.get(n).map(v1ToV2).getOrElse(V2Value.UnitV))
+            V2Value.DataV(tag, orderedVals.toVector)
+          case _ =>
+            val hasRealNames = effFields.nonEmpty &&
+              !effFields.keys.forall(k => k.matches("_\\d+"))
+            if hasRealNames then
+              V2Value.ForeignV(new ssc.Value.NamedMethodObj {
+                def getField(n: String): Option[ssc.Value] = effFields.get(n).map(v1ToV2)
+                def underlying: AnyRef = inst
+                override def toString: String = s"$tag(${effFields.keys.mkString(", ")})"
+              })
+            else
+              V2Value.DataV(tag, effFields.values.toVector.map(v1ToV2))
     case scalascript.interpreter.Value.ListV(items) =>
       // Encode as a Cons/Nil chain (v2 list encoding)
       items.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (item, acc) =>

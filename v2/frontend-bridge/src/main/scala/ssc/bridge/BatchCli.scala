@@ -38,5 +38,6 @@ import ssc.*
       case scala.util.Failure(e) =>
         val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName).linesIterator.next().take(100)
         println(s"FAIL ${f.getName}: $msg")
+        if System.getProperty("batchDebug") != null then e.printStackTrace()
         fail += 1
   println(s"=== PASS: $pass  FAIL: $fail  TOTAL: ${pass + fail} ===")
