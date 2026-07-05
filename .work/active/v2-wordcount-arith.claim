@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-wordcount-arith
+worktree: ../scalascript-wt-v2-wordcount-arith
+started: 2026-07-05
+status: in-progress
+task: hunt the String+Int arith in distributed-word-count (bridged field/method returning String); breadcrumb arithOp then fix the source
