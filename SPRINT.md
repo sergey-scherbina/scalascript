@@ -240,6 +240,15 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       `expected a list, got Stub` (an unbridged `__method__` on a data value hits the
       batch Stub fallback — identify the method, bridge it). STILL OPEN: (b)
       `registerBehavior` typed-actor registry; (d) Dataset typed codecs (`Op/3`).
+      WAVE 3 (2026-07-05 evening): **ambient effect ops (Random.uuid/int/double,
+      Clock.now/nanos) + asInstanceOf identity + Stub/arith breadcrumbs SHIPPED** —
+      join/log-aggregation/streams PASS; every remaining failure is self-describing.
+      SHARPENED ROOT: all 6 remaining real FAILs are ONE surface — unbridged
+      Dataset/typed-data plugin methods (DatasetCodec.*, DatasetWire.*,
+      DistributedDataset.runShuffle, WorkerProtocol .collect/.toList) fall to the
+      free-monad Op sentinel → Stub chains. NEXT SLICE: bridge the typed-data surface
+      (v1 backend/typed-data JVM classes callable from PluginBridge; JsonCodec-generic
+      value conversion needed) + registerBehavior.
       Batch counts remain ±1 order-dependent (plugin-state leak; per-file reset would fix).
 - [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
       All 16 entries terminate (probe with per-file forked watchdog); the true batch
