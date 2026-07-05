@@ -234,11 +234,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 > - **plugin-bridge is a scaffold, not E2E-functional** on its own; Track 2 wired the real path
 >   (BlockForm effects + HTTP/SQL) through FrontendBridge instead.
 
-- [ ] **T7.1: compat-coverage harness + baseline snapshot** — `scripts/v2-compat-coverage`:
-      run every `examples/*.ssc` through BOTH `ssc run` (v1) and the v2 pipeline (`--v2` /
-      `v2FrontendBridge/run run-module`), diff stdout, emit a `pass/partial/fail` table + a
-      coverage % + a checked-in baseline. Turns T1.4/T4.1's single "0 failures" gate into an
-      incremental metric. Gate: report generated + baseline committed.
+- [x] **T7.1: compat-coverage harness + baseline snapshot** — DONE 2026-07-05.
+      `scripts/v2-compat-coverage` wraps `ssc.bridge.batchCli` (one JVM, whole corpus) → PASS/FAIL
+      + coverage %. Baseline committed in `v2/compat-baseline.md`. **Post Track-1+2 baseline: 129/178
+      ran = 72.5% (129/194 = 66.5% of the corpus)** — up from 1/194 (0.5%) via the ssc1 path. The 49
+      fails: ~7 environmental (no network/keys), ~42 real, clustered in content-toolkit run-context
+      (~10), Spark/Dataset free-monad (~8), and plugin-object method dispatch (Graph/SQL/vault).
+      FOLLOW-UP (next slices, ranked in the baseline doc): content-toolkit context → Dataset executor
+      → method-dispatch breadth. Harness enhancement: diff stdout vs v1 (output-equality, not just exit).
 - [ ] **T5.2: Float/Double infix lowered as integer prims in ssc1 (CORRECTNESS)** — in
       `v2/lib/ssc1-lower.ssc0`, infix `+ - * / < <= > >=` ALWAYS emit `i.add`/`i.mul`/`i.lt`, so
       Double math is *silently wrong* in the ssc1 self-hosted path. Dispatch to `f.*` prims when an

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# v2-compat-coverage — T7.1 of specs/v2-full-compat.md
+#
+# Runs every examples/<dir>/*.ssc through the v2 FrontendBridge pipeline in ONE JVM
+# (via ssc.bridge.batchCli) and reports PASS/FAIL + a coverage %. This is the
+# north-star instrument for the v1->v2 compatibility tracks: re-run after each
+# slice and watch the number move.
+#
+# Usage:
+#   scripts/v2-compat-coverage                 # over examples/
+#   scripts/v2-compat-coverage examples        # explicit dir
+#   scripts/v2-compat-coverage examples http   # only files matching "http"
+#
+# NOTE: batchCli skips a hard-coded hang-list (actors/dataset/distributed that spawn
+# non-daemon threads or loop on the not-yet-implemented free-monad executor). Those
+# are counted as neither PASS nor FAIL — see v2/compat-baseline.md.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="${1:-examples}"
+FILTER="${2:-}"
+cd "$ROOT"
+
+OUT="$(sbt -Dsbt.color=false -batch \
+        "v2FrontendBridge/runMain ssc.bridge.batchCli $DIR $FILTER" 2>&1 \
+        | grep -E '^(PASS|FAIL|=== PASS)' || true)"
+
+echo "$OUT"
+PASS="$(printf '%s\n' "$OUT" | grep -c '^PASS' || true)"
+FAIL="$(printf '%s\n' "$OUT" | grep -c '^FAIL' || true)"
+TOT=$((PASS + FAIL))
+PCT="$(awk -v p="$PASS" -v t="$TOT" 'BEGIN{ if (t>0) printf "%.1f", 100*p/t; else printf "0.0" }')"
+echo "---"
+echo "v2 FrontendBridge coverage: ${PASS}/${TOT} ran = ${PCT}%  (hang-list excluded)"
