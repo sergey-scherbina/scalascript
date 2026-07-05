@@ -72,7 +72,9 @@ v2/
               backend-js, backend-rust, loader, list, string, option, mapx, set, sha256, irbin
   bin/        ssc0 drivers (ssc0c, ssct, ssctc, ssc0-js, ssc0-rust)
   examples/   runnable .ssc0 / .ssct programs
-  conformance/ ir fixtures + check.sh (one jar, 300+ checks across every layer & target)
+  conformance/ ir fixtures + check.sh (one jar, 600+ checks across every layer & target)
+  backend/    Core IR -> {Scala 3, JS, Rust} source generators + check.sh parity harness
+              (every fixture through run-ir vs JVM vs JS vs Rust, byte-identical)
   specs/      00-overview · 10-core-ir · 12-ir-format · 15-ssc0 · 20-bootstrap ·
               40-typer · 50-effects · 51-async · 52-typeclasses · 53-actors · 60/61-backends
 ```
