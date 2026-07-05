@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t4-verification
+worktree: ../scalascript-wt-v2-t4-verification
+started: 2026-07-05
+status: in-progress
+task: T4.2-T4.4 — current-state measurement + tractable fixes: compat-coverage rerun, stdlib-under-v2 probe, backendConformance-vs-v2 assessment
