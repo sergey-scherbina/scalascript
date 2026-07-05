@@ -883,6 +883,27 @@ object PluginBridge:
           Done(DataV(exName, Vector(StrV(msg))))
         }))
     }
+    // scope(name) — CSS scoping helper: returns object with cls(n)→"n__name" and css(s)→scoped CSS
+    if V2PluginRegistry.lookupGlobal("scope").isEmpty then
+      V2PluginRegistry.registerGlobal("scope", ClosV(Runtime.emptyEnv, 1, env => {
+        val name = env.last match { case StrV(s) => s; case v => v.toString }
+        val clsFn = ClosV(Runtime.emptyEnv, 1, e => e.last match
+          case StrV(n) => Done(StrV(s"${n}__${name}")); case v => Done(v))
+        val cssFn = ClosV(Runtime.emptyEnv, 1, e => Done(e.lastOption.getOrElse(StrV(""))))
+        Done(ForeignV(new ssc.Value.NamedMethodObj {
+          def getField(field: String): Option[ssc.Value] = field match
+            case "cls" => Some(clsFn)
+            case "css" => Some(cssFn)
+            case _     => None
+          def underlying: AnyRef = name
+        }))
+      }))
+    // raw(s) — pass-through for raw HTML/CSS strings
+    if V2PluginRegistry.lookupGlobal("raw").isEmpty then
+      V2PluginRegistry.registerGlobal("raw", ClosV(Runtime.emptyEnv, -1, env => Done(env.lastOption.getOrElse(UnitV))))
+    // attr(name)(value) — HTML attribute builder stub → return value as-is
+    if V2PluginRegistry.lookupGlobal("attr").isEmpty then
+      V2PluginRegistry.registerGlobal("attr", ClosV(Runtime.emptyEnv, -1, env => Done(env.lastOption.getOrElse(UnitV))))
 
   private def registerDecimalSupport(): Unit =
     import java.math.{BigDecimal => JBD, RoundingMode => JRM, MathContext}
@@ -1773,6 +1794,11 @@ object PluginBridge:
       val hm = scala.collection.mutable.HashMap[V2Value, V2Value]()
       entries.foreach { case (k, v) => hm(v1ToV2(k)) = v1ToV2(v) }
       V2Value.ForeignV(hm)
+    case scalascript.interpreter.Value.Foreign(_, s: scalascript.frontend.Signal[?]) =>
+      // Signal[T]: callable with 0 args → returns current value; 1 arg → sets value
+      V2Value.ClosV(Runtime.emptyEnv, -1, env =>
+        if env.isEmpty then Done(rawToV2(s.apply().asInstanceOf[Any]))
+        else { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToV1(env.last)); Done(V2Value.UnitV) })
     case scalascript.interpreter.Value.Foreign(tag, h: AnyRef) =>
       V2Value.ForeignV(TaggedForeign(tag, h))
     // v1 NativeFnV → variadic v2 ClosV
