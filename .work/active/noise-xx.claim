@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/noise-xx
+worktree: ../scalascript-wt-noise
+started: 2026-07-05T16:41:38Z
+heartbeat: 2026-07-05T16:41:38Z
+status: in-progress
+task: noise-xx — Noise_XX_25519_ChaChaPoly_SHA256 handshake (CipherState/SymmetricState/HandshakeState) in crypto-spi/shared over X25519 + ChaCha20Poly1305 + HkdfSha256 + Sha256; functional gate: full initiator<->responder handshake, matching transport keys, mutual static-key auth, encrypted transport round-trip, JVM+JS. Ephemerals injected (RNG stays a caller concern).
