@@ -333,11 +333,24 @@ with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
       5. `resolve1/2/3` in Prims — avoids `List[Value]` alloc for 1/2/3-arg prims.
       6. Empty App fast-path: `Call(c, emptyEnv)` instead of `toArray` on empty list.
       **Result:** arith-loop 258ms → ~15-17ms; nested-loop similarly under 20ms.
-- [ ] **v2-recursion-opt** — `recursion-fib` 482ms, `mutual-recursion` skip. These are binary/mutual
-      recursion without memoization. Check if v2 Compiler.scala's closure caching helps; if not, investigate
-      tail-call opportunities in ssc1c IR output.
-- [ ] **v2-pattern-match-opt** — `pattern-match-heavy` 362ms. Inspect the IR: likely deep IrMatch
-      nesting. Consider adding a sorted-match fast path or flattening in ssc1c.
+- [ ] **v2-recursion-opt** — IN PROGRESS 2026-07-05 (`feature/v2-recursion-opt`, claim in
+      `.work/active/`). FRESH BASELINE post-FastCode-phases (BENCH_WARMUP=3 BENCH_REPS=7):
+      recursion-fib **142.8ms** (was 482), mutual-recursion **35.4ms** (was skip),
+      pattern-match-heavy **125.0ms** (was 362), tuple-monoid 42.3ms, string-concat 5.2ms.
+      DIAGNOSIS: fib's body `If(le, Local, i.add(App fib, App fib))` is NOT FC-compilable —
+      `tryFLC` has no `If` case and `tryFC` has no `App` case → fcEntry=None → every call
+      takes the general trampoline path (Done alloc per node + `globals` hash lookup per
+      recursive call). PLAN: (1) `tryFC` gains `App(Global)` with compile-time fast path +
+      late-binding runtime cache (resolve ClosV+fcEntry once at first call — safe: lambda
+      globals are never reassigned after pass 1); (2) `tryFLC` gains `If` (tryFBc cond +
+      FLC branches); (3) same late-binding cache in `tryFLC`'s existing App case. Should
+      also help pattern-match-heavy (match arms with recursive calls become FC-able).
+      Gate: measured speedup on recursion-fib with NO regression on
+      arith-loop/nested-loop/tuple-monoid/list-fold; conformance + backend/check.sh green.
+- [ ] **v2-pattern-match-opt** — `pattern-match-heavy` fresh baseline **125.0ms** (was 362 —
+      FastCode phase 1 tryFC(Match) already landed). Expected to improve further via
+      v2-recursion-opt's tryFC App case (arms with recursive calls). Re-measure after;
+      then decide: sorted-match/flattening in ssc1c, or close per T3.2b JIT-blocked analysis.
 
 ### ▶ rust-tui-toolkit (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]")
 Make `computedSignal` (and any thunk) run LIVE in the terminal by routing std/ui through the Rust codegen
