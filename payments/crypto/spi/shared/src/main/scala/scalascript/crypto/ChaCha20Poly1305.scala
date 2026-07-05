@@ -23,6 +23,14 @@ object ChaCha20Poly1305:
     s(12) = counter
     s(13) = leWord(nonce, 0); s(14) = leWord(nonce, 4); s(15) = leWord(nonce, 8)
     val w = s.clone()
+    permute(w)
+    val out = new Array[Byte](64)
+    i = 0
+    while i < 16 do { putLe(out, i * 4, w(i) + s(i)); i += 1 }
+    out
+
+  /** The ChaCha20 permutation: 20 rounds (10 column/diagonal double-rounds) in place. */
+  private def permute(w: Array[Int]): Unit =
     inline def qr(a: Int, b: Int, c: Int, d: Int): Unit =
       w(a) += w(b); w(d) = rotl(w(d) ^ w(a), 16)
       w(c) += w(d); w(b) = rotl(w(b) ^ w(c), 12)
@@ -33,15 +41,26 @@ object ChaCha20Poly1305:
       qr(0, 4, 8, 12); qr(1, 5, 9, 13); qr(2, 6, 10, 14); qr(3, 7, 11, 15)     // columns
       qr(0, 5, 10, 15); qr(1, 6, 11, 12); qr(2, 7, 8, 13); qr(3, 4, 9, 14)     // diagonals
       r += 1
-    val out = new Array[Byte](64)
+
+  private def putLe(out: Array[Byte], off: Int, v: Int): Unit =
+    out(off)     = (v & 0xff).toByte
+    out(off + 1) = ((v >>> 8) & 0xff).toByte
+    out(off + 2) = ((v >>> 16) & 0xff).toByte
+    out(off + 3) = ((v >>> 24) & 0xff).toByte
+
+  /** HChaCha20 (the XChaCha20 subkey function): 32-byte subkey from a 32-byte key + 16-byte nonce.
+   *  Runs the ChaCha20 permutation but returns words 0-3 ‖ 12-15 with NO final addition. */
+  def hchacha20(key: Array[Byte], nonce16: Array[Byte]): Array[Byte] =
+    require(key.length == 32 && nonce16.length == 16, "HChaCha20 needs a 32-byte key + 16-byte nonce")
+    val w = new Array[Int](16)
+    w(0) = 0x61707865; w(1) = 0x3320646e; w(2) = 0x79622d32; w(3) = 0x6b206574
+    var i = 0
+    while i < 8 do { w(4 + i) = leWord(key, i * 4); i += 1 }
+    w(12) = leWord(nonce16, 0); w(13) = leWord(nonce16, 4); w(14) = leWord(nonce16, 8); w(15) = leWord(nonce16, 12)
+    permute(w)
+    val out = new Array[Byte](32)
     i = 0
-    while i < 16 do
-      val v = w(i) + s(i)
-      out(i * 4)     = (v & 0xff).toByte
-      out(i * 4 + 1) = ((v >>> 8) & 0xff).toByte
-      out(i * 4 + 2) = ((v >>> 16) & 0xff).toByte
-      out(i * 4 + 3) = ((v >>> 24) & 0xff).toByte
-      i += 1
+    while i < 4 do { putLe(out, i * 4, w(i)); putLe(out, 16 + i * 4, w(12 + i)); i += 1 }
     out
 
   /** ChaCha20 encrypt/decrypt `data` (XOR with the keystream) starting at block `counter`. */
@@ -109,6 +128,24 @@ object ChaCha20Poly1305:
            aad: Array[Byte] = Array.emptyByteArray): Option[Array[Byte]] =
     val expected = poly1305(poly1305KeyGen(key, nonce), macData(aad, ciphertext))
     if constEq(expected, tag) then Some(chacha20(key, 1, nonce, ciphertext)) else None
+
+  // ── XChaCha20-Poly1305 (extended 24-byte nonce; draft-irtf-cfrg-xchacha20poly1305) ──
+
+  /** The 12-byte ChaCha nonce derived from a 24-byte XChaCha nonce: `0x00000000 ‖ nonce24[16:24]`. */
+  private def xChachaNonce(nonce24: Array[Byte]): Array[Byte] =
+    val n = new Array[Byte](12); System.arraycopy(nonce24, 16, n, 4, 8); n
+
+  /** XChaCha20-Poly1305 AEAD seal — 24-byte `nonce`. Returns `(ciphertext, 16-byte tag)`. */
+  def xseal(key: Array[Byte], nonce: Array[Byte], plaintext: Array[Byte], aad: Array[Byte] = Array.emptyByteArray)
+      : (Array[Byte], Array[Byte]) =
+    require(nonce.length == 24, s"XChaCha20 nonce must be 24 bytes, got ${nonce.length}")
+    seal(hchacha20(key, java.util.Arrays.copyOfRange(nonce, 0, 16)), xChachaNonce(nonce), plaintext, aad)
+
+  /** XChaCha20-Poly1305 AEAD open — returns the plaintext iff the tag authenticates, else `None`. */
+  def xopen(key: Array[Byte], nonce: Array[Byte], ciphertext: Array[Byte], tag: Array[Byte],
+            aad: Array[Byte] = Array.emptyByteArray): Option[Array[Byte]] =
+    if nonce.length != 24 then None
+    else open(hchacha20(key, java.util.Arrays.copyOfRange(nonce, 0, 16)), xChachaNonce(nonce), ciphertext, tag, aad)
 
   private def constEq(a: Array[Byte], b: Array[Byte]): Boolean =
     if a.length != b.length then false
