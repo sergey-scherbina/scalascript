@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable NIST P-256 (secp256r1) group + ECDSA reference
+
+Added `P256Group.scala` + `P256Ecdsa.scala` to `payments/crypto/spi/shared` — a from-scratch NIST P-256
+reference: short-Weierstrass group with `a = -3` Jacobian doubling, and ECDSA with RFC-6979 deterministic
+nonces + SHA-256, low-S, DER and the fixed 64-byte R‖S encoding. Pure Scala, identical on JVM + Scala.js,
+no platform crypto. Verified byte-for-byte against the BouncyCastle P-256 backend (public-key derivation
++ signature interop) plus the `d=1 → G` base-point vector. This is the `ES256` / WebAuthn signature
+primitive — it unblocks ES256 for JWS/COSE (`Curve.P256` was BouncyCastle-only) and `webauthn-server-verify`.
+
 ## 2026-07-05 — crypto: COSE_Sign1 ES256K (ECDSA secp256k1)
 
 `CoseSign1` gains `signES256K` / `verifyES256K` (protected header `{1:-47}`) in

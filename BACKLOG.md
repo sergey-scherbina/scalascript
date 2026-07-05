@@ -60,8 +60,10 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       **ALL FOUR REFERENCES NOW EXIST:** Blake2b / RIPEMD-160 / secp256k1 (+ SHA-256/512, Ed25519) landed with
       `chains-backend-agnostic`; **Keccak-256 added 2026-07-05** (`Keccak256.scala` in `crypto-spi/shared`,
       pure Keccak-f[1600] sponge, Ethereum pad 0x01) — bit-for-bit vs BouncyCastle over rate-boundary + multi-
-      block inputs, JVM+JS byte-identical. **REMAINING:** a `register`-able pure-reference `CryptoBackend` that
-      wires all four as the SPI fallback so primitives run with no native provider.
+      block inputs, JVM+JS byte-identical. **P-256 added 2026-07-05** (`P256Group.scala` + `P256Ecdsa.scala`,
+      a=-3 Jacobian curve + ECDSA) — byte-for-byte vs BouncyCastle. **REMAINING:** a `register`-able
+      pure-reference `CryptoBackend` that wires them all as the SPI fallback so primitives run with no
+      native provider.
 - [ ] **chains-new-adapters** (epic) — a `ChainAdapter` per new chain: Aptos / Sui / Stellar / XRPL / Polkadot
       (Ed25519 or secp256k1 + tidy encoding). "Mostly another adapter" once the primitive is in the SPI.
       **Polkadot is BLOCKED on an sr25519 (Schnorrkel) reference** — `Curve.Sr25519` is enumerated but
@@ -101,9 +103,13 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       to the BouncyCastle secp256k1 backend (both RFC-6979 + low-S), JVM+JS.
       **COSE ES256K DONE 2026-07-05** (`CoseSign1.signES256K`/`verifyES256K`, protected `{1:-47}`):
       COSE_Sign1 now covers EdDSA + ES256K over the same R‖S helper, with an authenticated alg guard
-      (cross-alg confusion rejected), round-tripped JVM+JS. **REMAINING:** ES256 (P-256, COSE alg -7 /
-      JOSE ES256) — **BLOCKED on a portable P-256 reference** (`Curve.P256` only via BouncyCastle today);
-      PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
+      (cross-alg confusion rejected), round-tripped JVM+JS.
+      **Portable P-256 reference DONE 2026-07-05** (`P256Group.scala` + `P256Ecdsa.scala` in
+      `crypto-spi/shared`): NIST P-256 group (a=-3 Jacobian doubling) + ECDSA (RFC-6979 + SHA-256, DER +
+      64-byte R‖S) — byte-for-byte equal to the BouncyCastle P-256 backend (derivePublic + verify interop),
+      JVM+JS. **Unblocks ES256** (`Curve.P256` no longer BouncyCastle-only) and `webauthn-server-verify`.
+      **REMAINING:** wire **ES256** into `Jws`/`CoseSign1` (mirror ES256K over `P256Ecdsa`, alg `ES256` /
+      COSE `-7`); PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
 - [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the

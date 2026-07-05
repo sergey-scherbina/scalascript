@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/p256-reference
-worktree: ../scalascript-wt-p256
-started: 2026-07-05T13:38:37Z
-heartbeat: 2026-07-05T13:38:37Z
-status: in-progress
-task: p256-reference — portable NIST P-256 (secp256r1) group + ECDSA reference (P256Group.scala + P256Ecdsa.scala) in crypto-spi/shared, mirroring the secp256k1 stack with a=-3 Jacobian doubling; gated by BouncyCastle differential (derivePublic byte-exact + cross-verify). Unblocks ES256 (JOSE/COSE) + webauthn-server-verify.
