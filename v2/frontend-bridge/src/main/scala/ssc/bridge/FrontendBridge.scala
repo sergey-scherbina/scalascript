@@ -70,6 +70,9 @@ object FrontendBridge:
     caseObjectNames.clear()
     methodObjectNames.clear()
     entryValNames.clear()
+    defContextBounds.clear()
+    givenByTcHead.clear()
+    tcParents.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -120,6 +123,16 @@ object FrontendBridge:
   private val methodObjectNames = collection.mutable.HashSet[String]()
   /** Names of vals routed to the ENTRY block (effectful or entry-dependent). */
   private val entryValNames     = collection.mutable.HashSet[String]()
+
+  /** Context bounds — dictionary passing for the bridged pipeline.
+   *  defContextBounds: def name → per-bound (tcName, drill) where drill says how
+   *  to reach the TYPE WITNESS from the first user arg at runtime ("self" = the
+   *  arg itself; "elem" = a list element, for `xs: List[A]` params).
+   *  givenByTcHead: (tcName, typeHead) → given global name (from `given x: TC[T] with`). */
+  private val defContextBounds = collection.mutable.LinkedHashMap[String, (List[(String, String)], Int)]()
+  private val givenByTcHead    = collection.mutable.LinkedHashMap[(String, String), String]()
+  /** trait child → parent (one hop; walked transitively in dictArgsFor). */
+  private val tcParents        = collection.mutable.HashMap[String, String]()
 
   /** Default-param registry: def name → per-param default CT exprs (None = required). */
   private val defaultParams = collection.mutable.HashMap[String, Vector[Option[CT]]]()
@@ -182,6 +195,27 @@ object FrontendBridge:
     elems.foldRight(CT.Ctor("Nil", Nil): CT)((e, acc) => CT.Ctor("Cons", List(e, acc)))
 
   /** Synthesize missing trailing arguments from defaultParams when calling a def with fewer args. */
+  /** Context-bound dictionary args for a call to `name` (Nil when none). The
+   *  instance table for each bound is embedded at the call site; the runtime
+   *  __resolve_given__ picks by the witness value's type head. */
+  private def dictArgsFor(name: String, args: List[CT]): List[CT] =
+    defContextBounds.get(name).fold(List.empty[CT]) { case (bs, userCount) =>
+      if args.length != userCount then Nil  // explicit instance(s) passed — don't synthesize
+      else bs.map { case (tc, drill) =>
+        def satisfies(t: String): Boolean =
+          var cur = t
+          var hops = 0
+          while cur != tc && hops < 8 && tcParents.contains(cur) do { cur = tcParents(cur); hops += 1 }
+          cur == tc
+        val table = givenByTcHead.collect {
+          case ((t, head), g) if satisfies(t) => List(CT.Lit(Const.CStr(head)), CT.Global(g))
+        }.flatten.toList
+        val witness = args.headOption.getOrElse(CT.Lit(Const.CUnit))
+        CT.Prim("__resolve_given__",
+          CT.Lit(Const.CStr(tc)) :: CT.Lit(Const.CStr(drill)) :: witness :: table)
+      }
+    }
+
   private def fillDefaults(name: String, args: List[CT]): List[CT] =
     defaultParams.get(name).fold(args) { defs =>
       if args.length >= defs.length then args
@@ -203,7 +237,13 @@ object FrontendBridge:
           val cn = d.name.value
           generalDerives(cn) = generalDerives.getOrElse(cn, Nil) :+ tcName
       }
-    case d: Defn.Trait => ()
+    case d: Defn.Trait =>
+      // Typeclass hierarchy: `trait Monoid[A] extends Semigroup[A]` — a Monoid
+      // given satisfies a Semigroup context bound (dictArgsFor walks this).
+      d.templ.inits.headOption.foreach { init =>
+        val parent = init.tpe.syntax.takeWhile(c => c != '[' && c != ' ')
+        if parent.nonEmpty && parent.head.isUpper then tcParents(d.name.value) = parent
+      }
     case d: Defn.Object =>
       if d.mods.exists(_.is[Mod.Case]) then caseObjectNames += d.name.value
       else if d.templ.stats.exists(_.isInstanceOf[Defn.Def]) then methodObjectNames += d.name.value
@@ -253,6 +293,11 @@ object FrontendBridge:
    *  Bifunctor[Either]) must not overwrite each other — collect (typeHead, arity,
    *  lam) per name and emit ONE dispatching global per name at flush time. */
   private val extAccum = collection.mutable.LinkedHashMap[String, collection.mutable.ListBuffer[(String, Int, CT)]]()
+  /** While converting extension impl BODIES: the method's own name — a same-name
+   *  receiver call inside (`def map(f) = fa.map(f)`) must hit the BUILTIN member
+   *  dispatch, not the extension global (members beat extensions in Scala; the
+   *  extension route self-recursed → infinite loop in std monad instances). */
+  private var suppressExtName: Option[String] = None
 
   /** Runtime tag test for a receiver type head; None = untestable (catch-all). */
   private def tagTestFor(typeHead: String, recv: CT): Option[CT] =
@@ -633,7 +678,29 @@ object FrontendBridge:
       case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) =>
         () // Plugin already provides this def (with default-param support); don't shadow it.
       case d: Defn.Def =>
-        val params = allParams(d)
+        // Context bounds `[A: TC]` → prepend a `__tc_TC` dictionary param;
+        // summon[TC[A]] in the body resolves to it (see the summon case), and
+        // call sites synthesize the instance via __resolve_given__.
+        val tparams = d.paramClauseGroups.flatMap(_.tparamClause.values)
+        val bounds  = tparams.flatMap { tp =>
+          tp.cbounds.map { cb =>
+            val tcName = cb.syntax.takeWhile(c => c != '[' && c != ' ')
+            (tcName, tp.name.value)
+          }
+        }
+        val userParamCount = d.paramClauseGroups.flatMap(_.paramClauses).map(_.values.length).sum
+        if bounds.nonEmpty then
+          val firstUserParamTpe = d.paramClauseGroups
+            .flatMap(_.paramClauses).flatMap(_.values).headOption
+            .flatMap(_.decltpe).map(_.syntax).getOrElse("")
+          defContextBounds(d.name.value) = (bounds.map { case (tc, tv) =>
+            val drill = if firstUserParamTpe.matches(s"List\\[\\s*$tv\\s*\\]") then "elem" else "self"
+            (tc, drill)
+          }.toList, userParamCount)
+        // Dict params go LAST (v1 using-clause convention: an explicit instance may
+        // be passed as the trailing argument — combineAll(xs, intSum)).
+        val dictParams = bounds.map { case (tc, _) => s"__tc_$tc" }.toList
+        val params = allParams(d) ++ dictParams
         val scope  = params.reverse  // Local(0) = last param
         val body   = convertExpr(d.body, scope)
         // For multi-clause curried defs, build nested lambdas per clause
@@ -661,7 +728,8 @@ object FrontendBridge:
             if params.isEmpty then CT.Lam(0, body) else CT.Lam(params.length, body)
           else
             // Nested: outermost clause wraps inner. Scope is still full flat list.
-            val clauseLens = allClauses.map(_.values.length)
+            val clauseLens0 = allClauses.map(_.values.length)
+            val clauseLens = clauseLens0.init :+ (clauseLens0.last + dictParams.length)
             val innermost  = clauseLens.tail.foldRight(body: CT) { (n, inner) => CT.Lam(if n == 0 then 0 else n, inner) }
             // Register first-clause defaults for curried vararg defs (e.g. vstack(gap=0)(children*)).
             // This lets `vstack(child1, child2)` auto-inject gap=0 rather than erroring on arity.
@@ -970,7 +1038,10 @@ object FrontendBridge:
       val typeSig = argClause match
         case ac: Type.ArgClause => ac.values.headOption.fold("?")(_.syntax)
         case _ => "?"
-      givenRegistry.get(typeSig) match
+      val tcHead0 = typeSig.takeWhile(c => c != '[' && c != ' ')
+      val dictIdx0 = scope.indexOf(s"__tc_$tcHead0")
+      if dictIdx0 >= 0 then CT.Local(dictIdx0)
+      else givenRegistry.get(typeSig) match
         case Some(name) => CT.Global(name)
         case None =>
           // summon[Mirror.Of[X]] — if X is a known case class, build an inline Mirror ctor.
@@ -1229,7 +1300,7 @@ object FrontendBridge:
         else
           val q = convertExpr(qual, scope)
           // Extension method → global call with receiver as first arg
-          if extensionMethods.contains(mname) then
+          if extensionMethods.contains(mname) && !suppressExtName.contains(mname) then
             CT.App(CT.Global(mname), q :: args)
           // If it's a known field accessor with no args, use fieldAt
           else if args.isEmpty then
@@ -1255,7 +1326,10 @@ object FrontendBridge:
         val typeSig = argClause match
           case ac: Type.ArgClause => ac.values.headOption.fold("?")(_.syntax)
           case _ => "?"
-        givenRegistry.get(typeSig) match
+        val tcHead = typeSig.takeWhile(c => c != '[' && c != ' ')
+        val dictIdx = scope.indexOf(s"__tc_$tcHead")
+        if dictIdx >= 0 then CT.Local(dictIdx)
+        else givenRegistry.get(typeSig) match
           case Some(name) => CT.Global(name)
           case None       => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
       // Focus[T](_.path.some.index(i).at(k)…) — optics path lens (v1 OpticsRuntime
@@ -1307,8 +1381,12 @@ object FrontendBridge:
         else CT.App(innerApp, args)
       // Regular function call (with optional default-param synthesis for known defs)
       case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
-        buildWithDefaults(name, args, refs => CT.App(CT.Global(name), refs))
-          .getOrElse(CT.App(CT.Global(name), fillDefaults(name, args)))
+        val fullArgs = args ++ dictArgsFor(name, args)
+        buildWithDefaults(name, fullArgs, refs => CT.App(CT.Global(name), refs))
+          .getOrElse(CT.App(CT.Global(name), fillDefaults(name, fullArgs)))
+      // Context-bound def WITHOUT defaults: synthesize the dictionary args only
+      case Term.Name(name) if !scope.contains(name) && defContextBounds.contains(name) =>
+        CT.App(CT.Global(name), args ++ dictArgsFor(name, args))
       // Direct single-clause vararg call: f(a, b, c) where f has vararg — always wrap in list
       // (single-arg calls f(x) must also wrap: body expects a List, e.g. body.toList)
       case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) =>
@@ -1740,7 +1818,9 @@ object FrontendBridge:
       extensionMethods += m.name.value
       val params = recvName :: allParams(m)
       val scope  = params.reverse
-      val body   = convertExpr(m.body, scope)
+      val saved  = suppressExtName
+      suppressExtName = Some(m.name.value)
+      val body   = try convertExpr(m.body, scope) finally suppressExtName = saved
       val lam    = CT.Lam(params.length, body)
       extAccum.getOrElseUpdate(m.name.value, collection.mutable.ListBuffer.empty) += ((typeHead, params.length, lam))
     }
@@ -1749,6 +1829,12 @@ object FrontendBridge:
     // Extract the parent type sig (e.g. "Show[Int]") from template.inits
     val typeSig = g.templ.inits.headOption.fold("")(_.tpe.syntax)
     givenRegistry(typeSig) = g.name.value
+    // (tc, typeHead) → instance name, for call-site __resolve_given__ tables:
+    // "Monoid[Int]" → ("Monoid","Int"); "Monoid[List[A]]" → ("Monoid","List")
+    val tcOf   = typeSig.takeWhile(_ != '[')
+    val inner  = typeSig.dropWhile(_ != '[').drop(1).dropRight(1)
+    val headOf = inner.takeWhile(c => c != '[' && c != ',' && c != ' ')
+    if tcOf.nonEmpty && headOf.nonEmpty then givenByTcHead((tcOf, headOf)) = g.name.value
     val methods = g.templ.stats.collect { case m: Defn.Def => m }
     val pairs = methods.flatMap { m =>
       val params = allParams(m)

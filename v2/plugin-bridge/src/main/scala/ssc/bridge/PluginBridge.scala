@@ -680,6 +680,31 @@ object PluginBridge:
           case _ => None
       })
 
+    // Context-bound dictionary resolution: pick the given instance whose type
+    // head matches the runtime WITNESS value. args = tc :: drill :: witness ::
+    // (head, instance) pairs (table embedded at the call site by the bridge).
+    V2PluginRegistry.register("__resolve_given__", args => args match
+      case StrV(tc) :: StrV(drill) :: witness :: table =>
+        def headOf(v: V2Value): String = v match
+          case IntV(_)   => "Int"
+          case StrV(_)   => "String"
+          case BoolV(_)  => "Boolean"
+          case FloatV(_) => "Double"
+          case DataV("Cons" | "Nil", _)  => "List"
+          case DataV("Some" | "None", _) => "Option"
+          case DataV(t, _) => t
+          case _ => "?"
+        val w = drill match
+          case "elem" => witness match
+            case DataV("Cons", IndexedSeq(h, _)) => h
+            case other => other
+          case _ => witness
+        val want = headOf(w)
+        val pairs = table.grouped(2).collect { case List(StrV(h), inst) => h -> inst }.toList
+        pairs.find(_._1 == want).orElse(pairs.headOption).map(_._2)
+          .getOrElse(sys.error(s"__resolve_given__: no $tc instance for $want"))
+      case _ => sys.error("__resolve_given__: bad args"))
+
     V2PluginRegistry.register("optics.focus", args => args match
       case List(steps, StrV(path)) => mkOptic(unlist(steps), path)
       case List(steps)             => mkOptic(unlist(steps))
