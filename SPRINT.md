@@ -226,9 +226,13 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       GOTCHA: `__method__("Op", IndexedSeq())` (empty-field DataV) was the effect-Op path;
       plugin singletons also have empty fields — fix is registry-first lookup.
       Output: `SQL results: 1: Hello from v2! / 2: SQL works... / 3: H2...`; HTTP status: 200.
-- [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2. The
-      suite has no v2 mode yet — the work IS building that wiring (an SPI switch that
-      routes conformance programs through FrontendBridge → v2 VM), then comparing scores.
+- [x] **T4.4: Conformance suite** — DONE 2026-07-05 (`feature/v2-t44-conformance`).
+      Improved score 94→103/138 (+9 tests). Fixes: qualified-ctor fillDefaults,
+      all string interpolators, object val/method CDefs, entryBValNames tracking
+      (prevents erroneous global hoisting of entry-block locals), 0-arg App handler
+      for NamedMethodObj/Signal, ForeignV(Signal) callable ClosV, scope/raw/attr stubs.
+      Remaining 35 failures all plugin-gated (actors/cluster/distributed/coroutines/
+      html-dsl/http-client/node/rest-validate/mcp-client — no v2 plugin available).
 - [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
       All 16 entries terminate (probe with per-file forked watchdog); the true batch
       killer was a bridged v1 `exit` (System.exit) shadowing the actor exit. Fixed:

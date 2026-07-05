@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 conformance batch runner: 94→103/138 (T4.4)
+
+Nine more conformance tests pass via FrontendBridge + Runtime + PluginBridge fixes:
+- **Qualified ctor fillDefaults**: `Transport.Http(8080)` now fills trailing default args (fixes mcp-types)
+- **All string interpolators**: `html"..."`, `sql"..."`, etc. treated as string concat (fixes std-ui-extended)
+- **Object val/method CDefs**: vals and methods inside objects emitted as top-level CDefs so intra-object references resolve (fixes std-ui-extended-b/c)
+- **entryBValNames tracking**: `val slides = s1 + s2 + s3` no longer hoisted to a CDef when `s1`/`s2`/`s3` are entry-block locals (fixes std-ui-extended-d)
+- **0-arg App ForeignV(NamedMethodObj)**: `g()` on a signal now dispatches via "apply" field (fixes std-ui-i18n)
+- **Signal callable**: `v1 ReactiveSignal → v2 ClosV` so signals can be called directly (fixes std-ui-i18n)
+- **scope/raw/attr stubs**: CSS scoping helpers registered as v2 globals in PluginBridge
+Remaining 35 failures are all plugin-gated (actors, cluster, distributed, coroutines, html-dsl, http-client, node, rest-validate, mcp-client).
+
 ## 2026-07-05 — v2 full-application demo: HTTP client + SQL end-to-end (T4.3)
 
 `examples/v2-http-sql-demo.ssc`: proves that v2 can run programs combining HTTP client requests
