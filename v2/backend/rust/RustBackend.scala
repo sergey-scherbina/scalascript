@@ -89,6 +89,50 @@ object RustBackend:
     case While(c, b) => freeGlobals(c) | freeGlobals(b)
     case Seq(ts) => ts.map(freeGlobals).fold(Set.empty)(_ | _)
 
+  // ── local-capture analysis ────────────────────────────────────────────────
+
+  // Is Local(idx) referenced ANYWHERE in t (with binding-shift accounting)?
+  def containsLocal(t: Term, idx: Int): Boolean = t match
+    case Local(i)       => i == idx
+    case Global(_) | Lit(_) => false
+    case Lam(arity, body) => containsLocal(body, idx + arity)
+    case App(fn, args)  => containsLocal(fn, idx) || args.exists(containsLocal(_, idx))
+    case Let(rhs, body) =>
+      rhs.zipWithIndex.exists((r, k) => containsLocal(r, idx + k)) ||
+      containsLocal(body, idx + rhs.length)
+    case LetRec(lams, body) =>
+      val n = lams.length
+      lams.exists(containsLocal(_, idx + n)) || containsLocal(body, idx + n)
+    case If(c, th, el)  => containsLocal(c, idx) || containsLocal(th, idx) || containsLocal(el, idx)
+    case Ctor(_, fs)    => fs.exists(containsLocal(_, idx))
+    case Match(s, arms, d) =>
+      containsLocal(s, idx) || arms.exists(a => containsLocal(a.body, idx + a.arity)) ||
+      d.exists(containsLocal(_, idx))
+    case Prim(_, args)  => args.exists(containsLocal(_, idx))
+    case While(c, b)    => containsLocal(c, idx) || containsLocal(b, idx)
+    case Seq(ts)        => ts.exists(containsLocal(_, idx))
+
+  // Is Local(idx) referenced inside any Lam body in t?
+  // If true, an LCell at this index is captured by a closure and cannot be let-mut.
+  def isLocalInLam(t: Term, idx: Int): Boolean = t match
+    case Local(_) | Global(_) | Lit(_) => false
+    case Lam(arity, body) => containsLocal(body, idx + arity)
+    case App(fn, args)  => isLocalInLam(fn, idx) || args.exists(isLocalInLam(_, idx))
+    case Let(rhs, body) =>
+      rhs.zipWithIndex.exists((r, k) => isLocalInLam(r, idx + k)) ||
+      isLocalInLam(body, idx + rhs.length)
+    case LetRec(lams, body) =>
+      val n = lams.length
+      lams.exists(isLocalInLam(_, idx + n)) || isLocalInLam(body, idx + n)
+    case If(c, th, el)  => isLocalInLam(c, idx) || isLocalInLam(th, idx) || isLocalInLam(el, idx)
+    case Ctor(_, fs)    => fs.exists(isLocalInLam(_, idx))
+    case Match(s, arms, d) =>
+      isLocalInLam(s, idx) || arms.exists(a => isLocalInLam(a.body, idx + a.arity)) ||
+      d.exists(isLocalInLam(_, idx))
+    case Prim(_, args)  => args.exists(isLocalInLam(_, idx))
+    case While(c, b)    => isLocalInLam(c, idx) || isLocalInLam(b, idx)
+    case Seq(ts)        => ts.exists(isLocalInLam(_, idx))
+
   // ── name helpers ─────────────────────────────────────────────────────────
 
   // Global def names: prefix with g_ to avoid collisions with keywords
@@ -112,7 +156,8 @@ object RustBackend:
   // ── expression generation ─────────────────────────────────────────────────
   // indent: number of 4-space levels for block content
 
-  def genExpr(t: Term, ctx: List[String], indent: Int): String =
+  // longVars: names that are `let mut name: i64` rather than `let name: V`
+  def genExpr(t: Term, ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     t match
 
@@ -136,46 +181,57 @@ object RustBackend:
         else s"V::Bytes(hex_bytes(\"$hex\"))"
 
       // ── Variable references ───────────────────────────────────────────────
-      case Local(i) => s"${localName(ctx, i)}.clone()"
+      case Local(i) =>
+        val nm = localName(ctx, i)
+        if longVars.contains(nm) then s"V::Int($nm)" else s"$nm.clone()"
       case Global(n) => s"${rustDefName(n)}.clone()"
 
       // ── Lambda ───────────────────────────────────────────────────────────
       // Generates a V::Fn closure capturing the current context
       case Lam(arity, body) =>
-        genLam(arity, body, ctx, indent)
+        genLam(arity, body, ctx, indent, longVars)
 
       // ── Application ──────────────────────────────────────────────────────
       case App(fn, args) =>
-        val fnExpr = genExpr(fn, ctx, indent)
+        val fnExpr = genExpr(fn, ctx, indent, longVars)
         if args.isEmpty then
           s"call_fn($fnExpr, vec![])"
         else
-          val argExprs = args.map(a => genExpr(a, ctx, indent)).mkString(", ")
+          val argExprs = args.map(a => genExpr(a, ctx, indent, longVars)).mkString(", ")
           s"call_fn($fnExpr, vec![$argExprs])"
 
       // ── Let ──────────────────────────────────────────────────────────────
       case Let(rhs, body) =>
         val names = rhs.map(_ => fresh("l"))
-        val bodyCtx = ctx ++ names   // appended left to right; Local(0) = names.last
+        val bodyCtx = ctx ++ names   // Local(0) = names.last
         val sb = new StringBuilder(s"{\n")
         var curCtx = ctx
-        for (r, n) <- rhs.zip(names) do
-          val rExpr = genExpr(r, curCtx, indent + 1)
-          sb ++= s"${pad}    let $n: V = $rExpr;\n"
+        var curLongs = longVars
+        for ((r, n), k) <- rhs.zip(names).zipWithIndex do
+          // de Bruijn index of this binding inside `body`
+          val bodyIdx = rhs.length - 1 - k
+          r match
+            case Prim("lcell.new", List(Lit(CInt(v)))) if !isLocalInLam(body, bodyIdx) =>
+              // Not captured by any closure: emit a plain mutable i64
+              sb ++= s"${pad}    let mut $n: i64 = ${v}i64;\n"
+              curLongs = curLongs + n
+            case _ =>
+              val rExpr = genExpr(r, curCtx, indent + 1, curLongs)
+              sb ++= s"${pad}    let $n: V = $rExpr;\n"
           curCtx = curCtx :+ n
-        sb ++= s"${pad}    ${genExpr(body, bodyCtx, indent + 1)}\n"
+        sb ++= s"${pad}    ${genExpr(body, bodyCtx, indent + 1, curLongs)}\n"
         sb ++= s"${pad}}"
         sb.toString
 
       // ── LetRec ───────────────────────────────────────────────────────────
       case LetRec(lams, body) =>
-        genLetRec(lams, body, ctx, indent)
+        genLetRec(lams, body, ctx, indent, longVars)
 
       // ── If ───────────────────────────────────────────────────────────────
       case If(c, th, el) =>
-        val cExpr = genExpr(c, ctx, indent)
-        val tExpr = genExpr(th, ctx, indent + 1)
-        val eExpr = genExpr(el, ctx, indent + 1)
+        val cExpr = genExpr(c, ctx, indent, longVars)
+        val tExpr = genExpr(th, ctx, indent + 1, longVars)
+        val eExpr = genExpr(el, ctx, indent + 1, longVars)
         s"if as_bool($cExpr) {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
 
       // ── Constructor ──────────────────────────────────────────────────────
@@ -184,34 +240,88 @@ object RustBackend:
         if fields.isEmpty then
           s"V::Data($tagStr.to_string(), vec![])"
         else
-          val fieldExprs = fields.map(f => genExpr(f, ctx, indent)).mkString(", ")
+          val fieldExprs = fields.map(f => genExpr(f, ctx, indent, longVars)).mkString(", ")
           s"V::Data($tagStr.to_string(), vec![$fieldExprs])"
 
       // ── Match ─────────────────────────────────────────────────────────────
       case Match(scrut, arms, default) =>
-        genMatch(scrut, arms, default, ctx, indent)
+        genMatch(scrut, arms, default, ctx, indent, longVars)
 
       // ── Primitives ────────────────────────────────────────────────────────
       case Prim(op, args) =>
-        genPrim(op, args, ctx, indent)
+        genPrim(op, args, ctx, indent, longVars)
 
       // ── While ─────────────────────────────────────────────────────────────
       case While(cond, body) =>
-        val condExpr = genExpr(cond, ctx, indent + 1)
-        val bodyExpr = genExpr(body, ctx, indent + 1)
-        s"{\n${pad}    while as_bool($condExpr) {\n${pad}        $bodyExpr;\n${pad}    }\n${pad}    V::Unit\n${pad}}"
+        val condStr = genBoolExpr(cond, ctx, indent, longVars)
+        // Use genStmt for the body to avoid V::Unit overhead in each iteration
+        val bodyStmts = genStmt(body, ctx, indent + 2, longVars)
+        s"{\n${pad}    while $condStr {\n$bodyStmts\n${pad}    }\n${pad}    V::Unit\n${pad}}"
 
       // ── Seq ──────────────────────────────────────────────────────────────
       case Seq(terms) =>
         if terms.isEmpty then "V::Unit"
-        else if terms.length == 1 then genExpr(terms.head, ctx, indent)
+        else if terms.length == 1 then genExpr(terms.head, ctx, indent, longVars)
         else
           val sb = new StringBuilder("{\n")
           for t <- terms.init do
-            sb ++= s"${pad}    ${genExpr(t, ctx, indent + 1)};\n"
-          sb ++= s"${pad}    ${genExpr(terms.last, ctx, indent + 1)}\n"
+            // Use genStmt so intermediates don't create V::Unit (avoids boxing in hot loops)
+            sb ++= genStmt(t, ctx, indent + 1, longVars) + "\n"
+          sb ++= s"${pad}    ${genExpr(terms.last, ctx, indent + 1, longVars)}\n"
           sb ++= s"${pad}}"
           sb.toString
+
+  // ── Inline arithmetic/bool helpers (avoids boxing longVars) ──────────────
+
+  // Try to emit a raw i64 expression without wrapping in V::Int.
+  // Falls back to as_int(genExpr(...)) for non-inline cases.
+  def genIntExpr(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String = t match
+    case Lit(CInt(n))  => s"${n}i64"
+    case Local(i) =>
+      val nm = localName(ctx, i)
+      if longVars.contains(nm) then nm else s"as_int(${nm}.clone())"
+    case Prim("lcell.get", List(Local(i))) =>
+      val nm = localName(ctx, i)
+      if longVars.contains(nm) then nm
+      else s"as_int(V::Int(*as_lcell(${nm}.clone()).borrow()))"
+    case Prim("i.add", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_add(${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.sub", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_sub(${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.mul", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_mul(${genIntExpr(b,ctx,indent,longVars)})"
+    case _ => s"as_int(${genExpr(t, ctx, indent, longVars)})"
+
+  // Try to emit a raw bool expression without boxing.
+  def genBoolExpr(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String = t match
+    case Prim("i.lt", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) < (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.le", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) <= (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.gt", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) > (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.ge", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) >= (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("i.eq", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) == (${genIntExpr(b,ctx,indent,longVars)})"
+    case Prim("not", List(a))      => s"!(${genBoolExpr(a, ctx, indent, longVars)})"
+    case _ => s"as_bool(${genExpr(t, ctx, indent, longVars)})"
+
+  // Generate term as a Rust STATEMENT (no V::Unit creation).
+  // Used for While bodies and Seq intermediates to avoid V-enum overhead in hot loops.
+  def genStmt(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String =
+    val pad = "    " * indent
+    t match
+      // Flatten nested Seqs into a series of statements
+      case Seq(ts) =>
+        ts.map(s => genStmt(s, ctx, indent, longVars)).mkString("\n")
+      // lcell.set on a longVar: emit plain assignment, no V::Unit
+      case Prim("lcell.set", List(cell, rhs)) =>
+        cell match
+          case Local(i) =>
+            val nm = localName(ctx, i)
+            if longVars.contains(nm) then
+              return s"${pad}$nm = ${genIntExpr(rhs, ctx, indent, longVars)};"
+          case _ =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
+      // io.println / io.print in statement position (already Unit)
+      case Prim("io.println" | "io.print" | "io.eprint", _) =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
+      // Default: emit as expression statement (the ; discards the V value)
+      case _ =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
 
   // ── Lambda generation ─────────────────────────────────────────────────────
   // genLam uses per-lambda unique tag for capture names so that:
@@ -219,7 +329,7 @@ object RustBackend:
   // - globals referenced in body are also pre-cloned (avoids move-out-of-Fn-closure)
   // Inside the closure, all are rebound to their canonical names.
 
-  def genLam(arity: Int, body: Term, ctx: List[String], indent: Int): String =
+  def genLam(arity: Int, body: Term, ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     val lamTag = fresh("lam")
     val captureLocals = ctx.distinct
@@ -231,8 +341,11 @@ object RustBackend:
     val bodyCtx = ctx ++ argNames
 
     // Pre-clone locals with unique per-lam names (avoids same-name shadow conflicts)
+    // For longVar (i64) captures: box them to V::Int before moving into closure.
+    // By analysis, longVars should not appear in Lam bodies — but handle it safely.
     val localPreClones = captureLocals.map { n =>
-      s"let ${n}_cap_$lamTag = $n.clone();"
+      if longVars.contains(n) then s"let ${n}_cap_$lamTag: V = V::Int($n);"
+      else s"let ${n}_cap_$lamTag = $n.clone();"
     }
     // Lam defs: pre-clone their forward-ref cells (always available even for self-ref)
     val lamCellPreClones = lamGlobals.map { g =>
@@ -263,6 +376,7 @@ object RustBackend:
       (if localRebinds.nonEmpty || lamGlobalRebinds.nonEmpty || directGlobalRebinds.nonEmpty
        then s"\n${pad}        " else "")
 
+    // Inside closures: all variables are V (no longVars propagate into Lam bodies)
     val bodyExpr = genExpr(body, bodyCtx, indent + 1)
 
     if arity == 0 then
@@ -284,7 +398,7 @@ ${pad}}""".stripMargin
 
   // ── LetRec generation ────────────────────────────────────────────────────
 
-  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int): String =
+  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     // Names for the recursive bindings
     val recNames = lams.map(_ => fresh("r"))
@@ -391,18 +505,18 @@ ${pad}    }));\n"""
     for n <- recNames do
       sb ++= s"${pad}    *${n}_cell.borrow_mut() = Some($n.clone());\n"
 
-    // Body
-    val bodyExpr = genExpr(body, recCtx, indent + 1)
+    // Body (LetRec body runs at definition scope, longVars from outer scope are valid)
+    val bodyExpr = genExpr(body, recCtx, indent + 1, longVars)
     sb ++= s"${pad}    $bodyExpr\n"
     sb ++= s"${pad}}"
     sb.toString
 
   // ── Match generation ──────────────────────────────────────────────────────
 
-  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int): String =
+  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
     val pad = "    " * indent
     val sName = fresh("s")
-    val scrutExpr = genExpr(scrut, ctx, indent)
+    val scrutExpr = genExpr(scrut, ctx, indent, longVars)
     val sb = new StringBuilder(s"{\n${pad}    let $sName: V = $scrutExpr;\n")
     sb ++= s"${pad}    match &$sName {\n"
     for arm <- arms do
@@ -420,7 +534,7 @@ ${pad}    }));\n"""
 
       val tagStr = rustStrLit(arm.tag)
       if arm.arity == 0 then
-        val bodyExpr = genExpr(arm.body, ctx, indent + 2)
+        val bodyExpr = genExpr(arm.body, ctx, indent + 2, longVars)
         sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == 0 => {\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
@@ -428,14 +542,15 @@ ${pad}    }));\n"""
         val fieldPatterns = fieldNames.zipWithIndex.map { case (n, i) =>
           s"let $n = _fields[$i].clone();"
         }.mkString(s"\n${pad}            ")
-        val bodyExpr = genExpr(arm.body, armCtx, indent + 2)
+        // Match arm binds new V locals; don't propagate longVars into arm names
+        val bodyExpr = genExpr(arm.body, armCtx, indent + 2, longVars)
         sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == ${arm.arity} => {\n"""
         sb ++= s"""${pad}            $fieldPatterns\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
     // Default or panic
     val defaultExpr = default match
-      case Some(d) => genExpr(d, ctx, indent + 2)
+      case Some(d) => genExpr(d, ctx, indent + 2, longVars)
       case None    => s"""panic!("match: no arm matched {}", show(&$sName))"""
     sb ++= s"""${pad}        _ => { $defaultExpr }\n"""
     sb ++= s"${pad}    }\n"
@@ -444,8 +559,26 @@ ${pad}    }));\n"""
 
   // ── Primitive generation ──────────────────────────────────────────────────
 
-  def genPrim(op: String, args: List[Term], ctx: List[String], indent: Int): String =
-    val a = args.map(x => genExpr(x, ctx, indent))
+  def genPrim(op: String, args: List[Term], ctx: List[String], indent: Int, longVars: Set[String] = Set.empty): String =
+    // Fast paths for LCell operations when the cell is a longVar (plain i64, not Rc<RefCell>)
+    op match
+      case "lcell.get" if args.length == 1 =>
+        args(0) match
+          case Local(i) =>
+            val nm = localName(ctx, i)
+            if longVars.contains(nm) then return s"V::Int($nm)"
+          case _ =>
+      case "lcell.set" if args.length == 2 =>
+        args(0) match
+          case Local(i) =>
+            val nm = localName(ctx, i)
+            if longVars.contains(nm) then
+              // Use inline integer expression to avoid boxing the rhs
+              val valExpr = genIntExpr(args(1), ctx, indent, longVars)
+              return s"{ $nm = $valExpr; V::Unit }"
+          case _ =>
+      case _ =>
+    val a = args.map(x => genExpr(x, ctx, indent, longVars))
     def a0 = a(0); def a1 = a(1); def a2 = a(2)
     op match
       // __arith__ with literal op string (FrontendBridge-generated): dispatch to v_arith runtime helper
