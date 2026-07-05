@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-t44-json
-worktree: ../scalascript-wt-v2-t44-json
-started: 2026-07-05
-status: in-progress
-task: T4.4 json cluster — 'app: not a function: <foreign>' systemic fix; then next clusters per time

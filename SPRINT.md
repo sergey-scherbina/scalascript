@@ -245,7 +245,12 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       HONESTY CORRECTION: first-fence-only had inflated batch coverage; full-fence
       honest = **152/193** (see compat-baseline.md). The ~32 newly-honest batch fails +
       26 suite fails = the visible next queue (json/optics/parsing/sql/effects
-      clusters; `app: not a function: <foreign>` in json-*).
+      clusters). WAVE 2 (2026-07-05): **applyFallback SHIPPED** — bridged v1 facade
+      objects (NamedMethodObj: json wrapJson etc.) are applicable via their `apply`
+      field at all 7 App sites; json-value: crash → near-identical output (remaining:
+      rendering a facade's INNER value as `Map(k -> v)` inside containers — add a
+      `raw`-field-aware branch to v1Show). Next clusters: optics/parsing/sql/effects +
+      default-params (unbound default exprs).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
       SHIPPED** (full Erlang supervision surface on the VirtualThread mailbox model:
       bidirectional links kill-or-message, monitors get Down(reason); death fires on
