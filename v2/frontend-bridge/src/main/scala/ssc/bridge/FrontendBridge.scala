@@ -3,6 +3,7 @@ package ssc.bridge
 import scala.meta.*
 import scala.meta.dialects.Scala3
 import ssc.{Term as CT, Const, Def as CDef, Arm, Program}
+import ssc.V2PluginRegistry
 
 /** Converts v1 scalameta AST (output of v1 Parser+Typer+Linker) to v2 Core IR.
  *
@@ -37,10 +38,35 @@ object FrontendBridge:
 
   /** Register a case class definition and its fields. */
   private def registerCaseClass(name: String, params: List[Term.Param]): Unit =
-    fieldRegistry(name) = params.map(_.name.value).toVector
+    val names = params.map(_.name.value).toVector
+    fieldRegistry(name) = names
+    ssc.V2PluginRegistry.registerFieldNames(name, names)  // shared with PluginBridge.v2ToV1
+    val defs = params.map(p => p.default.map(d => convertExpr(d, Nil))).toVector
+    if defs.exists(_.isDefined) then defaultParams(name) = defs
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
+
+  /** Default-param registry: def name → per-param default CT exprs (None = required). */
+  private val defaultParams = collection.mutable.HashMap[String, Vector[Option[CT]]]()
+
+  /** Param-name registry for regular defs (enables named-arg call-site synthesis). */
+  private val defParamNames = collection.mutable.HashMap[String, Vector[String]]()
+
+  /** Vararg-def registry: functions whose last param clause contains a * (vararg) param.
+   *  Maps def name → number of non-vararg params in the last clause (0 for single vararg clause). */
+  private val varargDefs = collection.mutable.HashSet[String]()
+
+  /** Build a List value from a sequence of CT expressions: List(a,b,c) → Cons(a,Cons(b,Cons(c,Nil))). */
+  private def listOf(elems: List[CT]): CT =
+    elems.foldRight(CT.Ctor("Nil", Nil): CT)((e, acc) => CT.Ctor("Cons", List(e, acc)))
+
+  /** Synthesize missing trailing arguments from defaultParams when calling a def with fewer args. */
+  private def fillDefaults(name: String, args: List[CT]): List[CT] =
+    defaultParams.get(name).fold(args) { defs =>
+      if args.length >= defs.length then args
+      else args ++ defs.drop(args.length).collect { case Some(e) => e }
+    }
 
   /** First pass: scan all stats and collect case class / enum / extension definitions. */
   private def registerTypes(stats: List[Stat]): Unit = stats.foreach {
@@ -81,7 +107,23 @@ object FrontendBridge:
    *  Handles .ssc file format: optional shebang + YAML front matter + markdown prose +
    *  ```scalascript...``` fence; if no fence, uses the whole source. */
   def convertSource(src: String, fileDir: Option[java.io.File] = None): Program =
-    convertStats(parseStats(desugarListLiterals(stripExternDecls(resolveImportsCode(src, fileDir)))))
+    // Reset per-file state so batch runs don't pollute each other
+    fieldRegistry.clear()
+    extensionMethods.clear()
+    defaultParams.clear()
+    defParamNames.clear()
+    varargDefs.clear()
+    // Pre-register param names for plugins that accept named args (openapi, etc.)
+    defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
+    defaultParams("openapi") = Vector(
+      Some(CT.Lit(Const.CStr(""))),       // summary
+      Some(CT.Lit(Const.CStr(""))),       // description
+      Some(CT.Ctor("Nil", Nil)),          // tags
+      Some(CT.Lit(Const.CBool(false))),   // deprecated
+      Some(CT.Ctor("Nil", Nil))           // security
+    )
+    convertStats(parseStats(desugarListLiterals(
+      stripExternDecls(preprocessAtAnnotations(resolveImportsCode(src, fileDir))))))
 
   /** Strip ScalaScript-specific `extern` declarations that scalameta cannot parse.
    *  Handles extern def/val (single or multi-line via open parens) and
@@ -105,13 +147,14 @@ object FrontendBridge:
         // Strip the header line + all indented body lines
         val baseIndent = line.length - line.stripLeading().length
         sb.append("//").append(line); i += 1
-        while i < lines.length do
+        var done = false
+        while i < lines.length && !done do
           val next = lines(i)
           val stripped = next.stripLeading()
           val indent = next.length - stripped.length
           if stripped.isEmpty || indent > baseIndent then
             sb.append("//").append(next); i += 1
-          else i = lines.length // break: indentation returned
+          else done = true // break: indentation returned, don't advance i
       else
         sb.append(line); i += 1
     sb.toString
@@ -119,6 +162,13 @@ object FrontendBridge:
   /** Convert bare `[expr, ...]` list literals to `List(expr, ...)`.
    *  Stack-based: each `[` in expression position opens a `List(`, the matching `]` closes with `)`.
    *  Nested list literals are handled naturally. String literals are skipped verbatim. */
+  /** Strip `@` from expression-level annotations that scalameta cannot parse as Scala:
+   *  `@openapi(args) route(...)` → `openapi(args)\nroute(...)`.
+   *  The v1 parser has a dedicated preprocessor for this; we just strip the `@`. */
+  private def preprocessAtAnnotations(code: String): String =
+    if !code.contains("@openapi") then code
+    else code.replace("@openapi(", "openapi(")
+
   private def desugarListLiterals(code: String): String =
     if !code.contains("[") then return code
     val sb = new java.lang.StringBuilder(code.length + 64)
@@ -175,34 +225,42 @@ object FrontendBridge:
    *  load each referenced file, and prepend their code before the main code block.
    *  Falls back gracefully if a path can't be resolved. */
   private def resolveImportsCode(src: String, fileDir: Option[java.io.File]): String =
+    val seen    = collection.mutable.HashSet[String]()
+    val ordered = collection.mutable.ListBuffer.empty[(String, String)] // (canonical, code)
     val importPat = """\[([^\]]+)\]\(([^)]+\.ssc\d*)\)""".r
-    // Collect import paths from outside code fences only
-    val importPaths = collection.mutable.ListBuffer.empty[String]
-    var inFence = false
-    src.linesIterator.foreach { line =>
-      if line.startsWith("```") then inFence = !inFence
-      else if !inFence then
-        importPat.findAllMatchIn(line).foreach { m => importPaths += m.group(2) }
-    }
-    val prelude = importPaths.distinct.flatMap { rel =>
-      resolveStdPath(rel, fileDir).map(src => extractCode(src, allFences = true))
-    }.mkString("\n")
+    // fenceOnly=true: only scan outside fences (top-level user files, where imports are prose).
+    // fenceOnly=false: scan ALL lines (stdlib files where imports live inside code fences).
+    def collectImports(source: String, dir: Option[java.io.File], fenceOnly: Boolean): Unit =
+      var inFence = false
+      source.linesIterator.foreach { line =>
+        if line.startsWith("```") then inFence = !inFence
+        else if !fenceOnly || !inFence then
+          importPat.findAllMatchIn(line).foreach { m =>
+            val rel = m.group(2)
+            resolveStdPathWithFile(rel, dir).foreach { case (content, resolvedFile) =>
+              val key = resolvedFile.getCanonicalPath
+              if seen.add(key) then
+                // DFS: recurse first so dependencies come before their dependents
+                collectImports(content, Some(resolvedFile.getParentFile), fenceOnly = false)
+                ordered += key -> extractCode(content, allFences = true)
+            }
+          }
+      }
+    collectImports(src, fileDir, fenceOnly = false)
+    val prelude = ordered.map(_._2).filter(_.nonEmpty).mkString("\n")
     val mainCode = extractCode(src)
     if prelude.isEmpty then mainCode else s"$prelude\n$mainCode"
 
   /** Resolve a std-import path like `std/dsl/ast.ssc` to an absolute file.
    *  Search order: relative to fileDir → ImportResolver.stdPath → cwd-based dev-tree walk. */
-  private def resolveStdPath(rel: String, fileDir: Option[java.io.File]): Option[String] =
-    def tryFile(f: java.io.File): Option[String] =
-      if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption else None
-    def tryOsPath(p: os.Path): Option[String] = tryFile(p.toIO)
-    // 1. Relative to the importing file's directory
+  private def resolveStdPathWithFile(rel: String, fileDir: Option[java.io.File]): Option[(String, java.io.File)] =
+    def tryFile(f: java.io.File): Option[(String, java.io.File)] =
+      if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption.map(_ -> f) else None
+    def tryOsPath(p: os.Path): Option[(String, java.io.File)] = tryFile(p.toIO)
     fileDir.flatMap(d => tryFile(new java.io.File(d, rel)))
-      // 2. Via ImportResolver.stdPath (packaged release, or dev tree when jar-dir works)
       .orElse(scalascript.imports.ImportResolver.stdPath.flatMap { root =>
         tryOsPath(root / os.RelPath(rel))
       })
-      // 3. Walk up from cwd looking for v1/runtime/std (dev tree, sbt bloop)
       .orElse {
         var cur = os.pwd
         var found: Option[os.Path] = None
@@ -212,12 +270,54 @@ object FrontendBridge:
           else cur = cur / os.up
         found.flatMap(root => tryOsPath(root / os.RelPath(rel)))
       }
-      // 4. Direct cwd-relative (when std/ is next to working dir)
       .orElse(tryOsPath(os.pwd / os.RelPath(rel)))
+
+  private def resolveStdPath(rel: String, fileDir: Option[java.io.File]): Option[String] =
+    resolveStdPathWithFile(rel, fileDir).map(_._1)
+
 
   /** Extract scalascript code blocks from a .ssc file.
    *  allFences=true: concatenate ALL fences (for stdlib imports).
    *  allFences=false (default): only the first fence (for the main entry file). */
+  /** Filter out .ssc import directive lines, handling multi-line imports.
+   *  Import directives have the form `[Ident1, Ident2, ...](path.ssc)` — a comma-separated
+   *  list of bare identifiers (no operators, no strings, no `->`) followed by `](path.ssc)`.
+   *  Multi-line: the first line is `[Ident, Ident,` (ends with comma); subsequent lines
+   *  continue until one ends with `](path.ssc)`. */
+  private val importIdentListRe = """^\[(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*)*([A-Za-z_][A-Za-z0-9_]*)?\s*(,\s*)?(\]\([^)]+\.ssc\d*\))?$""".r
+
+  private def looksLikeImportStart(t: String): Boolean =
+    // Must start with [ and contain only idents+commas (possibly ending with .ssc))
+    if !t.startsWith("[") then return false
+    // Quick reject: import lines have no quotes, ->, :, =, other operators
+    if t.contains("\"") || t.contains("'") || t.contains("->") || t.contains(":") ||
+       t.contains("=") || t.contains("+") || t.contains("-") || t.contains("*") ||
+       t.contains("|") || t.contains("&") || t.contains("!") || t.contains("s\"") then return false
+    importIdentListRe.matches(t)
+
+  private def filterImportLines(code: String): String =
+    val lines = code.linesIterator.toArray
+    val sb    = new StringBuilder
+    var i     = 0
+    while i < lines.length do
+      val t = lines(i).trim
+      if looksLikeImportStart(t) then
+        // Import directive: skip until the closing line with ](path.ssc)
+        if t.contains(".ssc)") || t.contains(".ssc0)") then
+          i += 1 // single-line import: skip it
+        else
+          i += 1 // multi-line: skip continuations until closing .ssc) line
+          var foundClose = false
+          while i < lines.length && !foundClose do
+            val t2 = lines(i).trim
+            i += 1
+            if t2.contains(".ssc)") || t2.contains(".ssc0)") then foundClose = true
+      else
+        if sb.nonEmpty then sb.append('\n')
+        sb.append(lines(i))
+        i += 1
+    sb.toString
+
   def extractCode(raw: String, allFences: Boolean = false): String =
     val noShebang = if raw.startsWith("#!/") then raw.dropWhile(_ != '\n').drop(1) else raw
     val noFront =
@@ -241,10 +341,7 @@ object FrontendBridge:
       val fenceEnd  = noFront.indexOf("\n```", codeStart)
       val code = if fenceEnd < 0 then noFront.drop(codeStart).trim
                  else noFront.slice(codeStart, fenceEnd)
-      code.linesIterator.filterNot { line =>
-        val t = line.trim
-        t.startsWith("[") && t.contains("](") && (t.endsWith(")") || t.endsWith(".ssc)"))
-      }.mkString("\n")
+      filterImportLines(code)
     else
       // Collect ALL scalascript fences (for stdlib library files)
       val blocks = collection.mutable.ListBuffer.empty[String]
@@ -257,10 +354,7 @@ object FrontendBridge:
           val fenceEnd  = noFront.indexOf("\n```", codeStart)
           val code = if fenceEnd < 0 then noFront.drop(codeStart).trim
                      else noFront.slice(codeStart, fenceEnd)
-          val stripped = code.linesIterator.filterNot { line =>
-            val t = line.trim
-            t.startsWith("[") && t.contains("](") && (t.endsWith(")") || t.endsWith(".ssc)"))
-          }.mkString("\n")
+          val stripped = filterImportLines(code)
           if stripped.trim.nonEmpty then blocks += stripped
           pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
       blocks.mkString("\n")
@@ -303,11 +397,33 @@ object FrontendBridge:
     }).flatten.toSet
 
     stats.foreach {
+      case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) =>
+        () // Plugin already provides this def (with default-param support); don't shadow it.
       case d: Defn.Def =>
         val params = allParams(d)
         val scope  = params.reverse  // Local(0) = last param
         val body   = convertExpr(d.body, scope)
-        val lam    = if params.isEmpty then CT.Lam(0, body) else CT.Lam(params.length, body)
+        // For multi-clause curried defs, build nested lambdas per clause
+        val allClauses = d.paramClauseGroups.flatMap(_.paramClauses)
+        // Register default params (for call-site synthesis)
+        val allParamTerms = allClauses.flatMap(_.values)
+        val defVec = allParamTerms.map(p => p.default.map(convertExpr(_, Nil))).toVector
+        if defVec.exists(_.isDefined) then defaultParams(d.name.value) = defVec
+        // Register param names for named-arg call-site synthesis
+        if allParamTerms.nonEmpty && defVec.exists(_.isDefined) then
+          defParamNames(d.name.value) = allParamTerms.map(_.name.value).toVector
+        // Register vararg defs: last clause has a Type.Repeated param
+        val lastClause = allClauses.lastOption.toList.flatMap(_.values)
+        if lastClause.exists(p => p.decltpe.exists(_.isInstanceOf[Type.Repeated])) then
+          varargDefs += d.name.value
+        val lam =
+          if allClauses.length <= 1 then
+            if params.isEmpty then CT.Lam(0, body) else CT.Lam(params.length, body)
+          else
+            // Nested: outermost clause wraps inner. Scope is still full flat list.
+            val clauseLens = allClauses.map(_.values.length)
+            val innermost  = clauseLens.tail.foldRight(body: CT) { (n, inner) => CT.Lam(if n == 0 then 0 else n, inner) }
+            CT.Lam(if clauseLens.head == 0 then 0 else clauseLens.head, innermost)
         defsB += CDef(d.name.value, lam)
       case v: Defn.Val if isSimplePat(v.pats) =>
         val name = patName(v.pats.head)
@@ -506,7 +622,20 @@ object FrontendBridge:
               case Some(i) => CT.Prim("fieldAt", List(recv, CT.Lit(Const.CInt(i))))
               case None    => CT.Prim("__method__", List(CT.Lit(Const.CStr(mname)), recv))
           case Term.Apply.After_4_6_0(fn, ac) =>
-            convertApply(fn, ac.values.toList.map(a => if hasPH(a) then Term.AnonymousFunction(a) else a), innerScope.drop(arity))
+            // Process args directly through go to resolve placeholders as CT.Local(idx)
+            // DO NOT call convertApply here: it uses a different scope and re-wraps
+            // AnonymousFunction(Placeholder) → creating nested identity lambdas instead of locals.
+            val rawArgs = ac.values.toList.map(go)
+            fn match
+              case Term.Select(recv, Term.Name(mname)) if !hasPH(recv) =>
+                // recv.mname(args...) where recv has no placeholders
+                val recvCT = go(recv)
+                if extensionMethods.contains(mname) then CT.App(CT.Global(mname), recvCT :: rawArgs)
+                else CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: recvCT :: rawArgs)
+              case Term.Name(n) if !innerScope.contains(n) && varargDefs.contains(n) =>
+                CT.App(go(fn), List(listOf(rawArgs)))
+              case _ =>
+                CT.App(go(fn), rawArgs)
           case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
             val l = go(lhs)
             val r = argClause.values.toList match
@@ -563,7 +692,9 @@ object FrontendBridge:
     // ── Member select (field/method as value, no args) ────────────────────────
     case Term.Select(qual, Term.Name(name)) =>
       // Namespace.CtorName → CT.Ctor (e.g. Transport.Stdio, Either.Left, Option.None)
-      if isCtorName(name) && !fieldRegistry.contains(name) then CT.Ctor(name, Nil)
+      // Also handles zero-arg enum cases (fieldRegistry has empty vector for them).
+      val isZeroArgEnumCase = fieldRegistry.get(name).exists(_.isEmpty)
+      if isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
         if extensionMethods.contains(name) then
@@ -698,6 +829,29 @@ object FrontendBridge:
       case Term.Name("Set") =>
         val nil: CT = CT.Ctor("Nil", Nil)
         args.foldRight(nil)((h, t) => CT.Ctor("Cons", List(h, t)))
+      // route(method, path, handler) 3-arg direct form → curried route(method, path)(handler)
+      case Term.Name("route") if args.length == 3 =>
+        CT.App(CT.App(CT.Global("route"), List(args(0), args(1))), List(args(2)))
+      // Named-arg call to a known non-ctor function (e.g. f(a, computed = b))
+      // Resolves named positions using defParamNames and fills defaults from defaultParams.
+      case Term.Name(name) if !isCtorName(name) && !scope.contains(name)
+          && rawArgs.exists(_.isInstanceOf[Term.Assign])
+          && defParamNames.contains(name) =>
+        val pnames = defParamNames(name)
+        val defs   = defaultParams.get(name)
+        val positionalRaw = rawArgs.takeWhile(!_.isInstanceOf[Term.Assign])
+        val positional    = positionalRaw.map(e => convertExpr(wrapIfPH(e), scope))
+        val named: Map[String, CT] = rawArgs.collect {
+          case Term.Assign(Term.Name(n), rhs) => n -> convertExpr(rhs, scope)
+        }.toMap
+        // Stop at first param with no positional/named value and no default.
+        // This prevents multi-clause curried fns (e.g. vstack(gap=16)) from getting
+        // spurious `unit` args for the second clause's vararg param.
+        val callArgs = pnames.zipWithIndex.iterator.map { case (pn, i) =>
+          if i < positional.length then Some(positional(i))
+          else named.get(pn).orElse(defs.flatMap(_.lift(i).flatten))
+        }.takeWhile(_.isDefined).map(_.get).toList
+        CT.App(CT.Global(name), callArgs)
       // Constructor application — named args case: Ctor(field = val, ...) → positional
       // Named args arrive as Term.Assign inside rawArgs; field registry gives positional order.
       case Term.Name(name) if isCtorName(name) && rawArgs.exists(_.isInstanceOf[Term.Assign]) =>
@@ -706,13 +860,22 @@ object FrontendBridge:
         }.toMap
         fieldRegistry.get(name) match
           case Some(fields) =>
-            CT.Ctor(name, fields.map(fn => overrides.getOrElse(fn, CT.Lit(Const.CUnit))).toList)
-          case None => CT.Ctor(name, args)
+            val ctorDefs = defaultParams.get(name)
+            CT.Ctor(name, fields.zipWithIndex.map { case (fn, i) =>
+              overrides.getOrElse(fn, ctorDefs.flatMap(defs => defs.lift(i).flatten).getOrElse(CT.Lit(Const.CUnit)))
+            }.toList)
+          case None =>
+            // Unknown ctor with named args — extract RHS in call order (best-effort)
+            val positional = rawArgs.map {
+              case Term.Assign(_, rhs) => convertExpr(rhs, scope)
+              case e                  => convertExpr(wrapIfPH(e), scope)
+            }
+            CT.Ctor(name, positional)
       // Constructor application — positional args
       // Exception: known factory functions (Decimal, BigInt, etc.) are globals, not ctors.
       case Term.Name(name) if isCtorName(name) =>
         if functionConstructors.contains(name) then CT.App(CT.Global(name), args)
-        else CT.Ctor(name, args)
+        else CT.Ctor(name, fillDefaults(name, args))
       // .copy(field = val, ...) — case class copy with named field overrides.
       // Intercept before the generic __method__ path so we can use the field registry
       // to find indices and emit Ctor with field-at fallbacks, avoiding @field globals.
@@ -761,15 +924,58 @@ object FrontendBridge:
         givenRegistry.get(typeSig) match
           case Some(name) => CT.Global(name)
           case None       => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
+      // direct[M] { stmts } — desugar bind-forms to flatMap chains
+      case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) if rawArgs.length == 1 =>
+        val stmts = rawArgs.head match
+          case Term.Block(ss) => scalascript.transform.DirectAnorm.expand(ss)
+          case t              => List(t)
+        desugarDirect(stmts, scope)
       // Type-applied call List[T](...) — strip type args
       case Term.ApplyType.After_4_6_0(inner, _) =>
         convertApply(inner, rawArgs, scope)
-      // Curried constructor application f(a)(b)
+      // Curried constructor application f(a)(b) — if f is a known vararg def, wrap vararg args in a list
       case Term.Apply.After_4_6_0(inner, innerClause) =>
         val innerApp = convertApply(inner, innerClause.values.toList, scope)
-        CT.App(innerApp, args)
-      // Regular function call
+        val isVararg = inner match
+          case Term.Name(n) if !scope.contains(n) => varargDefs.contains(n)
+          case _ => false
+        if isVararg then CT.App(innerApp, List(listOf(args)))
+        else CT.App(innerApp, args)
+      // Regular function call (with optional default-param synthesis for known defs)
+      case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
+        CT.App(CT.Global(name), fillDefaults(name, args))
+      // Direct single-clause vararg call: f(a, b, c) where f has vararg — always wrap in list
+      // (single-arg calls f(x) must also wrap: body expects a List, e.g. body.toList)
+      case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) =>
+        CT.App(CT.Global(name), List(listOf(args)))
       case other => CT.App(convertExpr(other, scope), args)
+
+  /** Desugar `direct[M] { stmts }` bind-forms into flatMap chains.
+   *  `x = expr` → expr.flatMap { x => rest }
+   *  `val x = expr` → let x = expr in rest (pure)
+   *  bare expr → expr.flatMap { _ => rest } */
+  private def desugarDirect(stmts: List[scala.meta.Stat], scope: List[String]): CT =
+    import scala.meta.*
+    stmts match
+      case Nil => CT.Lit(Const.CUnit)
+      case (last: Term) :: Nil => convertExpr(last, scope)
+      case Term.Assign(Term.Name(x), rhs) :: rest =>
+        val bindedScope = x :: scope
+        val body = desugarDirect(rest, bindedScope)
+        CT.Prim("__method__", List(
+          CT.Lit(Const.CStr("flatMap")),
+          convertExpr(rhs, scope),
+          CT.Lam(1, body)))
+      case Defn.Val(_, List(Pat.Var(n)), _, rhs) :: rest =>
+        val x = n.value
+        val letScope = x :: scope
+        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, letScope))
+      case (t: Term) :: rest =>
+        CT.Prim("__method__", List(
+          CT.Lit(Const.CStr("flatMap")),
+          convertExpr(t, scope),
+          CT.Lam(1, desugarDirect(rest, "_" :: scope))))
+      case _ :: rest => desugarDirect(rest, scope)
 
   private def convertInfix(op: String, l: CT, r: CT, scope: List[String]): CT = op match
     case "&&" => CT.If(l, r, CT.Lit(Const.CBool(false)))
@@ -1077,9 +1283,8 @@ object FrontendBridge:
                           "Nil","Right","Left","Option","Tuple","BigInt","BigDecimal",
                           "Currency","Money","Duration","Range","Pair","Triple")
       (pureCtors.contains(ctor) || ctor.head.isUpper) && args.forall(isPureValRhs)
-    case Term.Apply.After_4_6_0(Term.Select(q, _), args) =>
-      // e.g. Map("a" -> 1) via `->`  or   obj.copy(...)
-      isPureValRhs(q) && args.forall(isPureValRhs)
+    case Term.Apply.After_4_6_0(Term.Select(_, _), _) =>
+      false // method calls (obj.method(args)) are always treated as effectful
     case Term.ApplyInfix.After_4_6_0(l, op, _, r) =>
       val opStr = op.value
       (opStr == "+" || opStr == "-" || opStr == "*" || opStr == "/" || opStr == "%" ||

@@ -64,6 +64,14 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("cwd", V2Value.StrV(System.getProperty("user.dir", ".")))
     V2PluginRegistry.registerGlobal("sep", V2Value.StrV(java.io.File.separator))
     V2PluginRegistry.registerGlobal("platform", V2Value.DataV("JVM", Vector.empty))
+    // Register plugin-owned extern type field names so v2ToV1(DataV) produces named fields.
+    // These are types created in v2 user code but consumed by v1 plugins by name.
+    V2PluginRegistry.registerFieldNames("Response",
+      Vector("status", "headers", "body"))
+    V2PluginRegistry.registerFieldNames("StreamResponse",
+      Vector("status", "headers", "callback"))
+    V2PluginRegistry.registerFieldNames("Request",
+      Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
     // Build namespace objects for dotted globals: "oauth.authServer" → oauth = {authServer: ClosV}
     buildNamespaceObjects()
     count
@@ -742,12 +750,13 @@ object PluginBridge:
    *  Scalars become JVM primitives; complex values become v1 Values (for
    *  plugins that pattern-match on v1 InstanceV / ListV / etc.). */
   private def v2ToRaw(v: V2Value): Any = v match
-    case V2Value.StrV(s)   => s
-    case V2Value.IntV(n)   => n
-    case V2Value.FloatV(d) => d
-    case V2Value.BoolV(b)  => b
-    case V2Value.UnitV     => ()
-    case _                 => v2ToV1(v)  // complex → v1Value
+    case V2Value.StrV(s)        => s
+    case V2Value.IntV(n)        => n
+    case V2Value.FloatV(d)      => d
+    case V2Value.BoolV(b)       => b
+    case V2Value.UnitV          => ()
+    case V2Value.DataV("None", _) => DataValue.NullV  // null-default compat: isNullish(NullV)=true
+    case _                      => v2ToV1(v)  // complex → v1Value
 
   /** Convert the raw-Any returned by NativeImpl.eval back to a v2 value.
    *  Mirrors Interpreter.wrapAnyAsValue + the v1→v2 path. */
@@ -807,14 +816,21 @@ object PluginBridge:
       // TupleN → v1 TupleV
       scalascript.interpreter.Value.TupleV(fields.toList.map(v2ToV1))
     case V2Value.DataV(tag, fields) =>
-      // Positional fields: expose as _0, _1, … for v1 InstanceV
-      val fieldMap: Map[String, V1Value] = fields.zipWithIndex
-        .map { case (fv, i) => s"_$i" -> v2ToV1(fv) }
-        .toMap
+      // Use named fields from the bridge's field registry when available;
+      // fall back to positional _0/_1/… so plugins can still use positional access.
+      val knownNames: Option[Vector[String]] = V2PluginRegistry.lookupFieldNames(tag)
+      val fieldMap: Map[String, V1Value] = knownNames match
+        case Some(names) if names.length == fields.length =>
+          // Named field map (both named and positional keys for compatibility)
+          (names.zip(fields).map { case (n, fv) => n -> v2ToV1(fv) } ++
+           fields.zipWithIndex.map { case (fv, i) => s"_$i" -> v2ToV1(fv) }).toMap
+        case _ =>
+          fields.zipWithIndex.map { case (fv, i) => s"_$i" -> v2ToV1(fv) }.toMap
       val inst = scalascript.interpreter.Value.InstanceV(tag, fieldMap)
-      // Also populate positional arrays for v1 fast paths
       val arr: Array[V1Value] = fields.map(v2ToV1).toArray
-      val names: Array[String] = fields.indices.map(i => s"_$i").toArray
+      val names: Array[String] = knownNames match
+        case Some(ns) if ns.length == fields.length => ns.toArray
+        case _ => fields.indices.map(i => s"_$i").toArray
       inst.fieldsArr = arr
       inst.fieldNames = names
       inst
@@ -845,8 +861,15 @@ object PluginBridge:
         case other => scalascript.interpreter.Value.Foreign(other.getClass.getSimpleName, other)
     case V2Value.ForeignV(h) =>
       scalascript.interpreter.Value.Foreign(h.getClass.getSimpleName, h)
+    case c: V2Value.ClosV =>
+      // Wrap v2 ClosV as a v1 NativeFnV so plugins can call it via invokeCallback.
+      scalascript.interpreter.Value.NativeFnV("v2Closure", v1Args => {
+        val v2Args = v1Args.map(v1ToV2)
+        val env    = if v2Args.isEmpty then c.env else Runtime.extend(c.env, v2Args.toArray)
+        scalascript.interpreter.Computation.Pure(v2ToV1(Runtime.run(c.code, env)))
+      })
     case _ =>
-      // Closures, LongCellV: not translatable — wrap as opaque Foreign
+      // LongCellV and other non-translatable values — wrap as opaque Foreign
       scalascript.interpreter.Value.Foreign("v2Value", v.asInstanceOf[AnyRef])
 
   // ── Value translation: v1 Value → v2 Value ─────────────────────────────

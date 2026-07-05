@@ -1000,7 +1000,14 @@ object V2PluginRegistry:
   private val globalValues = collection.mutable.HashMap[String, Value]()
   def registerGlobal(name: String, v: Value): Unit = globalValues(name) = v
   def lookupGlobal(name: String): Option[Value] = globalValues.get(name)
+  def hasGlobal(name: String): Boolean = globalValues.contains(name)
   def allGlobalNames(): Iterable[String] = globalValues.keys
+
+  // ADT field-name registry: tag → ordered field names.
+  // Populated by FrontendBridge so PluginBridge.v2ToV1 can produce named InstanceV fields.
+  private val fieldNames = collection.mutable.HashMap[String, Vector[String]]()
+  def registerFieldNames(tag: String, names: Vector[String]): Unit = fieldNames(tag) = names
+  def lookupFieldNames(tag: String): Option[Vector[String]] = fieldNames.get(tag)
 
 // ── Effect context — ThreadLocal stack for BlockForm effect runners ────────────
 // PluginBridge installs one V2EffectHandler per active runXxx block.
