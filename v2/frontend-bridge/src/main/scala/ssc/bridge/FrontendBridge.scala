@@ -311,8 +311,13 @@ object FrontendBridge:
         defsB += CDef(d.name.value, lam)
       case v: Defn.Val if isSimplePat(v.pats) =>
         val name = patName(v.pats.head)
-        val rhs  = convertExpr(v.rhs, Nil)
-        defsB += CDef(name, rhs)
+        // Pure RHS → safe to evaluate eagerly as a global.
+        // Effectful RHS (has function calls) → keep in entry block to preserve order.
+        if isPureValRhs(v.rhs) then
+          val rhs  = convertExpr(v.rhs, Nil)
+          defsB += CDef(name, rhs)
+        else
+          entryB += v
       case g: Defn.Given =>
         // given name: T with { def m1(a...) = ...; def m2(b...) = ... }
         // → val name = __mk_method_obj__(["m1", lam..., "m2", lam...])
@@ -343,8 +348,7 @@ object FrontendBridge:
   /** Standard prelude defs injected into every converted program.
    *  Maps common v1 scalascript globals to v2 primitives. */
   private val standardPrelude: List[CDef] = List(
-    CDef("println",   CT.Lam(1, CT.Prim("io.println", List(CT.Local(0))))),
-    CDef("print",     CT.Lam(1, CT.Prim("io.print",   List(CT.Local(0))))),
+    // println/print are registered natively (variadic) so println() works too
     CDef("identity",  CT.Lam(1, CT.Local(0))),
     CDef("not",       CT.Lam(1, CT.If(CT.Local(0), CT.Lit(Const.CBool(false)), CT.Lit(Const.CBool(true))))),
     CDef("math",          CT.Prim("__math_obj__", Nil)),
@@ -1059,6 +1063,32 @@ object FrontendBridge:
 
   private def allParams(d: Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value)))
+
+  /** True when a top-level val RHS is safe to evaluate eagerly as a global def.
+   *  Collection / data constructors and arithmetic are pure; IO calls are not. */
+  private def isPureValRhs(e: Term): Boolean = e match
+    case _: Lit                   => true
+    case _: Term.Name             => true
+    case _: Term.Interpolate      => false // may involve I/O
+    case Term.Tuple(args)         => args.forall(isPureValRhs)
+    case Term.Apply.After_4_6_0(Term.Name(ctor), args) =>
+      // Collection / data constructors that are always pure
+      val pureCtors = Set("Map","List","Seq","Set","Vector","Array","Some","None",
+                          "Nil","Right","Left","Option","Tuple","BigInt","BigDecimal",
+                          "Currency","Money","Duration","Range","Pair","Triple")
+      (pureCtors.contains(ctor) || ctor.head.isUpper) && args.forall(isPureValRhs)
+    case Term.Apply.After_4_6_0(Term.Select(q, _), args) =>
+      // e.g. Map("a" -> 1) via `->`  or   obj.copy(...)
+      isPureValRhs(q) && args.forall(isPureValRhs)
+    case Term.ApplyInfix.After_4_6_0(l, op, _, r) =>
+      val opStr = op.value
+      (opStr == "+" || opStr == "-" || opStr == "*" || opStr == "/" || opStr == "%" ||
+       opStr == "->" || opStr == "++" || opStr == "::" || opStr == "&&" || opStr == "||") &&
+        isPureValRhs(l) && r.forall(isPureValRhs)
+    case Term.ApplyUnary(_, a)    => isPureValRhs(a)
+    case Term.Select(q, _)        => isPureValRhs(q)
+    case Term.Block(stats)        => stats.forall { case t: Term => isPureValRhs(t); case _ => false }
+    case _                        => false
 
   private def isSimplePat(pats: List[Pat]): Boolean =
     pats.length == 1 && (pats.head match

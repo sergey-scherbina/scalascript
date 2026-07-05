@@ -15,8 +15,9 @@ import ssc.*
   args.toList match
   case "run" :: file :: rest =>
     Runtime.argv = rest
-    val src  = scala.io.Source.fromFile(file).mkString
-    val prog = FrontendBridge.convertSource(src)
+    val f    = new java.io.File(file)
+    val src  = scala.io.Source.fromFile(f).mkString
+    val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
     val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
     v match
       case Value.UnitV => ()
@@ -32,8 +33,9 @@ import ssc.*
       case other       => println(Show.show(other))
 
   case "emit" :: file :: rest =>
-    val src  = scala.io.Source.fromFile(file).mkString
-    val prog = FrontendBridge.convertSource(src)
+    val f    = new java.io.File(file)
+    val src  = scala.io.Source.fromFile(f).mkString
+    val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
     println(Writer.program(prog))
 
   case _ =>

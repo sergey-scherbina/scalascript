@@ -3,7 +3,7 @@ package ssc.bridge
 import scalascript.backend.spi.{Backend, BlockContext, BlockForm, EffectHandler, IntrinsicImpl, NativeImpl, NativeContext, SpiValue}
 import scalascript.interpreter.{DataValue, Value as V1Value}
 import scalascript.interpreter.DataValue.*
-import ssc.{Done, Runtime, Value as V2Value, V2EffectContext, V2PluginRegistry}
+import ssc.{Done, Runtime, Show, Value as V2Value, V2EffectContext, V2PluginRegistry}
 
 /** Loads v1 Backend plugins from the classpath and registers:
  *   1. NativeImpl intrinsics — via V2PluginRegistry.register (existing).
@@ -213,6 +213,21 @@ object PluginBridge:
    *  functionality requires proper implementation (open TODO). */
   private def registerInterpreterBuiltins(): Unit =
     import V2Value.*
+    // println / print — variadic so println() works (0-arg prints a blank line)
+    def showForPrint(v: V2Value): String = v match
+      case V2Value.StrV(s) => s
+      case other           => Show.show(other)
+    if V2PluginRegistry.lookupGlobal("println").isEmpty then
+      V2PluginRegistry.registerGlobal("println", ClosV(Runtime.emptyEnv, -1, env => {
+        if env.isEmpty then Console.out.println()
+        else Console.out.println(showForPrint(env(0)))
+        Done(UnitV)
+      }))
+    if V2PluginRegistry.lookupGlobal("print").isEmpty then
+      V2PluginRegistry.registerGlobal("print", ClosV(Runtime.emptyEnv, -1, env => {
+        if env.nonEmpty then Console.out.print(showForPrint(env(0)))
+        Done(UnitV)
+      }))
     // setHttpServerBackend(name) — no-op in v2 (backend is fixed)
     if V2PluginRegistry.lookupGlobal("setHttpServerBackend").isEmpty then
       V2PluginRegistry.registerGlobal("setHttpServerBackend", ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
@@ -788,6 +803,9 @@ object PluginBridge:
       // Bytes: v1 has no BytesV; wrap as a list of IntV bytes
       val items = bs.toList.map(b => DataValue.IntV((b & 0xff).toLong): V1Value)
       scalascript.interpreter.Value.ListV(items)
+    case V2Value.DataV(tag, fields) if tag.startsWith("Tuple") && tag.drop(5).forall(_.isDigit) =>
+      // TupleN → v1 TupleV
+      scalascript.interpreter.Value.TupleV(fields.toList.map(v2ToV1))
     case V2Value.DataV(tag, fields) =>
       // Positional fields: expose as _0, _1, … for v1 InstanceV
       val fieldMap: Map[String, V1Value] = fields.zipWithIndex

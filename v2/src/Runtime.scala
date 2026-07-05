@@ -225,6 +225,8 @@ object Compiler:
                     val avs = new Array[Value](1); avs(0) = f0(env)
                     globals.getOrElse(g, V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))) match
                       case c: ClosV => Call(c, avs)
+                      case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
+                        avs(0) match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
                       case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
                         Done(m.asInstanceOf[collection.mutable.HashMap[Value,Value]](avs(0)))
                       case v => sys.error(s"app: not a function: ${Show.show(v)}")
@@ -1334,6 +1336,21 @@ object Prims:
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
         case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
         case (StrV(s), "indexOf", List(StrV(sub)))      => IntV(s.indexOf(sub).toLong)
+        case (StrV(s), "replace",     List(StrV(from), StrV(to))) => StrV(s.replace(from, to))
+        case (StrV(s), "replaceAll",  List(StrV(regex), StrV(to))) => StrV(s.replaceAll(regex, to))
+        case (StrV(s), "replaceFirst",List(StrV(regex), StrV(to))) => StrV(s.replaceFirst(regex, to))
+        case (StrV(s), "matches",     List(StrV(regex))) => BoolV(s.matches(regex))
+        case (StrV(s), "padTo",       List(IntV(n), StrV(pad))) => StrV(s.padTo(n.toInt, pad.head))
+        case (StrV(s), "stripPrefix", List(StrV(pfx))) => StrV(if s.startsWith(pfx) then s.substring(pfx.length) else s)
+        case (StrV(s), "stripSuffix", List(StrV(sfx))) => StrV(if s.endsWith(sfx) then s.substring(0, s.length - sfx.length) else s)
+        case (StrV(s), "grouped",     List(IntV(n)))    => listOf(s.grouped(n.toInt).map(StrV(_)).toList)
+        case (StrV(s), "linesIterator",  Nil)           => listOf(s.linesIterator.map(StrV(_)).toList)
+        case (StrV(s), "linesWithSeparators", Nil)      => listOf(s.linesWithSeparators.map(StrV(_)).toList)
+        case (StrV(s), "getBytes",    Nil)              => listOf(s.getBytes.map(b => IntV((b & 0xff).toLong)).toList)
+        case (StrV(s), "getBytes",    List(StrV(enc))) =>
+          listOf(s.getBytes(enc).map(b => IntV((b & 0xff).toLong)).toList)
+        case (StrV(s), "toCharArray", Nil)              => listOf(s.toCharArray.map(c => StrV(c.toString)).toList)
+        case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
         // ── scala.math object ──────────────────────────────────────────────────────
         case (ForeignV("__math__"), "Pi", Nil)         => FloatV(math.Pi)
         case (ForeignV("__math__"), "E", Nil)          => FloatV(math.E)
