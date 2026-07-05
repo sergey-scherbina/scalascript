@@ -17,6 +17,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 - Also: `BatchCli.resetState()` called before each example to prevent cross-contamination.
 Remaining 2 FAIL: `x402-cardano*.ssc` — need real Blockfrost API keys (hard floor).
 
+## 2026-07-05 — crypto: portable JWS/JWT (RFC 7515) — HS256 + EdDSA over the crypto SPI
+
+Added `Jws.scala` (+ a `Jwt` convenience) to `payments/crypto/spi/shared` — portable compact JSON Web
+Signature sign+verify for **HS256** (HMAC-SHA256) and **EdDSA** (Ed25519), built on the from-scratch
+portable primitives (works identically on JVM + Scala.js, no platform crypto). Verify does a
+constant-time MAC compare and returns `None` on a bad signature or malformed token. Gated byte-exact
+against RFC 7515 A.1 (HS256) and RFC 8037 A.4 (EdDSA), plus round-trip + tamper-rejection, green on JVM
+and JS. First slice of BACKLOG `token-formats` (ES256K, PASETO, COSE remain).
+
 ## 2026-07-05 — crypto: portable Keccak-256 reference (the Ethereum hash) in the crypto SPI
 
 Added `Keccak256.scala` to `payments/crypto/spi/shared` — a pure-Scala Keccak-f[1600] sponge (original
