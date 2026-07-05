@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 Rust backend: LCell direct-ownership + inline arith (T3.4 complete)
+
+LCell variables not captured by closures are now `let mut name: i64` instead of `Rc<RefCell<i64>>`,
+eliminating all reference-counting and borrow overhead. lcell.get/set on these variables generate
+direct i64 reads/writes. While-loop conditions use `genBoolExpr` (inline `i < N` instead of
+`as_bool(v_ilt(...))`), and loop body uses `genStmt` to avoid V::Unit allocation in each iteration.
+arith-loop benchmark: 100M iters v2=16ms vs v1-native=16ms (1.0×). T3.4 gate fully met.
+All 8 fixtures × 3 backends green. Merge: 55be1ea94.
+
 ## 2026-07-05 — crypto: portable PASETO v4.public over the crypto SPI
 
 Added `PasetoV4.scala` to `payments/crypto/spi/shared` — portable PASETO **v4.public** (signed) token

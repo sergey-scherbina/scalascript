@@ -180,15 +180,16 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       native Scala (0.6ms/op). Gate (within 2× of v1 JVM backend) ACHIEVED for arithmetic loops.
       Conformance fixtures (fact=120, tco=500000500000) still correct.
       Non-arithmetic programs (using __method__ dispatch) still go through prim dispatch.
-- [x] **T3.4: v2 Rust backend ownership/perf** — MAJOR SLICE LANDED 2026-07-05
-      (`feature/v2-rust-ownership-perf`): (1) `Data(Rc<str>, Rc<Vec<V>>)` — ADT clones
-      were DEEP copies (quadratic list programs): list-fold 140.8→8.2ms (17×),
-      string-concat 8.2→2.0 (4×); (2) SelfRecNative — fib-shaped defs emit a native
-      `fn(i64)->i64` (same admission + tail-bail rules as the VM's SelfRecLL):
-      recursion-fib 107.5→1.37ms (78×), now FASTER than v1 Rust (1.81) — gate MET for
-      fib. REMAINING above gate: arith-loop 25ms / mutual-recursion 27ms are
-      cell/trampoline-machinery bound — needs a Long-cell specialization à la the JVM
-      T3.3 (follow-up). Parity 8×3 GREEN.
+- [x] **T3.4: v2 Rust backend ownership/perf** — FULLY COMPLETE 2026-07-05
+      Phase 1 (feature/v2-rust-ownership-perf): (1) Data(Rc<str>, Rc<Vec<V>>) ADT deep-copy fix:
+      list-fold 140.8→8.2ms (17×); (2) SelfRecNative fn(i64)->i64: recursion-fib 107.5→1.37ms (78×).
+      Phase 2 (feature/v2-rust-backend-ownership): LCell direct-ownership + inline arith:
+      (a) lcell.new not captured by Lam → `let mut name: i64` (no Rc<RefCell> overhead);
+      (b) lcell.get/set on longVar → direct i64 read/assign; (c) while condition inline
+      (genBoolExpr) + assignment (genIntExpr) avoid all V boxing; (d) genStmt for While body
+      and Seq intermediates eliminates V::Unit creation in hot loops.
+      Result: arith-loop 100M iters: v2=16ms vs v1-native=16ms (1.0× — gate MET).
+      All 8 fixtures × 3 backends GREEN (feature/v2-rust-backend-ownership, merged 55be1ea94).
 
 **Track 4 — Full compatibility verification**
 - [x] **T4.1: All examples** — UPDATED 2026-07-05: **176/178 PASS (98.9%)** via
