@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 migration: output-parity harness (`scripts/v2-output-parity`)
+
+The real "does v2 replace v1?" gate: run each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diff
+stdout, reporting per-example MATCH / MISMATCH / V2-ERROR + a parity %. Unlike `scripts/v2-compat-coverage`
+(exit-0), this measures actual output equality — a program can exit 0 on v2 while printing different output.
+First sample (4 pure-language examples): **2/4 identical**, which immediately surfaced two real v2 output
+divergences hidden by the exit-0 number — `algebraic-effects` (effects output shape) and
+`custom-derives-mirror` (v1 prints the union `String|Int`, v2 widens to `Any|Any`). Point `$SSC` at an
+assembled `ssc` to run the full 193-example corpus for the authoritative number.
+
 ## 2026-07-05 — v2 conformance: un-skip webauthn-server-verify (+1)
 
 `webauthn-server-verify` was in the `V2ConformanceTest` skip-set (grouped under "network / external

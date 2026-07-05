@@ -260,13 +260,16 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
         environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
         runtime + network bridging; a sibling/env concern, deliberately deferred here.
-- [ ] **v2-output-parity-harness** (my proposal — extends output-equality beyond the conformance suite) —
-      `V2ConformanceTest` already diffs `tests/conformance/*` v2-output vs `expected/`. This extends the same
-      TRUE output-equality to the **full `examples/` corpus (193)**: run each example on v1 AND on v2 (via the
-      new `ssc run --v2`) and diff stdout, turning the misleading "186/193 exit-0" coverage into a real
-      "N/193 output-identical" number. Already surfaced one gap (`algebraic-effects` diverges). Build as a
-      script + (for speed at corpus scale) a native `ssc` image or an in-process batch. Gate: a parity report
-      with per-example MATCH/MISMATCH + the real %.
+- [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —
+      runs each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diffs stdout → per-example MATCH/
+      MISMATCH/V2-ERROR + parity %. Point `$SSC` at an assembled `ssc` for a fast full-corpus run.
+      **First sample (4 pure examples): 2/4 identical.** Surfaced two real v2 output divergences (exit-0 but
+      wrong output — the gap the 96.4% coverage hides): `algebraic-effects` (effects output shape) and
+      **`custom-derives-mirror`** (v1 prints union `String|Int`, v2 widens to `Any|Any` — a derives/mirror
+      type-handling bug). Both are v2-VM/bridge semantics for Track-4 conformance to fix. NEXT: assemble `ssc`
+      and run the full 193-corpus for the authoritative "N/193 output-identical" number.
+
+**Track 4 (cont.) — T4.4 conformance waves**
       WAVE 1 DONE 2026-07-05 (`feature/v2-t44-clusters`): given-nested extensions with
       per-name RECEIVER-TAG dispatch (Bifunctor[Tuple2] vs [Either] coexist); v1Show
       display parity for bridged println (tuples/(a,b), List(...), raw strings,

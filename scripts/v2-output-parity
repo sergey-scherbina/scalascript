@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# v2-output-parity — TRUE v1-vs-v2 output-equality for examples/, the real "does v2 replace v1?" metric.
+#
+# For each .ssc it runs the program BOTH ways and diffs stdout:
+#   v1 (default runner):  ssc run <file>
+#   v2 (ssc 2.0 VM):      ssc run --v2 <file>   (the FrontendBridge path)
+# and reports MATCH / MISMATCH / V2-ERROR per example plus the overall parity %.
+#
+# This is the output-equality gate the exit-0 coverage number (`scripts/v2-compat-coverage`) can't give:
+# a program can exit 0 on v2 while printing DIFFERENT output than v1 (e.g. examples/algebraic-effects.ssc).
+#
+# Usage:
+#   scripts/v2-output-parity                       # a curated pure-language sample
+#   scripts/v2-output-parity examples/foo.ssc ...  # explicit files
+#   SSC="path/to/assembled/ssc" scripts/v2-output-parity examples/*.ssc   # fast full-corpus run
+#
+# Speed: without $SSC it shells out to sbt per example (slow — fine for a sample). For the full 193-example
+# corpus, point $SSC at an assembled/native `ssc` (one `sbt cli/assembly`) so each run is a cheap JVM start.
+set -u
+cd "$(dirname "$0")/.."
+
+# Curated pure-language sample (no network/threads/frontend) if no files are given.
+DEFAULT=(examples/bitwise-operators.ssc examples/custom-derives-mirror.ssc examples/hello.ssc
+         examples/graph-codecs.ssc examples/content-linked-namespaces.ssc examples/algebraic-effects.ssc)
+FILES=("$@"); [ ${#FILES[@]} -eq 0 ] && FILES=("${DEFAULT[@]}")
+
+# Run one program on one backend, returning only its stdout (strip sbt/JVM noise).
+run_one() { # $1=file  $2=extra-flag(--v2 or empty)
+  if [ -n "${SSC:-}" ]; then
+    "$SSC" run $2 "$1" 2>/dev/null
+  else
+    sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null \
+      | grep -vE '^\[(info|success|warn|error)\]|^NOTE: Picked up|running scalascript\.cli'
+  fi
+}
+
+match=0; mismatch=0; err=0
+printf '%-38s %s\n' "EXAMPLE" "PARITY"
+printf '%-38s %s\n' "-------" "------"
+for f in "${FILES[@]}"; do
+  [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }
+  v1=$(run_one "$f" "");     v2=$(run_one "$f" "--v2")
+  name=$(basename "$f")
+  if [ -z "$v2" ] && [ -n "$v1" ]; then
+    printf '%-38s %s\n' "$name" "V2-ERROR (empty output)"; err=$((err+1))
+  elif [ "$v1" = "$v2" ]; then
+    printf '%-38s %s\n' "$name" "✅ MATCH"; match=$((match+1))
+  else
+    printf '%-38s %s\n' "$name" "❌ MISMATCH"; mismatch=$((mismatch+1))
+    diff <(printf '%s' "$v1") <(printf '%s' "$v2") | sed 's/^/      /' | head -8
+  fi
+done
+
+total=${#FILES[@]}
+echo
+echo "parity: $match/$total identical · $mismatch mismatch · $err v2-error"
+[ $((mismatch + err)) -eq 0 ]
