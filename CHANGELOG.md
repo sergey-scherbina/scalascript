@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable HKDF-SHA256 (RFC 5869)
+
+Added `HkdfSha256.scala` to `payments/crypto/spi/shared` — HMAC-based extract-and-expand KDF over the
+portable `HmacSha256`, with `extract` / `expand` / one-call `derive`. Pure Scala, JVM + Scala.js. Verified
+byte-exact against the RFC 5869 vectors A.1 (salt + info) and A.3 (zero-length salt + info). The KDF used
+by Noise, `age`, and TLS 1.3 — the last building block before those protocols can be assembled from the
+portable X25519 + ChaCha20-Poly1305 primitives.
+
 ## 2026-07-05 — crypto: portable X25519 (Curve25519 Diffie-Hellman, RFC 7748)
 
 Added `X25519.scala` to `payments/crypto/spi/shared` — a from-scratch X25519: the Montgomery ladder over

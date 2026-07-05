@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/hkdf-sha256
-worktree: ../scalascript-wt-hkdf
-started: 2026-07-05T15:01:24Z
-heartbeat: 2026-07-05T15:01:24Z
-status: in-progress
-task: hkdf-sha256 — portable HKDF-SHA256 (RFC 5869) extract/expand in crypto-spi/shared over HmacSha256; gated byte-exact by RFC 5869 vectors A.1 + A.3, JVM+JS. Building block for Noise + age.
