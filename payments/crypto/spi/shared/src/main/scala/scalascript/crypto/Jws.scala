@@ -94,6 +94,29 @@ object Jws:
         case _ => None
     catch case _: Exception => None
 
+  // ── ES256 (ECDSA P-256 + SHA-256, RFC 7518) ─────────────────────────────────────
+
+  /** Sign `payload` under ES256 with a 32-byte P-256 private key; `header` must declare `"alg":"ES256"`.
+   *  The JWS signature is the fixed 64-byte R‖S, base64url-encoded. */
+  def signES256(privKey: Array[Byte], header: Array[Byte], payload: Array[Byte]): String =
+    val si   = signingInput(header, payload)
+    val hash = Sha256.digest(si.getBytes(UTF_8))
+    val raw  = P256Ecdsa.derToRaw(P256Ecdsa.sign(privKey, hash))
+    s"$si.${b64u(raw)}"
+
+  /** Verify a compact ES256 JWS against a P-256 public key (compressed or uncompressed SEC1). */
+  def verifyES256(token: String, pubKey: Array[Byte]): Option[Array[Byte]] =
+    try
+      token.split("\\.", -1) match
+        case Array(h, p, s) =>
+          val raw = unb64u(s)
+          if raw.length != 64 then None
+          else
+            val hash = Sha256.digest(s"$h.$p".getBytes(UTF_8))
+            if P256Ecdsa.verify(pubKey, hash, P256Ecdsa.rawToDer(raw)) then Some(unb64u(p)) else None
+        case _ => None
+    catch case _: Exception => None
+
 /** RFC 7519 JWT convenience over [[Jws]]: emits the standard protected header for an algorithm and
  *  carries a JSON claims string as the payload. The claims are opaque here — validate them (exp/iss/…)
  *  after verification in the caller. */
@@ -122,3 +145,11 @@ object Jwt:
   /** Verify + return the claims JSON string of an ES256K JWT (does NOT check exp/iss/aud). */
   def verifyES256K(token: String, secp256k1Pub: Array[Byte]): Option[String] =
     Jws.verifyES256K(token, secp256k1Pub).map(p => new String(p, UTF_8))
+
+  /** ES256-signed JWT: header `{"alg":"ES256","typ":"JWT"}`, `claimsJson` as the payload. */
+  def es256(p256Priv: Array[Byte], claimsJson: String): String =
+    Jws.signES256(p256Priv, """{"alg":"ES256","typ":"JWT"}""".getBytes(UTF_8), claimsJson.getBytes(UTF_8))
+
+  /** Verify + return the claims JSON string of an ES256 JWT (does NOT check exp/iss/aud). */
+  def verifyES256(token: String, p256Pub: Array[Byte]): Option[String] =
+    Jws.verifyES256(token, p256Pub).map(p => new String(p, UTF_8))

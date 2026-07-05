@@ -13,6 +13,7 @@ package scalascript.crypto
 object CoseSign1:
 
   private val AlgEdDSA     = -8L
+  private val AlgES256     = -7L
   private val AlgES256K    = -47L
   private val Signature1   = "Signature1"
   private val TagCoseSign1 = 18L
@@ -25,6 +26,10 @@ object CoseSign1:
   /** The ES256K protected-header content: CBOR `{1: -47}` (ECDSA secp256k1 + SHA-256). */
   def protectedHeaderES256K: Array[Byte] =
     Cbor.encode(Cbor.Map(IndexedSeq(Cbor.UInt(1) -> Cbor.int(AlgES256K))))
+
+  /** The ES256 protected-header content: CBOR `{1: -7}` (ECDSA P-256 + SHA-256). */
+  def protectedHeaderES256: Array[Byte] =
+    Cbor.encode(Cbor.Map(IndexedSeq(Cbor.UInt(1) -> Cbor.int(AlgES256))))
 
   private def toBeSigned(protectedContent: Array[Byte], externalAad: Array[Byte], payload: Array[Byte]): Array[Byte] =
     Cbor.encode(Cbor.Arr(IndexedSeq(
@@ -104,5 +109,36 @@ object CoseSign1:
         case (Cbor.Bytes(ph), Cbor.Bytes(payload), Cbor.Bytes(raw)) if algIsES256K(ph) && raw.length == 64 =>
           val hash = Sha256.digest(toBeSigned(ph, externalAad, payload))
           if Secp256k1Ecdsa.verify(pub, hash, Secp256k1Ecdsa.rawToDer(raw)) then Some(payload) else None
+        case _ => None
+    catch case _: Exception => None
+
+  /** True iff the protected-header map declares `1: -7` (alg: ES256). -7 decodes as `NInt(6)`. */
+  private def algIsES256(protectedContent: Array[Byte]): Boolean = algIs(protectedContent, 6)
+
+  /** Sign `payload` into a tagged COSE_Sign1 with **ES256** (ECDSA P-256 + SHA-256, fixed 64-byte R‖S).
+   *  `privKey` is the 32-byte P-256 private key. This is the common WebAuthn / FIDO2 assertion algorithm. */
+  def signES256(privKey: Array[Byte], payload: Array[Byte], externalAad: Array[Byte] = empty): Array[Byte] =
+    val ph  = protectedHeaderES256
+    val sig = P256Ecdsa.derToRaw(P256Ecdsa.sign(privKey, Sha256.digest(toBeSigned(ph, externalAad, payload))))
+    Cbor.encode(Cbor.Tagged(TagCoseSign1, Cbor.Arr(IndexedSeq(
+      Cbor.Bytes(ph),
+      Cbor.Map(IndexedSeq.empty),
+      Cbor.Bytes(payload),
+      Cbor.Bytes(sig),
+    ))))
+
+  /** Verify a COSE_Sign1 ES256 message against a P-256 public key. Returns the payload iff the protected
+   *  header declares `alg: ES256` and the R‖S signature is valid; `None` otherwise. */
+  def verifyES256(message: Array[Byte], pub: Array[Byte], externalAad: Array[Byte] = empty): Option[Array[Byte]] =
+    try
+      val items = Cbor.decode(message) match
+        case Cbor.Tagged(TagCoseSign1, Cbor.Arr(xs)) => xs
+        case Cbor.Arr(xs)                            => xs
+        case _                                       => IndexedSeq.empty
+      if items.length != 4 then None
+      else (items(0), items(2), items(3)) match
+        case (Cbor.Bytes(ph), Cbor.Bytes(payload), Cbor.Bytes(raw)) if algIsES256(ph) && raw.length == 64 =>
+          val hash = Sha256.digest(toBeSigned(ph, externalAad, payload))
+          if P256Ecdsa.verify(pub, hash, P256Ecdsa.rawToDer(raw)) then Some(payload) else None
         case _ => None
     catch case _: Exception => None
