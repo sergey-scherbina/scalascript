@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable Keccak-256 reference (the Ethereum hash) in the crypto SPI
+
+Added `Keccak256.scala` to `payments/crypto/spi/shared` — a pure-Scala Keccak-f[1600] sponge (original
+Keccak pad `0x01`, rate 1088 bits, 256-bit output), the Ethereum hash. Fills the last missing pure-Scala
+reference in the portable crypto stack (Blake2b / RIPEMD-160 / secp256k1 / SHA-256/512 / Ed25519 already
+there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/137 B) and multi-block
+inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
+"references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
+
 ## 2026-07-05 — v2-wasm-unblock: WASM backend shipped (4th target)
 
 The historically-only-open v2 language backlog item is closed. `rustup` appeared in the

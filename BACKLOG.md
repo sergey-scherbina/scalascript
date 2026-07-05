@@ -56,9 +56,14 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
 **reference → seam → gate → native** FROST template. Grouped here so the area isn't scattered.
 
 **Track 1 — chains & currencies (deeper):**
-- [ ] **crypto-spi-pure-references** — pure-Scala references for Keccak-256, Blake2b, RIPEMD-160, secp256k1
+- [~] **crypto-spi-pure-references** — pure-Scala references for Keccak-256, Blake2b, RIPEMD-160, secp256k1
       scalar/point math, `register`-able as the SPI fallback so each primitive runs with no native provider
       (deepens `crypto-spi-blake2b`). Gate: bit-for-bit vs BouncyCastle/`@noble` over RFC vectors + random inputs.
+      **ALL FOUR REFERENCES NOW EXIST:** Blake2b / RIPEMD-160 / secp256k1 (+ SHA-256/512, Ed25519) landed with
+      `chains-backend-agnostic`; **Keccak-256 added 2026-07-05** (`Keccak256.scala` in `crypto-spi/shared`,
+      pure Keccak-f[1600] sponge, Ethereum pad 0x01) — bit-for-bit vs BouncyCastle over rate-boundary + multi-
+      block inputs, JVM+JS byte-identical. **REMAINING:** a `register`-able pure-reference `CryptoBackend` that
+      wires all four as the SPI fallback so primitives run with no native provider.
 - [ ] **chains-new-adapters** (epic) — a `ChainAdapter` per new chain: Aptos / Sui / Stellar / XRPL / Polkadot
       (Ed25519 or secp256k1 + tidy encoding). "Mostly another adapter" once the primitive is in the SPI.
       **Polkadot is BLOCKED on an sr25519 (Schnorrkel) reference** — `Curve.Sr25519` is enumerated but
