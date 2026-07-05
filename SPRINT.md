@@ -226,9 +226,18 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       GOTCHA: `__method__("Op", IndexedSeq())` (empty-field DataV) was the effect-Op path;
       plugin singletons also have empty fields — fix is registry-first lookup.
       Output: `SQL results: 1: Hello from v2! / 2: SQL works... / 3: H2...`; HTTP status: 200.
-- [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2. The
-      suite has no v2 mode yet — the work IS building that wiring (an SPI switch that
-      routes conformance programs through FrontendBridge → v2 VM), then comparing scores.
+- [~] **T4.4: Conformance suite** — INSTRUMENT BUILT + BASELINED 2026-07-05
+      (`feature/v2-t44-conf2`, adopting orphaned in-flight work from
+      `.worktrees/feature/v2-t44-conformance`): **V2ConformanceTest** runs
+      `tests/conformance/*.ssc` through FrontendBridge → v2 VM and diffs stdout against
+      `tests/conformance/expected/` — TRUE output-equality (vs the batch runner's
+      exit-0). BASELINE: **22/58 succeeded**, 36 failed, 57 skip-listed (actors/async/
+      dataset/network). Failure clusters (self-describing via breadcrumbs):
+      default-params (unbound default exprs), tuple extension methods
+      (Tuple2.bimap/leftMap/rightMap), effects output shape, json-*/optics/parsing/sql
+      std families. NEXT: work the clusters largest-first; also merged: DataV FIELD
+      access dispatch (function-typed fields callable) before the Stub fallback.
+      Run: `sbt "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`.
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
       SHIPPED** (full Erlang supervision surface on the VirtualThread mailbox model:
       bidirectional links kill-or-message, monitors get Down(reason); death fires on
