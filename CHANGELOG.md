@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: COSE_Encrypt0 (ChaCha20-Poly1305) — encrypted COSE
+
+Added `CoseEncrypt0.scala` to `payments/crypto/spi/shared` — COSE_Encrypt0 (RFC 8152 §5.2, single
+recipient / direct key) with alg 24 = ChaCha20-Poly1305, over the from-scratch `Cbor` + `ChaCha20Poly1305`.
+The AEAD's associated data is the CBOR `Enc_structure` `["Encrypt0", protected, external_aad]` and the
+12-byte nonce rides in the `{5:iv}` unprotected header. Encrypt/decrypt round-trip + tamper / wrong-key /
+wrong-AAD rejection, JVM + Scala.js. COSE now covers both authenticity (COSE_Sign1) and confidentiality
+(COSE_Encrypt0), completing the sign+encrypt pair on the portable stack.
+
 ## 2026-07-05 — crypto: portable ChaCha20-Poly1305 AEAD (RFC 8439)
 
 Added `ChaCha20Poly1305.scala` to `payments/crypto/spi/shared` — a from-scratch RFC 8439 AEAD: the

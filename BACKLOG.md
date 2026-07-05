@@ -117,7 +117,12 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       `verifyES256`, COSE alg `-7` / protected `{1:-7}`): ECDSA P-256 + SHA-256, 64-byte R‖S — the JWS path
       **verifies the published RFC 7515 A.3 ES256 token**, COSE round-trips with the authenticated alg guard,
       JVM+JS. token-formats now covers JWS HS256/EdDSA/ES256K/ES256, PASETO v4.public, and COSE_Sign1
-      EdDSA/ES256K/ES256. **REMAINING:** PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
+      EdDSA/ES256K/ES256.
+      **COSE_Encrypt0 DONE 2026-07-05** (`CoseEncrypt0.scala`, RFC 8152 §5.2, alg 24 ChaCha20-Poly1305
+      over `Cbor` + `ChaCha20Poly1305`): encrypt/decrypt with the `Enc_structure` AAD + `{5:iv}` header,
+      round-trip + tamper/wrong-key/wrong-AAD rejection, JVM+JS — COSE now covers sign (COSE_Sign1) and
+      encrypt (COSE_Encrypt0). **REMAINING:** PASETO **v4.local** (XChaCha20 + keyed BLAKE2b — extend
+      `ChaCha20Poly1305` with HChaCha20 + add keyed `Blake2b`); multi-recipient COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
       **ChaCha20-Poly1305 now portable** (`ChaCha20Poly1305.scala`, RFC 8439, JVM+JS, 2026-07-05); the
