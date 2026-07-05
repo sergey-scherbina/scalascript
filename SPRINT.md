@@ -333,24 +333,38 @@ with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
       5. `resolve1/2/3` in Prims — avoids `List[Value]` alloc for 1/2/3-arg prims.
       6. Empty App fast-path: `Call(c, emptyEnv)` instead of `toArray` on empty list.
       **Result:** arith-loop 258ms → ~15-17ms; nested-loop similarly under 20ms.
-- [ ] **v2-recursion-opt** — IN PROGRESS 2026-07-05 (`feature/v2-recursion-opt`, claim in
-      `.work/active/`). FRESH BASELINE post-FastCode-phases (BENCH_WARMUP=3 BENCH_REPS=7):
-      recursion-fib **142.8ms** (was 482), mutual-recursion **35.4ms** (was skip),
-      pattern-match-heavy **125.0ms** (was 362), tuple-monoid 42.3ms, string-concat 5.2ms.
-      DIAGNOSIS: fib's body `If(le, Local, i.add(App fib, App fib))` is NOT FC-compilable —
-      `tryFLC` has no `If` case and `tryFC` has no `App` case → fcEntry=None → every call
-      takes the general trampoline path (Done alloc per node + `globals` hash lookup per
-      recursive call). PLAN: (1) `tryFC` gains `App(Global)` with compile-time fast path +
-      late-binding runtime cache (resolve ClosV+fcEntry once at first call — safe: lambda
-      globals are never reassigned after pass 1); (2) `tryFLC` gains `If` (tryFBc cond +
-      FLC branches); (3) same late-binding cache in `tryFLC`'s existing App case. Should
-      also help pattern-match-heavy (match arms with recursive calls become FC-able).
-      Gate: measured speedup on recursion-fib with NO regression on
-      arith-loop/nested-loop/tuple-monoid/list-fold; conformance + backend/check.sh green.
-- [ ] **v2-pattern-match-opt** — `pattern-match-heavy` fresh baseline **125.0ms** (was 362 —
-      FastCode phase 1 tryFC(Match) already landed). Expected to improve further via
-      v2-recursion-opt's tryFC App case (arms with recursive calls). Re-measure after;
-      then decide: sorted-match/flattening in ssc1c, or close per T3.2b JIT-blocked analysis.
+- [x] **v2-recursion-opt** — DONE 2026-07-05 (`feature/v2-recursion-opt`).
+      **recursion-fib 65.7 → 8.2 ms = 8.0×** (same flags BENCH_WARMUP=10 REPS=15, same
+      machine state, A/B vs origin/main). Design: **SelfRecLL** (`v2/src/Runtime.scala`) —
+      an arity-1 self-recursive def whose body is pure Int arithmetic over `Local(0)`,
+      Int literals and DIRECT self-calls in NON-TAIL (operand) position compiles to a
+      plain JVM `Long => Long` (zero allocation, no trampoline/Done/global-lookup per
+      call; knot tied via a captured var). A bare tail-position self-call BAILS — tail
+      recursion keeps the trampoline's constant-stack TCO (Core IR invariant 7);
+      recursion-tco is unaffected. Non-Int args fall back to the generally-compiled body.
+      Covers `i.*` and `__arith__` shapes + the ssc1c `<=`-desugar (`if (i.eq..) true
+      (i.lt..)` Bool-ifs in `goB`). Wired in `compileWithGlobals` pass 1 (both `code`
+      and `fcEntry`). Verification: conformance 634 ok / 0 FAIL; `backend/check.sh` 7×3
+      ALL GREEN; bench corpus **31/31 no SKIP**; 10 var-heavy programs byte-compared
+      old-vs-new (identical outside the map-ops fix below).
+      **BONUS — critical corruption fix found en route** (BUGS.md
+      `v2-cellset-flc-corruption`): the FastCode phase-1/2 batch (2026-07-04) made
+      `tryFLC` optimistic (App/cell.get/arr.get/fieldAt/Local coerce non-Int → 0L),
+      which broke the `cell.set` FLC fast path's "tryFLC fails for non-Int" assumption —
+      `m = m.updated(k, v)` stored `IntV(0)` over a Map (map-ops crashed
+      `expected Map, got 0`; silent corruption possible in the general case). Fix:
+      `flcProvablyLong` structural gate — `cell.set` takes the FLC path only for
+      provably-Long bodies. map-ops restored: 124750 correct, 0.56 ms.
+- [x] **v2-pattern-match-opt** — RE-SCOPED + CLOSED 2026-07-05. Fresh baseline
+      **82–88 ms** (was 362 pre-FastCode; the old number is obsolete). Source is
+      Float-typed (`area(s): Double`, `var total = 0.0`) → the Long-cell/FLC tier and
+      SelfRecLL cannot apply; remaining cost is diffuse (closure foreach dispatch +
+      match arm dispatch + FloatV boxing + generic-cell read/write per element), which
+      is exactly the ~10 ns/op FC-dispatch floor T3.2b measured — JIT-gated. The one
+      concrete non-JIT lever is a symmetric **Float-cell specialization tier**
+      (`dcell.*` analog of LongCellV/FLC) — queued in BACKLOG as
+      **v2-float-cell-fastpath** (cross-cutting: kernel prims + ssc1c lowering + all 3
+      backend generators must learn dcell.*).
 
 ### ▶ rust-tui-toolkit (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]")
 Make `computedSignal` (and any thunk) run LIVE in the terminal by routing std/ui through the Rust codegen

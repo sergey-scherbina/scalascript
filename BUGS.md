@@ -12,6 +12,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-cellset-flc-corruption — `fixed` (2026-07-05)
+
+- **Found by:** claude (v2-recursion-opt slice), via `map-ops` regressing to
+  `SKIP(no-main)` in the v2 bench sweep.
+- **Symptom:** `expected Map, got 0` crash on `map-ops` via the ssc1c pipeline; the
+  failure class is broader — SILENT data corruption: any generic-cell `var` reassigned
+  from a non-Int expression could store `IntV(0)` instead of the real value.
+- **Root cause:** the `cell.set` FLC fast path in `FastCode` (`v2/src/Runtime.scala`)
+  assumed "tryFLC fails for Float/String expressions", but the FastCode phase-1/2 batch
+  (2026-07-04) added OPTIMISTIC leaves to `tryFLC` (`App(Global)`, `cell.get`,
+  `arr.get`, `fieldAt`, `Local`) that coerce non-Int values to `0L`. So
+  `m = m.updated(k, v)` (App body returning a Map) FLC-compiled and stored `IntV(0)`
+  over the map.
+- **Fix:** new `flcProvablyLong(t)` structural predicate; `cell.set` takes the FLC
+  fast path ONLY when the body is provably Long (int literals, `lcell.get`, int
+  arith, `.toInt/.toLong/.length/.size`). `lcell.set` is unaffected (lcells hold Long
+  by construction).
+- **Blast radius audit:** all 10 var-reassign corpus programs compared old-vs-new —
+  identical outputs everywhere except map-ops (now correct: 124750); no other corpus
+  program had engaged the corrupt path.
+
 ## v2-conformance-empty-output-flake — `fixed` (2026-07-01)
 
 - **Found by:** codex, while continuing K49 after the K48 multi-op typed handler work.

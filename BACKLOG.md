@@ -21,6 +21,13 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       `(global @count)`. Fixed in `v2/lib/ssc1-lower.ssc0`; bool-predicate +
       mutual-recursion now correct on VM/JVM/JS/Rust. See SPRINT T5.1 and
       `v2/backend/check.sh` (new parity harness).
+- [ ] **v2-float-cell-fastpath** — symmetric Float tier of the Long-cell specialization
+      (queued 2026-07-05 from v2-pattern-match-opt): `var x = 0.0` → a `DoubleCellV` +
+      `dcell.new/get/set` prims + an FDC (`Env => Double`) compiler lane mirroring
+      FLC, so Float-accumulating loops (pattern-match-heavy: 82-88ms, top remaining
+      VM outlier) skip FloatV boxing + generic-cell traffic. Cross-cutting: kernel
+      Value/prims + ssc1c lowering (`@@@x`?) + JVM/JS/Rust backend generators.
+      Alternative that subsumes it: the v2 JIT backend (T3.2b's conclusion).
 - [ ] **v2-rust-backend-tco** — `v2/backend/rust/RustBackend.scala` has no real TCO: deep
       tail recursion just gets a big thread stack (bumped 256MB → 2GB virtual reservation
       2026-07-05 so `tco.coreir`'s 1M frames pass). Proper fix: trampoline (closures return

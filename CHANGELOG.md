@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2-recursion-opt: SelfRecLL 8× on recursion-fib + cell.set FLC corruption fix
+
+- **SelfRecLL** (`v2/src/Runtime.scala`): arity-1 self-recursive Int defs (fib-shaped)
+  compile to a plain JVM `Long => Long` — zero allocation, no trampoline/Done/global
+  lookup per recursive call. recursion-fib **65.7 → 8.2 ms (8.0×)** same-flags A/B.
+  Tail-position self-calls bail (constant-stack TCO preserved); non-Int args fall back
+  to the general body. Handles ssc1c's `<=` Bool-if desugar.
+- **cell.set FLC corruption** (BUGS.md `v2-cellset-flc-corruption`): the 2026-07-04
+  FastCode batch made `tryFLC` optimistic (non-Int → 0L), silently breaking the
+  `cell.set` fast path's safety assumption — `m = m.updated(k, v)` stored `IntV(0)`
+  (map-ops crashed; silent corruption risk in general). Fixed with a `flcProvablyLong`
+  gate; 10 var-heavy corpus programs audited (only map-ops was affected).
+- **v2-pattern-match-opt re-scoped + closed**: fresh baseline 82–88 ms (old 362 is
+  obsolete); Float-typed workload is outside the Long tiers — JIT-gated per T3.2b;
+  concrete non-JIT lever queued as BACKLOG `v2-float-cell-fastpath`.
+- Verification: conformance 634 ok / 0 FAIL; backend parity 7×3 ALL GREEN; bench
+  corpus 31/31 no SKIP (map-ops 0.56 ms restored).
+
 ## 2026-07-05 — v2-ssc1c-globals-bug + JS 64-bit ints + backend parity harness
 
 Three fixes restoring full 31/31 bench-corpus compatibility on v2 and hardening the

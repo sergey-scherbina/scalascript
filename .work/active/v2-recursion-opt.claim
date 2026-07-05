@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-recursion-opt
-worktree: ../scalascript-wt-v2-recursion-opt
-started: 2026-07-05
-status: in-progress
-task: v2-recursion-opt — fresh baseline 142.8ms (post-FastCode); attempt fcEntry late-binding for self-recursive calls; reconcile SPRINT perf items with T3.2b findings
