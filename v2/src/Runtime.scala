@@ -59,6 +59,17 @@ object Runtime:
   // Singleton empty env; reused for arity-0 closures to avoid allocation.
   val emptyEnv: Env = Array.empty[Value]
 
+  /** Applying a non-closure value: bridged v1 facade objects (NamedMethodObj,
+   *  e.g. the json plugin's JsonValue) expose an `apply` FIELD — call it.
+   *  Everything else is the familiar error. */
+  def applyFallback(v: Value, avs: Array[Value]): Step = v match
+    case Value.ForeignV(nmo: Value.NamedMethodObj) =>
+      nmo.getField("apply") match
+        case Some(c: Value.ClosV) => Call(c, avs)
+        case _ => sys.error(s"app: not a function: ${Show.show(v)}")
+    case Value.DataV("Stub", fs) => Done(Value.DataV("Stub", fs))
+    case _ => sys.error(s"app: not a function: ${Show.show(v)}")
+
   /** io.exit lands here. Default = real process exit; embedders that run many
    *  programs in one JVM (batchCli) override it to throw a catchable signal
    *  instead — a program's exit(0) must not kill the whole batch. */
@@ -305,7 +316,7 @@ object Compiler:
                       case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
                         Done(m.asInstanceOf[collection.mutable.HashMap[Value,Value]](avs(0)))
                       case DataV("Stub", fs) => Done(DataV("Stub", fs))  // propagate the missed-method breadcrumb
-                      case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                      case v => Runtime.applyFallback(v, avs)
                 }
               case List(a0, a1) =>
                 FastCode.tryFC(a0, globals).flatMap { f0 =>
@@ -314,7 +325,7 @@ object Compiler:
                       val avs = new Array[Value](2); avs(0) = f0(env); avs(1) = f1(env)
                       globals.getOrElse(g, V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))) match
                         case c: ClosV => Call(c, avs)
-                        case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                        case v => Runtime.applyFallback(v, avs)
                   }
                 }
               case _ => None
@@ -325,7 +336,7 @@ object Compiler:
           (env: Env) =>
             Runtime.value(fc, env) match
               case c: ClosV => Call(c, Runtime.emptyEnv)             // avoid toArray on empty list
-              case v => sys.error(s"app: not a function: ${Show.show(v)}")
+              case v => Runtime.applyFallback(v, Runtime.emptyEnv)
         else args match
           // 1-arg fast path: avoid List alloc from acs.map(...).toArray
           case List(a0) =>
@@ -344,7 +355,7 @@ object Compiler:
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                 case DataV(_, fields) =>
                   v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
-                case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                case v => val avs = new Array[Value](1); avs(0) = v0; Runtime.applyFallback(v, avs)
           // 2-arg fast path: avoid List alloc from acs.map(...).toArray
           case List(a0, a1) =>
             val fc = compile(fn); val ac0 = compile(a0); val ac1 = compile(a1)
@@ -353,8 +364,8 @@ object Compiler:
               val avs = new Array[Value](2); avs(0) = Runtime.value(ac0, env); avs(1) = Runtime.value(ac1, env)
               fv match
                 case c: ClosV => Call(c, avs)
-                case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
-                case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                case DataV("Stub", fs) => Done(DataV("Stub", fs))
+                case v => Runtime.applyFallback(v, avs)
           // generic path for 3+ args
           case _ =>
             val fc = compile(fn); val acs = args.map(compile)
@@ -363,8 +374,8 @@ object Compiler:
               val avs = acs.map(ac => Runtime.value(ac, env)).toArray
               fv match
                 case c: ClosV => Call(c, avs)
-                case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
-                case v => sys.error(s"app: not a function: ${Show.show(v)}")
+                case DataV("Stub", fs) => Done(DataV("Stub", fs))
+                case v => Runtime.applyFallback(v, avs)
         }   // end globalFastPath.getOrElse
       case While(cond, body) =>
         // Try FastCode path: avoids Done boxing and trampoline per iteration
