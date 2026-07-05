@@ -265,7 +265,11 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       optic runtime + variant Prisms; lenses/optional/prisms PASS (suite **36/58**).
       WAVE 5: OPTICS CLUSTER COMPLETE (5/5 — runtime .copy positional/mixed
       by ACTUAL tag, field-application s.users(1), optic labels via _show; suite
-      **39/58**). Remaining:
+      **39/58**). WAVE 6: PARSING CLUSTER COMPLETE (multi-line imports joined; as-pattern/named/
+      typed catch-alls -> general chain; PHANTOM WILDCARD BINDING removed — a fake "_"
+      shifted default-arm bodies by one, the -1 AIOOBE class; entry-val hoisting guard;
+      method-obj globals win over zero-arg Ctor; matchPrefix intrinsic; suite **42/58**,
+      corpus 153/193). Remaining:
       optic-polish (runtime `.copy` on DataV), parsing/sql/effects clusters, v1Show
       facade-INNER rendering (json-value's last line).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
