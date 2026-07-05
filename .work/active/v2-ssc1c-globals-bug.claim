@@ -1,0 +1,7 @@
+agent: claude-fable-5
+branch: feature/v2-ssc1c-globals-bug
+worktree: ../scalascript-wt-v2-ssc1c-globals-bug
+started: 2026-07-05
+heartbeat: 2026-07-05T00:00:00Z
+status: in-progress
+task: v2-ssc1c-globals-bug — fix ssc1c @count/@sum global-cell IR emission; restore 31/31 bench on v2 VM + Rust backend

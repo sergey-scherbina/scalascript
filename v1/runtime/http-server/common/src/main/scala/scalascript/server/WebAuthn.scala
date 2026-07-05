@@ -158,6 +158,14 @@ object WebAuthn:
   def storeFind(userId: String, credentialId: String): Option[Credential] =
     storeGet(userId).find(_.credentialId == credentialId)
 
+  /** Remove every credential enrolled for `userId` (e.g. "disable Face ID" on an
+   *  account) — persisted like every other store mutation. Returns `true` if the
+   *  user had any credentials to remove, `false` if they had none already. */
+  def storeRemove(userId: String): Boolean =
+    val removed = Option(store.remove(userId)).exists(!_.isEmpty)
+    if removed then storeLock.synchronized { persist() }
+    removed
+
   /** Update signCount after a successful assertion.  Returns true if
    *  the new count is strictly greater than the stored one (the
    *  authenticator counter advanced as expected); false on cloned /

@@ -5,6 +5,11 @@ After this plan is complete, Phase 3 (CLI switch) can proceed safely.
 
 Spec for Phase 2 continuation. See also: `specs/v1-to-v2-migration.md`.
 
+> Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
+> has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).
+> T5.1 in progress (`feature/v2-ssc1c-globals-bug`). Track 3 overlaps SPRINT's
+> "v2 bench performance" items (v2-recursion-opt / v2-pattern-match-opt).
+
 ---
 
 ## Track 1 — v1 IrExpr → Core IR (foundation)
@@ -244,3 +249,31 @@ T4.1-T4.4 (verify)     ← last, after all tracks
 - [ ] v2 Rust backend within 1.5× of v1 Rust backend  
 - [ ] Conformance score v2 ≥ v1
 - [ ] One full application runs end-to-end under v2
+
+---
+
+## Measured baseline & why Track 1 is the road (addendum 2026-07-05)
+
+A two-agent audit of the *current* state (ran the real `examples/*.ssc` corpus through the
+self-hosted `ssc1` frontend; audited `plugin-bridge` + the JVM backend) fixed the baseline:
+
+- **ssc1 today runs 1 of 194 real `examples/*.ssc` cleanly** (only `hello.ssc`; 20-file sample:
+  1 pass / 1 partial / 18 fail). It is a *toy-example runner*, not a v1 runtime. Two structural
+  gaps gate everything **before any plugin gap matters**: top-level statements are silently
+  dropped (~190/194), and Scala-3 significant-indentation / optional-braces is unsupported
+  (braceless `def`/`val`/`match`, `enum:`, `given…with` all mis-parse → `unbound global: …`).
+- **Conclusion — do NOT grow ssc1's parser to reach compat.** Reaching v1 parity through ssc1
+  means re-implementing the offside rule, `enum`, `for`-comprehensions, underscore lambdas, and
+  the whole typer that v1 *already has*. **Track 1 (FrontendBridge: reuse v1's parser+typer+
+  linker, translate `IrExpr → Core IR`) sidesteps all of it** and, via `--emit-coreir`, feeds
+  the same Core IR to the v2 JVM/JS/Rust backends. ssc1 (Track 5) is only for the pure
+  self-hosted story (a `.ssc` running on all 3 backends with no JVM v1 tree) — a separate goal.
+- **plugin-bridge is a scaffold, not E2E-functional** (unit tests only). Calling one real plugin
+  from the VM needs: (a) `ExternCall → Prim` lowering [Track 1 covers this], (b) a
+  `PluginBridge.loadAll()` call in the VM run path, (c) v1 plugin jars on the v2 classpath.
+- **Two ssc1 correctness bugs found** (queued as T5.2/T5.3): Float/Double infix always lowers to
+  integer prims (`i.add`) → *silently wrong* Double math; and top-level statements are dropped
+  (silent no-op). Both live in `v2/lib/ssc1-lower.ssc0`.
+
+North-star metric: **compat-coverage** = % of `examples/*.ssc` producing identical output under
+`ssc run --v2` vs `ssc run` (v1). Instrumented by T7.1; drive it up track-by-track.

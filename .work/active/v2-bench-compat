@@ -1,5 +1,0 @@
-agent: claude
-branch: feature/v2-bench-compat
-worktree: .worktrees/feature/v2-bench-compat
-started: 2026-07-03
-task: v2-bench-compat — make v2 fully compatible with v1 bench corpus; implement bench harness

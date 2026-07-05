@@ -208,6 +208,47 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       `prim __math_obj__` at startup (in `def math = prim __math_obj__` prelude) → `panic!`.
       Fix: Rust backend emits a lazy stub closure for `__math_obj__` instead of an eager panic.
       Gate: bool-predicate and mutual-recursion pass on all 3 backends (JVM/JS/Rust). ✓
+      NOTE 2026-07-05: an active claim `.work/active/v2-ssc1c-globals-bug.claim` targets this
+      same bug — it is ALREADY DONE on this branch (root cause = Rust eager-eval, not @-globals);
+      the claim can be released as a duplicate.
+
+**Track 6 — WASM unblock (new 2026-07-05)**
+- [ ] **v2-wasm-unblock** — `rustup` is now present in this environment. Try
+      `rustup target add wasm32-wasip1`; if it installs, the v2 Rust backend output can
+      target WASM (v2/ROADMAP K3 "reuse the Rust backend"). Runtime: check `wasmtime`/
+      `wasmer`; if absent, Node's built-in WASI (`node:wasi`) is a candidate host.
+      Gate: one conformance program (e.g. quicksort.ssc0) compiled via
+      `ssc0-rust → rustc --target wasm32-wasip1` runs under a WASI host with output
+      identical to the VM.
+
+**Track 7 — empirical baseline + coverage instrument + correctness bugs (addendum 2026-07-05)**
+> Grounding for Tracks 1/4/5 from a two-agent audit of the *current* state (ran the real
+> `examples/*.ssc` corpus through ssc1; audited plugin-bridge + JVM backend). Three findings:
+> - **Measured baseline.** The self-hosted **ssc1** frontend runs **1 of 194** real
+>   `examples/*.ssc` cleanly (only `hello.ssc`). It is a *toy-example runner*, not a v1 runtime.
+>   (This is the ssc1 path — the **FrontendBridge** path of Track 1 is the compat road and is now
+>   far ahead: T1–T2 DONE, 8/8 pure-language examples.)
+> - **Strategic confirmation.** Do **not** grow ssc1's parser to chase example coverage — that is
+>   Track 1's job. ssc1/Track 5 is for the pure self-hosted story only (a `.ssc` on all 3 backends
+>   with no JVM v1 tree). Keep the two goals separate so neither agent duplicates the other.
+> - **plugin-bridge is a scaffold, not E2E-functional** on its own; Track 2 wired the real path
+>   (BlockForm effects + HTTP/SQL) through FrontendBridge instead.
+
+- [ ] **T7.1: compat-coverage harness + baseline snapshot** — `scripts/v2-compat-coverage`:
+      run every `examples/*.ssc` through BOTH `ssc run` (v1) and the v2 pipeline (`--v2` /
+      `v2FrontendBridge/run run-module`), diff stdout, emit a `pass/partial/fail` table + a
+      coverage % + a checked-in baseline. Turns T1.4/T4.1's single "0 failures" gate into an
+      incremental metric. Gate: report generated + baseline committed.
+- [ ] **T5.2: Float/Double infix lowered as integer prims in ssc1 (CORRECTNESS)** — in
+      `v2/lib/ssc1-lower.ssc0`, infix `+ - * / < <= > >=` ALWAYS emit `i.add`/`i.mul`/`i.lt`, so
+      Double math is *silently wrong* in the ssc1 self-hosted path. Dispatch to `f.*` prims when an
+      operand is Float/Double. (ssc1 path only; FrontendBridge already handles mixed arithmetic.)
+      Gate: a Double-arithmetic example matches v1 output via ssc1.
+- [ ] **T5.3: ssc1 top-level statements silently dropped** — `lowerProg` runs only a 0-arg
+      `def main`; top-level `expr`/`val`/`var` return `Nil` → silent no-op on ~190/194 files.
+      Collect them into a synthetic entry sequence. ssc1 path only (Track 1 sidesteps it); do it so
+      ssc1 stops *silently* mis-running. Gate: `examples/recursion.ssc` prints its output via ssc1.
+
 
 ### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)
 Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + golden transcripts.
