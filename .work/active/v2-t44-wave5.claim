@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t44-wave5
+worktree: ../scalascript-wt-v2-t44-wave5
+started: 2026-07-05
+status: in-progress
+task: T4.4 wave 5 — optics-index-at (map repr), optic-polish (runtime .copy), v1Show facade-INNER; then parsing cluster per time
