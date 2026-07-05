@@ -21,13 +21,13 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       `(global @count)`. Fixed in `v2/lib/ssc1-lower.ssc0`; bool-predicate +
       mutual-recursion now correct on VM/JVM/JS/Rust. See SPRINT T5.1 and
       `v2/backend/check.sh` (new parity harness).
-- [ ] **v2-float-cell-fastpath** — symmetric Float tier of the Long-cell specialization
-      (queued 2026-07-05 from v2-pattern-match-opt): `var x = 0.0` → a `DoubleCellV` +
-      `dcell.new/get/set` prims + an FDC (`Env => Double`) compiler lane mirroring
-      FLC, so Float-accumulating loops (pattern-match-heavy: 82-88ms, top remaining
-      VM outlier) skip FloatV boxing + generic-cell traffic. Cross-cutting: kernel
-      Value/prims + ssc1c lowering (`@@@x`?) + JVM/JS/Rust backend generators.
-      Alternative that subsumes it: the v2 JIT backend (T3.2b's conclusion).
+- [x] **v2-float-cell-fastpath** — INVESTIGATED + CLOSED 2026-07-05 (probe before build):
+      a 3M-iteration float-accumulation loop already runs at **11 ns/iter** (33 ms/op)
+      through the existing Float-safe FC lane (`tryFCValue`/`arithOp`) — the T3.2b
+      FC-dispatch floor. A dcell/FDC tier (kernel prim + ssc1c lowering + 3 generators)
+      would buy at most 2–3× on synthetic micros; pattern-match-heavy — the original
+      motivation — is closure/match-dispatch bound and would NOT move. Not worth the
+      cross-cutting churn; the real lever remains a v2 JIT backend (T3.2b conclusion).
 - [x] **v2-rust-backend-tco** — ✓ Landed (2026-07-05). Step-trampoline port from the
       ssc0-level backend: `Step::Val|Bounce`, `call_fn` loop, `genTail` emitter for tail
       positions. Stack back to 256MB; tco.coreir (1M tail calls) PROVEN at a 1MB stack.
