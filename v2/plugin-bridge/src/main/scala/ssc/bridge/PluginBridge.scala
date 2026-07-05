@@ -607,6 +607,30 @@ object PluginBridge:
             case _ => target
         case _ => target
 
+    def mkList(xs: List[V2Value]): V2Value =
+      xs.foldRight[V2Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
+
+    /** Multi-foci walk: OEach fans out over list elements; narrow steps are 0-or-1. */
+    def getAll(target: V2Value, ss: List[V2Value]): List[V2Value] = ss match
+      case Nil => List(target)
+      case st :: rest => st match
+        case DataV("OEach", _) => unlist(target).flatMap(getAll(_, rest))
+        case _ => getOpt(target, st :: Nil).toList.flatMap { _ =>
+          // reuse the single-focus step then continue
+          getOpt(target, List(st)).toList.flatMap(getAll(_, rest))
+        }
+
+    /** Apply f at EVERY focus (traversal modify / set-all). */
+    def modifyAll(target: V2Value, ss: List[V2Value], f: V2Value => V2Value): V2Value = ss match
+      case Nil => f(target)
+      case st :: rest => st match
+        case DataV("OEach", _) =>
+          mkList(unlist(target).map(modifyAll(_, rest, f)))
+        case _ =>
+          getOpt(target, List(st)) match
+            case Some(sub) => setPath(target, List(st), modifyAll(sub, rest, f))
+            case None      => target
+
     def isPartial(ss: List[V2Value]): Boolean = ss.exists {
       case DataV("OField", _) => false
       case _ => true
@@ -621,13 +645,24 @@ object PluginBridge:
           case "getOption" => Some(ClosV(Runtime.emptyEnv, -1, env =>
             Done(getOpt(env(0), ss).fold[V2Value](DataV("None", Vector.empty))(v => DataV("Some", Vector(v))))))
           case "set" => Some(ClosV(Runtime.emptyEnv, -1, env =>
-            Done(setPath(env(0), ss, env(1)))))
+            Done(
+              if ss.exists { case DataV("OEach", _) => true; case _ => false }
+              then modifyAll(env(0), ss, _ => env(1))
+              else setPath(env(0), ss, env(1)))))
           case "modify" => Some(ClosV(Runtime.emptyEnv, -1, env => {
             val target = env(0)
             val f = env(1).asInstanceOf[ClosV]
-            getOpt(target, ss) match
+            if ss.exists { case DataV("OEach", _) => true; case _ => false } then
+              Done(modifyAll(target, ss, v => callClosure(f, List(v))))
+            else getOpt(target, ss) match
               case Some(cur) => Done(setPath(target, ss, callClosure(f, List(cur))))
               case None      => Done(target)
+          }))
+          case "getAll" => Some(ClosV(Runtime.emptyEnv, -1, env =>
+            Done(mkList(getAll(env(0), ss)))))
+          case "modifyAll" => Some(ClosV(Runtime.emptyEnv, -1, env => {
+            val f = env(1).asInstanceOf[ClosV]
+            Done(modifyAll(env(0), ss, v => callClosure(f, List(v))))
           }))
           case "andThen" => Some(ClosV(Runtime.emptyEnv, -1, env => env(0) match
             case ForeignV(other: ssc.Value.NamedMethodObj) => other.underlying match

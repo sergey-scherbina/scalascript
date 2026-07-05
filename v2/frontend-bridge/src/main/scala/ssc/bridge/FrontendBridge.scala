@@ -1213,6 +1213,8 @@ object FrontendBridge:
           case _: Term.Placeholder => Some(Nil)
           case Term.Select(inner, Term.Name("some")) =>
             stepsOf(inner, baseName).map(_ :+ CT.Ctor("OSome", Nil))
+          case Term.Select(inner, Term.Name("each")) =>
+            stepsOf(inner, baseName).map(_ :+ CT.Ctor("OEach", Nil))
           case Term.Select(inner, Term.Name(f)) =>
             stepsOf(inner, baseName).map(_ :+ CT.Ctor("OField", List(CT.Lit(Const.CStr(f)))))
           case Term.Apply.After_4_6_0(Term.Select(inner, Term.Name("index")), ac) if ac.values.length == 1 =>
