@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-rust-ownership-perf
+worktree: ../scalascript-wt-v2-rust-ownership-perf
+started: 2026-07-05
+status: in-progress
+task: T3.4 — v2 Rust generator perf: measure vs v1 Rust backend on bench corpus; replace hot Rc<RefCell>/clone paths where impactful
