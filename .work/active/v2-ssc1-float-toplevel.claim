@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-ssc1-float-toplevel
-worktree: ../scalascript-wt-v2-ssc1-float-toplevel
-started: 2026-07-05
-status: in-progress
-task: T5.6 (ssc1 Float infix -> f.* prims) + T5.7 (top-level statements silently dropped) — ssc1 self-hosted path correctness

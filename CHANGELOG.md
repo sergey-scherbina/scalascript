@@ -35,6 +35,21 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — T5.6+T5.7: numeric-poly prims everywhere + ssc1 top-level statements
+
+- **T5.6**: `i.add/sub/mul/div/mod` + `i.eq/lt/le/gt/ge` are now numeric-POLYMORPHIC
+  (Int, Float, mixed — the VM general table's numBin/numCmp semantics) in ALL fast
+  paths and all three source generators (VM resolve2/resolve1, Rust v_i*, JVM
+  _numBinI, JS $n* helpers). `7.5 / 2.5` used to crash the VM fast path; float
+  comparisons/div were Int-only patchwork. New floatnum.coreir parity fixture (8×3
+  GREEN) + kc-float.ssc ssc1c gate.
+- **T5.7**: ssc1's lowerProg no longer drops top-level statements — expression
+  statements run in document order in the entry; `val (a, b) = …` works at top level;
+  `{ (a, b) => stmts… }` block-lambdas parse header-first (val/def in bodies OK);
+  `_sel_until`/`_sel_to` are tail-recursive (deep ranges no longer stack-overflow);
+  `_sel_toList` added. examples/recursion.ssc now runs FULLY via the self-hosted ssc1
+  path — all 13 outputs correct. conformance 639 ok / 0 FAIL; bench 31/31.
+
 ## 2026-07-05 — v2-wasm-unblock: WASM backend shipped (4th target)
 
 The historically-only-open v2 language backlog item is closed. `rustup` appeared in the
