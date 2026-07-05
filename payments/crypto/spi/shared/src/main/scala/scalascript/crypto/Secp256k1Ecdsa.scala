@@ -126,3 +126,14 @@ object Secp256k1Ecdsa:
     val sLen = sig(pos + 1) & 0xff
     val s = new BigInteger(sig.slice(pos + 2, pos + 2 + sLen))
     (r, s)
+
+  /** Convert a DER `(r, s)` to the fixed **64-byte R‖S** form used by JOSE (ES256K) and COSE
+   *  (each of `r`, `s` big-endian, left-zero-padded to 32 bytes). */
+  def derToRaw(der: Array[Byte]): Array[Byte] =
+    val (r, s) = decodeDer(der)
+    to32(r) ++ to32(s)
+
+  /** Convert a 64-byte R‖S (JOSE/COSE fixed-length ECDSA) back to DER for [[verify]]. */
+  def rawToDer(raw: Array[Byte]): Array[Byte] =
+    require(raw.length == 64, s"ES256K raw signature must be 64 bytes, got ${raw.length}")
+    encodeDer(new BigInteger(1, raw.slice(0, 32)), new BigInteger(1, raw.slice(32, 64)))

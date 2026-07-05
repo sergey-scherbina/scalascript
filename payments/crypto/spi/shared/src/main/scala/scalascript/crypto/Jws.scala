@@ -70,6 +70,30 @@ object Jws:
         case _ => None
     catch case _: IllegalArgumentException => None
 
+  // ── ES256K (ECDSA secp256k1 + SHA-256, RFC 8812) ────────────────────────────────
+
+  /** Sign `payload` under ES256K with a 32-byte secp256k1 private key; `header` must declare
+   *  `"alg":"ES256K"`. The JWS signature is the fixed 64-byte R‖S (not DER), base64url-encoded. */
+  def signES256K(privKey: Array[Byte], header: Array[Byte], payload: Array[Byte]): String =
+    val si   = signingInput(header, payload)
+    val hash = Sha256.digest(si.getBytes(UTF_8))
+    val raw  = Secp256k1Ecdsa.derToRaw(Secp256k1Ecdsa.sign(privKey, hash))   // R‖S, 64 bytes
+    s"$si.${b64u(raw)}"
+
+  /** Verify a compact ES256K JWS against a secp256k1 public key (compressed or uncompressed). Returns
+   *  the payload iff the R‖S signature over SHA-256 of the signing input is valid. */
+  def verifyES256K(token: String, pubKey: Array[Byte]): Option[Array[Byte]] =
+    try
+      token.split("\\.", -1) match
+        case Array(h, p, s) =>
+          val raw = unb64u(s)
+          if raw.length != 64 then None
+          else
+            val hash = Sha256.digest(s"$h.$p".getBytes(UTF_8))
+            if Secp256k1Ecdsa.verify(pubKey, hash, Secp256k1Ecdsa.rawToDer(raw)) then Some(unb64u(p)) else None
+        case _ => None
+    catch case _: Exception => None
+
 /** RFC 7519 JWT convenience over [[Jws]]: emits the standard protected header for an algorithm and
  *  carries a JSON claims string as the payload. The claims are opaque here — validate them (exp/iss/…)
  *  after verification in the caller. */
@@ -90,3 +114,11 @@ object Jwt:
   /** Verify + return the claims JSON string of an EdDSA JWT (does NOT check exp/iss/aud). */
   def verifyEdDSA(token: String, ed25519Pub: Array[Byte]): Option[String] =
     Jws.verifyEdDSA(token, ed25519Pub).map(p => new String(p, UTF_8))
+
+  /** ES256K-signed JWT: header `{"alg":"ES256K","typ":"JWT"}`, `claimsJson` as the payload. */
+  def es256k(secp256k1Priv: Array[Byte], claimsJson: String): String =
+    Jws.signES256K(secp256k1Priv, """{"alg":"ES256K","typ":"JWT"}""".getBytes(UTF_8), claimsJson.getBytes(UTF_8))
+
+  /** Verify + return the claims JSON string of an ES256K JWT (does NOT check exp/iss/aud). */
+  def verifyES256K(token: String, secp256k1Pub: Array[Byte]): Option[String] =
+    Jws.verifyES256K(token, secp256k1Pub).map(p => new String(p, UTF_8))

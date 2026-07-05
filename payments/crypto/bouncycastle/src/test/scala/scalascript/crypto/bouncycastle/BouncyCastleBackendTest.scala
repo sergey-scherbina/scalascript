@@ -64,6 +64,18 @@ class BouncyCastleBackendTest extends AnyFunSuite:
     }
   }
 
+  test("ES256K raw R‖S signature matches the BouncyCastle secp256k1 backend byte-for-byte") {
+    val priv = hex("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+    val hash = be.hash(HashAlgo.Sha256, "ES256K interop".getBytes("UTF-8"))
+    val mine = Secp256k1Ecdsa.derToRaw(Secp256k1Ecdsa.sign(priv, hash))   // fixed 64-byte R‖S (JOSE/COSE)
+    val bc   = be.sign(Curve.Secp256k1, priv, hash, HashAlgo.None)        // 65-byte R‖S‖recId
+    assert(mine.length == 64 && bc.length == 65)
+    assert(mine.sameElements(bc.take(64)), "ES256K raw R‖S != BouncyCastle (both RFC-6979 + low-S)")
+    // the portable verify accepts BouncyCastle's signature converted back to DER
+    assert(Secp256k1Ecdsa.verify(Secp256k1Ecdsa.derivePublicCompressed(priv), hash,
+                                 Secp256k1Ecdsa.rawToDer(bc.take(64))))
+  }
+
   test("RIPEMD-160 of empty matches reference") {
     val expected = hex("9c1185a5c5e9fc54612808977ee8f548b2258d31")
     assert(be.hash(HashAlgo.Ripemd160, Array.emptyByteArray).sameElements(expected))
