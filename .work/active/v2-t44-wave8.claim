@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t44-wave8
+worktree: ../scalascript-wt-v2-t44-wave8
+started: 2026-07-05
+status: in-progress
+task: T4.4 wave 8 — remaining 12: tagless/foldable, effects x3, sql x2, direct-syntax, enum-shared-casename, json-value, mcp-types
