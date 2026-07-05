@@ -1052,6 +1052,7 @@ object PluginBridge:
     val queue = new java.util.concurrent.LinkedBlockingQueue[V2Value]()
     @volatile var thread: Thread | Null = null
     @volatile var dead: Boolean = false
+    @volatile var trapExit: Boolean = false  // Erlang-style: exits become messages
 
   private val actorTL = new ThreadLocal[ActorMailbox | Null]:
     override def initialValue(): ActorMailbox | Null = null
@@ -1125,6 +1126,17 @@ object PluginBridge:
           sys.error(s"receive: unexpected arg $arg")
     }))
 
+    // trapExit(flag) — Erlang-style: when true, exit(self, reason) becomes an
+    // Exit(reason) MESSAGE in this actor's mailbox instead of a kill.
+    V2PluginRegistry.registerGlobal("trapExit", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      val mb = actorTL.get()
+      if mb != null then
+        mb.trapExit = env.headOption match
+          case Some(V2Value.BoolV(b)) => b
+          case _ => true
+      Done(V2Value.UnitV)
+    }))
+
     // self() — returns current actor's mailbox ref
     V2PluginRegistry.registerGlobal("self", V2Value.ClosV(Runtime.emptyEnv, 0, env => {
       val mb = actorTL.get()
@@ -1139,9 +1151,14 @@ object PluginBridge:
       val first = if env.nonEmpty then env(0) else V2Value.UnitV
       first match
         case V2Value.ForeignV(mb: ActorMailbox) =>
-          mb.dead = true
-          val t = mb.thread
-          if t != null then t.interrupt()
+          if mb.trapExit then
+            // trapExit: deliver Exit(reason) as a message instead of killing
+            val reason = if env.length >= 2 then env(1) else V2Value.StrV("normal")
+            mb.queue.put(V2Value.DataV("Exit", Vector(reason)))
+          else
+            mb.dead = true
+            val t = mb.thread
+            if t != null then t.interrupt()
           Done(V2Value.UnitV)
         case V2Value.IntV(code) => Runtime.exitHandler(code.toInt)
         case _ => Runtime.exitHandler(0)
