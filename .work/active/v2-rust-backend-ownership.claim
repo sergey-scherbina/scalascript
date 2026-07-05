@@ -1,0 +1,6 @@
+feature/v2-rust-backend-ownership 2026-07-05T14:00:00Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-07-05T14:00:00Z
+status: in-progress
+done-so-far: planning
+next: implement LCell direct-ownership optimization in RustBackend.scala
