@@ -80,10 +80,145 @@ object FrontendBridge:
    *  Supports script mode: bare expressions at the top level are wrapped in a block.
    *  Handles .ssc file format: optional shebang + YAML front matter + markdown prose +
    *  ```scalascript...``` fence; if no fence, uses the whole source. */
-  def convertSource(src: String): Program = convertStats(parseStats(extractCode(src)))
+  def convertSource(src: String, fileDir: Option[java.io.File] = None): Program =
+    convertStats(parseStats(desugarListLiterals(stripExternDecls(resolveImportsCode(src, fileDir)))))
 
-  /** Extract the scalascript code block from a .ssc file (strips shebang, front matter, fences). */
-  def extractCode(raw: String): String =
+  /** Strip ScalaScript-specific `extern` declarations that scalameta cannot parse.
+   *  Handles extern def/val (single or multi-line via open parens) and
+   *  extern class/trait/object (strip until indentation returns to base level). */
+  private def stripExternDecls(code: String): String =
+    val lines = code.linesWithSeparators.toArray
+    val sb = new java.lang.StringBuilder(code.length)
+    var i = 0
+    while i < lines.length do
+      val line = lines(i)
+      val t = line.stripLeading()
+      if t.startsWith("extern def") || t.startsWith("extern val") then
+        sb.append("//").append(line)
+        var depth = line.count(_ == '(') - line.count(_ == ')')
+        i += 1
+        while i < lines.length && depth > 0 do
+          sb.append("//").append(lines(i))
+          depth += lines(i).count(_ == '(') - lines(i).count(_ == ')')
+          i += 1
+      else if t.startsWith("extern class") || t.startsWith("extern trait") || t.startsWith("extern object") then
+        // Strip the header line + all indented body lines
+        val baseIndent = line.length - line.stripLeading().length
+        sb.append("//").append(line); i += 1
+        while i < lines.length do
+          val next = lines(i)
+          val stripped = next.stripLeading()
+          val indent = next.length - stripped.length
+          if stripped.isEmpty || indent > baseIndent then
+            sb.append("//").append(next); i += 1
+          else i = lines.length // break: indentation returned
+      else
+        sb.append(line); i += 1
+    sb.toString
+
+  /** Convert bare `[expr, ...]` list literals to `List(expr, ...)`.
+   *  Stack-based: each `[` in expression position opens a `List(`, the matching `]` closes with `)`.
+   *  Nested list literals are handled naturally. String literals are skipped verbatim. */
+  private def desugarListLiterals(code: String): String =
+    if !code.contains("[") then return code
+    val sb = new java.lang.StringBuilder(code.length + 64)
+    // Stack: true = we opened List( for this bracket, false = raw [ emitted verbatim
+    val stack = new java.util.ArrayDeque[Boolean]()
+    var i = 0
+    while i < code.length do
+      code.charAt(i) match
+        case '"' =>
+          // Copy string literal verbatim
+          sb.append('"'); i += 1
+          var done = false
+          while i < code.length && !done do
+            val c = code.charAt(i)
+            if c == '\\' && i + 1 < code.length then
+              sb.append(c); i += 1; sb.append(code.charAt(i)); i += 1
+            else if c == '"' then
+              sb.append(c); i += 1; done = true
+            else
+              sb.append(c); i += 1
+        case '[' =>
+          // Check if in expression position
+          val prevNonWs = (i - 1 to 0 by -1).find(j => !code.charAt(j).isWhitespace).map(code.charAt).getOrElse('\n')
+          val prevToken: String = {
+            var end = i - 1
+            while end >= 0 && code.charAt(end).isWhitespace do end -= 1
+            if end < 0 then ""
+            else {
+              var start = end
+              while start > 0 && (code.charAt(start-1).isLetterOrDigit || code.charAt(start-1) == '_') do start -= 1
+              code.substring(start, end + 1)
+            }
+          }
+          // Only treat [ as list literal when unambiguously in expression position.
+          // Operators (+,-,*,/,|,&,<,>,!) are excluded — they also appear as method names
+          // before type-param brackets (e.g. def |[B], def +[A]).
+          val exprPos = prevNonWs match
+            case '=' | '(' | ',' | '{' | '[' | '\n' | ';' | ':' => true
+            case _ => Set("then","else","return","yield","do","in","of","by","if","while","to","until","match","case","=>")(prevToken)
+          if exprPos then
+            sb.append("List("); stack.push(true)
+          else
+            sb.append('[');    stack.push(false)
+          i += 1
+        case ']' =>
+          if !stack.isEmpty && stack.pop() then sb.append(')')
+          else sb.append(']')
+          i += 1
+        case c =>
+          sb.append(c); i += 1
+    sb.toString
+
+  /** Collect std-import lines `[names](path.ssc)` from the document body (outside fences),
+   *  load each referenced file, and prepend their code before the main code block.
+   *  Falls back gracefully if a path can't be resolved. */
+  private def resolveImportsCode(src: String, fileDir: Option[java.io.File]): String =
+    val importPat = """\[([^\]]+)\]\(([^)]+\.ssc\d*)\)""".r
+    // Collect import paths from outside code fences only
+    val importPaths = collection.mutable.ListBuffer.empty[String]
+    var inFence = false
+    src.linesIterator.foreach { line =>
+      if line.startsWith("```") then inFence = !inFence
+      else if !inFence then
+        importPat.findAllMatchIn(line).foreach { m => importPaths += m.group(2) }
+    }
+    val prelude = importPaths.distinct.flatMap { rel =>
+      resolveStdPath(rel, fileDir).map(src => extractCode(src, allFences = true))
+    }.mkString("\n")
+    val mainCode = extractCode(src)
+    if prelude.isEmpty then mainCode else s"$prelude\n$mainCode"
+
+  /** Resolve a std-import path like `std/dsl/ast.ssc` to an absolute file.
+   *  Search order: relative to fileDir → ImportResolver.stdPath → cwd-based dev-tree walk. */
+  private def resolveStdPath(rel: String, fileDir: Option[java.io.File]): Option[String] =
+    def tryFile(f: java.io.File): Option[String] =
+      if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption else None
+    def tryOsPath(p: os.Path): Option[String] = tryFile(p.toIO)
+    // 1. Relative to the importing file's directory
+    fileDir.flatMap(d => tryFile(new java.io.File(d, rel)))
+      // 2. Via ImportResolver.stdPath (packaged release, or dev tree when jar-dir works)
+      .orElse(scalascript.imports.ImportResolver.stdPath.flatMap { root =>
+        tryOsPath(root / os.RelPath(rel))
+      })
+      // 3. Walk up from cwd looking for v1/runtime/std (dev tree, sbt bloop)
+      .orElse {
+        var cur = os.pwd
+        var found: Option[os.Path] = None
+        while found.isEmpty && cur.segmentCount > 0 do
+          val stdDir = cur / "v1" / "runtime"
+          if os.exists(stdDir / "std") then found = Some(stdDir)
+          else cur = cur / os.up
+        found.flatMap(root => tryOsPath(root / os.RelPath(rel)))
+      }
+      // 4. Direct cwd-relative (when std/ is next to working dir)
+      .orElse(tryOsPath(os.pwd / os.RelPath(rel)))
+
+  /** Extract scalascript code blocks from a .ssc file.
+   *  allFences=true: concatenate ALL fences (for stdlib imports).
+   *  allFences=false (default): only the first fence (for the main entry file). */
+  def extractCode(raw: String, allFences: Boolean = false): String =
     val noShebang = if raw.startsWith("#!/") then raw.dropWhile(_ != '\n').drop(1) else raw
     val noFront =
       if noShebang.stripLeading().startsWith("---") then
@@ -92,25 +227,43 @@ object FrontendBridge:
         if after >= 0 then noShebang.drop(after + 4) else noShebang
       else noShebang
     val fence = "```scalascript\n"
-    val fenceStart = noFront.indexOf(fence)
+    val firstFence = noFront.indexOf(fence)
     // No fence: if the content looks like markdown prose (starts with # or ---), it's
     // a doc-only example with no runnable code — return empty so it compiles as a no-op.
     // Otherwise treat as raw Scala source (for test-style usage with no front matter).
-    if fenceStart < 0 then
+    if firstFence < 0 then
       val trimmed = noFront.trim
       if trimmed.startsWith("#") || trimmed.startsWith("[") || trimmed.isEmpty then ""
       else trimmed
-    else
-      val codeStart = fenceStart + fence.length
+    else if !allFences then
+      // Original behavior: only extract the first fence
+      val codeStart = firstFence + fence.length
       val fenceEnd  = noFront.indexOf("\n```", codeStart)
       val code = if fenceEnd < 0 then noFront.drop(codeStart).trim
                  else noFront.slice(codeStart, fenceEnd)
-      // Strip v1 multi-import lines: [name1, name2, ...](path/to/file.ssc)
-      // These are a v1-specific import syntax that scalameta can't parse as Scala 3.
       code.linesIterator.filterNot { line =>
         val t = line.trim
         t.startsWith("[") && t.contains("](") && (t.endsWith(")") || t.endsWith(".ssc)"))
       }.mkString("\n")
+    else
+      // Collect ALL scalascript fences (for stdlib library files)
+      val blocks = collection.mutable.ListBuffer.empty[String]
+      var pos = 0
+      while pos < noFront.length do
+        val fenceStart = noFront.indexOf(fence, pos)
+        if fenceStart < 0 then pos = noFront.length
+        else
+          val codeStart = fenceStart + fence.length
+          val fenceEnd  = noFront.indexOf("\n```", codeStart)
+          val code = if fenceEnd < 0 then noFront.drop(codeStart).trim
+                     else noFront.slice(codeStart, fenceEnd)
+          val stripped = code.linesIterator.filterNot { line =>
+            val t = line.trim
+            t.startsWith("[") && t.contains("](") && (t.endsWith(")") || t.endsWith(".ssc)"))
+          }.mkString("\n")
+          if stripped.trim.nonEmpty then blocks += stripped
+          pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
+      blocks.mkString("\n")
 
   /** Convert a list of scalameta Trees (parsed body of a .ssc module) to Program. */
   def convertTrees(trees: List[Tree]): Program =
@@ -552,7 +705,10 @@ object FrontendBridge:
             CT.Ctor(name, fields.map(fn => overrides.getOrElse(fn, CT.Lit(Const.CUnit))).toList)
           case None => CT.Ctor(name, args)
       // Constructor application — positional args
-      case Term.Name(name) if isCtorName(name) => CT.Ctor(name, args)
+      // Exception: known factory functions (Decimal, BigInt, etc.) are globals, not ctors.
+      case Term.Name(name) if isCtorName(name) =>
+        if functionConstructors.contains(name) then CT.App(CT.Global(name), args)
+        else CT.Ctor(name, args)
       // .copy(field = val, ...) — case class copy with named field overrides.
       // Intercept before the generic __method__ path so we can use the field registry
       // to find indices and emit Ctor with field-at fallbacks, avoiding @field globals.
@@ -893,6 +1049,13 @@ object FrontendBridge:
 
   private def isCtorName(n: String): Boolean =
     n.nonEmpty && Character.isUpperCase(n.charAt(0))
+
+  /** Uppercase names that are actually factory functions (registered as globals),
+   *  not case class constructors. */
+  private val functionConstructors: Set[String] =
+    Set("Decimal", "BigDecimal", "BigInt",
+        "RuntimeException", "Exception", "IllegalArgumentException",
+        "IllegalStateException", "UnsupportedOperationException")
 
   private def allParams(d: Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value)))

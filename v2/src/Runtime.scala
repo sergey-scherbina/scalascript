@@ -38,6 +38,13 @@ object Value:
     // Callers can invoke this instead of trampoline to eliminate Done allocs.
     var fcEntry: Option[FastCode.FC] = None
   final case class ForeignV(h: AnyRef)                extends Value
+  /** A named-field dispatch object: method calls are routed by name.
+   *  Used by PluginBridge to wrap v1 InstanceV objects with plugin-owned method fields
+   *  (e.g. AuthServer.registerClient) without exposing v1 types in the v2 core module. */
+  trait NamedMethodObj:
+    def getField(name: String): Option[Value]
+    /** Round-trip handle: the original object (any type) for passing back to plugins. */
+    def underlying: AnyRef
   // Mutable long cell: avoids IntV boxing on every cell.set in tight arithmetic loops.
   // Lowered from `var x: Long = 0` via `lcell.new`.
   final class LongCellV(var v: Long)                  extends Value
@@ -218,6 +225,8 @@ object Compiler:
                     val avs = new Array[Value](1); avs(0) = f0(env)
                     globals.getOrElse(g, V2PluginRegistry.lookupGlobal(g).getOrElse(sys.error(s"unbound global: $g"))) match
                       case c: ClosV => Call(c, avs)
+                      case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
+                        Done(m.asInstanceOf[collection.mutable.HashMap[Value,Value]](avs(0)))
                       case v => sys.error(s"app: not a function: ${Show.show(v)}")
                 }
               case List(a0, a1) =>
@@ -252,6 +261,8 @@ object Compiler:
                   v0 match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
                 case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
                   v0 match { case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt)); case _ => sys.error("app: array index must be Int") }
+                case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
+                  Done(m.asInstanceOf[collection.mutable.HashMap[Value, Value]](v0))
                 case DataV(_, fields) =>
                   v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
@@ -1227,6 +1238,39 @@ object Prims:
             if op == "++" && lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
           val combined = lf ++ rf
           DataV(s"Tuple${combined.length}", combined)
+        case (ForeignV(x: java.math.BigDecimal), ForeignV(y: java.math.BigDecimal)) =>
+          import java.math.RoundingMode.HALF_UP
+          op match
+            case "+"  => ForeignV(x.add(y))
+            case "-"  => ForeignV(x.subtract(y))
+            case "*"  => ForeignV(x.multiply(y))
+            case "/"  => ForeignV(x.divide(y, x.scale().max(y.scale()).max(10), HALF_UP))
+            case "%"  => ForeignV(x.remainder(y))
+            case "==" => BoolV(x.compareTo(y) == 0); case "!=" => BoolV(x.compareTo(y) != 0)
+            case "<"  => BoolV(x.compareTo(y) < 0); case "<=" => BoolV(x.compareTo(y) <= 0)
+            case ">"  => BoolV(x.compareTo(y) > 0); case ">=" => BoolV(x.compareTo(y) >= 0)
+            case "++" | "+"  => StrV(x.toPlainString + y.toPlainString)
+            case _    => sys.error(s"__arith__: op $op not valid for Decimal")
+        case (ForeignV(x: java.math.BigDecimal), IntV(y)) =>
+          import java.math.RoundingMode.HALF_UP
+          val ybd = java.math.BigDecimal.valueOf(y)
+          op match
+            case "+"  => ForeignV(x.add(ybd)); case "-" => ForeignV(x.subtract(ybd))
+            case "*"  => ForeignV(x.multiply(ybd)); case "/" => ForeignV(x.divide(ybd, x.scale().max(10), HALF_UP))
+            case "==" => BoolV(x.compareTo(ybd) == 0); case "!=" => BoolV(x.compareTo(ybd) != 0)
+            case "<"  => BoolV(x.compareTo(ybd) < 0); case "<=" => BoolV(x.compareTo(ybd) <= 0)
+            case ">"  => BoolV(x.compareTo(ybd) > 0); case ">=" => BoolV(x.compareTo(ybd) >= 0)
+            case _    => sys.error(s"__arith__: op $op not valid for Decimal+Int")
+        case (IntV(x), ForeignV(y: java.math.BigDecimal)) =>
+          import java.math.RoundingMode.HALF_UP
+          val xbd = java.math.BigDecimal.valueOf(x)
+          op match
+            case "+"  => ForeignV(xbd.add(y)); case "-" => ForeignV(xbd.subtract(y))
+            case "*"  => ForeignV(xbd.multiply(y)); case "/" => ForeignV(xbd.divide(y, y.scale().max(10), HALF_UP))
+            case "==" => BoolV(xbd.compareTo(y) == 0); case "!=" => BoolV(xbd.compareTo(y) != 0)
+            case "<"  => BoolV(xbd.compareTo(y) < 0); case "<=" => BoolV(xbd.compareTo(y) <= 0)
+            case ">"  => BoolV(xbd.compareTo(y) > 0); case ">=" => BoolV(xbd.compareTo(y) >= 0)
+            case _    => sys.error(s"__arith__: op $op not valid for Int+Decimal")
         case (lv, rv) => op match
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
           case "++" | "+" => StrV(anyStr(lv) + anyStr(rv))
@@ -1313,6 +1357,29 @@ object Prims:
         case (ForeignV("__math__"), "max", List(IntV(a), IntV(b)))      => IntV(math.max(a, b))
         case (ForeignV("__math__"), "min", List(FloatV(a), FloatV(b)))  => FloatV(math.min(a, b))
         case (ForeignV("__math__"), "max", List(FloatV(a), FloatV(b)))  => FloatV(math.max(a, b))
+        // ── BigInt (BigV) methods ───────────────────────────────────────────────
+        case (BigV(n), "pow",          List(IntV(e)))  => BigV(n.pow(e.toInt))
+        case (BigV(n), "toBigInt",     Nil)            => BigV(n)
+        case (BigV(n), "toInt",        Nil)            => IntV(n.toLong)
+        case (BigV(n), "toLong",       Nil)            => IntV(n.toLong)
+        case (BigV(n), "toDouble",     Nil)            => FloatV(n.toDouble)
+        case (BigV(n), "toString",     Nil)            => StrV(n.toString)
+        case (BigV(n), "toString",     List(IntV(r)))  => StrV(n.toString(r.toInt))
+        case (BigV(n), "abs",          Nil)            => BigV(n.abs)
+        case (BigV(n), "min",          List(BigV(m)))  => BigV(n.min(m))
+        case (BigV(n), "max",          List(BigV(m)))  => BigV(n.max(m))
+        case (BigV(n), "mod",          List(BigV(m)))  => BigV(n.mod(m))
+        case (BigV(n), "compare",      List(BigV(m)))  => IntV(n.compare(m).toLong)
+        case (BigV(n), "compareTo",    List(BigV(m)))  => IntV(n.compare(m).toLong)
+        case (BigV(n), "gcd",          List(BigV(m)))  => BigV(n.gcd(m))
+        case (IntV(n), "toBigInt",     Nil)            => BigV(BigInt(n))
+        case (IntV(n), "pow",          List(IntV(e)))  => BigV(BigInt(n).pow(e.toInt))
+        // ── BigDecimal/Decimal (ForeignV(java.math.BigDecimal)) toString etc. ──
+        case (ForeignV(bd: java.math.BigDecimal), "toString",   Nil)        => StrV(bd.toPlainString)
+        case (ForeignV(bd: java.math.BigDecimal), "toPlainString", Nil)     => StrV(bd.toPlainString)
+        case (ForeignV(bd: java.math.BigDecimal), "toBigInt",   Nil)        => BigV(BigInt(bd.toBigInteger))
+        case (ForeignV(bd: java.math.BigDecimal), "toBigInteger", Nil)      => BigV(BigInt(bd.toBigInteger))
+        case (ForeignV(bd: java.math.BigDecimal), "longValue",  Nil)        => IntV(bd.longValue())
         case (DataV("Nil", _), "isEmpty", Nil)  => BoolV(true)
         case (DataV("Cons", _), "isEmpty", Nil) => BoolV(false)
         case (DataV("Nil", _), "nonEmpty", Nil)  => BoolV(false)
@@ -1521,6 +1588,15 @@ object Prims:
           arr.asInstanceOf[Array[Value]](0) = callClos(fn, Array(cur))
           UnitV
         case (ForeignV(arr: Array[?]), "apply", Nil) => arr.asInstanceOf[Array[Value]](0)
+        // ── Plugin-owned named-field objects (e.g. oauth AuthServer) ─────────────
+        case (ForeignV(obj: NamedMethodObj), _, _) =>
+          obj.getField(name) match
+            case Some(fn: ClosV) => callClos(fn, margs.toArray)
+            case Some(v) if margs.isEmpty => v
+            case other =>
+              V2PluginRegistry.lookup(s"__method__.$name") match
+                case Some(fn) => fn(a)
+                case None => sys.error(s"__method__: no field '$name' on named-method-obj ($other)")
         // ── Method object (given/typeclass instances) ─────────────────────────────
         case (ForeignV(m: collection.immutable.Map[?, ?]), _, _) =>
           val mm = m.asInstanceOf[collection.immutable.Map[String, Value]]
@@ -1754,7 +1830,7 @@ object Prims:
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
-  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => d.toString; case _ => Show.show(v) }
+  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => d.toString; case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString; case _ => Show.show(v) }
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
@@ -1864,5 +1940,6 @@ object Show:
     case BytesV(bs)   => bs.map(x => f"${x & 0xff}%02x").mkString("#", "", "")
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
+    case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
     case ForeignV(_)  => "<foreign>"
     case c: LongCellV => s"<lcell:${c.v}>"
