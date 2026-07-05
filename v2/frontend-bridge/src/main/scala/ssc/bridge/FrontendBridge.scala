@@ -67,6 +67,9 @@ object FrontendBridge:
     extAccum.clear()
     defaultParams.clear()
     defaultParamTerms.clear()
+    caseObjectNames.clear()
+    methodObjectNames.clear()
+    entryValNames.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -110,6 +113,13 @@ object FrontendBridge:
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
+
+  /** Objects: `case object X` stays a zero-arg Ctor; `object X { def m }` is a
+   *  method-obj GLOBAL — a bare uppercase name must not shadow it with Ctor(X). */
+  private val caseObjectNames   = collection.mutable.HashSet[String]()
+  private val methodObjectNames = collection.mutable.HashSet[String]()
+  /** Names of vals routed to the ENTRY block (effectful or entry-dependent). */
+  private val entryValNames     = collection.mutable.HashSet[String]()
 
   /** Default-param registry: def name → per-param default CT exprs (None = required). */
   private val defaultParams = collection.mutable.HashMap[String, Vector[Option[CT]]]()
@@ -194,7 +204,9 @@ object FrontendBridge:
           generalDerives(cn) = generalDerives.getOrElse(cn, Nil) :+ tcName
       }
     case d: Defn.Trait => ()
-    case d: Defn.Object => ()
+    case d: Defn.Object =>
+      if d.mods.exists(_.is[Mod.Case]) then caseObjectNames += d.name.value
+      else if d.templ.stats.exists(_.isInstanceOf[Defn.Def]) then methodObjectNames += d.name.value
     case Defn.Enum(_, name, _, _, templ) =>
       templ.stats.foreach {
         case ec: Defn.EnumCase =>
@@ -415,7 +427,21 @@ object FrontendBridge:
     // fenceOnly=false: scan ALL lines (stdlib files where imports live inside code fences).
     def collectImports(source: String, dir: Option[java.io.File], fenceOnly: Boolean): Unit =
       var inFence = false
-      source.linesIterator.foreach { line =>
+      // Multi-line import directives — `[A,\n  B,\n  C](path.ssc)` — must be JOINED
+      // before the per-line regex sees them (std/parsing's imports span 3 lines and
+      // were silently never loaded → unbound runParserAll).
+      val joined = collection.mutable.ListBuffer.empty[String]
+      val pending = new StringBuilder
+      source.linesIterator.foreach { raw =>
+        if pending.nonEmpty then
+          pending.append(' ').append(raw.trim)
+          if raw.contains(")") then { joined += pending.toString; pending.clear() }
+        else if raw.trim.startsWith("[") && raw.trim.endsWith(",") && !raw.contains("](") then
+          pending.append(raw.trim)
+        else joined += raw
+      }
+      if pending.nonEmpty then joined += pending.toString
+      joined.foreach { line =>
         if line.startsWith("```") then inFence = !inFence
         else if !fenceOnly || !inFence then
           importPat.findAllMatchIn(line).foreach { m =>
@@ -649,11 +675,19 @@ object FrontendBridge:
         val name = patName(v.pats.head)
         // Pure RHS → safe to evaluate eagerly as a global.
         // Effectful RHS (has function calls) → keep in entry block to preserve order.
-        if isPureValRhs(v.rhs) then
+        // A "pure" rhs may still reference an ENTRY-local val (an earlier val that
+        // was routed to the entry block): hoisting it to a value DEF would evaluate
+        // it in pass 2, before the entry runs — unbound global / shifted locals
+        // (std/parsing's PErrorNode(pInt, 0) crashed exactly this way).
+        def mentionsEntryVal(t: Term): Boolean = t.collect {
+          case Term.Name(n) if entryValNames.contains(n) => n
+        }.nonEmpty
+        if isPureValRhs(v.rhs) && !mentionsEntryVal(v.rhs) then
           val rhs  = convertExpr(v.rhs, Nil)
           defsB += CDef(name, rhs)
         else
           entryB += v
+          entryValNames += name
       case g: Defn.Given =>
         // given name: T with { def m1(a...) = ...; def m2(b...) = ... }
         // → val name = __mk_method_obj__(["m1", lam..., "m2", lam...])
@@ -1041,7 +1075,8 @@ object FrontendBridge:
       if lcell >= 0 then CT.Prim("lcell.get", List(CT.Local(lcell)))
       else if cell >= 0 then CT.Prim("cell.get", List(CT.Local(cell)))
       else if arr >= 0 then CT.Local(arr)  // array val — return raw local
-      else if isCtorName(name) then CT.Ctor(name, Nil)  // e.g. Nil, None, True
+      else if isCtorName(name) && !methodObjectNames.contains(name) then
+        CT.Ctor(name, Nil)  // e.g. Nil, None, True, case objects
       else CT.Global(name)
 
   private def convertAssign(a: Term.Assign, scope: List[String]): CT =
@@ -1356,6 +1391,15 @@ object FrontendBridge:
     val seen = collection.mutable.HashSet[String]()
     cases.exists { c =>
       c.pat match
+        // as-patterns (`ok @ P(...)`) bind the SCRUTINEE — only the general
+        // if-chain (flattenPattern) can express that; CT.Match arms cannot.
+        case _: Pat.Bind => true
+        // NAMED catch-all (`case other => …body uses other…`): the CT.Match
+        // default arm binds NOTHING, but the simple path converted the body as
+        // if the name were in scope — every outer reference shifted by one
+        // (Local(-1) crashes in std/parsing's runParserAll delegate arm).
+        case Pat.Var(Term.Name(n)) if !isCtorName(n) && n != "_" => true
+        case Pat.Typed(Pat.Var(Term.Name(n)), _) if !isCtorName(n) && n != "_" => true
         case Pat.Extract.After_4_6_0(ctor, ac) =>
           val key = s"${ctorPatName(ctor)}/${ac.values.length}"
           val dup = !seen.add(key)
@@ -1398,6 +1442,12 @@ object FrontendBridge:
     case Pat.Alternative(alts) =>
       // Simplified: use first alternative only
       flattenPattern(alts.head, scrutRef, scope)
+    case Pat.Bind(Pat.Var(Term.Name(n)), inner) =>
+      // as-pattern `ok @ ParseOk(...)`: inner pattern's conditions + bind the
+      // WHOLE scrutinee to the name (it fell through to (Nil, Nil) before —
+      // no binding AND matched anything).
+      val (conds, binds) = flattenPattern(inner, scrutRef, scope)
+      (conds, (scrutRef, n) :: binds)
     case _ => (Nil, Nil)
 
   private def flattenCtorPat(tag: String, pats: List[Pat], scrutRef: CT, scope: List[String]): (List[CT], List[(CT, String)]) =
@@ -1429,13 +1479,17 @@ object FrontendBridge:
    *  and the list of bound names (newest-first for de Bruijn). */
   private def convertPat(pat: Pat): (Option[(String, Int)], List[String]) =
     pat match
-      case Pat.Wildcard()                                   => (None, List("_"))
+      // TOP-LEVEL wildcard arm: the VM's Match default binds NOTHING — a phantom
+      // "_" name here shifted every outer reference in the default body by one
+      // (Local(-1) crash in std/parsing's runParserAll delegate arm). Sub-pattern
+      // wildcards (inside Extract) keep their "_" slot for field-arity alignment.
+      case Pat.Wildcard()                                   => (None, Nil)
       // Scala3: uppercase stable-id patterns are Term.Name (not Pat.Var)
       case Term.Name(n) if isCtorName(n)                   => (Some((n, 0)), Nil)
       // Uppercase name in Pat.Var = constructor (enum case or zero-arity case class)
       case Pat.Var(Term.Name(n)) if isCtorName(n)          => (Some((n, 0)), Nil)
       case Pat.Var(Term.Name(n))                            => (None, List(n))
-      case Pat.Typed(Pat.Wildcard(), _)                     => (None, List("_"))
+      case Pat.Typed(Pat.Wildcard(), _)                     => (None, Nil)
       case Pat.Typed(Pat.Var(Term.Name(n)), _) if isCtorName(n) => (Some((n, 0)), Nil)
       case Pat.Typed(Pat.Var(Term.Name(n)), _)              => (None, List(n))
       case Pat.Extract.After_4_6_0(ctor, argClause) =>

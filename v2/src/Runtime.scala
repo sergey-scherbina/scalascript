@@ -1473,6 +1473,11 @@ object Prims:
         case (StrV(s), "toInt", Nil)         => s.toLongOption.fold(none)(n => some(IntV(n)))
         case (StrV(s), "toDouble", Nil)      => s.toDoubleOption.fold(none)(d => some(FloatV(d)))
         case (StrV(s), "trim", Nil)          => StrV(s.trim)
+        case (StrV(s), "matchPrefix", List(StrV(pat))) =>
+          // v1 DispatchRuntime: regex prefix match (lookingAt) -> Some(matched) | None
+          val m = java.util.regex.Pattern.compile(pat).matcher(s)
+          if m.lookingAt() then DataV("Some", Vector(StrV(s.substring(0, m.end()))))
+          else DataV("None", Vector.empty)
         case (StrV(s), "toUpperCase", Nil)   => StrV(s.toUpperCase)
         case (StrV(s), "toLowerCase", Nil)   => StrV(s.toLowerCase)
         case (StrV(s), "reverse", Nil)       => StrV(s.reverse)
