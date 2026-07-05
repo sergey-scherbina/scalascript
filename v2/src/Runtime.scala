@@ -987,6 +987,7 @@ object V2PluginRegistry:
   private val globalValues = collection.mutable.HashMap[String, Value]()
   def registerGlobal(name: String, v: Value): Unit = globalValues(name) = v
   def lookupGlobal(name: String): Option[Value] = globalValues.get(name)
+  def allGlobalNames(): Iterable[String] = globalValues.keys
 
 // ── Effect context — ThreadLocal stack for BlockForm effect runners ────────────
 // PluginBridge installs one V2EffectHandler per active runXxx block.

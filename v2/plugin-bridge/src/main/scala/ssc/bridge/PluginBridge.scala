@@ -59,7 +59,34 @@ object PluginBridge:
           count += 1
         }
       }
+    // 0-arity OS globals must be pre-computed values (not closures), because callers write
+    // `cwd` not `cwd()`. Register AFTER plugins so we override any ClosV they registered.
+    V2PluginRegistry.registerGlobal("cwd", V2Value.StrV(System.getProperty("user.dir", ".")))
+    V2PluginRegistry.registerGlobal("sep", V2Value.StrV(java.io.File.separator))
+    V2PluginRegistry.registerGlobal("platform", V2Value.DataV("JVM", Vector.empty))
+    // Build namespace objects for dotted globals: "oauth.authServer" → oauth = {authServer: ClosV}
+    buildNamespaceObjects()
     count
+
+  /** For each registered global of the form "ns.method", build a namespace ForeignV(Map)
+   *  so `oauth.authServer(...)` works as `__method__("authServer", Global("oauth"), ...)`. */
+  private def buildNamespaceObjects(): Unit =
+    import V2Value.*
+    val namespaces = scala.collection.mutable.Map.empty[String, scala.collection.mutable.Map[String, V2Value]]
+    V2PluginRegistry.allGlobalNames().foreach { name =>
+      val dot = name.indexOf('.')
+      if dot > 0 then
+        val ns  = name.substring(0, dot)
+        val key = name.substring(dot + 1)
+        if !Character.isUpperCase(ns.charAt(0)) then  // skip Tuple2.*, etc. — only lowercase namespaces
+          val methods = namespaces.getOrElseUpdate(ns, scala.collection.mutable.Map.empty)
+          V2PluginRegistry.lookupGlobal(name).foreach { fn => methods(key) = fn }
+    }
+    namespaces.foreach { case (ns, methods) =>
+      if V2PluginRegistry.lookupGlobal(ns).isEmpty then
+        val map = scala.collection.immutable.Map.from(methods)
+        V2PluginRegistry.registerGlobal(ns, ForeignV(map.asInstanceOf[AnyRef]))
+    }
 
   /** Load a specific Backend (e.g., for testing). */
   def loadBackend(backend: Backend): Int =
@@ -230,6 +257,16 @@ object PluginBridge:
     if V2PluginRegistry.lookupGlobal("contentBlock").isEmpty then
       V2PluginRegistry.registerGlobal("contentBlock", ClosV(Runtime.emptyEnv, -1, env =>
         Done(env.lastOption.getOrElse(UnitV))))
+    if V2PluginRegistry.lookupGlobal("nanoTime").isEmpty then
+      V2PluginRegistry.registerGlobal("nanoTime", ClosV(Runtime.emptyEnv, 0, _ => Done(IntV(System.nanoTime()))))
+    // getenv(key[, default]) — interpreter built-in not in any SPI plugin
+    if V2PluginRegistry.lookupGlobal("getenv").isEmpty then
+      V2PluginRegistry.registerGlobal("getenv", ClosV(Runtime.emptyEnv, -1, env => {
+        val key = env.headOption match { case Some(StrV(s)) => s; case Some(v) => v.toString; case None => "" }
+        val default_ = if env.length >= 2 then env(1) else StrV("")
+        val v = System.getenv(key)
+        Done(if v != null && v.nonEmpty then StrV(v) else default_)
+      }))
 
   /** Register dispatch for ComputedCell.get and Storage.get. */
   private def registerComputedCellDispatch(): Unit =
