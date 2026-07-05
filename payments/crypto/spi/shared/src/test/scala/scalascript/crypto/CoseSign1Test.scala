@@ -84,3 +84,32 @@ class CoseSign1Test extends AnyFunSuite with Matchers:
     CoseSign1.verifyEdDSA(msg, pub, "other-session".getBytes(UTF_8)) shouldBe None  // AAD mismatch
     CoseSign1.verifyEdDSA(msg, pub) shouldBe None                                    // missing AAD
   }
+
+  // ── COSE_Sign1 ES256K (ECDSA secp256k1) ────────────────────────────────────────
+  private val ecPriv = unhex("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+  private val ecPub  = Secp256k1Ecdsa.derivePublicCompressed(ecPriv)
+
+  test("ES256K protected header is CBOR {1:-47}") {
+    hex(CoseSign1.protectedHeaderES256K) shouldBe "a101382e"
+  }
+
+  test("COSE_Sign1 ES256K round-trips, binds AAD, and enforces the alg guard") {
+    val payload = "cose es256k".getBytes(UTF_8)
+    val msg     = CoseSign1.signES256K(ecPriv, payload)
+    Cbor.decode(msg) match
+      case Cbor.Tagged(18, Cbor.Arr(items)) =>
+        (items(0): @unchecked) match { case Cbor.Bytes(b)   => hex(b) shouldBe "a101382e" }
+        (items(3): @unchecked) match { case Cbor.Bytes(sig) => sig.length shouldBe 64 }
+      case other => fail(s"not a tagged COSE_Sign1: $other")
+    CoseSign1.verifyES256K(msg, ecPub).map(new String(_, UTF_8)) shouldBe Some("cose es256k")
+    // wrong key
+    CoseSign1.verifyES256K(msg, Secp256k1Ecdsa.derivePublicCompressed(
+      unhex("0000000000000000000000000000000000000000000000000000000000000002"))) shouldBe None
+    // cross-algorithm confusion is rejected both ways (alg header is authenticated)
+    CoseSign1.verifyES256K(CoseSign1.signEdDSA(seed, payload), ecPub) shouldBe None
+    CoseSign1.verifyEdDSA(msg, pub) shouldBe None
+    // external AAD binding
+    val withAad = CoseSign1.signES256K(ecPriv, payload, "ctx".getBytes(UTF_8))
+    CoseSign1.verifyES256K(withAad, ecPub, "ctx".getBytes(UTF_8)).map(new String(_, UTF_8)) shouldBe Some("cose es256k")
+    CoseSign1.verifyES256K(withAad, ecPub) shouldBe None
+  }
