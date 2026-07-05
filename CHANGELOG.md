@@ -107,6 +107,14 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — v2 bridge: Erlang supervision surface (trapExit/link/monitor) + mapreduce auto-inject
+
+Full supervision triad on the VirtualThread actor model (links kill-or-message on death,
+monitors get Down; death notification on completion/crash/kill) and the mapreduce stdlib
+family auto-injects like v1's auto-available symbols. The 3 distributed examples now
+execute deep into the real stdlib (remaining: one String+Int arith deep in word-count;
+an unbridged method returning Stub in the wire files). Coverage steady 185-186/193.
+
 ## 2026-07-05 — T4.5: hang-list eliminated — 186/193 (96.4%) of the FULL corpus on v2
 
 The 16-file hang-list was stale (everything terminates); the real batch killer was a
