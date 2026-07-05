@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/token-formats-jws
+worktree: ../scalascript-wt-token-formats-jws
+started: 2026-07-05T11:35:36Z
+heartbeat: 2026-07-05T11:35:36Z
+status: in-progress
+task: token-formats-jws — portable JWS (RFC 7515) compact sign+verify, HS256 (HmacSha256) + EdDSA (Ed25519) over the portable crypto SPI in crypto-spi/shared; gated by RFC 7515 A.1 + RFC 8037 A.4 vectors, JVM+JS. Partial of BACKLOG token-formats (ES256K/PASETO/COSE remain).
