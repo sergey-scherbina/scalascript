@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t44-wave6
+worktree: ../scalascript-wt-v2-t44-wave6
+started: 2026-07-05
+status: in-progress
+task: T4.4 wave 6 — parsing cluster (error-node/parse-all/recover-until), then sql/effects + v1Show facade per time
