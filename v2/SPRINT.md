@@ -110,8 +110,11 @@ Self-contained queue for the isolated **`v2/`** subproject (separate from the re
       (`10-core-ir.md §8`.)
 - [x] K3 non-WASM breadth **DONE through K45**: stdlib, HM typed surface, effects/actors/async
       as libraries, and VM/JS/native-Rust backends as ssc-compiled programs.
-- [ ] **backend: ir → WASM** — BLOCKED on toolchain: no `rustup`/`wabt`/`wasmtime` in this env.
-      Unblock = `rustup target add wasm32-wasip1` (reuse Rust backend) or install `wabt`+`wasmtime`.
+- [x] **backend: ir → WASM** — ✅ DONE 2026-07-05: `rustup` is now present;
+      `wasm32-wasip1` target installed, Rust backend reused as planned. `v2/ssc0-wasm`
+      launcher + `scripts/run-wasi.mjs` (Node built-in WASI host — no wasmtime needed).
+      quicksort byte-identical to VM; tco = 1e6 tail calls constant-stack; Mira programs
+      work via the same target. Toolchain-gated checks in `conformance/check.sh`.
 
 ## K5 — Mira (ssct-hm): a Hindley-Milner typed language (DONE 2026-06-27)
 
@@ -210,9 +213,8 @@ OPEN (deferred): Fully-general numeric polymorphism (e.g. `r*r*pi` with `r` a pa
 
 - **Effect rows** — now in progress as **K10** below (light version: track the effect *set*); the full
   Koka-style system (typed payloads) stays deferred.
-- **WASM backend** — toolchain-blocked, re-confirmed 2026-06-28: no `rustup` (so `rustc` can't build
-  `wasm32-unknown-unknown` — "can't find crate for std"), and no `wabt`/`wasmtime`/`wasmer` to assemble or
-  run wasm. Unblock = install `rustup` + `rustup target add wasm32-unknown-unknown`, or `wabt`+`wasmtime`.
+- **WASM backend** — ✅ UNBLOCKED + SHIPPED 2026-07-05 (see K4): `rustup` appeared in the
+  environment; wasm32-wasip1 + Rust-backend reuse + Node WASI host. Nothing remains blocked here.
 
 ## K10 — Effect rows (research; light implementation)
 

@@ -53,9 +53,10 @@ actors, a JIT-to-bytecode, or any target backend. Each is an ssc0 program on the
 ./Mira      examples/hm-qsort.hm                # => "[Int]"   (Algorithm-W inferred)
 ./Mira-rust examples/hm-eval.hm > e.rs && rustc -O e.rs -o e && ./e   # => 7  (a typed interpreter, native)
 
-# the backends — one source, three targets, identical output:
+# the backends — one source, four targets, identical output:
 ./ssc0-js   examples/quicksort.ssc0 | node                          # => Cons(1, …)
 ./ssc0-rust examples/quicksort.ssc0 > q.rs && rustc -O q.rs -o q && ./q   # => Cons(1, …)
+./ssc0-wasm examples/quicksort.ssc0                                 # => Cons(1, …)  (wasm32-wasip1 under Node WASI)
 ```
 
 (`./ssc`, `./ssc0c`, `./ssct`, `./ssctc`, `./Mira`, `./Mira-{js,rust}`, `./ssc0-js`,
@@ -85,5 +86,7 @@ Conformance (`conformance/check.sh`, all green): the runtime compiler (3 modes),
 self-hosting fixpoints (single- and multi-file), the typed layer + typeclass resolution,
 effects (incl. multi-shot) / async / actors, and **all three targets (VM / JS / native Rust),
 TCO-correct**, agreeing byte-for-byte on real programs. Roadmap: [`ROADMAP.md`](ROADMAP.md);
-queue: [`SPRINT.md`](SPRINT.md). Remaining work is breadth (more stdlib/showcases and
-concurrency libraries) plus WASM when a toolchain is present — all ssc0 on the frozen kernel.
+queue: [`SPRINT.md`](SPRINT.md). **WASM shipped 2026-07-05**: `./ssc0-wasm` reuses the
+Rust backend with `--target wasm32-wasip1` and runs under Node's built-in WASI host —
+TCO-correct, byte-identical output. Remaining work is breadth (more stdlib/showcases and
+concurrency libraries) — all ssc0 on the frozen kernel.

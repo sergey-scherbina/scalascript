@@ -68,9 +68,12 @@ as programs `ir → target`.
 - [x] **Backends** — VM, JS, and native Rust are TCO-correct and covered by conformance.
 - [x] **Effects / async / actors** — algebraic effects, cooperative async, and core actor
       semantics are libraries on the tower, not kernel features.
-- [ ] **WASM** — blocked on missing `wabt`/`wasmtime`/`wasmer` or a Rust WASM target. Reuse the
-      Rust backend when `rustup target add wasm32-wasip1` is available, or build a binary wasm
-      emitter plus runtime.
+- [x] **WASM** — ✅ UNBLOCKED + SHIPPED (2026-07-05): `rustup` appeared in the environment;
+      `rustup target add wasm32-wasip1` + reuse of the Rust backend, exactly as planned.
+      `v2/ssc0-wasm` launcher (ssc0 → Rust → wasm32-wasip1 → Node's built-in WASI host,
+      `scripts/run-wasi.mjs`); TCO carries over (tco.ssc0 = 1e6 tail calls, constant stack).
+      Mira programs work identically (`mira-rust` output compiles with the same target).
+      Toolchain-gated conformance checks in `conformance/check.sh`.
 
 ## K60 — Mira: rename + fence language registry
 
