@@ -306,7 +306,13 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       passthrough, __resolve_given__ witness tables, tc-hierarchy walk) + extension
       SELF-RECURSION fix (member beats extension inside impl bodies — std monad
       instances hung). std-semigroup/index/functor + tagless-context-bounds PASS;
-      suite **46/58**. Remaining:
+      suite **46/58**. WAVE 8 (2026-07-05/06): **T4.4 COMPLETE — suite 59/59 GREEN** (was 22). using-clauses,
+      Free-monad Op lifting (effects x3 without CPS), String.toInt kernel parity,
+      facade raw display + LinkedHashMap order, direct vars, Enum.values, object-method
+      defaults/varargs, REAL try/catch (BridgeThrow carries the value), qualified case
+      patterns, sql/transaction fenced blocks (JDBC H2, fail-soft drivers). Corpus
+      155/193 (record). Regression discipline: full-history bisection worktree; two
+      systemic fixes (Op application lift; lossless Signal round-trip). Remaining:
       optic-polish (runtime `.copy` on DataV), parsing/sql/effects clusters, v1Show
       facade-INNER rendering (json-value's last line).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
