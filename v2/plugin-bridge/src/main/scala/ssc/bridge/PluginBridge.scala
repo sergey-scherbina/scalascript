@@ -46,7 +46,6 @@ object PluginBridge:
    *  BlockForm runners. Also registers the built-in `handle` global. */
   def loadAll(): Int =
     registerHandle()
-    registerActors()
     registerSys()
     registerInterpreterBuiltins()
     registerComputedCellDispatch()
@@ -117,6 +116,11 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("emit",   ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     registerBatchRunnerStubs()
+    // Actor runtime registers LAST so its spawn/receive/self/exit/runActors
+    // globals win over same-named v1 plugin intrinsics (a bridged os 'exit'
+    // used to shadow the actor exit and System.exit(0) killed the batch JVM).
+    registerActors()
+
     count
 
   /** Override oauth.client.discoverAs/exchangeAuthorizationCode BEFORE buildNamespaceObjects()
@@ -994,7 +998,7 @@ object PluginBridge:
     val sysObj = ForeignV(scala.collection.immutable.Map[String, V2Value](
       "env"  -> envObj,  // 0-arg: sys.env → envObj; "KEY"-arg: handled by __method__.env plugin
       "exit" -> ClosV(Runtime.emptyEnv, 1, env => {
-        System.exit(env.last match { case IntV(n) => n.toInt; case _ => 0 })
+        ssc.Runtime.exitHandler(env.last match { case IntV(n) => n.toInt; case _ => 0 })
         Done(UnitV)
       }),
     ).asInstanceOf[AnyRef])
@@ -1128,16 +1132,19 @@ object PluginBridge:
       Done(V2Value.ForeignV(mb))
     }))
 
-    // exit(actorRef, reason) — mark dead + interrupt actor thread (2-arg, reason ignored)
-    V2PluginRegistry.registerGlobal("exit", V2Value.ClosV(Runtime.emptyEnv, 2, env => {
-      val ref = env(env.length - 2)  // first of 2 args
-      ref match
+    // exit — POLYMORPHIC (variadic): exit(actorRef[, reason]) kills an actor;
+    // exit([code]) is a process exit routed through Runtime.exitHandler so an
+    // embedding batch runner can intercept it instead of dying.
+    V2PluginRegistry.registerGlobal("exit", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      val first = if env.nonEmpty then env(0) else V2Value.UnitV
+      first match
         case V2Value.ForeignV(mb: ActorMailbox) =>
           mb.dead = true
           val t = mb.thread
           if t != null then t.interrupt()
-        case _ => ()
-      Done(V2Value.UnitV)
+          Done(V2Value.UnitV)
+        case V2Value.IntV(code) => Runtime.exitHandler(code.toInt)
+        case _ => Runtime.exitHandler(0)
     }))
 
     // runActors { body } — BlockForm-like: runs body in a main actor VirtualThread

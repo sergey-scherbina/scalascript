@@ -59,6 +59,11 @@ object Runtime:
   // Singleton empty env; reused for arity-0 closures to avoid allocation.
   val emptyEnv: Env = Array.empty[Value]
 
+  /** io.exit lands here. Default = real process exit; embedders that run many
+   *  programs in one JVM (batchCli) override it to throw a catchable signal
+   *  instead — a program's exit(0) must not kill the whole batch. */
+  var exitHandler: Int => Nothing = code => sys.exit(code)
+
   // Trampoline: run a compiled Code to a final Value, bouncing tail Calls in
   // CONSTANT STACK (specs/10-core-ir.md invariant 7).
   def run(code0: Code, env0: Env): Value =
@@ -1266,7 +1271,7 @@ object Prims:
     case "io.readFile"  => a => BytesV(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(str(a, 0))).toVector)
     case "io.writeFile" => a => java.nio.file.Files.write(java.nio.file.Path.of(str(a, 0)), bytes(a, 1).toArray); UnitV
     case "io.env"  => a => sys.env.get(str(a, 0)).fold(none)(s => some(StrV(s)))
-    case "io.exit" => a => sys.exit(int(a, 0).toInt); UnitV
+    case "io.exit" => a => Runtime.exitHandler(int(a, 0).toInt); UnitV
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
     // ── FrontendBridge collection factories ────────────────────────────────────────

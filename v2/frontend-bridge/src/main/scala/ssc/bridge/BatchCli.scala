@@ -4,22 +4,22 @@ import ssc.*
 
 /** Batch-run all .ssc files from a directory, reporting PASS/FAIL.
  *  Usage: sbt "v2FrontendBridge/runMain ssc.bridge.batchCli <dir> [filter]" */
+/** Thrown instead of a real process exit while batch-running (see Runtime.exitHandler). */
+private final class BatchExit(val code: Int) extends RuntimeException(s"exit($code)")
+
 @main def batchCli(args: String*): Unit =
   PluginBridge.loadAll()
+  // A program's exit(0) must not kill the batch JVM (actors-pingpong ends with
+  // exit() — this silently killed sbt and looked like a "hang"). Exit code 0
+  // counts as PASS; nonzero as FAIL.
+  Runtime.exitHandler = code => throw new BatchExit(code)
   val dir = new java.io.File(args.headOption.getOrElse("examples"))
   val filterArg = args.lift(1).getOrElse("")
-  // Known examples that spawn non-daemon threads or hang the batch runner
-  val hangingExamples = Set(
-    "actors-pingpong.ssc", "actors-typed-remote-spawn.ssc",
-    "rozum-agent-demo.ssc", "rozum-meeting-demo.ssc",
-    // Dataset/distributed: lazy Op free-monad executor not implemented → infinite loop
-    "dataset-parallel-sum.ssc", "dataset-stats.ssc", "dataset-typed-mapping.ssc",
-    "dataset-word-count.ssc", "distributed-dataset-codec.ssc",
-    "distributed-dataset-typed-helpers.ssc", "distributed-dataset-wire-protocol.ssc",
-    "distributed-dataset-wire-shuffle.ssc", "distributed-join.ssc",
-    "distributed-log-aggregation.ssc", "distributed-streams.ssc",
-    "distributed-word-count.ssc", "word-count.ssc"
-  )
+  // T4.5 (2026-07-05): the historical hang-list is GONE — all 16 entries were
+  // re-probed with a per-file watchdog and every one TERMINATES now (the actor
+  // dead-flag/interrupt fixes and the Dataset executor landed since the list was
+  // written; 2 listed files no longer exist). Kept as an empty escape hatch.
+  val hangingExamples = Set.empty[String]
   val files = dir.listFiles()
     .filter(f => f.getName.endsWith(".ssc") && !hangingExamples.contains(f.getName))
     .filter(f => filterArg.isEmpty || f.getName.contains(filterArg))
@@ -35,6 +35,9 @@ import ssc.*
     result match
       case scala.util.Success(_) =>
         println(s"PASS ${f.getName}")
+        pass += 1
+      case scala.util.Failure(be: BatchExit) if be.code == 0 =>
+        println(s"PASS ${f.getName} (exit 0)")
         pass += 1
       case scala.util.Failure(e) =>
         val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName).linesIterator.next().take(100)
