@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-batch-state-reset
-worktree: ../scalascript-wt-v2-batch-state-reset
-started: 2026-07-05
-status: in-progress
-task: per-file plugin-state reset in batchCli — make the north-star coverage metric deterministic (currently +/-2 order-dependent)

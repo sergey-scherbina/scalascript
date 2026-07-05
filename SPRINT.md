@@ -254,7 +254,7 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       **v1-INTERPRETER PARITY REACHED on the examples corpus.** Optional follow-up
       track (not parity): run the `backend: jvm` examples through the Phase-2c JVM
       source generator with the typed-data jars.
-      Batch counts remain ±1 order-dependent (plugin-state leak; per-file reset would fix).
+      Batch counts: FIXED 2026-07-05 night — per-file registry snapshot/restore in batchCli; deterministic 184/193.
 - [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
       All 16 entries terminate (probe with per-file forked watchdog); the true batch
       killer was a bridged v1 `exit` (System.exit) shadowing the actor exit. Fixed:

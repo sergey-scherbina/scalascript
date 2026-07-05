@@ -25,9 +25,10 @@ spawn), `runDistributed`/`runDistributedWire`/`runDistributedShuffleWire` (distr
 MapReduce drivers), Dataset codec `Op/3` (DatasetCodec/DatasetWire need typed-codec
 bridging — the Op/3 is the "unhandled plugin method → free-monad Op" fallback
 reaching a user match). `pg-listen-notify` needs a real database (env-ish).
-KNOWN HAZARD: batch PASS counts are ±1 order-dependent — plugin state (e.g. a
-registered 'default' database) leaks between files in the one-JVM batch; a per-file
-state reset or forked-per-file mode would make counts exact.
+FIXED 2026-07-05 night: batch counts are now DETERMINISTIC — batchCli snapshots the
+plugin registry after loadAll and restores it per file (`V2PluginRegistry.snapshot/
+restore`). Two consecutive full runs: exactly **184/193**, and all 9 FAILs are the
+classified out-of-parity set above.
 Next enhancement: output-equality vs the v1 interpreter (PASS = exit-0 today).
 
 ## MILESTONE — 2026-07-05 night: **v1-INTERPRETER PARITY REACHED on the examples corpus**
