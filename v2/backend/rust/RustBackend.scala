@@ -55,13 +55,14 @@ object RustBackend:
           val expr = genExpr(d.body, Nil, 0)
           sb ++= s"    let $name: V = $expr;\n"
 
-    // Entry expression
+    // Entry expression — VM semantics (Main.out): print non-Unit result, strings quoted
     sb ++= s"    let _result: V = ${genExpr(p.entry, Nil, 0)};\n"
+    sb ++= "    match _result { V::Unit => {}, ref v => println!(\"{}\", show_entry(v)) }\n"
     sb ++= "}\n"
     // Thin main: spawn ssc_run in a thread with a large stack for deep recursion.
     sb ++= "fn main() {\n"
     sb ++= "    std::thread::Builder::new()\n"
-    sb ++= "        .stack_size(256 * 1024 * 1024)\n"
+    sb ++= "        .stack_size(2048 * 1024 * 1024)\n"  // 2GB virtual reservation: tco.coreir (1M non-TCO frames) needs >256MB; real trampoline TCO is queued (v2-rust-backend-tco)
     sb ++= "        .spawn(ssc_run)\n"
     sb ++= "        .unwrap()\n"
     sb ++= "        .join()\n"
@@ -631,6 +632,11 @@ impl fmt::Debug for V {
 }
 
 // ── Show ──────────────────────────────────────────────────────────────────────
+
+// Entry-result display (VM Show.show): strings are quoted at top level
+fn show_entry(v: &V) -> String {
+    match v { V::Str(s) => format!("\"{}\"", s), _ => show(v) }
+}
 
 fn show(v: &V) -> String {
     match v {

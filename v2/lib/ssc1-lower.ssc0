@@ -972,11 +972,18 @@ def lowerE = (scope, rawExpr) =>
         lowerBlock(scope, data)
       else if #seq(tag, "assign") then
         -- assignment in expression position (e.g. then-branch of if-then)
+        -- Mirrors the lowerBlock assign case: long cell (@@name) first, then @name.
+        -- (Missing @@ check here emitted a bogus IrGlobal("@x") — the T5.1 bug.)
         match data {
           case Pair(name, expr) =>
-            let cellName = #sconcat("@", name) in
-            let cellRef = lookupVar(scope, cellName) in
-            IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+            let llName = #sconcat("@@", name) in
+            match lookupVarOpt(scope, llName) {
+              case Some(lcellRef) =>
+                IrPrim("lcell.set", Cons(lcellRef, Cons(lowerE(scope, expr), Nil)))
+              case None =>
+                let cellRef = lookupVar(scope, #sconcat("@", name)) in
+                IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+            }
         }
       else
         IrLit(IrUnit)

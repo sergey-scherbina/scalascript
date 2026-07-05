@@ -82,8 +82,8 @@ object JsGen:
 
     case Lit(CUnit)     => "null"
     case Lit(CBool(b))  => b.toString
-    case Lit(CInt(n))   => n.toString
-    case Lit(CBig(n))   => n.toString
+    case Lit(CInt(n))   => s"${n}n"
+    case Lit(CBig(n))   => s"${n}n"
     case Lit(CFloat(d)) =>
       if d.isNaN then "NaN"
       else if d.isPosInfinity then "Infinity"
@@ -210,7 +210,7 @@ object JsGen:
       s"case ${jsStr(arm.tag)}:{$fieldBinds return $bodyJs;}"
     }.mkString(" ")
     val defaultJs = default match
-      case None    => s"throw new Error('match: no arm for '+$sv.t+' ('+JSON.stringify($sv)+')');"
+      case None    => s"throw new Error('match: no arm for '+$sv.t+' ('+$$show($sv)+')');"
       case Some(d) => s"return ${genE(d, scope, tco)};"
     s"(function(){ var $sv=$scrutJs; switch($sv.t){ $armCases default:{$defaultJs} } })()"
 
@@ -219,13 +219,13 @@ object JsGen:
   private def genPrim(op: String, args: List[Term], scope: Scope): String =
     def a(i: Int) = genE(args(i), scope, tco = false)
     op match
-      // Integer arithmetic
-      case "i.add"  => s"(${a(0)}+${a(1)})"
-      case "i.sub"  => s"(${a(0)}-${a(1)})"
-      case "i.mul"  => s"(${a(0)}*${a(1)})"
-      case "i.div"  => s"Math.trunc(${a(0)}/${a(1)})"
+      // Integer arithmetic — ints are BigInt; wrap to 64-bit like the VM's Long
+      case "i.add"  => s"BigInt.asIntN(64,(${a(0)}+${a(1)}))"
+      case "i.sub"  => s"BigInt.asIntN(64,(${a(0)}-${a(1)}))"
+      case "i.mul"  => s"BigInt.asIntN(64,(${a(0)}*${a(1)}))"
+      case "i.div"  => s"BigInt.asIntN(64,(${a(0)}/${a(1)}))"
       case "i.mod"  => s"(${a(0)}%${a(1)})"
-      case "i.neg"  => s"(-(${a(0)}))"
+      case "i.neg"  => s"BigInt.asIntN(64,(-(${a(0)})))"
       // Integer comparisons
       case "i.eq"   => s"(${a(0)}===${a(1)})"
       case "i.lt"   => s"(${a(0)}<${a(1)})"
@@ -237,9 +237,9 @@ object JsGen:
       case "i.or"   => s"(${a(0)}|${a(1)})"
       case "i.xor"  => s"(${a(0)}^${a(1)})"
       case "i.not"  => s"(~${a(0)})"
-      case "i.shl"  => s"(${a(0)}<<${a(1)})"
-      case "i.shr"  => s"(${a(0)}>>${a(1)})"
-      case "i.ushr" => s"(${a(0)}>>>${a(1)})"
+      case "i.shl"  => s"BigInt.asIntN(64,(${a(0)}<<(${a(1)}&63n)))"
+      case "i.shr"  => s"(${a(0)}>>(${a(1)}&63n))"
+      case "i.ushr" => s"BigInt.asIntN(64,(BigInt.asUintN(64,${a(0)})>>(${a(1)}&63n)))"
       // Float arithmetic
       case "f.add"  => s"(${a(0)}+${a(1)})"
       case "f.sub"  => s"(${a(0)}-${a(1)})"
@@ -270,16 +270,29 @@ object JsGen:
       case "big.le"   => s"(BigInt(${a(0)})<=BigInt(${a(1)}))"
       case "big.gt"   => s"(BigInt(${a(0)})>BigInt(${a(1)}))"
       case "big.ge"   => s"(BigInt(${a(0)})>=BigInt(${a(1)}))"
+      // Numeric conversions
+      case "i->str"  => s"String(${a(0)})"
+      case "i->f"    => s"Number(${a(0)})"
+      case "i->big"  => a(0)
+      case "big->i"  => s"BigInt.asIntN(64,${a(0)})"
+      case "big->f"  => s"Number(${a(0)})"
+      case "big->str"=> s"String(${a(0)})"
+      case "f->i"    => s"BigInt(Math.trunc(${a(0)}))"
+      case "f->big"  => s"BigInt(Math.trunc(${a(0)}))"
+      case "f->str"  => s"$$fToStr(${a(0)})"
+      // Data reflection
+      case "tagOf"   => s"(${a(0)}.t)"
+      case "arity"   => s"BigInt(${a(0)}.f.length)"
       // Boolean
       case "not"    => s"(!${a(0)})"
       // String
       case "sconcat"   => s"(''+(${a(0)})+(${a(1)}))"   // works for str+int, int+str etc
       case "seq"       => s"(${a(0)}===${a(1)})"
-      case "scmp"      => s"(${a(0)}<${a(1)}?-1:${a(0)}>${a(1)}?1:0)"
-      case "sindexOf"  => s"${a(0)}.indexOf(${a(1)})"
-      case "slen"      => s"${a(0)}.length"
-      case "sslice"    => s"${a(0)}.substring(${a(1)},${a(2)})"
-      case "scodeAt"   => s"${a(0)}.charCodeAt(${a(1)})"
+      case "scmp"      => s"(${a(0)}<${a(1)}?-1n:${a(0)}>${a(1)}?1n:0n)"
+      case "sindexOf"  => s"BigInt(${a(0)}.indexOf(${a(1)}))"
+      case "slen"      => s"BigInt(${a(0)}.length)"
+      case "sslice"    => s"${a(0)}.substring(Number(${a(1)}),Number(${a(2)}))"
+      case "scodeAt"   => s"BigInt(${a(0)}.charCodeAt(Number(${a(1)})))"
       case "sfromCodes"=> s"$$sfromCodes(${a(0)})"
       case "str.split" => s"$$strSplit(${a(0)},${a(1)})"
       case "str.trim"  => s"${a(0)}.trim()"
@@ -297,12 +310,12 @@ object JsGen:
       case "lcell.set"  => s"(${a(0)}[0]=${a(1)},null)"
       // Arrays (mutable JS arrays)
       case "arr.new"    => s"[]"
-      case "arr.len"    => s"${a(0)}.length"
-      case "arr.get"    => s"${a(0)}[${a(1)}]"
-      case "arr.set"    => s"(${a(0)}[${a(1)}]=${a(2)},null)"
+      case "arr.len"    => s"BigInt(${a(0)}.length)"
+      case "arr.get"    => s"${a(0)}[Number(${a(1)})]"
+      case "arr.set"    => s"(${a(0)}[Number(${a(1)})]=${a(2)},null)"
       case "arr.push"   => s"(${a(0)}.push(${a(1)}),null)"
       case "arr.pop"    => s"${a(0)}.pop()"
-      case "arr.slice"  => s"${a(0)}.slice(${a(1)},${a(2)})"
+      case "arr.slice"  => s"${a(0)}.slice(Number(${a(1)}),Number(${a(2)}))"
       // Maps (wrapper {m: Map[str->val], k: Map[str->origKey]})
       case "map.new"    => s"$$mapNew()"
       case "map.get"    => s"$$mapGet(${a(0)},${a(1)})"
@@ -310,19 +323,20 @@ object JsGen:
       case "map.del"    => s"$$mapDel(${a(0)},${a(1)})"
       case "map.has"    => s"$$mapHas(${a(0)},${a(1)})"
       case "map.keys"   => s"$$mapKeys(${a(0)})"
-      case "map.size"   => s"${a(0)}.m.size"
+      case "map.size"   => s"BigInt(${a(0)}.m.size)"
       // Bytes (Uint8Array)
-      case "bget"    => s"${a(0)}[${a(1)}]"
+      case "bget"    => s"BigInt(${a(0)}[Number(${a(1)})])"
+      case "blen"    => s"BigInt(${a(0)}.length)"
       case "bconcat" => s"$$bconcat(${a(0)},${a(1)})"
-      case "bslice"  => s"${a(0)}.subarray(${a(1)},${a(2)})"
+      case "bslice"  => s"${a(0)}.subarray(Number(${a(1)}),Number(${a(2)}))"
       // fieldAt: direct field access by index
-      case "fieldAt" => s"${a(0)}.f[${a(1)}]"
+      case "fieldAt" => s"${a(0)}.f[Number(${a(1)})]"
       // IO
       case "io.println"  => s"$$println(${a(0)})"
       case "io.print"    => s"$$print(${a(0)})"
       case "io.eprint"   => s"$$eprint(${a(0)})"
       case "io.args"     => s"$$ioArgs()"
-      case "io.exit"     => s"process.exit(${a(0)})"
+      case "io.exit"     => s"process.exit(Number(${a(0)}))"
       case "io.env"      => s"$$ioEnv(${a(0)})"
       case "io.readFile" => s"$$ioReadFile(${a(0)})"
       case "io.writeFile"=> s"(require('fs').writeFileSync(${a(0)},Buffer.from(${a(1)})),null)"
@@ -418,8 +432,7 @@ function $strSplit(s,delim){
 function $strLines(s){ return $strSplit(s,'\n'); }
 function $strToI(s){
   if(!/^-?\d+$/.test(s.trim())) return {t:'None',f:[]};
-  var n=Number(s);
-  return {t:'Some',f:[n]};
+  return {t:'Some',f:[BigInt.asIntN(64,BigInt(s.trim()))]};
 }
 function $strToF(s){
   var n=Number(s);
@@ -430,8 +443,13 @@ function $strToBig(s){
 }
 function $sfromCodes(list){
   var codes=[];
-  for(var cur=list;cur.t==='Cons';cur=cur.f[1]) codes.push(cur.f[0]);
+  for(var cur=list;cur.t==='Cons';cur=cur.f[1]) codes.push(Number(cur.f[0]));
   return String.fromCharCode.apply(null,codes);
+}
+// Scala-style Double display for f->str: integral doubles show a trailing .0
+function $fToStr(v){
+  if(Number.isFinite(v)&&Number.isInteger(v)&&Math.abs(v)<1e21) return String(v)+'.0';
+  return String(v);
 }
 
 // ── Map (tracks original keys for map.keys) ──────────────────────────────────

@@ -1876,9 +1876,11 @@ kc5tc1=$(ssc run bin/ssc1c.ssc0 examples/kc5-typeclass.ssc | ssc run-ir /dev/std
 kc5tc2=$(ssc run bin/ssc1c.ssc0 examples/kc5-typeclass.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc5tc1" = "shown" ] && [ "$kc5tc2" = "shown" ]; then printf 'ok   %-26s => %s\n' "kc5 typeclass inject" "shown shown"
 else printf 'FAIL %-26s\n  got: [%s] [%s] want: [shown] [shown]\n' "kc5 typeclass inject" "$kc5tc1" "$kc5tc2"; fail=1; fi
+# (the example uses `1 - "a"`: `1 + "a"` is LEGAL Scala — string concat "1a" — and
+# KC5-micro correctly lowers it to sconcat, so it must not be the type-error probe)
 kc5tce=$(java -jar "$JAR" run bin/ssc1c.ssc0 examples/kc5-typechk-err.ssc 2>&1 || true)
-if echo "$kc5tce" | grep -q "type error"; then printf 'ok   %-26s => type error\n' 'kc5 type-error 1+"a"'
-else printf 'FAIL %-26s\n  got: [%s] want: type error\n' 'kc5 type-error 1+"a"' "$kc5tce"; fail=1; fi
+if echo "$kc5tce" | grep -q "type error"; then printf 'ok   %-26s => type error\n' 'kc5 type-error 1-"a"'
+else printf 'FAIL %-26s\n  got: [%s] want: type error\n' 'kc5 type-error 1-"a"' "$kc5tce"; fail=1; fi
 echo '# KC11 — lambda expressions + return statement'
 kc11la=$(ssc run bin/ssc1c.ssc0 examples/kc11-lambda.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc11la" = "12" ]; then printf 'ok   %-26s => %s\n' "kc11 lambda/compose" "$kc11la"

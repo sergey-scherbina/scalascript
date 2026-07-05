@@ -1790,7 +1790,7 @@ object Prims:
     case "sconcat"  => Some { case (StrV(a),  StrV(b))    => StrV(a + b)
                               case (DataV(_, f1), DataV(_, f2)) =>
                                 val n = f1.length + f2.length; DataV(s"Tuple$n", f1 ++ f2)
-                              case (a, b) => sys.error("sconcat: bad types") }
+                              case (a, b) => StrV(anyStr(a) + anyStr(b)) }  // mirror the general table: coerce like "s" + 42
     case "seq"      => Some { case (StrV(a),  StrV(b))    => BoolV(a == b); case (a,b) => sys.error("seq: not Str") }
     case "scmp"     => Some { case (StrV(a),  StrV(b))    => IntV(a.compareTo(b).toLong); case _ => sys.error("scmp: not Str") }
     case "sindexOf" => Some { case (StrV(a),  StrV(b))    => IntV(a.indexOf(b).toLong); case _ => sys.error("sindexOf: not Str") }
