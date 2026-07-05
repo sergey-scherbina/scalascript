@@ -266,6 +266,13 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 - [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —
       runs each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diffs stdout → per-example MATCH/
       MISMATCH/V2-ERROR + parity %. Point `$SSC` at an assembled `ssc` for a fast full-corpus run.
+      **FULL SWEEP 2026-07-05 — 52 terminating examples: 27/52 = 52% output-identical** (16 mismatch,
+      9 v2-error). Details + divergence clusters in `v2/output-parity-baseline.md`. The exit-0 coverage
+      (96.4%) massively overstates real compat. Biggest lever: SQL/Spark/content/rails plugin natives return
+      `Stub`/`Op` on v2 instead of executing. Also: effects shape, derives/mirror (`String|Int`→`Any|Any`),
+      quoted macros unsupported, 9 empty-output errors. (`os-env`/`uuid-v7` mismatches are v2-fine, not bugs.)
+      Runner: `sbt installBin` now stages the v2 classes (since `cli dependsOn v2FrontendBridge`), so
+      **`bin/ssc run --v2` works natively** — use `SSC="bin/ssc" scripts/v2-output-parity …` for fast sweeps.
       **First sample (4 pure examples): 2/4 identical.** Surfaced two real v2 output divergences (exit-0 but
       wrong output — the gap the 96.4% coverage hides): `algebraic-effects` (effects output shape) and
       **`custom-derives-mirror`** (v1 prints union `String|Int`, v2 widens to `Any|Any` — a derives/mirror

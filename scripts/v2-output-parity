@@ -25,11 +25,14 @@ DEFAULT=(examples/bitwise-operators.ssc examples/custom-derives-mirror.ssc examp
 FILES=("$@"); [ ${#FILES[@]} -eq 0 ] && FILES=("${DEFAULT[@]}")
 
 # Run one program on one backend, returning only its stdout (strip sbt/JVM noise).
+# Each run is bounded by $PARITY_TIMEOUT seconds so a server/actor example can't stall the sweep.
 run_one() { # $1=file  $2=extra-flag(--v2 or empty)
   if [ -n "${SSC:-}" ]; then
-    "$SSC" run $2 "$1" 2>/dev/null
+    # $SSC is a command (unquoted so "java -jar ssc.jar" word-splits).
+    timeout "${PARITY_TIMEOUT:-90}" $SSC run $2 "$1" 2>/dev/null \
+      | grep -vE '^NOTE: Picked up'
   else
-    sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null \
+    timeout "${PARITY_TIMEOUT:-180}" sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null \
       | grep -vE '^\[(info|success|warn|error)\]|^NOTE: Picked up|running scalascript\.cli'
   fi
 }
