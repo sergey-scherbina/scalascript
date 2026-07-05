@@ -1943,6 +1943,20 @@ else
   echo "skip wasm checks (need: rustup target wasm32-wasip1 + node with node:wasi)"
 fi
 
+echo '# T5.6 — Float/Double arithmetic via ssc1c (numeric-poly i.* prims)'
+kcflt=$(ssc run bin/ssc1c.ssc0 examples/kc-float.ssc | ssc run-ir /dev/stdin | tr '\n' ' ')
+if [ "$kcflt" = "10.0 3.75 4.5 true -2.5 " ]; then printf 'ok   %-26s => %s\n' "kc-float Double math" "$kcflt"
+else printf 'FAIL %-26s\n  got: [%s] want: [10.0 3.75 4.5 true -2.5 ]\n' "kc-float Double math" "$kcflt"; fail=1; fi
+fnum=$(ssc run-ir conformance/floatnum.coreir)
+if [ "$fnum" = "Pair(3.0, Pair(4.5, Pair(true, -2.5)))" ]; then printf 'ok   %-26s => VM numeric-poly prims\n' "floatnum fixture"
+else printf 'FAIL %-26s\n  got: [%s]\n' "floatnum fixture" "$fnum"; fail=1; fi
+
+echo '# T5.7 — top-level statements via ssc1 (examples/recursion.ssc end-to-end)'
+recout=$(ssc run bin/ssc1-run.ssc0 ../examples/recursion.ssc | ssc run-ir /dev/stdin | tr '\n' ' ')
+recwant="3628800 144 5000050000 0 10000 true true false false Longest Collatz sequence up to 1000: starts at 871, 178 steps ping pang pong "
+if [ "$recout" = "$recwant" ]; then printf 'ok   %-26s => 13 outputs incl. Collatz + tuppat + block-lambda\n' "recursion.ssc via ssc1"
+else printf 'FAIL %-26s\n  got: [%s]\n want: [%s]\n' "recursion.ssc via ssc1" "$recout" "$recwant"; fail=1; fi
+
 echo '# KC13 — end-to-end .ssc Markdown runner + ${ident} interpolation'
 kc13md=$(ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc13md" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc13 md .ssc runner" "$kc13md"

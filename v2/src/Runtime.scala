@@ -1830,7 +1830,7 @@ object Prims:
     case "cell.new" => Some(v  => ForeignV(scala.Array[Value](v)))
     case "lcell.get"=> Some(c  => IntV(c.asInstanceOf[LongCellV].v))
     case "lcell.new"=> Some(v  => new LongCellV(asInt1(v)))
-    case "i.neg"    => Some { case IntV(n) => IntV(-n);  case v => IntV(-asInt1(v)) }
+    case "i.neg"    => Some { case IntV(n) => IntV(-n);  case FloatV(d) => FloatV(-d); case v => IntV(-asInt1(v)) }
     case "i.not"    => Some { case IntV(n) => IntV(~n);  case v => IntV(~asInt1(v)) }
     case "not"      => Some { case BoolV(b) => BoolV(!b); case v => sys.error(s"not: not Bool: ${Show.show(v)}") }
     case "slen"     => Some { case StrV(s) => IntV(s.length.toLong); case v => sys.error(s"slen: not Str: ${Show.show(v)}") }
@@ -1863,32 +1863,30 @@ object Prims:
     case _          => None
 
   def resolve2(op: String): Option[Fn2] = op match
+    // Numeric fast paths mirror the GENERAL table's numBin/numCmp polymorphism
+    // (Int, Float, mixed). Keep the (IntV, IntV) hot case inline; delegate the cold
+    // shapes — a fast path stricter than the general table silently diverges
+    // (the sconcat/T5.4 and float-div/T5.6 lessons).
     case "i.add"    => Some { case (IntV(x),   IntV(y))   => IntV(x + y)
-                              case (FloatV(x), FloatV(y)) => FloatV(x + y)
-                              case (FloatV(x), IntV(y))   => FloatV(x + y.toDouble)
-                              case (IntV(x),  FloatV(y))  => FloatV(x.toDouble + y)
-                              case (a, b)                  => sys.error(s"i.add: bad args") }
+                              case (a, b)                  => numBin(List(a, b), _ + _, _ + _) }
     case "i.sub"    => Some { case (IntV(x),   IntV(y))   => IntV(x - y)
-                              case (FloatV(x), FloatV(y)) => FloatV(x - y)
-                              case (a, b)                  => IntV(asInt1(a) - asInt1(b)) }
+                              case (a, b)                  => numBin(List(a, b), _ - _, _ - _) }
     case "i.mul"    => Some { case (IntV(x),   IntV(y))   => IntV(x * y)
-                              case (FloatV(x), FloatV(y)) => FloatV(x * y)
-                              case (a, b)                  => IntV(asInt1(a) * asInt1(b)) }
+                              case (a, b)                  => numBin(List(a, b), _ * _, _ * _) }
     case "i.div"    => Some { case (IntV(x),   IntV(y))   => IntV(x / y)
-                              case (a, b)                  => IntV(asInt1(a) / asInt1(b)) }
+                              case (a, b)                  => numBin(List(a, b), _ / _, _ / _) }
     case "i.mod"    => Some { case (IntV(x),   IntV(y))   => IntV(x % y)
-                              case (a, b)                  => IntV(asInt1(a) % asInt1(b)) }
+                              case (a, b)                  => numBin(List(a, b), _ % _, _ % _) }
     case "i.eq"     => Some { case (IntV(x),   IntV(y))   => BoolV(x == y)
-                              case (a, b)                  => BoolV(asInt1(a) == asInt1(b)) }
+                              case (a, b)                  => numCmp(List(a, b), _ == _, _ == _) }
     case "i.lt"     => Some { case (IntV(x),   IntV(y))   => BoolV(x < y)
-                              case (FloatV(x), FloatV(y)) => BoolV(x < y)
-                              case (a, b)                  => BoolV(asInt1(a) < asInt1(b)) }
+                              case (a, b)                  => numCmp(List(a, b), _ < _, _ < _) }
     case "i.le"     => Some { case (IntV(x),   IntV(y))   => BoolV(x <= y)
-                              case (a, b)                  => BoolV(asInt1(a) <= asInt1(b)) }
+                              case (a, b)                  => numCmp(List(a, b), _ <= _, _ <= _) }
     case "i.gt"     => Some { case (IntV(x),   IntV(y))   => BoolV(x > y)
-                              case (a, b)                  => BoolV(asInt1(a) > asInt1(b)) }
+                              case (a, b)                  => numCmp(List(a, b), _ > _, _ > _) }
     case "i.ge"     => Some { case (IntV(x),   IntV(y))   => BoolV(x >= y)
-                              case (a, b)                  => BoolV(asInt1(a) >= asInt1(b)) }
+                              case (a, b)                  => numCmp(List(a, b), _ >= _, _ >= _) }
     case "i.and"    => Some { case (IntV(x),   IntV(y))   => IntV(x & y);  case (a,b) => IntV(asInt1(a) & asInt1(b)) }
     case "i.or"     => Some { case (IntV(x),   IntV(y))   => IntV(x | y);  case (a,b) => IntV(asInt1(a) | asInt1(b)) }
     case "i.xor"    => Some { case (IntV(x),   IntV(y))   => IntV(x ^ y);  case (a,b) => IntV(asInt1(a) ^ asInt1(b)) }

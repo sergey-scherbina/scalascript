@@ -219,15 +219,17 @@ object JsGen:
   private def genPrim(op: String, args: List[Term], scope: Scope): String =
     def a(i: Int) = genE(args(i), scope, tco = false)
     op match
-      // Integer arithmetic — ints are BigInt; wrap to 64-bit like the VM's Long
-      case "i.add"  => s"BigInt.asIntN(64,(${a(0)}+${a(1)}))"
-      case "i.sub"  => s"BigInt.asIntN(64,(${a(0)}-${a(1)}))"
-      case "i.mul"  => s"BigInt.asIntN(64,(${a(0)}*${a(1)}))"
-      case "i.div"  => s"BigInt.asIntN(64,(${a(0)}/${a(1)}))"
-      case "i.mod"  => s"(${a(0)}%${a(1)})"
-      case "i.neg"  => s"BigInt.asIntN(64,(-(${a(0)})))"
-      // Integer comparisons
-      case "i.eq"   => s"(${a(0)}===${a(1)})"
+      // Numeric arithmetic — ints are BigInt (64-bit wrapped), floats are numbers;
+      // i.* prims are numeric-POLYMORPHIC like the VM's numBin (mixed → float)
+      case "i.add"  => s"$$nadd(${a(0)},${a(1)})"
+      case "i.sub"  => s"$$nsub(${a(0)},${a(1)})"
+      case "i.mul"  => s"$$nmul(${a(0)},${a(1)})"
+      case "i.div"  => s"$$ndiv(${a(0)},${a(1)})"
+      case "i.mod"  => s"$$nmod(${a(0)},${a(1)})"
+      case "i.neg"  => s"$$nneg(${a(0)})"
+      // Numeric comparisons: JS relational ops are mixed bigint/number safe;
+      // equality needs loose == (1n === 1 is false)
+      case "i.eq"   => s"(${a(0)}==${a(1)})"
       case "i.lt"   => s"(${a(0)}<${a(1)})"
       case "i.le"   => s"(${a(0)}<=${a(1)})"
       case "i.gt"   => s"(${a(0)}>${a(1)})"
@@ -366,6 +368,19 @@ object JsGen:
 "use strict";
 // v2 Core IR → JavaScript runtime
 
+// ── Numeric polymorphism (VM numBin semantics: Int×Int→Int wrapped, any Float→Float)
+function $nadd(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
+  return ab&&bb ? BigInt.asIntN(64,a+b) : (ab?Number(a):a)+(bb?Number(b):b); }
+function $nsub(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
+  return ab&&bb ? BigInt.asIntN(64,a-b) : (ab?Number(a):a)-(bb?Number(b):b); }
+function $nmul(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
+  return ab&&bb ? BigInt.asIntN(64,a*b) : (ab?Number(a):a)*(bb?Number(b):b); }
+function $ndiv(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
+  return ab&&bb ? BigInt.asIntN(64,a/b) : (ab?Number(a):a)/(bb?Number(b):b); }
+function $nmod(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
+  return ab&&bb ? (a%b) : (ab?Number(a):a)%(bb?Number(b):b); }
+function $nneg(a){ return typeof a==='bigint' ? BigInt.asIntN(64,-a) : -a; }
+
 // ── Trampoline ───────────────────────────────────────────────────────────────
 // Every closure call goes through $c which drives the trampoline.
 // Tail calls (tco=true in codegen) return $tco thunks instead of calling directly.
@@ -382,7 +397,7 @@ function $c(fn,args){
 function $show(v){
   if(v===null||v===undefined) return "()";
   if(typeof v==='boolean') return String(v);
-  if(typeof v==='number') return String(v);
+  if(typeof v==='number') return $fToStr(v);
   if(typeof v==='bigint') return String(v);
   if(typeof v==='string') return '"'+v+'"';
   if(v instanceof Uint8Array){

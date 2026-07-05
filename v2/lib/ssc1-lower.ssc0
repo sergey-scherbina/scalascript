@@ -1573,6 +1573,29 @@ def lowerStmtToList = (stmt) =>
         -- KV9: register effect name as multi-shot for CPS detection
         let _reg = #cell.set(multiEffectsCell, Cons(data, #cell.get(multiEffectsCell))) in
         Nil
+      else if #seq(tag, "tuppat") then
+        -- T5.7: TOP-LEVEL `val (a, b) = expr` (block-level tuppat existed; top-level
+        -- fell through to Nil and every later read was an unbound global).
+        -- Emit value defs: $vd = expr; a = _sel__1($vd); b = _sel__2($vd); …
+        -- (pass 2 evaluates value defs in order, so $vd is ready before the accessors)
+        match data {
+          case Pair(names, expr) =>
+            match names {
+              case Cons(n1, nrest) =>
+                let vdName = #sconcat("$vd_", n1) in
+                let vdDef = IrDef(vdName, lowerE(Nil, resolveE(expr))) in
+                let rec accessors = (ns, k) =>
+                  match ns {
+                    case Nil => Nil
+                    case Cons(nm, more) =>
+                      Cons(IrDef(nm,
+                             IrApp(IrGlobal(#sconcat("_sel__", #i->str(k))),
+                                   Cons(IrGlobal(vdName), Nil))),
+                           accessors(more, #i.add(k, 1)))
+                  } in
+                Cons(vdDef, accessors(names, 1))
+            }
+        }
       else Nil
   }
 
@@ -1689,39 +1712,45 @@ def hasZeroArgMain = (stmts) =>
 -- IrLam(2): hi=local0, lo=local1
 -- IrLetRec: go=local0, hi=local1, lo=local2
 -- go=IrLam(1): i=local0, go=local1, hi=local2, lo=local3
+-- T5.7: tail-recursive (accumulator, built high→low so no reverse); the old
+-- Cons(i, go(i+1)) shape was NON-tail and stack-overflowed on (1 to 10000).
+-- go = IrLam(2): acc=local0, i=local1; then go=local2, hi=local3, lo=local4
 def selUntilDef =
   IrDef("_sel_until",
     IrLam(2,
       IrLetRec(
-        Cons(IrLam(1,
-          IrIf(IrPrim("i.ge", Cons(IrLocal(0), Cons(IrLocal(2), Nil))),
-            IrCtor("Nil", Nil),
-            IrCtor("Cons",
-              Cons(IrLocal(0),
-              Cons(IrApp(IrLocal(1),
-                Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))),
-                Nil)),
+        Cons(IrLam(2,
+          IrIf(IrPrim("i.lt", Cons(IrLocal(1), Cons(IrLocal(4), Nil))),
+            IrLocal(0),
+            IrApp(IrLocal(2),
+              Cons(IrPrim("i.sub", Cons(IrLocal(1), Cons(IrLit(IrInt(1)), Nil))),
+              Cons(IrCtor("Cons", Cons(IrLocal(1), Cons(IrLocal(0), Nil))),
               Nil))))),
         Nil),
-        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+        IrApp(IrLocal(0),
+          Cons(IrPrim("i.sub", Cons(IrLocal(1), Cons(IrLit(IrInt(1)), Nil))),
+          Cons(IrCtor("Nil", Nil),
+          Nil))))))
 
 -- _sel_to(lo, hi) — range [lo, hi] inclusive
 -- Same shape as _sel_until but uses i.gt
+-- T5.7: tail-recursive accumulator like _sel_until, but hi is INCLUSIVE (start at hi)
 def selToDef =
   IrDef("_sel_to",
     IrLam(2,
       IrLetRec(
-        Cons(IrLam(1,
-          IrIf(IrPrim("i.gt", Cons(IrLocal(0), Cons(IrLocal(2), Nil))),
-            IrCtor("Nil", Nil),
-            IrCtor("Cons",
-              Cons(IrLocal(0),
-              Cons(IrApp(IrLocal(1),
-                Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))),
-                Nil)),
+        Cons(IrLam(2,
+          IrIf(IrPrim("i.lt", Cons(IrLocal(1), Cons(IrLocal(4), Nil))),
+            IrLocal(0),
+            IrApp(IrLocal(2),
+              Cons(IrPrim("i.sub", Cons(IrLocal(1), Cons(IrLit(IrInt(1)), Nil))),
+              Cons(IrCtor("Cons", Cons(IrLocal(1), Cons(IrLocal(0), Nil))),
               Nil))))),
         Nil),
-        IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
+        IrApp(IrLocal(0),
+          Cons(IrLocal(1),
+          Cons(IrCtor("Nil", Nil),
+          Nil))))))
 
 -- Bench.opaque(x) — identity for benchmarking (prevents constant-folding)
 def benchOpaqueDef =
@@ -1913,6 +1942,10 @@ def runStreamDef =
 def selRunToListDef =
   IrDef("_sel_runToList", IrLam(1, IrLocal(0)))
 
+-- _sel_toList(src) — ranges/lists are already Cons-lists here, so identity
+def selToListDef =
+  IrDef("_sel_toList", IrLam(1, IrLocal(0)))
+
 -- _sel_length(lst) — tail-recursive list length; falls back to slen for strings/arrays
 -- IrLam(1): lst=L0
 -- IrLetRec: go=L0, lst=L1; call go(lst, 0) = IrApp(L0, [L1, lit(0)])
@@ -2028,10 +2061,11 @@ def kc6Defs =
   Cons(streamEmitDef,
   Cons(runStreamDef,
   Cons(selRunToListDef,
+  Cons(selToListDef,
   Cons(selLengthDef,
   Cons(listConcatDef,
   Cons(listFlatMapDef,
-  Nil))))))))))))))))))))))))))))))))))))))
+  Nil)))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 def lowerProg = (stmts) =>
@@ -2052,7 +2086,33 @@ def lowerProg = (stmts) =>
     kc6Defs)) in
   let userDefs = lowerStmts(stmts) in
   let allDefs = appendL(defs, userDefs) in
+  -- T5.7: top-level expression statements ("expr") used to be silently dropped
+  -- (~190/194 real .ssc files became no-ops). Collect them in document order into
+  -- the entry: Seq(exprs..., main() if present). Defs are all registered before the
+  -- entry runs, so document-order execution is safe.
+  let rec topExprs = (ss) =>
+    match ss {
+      case Nil => Nil
+      case Cons(s1, rest1) =>
+        match s1 {
+          case Pair(stag, sdata) =>
+            if #seq(stag, "expr") then
+              Cons(lowerE(Nil, resolveE(sdata)), topExprs(rest1))
+            else topExprs(rest1)
+        }
+    } in
+  let entryExprs = topExprs(stmts) in
+  let mainCall =
+    if hasZeroArgMain(stmts) then Cons(IrApp(IrGlobal("main"), Nil), Nil)
+    else Nil in
+  let seqItems = appendL(entryExprs, mainCall) in
   let entry =
-    if hasZeroArgMain(stmts) then IrApp(IrGlobal("main"), Nil)
-    else IrLit(IrUnit) in
+    match seqItems {
+      case Nil => IrLit(IrUnit)
+      case Cons(e1, r1) =>
+        match r1 {
+          case Nil => e1
+          case _ => IrSeq(seqItems)
+        }
+    } in
   IrProg(allDefs, entry)

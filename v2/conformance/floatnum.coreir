@@ -1,0 +1,9 @@
+(program
+ (defs)
+ (entry (ctor Pair
+   (prim i.div (lit (float 7.5)) (lit (float 2.5)))
+   (ctor Pair
+     (prim i.mul (lit (int 3)) (lit (float 1.5)))
+     (ctor Pair
+       (prim i.le (lit (float 1.5)) (lit (int 2)))
+       (prim i.neg (lit (float 2.5))))))))

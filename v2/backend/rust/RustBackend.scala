@@ -840,6 +840,8 @@ fn v_isub(a: V, b: V) -> V {
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x.wrapping_sub(y)),
         (V::Float(x), V::Float(y)) => V::Float(x - y),
+        (V::Float(x), V::Int(y))   => V::Float(x - (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Float((x as f64) - y),
         (a, b) => V::Int(as_int(a).wrapping_sub(as_int(b))),
     }
 }
@@ -848,20 +850,28 @@ fn v_imul(a: V, b: V) -> V {
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x.wrapping_mul(y)),
         (V::Float(x), V::Float(y)) => V::Float(x * y),
+        (V::Float(x), V::Int(y))   => V::Float(x * (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Float((x as f64) * y),
         (a, b) => V::Int(as_int(a).wrapping_mul(as_int(b))),
     }
 }
 
 fn v_idiv(a: V, b: V) -> V {
     match (a, b) {
-        (V::Int(x), V::Int(y)) => V::Int(x / y),
+        (V::Int(x), V::Int(y))     => V::Int(x / y),
+        (V::Float(x), V::Float(y)) => V::Float(x / y),
+        (V::Float(x), V::Int(y))   => V::Float(x / (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Float((x as f64) / y),
         (a, b) => V::Int(as_int(a) / as_int(b)),
     }
 }
 
 fn v_imod(a: V, b: V) -> V {
     match (a, b) {
-        (V::Int(x), V::Int(y)) => V::Int(x % y),
+        (V::Int(x), V::Int(y))     => V::Int(x % y),
+        (V::Float(x), V::Float(y)) => V::Float(x % y),
+        (V::Float(x), V::Int(y))   => V::Float(x % (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Float((x as f64) % y),
         (a, b) => V::Int(as_int(a) % as_int(b)),
     }
 }
@@ -878,6 +888,8 @@ fn v_ieq(a: V, b: V) -> V {
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x == y),
         (V::Float(x), V::Float(y)) => V::Bool(x == y),
+        (V::Float(x), V::Int(y))   => V::Bool(x == (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Bool((x as f64) == y),
         (a, b) => V::Bool(as_int(a) == as_int(b)),
     }
 }
@@ -886,27 +898,38 @@ fn v_ilt(a: V, b: V) -> V {
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x < y),
         (V::Float(x), V::Float(y)) => V::Bool(x < y),
+        (V::Float(x), V::Int(y))   => V::Bool(x < (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Bool((x as f64) < y),
         (a, b) => V::Bool(as_int(a) < as_int(b)),
     }
 }
 
 fn v_ile(a: V, b: V) -> V {
     match (a, b) {
-        (V::Int(x), V::Int(y)) => V::Bool(x <= y),
+        (V::Int(x), V::Int(y))     => V::Bool(x <= y),
+        (V::Float(x), V::Float(y)) => V::Bool(x <= y),
+        (V::Float(x), V::Int(y))   => V::Bool(x <= (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Bool((x as f64) <= y),
         (a, b) => V::Bool(as_int(a) <= as_int(b)),
     }
 }
 
 fn v_igt(a: V, b: V) -> V {
     match (a, b) {
-        (V::Int(x), V::Int(y)) => V::Bool(x > y),
+        (V::Int(x), V::Int(y))     => V::Bool(x > y),
+        (V::Float(x), V::Float(y)) => V::Bool(x > y),
+        (V::Float(x), V::Int(y))   => V::Bool(x > (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Bool((x as f64) > y),
         (a, b) => V::Bool(as_int(a) > as_int(b)),
     }
 }
 
 fn v_ige(a: V, b: V) -> V {
     match (a, b) {
-        (V::Int(x), V::Int(y)) => V::Bool(x >= y),
+        (V::Int(x), V::Int(y))     => V::Bool(x >= y),
+        (V::Float(x), V::Float(y)) => V::Bool(x >= y),
+        (V::Float(x), V::Int(y))   => V::Bool(x >= (y as f64)),
+        (V::Int(x), V::Float(y))   => V::Bool((x as f64) >= y),
         (a, b) => V::Bool(as_int(a) >= as_int(b)),
     }
 }

@@ -322,7 +322,7 @@ object R:
   var argv: List[String] = Nil
 
   def prim1(op: String, a0: V): V = op match
-    case "i.neg"    => -_asLong(a0)
+    case "i.neg"    => a0 match { case d: Double => -d; case v => -_asLong(v) }
     case "i.not"    => ~_asLong(a0)
     case "not"      => !_asBool(a0)
     case "slen"     => _asStr(a0).length.toLong
@@ -374,8 +374,8 @@ object R:
     case "i.add"    => _numBinI(a0, a1, _ + _, _ + _)
     case "i.sub"    => _numBinI(a0, a1, _ - _, _ - _)
     case "i.mul"    => _numBinI(a0, a1, _ * _, _ * _)
-    case "i.div"    => _asLong(a0) / _asLong(a1)
-    case "i.mod"    => _asLong(a0) % _asLong(a1)
+    case "i.div"    => _numBinI(a0, a1, _ / _, _ / _)
+    case "i.mod"    => _numBinI(a0, a1, _ % _, _ % _)
     case "i.and"    => _asLong(a0) & _asLong(a1)
     case "i.or"     => _asLong(a0) | _asLong(a1)
     case "i.xor"    => _asLong(a0) ^ _asLong(a1)

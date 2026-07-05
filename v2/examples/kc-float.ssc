@@ -1,0 +1,9 @@
+def area(w: Double, h: Double): Double = w * h
+def half(x: Double): Double = x / 2.0
+def main(): Unit = {
+  println(area(2.5, 4.0))
+  println(half(7.5))
+  println(9.0 / 2)
+  println(1.5 <= 2.5)
+  println(0.0 - 2.5)
+}

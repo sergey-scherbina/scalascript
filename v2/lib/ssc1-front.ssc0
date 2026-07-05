@@ -403,16 +403,16 @@ def parseBlock = (toks) =>
       let r = parseVal(advance(ts2)) in
       -- val name = fn(args) { block } → val name = fn(args)(() => block)
       if kindIs("{", prT(r)) then
-        let rb = parseBlock(advance(prT(r))) in
+        let rbArg = parseBlockArg(advance(prT(r))) in
         let valStmt = match prV(r) {
           case Pair(vtag, vdata) =>
             match vdata {
               case Pair(vname, vrhs) =>
-                let newRhs = mkApp(vrhs, Cons(mkLam(Nil, prV(rb)), Nil)) in
+                let newRhs = mkApp(vrhs, Cons(prV(rbArg), Nil)) in
                 Pair("val", Pair(vname, newRhs))
             }
         } in
-        go(prT(rb), Cons(valStmt, acc))
+        go(prT(rbArg), Cons(valStmt, acc))
       else
         go(prT(r), Cons(prV(r), acc))
     else if kwIs("var", ts2) then
@@ -450,10 +450,10 @@ def parseBlock = (toks) =>
         let r = parseExpr(advance(ts3)) in
         go(prT(r), Cons(Pair("assign", Pair(name, prV(r))), acc))
       else if kindIs("{", ts3) then
-        -- name { body }  →  name(() => body)  (e.g. runLogger/runStream block arg)
-        let rb = parseBlock(advance(ts3)) in
-        let call = mkApp(Pair("var", name), Cons(mkLam(Nil, prV(rb)), Nil)) in
-        go(prT(rb), Cons(Pair("expr", call), acc))
+        -- name { body }  →  name(arg): lambda-block or 0-arity thunk (T5.7)
+        let rbArg = parseBlockArg(advance(ts3)) in
+        let call = mkApp(Pair("var", name), Cons(prV(rbArg), Nil)) in
+        go(prT(rbArg), Cons(Pair("expr", call), acc))
       else
         let r = parseExpr(ts2) in
         -- Check for a(idx) = rhs  →  idx_assign
@@ -462,9 +462,9 @@ def parseBlock = (toks) =>
           go(prT(r2), Cons(Pair("idx_assign", Pair(prV(r), prV(r2))), acc))
         -- handle(expr) { handler } — consume trailing { block } as thunk arg
         else if kindIs("{", prT(r)) then
-          let rb = parseBlock(advance(prT(r))) in
-          let call = mkApp(prV(r), Cons(mkLam(Nil, prV(rb)), Nil)) in
-          go(prT(rb), Cons(Pair("expr", call), acc))
+          let rbArg = parseBlockArg(advance(prT(r))) in
+          let call = mkApp(prV(r), Cons(prV(rbArg), Nil)) in
+          go(prT(rbArg), Cons(Pair("expr", call), acc))
         else
           go(prT(r), Cons(Pair("expr", prV(r)), acc))
     else
@@ -773,10 +773,48 @@ def parseDef = (toks) =>
     pr(mkDef(name, allParams, mkTup(Nil)), toks6)
 
 -- consumeBlockArg: if next token is '{', parse it as a 0-arg thunk and apply to expr
+-- T5.7: parse a `{ … }` call argument, lambda-header-FIRST.
+-- `{ (a, b) => stmts… }` / `{ x => stmts… }` is the LAMBDA argument itself
+-- (Scala block-lambda syntax): parse the header, then the whole remaining
+-- block as the lambda body (so `val`/`def` stmts in the body work). A block
+-- with no lambda header stays a 0-arity thunk (runStream { … } style).
+-- toks = tokens AFTER the '{'. Returns pr(argExpr, toksAfterBlock).
+def parseBlockArg = (toks) =>
+  let single =
+    if kindIs("id", toks) then
+      let name = tokVal(peek(toks)) in
+      let ts2 = advance(toks) in
+      if kindIs("=>", ts2) then Some(pr(Cons(name, Nil), advance(ts2)))
+      else None
+    else None in
+  match single {
+    case Some(hdr) =>
+      let rb = parseBlock(prT(hdr)) in
+      pr(mkLam(prV(hdr), prV(rb)), prT(rb))
+    case None =>
+      if kindIs("(", toks) then
+        let rTry = tryLamParams(advance(toks)) in
+        match prV(rTry) {
+          case Some(params) =>
+            if kindIs("=>", prT(rTry)) then
+              let rb = parseBlock(advance(prT(rTry))) in
+              pr(mkLam(params, prV(rb)), prT(rb))
+            else
+              let rb = parseBlock(toks) in
+              pr(mkLam(Nil, prV(rb)), prT(rb))
+          case None =>
+            let rb = parseBlock(toks) in
+            pr(mkLam(Nil, prV(rb)), prT(rb))
+        }
+      else
+        let rb = parseBlock(toks) in
+        pr(mkLam(Nil, prV(rb)), prT(rb))
+  }
+
 def consumeBlockArg = (expr, toks) =>
   if kindIs("{", toks) then
-    let rb = parseBlock(advance(toks)) in
-    pr(mkApp(expr, Cons(mkLam(Nil, prV(rb)), Nil)), prT(rb))
+    let ra = parseBlockArg(advance(toks)) in
+    pr(mkApp(expr, Cons(prV(ra), Nil)), prT(ra))
   else pr(expr, toks)
 
 def parseVal = (toks) =>
@@ -803,7 +841,11 @@ def parseVal = (toks) =>
     let toks3 = skipTypeAnnot(toks2) in
     let toks4 = skipKind("=", toks3) in
     let re = parseExpr(toks4) in
-    pr(mkVal(name, prV(re)), prT(re))
+    -- T5.7: `val x = xs.foldLeft(z) { (a, b) => … }` — consume the trailing block
+    -- arg here too (only the tuppat path did); otherwise the block detaches into a
+    -- separate top-level statement and the val holds a partial application.
+    let reFinal = consumeBlockArg(prV(re), prT(re)) in
+    pr(mkVal(name, prV(reFinal)), prT(reFinal))
 
 -- ── KC7: match + case class parsing ─────────────────────────────────────────
 
