@@ -337,6 +337,14 @@ object FrontendBridge:
     // Auto-inject UI stdlib for files with `frontend:` in frontmatter (no explicit imports needed)
     val hasFrontend = src.linesIterator.takeWhile(_ != "---" || src.startsWith("---")).exists(
       l => l.startsWith("frontend:"))
+    // Auto-inject the mapreduce stdlib when the code references its surface —
+    // in v1 these are auto-available stdlib symbols (no explicit import lines);
+    // index.ssc chain-imports dataset/cluster/handlers/distributed/shuffle/typed
+    // so one injected line pulls the whole family via the DFS import collector.
+    val mapreduceSurface = java.util.regex.Pattern.compile(
+      "\\b(runDistributed|runDistributedWire|runDistributedShuffle|runDistributedShuffleWire|HandlerRegistry|NamedHandler|DistributedDataset)\\b")
+    if mapreduceSurface.matcher(src).find() then
+      collectImports("[Dataset, HandlerRegistry, NamedHandler, runDistributed, runDistributedShuffle](std/mapreduce/index.ssc)", fileDir, fenceOnly = false)
     if hasFrontend then
       val uiAutoImports =
         "[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, BoxNode](std/ui/nodes.ssc)\n" +

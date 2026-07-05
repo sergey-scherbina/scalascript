@@ -1053,6 +1053,23 @@ object PluginBridge:
     @volatile var thread: Thread | Null = null
     @volatile var dead: Boolean = false
     @volatile var trapExit: Boolean = false  // Erlang-style: exits become messages
+    // Supervision: links are notified with Exit(reason), monitors with Down(reason)
+    val links    = java.util.concurrent.ConcurrentHashMap.newKeySet[ActorMailbox]()
+    val monitors = java.util.concurrent.ConcurrentHashMap.newKeySet[ActorMailbox]()
+
+  /** Notify links + monitors that `mb` terminated with `reason` (Erlang semantics:
+   *  a trapping link gets Exit(reason) as a message; a non-trapping link is killed;
+   *  monitors always get a Down(reason) message). */
+  private def notifyDeath(mb: ActorMailbox, reason: V2Value): Unit =
+    mb.links.forEach { l =>
+      if !l.dead then
+        if l.trapExit then l.queue.put(V2Value.DataV("Exit", Vector(reason)))
+        else { l.dead = true; val t = l.thread; if t != null then t.interrupt() }
+    }
+    mb.monitors.forEach { m =>
+      if !m.dead then m.queue.put(V2Value.DataV("Down", Vector(reason)))
+    }
+    mb.links.clear(); mb.monitors.clear()
 
   private val actorTL = new ThreadLocal[ActorMailbox | Null]:
     override def initialValue(): ActorMailbox | Null = null
@@ -1095,8 +1112,14 @@ object PluginBridge:
       val t = Thread.ofVirtual().start(() => {
         actorTL.set(mb)
         mb.thread = Thread.currentThread()
+        var reason: V2Value = V2Value.StrV("normal")
         try callThunk(thunk.asInstanceOf[V2Value.ClosV])
-        catch case _: InterruptedException => ()
+        catch
+          case _: InterruptedException => reason = V2Value.StrV("killed")
+          case e: Throwable => reason = V2Value.StrV(Option(e.getMessage).getOrElse("error"))
+        finally
+          mb.dead = true
+          notifyDeath(mb, reason)
         ()
       })
       mb.thread = t
@@ -1137,6 +1160,27 @@ object PluginBridge:
       Done(V2Value.UnitV)
     }))
 
+    // link(actorRef) — bidirectional supervision link with the CURRENT actor:
+    // when either side dies, the other is killed (or messaged if it traps exits).
+    V2PluginRegistry.registerGlobal("link", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val me = actorTL.get()
+      env.last match
+        case V2Value.ForeignV(other: ActorMailbox) if me != null =>
+          other.links.add(me); me.links.add(other)
+        case _ => ()
+      Done(V2Value.UnitV)
+    }))
+
+    // monitor(actorRef) — unidirectional: current actor gets Down(reason) when it dies.
+    V2PluginRegistry.registerGlobal("monitor", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val me = actorTL.get()
+      env.last match
+        case V2Value.ForeignV(other: ActorMailbox) if me != null =>
+          other.monitors.add(me)
+        case _ => ()
+      Done(V2Value.UnitV)
+    }))
+
     // self() — returns current actor's mailbox ref
     V2PluginRegistry.registerGlobal("self", V2Value.ClosV(Runtime.emptyEnv, 0, env => {
       val mb = actorTL.get()
@@ -1159,6 +1203,8 @@ object PluginBridge:
             mb.dead = true
             val t = mb.thread
             if t != null then t.interrupt()
+            val reason = if env.length >= 2 then env(1) else V2Value.StrV("killed")
+            notifyDeath(mb, reason)
           Done(V2Value.UnitV)
         case V2Value.IntV(code) => Runtime.exitHandler(code.toInt)
         case _ => Runtime.exitHandler(0)
