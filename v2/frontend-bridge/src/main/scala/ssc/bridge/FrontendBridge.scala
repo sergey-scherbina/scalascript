@@ -26,6 +26,9 @@ object FrontendBridge:
    *  whichever case class was registered FIRST (import order) — deterministic. */
   private val fieldRegistry = collection.mutable.LinkedHashMap[String, Vector[String]]()
 
+  /** Enum type → ordered list of case names. Used to compile `EnumType.values` at compile time. */
+  private val enumCasesRegistry = collection.mutable.HashMap[String, List[String]]()
+
   /** Lookup field index for a class member field, if known.
    *  Returns the index from the FIRST registered class that contains the field.
    *  Deterministic because fieldRegistry is insertion-ordered (LinkedHashMap). */
@@ -57,6 +60,16 @@ object FrontendBridge:
     fieldRegistry.clear()
     // Mirror is a built-in type with known fields at fixed indices.
     fieldRegistry("Mirror") = Vector("label", "elemLabels", "elemTypes")
+    // Tuple types with standard _N accessors (also registered in V2PluginRegistry).
+    for n <- 2 to 22 do
+      val fields = (1 to n).map(i => s"_$i").toVector
+      fieldRegistry(s"Tuple$n") = fields
+      ssc.V2PluginRegistry.registerFieldNames(s"Tuple$n", fields)
+    enumCasesRegistry.clear()
+    usingParamTypes.clear()
+    usingCurriedArgs.clear()
+    runtimeGivenRegEntries.clear()
+    traitParents.clear()
     fieldTypeRegistry.clear()
     derivedSchemas.clear()
     generalDerives.clear()
@@ -126,15 +139,68 @@ object FrontendBridge:
    *  `f(children...)` without the first-clause args (e.g. vstack(child1, child2) with no gap). */
   private val curryFirstClauseDefaults = collection.mutable.Map[String, List[CT]]()
 
+  /** `using` param registry: defName → list of (index, typeSig) for using params.
+   *  Used to auto-inject given instances at call sites. */
+  private val usingParamTypes = collection.mutable.HashMap[String, Vector[(Int, String)]]()
+
+  /** Curried `using` clause registry: defName → pre-resolved using arg CTs for the LAST clause.
+   *  For `def f(a: A)(using b: B)`, stores the CT to apply as a second App at the call site. */
+  private val usingCurriedArgs = collection.mutable.HashMap[String, List[CT]]()
+
+  /** Accumulated (hktHead, concreteType, givenName) triples for runtime given registration.
+   *  Emitted as __reg_given__ calls at the top of the entry block. */
+  private val runtimeGivenRegEntries = collection.mutable.ListBuffer[(String, String, String)]()
+
+  /** Trait parent registry: traitName → list of parent trait names.
+   *  Used to also register givens under parent trait heads (e.g. Monoid → also Semigroup). */
+  private val traitParents = collection.mutable.HashMap[String, List[String]]()
+
+  /** Active context-bound scope: typeVarName → (Local index, TC head, regular-param Local index).
+   *  Set during Defn.Def body compilation; cleared after. Used to resolve summon[TC[A]] → Local. */
+  private var contextBoundScope: Map[String, (Int, String, Int)] = Map.empty
+
   /** Build a List value from a sequence of CT expressions: List(a,b,c) → Cons(a,Cons(b,Cons(c,Nil))). */
   private def listOf(elems: List[CT]): CT =
     elems.foldRight(CT.Ctor("Nil", Nil): CT)((e, acc) => CT.Ctor("Cons", List(e, acc)))
 
-  /** Synthesize missing trailing arguments from defaultParams when calling a def with fewer args. */
+  /** Synthesize missing trailing arguments from defaultParams when calling a def with fewer args.
+   *  Defaults are stored as Lam(k, body) where k = number of preceding params.
+   *  We apply each Lam to the k preceding actual args to evaluate it at the call site. */
   private def fillDefaults(name: String, args: List[CT]): List[CT] =
-    defaultParams.get(name).fold(args) { defs =>
+    val afterDefaults = defaultParams.get(name).fold(args) { defs =>
       if args.length >= defs.length then args
-      else args ++ defs.drop(args.length).collect { case Some(e) => e }
+      else
+        var result = args
+        for i <- args.length until defs.length do
+          defs(i) match
+            case Some(CT.Lam(0, body)) => result = result :+ body
+            case Some(lam @ CT.Lam(k, _)) =>
+              val precArgs = result.take(k)
+              result = result :+ (if precArgs.isEmpty then CT.App(lam, Nil) else CT.App(lam, precArgs))
+            case Some(e) => result = result :+ e
+            case None => ()
+        result
+    }
+    // Auto-inject using params via givenRegistry when args are still short
+    usingParamTypes.get(name).fold(afterDefaults) { usingEntries =>
+      if afterDefaults.length >= (usingEntries.maxByOption(_._1).map(_._1).getOrElse(-1) + 1) then afterDefaults
+      else
+        var result = afterDefaults.toBuffer
+        for (idx, tpe) <- usingEntries do
+          if idx >= result.length then
+            // Pad with the given (or unsupported) if position is after current end
+            while result.length < idx do result += CT.Lit(Const.CUnit)
+            givenRegistry.get(tpe) match
+              case Some(gname) => result += CT.Global(gname)
+              case None =>
+                // Try runtime given resolution for generic types (e.g. "Monoid[A]").
+                parseHKT(tpe) match
+                  case Some((head, inner)) if !inner.isEmpty && inner != inner.toLowerCase =>
+                    // Generic: emit __rt_summon__(head, sample_arg) where sample = first arg.
+                    val sample = if result.nonEmpty then result(0) else CT.Lit(Const.CUnit)
+                    result += CT.Prim("__rt_summon__", List(CT.Lit(Const.CStr(head)), sample))
+                  case _ => result += CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"using $tpe"))))
+        result.toList
     }
 
   /** First pass: scan all stats and collect case class / enum / extension definitions. */
@@ -152,17 +218,33 @@ object FrontendBridge:
           val cn = d.name.value
           generalDerives(cn) = generalDerives.getOrElse(cn, Nil) :+ tcName
       }
-    case d: Defn.Trait => ()
+    case d: Defn.Trait =>
+      // Record parent traits for runtime given resolution (e.g. Monoid extends Semigroup).
+      val parents = d.templ.inits.map { init =>
+        init.tpe match
+          case Type.Name(n)             => n
+          case Type.Apply(Type.Name(n), _) => n
+          case other                    => other.syntax.takeWhile(_ != '[')
+      }
+      if parents.nonEmpty then traitParents(d.name.value) = parents
     case d: Defn.Object => ()
     case Defn.Enum(_, name, _, _, templ) =>
+      val caseNames = collection.mutable.ListBuffer[String]()
       templ.stats.foreach {
         case ec: Defn.EnumCase =>
           val params = ec.ctor.paramClauses.flatMap(_.values).toList
           registerCaseClass(ec.name.value, params)
+          caseNames += ec.name.value
         case _ => ()
       }
+      enumCasesRegistry(name.value) = caseNames.toList
     case eg: Defn.ExtensionGroup =>
       extMethods(eg).foreach { m => extensionMethods += m.name.value }
+    case g: Defn.Given =>
+      // Also register extension methods inside given bodies
+      g.templ.stats.collect { case eg: Defn.ExtensionGroup => eg }.foreach { eg =>
+        extMethods(eg).foreach { m => extensionMethods += m.name.value }
+      }
     case _ => ()
   }
 
@@ -315,7 +397,7 @@ object FrontendBridge:
   private def resolveImportsCode(src: String, fileDir: Option[java.io.File]): String =
     val seen    = collection.mutable.HashSet[String]()
     val ordered = collection.mutable.ListBuffer.empty[(String, String)] // (canonical, code)
-    val importPat = """\[([^\]]+)\]\(([^)]+\.ssc\d*)\)""".r
+    val importPat = """\[([^\]]+)\]\(([^)]+)\)""".r
     // fenceOnly=true: only scan outside fences (top-level user files, where imports are prose).
     // fenceOnly=false: scan ALL lines (stdlib files where imports live inside code fences).
     def collectImports(source: String, dir: Option[java.io.File], fenceOnly: Boolean): Unit =
@@ -346,14 +428,16 @@ object FrontendBridge:
       collectImports(uiAutoImports, fileDir, fenceOnly = false)
     collectImports(src, fileDir, fenceOnly = false)
     val prelude = ordered.map(_._2).filter(_.nonEmpty).mkString("\n")
-    val mainCode = extractCode(src)
+    val mainCode = extractCode(src, allFences = true)
     if prelude.isEmpty then mainCode else s"$prelude\n$mainCode"
 
   /** Resolve a std-import path like `std/dsl/ast.ssc` to an absolute file.
    *  Search order: relative to fileDir → ImportResolver.stdPath → cwd-based dev-tree walk. */
   private def resolveStdPathWithFile(rel: String, fileDir: Option[java.io.File]): Option[(String, java.io.File)] =
     def tryFile(f: java.io.File): Option[(String, java.io.File)] =
-      if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption.map(_ -> f) else None
+      if f.isDirectory then tryFile(new java.io.File(f, "index.ssc"))
+      else if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption.map(_ -> f)
+      else None
     def tryOsPath(p: os.Path): Option[(String, java.io.File)] = tryFile(p.toIO)
     fileDir.flatMap(d => tryFile(new java.io.File(d, rel)))
       .orElse(scalascript.imports.ImportResolver.stdPath.flatMap { root =>
@@ -500,17 +584,74 @@ object FrontendBridge:
         () // Plugin already provides this def (with default-param support); don't shadow it.
       case d: Defn.Def =>
         val params = allParams(d)
-        val scope  = params.reverse  // Local(0) = last param
+        // Collect context bounds [A: TC] from type param groups → add synthetic TC params.
+        // For `def f[A: Monoid](xs: List[A])`, add `monoid_A_` as an extra param after xs.
+        // This allows explicit `f(xs, intSum)` and auto-inject `f(xs)` with `__rt_summon__`.
+        val allCbParams = d.paramClauseGroups.flatMap(_.tparamClause.values).flatMap { tp =>
+          tp.cbounds.map(cb => (tp.name.value, cb.syntax))
+        }
+        // cbParams: list of synthetic param names for context bounds (appended after regular params)
+        val cbParams = allCbParams.map { case (tv, tc) => s"__cb_${tv}_${tc}__" }
+        val allParamsWithCb = params ++ cbParams  // regular params + cb params
+        val scope  = allParamsWithCb.reverse  // Local(0) = last cb param
+        // Build context-bound scope for summon[TC[A]] → Local(cbIdx)
+        val cbScopeEntries = cbParams.zipWithIndex.map { (cbName, i) =>
+          // cbName = "__cb_A_Monoid__", extract TV and TC
+          val (tv, tc) = allCbParams(i)
+          // Local index in the combined scope: reverse order, cb params at positions 0..cbParams.length-1
+          val localIdx = cbParams.length - 1 - i
+          // The first regular param is at localIdx = cbParams.length
+          val firstRegularIdx = cbParams.length
+          tv -> (localIdx, tc, firstRegularIdx)
+        }.toMap
+        val savedCbScope = contextBoundScope
+        contextBoundScope = cbScopeEntries
         val body   = convertExpr(d.body, scope)
+        contextBoundScope = savedCbScope
         // For multi-clause curried defs, build nested lambdas per clause
         val allClauses = d.paramClauseGroups.flatMap(_.paramClauses)
-        // Register default params (for call-site synthesis)
+        // Register default params (for call-site synthesis).
+        // Defaults are compiled as Lam(k, body) where k = number of preceding params,
+        // so defaults that reference prior params (e.g. `by: Int = x + 1`) work correctly.
         val allParamTerms = allClauses.flatMap(_.values)
-        val defVec = allParamTerms.map(p => p.default.map(convertExpr(_, Nil))).toVector
+        val defVec = allParamTerms.zipWithIndex.map { (p, i) =>
+          val precScope = allParamTerms.take(i).map(_.name.value).reverse
+          p.default.map { d =>
+            val compiled = convertExpr(d, precScope)
+            CT.Lam(i, compiled)  // k = i = number of preceding params
+          }
+        }.toVector
         if defVec.exists(_.isDefined) then defaultParams(d.name.value) = defVec
         // Register param names for named-arg call-site synthesis
         if allParamTerms.nonEmpty && defVec.exists(_.isDefined) then
           defParamNames(d.name.value) = allParamTerms.map(_.name.value).toVector
+        // Register `using` params for auto-injection at call sites.
+        val usingEntries = allClauses.flatMap { pc =>
+          if pc.mod.exists(_.is[Mod.Using]) then pc.values.map(p => p.name.value -> p.decltpe.map(_.syntax).getOrElse(""))
+          else Nil
+        }
+        if usingEntries.nonEmpty then
+          val allParamNames = allParamTerms.map(_.name.value)
+          val entries = usingEntries.flatMap { (pname, tpe) =>
+            val idx = allParamNames.indexOf(pname)
+            if idx >= 0 then List((idx, tpe)) else Nil
+          }
+          if entries.nonEmpty then usingParamTypes(d.name.value) = entries.toVector
+        // For multi-clause defs where the LAST clause is a `using` clause, register the pre-resolved
+        // using args so we can auto-inject them as a second CT.App at the call site.
+        if allClauses.length > 1 && allClauses.last.mod.exists(_.is[Mod.Using]) then
+          val lastUsingArgs = allClauses.last.values.map { p =>
+            val tpe = p.decltpe.map(_.syntax).getOrElse("")
+            givenRegistry.get(tpe) match
+              case Some(gname) => CT.Global(gname)
+              case None =>
+                parseHKT(tpe) match
+                  case Some((head, inner)) if !inner.isEmpty && inner != inner.toLowerCase =>
+                    // Generic using: Lam(1, __rt_summon__(head, Local(0))) — applied to first clause arg at call site.
+                    CT.Lam(1, CT.Prim("__rt_summon__", List(CT.Lit(Const.CStr(head)), CT.Local(0))))
+                  case _ => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"using $tpe"))))
+          }.toList
+          usingCurriedArgs(d.name.value) = lastUsingArgs
         // Register vararg defs: last clause has a Type.Repeated param
         val lastClause = allClauses.lastOption.toList.flatMap(_.values)
         if lastClause.exists(p => p.decltpe.exists(_.isInstanceOf[Type.Repeated])) then
@@ -519,20 +660,38 @@ object FrontendBridge:
         // Excludes `def foo(): T` (has one empty clause) which needs explicit `()`.
         if allClauses.isEmpty then
           zeroArgDefs += d.name.value
+        // When the def has context bounds, the cb params are appended AFTER regular params in the scope.
+        // But the lambda arity must include them for explicit `f(xs, intSum)` to work.
+        // cb params come at the lowest de Bruijn indices (Local(0), Local(1), ...).
         val lam =
           if allClauses.length <= 1 then
-            if params.isEmpty then CT.Lam(0, body) else CT.Lam(params.length, body)
+            val totalArity = allParamsWithCb.length
+            if totalArity == 0 then CT.Lam(0, body) else CT.Lam(totalArity, body)
           else
-            // Nested: outermost clause wraps inner. Scope is still full flat list.
+            // For multi-clause defs: the cb params are added to the outermost clause.
             val clauseLens = allClauses.map(_.values.length)
             val innermost  = clauseLens.tail.foldRight(body: CT) { (n, inner) => CT.Lam(if n == 0 then 0 else n, inner) }
             // Register first-clause defaults for curried vararg defs (e.g. vstack(gap=0)(children*)).
-            // This lets `vstack(child1, child2)` auto-inject gap=0 rather than erroring on arity.
             val firstClauseParams = allClauses.head.values
             if firstClauseParams.nonEmpty && firstClauseParams.forall(p => p.default.isDefined) then
               val firstDefs = firstClauseParams.map(p => convertExpr(p.default.get, Nil)).toList
               curryFirstClauseDefaults(d.name.value) = firstDefs
-            CT.Lam(if clauseLens.head == 0 then 0 else clauseLens.head, innermost)
+            val outerArity = clauseLens.head + cbParams.length
+            CT.Lam(if outerArity == 0 then 0 else outerArity, innermost)
+        // Register context-bound defaults: each cb param defaults to __rt_summon__(TC, first_regular_param).
+        if cbParams.nonEmpty then
+          // After regular params (allParamTerms), cb params come with defaults.
+          val regularDefVec = defVec
+          // Each cb default is Lam(k, __rt_summon__(TC, Local(0))) where k = number of regular params.
+          // fillDefaults will apply this Lam to the k preceding actual args; Local(0) = first regular arg.
+          val regularCount = allParamTerms.length
+          val cbDefVec: Vector[Option[CT]] = cbParams.zipWithIndex.map { (_, i) =>
+            val (tv, tc) = allCbParams(i)
+            // Lam(regularCount, body): takes all regular args, uses first (Local(regularCount-1)) as sample.
+            val sampleLocal = if regularCount > 0 then CT.Local(regularCount - 1) else CT.Lit(Const.CUnit)
+            Some(CT.Lam(regularCount, CT.Prim("__rt_summon__", List(CT.Lit(Const.CStr(tc)), sampleLocal))))
+          }.toVector
+          defaultParams(d.name.value) = regularDefVec ++ cbDefVec
         defsB += CDef(d.name.value, lam)
       case v: Defn.Val if isSimplePat(v.pats) =>
         val name = patName(v.pats.head)
@@ -547,6 +706,18 @@ object FrontendBridge:
         // given name: T with { def m1(a...) = ...; def m2(b...) = ... }
         // → val name = __mk_method_obj__(["m1", lam..., "m2", lam...])
         defsB += CDef(g.name.value, convertGiven(g))
+        // Also compile any extension methods from the given body as global defs.
+        // Multiple givens may define the same method name for different types — chain.
+        g.templ.stats.collect { case eg: Defn.ExtensionGroup => eg }.foreach { eg =>
+          val recvName = extReceiverName(eg)
+          extMethods(eg).foreach { m =>
+            val params = recvName :: allParams(m)
+            val scope  = params.reverse
+            val body   = convertExpr(m.body, scope)
+            val lam    = CT.Lam(params.length, body)
+            defsB += CDef(m.name.value, lam)
+          }
+        }
       case eg: Defn.ExtensionGroup =>
         // extension (recv: T) def m(a...) = ... → global def m(recv, a...) = ...
         val recvName = extReceiverName(eg)
@@ -582,10 +753,15 @@ object FrontendBridge:
     }
     val defs  = stdDefs ++ defsB.result() ++ derivedDefs ++ generalDerivedDefs
     val entryStmts = entryB.result()
-    val entry =
+    val entryCore =
       if entryStmts.nonEmpty then convertBlock(entryStmts, Nil)
       else if userDefNames.contains("main") then CT.App(CT.Global("main"), Nil)
       else CT.Lit(Const.CUnit)
+    // Prepend __reg_given__ calls so runtime given registry is populated before main logic.
+    val regCalls = runtimeGivenRegEntries.toList.map { case (head, concreteType, givenName) =>
+      CT.Prim("__reg_given__", List(CT.Lit(Const.CStr(head)), CT.Lit(Const.CStr(concreteType)), CT.Global(givenName)))
+    }
+    val entry = regCalls.foldRight(entryCore)((call, acc) => CT.Let(List(call), acc))
     Program(defs, entry)
 
   /** Standard prelude defs injected into every converted program.
@@ -598,6 +774,7 @@ object FrontendBridge:
     CDef("__unsupported__", CT.Lam(1, CT.Prim("io.println",
       List(CT.Prim("__arith__", List(CT.Lit(Const.CStr("++")),
         CT.Lit(Const.CStr("Unsupported: ")), CT.Local(0))))))),
+    CDef("__match_fail__", CT.Lam(0, CT.Prim("__match_fail_prim__", Nil))),
     CDef("nanoTime", CT.Lam(0, CT.Prim("io.nanoTime", Nil))),
     // Bench harness stub — Bench.opaque(x) = identity (prevents constant folding)
     CDef("Bench", CT.Ctor("BenchObj", Nil)),
@@ -754,8 +931,8 @@ object FrontendBridge:
             // AnonymousFunction(Placeholder) → creating nested identity lambdas instead of locals.
             val rawArgs = ac.values.toList.map(go)
             fn match
-              case Term.Select(recv, Term.Name(mname)) if !hasPH(recv) =>
-                // recv.mname(args...) where recv has no placeholders
+              case Term.Select(recv, Term.Name(mname)) =>
+                // recv.mname(args...) — go(recv) correctly handles placeholders as CT.Local
                 val recvCT = go(recv)
                 if extensionMethods.contains(mname) then CT.App(CT.Global(mname), recvCT :: rawArgs)
                 else CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: recvCT :: rawArgs)
@@ -819,20 +996,53 @@ object FrontendBridge:
               val elemTypes = listOf(fields.map(_ => CT.Lit(Const.CStr("Any"))).toList)
               CT.Ctor("Mirror", List(labelLit, elemLbls, elemTypes))
             case _ =>
-              CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
+              // Try context-bound param resolution first: summon[Monoid[A]] → Local(cbIdx)
+              parseHKT(typeSig) match
+                case Some((head, inner)) if !inner.isEmpty && inner != inner.toLowerCase =>
+                  contextBoundScope.get(inner) match
+                    case Some((cbLocalIdx, _, _)) => CT.Local(cbLocalIdx)
+                    case None =>
+                      val sample = if scope.nonEmpty then CT.Local(0) else CT.Lit(Const.CUnit)
+                      CT.Prim("__rt_summon__", List(CT.Lit(Const.CStr(head)), sample))
+                case _ => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
+    // ── Prism[Super, Variant] — store variant name as string field ──────────
+    case Term.ApplyType.After_4_6_0(Term.Name("Prism"), typArgs: Type.ArgClause) =>
+      val variantName = typArgs.values.lift(1) match
+        case Some(Type.Name(n)) => n
+        case Some(Type.Select(_, Type.Name(n))) => n
+        case _ => "?"
+      CT.Ctor("Prism", List(CT.Lit(Const.CStr(variantName))))
     case Term.ApplyType.After_4_6_0(fn, _) =>
       convertExpr(fn, scope)
 
     // ── Function application ──────────────────────────────────────────────────
+    // Explicit using-clause apply: f(a)(using b) — compile inner f(a) without using auto-inject,
+    // then apply explicit using arg. (usingCurriedArgs auto-inject would double-apply.)
+    case Term.Apply.After_4_6_0(inner @ Term.Apply.After_4_6_0(Term.Name(n), _), argClause)
+        if argClause.mod.exists(_.is[Mod.Using]) && usingCurriedArgs.contains(n) && !scope.contains(n) =>
+      val innerArgs = inner match
+        case Term.Apply.After_4_6_0(_, ac) => ac.values.toList.map(e => convertExpr(e, scope))
+        case _ => Nil
+      val usingArgs = argClause.values.toList.map(e => convertExpr(e, scope))
+      CT.App(CT.App(CT.Global(n), innerArgs), usingArgs)
     case Term.Apply.After_4_6_0(fn, argClause) =>
       convertApply(fn, argClause.values.toList, scope)
 
     // ── Member select (field/method as value, no args) ────────────────────────
+    // EnumType.values — compile to a literal list of all enum cases
+    case Term.Select(Term.Name(enumName), Term.Name("values")) if enumCasesRegistry.contains(enumName) =>
+      listOf(enumCasesRegistry(enumName).map(c => CT.Ctor(c, Nil)))
+
     case Term.Select(qual, Term.Name(name)) =>
       // Namespace.CtorName → CT.Ctor (e.g. Transport.Stdio, Either.Left, Option.None)
       // Also handles zero-arg enum cases (fieldRegistry has empty vector for them).
+      // Guard: only treat as Ctor when the qualifier is itself a type name (uppercase-first),
+      // e.g. Option.None, Either.Left — NOT when qualifier is a value (math.Pi, list.Head).
       val isZeroArgEnumCase = fieldRegistry.get(name).exists(_.isEmpty)
-      if isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
+      val qualIsTypeName = qual match
+        case Term.Name(qn) => isCtorName(qn)
+        case _             => false
+      if qualIsTypeName && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
         if extensionMethods.contains(name) then
@@ -1026,19 +1236,22 @@ object FrontendBridge:
       // .copy(field = val, ...) — case class copy with named field overrides.
       // Intercept before the generic __method__ path so we can use the field registry
       // to find indices and emit Ctor with field-at fallbacks, avoiding @field globals.
-      case Term.Select(qual, Term.Name("copy"))
-          if rawArgs.nonEmpty && rawArgs.forall(_.isInstanceOf[Term.Assign]) =>
-        val overrides: Map[String, CT] = rawArgs.collect {
+      case Term.Select(qual, Term.Name("copy")) if rawArgs.nonEmpty =>
+        val positional = rawArgs.takeWhile(!_.isInstanceOf[Term.Assign]).map(e => convertExpr(e, scope))
+        val named: Map[String, CT] = rawArgs.collect {
           case Term.Assign(Term.Name(n), rhs) => n -> convertExpr(rhs, scope)
         }.toMap
-        val classOpt = fieldRegistry.find { case (_, fields) =>
-          overrides.keys.forall(k => fields.contains(k))
-        }
+        // Find the class by matching named field names (if any) or by positional count
+        val classOpt =
+          if named.nonEmpty then fieldRegistry.find { case (_, fs) => named.keys.forall(k => fs.contains(k)) }
+          else if positional.nonEmpty then fieldRegistry.find { case (_, fs) => fs.length >= positional.length }
+          else None
         classOpt match
           case Some((tag, fields)) =>
             val q = convertExpr(qual, scope)
             CT.Let(List(q), CT.Ctor(tag, fields.zipWithIndex.map { case (fn, i) =>
-              overrides.getOrElse(fn, CT.Prim("fieldAt", List(CT.Local(0), CT.Lit(Const.CInt(i)))))
+              if i < positional.length then positional(i)
+              else named.getOrElse(fn, CT.Prim("fieldAt", List(CT.Local(0), CT.Lit(Const.CInt(i)))))
             }.toList))
           case None =>
             val q = convertExpr(qual, scope)
@@ -1070,13 +1283,30 @@ object FrontendBridge:
           case _ => "?"
         givenRegistry.get(typeSig) match
           case Some(name) => CT.Global(name)
-          case None       => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
+          case None =>
+            // Try context-bound param or runtime resolution for generic summon[TC[A]].
+            parseHKT(typeSig) match
+              case Some((head, inner)) if !inner.isEmpty && inner != inner.toLowerCase =>
+                contextBoundScope.get(inner) match
+                  case Some((cbLocalIdx, _, _)) => CT.Local(cbLocalIdx)
+                  case None =>
+                    val sample = if scope.nonEmpty then CT.Local(0) else CT.Lit(Const.CUnit)
+                    CT.Prim("__rt_summon__", List(CT.Lit(Const.CStr(head)), sample))
+              case _ => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
       // direct[M] { stmts } — desugar bind-forms to flatMap chains
       case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) if rawArgs.length == 1 =>
         val stmts = rawArgs.head match
           case Term.Block(ss) => scalascript.transform.DirectAnorm.expand(ss)
           case t              => List(t)
         desugarDirect(stmts, scope)
+      // Focus[T](_.f1.f2.some.f3) — build optic from field-name path (incl. .some/.each markers)
+      case Term.ApplyType.After_4_6_0(Term.Name("Focus"), _) if rawArgs.length == 1 =>
+        extractOpticPath(rawArgs.head) match
+          case Some(steps) =>
+            val stepLits = steps.map(s => CT.Lit(Const.CStr(s)))
+            CT.Ctor("Focus", List(listOf(stepLits)))
+          case None =>
+            CT.App(CT.Ctor("Focus", Nil), args) // fallback: opaque lambda
       // Type-applied call List[T](...) — strip type args
       case Term.ApplyType.After_4_6_0(inner, _) =>
         convertApply(inner, rawArgs, scope)
@@ -1091,11 +1321,45 @@ object FrontendBridge:
       // Regular function call (with optional default-param synthesis for known defs)
       case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
         CT.App(CT.Global(name), fillDefaults(name, args))
+      // Function call with using-param auto-injection (no defaultParams but has using params)
+      case Term.Name(name) if !scope.contains(name) && usingParamTypes.contains(name) &&
+          !usingCurriedArgs.contains(name) =>
+        CT.App(CT.Global(name), fillDefaults(name, args))
+      // Curried multi-clause def with `using` last clause: f(a) → f(a)(using b)
+      case Term.Name(name) if !scope.contains(name) && usingCurriedArgs.contains(name) =>
+        // For generic using args stored as Lam(1, __rt_summon__(...)), apply to first clause arg.
+        val resolvedUsing = usingCurriedArgs(name).map {
+          case lam @ CT.Lam(_, _) => CT.App(lam, args.take(1).padTo(1, CT.Lit(Const.CUnit)))
+          case other => other
+        }
+        CT.App(CT.App(CT.Global(name), args), resolvedUsing)
       // Direct single-clause vararg call: f(a, b, c) where f has vararg — always wrap in list
       // (single-arg calls f(x) must also wrap: body expects a List, e.g. body.toList)
       case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) =>
         CT.App(CT.Global(name), List(listOf(args)))
       case other => CT.App(convertExpr(other, scope), args)
+
+  /** Extract the optic path from a Focus/Optional lambda body like `_.f1.f2.some.f3`.
+   *  Returns `Some(["f1", "f2", "some", "f3"])` on success, `None` if the body is not a simple path. */
+  private def extractOpticPath(term: Term): Option[List[String]] =
+    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
+      case _: Term.Placeholder => Some(acc)
+      case Term.Select(qual, Term.Name(n)) => loop(qual, n :: acc)
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name(n @ ("index" | "at"))), argClause)
+          if argClause.values.length == 1 =>
+        val key = argClause.values.head match
+          case Lit.Int(i)    => s"[index:$i]"
+          case Lit.String(s) => s"[at:$s]"
+          case _             => return None
+        loop(qual, key :: acc)
+      case _ => None
+    val body = term match
+      case af: Term.AnonymousFunction                       => af.body
+      case fn: Term.Function                                => fn.body
+      case Term.Block(List(af: Term.AnonymousFunction))    => af.body
+      case Term.Block(List(fn: Term.Function))              => fn.body
+      case _ => return None
+    loop(body, Nil)
 
   /** Desugar `direct[M] { stmts }` bind-forms into flatMap chains.
    *  `x = expr` → expr.flatMap { x => rest }
@@ -1492,11 +1756,37 @@ object FrontendBridge:
    *  Populated from `case class X(...) derives Tc` for any Tc not handled specially. */
   private val generalDerives = collection.mutable.LinkedHashMap[String, List[String]]()
 
+  /** Parse "HKT[ConcreteType]" → Some(("HKT", "ConcreteType")), or None if not parseable. */
+  private def parseHKT(typeSig: String): Option[(String, String)] =
+    val i = typeSig.indexOf('[')
+    if i <= 0 || !typeSig.endsWith("]") then None
+    else Some(typeSig.take(i) -> typeSig.drop(i + 1).dropRight(1))
+
+  /** True if a type string contains a free type variable (lowercase single-letter or uppercase A-Z used as type param).
+   *  Heuristic: the inner type is a single letter (A-Z) or starts with lowercase. */
+  private def hasTypeVar(typeSig: String): Boolean =
+    val i = typeSig.indexOf('[')
+    if i <= 0 || !typeSig.endsWith("]") then false
+    else
+      val inner = typeSig.drop(i + 1).dropRight(1).trim
+      inner.length == 1 || (inner.length > 1 && inner.head.isUpper && inner.forall(c => c.isLetterOrDigit))
+
   /** Convert a `given name: T with { defs }` to a method-object prim. */
   private def convertGiven(g: Defn.Given): CT =
     // Extract the parent type sig (e.g. "Show[Int]") from template.inits
     val typeSig = g.templ.inits.headOption.fold("")(_.tpe.syntax)
     givenRegistry(typeSig) = g.name.value
+    // Register in runtime given registry for generic using resolution.
+    parseHKT(typeSig).foreach { case (hktHead, concreteType) =>
+      runtimeGivenRegEntries += ((hktHead, concreteType, g.name.value))
+      // Also register under parent traits (e.g. Monoid[Int] → also Semigroup[Int]).
+      def walkParents(head: String): Unit =
+        traitParents.getOrElse(head, Nil).foreach { parent =>
+          runtimeGivenRegEntries += ((parent, concreteType, g.name.value))
+          walkParents(parent)
+        }
+      walkParents(hktHead)
+    }
     val methods = g.templ.stats.collect { case m: Defn.Def => m }
     val pairs = methods.flatMap { m =>
       val params = allParams(m)

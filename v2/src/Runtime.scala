@@ -762,17 +762,18 @@ object FastCode:
               UnitV
           }
       }
-    // __method__ with literal method name — try FLC for Int conversions, else general dispatch
+    // __method__ with literal method name — dispatch via methodOp (correct for all types).
+    // NOT using tryFLC here: tryFLC is OPTIMISTIC (coerces Float/String→0L) which gives wrong
+    // results for length/size on lists (returns cons-cell field count 2, not list length) and
+    // for _N accessors on non-Int tuple fields.
     case Prim("__method__", Lit(Const.CStr(m)) :: recv :: args) =>
-      val flcOpt: Option[FC] = tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
-      flcOpt orElse
-        tryFC(recv, globals).flatMap { fcr =>
-          val argOpts = args.map(tryFC(_, globals))
-          if argOpts.forall(_.isDefined) then
-            val fca = argOpts.map(_.get)
-            Some((env: Env) => Prims.methodOp(m, fcr(env), fca.map(f => f(env))): Value)
-          else None
-        }
+      tryFC(recv, globals).flatMap { fcr =>
+        val argOpts = args.map(tryFC(_, globals))
+        if argOpts.forall(_.isDefined) then
+          val fca = argOpts.map(_.get)
+          Some((env: Env) => Prims.methodOp(m, fcr(env), fca.map(f => f(env))): Value)
+        else None
+      }
     case Prim(op, List(a0)) =>
       Prims.resolve1(op).flatMap { fn1 =>
         tryFC(a0, globals).map { fc0 => env => fn1(fc0(env)) }
@@ -1135,6 +1136,30 @@ object Prims:
   import Value.*
   type Fn = List[Value] => Value
 
+  /** Runtime given registry for generic `using` resolution: (HKT_head, type_tag) → given value. */
+  val runtimeGivenRegistry = collection.mutable.HashMap[(String, String), Value]()
+
+  /** Determine the outer type tag of a value (e.g. IntV → "Int", Cons → "List"). */
+  def runtimeTypeTag(v: Value): String = v match
+    case IntV(_)   => "Int"
+    case StrV(_)   => "String"
+    case FloatV(_) => "Float"
+    case BoolV(_)  => "Bool"
+    case DataV("Cons", _) | DataV("Nil", _) => "List"
+    case DataV("Some", _) | DataV("None", _) => "Option"
+    case DataV(tag, _) => tag
+    case UnitV => "Unit"
+    case _ => "?"
+
+  /** Composite type tag for a list value: "List[elemTag]" using the head element. */
+  def runtimeListElemTag(v: Value): String = v match
+    case DataV("Cons", Seq(h, _)) =>
+      val inner = h match
+        case DataV("Cons", _) | DataV("Nil", _) => runtimeListElemTag(h)  // nested list
+        case _ => runtimeTypeTag(h)
+      s"List[$inner]"
+    case _ => "List"
+
   def resolve(op: String): Fn = op match
     case "i.add" => a => numBin(a, _ + _, _ + _)
     case "i.sub" => a => numBin(a, _ - _, _ - _)
@@ -1251,6 +1276,32 @@ object Prims:
     case "arr.pop"   => a => asArr(a(0)).remove(asArr(a(0)).length - 1)
     case "arr.slice" => a => ForeignV(collection.mutable.ArrayBuffer.from(asArr(a(0)).slice(int(a, 1).toInt, int(a, 2).toInt)))
     // Cell (Foreign, single mutable ref)
+    case "__match_fail_prim__" => _ => sys.error("match: no matching case")
+    // Runtime given registry: maps (HKT_head, type_tag) → given instance value.
+    // Used by __rt_summon__ for generic `using` params where type vars are inferred at runtime.
+    case "__reg_given__" => a =>
+      val head = str(a, 0); val typeTag = str(a, 1); val givenVal = a(2)
+      Prims.runtimeGivenRegistry((head, typeTag)) = givenVal; UnitV
+    case "__rt_summon__" => a =>
+      // a(0) = HKT head (e.g. "Monoid"), a(1) = sample value to determine type
+      val head = str(a, 0); val sample = a(1)
+      val reg = Prims.runtimeGivenRegistry
+      // Try progressively deeper lookups: outer tag, then element tag, then composite "List[Elem]".
+      val outerTag = Prims.runtimeTypeTag(sample)
+      reg.get((head, outerTag))
+        .orElse(sample match {
+          case DataV("Cons", Seq(h, _)) =>
+            // When sample is List[A], try element-level lookups for TC[A].
+            val elemTag = Prims.runtimeTypeTag(h)
+            reg.get((head, elemTag))
+              .orElse {
+                // Composite element tag: "List[Int]" for List[List[Int]] sample.
+                val compositeElemTag = Prims.runtimeListElemTag(h)
+                reg.get((head, compositeElemTag))
+              }
+          case _ => None
+        })
+        .getOrElse(DataV("Stub", Vector.empty))
     case "__mk_method_obj__" => a =>
       val pairs = a.grouped(2).map { case List(StrV(k), v) => k -> v; case g => g(0).toString -> g(1) }.toList
       ForeignV(collection.immutable.Map.from(pairs))
@@ -1588,6 +1639,13 @@ object Prims:
           unlist(ls).maxBy(x => callClos(fn, Array(x)))(valueOrdering)
         case (ls, "minBy", List(fn: Value.ClosV)) if isList(ls) =>
           unlist(ls).minBy(x => callClos(fn, Array(x)))(valueOrdering)
+        case (ls, "sorted", Nil) if isList(ls) => listOf(unlist(ls).sorted(valueOrdering))
+        case (ls, "sortWith", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).sortWith((a, b) => callClos(fn, Array(a, b)) == BoolV(true)))
+        case (ls, "distinct", Nil) if isList(ls) => listOf(unlist(ls).distinct)
+        case (ls, "flatten", Nil) if isList(ls) => listOf(unlist(ls).flatMap(x => unlist(x)))
+        case (ls, "zip", List(rs)) if isList(ls) =>
+          listOf(unlist(ls).zip(unlist(rs)).map { case (a, b) => DataV("Tuple2", collection.immutable.ArraySeq(a, b)) })
         case (ls, "mkString", Nil) if isList(ls) =>
           StrV(unlist(ls).map(anyStr).mkString)
         case (ls, "mkString", List(StrV(sep))) if isList(ls) =>
@@ -1649,13 +1707,15 @@ object Prims:
         // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
         case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
         case (DataV("Map", _), "empty", Nil) => ForeignV(collection.mutable.HashMap[Value, Value]())
-        case (DataV("List", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
           listOf((0 until n.toInt).map(i => callClos(fn, Array(IntV(i.toLong)))))
-        case (DataV("List", _), "fill", List(IntV(n), elem)) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "fill", List(IntV(n), elem)) =>
           listOf(Seq.fill(n.toInt)(elem))
-        case (DataV("List", _), "range", List(IntV(from), IntV(to))) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "empty", Nil) =>
+          listOf(Seq.empty)
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "range", List(IntV(from), IntV(to))) =>
           listOf((from until to).map(i => IntV(i): Value))
-        case (DataV("List", _), "range", List(IntV(from), IntV(to), IntV(step))) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "range", List(IntV(from), IntV(to), IntV(step))) =>
           listOf((from until to by step).map(i => IntV(i): Value))
         // LazyList
         case (DataV("LazyList", _), "from", List(IntV(n))) =>
@@ -1755,6 +1815,11 @@ object Prims:
                 case Some(fn) => fn(a)
                 case None => sys.error(s"__method__: no method '$name' in method-object")
         case (v, "toString", Nil) => StrV(anyStr(v))
+        // ── Optics: Focus / Prism ──────────────────────────────────────────────
+        case (DataV("Focus", steps), _, _) if steps.length == 1 =>
+          opticDispatch(name, steps(0), margs)
+        case (DataV("Prism", IndexedSeq(StrV(variant))), _, _) =>
+          prismDispatch(name, variant, margs)
         case _ =>
           V2PluginRegistry.lookup(s"__method__.$name") match
             case Some(fn) => fn(a)
@@ -1777,9 +1842,27 @@ object Prims:
                             case many      => DataV(s"Tuple${many.length}", many.toVector)
                           val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
                           DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
-                case DataV(_, _) =>
-                  // Non-effect DataV (Op, Stub, or unknown type): return a stub in batch mode
-                  DataV("Stub", Vector.empty)
+                case DataV(tag, fields) =>
+                  // Check if 'name' is a registered field (e.g. function-typed field of a case class)
+                  V2PluginRegistry.lookupFieldNames(tag) match
+                    case Some(fnames) =>
+                      val i = fnames.indexOf(name)
+                      if i >= 0 && i < fields.length then
+                        val fv = fields(i)
+                        if margs.isEmpty then fv  // bare field access
+                        else fv match
+                          case fn: ClosV => callClos(fn, margs.toArray)
+                          // list(i) — field is a list, marg is index
+                          case DataV("Cons" | "Nil", _) => margs match
+                            case List(IntV(idx)) => unlistPub(fv).lift(idx.toInt).getOrElse(opticNone)
+                            case _ => DataV("Stub", Vector.empty)
+                          // map(k) — field is a map
+                          case ForeignV(m: collection.mutable.HashMap[Value, Value] @unchecked) => margs match
+                            case List(k) => m.getOrElse(k, opticNone)
+                            case _ => DataV("Stub", Vector.empty)
+                          case _ => DataV("Stub", Vector.empty)
+                      else DataV("Stub", Vector.empty)
+                    case None => DataV("Stub", Vector.empty)
                 case _ =>
                   sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
@@ -1979,7 +2062,7 @@ object Prims:
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
-  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => d.toString; case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString; case _ => Show.show(v) }
+  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => Writer.floatStr(d); case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString; case _ => Show.show(v) }
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
@@ -1990,6 +2073,157 @@ object Prims:
   // Option / list helpers (the ssc0 ADT encoding the kernel speaks)
   private val none: Value = DataV("None", IndexedSeq.empty)
   private def some(v: Value): Value = DataV("Some", collection.immutable.ArraySeq(v))
+
+  // ── Optics runtime helpers ──────────────────────────────────────────────────
+
+  private val opticNone: Value = DataV("None", collection.immutable.ArraySeq.empty)
+  private def opticIsNone(v: Value): Boolean = v match { case DataV("None", _) => true; case _ => false }
+
+  /** Walk a path like `["address", "city"]` or `["profile", "some", "home", "some", "city"]` from a target value. */
+  private def opticGet(target: Value, steps: List[String]): Value = steps match
+    case Nil => target
+    case "some" :: rest => target match
+      case DataV("Some", IndexedSeq(inner)) => opticGet(inner, rest)
+      case _ => opticNone  // propagate None — sentinel for "path failed"
+    case "each" :: rest => listOf(unlist(target).map(v => opticGet(v, rest)))
+    case step :: rest if step.startsWith("[index:") =>
+      val i = step.stripPrefix("[index:").stripSuffix("]").toInt
+      target match
+        case DataV("Cons", _) => opticGet(unlist(target).lift(i).getOrElse(opticNone), rest)
+        case _ => opticNone
+    case step :: rest if step.startsWith("[at:") =>
+      val k = StrV(step.stripPrefix("[at:").stripSuffix("]"))
+      target match
+        case ForeignV(m: collection.mutable.HashMap[Value, Value] @unchecked) =>
+          m.get(k).map(v => opticGet(v, rest)).getOrElse(opticNone)
+        case _ => opticNone
+    case name :: rest =>
+      V2PluginRegistry.lookupFieldNames(getTag(target)) match
+        case Some(fnames) =>
+          val i = fnames.indexOf(name)
+          target match
+            case DataV(_, fields) if i >= 0 && i < fields.length => opticGet(fields(i), rest)
+            case _ => opticNone
+        case None => opticNone
+
+  private def getTag(v: Value): String = v match { case DataV(t, _) => t; case _ => "" }
+
+  /** Reconstruct a value with the field at `steps` path replaced by `newVal`. */
+  private def opticSet(target: Value, steps: List[String], newVal: Value): Value = steps match
+    case Nil => newVal
+    case "some" :: rest => target match
+      case DataV("Some", IndexedSeq(inner)) => some(opticSet(inner, rest, newVal))
+      case other => other  // None: no-op
+    case "each" :: rest => listOf(unlist(target).map(v => opticSet(v, rest, newVal)))
+    case step :: rest if step.startsWith("[index:") =>
+      val i = step.stripPrefix("[index:").stripSuffix("]").toInt
+      target match
+        case DataV("Cons", _) =>
+          val lst = unlist(target)
+          if i >= 0 && i < lst.length then listOf(lst.updated(i, opticSet(lst(i), rest, newVal)))
+          else target
+        case _ => target
+    case step :: rest if step.startsWith("[at:") =>
+      val k = StrV(step.stripPrefix("[at:").stripSuffix("]"))
+      target match
+        case ForeignV(m: collection.mutable.HashMap[Value, Value] @unchecked) =>
+          val nm = collection.mutable.HashMap[Value, Value]()
+          nm ++= m
+          nm(k) = m.get(k).map(v => opticSet(v, rest, newVal)).getOrElse(if rest.isEmpty then newVal else m.getOrElse(k, opticNone))
+          ForeignV(nm)
+        case _ => target
+    case name :: rest =>
+      target match
+        case DataV(tag, fields) =>
+          V2PluginRegistry.lookupFieldNames(tag) match
+            case Some(fnames) =>
+              val i = fnames.indexOf(name)
+              if i >= 0 && i < fields.length then
+                val updated = opticSet(fields(i), rest, newVal)
+                DataV(tag, fields.updated(i, updated))
+              else target
+            case None => target
+        case other => other
+
+  private def opticDispatch(name: String, stepsVal: Value, margs: List[Value]): Value =
+    val steps = unlist(stepsVal).map { case StrV(s) => s; case _ => "?" }
+    val isTraversal = steps.contains("each")
+    name match
+      case "get" => margs match
+          case List(target) => opticGet(target, steps)
+          case _ => DataV("Stub", Vector.empty)
+      case "getAll" => margs match
+          case List(target) => opticGet(target, steps)  // "each" step already returns list
+          case _ => DataV("Stub", Vector.empty)
+      case "getOption" => margs match
+          case List(target) =>
+            val r = opticGet(target, steps)
+            if opticIsNone(r) then opticNone else some(r)
+          case _ => DataV("Stub", Vector.empty)
+      case "set" => margs match
+          case List(target, newVal) => opticSet(target, steps, newVal)
+          case _ => DataV("Stub", Vector.empty)
+      case "modify" if isTraversal => margs match
+          case List(target, fn: Value.ClosV) =>
+            // For traversals, modify applies fn to each element in the "each" collection
+            opticModifyTraversal(target, steps, fn)
+          case _ => DataV("Stub", Vector.empty)
+      case "modify" => margs match
+          case List(target, fn: Value.ClosV) =>
+            val old = opticGet(target, steps)
+            if opticIsNone(old) then target
+            else opticSet(target, steps, callClos(fn, Array(old)))
+          case _ => DataV("Stub", Vector.empty)
+      case "andThen" => margs match
+          case List(DataV("Focus", IndexedSeq(innerSteps))) =>
+            val inner = unlist(innerSteps).map { case StrV(s) => s; case _ => "?" }
+            DataV("Focus", collection.immutable.ArraySeq(listOf((steps ++ inner).map(s => StrV(s)))))
+          case List(DataV("Prism", IndexedSeq(StrV(variant)))) =>
+            val composedSteps = steps ++ List(s"[prism:$variant]")
+            DataV("Focus", collection.immutable.ArraySeq(listOf(composedSteps.map(s => StrV(s)))))
+          case _ => DataV("Stub", Vector.empty)
+      case _ => DataV("Stub", Vector.empty)
+
+  /** For Traversal paths: modify each element the "each" step would focus on. */
+  private def opticModifyTraversal(target: Value, steps: List[String], fn: Value.ClosV): Value = steps match
+    case Nil => callClos(fn, Array(target))
+    case "each" :: rest =>
+      listOf(unlist(target).map(v => opticModifyTraversal(v, rest, fn)))
+    case name :: rest =>
+      target match
+        case DataV(tag, fields) =>
+          V2PluginRegistry.lookupFieldNames(tag) match
+            case Some(fnames) =>
+              val i = fnames.indexOf(name)
+              if i >= 0 && i < fields.length then
+                val updated = opticModifyTraversal(fields(i), rest, fn)
+                DataV(tag, fields.updated(i, updated))
+              else target
+            case None => target
+        case _ => target
+
+  private def prismDispatch(name: String, variant: String, margs: List[Value]): Value =
+    name match
+      case "getOption" => margs match
+          case List(target @ DataV(tag, _)) if tag == variant => some(target)
+          case List(_) => opticNone
+          case _ => DataV("Stub", Vector.empty)
+      case "reverseGet" => margs match
+          case List(v) => v
+          case _ => DataV("Stub", Vector.empty)
+      case "set" => margs match
+          case List(DataV(tag, _), newVal) if tag == variant => newVal
+          case List(target, _) => target  // tag mismatch: no-op
+          case _ => DataV("Stub", Vector.empty)
+      case "modify" => margs match
+          case List(target @ DataV(tag, _), fn: Value.ClosV) if tag == variant => callClos(fn, Array(target))
+          case List(target, _) => target  // tag mismatch: no-op
+          case _ => DataV("Stub", Vector.empty)
+      case "andThen" => margs match
+          case List(DataV("Prism", IndexedSeq(StrV(inner)))) => DataV("Prism", collection.immutable.ArraySeq(StrV(inner)))
+          case _ => DataV("Stub", Vector.empty)
+      case _ => DataV("Stub", Vector.empty)
+
   private def isList(v: Value): Boolean = v match
     case DataV("Nil", _) | DataV("Cons", _) => true
     case _ => false
@@ -2084,9 +2318,23 @@ object Show:
     case BoolV(x)     => x.toString
     case IntV(n)      => n.toString
     case BigV(n)      => n.toString
-    case FloatV(d)    => d.toString
-    case StrV(s)      => "\"" + s + "\""
+    case FloatV(d)    => Writer.floatStr(d)
+    case StrV(s)      => s
     case BytesV(bs)   => bs.map(x => f"${x & 0xff}%02x").mkString("#", "", "")
+    case DataV("Cons", _) | DataV("Nil", _) =>
+      def ul(x: Value): List[Value] = x match
+        case DataV("Cons", Seq(h, t)) => h :: ul(t)
+        case _ => Nil
+      s"List(${ul(v).map(show).mkString(", ")})"
+    case DataV("Focus", IndexedSeq(stepsV)) =>
+      def unl(v: Value): List[String] = v match
+        case DataV("Cons", Seq(StrV(h), t)) => h :: unl(t)
+        case DataV("Cons", Seq(h, t)) => show(h) :: unl(t)
+        case _ => Nil
+      val steps = unl(stepsV)
+      val opticType = if steps.contains("each") then "Traversal" else if steps.contains("some") then "Optional" else "Lens"
+      s"$opticType(_.${steps.mkString(".")})"
+    case DataV("Prism", IndexedSeq(StrV(variant))) => s"Prism[?, $variant]"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
