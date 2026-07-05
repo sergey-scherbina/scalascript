@@ -78,3 +78,20 @@ class PortableHashesTest extends AnyFunSuite with Matchers:
     val pub = gx.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
     hex(Ripemd160.digest(Sha256.digest(pub))) shouldBe "751e76e8199196d454941c45d1b3a323f1433bd6"
   }
+
+  // ── Keccak-256 (Ethereum; original Keccak pad 0x01, not NIST SHA3) ──────────────
+
+  test("Keccak-256(\"\") = Ethereum empty-data hash") {
+    hex(Keccak256.hash(Array.empty[Byte])) shouldBe
+      "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+  }
+
+  test("Keccak-256(\"abc\")") {
+    hex(Keccak256.hash(utf8("abc"))) shouldBe
+      "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+  }
+
+  test("Keccak-256(\"hello\")") {
+    hex(Keccak256.hash(utf8("hello"))) shouldBe
+      "1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
+  }

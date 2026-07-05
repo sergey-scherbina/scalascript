@@ -47,6 +47,23 @@ class BouncyCastleBackendTest extends AnyFunSuite:
     assert(be.hash(HashAlgo.Keccak256, "hello".getBytes("UTF-8")).sameElements(expected))
   }
 
+  test("portable Keccak256 reference == BouncyCastle backend (rate boundary + multi-block)") {
+    val inputs = Seq(
+      Array.emptyByteArray,
+      "hello".getBytes("UTF-8"),
+      "abc".getBytes("UTF-8"),
+      Array.fill[Byte](135)('x'.toByte),   // rate - 1
+      Array.fill[Byte](136)('y'.toByte),   // exactly the rate → forces an extra all-pad block
+      Array.fill[Byte](137)('z'.toByte),   // rate + 1
+      Array.fill[Byte](272)('w'.toByte),   // 2 * rate (multi-block)
+      Array.tabulate[Byte](1000)(i => (i & 0xff).toByte)
+    )
+    inputs.foreach { in =>
+      assert(Keccak256.hash(in).sameElements(be.hash(HashAlgo.Keccak256, in)),
+        s"portable Keccak256 != BouncyCastle for input length ${in.length}")
+    }
+  }
+
   test("RIPEMD-160 of empty matches reference") {
     val expected = hex("9c1185a5c5e9fc54612808977ee8f548b2258d31")
     assert(be.hash(HashAlgo.Ripemd160, Array.emptyByteArray).sameElements(expected))
