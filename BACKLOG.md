@@ -32,11 +32,11 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       ssc0-level backend: `Step::Val|Bounce`, `call_fn` loop, `genTail` emitter for tail
       positions. Stack back to 256MB; tco.coreir (1M tail calls) PROVEN at a 1MB stack.
       Parity 8×3 GREEN; 4 corpus programs byte-match the VM.
-- [ ] **v2-js-backend-smallint-fastmode** — after the 2026-07-05 BigInt correctness fix
-      (SPRINT T5.2), all v2 JS-backend ints are BigInt → JS bench regresses vs plain
-      doubles. Future perf item: hybrid representation (numbers while provably in ±2^53,
-      BigInt on overflow) or a typed-IR-informed selective lowering once the compat
-      frontend carries types.
+- [x] **v2-js-backend-smallint-fastmode** — ✓ Landed (2026-07-05) as an opt-in flag:
+      `--ints=number` on the JS generator (plain JS numbers; arith-loop ~6×, fib ~3×
+      faster in node). Default stays exact BigInt — number mode is wrong for 64-bit
+      wrap-around programs (bool-predicate 6≠243, demonstrated). A future typed-IR
+      selective lowering could pick the mode per-value automatically.
 - [ ] **v2-jvm-backend-echo-macos** — On macOS, `echo "$var"` processes `\n` in strings as real
       newlines, corrupting the JVM/Rust backend output when captured via shell `$(...)` and written
       with `echo`. The generated preamble has `split("\n", -1)` which becomes `split("` + newline +

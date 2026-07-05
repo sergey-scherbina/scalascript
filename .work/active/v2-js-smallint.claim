@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-js-smallint
-worktree: ../scalascript-wt-v2-js-smallint
-started: 2026-07-05
-status: in-progress
-task: v2-js-backend-smallint-fastmode — recover JS perf after BigInt correctness fix (hybrid int representation or cheaper ops)

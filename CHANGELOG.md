@@ -44,6 +44,12 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — v2-js-smallint: opt-in `--ints=number` fast mode for the JS generator
+
+Plain-number ints (arith-loop ~6×, recursion-fib ~3× faster in node) behind an explicit
+flag; the default remains exact 64-bit BigInt — number mode is documented-wrong for
+wrap-around programs (bool-predicate demonstrates). Fixtures match the VM in both modes.
+
 ## 2026-07-05 — v2-rust-backend-tco: real trampoline TCO in the Rust generator
 
 `v2/backend/rust/RustBackend.scala` closures now return `Step::Val | Step::Bounce`;
