@@ -98,10 +98,12 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       key, JVM+JS. Unblocks `webauthn-server-verify` (COSE structures now available).
       **JWS ES256K DONE 2026-07-05** (`Secp256k1Ecdsa.derToRaw`/`rawToDer` + `Jws.signES256K`/`verifyES256K`
       + `Jwt.es256k`): ECDSA secp256k1 + SHA-256 with the fixed 64-byte R‖S encoding — byte-for-byte equal
-      to the BouncyCastle secp256k1 backend (both RFC-6979 + low-S), JVM+JS. **REMAINING:** ES256 (P-256,
-      COSE alg -7 / JOSE ES256) — **BLOCKED on a portable P-256 reference** (`Curve.P256` only via
-      BouncyCastle today); COSE ES256K (alg -47, reuse the R‖S helper); PASETO **v4.local** (XChaCha20 +
-      BLAKE2b keyed); COSE_Encrypt.
+      to the BouncyCastle secp256k1 backend (both RFC-6979 + low-S), JVM+JS.
+      **COSE ES256K DONE 2026-07-05** (`CoseSign1.signES256K`/`verifyES256K`, protected `{1:-47}`):
+      COSE_Sign1 now covers EdDSA + ES256K over the same R‖S helper, with an authenticated alg guard
+      (cross-alg confusion rejected), round-tripped JVM+JS. **REMAINING:** ES256 (P-256, COSE alg -7 /
+      JOSE ES256) — **BLOCKED on a portable P-256 reference** (`Curve.P256` only via BouncyCastle today);
+      PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
 - [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the

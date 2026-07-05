@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: COSE_Sign1 ES256K (ECDSA secp256k1)
+
+`CoseSign1` gains `signES256K` / `verifyES256K` (protected header `{1:-47}`) in
+`payments/crypto/spi/shared` — COSE_Sign1 now covers both EdDSA and ES256K (ECDSA secp256k1 + SHA-256,
+fixed 64-byte R‖S) over the from-scratch portable secp256k1, reusing the `derToRaw`/`rawToDer` helper.
+The protected `alg` header is authenticated, so cross-algorithm confusion (verifying an EdDSA message as
+ES256K or vice-versa) is rejected. Structure + round-trip + AAD binding green on JVM and Scala.js.
+
 ## 2026-07-05 — crypto: JWS ES256K (ECDSA secp256k1) over the crypto SPI
 
 Added the fixed-length signature conversion `Secp256k1Ecdsa.derToRaw` / `rawToDer` (DER ↔ 64-byte R‖S)

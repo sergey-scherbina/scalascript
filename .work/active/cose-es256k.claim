@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/cose-es256k
-worktree: ../scalascript-wt-cose-es256k
-started: 2026-07-05T13:32:33Z
-heartbeat: 2026-07-05T13:32:33Z
-status: in-progress
-task: cose-es256k — COSE_Sign1 ES256K (alg -47, ECDSA secp256k1 + SHA-256, raw R||S) in CoseSign1.scala reusing Secp256k1Ecdsa derToRaw/rawToDer; gated by structure + round-trip + BouncyCastle differential, JVM+JS. Rounds out COSE alg coverage (after EdDSA).
