@@ -52,6 +52,9 @@ object Value:
 object Runtime:
   import Value.*
 
+  /** Exception thrown by `throw expr` in ssc programs; caught by `try/catch` handlers. */
+  class SscUserException(val value: Value) extends RuntimeException(null, null, true, false)
+
   // Process argv — the trailing CLI args of `ssc run <file> ARGS...`, exposed to
   // the program through the `io.args` primitive. Set by Main before running.
   var argv: List[String] = Nil
@@ -325,6 +328,11 @@ object Compiler:
           (env: Env) =>
             Runtime.value(fc, env) match
               case c: ClosV => Call(c, Runtime.emptyEnv)             // avoid toArray on empty list
+              case ForeignV(nmo: NamedMethodObj) =>
+                nmo.getField("apply") match
+                  case Some(c: ClosV) => Call(c, Runtime.emptyEnv)
+                  case Some(other) => sys.error(s"app: NamedMethodObj.apply not callable: ${Show.show(other)}")
+                  case None => sys.error(s"app: not a function: ${Show.show(Runtime.value(fc, env))}")
               case v => sys.error(s"app: not a function: ${Show.show(v)}")
         else args match
           // 1-arg fast path: avoid List alloc from acs.map(...).toArray
@@ -344,6 +352,11 @@ object Compiler:
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
                 case DataV(_, fields) =>
                   v0 match { case IntV(i) => Done(fields(i.toInt)); case _ => sys.error("app: DataV index must be Int") }
+                case ForeignV(nmo: NamedMethodObj) =>
+                  nmo.getField("apply") match
+                    case Some(c: ClosV) => val avs = new Array[Value](1); avs(0) = v0; Call(c, avs)
+                    case Some(other) => sys.error(s"app: NamedMethodObj.apply not callable: ${Show.show(other)}")
+                    case None => sys.error(s"app: not a function: ${Show.show(fv)}")
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
           // 2-arg fast path: avoid List alloc from acs.map(...).toArray
           case List(a0, a1) =>
@@ -354,6 +367,11 @@ object Compiler:
               fv match
                 case c: ClosV => Call(c, avs)
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
+                case ForeignV(nmo: NamedMethodObj) =>
+                  nmo.getField("apply") match
+                    case Some(c: ClosV) => Call(c, avs)
+                    case Some(other) => sys.error(s"app: NamedMethodObj.apply not callable: ${Show.show(other)}")
+                    case None => sys.error(s"app: not a function: ${Show.show(fv)}")
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
           // generic path for 3+ args
           case _ =>
@@ -364,6 +382,11 @@ object Compiler:
               fv match
                 case c: ClosV => Call(c, avs)
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
+                case ForeignV(nmo: NamedMethodObj) =>
+                  nmo.getField("apply") match
+                    case Some(c: ClosV) => Call(c, avs)
+                    case Some(other) => sys.error(s"app: NamedMethodObj.apply not callable: ${Show.show(other)}")
+                    case None => sys.error(s"app: not a function: ${Show.show(fv)}")
                 case v => sys.error(s"app: not a function: ${Show.show(v)}")
         }   // end globalFastPath.getOrElse
       case While(cond, body) =>
@@ -405,6 +428,29 @@ object Compiler:
             var k = 0; var last: Value = Value.UnitV
             while k < nTcs do { last = Runtime.value(tcsArr(k), env); k += 1 }
             Done(last)
+      case Prim("__try_catch__", bodyTerm :: handlers) =>
+        // IR: __try_catch__(bodyExpr, tag0, lam0, tag1, lam1, ...) — tag "" = wildcard
+        val bodyCode = compile(bodyTerm)  // body compiled directly, not a thunk
+        val handlerCodes = handlers.grouped(2).collect {
+          case List(tagTerm, lamTerm) => (compile(tagTerm), compile(lamTerm))
+        }.toList
+        (env: Env) =>
+          try { Done(Runtime.value(bodyCode, env)) }
+          catch {
+            case ex: Runtime.SscUserException =>
+              val thrownV = ex.value
+              val hit = handlerCodes.find { case (tagCode, _) =>
+                Runtime.value(tagCode, env) match
+                  case StrV(t) => t.isEmpty || (thrownV match { case DataV(tag, _) => tag == t; case _ => false })
+                  case _ => true
+              }
+              hit match
+                case Some((_, lamCode)) =>
+                  Runtime.value(lamCode, env) match
+                    case c: ClosV => Call(c, Array(thrownV))
+                    case _ => throw ex
+                case None => throw ex
+          }
       case Prim(op, args) =>
         // Fast paths for 1/2/3-arg primitives: avoid List[Value] allocation for args
         args match
@@ -1139,6 +1185,10 @@ object Prims:
   /** Runtime given registry for generic `using` resolution: (HKT_head, type_tag) → given value. */
   val runtimeGivenRegistry = collection.mutable.HashMap[(String, String), Value]()
 
+  /** Runtime extension method dispatch: maps (methodName, receiverTag) → closure.
+   *  Used when multiple extension groups define the same method name for different receiver types. */
+  val extensionDispatch = collection.mutable.HashMap[(String, String), Value]()
+
   /** Determine the outer type tag of a value (e.g. IntV → "Int", Cons → "List"). */
   def runtimeTypeTag(v: Value): String = v match
     case IntV(_)   => "Int"
@@ -1279,6 +1329,10 @@ object Prims:
     case "__match_fail_prim__" => _ => sys.error("match: no matching case")
     // Runtime given registry: maps (HKT_head, type_tag) → given instance value.
     // Used by __rt_summon__ for generic `using` params where type vars are inferred at runtime.
+    case "__reg_ext__" => a =>
+      // a(0) = methodName, a(1) = receiverTag, a(2) = closure
+      val mname = str(a, 0); val tag = str(a, 1); val clos = a(2)
+      Prims.extensionDispatch((mname, tag)) = clos; UnitV
     case "__reg_given__" => a =>
       val head = str(a, 0); val typeTag = str(a, 1); val givenVal = a(2)
       Prims.runtimeGivenRegistry((head, typeTag)) = givenVal; UnitV
@@ -1505,6 +1559,13 @@ object Prims:
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
         case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
         case (StrV(s), "indexOf", List(StrV(sub)))      => IntV(s.indexOf(sub).toLong)
+        case (StrV(s), "indexOf", List(IntV(ch)))       => IntV(s.indexOf(ch.toInt).toLong)
+        case (StrV(s), "indexOf", List(StrV(sub), IntV(from))) => IntV(s.indexOf(sub, from.toInt).toLong)
+        case (StrV(s), "indexOf", List(IntV(ch), IntV(from)))  => IntV(s.indexOf(ch.toInt, from.toInt).toLong)
+        case (StrV(s), "lastIndexOf", List(StrV(sub)))  => IntV(s.lastIndexOf(sub).toLong)
+        case (StrV(s), "lastIndexOf", List(IntV(ch)))   => IntV(s.lastIndexOf(ch.toInt).toLong)
+        case (StrV(s), "lastIndexOf", List(StrV(sub), IntV(from))) => IntV(s.lastIndexOf(sub, from.toInt).toLong)
+        case (StrV(s), "lastIndexOf", List(IntV(ch), IntV(from)))  => IntV(s.lastIndexOf(ch.toInt, from.toInt).toLong)
         case (StrV(s), "replace",     List(StrV(from), StrV(to))) => StrV(s.replace(from, to))
         case (StrV(s), "replaceAll",  List(StrV(regex), StrV(to))) => StrV(s.replaceAll(regex, to))
         case (StrV(s), "replaceFirst",List(StrV(regex), StrV(to))) => StrV(s.replaceFirst(regex, to))
@@ -1519,7 +1580,12 @@ object Prims:
         case (StrV(s), "getBytes",    List(StrV(enc))) =>
           listOf(s.getBytes(enc).map(b => IntV((b & 0xff).toLong)).toList)
         case (StrV(s), "toCharArray", Nil)              => listOf(s.toCharArray.map(c => StrV(c.toString)).toList)
-        case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+        case (StrV(s), "matchPrefix", List(StrV(pat))) =>
+          val m = java.util.regex.Pattern.compile(pat).matcher(s)
+          if m.lookingAt() then DataV("Some", Array[Value](StrV(m.group()))) else DataV("None", Array.empty[Value])
+        case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "forall",      List(fn: ClosV))  => BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "exists",      List(fn: ClosV))  => BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         // ── scala.math object ──────────────────────────────────────────────────────
         case (ForeignV("__math__"), "Pi", Nil)         => FloatV(math.Pi)
         case (ForeignV("__math__"), "E", Nil)          => FloatV(math.E)
@@ -1827,21 +1893,25 @@ object Prims:
               // Effect dispatch: DataV("Logger"/"State"/...) with no method → check effect context
               recv match
                 case DataV(effectTag, IndexedSeq()) =>
-                  // Check for a plugin method registered as "Tag.method" before effect dispatch.
-                  // Db.query/execute etc. are plugins, not algebraic effects.
-                  V2PluginRegistry.lookup(s"$effectTag.$name") match
-                    case Some(pluginFn) => pluginFn(margs)
-                    case None =>
-                      V2EffectContext.peek(effectTag) match
-                        case Some(handler) => handler(name, margs)
+                  // Check runtime extension dispatch first (e.g. DataV("None",[]) → handleError).
+                  Prims.extensionDispatch.get((name, effectTag)) match
+                    case Some(fn: ClosV) => callClos(fn, (recv +: margs).toArray)
+                    case _ =>
+                      // Check for a plugin method registered as "Tag.method" before effect dispatch.
+                      // Db.query/execute etc. are plugins, not algebraic effects.
+                      V2PluginRegistry.lookup(s"$effectTag.$name") match
+                        case Some(pluginFn) => pluginFn(margs)
                         case None =>
-                          // No active handler: return Free monad Op for typed `handle` dispatch
-                          val argV = margs match
-                            case Nil       => UnitV
-                            case List(one) => one
-                            case many      => DataV(s"Tuple${many.length}", many.toVector)
-                          val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
-                          DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                          V2EffectContext.peek(effectTag) match
+                            case Some(handler) => handler(name, margs)
+                            case None =>
+                              // No active handler: return Free monad Op for typed `handle` dispatch
+                              val argV = margs match
+                                case Nil       => UnitV
+                                case List(one) => one
+                                case many      => DataV(s"Tuple${many.length}", many.toVector)
+                              val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
+                              DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
                 case DataV(tag, fields) =>
                   // Check if 'name' is a registered field (e.g. function-typed field of a case class)
                   V2PluginRegistry.lookupFieldNames(tag) match
@@ -1861,10 +1931,22 @@ object Prims:
                             case List(k) => m.getOrElse(k, opticNone)
                             case _ => DataV("Stub", Vector.empty)
                           case _ => DataV("Stub", Vector.empty)
-                      else DataV("Stub", Vector.empty)
-                    case None => DataV("Stub", Vector.empty)
+                      else
+                        // Field not found by name; check extension dispatch before giving up.
+                        Prims.extensionDispatch.get((name, tag)) match
+                          case Some(fn: ClosV) => callClos(fn, (recv +: margs).toArray)
+                          case _ => DataV("Stub", Vector.empty)
+                    case None =>
+                      // Unknown DataV tag; check runtime extension dispatch table.
+                      Prims.extensionDispatch.get((name, tag)) match
+                        case Some(fn: ClosV) => callClos(fn, (recv +: margs).toArray)
+                        case _ => DataV("Stub", Vector.empty)
                 case _ =>
-                  sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
+                  // Check runtime extension dispatch for non-DataV values (e.g. Int, String).
+                  val tag = runtimeTypeTag(recv)
+                  Prims.extensionDispatch.get((name, tag)) match
+                    case Some(fn: ClosV) => callClos(fn, (recv +: margs).toArray)
+                    case _ => sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
       V2PluginRegistry.lookup(op) match
         case Some(fn) => fn
@@ -2335,6 +2417,7 @@ object Show:
       val opticType = if steps.contains("each") then "Traversal" else if steps.contains("some") then "Optional" else "Lens"
       s"$opticType(_.${steps.mkString(".")})"
     case DataV("Prism", IndexedSeq(StrV(variant))) => s"Prism[?, $variant]"
+    case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString

@@ -635,11 +635,8 @@ object PluginBridge:
     // __throw__ — lowered from throw expressions in FrontendBridge
     if V2PluginRegistry.lookupGlobal("__throw__").isEmpty then
       V2PluginRegistry.registerGlobal("__throw__", ClosV(Runtime.emptyEnv, 1, env => {
-        val msg = env.last match
-          case StrV(s) => s
-          case DataV(tag, fields) => s"$tag(${fields.mkString(", ")})"
-          case v => v.toString
-        throw new scalascript.interpreter.InterpretError(msg)
+        val v = env.last
+        throw new Runtime.SscUserException(v)
       }))
     // getenv(key[, default]) — interpreter built-in not in any SPI plugin
     if V2PluginRegistry.lookupGlobal("getenv").isEmpty then
@@ -660,6 +657,27 @@ object PluginBridge:
         case List(BigV(n)) => Done(BigV(n))
         case _             => Done(BigV(BigInt(0)))
       ))
+    // scope(name) — CSS scoping helper: returns object with cls(n)/css(s) methods
+    if V2PluginRegistry.lookupGlobal("scope").isEmpty then
+      V2PluginRegistry.registerGlobal("scope", ClosV(Runtime.emptyEnv, -1, env => {
+        val name = env.headOption.collect { case StrV(s) => s }.getOrElse("root")
+        val clsFn = ClosV(Runtime.emptyEnv, -1, e =>
+          Done(StrV(e.headOption.collect { case StrV(s) => s }.map(s => s"${s}__${name}").getOrElse(""))))
+        val cssFn = ClosV(Runtime.emptyEnv, -1, e =>
+          Done(StrV(e.headOption.collect { case StrV(s) => s }.getOrElse(""))))
+        Done(ForeignV(collection.immutable.Map[String, V2Value]("name" -> StrV(name), "cls" -> clsFn, "css" -> cssFn).asInstanceOf[AnyRef]))
+      }))
+    // raw(s) — pass through string as-is (HTML template helper)
+    if V2PluginRegistry.lookupGlobal("raw").isEmpty then
+      V2PluginRegistry.registerGlobal("raw", ClosV(Runtime.emptyEnv, -1, env =>
+        Done(env.headOption.collect { case StrV(s) => StrV(s) }.getOrElse(StrV("")))))
+    // attr(name, value) — HTML attribute helper: "name=\"value\""
+    if V2PluginRegistry.lookupGlobal("attr").isEmpty then
+      V2PluginRegistry.registerGlobal("attr", ClosV(Runtime.emptyEnv, -1, env => env.toList match
+        case List(StrV(n), StrV(v)) => Done(StrV(s"""$n="$v""""))
+        case List(StrV(n), BoolV(true)) => Done(StrV(n))
+        case List(StrV(_), BoolV(false)) | List(StrV(_), DataV("None", _)) => Done(StrV(""))
+        case _ => Done(StrV(""))))
     // Exception factories used in throw expressions
     Seq("RuntimeException","Exception","IllegalArgumentException","IllegalStateException","UnsupportedOperationException").foreach { exName =>
       if V2PluginRegistry.lookupGlobal(exName).isEmpty then
@@ -1042,8 +1060,12 @@ object PluginBridge:
         case _             => List(arg, resumeFn)
       callClosure(handler, List(V2Value.DataV(opName, margs.toVector)))
     case _ =>
-      // Pure result — call handler with Return(v)
-      callClosure(handler, List(V2Value.DataV("Return", Vector(v))))
+      // Pure result — call handler with Return(v).
+      // If the handler has no Return arm (old-style handle), return v directly.
+      val retData = V2Value.DataV("Return", Vector(v))
+      try callClosure(handler, List(retData))
+      catch case e: RuntimeException if e.getMessage != null && e.getMessage.startsWith("match: no arm for Return") =>
+        v
 
   // ── Actor runtime — VirtualThread-per-actor model ───────────────────────────
 
@@ -1497,6 +1519,11 @@ object PluginBridge:
       val hm = scala.collection.mutable.HashMap[V2Value, V2Value]()
       entries.foreach { case (k, v) => hm(v1ToV2(k)) = v1ToV2(v) }
       V2Value.ForeignV(hm)
+    case scalascript.interpreter.Value.Foreign(_, s: scalascript.frontend.Signal[?]) =>
+      // Signal[T]: callable with 0 args → returns current value; 1 arg → sets value + returns Unit
+      V2Value.ClosV(Runtime.emptyEnv, -1, env =>
+        if env.isEmpty then Done(rawToV2(s.apply().asInstanceOf[Any]))
+        else { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToV1(env.last)); Done(V2Value.UnitV) })
     case scalascript.interpreter.Value.Foreign(tag, h: AnyRef) =>
       V2Value.ForeignV(TaggedForeign(tag, h))
     // v1 NativeFnV → variadic v2 ClosV

@@ -70,6 +70,9 @@ object FrontendBridge:
     usingCurriedArgs.clear()
     runtimeGivenRegEntries.clear()
     traitParents.clear()
+    extensionMethodConflicts.clear()
+    extRegEntries.clear()
+    extGroupCounter = 0
     fieldTypeRegistry.clear()
     derivedSchemas.clear()
     generalDerives.clear()
@@ -79,6 +82,9 @@ object FrontendBridge:
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
+    objectNames.clear()
+    objectMethodDefaults.clear()
+    objectMethodVarargs.clear()
     curryFirstClauseDefaults.clear()
 
   /** Parse `databases:` YAML block from front-matter and register JDBC connections.
@@ -119,6 +125,40 @@ object FrontendBridge:
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
+
+  /** Extension method conflict registry: names defined MORE THAN ONCE across extension groups.
+   *  For conflicting names, call sites use __method__ dispatch instead of global lookup. */
+  private val extensionMethodConflicts = collection.mutable.HashSet[String]()
+
+  /** Extension method registration entries: (methodName, receiverTag, internalUniqueName).
+   *  One entry per (method, tag) pair — conflicting ext methods use __reg_ext__ dispatch. */
+  private val extRegEntries = collection.mutable.ListBuffer[(String, String, String)]()
+
+  /** Accumulated count of extension groups, used to generate unique internal names. */
+  private var extGroupCounter = 0
+
+  /** Object names registered during convertStats — looked up as globals, not constructors. */
+  private val objectNames = collection.mutable.HashSet[String]()
+
+  /** Default param vectors for object methods — keyed by (objectName, methodName).
+   *  Same format as defaultParams: Vector[Option[CT.Lam(k, body)]] per param position. */
+  private val objectMethodDefaults = collection.mutable.HashMap[(String, String), Vector[Option[CT]]]()
+
+  /** Object methods whose last param is vararg (Message*) — call site wraps all args in a list. */
+  private val objectMethodVarargs = collection.mutable.HashSet[(String, String)]()
+
+
+  /** Map receiver type name to known DataV tags.
+   *  Hard-coded for built-in types; user-defined ADTs added during registerTypes. */
+  private val receiverTypeTags = collection.mutable.HashMap[String, List[String]](
+    "Option"  -> List("Some", "None"),
+    "Either"  -> List("Left", "Right"),
+    "List"    -> List("Cons", "Nil"),
+    "Tuple2"  -> List("Tuple2"),
+    "Int"     -> List("Int"),
+    "String"  -> List("String"),
+    "Boolean" -> List("Bool"),
+  )
 
   /** Default-param registry: def name → per-param default CT exprs (None = required). */
   private val defaultParams = collection.mutable.HashMap[String, Vector[Option[CT]]]()
@@ -208,6 +248,17 @@ object FrontendBridge:
     case d: Defn.Class if d.mods.exists(_.is[Mod.Case]) =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList
       registerCaseClass(d.name.value, params)
+      // Track parent types so extensions on abstract base (e.g. Parser[A]) dispatch to concrete tags
+      d.templ.inits.foreach { init =>
+        val parentName = init.tpe match
+          case Type.Name(n)                => n
+          case Type.Apply(Type.Name(n), _) => n
+          case t                           => t.syntax.takeWhile(c => c != '[' && c != ' ')
+        if parentName.nonEmpty && parentName != d.name.value then
+          val existing = receiverTypeTags.getOrElse(parentName, Nil)
+          if !existing.contains(d.name.value) then
+            receiverTypeTags(parentName) = existing :+ d.name.value
+      }
       d.templ.derives.foreach { derivedType =>
         val tcName = derivedType match
           case Type.Name(n) => n
@@ -239,11 +290,17 @@ object FrontendBridge:
       }
       enumCasesRegistry(name.value) = caseNames.toList
     case eg: Defn.ExtensionGroup =>
-      extMethods(eg).foreach { m => extensionMethods += m.name.value }
+      extMethods(eg).foreach { m =>
+        if extensionMethods.contains(m.name.value) then extensionMethodConflicts += m.name.value
+        extensionMethods += m.name.value
+      }
     case g: Defn.Given =>
       // Also register extension methods inside given bodies
       g.templ.stats.collect { case eg: Defn.ExtensionGroup => eg }.foreach { eg =>
-        extMethods(eg).foreach { m => extensionMethods += m.name.value }
+        extMethods(eg).foreach { m =>
+          if extensionMethods.contains(m.name.value) then extensionMethodConflicts += m.name.value
+          extensionMethods += m.name.value
+        }
       }
     case _ => ()
   }
@@ -261,6 +318,41 @@ object FrontendBridge:
       .map(_.name.value)
       .getOrElse("_self_")
 
+  /** Extract the receiver type head name from an extension group (e.g. "Option" from `fa: Option[A]`). */
+  private def extReceiverTypeName(eg: Defn.ExtensionGroup): String =
+    eg.paramClauseGroup
+      .flatMap(_.paramClauses.headOption)
+      .flatMap(_.values.headOption)
+      .flatMap(_.decltpe)
+      .map {
+        case Type.Apply(Type.Name(n), _) => n
+        case Type.Name(n)                => n
+        case t                           => t.syntax.takeWhile(c => c != '[' && c != ' ')
+      }.getOrElse("?")
+
+  /** Compile an extension group's methods, handling conflicts.
+   *  Non-conflicting: adds CDef to defsB.
+   *  Conflicting: adds uniquely-named CDef to defsB and registers __reg_ext__ entries. */
+  private def compileExtensionGroup(eg: Defn.ExtensionGroup, defsB: collection.mutable.Builder[CDef, ?]): Unit =
+    val recvName = extReceiverName(eg)
+    val recvTypeName = extReceiverTypeName(eg)
+    val receiverTags = receiverTypeTags.getOrElse(recvTypeName, List(recvTypeName))
+    extMethods(eg).foreach { m =>
+      val params = recvName :: allParams(m)
+      val scope  = params.reverse
+      val body   = convertExpr(m.body, scope)
+      val lam    = CT.Lam(params.length, body)
+      if extensionMethodConflicts.contains(m.name.value) then
+        // Conflicting: unique internal name + __reg_ext__ registration per tag
+        val uniqueName = s"__ext_${extGroupCounter}_${m.name.value}__"
+        extGroupCounter += 1
+        defsB += CDef(uniqueName, lam)
+        for tag <- receiverTags do
+          extRegEntries += ((m.name.value, tag, uniqueName))
+      else
+        defsB += CDef(m.name.value, lam)
+    }
+
   // ── Entry points ─────────────────────────────────────────────────────────────
 
   /** Parse a source string and convert to Core IR Program.
@@ -275,6 +367,9 @@ object FrontendBridge:
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
+    objectNames.clear()
+    objectMethodDefaults.clear()
+    objectMethodVarargs.clear()
     curryFirstClauseDefaults.clear()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
     defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
@@ -400,9 +495,29 @@ object FrontendBridge:
     val importPat = """\[([^\]]+)\]\(([^)]+)\)""".r
     // fenceOnly=true: only scan outside fences (top-level user files, where imports are prose).
     // fenceOnly=false: scan ALL lines (stdlib files where imports live inside code fences).
+    // Join multi-line import brackets: `[A,\n B](file)` → `[A,  B](file)` per logical line
+    def joinImportLines(source: String): Seq[String] =
+      val lines = source.linesIterator.toSeq
+      val out = collection.mutable.ListBuffer[String]()
+      var pending = Option.empty[String]
+      for line <- lines do
+        pending match
+          case Some(acc) =>
+            val joined = acc + " " + line.trim
+            if importPat.findFirstIn(joined).isDefined || !joined.contains('[') then
+              out += joined; pending = None
+            else
+              pending = Some(joined)
+          case None =>
+            if line.contains('[') && !importPat.findFirstIn(line).isDefined && line.trim.startsWith("[") then
+              pending = Some(line)  // multi-line import: start accumulating
+            else
+              out += line
+      pending.foreach(out += _)
+      out.toSeq
     def collectImports(source: String, dir: Option[java.io.File], fenceOnly: Boolean): Unit =
       var inFence = false
-      source.linesIterator.foreach { line =>
+      joinImportLines(source).foreach { line =>
         if line.startsWith("```") then inFence = !inFence
         else if !fenceOnly || !inFence then
           importPat.findAllMatchIn(line).foreach { m =>
@@ -570,6 +685,9 @@ object FrontendBridge:
 
     val defsB  = List.newBuilder[CDef]
     val entryB = List.newBuilder[Stat]
+    // Track top-level val names that go to entryB (non-pure RHS); used by isPureValRhs
+    // to treat references to these names as non-pure so dependent vals also go to entryB.
+    val entryBValNames = collection.mutable.Set.empty[String]
 
     val userDefNames = (stats.collect {
       case d: Defn.Def                        => List(d.name.value)
@@ -697,46 +815,54 @@ object FrontendBridge:
         val name = patName(v.pats.head)
         // Pure RHS → safe to evaluate eagerly as a global.
         // Effectful RHS (has function calls) → keep in entry block to preserve order.
-        if isPureValRhs(v.rhs) then
+        if isPureValRhs(v.rhs) && !entryBValNames.exists(n => referencesName(v.rhs, n)) then
           val rhs  = convertExpr(v.rhs, Nil)
           defsB += CDef(name, rhs)
         else
+          entryBValNames += name
           entryB += v
       case g: Defn.Given =>
         // given name: T with { def m1(a...) = ...; def m2(b...) = ... }
         // → val name = __mk_method_obj__(["m1", lam..., "m2", lam...])
         defsB += CDef(g.name.value, convertGiven(g))
-        // Also compile any extension methods from the given body as global defs.
-        // Multiple givens may define the same method name for different types — chain.
+        // Also compile any extension methods from the given body.
+        // Conflicting method names (same name, multiple defs) use __reg_ext__ dispatch.
         g.templ.stats.collect { case eg: Defn.ExtensionGroup => eg }.foreach { eg =>
-          val recvName = extReceiverName(eg)
-          extMethods(eg).foreach { m =>
-            val params = recvName :: allParams(m)
-            val scope  = params.reverse
-            val body   = convertExpr(m.body, scope)
-            val lam    = CT.Lam(params.length, body)
-            defsB += CDef(m.name.value, lam)
-          }
+          compileExtensionGroup(eg, defsB)
         }
       case eg: Defn.ExtensionGroup =>
-        // extension (recv: T) def m(a...) = ... → global def m(recv, a...) = ...
-        val recvName = extReceiverName(eg)
-        extMethods(eg).foreach { m =>
-          val params = recvName :: allParams(m)
-          val scope  = params.reverse
-          val body   = convertExpr(m.body, scope)
-          val lam    = CT.Lam(params.length, body)
-          defsB += CDef(m.name.value, lam)
-        }
+        // extension (recv: T) def m(a...) = ... → global def or __reg_ext__ dispatch
+        compileExtensionGroup(eg, defsB)
       case obj: Defn.Object if !V2PluginRegistry.hasGlobal(obj.name.value) =>
         // object Foo { def m(...) = ... } → Foo = __mk_method_obj__(["m", lam, ...])
         val methods = obj.templ.stats.collect { case m: Defn.Def => m }
+        // Emit object vals as top-level CDefs so methods can reference them as CT.Global(name)
+        obj.templ.stats.collect { case v: Defn.Val => v }.foreach { valDef =>
+          valDef.pats.collect { case Pat.Var(Term.Name(vname)) => vname }.foreach { vname =>
+            if !userDefNames.contains(vname) && !V2PluginRegistry.hasGlobal(vname) then
+              defsB += CDef(vname, convertExpr(valDef.body.asInstanceOf[Term], Nil))
+          }
+        }
         if methods.nonEmpty then
+          objectNames += obj.name.value  // only track method-objs (not case-object singletons)
           val pairs = methods.flatMap { m =>
             val ps  = allParams(m)
             val sc  = ps.reverse
             val bod = convertExpr(m.body, sc)
             val lam = if ps.isEmpty then CT.Lam(0, bod) else CT.Lam(ps.length, bod)
+            // Register defaults and vararg flag so call sites handle them correctly.
+            val allParamTerms = m.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+            val isVararg = allParamTerms.lastOption.exists(_.decltpe.exists(_.isInstanceOf[Type.Repeated]))
+            if isVararg then objectMethodVarargs += ((obj.name.value, m.name.value))
+            val defVec = allParamTerms.zipWithIndex.map { (p, i) =>
+              val precScope = allParamTerms.take(i).map(_.name.value).reverse
+              p.default.map { d => CT.Lam(i, convertExpr(d, precScope)) }
+            }.toVector
+            if defVec.exists(_.isDefined) then
+              objectMethodDefaults((obj.name.value, m.name.value)) = defVec
+            // Also emit method as a top-level CDef so intra-object calls work.
+            if !userDefNames.contains(m.name.value) && !V2PluginRegistry.hasGlobal(m.name.value) then
+              defsB += CDef(m.name.value, lam)
             List(CT.Lit(Const.CStr(m.name.value)), lam)
           }
           defsB += CDef(obj.name.value, CT.Prim("__mk_method_obj__", pairs))
@@ -757,11 +883,15 @@ object FrontendBridge:
       if entryStmts.nonEmpty then convertBlock(entryStmts, Nil)
       else if userDefNames.contains("main") then CT.App(CT.Global("main"), Nil)
       else CT.Lit(Const.CUnit)
-    // Prepend __reg_given__ calls so runtime given registry is populated before main logic.
-    val regCalls = runtimeGivenRegEntries.toList.map { case (head, concreteType, givenName) =>
+    // Prepend __reg_given__ and __reg_ext__ calls so runtime registries are populated before main logic.
+    val regGivenCalls = runtimeGivenRegEntries.toList.map { case (head, concreteType, givenName) =>
       CT.Prim("__reg_given__", List(CT.Lit(Const.CStr(head)), CT.Lit(Const.CStr(concreteType)), CT.Global(givenName)))
     }
-    val entry = regCalls.foldRight(entryCore)((call, acc) => CT.Let(List(call), acc))
+    val regExtCalls = extRegEntries.toList.map { case (mname, tag, uniqueName) =>
+      CT.Prim("__reg_ext__", List(CT.Lit(Const.CStr(mname)), CT.Lit(Const.CStr(tag)), CT.Global(uniqueName)))
+    }
+    val allRegCalls = regGivenCalls ++ regExtCalls
+    val entry = allRegCalls.foldRight(entryCore)((call, acc) => CT.Let(List(call), acc))
     Program(defs, entry)
 
   /** Standard prelude defs injected into every converted program.
@@ -921,7 +1051,10 @@ object FrontendBridge:
             CT.Local(innerScope.indexOf(name))
           case Term.Select(q, Term.Name(mname)) =>
             val recv = go(q)
-            if extensionMethods.contains(mname) then CT.App(CT.Global(mname), List(recv))
+            if extensionMethods.contains(mname) && !extensionMethodConflicts.contains(mname) then
+              CT.App(CT.Global(mname), List(recv))
+            else if extensionMethods.contains(mname) then
+              CT.Prim("__method__", List(CT.Lit(Const.CStr(mname)), recv))
             else fieldIndex(mname) match
               case Some(i) => CT.Prim("fieldAt", List(recv, CT.Lit(Const.CInt(i))))
               case None    => CT.Prim("__method__", List(CT.Lit(Const.CStr(mname)), recv))
@@ -934,8 +1067,11 @@ object FrontendBridge:
               case Term.Select(recv, Term.Name(mname)) =>
                 // recv.mname(args...) — go(recv) correctly handles placeholders as CT.Local
                 val recvCT = go(recv)
-                if extensionMethods.contains(mname) then CT.App(CT.Global(mname), recvCT :: rawArgs)
+                if extensionMethods.contains(mname) && !extensionMethodConflicts.contains(mname) then
+                  CT.App(CT.Global(mname), recvCT :: rawArgs)
                 else CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: recvCT :: rawArgs)
+              case Term.Name(n) if !innerScope.contains(n) && isCtorName(n) =>
+                CT.Ctor(n, rawArgs)
               case Term.Name(n) if !innerScope.contains(n) && varargDefs.contains(n) =>
                 CT.App(go(fn), List(listOf(rawArgs)))
               case _ =>
@@ -1045,8 +1181,10 @@ object FrontendBridge:
       if qualIsTypeName && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
-        if extensionMethods.contains(name) then
+        if extensionMethods.contains(name) && !extensionMethodConflicts.contains(name) then
           CT.App(CT.Global(name), List(q))
+        else if extensionMethods.contains(name) then
+          CT.Prim("__method__", List(CT.Lit(Const.CStr(name)), q))
         else
           fieldIndex(name) match
             case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i))))
@@ -1072,8 +1210,23 @@ object FrontendBridge:
     case Term.Throw(expr) =>
       CT.App(CT.Global("__throw__"), List(convertExpr(expr, scope)))
 
-    // ── Try/catch (run body, ignore handlers for now) ─────────────────────────
-    case Term.Try(expr, _, _) => convertExpr(expr, scope)
+    // ── Try/catch — body runs under Scala try; handlers match by DataV tag ──────
+    // IR: __try_catch__(bodyExpr, tag0, handler0_lam, tag1, handler1_lam, ...)
+    // tag = "" means wildcard (catch anything)
+    case Term.Try(body, handlers, _) =>
+      val bodyIR = convertExpr(body, scope)
+      val handlerPairs: List[CT] = handlers.flatMap { cas =>
+        val (patTag, bindName) = cas.pat match
+          case Pat.Typed(Pat.Var(Term.Name(n)), Type.Name(t)) => (t, n)
+          case Pat.Typed(Pat.Wildcard(), Type.Name(t))        => (t, "_e_")
+          case Pat.Var(Term.Name(n))                           => ("", n)
+          case Pat.Wildcard()                                  => ("", "_e_")
+          case _                                               => ("", "_e_")
+        val handlerScope = bindName :: scope
+        val handlerBody  = convertExpr(cas.body, handlerScope)
+        List(CT.Lit(Const.CStr(patTag)), CT.Lam(1, handlerBody))
+      }
+      CT.Prim("__try_catch__", bodyIR :: handlerPairs)
 
     // ── Partial function {case p => e} as lambda+match ────────────────────────
     case Term.PartialFunction(cases) =>
@@ -1095,7 +1248,9 @@ object FrontendBridge:
       convertForDo(enums, body, scope)
 
     // ── String interpolation s"... $x ..." ───────────────────────────────────
-    case Term.Interpolate(Term.Name("s"), parts, args) =>
+    // All string interpolators: s"...", f"...", html"...", sql"...", etc.
+    // Unknown interpolators are treated as s"..." (best-effort string concatenation).
+    case Term.Interpolate(_, parts, args) =>
       val strs = parts.map {
         case Lit.String(s) => CT.Lit(Const.CStr(s))
         case _             => CT.Lit(Const.CStr(""))
@@ -1126,7 +1281,9 @@ object FrontendBridge:
       if lcell >= 0 then CT.Prim("lcell.get", List(CT.Local(lcell)))
       else if cell >= 0 then CT.Prim("cell.get", List(CT.Local(cell)))
       else if arr >= 0 then CT.Local(arr)  // array val — return raw local
+      else if objectNames.contains(name) then CT.Global(name)  // object → method-obj global
       else if isCtorName(name) then CT.Ctor(name, Nil)  // e.g. Nil, None, True
+      else if zeroArgDefs.contains(name) then CT.App(CT.Global(name), Nil)  // no-paren def → force thunk
       else CT.Global(name)
 
   private def convertAssign(a: Term.Assign, scope: List[String]): CT =
@@ -1258,19 +1415,43 @@ object FrontendBridge:
             CT.Prim("__method__", CT.Lit(Const.CStr("copy")) :: q :: args)
       // Method call: qual.method(args)
       case Term.Select(qual, Term.Name(mname)) =>
-        if isCtorName(mname) then CT.Ctor(mname, args)
+        if isCtorName(mname) then CT.Ctor(mname, fillDefaults(mname, args))
         else
           val q = convertExpr(qual, scope)
-          // Extension method → global call with receiver as first arg
-          if extensionMethods.contains(mname) then
-            CT.App(CT.Global(mname), q :: args)
+          // Fill in defaults / wrap varargs for known object method calls.
+          val filledArgs = qual match
+            case Term.Name(on) if objectNames.contains(on) =>
+              if objectMethodVarargs.contains((on, mname)) then
+                // Vararg method: wrap all explicit args in a list (e.g. Prompt.messages(a, b) → list)
+                List(listOf(args))
+              else
+                objectMethodDefaults.get((on, mname)).fold(args) { defs =>
+                  if args.length >= defs.length then args
+                  else
+                    var result = args
+                    for i <- args.length until defs.length do
+                      defs(i) match
+                        case Some(CT.Lam(0, body)) => result = result :+ body
+                        case Some(lam @ CT.Lam(k, _)) =>
+                          val precArgs = result.take(k)
+                          result = result :+ (if precArgs.isEmpty then CT.App(lam, Nil) else CT.App(lam, precArgs))
+                        case Some(e) => result = result :+ e
+                        case None => ()
+                    result
+                }
+            case _ => args
+          // Extension method → global call (non-conflicting) or __method__ dispatch (conflicting)
+          if extensionMethods.contains(mname) && !extensionMethodConflicts.contains(mname) then
+            CT.App(CT.Global(mname), q :: filledArgs)
+          else if extensionMethods.contains(mname) then
+            CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: filledArgs)
           // If it's a known field accessor with no args, use fieldAt
-          else if args.isEmpty then
+          else if filledArgs.isEmpty then
             fieldIndex(mname) match
               case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i))))
-              case None    => CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
+              case None    => CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: filledArgs)
           else
-            CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
+            CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: filledArgs)
       // Curried method application: qual.method(a)(b) — merge into one __method__ call
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name(mname)), innerClause) if !isCtorName(mname) =>
         val q     = convertExpr(qual, scope)
@@ -1365,14 +1546,19 @@ object FrontendBridge:
    *  `x = expr` → expr.flatMap { x => rest }
    *  `val x = expr` → let x = expr in rest (pure)
    *  bare expr → expr.flatMap { _ => rest } */
-  private def desugarDirect(stmts: List[scala.meta.Stat], scope: List[String]): CT =
+  private def desugarDirect(stmts: List[scala.meta.Stat], scope: List[String],
+                             varNames: Set[String] = Set.empty): CT =
     import scala.meta.*
     stmts match
       case Nil => CT.Lit(Const.CUnit)
       case (last: Term) :: Nil => convertExpr(last, scope)
+      case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
+        // Var reassignment: rebind x with new value, not a monadic bind
+        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, x :: scope, varNames))
       case Term.Assign(Term.Name(x), rhs) :: rest =>
+        // Monadic bind: x = monadicExpr → flatMap(monadicExpr, x => rest)
         val bindedScope = x :: scope
-        val body = desugarDirect(rest, bindedScope)
+        val body = desugarDirect(rest, bindedScope, varNames)
         CT.Prim("__method__", List(
           CT.Lit(Const.CStr("flatMap")),
           convertExpr(rhs, scope),
@@ -1380,13 +1566,17 @@ object FrontendBridge:
       case Defn.Val(_, List(Pat.Var(n)), _, rhs) :: rest =>
         val x = n.value
         val letScope = x :: scope
-        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, letScope))
+        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, letScope, varNames))
+      case Defn.Var(_, List(Pat.Var(n)), _, Some(rhs)) :: rest =>
+        // var x = init; rest → let binding (rebindable via the var-assign case above)
+        val x = n.value
+        CT.Let(List(convertExpr(rhs, scope)), desugarDirect(rest, x :: scope, varNames + x))
       case (t: Term) :: rest =>
         CT.Prim("__method__", List(
           CT.Lit(Const.CStr("flatMap")),
           convertExpr(t, scope),
-          CT.Lam(1, desugarDirect(rest, "_" :: scope))))
-      case _ :: rest => desugarDirect(rest, scope)
+          CT.Lam(1, desugarDirect(rest, "_" :: scope, varNames))))
+      case _ :: rest => desugarDirect(rest, scope, varNames)
 
   private def convertInfix(op: String, l: CT, r: CT, scope: List[String]): CT = op match
     case "&&" => CT.If(l, r, CT.Lit(Const.CBool(false)))
@@ -1401,6 +1591,8 @@ object FrontendBridge:
              Pat.Tuple(_)                                                              => true
         case Term.Name(n) if isCtorName(n)                                            => true
         case Pat.Var(Term.Name(n)) if isCtorName(n)                                  => true
+        case Term.Select(_, Term.Name(n)) if isCtorName(n)                           => true
+        case Pat.Bind(_, _)                                                            => true
         case _                                                                         => false
     }
     val hasLitArms      = cases.exists(c => c.pat.is[Lit])
@@ -1464,6 +1656,11 @@ object FrontendBridge:
             case Pat.Var(Term.Name(n)) if isCtorName(n) => true
             case _ => false
           }
+        // Alias patterns (ok @ ParseOk(...)) need the general chain to bind the alias.
+        case _: Pat.Bind => true
+        // Variable-binding default (`case err => err`) needs general chain:
+        // simple CT.Match default doesn't expose the scrutinee, so the binding is wrong.
+        case Pat.Var(Term.Name(n)) if !isCtorName(n) => true
         case _ => false
     }
 
@@ -1473,9 +1670,14 @@ object FrontendBridge:
   private def flattenPattern(pat: Pat, scrutRef: CT, scope: List[String]): (List[CT], List[(CT, String)]) = pat match
     case Pat.Wildcard() | Pat.Var(Term.Name("_")) => (Nil, Nil)
     case Pat.Var(Term.Name(n)) if !isCtorName(n) => (Nil, List((scrutRef, n)))
+    case Pat.Bind(Pat.Var(Term.Name(n)), inner) =>
+      val (innerConds, innerBinds) = flattenPattern(inner, scrutRef, scope)
+      (innerConds, (scrutRef, n) :: innerBinds)
     case Pat.Var(Term.Name(n)) if isCtorName(n) =>
       (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
     case Term.Name(n) if isCtorName(n) =>
+      (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
+    case Term.Select(_, Term.Name(n)) if isCtorName(n) =>
       (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
     case l: Lit =>
       (List(CT.Prim("__arith__", List(CT.Lit(Const.CStr("==")), scrutRef, convertExpr(l, scope)))), Nil)
@@ -1521,13 +1723,15 @@ object FrontendBridge:
    *  and the list of bound names (newest-first for de Bruijn). */
   private def convertPat(pat: Pat): (Option[(String, Int)], List[String]) =
     pat match
-      case Pat.Wildcard()                                   => (None, List("_"))
+      case Pat.Wildcard()                                   => (None, Nil)
       // Scala3: uppercase stable-id patterns are Term.Name (not Pat.Var)
       case Term.Name(n) if isCtorName(n)                   => (Some((n, 0)), Nil)
       // Uppercase name in Pat.Var = constructor (enum case or zero-arity case class)
       case Pat.Var(Term.Name(n)) if isCtorName(n)          => (Some((n, 0)), Nil)
+      // Qualified enum case: case Role.User => (Term.Select as pattern)
+      case Term.Select(_, Term.Name(n)) if isCtorName(n)   => (Some((n, 0)), Nil)
       case Pat.Var(Term.Name(n))                            => (None, List(n))
-      case Pat.Typed(Pat.Wildcard(), _)                     => (None, List("_"))
+      case Pat.Typed(Pat.Wildcard(), _)                     => (None, Nil)
       case Pat.Typed(Pat.Var(Term.Name(n)), _) if isCtorName(n) => (Some((n, 0)), Nil)
       case Pat.Typed(Pat.Var(Term.Name(n)), _)              => (None, List(n))
       case Pat.Extract.After_4_6_0(ctor, argClause) =>
@@ -1559,9 +1763,9 @@ object FrontendBridge:
         convertPat(alts.head)
       case _: Lit =>
         // Literal pattern — becomes default + guard (simplified: emit as wildcard)
-        (None, List("_"))
+        (None, Nil)
       case _ =>
-        (None, List("_"))
+        (None, Nil)
 
   private def convertForYield(enums: List[Enumerator], body: Term, scope: List[String]): CT =
     enums match
@@ -1688,6 +1892,18 @@ object FrontendBridge:
 
   private def allParams(d: Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value)))
+
+  /** True if the expression tree references the given name anywhere. */
+  private def referencesName(e: Term, name: String): Boolean = e match
+    case Term.Name(n)           => n == name
+    case _: Lit                 => false
+    case Term.Apply.After_4_6_0(f, args) => referencesName(f.asInstanceOf[Term], name) || args.exists(a => referencesName(a.asInstanceOf[Term], name))
+    case Term.ApplyInfix.After_4_6_0(l, _, _, r) => referencesName(l, name) || r.exists(a => referencesName(a.asInstanceOf[Term], name))
+    case Term.Select(q, _)      => referencesName(q, name)
+    case Term.Tuple(args)       => args.exists(a => referencesName(a, name))
+    case Term.Block(stats)      => stats.exists { case t: Term => referencesName(t, name); case _ => false }
+    case _: Term.Interpolate    => false
+    case _                      => false
 
   /** True when a top-level val RHS is safe to evaluate eagerly as a global def.
    *  Collection / data constructors and arithmetic are pure; IO calls are not. */
