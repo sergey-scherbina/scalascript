@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-t44-optics
-worktree: ../scalascript-wt-v2-t44-optics
-started: 2026-07-05
-status: in-progress
-task: T4.4 wave 4 — v1Show facade-INNER rendering (json-value last line) + optics cluster (lenses/prisms/optional/index-at/polish)

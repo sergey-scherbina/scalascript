@@ -251,8 +251,12 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       rendering a facade's INNER value as `Map(k -> v)` inside containers — add a
       `raw`-field-aware branch to v1Show). WAVE 3 (2026-07-05): **default-params SHIPPED**
       (raw-term registry + call-site wrapper Lam/Let so defaults see earlier params;
-      suite 33/58). Next clusters: optics/parsing/sql/effects; v1Show facade-INNER
-      rendering (json-value's last line).
+      suite 33/58). WAVE 4 (2026-07-05): **optics SHIPPED** — Focus
+      path-lens extraction from lambda AST (fields/.some/.index/.at) + NamedMethodObj
+      optic runtime + variant Prisms; lenses/optional/prisms PASS (suite **36/58**).
+      Remaining: optics-index-at (`.at` over the second map representation),
+      optic-polish (runtime `.copy` on DataV), parsing/sql/effects clusters, v1Show
+      facade-INNER rendering (json-value's last line).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
       SHIPPED** (full Erlang supervision surface on the VirtualThread mailbox model:
       bidirectional links kill-or-message, monitors get Down(reason); death fires on
