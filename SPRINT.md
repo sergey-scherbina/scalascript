@@ -295,7 +295,11 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       typed catch-alls -> general chain; PHANTOM WILDCARD BINDING removed — a fake "_"
       shifted default-arm bodies by one, the -1 AIOOBE class; entry-val hoisting guard;
       method-obj globals win over zero-arg Ctor; matchPrefix intrinsic; suite **42/58**,
-      corpus 153/193). Remaining:
+      corpus 153/193). WAVE 7: CONTEXT-BOUND DICTIONARY PASSING (trailing __tc_ params, explicit-instance
+      passthrough, __resolve_given__ witness tables, tc-hierarchy walk) + extension
+      SELF-RECURSION fix (member beats extension inside impl bodies — std monad
+      instances hung). std-semigroup/index/functor + tagless-context-bounds PASS;
+      suite **46/58**. Remaining:
       optic-polish (runtime `.copy` on DataV), parsing/sql/effects clusters, v1Show
       facade-INNER rendering (json-value's last line).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
