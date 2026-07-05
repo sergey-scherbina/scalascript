@@ -26,6 +26,16 @@ object Noise:
   val NK: Pattern = Pattern("NK", Nil, Seq("s"), Seq(Seq("e", "es"), Seq("e", "ee")))
   /** Interactive, responder pre-known; the initiator transmits + proves its static (mutual auth). */
   val XK: Pattern = Pattern("XK", Nil, Seq("s"), Seq(Seq("e", "es"), Seq("e", "ee"), Seq("s", "se")))
+  /** Interactive, responder transmits its static; anonymous initiator. */
+  val NX: Pattern = Pattern("NX", Nil, Nil,      Seq(Seq("e"), Seq("e", "ee", "s", "es")))
+  /** Interactive, initiator transmits its static in the last message; anonymous responder. */
+  val XN: Pattern = Pattern("XN", Nil, Nil,      Seq(Seq("e"), Seq("e", "ee"), Seq("s", "se")))
+  /** Interactive, both statics pre-known (mutual auth, no static transmitted). */
+  val KK: Pattern = Pattern("KK", Seq("s"), Seq("s"), Seq(Seq("e", "es", "ss"), Seq("e", "ee", "se")))
+  /** Interactive, initiator transmits its static immediately (in the clear); anonymous responder. */
+  val IN: Pattern = Pattern("IN", Nil, Nil,      Seq(Seq("e", "s"), Seq("e", "ee", "se")))
+  /** Interactive, initiator transmits its static immediately; responder transmits its static (mutual auth). */
+  val IX: Pattern = Pattern("IX", Nil, Nil,      Seq(Seq("e", "s"), Seq("e", "ee", "se", "s", "es")))
 
   private val HashLen = 32
   private val TagLen  = 16

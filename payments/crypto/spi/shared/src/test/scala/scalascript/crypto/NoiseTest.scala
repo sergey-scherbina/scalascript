@@ -93,6 +93,26 @@ class NoiseTest extends AnyFunSuite with Matchers:
     assertTransport(ini, res)
   }
 
+  test("Noise interactive matrix — NX/XN/KK/IN/IX complete with the correct authentication outcome") {
+    final case class Case(p: Noise.Pattern, iS: Noise.KeyPair, iRs: Array[Byte],
+                          rS: Noise.KeyPair, rRs: Array[Byte], iLearns: Array[Byte], rLearns: Array[Byte])
+    val cases = Seq(
+      Case(Noise.NX, null,    null,        rStatic, null,        rStatic.pub, null),         // responder auth only
+      Case(Noise.XN, iStatic, null,        null,    null,        null,        iStatic.pub),  // initiator auth only
+      Case(Noise.KK, iStatic, rStatic.pub, rStatic, iStatic.pub, rStatic.pub, iStatic.pub),  // both pre-known
+      Case(Noise.IN, iStatic, null,        null,    null,        null,        iStatic.pub),  // initiator immediate
+      Case(Noise.IX, iStatic, null,        rStatic, null,        rStatic.pub, iStatic.pub),  // mutual, initiator immediate
+    )
+    for c <- cases do withClue(s"pattern ${c.p.name}: ") {
+      val ini = new Noise.HandshakeState(c.p, initiator = true,  c.iS, rsKnown = c.iRs)
+      val res = new Noise.HandshakeState(c.p, initiator = false, c.rS, rsKnown = c.rRs)
+      drive(ini, res, c.p.messages.length)
+      Option(ini.remoteStatic).map(hex) shouldBe Option(c.iLearns).map(hex)
+      Option(res.remoteStatic).map(hex) shouldBe Option(c.rLearns).map(hex)
+      assertTransport(ini, res)
+    }
+  }
+
   test("a tampered handshake message fails authentication") {
     val ini = new Noise.HandshakeState(Noise.XX, initiator = true,  iStatic)
     val res = new Noise.HandshakeState(Noise.XX, initiator = false, rStatic)
