@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t44-clusters
+worktree: ../scalascript-wt-v2-t44-clusters
+started: 2026-07-05
+status: in-progress
+task: T4.4 failure clusters largest-first: tuple/std extension methods (bimap family), default-params, then json/optics per time
