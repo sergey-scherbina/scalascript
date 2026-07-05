@@ -14,6 +14,9 @@ import ssc.{Done, Runtime, Show, Value as V2Value, V2EffectContext, V2PluginRegi
  *   3. `handle` global — runs the Free-monad loop for typed `handle { case … }` effects.
  *
  *  Usage: call PluginBridge.loadAll() before running any v2 program that needs plugins. */
+/** Preserves the tag from v1 Value.Foreign("tag", h) through the v2 ForeignV round-trip. */
+private final case class TaggedForeign(tag: String, value: AnyRef)
+
 object PluginBridge:
 
   /** Minimal NativeContext for stateless intrinsics (IO, hash, math, etc.). */
@@ -859,6 +862,8 @@ object PluginBridge:
         case inst: scalascript.interpreter.Value.InstanceV => inst
         case v1: V1Value                                   => v1
         case other => scalascript.interpreter.Value.Foreign(other.getClass.getSimpleName, other)
+    case V2Value.ForeignV(tf: TaggedForeign) =>
+      scalascript.interpreter.Value.Foreign(tf.tag, tf.value)
     case V2Value.ForeignV(h) =>
       scalascript.interpreter.Value.Foreign(h.getClass.getSimpleName, h)
     case c: V2Value.ClosV =>
@@ -924,8 +929,8 @@ object PluginBridge:
       val hm = scala.collection.mutable.HashMap[V2Value, V2Value]()
       entries.foreach { case (k, v) => hm(v1ToV2(k)) = v1ToV2(v) }
       V2Value.ForeignV(hm)
-    case scalascript.interpreter.Value.Foreign(_, h: AnyRef) =>
-      V2Value.ForeignV(h)
+    case scalascript.interpreter.Value.Foreign(tag, h: AnyRef) =>
+      V2Value.ForeignV(TaggedForeign(tag, h))
     // v1 NativeFnV → variadic v2 ClosV
     case nfv: scalascript.interpreter.Value.NativeFnV =>
       V2Value.ClosV(Runtime.emptyEnv, -1, env => {
