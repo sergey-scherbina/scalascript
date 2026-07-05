@@ -53,6 +53,7 @@ object FrontendBridge:
   /** Reset all per-compilation mutable state.  Call between batch examples to prevent
    *  field-registry pollution from one example affecting the next. */
   def resetState(): Unit =
+    PluginBridge.clearDbs()
     fieldRegistry.clear()
     // Mirror is a built-in type with known fields at fixed indices.
     fieldRegistry("Mirror") = Vector("label", "elemLabels", "elemTypes")
@@ -66,6 +67,42 @@ object FrontendBridge:
     varargDefs.clear()
     zeroArgDefs.clear()
     curryFirstClauseDefaults.clear()
+
+  /** Parse `databases:` YAML block from front-matter and register JDBC connections.
+   *  Format:
+   *    databases:
+   *      mydb:
+   *        url: "jdbc:h2:mem:test"
+   *  Registered so `Db.query("mydb", ...)` works in v2. */
+  private def parseDatabasesFromFrontmatter(src: String): Unit =
+    val noShebang = if src.startsWith("#!/") then src.dropWhile(_ != '\n').drop(1) else src
+    if !noShebang.stripLeading().startsWith("---") then return
+    val start = noShebang.indexOf("---")
+    val end   = noShebang.indexOf("\n---", start + 3)
+    if end < 0 then return
+    val yaml = noShebang.slice(start + 3, end)
+    // Simple line-by-line parse: look for `databases:` block, then `name:` then `url:`
+    val lines = yaml.linesIterator.toVector
+    var inDatabases = false
+    var currentDb: Option[String] = None
+    lines.foreach { line =>
+      val t = line.trim
+      if t == "databases:" then
+        inDatabases = true
+        currentDb = None
+      else if inDatabases && t.nonEmpty && !line.startsWith(" ") && !line.startsWith("\t") then
+        inDatabases = false
+        currentDb = None  // top-level key ended databases block
+      else if inDatabases && t.endsWith(":") && !t.startsWith("#") && !t.contains(" ") then
+        currentDb = Some(t.dropRight(1))  // `mydb:` line
+      else if currentDb.isDefined && t.startsWith("url:") then
+        val rawUrl = t.drop(4).trim.stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'")
+        if rawUrl.startsWith("jdbc:") then
+          scala.util.Try(PluginBridge.registerDb(currentDb.get, rawUrl)).failed.foreach { e =>
+            System.err.println(s"[v2] warn: could not register db '${currentDb.get}': ${e.getMessage}")
+          }
+        currentDb = None
+    }
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
@@ -166,6 +203,7 @@ object FrontendBridge:
       Some(CT.Lit(Const.CBool(false))),   // deprecated
       Some(CT.Ctor("Nil", Nil))           // security
     )
+    parseDatabasesFromFrontmatter(src)
     convertStats(parseStats(desugarListLiterals(
       stripExternDecls(preprocessAtAnnotations(resolveImportsCode(src, fileDir))))))
 

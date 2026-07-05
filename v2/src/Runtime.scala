@@ -1757,16 +1757,21 @@ object Prims:
               // Effect dispatch: DataV("Logger"/"State"/...) with no method → check effect context
               recv match
                 case DataV(effectTag, IndexedSeq()) =>
-                  V2EffectContext.peek(effectTag) match
-                    case Some(handler) => handler(name, margs)
+                  // Check for a plugin method registered as "Tag.method" before effect dispatch.
+                  // Db.query/execute etc. are plugins, not algebraic effects.
+                  V2PluginRegistry.lookup(s"$effectTag.$name") match
+                    case Some(pluginFn) => pluginFn(margs)
                     case None =>
-                      // No active handler: return Free monad Op for typed `handle` dispatch
-                      val argV = margs match
-                        case Nil       => UnitV
-                        case List(one) => one
-                        case many      => DataV(s"Tuple${many.length}", many.toVector)
-                      val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
-                      DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                      V2EffectContext.peek(effectTag) match
+                        case Some(handler) => handler(name, margs)
+                        case None =>
+                          // No active handler: return Free monad Op for typed `handle` dispatch
+                          val argV = margs match
+                            case Nil       => UnitV
+                            case List(one) => one
+                            case many      => DataV(s"Tuple${many.length}", many.toVector)
+                          val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
+                          DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
                 case DataV(_, _) =>
                   // Non-effect DataV (Op, Stub, or unknown type): return a stub in batch mode
                   DataV("Stub", Vector.empty)
