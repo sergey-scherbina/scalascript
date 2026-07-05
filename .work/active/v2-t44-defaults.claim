@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t44-defaults
+worktree: ../scalascript-wt-v2-t44-defaults
+started: 2026-07-05
+status: in-progress
+task: T4.4 default-params cluster — default exprs lower as unbound globals
