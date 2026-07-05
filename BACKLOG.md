@@ -120,8 +120,13 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       EdDSA/ES256K/ES256. **REMAINING:** PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
-- [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
+- [~] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
       crypto SPI; a whole decentralized-identity stack. Gate: W3C DID/VC test suites.
+      **did:key DONE 2026-07-05** (`DidKey.scala` + a portable `Base58` btc codec in `crypto-spi/shared`):
+      encode + resolve for Ed25519 (multicodec `0xed01` → `did:key:z6Mk…`) and compressed P-256 (`0x1200`
+      → `did:key:zDn…`), matching the W3C did:key registry prefixes; base58 hand-vectors + round-trip, JVM+JS.
+      With the JWS layer, JWT-VC issuance is now within reach. **REMAINING:** did:web resolver; VC data
+      model (JWT-VC / JSON-LD) signing + verification; W3C DID/VC test-suite conformance.
 - [ ] **age-encryption** — encrypt-to-public-key: age (X25519 + ChaCha20) first, PGP interop only if demanded.
       Gate: age reference vectors; round-trip with the `age` CLI.
 

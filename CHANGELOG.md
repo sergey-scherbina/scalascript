@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable did:key (Ed25519 + P-256) + base58btc
+
+Added `DidKey.scala` and a portable `Base58` (btc/multibase-`z`) codec to `payments/crypto/spi/shared` —
+encode a public key as `did:key:z…` and resolve it back, for Ed25519 (multicodec `0xed01`, `did:key:z6Mk…`)
+and compressed P-256 (`0x1200`, `did:key:zDn…`), matching the W3C did:key registry prefixes. Pure Scala,
+JVM + Scala.js. Tests: hand-verified base58 vectors (leading-zero preservation) + round-trip; did:key
+prefix invariants + resolve round-trip + malformed-DID rejection. First slice of the did-vc epic; pairs
+the identity layer with the JWS/COSE/WebAuthn keys.
+
 ## 2026-07-05 — crypto: WebAuthn assertion verification core (COSE_Key + ES256/EdDSA)
 
 Added `WebAuthnVerify.scala` to `payments/crypto/spi/shared` — the portable crypto core of a WebAuthn /
