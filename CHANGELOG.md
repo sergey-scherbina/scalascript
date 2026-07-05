@@ -116,6 +116,15 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — MILESTONE: v1-interpreter parity on the examples corpus (T4.x)
+
+Probing the remaining compat FAILs against the real v1 interpreter (`cli/stage` build)
+showed every one is env-gated or does not run on the v1 interpreter either (4 dataset
+files are `backend: jvm` CODEGEN examples; word-count and actors-typed-remote-spawn
+fail on v1 interp too). **The v2 FrontendBridge runs everything the v1 interpreter
+runs on the corpus.** The jvm-codegen examples are an optional separate track via the
+Phase-2c JVM source generator.
+
 ## 2026-07-05 — v2 bridge: Erlang supervision surface (trapExit/link/monitor) + mapreduce auto-inject
 
 Full supervision triad on the VirtualThread actor model (links kill-or-message on death,

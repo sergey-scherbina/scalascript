@@ -246,9 +246,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       SHARPENED ROOT: all 6 remaining real FAILs are ONE surface — unbridged
       Dataset/typed-data plugin methods (DatasetCodec.*, DatasetWire.*,
       DistributedDataset.runShuffle, WorkerProtocol .collect/.toList) fall to the
-      free-monad Op sentinel → Stub chains. NEXT SLICE: bridge the typed-data surface
-      (v1 backend/typed-data JVM classes callable from PluginBridge; JsonCodec-generic
-      value conversion needed) + registerBehavior.
+      free-monad Op sentinel → Stub chains. RESOLVED 2026-07-05 night
+      (`feature/v2-typeddata-bridge`): probing against the REAL v1 interpreter showed
+      the whole remaining set is OUT OF PARITY SCOPE — the 4 dataset files are
+      `backend: jvm` codegen examples (v1 does NOT interpret them), word-count and
+      actors-typed-remote-spawn fail on the v1 interpreter too, pg/x402 are env-gated.
+      **v1-INTERPRETER PARITY REACHED on the examples corpus.** Optional follow-up
+      track (not parity): run the `backend: jvm` examples through the Phase-2c JVM
+      source generator with the typed-data jars.
       Batch counts remain ±1 order-dependent (plugin-state leak; per-file reset would fix).
 - [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
       All 16 entries terminate (probe with per-file forked watchdog); the true batch

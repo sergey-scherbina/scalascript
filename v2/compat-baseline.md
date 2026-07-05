@@ -30,6 +30,25 @@ registered 'default' database) leaks between files in the one-JVM batch; a per-f
 state reset or forked-per-file mode would make counts exact.
 Next enhancement: output-equality vs the v1 interpreter (PASS = exit-0 today).
 
+## MILESTONE — 2026-07-05 night: **v1-INTERPRETER PARITY REACHED on the examples corpus**
+
+The remaining FAILs were probed against the REAL v1 interpreter (`sbt cli/stage`,
+`v1/tools/cli/target/universal/stage/bin/ssc run <file>`). Every one is either
+environment-gated or does NOT run on the v1 interpreter itself:
+
+| File | Verdict |
+|---|---|
+| distributed-dataset-{codec, typed-helpers, wire-protocol, wire-shuffle} | `backend: jvm` front-matter — v1 runs them through **JVM CODEGEN** (`//> using jar …typed-data…`), NOT the interpreter. Out of interpreter-parity scope. |
+| distributed-word-count | v1 interpreter FAILS too (`Undefined: HandlerRegistry`) — jvm-codegen-class example. |
+| actors-typed-remote-spawn | v1 interpreter FAILS too (`runActors requires the actors plugin`, even with `--plugin actors`). |
+| pg-listen-notify | needs a real database (front-matter `databases:`) |
+| x402-cardano{,-scalus} | need BLOCKFROST API keys |
+
+**Conclusion: the v2 FrontendBridge pipeline runs everything the v1 interpreter runs
+on this corpus.** The dataset/jvm-codegen examples are a SEPARATE, optional track —
+in v2 they belong to the Phase-2c JVM source generator (Core IR → Scala with the
+same `//> using jar` typed-data deps), not the VM bridge.
+
 ## Prior baseline — 2026-07-05 morning, @ `f3e087b3a` (post Track 1+2 merge)
 
 | Metric | Value |
