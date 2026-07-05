@@ -888,6 +888,88 @@ object PluginBridge:
       V2PluginRegistry.registerGlobal("__throw__", ClosV(Runtime.emptyEnv, 1, env => {
         throw new BridgeThrow(env.last)
       }))
+    // ```sql fenced blocks (v1.26): execute over JDBC. SELECT → List[Map[label,
+    // value]] (rows applied by column label); DML/DDL → Int (affected rows).
+    V2PluginRegistry.register("__sqlExec__", args => args match
+      case StrV(url) :: StrV(sql) :: bindsV :: Nil =>
+        val binds = bindsV match
+          case DataV("Cons", _) | DataV("Nil", _) =>
+            var out = List.empty[V2Value]; var cur = bindsV
+            while cur.isInstanceOf[DataV] && cur.asInstanceOf[DataV].tag == "Cons" do
+              val c = cur.asInstanceOf[DataV]; out = out :+ c.fields(0); cur = c.fields(1)
+            out
+          case _ => Nil
+        // Fail-soft on engines this JVM lane can't serve (sqlite::memory:,
+        // duckdb — browser/spark-lane examples): a Stub keeps the doc's other
+        // fences running, matching the previous ignore-sql behavior.
+        val connOpt =
+          try Some(java.sql.DriverManager.getConnection(url))
+          catch { case _: java.sql.SQLException => None }
+        connOpt match
+         case None => DataV("Stub", Vector(StrV(s"sql:no-driver:$url")))
+         case Some(conn) =>
+          try
+            val ps = conn.prepareStatement(sql)
+            binds.zipWithIndex.foreach { case (b, i) =>
+              val raw: AnyRef = b match
+                case IntV(n)   => java.lang.Long.valueOf(n)
+                case FloatV(d) => java.lang.Double.valueOf(d)
+                case BoolV(x)  => java.lang.Boolean.valueOf(x)
+                case StrV(t)   => t
+                case other     => other.toString
+              ps.setObject(i + 1, raw)
+            }
+            if sql.contains(";") && !sql.trim.toUpperCase.startsWith("SELECT") then
+              // ```transaction fence: multiple ;-separated statements, atomically;
+              // binds distributed in order by each statement's ? count. Result =
+              // the LAST statement's affected-row count.
+              conn.setAutoCommit(false)
+              var rest = binds
+              var last = 0
+              try
+                sql.split(";").map(_.trim).filter(_.nonEmpty).foreach { st =>
+                  val n = st.count(_ == '?')
+                  val (mine, more) = rest.splitAt(n)
+                  rest = more
+                  val p2 = conn.prepareStatement(st)
+                  mine.zipWithIndex.foreach { case (b, i) =>
+                    val raw: AnyRef = b match
+                      case IntV(nn)  => java.lang.Long.valueOf(nn)
+                      case FloatV(d) => java.lang.Double.valueOf(d)
+                      case BoolV(x)  => java.lang.Boolean.valueOf(x)
+                      case StrV(t)   => t
+                      case other     => other.toString
+                    p2.setObject(i + 1, raw)
+                  }
+                  last = p2.executeUpdate()
+                }
+                conn.commit()
+              catch { case e: Throwable => conn.rollback(); throw e }
+              IntV(last.toLong)
+            else if sql.trim.toUpperCase.startsWith("SELECT") then
+              val rs = ps.executeQuery()
+              val md = rs.getMetaData
+              val cols = (1 to md.getColumnCount).map(md.getColumnLabel).toList
+              var rows = List.empty[V2Value]
+              while rs.next() do
+                val m = scala.collection.mutable.LinkedHashMap.empty[V2Value, V2Value]
+                cols.foreach { c =>
+                  val v: V2Value = rs.getObject(c) match
+                    case null                     => DataV("None", Vector.empty)
+                    case n: java.lang.Long        => IntV(n)
+                    case n: java.lang.Integer     => IntV(n.longValue)
+                    case d: java.lang.Double      => FloatV(d)
+                    case b: java.lang.Boolean     => BoolV(b)
+                    case s: String                => StrV(s)
+                    case o                        => StrV(o.toString)
+                  m(StrV(c)) = v
+                }
+                rows = rows :+ V2Value.ForeignV(m)
+              rows.foldRight(DataV("Nil", Vector.empty): V2Value)((r, acc) => DataV("Cons", Vector(r, acc)))
+            else IntV(ps.executeUpdate().toLong)
+          finally conn.close()
+      case _ => sys.error("__sqlExec__(url, sql, binds)"))
+
     V2PluginRegistry.register("__try__", args => args match
       case List(thunk: ClosV, handler: ClosV) =>
         try callClosure(thunk, Nil)

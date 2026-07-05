@@ -77,6 +77,7 @@ object FrontendBridge:
     enumCaseNames.clear()
     objMethodDefaults.clear()
     objMethodVarargs.clear()
+    sqlSectionIds.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -140,6 +141,9 @@ object FrontendBridge:
    *  with 1 arg crashed the 2-ary method lam (Local out of range). */
   private val objMethodDefaults =
     collection.mutable.LinkedHashMap[(String, String), (Vector[String], Vector[Option[scala.meta.Term]])]()
+
+  /** Section ids that own a ```sql fence: `Section.sql` resolves to __sql_<Section>. */
+  private val sqlSectionIds = collection.mutable.HashSet[String]()
 
   /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
   private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
@@ -638,7 +642,12 @@ object FrontendBridge:
         if after >= 0 then noShebang.drop(after + 4) else noShebang
       else noShebang
     val fence = "```scalascript\n"
-    val firstFence = noFront.indexOf(fence)
+    // Any runnable fence counts for the all-fences path: sql conformance files
+    // have ONLY ```scala + ```sql fences (no ```scalascript at all).
+    val anyRunnableFence =
+      allFences && (noFront.contains(fence)
+        || noFront.contains("```sql\n") || noFront.contains("```transaction\n"))
+    val firstFence = if anyRunnableFence then 0 else noFront.indexOf(fence)
     // No fence: if the content looks like markdown prose (starts with # or ---), it's
     // a doc-only example with no runnable code — return empty so it compiles as a no-op.
     // Otherwise treat as raw Scala source (for test-style usage with no front matter).
@@ -654,20 +663,50 @@ object FrontendBridge:
                  else noFront.slice(codeStart, fenceEnd)
       filterImportLines(code)
     else
-      // Collect ALL scalascript fences (for stdlib library files)
+      // Collect ALL runnable fences IN DOCUMENT ORDER: scalascript + scala code,
+      // and ```sql blocks (v1.26): each sql fence becomes a synthetic
+      //   val __sql_<Section> = __sqlExec__(url, "sql-with-?", List(binds…))
+      // where <Section> is the nearest preceding `## Heading`; `Section.sql`
+      // in later code resolves to that val (see sqlSectionIds in convertExpr).
+      val dbUrl = """url:\s*"([^"]+)"""".r.findFirstMatchIn(raw).map(_.group(1)).getOrElse("")
       val blocks = collection.mutable.ListBuffer.empty[String]
+      // ```scala fences are runnable ONLY in sql-conformance docs (which have
+      // ```sql/```transaction fences) — elsewhere they are illustrative prose
+      // (running them cost 23 corpus files when enabled unconditionally).
+      val hasSqlFences = noFront.contains("```sql\n") || noFront.contains("```transaction\n")
+      val anyFence =
+        if hasSqlFences then """```(scalascript|scala|sql|transaction)\n""".r
+        else """```(scalascript)\n""".r
       var pos = 0
-      while pos < noFront.length do
-        val fenceStart = noFront.indexOf(fence, pos)
-        if fenceStart < 0 then pos = noFront.length
-        else
-          val codeStart = fenceStart + fence.length
-          val fenceEnd  = noFront.indexOf("\n```", codeStart)
-          val code = if fenceEnd < 0 then noFront.drop(codeStart).trim
-                     else noFront.slice(codeStart, fenceEnd)
-          val stripped = filterImportLines(code)
-          if stripped.trim.nonEmpty then blocks += stripped
-          pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
+      var lastHeading = "S0"
+      var done = false
+      while !done do
+        anyFence.findFirstMatchIn(noFront.substring(pos)) match
+          case None => done = true
+          case Some(m) =>
+            val lang       = m.group(1)
+            val fenceStart = pos + m.start
+            val codeStart  = pos + m.end
+            // nearest preceding heading for the sql section id
+            noFront.substring(0, fenceStart).linesIterator.foreach { ln =>
+              if ln.startsWith("#") then
+                val h = ln.dropWhile(_ == '#').trim.takeWhile(c => c.isLetterOrDigit || c == '_')
+                if h.nonEmpty then lastHeading = h
+            }
+            val fenceEnd = noFront.indexOf("\n```", codeStart)
+            val code     = if fenceEnd < 0 then noFront.drop(codeStart) else noFront.slice(codeStart, fenceEnd)
+            lang match
+              case "sql" | "transaction" =>
+                val bindPat = """\$\{([^}]+)\}""".r
+                val binds   = bindPat.findAllMatchIn(code).map(_.group(1)).toList
+                val sqlText = bindPat.replaceAllIn(code, "?").trim
+                  .replace("\"", "\\\"").replace("\n", " ")
+                sqlSectionIds += lastHeading
+                blocks += s"""val __sql_$lastHeading = __sqlExec__("$dbUrl", "$sqlText", List(${binds.mkString(", ")}))"""
+              case _ =>
+                blocks += filterImportLines(code)
+            pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
+            if pos >= noFront.length then done = true
       blocks.mkString("\n")
 
   /** Convert a list of scalameta Trees (parsed body of a .ssc module) to Program. */
@@ -797,6 +836,8 @@ object FrontendBridge:
         // (std/parsing's PErrorNode(pInt, 0) crashed exactly this way).
         def mentionsEntryVal(t: Term): Boolean = t.collect {
           case Term.Name(n) if entryValNames.contains(n) => n
+          // Section.sql resolves to the ENTRY-local __sql_<Section> val
+          case Term.Select(Term.Name(sec), Term.Name("sql")) if sqlSectionIds.contains(sec) => sec
         }.nonEmpty
         if isPureValRhs(v.rhs) && !mentionsEntryVal(v.rhs) then
           val rhs  = convertExpr(v.rhs, Nil)
@@ -1117,6 +1158,9 @@ object FrontendBridge:
       convertApply(fn, argClause.values.toList, scope)
 
     // ── Member select (field/method as value, no args) ────────────────────────
+    // Section.sql → the synthetic __sql_<Section> result val (sql fenced blocks)
+    case Term.Select(Term.Name(sec), Term.Name("sql")) if sqlSectionIds.contains(sec) =>
+      lookupVarFull(s"__sql_$sec", scope)
     // EnumName.values (bare, no parens) → list of the enum's zero-arg cases
     case Term.Select(Term.Name(en), Term.Name("values")) if enumCaseNames.contains(en) =>
       enumCaseNames(en).foldRight(CT.Ctor("Nil", Nil): CT)((c, acc) =>
@@ -1485,6 +1529,9 @@ object FrontendBridge:
           case _ => false
         if isVararg then CT.App(innerApp, List(listOf(args)))
         else CT.App(innerApp, args)
+      // Synthetic sql-fence executor call → prim (registered in PluginBridge)
+      case Term.Name("__sqlExec__") =>
+        CT.Prim("__sqlExec__", args)
       // Regular function call (with optional default-param synthesis for known defs)
       case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
         val fullArgs = args ++ dictArgsFor(name, args)

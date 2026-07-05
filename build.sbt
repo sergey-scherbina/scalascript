@@ -120,7 +120,8 @@ lazy val v2FrontendBridge = project
   .settings(
     name := "scalascript-v2-frontend-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),
-    libraryDependencies ++= Seq(scalatestTest),
+    libraryDependencies ++= Seq(scalatestTest,
+      "com.h2database" % "h2" % "2.2.224" % Test),  // sql fenced-block conformance
   )
 
 // ── value-data — shared pure-data scalar leaves (value-unification, scalars-only) ──
