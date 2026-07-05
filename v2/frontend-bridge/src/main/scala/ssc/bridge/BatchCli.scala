@@ -25,7 +25,11 @@ private final class BatchExit(val code: Int) extends RuntimeException(s"exit($co
     .filter(f => filterArg.isEmpty || f.getName.contains(filterArg))
     .sortBy(_.getName)
   var pass = 0; var fail = 0
+  // Snapshot the plugin registry ONCE after loadAll; restore before each file so
+  // runtime registrations (databases, cells, namespaces) can't leak across files.
+  val registrySnap = V2PluginRegistry.snapshot()
   for f <- files do
+    V2PluginRegistry.restore(registrySnap)
     FrontendBridge.resetState()  // clear per-compilation state so examples don't cross-pollinate
     val result = scala.util.Try {
       val src  = scala.io.Source.fromFile(f).mkString

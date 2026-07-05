@@ -1100,6 +1100,16 @@ object V2PluginRegistry:
   def hasGlobal(name: String): Boolean = globalValues.contains(name)
   def allGlobalNames(): Iterable[String] = globalValues.keys
 
+  /** Batch isolation: snapshot the registry right after plugin loading and
+   *  restore it before each file, so one program's registrations/mutations
+   *  (databases, cells, namespaces) cannot leak into the next — batch PASS
+   *  counts were ±2 order-dependent without this. */
+  def snapshot(): (Map[String, Fn], Map[String, Value]) =
+    (handlers.toMap, globalValues.toMap)
+  def restore(snap: (Map[String, Fn], Map[String, Value])): Unit =
+    handlers.clear(); handlers ++= snap._1
+    globalValues.clear(); globalValues ++= snap._2
+
   // ADT field-name registry: tag → ordered field names.
   // Populated by FrontendBridge so PluginBridge.v2ToV1 can produce named InstanceV fields.
   private val fieldNames = collection.mutable.HashMap[String, Vector[String]]()
