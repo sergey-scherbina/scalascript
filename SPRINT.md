@@ -229,6 +229,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 - [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2. The
       suite has no v2 mode yet — the work IS building that wiring (an SPI switch that
       routes conformance programs through FrontendBridge → v2 VM), then comparing scores.
+- [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05: **trapExit SHIPPED** (Erlang
+      exit-as-message on the mailbox; wire examples moved trapExit → link). REMAINING
+      (each its own slice): (a) `link`/`monitor` supervision surface; (b)
+      `registerBehavior` typed-actor registry; (c) `runDistributed*` MapReduce drivers
+      (single-node local execution is the legitimate fallback to mirror); (d) Dataset
+      typed codecs — `Op/3` is the unhandled-plugin-method free-monad fallback reaching
+      user matches. Also: batch PASS counts are ±1 order-dependent (plugin state leaks
+      between files in the one-JVM batch) — per-file state reset would make them exact.
 - [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
       All 16 entries terminate (probe with per-file forked watchdog); the true batch
       killer was a bridged v1 `exit` (System.exit) shadowing the actor exit. Fixed:
