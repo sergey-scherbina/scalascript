@@ -127,7 +127,7 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
       Primitives portable: `ChaCha20Poly1305.scala` (RFC 8439) + `X25519.scala` (RFC 7748) +
       `HkdfSha256.scala` (RFC 5869), byte-exact, JVM+JS.
-      **Noise N / NN / NK / XX / XK / IK DONE 2026-07-05** (`Noise.scala`): a pattern-driven engine (CipherState +
+      **Noise 11 patterns DONE 2026-07-05** (N/NN/NK/NX/XN/XX/XK/KK/IN/IK/IX; `Noise.scala`): a pattern-driven engine (CipherState +
       SymmetricState + HandshakeState, pre-message support + the `e s ee es se ss` tokens) over the
       25519/ChaChaPoly/SHA256 suite. Built-in `NN` (unauthenticated), `XX` (mutual auth), and `IK`
       (initiator pre-knows the responder static — WireGuard/Lightning style). Functional gate per pattern:

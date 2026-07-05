@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: Noise interactive matrix — NX / XN / KK / IN / IX
+
+Added five more interactive Noise patterns to `Noise.scala`, covering the immediate-static (`I…`) and
+both-pre-known (`KK`) cases: `NX` (responder auth only), `XN` (initiator auth only), `KK` (both statics
+pre-known, mutual auth, nothing transmitted), `IN` (initiator sends its static immediately, in the clear),
+and `IX` (mutual, initiator immediate). A data-driven test drives each handshake to completion and
+asserts the matching transport keys plus the correct authentication outcome per pattern (who learns whose
+static), JVM + Scala.js. The engine now ships 11 patterns: N / NN / NK / NX / XN / XX / XK / KK / IN / IK / IX.
+
 ## 2026-07-05 — crypto: more Noise patterns — N (sealed box), NK, XK
 
 Added three more built-in Noise patterns to the `Noise.scala` engine: `N` (a one-way "sealed box" —
