@@ -254,8 +254,9 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       suite 33/58). WAVE 4 (2026-07-05): **optics SHIPPED** — Focus
       path-lens extraction from lambda AST (fields/.some/.index/.at) + NamedMethodObj
       optic runtime + variant Prisms; lenses/optional/prisms PASS (suite **36/58**).
-      TRAVERSALS added same day (.each/getAll/modifyAll — examples/lenses.ssc PASS,
-      suite 37/58). Remaining: optics-index-at (`.at` over the second map representation),
+      WAVE 5: OPTICS CLUSTER COMPLETE (5/5 — runtime .copy positional/mixed
+      by ACTUAL tag, field-application s.users(1), optic labels via _show; suite
+      **39/58**). Remaining:
       optic-polish (runtime `.copy` on DataV), parsing/sql/effects clusters, v1Show
       facade-INNER rendering (json-value's last line).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
