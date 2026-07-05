@@ -62,7 +62,7 @@ object RustBackend:
     // Thin main: spawn ssc_run in a thread with a large stack for deep recursion.
     sb ++= "fn main() {\n"
     sb ++= "    std::thread::Builder::new()\n"
-    sb ++= "        .stack_size(2048 * 1024 * 1024)\n"  // 2GB virtual reservation: tco.coreir (1M non-TCO frames) needs >256MB; real trampoline TCO is queued (v2-rust-backend-tco)
+    sb ++= "        .stack_size(256 * 1024 * 1024)\n"  // non-tail recursion headroom; TAIL calls are constant-stack via the Step trampoline
     sb ++= "        .spawn(ssc_run)\n"
     sb ++= "        .unwrap()\n"
     sb ++= "        .join()\n"
@@ -213,6 +213,51 @@ object RustBackend:
           sb ++= s"${pad}}"
           sb.toString
 
+  // ── Tail-position emitter (Step-typed) ─────────────────────────────────────
+  // A tail App becomes Step::Bounce — call_fn drives it in a loop, so tail
+  // recursion runs in constant stack. Control-flow nodes recurse into their
+  // tail sub-positions; anything else wraps its V expression in Step::Val.
+  def genTail(t: Term, ctx: List[String], indent: Int): String =
+    val pad = "    " * indent
+    t match
+      case App(fn, args) =>
+        val fnExpr = genExpr(fn, ctx, indent)
+        val argExprs = args.map(a => genExpr(a, ctx, indent)).mkString(", ")
+        s"Step::Bounce(as_fn($fnExpr), vec![$argExprs])"
+      case If(c, th, el) =>
+        val cExpr = genExpr(c, ctx, indent)
+        val tExpr = genTail(th, ctx, indent + 1)
+        val eExpr = genTail(el, ctx, indent + 1)
+        s"if as_bool($cExpr) {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
+      case Let(rhs, body) =>
+        val names = rhs.map(_ => fresh("l"))
+        val bodyCtx = ctx ++ names
+        val sb = new StringBuilder(s"{\n")
+        var curCtx = ctx
+        for (r, n) <- rhs.zip(names) do
+          val rExpr = genExpr(r, curCtx, indent + 1)
+          sb ++= s"${pad}    let $n: V = $rExpr;\n"
+          curCtx = curCtx :+ n
+        sb ++= s"${pad}    ${genTail(body, bodyCtx, indent + 1)}\n"
+        sb ++= s"${pad}}"
+        sb.toString
+      case LetRec(lams, body) =>
+        genLetRec(lams, body, ctx, indent, tail = true)
+      case Match(scrut, arms, default) =>
+        genMatch(scrut, arms, default, ctx, indent, tail = true)
+      case Seq(terms) =>
+        if terms.isEmpty then "Step::Val(V::Unit)"
+        else if terms.length == 1 then genTail(terms.head, ctx, indent)
+        else
+          val sb = new StringBuilder("{\n")
+          for tt <- terms.init do
+            sb ++= s"${pad}    ${genExpr(tt, ctx, indent + 1)};\n"
+          sb ++= s"${pad}    ${genTail(terms.last, ctx, indent + 1)}\n"
+          sb ++= s"${pad}}"
+          sb.toString
+      case other =>
+        s"Step::Val(${genExpr(other, ctx, indent)})"
+
   // ── Lambda generation ─────────────────────────────────────────────────────
   // genLam uses per-lambda unique tag for capture names so that:
   // - outer ctx locals are pre-cloned with unique names (avoids move-after-use)
@@ -263,7 +308,7 @@ object RustBackend:
       (if localRebinds.nonEmpty || lamGlobalRebinds.nonEmpty || directGlobalRebinds.nonEmpty
        then s"\n${pad}        " else "")
 
-    val bodyExpr = genExpr(body, bodyCtx, indent + 1)
+    val bodyExpr = genTail(body, bodyCtx, indent + 1)
 
     if arity == 0 then
       s"""|{
@@ -284,7 +329,7 @@ ${pad}}""".stripMargin
 
   // ── LetRec generation ────────────────────────────────────────────────────
 
-  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int): String =
+  def genLetRec(lams: List[Term], body: Term, ctx: List[String], indent: Int, tail: Boolean = false): String =
     val pad = "    " * indent
     // Names for the recursive bindings
     val recNames = lams.map(_ => fresh("r"))
@@ -371,7 +416,7 @@ ${pad}}""".stripMargin
         s"let $n: V = _args[$i].clone();"
       }.mkString(s"\n${pad}        ")
 
-      val bodyExpr = genExpr(lamBody, lamBodyCtx, indent + 2)
+      val bodyExpr = genTail(lamBody, lamBodyCtx, indent + 2)
 
       val preClones = preCloneStmts + lamGlobalCellPreCloneStmts + directGlobalPreCloneStmts + cellPreCloneStmts
       val innerRebinds = outerRebindPart + lamGlobalRebindPart + directGlobalRebindPart + cellRebindStmts + s"\n${pad}        "
@@ -391,15 +436,17 @@ ${pad}    }));\n"""
     for n <- recNames do
       sb ++= s"${pad}    *${n}_cell.borrow_mut() = Some($n.clone());\n"
 
-    // Body
-    val bodyExpr = genExpr(body, recCtx, indent + 1)
+    // Body (tail-aware: a LetRec in tail position keeps its body in tail position)
+    val bodyExpr = if tail then genTail(body, recCtx, indent + 1) else genExpr(body, recCtx, indent + 1)
     sb ++= s"${pad}    $bodyExpr\n"
     sb ++= s"${pad}}"
     sb.toString
 
   // ── Match generation ──────────────────────────────────────────────────────
 
-  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int): String =
+  def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], ctx: List[String], indent: Int, tail: Boolean = false): String =
+    def emitBody(t: Term, c: List[String], i: Int): String =
+      if tail then genTail(t, c, i) else genExpr(t, c, i)
     val pad = "    " * indent
     val sName = fresh("s")
     val scrutExpr = genExpr(scrut, ctx, indent)
@@ -420,7 +467,7 @@ ${pad}    }));\n"""
 
       val tagStr = rustStrLit(arm.tag)
       if arm.arity == 0 then
-        val bodyExpr = genExpr(arm.body, ctx, indent + 2)
+        val bodyExpr = emitBody(arm.body, ctx, indent + 2)
         sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == 0 => {\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
@@ -428,14 +475,14 @@ ${pad}    }));\n"""
         val fieldPatterns = fieldNames.zipWithIndex.map { case (n, i) =>
           s"let $n = _fields[$i].clone();"
         }.mkString(s"\n${pad}            ")
-        val bodyExpr = genExpr(arm.body, armCtx, indent + 2)
+        val bodyExpr = emitBody(arm.body, armCtx, indent + 2)
         sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == ${arm.arity} => {\n"""
         sb ++= s"""${pad}            $fieldPatterns\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
     // Default or panic
     val defaultExpr = default match
-      case Some(d) => genExpr(d, ctx, indent + 2)
+      case Some(d) => emitBody(d, ctx, indent + 2)
       case None    => s"""panic!("match: no arm matched {}", show(&$sName))"""
     sb ++= s"""${pad}        _ => { $defaultExpr }\n"""
     sb ++= s"${pad}    }\n"
@@ -611,11 +658,26 @@ enum V {
     Str(String),
     Bytes(Vec<u8>),
     Data(String, Vec<V>),
-    Fn(Rc<dyn Fn(Vec<V>) -> V>),
+    Fn(Rc<dyn Fn(Vec<V>) -> Step>),
     Cell(Rc<RefCell<V>>),
     LCell(Rc<RefCell<i64>>),
     Map(Rc<RefCell<HashMap<VKey, V>>>),
     Arr(Rc<RefCell<Vec<V>>>),
+}
+
+// Trampoline step: closures return Val, or Bounce for a TAIL call — call_fn
+// drives Bounces in a loop, so tail recursion runs in constant stack
+// (Core IR invariant 7; same design as the ssc0-level backend-rust).
+enum Step {
+    Val(V),
+    Bounce(Rc<dyn Fn(Vec<V>) -> Step>, Vec<V>),
+}
+
+fn as_fn(v: V) -> Rc<dyn Fn(Vec<V>) -> Step> {
+    match v {
+        V::Fn(f) => f,
+        other => panic!("tail call: not a function: {:?}", other),
+    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -758,7 +820,15 @@ fn as_data_fields(v: V) -> Vec<V> {
 
 fn call_fn(f: V, args: Vec<V>) -> V {
     match f {
-        V::Fn(func) => func(args),
+        V::Fn(func) => {
+            let mut s = func(args);
+            loop {
+                match s {
+                    Step::Val(v) => return v,
+                    Step::Bounce(f2, a2) => s = f2(a2),
+                }
+            }
+        }
         other => panic!("call_fn: not a function: {:?}", other),
     }
 }
