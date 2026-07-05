@@ -48,7 +48,9 @@ object FrontendBridge:
     val types = params.map(p => p.decltpe.map(_.syntax).getOrElse("Any")).toVector
     fieldTypeRegistry(name) = types
     val defs = params.map(p => p.default.map(d => convertExpr(d, Nil))).toVector
-    if defs.exists(_.isDefined) then defaultParams(name) = defs
+    if defs.exists(_.isDefined) then
+      defaultParams(name) = defs
+      defaultParamTerms(name) = (names, params.map(_.default).toVector)
 
   /** Reset all per-compilation mutable state.  Call between batch examples to prevent
    *  field-registry pollution from one example affecting the next. */
@@ -64,6 +66,7 @@ object FrontendBridge:
     extensionMethods.clear()
     extAccum.clear()
     defaultParams.clear()
+    defaultParamTerms.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -110,6 +113,43 @@ object FrontendBridge:
 
   /** Default-param registry: def name → per-param default CT exprs (None = required). */
   private val defaultParams = collection.mutable.HashMap[String, Vector[Option[CT]]]()
+
+  /** RAW default-param registry: name → (param names, raw default Terms).
+   *  Raw terms let a default reference EARLIER params (`def shift(x: Int, by: Int
+   *  = x + 1)`) — the pre-converted registry lowered `x` with an empty scope
+   *  (unbound global). At the call site buildWithDefaults binds provided args in
+   *  a wrapper lambda and converts each missing default IN SCOPE of the params
+   *  before it. */
+  private val defaultParamTerms =
+    collection.mutable.HashMap[String, (Vector[String], Vector[Option[scala.meta.Term]])]()
+
+  /** provided args + defaults → mk(all-params-as-locals) wrapped so defaults see
+   *  earlier params: App(Lam(k, Let(defaults…, mk(refs))), provided). */
+  private def buildWithDefaults(name: String, args: List[CT], mk: List[CT] => CT): Option[CT] =
+    defaultParamTerms.get(name).flatMap { case (pnames, defs) =>
+      if args.length >= defs.length then None
+      else
+        val k     = args.length
+        val total = defs.length
+        var scope = pnames.take(k).reverse.toList
+        val lets  = collection.mutable.ListBuffer.empty[CT]
+        var ok    = true
+        defs.drop(k).zipWithIndex.foreach { case (dOpt, j) =>
+          dOpt match
+            case Some(d) =>
+              lets += convertExpr(d, scope)
+              scope = pnames(k + j) :: scope
+            case None => ok = false  // missing required arg mid-list: bail to old path
+        }
+        if !ok then None
+        else
+          val refs = (0 until total).toList.map(i => CT.Local(total - 1 - i))
+          val core = mk(refs)
+          val body = if lets.isEmpty then core else CT.Let(lets.toList, core)
+          Some(if k == 0 then body match
+            case _ => CT.App(CT.Lam(0, body), Nil)
+          else CT.App(CT.Lam(k, body), args))
+    }
 
   /** Param-name registry for regular defs (enables named-arg call-site synthesis). */
   private val defParamNames = collection.mutable.HashMap[String, Vector[String]]()
@@ -244,6 +284,7 @@ object FrontendBridge:
     extensionMethods.clear()
     extAccum.clear()
     defaultParams.clear()
+    defaultParamTerms.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -574,7 +615,10 @@ object FrontendBridge:
         // Register default params (for call-site synthesis)
         val allParamTerms = allClauses.flatMap(_.values)
         val defVec = allParamTerms.map(p => p.default.map(convertExpr(_, Nil))).toVector
-        if defVec.exists(_.isDefined) then defaultParams(d.name.value) = defVec
+        if defVec.exists(_.isDefined) then
+          defaultParams(d.name.value) = defVec
+          defaultParamTerms(d.name.value) =
+            (allParamTerms.map(_.name.value).toVector, allParamTerms.map(_.default).toVector)
         // Register param names for named-arg call-site synthesis
         if allParamTerms.nonEmpty && defVec.exists(_.isDefined) then
           defParamNames(d.name.value) = allParamTerms.map(_.name.value).toVector
@@ -1096,7 +1140,8 @@ object FrontendBridge:
       // Exception: known factory functions (Decimal, BigInt, etc.) are globals, not ctors.
       case Term.Name(name) if isCtorName(name) =>
         if functionConstructors.contains(name) then CT.App(CT.Global(name), args)
-        else CT.Ctor(name, fillDefaults(name, args))
+        else buildWithDefaults(name, args, refs => CT.Ctor(name, refs))
+               .getOrElse(CT.Ctor(name, fillDefaults(name, args)))
       // .copy(field = val, ...) — case class copy with named field overrides.
       // Intercept before the generic __method__ path so we can use the field registry
       // to find indices and emit Ctor with field-at fallbacks, avoiding @field globals.
@@ -1164,7 +1209,8 @@ object FrontendBridge:
         else CT.App(innerApp, args)
       // Regular function call (with optional default-param synthesis for known defs)
       case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
-        CT.App(CT.Global(name), fillDefaults(name, args))
+        buildWithDefaults(name, args, refs => CT.App(CT.Global(name), refs))
+          .getOrElse(CT.App(CT.Global(name), fillDefaults(name, args)))
       // Direct single-clause vararg call: f(a, b, c) where f has vararg — always wrap in list
       // (single-arg calls f(x) must also wrap: body expects a List, e.g. body.toList)
       case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) =>
