@@ -261,7 +261,12 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       (checker: `- requires Int right operand`). conformance now fully green: 634 ok / 0 FAIL.
 
 **Track 6 — WASM unblock (new 2026-07-05)**
-- [ ] **v2-wasm-unblock** — `rustup` is now present in this environment. Try
+- [x] **v2-wasm-unblock** — ✅ DONE 2026-07-05 (`feature/v2-wasm-unblock`): `rustup target add
+      wasm32-wasip1` installed; `v2/ssc0-wasm` launcher (Rust backend + Node built-in WASI
+      host, `v2/scripts/run-wasi.mjs`); quicksort byte-identical to VM, tco = 1e6 tail calls
+      in constant stack, Mira programs work via the same target; toolchain-gated conformance
+      checks added. The historically-only-open v2 language backlog item is CLOSED. Original
+      plan below: — `rustup` is now present in this environment. Try
       `rustup target add wasm32-wasip1`; if it installs, the v2 Rust backend output can
       target WASM (v2/ROADMAP K3 "reuse the Rust backend"). Runtime: check `wasmtime`/
       `wasmer`; if absent, Node's built-in WASI (`node:wasi`) is a candidate host.

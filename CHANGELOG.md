@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2-wasm-unblock: WASM backend shipped (4th target)
+
+The historically-only-open v2 language backlog item is closed. `rustup` appeared in the
+environment; per the ROADMAP plan, the Rust backend is reused with
+`rustup target add wasm32-wasip1`, and the module runs on Node's **built-in WASI host**
+(`v2/scripts/run-wasi.mjs` — no wasmtime/wabt needed). New `v2/ssc0-wasm` launcher
+(compile-and-run or `-o out.wasm`). Verified: quicksort byte-identical to the VM,
+tco.ssc0 = 1e6 tail calls in constant stack (the Step-trampoline TCO carries over),
+Mira typed programs (hm-qsort) work via the same target. Toolchain-gated conformance
+checks added to `v2/conformance/check.sh` (skip cleanly when the toolchain is absent).
+
 ## 2026-07-05 — v2-recursion-opt: SelfRecLL 8× on recursion-fib + cell.set FLC corruption fix
 
 - **SelfRecLL** (`v2/src/Runtime.scala`): arity-1 self-recursive Int defs (fib-shaped)
