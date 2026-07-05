@@ -57,6 +57,10 @@ object FrontendBridge:
    *  Maps def name → number of non-vararg params in the last clause (0 for single vararg clause). */
   private val varargDefs = collection.mutable.HashSet[String]()
 
+  /** Zero-arg extern/def registry: `extern def foo: T` or `def foo: T = body` with no params.
+   *  These are auto-called at the use site (like Scala's no-parens defs). */
+  private val zeroArgDefs = collection.mutable.HashSet[String]()
+
   /** Build a List value from a sequence of CT expressions: List(a,b,c) → Cons(a,Cons(b,Cons(c,Nil))). */
   private def listOf(elems: List[CT]): CT =
     elems.foldRight(CT.Ctor("Nil", Nil): CT)((e, acc) => CT.Ctor("Cons", List(e, acc)))
@@ -113,6 +117,7 @@ object FrontendBridge:
     defaultParams.clear()
     defParamNames.clear()
     varargDefs.clear()
+    zeroArgDefs.clear()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
     defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
     defaultParams("openapi") = Vector(
@@ -137,7 +142,13 @@ object FrontendBridge:
       val t = line.stripLeading()
       if t.startsWith("extern def") || t.startsWith("extern val") then
         sb.append("//").append(line)
-        var depth = line.count(_ == '(') - line.count(_ == ')')
+        val depth0 = line.count(_ == '(') - line.count(_ == ')')
+        // Collect 0-arg extern defs: `extern def foo: T` with NO parens (not just balanced).
+        if t.startsWith("extern def") && !line.contains('(') then
+          val afterKw = t.drop("extern def".length).stripLeading()
+          val name = afterKw.takeWhile(c => c.isLetterOrDigit || c == '_' || c == '-')
+          if name.nonEmpty then zeroArgDefs += name
+        var depth = depth0
         i += 1
         while i < lines.length && depth > 0 do
           sb.append("//").append(lines(i))
@@ -416,6 +427,10 @@ object FrontendBridge:
         val lastClause = allClauses.lastOption.toList.flatMap(_.values)
         if lastClause.exists(p => p.decltpe.exists(_.isInstanceOf[Type.Repeated])) then
           varargDefs += d.name.value
+        // Register 0-arg no-parens defs: `def foo: T = body` (no param clauses at all) → auto-call.
+        // Excludes `def foo(): T` (has one empty clause) which needs explicit `()`.
+        if allClauses.isEmpty then
+          zeroArgDefs += d.name.value
         val lam =
           if allClauses.length <= 1 then
             if params.isEmpty then CT.Lam(0, body) else CT.Lam(params.length, body)

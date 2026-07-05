@@ -67,6 +67,15 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("cwd", V2Value.StrV(System.getProperty("user.dir", ".")))
     V2PluginRegistry.registerGlobal("sep", V2Value.StrV(java.io.File.separator))
     V2PluginRegistry.registerGlobal("platform", V2Value.DataV("JVM", Vector.empty))
+    // Pre-call known 0-arg plugin functions (declared as `extern def foo: T` with no parens in ssc).
+    // These must be registered as plain values, not ClosV, so `fetchActionClear(..., emptyHeaders)`
+    // works without `emptyHeaders()` at the call site (ssc no-parens def semantics).
+    Seq("emptyHeaders", "hashSignal").foreach { name =>
+      V2PluginRegistry.lookupGlobal(name).collect { case c: V2Value.ClosV =>
+        val result = scala.util.Try(Runtime.run(c.code, c.env))
+        result.foreach { v => V2PluginRegistry.registerGlobal(name, v) }
+      }
+    }
     // Register plugin-owned extern type field names so v2ToV1(DataV) produces named fields.
     // These are types created in v2 user code but consumed by v1 plugins by name.
     V2PluginRegistry.registerFieldNames("Response",
