@@ -706,12 +706,22 @@ object FrontendBridge:
       case obj: Defn.Object if !V2PluginRegistry.hasGlobal(obj.name.value) =>
         // object Foo { def m(...) = ... } → Foo = __mk_method_obj__(["m", lam, ...])
         val methods = obj.templ.stats.collect { case m: Defn.Def => m }
+        // Emit object vals as top-level CDefs so method bodies can reference them via CT.Global
+        obj.templ.stats.collect { case v: Defn.Val => v }.foreach { valDef =>
+          valDef.pats.collect { case Pat.Var(Term.Name(vname)) => vname }.foreach { vname =>
+            if !userDefNames.contains(vname) && !V2PluginRegistry.hasGlobal(vname) then
+              defsB += CDef(vname, convertExpr(valDef.body.asInstanceOf[Term], Nil))
+          }
+        }
         if methods.nonEmpty then
           val pairs = methods.flatMap { m =>
             val ps  = allParams(m)
             val sc  = ps.reverse
             val bod = convertExpr(m.body, sc)
             val lam = if ps.isEmpty then CT.Lam(0, bod) else CT.Lam(ps.length, bod)
+            // Also emit method as a top-level CDef so intra-object calls resolve via CT.Global
+            if !userDefNames.contains(m.name.value) && !V2PluginRegistry.hasGlobal(m.name.value) then
+              defsB += CDef(m.name.value, lam)
             List(CT.Lit(Const.CStr(m.name.value)), lam)
           }
           defsB += CDef(obj.name.value, CT.Prim("__mk_method_obj__", pairs))
@@ -1043,8 +1053,9 @@ object FrontendBridge:
     case Term.For(enums, body) =>
       convertForDo(enums, body, scope)
 
-    // ── String interpolation s"... $x ..." ───────────────────────────────────
-    case Term.Interpolate(Term.Name("s"), parts, args) =>
+    // ── String interpolation s"... $x ..." (and all other interpolators) ────────
+    // Unknown interpolators (html"...", sql"...", etc.) are treated as s"..." (string concat).
+    case Term.Interpolate(_, parts, args) =>
       val strs = parts.map {
         case Lit.String(s) => CT.Lit(Const.CStr(s))
         case _             => CT.Lit(Const.CStr(""))
@@ -1214,7 +1225,7 @@ object FrontendBridge:
             CT.Prim("__method__", CT.Lit(Const.CStr("copy")) :: q :: pairs)
       // Method call: qual.method(args)
       case Term.Select(qual, Term.Name(mname)) =>
-        if isCtorName(mname) then CT.Ctor(mname, args)
+        if isCtorName(mname) then CT.Ctor(mname, fillDefaults(mname, args))
         else
           val q = convertExpr(qual, scope)
           // Extension method → global call with receiver as first arg
