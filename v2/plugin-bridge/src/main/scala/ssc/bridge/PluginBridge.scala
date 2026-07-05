@@ -553,10 +553,30 @@ object PluginBridge:
 
   private def registerInterpreterBuiltins(): Unit =
     import V2Value.*
-    // println / print — variadic so println() works (0-arg prints a blank line)
-    def showForPrint(v: V2Value): String = v match
-      case V2Value.StrV(s) => s
-      case other           => Show.show(other)
+    // println / print — variadic so println() works (0-arg prints a blank line).
+    // v1-INTERPRETER display parity (T4.4 output-equality): tuples render as
+    // (a, b); Cons/Nil chains as List(...); strings are RAW even inside
+    // containers; integral Doubles drop the trailing .0. The ssc0-native
+    // pipeline keeps the kernel Show — this only applies to bridged programs.
+    def v1Show(v: V2Value): String = v match
+      case V2Value.StrV(s)   => s
+      case V2Value.FloatV(d) =>
+        if d == d.toLong.toDouble && math.abs(d) < 1e15 then d.toLong.toString else d.toString
+      case V2Value.DataV(t, fs) if t.startsWith("Tuple") && t.length > 5 && t.drop(5).forall(_.isDigit) =>
+        fs.map(v1Show).mkString("(", ", ", ")")
+      case lv @ V2Value.DataV("Cons" | "Nil", _) =>
+        val items = collection.mutable.ListBuffer.empty[String]
+        var cur: V2Value = lv
+        var listy = true
+        while listy do cur match
+          case V2Value.DataV("Cons", IndexedSeq(h, t)) => items += v1Show(h); cur = t
+          case V2Value.DataV("Nil", _)                 => listy = false
+          case other                                   => items += ("…" + v1Show(other)); listy = false
+        items.mkString("List(", ", ", ")")
+      case V2Value.DataV(tag, fs) if fs.isEmpty => tag
+      case V2Value.DataV(tag, fs) => tag + fs.map(v1Show).mkString("(", ", ", ")")
+      case other => Show.show(other)
+    def showForPrint(v: V2Value): String = v1Show(v)
     if V2PluginRegistry.lookupGlobal("println").isEmpty then
       V2PluginRegistry.registerGlobal("println", ClosV(Runtime.emptyEnv, -1, env => {
         if env.isEmpty then Console.out.println()

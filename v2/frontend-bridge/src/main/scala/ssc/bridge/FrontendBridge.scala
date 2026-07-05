@@ -62,6 +62,7 @@ object FrontendBridge:
     generalDerives.clear()
     givenRegistry.clear()
     extensionMethods.clear()
+    extAccum.clear()
     defaultParams.clear()
     defParamNames.clear()
     varargDefs.clear()
@@ -163,6 +164,12 @@ object FrontendBridge:
       }
     case eg: Defn.ExtensionGroup =>
       extMethods(eg).foreach { m => extensionMethods += m.name.value }
+    case g: Defn.Given =>
+      g.templ.stats.foreach {
+        case eg: Defn.ExtensionGroup =>
+          extMethods(eg).foreach { m => extensionMethods += m.name.value }
+        case _ => ()
+      }
     case _ => ()
   }
 
@@ -179,6 +186,52 @@ object FrontendBridge:
       .map(_.name.value)
       .getOrElse("_self_")
 
+  /** Receiver TYPE head of an extension group, e.g. "Tuple2" for
+   *  `extension [A, B](fab: Tuple2[A, B])` — used to dispatch same-named
+   *  extensions from different given instances by runtime tag. */
+  private def extReceiverTypeHead(eg: Defn.ExtensionGroup): String =
+    eg.paramClauseGroup
+      .flatMap(_.paramClauses.headOption)
+      .flatMap(_.values.headOption)
+      .flatMap(_.decltpe)
+      .map(_.syntax.takeWhile(c => c != '[' && c != ' '))
+      .getOrElse("")
+
+  /** Same-named extension defs from DIFFERENT instances (Bifunctor[Tuple2] vs
+   *  Bifunctor[Either]) must not overwrite each other — collect (typeHead, arity,
+   *  lam) per name and emit ONE dispatching global per name at flush time. */
+  private val extAccum = collection.mutable.LinkedHashMap[String, collection.mutable.ListBuffer[(String, Int, CT)]]()
+
+  /** Runtime tag test for a receiver type head; None = untestable (catch-all). */
+  private def tagTestFor(typeHead: String, recv: CT): Option[CT] =
+    def tagIs(t: String) = CT.Prim("seq", List(CT.Prim("tagOf", List(recv)), CT.Lit(Const.CStr(t))))
+    def anyOf(ts: List[String]): CT = ts.map(tagIs).reduceRight((a, b) => CT.If(a, CT.Lit(Const.CBool(true)), b))
+    typeHead match
+      case "" | "Any" => None
+      case "Either"   => Some(anyOf(List("Left", "Right")))
+      case "Option"   => Some(anyOf(List("Some", "None")))
+      case "List"     => Some(anyOf(List("Cons", "Nil")))
+      case t          => Some(tagIs(t))
+
+  private def flushExtensions(defsB: collection.mutable.Builder[CDef, List[CDef]]): Unit =
+    extAccum.foreach { case (name, impls) =>
+      if impls.length == 1 then defsB += CDef(name, impls.head._3)
+      else
+        // Dispatcher: params of the widest arity; test receiver tag per impl.
+        val arity = impls.map(_._2).max
+        val recv  = CT.Local(arity - 1)  // first param (receiver) — Local(arity-1)
+        def callImpl(lam: CT): CT =
+          CT.App(lam, (0 until arity).toList.reverse.map(i => CT.Local(i)))
+        // Build if-chain, LAST impl as the else fallback.
+        val body = impls.toList.init.foldRight(callImpl(impls.last._3)) { case ((th, _, lam), els) =>
+          tagTestFor(th, recv) match
+            case Some(test) => CT.If(test, callImpl(lam), els)
+            case None       => callImpl(lam)
+        }
+        defsB += CDef(name, CT.Lam(arity, body))
+    }
+    extAccum.clear()
+
   // ── Entry points ─────────────────────────────────────────────────────────────
 
   /** Parse a source string and convert to Core IR Program.
@@ -189,6 +242,7 @@ object FrontendBridge:
     // Reset per-file state so batch runs don't pollute each other
     fieldRegistry.clear()
     extensionMethods.clear()
+    extAccum.clear()
     defaultParams.clear()
     defParamNames.clear()
     varargDefs.clear()
@@ -354,7 +408,10 @@ object FrontendBridge:
       collectImports(uiAutoImports, fileDir, fenceOnly = false)
     collectImports(src, fileDir, fenceOnly = false)
     val prelude = ordered.map(_._2).filter(_.nonEmpty).mkString("\n")
-    val mainCode = extractCode(src)
+    // v1 semantics: ALL scalascript fences of the entry file run in document
+    // order (first-fence-only silently dropped every later section — the T4.4
+    // output-equality suite exposed it on multi-section conformance files).
+    val mainCode = extractCode(src, allFences = true)
     if prelude.isEmpty then mainCode else s"$prelude\n$mainCode"
 
   /** Resolve a std-import path like `std/dsl/ast.ssc` to an absolute file.
@@ -557,16 +614,17 @@ object FrontendBridge:
         // given name: T with { def m1(a...) = ...; def m2(b...) = ... }
         // → val name = __mk_method_obj__(["m1", lam..., "m2", lam...])
         defsB += CDef(g.name.value, convertGiven(g))
-      case eg: Defn.ExtensionGroup =>
-        // extension (recv: T) def m(a...) = ... → global def m(recv, a...) = ...
-        val recvName = extReceiverName(eg)
-        extMethods(eg).foreach { m =>
-          val params = recvName :: allParams(m)
-          val scope  = params.reverse
-          val body   = convertExpr(m.body, scope)
-          val lam    = CT.Lam(params.length, body)
-          defsB += CDef(m.name.value, lam)
+        // Extension groups declared INSIDE `given ... with` (std/bifunctor's
+        // `given tupleBifunctor: Bifunctor[Tuple2] with extension (fab) def bimap…`)
+        // hoist to global extension defs, same lowering as top-level extensions.
+        // (Trait-level extension DECLARATIONS are Decl.Def — no body — and are
+        // naturally skipped by the Defn.Def collector.)
+        g.templ.stats.foreach {
+          case eg: Defn.ExtensionGroup => emitExtensionGroup(eg, defsB)
+          case _ => ()
         }
+      case eg: Defn.ExtensionGroup =>
+        emitExtensionGroup(eg, defsB)
       case obj: Defn.Object if !V2PluginRegistry.hasGlobal(obj.name.value) =>
         // object Foo { def m(...) = ... } → Foo = __mk_method_obj__(["m", lam, ...])
         val methods = obj.templ.stats.collect { case m: Defn.Def => m }
@@ -590,6 +648,7 @@ object FrontendBridge:
     val generalDerivedDefs = generalDerives.toList.flatMap { case (cn, tcs) =>
       tcs.filter(userDefNames.contains).flatMap(tc => makeDerivedGeneralCDef(cn, tc))
     }
+    flushExtensions(defsB)  // emit per-name (possibly tag-dispatching) extension globals
     val defs  = stdDefs ++ defsB.result() ++ derivedDefs ++ generalDerivedDefs
     val entryStmts = entryB.result()
     val entry =
@@ -1508,6 +1567,21 @@ object FrontendBridge:
   private val generalDerives = collection.mutable.LinkedHashMap[String, List[String]]()
 
   /** Convert a `given name: T with { defs }` to a method-object prim. */
+  /** extension (recv: T) def m(a...) = ... → accumulate (typeHead, arity, lam);
+   *  flushExtensions emits one (possibly tag-dispatching) global per name.
+   *  Used for top-level extension groups AND ones nested in `given ... with`. */
+  private def emitExtensionGroup(eg: Defn.ExtensionGroup, defsB: collection.mutable.Builder[CDef, List[CDef]]): Unit =
+    val recvName = extReceiverName(eg)
+    val typeHead = extReceiverTypeHead(eg)
+    extMethods(eg).foreach { m =>
+      extensionMethods += m.name.value
+      val params = recvName :: allParams(m)
+      val scope  = params.reverse
+      val body   = convertExpr(m.body, scope)
+      val lam    = CT.Lam(params.length, body)
+      extAccum.getOrElseUpdate(m.name.value, collection.mutable.ListBuffer.empty) += ((typeHead, params.length, lam))
+    }
+
   private def convertGiven(g: Defn.Given): CT =
     // Extract the parent type sig (e.g. "Show[Int]") from template.inits
     val typeSig = g.templ.inits.headOption.fold("")(_.tpe.syntax)
