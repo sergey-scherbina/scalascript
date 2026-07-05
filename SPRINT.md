@@ -247,6 +247,26 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       std families. NEXT: work the clusters largest-first; also merged: DataV FIELD
       access dispatch (function-typed fields callable) before the Stub fallback.
       Run: `sbt "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`.
+      **UPDATE 2026-07-05 (Sergiy relay): score 94/138 → 103/138 (+9).** All 35 remaining failures are
+      **plugin-gated** (no v2 bridge registered for the feature): actors, cluster, distributed, coroutines,
+      html-dsl, http-client, node, rest-validate, mcp-client.
+      - [ ] **v2-conf-pure-gated** (claim `feature/v2-conf-pure-gated`) — bridge the PURE-LOGIC plugin-gated
+        tests first (no network/threads): **webauthn-server-verify** (challenge + garbage-reject; 3 natives),
+        **html-dsl** (div/attr/h1/… builders), **rest-validate** (validate/requireString/requireRange/
+        requireOneOf). These fail because their plugin natives are `InlineCode`/`RuntimeCall` (the PluginBridge
+        ServiceLoader loop registers only `NativeImpl`, skipping those) or a std `.ssc` wrapper's native is
+        unregistered. Fix: register the needed natives in `PluginBridge` + drop each from the `skipSet` once it
+        matches `expected/`. Gate: each moves from skip→pass, conformance +N.
+      - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
+        environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
+        runtime + network bridging; a sibling/env concern, deliberately deferred here.
+- [ ] **v2-output-parity-harness** (my proposal — extends output-equality beyond the conformance suite) —
+      `V2ConformanceTest` already diffs `tests/conformance/*` v2-output vs `expected/`. This extends the same
+      TRUE output-equality to the **full `examples/` corpus (193)**: run each example on v1 AND on v2 (via the
+      new `ssc run --v2`) and diff stdout, turning the misleading "186/193 exit-0" coverage into a real
+      "N/193 output-identical" number. Already surfaced one gap (`algebraic-effects` diverges). Build as a
+      script + (for speed at corpus scale) a native `ssc` image or an in-process batch. Gate: a parity report
+      with per-example MATCH/MISMATCH + the real %.
       WAVE 1 DONE 2026-07-05 (`feature/v2-t44-clusters`): given-nested extensions with
       per-name RECEIVER-TAG dispatch (Bifunctor[Tuple2] vs [Either] coexist); v1Show
       display parity for bridged println (tuples/(a,b), List(...), raw strings,
