@@ -44,6 +44,14 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — T3.4: Rust generator perf — Rc-shared Data (17× list-fold) + SelfRecNative (78× fib)
+
+ADT values are now structurally shared (`Data(Rc<str>, Rc<Vec<V>>)`) — deep-clone
+quadratics gone; fib-shaped defs compile to a native `fn(i64)->i64` beside the general
+closure (VM SelfRecLL rules, tail-bail preserved). recursion-fib 1.37 ms/op — faster
+than the v1 Rust backend; list-fold 17×, string-concat 4×. arith-loop/mutual-recursion
+remain machinery-bound (Long-cell specialization queued). Parity 8×3 GREEN.
+
 ## 2026-07-05 — v2-js-smallint: opt-in `--ints=number` fast mode for the JS generator
 
 Plain-number ints (arith-loop ~6×, recursion-fib ~3× faster in node) behind an explicit
