@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-t45-hanglist
+worktree: ../scalascript-wt-v2-t45-hanglist
+started: 2026-07-05
+status: in-progress
+task: T4.5 — un-hang the hang-list: (a) actor programs exit cleanly (non-daemon threads), (b) Dataset free-monad executor probe; per-file timeout runner
