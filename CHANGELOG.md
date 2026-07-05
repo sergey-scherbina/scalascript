@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: ES256 (ECDSA P-256) wired into JWS + COSE
+
+`Jws.signES256`/`verifyES256` (+ `Jwt.es256`) and `CoseSign1.signES256`/`verifyES256` (COSE alg `-7`,
+protected `{1:-7}`) in `payments/crypto/spi/shared` — ES256 = ECDSA P-256 + SHA-256 with the fixed 64-byte
+R‖S, over the portable `P256Ecdsa`. The JWS path **verifies the published RFC 7515 Appendix A.3 ES256
+token** (and the RFC private key derives its public key); COSE round-trips with an authenticated alg guard
+(cross-algorithm confusion rejected), on JVM and Scala.js. Completes the ES256 unblock: `token-formats`
+now covers JWS HS256/EdDSA/ES256K/ES256, PASETO v4.public, and COSE_Sign1 EdDSA/ES256K/ES256.
+
 ## 2026-07-05 — crypto: portable NIST P-256 (secp256r1) group + ECDSA reference
 
 Added `P256Group.scala` + `P256Ecdsa.scala` to `payments/crypto/spi/shared` — a from-scratch NIST P-256

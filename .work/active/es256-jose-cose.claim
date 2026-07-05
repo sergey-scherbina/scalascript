@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/es256-jose-cose
-worktree: ../scalascript-wt-es256
-started: 2026-07-05T13:46:01Z
-heartbeat: 2026-07-05T13:46:01Z
-status: in-progress
-task: es256-jose-cose — wire ES256 (ECDSA P-256 + SHA-256) into Jws (signES256/verifyES256 + Jwt.es256) and CoseSign1 (alg -7) over P256Ecdsa; gated by RFC 7515 A.3 (verify a published JOSE ES256 token) + round-trip, JVM+JS. Completes the ES256 unblock.

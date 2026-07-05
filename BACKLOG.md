@@ -108,8 +108,11 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       `crypto-spi/shared`): NIST P-256 group (a=-3 Jacobian doubling) + ECDSA (RFC-6979 + SHA-256, DER +
       64-byte R‖S) — byte-for-byte equal to the BouncyCastle P-256 backend (derivePublic + verify interop),
       JVM+JS. **Unblocks ES256** (`Curve.P256` no longer BouncyCastle-only) and `webauthn-server-verify`.
-      **REMAINING:** wire **ES256** into `Jws`/`CoseSign1` (mirror ES256K over `P256Ecdsa`, alg `ES256` /
-      COSE `-7`); PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
+      **ES256 DONE 2026-07-05** (`Jws.signES256`/`verifyES256` + `Jwt.es256`; `CoseSign1.signES256`/
+      `verifyES256`, COSE alg `-7` / protected `{1:-7}`): ECDSA P-256 + SHA-256, 64-byte R‖S — the JWS path
+      **verifies the published RFC 7515 A.3 ES256 token**, COSE round-trips with the authenticated alg guard,
+      JVM+JS. token-formats now covers JWS HS256/EdDSA/ES256K/ES256, PASETO v4.public, and COSE_Sign1
+      EdDSA/ES256K/ES256. **REMAINING:** PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
 - [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
