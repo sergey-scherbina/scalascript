@@ -91,8 +91,13 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       **PASETO v4.public DONE 2026-07-05** (`PasetoV4.scala` in `crypto-spi/shared`): portable
       `v4.public` sign+verify (Ed25519 over PAE), footer + implicit-assertion binding, version/purpose/
       tamper rejection — PAE pinned to the PASETO spec vectors + verified against the official `v4.json`
-      "4-S-1" public key, JVM+JS. **REMAINING:** ES256/ES256K for JWS (ECDSA fixed-length R‖S ↔ DER);
-      PASETO **v4.local** (XChaCha20 + BLAKE2b keyed); COSE (RFC 8152, CBOR — pairs with `webauthn-server-verify`).
+      "4-S-1" public key, JVM+JS.
+      **COSE_Sign1 EdDSA DONE 2026-07-05** (`Cbor.scala` + `CoseSign1.scala` in `crypto-spi/shared`):
+      a minimal portable CBOR codec (gated by RFC 8949 Appendix A) + COSE_Sign1 (RFC 8152/9052) sign+verify
+      with EdDSA (`alg -8`), external-AAD binding, alg/tamper rejection — round-tripped under the RFC 8037
+      key, JVM+JS. Unblocks `webauthn-server-verify` (COSE structures now available). **REMAINING:**
+      ES256/ES256K for JWS + COSE (ECDSA fixed-length R‖S ↔ DER, needs P-256 for COSE alg -7); PASETO
+      **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
 - [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the

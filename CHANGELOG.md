@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable CBOR + COSE_Sign1 (EdDSA) over the crypto SPI
+
+Added `Cbor.scala` (a minimal RFC 8949 codec — major types 0-6, definite-length) and `CoseSign1.scala`
+to `payments/crypto/spi/shared`: portable COSE_Sign1 (RFC 8152/9052, single-signer) sign+verify with
+EdDSA (`alg -8`) on the from-scratch Ed25519, with external-AAD binding and alg/tamper rejection.
+Identical on JVM + Scala.js, no platform crypto. CBOR pinned to RFC 8949 Appendix A; COSE structure +
+signature round-tripped under the RFC 8037 Ed25519 key. Third `token-formats` slice (after JWS + PASETO)
+and the CBOR + COSE structures unblock `webauthn-server-verify`.
+
 ## 2026-07-05 — v2 Rust backend: LCell direct-ownership + inline arith (T3.4 complete)
 
 LCell variables not captured by closures are now `let mut name: i64` instead of `Rc<RefCell<i64>>`,

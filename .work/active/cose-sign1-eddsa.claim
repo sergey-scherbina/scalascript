@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/cose-sign1-eddsa
-worktree: ../scalascript-wt-cose-sign1
-started: 2026-07-05T13:07:10Z
-heartbeat: 2026-07-05T13:07:10Z
-status: in-progress
-task: cose-sign1-eddsa — portable minimal CBOR (Cbor.scala) + COSE_Sign1 EdDSA sign/verify (CoseSign1.scala) in crypto-spi/shared; CBOR gated by RFC 8949 App-A, COSE structure hand-derived + round-trip with RFC 8037 key, JVM+JS. Third token-formats slice (after JWS + PASETO); pairs with webauthn-server-verify.
