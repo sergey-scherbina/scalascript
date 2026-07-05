@@ -76,6 +76,21 @@ class BouncyCastleBackendTest extends AnyFunSuite:
                                  Secp256k1Ecdsa.rawToDer(bc.take(64))))
   }
 
+  test("portable P-256 matches the BouncyCastle P-256 backend (derivePublic byte-exact + interop)") {
+    val priv = hex("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+    // public-key derivation is deterministic → must be byte-for-byte identical
+    val bcPub = be.derivePublic(Curve.P256, priv)                        // 64-byte X‖Y
+    assert(bcPub.length == 64)
+    assert(P256Ecdsa.derivePublicUncompressed(priv).drop(1).sameElements(bcPub),
+      "portable P-256 derivePublic != BouncyCastle")
+    // BouncyCastle signs; the portable verifier must accept it (proves the portable verify + group math)
+    val hash  = be.hash(HashAlgo.Sha256, "P-256 interop".getBytes("UTF-8"))
+    val bcSig = be.sign(Curve.P256, priv, hash, HashAlgo.None)
+    val bcDer = if bcSig.nonEmpty && bcSig(0) == 0x30.toByte then bcSig else P256Ecdsa.rawToDer(bcSig.take(64))
+    assert(P256Ecdsa.verify(P256Ecdsa.derivePublicCompressed(priv), hash, bcDer),
+      "portable P-256 rejected a BouncyCastle signature")
+  }
+
   test("RIPEMD-160 of empty matches reference") {
     val expected = hex("9c1185a5c5e9fc54612808977ee8f548b2258d31")
     assert(be.hash(HashAlgo.Ripemd160, Array.emptyByteArray).sameElements(expected))
