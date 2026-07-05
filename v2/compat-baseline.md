@@ -6,18 +6,22 @@ North-star metric for the v1→v2 compatibility tracks: how much of the real v1
 
 Reproduce: `scripts/v2-compat-coverage` (one JVM via `ssc.bridge.batchCli`).
 
-## Current — 2026-07-05 (post content-toolkit/Spark/method-dispatch fixes), re-run
+## Current — 2026-07-05 evening (T4.5: hang-list ELIMINATED — full corpus, zero skips)
 
 | Metric | Value |
 |---|---|
-| **PASS** (runs on v2 FrontendBridge) | **176** |
-| **FAIL** | 2 (BOTH environmental: missing BLOCKFROST API keys — not compat gaps) |
-| Ran (PASS+FAIL) | 178 |
-| Skipped (hang-list) | ~16 |
-| **Coverage / runnable** | **176 / 178 = 98.9%** (effectively 100% of real gaps) |
+| **PASS** (runs on v2 FrontendBridge) | **186** |
+| **FAIL** | 7 (2 environmental BLOCKFROST keys + 5 real) |
+| Ran (PASS+FAIL) | **193 — the FULL corpus, no hang-list** |
+| **Coverage / full corpus** | **186 / 193 = 96.4%** |
+| **Coverage / non-environmental** | **186 / 191 = 97.4%** |
 
-Remaining work is the hang-list only (actors non-daemon-thread lifetime + the
-Dataset free-monad executor) plus output-equality checking (PASS = exit-0 today).
+The hang-list is GONE: every entry terminates; the real batch killer was a bridged
+v1 `exit` intrinsic shadowing the actor exit (System.exit killed the batch JVM) —
+fixed with Runtime.exitHandler + polymorphic exit + registration order.
+The 5 real FAILs: `registerBehavior` (typed remote spawn), `trapExit` ×2,
+`runDistributed`, Dataset codec `Op/3` arm. Next enhancement: output-equality
+vs the v1 interpreter (PASS = exit-0 today).
 
 ## Prior baseline — 2026-07-05 morning, @ `f3e087b3a` (post Track 1+2 merge)
 

@@ -72,6 +72,14 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — T4.5: hang-list eliminated — 186/193 (96.4%) of the FULL corpus on v2
+
+The 16-file hang-list was stale (everything terminates); the real batch killer was a
+bridged v1 `exit` intrinsic shadowing the actor exit — System.exit(0) silently killed
+the batch JVM. New `Runtime.exitHandler` hook (batch intercepts), polymorphic
+`exit(actorRef|code)`, actor globals registered last. Coverage now runs the whole
+corpus with zero skips: 186 PASS / 7 FAIL (2 env keys + 5 real gaps).
+
 ## 2026-07-05 — T3.4: Rust generator perf — Rc-shared Data (17× list-fold) + SelfRecNative (78× fib)
 
 ADT values are now structurally shared (`Data(Rc<str>, Rc<Vec<V>>)`) — deep-clone

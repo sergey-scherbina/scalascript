@@ -229,9 +229,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 - [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2. The
       suite has no v2 mode yet — the work IS building that wiring (an SPI switch that
       routes conformance programs through FrontendBridge → v2 VM), then comparing scores.
-- [ ] **T4.5 (new): un-hang the hang-list** — actors (non-daemon thread lifetime; the
-      programs RUN per T2.3 but the batch JVM does not exit) + Dataset free-monad
-      executor (12 files). Probe with a per-file timeout runner, not batchCli.
+- [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
+      All 16 entries terminate (probe with per-file forked watchdog); the true batch
+      killer was a bridged v1 `exit` (System.exit) shadowing the actor exit. Fixed:
+      `Runtime.exitHandler` hook (batchCli intercepts; exit-0 = PASS), polymorphic
+      variadic exit (actorRef → kill actor; code → hook), registerActors() last in
+      loadAll. **Coverage: 186/193 = 96.4% of the FULL corpus, zero skips** (was
+      176/178 + 16 skipped). Remaining 5 real FAILs: registerBehavior, trapExit ×2,
+      runDistributed, Dataset Op/3.
 
 **Track 5 — ssc1c fixes**
 - [x] **T5.1: @count/@sum bug** — DONE. TWO independent root causes, one per pipeline,
