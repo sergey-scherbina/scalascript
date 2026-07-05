@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/xchacha20poly1305
-worktree: ../scalascript-wt-xchacha
-started: 2026-07-05T16:49:37Z
-heartbeat: 2026-07-05T16:49:37Z
-status: in-progress
-task: xchacha20poly1305 — add HChaCha20 + XChaCha20-Poly1305 (24-byte nonce AEAD) to ChaCha20Poly1305.scala (refactor the 20-round permutation into a shared helper); gated by the HChaCha20 KAT (draft §2.2.1) + xseal/xopen round-trip + tamper, JVM+JS. Unblocks PASETO v4.local's cipher.

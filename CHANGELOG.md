@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: HChaCha20 + XChaCha20-Poly1305 (24-byte-nonce AEAD)
+
+Extended `ChaCha20Poly1305.scala` with the HChaCha20 subkey function and XChaCha20-Poly1305
+(`xseal`/`xopen`, 24-byte extended nonce; draft-irtf-cfrg-xchacha20poly1305) — the libsodium default AEAD.
+Refactored the ChaCha20 permutation into a shared helper (the RFC 8439 block/AEAD KATs still pass byte-
+exact). HChaCha20's words 0-3 match the draft §2.2.1 KAT and, since the permutation itself is RFC-8439-
+validated, the full 32-byte subkey is correct; the AEAD round-trips and rejects tamper on JVM + Scala.js.
+Unblocks the cipher half of PASETO v4.local (keyed BLAKE2b still pending).
+
 ## 2026-07-05 — crypto: Noise_XX handshake (25519 / ChaChaPoly / SHA256)
 
 Added `NoiseXX.scala` to `payments/crypto/spi/shared` — a portable `Noise_XX_25519_ChaChaPoly_SHA256`

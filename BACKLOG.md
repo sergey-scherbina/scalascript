@@ -133,7 +133,8 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       peer static key, encrypted transport round-trips both ways, and a tampered message fails auth — JVM+JS.
       **REMAINING:** more patterns (NN/NK/IK…) + a byte-exact check against the cacophony/snow Noise
       test-vectors. The same primitives still unblock `age-encryption`; PASETO **v4.local** additionally
-      needs the XChaCha20 extended-nonce variant (HChaCha20 subkey) + keyed BLAKE2b.
+      needs keyed BLAKE2b (the XChaCha20 extended-nonce variant now exists — `ChaCha20Poly1305.xseal`/
+      `xopen` + `hchacha20`, draft-irtf-cfrg-xchacha, 2026-07-05).
 - [~] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
       crypto SPI; a whole decentralized-identity stack. Gate: W3C DID/VC test suites.
       **did:key DONE 2026-07-05** (`DidKey.scala` + a portable `Base58` btc codec in `crypto-spi/shared`):
