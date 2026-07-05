@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/did-key
+worktree: ../scalascript-wt-did-key
+started: 2026-07-05T14:31:52Z
+heartbeat: 2026-07-05T14:31:52Z
+status: in-progress
+task: did-key — portable did:key encode+resolve for Ed25519 (0xed01) and P-256 compressed (0x1200) in crypto-spi/shared, with a portable base58btc codec; gated by base58 unit vectors + multicodec structural + round-trip, JVM+JS. First slice of the did-vc epic.
