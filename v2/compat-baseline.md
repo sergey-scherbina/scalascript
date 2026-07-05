@@ -31,6 +31,22 @@ restore`). Two consecutive full runs: exactly **184/193**, and all 9 FAILs are t
 classified out-of-parity set above.
 Next enhancement: output-equality vs the v1 interpreter (PASS = exit-0 today).
 
+## CORRECTION — 2026-07-05 late night: the parity milestone was measured on FIRST-FENCE-ONLY semantics
+
+T4.4's output-equality suite exposed that the bridge ran only the FIRST scalascript
+fence of each entry file — every later section was silently dropped, so a file could
+"PASS" (exit 0) while executing a fraction of its code. With v1 semantics restored
+(ALL fences, document order):
+
+| Metric | first-fence (inflated) | full-fence (honest) |
+|---|---|---|
+| Batch coverage | 184/193 | **152/193 = 78.8%** |
+| Output-equality (tests/conformance) | — | **32/58** |
+
+The parity claim below therefore holds only for the first-fence subset; the 32+26
+newly-honest failures are the real remaining queue. Re-verify parity against the v1
+interpreter file-by-file as clusters close.
+
 ## MILESTONE — 2026-07-05 night: **v1-INTERPRETER PARITY REACHED on the examples corpus**
 
 The remaining FAILs were probed against the REAL v1 interpreter (`sbt cli/stage`,

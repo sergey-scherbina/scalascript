@@ -238,6 +238,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       std families. NEXT: work the clusters largest-first; also merged: DataV FIELD
       access dispatch (function-typed fields callable) before the Stub fallback.
       Run: `sbt "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`.
+      WAVE 1 DONE 2026-07-05 (`feature/v2-t44-clusters`): given-nested extensions with
+      per-name RECEIVER-TAG dispatch (Bifunctor[Tuple2] vs [Either] coexist); v1Show
+      display parity for bridged println (tuples/(a,b), List(...), raw strings,
+      integral doubles); **ALL-fences entry semantics** — suite 22 → **32/58**.
+      HONESTY CORRECTION: first-fence-only had inflated batch coverage; full-fence
+      honest = **152/193** (see compat-baseline.md). The ~32 newly-honest batch fails +
+      26 suite fails = the visible next queue (json/optics/parsing/sql/effects
+      clusters; `app: not a function: <foreign>` in json-*).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
       SHIPPED** (full Erlang supervision surface on the VirtualThread mailbox model:
       bidirectional links kill-or-message, monitors get Down(reason); death fires on
