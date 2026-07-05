@@ -6,7 +6,20 @@ North-star metric for the v1→v2 compatibility tracks: how much of the real v1
 
 Reproduce: `scripts/v2-compat-coverage` (one JVM via `ssc.bridge.batchCli`).
 
-## Baseline — 2026-07-05, `origin/main` @ `f3e087b3a` (post Track 1+2 merge)
+## Current — 2026-07-05 (post content-toolkit/Spark/method-dispatch fixes), re-run
+
+| Metric | Value |
+|---|---|
+| **PASS** (runs on v2 FrontendBridge) | **176** |
+| **FAIL** | 2 (BOTH environmental: missing BLOCKFROST API keys — not compat gaps) |
+| Ran (PASS+FAIL) | 178 |
+| Skipped (hang-list) | ~16 |
+| **Coverage / runnable** | **176 / 178 = 98.9%** (effectively 100% of real gaps) |
+
+Remaining work is the hang-list only (actors non-daemon-thread lifetime + the
+Dataset free-monad executor) plus output-equality checking (PASS = exit-0 today).
+
+## Prior baseline — 2026-07-05 morning, @ `f3e087b3a` (post Track 1+2 merge)
 
 | Metric | Value |
 |---|---|

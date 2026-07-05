@@ -202,11 +202,24 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       Remaining 2 FAIL: x402-cardano*.ssc — eager `throw RuntimeException(...)` before `getOrElse`
       evaluates; requires real Blockfrost API keys (unfixable without real credentials or CT semantics change).
       Gate (0 failures): deferred — 2 unresolvable external-API examples are hard floor.
+- [x] **T4.x measurement slice** — DONE 2026-07-05 (`feature/v2-t4-verification`):
+      compat-coverage RE-RUN: **176/178 = 98.9%** (was 129/178) — the content-toolkit,
+      Spark/Dataset-dispatch and plugin-method clusters are all FIXED; the only 2 FAILs
+      are environmental (missing BLOCKFROST keys). `v2/compat-baseline.md` updated.
+      Server-shaped examples (x402-server, ws-chat, webauthn-demo) PASS under the
+      bridge, partially covering T4.3's intent.
 - [ ] **T4.2: Stdlib plugins** — run `v1/runtime/std/*.ssc` tests under v2. 0 failures.
-- [ ] **T4.3: Full application** — pick busi or payments demo, run end-to-end under v2.
-      Gate: HTTP server starts, handles requests, DB queries work.
-- [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2 pipeline.
-      Gate: v2 conformance score ≥ v1.
+      NEXT CONCRETE STEP: enumerate the std test entry points (`sbt <plugin>/test` vs
+      `.ssc` self-tests) and route them through `ssc.bridge` like batchCli does.
+- [ ] **T4.3: Full application** — busi or a payments demo end-to-end under v2 (HTTP
+      server + SQL). Server examples already pass via the bridge; the remaining work is
+      a REAL long-running app + DB.
+- [ ] **T4.4: Conformance suite** — `sbt backendConformance/test` targeting v2. The
+      suite has no v2 mode yet — the work IS building that wiring (an SPI switch that
+      routes conformance programs through FrontendBridge → v2 VM), then comparing scores.
+- [ ] **T4.5 (new): un-hang the hang-list** — actors (non-daemon thread lifetime; the
+      programs RUN per T2.3 but the batch JVM does not exit) + Dataset free-monad
+      executor (12 files). Probe with a per-file timeout runner, not batchCli.
 
 **Track 5 — ssc1c fixes**
 - [x] **T5.1: @count/@sum bug** — DONE. TWO independent root causes, one per pipeline,
