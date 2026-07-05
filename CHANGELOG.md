@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: portable ChaCha20-Poly1305 AEAD (RFC 8439)
+
+Added `ChaCha20Poly1305.scala` to `payments/crypto/spi/shared` — a from-scratch RFC 8439 AEAD: the
+ChaCha20 stream cipher (32-bit `Int` arithmetic), the Poly1305 one-time MAC (`BigInt` over `2^130 − 5`),
+and the AEAD `seal`/`open` construction with a constant-time tag compare. Pure Scala, identical on JVM +
+Scala.js, no platform crypto. Verified byte-exact against the RFC 8439 vectors — ChaCha20 block (§2.3.2),
+Poly1305 (§2.5.2), and the AEAD tag (§2.8.2) — plus open round-trip and tamper (tag / ciphertext / AAD)
+rejection. Keystone symmetric primitive: unblocks PASETO v4.local, Noise, `age`, and COSE_Encrypt.
+
 ## 2026-07-05 — crypto: portable did:key (Ed25519 + P-256) + base58btc
 
 Added `DidKey.scala` and a portable `Base58` (btc/multibase-`z`) codec to `payments/crypto/spi/shared` —

@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/chacha20-poly1305
-worktree: ../scalascript-wt-chacha
-started: 2026-07-05T14:36:52Z
-heartbeat: 2026-07-05T14:36:52Z
-status: in-progress
-task: chacha20-poly1305 — portable RFC 8439 ChaCha20 stream cipher + Poly1305 MAC + AEAD (seal/open) in crypto-spi/shared; gated byte-exact by RFC 8439 vectors (block §2.3.2, AEAD §2.8.2) + open round-trip + tamper rejection, JVM+JS. Keystone that unblocks PASETO v4.local / noise / age / COSE_Encrypt.
