@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/noise-patterns
-worktree: ../scalascript-wt-noise-pat
-started: 2026-07-05T17:58:13Z
-heartbeat: 2026-07-05T17:58:13Z
-status: in-progress
-task: noise-patterns — generalize NoiseXX into a pattern-driven Noise engine (pre-message support + ss token) supporting NN / XX / IK over 25519/ChaChaPoly/SHA256; functional gate: full handshake round-trip per pattern (matching transport keys + correct auth semantics + tamper reject), JVM+JS. No test-vector recall needed.

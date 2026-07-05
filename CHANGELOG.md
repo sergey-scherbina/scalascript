@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: Noise pattern engine — NN / XX / IK
+
+Generalised the Noise handshake into a pattern-driven engine (`Noise.scala`, replacing the XX-only
+`NoiseXX.scala`): CipherState + SymmetricState + HandshakeState with pre-message support and the full
+`e s ee es se ss` token set, over the 25519/ChaChaPoly/SHA256 suite. Ships three built-in patterns — `NN`
+(unauthenticated), `XX` (mutual auth), and `IK` (initiator pre-knows the responder static, WireGuard /
+Lightning style). Pure Scala, JVM + Scala.js. Functional gate per pattern: a full handshake derives
+matching transport keys, the authentication semantics hold, encrypted transport round-trips both ways,
+and a tampered message fails authentication.
+
 ## 2026-07-05 — crypto: HChaCha20 + XChaCha20-Poly1305 (24-byte-nonce AEAD)
 
 Extended `ChaCha20Poly1305.scala` with the HChaCha20 subkey function and XChaCha20-Poly1305

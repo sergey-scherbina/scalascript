@@ -127,11 +127,13 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
       Primitives portable: `ChaCha20Poly1305.scala` (RFC 8439) + `X25519.scala` (RFC 7748) +
       `HkdfSha256.scala` (RFC 5869), byte-exact, JVM+JS.
-      **Noise_XX DONE 2026-07-05** (`NoiseXX.scala`): CipherState + SymmetricState + HandshakeState for
-      `Noise_XX_25519_ChaChaPoly_SHA256` (the mutual-auth `e / e,ee,s,es / s,se` pattern). Functional gate:
-      a full initiator↔responder handshake derives matching transport keys, both sides authenticate the
-      peer static key, encrypted transport round-trips both ways, and a tampered message fails auth — JVM+JS.
-      **REMAINING:** more patterns (NN/NK/IK…) + a byte-exact check against the cacophony/snow Noise
+      **Noise NN / XX / IK DONE 2026-07-05** (`Noise.scala`): a pattern-driven engine (CipherState +
+      SymmetricState + HandshakeState, pre-message support + the `e s ee es se ss` tokens) over the
+      25519/ChaChaPoly/SHA256 suite. Built-in `NN` (unauthenticated), `XX` (mutual auth), and `IK`
+      (initiator pre-knows the responder static — WireGuard/Lightning style). Functional gate per pattern:
+      a full handshake derives matching transport keys, the auth semantics hold (NN: no statics; XX/IK:
+      mutual), encrypted transport round-trips both ways, and a tampered message fails auth — JVM+JS.
+      **REMAINING:** more patterns (NK/XK/…) + a byte-exact check against the cacophony/snow Noise
       test-vectors. The same primitives still unblock `age-encryption`; PASETO **v4.local** additionally
       needs keyed BLAKE2b (the XChaCha20 extended-nonce variant now exists — `ChaCha20Poly1305.xseal`/
       `xopen` + `hchacha20`, draft-irtf-cfrg-xchacha, 2026-07-05).
