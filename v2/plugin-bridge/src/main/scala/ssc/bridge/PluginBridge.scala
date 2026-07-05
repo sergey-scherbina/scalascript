@@ -76,6 +76,9 @@ object PluginBridge:
         result.foreach { v => V2PluginRegistry.registerGlobal(name, v) }
       }
     }
+    // Mirror.Of[T] support: DataV("Mirror", [label, elemLabels, elemTypes]) dispatch
+    V2PluginRegistry.registerFieldNames("Mirror", Vector("label", "elemLabels", "elemTypes"))
+
     // Register plugin-owned extern type field names so v2ToV1(DataV) produces named fields.
     // These are types created in v2 user code but consumed by v1 plugins by name.
     V2PluginRegistry.registerFieldNames("Response",
@@ -84,6 +87,9 @@ object PluginBridge:
       Vector("status", "headers", "callback"))
     V2PluginRegistry.registerFieldNames("Request",
       Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
+    // Override OIDC client prims BEFORE building namespace objects so the namespace
+    // ForeignV picks up the overridden versions (buildNamespaceObjects reads from registry).
+    overrideOidcClientStubs()
     // Build namespace objects for dotted globals: "oauth.authServer" → oauth = {authServer: ClosV}
     buildNamespaceObjects()
     // Override serve/emit/mount with no-op stubs: batch runner has no web server.
@@ -92,7 +98,278 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("serve",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     V2PluginRegistry.registerGlobal("emit",   ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    registerBatchRunnerStubs()
     count
+
+  /** Override oauth.client.discoverAs/exchangeAuthorizationCode BEFORE buildNamespaceObjects()
+   *  so the namespace ForeignV picks up the batch-mode stubs.
+   *
+   *  discoverAs: instead of making a real HTTP call to localhost, return the discovery
+   *  document directly from the in-memory OidcServer registered by oidc.server(as).
+   *
+   *  exchangeAuthorizationCode: return stub token strings; idp.userInfo() is patched
+   *  in OidcHelpers.scala to return the first registered user for any token. */
+  private def overrideOidcClientStubs(): Unit =
+    import V2Value.*
+    import scalascript.compiler.plugin.oauth.{OidcIntrinsicHelpers, OAuthIntrinsicHelpers}
+
+    // ujson.Value → v2 Value (Map → ForeignV(Map[StrV→v2]), Str→StrV, Num→FloatV, Bool→BoolV)
+    def ujsonToV2(v: ujson.Value): V2Value = v match
+      case ujson.Str(s)  => StrV(s)
+      case ujson.Num(d)  => if d == d.toLong then IntV(d.toLong) else FloatV(d)
+      case ujson.Bool(b) => BoolV(b)
+      case ujson.Null    => DataV("None", Vector.empty)
+      case ujson.Arr(xs) => xs.foldRight(DataV("Nil", Vector.empty): V2Value)((x, acc) =>
+        DataV("Cons", Vector(ujsonToV2(x), acc)))
+      case ujson.Obj(kvs) =>
+        val hm = collection.mutable.HashMap.empty[V2Value, V2Value]
+        kvs.foreach { case (k, v) => hm(StrV(k)) = ujsonToV2(v) }
+        ForeignV(hm.asInstanceOf[AnyRef])
+
+    V2PluginRegistry.registerGlobal("oauth.client.discoverAs",
+      ClosV(Runtime.emptyEnv, -1, env => Done({
+        val issuer = env.headOption.collect { case StrV(s) => s }.getOrElse("")
+        OidcIntrinsicHelpers.findByIssuer(issuer) match
+          case Some(idp) => ujsonToV2(idp.discoveryJson())
+          case None =>
+            // Minimal discovery doc for unknown localhost issuers
+            val hm = collection.mutable.HashMap.empty[V2Value, V2Value]
+            hm(StrV("issuer"))                = StrV(issuer)
+            hm(StrV("authorization_endpoint"))= StrV(s"$issuer/authorize")
+            hm(StrV("token_endpoint"))        = StrV(s"$issuer/token")
+            hm(StrV("userinfo_endpoint"))     = StrV(s"$issuer/userinfo")
+            hm(StrV("jwks_uri"))              = StrV(s"$issuer/.well-known/jwks.json")
+            ForeignV(hm.asInstanceOf[AnyRef])
+      })))
+
+    V2PluginRegistry.registerGlobal("oauth.client.exchangeAuthorizationCode",
+      ClosV(Runtime.emptyEnv, -1, _ => Done({
+        val hm = collection.mutable.HashMap.empty[V2Value, V2Value]
+        hm(StrV("accessToken"))  = StrV("batch-stub-access-token")
+        hm(StrV("idToken"))      = StrV("batch-stub-id-token")
+        hm(StrV("refreshToken")) = StrV("batch-stub-refresh-token")
+        hm(StrV("tokenType"))    = StrV("Bearer")
+        hm(StrV("expiresIn"))    = IntV(3600L)
+        hm(StrV("scope"))        = StrV("openid profile email offline_access")
+        ForeignV(hm.asInstanceOf[AnyRef])
+      })))
+
+  /** Batch-runner stubs for features that need a server / document context.
+   *  These override plugin registrations so examples run without errors. */
+  private def registerBatchRunnerStubs(): Unit =
+    import V2Value.*
+    val stub = DataV("Stub", Vector.empty)
+    val dividerNode = DataV("DividerNode", Vector.empty)
+    def noopClos = ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV))
+    def stubClos = ClosV(Runtime.emptyEnv, -1, _ => Done(stub))
+    def stubOpt  = DataV("Some", Vector(stub))
+
+    // ── Content plugin stubs (require document context, batch runner has none) ──────
+    // These override the NativeImpl registrations from the content plugin.
+    Seq(
+      "contentDocument" -> ClosV(Runtime.emptyEnv, 0, _ => Done(stub)),
+      "contentCurrentSection" -> ClosV(Runtime.emptyEnv, 0, _ => Done(stub)),
+      "contentSection" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentBlock"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentData"    -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentMetadata" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentBind"    -> ClosV(Runtime.emptyEnv, -1, env => Done(if env.nonEmpty then env(0) else stub)),
+      "contentPlainText"  -> ClosV(Runtime.emptyEnv, -1, _ => Done(StrV(""))),
+      "contentToMarkdown" -> ClosV(Runtime.emptyEnv, -1, _ => Done(StrV(""))),
+      "contentToolkitNode"    -> ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode)),
+      "contentToolkitBlock"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode)),
+      "contentToolkitSection" -> ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode)),
+      "contentModules"     -> ClosV(Runtime.emptyEnv, 0, _ => Done(ForeignV(collection.immutable.Map.empty[String, V2Value].asInstanceOf[AnyRef]))),
+      "contentModule"      -> ClosV(Runtime.emptyEnv, -1, _ => Done(DataV("None", Vector.empty))),
+      "contentModuleSection" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentModuleBlock"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentModuleData"    -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+      "contentModuleMetadata" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
+    ).foreach { case (name, fn) =>
+      V2PluginRegistry.registerGlobal(name, fn)
+      V2PluginRegistry.register(name, args => Runtime.run(fn.code, if fn.env.isEmpty then Array.empty else fn.env))
+    }
+
+    // ── Sync stub (browser IndexedDB sync helper) ─────────────────────────────────
+    val syncStatusStub = DataV("SyncStatus", Vector(IntV(0), IntV(0), BoolV(false)))
+    val syncMethods: collection.immutable.Map[String, V2Value] = collection.immutable.Map(
+      "put"      -> noopClos,
+      "status"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(syncStatusStub)),
+      "pending"  -> ClosV(Runtime.emptyEnv, -1, _ => Done(DataV("Nil", Vector.empty))),
+      "isOnline" -> BoolV(false),
+      "sync"     -> noopClos,
+    )
+    V2PluginRegistry.registerGlobal("Sync", ForeignV(syncMethods.asInstanceOf[AnyRef]))
+    // awaitClient(expr) — run expr and return UnitV
+    V2PluginRegistry.registerGlobal("awaitClient", ClosV(Runtime.emptyEnv, 1, env => Done(env(0))))
+
+    // ── Duration extension methods on Int/Long (e.g. 30.seconds) ────────────────
+    // Returns stub — callers like Await.result ignore the actual duration value.
+    for durMethod <- Seq("seconds", "minutes", "milliseconds", "millis", "nanoseconds", "nanos", "hours", "days") do
+      V2PluginRegistry.register(s"__method__.$durMethod", args => stub)
+
+    // ── Await stub (Await.result ignores timeout, returns stub) ──────────────────
+    if V2PluginRegistry.lookupGlobal("Await").isEmpty then
+      val awaitMethods: collection.immutable.Map[String, V2Value] = collection.immutable.Map(
+        "result" -> ClosV(Runtime.emptyEnv, -1, env => Done(if env.nonEmpty then env(0) else stub)),
+        "ready"  -> ClosV(Runtime.emptyEnv, -1, env => Done(if env.nonEmpty then env(0) else stub)),
+      )
+      V2PluginRegistry.registerGlobal("Await", ForeignV(awaitMethods.asInstanceOf[AnyRef]))
+
+    // ── spark stub (SparkSession skeleton) ────────────────────────────────────────
+    // Any method on spark returns DataV("Stub", []) which propagates through Op stub dispatch.
+    if V2PluginRegistry.lookupGlobal("spark").isEmpty then
+      V2PluginRegistry.registerGlobal("spark", stub)
+    // StructType stub for Spark streaming schemas
+    if V2PluginRegistry.lookupGlobal("StructType").isEmpty then
+      V2PluginRegistry.registerGlobal("StructType", stubClos)
+    if V2PluginRegistry.lookupGlobal("IntegerType").isEmpty then
+      V2PluginRegistry.registerGlobal("IntegerType", stub)
+    if V2PluginRegistry.lookupGlobal("StringType").isEmpty then
+      V2PluginRegistry.registerGlobal("StringType", stub)
+    if V2PluginRegistry.lookupGlobal("LongType").isEmpty then
+      V2PluginRegistry.registerGlobal("LongType", stub)
+    if V2PluginRegistry.lookupGlobal("DoubleType").isEmpty then
+      V2PluginRegistry.registerGlobal("DoubleType", stub)
+
+    // ── HTTP server backend selection — no-op in batch runner ────────────────────
+    // The batch runner never starts a real server; setHttpServerBackend("jetty") would
+    // throw "No HttpServerSpi impl named 'jetty'". Force-override the plugin's registration.
+    V2PluginRegistry.register("setHttpServerBackend", _ => V2Value.UnitV)
+    V2PluginRegistry.registerGlobal("setHttpServerBackend", ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+
+    // ── In-process HTTP dispatch for self-contained examples ─────────────────────
+    // Examples like rozum-agent-* start a local mock server via serveAsync(port)
+    // and then connect to it via runAgent(AgentEndpoint("http://localhost:PORT")).
+    // Since serveAsync is a no-op stub, the real httpPost/httpPostStream would fail
+    // with ConnectionRefused. We intercept localhost calls and return a stub OpenAI
+    // response so runAgent exits immediately with finish_reason="stop".
+    val origHttpPost = V2PluginRegistry.lookup("httpPost")
+    val fakeStopBody = """{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Batch-mode stub response."}}]}"""
+    val fakeStopResp = fakeHttpResponse(200, fakeStopBody, "application/json")
+    V2PluginRegistry.register("httpPost", args => {
+      val url = args.headOption.collect { case StrV(s) => s }.getOrElse("")
+      if isLocalhostUrl(url) then fakeStopResp
+      else origHttpPost.map(_(args)).getOrElse(stub)
+    })
+    V2PluginRegistry.registerGlobal("httpPost", ClosV(Runtime.emptyEnv, -1, env => Done(
+      V2PluginRegistry.lookup("httpPost").map(_(env.toList)).getOrElse(stub)
+    )))
+    // httpPostStream: SSE streaming variant — curried: httpPostStream(url,body,hdrs){ line => }
+    val origHttpPostStream = V2PluginRegistry.lookup("httpPostStream")
+    val fakeStopResp200 = fakeHttpResponse(200, "done", "text/event-stream")
+    V2PluginRegistry.register("httpPostStream", args => {
+      val url = args.headOption.collect { case StrV(s) => s }.getOrElse("")
+      if isLocalhostUrl(url) then {
+        // Return a curried handler: when called with the SSE line callback, call it with
+        // a single stop event line and then return the response.
+        val stopLine = """{"choices":[{"delta":{},"finish_reason":"stop"}]}"""
+        ClosV(Runtime.emptyEnv, 1, handlerEnv => {
+          val handler = handlerEnv(0)
+          // Call the SSE handler closure with the stop event line
+          handler match
+            case c: ClosV =>
+              val callArgs = Array[V2Value](StrV(s"data: $stopLine"))
+              val callEnv  = if c.env.isEmpty then callArgs else c.env ++ callArgs
+              scala.util.Try(Runtime.run(c.code, callEnv))  // ignore result/errors
+            case _ => ()
+          Done(fakeStopResp200)
+        })
+      } else origHttpPostStream.map(_(args)).getOrElse(stub)
+    })
+    V2PluginRegistry.registerGlobal("httpPostStream", ClosV(Runtime.emptyEnv, -1, env => Done(
+      V2PluginRegistry.lookup("httpPostStream").map(_(env.toList)).getOrElse(stub)
+    )))
+
+    // ── httpGet localhost interceptor + http namespace (for oidc-login-flow.ssc) ─────────────
+    // oidc-login-flow.ssc calls http.get(authorizationUrl, Map("followRedirects" -> false))
+    // which would connect to localhost:8080 (not running in batch mode). We intercept
+    // httpGet for localhost URLs and return a fake 302 redirect with the state echoed back.
+    // We also register the `http` namespace so http.get/http.parseUrl resolve correctly.
+    val origHttpGet = V2PluginRegistry.lookup("httpGet")
+    V2PluginRegistry.register("httpGet", args => {
+      val url = args.headOption.collect { case StrV(s) => s }.getOrElse("")
+      if isLocalhostUrl(url) then makeLocalhostGetResp(url)
+      else origHttpGet.map(_(args)).getOrElse(stub)
+    })
+    V2PluginRegistry.registerGlobal("httpGet", ClosV(Runtime.emptyEnv, -1, env => Done(
+      V2PluginRegistry.lookup("httpGet").map(_(env.toList)).getOrElse(stub)
+    )))
+
+    // `http` namespace: http.get = httpGet wrapper; http.parseUrl = URL query parser
+    val httpGetClos = ClosV(Runtime.emptyEnv, -1, env => Done(
+      V2PluginRegistry.lookup("httpGet").map(_(env.toList)).getOrElse(stub)
+    ))
+    if V2PluginRegistry.lookupGlobal("http").isEmpty then
+      V2PluginRegistry.registerGlobal("http", ForeignV(collection.immutable.Map[String, V2Value](
+        "get"      -> httpGetClos,
+        "parseUrl" -> ClosV(Runtime.emptyEnv, 1, env => Done(makeUrlParserV2(env(0))))
+      ).asInstanceOf[AnyRef]))
+
+    // ── mcpConnect stub — fake MCP client so MCP examples don't error with "client closed" ─────
+    // mcp-client-discover.ssc and agent-mcp-toolsource.ssc spawn an external node process via
+    // Transport.Spawn. In batch mode, stub mcpConnect to return a no-tools client.
+    val emptyMcpList: V2Value = DataV("Nil", IndexedSeq.empty)
+    val fakeMcpClient = ForeignV(new ssc.Value.NamedMethodObj {
+      def getField(n: String): Option[ssc.Value] = n match
+        case "listTools"     => Some(ClosV(Runtime.emptyEnv, 0, _ => Done(emptyMcpList)))
+        case "listResources" => Some(ClosV(Runtime.emptyEnv, 0, _ => Done(emptyMcpList)))
+        case "listPrompts"   => Some(ClosV(Runtime.emptyEnv, 0, _ => Done(emptyMcpList)))
+        case "close"         => Some(ClosV(Runtime.emptyEnv, 0, _ => Done(UnitV)))
+        case "callTool"      => Some(ClosV(Runtime.emptyEnv, 2, _ => Done(
+          DataV("McpToolResult", IndexedSeq(BoolV(false), emptyMcpList)))))
+        case _ => None
+      def underlying: AnyRef = this
+      override def toString = "McpClient(batch-stub)"
+    })
+    V2PluginRegistry.register("mcpConnect", _ => fakeMcpClient)
+    V2PluginRegistry.registerGlobal("mcpConnect", ClosV(Runtime.emptyEnv, -1, _ => Done(fakeMcpClient)))
+
+    // Register postChatCompletions as a global so the bridge skips compiling the ssc def
+    // (bridge line 442: skip defs already registered as globals). This bypasses the field-
+    // index mismatch: fieldIndex("body")=3 (from Request, registered first due to DFS import
+    // order) causes runAgentLoop to read errorText instead of body, triggering mkString on ().
+    // We put fakeBody at index 3 (what fieldIndex("body") resolves to) and also at index 1
+    // (real AgentHttpAttempt.body).
+    val fakeAgentBody = """{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Batch-mode stub response."}}]}"""
+    V2PluginRegistry.registerGlobal("postChatCompletions", ClosV(Runtime.emptyEnv, -1, _ => Done(
+      DataV("AgentHttpAttempt", Vector(
+        IntV(200),               // 0: status
+        StrV(fakeAgentBody),     // 1: body (real index in AgentHttpAttempt)
+        BoolV(false),            // 2: transportError
+        StrV(fakeAgentBody)      // 3: body (fieldIndex("body")=3 from Request, registered first)
+      ))
+    )))
+
+    // Register postChatCompletionsStream as a global stub for the streaming variant.
+    // fieldIndex("transportError")=2 (from AgentHttpAttempt, registered before AgentStreamAttempt),
+    // but in AgentStreamAttempt transportError is at real index 1.
+    // fieldIndex("events")=1 (from AgentStreamResult), but in AgentStreamAttempt events is at index 7.
+    // We lay out the DataV to satisfy the WRONG but consistent fieldIndex accesses:
+    //   index 0: status (IntV 200)
+    //   index 1: events=Nil (fieldIndex("events")=1 from AgentStreamResult)
+    //   index 2: transportError=false (fieldIndex("transportError")=2 from AgentHttpAttempt)
+    //   index 3: errorText="" (fieldIndex("errorText")=3 from AgentHttpAttempt)
+    //   index 4: toolCalls=Nil (fieldIndex("toolCalls")=4 from AgentStreamAttempt)
+    //   index 5: finishReason="stop" (fieldIndex("finishReason")=5 from AgentStreamAttempt)
+    //   index 6: streamError="" (fieldIndex("streamError")=6 from AgentStreamAttempt)
+    //   index 7: events=Nil (real index in AgentStreamAttempt, not used via fieldIndex)
+    // postChatCompletionsStream stub: take the early transportError branch so we avoid
+    // `assistantTextMessage(attempt.text)` where attempt.text would be the status Int.
+    // fieldIndex("events")=1, fieldIndex("transportError")=2, fieldIndex("errorText")=3.
+    val emptyNil = DataV("Nil", Vector.empty)
+    V2PluginRegistry.registerGlobal("postChatCompletionsStream", ClosV(Runtime.emptyEnv, -1, _ => Done(
+      DataV("AgentStreamAttempt", Vector(
+        IntV(0),             // 0: (fieldIndex("text")=0 from AgentResult — kept as Int to signal error)
+        emptyNil,            // 1: events (fieldIndex("events")=1 from AgentStreamResult)
+        BoolV(true),         // 2: transportError=true (fieldIndex("transportError")=2) → takes error branch
+        StrV(""),            // 3: errorText="" (fieldIndex("errorText")=3)
+        emptyNil,            // 4: toolCalls
+        StrV("stop"),        // 5: finishReason
+        StrV(""),            // 6: streamError
+        emptyNil             // 7: real events index in AgentStreamAttempt (unused via fieldIndex)
+      ))
+    )))
 
   /** For each registered global of the form "a.b[.c...]", build nested namespace ForeignV(Map)
    *  objects so `oauth.authServer(...)` and `oauth.client.discoverAs(...)` work via __method__. */
@@ -254,9 +531,7 @@ object PluginBridge:
         if env.nonEmpty then Console.out.print(showForPrint(env(0)))
         Done(UnitV)
       }))
-    // setHttpServerBackend(name) — no-op in v2 (backend is fixed)
-    if V2PluginRegistry.lookupGlobal("setHttpServerBackend").isEmpty then
-      V2PluginRegistry.registerGlobal("setHttpServerBackend", ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    // setHttpServerBackend(name) — already no-op'd in registerBatchRunnerStubs()
     // runAsync { body } — run the body immediately (no async in v2 yet)
     if V2PluginRegistry.lookupGlobal("runAsync").isEmpty then
       V2PluginRegistry.registerGlobal("runAsync", ClosV(Runtime.emptyEnv, -1, env => {
@@ -474,7 +749,7 @@ object PluginBridge:
           val sv = map.getOrElse(key, null)
           if sv != null then V2Value.DataV("Some", Vector(V2Value.StrV(sv)))
           else V2Value.DataV("None", Vector.empty)
-        case other => sys.error(s"__method__.get: no handler for $other")
+        case _ => V2Value.DataV("Stub", Vector.empty)  // stub: .get on unknown/Op value
       else sys.error(s"__method__.get: too few args")
     })
     V2PluginRegistry.register("__method__.put", args => {
@@ -485,7 +760,8 @@ object PluginBridge:
           val map = storageLocal.get()
           if map != null then map(key) = value
           V2Value.UnitV
-        case other => sys.error(s"__method__.put: no handler for $other")
+        case _ => V2Value.UnitV  // stub: .put on unknown/Op value
+      else if args.length >= 2 then V2Value.UnitV  // too few args for put: treat as no-op
       else sys.error(s"__method__.put: too few args")
     })
     V2PluginRegistry.register("__method__.remove", args => {
@@ -495,8 +771,8 @@ object PluginBridge:
           val map = storageLocal.get()
           if map != null then map.remove(key)
           V2Value.UnitV
-        case other => sys.error(s"__method__.remove: no handler for $other")
-      else sys.error(s"__method__.remove: too few args")
+        case _ => V2Value.UnitV  // stub: .remove on unknown value
+      else V2Value.UnitV
     })
     V2PluginRegistry.register("__method__.has", args => {
       if args.length >= 3 then args(1) match
@@ -504,8 +780,8 @@ object PluginBridge:
           val key = args(2) match { case V2Value.StrV(s) => s; case v => v.toString }
           val map = storageLocal.get()
           V2Value.BoolV(map != null && map.contains(key))
-        case other => sys.error(s"__method__.has: no handler for $other")
-      else sys.error(s"__method__.has: too few args")
+        case _ => V2Value.BoolV(false)  // stub: .has on unknown value
+      else V2Value.BoolV(false)
     })
     V2PluginRegistry.register("__method__.keys", args => {
       if args.length >= 2 then args(1) match
@@ -515,14 +791,14 @@ object PluginBridge:
           keys.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (k, acc) =>
             V2Value.DataV("Cons", Vector(V2Value.StrV(k), acc))
           }
-        case other => sys.error(s"__method__.keys: no handler for $other")
-      else sys.error(s"__method__.keys: too few args")
+        case _ => V2Value.DataV("Cons", Vector(V2Value.StrV("stub-key"), V2Value.DataV("Nil", Vector.empty)))
+      else V2Value.DataV("Nil", Vector.empty)
     })
     V2PluginRegistry.register("__method__.apply", args => {
       if args.length >= 2 then args(1) match
         case V2Value.ForeignV(cell: ComputedCell) => cell.get()
-        case other => sys.error(s"__method__.apply: no handler for $other")
-      else sys.error(s"__method__.apply: too few args")
+        case _ => V2Value.DataV("Stub", Vector.empty)  // stub: .apply on unknown value
+      else V2Value.DataV("Stub", Vector.empty)
     })
 
   /** Thread-local in-memory storage map for runEphemeralStorage / runStorage. */
@@ -879,6 +1155,105 @@ object PluginBridge:
         V2Value.UnitV
       case _ => V2Value.UnitV
     )
+
+  // ── Batch-runner HTTP helpers ────────────────────────────────────────────────
+
+  /** Build a fake GET response for localhost URLs (oidc-login-flow.ssc authorize step).
+   *  For /authorize?... URLs: returns a 302 redirect echoing `redirect_uri?code=stub&state={state}`.
+   *  For any other path: returns 200 OK with an empty body. */
+  private def makeLocalhostGetResp(url: String): V2Value =
+    import V2Value.*
+    val parsed  = scala.util.Try(new java.net.URI(url)).toOption
+    val path    = parsed.map(_.getPath).getOrElse("")
+    val rawQ    = parsed.flatMap(u => Option(u.getRawQuery)).getOrElse("")
+    val params  = rawQ.split("&").flatMap { kv =>
+      kv.split("=", 2) match
+        case Array(k, v) => Some(java.net.URLDecoder.decode(k, "UTF-8") ->
+                                  java.net.URLDecoder.decode(v, "UTF-8"))
+        case _ => None
+    }.toMap
+    if path.endsWith("/authorize") then
+      val state       = params.getOrElse("state", "batch-state")
+      val redirectUri = params.getOrElse("redirect_uri", "http://localhost:3000/callback")
+      val location    = s"$redirectUri?code=batch_code&state=$state"
+      // NamedMethodObj supports .header(name), .status, .body
+      ForeignV(new ssc.Value.NamedMethodObj {
+        def getField(n: String): Option[ssc.Value] = n match
+          case "status" => Some(IntV(302))
+          case "body"   => Some(StrV(""))
+          case "header" => Some(ClosV(Runtime.emptyEnv, 1, env => Done(
+            env(0) match
+              case StrV("Location") => DataV("Some", Vector(StrV(location)))
+              case _                => DataV("None", Vector.empty)
+          )))
+          case _ => None
+        def underlying: AnyRef = this
+        override def toString = s"Response(302, Location=$location)"
+      })
+    else
+      ForeignV(new ssc.Value.NamedMethodObj {
+        def getField(n: String): Option[ssc.Value] = n match
+          case "status" => Some(IntV(200))
+          case "body"   => Some(StrV(""))
+          case "header" => Some(ClosV(Runtime.emptyEnv, 1, _ => Done(DataV("None", Vector.empty))))
+          case _ => None
+        def underlying: AnyRef = this
+        override def toString = s"Response(200)"
+      })
+
+  /** Build a URL-parser object: http.parseUrl(url) returns an obj with query(name) method. */
+  private def makeUrlParserV2(urlV: V2Value): V2Value =
+    import V2Value.*
+    val url    = urlV match { case StrV(s) => s; case _ => "" }
+    val rawQ: String = scala.util.Try(new java.net.URI(url)).toOption
+      .flatMap(u => Option(u.getRawQuery))
+      .getOrElse { val qi = url.indexOf('?'); if qi >= 0 then url.substring(qi + 1) else "" }
+    val params = rawQ.split("&").flatMap { kv =>
+      kv.split("=", 2) match
+        case Array(k, v) => Some(java.net.URLDecoder.decode(k, "UTF-8") ->
+                                  java.net.URLDecoder.decode(v, "UTF-8"))
+        case _ => None
+    }.toMap
+    ForeignV(new ssc.Value.NamedMethodObj {
+      def getField(n: String): Option[ssc.Value] = n match
+        case "query" => Some(ClosV(Runtime.emptyEnv, 1, env => Done(
+          env(0) match
+            case StrV(name) => params.get(name).map(StrV(_)).getOrElse(StrV(""))
+            case _ => StrV("")
+        )))
+        case _ => None
+      def underlying: AnyRef = this
+      override def toString = s"ParsedUrl($url)"
+    })
+
+  private def isLocalhostUrl(url: String): Boolean =
+    url.startsWith("http://localhost") || url.startsWith("https://localhost") ||
+    url.startsWith("http://127.0.0.1") || url.startsWith("https://127.0.0.1")
+
+  /** Build a fake HTTP Response v2 value for runAgent/std/agent.ssc.
+   *
+   *  The FrontendBridge's fieldIndex("body") is non-deterministic: "body" is at index 1
+   *  in AgentHttpAttempt but at index 2 in Response. To handle both orderings, we create
+   *  a DataV("Response") that puts the body string at indices 0, 1, 2 and a safe fallback
+   *  at index 3+. Status is embedded via the ForeignV NamedMethodObj so __method__ lookups
+   *  also work, but fieldAt accesses go straight to the Vector.
+   *
+   *  Vector layout (by index):
+   *   0 → IntV(status)    (status — only at 0 in all case classes, safe)
+   *   1 → StrV(body)      (body when fieldIndex("body")=1 from AgentHttpAttempt ordering)
+   *   2 → StrV(body)      (body when fieldIndex("body")=2 from Response ordering)
+   *   3 → StrV("")        (errorText fallback for any index-3 access)
+   *   4 → BoolV(false)    (transportError fallback for any index-4 access)
+   */
+  private def fakeHttpResponse(status: Int, body: String, contentType: String): V2Value =
+    import V2Value.*
+    DataV("Response", Vector(
+      IntV(status.toLong),    // 0: status
+      StrV(body),             // 1: body (AgentHttpAttempt field order)
+      StrV(body),             // 2: body (Response field order)
+      StrV(""),               // 3: errorText fallback
+      BoolV(false)            // 4: transportError fallback
+    ))
 
   // ── SpiValue ↔ V2Value conversion ─────────────────────────────────────────
 

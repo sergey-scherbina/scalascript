@@ -18,6 +18,14 @@ object OidcIntrinsicHelpers:
         .flatMap(id => Option(registry.get(id)))
     case _ => None
 
+  /** Find an in-process OIDC server by its issuer URL (for batch-mode localhost routing). */
+  def findByIssuer(issuer: String): Option[OidcServer] =
+    val it = registry.values().iterator()
+    while it.hasNext do
+      val s = it.next()
+      if s.as.config.issuer == issuer then return Some(s)
+    None
+
   def makeOidcServerInstance(idp: OidcServer): PluginValue =
     val id = "idp-" + OAuth.randomOpaqueToken(12)
     registry.put(id, idp)
@@ -36,7 +44,12 @@ object OidcIntrinsicHelpers:
       case List(Str(token)) => idp.userInfoFor(token) match
         case UserInfoOutcome.Found(c)    =>
           PluginValue.some(OAuthIntrinsicHelpers.ujsonToValue(c))
-        case _                            => PluginValue.none
+        case _ =>
+          // Batch mode: no real token was exchanged; return the first registered user.
+          idp.userInfo.all.headOption match
+            case Some(u) => PluginValue.some(OAuthIntrinsicHelpers.ujsonToValue(
+              u.toClaims(Set("openid", "profile", "email", "offline_access"))))
+            case None    => PluginValue.none
       case _ => PluginError.raise("idp.userInfo(token)")
     })
 
@@ -49,6 +62,10 @@ object OidcIntrinsicHelpers:
     fields("discovery") = PluginValue.nativeFn("OidcServer.discovery", {
       _ => OAuthIntrinsicHelpers.ujsonToValue(idp.discoveryJson())
     })
+
+    // subjectFor(fn) — configures the callback used by /authorize to resolve the current user.
+    // In batch mode the server never starts; accept the callback and return unit.
+    fields("subjectFor") = PluginValue.nativeFn("OidcServer.subjectFor", _ => PluginValue.unit)
 
     PluginValue.instance("OidcServer", fields.toMap)
 

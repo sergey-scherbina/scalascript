@@ -26,6 +26,7 @@ import ssc.*
     .sortBy(_.getName)
   var pass = 0; var fail = 0
   for f <- files do
+    FrontendBridge.resetState()  // clear per-compilation state so examples don't cross-pollinate
     val result = scala.util.Try {
       val src  = scala.io.Source.fromFile(f).mkString
       val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
