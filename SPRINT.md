@@ -249,8 +249,10 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       objects (NamedMethodObj: json wrapJson etc.) are applicable via their `apply`
       field at all 7 App sites; json-value: crash → near-identical output (remaining:
       rendering a facade's INNER value as `Map(k -> v)` inside containers — add a
-      `raw`-field-aware branch to v1Show). Next clusters: optics/parsing/sql/effects +
-      default-params (unbound default exprs).
+      `raw`-field-aware branch to v1Show). WAVE 3 (2026-07-05): **default-params SHIPPED**
+      (raw-term registry + call-site wrapper Lam/Let so defaults see earlier params;
+      suite 33/58). Next clusters: optics/parsing/sql/effects; v1Show facade-INNER
+      rendering (json-value's last line).
 - [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
       SHIPPED** (full Erlang supervision surface on the VirtualThread mailbox model:
       bidirectional links kill-or-message, monitors get Down(reason); death fires on
