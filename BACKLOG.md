@@ -28,14 +28,10 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       VM outlier) skip FloatV boxing + generic-cell traffic. Cross-cutting: kernel
       Value/prims + ssc1c lowering (`@@@x`?) + JVM/JS/Rust backend generators.
       Alternative that subsumes it: the v2 JIT backend (T3.2b's conclusion).
-- [~] **v2-rust-backend-tco** — IN PROGRESS 2026-07-05 (`feature/v2-rust-backend-tco`).
-      PLAN (Step-trampoline port from `lib/backend-rust.ssc0`): `enum Step { Val(V),
-      Bounce(Rc<FnT>, Vec<V>) }`; `V::Fn` payload becomes `Rc<dyn Fn(Vec<V>) -> Step>`;
-      `call_fn` drives the loop; new `genTail` emitter for tail positions (App→Bounce,
-      If/Let/LetRec/Match/Seq recurse, else Step::Val(genExpr)); genLam/genLetRec close
-      over Step-returning bodies. call_fn is the ONLY closure call site (verified).
-      Stack back to 256MB. Gate: tco.coreir 1M tail calls on default reservation;
-      parity harness 8×3 green.
+- [x] **v2-rust-backend-tco** — ✓ Landed (2026-07-05). Step-trampoline port from the
+      ssc0-level backend: `Step::Val|Bounce`, `call_fn` loop, `genTail` emitter for tail
+      positions. Stack back to 256MB; tco.coreir (1M tail calls) PROVEN at a 1MB stack.
+      Parity 8×3 GREEN; 4 corpus programs byte-match the VM.
 - [ ] **v2-js-backend-smallint-fastmode** — after the 2026-07-05 BigInt correctness fix
       (SPRINT T5.2), all v2 JS-backend ints are BigInt → JS bench regresses vs plain
       doubles. Future perf item: hybrid representation (numbers while provably in ±2^53,

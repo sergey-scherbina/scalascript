@@ -44,6 +44,14 @@ there). Verified bit-for-bit against BouncyCastle across rate-boundary (135/136/
 inputs, plus canonical vectors (empty / abc / hello); byte-identical on JVM and Scala.js. Closes the
 "references exist" half of BACKLOG `crypto-spi-pure-references` (the register-as-SPI-fallback backend remains).
 
+## 2026-07-05 — v2-rust-backend-tco: real trampoline TCO in the Rust generator
+
+`v2/backend/rust/RustBackend.scala` closures now return `Step::Val | Step::Bounce`;
+`call_fn` drives bounces in a loop, so tail calls run in constant stack (proven:
+tco.coreir's 1M tail calls pass with a 1MB thread stack; the 2GB-reservation stopgap
+is gone, back to 256MB non-tail headroom). New `genTail` emitter mirrors the
+ssc0-level backend's genV/genT split. Parity 8×3 ALL GREEN.
+
 ## 2026-07-05 — T5.6+T5.7: numeric-poly prims everywhere + ssc1 top-level statements
 
 - **T5.6**: `i.add/sub/mul/div/mod` + `i.eq/lt/le/gt/ge` are now numeric-POLYMORPHIC
