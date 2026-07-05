@@ -762,17 +762,18 @@ object FastCode:
               UnitV
           }
       }
-    // __method__ with literal method name — try FLC for Int conversions, else general dispatch
+    // __method__ with literal method name — dispatch via methodOp (correct for all types).
+    // NOT using tryFLC here: tryFLC is OPTIMISTIC (coerces Float/String→0L) which gives wrong
+    // results for length/size on lists (returns cons-cell field count 2, not list length) and
+    // for _N accessors on non-Int tuple fields.
     case Prim("__method__", Lit(Const.CStr(m)) :: recv :: args) =>
-      val flcOpt: Option[FC] = tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
-      flcOpt orElse
-        tryFC(recv, globals).flatMap { fcr =>
-          val argOpts = args.map(tryFC(_, globals))
-          if argOpts.forall(_.isDefined) then
-            val fca = argOpts.map(_.get)
-            Some((env: Env) => Prims.methodOp(m, fcr(env), fca.map(f => f(env))): Value)
-          else None
-        }
+      tryFC(recv, globals).flatMap { fcr =>
+        val argOpts = args.map(tryFC(_, globals))
+        if argOpts.forall(_.isDefined) then
+          val fca = argOpts.map(_.get)
+          Some((env: Env) => Prims.methodOp(m, fcr(env), fca.map(f => f(env))): Value)
+        else None
+      }
     case Prim(op, List(a0)) =>
       Prims.resolve1(op).flatMap { fn1 =>
         tryFC(a0, globals).map { fc0 => env => fn1(fc0(env)) }
@@ -1600,6 +1601,13 @@ object Prims:
           unlist(ls).maxBy(x => callClos(fn, Array(x)))(valueOrdering)
         case (ls, "minBy", List(fn: Value.ClosV)) if isList(ls) =>
           unlist(ls).minBy(x => callClos(fn, Array(x)))(valueOrdering)
+        case (ls, "sorted", Nil) if isList(ls) => listOf(unlist(ls).sorted(valueOrdering))
+        case (ls, "sortWith", List(fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).sortWith((a, b) => callClos(fn, Array(a, b)) == BoolV(true)))
+        case (ls, "distinct", Nil) if isList(ls) => listOf(unlist(ls).distinct)
+        case (ls, "flatten", Nil) if isList(ls) => listOf(unlist(ls).flatMap(x => unlist(x)))
+        case (ls, "zip", List(rs)) if isList(ls) =>
+          listOf(unlist(ls).zip(unlist(rs)).map { case (a, b) => DataV("Tuple2", collection.immutable.ArraySeq(a, b)) })
         case (ls, "mkString", Nil) if isList(ls) =>
           StrV(unlist(ls).map(anyStr).mkString)
         case (ls, "mkString", List(StrV(sep))) if isList(ls) =>
@@ -1661,13 +1669,15 @@ object Prims:
         // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
         case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
         case (DataV("Map", _), "empty", Nil) => ForeignV(collection.mutable.HashMap[Value, Value]())
-        case (DataV("List", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
           listOf((0 until n.toInt).map(i => callClos(fn, Array(IntV(i.toLong)))))
-        case (DataV("List", _), "fill", List(IntV(n), elem)) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "fill", List(IntV(n), elem)) =>
           listOf(Seq.fill(n.toInt)(elem))
-        case (DataV("List", _), "range", List(IntV(from), IntV(to))) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "empty", Nil) =>
+          listOf(Seq.empty)
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "range", List(IntV(from), IntV(to))) =>
           listOf((from until to).map(i => IntV(i): Value))
-        case (DataV("List", _), "range", List(IntV(from), IntV(to), IntV(step))) =>
+        case (DataV("List" | "Array" | "Seq" | "Vector", _), "range", List(IntV(from), IntV(to), IntV(step))) =>
           listOf((from until to by step).map(i => IntV(i): Value))
         // LazyList
         case (DataV("LazyList", _), "from", List(IntV(n))) =>
@@ -1793,11 +1803,22 @@ object Prims:
                   // A method ON a stub stays that stub — keep the ORIGINAL missed-method
                   // breadcrumb instead of burying it under Stub.<name> chains.
                   DataV("Stub", fs)
-                case DataV(dtag, _) =>
-                  // Non-effect DataV (Op, or unknown type): return a stub in batch
-                  // mode — carrying WHICH method missed, so downstream errors say
-                  // Stub(Tag.method) instead of a bare Stub (debugging breadcrumb).
-                  DataV("Stub", Vector(StrV(s"$dtag.$name")))
+                case DataV(tag, fields) =>
+                  // Registered FIELD access first (e.g. a function-typed field of a
+                  // case class): return the field, or call it when args are given.
+                  // Only then fall back to the batch Stub — carrying WHICH method
+                  // missed (Stub(Tag.method)) so downstream errors self-describe.
+                  V2PluginRegistry.lookupFieldNames(tag) match
+                    case Some(fnames) =>
+                      val i = fnames.indexOf(name)
+                      if i >= 0 && i < fields.length then
+                        val fv = fields(i)
+                        if margs.isEmpty then fv  // bare field access
+                        else fv match
+                          case fn: ClosV => callClos(fn, margs.toArray)
+                          case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
+                      else DataV("Stub", Vector(StrV(s"$tag.$name")))
+                    case None => DataV("Stub", Vector(StrV(s"$tag.$name")))
                 case _ =>
                   sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
@@ -1997,7 +2018,7 @@ object Prims:
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
-  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => d.toString; case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString; case _ => Show.show(v) }
+  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => Writer.floatStr(d); case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString; case _ => Show.show(v) }
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
@@ -2102,7 +2123,7 @@ object Show:
     case BoolV(x)     => x.toString
     case IntV(n)      => n.toString
     case BigV(n)      => n.toString
-    case FloatV(d)    => d.toString
+    case FloatV(d)    => Writer.floatStr(d)
     case StrV(s)      => "\"" + s + "\""
     case BytesV(bs)   => bs.map(x => f"${x & 0xff}%02x").mkString("#", "", "")
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"

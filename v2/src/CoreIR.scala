@@ -200,7 +200,9 @@ object Writer:
 
   def floatStr(d: Double): String =
     if d.isNaN then "nan" else if d == Double.PositiveInfinity then "inf"
-    else if d == Double.NegativeInfinity then "-inf" else d.toString
+    else if d == Double.NegativeInfinity then "-inf"
+    else if d == d.toLong.toDouble && !d.isInfinite then d.toLong.toString
+    else d.toString
   def strLit(s: String): String =
     val sb = new StringBuilder("\"")
     s.foreach {

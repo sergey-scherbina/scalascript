@@ -315,7 +315,7 @@ object FrontendBridge:
   private def resolveImportsCode(src: String, fileDir: Option[java.io.File]): String =
     val seen    = collection.mutable.HashSet[String]()
     val ordered = collection.mutable.ListBuffer.empty[(String, String)] // (canonical, code)
-    val importPat = """\[([^\]]+)\]\(([^)]+\.ssc\d*)\)""".r
+    val importPat = """\[([^\]]+)\]\(([^)]+)\)""".r
     // fenceOnly=true: only scan outside fences (top-level user files, where imports are prose).
     // fenceOnly=false: scan ALL lines (stdlib files where imports live inside code fences).
     def collectImports(source: String, dir: Option[java.io.File], fenceOnly: Boolean): Unit =
@@ -361,7 +361,9 @@ object FrontendBridge:
    *  Search order: relative to fileDir → ImportResolver.stdPath → cwd-based dev-tree walk. */
   private def resolveStdPathWithFile(rel: String, fileDir: Option[java.io.File]): Option[(String, java.io.File)] =
     def tryFile(f: java.io.File): Option[(String, java.io.File)] =
-      if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption.map(_ -> f) else None
+      if f.isDirectory then tryFile(new java.io.File(f, "index.ssc"))
+      else if f.exists() then scala.util.Try(scala.io.Source.fromFile(f).mkString).toOption.map(_ -> f)
+      else None
     def tryOsPath(p: os.Path): Option[(String, java.io.File)] = tryFile(p.toIO)
     fileDir.flatMap(d => tryFile(new java.io.File(d, rel)))
       .orElse(scalascript.imports.ImportResolver.stdPath.flatMap { root =>
@@ -762,8 +764,8 @@ object FrontendBridge:
             // AnonymousFunction(Placeholder) → creating nested identity lambdas instead of locals.
             val rawArgs = ac.values.toList.map(go)
             fn match
-              case Term.Select(recv, Term.Name(mname)) if !hasPH(recv) =>
-                // recv.mname(args...) where recv has no placeholders
+              case Term.Select(recv, Term.Name(mname)) =>
+                // recv.mname(args...) — go(recv) correctly handles placeholders as CT.Local
                 val recvCT = go(recv)
                 if extensionMethods.contains(mname) then CT.App(CT.Global(mname), recvCT :: rawArgs)
                 else CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: recvCT :: rawArgs)
@@ -839,8 +841,13 @@ object FrontendBridge:
     case Term.Select(qual, Term.Name(name)) =>
       // Namespace.CtorName → CT.Ctor (e.g. Transport.Stdio, Either.Left, Option.None)
       // Also handles zero-arg enum cases (fieldRegistry has empty vector for them).
+      // Guard: only treat as Ctor when the qualifier is itself a type name (uppercase-first),
+      // e.g. Option.None, Either.Left — NOT when qualifier is a value (math.Pi, list.Head).
       val isZeroArgEnumCase = fieldRegistry.get(name).exists(_.isEmpty)
-      if isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
+      val qualIsTypeName = qual match
+        case Term.Name(qn) => isCtorName(qn)
+        case _             => false
+      if qualIsTypeName && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
         if extensionMethods.contains(name) then
