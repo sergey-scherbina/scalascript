@@ -47,9 +47,22 @@ object RustBackend:
     for d <- p.defs do
       val name = rustDefName(d.name)
       d.body match
-        case Lam(_, _) =>
+        case Lam(ar, lamBody) =>
           val expr = genExpr(d.body, Nil, 0)
-          sb ++= s"    let $name: V = $expr;\n"
+          SelfRecNative.compile(lamBody, d.name, ar) match
+            case Some(nativeFn) =>
+              // fib-shaped def: Int args run on the native i64 function
+              // (zero allocation per recursive call); other args fall back to
+              // the generally-compiled closure.
+              sb ++= s"    $nativeFn\n"
+              sb ++= s"    let ${name}_gen: V = $expr;\n"
+              sb ++= s"    let ${name}_gen2 = ${name}_gen.clone();\n"
+              sb ++= s"    let $name: V = V::Fn(Rc::new(move |_args: Vec<V>| {\n"
+              sb ++= s"        if let V::Int(x) = &_args[0] { return Step::Val(V::Int(${name}_ll(*x))); }\n"
+              sb ++= s"        as_fn(${name}_gen2.clone())(_args)\n"
+              sb ++= s"    }));\n"
+            case None =>
+              sb ++= s"    let $name: V = $expr;\n"
           sb ++= s"    *${name}__fwd.borrow_mut() = Some($name.clone());\n"
         case _ =>
           val expr = genExpr(d.body, Nil, 0)
@@ -111,6 +124,43 @@ object RustBackend:
 
   // ── expression generation ─────────────────────────────────────────────────
   // indent: number of 4-space levels for block content
+
+  // ── SelfRecNative: arity-1 self-recursive Int defs → native fn(i64)->i64 ────
+  // Mirrors the VM's SelfRecLL (Runtime.scala): body must be pure Int arithmetic
+  // over Local(0), Int literals, and DIRECT self-calls in NON-TAIL (operand)
+  // position; a bare tail-position self-call bails (the Step trampoline keeps
+  // constant stack for tail recursion — native recursion here would not).
+  object SelfRecNative:
+    def compile(body: Term, selfName: String, arity: Int): Option[String] =
+      if arity != 1 then None
+      else
+        val fnName = s"${rustDefName(selfName)}_ll"
+        def goB(t: Term): Option[String] = t match
+          case Lit(CBool(b)) => Some(b.toString)
+          case If(c, th, el) => for fc <- goB(c); ft <- goB(th); fe <- goB(el) yield s"(if $fc { $ft } else { $fe })"
+          case Prim("not", List(a)) => goB(a).map(x => s"(!$x)")
+          case Prim("i.le", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa <= $fb)"
+          case Prim("i.lt", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa < $fb)"
+          case Prim("i.ge", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa >= $fb)"
+          case Prim("i.gt", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa > $fb)"
+          case Prim("i.eq", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa == $fb)"
+          case _ => None
+        def go(t: Term): Option[String] = t match
+          case Lit(CInt(k)) => Some(s"${k}i64")
+          case Local(0)     => Some("n")
+          case Prim("i.add", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"$fa.wrapping_add($fb)"
+          case Prim("i.sub", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"$fa.wrapping_sub($fb)"
+          case Prim("i.mul", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"$fa.wrapping_mul($fb)"
+          case Prim("i.div", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa / $fb)"
+          case Prim("i.mod", List(a, b)) => for fa <- go(a); fb <- go(b) yield s"($fa % $fb)"
+          case If(c, th, el) => for fc <- goB(c); ft <- go(th); fe <- go(el) yield s"(if $fc { $ft } else { $fe })"
+          case App(Global(g), List(arg)) if g == selfName => go(arg).map(a => s"$fnName($a)")
+          case _ => None
+        def goTail(t: Term): Option[String] = t match
+          case If(c, th, el) => for fc <- goB(c); ft <- goTail(th); fe <- goTail(el) yield s"(if $fc { $ft } else { $fe })"
+          case App(Global(g), _) if g == selfName => None  // tail self-call: keep the trampoline
+          case other => go(other)
+        goTail(body).map { expr => s"fn $fnName(n: i64) -> i64 { $expr }" }
 
   def genExpr(t: Term, ctx: List[String], indent: Int): String =
     val pad = "    " * indent
@@ -182,10 +232,10 @@ object RustBackend:
       case Ctor(tag, fields) =>
         val tagStr = rustStrLit(tag)
         if fields.isEmpty then
-          s"V::Data($tagStr.to_string(), vec![])"
+          s"data($tagStr, vec![])"
         else
           val fieldExprs = fields.map(f => genExpr(f, ctx, indent)).mkString(", ")
-          s"V::Data($tagStr.to_string(), vec![$fieldExprs])"
+          s"data($tagStr, vec![$fieldExprs])"
 
       // ── Match ─────────────────────────────────────────────────────────────
       case Match(scrut, arms, default) =>
@@ -468,7 +518,7 @@ ${pad}    }));\n"""
       val tagStr = rustStrLit(arm.tag)
       if arm.arity == 0 then
         val bodyExpr = emitBody(arm.body, ctx, indent + 2)
-        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == 0 => {\n"""
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag.as_ref() == $tagStr && _fields.len() == 0 => {\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
       else
@@ -476,7 +526,7 @@ ${pad}    }));\n"""
           s"let $n = _fields[$i].clone();"
         }.mkString(s"\n${pad}            ")
         val bodyExpr = emitBody(arm.body, armCtx, indent + 2)
-        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == ${arm.arity} => {\n"""
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag.as_ref() == $tagStr && _fields.len() == ${arm.arity} => {\n"""
         sb ++= s"""${pad}            $fieldPatterns\n"""
         sb ++= s"""${pad}            $bodyExpr\n"""
         sb ++= s"""${pad}        }\n"""
@@ -657,7 +707,7 @@ enum V {
     Float(f64),
     Str(String),
     Bytes(Vec<u8>),
-    Data(String, Vec<V>),
+    Data(Rc<str>, Rc<Vec<V>>),
     Fn(Rc<dyn Fn(Vec<V>) -> Step>),
     Cell(Rc<RefCell<V>>),
     LCell(Rc<RefCell<i64>>),
@@ -671,6 +721,13 @@ enum V {
 enum Step {
     Val(V),
     Bounce(Rc<dyn Fn(Vec<V>) -> Step>, Vec<V>),
+}
+
+// Cheap-clone ADT constructor: tag and fields are Rc-shared, so cloning a V::Data
+// is two refcount bumps instead of a DEEP copy (a 10k-element list clone per
+// Local reference made list programs quadratic — the T3.4 lever).
+fn data(tag: &str, fields: Vec<V>) -> V {
+    V::Data(Rc::from(tag), Rc::new(fields))
 }
 
 fn as_fn(v: V) -> Rc<dyn Fn(Vec<V>) -> Step> {
@@ -708,7 +765,7 @@ fn show(v: &V) -> String {
         V::Float(d)    => float_to_str(*d),
         V::Str(s)      => s.clone(),
         V::Bytes(b)    => format!("Bytes({})", b.iter().map(|x| format!("{:02x}", x)).collect::<String>()),
-        V::Data(tag, fields) if fields.is_empty() => tag.clone(),
+        V::Data(tag, fields) if fields.is_empty() => tag.to_string(),
         V::Data(tag, fields) => {
             let fs: Vec<String> = fields.iter().map(show).collect();
             format!("{}({})", tag, fs.join(", "))
@@ -804,12 +861,12 @@ fn as_arr(v: V) -> Rc<RefCell<Vec<V>>> {
 
 fn as_data_tag(v: V) -> String {
     match v {
-        V::Data(tag, _) => tag,
+        V::Data(tag, _) => tag.to_string(),
         other => panic!("expected Data, got {:?}", other),
     }
 }
 
-fn as_data_fields(v: V) -> Vec<V> {
+fn as_data_fields(v: V) -> Rc<Vec<V>> {
     match v {
         V::Data(_, fields) => fields,
         other => panic!("expected Data, got {:?}", other),
@@ -883,8 +940,8 @@ fn v_method(name: V, recv: V) -> V {
         "toString" => V::Str(show(&recv)),
         "length"   => V::Int(match &recv { V::Str(s) => s.len() as i64, _ => 0 }),
         "size"     => V::Int(match &recv { V::Str(s) => s.len() as i64, V::Data(_, fs) => fs.len() as i64, _ => 0 }),
-        "isEmpty"  => V::Bool(match &recv { V::Str(s) => s.is_empty(), V::Data(t, _) => t == "Nil", _ => false }),
-        "nonEmpty" => V::Bool(match &recv { V::Str(s) => !s.is_empty(), V::Data(t, _) => t != "Nil", _ => true }),
+        "isEmpty"  => V::Bool(match &recv { V::Str(s) => s.is_empty(), V::Data(t, _) => t.as_ref() == "Nil", _ => false }),
+        "nonEmpty" => V::Bool(match &recv { V::Str(s) => !s.is_empty(), V::Data(t, _) => t.as_ref() != "Nil", _ => true }),
         "abs"      => match recv { V::Int(n) => V::Int(n.abs()), V::Float(f) => V::Float(f.abs()), v => v },
         "negate"   => match recv { V::Int(n) => V::Int(-n), V::Float(f) => V::Float(-f), v => v },
         "not"      => V::Bool(!as_bool(recv)),
@@ -1011,10 +1068,10 @@ fn v_sconcat(a: V, b: V) -> V {
         (V::Str(x), V::Str(y)) => V::Str(x + &y),
         // tuple/ADT concat: any two Data values concatenate their fields
         (V::Data(_t1, f1), V::Data(_t2, f2)) => {
-            let mut fields = f1;
-            fields.extend(f2);
+            let mut fields: Vec<V> = (*f1).clone();
+            fields.extend(f2.iter().cloned());
             let n = fields.len();
-            V::Data(format!("Tuple{}", n), fields)
+            V::Data(Rc::from(format!("Tuple{}", n).as_str()), Rc::new(fields))
         }
         (a, b) => V::Str(show(&a) + &show(&b)),
     }
@@ -1023,16 +1080,16 @@ fn v_sconcat(a: V, b: V) -> V {
 fn v_str_to_i(v: V) -> V {
     let s = as_str(v);
     match s.parse::<i64>() {
-        Ok(n) => V::Data("Some".to_string(), vec![V::Int(n)]),
-        Err(_) => V::Data("None".to_string(), vec![]),
+        Ok(n) => data("Some", vec![V::Int(n)]),
+        Err(_) => data("None", vec![]),
     }
 }
 
 fn v_str_to_f(v: V) -> V {
     let s = as_str(v);
     match s.parse::<f64>() {
-        Ok(d) => V::Data("Some".to_string(), vec![V::Float(d)]),
-        Err(_) => V::Data("None".to_string(), vec![]),
+        Ok(d) => data("Some", vec![V::Float(d)]),
+        Err(_) => data("None", vec![]),
     }
 }
 
@@ -1041,7 +1098,7 @@ fn v_from_codes(v: V) -> V {
     let mut cur = v;
     loop {
         match cur {
-            V::Data(ref tag, ref fields) if tag == "Cons" => {
+            V::Data(ref tag, ref fields) if tag.as_ref() == "Cons" => {
                 let code = as_int(fields[0].clone()) as u32;
                 s.push(char::from_u32(code).unwrap_or('?'));
                 cur = fields[1].clone();
@@ -1065,18 +1122,18 @@ fn v_str_split(s: V, sep: V) -> V {
     let src = as_str(s);
     let sep = as_str(sep);
     let parts: Vec<&str> = src.split(sep.as_str()).collect();
-    let nil: V = V::Data("Nil".to_string(), vec![]);
+    let nil: V = data("Nil", vec![]);
     parts.iter().rev().fold(nil, |acc, &p| {
-        V::Data("Cons".to_string(), vec![V::Str(p.to_string()), acc])
+        data("Cons", vec![V::Str(p.to_string()), acc])
     })
 }
 
 fn v_str_lines(s: V) -> V {
     let src = as_str(s);
     let parts: Vec<&str> = src.split('\n').collect();
-    let nil: V = V::Data("Nil".to_string(), vec![]);
+    let nil: V = data("Nil", vec![]);
     parts.iter().rev().fold(nil, |acc, &p| {
-        V::Data("Cons".to_string(), vec![V::Str(p.to_string()), acc])
+        data("Cons", vec![V::Str(p.to_string()), acc])
     })
 }
 
@@ -1085,8 +1142,8 @@ fn v_str_lines(s: V) -> V {
 fn v_map_get(m: V, k: V) -> V {
     let key = VKey::from(&k);
     match as_map(m).borrow().get(&key).cloned() {
-        Some(v) => V::Data("Some".to_string(), vec![v]),
-        None    => V::Data("None".to_string(), vec![]),
+        Some(v) => data("Some", vec![v]),
+        None    => data("None", vec![]),
     }
 }
 
@@ -1094,9 +1151,9 @@ fn v_map_keys(m: V) -> V {
     let keys: Vec<V> = as_map(m).borrow().keys()
         .map(|k| V::Str(k.0.clone()))
         .collect();
-    let nil: V = V::Data("Nil".to_string(), vec![]);
+    let nil: V = data("Nil", vec![]);
     keys.into_iter().rev().fold(nil, |acc, k| {
-        V::Data("Cons".to_string(), vec![k, acc])
+        data("Cons", vec![k, acc])
     })
 }
 
@@ -1107,16 +1164,16 @@ fn v_println(v: V) { println!("{}", show(&v)); }
 
 fn v_io_args() -> V {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let nil: V = V::Data("Nil".to_string(), vec![]);
+    let nil: V = data("Nil", vec![]);
     args.into_iter().rev().fold(nil, |acc, s| {
-        V::Data("Cons".to_string(), vec![V::Str(s), acc])
+        data("Cons", vec![V::Str(s), acc])
     })
 }
 
 fn v_io_env(k: V) -> V {
     match std::env::var(as_str(k)) {
-        Ok(v)  => V::Data("Some".to_string(), vec![V::Str(v)]),
-        Err(_) => V::Data("None".to_string(), vec![]),
+        Ok(v)  => data("Some", vec![V::Str(v)]),
+        Err(_) => data("None", vec![]),
     }
 }
 
