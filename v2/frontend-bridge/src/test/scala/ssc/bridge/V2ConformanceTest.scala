@@ -43,7 +43,9 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     "distributed-failure-partial", "distributed-failure-retry",
     "distributed-heterogeneous", "distributed-map", "distributed-shuffle",
     // network / external services
-    "http-client", "tls-smoke", "ws-client", "rest-validate", "webauthn-server-verify",
+    "http-client", "tls-smoke", "ws-client", "rest-validate",
+    // NOTE: webauthn-server-verify is PURE crypto (challenge + garbage-reject, no network) — it passes on
+    // v2 via FrontendBridge, so it is intentionally NOT skipped (verified byte-exact vs expected/).
     "mcp-client-invoke", "mcp-server-resource", "mcp-server-tool",
     // storage (filesystem, not available in batch test)
     "storage",

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 conformance: un-skip webauthn-server-verify (+1)
+
+`webauthn-server-verify` was in the `V2ConformanceTest` skip-set (grouped under "network / external
+services") but is actually pure crypto — it mints a challenge and returns `None` for garbage
+registration/assertion input, no network. Verified it runs correctly on v2 via `ssc run --v2` and matches
+`expected/` byte-for-byte (`true / reg-none / asr-none`), then removed it from the skip-set: `V2Conformance
+Test` now runs and passes it. Conformance +1. Remaining plugin-gated tests split into pure-logic ones that
+still need native bridging (rest-validate's `validate` special form, html-dsl's ~20 tag builtins + attr DSL)
+and environmental ones (actors/cluster/distributed/coroutines/http/ws/tls) — both tracked in SPRINT.
+
 ## 2026-07-05 — v2 migration: `ssc run --v2` flag (Phase-3 preview mechanism)
 
 Wired `ssc run --v2 <file.ssc>` in the CLI to route a v1 source through the v1 frontend → `FrontendBridge`
