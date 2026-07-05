@@ -93,6 +93,60 @@ object Runtime:
     case 4 => Array(base(0), base(1), base(2), base(3), v)
     case n => val r = new Array[Value](n + 1); System.arraycopy(base, 0, r, 0, n); r(n) = v; r
 
+// ── SelfRecLL: arity-1 self-recursive Long→Long specialization ───────────────
+// A def like `fib(n) = if n <= 1 then n else fib(n-1) + fib(n-2)` compiles to a
+// direct JVM Long => Long — zero allocation and no trampoline/Done/global-lookup
+// per recursive call. Engaged only when the def is arity-1 and its body is pure
+// Int arithmetic over Local(0), Int literals, and DIRECT self-calls in NON-TAIL
+// (operand) position. A bare self-call in tail position bails: tail recursion
+// must keep the trampoline's constant-stack guarantee (Core IR invariant 7).
+// Non-tail self-recursion already consumes JVM stack in the general path
+// (Runtime.value nests run()), so JVM-frame depth here matches current behavior.
+object SelfRecLL:
+  import Term.*, Const.*
+  type LL = Long => Long
+
+  def compile(body: Term, selfName: String, arity: Int): Option[LL] =
+    if arity != 1 then None
+    else
+      var self: LL = null
+      def goB(t: Term): Option[Long => Boolean] = t match
+        // ssc1c desugars `a <= b` to `if (i.eq a b) true (i.lt a b)` — admit Bool ifs/literals
+        case Lit(CBool(b)) => val v = b; Some(_ => v)
+        case If(c, th, el) => for fc <- goB(c); ft <- goB(th); fe <- goB(el) yield (n: Long) => if fc(n) then ft(n) else fe(n)
+        case Prim("not", List(a)) => goB(a).map(fa => (n: Long) => !fa(n))
+        case Prim("i.le", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) <= fb(n)
+        case Prim("i.lt", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) <  fb(n)
+        case Prim("i.ge", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) >= fb(n)
+        case Prim("i.gt", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) >  fb(n)
+        case Prim("i.eq", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) == fb(n)
+        case _ => None
+      def go(t: Term): Option[LL] = t match
+        case Lit(CInt(k)) => val v = k; Some(_ => v)
+        case Local(0)     => Some(n => n)
+        case Prim("i.add", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) + fb(n)
+        case Prim("i.sub", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) - fb(n)
+        case Prim("i.mul", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) * fb(n)
+        case Prim("i.div", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) / fb(n)
+        case Prim("i.mod", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) % fb(n)
+        case Prim("__arith__", List(Lit(CStr(op)), a, b)) if op.length == 1 && "+-*/%".contains(op) =>
+          for fa <- go(a); fb <- go(b) yield
+            op match
+              case "+" => (n: Long) => fa(n) + fb(n)
+              case "-" => (n: Long) => fa(n) - fb(n)
+              case "*" => (n: Long) => fa(n) * fb(n)
+              case "/" => (n: Long) => fa(n) / fb(n)
+              case _   => (n: Long) => fa(n) % fb(n)
+        case If(c, th, el) => for fc <- goB(c); ft <- go(th); fe <- go(el) yield (n: Long) => if fc(n) then ft(n) else fe(n)
+        case App(Global(g), List(arg)) if g == selfName =>
+          go(arg).map(fa => (n: Long) => self(fa(n)))
+        case _ => None
+      def goTail(t: Term): Option[LL] = t match
+        case If(c, th, el) => for fc <- goB(c); ft <- goTail(th); fe <- goTail(el) yield (n: Long) => if fc(n) then ft(n) else fe(n)
+        case App(Global(g), _) if g == selfName => None  // tail self-call: keep trampoline TCO
+        case other => go(other)
+      goTail(body).map { f => self = f; f }  // tie the recursion knot
+
 object Compiler:
   import Value.*, Term.*
 
@@ -106,9 +160,25 @@ object Compiler:
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match
       case Lam(ar, b) =>
-        val closV = ClosV(Array.empty[Value], ar, c.compile(b))
+        val bodyCode = c.compile(b)
+        val closV = SelfRecLL.compile(b, d.name, ar) match
+          case Some(ll) =>
+            // fib-shaped def: route Int args through the Long=>Long specialization;
+            // anything else falls back to the generally-compiled body.
+            val code: Code = (env: Env) => env(env.length - 1) match
+              case IntV(x)       => Done(IntV(ll(x)))
+              case lc: LongCellV => Done(IntV(ll(lc.v)))
+              case _             => bodyCode(env)
+            val cv = ClosV(Array.empty[Value], ar, code)
+            cv.fcEntry = Some((env: Env) => env(env.length - 1) match
+              case IntV(x)       => IntV(ll(x))
+              case lc: LongCellV => IntV(ll(lc.v))
+              case _             => Runtime.run(bodyCode, env))
+            cv
+          case None => ClosV(Array.empty[Value], ar, bodyCode)
         globals(d.name) = closV
-        closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global
+        if closV.fcEntry.isEmpty then
+          closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global
       case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
@@ -514,6 +584,23 @@ object FastCode:
       }
     case _ => None
 
+  /** Is this term PROVABLY Long-valued under FLC compilation?  tryFLC contains
+   *  OPTIMISTIC leaves (App(Global), cell.get, arr.get, fieldAt, Local) that coerce
+   *  any non-Int value to 0L — fine for lcell.set (lcells hold Long by construction),
+   *  but generic cell.set bodies routed through FLC would silently store IntV(0) over
+   *  a Map/Data/Float value (the map-ops corruption, found 2026-07-05).  cell.set may
+   *  only take the FLC fast path when this predicate holds. */
+  def flcProvablyLong(t: Term): Boolean = t match
+    case Lit(Const.CInt(_))                  => true
+    case Prim("lcell.get", List(Local(_)))   => true
+    case Prim("i.add" | "i.sub" | "i.mul" | "i.div" | "i.mod", List(a, b)) =>
+      flcProvablyLong(a) && flcProvablyLong(b)
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a, b)) if op.length == 1 && "+-*/%".contains(op) =>
+      flcProvablyLong(a) && flcProvablyLong(b)
+    case Prim("__method__", List(Lit(Const.CStr("toInt" | "toLong")), recv)) => flcProvablyLong(recv)
+    case Prim("__method__", List(Lit(Const.CStr("length" | "size")), _))     => true
+    case _ => false
+
   /** Try to compile a cell.set to a FastCode that stores a raw Long (no IntV alloc).
    *  Only handles `lcell.set` (typed Long cell — always safe to use FLC).
    *  `cell.set` is intentionally excluded: it can hold FloatV, StrV, etc., so using
@@ -603,7 +690,7 @@ object FastCode:
       // Safe: tryFLC fails for Float/String expressions (returns None), so we only
       // reach this for Int-valued bodies that would store an IntV anyway.
       // Avoids the 2 intermediate IntV allocs that the arithOp chain produces.
-      val flcBody: Option[FC] = tryFLC(body, globals).map { flc =>
+      val flcBody: Option[FC] = (if flcProvablyLong(body) then tryFLC(body, globals) else None).map { flc =>
         val cn2 = c
         (env: Env) =>
           val cell = env(env.length - 1 - cn2).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
