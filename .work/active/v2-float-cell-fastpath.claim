@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-float-cell-fastpath
-worktree: ../scalascript-wt-v2-float-cell-fastpath
-started: 2026-07-05
-status: in-progress
-task: v2-float-cell-fastpath — DoubleCellV + dcell prims + FDC lane for Float-accumulating loops (target: pattern-match-heavy)
