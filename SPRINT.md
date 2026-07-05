@@ -237,12 +237,16 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       `conformance/*.coreir` + the bool-predicate/mutual-recursion IRs through
       run-ir vs JVM vs JS vs Rust; outputs must be byte-identical. ALL GREEN
       (7 fixtures × 3 backends). (Phase 2c/2d verification was manual — nothing guarded
-      the three generators until now.) Two more generator bugs it caught, both fixed:
+      the three generators until now.) Three more generator bugs it caught, all fixed:
       (a) the Rust backend never printed a non-Unit entry result (VM `Main.out`
       semantics; bench programs print explicitly so 29/31 hid it) — added
       `show_entry` (strings quoted) + entry match; (b) `tco.coreir` (1M non-TCO frames)
       overflowed the 256MB thread — stack bumped to a 2GB virtual reservation; real
-      trampoline TCO queued as **v2-rust-backend-tco** in BACKLOG.
+      trampoline TCO queued as **v2-rust-backend-tco** in BACKLOG; (c) post-merge with
+      the 2026-07-04 T3.3 Long-cell specialization: JvmBackend emitted bare `_asLong(...)`
+      at generated top level but the helper was `private` inside `object R` — ssc1c-emitted
+      `i.add` prims on Long-cell vars (vs FrontendBridge's inlined `__arith__`) exposed it;
+      top-level `_asLong` added to the preamble.
 - [x] **T5.4: VM sconcat fast-path regression** — DONE 2026-07-05, found chasing the last
       bench SKIP: `string-concat` crashed the VM with `sconcat: bad types` — the
       `Prims.resolve2` fast path (added by v2-arith-loop-jit) shadowed the general prim

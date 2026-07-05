@@ -29,9 +29,11 @@ Phase 2c code generators (SPRINT Track 5, T5.1–T5.3):
   Probe now uses genuinely ill-typed `1 - "a"`; conformance fully green (634 ok).
 - **Backend parity harness (T5.3)**: new `v2/backend/check.sh` — every conformance
   `.coreir` fixture + the two regression programs through run-ir vs JVM vs JS vs Rust,
-  byte-identical outputs required; ALL GREEN (7×3). It immediately caught two more Rust
-  generator bugs (non-Unit entry result never printed; tco stack overflow at 256MB —
-  now a 2GB virtual reservation, real trampoline TCO queued as v2-rust-backend-tco).
+  byte-identical outputs required; ALL GREEN (7×3). It immediately caught three more
+  generator bugs: Rust never printed a non-Unit entry result; Rust tco stack overflow at
+  256MB (now a 2GB virtual reservation, real trampoline TCO queued as v2-rust-backend-tco);
+  and JvmBackend's Long-cell specialization referencing `_asLong` that was private to
+  `object R` — exposed only by ssc1c-emitted `i.add` prims (top-level helper added).
 
 ## 2026-07-05 — agent-mock-gateway: golden-transcript conformance for std.agent
 
