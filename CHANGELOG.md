@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 FrontendBridge + PluginBridge: batch-conformance fixes (T4.4)
+
+Forward-ported T4.4 worktree fixes to origin/main (on top of waves 1-5):
+- All string interpolators treated as string concat (`html"..."`, `sql"..."`, `f"..."`, etc.)
+- Qualified ctor `fillDefaults`: `Transport.Http(8080)` fills default params same as unqualified ctors
+- Object vals/methods emitted as top-level CDefs for intra-object references
+- `Signal[T]` → callable `ClosV` in `v1ToV2` (fixes `app: not a function: <foreign>` on `ReactiveSignal`)
+- `scope(name)`, `raw(s)`, `attr(name)(value)` stubs registered as globals
+
 ## 2026-07-05 — v2 migration: output-parity harness (`scripts/v2-output-parity`)
 
 The real "does v2 replace v1?" gate: run each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diff

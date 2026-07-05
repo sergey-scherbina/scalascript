@@ -250,6 +250,9 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       **UPDATE 2026-07-05 (Sergiy relay): score 94/138 → 103/138 (+9).** All 35 remaining failures are
       **plugin-gated** (no v2 bridge registered for the feature): actors, cluster, distributed, coroutines,
       html-dsl, http-client, node, rest-validate, mcp-client.
+      **WAVE 6 (2026-07-05, PR #73 merged):** batch-conformance fixes forward-ported to main — all string
+      interpolators as concat (html/sql/f), qualified ctor fillDefaults, object val/method CDefs,
+      Signal[T]→ClosV, scope/raw/attr stubs.
       - [ ] **v2-conf-pure-gated** (claim `feature/v2-conf-pure-gated`) — bridge the PURE-LOGIC plugin-gated
         tests first (no network/threads): **webauthn-server-verify** (challenge + garbage-reject; 3 natives),
         **html-dsl** (div/attr/h1/… builders), **rest-validate** (validate/requireString/requireRange/
