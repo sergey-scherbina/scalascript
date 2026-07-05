@@ -915,6 +915,13 @@ object FrontendBridge:
       CT.Prim("__unary__", List(CT.Lit(Const.CStr(op.value)), convertExpr(expr, scope)))
 
     // ── Type application — erase type args (summon[T] → resolve given) ──────
+    case Term.ApplyType.After_4_6_0(Term.Name("Prism"), argClause) =>
+      // BARE Prism[Outer, Variant] value (no call args) — variant prism
+      val variant = argClause match
+        case ac: Type.ArgClause if ac.values.length >= 2 => ac.values(1).syntax.takeWhile(_ != '[')
+        case ac: Type.ArgClause if ac.values.nonEmpty    => ac.values.head.syntax.takeWhile(_ != '[')
+        case _ => "?"
+      CT.Prim("optics.prism", List(CT.Lit(Const.CStr(variant))))
     case Term.ApplyType.After_4_6_0(Term.Name("summon"), argClause) =>
       val typeSig = argClause match
         case ac: Type.ArgClause => ac.values.headOption.fold("?")(_.syntax)
@@ -1182,6 +1189,13 @@ object FrontendBridge:
         val q     = convertExpr(qual, scope)
         val inner = innerClause.values.toList.map(e => convertExpr(e, scope))
         CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: (inner ++ args))
+      // Prism[Outer, Variant] — variant prism (v1 OpticsRuntime.buildPrism mirror)
+      case Term.ApplyType.After_4_6_0(Term.Name("Prism"), argClause) =>
+        val variant = argClause match
+          case ac: Type.ArgClause if ac.values.length >= 2 => ac.values(1).syntax.takeWhile(_ != '[')
+          case ac: Type.ArgClause if ac.values.nonEmpty    => ac.values.head.syntax.takeWhile(_ != '[')
+          case _ => "?"
+        CT.Prim("optics.prism", List(CT.Lit(Const.CStr(variant))))
       // summon[T] — resolve given by type string
       case Term.ApplyType.After_4_6_0(Term.Name("summon"), argClause) =>
         val typeSig = argClause match
@@ -1190,6 +1204,34 @@ object FrontendBridge:
         givenRegistry.get(typeSig) match
           case Some(name) => CT.Global(name)
           case None       => CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
+      // Focus[T](_.path.some.index(i).at(k)…) — optics path lens (v1 OpticsRuntime
+      // mirror): extract the step list from the lambda AST at convert time and
+      // build the optic via the runtime helper (PluginBridge "optics.focus").
+      case Term.ApplyType.After_4_6_0(Term.Name("Focus"), _) if rawArgs.length == 1 =>
+        def stepsOf(t: Term, baseName: String => Boolean): Option[List[CT]] = t match
+          case Term.Name(n) if baseName(n) => Some(Nil)
+          case _: Term.Placeholder => Some(Nil)
+          case Term.Select(inner, Term.Name("some")) =>
+            stepsOf(inner, baseName).map(_ :+ CT.Ctor("OSome", Nil))
+          case Term.Select(inner, Term.Name(f)) =>
+            stepsOf(inner, baseName).map(_ :+ CT.Ctor("OField", List(CT.Lit(Const.CStr(f)))))
+          case Term.Apply.After_4_6_0(Term.Select(inner, Term.Name("index")), ac) if ac.values.length == 1 =>
+            stepsOf(inner, baseName).map(_ :+ CT.Ctor("OIndex", List(convertExpr(ac.values.head, scope))))
+          case Term.Apply.After_4_6_0(Term.Select(inner, Term.Name("at")), ac) if ac.values.length == 1 =>
+            stepsOf(inner, baseName).map(_ :+ CT.Ctor("OAt", List(convertExpr(ac.values.head, scope))))
+          case _ => None
+        val stepsOpt = rawArgs.head match
+          case Term.Function.After_4_6_0(ps, body) =>
+            val pn = ps.values.headOption.map(_.name.value).getOrElse("_")
+            stepsOf(body, _ == pn)
+          case Term.AnonymousFunction(body) => stepsOf(body, _ => false)
+          case _ => None
+        stepsOpt match
+          case Some(steps) =>
+            val lst = steps.foldRight(CT.Ctor("Nil", Nil): CT)((st, acc) => CT.Ctor("Cons", List(st, acc)))
+            CT.Prim("optics.focus", List(lst))
+          case None =>
+            CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr("Focus[...](non-path lambda)"))))
       // direct[M] { stmts } — desugar bind-forms to flatMap chains
       case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) if rawArgs.length == 1 =>
         val stmts = rawArgs.head match

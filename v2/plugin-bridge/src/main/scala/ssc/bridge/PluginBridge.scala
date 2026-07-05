@@ -49,6 +49,7 @@ object PluginBridge:
     registerSys()
     registerInterpreterBuiltins()
     registerAmbientEffectOps()
+    registerOptics()
     registerComputedCellDispatch()
     var count = 0
     val cl = Thread.currentThread().getContextClassLoader
@@ -537,6 +538,133 @@ object PluginBridge:
    *  These are complex language features (async, generators, signals, storage, setArgs).
    *  Stubs allow programs to load/initialize without crashing on unbound; actual
    *  functionality requires proper implementation (open TODO). */
+  /** Optics runtime — mirrors v1's OpticsRuntime for the bridged pipeline.
+   *  An optic = ForeignV(OpticSteps) exposing get/getOption/set/modify/andThen
+   *  as NamedMethodObj fields; steps walk v2 values (DataV records via the
+   *  field-name registry, Some/None, Cons/Nil lists, map wrappers). */
+  private final class OpticSteps(val steps: List[V2Value])
+
+  private def registerOptics(): Unit =
+    import V2Value.*
+    def unlist(v: V2Value): List[V2Value] =
+      val b = List.newBuilder[V2Value]
+      var cur = v
+      var go = true
+      while go do cur match
+        case DataV("Cons", IndexedSeq(h, t)) => b += h; cur = t
+        case _ => go = false
+      b.result()
+    def listIdx(v: V2Value, i: Long): Option[V2Value] =
+      val xs = unlist(v); if i >= 0 && i < xs.length then Some(xs(i.toInt)) else None
+    def listSet(v: V2Value, i: Long, nv: V2Value): V2Value =
+      val xs = unlist(v)
+      if i < 0 || i >= xs.length then v
+      else xs.updated(i.toInt, nv).foldRight[V2Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
+    def mapOf(v: V2Value): Option[collection.mutable.HashMap[V2Value, V2Value]] = v match
+      case ForeignV(m: collection.mutable.HashMap[?, ?]) => Some(m.asInstanceOf[collection.mutable.HashMap[V2Value, V2Value]])
+      case _ => None
+
+    def getOpt(target: V2Value, ss: List[V2Value]): Option[V2Value] = ss match
+      case Nil => Some(target)
+      case st :: rest => st match
+        case DataV("OField", IndexedSeq(StrV(f))) => target match
+          case DataV(tag, fields) =>
+            ssc.V2PluginRegistry.lookupFieldNames(tag).flatMap { ns =>
+              val i = ns.indexOf(f)
+              if i >= 0 && i < fields.length then getOpt(fields(i), rest) else None
+            }
+          case _ => None
+        case DataV("OSome", _) => target match
+          case DataV("Some", IndexedSeq(v)) => getOpt(v, rest)
+          case _ => None
+        case DataV("OIndex", IndexedSeq(IntV(i))) => listIdx(target, i).flatMap(getOpt(_, rest))
+        case DataV("OAt", IndexedSeq(k)) => mapOf(target).flatMap(_.get(k)).flatMap(getOpt(_, rest))
+        case _ => None
+
+    def setPath(target: V2Value, ss: List[V2Value], nv: V2Value): V2Value = ss match
+      case Nil => nv
+      case st :: rest => st match
+        case DataV("OField", IndexedSeq(StrV(f))) => target match
+          case DataV(tag, fields) =>
+            ssc.V2PluginRegistry.lookupFieldNames(tag) match
+              case Some(ns) =>
+                val i = ns.indexOf(f)
+                if i >= 0 && i < fields.length then DataV(tag, fields.updated(i, setPath(fields(i), rest, nv)))
+                else target
+              case None => target
+          case _ => target
+        case DataV("OSome", _) => target match
+          case DataV("Some", IndexedSeq(v)) => DataV("Some", Vector(setPath(v, rest, nv)))
+          case _ => target
+        case DataV("OIndex", IndexedSeq(IntV(i))) =>
+          listIdx(target, i).fold(target)(old => listSet(target, i, setPath(old, rest, nv)))
+        case DataV("OAt", IndexedSeq(k)) =>
+          mapOf(target) match
+            case Some(m) if m.contains(k) =>
+              val copy = m.clone()
+              copy(k) = setPath(m(k), rest, nv)
+              ForeignV(copy)
+            case _ => target
+        case _ => target
+
+    def isPartial(ss: List[V2Value]): Boolean = ss.exists {
+      case DataV("OField", _) => false
+      case _ => true
+    }
+
+    def mkOptic(ss: List[V2Value]): V2Value =
+      ForeignV(new ssc.Value.NamedMethodObj {
+        def underlying: AnyRef = new OpticSteps(ss)
+        def getField(name: String): Option[V2Value] = name match
+          case "get" => Some(ClosV(Runtime.emptyEnv, -1, env =>
+            Done(getOpt(env(0), ss).getOrElse(sys.error("optic.get: path missing")))))
+          case "getOption" => Some(ClosV(Runtime.emptyEnv, -1, env =>
+            Done(getOpt(env(0), ss).fold[V2Value](DataV("None", Vector.empty))(v => DataV("Some", Vector(v))))))
+          case "set" => Some(ClosV(Runtime.emptyEnv, -1, env =>
+            Done(setPath(env(0), ss, env(1)))))
+          case "modify" => Some(ClosV(Runtime.emptyEnv, -1, env => {
+            val target = env(0)
+            val f = env(1).asInstanceOf[ClosV]
+            getOpt(target, ss) match
+              case Some(cur) => Done(setPath(target, ss, callClosure(f, List(cur))))
+              case None      => Done(target)
+          }))
+          case "andThen" => Some(ClosV(Runtime.emptyEnv, -1, env => env(0) match
+            case ForeignV(other: ssc.Value.NamedMethodObj) => other.underlying match
+              case os: OpticSteps => Done(mkOptic(ss ++ os.steps))
+              case _ => sys.error("optic.andThen: not an optic")
+            case _ => sys.error("optic.andThen: not an optic")))
+          case "isPartial" => Some(BoolV(isPartial(ss)))
+          case _ => None
+      })
+
+    V2PluginRegistry.register("optics.focus", args => mkOptic(unlist(args(0))))
+
+    // Prism[Outer, Variant] — v1 buildPrism mirror: getOption/set/modify hit only
+    // when the target's tag equals the variant; reverseGet is identity.
+    def mkPrism(variant: String): V2Value =
+      def tagMatches(v: V2Value): Boolean = v match
+        case DataV(t, _) => t == variant
+        case _ => false
+      ForeignV(new ssc.Value.NamedMethodObj {
+        def underlying: AnyRef = ("Prism", variant)
+        def getField(name: String): Option[V2Value] = name match
+          case "getOption" => Some(ClosV(Runtime.emptyEnv, -1, env =>
+            Done(if tagMatches(env(0)) then DataV("Some", Vector(env(0))) else DataV("None", Vector.empty))))
+          case "reverseGet" => Some(ClosV(Runtime.emptyEnv, -1, env => Done(env(0))))
+          case "set" => Some(ClosV(Runtime.emptyEnv, -1, env =>
+            Done(if tagMatches(env(0)) then env(1) else env(0))))
+          case "modify" => Some(ClosV(Runtime.emptyEnv, -1, env => {
+            if tagMatches(env(0)) then Done(callClosure(env(1).asInstanceOf[ClosV], List(env(0))))
+            else Done(env(0))
+          }))
+          case "_variant" => Some(StrV(variant))
+          case _ => None
+      })
+    V2PluginRegistry.register("optics.prism", args => args match
+      case List(StrV(v)) => mkPrism(v)
+      case _ => sys.error("optics.prism(variant)"))
+
   /** Ambient effect ops: in v1 the core effects (Random/Clock) work WITHOUT an
    *  explicit handler block (ambient defaults). The bridge's dispatch tries plugin
    *  lookup before the free-monad Op fallback, so registering these here gives the
