@@ -1152,23 +1152,31 @@ object FrontendBridge:
       // .copy(field = val, ...) — case class copy with named field overrides.
       // Intercept before the generic __method__ path so we can use the field registry
       // to find indices and emit Ctor with field-at fallbacks, avoiding @field globals.
-      case Term.Select(qual, Term.Name("copy"))
-          if rawArgs.nonEmpty && rawArgs.forall(_.isInstanceOf[Term.Assign]) =>
-        val overrides: Map[String, CT] = rawArgs.collect {
+      case Term.Select(qual, Term.Name("copy")) if rawArgs.nonEmpty =>
+        // .copy with named, positional, or MIXED args. Named-only + unambiguous
+        // class → convert-time rebuild; anything else defers to RUNTIME copy with
+        // ("#i" | name, value) pair encoding — the receiver's actual tag is known there.
+        val named: Map[String, CT] = rawArgs.collect {
           case Term.Assign(Term.Name(n), rhs) => n -> convertExpr(rhs, scope)
         }.toMap
-        val classOpt = fieldRegistry.find { case (_, fields) =>
-          overrides.keys.forall(k => fields.contains(k))
+        val positional: List[(Int, CT)] = rawArgs.zipWithIndex.collect {
+          case (t, i) if !t.isInstanceOf[Term.Assign] => i -> convertExpr(t, scope)
         }
-        classOpt match
-          case Some((tag, fields)) =>
+        val candidates = fieldRegistry.filter { case (_, fields) =>
+          named.keys.forall(k => fields.contains(k))
+        }
+        (positional, candidates.toList) match
+          case (Nil, List((tag, fields))) =>
             val q = convertExpr(qual, scope)
             CT.Let(List(q), CT.Ctor(tag, fields.zipWithIndex.map { case (fn, i) =>
-              overrides.getOrElse(fn, CT.Prim("fieldAt", List(CT.Local(0), CT.Lit(Const.CInt(i)))))
+              named.getOrElse(fn, CT.Prim("fieldAt", List(CT.Local(0), CT.Lit(Const.CInt(i)))))
             }.toList))
-          case None =>
+          case _ =>
             val q = convertExpr(qual, scope)
-            CT.Prim("__method__", CT.Lit(Const.CStr("copy")) :: q :: args)
+            val pairs =
+              positional.flatMap { case (i, v) => List(CT.Lit(Const.CStr(s"#$i")), v) } ++
+              named.toList.flatMap { case (n, v) => List(CT.Lit(Const.CStr(n)), v) }
+            CT.Prim("__method__", CT.Lit(Const.CStr("copy")) :: q :: pairs)
       // Method call: qual.method(args)
       case Term.Select(qual, Term.Name(mname)) =>
         if isCtorName(mname) then CT.Ctor(mname, args)
@@ -1231,7 +1239,7 @@ object FrontendBridge:
         stepsOpt match
           case Some(steps) =>
             val lst = steps.foldRight(CT.Ctor("Nil", Nil): CT)((st, acc) => CT.Ctor("Cons", List(st, acc)))
-            CT.Prim("optics.focus", List(lst))
+            CT.Prim("optics.focus", List(lst, CT.Lit(Const.CStr(rawArgs.head.syntax))))
           case None =>
             CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr("Focus[...](non-path lambda)"))))
       // direct[M] { stmts } — desugar bind-forms to flatMap chains

@@ -636,10 +636,17 @@ object PluginBridge:
       case _ => true
     }
 
-    def mkOptic(ss: List[V2Value]): V2Value =
+    def opticKind(ss: List[V2Value]): String =
+      if ss.exists { case DataV("OEach", _) => true; case _ => false } then "Traversal"
+      else if isPartial(ss) then "Optional"
+      else "Lens"
+
+    def mkOptic(ss: List[V2Value], path: String = ""): V2Value =
       ForeignV(new ssc.Value.NamedMethodObj {
         def underlying: AnyRef = new OpticSteps(ss)
+        override def toString: String = s"${opticKind(ss)}($path)"
         def getField(name: String): Option[V2Value] = name match
+          case "_show" => Some(StrV(s"${opticKind(ss)}($path)"))
           case "get" => Some(ClosV(Runtime.emptyEnv, -1, env =>
             Done(getOpt(env(0), ss).getOrElse(sys.error("optic.get: path missing")))))
           case "getOption" => Some(ClosV(Runtime.emptyEnv, -1, env =>
@@ -666,14 +673,17 @@ object PluginBridge:
           }))
           case "andThen" => Some(ClosV(Runtime.emptyEnv, -1, env => env(0) match
             case ForeignV(other: ssc.Value.NamedMethodObj) => other.underlying match
-              case os: OpticSteps => Done(mkOptic(ss ++ os.steps))
+              case os: OpticSteps => Done(mkOptic(ss ++ os.steps, path))
               case _ => sys.error("optic.andThen: not an optic")
             case _ => sys.error("optic.andThen: not an optic")))
           case "isPartial" => Some(BoolV(isPartial(ss)))
           case _ => None
       })
 
-    V2PluginRegistry.register("optics.focus", args => mkOptic(unlist(args(0))))
+    V2PluginRegistry.register("optics.focus", args => args match
+      case List(steps, StrV(path)) => mkOptic(unlist(steps), path)
+      case List(steps)             => mkOptic(unlist(steps))
+      case _ => sys.error("optics.focus(steps[, path])"))
 
     // Prism[Outer, Variant] — v1 buildPrism mirror: getOption/set/modify hit only
     // when the target's tag equals the variant; reverseGet is identity.
@@ -694,6 +704,7 @@ object PluginBridge:
             else Done(env(0))
           }))
           case "_variant" => Some(StrV(variant))
+          case "_show"    => Some(StrV(s"Prism[?, $variant]"))
           case _ => None
       })
     V2PluginRegistry.register("optics.prism", args => args match
@@ -738,6 +749,10 @@ object PluginBridge:
         items.mkString("List(", ", ", ")")
       case V2Value.DataV(tag, fs) if fs.isEmpty => tag
       case V2Value.DataV(tag, fs) => tag + fs.map(v1Show).mkString("(", ", ", ")")
+      case V2Value.ForeignV(nmo: ssc.Value.NamedMethodObj) =>
+        nmo.getField("_show") match
+          case Some(V2Value.StrV(s)) => s
+          case _ => Show.show(v)
       case other => Show.show(other)
     def showForPrint(v: V2Value): String = v1Show(v)
     if V2PluginRegistry.lookupGlobal("println").isEmpty then

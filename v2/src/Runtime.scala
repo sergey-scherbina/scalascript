@@ -1440,6 +1440,20 @@ object Prims:
       (recv, name, margs) match
         // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
         case (v, "asInstanceOf", _)          => v
+        // Runtime .copy on a record: overrides arrive as (name, value) pairs; the
+        // ACTUAL tag's registered field names drive the rebuild (the convert-time
+        // path only fires when the class is unambiguous).
+        case (DataV(tag, fields), "copy", pairs) if pairs.length % 2 == 0 =>
+          V2PluginRegistry.lookupFieldNames(tag) match
+            case Some(names) =>
+              val overrides = pairs.grouped(2).collect {
+                case List(StrV(n), v) => n -> v
+              }.toMap
+              DataV(tag, names.zipWithIndex.map { case (n, i) =>
+                overrides.get(s"#$i").orElse(overrides.get(n))
+                  .getOrElse(if i < fields.length then fields(i) else UnitV)
+              }.toVector)
+            case None => DataV("Stub", Vector(StrV(s"$tag.copy")))
         case (IntV(n), "toString", Nil)      => StrV(n.toString)
         case (IntV(n), "toInt", Nil)         => IntV(n.toInt.toLong)    // truncate to 32-bit
         case (IntV(n), "toLong", Nil)        => IntV(n)
@@ -1827,6 +1841,14 @@ object Prims:
                         if margs.isEmpty then fv  // bare field access
                         else fv match
                           case fn: ClosV => callClos(fn, margs.toArray)
+                          // field-with-args = APPLY the field's value: s.users(1) is
+                          // list indexing on the `users` field, map fields likewise
+                          case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
+                            margs.head match
+                              case IntV(ix) => unlistPub(lv)(ix.toInt)
+                              case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
+                          case ForeignV(m: collection.mutable.HashMap[?, ?]) =>
+                            m.asInstanceOf[collection.mutable.HashMap[Value, Value]](margs.head)
                           case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
                       else DataV("Stub", Vector(StrV(s"$tag.$name")))
                     case None => DataV("Stub", Vector(StrV(s"$tag.$name")))
