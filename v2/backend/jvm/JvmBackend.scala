@@ -224,6 +224,13 @@ private def _adtTag(v: V): String   = v.asInstanceOf[(String, Array[V])]._1
 private def _adtFields(v: V): Array[V] = v.asInstanceOf[(String, Array[V])]._2
 private def _adtField(v: V, i: Int): V = v.asInstanceOf[(String, Array[V])]._2(i)
 
+// Long coercion for Long-cell specialization sites (genTerm emits bare _asLong
+// at top level; R._asLong is private to R)
+private def _asLong(v: V): Long = v match
+  case n: Long   => n
+  case b: Byte   => b.toLong
+  case x => throw new RuntimeException(s"expected Long, got $x")
+
 // Closure call helpers
 private def _call(fn: V, args: Array[V]): V = fn.asInstanceOf[Fn](args)
 private def _call0(fn: V): V = fn.asInstanceOf[Fn](Array.empty)
