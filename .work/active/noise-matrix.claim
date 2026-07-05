@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/noise-matrix
+worktree: ../scalascript-wt-noise-mx
+started: 2026-07-05T18:20:15Z
+heartbeat: 2026-07-05T18:20:15Z
+status: in-progress
+task: noise-matrix — add NX/XN/KK/IN/IX patterns to the Noise engine (immediate-static + both-pre-known cases); data-driven handshake round-trip test asserting matching keys + per-pattern auth outcome, JVM+JS. Completes the main interactive Noise matrix; no vector recall.
