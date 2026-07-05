@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/crypto-keccak256-pure-ref
+worktree: ../scalascript-wt-crypto-keccak256
+started: 2026-07-05T11:18:14Z
+heartbeat: 2026-07-05T11:18:14Z
+status: in-progress
+task: crypto-keccak256-pure-ref — pure-Scala portable Keccak-256 reference in payments/crypto/spi/shared (mirrors Blake2b.scala), wired as the reference impl for HashAlgo.Keccak256, gated by known Keccak-256 vectors. Closes part of BACKLOG crypto-spi-pure-references.
