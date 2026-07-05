@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/cose-encrypt0
+worktree: ../scalascript-wt-cose-encrypt0
+started: 2026-07-05T14:42:18Z
+heartbeat: 2026-07-05T14:42:18Z
+status: in-progress
+task: cose-encrypt0 — COSE_Encrypt0 (RFC 8152 §5.2, alg 24 ChaCha20-Poly1305) in crypto-spi/shared over Cbor + ChaCha20Poly1305; Enc_structure AAD, {5:iv} unprotected header; round-trip + structure + tamper, JVM+JS. Completes the COSE family (sign+encrypt).
