@@ -1928,6 +1928,21 @@ else
   printf 'FAIL %-26s map def mismatch\n' "compile map.ssc0"; fail=1
 fi
 
+echo '# WASM (ssc0-wasm: Rust backend -> wasm32-wasip1 -> Node WASI) — toolchain-gated'
+if rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1 \
+   && node -e 'require("node:wasi")' 2>/dev/null; then
+  wq=$(./ssc0-wasm examples/quicksort.ssc0 2>/dev/null | tail -1)
+  if [ "$wq" = "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))" ]; then
+    printf 'ok   %-26s => quicksort matches VM\n' "wasm quicksort"
+  else printf 'FAIL %-26s\n  got: [%s]\n' "wasm quicksort" "$wq"; fail=1; fi
+  wt=$(./ssc0-wasm examples/tco.ssc0 2>/dev/null | tail -1)
+  if [ "$wt" = "500000500000" ]; then
+    printf 'ok   %-26s => 1e6 tail calls, constant stack\n' "wasm tco"
+  else printf 'FAIL %-26s\n  got: [%s] want: [500000500000]\n' "wasm tco" "$wt"; fail=1; fi
+else
+  echo "skip wasm checks (need: rustup target wasm32-wasip1 + node with node:wasi)"
+fi
+
 echo '# KC13 — end-to-end .ssc Markdown runner + ${ident} interpolation'
 kc13md=$(ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/stdin | tail -1)
 if [ "$kc13md" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc13 md .ssc runner" "$kc13md"

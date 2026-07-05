@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ssc0 → WASM: reuse the Rust backend (lib/backend-rust.ssc0) with the
+# wasm32-wasip1 target, run the module on Node's built-in WASI host.
+#
+#   ./ssc0-wasm examples/quicksort.ssc0            # compile + run (prints program output)
+#   ./ssc0-wasm examples/quicksort.ssc0 -o q.wasm  # compile only
+#
+# Toolchain: `rustup target add wasm32-wasip1` + node >= 20 (node:wasi).
+# The Rust backend is TCO-correct (Step trampoline), so constant-stack tail
+# calls carry over to wasm unchanged.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC="${1:?usage: ssc0-wasm <file.ssc0> [-o out.wasm]}"
+OUT=""
+if [ "${2:-}" = "-o" ]; then OUT="${3:?-o needs a path}"; fi
+
+TMP="$(mktemp -d /tmp/ssc0-wasm-XXXXXX)"
+trap 'rm -rf "$TMP"' EXIT
+
+"$DIR/ssc0-rust" "$SRC" > "$TMP/prog.rs"
+WASM="${OUT:-$TMP/prog.wasm}"
+rustc -O --target wasm32-wasip1 "$TMP/prog.rs" -o "$WASM"
+
+if [ -z "$OUT" ]; then
+  node --no-warnings "$DIR/scripts/run-wasi.mjs" "$WASM"
+fi
