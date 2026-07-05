@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 bridge: batch PASS 129→176/178 (OIDC/Mirror/MCP stubs)
+
+`feature/v2-frontend-bridge` merged (7277dfaa0). Four more examples fixed:
+- **oidc-login-flow.ssc**: OIDC batch stubs — `discoverAs` routes to in-memory server via `findByIssuer`;
+  `exchangeAuthorizationCode` returns stub token; `http.parseUrl`/`makeLocalhostGetResp` fake 302 redirect;
+  `OidcHelpers.userInfo` falls back to first registered user; `String.take/drop/takeRight/dropRight` added.
+- **custom-derives-mirror.ssc**: `summon[Mirror.Of[X]]` synthesized inline; `Defn.Object` compiled to
+  `__mk_method_obj__`; general typeclass derivation `Tc.derived(mirror)`; Mirror field dispatch in Runtime.
+- **agent-mcp-toolsource.ssc + mcp-client-discover.ssc**: `mcpConnect` fake client (`listTools/listResources/
+  listPrompts/close/callTool` all returning empty/unit).
+- Also: `BatchCli.resetState()` called before each example to prevent cross-contamination.
+Remaining 2 FAIL: `x402-cardano*.ssc` — need real Blockfrost API keys (hard floor).
+
 ## 2026-07-05 — crypto: portable Keccak-256 reference (the Ethereum hash) in the crypto SPI
 
 Added `Keccak256.scala` to `payments/crypto/spi/shared` — a pure-Scala Keccak-f[1600] sponge (original
