@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-supervision-distributed
+worktree: ../scalascript-wt-v2-supervision-distributed
+started: 2026-07-05
+status: in-progress
+task: bridge gaps: link/monitor supervision surface + runDistributed* single-node drivers; then Dataset codecs / registerBehavior if tractable
