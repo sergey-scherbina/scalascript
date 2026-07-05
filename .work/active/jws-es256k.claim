@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/jws-es256k
-worktree: ../scalascript-wt-jws-es256k
-started: 2026-07-05T13:25:45Z
-heartbeat: 2026-07-05T13:25:45Z
-status: in-progress
-task: jws-es256k — ECDSA secp256k1 (ES256K) for JWS: DER<->raw(R||S) helpers on Secp256k1Ecdsa + Jws.signES256K/verifyES256K; gated differential vs BouncyCastle (byte-exact, RFC-6979) + round-trip. Completes more of BACKLOG token-formats.

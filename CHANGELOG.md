@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — crypto: JWS ES256K (ECDSA secp256k1) over the crypto SPI
+
+Added the fixed-length signature conversion `Secp256k1Ecdsa.derToRaw` / `rawToDer` (DER ↔ 64-byte R‖S)
+and `Jws.signES256K` / `verifyES256K` (+ `Jwt.es256k`) in `payments/crypto/spi/shared` — ES256K = ECDSA
+secp256k1 + SHA-256 with the JOSE/COSE fixed 64-byte R‖S encoding, over the from-scratch portable
+secp256k1 (JVM + Scala.js). The raw R‖S is byte-for-byte identical to the BouncyCastle secp256k1 backend
+(both RFC-6979 deterministic + low-S). Fourth `token-formats` algorithm after HS256 / EdDSA (JWS) and
+COSE_Sign1; ES256 (P-256) remains blocked on a portable P-256 reference.
+
 ## 2026-07-05 — v2 full-application demo: HTTP client + SQL end-to-end (T4.3)
 
 `examples/v2-http-sql-demo.ssc`: proves that v2 can run programs combining HTTP client requests

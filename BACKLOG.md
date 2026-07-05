@@ -95,9 +95,13 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       **COSE_Sign1 EdDSA DONE 2026-07-05** (`Cbor.scala` + `CoseSign1.scala` in `crypto-spi/shared`):
       a minimal portable CBOR codec (gated by RFC 8949 Appendix A) + COSE_Sign1 (RFC 8152/9052) sign+verify
       with EdDSA (`alg -8`), external-AAD binding, alg/tamper rejection — round-tripped under the RFC 8037
-      key, JVM+JS. Unblocks `webauthn-server-verify` (COSE structures now available). **REMAINING:**
-      ES256/ES256K for JWS + COSE (ECDSA fixed-length R‖S ↔ DER, needs P-256 for COSE alg -7); PASETO
-      **v4.local** (XChaCha20 + BLAKE2b keyed); COSE_Encrypt.
+      key, JVM+JS. Unblocks `webauthn-server-verify` (COSE structures now available).
+      **JWS ES256K DONE 2026-07-05** (`Secp256k1Ecdsa.derToRaw`/`rawToDer` + `Jws.signES256K`/`verifyES256K`
+      + `Jwt.es256k`): ECDSA secp256k1 + SHA-256 with the fixed 64-byte R‖S encoding — byte-for-byte equal
+      to the BouncyCastle secp256k1 backend (both RFC-6979 + low-S), JVM+JS. **REMAINING:** ES256 (P-256,
+      COSE alg -7 / JOSE ES256) — **BLOCKED on a portable P-256 reference** (`Curve.P256` only via
+      BouncyCastle today); COSE ES256K (alg -47, reuse the R‖S helper); PASETO **v4.local** (XChaCha20 +
+      BLAKE2b keyed); COSE_Encrypt.
 - [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
       (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
 - [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
