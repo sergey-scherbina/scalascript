@@ -19,10 +19,28 @@ private final case class TaggedForeign(tag: String, value: AnyRef)
 
 object PluginBridge:
 
+  // ── DB connection registry for `databases:` frontmatter ─────────────────
+  // Programs with `databases: default: url: jdbc:h2:...` frontmatter register
+  // connections here before running so `Db.query`/`Db.execute` work under v2.
+  private val dbRegistry = new java.util.concurrent.ConcurrentHashMap[String, java.sql.Connection]()
+
+  /** Register an in-process JDBC connection by name (called by FrontendBridge
+   *  when it processes `databases:` YAML frontmatter). */
+  def registerDb(name: String, url: String): Unit =
+    val conn = java.sql.DriverManager.getConnection(url)
+    dbRegistry.put(name, conn)
+
+  /** Clear all registered DB connections (call between batch runs). */
+  def clearDbs(): Unit = dbRegistry.clear()
+
   /** Minimal NativeContext for stateless intrinsics (IO, hash, math, etc.). */
   private object MinimalCtx extends NativeContext:
     def out: java.io.PrintStream = Console.out
     def err: java.io.PrintStream = Console.err
+    override def dbConnect(dbName: String): java.sql.Connection =
+      Option(dbRegistry.get(dbName)).getOrElse(
+        throw new RuntimeException(
+          s"No database registered for '$dbName' — add a databases: section to front-matter"))
 
   /** Load all Backend plugins via ServiceLoader; register NativeImpl prims AND
    *  BlockForm runners. Also registers the built-in `handle` global. */

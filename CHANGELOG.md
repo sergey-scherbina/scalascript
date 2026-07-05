@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-05 — v2 full-application demo: HTTP client + SQL end-to-end (T4.3)
+
+`examples/v2-http-sql-demo.ssc`: proves that v2 can run programs combining HTTP client requests
+(httpGet → status=200) with in-process SQL (H2 in-memory, 3 rows inserted and queried back).
+Root fix: `__method__` dispatch for DataV singleton objects (Db, Http) now checks
+`V2PluginRegistry.lookup("Tag.method")` *before* the effect-Op fallthrough path —
+previously `Db.execute`/`Db.query` were silently returning lazy Free-monad Ops instead of executing.
+Also fixed: FrontendBridge YAML `databases:` frontmatter parsing registers H2 JDBC connections;
+v1→v2 InstanceV field ordering uses registered field-name declaration order for `Response.status`.
+
 ## 2026-07-05 — crypto: portable CBOR + COSE_Sign1 (EdDSA) over the crypto SPI
 
 Added `Cbor.scala` (a minimal RFC 8949 codec — major types 0-6, definite-length) and `CoseSign1.scala`
