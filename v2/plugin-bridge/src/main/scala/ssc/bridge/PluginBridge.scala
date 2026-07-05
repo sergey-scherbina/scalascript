@@ -86,6 +86,12 @@ object PluginBridge:
       Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
     // Build namespace objects for dotted globals: "oauth.authServer" → oauth = {authServer: ClosV}
     buildNamespaceObjects()
+    // Override serve/emit/mount with no-op stubs: batch runner has no web server.
+    // These are called at end of program; silently succeeding avoids plugin arg-type errors.
+    import V2Value.*
+    V2PluginRegistry.registerGlobal("serve",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    V2PluginRegistry.registerGlobal("emit",   ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     count
 
   /** For each registered global of the form "a.b[.c...]", build nested namespace ForeignV(Map)
@@ -277,10 +283,26 @@ object PluginBridge:
           case c: ClosV => Done(ForeignV(new ComputedCell(c).asInstanceOf[AnyRef]))
           case v => Done(ForeignV(Array[V2Value](v).asInstanceOf[AnyRef]))
       }))
-    // generator { body } — returns a stub generator that always ends
+    // generator { body } — virtual-thread coroutine generator; suspend(v) yields values
     if V2PluginRegistry.lookupGlobal("generator").isEmpty then
       V2PluginRegistry.registerGlobal("generator", ClosV(Runtime.emptyEnv, -1, env => {
-        Done(ForeignV(new StubGenerator(env.lastOption.getOrElse(UnitV)).asInstanceOf[AnyRef]))
+        val thunk = env.lastOption.getOrElse(UnitV)
+        val queue = new java.util.concurrent.LinkedBlockingQueue[Option[V2Value]]()
+        Thread.ofVirtual().start { () =>
+          genQueueTL.set(queue)
+          try callClosure(thunk, Nil)
+          catch case _: Throwable => ()
+          finally try queue.put(None) catch case _ => ()
+        }
+        Done(makeGenerator(queue))
+      }))
+    // suspend(v) — yield value from inside a generator body
+    if V2PluginRegistry.lookupGlobal("suspend").isEmpty then
+      V2PluginRegistry.registerGlobal("suspend", ClosV(Runtime.emptyEnv, 1, env => {
+        val v   = env.last
+        val q   = genQueueTL.get()
+        if q != null then q.put(Some(v))
+        Done(UnitV)
       }))
     // runEphemeralStorage { body } — run body with an in-memory map store
     if V2PluginRegistry.lookupGlobal("runEphemeralStorage").isEmpty then
@@ -511,10 +533,141 @@ object PluginBridge:
   private class ComputedCell(val thunk: V2Value.ClosV):
     def get(): V2Value = callClosure(thunk, Nil)
 
-  /** Minimal stub generator (no yield support; stateless). */
-  private class StubGenerator(thunk: V2Value):
-    def hasNext: Boolean = false
-    def next(): V2Value = sys.error("generator: hasNext was false")
+  private val genQueueTL: java.lang.ThreadLocal[java.util.concurrent.LinkedBlockingQueue[Option[V2Value]]] =
+    java.lang.ThreadLocal.withInitial(() => null)
+
+  private def makeGenerator(queue: java.util.concurrent.LinkedBlockingQueue[Option[V2Value]]): V2Value =
+    import V2Value.*
+    type Q = java.util.concurrent.LinkedBlockingQueue[Option[V2Value]]
+    def chainedGen(body: Q => Unit): V2Value =
+      val q2 = new Q()
+      Thread.ofVirtual().start { () =>
+        try body(q2)
+        catch case _: Throwable => ()
+        finally try q2.put(None) catch case _ => ()
+      }
+      makeGenerator(q2)
+    def listFrom(q: Q): V2Value =
+      val buf = collection.mutable.ArrayBuffer.empty[V2Value]
+      var item = q.take()
+      while item.isDefined do
+        buf += item.get
+        item = q.take()
+      buf.foldRight[V2Value](DataV("Nil", Vector.empty))((v, acc) => DataV("Cons", Vector(v, acc)))
+    ForeignV(scala.collection.immutable.Map[String, V2Value](
+      "next" -> ClosV(Runtime.emptyEnv, 0, _ => Done(
+        queue.take() match
+          case Some(v) => DataV("Some", Vector(v))
+          case None    => DataV("None", Vector.empty)
+      )),
+      "toList" -> ClosV(Runtime.emptyEnv, 0, _ => Done(listFrom(queue))),
+      "foreach" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val f = env.last
+        var item = queue.take()
+        while item.isDefined do
+          callClosure(f, List(item.get))
+          item = queue.take()
+        Done(UnitV)
+      }),
+      "map" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val f = env.last
+        Done(chainedGen { q2 =>
+          var item = queue.take()
+          while item.isDefined do
+            q2.put(Some(callClosure(f, List(item.get))))
+            item = queue.take()
+        })
+      }),
+      "filter" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val pred = env.last
+        Done(chainedGen { q2 =>
+          var item = queue.take()
+          while item.isDefined do
+            if callClosure(pred, List(item.get)) == BoolV(true) then q2.put(Some(item.get))
+            item = queue.take()
+        })
+      }),
+      "take" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val n = env.last match { case IntV(n) => n.toInt; case _ => 0 }
+        Done(chainedGen { q2 =>
+          var remaining = n
+          var item = queue.take()
+          while item.isDefined && remaining > 0 do
+            q2.put(Some(item.get))
+            remaining -= 1
+            item = if remaining > 0 then queue.take() else None
+        })
+      }),
+      "drop" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val n = env.last match { case IntV(n) => n.toInt; case _ => 0 }
+        Done(chainedGen { q2 =>
+          var toDrop = n
+          var item = queue.take()
+          while item.isDefined && toDrop > 0 do
+            toDrop -= 1
+            item = queue.take()
+          while item.isDefined do
+            q2.put(Some(item.get))
+            item = queue.take()
+        })
+      }),
+      "flatMap" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val f = env.last
+        Done(chainedGen { q2 =>
+          var item = queue.take()
+          while item.isDefined do
+            val subGen = callClosure(f, List(item.get))
+            // drain the sub-generator into q2
+            subGen match
+              case ForeignV(m: collection.immutable.Map[?, ?]) =>
+                val mm = m.asInstanceOf[collection.immutable.Map[String, V2Value]]
+                mm.get("toList") match
+                  case Some(fn: ClosV) =>
+                    val lst = Runtime.run(fn.code, if fn.env.isEmpty then Array.empty else fn.env)
+                    def drainList(v: V2Value): Unit = v match
+                      case DataV("Cons", elems) => q2.put(Some(elems(0))); drainList(elems(1))
+                      case _ => ()
+                    drainList(lst)
+                  case _ => ()
+              case _ => ()
+            item = queue.take()
+        })
+      }),
+      "zip" -> ClosV(Runtime.emptyEnv, 1, env => {
+        val other = env.last
+        Done(chainedGen { q2 =>
+          // get next from other generator via its next method
+          def otherNext(): Option[V2Value] = other match
+            case ForeignV(m: collection.immutable.Map[?, ?]) =>
+              val mm = m.asInstanceOf[collection.immutable.Map[String, V2Value]]
+              mm.get("next") match
+                case Some(fn: ClosV) =>
+                  Runtime.run(fn.code, if fn.env.isEmpty then Array.empty else fn.env) match
+                    case DataV("Some", elems) => Some(elems(0))
+                    case _ => None
+                case _ => None
+            case _ => None
+          var item = queue.take()
+          var running = true
+          while item.isDefined && running do
+            otherNext() match
+              case Some(r) =>
+                q2.put(Some(DataV("Tuple2", Vector(item.get, r))))
+                item = queue.take()
+              case None => running = false
+        })
+      }),
+      "zipWithIndex" -> ClosV(Runtime.emptyEnv, 0, _ => {
+        Done(chainedGen { q2 =>
+          var idx = 0L
+          var item = queue.take()
+          while item.isDefined do
+            q2.put(Some(DataV("Tuple2", Vector(item.get, IntV(idx)))))
+            idx += 1
+            item = queue.take()
+        })
+      }),
+    ).asInstanceOf[AnyRef])
 
   /** Register `sys` global: sys.env(key) / sys.env.getOrElse(k,d) / sys.exit(code). */
   private def registerSys(): Unit =

@@ -61,6 +61,11 @@ object FrontendBridge:
    *  These are auto-called at the use site (like Scala's no-parens defs). */
   private val zeroArgDefs = collection.mutable.HashSet[String]()
 
+  /** Multi-clause curried def first-clause defaults: for `def f(a: T = d)(args*)`, maps "f" →
+   *  List of default CT for each first-clause param. Used to auto-inject defaults when calling
+   *  `f(children...)` without the first-clause args (e.g. vstack(child1, child2) with no gap). */
+  private val curryFirstClauseDefaults = collection.mutable.Map[String, List[CT]]()
+
   /** Build a List value from a sequence of CT expressions: List(a,b,c) → Cons(a,Cons(b,Cons(c,Nil))). */
   private def listOf(elems: List[CT]): CT =
     elems.foldRight(CT.Ctor("Nil", Nil): CT)((e, acc) => CT.Ctor("Cons", List(e, acc)))
@@ -118,6 +123,7 @@ object FrontendBridge:
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
+    curryFirstClauseDefaults.clear()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
     defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
     defaultParams("openapi") = Vector(
@@ -257,6 +263,16 @@ object FrontendBridge:
             }
           }
       }
+    // Auto-inject UI stdlib for files with `frontend:` in frontmatter (no explicit imports needed)
+    val hasFrontend = src.linesIterator.takeWhile(_ != "---" || src.startsWith("---")).exists(
+      l => l.startsWith("frontend:"))
+    if hasFrontend then
+      val uiAutoImports =
+        "[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, BoxNode](std/ui/nodes.ssc)\n" +
+        "[vstack, hstack, divider, spacer, box](std/ui/layout.ssc)\n" +
+        "[heading, text, bold, italic, code, pre, label, placeholder, caption](std/ui/typography.ssc)\n" +
+        "[button, textField, checkbox, select, slider, colorPicker](std/ui/input.ssc)\n"
+      collectImports(uiAutoImports, fileDir, fenceOnly = false)
     collectImports(src, fileDir, fenceOnly = false)
     val prelude = ordered.map(_._2).filter(_.nonEmpty).mkString("\n")
     val mainCode = extractCode(src)
@@ -438,6 +454,12 @@ object FrontendBridge:
             // Nested: outermost clause wraps inner. Scope is still full flat list.
             val clauseLens = allClauses.map(_.values.length)
             val innermost  = clauseLens.tail.foldRight(body: CT) { (n, inner) => CT.Lam(if n == 0 then 0 else n, inner) }
+            // Register first-clause defaults for curried vararg defs (e.g. vstack(gap=0)(children*)).
+            // This lets `vstack(child1, child2)` auto-inject gap=0 rather than erroring on arity.
+            val firstClauseParams = allClauses.head.values
+            if firstClauseParams.nonEmpty && firstClauseParams.forall(p => p.default.isDefined) then
+              val firstDefs = firstClauseParams.map(p => convertExpr(p.default.get, Nil)).toList
+              curryFirstClauseDefaults(d.name.value) = firstDefs
             CT.Lam(if clauseLens.head == 0 then 0 else clauseLens.head, innermost)
         defsB += CDef(d.name.value, lam)
       case v: Defn.Val if isSimplePat(v.pats) =>
@@ -847,6 +869,15 @@ object FrontendBridge:
       // route(method, path, handler) 3-arg direct form → curried route(method, path)(handler)
       case Term.Name("route") if args.length == 3 =>
         CT.App(CT.App(CT.Global("route"), List(args(0), args(1))), List(args(2)))
+      // Curried vararg def called with positional children only — auto-inject first-clause defaults.
+      // E.g. `vstack(child1, child2)` where vstack(gap=0)(children*) → vstack(0)(List(child1,child2)).
+      case Term.Name(name) if !isCtorName(name) && !scope.contains(name)
+          && !rawArgs.exists(_.isInstanceOf[Term.Assign])
+          && curryFirstClauseDefaults.contains(name)
+          && varargDefs.contains(name) =>
+        val firstDefs = curryFirstClauseDefaults(name)
+        val innerApp  = CT.App(CT.Global(name), firstDefs)
+        CT.App(innerApp, List(listOf(args)))  // vararg: wrap children in list
       // Named-arg call to a known non-ctor function (e.g. f(a, computed = b))
       // Resolves named positions using defParamNames and fills defaults from defaultParams.
       case Term.Name(name) if !isCtorName(name) && !scope.contains(name)
