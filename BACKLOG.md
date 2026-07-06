@@ -54,15 +54,15 @@ GPU run). Shipped: `scripts/conformance` (opt-in, additive) bounds concurrent ru
 JVM heap — adopt it as the default conformance command (README updated). Remaining, ordered by value —
 each needs scala-cli to implement + verify, so an owning ScalaScript agent should claim it:
 
-- [ ] **conformance-affected-only** — `run.sc --only <glob|files>` (+ a change→case index) so the
+- [x] **conformance-affected-only** — DONE 2026-07-06 (`run.sc --only`, measured 1 case = 8.8s). — `run.sc --only <glob|files>` (+ a change→case index) so the
   fix→test loop runs just the touched cases, not the full 193. BIGGEST iteration-speed win and it's the
   agents' OWN loop that speeds up. Full corpus stays for CI. (specs/conformance-perf.md F1)
-- [ ] **conformance-memoize** — skip a case whose `(input .ssc, ssc/compiler version, expected)` hash is
+- [x] **conformance-memoize** — DONE 2026-07-06 (green-run memo, re-run 0.43s ~20x; --no-memo escape). — skip a case whose `(input .ssc, ssc/compiler version, expected)` hash is
   unchanged since the last green run. (F2)
-- [ ] **conformance-warm-runner** — replace cold fork-per-run with a resident warm JVM (compiler loaded +
+- [x] **conformance-warm-runner** — DONE 2026-07-06 (F3 subset: SSC_SCALACLI_SERVER=1 warm bloop for run-jvm, 5.4->2.8s/case; full resident-JVM F4 still open). — replace cold fork-per-run with a resident warm JVM (compiler loaded +
   JIT-warmed); reuse one warm compiler for the JVM lane instead of a cold scala-cli compile per case;
   `conformance / Test / fork := false` if pure. (F3/F4)
-- [ ] **conformance-test-heap-default** — give forked test JVMs a sane env-gated default `-Xmx` in
+- [x] **conformance-test-heap-default** — DONE 2026-07-06 (build.sbt SSC_TEST_XMX default 2g). — give forked test JVMs a sane env-gated default `-Xmx` in
   `build.sbt` (currently uncapped → ~9 GB default) instead of relying on the wrapper. Measure real peak
   first. (L1)
 

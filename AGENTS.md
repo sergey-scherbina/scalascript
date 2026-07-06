@@ -22,6 +22,22 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 # a skill: $MAIN/.agents/plugins/<name>/commands/<name>.md
 ```
 
+## Build speed & hygiene (2026-07-06)
+
+- **Prefer `scripts/sbtc "<command>"`** (sbt thin client) over `sbt -batch` for
+  repeated commands: a cold batch invocation pays ~8 s wall / ~31 s CPU just
+  loading the 259-module build; the client reuses the warm server (<1 s).
+- **Remove worktrees with `scripts/rm-worktree <name>`**, not bare `git worktree
+  remove` — it also kills the worktree's sbt/bloop daemons (2-3 GB RSS each
+  otherwise leak). `scripts/kill-stale-builders` finds orphans (--kill to stop).
+- **Conformance loop**: `scala-cli tests/conformance/run.sc -- --only 'glob*'`
+  runs just your cases; green runs are memoized (unchanged cases skip;
+  `--no-memo` to force). `SSC_SCALACLI_SERVER=1` keeps a warm compiler for the
+  JVM lane. RAM-bounded entrypoint: `scripts/conformance`.
+- Forked test JVMs default to `-Xmx2g` (override `SSC_TEST_XMX`); do NOT rely
+  on `JDK_JAVA_OPTIONS` for test heaps.
+
+
 ### The skills (read on demand)
 
 | Skill | When |
