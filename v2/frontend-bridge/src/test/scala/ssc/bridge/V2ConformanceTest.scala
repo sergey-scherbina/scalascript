@@ -43,7 +43,7 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     "distributed-failure-partial", "distributed-failure-retry",
     "distributed-heterogeneous", "distributed-map", "distributed-shuffle",
     // network / external services
-    "http-client", "tls-smoke", "ws-client", "rest-validate",
+    "http-client", "tls-smoke", "ws-client",
     // NOTE: webauthn-server-verify is PURE crypto (challenge + garbage-reject, no network) — it passes on
     // v2 via FrontendBridge, so it is intentionally NOT skipped (verified byte-exact vs expected/).
     "mcp-client-invoke", "mcp-server-resource", "mcp-server-tool",
@@ -55,7 +55,7 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     // UI / signals / content toolkit (requires frontend runtime)
     "content", "content-introspection", "content-linked-namespaces",
     "content-tables", "content-to-markdown",
-    "signals", "html-dsl",
+    "signals",
     "std-ui-aggregator", "std-ui-extended", "std-ui-extended-b", "std-ui-extended-c",
     "std-ui-extended-d", "std-ui-i18n",
   )

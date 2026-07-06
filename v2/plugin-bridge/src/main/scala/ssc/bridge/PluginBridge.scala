@@ -805,6 +805,7 @@ object PluginBridge:
           case V2Value.DataV("Nil", _)                 => listy = false
           case other                                   => items += ("…" + v1Show(other)); listy = false
         items.mkString("List(", ", ", ")")
+      case V2Value.DataV("_Raw", IndexedSeq(V2Value.StrV(html))) => html
       case V2Value.DataV(tag, fs) if fs.isEmpty => tag
       case V2Value.DataV(tag, fs) => tag + fs.map(v1Show).mkString("(", ", ", ")")
       case V2Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
@@ -1052,12 +1053,189 @@ object PluginBridge:
           def underlying: AnyRef = name
         }))
       }))
-    // raw(s) — pass-through for raw HTML/CSS strings
-    if V2PluginRegistry.lookupGlobal("raw").isEmpty then
-      V2PluginRegistry.registerGlobal("raw", ClosV(Runtime.emptyEnv, -1, env => Done(env.lastOption.getOrElse(UnitV))))
-    // attr(name)(value) — HTML attribute builder stub → return value as-is
-    if V2PluginRegistry.lookupGlobal("attr").isEmpty then
-      V2PluginRegistry.registerGlobal("attr", ClosV(Runtime.emptyEnv, -1, env => Done(env.lastOption.getOrElse(UnitV))))
+    // HTML DSL: div/h1/p/ul/li/a/etc. tag builders + attr object + raw
+    if V2PluginRegistry.lookupGlobal("div").isEmpty then registerHtmlDsl()
+    // REST validation: validate { } + require* helpers
+    if V2PluginRegistry.lookupGlobal("validate").isEmpty then registerValidateFns()
+
+  private def registerHtmlDsl(): Unit =
+    import V2Value.*
+    def htmlEscape(s: String): String =
+      s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+    def valStr(v: V2Value): String = v match
+      case StrV(s)   => s
+      case IntV(n)   => n.toString
+      case FloatV(d) => if d == d.toLong.toDouble && math.abs(d) < 1e15 then d.toLong.toString else d.toString
+      case _         => Show.show(v)
+    def renderChild(v: V2Value): String = v match
+      case DataV("_Raw", IndexedSeq(StrV(html))) => html
+      case DataV("Cons" | "Nil", _) =>
+        val sb = new StringBuilder
+        var cur: V2Value = v; var go = true
+        while go do cur match
+          case DataV("Cons", IndexedSeq(h, t)) => sb ++= renderChild(h); cur = t
+          case DataV("Nil", _) => go = false
+          case other => sb ++= htmlEscape(valStr(other)); go = false
+        sb.toString
+      case other => htmlEscape(valStr(other))
+    def renderTag(name: String, args: Array[V2Value], voidTag: Boolean): V2Value =
+      val attrs    = collection.mutable.LinkedHashMap.empty[String, String]
+      val children = new StringBuilder
+      def handle(v: V2Value): Unit = v match
+        case DataV("Attr", IndexedSeq(StrV(k), attrVal)) =>
+          attrs(k) = htmlEscape(valStr(attrVal))
+        case DataV("Cons" | "Nil", _) =>
+          var cur: V2Value = v; var go = true
+          while go do cur match
+            case DataV("Cons", IndexedSeq(h, t)) => handle(h); cur = t
+            case DataV("Nil", _) => go = false
+            case other => children ++= renderChild(other); go = false
+        case other => children ++= renderChild(other)
+      args.foreach(handle)
+      val attrStr = attrs.map((k, v) => s""" $k="$v"""").mkString
+      val html = if voidTag then s"<$name$attrStr>" else s"<$name$attrStr>${children.toString}</$name>"
+      DataV("_Raw", collection.immutable.ArraySeq(StrV(html)))
+    def makeAttrKey(htmlName: String): V2Value =
+      ForeignV(new ssc.Value.NamedMethodObj {
+        def getField(field: String): Option[ssc.Value] = field match
+          case ":=" => Some(ClosV(Runtime.emptyEnv, 1, env =>
+            Done(DataV("Attr", collection.immutable.ArraySeq(StrV(htmlName), env(0))))))
+          case _ => None
+        def underlying: AnyRef = htmlName
+        override def toString = s"AttrKey($htmlName)"
+      })
+    val attrFields: Map[String, ssc.Value] = Map(
+      "cls" -> makeAttrKey("class"), "id" -> makeAttrKey("id"),
+      "href" -> makeAttrKey("href"), "src" -> makeAttrKey("src"),
+      "alt" -> makeAttrKey("alt"), "name" -> makeAttrKey("name"),
+      "title" -> makeAttrKey("title"), "style" -> makeAttrKey("style"),
+      "type_" -> makeAttrKey("type"), "value_" -> makeAttrKey("value"),
+      "placeholder" -> makeAttrKey("placeholder"), "method_" -> makeAttrKey("method"),
+      "action" -> makeAttrKey("action"), "target" -> makeAttrKey("target"),
+      "rel" -> makeAttrKey("rel"), "for_" -> makeAttrKey("for"),
+      "role" -> makeAttrKey("role"), "colspan" -> makeAttrKey("colspan"),
+      "rowspan" -> makeAttrKey("rowspan"), "disabled" -> makeAttrKey("disabled"),
+    )
+    V2PluginRegistry.registerGlobal("attr", ForeignV(new ssc.Value.NamedMethodObj {
+      def getField(field: String): Option[ssc.Value] = attrFields.get(field)
+      def underlying: AnyRef = "attr"
+      override def toString = "attr"
+    }))
+    V2PluginRegistry.registerGlobal("raw", ClosV(Runtime.emptyEnv, 1, env => env(0) match
+      case DataV("_Raw", _) => Done(env(0))
+      case StrV(s)          => Done(DataV("_Raw", collection.immutable.ArraySeq(StrV(s))))
+      case _                => Done(env(0))))
+    val containerTags = List(
+      "html", "head", "body", "title", "style", "script", "main",
+      "section", "header", "footer", "nav", "article", "aside",
+      "div", "span", "p", "a", "em", "strong", "small", "code", "pre",
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "ul", "ol", "li", "dl", "dt", "dd",
+      "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+      "form", "button", "label", "select", "option", "textarea",
+      "figure", "figcaption", "blockquote",
+    )
+    containerTags.foreach { tag =>
+      V2PluginRegistry.registerGlobal(tag, ClosV(Runtime.emptyEnv, -1, env =>
+        Done(renderTag(tag, env, voidTag = false))))
+    }
+    val voidTags = List("br", "hr", "img", "input", "link", "meta")
+    voidTags.foreach { tag =>
+      V2PluginRegistry.registerGlobal(tag, ClosV(Runtime.emptyEnv, -1, env =>
+        Done(renderTag(tag, env, voidTag = true))))
+    }
+
+  // Thread-local accumulator for validate { } error collection.
+  private val _validateStack =
+    ThreadLocal.withInitial[collection.mutable.Stack[collection.mutable.LinkedHashMap[V2Value, V2Value]]](
+      () => collection.mutable.Stack.empty)
+
+  private def registerValidateFns(): Unit =
+    import V2Value.*
+    def currentErrors: Option[collection.mutable.LinkedHashMap[V2Value, V2Value]] =
+      val s = _validateStack.get()
+      if s.isEmpty then None else Some(s.top)
+    def recordError(name: String, msg: String): Unit =
+      currentErrors.foreach { m => m(StrV(name)) = StrV(msg) }
+    def reqLookup(req: V2Value, name: String): Option[String] =
+      def fromMap(mapV: V2Value): Option[String] = mapV match
+        case ForeignV(m: collection.mutable.HashMap[V2Value, V2Value] @unchecked) =>
+          m.get(StrV(name)).collect { case StrV(s) => s }
+        case _ => None
+      req match
+        case DataV(tag, fields) =>
+          V2PluginRegistry.lookupFieldNames(tag) match
+            case Some(fnames) =>
+              val fi = fnames.indexOf("form")
+              val qi = fnames.indexOf("query")
+              val formVal = if fi >= 0 && fi < fields.length then fromMap(fields(fi)) else None
+              formVal.orElse(if qi >= 0 && qi < fields.length then fromMap(fields(qi)) else None)
+            case None => None
+        case _ => None
+    V2PluginRegistry.registerGlobal("validate", ClosV(Runtime.emptyEnv, -1, env => {
+      val thunk  = env.last
+      val errors = collection.mutable.LinkedHashMap[V2Value, V2Value]()
+      _validateStack.get().push(errors)
+      val result = try thunk match
+        case c: ClosV => callClosure(c, Nil)
+        case v        => v
+      finally _validateStack.get().pop()
+      if errors.isEmpty then Done(DataV("Right", collection.immutable.ArraySeq(result)))
+      else Done(DataV("Left", collection.immutable.ArraySeq(ForeignV(errors))))
+    }))
+    V2PluginRegistry.registerGlobal("requireString", ClosV(Runtime.emptyEnv, 2, env => {
+      val n    = env.length
+      val req  = env(n - 2)
+      val name = env(n - 1) match { case StrV(s) => s; case v => v.toString }
+      Done(reqLookup(req, name) match
+        case Some(v) => StrV(v)
+        case None => recordError(name, s"missing field: $name"); StrV(""))
+    }))
+    V2PluginRegistry.registerGlobal("requireRange", ClosV(Runtime.emptyEnv, 4, env => {
+      val n    = env.length
+      val req  = env(n - 4)
+      val name = env(n - 3) match { case StrV(s) => s; case v => v.toString }
+      val min  = env(n - 2) match { case IntV(i) => i; case FloatV(d) => d.toLong; case _ => 0L }
+      val max  = env(n - 1) match { case IntV(i) => i; case FloatV(d) => d.toLong; case _ => 0L }
+      Done(reqLookup(req, name) match
+        case Some(v) =>
+          v.toLongOption match
+            case Some(r) if r >= min && r <= max => IntV(r)
+            case _ => recordError(name, s"out of range [$min..$max] for field: $name"); IntV(min)
+        case None => recordError(name, s"missing field: $name"); IntV(min))
+    }))
+    V2PluginRegistry.registerGlobal("requireRangeDouble", ClosV(Runtime.emptyEnv, 4, env => {
+      val n    = env.length
+      val req  = env(n - 4)
+      val name = env(n - 3) match { case StrV(s) => s; case v => v.toString }
+      val min  = env(n - 2) match { case FloatV(d) => d; case IntV(i) => i.toDouble; case _ => 0.0 }
+      val max  = env(n - 1) match { case FloatV(d) => d; case IntV(i) => i.toDouble; case _ => 0.0 }
+      Done(reqLookup(req, name) match
+        case Some(v) =>
+          v.toDoubleOption match
+            case Some(r) if r >= min && r <= max => FloatV(r)
+            case _ => recordError(name, s"out of range [$min..$max] for field: $name"); FloatV(min)
+        case None => recordError(name, s"missing field: $name"); FloatV(min))
+    }))
+    V2PluginRegistry.registerGlobal("requireOneOf", ClosV(Runtime.emptyEnv, 3, env => {
+      val n    = env.length
+      val req  = env(n - 3)
+      val name = env(n - 2) match { case StrV(s) => s; case v => v.toString }
+      val opts = {
+        val b = List.newBuilder[String]
+        var cur = env(n - 1); var go = true
+        while go do cur match
+          case DataV("Cons", IndexedSeq(StrV(s), t)) => b += s; cur = t
+          case _ => go = false
+        b.result()
+      }
+      Done(reqLookup(req, name) match
+        case Some(v) if opts.contains(v) => StrV(v)
+        case Some(v) =>
+          recordError(name, s"invalid value '$v' for field: $name, expected one of: ${opts.mkString(", ")}"); StrV("")
+        case None =>
+          recordError(name, s"missing field: $name"); StrV(""))
+    }))
 
   private def registerDecimalSupport(): Unit =
     import java.math.{BigDecimal => JBD, RoundingMode => JRM, MathContext}
