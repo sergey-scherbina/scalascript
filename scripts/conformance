@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Canonical, RAM-bounded conformance entrypoint.
+#
+# WHY: tests/conformance/run.sc spawns a subprocess PER CASE × 3 lanes (INT / JS / JVM), and the JVM
+# lane is a cold scala-cli Scala-3 compile each time. Run bare in ~15 parallel worktrees with uncapped
+# forked JVMs (no -Xmx → ~1/4-RAM default ≈ 9 GB ceiling each), the AGGREGATE saturates host RAM — it
+# blocked a co-tenant (rozum) GPU run and the daemons refill on the next `sbt`/`scala-cli` invocation.
+#
+# This wrapper is OPT-IN and ADDITIVE — it changes no build or runner behaviour. It just:
+#   1. bounds how many conformance runs execute AT ONCE across ALL worktrees (a portable, atomic
+#      mkdir-based counting semaphore in a shared dir), and
+#   2. caps the child JVM heap via JDK_JAVA_OPTIONS / JAVA_OPTS,
+# then runs the real conformance command, passing your args through.
+#
+# Usage:
+#   scripts/conformance                 # run the full corpus (tests/conformance/run.sc), guarded
+#   scripts/conformance <dir-or-args>   # args forwarded to run.sc (e.g. a single conformance dir)
+#   SSC_CONFORMANCE_MAX=2 scripts/conformance   # allow up to 2 concurrent runs (default: 1 = serialize)
+#   SSC_TEST_XMX=3g scripts/conformance         # cap child JVM heap (default: 4g)
+#   SSC_CONFORMANCE_NO_GUARD=1 scripts/conformance   # bypass the semaphore (heap cap still applies)
+#
+# The semaphore lives under a machine-shared dir so it bounds across worktrees, not per-checkout.
+set -euo pipefail
+
+# ── config ───────────────────────────────────────────────────────────────────
+MAX="${SSC_CONFORMANCE_MAX:-1}"                 # max concurrent conformance runs, host-wide
+XMX="${SSC_TEST_XMX:-4g}"                       # child JVM heap ceiling (was uncapped ≈ 9 GB default)
+WAIT_SECS="${SSC_CONFORMANCE_WAIT:-3600}"       # give up waiting for a slot after this long
+STALE_SECS="${SSC_CONFORMANCE_STALE:-7200}"     # reclaim a slot whose owner PID is dead / older than this
+SEM_DIR="${SSC_CONFORMANCE_SEMDIR:-${TMPDIR:-/tmp}/ssc-conformance-sem}"
+
+# Heap cap: forked test JVMs + scala-cli/scalac children read these. APPEND our `-Xmx` so it is the LAST
+# `-Xmx` on the line and therefore the one the JVM honours (last-wins) — this makes the cap win even when
+# an inherited JDK_JAVA_OPTIONS already carries a larger `-Xmx` (e.g. a 12g from the shell/CI env).
+export JDK_JAVA_OPTIONS="${JDK_JAVA_OPTIONS:-} -Xmx${XMX}"
+export JAVA_OPTS="${JAVA_OPTS:-} -Xmx${XMX}"
+
+# ── the real conformance command ──────────────────────────────────────────────
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Runs the real conformance command as a CHILD (never `exec` — exec replaces the process image and drops
+# the EXIT trap, leaking the semaphore slot). Returns the command's exit code; the EXIT trap then frees
+# the slot. SSC_CONFORMANCE_CMD overrides the runner (used by the self-test; default = scala-cli harness).
+run_conformance() {
+  if [ -n "${SSC_CONFORMANCE_CMD:-}" ]; then
+    bash -c "$SSC_CONFORMANCE_CMD" _ "$@"
+  elif [ -f "$here/tests/conformance/run.sc" ]; then
+    scala-cli "$here/tests/conformance/run.sc" "$@"
+  else
+    sbt "backendConformance/test"   # fallback: the sbt conformance project
+  fi
+}
+
+# ── portable counting semaphore (atomic mkdir slot claim; works on macOS, no flock) ───────────────
+release() { [ -n "${SLOT:-}" ] && rm -rf "$SLOT" 2>/dev/null || true; }
+
+acquire() {
+  [ "${SSC_CONFORMANCE_NO_GUARD:-0}" = 1 ] && return 0
+  mkdir -p "$SEM_DIR" 2>/dev/null || true
+  local deadline=$(( SECONDS + WAIT_SECS ))
+  while :; do
+    # reap stale slots: owner PID dead, or dir older than STALE_SECS
+    for s in "$SEM_DIR"/slot.*; do
+      [ -d "$s" ] || continue
+      local owner; owner="$(cat "$s/pid" 2>/dev/null || echo 0)"
+      local age=99999999; local mt; mt="$(stat -f %m "$s" 2>/dev/null || echo 0)"
+      [ "$mt" != 0 ] && age=$(( $(date +%s) - mt ))
+      if { [ "$owner" != 0 ] && ! kill -0 "$owner" 2>/dev/null; } || [ "$age" -gt "$STALE_SECS" ]; then
+        rm -rf "$s" 2>/dev/null || true
+      fi
+    done
+    # try to claim a free slot 0..MAX-1
+    local i=0
+    while [ "$i" -lt "$MAX" ]; do
+      if mkdir "$SEM_DIR/slot.$i" 2>/dev/null; then
+        SLOT="$SEM_DIR/slot.$i"; echo "$$" > "$SLOT/pid"; trap release EXIT INT TERM
+        return 0
+      fi
+      i=$(( i + 1 ))
+    done
+    [ "$SECONDS" -ge "$deadline" ] && { echo "conformance: waited ${WAIT_SECS}s for a free slot (MAX=$MAX), giving up" >&2; exit 75; }
+    echo "conformance: $MAX run(s) already active host-wide — waiting for a slot…" >&2
+    sleep 5
+  done
+}
+
+acquire
+echo "conformance: slot acquired (MAX=$MAX, heap≤$XMX) — running…" >&2
+run_conformance "$@"
