@@ -28,21 +28,21 @@ Remaining 21 batch fails, classified:
 
 ### Build-perf wave 2 (2026-07-06, Sergiy: "зроби усе що можеш")
 
-- [ ] **bp2-1 agents-workflow-banner**: AGENTS.md top-of-file THE WORKFLOW section
+- [x] **bp2-1 agents-workflow-banner**: AGENTS.md top-of-file THE WORKFLOW section
       (plan→sprint, worktree, claim, push-to-main, cleanup). (this commit)
-- [ ] **bp2-2 f4-batch-runner**: `ssc run-batch --delim <s> <files…>` (one JVM runs many
+- [x] **bp2-2 f4-batch-runner** — DONE (run-batch cmd; INT one-JVM, JS one-emit-JVM; identical results batched vs not on 22 cases; 6-case slice 36.1->15.2s with warm JVM lane default): `ssc run-batch --delim <s> <files…>` (one JVM runs many
       cases, delimiter-separated output) + run.sc uses it for the INT lane (one JVM instead
       of 193); JS lane: emit all sources in the same batch JVM, execute per-case in ONE
       node process via vm contexts. Measure before/after on a 20-case slice.
-- [ ] **bp2-3 env-heap-cleanup**: remove -Xmx12g from JDK_JAVA_OPTIONS in ~/.zshenv
+- [x] **bp2-3 env-heap-cleanup** — DONE (-Xmx12g removed from ~/.zshenv, backup kept): remove -Xmx12g from JDK_JAVA_OPTIONS in ~/.zshenv
       (backup kept); build-level heaps are explicit since bp-1.
-- [ ] **bp2-4 ci-test-shard**: split the CI `sbt test` job into parallel matrix shards
+- [ ] **bp2-4 ci-test-shard** — DEFERRED with verdict: hand-partitioning 259 modules is brittle and untestable locally; bp-5 classes-cache + pipelining (-25%) already cut CI compile; revisit only if CI wall-time still hurts after those land: split the CI `sbt test` job into parallel matrix shards
       by module groups.
-- [ ] **bp2-5 pipelining-measure**: one clean-compile A/B timing for usePipelining
+- [x] **bp2-5 pipelining-measure** — MEASURED: clean cli-chain compile 34.5s WITH vs 46.3s WITHOUT usePipelining (-25% wall, CPU util 745% vs 577%); flag stays ON: one clean-compile A/B timing for usePipelining
       (document the number; revert flag if it turns out negative).
-- [ ] **bp2-6 exportjars-scope (investigate)**: measure whether ThisBuild/exportJars
+- [x] **bp2-6 exportjars-scope** — INVESTIGATED, NO CHANGE: warm touch-recompile loop through the 20-module chain is 13.2s with jars; toggling the flag invalidates zinc (A/B misleading); jar packaging is not the dominant term: measure whether ThisBuild/exportJars
       actually costs in the dev loop; scope or document.
-- [ ] **bp2-7 worktree-warm-targets (investigate)**: zinc analysis stores absolute
+- [x] **bp2-7 worktree-warm-targets** — INVESTIGATED, NEGATIVE: zinc analysis is absolute-path-bound — copied targets recompile anyway (57 modules, 34s = same as cold-with-pipelining). New-worktree cold cost is acceptable post-pipelining; do NOT build target-copying: zinc analysis stores absolute
       paths — verify whether target-copy into a new worktree survives; document verdict.
 
 ### Build-perf + conformance-perf sprint (2026-07-06, Sergiy directive: "запиши у спринт і зроби")
