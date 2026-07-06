@@ -309,6 +309,26 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
         environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
         runtime + network bridging; a sibling/env concern, deliberately deferred here.
+### ▶▶ v2-replaces-v1 — remaining work to close the true output-parity gap (2026-07-06)
+
+TRUE parity is **11/47 ≈ 23%** (not the exit-0 96%), per `v2/output-parity-baseline.md`. Roadmap to raise it,
+prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parity --all` after `sbt installBin`.
+
+- [~] **v2-main-entry** (`feature/v2-main-entry`, holds FrontendBridge) — **HIGH LEVERAGE, IN PROGRESS.**
+  - [x] v2 now invokes user `def main()` — was skipped because the html `<main>` tag plugin-global shadowed
+    it (FrontendBridge:784 collision-skip); excepted `main`. `def main()=println(x)` now runs on v2. Fixes
+    every `def main()`-entry program that had ONLY the entry-invocation bug.
+  - [ ] `default-params` still empty after the main() fix — a SECOND issue in richer default-arg forms
+    (param-referencing default `by = x + 1`, case-class + enum-case defaults). Diagnose + fix next.
+- [ ] **real v2-only V2-ERROR gaps** (v1 works, v2 empty) beyond default-params: `content-form-submit`,
+  `content-live-rows`, `content-slot`, `ui-fetch-json` (FrontendBridge parser: `'=>' expected but '('`),
+  `ui-remote-table`, `graph-codecs`, `typed-object-codec` (codec/derives), `object-store-jdbc`,
+  `spark-schema-mapping` (Op-execution — sibling `corpus-tails`), `uuid-v7` (uuid native, non-det).
+- [ ] **17 mismatches** — SQL/Spark/content/rails `Stub`/`Op` (sibling corpus-tails), effects shape,
+  derives/mirror (`String|Int`→`Any|Any`), quoted macros (`TermSplicedMacroExprImpl`), `validate` language form.
+- Coordination: `PluginBridge` html-dsl/rest-validate is claude-sonnet-4-6 (`v2-conf-pure-gated`); Op-execution
+  is `corpus-tails`. I own FrontendBridge entry/parser/derives + the harness.
+
 - [~] **v2-plugin-native-registration** (Option B — split from `v2-corpus-tails`; holds `PluginBridge.scala`) —
       register plugin natives the PluginBridge ServiceLoader loop skips (`BuiltinsRuntime` builtins /
       `RuntimeCall` / `InlineCode`) so `unbound global` examples run on v2.

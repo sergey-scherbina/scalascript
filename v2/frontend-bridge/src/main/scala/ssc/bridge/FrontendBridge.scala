@@ -781,8 +781,11 @@ object FrontendBridge:
     }).flatten.toSet
 
     stats.foreach {
-      case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) =>
+      case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) && d.name.value != "main" =>
         () // Plugin already provides this def (with default-param support); don't shadow it.
+        // EXCEPTION: `main` — the plugin registers an html <main> tag global, but a user `def main`
+        // is the program ENTRY (invoked below), so it must win over the tag. Without this, a
+        // `def main()` program runs nothing and renders `_Raw("<main></main>")` instead.
       case d: Defn.Def =>
         // Context bounds `[A: TC]` → prepend a `__tc_TC` dictionary param;
         // summon[TC[A]] in the body resolves to it (see the summon case), and
