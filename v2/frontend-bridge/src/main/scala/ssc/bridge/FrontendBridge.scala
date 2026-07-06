@@ -1706,6 +1706,13 @@ object FrontendBridge:
             case Pat.Var(Term.Name(n)) if isCtorName(n) => true
             case _ => false
           }
+        // `(a, b) :: rest` — a TUPLE (or nested ctor/literal) in the HEAD of a
+        // cons pattern: convertPat flattens the head to "_" losing the bindings;
+        // only the general chain extracts them (pipelineReport's stage loop).
+        case Pat.ExtractInfix.After_4_6_0(h, Term.Name("::"), _) =>
+          h match
+            case _: Pat.Tuple | _: Pat.Extract | _: Lit => true
+            case _ => false
         // Tuple with nested non-variable sub-patterns (e.g. `(x :: xs, y :: ys)`) needs
         // general if-chain so flattenPattern can recursively extract the sub-bindings.
         case Pat.Tuple(pats) =>

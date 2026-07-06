@@ -1510,6 +1510,10 @@ object Prims:
         }
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
+        case (StrV(s), "forall", List(fn: Value.ClosV)) =>
+          BoolV(s.forall(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+        case (StrV(s), "exists", List(fn: Value.ClosV)) =>
+          BoolV(s.exists(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
         case (StrV(s), "endsWith", List(StrV(sfx)))   => BoolV(s.endsWith(sfx))
         case (StrV(s), "take", List(IntV(n)))            => StrV(s.take(n.toInt))
         case (StrV(s), "drop", List(IntV(n)))            => StrV(s.drop(n.toInt))
@@ -1896,6 +1900,13 @@ object Prims:
     Runtime.run(k.code, Runtime.extend(k.env, Array(arg)))
 
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
+    // Char semantics: bridge char literals are Int codepoints, while chars
+    // extracted from strings (charAt/forall) are 1-char strings — comparisons
+    // between the two compare codepoints (c >= 'a' in parser predicates).
+    case (StrV(s), IntV(n)) if s.length == 1 && Set("<", "<=", ">", ">=", "==", "!=").contains(op) =>
+      arithOp(op, IntV(s.charAt(0).toLong), IntV(n))
+    case (IntV(n), StrV(s)) if s.length == 1 && Set("<", "<=", ">", ">=", "==", "!=").contains(op) =>
+      arithOp(op, IntV(n), IntV(s.charAt(0).toLong))
     // Free-monad lifting (see methodOp): x + y where x or y is an effect Op
     case (DataV("Op", IndexedSeq(lb, a, k)), _) =>
       val k2 = ClosV(Array[Value](k), 1, env2 =>
