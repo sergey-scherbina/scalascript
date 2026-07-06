@@ -22,7 +22,12 @@ cd "$(dirname "$0")/.."
 # Curated pure-language sample (no network/threads/frontend) if no files are given.
 DEFAULT=(examples/bitwise-operators.ssc examples/custom-derives-mirror.ssc examples/hello.ssc
          examples/graph-codecs.ssc examples/content-linked-namespaces.ssc examples/algebraic-effects.ssc)
-FILES=("$@"); [ ${#FILES[@]} -eq 0 ] && FILES=("${DEFAULT[@]}")
+# `--all`: the WHOLE examples/ corpus (server/actor/dataset ones are auto-skipped, they never terminate).
+if [ "${1:-}" = "--all" ]; then FILES=(examples/*.ssc)
+else FILES=("$@"); [ ${#FILES[@]} -eq 0 ] && FILES=("${DEFAULT[@]}"); fi
+
+# Programs that spin a server / spawn actors / stream infinite datasets don't terminate — skip (don't stall).
+SKIP_RE='serve|listen|WebServer|route\(|spawn|actor|await|socket|dataset|distributed|cluster|websocket|\btui\b|@main|Thread\b|async'
 
 # Run one program on one backend, returning only its stdout (strip sbt/JVM noise).
 # Each run is bounded by $PARITY_TIMEOUT seconds so a server/actor example can't stall the sweep.
@@ -37,11 +42,14 @@ run_one() { # $1=file  $2=extra-flag(--v2 or empty)
   fi
 }
 
-match=0; mismatch=0; err=0
+match=0; mismatch=0; err=0; skip=0
 printf '%-38s %s\n' "EXAMPLE" "PARITY"
 printf '%-38s %s\n' "-------" "------"
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }
+  if [ "${1:-}" = "--all" ] && grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then
+    skip=$((skip+1)); continue   # server/actor/dataset — never terminates, excluded from the ratio
+  fi
   v1=$(run_one "$f" "");     v2=$(run_one "$f" "--v2")
   name=$(basename "$f")
   if [ -z "$v2" ] && [ -n "$v1" ]; then
@@ -55,6 +63,7 @@ for f in "${FILES[@]}"; do
 done
 
 total=${#FILES[@]}
+ran=$((match + mismatch + err))
 echo
-echo "parity: $match/$total identical · $mismatch mismatch · $err v2-error"
+echo "parity: $match/$ran identical · $mismatch mismatch · $err v2-error   (of $total total; $skip skipped as server/actor/dataset)"
 [ $((mismatch + err)) -eq 0 ]

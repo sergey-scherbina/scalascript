@@ -64,4 +64,23 @@ and true output-equality measure different things — corpus-tails work should a
 
 The `unbound global` ones (`uuidV7`/`mkdirs`/`ws`) are the same class as the webauthn/html-dsl plugin-gating:
 their natives are `InlineCode`/`RuntimeCall` or interpreter-builtins that the PluginBridge ServiceLoader
-loop skips — register them in `PluginBridge`.
+loop skips — register them in `PluginBridge`. (`mkdirs` + the fs builtins are now bridged — 2026-07-06.)
+
+## Full corpus (`--all`) — 2026-07-06, authoritative number
+
+`SSC="bin/ssc" scripts/v2-output-parity --all` over all **193** examples (server/actor/dataset programs that
+never terminate are auto-skipped):
+
+| | count |
+|---|---|
+| runnable (terminating) | **63** |
+| ✅ output-identical | **30 / 63 = 48%** |
+| ❌ mismatch | 22 |
+| ⚠️ v2-error | 11 |
+| skipped (server/actor/dataset) | 130 |
+
+**The real "does v2 replace v1?" answer: ~48% of runnable examples produce v1-identical output** — vs the
+96.4% exit-0 coverage. `fs-roundtrip` is now ✅ (fs builtins bridged). The dominant remaining gap is still
+plugin natives returning `Stub`/`Op` (SQL/Spark/content/rails) plus effects shape, derives/mirror, quoted
+macros, and the `validate` language form. The 130 skipped need a terminating harness (server-with-timeout,
+bounded actor runs) to be measured — future work.

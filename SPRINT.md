@@ -287,7 +287,10 @@ Phase 3 (CLI switch) is gated on this entire track completing.
         `validate {}` is a language special form (EvalRuntime/Typer special-case) → needs FrontendBridge
         desugaring; html-dsl needs the `attr` DSL + `renderTag` port; `uuidV7` is non-deterministic (no parity
         win). PluginBridge released after this — corpus-tails may resume it.
-- [ ] **v2-output-parity-full-corpus** (Option C — next) — extend `scripts/v2-output-parity` to the full 193
+- [x] **v2-output-parity-full-corpus** (Option C) DONE 2026-07-06 — `scripts/v2-output-parity --all` sweeps all 193
+      examples (auto-skips 130 server/actor/dataset). **Authoritative: 30/63 = 48% output-identical** (22 mismatch,
+      11 v2-error). See `v2/output-parity-baseline.md`. The real "does v2 replace v1?" number vs 96.4% exit-0.
+- [ ] **~~v2-output-parity-full-corpus~~ (superseded)** — extend `scripts/v2-output-parity` to the full 193
       examples with server/actor timeout handling for the authoritative "N/193 output-identical" number
       (current sample: 28/52 terminating). Does NOT touch PluginBridge.
 - [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —
