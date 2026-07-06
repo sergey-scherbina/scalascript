@@ -1,8 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/v2-foldlt-double
-worktree: ../scalascript-wt-foldbug
-started: 2026-07-06T08:37:43Z
-heartbeat: 2026-07-06T08:37:43Z
-status: in-progress
-exclusive-files: v2/src/Runtime.scala
-task: v2-foldlt-double — FIX: tryFBc comparison fast-path uses tryFLC (unboxed Long) without a flcProvablyLong guard; a Local holding a FloatV reads as 0L (tryFLC Local case), so Double comparisons inside a JIT'd fold lambda always return false -> foldLeft over Doubles returns the last element (min/max broken, examples/imports). Guard the fast path with flcProvablyLong; non-provably-Long operands fall back to the general Double-aware comparison. Holding v2/src/Runtime.scala.
