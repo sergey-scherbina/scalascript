@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/workflow-polish
-worktree: ../scalascript-wt-wfpolish
-started: 2026-07-06
-status: in-progress
-task: ws-1 workflow step 4b (conformance before push); ws-2 nightly stale-builder sanitizer cron
