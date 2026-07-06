@@ -117,6 +117,18 @@ true v1→v2 gap.
 - **user def wins over ALL html tag globals** (main/label/title/form/table/…), generalizing the above. (data-types ✅)
 - **Mirror.elemTypes uses real field types** (String/Int) not hardcoded `Any`. (custom-derives-mirror ✅)
 
+
+### BREAKTHROUGH 2026-07-06 — most "v2-errors" were a bin/ssc PACKAGING artifact, not v2 gaps
+
+`ssc run --v2` on `bin/ssc` could not load ANY plugin native (`signal`/`element`/…): the launcher keeps
+plugin jars off the startup classpath (they ship as `.sscpkg`, lazy-loaded for v1), but `PluginBridge.loadAll`
+finds Backends via ServiceLoader on the classpath. So all 10 output-parity "v2-errors" were this artifact —
+the SAME programs run fine on the full classpath (bridgeCli). Fixed in `RunV2` (extract each `.sscpkg`
+intrinsics jar into a URLClassLoader before `loadAll`). Result: **parity 16/46 → 21/47 (35% → 45%)**, v2-error
+10 → 4. Session total: **11/47 → 21/47 (23% → 45%)**. Remaining 4 v2-errors (graph-codecs / typed-object-codec /
+object-store-jdbc / spark-schema-mapping) are source-dump measurement artifacts or opt-in (`plugin-available`)
+plugins; the 14 mismatches are the real engine gaps (effects shape, SQL/Spark `Stub`/`Op`, content, macros).
+
 ### HIGH-VALUE VM bug — foldLeft with a conditional lambda over Doubles (3+ elems) returns the last element
 
 `List(4.0,1.0,10.0).foldLeft(99.0)((a,b) => if a<b then a else b)` → v2 gives **10** (last element), v1 gives
