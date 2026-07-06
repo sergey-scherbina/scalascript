@@ -1202,9 +1202,10 @@ object FrontendBridge:
           typeSig match
             case mirrorTypePat(className) if fieldRegistry.contains(className) =>
               val fields    = fieldRegistry(className)
+              val types     = fieldTypeRegistry.getOrElse(className, Vector.fill(fields.length)("Any"))
               val labelLit  = CT.Lit(Const.CStr(className))
               val elemLbls  = listOf(fields.map(f => CT.Lit(Const.CStr(f))).toList)
-              val elemTypes = listOf(fields.map(_ => CT.Lit(Const.CStr("Any"))).toList)
+              val elemTypes = listOf(types.map(t => CT.Lit(Const.CStr(t))).toList)  // real field types (String, Int…), not "Any"
               CT.Ctor("Mirror", List(labelLit, elemLbls, elemTypes))
             case _ =>
               CT.App(CT.Global("__unsupported__"), List(CT.Lit(Const.CStr(s"summon[$typeSig]"))))
@@ -2133,12 +2134,13 @@ object FrontendBridge:
    *  The mirror is built from the class's field registry. */
   private def makeDerivedGeneralCDef(className: String, tcName: String): Option[CDef] =
     val fields = fieldRegistry.getOrElse(className, return None).toList
+    val types  = fieldTypeRegistry.getOrElse(className, Vector.fill(fields.length)("Any")).toList
     val genName = s"__${tcName.toLowerCase}_${className}__"
     givenRegistry(s"$tcName[$className]") = genName
     val mirror = CT.Ctor("Mirror", List(
       CT.Lit(Const.CStr(className)),
       fields.foldRight(CT.Ctor("Nil", Nil): CT)((f, acc) => CT.Ctor("Cons", List(CT.Lit(Const.CStr(f)), acc))),
-      fields.foldRight(CT.Ctor("Nil", Nil): CT)((_, acc) => CT.Ctor("Cons", List(CT.Lit(Const.CStr("Any")), acc)))
+      types.foldRight(CT.Ctor("Nil", Nil): CT)((t, acc) => CT.Ctor("Cons", List(CT.Lit(Const.CStr(t)), acc)))  // real field types, not "Any"
     ))
     // Call Tc.derived(mirror) — compiled as __method__("derived", TcCompanion, mirror)
     Some(CDef(genName, CT.Prim("__method__", List(CT.Lit(Const.CStr("derived")), CT.Global(tcName), mirror))))
