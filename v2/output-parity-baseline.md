@@ -40,3 +40,28 @@ terminating examples produce v1-identical output on v2.
 
 So the honest semantic parity is ≈ 27 exact + 2 v2-fine ≈ **29/52 (~56%)** — still far below the exit-0 96%.
 Biggest lever by count: execute the SQL/Spark/content plugin natives on v2 instead of returning `Stub`/`Op`.
+
+## Re-measure — 2026-07-06 (after T4.4 conformance 22→59/59 GREEN + batch 144→154/193)
+
+Re-ran the identical sweep on a fresh `bin/ssc` built from origin/main **after** the sibling's T4.4 wave-7/8
++ corpus fixes landed. Result: **27/52 identical** (15 mismatch, 10 v2-error) — **unchanged**.
+**Key insight:** the conformance suite hitting 59/59 green and the batch corpus reaching 154/193 (exit-0) did
+NOT move the real `examples/` output-parity. The team's current gates (conformance-suite + exit-0 batch)
+and true output-equality measure different things — corpus-tails work should also be gated on this harness.
+(One regression: `fs-roundtrip` MATCH → v2-error, `unbound global: mkdirs`.)
+
+### v2-error root causes (diagnosed via `bin/ssc run --v2`, for the `v2-corpus-tails` owner)
+
+| example | root cause | category |
+|---|---|---|
+| `uuid-v7` | `unbound global: uuidV7` | plugin native not bridged (uuidPlugin) |
+| `fs-roundtrip` | `unbound global: mkdirs` | plugin native not bridged (fsPlugin) — REGRESSION |
+| `dsl-calc-parser` | `unbound global: ws` | parser-combinator std fn unbound |
+| `ui-fetch-json` | parse error `<input>:334: '=>' expected but '(' found` | v2 frontend parser gap |
+| `index` | `requirement failed: /hello is not a relative path` | bridge path handling (abs vs rel) |
+| `default-params` | empty output (no exception) | default-param exprs not evaluated |
+| `graph-codecs`, `object-store-jdbc`, `spark-schema-mapping`, `typed-object-codec` | empty output | plugin natives (jdbc/spark/codec) silently not executed |
+
+The `unbound global` ones (`uuidV7`/`mkdirs`/`ws`) are the same class as the webauthn/html-dsl plugin-gating:
+their natives are `InlineCode`/`RuntimeCall` or interpreter-builtins that the PluginBridge ServiceLoader
+loop skips — register them in `PluginBridge`.

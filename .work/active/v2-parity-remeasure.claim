@@ -1,7 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/v2-parity-remeasure
-worktree: ../scalascript-wt-remeasure
-started: 2026-07-06T05:47:39Z
-heartbeat: 2026-07-06T05:47:39Z
-status: in-progress
-task: v2-parity-remeasure — re-run scripts/v2-output-parity on the 52 terminating examples after the sibling's T4.4 wave7-8 + corpus-tails fixes; update v2/output-parity-baseline.md with the new number vs the 27/52 baseline. Measurement only (no engine edits) — does NOT touch v2-corpus-tails files.

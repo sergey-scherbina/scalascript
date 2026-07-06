@@ -266,6 +266,11 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 - [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —
       runs each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diffs stdout → per-example MATCH/
       MISMATCH/V2-ERROR + parity %. Point `$SSC` at an assembled `ssc` for a fast full-corpus run.
+      **RE-MEASURE 2026-07-06 — still 27/52** after conformance 22→59/59 GREEN + batch 144→154/193: the
+      conformance/exit-0 gates did NOT move real `examples/` output-parity. `v2/output-parity-baseline.md`
+      now has per-example v2-error ROOT CAUSES for the `v2-corpus-tails` owner (unbound `uuidV7`/`mkdirs`/`ws`
+      plugin natives; `ui-fetch-json` parser gap; `index` path bug; default-params + jdbc/spark silent-empty).
+      Suggest gating corpus-tails on this harness, not just exit-0/conformance.
       **FULL SWEEP 2026-07-05 — 52 terminating examples: 27/52 = 52% output-identical** (16 mismatch,
       9 v2-error). Details + divergence clusters in `v2/output-parity-baseline.md`. The exit-0 coverage
       (96.4%) massively overstates real compat. Biggest lever: SQL/Spark/content/rails plugin natives return
