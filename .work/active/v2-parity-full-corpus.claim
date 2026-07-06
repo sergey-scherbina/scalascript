@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/v2-parity-full
+worktree: ../scalascript-wt-fullparity
+started: 2026-07-06T06:28:02Z
+heartbeat: 2026-07-06T06:28:02Z
+status: in-progress
+task: v2-parity-full-corpus (Option C) — extend scripts/v2-output-parity to the FULL 193 examples/ corpus with server/actor-safe timeouts + skip-list, run it, record the authoritative N/193 output-identical number. Script-only; does NOT touch PluginBridge or engine files.
