@@ -18,6 +18,10 @@ Every piece of work, always, in this order:
 4. **Push each finished piece straight to `origin/main`**
    (`git push origin <branch>:main`, rebase on rejection) — small commits,
    feature and docs/bookkeeping separated. Verify (suite/corpus) BEFORE the push.
+   4b. **Conformance before push**: run the affected slice —
+   `scala-cli tests/conformance/run.sc -- --only '<globs>'` (memoized green runs
+   skip; warm JVM lane is the default). It costs seconds now, so a push without
+   at least the affected-slice run is not acceptable. Full corpus stays for CI.
 5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
    (kills the worktree's build daemons too).
 

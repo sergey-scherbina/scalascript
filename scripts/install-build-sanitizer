@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# install-build-sanitizer — idempotently install a NIGHTLY job that stops
+# orphaned sbt/bloop daemons (a build server whose worktree is gone holds
+# 2-3 GB RSS; see scripts/kill-stale-builders).
+#
+# macOS: a user LaunchAgent (~/Library/LaunchAgents) — crontab on modern macOS
+# trips TCC permission prompts and can hang non-interactive shells.
+# Linux: a crontab entry.
+# Runs daily at 03:00, log: /tmp/kill-stale-builders.log. Re-run to replace.
+set -euo pipefail
+MAIN=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
+[ -n "$MAIN" ] || { echo "run from inside the repo" >&2; exit 1; }
+# Install a COPY of the sanitizer to ~/.local/bin: the repo checkout can be on
+# any branch (or mid-rebase) at 03:00 — the job must not depend on it.
+mkdir -p "$HOME/.local/bin"
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cp "$SRC_DIR/kill-stale-builders" "$HOME/.local/bin/kill-stale-builders"
+chmod +x "$HOME/.local/bin/kill-stale-builders"
+SCRIPT="$HOME/.local/bin/kill-stale-builders"
+
+if [ "$(uname)" = "Darwin" ]; then
+  LABEL="io.scalascript.kill-stale-builders"
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$PLIST" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>$SCRIPT</string><string>--kill</string>
+  </array>
+  <key>StartCalendarInterval</key><dict>
+    <key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key><string>/tmp/kill-stale-builders.log</string>
+  <key>StandardErrorPath</key><string>/tmp/kill-stale-builders.log</string>
+</dict></plist>
+PL
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$PLIST"
+  echo "installed LaunchAgent $LABEL (daily 03:00): $PLIST"
+else
+  CMD="0 3 * * * $SCRIPT --kill >> /tmp/kill-stale-builders.log 2>&1"
+  current=$(crontab -l 2>/dev/null | grep -v "kill-stale-builders" || true)
+  printf '%s\n%s\n' "$current" "$CMD" | sed '/^$/d' | crontab -
+  echo "installed crontab entry"
+fi

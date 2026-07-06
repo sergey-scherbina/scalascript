@@ -26,6 +26,14 @@ Remaining 21 batch fails, classified:
 
 ## Active tasks
 
+### Workflow polish (2026-07-06, Sergiy approved proposals 1-2)
+
+- [x] **ws-1 workflow-verify-step**: THE WORKFLOW gains step 4b — run the affected
+      conformance slice (`run.sc --only`) before every push; now cheap enough to require.
+- [x] **ws-2 nightly-sanitizer** — installed (LaunchAgent io.scalascript.kill-stale-builders, daily 03:00, script copied to ~/.local/bin so any repo branch state is fine; kickstart-verified exit 0): scripts/install-build-sanitizer (idempotent crontab
+      entry, 03:00 daily `kill-stale-builders --kill`) + installed on this host.
+
+
 ### Build-perf wave 2 (2026-07-06, Sergiy: "зроби усе що можеш")
 
 - [x] **bp2-1 agents-workflow-banner**: AGENTS.md top-of-file THE WORKFLOW section
