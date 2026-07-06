@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/build-conformance-perf
-worktree: ../scalascript-wt-buildperf
-started: 2026-07-06
-status: in-progress
-task: build-perf (bp-1..bp-6) + conformance-perf (cp-1..cp-3) sprint
