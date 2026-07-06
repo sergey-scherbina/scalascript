@@ -45,6 +45,27 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       gotcha, not a backend bug. Low priority since the `check.sh` conformance harness uses direct
       redirects.
 
+## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
+
+The conformance suite is expensive: `tests/conformance/run.sc` spawns a subprocess per case × 3 lanes
+(INT/JS/JVM), the JVM lane a **cold scala-cli Scala-3 compile each time**; run bare in ~15 parallel
+worktrees with uncapped forked test JVMs the aggregate saturates host RAM (it starved a co-tenant rozum
+GPU run). Shipped: `scripts/conformance` (opt-in, additive) bounds concurrent runs host-wide + caps child
+JVM heap — adopt it as the default conformance command (README updated). Remaining, ordered by value —
+each needs scala-cli to implement + verify, so an owning ScalaScript agent should claim it:
+
+- [ ] **conformance-affected-only** — `run.sc --only <glob|files>` (+ a change→case index) so the
+  fix→test loop runs just the touched cases, not the full 193. BIGGEST iteration-speed win and it's the
+  agents' OWN loop that speeds up. Full corpus stays for CI. (specs/conformance-perf.md F1)
+- [ ] **conformance-memoize** — skip a case whose `(input .ssc, ssc/compiler version, expected)` hash is
+  unchanged since the last green run. (F2)
+- [ ] **conformance-warm-runner** — replace cold fork-per-run with a resident warm JVM (compiler loaded +
+  JIT-warmed); reuse one warm compiler for the JVM lane instead of a cold scala-cli compile per case;
+  `conformance / Test / fork := false` if pure. (F3/F4)
+- [ ] **conformance-test-heap-default** — give forked test JVMs a sane env-gated default `-Xmx` in
+  `build.sbt` (currently uncapped → ~9 GB default) instead of relying on the wrapper. Measure real peak
+  first. (L1)
+
 ## Crypto/finance roadmap — later epics (2026-06-23, with Sergiy)
 
 The larger / later items of the crypto/blockchain/identity/payments roadmap. Near-term codeable slices are in

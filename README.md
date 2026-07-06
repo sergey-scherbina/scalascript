@@ -628,9 +628,14 @@ scala-cli e2e/rest-smoke.sc
 ## Conformance Suite
 
 Cross-backend tests that verify JVM interpreter and JS transpiler produce identical output.
-Run with:
+
+Run through the **RAM-bounded wrapper** (recommended) — it bounds how many conformance runs execute at
+once host-wide and caps the child JVM heap, so parallel worktrees don't saturate the machine (see
+`specs/conformance-perf.md`):
 
 ```bash
+scripts/conformance                 # recommended (guarded); forwards args to run.sc
+# or, unguarded:
 scala-cli conformance/run.sc
 ```
 
