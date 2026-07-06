@@ -536,10 +536,14 @@ object FrontendBridge:
             val rel = m.group(2)
             // Only file imports: markdown links ([buy](/buy)) and package-registry
             // refs ([a, b](pkg:ns/name:1.0)) are NOT import directives to resolve.
-            // Reject absolute markdown links (/buy) and pkg-registry/url refs;
-            // allow .ssc files AND directory imports (resolved to index.ssc).
+            // Import paths: .ssc/.ssc0 files, or extensionless DIRECTORY imports
+            // (resolved to index.ssc). Reject absolute markdown links (/buy),
+            // pkg-registry refs, urls, and anything with spaces or foreign
+            // extensions (README.md etc. are prose links, not imports).
+            val base = rel.split("/").last
             if !rel.startsWith("/") && !rel.startsWith("pkg:") && !rel.contains("://")
-               && !rel.contains(" ") then
+               && !rel.contains(" ")
+               && (rel.endsWith(".ssc") || rel.endsWith(".ssc0") || !base.contains(".")) then
             resolveStdPathWithFile(rel, dir).foreach { case (content, resolvedFile) =>
               val key = resolvedFile.getCanonicalPath
               if seen.add(key) then
