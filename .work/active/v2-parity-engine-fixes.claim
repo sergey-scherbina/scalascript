@@ -1,0 +1,7 @@
+agent: claude-opus-4-8
+branch: feature/v2-parity-fixes
+worktree: ../scalascript-wt-pfix
+started: 2026-07-06T07:07:52Z
+heartbeat: 2026-07-06T07:07:52Z
+status: in-progress
+task: v2-parity-engine-fixes — raise real output-parity (48%) by fixing the biggest clusters from output-parity-baseline.md: SQL/plugin Op-not-executed (sql-*, jdbc), then isolated v2-errors (default-params, index path, dsl-calc-parser ws, ui-fetch-json parser). Holding FrontendBridge.scala + PluginBridge.scala for this. Verified via bin/ssc --v2 + scripts/v2-output-parity.
