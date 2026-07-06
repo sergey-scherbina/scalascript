@@ -1429,6 +1429,15 @@ object Prims:
             V2PluginRegistry.lookup("actor.send") match
               case Some(sendFn) => sendFn(List(lv, rv))
               case None => UnitV  // actor runtime not loaded
+          case ":=" =>
+            // HTML attr-key assignment: attrKey := value → DataV("Attr", [name, value])
+            lv match
+              case ForeignV(obj: NamedMethodObj) =>
+                obj.getField(":=") match
+                  case Some(fn: ClosV) => Runtime.run(fn.code, Runtime.extend(fn.env, Array(rv)))
+                  case Some(v) => v
+                  case None    => UnitV
+              case _ => UnitV
           case _    =>
             // Unknown operator with non-numeric types: treat as a declaration-style statement
             // (e.g. `effect Logger:` compiles to __arith__("Logger", effectClosure, ()) in v2)
@@ -1597,13 +1606,26 @@ object Prims:
         case (DataV("Cons", f), "tail", Nil) => f(1)
         case (DataV("Nil", _), "tail", Nil)  => sys.error("tail on empty list")
         // ── List HOFs (DataV Cons/Nil linked list) ──────────────────────────────
+        // Tuple-spreading: a multi-param lambda `(a, b) => …` on a list of tuples
+        // gets called with the tuple fields spread as separate args.
         case (ls, "map", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).map(x => callClos(fn, Array(x))))
+          listOf(unlist(ls).map { x =>
+            if fn.arity > 1 then x match
+              case DataV(tag, fs) if tag.startsWith("Tuple") && fs.length == fn.arity =>
+                callClos(fn, fs.toArray)
+              case _ => callClos(fn, Array(x))
+            else callClos(fn, Array(x))
+          })
         case (ls, "flatMap", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).flatMap { x =>
-            callClos(fn, Array(x)) match
-              case r @ (DataV("Cons", _) | DataV("Nil", _)) => unlist(r)
-              case scalar => List(scalar)  // v1: multishot resume yields the plain body value
+            val r = if fn.arity > 1 then x match
+              case DataV(tag, fs) if tag.startsWith("Tuple") && fs.length == fn.arity =>
+                callClos(fn, fs.toArray)
+              case _ => callClos(fn, Array(x))
+            else callClos(fn, Array(x))
+            r match
+              case r2 @ (DataV("Cons", _) | DataV("Nil", _)) => unlist(r2)
+              case scalar => List(scalar)
           })
         case (ls, "filter", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).filter(x => callClos(fn, Array(x)) == Value.BoolV(true)))
