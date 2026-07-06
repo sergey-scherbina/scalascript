@@ -930,7 +930,7 @@ object FrontendBridge:
     val defs  = stdDefs ++ defsB.result() ++ derivedDefs ++ generalDerivedDefs
     val entryStmts = entryB.result()
     val entry =
-      if entryStmts.nonEmpty then convertBlock(entryStmts, Nil)
+      if entryStmts.nonEmpty then convertBlock(entryStmts, Nil, topLevel = true)
       else if userDefNames.contains("main") then CT.App(CT.Global("main"), Nil)
       else CT.Lit(Const.CUnit)
     Program(defs, entry)
@@ -954,7 +954,7 @@ object FrontendBridge:
 
   // ── Block lowering ────────────────────────────────────────────────────────────
 
-  def convertBlock(stats: List[Stat], scope: List[String]): CT =
+  def convertBlock(stats: List[Stat], scope: List[String], topLevel: Boolean = false): CT =
     stats match
       case Nil => CT.Lit(Const.CUnit)
 
@@ -967,21 +967,28 @@ object FrontendBridge:
           case Term.Apply.After_4_6_0(Term.Name("Array"), _) => true
           case _ => false
         val scopeName = if isArray then s"##$name" else name
-        CT.Let(List(rhs), convertBlock(rest, scopeName :: scope))
+        val restCT = convertBlock(rest, scopeName :: scope, topLevel)
+        if topLevel then
+          // TOP-LEVEL entry vals are v1 GLOBALS: register at runtime so pass-2
+          // defs invoked later resolve them (parser grammars: def rules
+          // referencing entry-val combinators — jNull, ws, parsePass …).
+          CT.Let(List(rhs),
+            CT.Seq(List(CT.Prim("global.reg", List(CT.Lit(Const.CStr(name)), CT.Local(0))), restCT)))
+        else CT.Let(List(rhs), restCT)
 
       // val (a, b) = rhs; rest (tuple destructuring)
       case (v: Defn.Val) :: rest =>
         val rhs   = convertExpr(v.rhs, scope)
         val names = v.pats.flatMap(patNames)
         if names.isEmpty then
-          CT.Let(List(rhs), convertBlock(rest, "_blk_" :: scope))
+          CT.Let(List(rhs), convertBlock(rest, "_blk_" :: scope, topLevel))
         else
           // Bind tuple to "_tup_", then extract each field
           val tupName  = "_tup_"
           val withTup  = tupName :: scope
           def chain(remaining: List[(String, Int)], sc: List[String]): CT =
             remaining match
-              case Nil              => convertBlock(rest, sc)
+              case Nil              => convertBlock(rest, sc, topLevel)
               case (nm, i) :: tail =>
                 CT.Let(
                   List(CT.Prim("fieldAt", List(lookupVar(tupName, sc), CT.Lit(Const.CInt(i))))),
@@ -998,7 +1005,7 @@ object FrontendBridge:
           if isIntLit(rhs) then ("lcell.new", "@@")
           else                   ("cell.new",  "@")
         val cellName = names.headOption.map(n => s"$prefix$n").getOrElse("@_")
-        CT.Let(List(CT.Prim(cellOp, List(rhsIr))), convertBlock(rest, cellName :: scope))
+        CT.Let(List(CT.Prim(cellOp, List(rhsIr))), convertBlock(rest, cellName :: scope, topLevel))
 
       // def name(params) = body; rest (local LetRec for self-recursion)
       case (d: Defn.Def) :: rest =>
@@ -1008,32 +1015,32 @@ object FrontendBridge:
         val defSc     = params.reverse ++ letrecSc
         val body      = convertExpr(d.body, defSc)
         val lam       = CT.Lam(params.length, body)
-        CT.LetRec(List(lam), convertBlock(rest, letrecSc))
+        CT.LetRec(List(lam), convertBlock(rest, letrecSc, topLevel))
 
       // while (cond) body; rest
       case (w: Term.While) :: rest =>
         val loop = CT.While(convertExpr(w.expr, scope), convertExpr(w.body, scope))
         rest match
           case Nil => loop
-          case _   => CT.Let(List(loop), convertBlock(rest, "_blk_" :: scope))
+          case _   => CT.Let(List(loop), convertBlock(rest, "_blk_" :: scope, topLevel))
 
       // x = rhs (assignment to mutable var)
       case (a: Term.Assign) :: rest =>
         val setIr = convertAssign(a, scope)
         rest match
           case Nil => setIr
-          case _   => CT.Seq(List(setIr, convertBlock(rest, scope)))
+          case _   => CT.Seq(List(setIr, convertBlock(rest, scope, topLevel)))
 
       // expression statement (not last)
       case (t: Term) :: (rest @ (_ :: _)) =>
-        CT.Seq(List(convertExpr(t, scope), convertBlock(rest, scope)))
+        CT.Seq(List(convertExpr(t, scope), convertBlock(rest, scope, topLevel)))
 
       // last expression — the block's value
       case (t: Term) :: Nil =>
         convertExpr(t, scope)
 
       // non-Term at end (shouldn't happen in well-formed code)
-      case _ :: rest => convertBlock(rest, scope)
+      case _ :: rest => convertBlock(rest, scope, topLevel)
 
   // ── Expression conversion ─────────────────────────────────────────────────────
 
@@ -1960,6 +1967,12 @@ object FrontendBridge:
                           "Nil","Right","Left","Option","Tuple","BigInt","BigDecimal",
                           "Currency","Money","Duration","Range","Pair","Triple")
       (pureCtors.contains(ctor) || ctor.head.isUpper) && args.forall(isPureValRhs)
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(obj), _), ac)
+        if methodObjectNames.contains(obj) =>
+      // Factory calls on converted OBJECTS (Parser.regex, Tool.text, ...) are
+      // constructor-like and safe to hoist — std parser grammars define
+      // top-level vals from them that pass-2 defs reference.
+      ac.values.forall(isPureValRhs)
     case Term.Apply.After_4_6_0(Term.Select(_, _), _) =>
       false // method calls (obj.method(args)) are always treated as effectful
     case Term.ApplyInfix.After_4_6_0(l, op, _, r) =>

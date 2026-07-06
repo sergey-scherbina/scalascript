@@ -1989,6 +1989,11 @@ object Prims:
     case _          => None
 
   def resolve2(op: String): Option[Fn2] = op match
+    // Register a runtime GLOBAL (top-level entry vals are v1 globals — pass-2
+    // defs invoked later resolve them through V2PluginRegistry).
+    case "global.reg" => Some { (n, v) => n match
+      case StrV(name) => V2PluginRegistry.registerGlobal(name, v); UnitV
+      case _          => sys.error("global.reg(name, value)") }
     // Numeric fast paths mirror the GENERAL table's numBin/numCmp polymorphism
     // (Int, Float, mixed). Keep the (IntV, IntV) hot case inline; delegate the cold
     // shapes — a fast path stricter than the general table silently diverges
