@@ -9,6 +9,21 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## Phase-3 readiness (2026-07-06, corpus-tails run)
+
+**Conformance suite 59/59 GREEN; corpus 172/193 (89.1%).** T4.2/T4.3 done earlier.
+Remaining 21 batch fails, classified:
+- **Environmental / out-of-parity (6)**: x402-cardano x2 (needs BLOCKFROST_KEY / path
+  escape — fails on v1 too), pg-listen-notify (needs live PostgreSQL), node-fs-read
+  (js-lane globalThis), storage-demo (runStorage driver — documented not-extracted),
+  algebraic-effects (runStream runner not bridged).
+- **Dataset natives cluster (7)**: distributed-* — needs Dataset.of/fromFile/map/
+  collect natives over lists + wire codecs; local-loopback actor sim already landed.
+- **Singles (8)**: actors-typed-remote-spawn (registerBehavior variant),
+  datatable-static-spa (parse), dsl-ast-builder (/ by zero), dsl-mini-language
+  (tuple-lambda auto-untuple), seed-signal + typed-sql-crud + rozum-agent-streaming
+  + spark-shared-schema-reader (plugin-boundary conversions).
+
 ## Active tasks
 
 ### ▶ v1→v2 migration (2026-07-03 — planned, not started)
