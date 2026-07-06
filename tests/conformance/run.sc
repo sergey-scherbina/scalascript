@@ -215,6 +215,56 @@ println(s"\nConformance suite — ${tests.length} tests\n$sep")
 
 var pendingCount = 0
 
+// ── F4 batch lanes (specs/conformance-perf.md) ──────────────────────────────
+// One JVM runs ALL eligible cases per lane instead of a cold JVM per case:
+// INT executes in one `ssc run-batch`; JS emits every source in one JVM
+// (node stays per-case — its start is ~50 ms). A case missing from the batch
+// output (e.g. an earlier case called exit()) falls back to a per-case run.
+val BATCH_MARK = "<<<SSC-BATCH-CASE:"
+
+case class Meta(test: os.Path, name: String, src: String, expected: Option[String],
+                requires: List[String], backendsGate: Option[Set[String]],
+                pending: Option[String], memoHit: Boolean)
+
+val metas: List[Meta] = tests.toList.map { t =>
+  val src = os.read(t)
+  val ef  = expectedDir / s"${t.baseName}.txt"
+  val exp = if os.exists(ef) then Some(os.read(ef).stripTrailing()) else None
+  val hit = !noMemo && exp.exists(e => memo.get(t.baseName).contains(memoKey(t.baseName, src, e)))
+  Meta(t, t.baseName, src, exp, parseRequires(src), parseBackends(src), parsePending(src), hit)
+}
+
+def metaSupports(m: Meta, b: String): Boolean =
+  m.backendsGate.forall(_.contains(b)) &&
+  (m.requires.isEmpty || m.requires.forall(backendFeatures.getOrElse(b, Set.empty).contains))
+
+def splitBatch(out: String): Map[String, String] =
+  val sections = collection.mutable.Map.empty[String, String]
+  var current: Option[String] = None
+  val buf = new StringBuilder
+  def flushCur(): Unit = current.foreach { n => sections(n) = buf.toString.stripTrailing }
+  out.linesIterator.foreach { l =>
+    if l.startsWith(BATCH_MARK) then
+      flushCur(); buf.clear(); current = Some(l.stripPrefix(BATCH_MARK).trim)
+    else if current.isDefined then buf.append(l).append('\n')
+  }
+  flushCur()
+  sections.toMap
+
+val noBatch: Boolean =
+  cliArgs.contains("--no-batch") || sys.env.get("SSC_CONF_NO_BATCH").contains("1")
+
+def batchLane(extra: Seq[String], eligible: List[Meta]): Map[String, String] =
+  if noBatch || eligible.length < 3 then Map.empty
+  else
+    val cmd = Seq(sscBin.toString, "run-batch", "--delim", BATCH_MARK) ++ extra ++ eligible.map(_.test.toString)
+    val res = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
+    splitBatch(res.out.text())
+
+val runnable   = metas.filter(m => m.pending.isEmpty && m.expected.isDefined && !m.memoHit)
+val intBatch   = batchLane(Nil, runnable.filter(metaSupports(_, "int")))
+val jsEmitted  = batchLane(Seq("--emit-js"), runnable.filter(metaSupports(_, "js")))
+
 for test <- tests do
   val name         = test.baseName
   val expectedFile = expectedDir / s"$name.txt"
@@ -257,7 +307,7 @@ for test <- tests do
         println(s"  SKIP [INT] (${skipReason("int")})")
         true
       else
-        val intOut = run(ssc(test.toString))
+        val intOut = intBatch.getOrElse(name, run(ssc(test.toString)))
         check("INT", intOut, expected)
 
     // JS via Node.js
@@ -266,7 +316,7 @@ for test <- tests do
         println(s"  SKIP [JS ] (${skipReason("js")})")
         true
       else
-        val jsSource = run(ssc("emit-js", test.toString))
+        val jsSource = jsEmitted.getOrElse(name, run(ssc("emit-js", test.toString)))
         val jsOut = os.proc("node").call(
           stdin  = jsSource,
           stderr = os.Pipe,
@@ -280,7 +330,14 @@ for test <- tests do
         println(s"  SKIP [JVM] (${skipReason("jvm")})")
         true
       else
-        val jvmOut = run(ssc("run-jvm", test.toString))
+        // Warm bloop compiler by default (measured: 6-case slice 36s -> 15s
+        // combined with the batch lanes). --cold-jvm restores serverless.
+        val jvmEnv =
+          if cliArgs.contains("--cold-jvm") then Map.empty[String, String]
+          else Map("SSC_SCALACLI_SERVER" -> "1")
+        val jvmOut = os.proc(sscBin.toString, "run-jvm", test.toString)
+          .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
+          .out.text().stripTrailing()
         check("JVM", jvmOut, expected)
 
     if intOk && jsOk && jvmOk then

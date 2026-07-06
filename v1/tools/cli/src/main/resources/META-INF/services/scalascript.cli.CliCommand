@@ -60,3 +60,4 @@ scalascript.cli.commands.ListBackendsCmd
 scalascript.cli.commands.InstallCmd
 scalascript.cli.LintJitCmd
 scalascript.cli.CheckTypesCmd
+scalascript.cli.RunBatchCmd
