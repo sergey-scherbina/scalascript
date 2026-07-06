@@ -26,6 +26,25 @@ Remaining 21 batch fails, classified:
 
 ## Active tasks
 
+### Build-perf wave 2 (2026-07-06, Sergiy: "зроби усе що можеш")
+
+- [ ] **bp2-1 agents-workflow-banner**: AGENTS.md top-of-file THE WORKFLOW section
+      (plan→sprint, worktree, claim, push-to-main, cleanup). (this commit)
+- [ ] **bp2-2 f4-batch-runner**: `ssc run-batch --delim <s> <files…>` (one JVM runs many
+      cases, delimiter-separated output) + run.sc uses it for the INT lane (one JVM instead
+      of 193); JS lane: emit all sources in the same batch JVM, execute per-case in ONE
+      node process via vm contexts. Measure before/after on a 20-case slice.
+- [ ] **bp2-3 env-heap-cleanup**: remove -Xmx12g from JDK_JAVA_OPTIONS in ~/.zshenv
+      (backup kept); build-level heaps are explicit since bp-1.
+- [ ] **bp2-4 ci-test-shard**: split the CI `sbt test` job into parallel matrix shards
+      by module groups.
+- [ ] **bp2-5 pipelining-measure**: one clean-compile A/B timing for usePipelining
+      (document the number; revert flag if it turns out negative).
+- [ ] **bp2-6 exportjars-scope (investigate)**: measure whether ThisBuild/exportJars
+      actually costs in the dev loop; scope or document.
+- [ ] **bp2-7 worktree-warm-targets (investigate)**: zinc analysis stores absolute
+      paths — verify whether target-copy into a new worktree survives; document verdict.
+
 ### Build-perf + conformance-perf sprint (2026-07-06, Sergiy directive: "запиши у спринт і зроби")
 
 Build optimization (from the 2026-07-06 build audit: 259 modules, ~8s/31s CPU per cold sbt -batch

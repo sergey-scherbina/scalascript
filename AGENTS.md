@@ -3,6 +3,26 @@
 > This file is the durable memory of pre-code design decisions.
 > Every new Claude Code session should read it first.
 
+## ⚡ THE WORKFLOW (non-negotiable — Sergiy, 2026-07-06)
+
+Every piece of work, always, in this order:
+
+1. **Plan → SPRINT.md first.** Write ALL planned slices as `[ ]` items in
+   SPRINT.md *before* coding. Then execute them one at a time, checking off.
+2. **Work in a WORKTREE** on a `feature/<name>` branch off `origin/main` —
+   `scripts/new-worktree <name>`. Never feature-edit the shared main checkout
+   (a pre-commit hook refuses it; only `.work/` coordination commits are
+   allowed there).
+3. **Claim before starting**: commit `.work/active/<slug>.claim` to main so
+   siblings don't collide; check `git log origin/main` for sibling claims first.
+4. **Push each finished piece straight to `origin/main`**
+   (`git push origin <branch>:main`, rebase on rejection) — small commits,
+   feature and docs/bookkeeping separated. Verify (suite/corpus) BEFORE the push.
+5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
+   (kills the worktree's build daemons too).
+
+Details: §1 below, `specs/worktree-guardrail.md`.
+
 ## MANDATORY: required skills
 
 All skills live in the **`.agents/plugins/` submodule** (the
