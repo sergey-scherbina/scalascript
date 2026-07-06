@@ -1,8 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/v2-plugin-natives
-worktree: ../scalascript-wt-natives
-started: 2026-07-06T06:19:23Z
-heartbeat: 2026-07-06T06:19:23Z
-status: in-progress
-exclusive-files: v2/plugin-bridge/src/main/scala/ssc/bridge/PluginBridge.scala
-task: v2-plugin-native-registration (Option B, split with v2-corpus-tails) — register the plugin natives that the PluginBridge ServiceLoader loop skips (InlineCode/RuntimeCall/interpreter-builtins), fixing output-parity/conformance for: uuidV7, mkdirs, ws (parser), html-dsl tag builders, rest-validate (validate/requireString/requireRange/requireOneOf). >>> I HOLD PluginBridge.scala for this slice — corpus-tails please avoid it until released. Then Option C: extend scripts/v2-output-parity to the full 193 corpus.
