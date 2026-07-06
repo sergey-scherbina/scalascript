@@ -1,8 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/v2-cli-plugin-load
-worktree: ../scalascript-wt-plug
-started: 2026-07-06T12:25:49Z
-heartbeat: 2026-07-06T12:25:49Z
-status: in-progress
-exclusive-files: v1/tools/cli/src/main/scala/scalascript/cli/RunV2.scala
-task: v2-cli-plugin-load — bin/ssc 'ssc run --v2' can't load plugin natives (signal/element/etc): PluginBridge.loadAll uses ServiceLoader on the startup CP, but plugin jars are excluded from it (staged as .sscpkg, lazy-loaded for v1). ALL 10 output-parity v2-errors are this bin/ssc packaging artifact, NOT real v2 gaps (they work via full-CP bridgeCli). FIX in RunV2: extract intrinsics/*.jar from bin/lib/compiler/plugins/*.sscpkg into a URLClassLoader (parent=context CL) before loadAll(), so ServiceLoader finds all plugin Backends. Holding RunV2.scala only.
