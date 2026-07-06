@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-06 — v2 conformance: html-dsl + rest-validate bridge (v2-conf-pure-gated)
+
+Full HTML tag DSL registered in PluginBridge: `div`, `p`, `ul`, `li`, `a`, `h1`–`h6`, `em`, `strong`,
+`nav`, `img`, `hr` + all container/void tags; `attr` NamedMethodObj with `cls`/`id`/`href`/`title`/…
+fields + `:=` AttrKey operator; `raw(s)` for pre-escaped HTML; `_Raw` DataV v1Show pass-through.
+REST-validate: thread-local error accumulator via `validate { }` + `requireString`/`requireRange`/
+`requireRangeDouble`/`requireOneOf` helpers. Runtime fixes: `:=` infix dispatches via `NamedMethodObj`
+in `__arith__`; tuple-spreading in `map`/`flatMap` for multi-param lambdas on tuple lists.
+V2ConformanceTest: +2 (html-dsl + rest-validate off skipSet); suite 59→60/61. (PR #75)
+
 ## 2026-07-06 — v2 plugin-native bridging: filesystem builtins (parity +1)
 
 `PluginBridge.registerFsBuiltins()` registers the filesystem builtins the v1 interpreter exposes via

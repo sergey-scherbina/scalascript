@@ -268,13 +268,14 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       **WAVE 6 (2026-07-05, PR #73 merged):** batch-conformance fixes forward-ported to main — all string
       interpolators as concat (html/sql/f), qualified ctor fillDefaults, object val/method CDefs,
       Signal[T]→ClosV, scope/raw/attr stubs.
-      - [ ] **v2-conf-pure-gated** (claim `feature/v2-conf-pure-gated`) — bridge the PURE-LOGIC plugin-gated
-        tests first (no network/threads): **webauthn-server-verify** (challenge + garbage-reject; 3 natives),
-        **html-dsl** (div/attr/h1/… builders), **rest-validate** (validate/requireString/requireRange/
-        requireOneOf). These fail because their plugin natives are `InlineCode`/`RuntimeCall` (the PluginBridge
-        ServiceLoader loop registers only `NativeImpl`, skipping those) or a std `.ssc` wrapper's native is
-        unregistered. Fix: register the needed natives in `PluginBridge` + drop each from the `skipSet` once it
-        matches `expected/`. Gate: each moves from skip→pass, conformance +N.
+      - [x] **v2-conf-pure-gated** — DONE 2026-07-06 (`feature/v2-conf-pure-gated`, PR #75).
+        **html-dsl**: full tag DSL in PluginBridge (div/p/ul/li/a/h1-h6/em/strong/nav/img/hr + void tags);
+        `attr` NamedMethodObj with cls/id/href/title/src/alt/… + `:=` AttrKey operator; `raw(s)`;
+        v1Show `_Raw` DataV pass-through. Runtime: `:=` in `__arith__` dispatches via `NamedMethodObj.getField`;
+        tuple-spreading in map/flatMap for 2-param lambdas `(a, b) => …` on tuple lists.
+        **rest-validate**: thread-local error accumulator via `validate { }` + requireString/requireRange/
+        requireRangeDouble/requireOneOf; `reqLookup` reads case-class fields via `lookupFieldNames`.
+        Conformance: 59→60/61 (mcp-types pre-existing); skipSet −2. (webauthn-server-verify was already passing.)
       - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
         environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
         runtime + network bridging; a sibling/env concern, deliberately deferred here.
