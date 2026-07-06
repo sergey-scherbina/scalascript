@@ -1049,9 +1049,16 @@ object FastCode:
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
   def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
-    // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison
+    // __arith__ ORDERING comparisons — bridge generates these; fast path via unboxed Long comparison.
+    // GUARD (ordering only): only when BOTH operands are provably Long. tryFLC reads a Local optimistically
+    // as a Long and returns 0L for a FloatV (see the Local case), so an unguarded fast path makes Double
+    // `<`/`>` inside a fold/loop always compare 0<0 → false (foldLeft over Doubles returned the last
+    // element; min/max broken). Non-provably-Long operands fall through to the general, Double-aware compare.
+    // `==`/`!=` keep the existing (unguarded) path — equality is handled separately below.
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1))
-        if op == "<" || op == "<=" || op == ">" || op == ">=" || op == "==" || op == "!=" =>
+        if (op == "==" || op == "!=") ||   // equality keeps the existing (unguarded) fast path
+           ((op == "<" || op == "<=" || op == ">" || op == ">=")
+             && flcProvablyLong(a0) && flcProvablyLong(a1)) =>   // ordering: only when provably Long
       tryFLC(a0, globals).flatMap { f0 => tryFLC(a1, globals).map { f1 =>
         val fn: (Long, Long) => Boolean = op match
           case "<"  => _ < _; case "<=" => _ <= _; case ">"  => _ > _
