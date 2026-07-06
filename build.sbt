@@ -23,6 +23,15 @@ ThisBuild / Test / javaOptions += {
   s"-Dssc.std.path=${root.getAbsolutePath}/runtime"
 }
 ThisBuild / Test / fork         := true
+// Forked test JVMs must NOT inherit the ambient JDK_JAVA_OPTIONS heap (-Xmx12g
+// on dev hosts -> parallel forked suites can reserve tens of GB; the JVM default
+// with no cap is ~1/4 RAM ~ 9 GB). Explicit flag wins over JDK_JAVA_OPTIONS
+// (env opts are prepended, command-line -Xmx is last). Override: SSC_TEST_XMX.
+ThisBuild / Test / javaOptions += s"-Xmx${sys.env.getOrElse("SSC_TEST_XMX", "2g")}"
+// Inter-project pipelined compilation (sbt 1.10 + Scala 3.8): dependent modules
+// start compiling against early outputs of their upstreams — significant on this
+// build's 224-edge dependsOn graph. Revert if zinc invalidation misbehaves.
+ThisBuild / usePipelining := true
 // Export sub-module classes as JARs so cli/stage sees actual JAR files
 // (not class directories) when collecting the classpath for lib/jars/.
 ThisBuild / exportJars          := true
