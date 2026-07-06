@@ -333,7 +333,18 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 TRUE parity is **11/47 ≈ 23%** (not the exit-0 96%), per `v2/output-parity-baseline.md`. Roadmap to raise it,
 prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parity --all` after `sbt installBin`.
 
-- [x] **v2-main-entry + FrontendBridge parity fixes** (`feature/v2-main-entry`) — **DONE 2026-07-06, parity 11→15/46 (23%→33%).**
+- [x] **v2 parity fixes — 7 landed 2026-07-06, parity 11→16/46 (23%→35%).** FrontendBridge (`feature/v2-main-entry`)
+      + VM (`feature/v2-foldlt-double`).
+  - [x] **VM: tryFLC-over-Double corruption (broad correctness).** `tryFLC` reads a `Local` optimistically as
+    Long and returns `0L` for a `FloatV`; unguarded fast paths therefore corrupted Doubles: ordering `<`/`>`
+    inside a fold/loop compared `0<0`→false (foldLeft over Doubles returned the LAST element — min/max broken,
+    `imports`), and `__arith__` Double `/` compiled `0L/0L`→`ArithmeticException` (`dsl-ast-builder`). Guarded
+    both fast paths with `flcProvablyLong`; Double operands fall back to the general Double-aware ops. This is
+    broad — any Double reduction/comparison/division in a loop across the whole corpus.
+  - [x] **user `def main()` wins over html tag globals** (main/label/title/form/…) — was shadowed; broke every
+    `def main()`-entry + `def label(…)`-style program (`_Raw("<main></main>")` / `_Raw("<label>…")`). data-types ✅.
+  - [x] **`main()` called even alongside top-level stmts** (entry was either/or). default-params ✅.
+  - [x] **Mirror.elemTypes real field types** (String/Int) not `Any`. custom-derives-mirror ✅.
   - [x] v2 now invokes user `def main()` — was skipped because the html `<main>` tag plugin-global shadowed
     it (FrontendBridge:784 collision-skip); excepted `main`. `def main()=println(x)` now runs on v2. Fixes
     every `def main()`-entry program that had ONLY the entry-invocation bug.
