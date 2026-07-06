@@ -547,6 +547,8 @@ object PluginBridge:
    *  An optic = ForeignV(OpticSteps) exposing get/getOption/set/modify/andThen
    *  as NamedMethodObj fields; steps walk v2 values (DataV records via the
    *  field-name registry, Some/None, Cons/Nil lists, map wrappers). */
+  private val sqlConnCache = new java.util.concurrent.ConcurrentHashMap[String, java.sql.Connection]()
+
   private final class OpticSteps(val steps: List[V2Value])
 
   private def registerOptics(): Unit =
@@ -902,9 +904,11 @@ object PluginBridge:
         // Fail-soft on engines this JVM lane can't serve (sqlite::memory:,
         // duckdb — browser/spark-lane examples): a Stub keeps the doc's other
         // fences running, matching the previous ignore-sql behavior.
+        // Connections are CACHED per url: in-memory engines (sqlite::memory:)
+        // lose their tables if every statement opens a fresh connection.
         val connOpt =
-          try Some(java.sql.DriverManager.getConnection(url))
-          catch { case _: java.sql.SQLException => None }
+          try Some(sqlConnCache.computeIfAbsent(url, u => java.sql.DriverManager.getConnection(u)))
+          catch { case _: java.sql.SQLException | _: RuntimeException => None }
         connOpt match
          case None => DataV("Stub", Vector(StrV(s"sql:no-driver:$url")))
          case Some(conn) =>
@@ -967,7 +971,7 @@ object PluginBridge:
                 rows = rows :+ V2Value.ForeignV(m)
               rows.foldRight(DataV("Nil", Vector.empty): V2Value)((r, acc) => DataV("Cons", Vector(r, acc)))
             else IntV(ps.executeUpdate().toLong)
-          finally conn.close()
+          catch { case e: Throwable => sqlConnCache.remove(url); throw e }
       case _ => sys.error("__sqlExec__(url, sql, binds)"))
 
     V2PluginRegistry.register("__try__", args => args match

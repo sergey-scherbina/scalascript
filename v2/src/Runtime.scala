@@ -1681,7 +1681,7 @@ object Prims:
         case (ls, "contains", List(v)) if isList(ls) => BoolV(unlist(ls).contains(v))
         case (ls, "indexOf", List(v)) if isList(ls) => IntV(unlist(ls).indexOf(v).toLong)
         case (ls, "+:", List(v)) if isList(ls) => DataV("Cons", collection.immutable.ArraySeq(v, ls))
-        case (ls, ":+", List(v)) if isList(ls) => listOf(unlist(ls) :+ v)
+        case (ls, ":+" | "appended", List(v)) if isList(ls) => listOf(unlist(ls) :+ v)
         case (ls, "++", List(other)) if isList(ls) => listOf(unlist(ls) ++ unlist(other))
         case (ls, "splitAt", List(IntV(n))) if isList(ls) =>
           val (a, b) = unlist(ls).splitAt(n.toInt)

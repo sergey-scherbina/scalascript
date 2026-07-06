@@ -449,8 +449,13 @@ object FrontendBridge:
    *  `@openapi(args) route(...)` → `openapi(args)\nroute(...)`.
    *  The v1 parser has a dedicated preprocessor for this; we just strip the `@`. */
   private def preprocessAtAnnotations(code: String): String =
-    if !code.contains("@openapi") then code
-    else code.replace("@openapi(", "openapi(")
+    // `multi effect X:` — the multishot marker is a no-op for the bridge (the
+    // Free-monad Op lifting makes every effect resumable); `multi` alone would
+    // parse as an unbound ident.
+    val noMulti =
+      if code.contains("multi effect ") then code.replace("multi effect ", "effect ") else code
+    if !noMulti.contains("@openapi") then noMulti
+    else noMulti.replace("@openapi(", "openapi(")
 
   private def desugarListLiterals(code: String): String =
     if !code.contains("[") then return code
@@ -664,7 +669,7 @@ object FrontendBridge:
     // have ONLY ```scala + ```sql fences (no ```scalascript at all).
     val anyRunnableFence =
       allFences && (noFront.contains(fence)
-        || noFront.contains("```sql\n") || noFront.contains("```transaction\n"))
+        || noFront.contains("```sql") || noFront.contains("```transaction"))
     val firstFence = if anyRunnableFence then 0 else noFront.indexOf(fence)
     // No fence: if the content looks like markdown prose (starts with # or ---), it's
     // a doc-only example with no runnable code — return empty so it compiles as a no-op.
@@ -691,10 +696,11 @@ object FrontendBridge:
       // ```scala fences are runnable ONLY in sql-conformance docs (which have
       // ```sql/```transaction fences) — elsewhere they are illustrative prose
       // (running them cost 23 corpus files when enabled unconditionally).
-      val hasSqlFences = noFront.contains("```sql\n") || noFront.contains("```transaction\n")
+      val hasSqlFences = noFront.contains("```sql") || noFront.contains("```transaction")
       val anyFence =
-        if hasSqlFences then """```(scalascript|scala|sql|transaction)\n""".r
-        else """```(scalascript)\n""".r
+        if hasSqlFences then """```(scalascript|scala|sql|transaction)([^\n]*)\n""".r
+        else """```(scalascript)()\n""".r
+      var sqlBlockIdx = 0
       var pos = 0
       var lastHeading = "S0"
       var done = false
@@ -703,6 +709,7 @@ object FrontendBridge:
           case None => done = true
           case Some(m) =>
             val lang       = m.group(1)
+            val attrs      = Option(m.group(2)).getOrElse("")
             val fenceStart = pos + m.start
             val codeStart  = pos + m.end
             // nearest preceding heading for the sql section id
@@ -715,12 +722,20 @@ object FrontendBridge:
             val code     = if fenceEnd < 0 then noFront.drop(codeStart) else noFront.slice(codeStart, fenceEnd)
             lang match
               case "sql" | "transaction" =>
+                // @db=name attribute selects a named database from front-matter
+                val dbName = """@db=([A-Za-z0-9_-]+)""".r.findFirstMatchIn(attrs).map(_.group(1))
+                val urlForBlock = dbName.flatMap { n =>
+                  (n + """:\s*\n\s*url:\s*"([^"]+)"""").r.findFirstMatchIn(raw).map(_.group(1))
+                }.getOrElse(dbUrl)
                 val bindPat = """\$\{([^}]+)\}""".r
                 val binds   = bindPat.findAllMatchIn(code).map(_.group(1)).toList
                 val sqlText = bindPat.replaceAllIn(code, "?").trim
                   .replace("\"", "\\\"").replace("\n", " ")
                 sqlSectionIds += lastHeading
-                blocks += s"""val __sql_$lastHeading = __sqlExec__("$dbUrl", "$sqlText", List(${binds.mkString(", ")}))"""
+                // v1 numbering: every sql fence is also _sqlBlock_<N> (document order)
+                blocks += s"""val __sql_$lastHeading = __sqlExec__("$urlForBlock", "$sqlText", List(${binds.mkString(", ")}))"""
+                blocks += s"""val _sqlBlock_$sqlBlockIdx = __sql_$lastHeading"""
+                sqlBlockIdx += 1
               case _ =>
                 blocks += filterImportLines(code)
             pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
@@ -1192,6 +1207,9 @@ object FrontendBridge:
       convertApply(fn, argClause.values.toList, scope)
 
     // ── Member select (field/method as value, no args) ────────────────────────
+    // scala.collection.mutable sugar: mutable.Map.empty / mutable.Map() → kernel map
+    case Term.Select(Term.Select(Term.Name("mutable"), Term.Name("Map")), Term.Name("empty")) =>
+      CT.Prim("map.new", Nil)
     // Section.sql → the synthetic __sql_<Section> result val (sql fenced blocks)
     case Term.Select(Term.Name(sec), Term.Name("sql")) if sqlSectionIds.contains(sec) =>
       lookupVarFull(s"__sql_$sec", scope)
