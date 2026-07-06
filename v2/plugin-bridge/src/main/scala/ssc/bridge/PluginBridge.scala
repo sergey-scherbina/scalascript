@@ -123,6 +123,7 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("emit",   ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     registerBatchRunnerStubs()
+    registerFsBuiltins()
     // Actor runtime registers LAST so its spawn/receive/self/exit/runActors
     // globals win over same-named v1 plugin intrinsics (a bridged os 'exit'
     // used to shadow the actor exit and System.exit(0) killed the batch JVM).
@@ -185,6 +186,31 @@ object PluginBridge:
 
   /** Batch-runner stubs for features that need a server / document context.
    *  These override plugin registrations so examples run without errors. */
+  /** Filesystem builtins the v1 interpreter exposes via `BuiltinsRuntime` (not as ServiceLoader
+   *  `NativeImpl` intrinsics), so the loadAll loop skips them and they surface as `unbound global` on v2
+   *  (e.g. `mkdirs` in examples/fs-roundtrip.ssc). Register the gaps here — the `isEmpty` guard leaves any
+   *  already-bound name (ServiceLoader / earlier registration) untouched. Bodies mirror BuiltinsRuntime;
+   *  args arrive as raw values via `v2ToRaw`, results go back through `rawToV2`. */
+  private def registerFsBuiltins(): Unit =
+    import java.nio.file.{Files, Paths, StandardOpenOption}
+    import java.nio.charset.StandardCharsets.UTF_8
+    def reg(name: String, arity: Int)(fn: PartialFunction[List[Any], Any]): Unit =
+      if V2PluginRegistry.lookupGlobal(name).isEmpty then
+        V2PluginRegistry.registerGlobal(name, V2Value.ClosV(Runtime.emptyEnv, arity, env =>
+          Done(rawToV2(fn.applyOrElse(env.toList.map(v2ToRaw),
+            (_: List[Any]) => throw new RuntimeException(s"$name: bad arguments"))))))
+    reg("mkdirs", 1)     { case List(p: String) => Files.createDirectories(Paths.get(p)); () }
+    reg("mkdir", 1)      { case List(p: String) => val pp = Paths.get(p); if !Files.exists(pp) then Files.createDirectory(pp); () }
+    reg("writeFile", 2)  { case List(p: String, c: String) => Files.write(Paths.get(p), c.getBytes(UTF_8)); () }
+    reg("appendFile", 2) { case List(p: String, c: String) =>
+      Files.write(Paths.get(p), c.getBytes(UTF_8), StandardOpenOption.CREATE, StandardOpenOption.APPEND); () }
+    reg("readFile", 1)   { case List(p: String) => new String(Files.readAllBytes(Paths.get(p)), UTF_8) }
+    reg("deleteFile", 1) { case List(p: String) => Files.deleteIfExists(Paths.get(p)); () }
+    reg("exists", 1)     { case List(p: String) => Files.exists(Paths.get(p)) }
+    reg("listDir", 1)    { case List(p: String) =>
+      val f = new java.io.File(p)
+      if f.isDirectory then f.listFiles().map(_.getName).toList.sorted else Nil }
+
   private def registerBatchRunnerStubs(): Unit =
     import V2Value.*
     val stub = DataV("Stub", Vector.empty)

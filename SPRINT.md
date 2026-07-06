@@ -278,6 +278,18 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
         environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
         runtime + network bridging; a sibling/env concern, deliberately deferred here.
+- [~] **v2-plugin-native-registration** (Option B — split from `v2-corpus-tails`; holds `PluginBridge.scala`) —
+      register plugin natives the PluginBridge ServiceLoader loop skips (`BuiltinsRuntime` builtins /
+      `RuntimeCall` / `InlineCode`) so `unbound global` examples run on v2.
+      - [x] **filesystem builtins DONE 2026-07-06** (`registerFsBuiltins`): mkdirs/mkdir/writeFile/appendFile/
+        readFile/deleteFile/exists/listDir. `fs-roundtrip` v2-error→MATCH (parity 27→28/52); conformance 59/59.
+      - **Remaining are NOT simple native registration (engine/bridge, hand to corpus-tails owner):**
+        `validate {}` is a language special form (EvalRuntime/Typer special-case) → needs FrontendBridge
+        desugaring; html-dsl needs the `attr` DSL + `renderTag` port; `uuidV7` is non-deterministic (no parity
+        win). PluginBridge released after this — corpus-tails may resume it.
+- [ ] **v2-output-parity-full-corpus** (Option C — next) — extend `scripts/v2-output-parity` to the full 193
+      examples with server/actor timeout handling for the authoritative "N/193 output-identical" number
+      (current sample: 28/52 terminating). Does NOT touch PluginBridge.
 - [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —
       runs each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diffs stdout → per-example MATCH/
       MISMATCH/V2-ERROR + parity %. Point `$SSC` at an assembled `ssc` for a fast full-corpus run.

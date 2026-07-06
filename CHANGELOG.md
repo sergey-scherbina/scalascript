@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-06 — v2 plugin-native bridging: filesystem builtins (parity +1)
+
+`PluginBridge.registerFsBuiltins()` registers the filesystem builtins the v1 interpreter exposes via
+`BuiltinsRuntime` (not as ServiceLoader `NativeImpl` intrinsics), which the loadAll loop skipped — so they
+surfaced as `unbound global` on v2 (e.g. `mkdirs`). Bridged `mkdirs / mkdir / writeFile / appendFile /
+readFile / deleteFile / exists / listDir`, each guarded by `isEmpty` so already-bound names are untouched.
+`examples/fs-roundtrip.ssc` now produces byte-identical output on v1 and v2 (output-parity 27→28/52);
+V2ConformanceTest still 59/59 green. (Option B of the plugin-native cluster; `validate` — a language special
+form — and the html-dsl attr DSL remain, being genuine bridge/engine work, not native registration.)
+
 ## 2026-07-05 — v2 FrontendBridge + PluginBridge: batch-conformance fixes (T4.4)
 
 Forward-ported T4.4 worktree fixes to origin/main (on top of waves 1-5):
