@@ -745,9 +745,14 @@ object FastCode:
             UnitV
         }
       }
-    // __arith__ with literal op — try FLC (unboxed Long) first, wrap result in IntV
+    // __arith__ with literal op — try FLC (unboxed Long) first, wrap result in IntV.
+    // GUARD with flcProvablyLong: tryFLC reads a Local optimistically as Long and returns 0L for a FloatV,
+    // so an unguarded Double `/` compiled 0L/0L → ArithmeticException (dsl-ast-builder), and `+`/`*`/… gave
+    // silently wrong Long results. Non-provably-Long operands fall through to the general, Double-aware arith.
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
-      val flcOpt: Option[FC] = tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
+      val flcOpt: Option[FC] =
+        if flcProvablyLong(t) then tryFLC(t, globals).map { flc => (env: Env) => IntV(flc(env)): Value }
+        else None
       flcOpt orElse
         // Non-numeric ops (++, string concat, etc.) — fall through to general dispatch
         tryFC(a0, globals).flatMap { fc0 => tryFC(a1, globals).map { fc1 =>
