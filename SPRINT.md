@@ -314,7 +314,7 @@ Phase 3 (CLI switch) is gated on this entire track completing.
 TRUE parity is **11/47 ≈ 23%** (not the exit-0 96%), per `v2/output-parity-baseline.md`. Roadmap to raise it,
 prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parity --all` after `sbt installBin`.
 
-- [~] **v2-main-entry** (`feature/v2-main-entry`, holds FrontendBridge) — **HIGH LEVERAGE, IN PROGRESS.**
+- [x] **v2-main-entry + FrontendBridge parity fixes** (`feature/v2-main-entry`) — **DONE 2026-07-06, parity 11→15/46 (23%→33%).**
   - [x] v2 now invokes user `def main()` — was skipped because the html `<main>` tag plugin-global shadowed
     it (FrontendBridge:784 collision-skip); excepted `main`. `def main()=println(x)` now runs on v2. Fixes
     every `def main()`-entry program that had ONLY the entry-invocation bug.
