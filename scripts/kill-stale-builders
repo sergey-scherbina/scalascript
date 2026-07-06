@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# kill-stale-builders — stop sbt/bloop daemons whose working directory no longer
+# exists (deleted worktrees). Orphaned servers hold 2-3 GB RSS each and can
+# answer BSP with stale state (2026-07-06 audit: two dead-worktree sbt servers
+# held >5 GB). Detection: the process CWD via lsof — command lines don't
+# reliably contain the workspace path. Dry-run by default; --kill to act.
+set -euo pipefail
+mode="${1:---dry-run}"
+for pid in $(ps ax -o pid=,command= | grep -E "sbt-launch|bloop|sbt\.script" | grep -v grep | awk '{print $1}'); do
+  cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+  [ -z "$cwd" ] && continue
+  if [ ! -d "$cwd" ]; then
+    if [ "$mode" = "--kill" ]; then
+      echo "killing stale builder $pid (cwd gone: $cwd)"
+      kill "$pid" 2>/dev/null || true
+    else
+      echo "STALE: pid=$pid cwd-gone=$cwd   (run with --kill to stop)"
+    fi
+  fi
+done
+exit 0

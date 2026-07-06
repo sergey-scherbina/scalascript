@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#
+# rm-worktree <path|name> — remove a feature worktree AND its build daemons.
+# Deleting a worktree directory leaves its sbt server (2-3 GB RSS each) and any
+# bloop session alive; orphans accumulate (the 2026-07-06 build audit found two
+# dead-worktree sbt servers holding >5 GB). This packages the safe teardown:
+#   1. shut down the worktree's sbt server (by matching its path in the process args)
+#   2. git worktree remove (force) + prune
+#   3. delete the local feature branch if fully merged upstream
+set -euo pipefail
+
+arg="${1:-}"
+if [ -z "$arg" ]; then
+  echo "usage: scripts/rm-worktree <worktree-path|name>" >&2
+  exit 2
+fi
+
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+if [ -d "$arg" ]; then
+  wt="$(cd "$arg" && pwd)"
+else
+  wt="$(dirname "$MAIN")/$(basename "$MAIN")-wt-${arg#feature/}"
+fi
+if [ ! -d "$wt" ]; then
+  echo "✋ no such worktree: $wt" >&2
+  exit 1
+fi
+
+branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+# 1. Kill build daemons whose command line references this worktree path.
+pids=$(ps ax -o pid=,command= | grep -F "$wt" | grep -Ev "grep|rm-worktree" | awk '{print $1}' || true)
+if [ -n "$pids" ]; then
+  echo "stopping build daemons for $wt: $pids"
+  kill $pids 2>/dev/null || true
+  sleep 2
+  kill -9 $pids 2>/dev/null || true
+fi
+
+# 2. Remove the worktree.
+git -C "$MAIN" worktree remove --force "$wt" 2>/dev/null || { rm -rf "$wt"; git -C "$MAIN" worktree prune; }
+
+# 3. Drop the branch if merged.
+if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+  git -C "$MAIN" fetch origin -q
+  if git -C "$MAIN" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
+    git -C "$MAIN" branch -D "$branch" 2>/dev/null || true
+    echo "removed merged branch $branch"
+  else
+    echo "NOTE: branch $branch not merged to origin/main — kept"
+  fi
+fi
+echo "worktree removed: $wt"

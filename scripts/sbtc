@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#
+# sbtc — run an sbt command through the THIN CLIENT against this checkout's
+# resident sbt server. A cold `sbt -batch <cmd>` pays ~8 s wall / ~31 s CPU
+# just loading the 259-module build (measured 2026-07-06); the client reuses
+# the warm server and answers in <1 s. First call starts the server.
+# Usage: scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"
+exec sbt --client "$@"
