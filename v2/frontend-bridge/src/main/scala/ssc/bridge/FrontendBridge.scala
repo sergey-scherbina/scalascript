@@ -78,6 +78,7 @@ object FrontendBridge:
     objMethodDefaults.clear()
     objMethodVarargs.clear()
     sqlSectionIds.clear()
+    globalVarNames.clear()
     defParamNames.clear()
     varargDefs.clear()
     zeroArgDefs.clear()
@@ -141,6 +142,10 @@ object FrontendBridge:
    *  with 1 arg crashed the 2-ary method lam (Local out of range). */
   private val objMethodDefaults =
     collection.mutable.LinkedHashMap[(String, String), (Vector[String], Vector[Option[scala.meta.Term]])]()
+
+  /** Names of OBJECT-level `var` members — stored as global cells @name
+   *  (CDef("@name", cell.new(init)); reads cell.get, writes cell.set). */
+  private val globalVarNames = collection.mutable.HashSet[String]()
 
   /** Section ids that own a ```sql fence: `Section.sql` resolves to __sql_<Section>. */
   private val sqlSectionIds = collection.mutable.HashSet[String]()
@@ -529,6 +534,12 @@ object FrontendBridge:
         else if !fenceOnly || !inFence then
           importPat.findAllMatchIn(line).foreach { m =>
             val rel = m.group(2)
+            // Only file imports: markdown links ([buy](/buy)) and package-registry
+            // refs ([a, b](pkg:ns/name:1.0)) are NOT import directives to resolve.
+            // Reject absolute markdown links (/buy) and pkg-registry/url refs;
+            // allow .ssc files AND directory imports (resolved to index.ssc).
+            if !rel.startsWith("/") && !rel.startsWith("pkg:") && !rel.contains("://")
+               && !rel.contains(" ") then
             resolveStdPathWithFile(rel, dir).foreach { case (content, resolvedFile) =>
               val key = resolvedFile.getCanonicalPath
               if seen.add(key) then
@@ -604,6 +615,9 @@ object FrontendBridge:
   private def looksLikeImportStart(t: String): Boolean =
     // Must start with [ and contain only idents+commas (possibly ending with .ssc))
     if !t.startsWith("[") then return false
+    // Package-registry import: [a, b](pkg:ns/name:1.0) — contains ':' so it must
+    // be accepted BEFORE the operator quick-reject below.
+    if t.matches("""\[[^\]]*\]\(pkg:[^)]+\)""") then return true
     // Quick reject: import lines have no quotes, ->, :, =, other operators
     if t.contains("\"") || t.contains("'") || t.contains("->") || t.contains(":") ||
        t.contains("=") || t.contains("+") || t.contains("-") || t.contains("*") ||
@@ -618,7 +632,7 @@ object FrontendBridge:
       val t = lines(i).trim
       if looksLikeImportStart(t) then
         // Import directive: skip until the closing line with ](path.ssc)
-        if t.contains(".ssc)") || t.contains(".ssc0)") then
+        if t.contains(".ssc)") || t.contains(".ssc0)") || t.matches("""\[[^\]]*\]\(pkg:[^)]+\)""") then
           i += 1 // single-line import: skip it
         else
           i += 1 // multi-line: skip continuations until closing .ssc) line
@@ -863,6 +877,15 @@ object FrontendBridge:
       case obj: Defn.Object if !V2PluginRegistry.hasGlobal(obj.name.value) =>
         // object Foo { def m(...) = ... } → Foo = __mk_method_obj__(["m", lam, ...])
         val methods = obj.templ.stats.collect { case m: Defn.Def => m }
+        // Object VAR members → global cells: CDef("@name", cell.new(init));
+        // method bodies read via cell.get(Global(@name)), assignments already
+        // route to cell.set(Global(@name)) in convertAssign.
+        obj.templ.stats.collect { case v: Defn.Var => v }.foreach { varDef =>
+          varDef.pats.collect { case Pat.Var(Term.Name(vn)) => vn }.foreach { vn =>
+            globalVarNames += vn
+            defsB += CDef(s"@$vn", CT.Prim("cell.new", List(convertExpr(varDef.body, Nil))))
+          }
+        }
         // Emit object vals as top-level CDefs so method bodies can reference them via CT.Global
         obj.templ.stats.collect { case v: Defn.Val => v }.foreach { valDef =>
           valDef.pats.collect { case Pat.Var(Term.Name(vname)) => vname }.foreach { vname =>
@@ -1264,6 +1287,8 @@ object FrontendBridge:
       if lcell >= 0 then CT.Prim("lcell.get", List(CT.Local(lcell)))
       else if cell >= 0 then CT.Prim("cell.get", List(CT.Local(cell)))
       else if arr >= 0 then CT.Local(arr)  // array val — return raw local
+      else if globalVarNames.contains(name) then
+        CT.Prim("cell.get", List(CT.Global(s"@$name")))
       else if isCtorName(name) && !methodObjectNames.contains(name) then
         CT.Ctor(name, Nil)  // e.g. Nil, None, True, case objects
       else CT.Global(name)

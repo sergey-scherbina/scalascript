@@ -1518,6 +1518,57 @@ object PluginBridge:
 
     // trapExit(flag) — Erlang-style: when true, exit(self, reason) becomes an
     // Exit(reason) MESSAGE in this actor's mailbox instead of a kill.
+    // ── Distributed-node surface, LOCAL-LOOPBACK simulation ─────────────────
+    // The corpus examples run all "nodes" in ONE process; v1 uses HTTP loopback.
+    // Here: startNode registers an id, registerBehavior a named closure, and
+    // spawnRemote spawns the behavior as a LOCAL actor — same visible semantics.
+    val nodeIds   = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+    val behaviors = new java.util.concurrent.ConcurrentHashMap[String, V2Value.ClosV]()
+    V2PluginRegistry.registerGlobal("startNode", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      env.headOption.foreach { case V2Value.StrV(id) => nodeIds.add(id); case _ => () }
+      Done(V2Value.UnitV)
+    }))
+    V2PluginRegistry.registerGlobal("connectNode", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      Done(env.headOption.getOrElse(V2Value.StrV("local")))
+    }))
+    V2PluginRegistry.registerGlobal("registerBehavior", V2Value.ClosV(Runtime.emptyEnv, 2, env => {
+      (env(0), env(1)) match
+        case (V2Value.StrV(name), fn: V2Value.ClosV) => behaviors.put(name, fn)
+        case _ => ()
+      Done(V2Value.UnitV)
+    }))
+    V2PluginRegistry.registerGlobal("spawnRemote", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      // spawnRemote(nodeId, behaviorName, arg) — node id ignored locally
+      val (name, arg) = env.toList match
+        case _ :: V2Value.StrV(n) :: a :: _ => (n, a)
+        case V2Value.StrV(n) :: a :: _      => (n, a)
+        case V2Value.StrV(n) :: Nil         => (n, V2Value.UnitV)
+        case _                      => ("?", V2Value.UnitV)
+      behaviors.get(name) match
+        case null => sys.error(s"spawnRemote: no behavior '$name' registered")
+        case fn =>
+          val mb = new ActorMailbox()
+          val t = Thread.ofVirtual().start(() => {
+            actorTL.set(mb)
+            try { callClosure(fn, List(arg)); () }
+            catch { case _: InterruptedException => () ; case e: Throwable => notifyDeath(mb, V2Value.StrV(e.getMessage)) }
+            finally { mb.dead = true }
+          })
+          mb.thread = t
+          Done(V2Value.ForeignV(mb))
+    }))
+    // Typed ActorRef helpers — locally an actor ref IS the mailbox
+    V2PluginRegistry.registerGlobal("actorRef", V2Value.ClosV(Runtime.emptyEnv, -1, env =>
+      Done(env.headOption.getOrElse(V2Value.UnitV))))
+    V2PluginRegistry.registerGlobal("actorRefAddress", V2Value.ClosV(Runtime.emptyEnv, -1, _ =>
+      Done(V2Value.StrV("local://"))))
+    V2PluginRegistry.registerGlobal("actorRefIsLocal", V2Value.ClosV(Runtime.emptyEnv, -1, _ =>
+      Done(V2Value.BoolV(true))))
+    V2PluginRegistry.registerGlobal("actorRefTryLocal", V2Value.ClosV(Runtime.emptyEnv, -1, env =>
+      Done(V2Value.DataV("Some", Vector(env.headOption.getOrElse(V2Value.UnitV))))))
+    V2PluginRegistry.registerGlobal("actorRefPublish", V2Value.ClosV(Runtime.emptyEnv, -1, env =>
+      Done(env.headOption.getOrElse(V2Value.UnitV))))
+
     V2PluginRegistry.registerGlobal("trapExit", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
       val mb = actorTL.get()
       if mb != null then
@@ -1550,8 +1601,12 @@ object PluginBridge:
 
     // self() — returns current actor's mailbox ref
     V2PluginRegistry.registerGlobal("self", V2Value.ClosV(Runtime.emptyEnv, 0, env => {
-      val mb = actorTL.get()
-      if mb == null then sys.error("self() called outside an actor")
+      var mb = actorTL.get()
+      if mb == null then
+        // v1 parity: the MAIN thread has an implicit root mailbox — mapreduce
+        // drivers call self() outside any spawned actor to receive results.
+        mb = new ActorMailbox()
+        actorTL.set(mb)
       Done(V2Value.ForeignV(mb))
     }))
 
