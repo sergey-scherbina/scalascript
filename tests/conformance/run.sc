@@ -17,8 +17,22 @@ def repoRoot: os.Path =
     .find(p => os.exists(p / "build.sbt"))
     .getOrElse(os.pwd)
 
+// CLI: run.sc [dir] [--only glob[,glob...]] [--no-memo]
+//   --only    run just the matching cases (comma-separated globs on the base
+//             name, e.g. --only 'json*,optics-*') — the fix->test loop then
+//             costs seconds instead of the full corpus (specs/conformance-perf.md F1).
+//   --no-memo disable the green-run memo cache (F2); also SSC_CONF_NO_MEMO=1.
+val cliArgs = args.filterNot(_ == "--").toList
+val onlyGlobs: List[String] =
+  cliArgs.sliding(2).collectFirst { case List("--only", v) => v }.toList
+    .flatMap(_.split(',').toList).map(_.trim).filter(_.nonEmpty)
+val noMemo: Boolean =
+  cliArgs.contains("--no-memo") || sys.env.get("SSC_CONF_NO_MEMO").contains("1")
+val positional = cliArgs.filterNot(_.startsWith("--"))
+  .filterNot(a => cliArgs.indexOf(a) > 0 && cliArgs(cliArgs.indexOf(a) - 1) == "--only")
+
 val dir: os.Path =
-  args.filterNot(_ == "--").headOption match
+  positional.headOption match
     case Some(p) => os.Path(p, os.pwd)
     case None    => repoRoot / "tests" / "conformance"
 
@@ -35,13 +49,47 @@ if !os.exists(sscBin) then
 def ssc(args: String*): os.proc =
   os.proc(sscBin.toString +: args.toSeq)
 
+def globMatch(glob: String, name: String): Boolean =
+  val rx = ("^" + java.util.regex.Pattern.quote(glob)
+    .replace("*", "\\E.*\\Q").replace("?", "\\E.\\Q") + "$").r
+  rx.findFirstIn(name).isDefined
+
 val tests = os.list(dir)
   .filter(_.ext == "ssc")
+  .filter(t => onlyGlobs.isEmpty || onlyGlobs.exists(g => globMatch(g, t.baseName)))
   .sortBy(_.last)
+
+if onlyGlobs.nonEmpty then
+  println(s"--only ${onlyGlobs.mkString(",")}: ${tests.length} matching case(s)")
 
 val sep = "-" * 50
 var passed = 0
 var failed = 0
+var memoSkipped = 0
+
+// F2 memo: a case whose (input, expected, ssc.jar identity) is unchanged since
+// the last GREEN run is skipped. The jar identity uses size+mtime — cheap and
+// machine-local (the cache file lives under target/, not committed).
+val memoFile = repoRoot / "target" / "conformance-memo.txt"
+val jarId: String =
+  // the INT/JS/JVM lanes all run through bin/ssc -> bin/lib/ssc.jar
+  val jar = repoRoot / "bin" / "lib" / "ssc.jar"
+  val f   = jar.toIO
+  if f.exists then s"${f.length}-${f.lastModified}" else "no-jar"
+def sha(text: String): String =
+  val d = java.security.MessageDigest.getInstance("SHA-256")
+  d.digest(text.getBytes("UTF-8")).map("%02x".format(_)).mkString
+val memo: collection.mutable.Map[String, String] =
+  val m = collection.mutable.Map.empty[String, String]
+  if !noMemo && os.exists(memoFile) then
+    os.read.lines(memoFile).foreach { l =>
+      l.split('\t') match
+        case Array(k, v) => m(k) = v
+        case _           => ()
+    }
+  m
+def memoKey(name: String, src: String, expected: String): String =
+  sha(src + "\u0000" + expected + "\u0000" + jarId)
 
 def run(cmd: os.proc): String =
   cmd.call(stdin = "", stderr = os.Pipe, check = false).out.text().stripTrailing()
@@ -185,6 +233,10 @@ for test <- tests do
       println(s"$name: SKIP (requires: $reason — add expected/$name.txt to enable on eligible backends: ${eligible.mkString(", ")})")
     else
       println(s"$name: SKIP (no expected/$name.txt)")
+  else if !noMemo && memo.get(name).contains(memoKey(name, src, os.read(expectedFile).stripTrailing())) then
+    println(s"$name: MEMO (unchanged since last green run)")
+    memoSkipped += 1
+    passed += 1
   else
     println(s"$name:")
     val expected = os.read(expectedFile).stripTrailing()
@@ -231,10 +283,17 @@ for test <- tests do
         val jvmOut = run(ssc("run-jvm", test.toString))
         check("JVM", jvmOut, expected)
 
-    if intOk && jsOk && jvmOk then passed += 1 else failed += 1
+    if intOk && jsOk && jvmOk then
+      passed += 1
+      if !noMemo then memo(name) = memoKey(name, src, expected)
+    else failed += 1
 
 println(s"\n$sep")
+if !noMemo then
+  os.makeDir.all(memoFile / os.up)
+  os.write.over(memoFile, memo.toList.sorted.map { case (k, v) => s"$k\t$v" }.mkString("\n"))
 val pendingSuffix = if pendingCount > 0 then s" (+ $pendingCount pending)" else ""
-println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests$pendingSuffix")
+val memoSuffix    = if memoSkipped > 0 then s" ($memoSkipped memoized)" else ""
+println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests$pendingSuffix$memoSuffix")
 
 if failed > 0 then System.exit(1)

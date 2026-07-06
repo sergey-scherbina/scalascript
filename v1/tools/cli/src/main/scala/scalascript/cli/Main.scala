@@ -2915,7 +2915,13 @@ final class RunJvmCmd extends CliCommand:
       case None       => raw
     val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
     try
-      val sub = os.proc("scala-cli", "run", tmp, "--server=false")
+      // SSC_SCALACLI_SERVER=1 keeps the bloop server (warm compiler): the
+      // conformance JVM lane pays a COLD scalac start per case otherwise
+      // (specs/conformance-perf.md F3). Default stays serverless.
+      val scliArgs =
+        if sys.env.get("SSC_SCALACLI_SERVER").contains("1") then Seq("scala-cli", "run", tmp.toString)
+        else Seq("scala-cli", "run", tmp.toString, "--server=false")
+      val sub = os.proc(scliArgs)
         .spawn(stdout = os.Inherit, stderr = os.Inherit)
       // Kill the entire scala-cli process tree on JVM shutdown so the server
       // doesn't linger after Ctrl+C or SIGTERM.
