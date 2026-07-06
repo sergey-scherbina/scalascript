@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/build-perf-2
-worktree: ../scalascript-wt-buildperf2
-started: 2026-07-06
-status: in-progress
-task: build-perf wave 2 — AGENTS workflow banner, F4 batch conformance runner, env heap cleanup, CI test shard, exportJars/warm-targets investigation
