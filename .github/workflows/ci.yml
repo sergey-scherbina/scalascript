@@ -160,6 +160,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sbt-
 
+      # Same classes+zinc cache as the conformance job: without it this job
+      # recompiles all ~259 modules from scratch every run.
+      - name: Cache compiled classes (zinc)
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-sbt-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-sbt-
+            ${{ runner.os }}-classes-
+
       - name: Compile and assemble ssc.jar
         run: sbt compile cli/assembly
 
