@@ -109,6 +109,21 @@ distinguishes `both-fail` / `v2-error` / `v1-only` / match / mismatch. Corrected
 parser (`ui-fetch-json`), and `default-params` (default-arg evaluation). These + the 17 mismatches are the
 true v1→v2 gap.
 
+### Fixes landed 2026-07-06 (`feature/v2-main-entry`, FrontendBridge)
+
+- **user `def main()` now invoked** — was skipped because the html `<main>` tag global shadowed it.
+- **`def main()` called even with top-level stmts** — the entry was either/or, so `def main()` + a def that
+  emits entry stmts (case-class/enum default params) ran nothing. Now appends the `main()` call. (default-params ✅)
+- **user def wins over ALL html tag globals** (main/label/title/form/table/…), generalizing the above. (data-types ✅)
+- **Mirror.elemTypes uses real field types** (String/Int) not hardcoded `Any`. (custom-derives-mirror ✅)
+
+### HIGH-VALUE VM bug — foldLeft with a conditional lambda over Doubles (3+ elems) returns the last element
+
+`List(4.0,1.0,10.0).foldLeft(99.0)((a,b) => if a<b then a else b)` → v2 gives **10** (last element), v1 gives
+**1**. Standalone `4.0 < 7.0` is correct, 2-element Double folds are correct, and 8-element INT folds are
+correct — so it's Double + 3+ iterations (a fast-loop/JIT fold path miscompiling the conditional-accumulator).
+Breaks `imports` (min/max) and any Double reduction. **v2 VM territory** (not FrontendBridge) — high priority.
+
 ### HIGH-VALUE root cause — v2 does not invoke `def main()`
 
 Diagnosed `default-params` (and it generalizes): a program whose entry is `def main(): Unit = …` produces
