@@ -130,6 +130,17 @@ object FrontendBridge:
   /** Names of vals routed to the ENTRY block (effectful or entry-dependent). */
   private val entryValNames     = collection.mutable.HashSet[String]()
 
+  /** HTML element tag names the html plugin registers as globals (mirrors PluginBridge `containerTags`).
+   *  A user `def` of one of these must win over the tag (common identifiers: main/label/title/form/…). */
+  private val htmlTagNames: Set[String] = Set(
+    "html", "head", "body", "title", "style", "script", "main",
+    "section", "header", "footer", "nav", "article", "aside",
+    "div", "span", "p", "a", "em", "strong", "small", "code", "pre",
+    "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "dl", "dt", "dd",
+    "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+    "form", "button", "label", "select", "option", "textarea",
+    "figure", "figcaption", "blockquote")
+
   /** Context bounds — dictionary passing for the bridged pipeline.
    *  defContextBounds: def name → per-bound (tcName, drill) where drill says how
    *  to reach the TYPE WITNESS from the first user arg at runtime ("self" = the
@@ -781,11 +792,12 @@ object FrontendBridge:
     }).flatten.toSet
 
     stats.foreach {
-      case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) && d.name.value != "main" =>
+      case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) && !htmlTagNames.contains(d.name.value) =>
         () // Plugin already provides this def (with default-param support); don't shadow it.
-        // EXCEPTION: `main` — the plugin registers an html <main> tag global, but a user `def main`
-        // is the program ENTRY (invoked below), so it must win over the tag. Without this, a
-        // `def main()` program runs nothing and renders `_Raw("<main></main>")` instead.
+        // EXCEPTION: html tag names (main, label, title, form, table, …) — the html plugin registers
+        // these as `<tag>` element globals, but they are common identifiers a user `def` legitimately
+        // defines (e.g. `def label(s) = …`, or `def main()` the entry). A user def with a body must win
+        // over the tag, else it renders `_Raw("<label>…</label>")` instead of running the user code.
       case d: Defn.Def =>
         // Context bounds `[A: TC]` → prepend a `__tc_TC` dictionary param;
         // summon[TC[A]] in the body resolves to it (see the summon case), and
