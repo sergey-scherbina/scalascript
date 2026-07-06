@@ -108,3 +108,14 @@ distinguishes `both-fail` / `v2-error` / `v1-only` / match / mismatch. Corrected
 `uuid-v7`. Clusters: content/ui plugin natives, jdbc/spark Op-execution, codec/derives, the FrontendBridge
 parser (`ui-fetch-json`), and `default-params` (default-arg evaluation). These + the 17 mismatches are the
 true v1→v2 gap.
+
+### HIGH-VALUE root cause — v2 does not invoke `def main()`
+
+Diagnosed `default-params` (and it generalizes): a program whose entry is `def main(): Unit = …` produces
+NOTHING on v2 — worse, `bin/ssc run --v2` of a bare `def main() = println("x")` prints `_Raw("<main></main>")`
+instead of running it (v1 correctly prints `x`). Top-level statements (no `main`) DO run on v2. So the
+FrontendBridge/entry path (a) does not call the user's `main()` the way v1's `ssc run` does, and (b) resolves
+the name `main` to an HTML `<main>` element that shadows the user function. This one gap silently breaks
+EVERY `def main()`-entry example — a high-leverage fix for the FrontendBridge entry semantics + global
+resolution (engine work). Fix: after loading, invoke the user `main()` if defined, and don't let an html
+tag shadow it.
