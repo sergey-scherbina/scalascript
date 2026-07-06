@@ -26,6 +26,36 @@ Remaining 21 batch fails, classified:
 
 ## Active tasks
 
+### Build-perf + conformance-perf sprint (2026-07-06, Sergiy directive: "запиши у спринт і зроби")
+
+Build optimization (from the 2026-07-06 build audit: 259 modules, ~8s/31s CPU per cold sbt -batch
+invocation, JDK_JAVA_OPTIONS=-Xmx12g inherited by every forked JVM, 2 orphaned sbt servers at 2.5GB
+each, CI recompiles all modules, v2 parity harness rebuilds v2.jar per run):
+
+- [ ] **bp-1 test-heap-default** (= BACKLOG conformance-test-heap-default L1): explicit env-gated
+      `-Xmx` for forked test JVMs in build.sbt (`SSC_TEST_XMX`, default 2g) so tests stop inheriting
+      the ambient 12g; JMH/proguard pins stay. Verify: v2FrontendBridge suite green under 2g.
+- [ ] **bp-2 pipelining**: `ThisBuild / usePipelining := true` (sbt 1.10 + Scala 3.8 support it);
+      verify full compile + suite; revert if zinc misbehaves.
+- [ ] **bp-3 worktree-server-hygiene**: scripts/new-worktree (and a new scripts/rm-worktree) kill the
+      worktree's sbt server on removal; add scripts/kill-stale-builders for orphans.
+- [ ] **bp-4 v2-jar-cache**: v2/backend/check.sh caches v2.jar keyed by hash of v2/src/*.scala
+      (skip scala-cli --assembly when unchanged).
+- [ ] **bp-5 ci-class-cache**: ci.yml caches **/target (classes+zinc) keyed by SHA with restore-keys
+      so PR builds recompile only changed modules.
+- [ ] **bp-6 sbt-client-docs**: AGENTS.md note + scripts/sbtc thin-client helper (8s -> <1s per command).
+
+Conformance-PERF (BACKLOG items, specs/conformance-perf.md):
+
+- [ ] **cp-1 conformance-affected-only (F1)**: `run.sc --only <glob|files>` so the fix-test loop runs
+      just touched cases; full corpus stays for CI.
+- [ ] **cp-2 conformance-memoize (F2)**: skip cases whose (input, ssc.jar hash, expected) is unchanged
+      since last green (cache file under target/); `--no-memo` escape hatch.
+- [ ] **cp-3 conformance-warm-runner (F3 subset)**: JVM lane compiles через warm bloop server instead
+      of cold `--server=false` scala-cli per case; INT lane stays bin/ssc (already one JVM per case).
+- [ ] **cp-4** covered by bp-1 (same L1 item).
+
+
 ### ▶ v1→v2 migration (2026-07-03 — planned, not started)
 Spec: `specs/v1-to-v2-migration.md`
 
