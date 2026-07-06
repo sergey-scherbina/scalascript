@@ -1,0 +1,8 @@
+agent: claude-opus-4-8
+branch: feature/v2-main-entry
+worktree: ../scalascript-wt-main
+started: 2026-07-06T07:45:08Z
+heartbeat: 2026-07-06T07:45:08Z
+status: in-progress
+exclusive-files: v2/frontend-bridge/src/main/scala/ssc/bridge/FrontendBridge.scala
+task: v2-main-entry-fix — v2 does not invoke user def main() (html <main> tag shadows it); fix FrontendBridge entry semantics to call main() like v1 ssc run + stop html main tag shadowing. Then work down the real v2-only gaps in output-parity-baseline.md. Holding FrontendBridge.scala.
