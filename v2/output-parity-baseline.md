@@ -84,3 +84,27 @@ never terminate are auto-skipped):
 plugin natives returning `Stub`/`Op` (SQL/Spark/content/rails) plus effects shape, derives/mirror, quoted
 macros, and the `validate` language form. The 130 skipped need a terminating harness (server-with-timeout,
 bounded actor runs) to be measured — future work.
+
+### CORRECTION 2026-07-06 — the 48% was inflated by "both-fail" false matches
+
+The harness counted "both runners print nothing" as a MATCH. But many examples **fail on v1 too** under the
+default `ssc run` because they need a `--plugin` the default set doesn't load (e.g. `sha256` is `Undefined`
+on v1 without the crypto plugin). Those are NOT v2 gaps and must not count as parity. The harness now
+distinguishes `both-fail` / `v2-error` / `v1-only` / match / mismatch. Corrected full-corpus number:
+
+| | count |
+|---|---|
+| ✅ identical | **11** |
+| ❌ mismatch | 17 |
+| ⚠️ v2-error (v1 works, v2 empty) | 11 |
+| v1-only (v2 works, v1 empty) | 8 |
+| both-fail (needs `--plugin` on both — NOT a v2 gap) | 16 |
+| skipped (server/actor/dataset) | 130 |
+| **parity of examples with real output** | **11 / 47 ≈ 23%** |
+
+**The honest number is ~23%, not 48%.** The 11 REAL v2-only gaps (v1 works, v2 produces nothing):
+`content-form-submit`, `content-live-rows`, `content-slot`, `default-params`, `graph-codecs`,
+`object-store-jdbc`, `spark-schema-mapping`, `typed-object-codec`, `ui-fetch-json`, `ui-remote-table`,
+`uuid-v7`. Clusters: content/ui plugin natives, jdbc/spark Op-execution, codec/derives, the FrontendBridge
+parser (`ui-fetch-json`), and `default-params` (default-arg evaluation). These + the 17 mismatches are the
+true v1→v2 gap.

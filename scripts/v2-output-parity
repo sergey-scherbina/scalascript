@@ -42,7 +42,7 @@ run_one() { # $1=file  $2=extra-flag(--v2 or empty)
   fi
 }
 
-match=0; mismatch=0; err=0; skip=0
+match=0; mismatch=0; err=0; bothfail=0; v1only=0; skip=0
 printf '%-38s %s\n' "EXAMPLE" "PARITY"
 printf '%-38s %s\n' "-------" "------"
 for f in "${FILES[@]}"; do
@@ -52,8 +52,14 @@ for f in "${FILES[@]}"; do
   fi
   v1=$(run_one "$f" "");     v2=$(run_one "$f" "--v2")
   name=$(basename "$f")
-  if [ -z "$v2" ] && [ -n "$v1" ]; then
-    printf '%-38s %s\n' "$name" "V2-ERROR (empty output)"; err=$((err+1))
+  # NB: "both empty" means the program fails/prints nothing on BOTH runners (e.g. needs a --plugin the
+  # default `ssc run` doesn't load) — that is NOT a v2 gap, so it must not count as an identical match.
+  if [ -z "$v1" ] && [ -z "$v2" ]; then
+    printf '%-38s %s\n' "$name" "· both-fail (not a v2 gap)"; bothfail=$((bothfail+1))
+  elif [ -z "$v2" ]; then
+    printf '%-38s %s\n' "$name" "V2-ERROR (v1 works, v2 empty)"; err=$((err+1))
+  elif [ -z "$v1" ]; then
+    printf '%-38s %s\n' "$name" "v1-only (v2 works, v1 empty)"; v1only=$((v1only+1))
   elif [ "$v1" = "$v2" ]; then
     printf '%-38s %s\n' "$name" "✅ MATCH"; match=$((match+1))
   else
@@ -63,7 +69,8 @@ for f in "${FILES[@]}"; do
 done
 
 total=${#FILES[@]}
-ran=$((match + mismatch + err))
+real=$((match + mismatch + err + v1only))   # examples where at least one runner produced real output
 echo
-echo "parity: $match/$ran identical · $mismatch mismatch · $err v2-error   (of $total total; $skip skipped as server/actor/dataset)"
+echo "parity: $match/$real identical · $mismatch mismatch · $err v2-error · $v1only v1-only"
+echo "        ($bothfail both-fail not-a-gap · $skip skipped server/actor · $total total)"
 [ $((mismatch + err)) -eq 0 ]
