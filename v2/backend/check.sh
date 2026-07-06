@@ -25,9 +25,24 @@ trap 'rm -rf "$TMP"' EXIT
 # scala-cli: --server=false must follow the subcommand (avoids bloop daemon)
 scli() { command scala-cli "$@" --server=false; }
 
-echo "building v2 jar..." >&2
-scli --power package "$V2/src" -o "$TMP/v2.jar" -f --assembly -q >/dev/null 2>&1 \
-  || { echo "FATAL: cannot build v2 jar" >&2; exit 1; }
+# v2.jar is CACHED by source hash: the assembly costs ~1-2 min per harness run
+# and v2/src changes rarely relative to how often parity runs. Cache lives in
+# a stable location (not $TMP, which is wiped per run).
+CACHE_DIR="${SSC_V2_JAR_CACHE:-$HOME/.cache/ssc-v2-jar}"
+mkdir -p "$CACHE_DIR"
+SRC_HASH=$(cat "$V2"/src/*.scala 2>/dev/null | shasum -a 256 | awk '{print $1}')
+CACHED_JAR="$CACHE_DIR/v2-$SRC_HASH.jar"
+if [ -f "$CACHED_JAR" ]; then
+  echo "v2 jar: cache hit ($SRC_HASH)" >&2
+  cp "$CACHED_JAR" "$TMP/v2.jar"
+else
+  echo "building v2 jar..." >&2
+  scli --power package "$V2/src" -o "$TMP/v2.jar" -f --assembly -q >/dev/null 2>&1 \
+    || { echo "FATAL: cannot build v2 jar" >&2; exit 1; }
+  cp "$TMP/v2.jar" "$CACHED_JAR"
+  # keep the cache bounded: drop all but the 3 most recent jars
+  ls -t "$CACHE_DIR"/v2-*.jar 2>/dev/null | tail -n +4 | xargs rm -f 2>/dev/null || true
+fi
 
 # ── collect fixtures ─────────────────────────────────────────────────────────
 IRS=()
