@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-corpus-tails
+worktree: ../scalascript-wt-v2-corpus-tails
+started: 2026-07-06
+status: in-progress
+task: corpus tails to Phase-3 readiness — 38 remaining batch fails (dsl/distributed/spark/rozum/sql-engines/ui clusters)
