@@ -1,8 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/v2-foldlt-double
-worktree: ../scalascript-wt-foldbug
-started: 2026-07-06T08:45:21Z
-heartbeat: 2026-07-06T08:45:21Z
-status: in-progress
-exclusive-files: v2/src/Runtime.scala
-task: v2-flc-double (cont.) — more unguarded tryFLC callers corrupt Doubles (read Local FloatV as 0L): dsl-ast-builder crashes '/ by zero' at Runtime.scala:750 fast-arith path. Guard remaining tryFLC entry points with flcProvablyLong. Holding v2/src/Runtime.scala.
