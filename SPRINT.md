@@ -318,8 +318,10 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
   - [x] v2 now invokes user `def main()` — was skipped because the html `<main>` tag plugin-global shadowed
     it (FrontendBridge:784 collision-skip); excepted `main`. `def main()=println(x)` now runs on v2. Fixes
     every `def main()`-entry program that had ONLY the entry-invocation bug.
-  - [ ] `default-params` still empty after the main() fix — a SECOND issue in richer default-arg forms
-    (param-referencing default `by = x + 1`, case-class + enum-case defaults). Diagnose + fix next.
+  - [x] `default-params` **FIXED** — the entry logic was either/or: `if entryStmts.nonEmpty ... else if main`,
+    so a program with BOTH top-level defs (case-class/enum default params emit entry stmts) AND `def main()`
+    never called main(). Now always appends the `main()` call after entry stmts (v1 semantics). default-params
+    byte-identical v1==v2.
 - [ ] **real v2-only V2-ERROR gaps** (v1 works, v2 empty) beyond default-params: `content-form-submit`,
   `content-live-rows`, `content-slot`, `ui-fetch-json` (FrontendBridge parser: `'=>' expected but '('`),
   `ui-remote-table`, `graph-codecs`, `typed-object-codec` (codec/derives), `object-store-jdbc`,

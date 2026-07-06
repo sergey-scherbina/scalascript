@@ -946,10 +946,16 @@ object FrontendBridge:
     }
     flushExtensions(defsB)  // emit per-name (possibly tag-dispatching) extension globals
     val defs  = stdDefs ++ defsB.result() ++ derivedDefs ++ generalDerivedDefs
-    val entryStmts = entryB.result()
+    // A user `def main()` is the program entry — call it AFTER any top-level statements (v1 semantics).
+    // Appending the call (rather than an either/or) fixes programs where a def with default params (case
+    // class / enum-case defaults) makes entryStmts non-empty, which previously skipped calling main()
+    // entirely — the program then ran nothing at all.
+    val mainCall: List[Stat] =
+      if userDefNames.contains("main") then List(Term.Apply.After_4_6_0(Term.Name("main"), Term.ArgClause(Nil)))
+      else Nil
+    val entryStmts = entryB.result() ++ mainCall
     val entry =
       if entryStmts.nonEmpty then convertBlock(entryStmts, Nil, topLevel = true)
-      else if userDefNames.contains("main") then CT.App(CT.Global("main"), Nil)
       else CT.Lit(Const.CUnit)
     Program(defs, entry)
 
