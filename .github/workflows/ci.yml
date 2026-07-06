@@ -92,6 +92,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sbt-
 
+      # Compiled classes + zinc analysis: without this every CI run recompiles
+      # all ~259 modules from scratch (the 90-min budget is mostly compilation).
+      # Keyed by commit SHA so a push reuses the nearest previous build via
+      # restore-keys and zinc recompiles only what changed.
+      - name: Cache compiled classes (zinc)
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-
+
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
 
