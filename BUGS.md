@@ -38,7 +38,47 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Note:** `tests/conformance/tkv2-pwa.ssc` covers the .ssc-level path;
   `PwaPluginTest` covers the generators.
 
-## jvmgen-block-call-empty-parens — `open` (2026-07-07)
+## scjvm-artifact-cache-ignores-compiler-version — `open` (2026-07-07)
+
+- **Found by:** claude (green-main takeover), while fixing jvmgen-block-call-empty-parens: after
+  rebuilding `bin/ssc` with a codegen fix, `ssc run-jvm` kept producing byte-identical BROKEN output.
+- **Symptom:** `run-jvm` reuses `<file-dir>/.ssc-artifacts/<name>.scjvm` whenever the SOURCE sha
+  matches (`ModuleGraph.isJvmStale`) — the cache key ignores the compiler/binary version, so codegen
+  fixes are invisible until the artifact is deleted by hand. Cost ~4 rebuild-and-scratch-head cycles.
+- **Repro:** run any `.ssc` via `run-jvm` (caches the emission), change JvmGen, `installBin`, run
+  again — the old emission runs.
+- **Fix direction:** mix a compiler-build fingerprint (e.g. the backend-jvm jar's sha/mtime or a
+  build-stamped version string) into the staleness check.
+- **Workaround:** `rm -rf <dir>/.ssc-artifacts` after rebuilding the binary.
+
+## jvmgen-block-call-empty-parens — `fixed` (2026-07-07)
+
+- **Fixed by:** claude (green-main takeover), SHA: see `fix(jvm): conformance JVM-lane...` on main.
+  Peeling the symptom exposed THREE stacked root causes; all four tests now PASS
+  (`bin/ssc run-jvm` on signals / effects / rest-validate / distributed-map), with regression
+  guards frontendSwiftUI 118/118 (widget `f() { block }` form preserved for curried callees) and
+  backendInterpreter `*JvmGen* *Effect*` 193/193.
+  1. **empty-parens** (signals, rest-validate): `JvmGen.emitExprDeep` emitted `f() { block }` for
+     EVERY bare-name single-block call (fa5d3c821, Jun 2 — swiftui widgets). Broke single-thunk
+     callees (`computed`/`effect`/`validate`/`runActors`). Now curried form only when
+     depDefs/localDefSigs shows ≥2 param clauses. Exposed 2026-07-06 when bp2-2 enabled the
+     warm JVM batch lane — the bug is older than the "suspect window" guessed below.
+  2. **Console duplicate** (effects): the preamble's `object Console` println-shadow collided with
+     a user `effect Console:` lowering. Preamble shadow is now omitted when the module defines its
+     own top-level `Console` (JvmRuntimePreamble.sourceFor + collectUserTopNames bare-Stat arm);
+     the effect-object lowering carries the println/print bridges instead.
+  3. **premature declared-type cast** (effects, distributed-map): CPS-emitted defs whose ops are
+     handled at the CALL SITE (`handle(greet())`) were cast to their declared type
+     (`.asInstanceOf[String]`) while still holding an unresolved Free → ClassCastException
+     `_FlatMap → String`/`DistributedResult`. Declared type is now preserved only for
+     SELF-handling bodies (contains a `handle` form), extending codex's
+     `preserveTotalEffectfulReturnTypes`.
+  Diagnosis gotchas that cost cycles, recorded for the next agent: `.ssc-artifacts` scjvm cache
+  (see the new open bug above), a stale sbt/bloop daemon from a deleted worktree answering builds
+  (`scripts/kill-stale-builders --kill`), and macOS Xcode `strings` silently failing on JVM
+  `.class` files (use `grep -ac` / `unzip -p … | grep -ac` instead).
+
+## jvmgen-block-call-empty-parens — original report (was `open`, 2026-07-07)
 
 - **Found by:** claude (tkv2-components slice), via the full-corpus A/B: 4 tests
   (signals, effects, rest-validate, distributed-map) fail the JVM lane in any FRESH
