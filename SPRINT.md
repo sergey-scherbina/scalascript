@@ -80,8 +80,13 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       written but `pending:` — FOUND pre-existing regression: lazy-loaded plugin externs
       (smtp/tcp/pwa) are dead from .ssc on main (BUGS.md plugin-lazyload-extern-imports; stock
       pwa-demo example fails). busi-side adoption happens at the migration pilot (needs a pin bump).
-- [ ] **tkv2-busi-home-conformance** — reduced busi home screen (list + expand + form + offline
-      fallback) as a standing corpus case; the integration bar for slices 1–4.
+- [x] **tkv2-busi-home-conformance** ✓ DONE 2026-07-07 — `tkv2-busi-home` corpus case (INT==JS):
+      busi-shaped obligation ids → per-card instance-scoped expand; income form (digits/date
+      patterns) with live gate; persisted home payload surviving the reload shape; onlineSignal.
+      Browser twin `examples/frontend/busi-home-demo` driven via emit-spa (only the toggled card
+      expands; Record appears on valid form). GOTCHA found+fixed in form.ssc: a computed thunk
+      invoked from ANOTHER module's context doesn't resolve this module's globals (load-order/
+      global-resolution trap) — bind module functions to local vals before closing over them.
 - [ ] **tkv2-keyed-for** — `forKeyed(items, key)(render)`: keyed reconciliation in the JsGen/custom
       runtime (today `View.ForSignal` wipes + rebuilds the container); component signals survive moves.
 - [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
