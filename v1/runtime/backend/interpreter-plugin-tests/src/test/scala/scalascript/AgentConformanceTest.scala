@@ -28,7 +28,7 @@ import scalascript.parser.Parser
  *  the mock is an in-process HttpServer — no real model, no network. */
 class AgentConformanceTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
 
-  private val port = 19694
+  private var port = 0
   private var server: HttpServer = scala.compiletime.uninitialized
 
   /** The recorded transcript: (httpStatus, rawOpenAiJsonBody) played back in order. */
@@ -49,7 +49,8 @@ class AgentConformanceTest extends AnyFunSuite with Matchers with BeforeAndAfter
     s"""{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"$text"}}]}"""
 
   override def beforeAll(): Unit =
-    server = HttpServer.create(new InetSocketAddress(port), 0)
+    server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    port = server.getAddress.getPort
     server.createContext("/v1/chat/completions", exchange =>
       val body = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
       requests.add(body)
