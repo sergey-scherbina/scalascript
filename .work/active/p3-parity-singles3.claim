@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-parity-singles3
+worktree: ../scalascript-wt-p3-parity-singles3
+started: 2026-07-07
+status: in-progress
+task: p3-parity newly-measured mismatches — yaml-parse, storage-demo, lenses, dataset-stats, actors-pingpong, async-demo, async-parallel-demo (rozum ×4 separately: likely transport-nondet)
