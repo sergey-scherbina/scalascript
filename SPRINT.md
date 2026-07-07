@@ -87,7 +87,12 @@ Claimable slices for the above (queued 2026-07-07):
       statement position and val bindings (all Seq/Let paths). Free-monad threading added
       (Runtime.seqThreadOp/letThreadOp; Let keeps the common path TAIL — 1M-TCO probe green).
       examples/effects.ssc on v2 now prints ALL SIX documented lines exactly.
-      REMAINING (smaller, each diagnosed):
+      REMAINING → State + runStream CLOSED 2026-07-07 (49709edaa): dynamic effect context
+      now wins over generic __method__.* natives and same-named plugin intrinsics (State.get
+      was Stub-swallowed); runStream implemented natively in the bridge (emit collects,
+      complete() aborts, returns (Source, result)). algebraic-effects.ssc = PARITY MATCH.
+      Corpus 174P/12F/9SKIP; parity 31/56. Still open from this family:
+
       • v1 BUG (new): v1 `ssc run examples/effects.ssc` prints only 3 of 6 documented lines
         (stops after the Collecting-Output section) — the parity entry can't MATCH until the
         V1 side is fixed; v2 now matches the documented expected output.
