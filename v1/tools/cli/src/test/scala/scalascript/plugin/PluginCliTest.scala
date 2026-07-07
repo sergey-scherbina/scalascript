@@ -10,18 +10,18 @@ import java.util.zip.{ZipOutputStream, ZipEntry}
  *  `~/.scalascript/compiler/plugins/`. */
 class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
 
-  private var tmpHome: os.Path  = os.temp.dir()
+  private var tmpHome: _root_.os.Path  = _root_.os.temp.dir()
 
   override def beforeEach(): Unit =
-    tmpHome = os.temp.dir(prefix = "ssc-plugin-test")
+    tmpHome = _root_.os.temp.dir(prefix = "ssc-plugin-test")
 
   override def afterEach(): Unit =
-    os.remove.all(tmpHome)
+    _root_.os.remove.all(tmpHome)
 
   // Helpers
 
-  private def makePackage(id: String, version: String, entries: (String, String)*): os.Path =
-    val tmp = os.temp(suffix = ".sscpkg")
+  private def makePackage(id: String, version: String, entries: (String, String)*): _root_.os.Path =
+    val tmp = _root_.os.temp(suffix = ".sscpkg")
     val zos = new ZipOutputStream(new java.io.FileOutputStream(tmp.toIO))
     try
       val spi      = scalascript.backend.spi.SpiVersion.Current
@@ -42,22 +42,22 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
   test("install copies .sscpkg to plugins dir"):
     val pkg     = makePackage("org.example.hello", "2.0.0")
     val destDir = tmpHome / "compiler" / "plugins"
-    os.makeDir.all(destDir)
-    val bytes = os.read.bytes(pkg)
+    _root_.os.makeDir.all(destDir)
+    val bytes = _root_.os.read.bytes(pkg)
     // simulate what pluginInstall does, but into our tmpHome
     val m    = SscpkgLoader.load(pkg).manifest
     val dest = destDir / s"${m.id}-${m.version}.sscpkg"
-    os.write.over(dest, bytes)
-    os.exists(dest) shouldBe true
+    _root_.os.write.over(dest, bytes)
+    _root_.os.exists(dest) shouldBe true
     dest.last       shouldBe "org.example.hello-2.0.0.sscpkg"
 
   // ── list ─────────────────────────────────────────────────────────────
 
   test("list shows installed plugin details"):
     val destDir = tmpHome / "compiler" / "plugins"
-    os.makeDir.all(destDir)
+    _root_.os.makeDir.all(destDir)
     val pkg = makePackage("org.example.kafka", "1.2.3")
-    os.copy(pkg, destDir / "org.example.kafka-1.2.3.sscpkg")
+    _root_.os.copy(pkg, destDir / "org.example.kafka-1.2.3.sscpkg")
     // Read back and confirm round-trip through SscpkgLoader
     val m = SscpkgLoader.load(destDir / "org.example.kafka-1.2.3.sscpkg").manifest
     m.id      shouldBe "org.example.kafka"
@@ -65,27 +65,27 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
 
   test("listing an empty plugins dir returns no entries"):
     val destDir = tmpHome / "compiler" / "plugins"
-    os.makeDir.all(destDir)
-    val pkgs = os.list(destDir).filter(_.ext == "sscpkg").sorted
+    _root_.os.makeDir.all(destDir)
+    val pkgs = _root_.os.list(destDir).filter(_.ext == "sscpkg").sorted
     pkgs shouldBe empty
 
   // ── uninstall ────────────────────────────────────────────────────────
 
   test("uninstall removes the correct .sscpkg file"):
     val destDir = tmpHome / "compiler" / "plugins"
-    os.makeDir.all(destDir)
+    _root_.os.makeDir.all(destDir)
     val pkg1 = makePackage("org.example.alpha", "1.0.0")
     val pkg2 = makePackage("org.example.beta",  "2.0.0")
-    os.copy(pkg1, destDir / "org.example.alpha-1.0.0.sscpkg")
-    os.copy(pkg2, destDir / "org.example.beta-2.0.0.sscpkg")
+    _root_.os.copy(pkg1, destDir / "org.example.alpha-1.0.0.sscpkg")
+    _root_.os.copy(pkg2, destDir / "org.example.beta-2.0.0.sscpkg")
 
     // Remove alpha
-    val toRemove = os.list(destDir).filter(p =>
+    val toRemove = _root_.os.list(destDir).filter(p =>
       p.ext == "sscpkg" && (p.last.startsWith("org.example.alpha-") || p.last == "org.example.alpha.sscpkg")
     )
-    toRemove.foreach(os.remove)
+    toRemove.foreach(_root_.os.remove)
 
-    os.list(destDir).map(_.last) shouldBe List("org.example.beta-2.0.0.sscpkg")
+    _root_.os.list(destDir).map(_.last) shouldBe List("org.example.beta-2.0.0.sscpkg")
 
   // ── check ────────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
     m.spiVersion shouldBe scalascript.backend.spi.SpiVersion.Current
 
   test("check detects incompatible spiVersion"):
-    val tmp = os.temp(suffix = ".sscpkg")
+    val tmp = _root_.os.temp(suffix = ".sscpkg")
     val zos = new ZipOutputStream(new java.io.FileOutputStream(tmp.toIO))
     try
       val manifest = "id: org.example.incompat\nversion: 1.0.0\nspiVersion: \"9.9.9\"\nkind: [plugin]\n"
@@ -111,26 +111,26 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
 
   test("pack produces a .sscpkg with all source-tree files"):
     val srcDir = tmpHome / "mypkg"
-    os.makeDir.all(srcDir / "sources")
-    os.makeDir.all(srcDir / "runtime")
-    os.write(srcDir / "manifest.yaml",
+    _root_.os.makeDir.all(srcDir / "sources")
+    _root_.os.makeDir.all(srcDir / "runtime")
+    _root_.os.write(srcDir / "manifest.yaml",
       "id: org.example.mypkg\nversion: 0.5.0\nspiVersion: \"0.1.0\"\nkind: [library]\n")
-    os.write(srcDir / "sources" / "api.ssc", "# API\n```scala\nextern def connect(): Unit\n```\n")
-    os.write(srcDir / "runtime" / "jvm.scala", "val _helper = 1\n")
+    _root_.os.write(srcDir / "sources" / "api.ssc", "# API\n```scala\nextern def connect(): Unit\n```\n")
+    _root_.os.write(srcDir / "runtime" / "jvm.scala", "val _helper = 1\n")
 
     val outPath = tmpHome / "org.example.mypkg-0.5.0.sscpkg"
     // Mimic pluginPack: walk + zip
     val zos2 = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
     try
-      os.walk(srcDir).filter(os.isFile).foreach { file =>
+      _root_.os.walk(srcDir).filter(_root_.os.isFile).foreach { file =>
         val rel = file.relativeTo(srcDir).toString
         zos2.putNextEntry(new ZipEntry(rel))
-        zos2.write(os.read.bytes(file))
+        zos2.write(_root_.os.read.bytes(file))
         zos2.closeEntry()
       }
     finally zos2.close()
 
-    os.exists(outPath) shouldBe true
+    _root_.os.exists(outPath) shouldBe true
     val r = SscpkgLoader.load(outPath)
     r.manifest.id           shouldBe "org.example.mypkg"
     r.manifest.version      shouldBe "0.5.0"
@@ -145,13 +145,13 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
     // read bytes, parse manifest, write to plugins dir.
     val pkg     = makePackage("org.example.installtest", "3.0.0")
     val destDir = tmpHome / "compiler" / "plugins"
-    os.makeDir.all(destDir)
-    val bytes = os.read.bytes(pkg)
+    _root_.os.makeDir.all(destDir)
+    val bytes = _root_.os.read.bytes(pkg)
     val m     = SscpkgLoader.load(pkg).manifest
     val dest  = destDir / s"${m.id}-${m.version}.sscpkg"
-    os.write.over(dest, bytes)
+    _root_.os.write.over(dest, bytes)
     // Verify the result is re-loadable and has the right id.
     val r = SscpkgLoader.load(dest)
     r.manifest.id      shouldBe "org.example.installtest"
     r.manifest.version shouldBe "3.0.0"
-    os.exists(dest)    shouldBe true
+    _root_.os.exists(dest)    shouldBe true
