@@ -1,0 +1,48 @@
+---
+name: tkv2-pwa
+version: 1.0.0
+backends: [int]
+pending: plugin lazy-load broken on main (BUGS.md plugin-lazyload-extern-imports) — smtp/tcp/pwa extern imports all fail; enable once fixed. Generators covered by PwaPluginTest meanwhile.
+requires:
+  - std.http
+  - std.pwa
+---
+
+# tkv2 — std/pwa extensions (cacheVersion, networkFirst, offlineHtml, maskableIcon)
+
+Slice `tkv2-pwa-adopt` of `specs/ssc-toolkit-v2.md`. Registers the PWA routes
+with the new offline-first parameters and asserts the generated manifest and
+service worker carry them. Interpreter-only (the pwa plugin registers server
+routes; there is no JS-lane server here).
+
+```scalascript
+pwa(
+  name            = "Busi Test",
+  shortName       = "busi",
+  description     = "offline-first test app",
+  themeColor      = "#0b0d10",
+  backgroundColor = "#0b0d10",
+  display         = "standalone",
+  startUrl        = "/react",
+  icons           = List("/icons/icon-192.png", "/icons/icon-512.png"),
+  precache        = List("/react"),
+  cacheVersion    = "v8",
+  networkFirst    = List("/api/home", "/react"),
+  offlineHtml     = "<h1>offline</h1>",
+  maskableIcon    = "/icons/icon-512.png",
+)
+
+serveAsync(18631)
+
+val manifest = httpGet("http://localhost:18631/manifest.json").body
+println(manifest.contains("\"theme_color\":\"#0b0d10\""))
+println(manifest.contains("\"start_url\":\"/react\""))
+println(manifest.contains("\"sizes\":\"192x192\""))
+println(manifest.contains("\"purpose\":\"maskable\""))
+
+val sw = httpGet("http://localhost:18631/sw.js").body
+println(sw.contains("ssc-pwa-v8"))
+println(sw.contains("NETWORK_FIRST = [\"/api/home\", \"/react\"]"))
+println(sw.contains("<h1>offline</h1>"))
+println(sw.contains("mode === 'navigate'"))
+```

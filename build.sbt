@@ -2833,6 +2833,7 @@ lazy val pwaPlugin = project
   .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-pwa-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

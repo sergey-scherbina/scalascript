@@ -12,6 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## plugin-lazyload-extern-imports — `open` (2026-07-07)
+
+- **Found by:** claude (tkv2-pwa-adopt slice) — the stock `examples/pwa/pwa-demo.ssc`
+  fails on clean origin/main.
+- **Symptom:** extern defs provided by lazy-loaded std plugins are unreachable from
+  `.ssc`: `[smtpSend](std/smtp.ssc)` / `[tcpListen](std/tcp.ssc)` → "'X' not found in
+  std/Y.ssc" at import; `requires: [std.pwa]` + `pwa(...)` → "Undefined: pwa".
+  Preloaded plugins (std/ui frontend/fetch) are unaffected. Reproduced with a fresh
+  origin/main worktree build — pre-existing, likely from the recent plugin-loading /
+  stable-SPI stream.
+- **Repro:** `bin/ssc examples/pwa/pwa-demo.ssc` (stock example) or a 5-line probe
+  importing `[smtpSend](std/smtp.ssc)`.
+- **Impact:** every opt-in plugin capability (smtp send, raw TCP / IMAP sim, pwa) is
+  dead from user code on main. busi's live deploys pin an older ssc, so production
+  is unaffected until a bump.
+- **Note:** `tests/conformance/tkv2-pwa.ssc` is `pending:` on this — flip it on once
+  fixed. The pwa generators are covered by `PwaPluginTest` meanwhile.
+
 ## jvmgen-block-call-empty-parens — `open` (2026-07-07)
 
 - **Found by:** claude (tkv2-components slice), via the full-corpus A/B: 4 tests
