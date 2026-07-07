@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-effects-parity
-worktree: ../scalascript-wt-p3-effects-parity
-started: 2026-07-07
-status: in-progress
-task: p3-effects-output-divergence + p3-parity-effects-shape taken together — v2 VM effects semantics (algebraic-effects.ssc prints different output than v1) + effects-family shape mismatches; gate = parity effects entries flip to identical, zero corpus/conformance regressions
