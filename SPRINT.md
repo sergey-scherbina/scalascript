@@ -141,6 +141,22 @@ Claimable slices for the above (queued 2026-07-07):
       investigate (plugins not loaded on default run?). NEW measured mismatch queue:
       rozum-agent ×4 (likely transport-nondet), async-demo/async-parallel, actors-pingpong,
       dataset-stats, lenses, storage-demo, yaml-parse.
+- [x] **p3-parity-singles3** — DONE 2026-07-07 (3e35f2a53): yaml-parse/storage-demo/
+      dataset-stats/async-demo/lenses at PARITY. Six systemic fixes: yaml section fences
+      (__yamlSection__ prim + scanner regex), file-backed runStorage, Async runtime
+      (runAsync/runAsyncParallel, virtual-thread futures), effect-dispatch chain on explicit
+      Options (equal-indent case-None bodies parse as statement SEQUENCES — the fallback ran
+      but an Op was always returned on the binary), duplicate top-level val hoisting (second
+      CDef clobbered the first — lenses r=Rect read as r=Roster), anyStr ctor/tuple unquoted
+      rendering. Remainders: async-parallel (~Nms timing nondet), actors-pingpong (v1
+      exit-cascade — v1 doesn't print final done).
+- [ ] **p3-spark-local-engine** — UNMASKED 2026-07-07: spark-config-demo, spark-delta-demo,
+      spark-lakehouse-{delta,hudi,iceberg}, word-count "passed" all day as never-executed lazy
+      Op chains (equal-indent dispatch bug discarded the fallback branch). They need spark
+      surfaces the plain-list fallback datasets lack: .toDF, createOrReplaceTempView,
+      spark.sql, delta tables. v1 runs them via its in-core local Dataset+SQL shim. Options:
+      (a) v2 local shim over H2/DuckDB, (b) classify backend: spark lane (they ARE spark
+      programs; v1-interp ability is bonus). Decide with owner.
 - [ ] **p3-effects-output-divergence** — first concrete v2 effects-SEMANTICS gap:
       `examples/algebraic-effects.ssc` exits 0 on v2 but prints DIFFERENT output than v1
       (v2: `List() / 1 / …` vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`).
