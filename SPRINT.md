@@ -193,6 +193,16 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` had one `mcp-types` failure
       (`user.name` blank; missing-field validation printed `no error`, fixed in `2e1f2c287`).
       Next slice: fix WASM effects, then re-check the Scala.js fallout, and only then rerun root `sbt "test"`.
+      **2026-07-07 session ledger (claude takeover after codex stalled):** WASM effects FIXED
+      (adopted codex's in-flight preserveTotalEffectfulReturnTypes, backendWasm 48/48, 9f04f8a29);
+      jvmgen-block-call-empty-parens 3-bug chain FIXED (7bc09fffa — see BUGS.md, all 4 JVM-lane
+      conformance repros green + SwiftUI 118/118 + JvmGen/Effect 193/193); runActors fat-jar
+      family FIXED (a36e74fa0: cli dependsOn actorsPlugin + ActorInterp lazy-load seam —
+      MultiNodeClusterTest 0/4→4/4, full cli/test 18-fail→5-fail); EmitScalaFacadeCliTest harness
+      FIXED (bce70aaeb: -Dssc.lib.path derivation). REMAINING, precisely diagnosed in BUGS.md:
+      `bytecode-shared-runtime-routes-unbound` (genRuntime gating emits _routes refs without defs —
+      blocks the 5 facade tests + compile-jvm --bytecode) and `scalajs-jsenv-run-terminated`
+      (node-26 jsEnv, 6 JS test modules, serial + CI). Root `sbt test` after those two = the gate.
       Done-when: the affected suites pass or are intentionally isolated/pending with documented CI policy,
       and a subsequent root `sbt "test"` no longer fails on this set.
 
