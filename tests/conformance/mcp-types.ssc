@@ -39,11 +39,11 @@ println(p1.messages.size)
 println(p1.messages.head.role match { case Role.User => "user"; case _ => "?" })
 
 // requireString / requireInt / requireDouble / requireBool
-val args: Map[String, Any] = Map("name" -> "Alice", "age" -> 30, "score" -> 9.5, "active" -> true)
-println(requireString(args, "name"))
-println(requireInt(args, "age"))
-println(requireDouble(args, "score"))
-println(requireBool(args, "active"))
+val mcpArgs: Map[String, Any] = Map("name" -> "Alice", "age" -> 30, "score" -> 9.5, "active" -> true)
+println(requireString(mcpArgs, "name"))
+println(requireInt(mcpArgs, "age"))
+println(requireDouble(mcpArgs, "score"))
+println(requireBool(mcpArgs, "active"))
 
 // McpError on missing field
 val err = try {

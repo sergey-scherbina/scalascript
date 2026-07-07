@@ -792,13 +792,9 @@ object FrontendBridge:
     }).flatten.toSet
 
     stats.foreach {
-      case d: Defn.Def if V2PluginRegistry.hasGlobal(d.name.value) && !htmlTagNames.contains(d.name.value) =>
-        () // Plugin already provides this def (with default-param support); don't shadow it.
-        // EXCEPTION: html tag names (main, label, title, form, table, …) — the html plugin registers
-        // these as `<tag>` element globals, but they are common identifiers a user `def` legitimately
-        // defines (e.g. `def label(s) = …`, or `def main()` the entry). A user def with a body must win
-        // over the tag, else it renders `_Raw("<label>…</label>")` instead of running the user code.
       case d: Defn.Def =>
+        // `stripExternDecls` removes plugin-backed extern declarations before parsing; any
+        // remaining `Defn.Def` has a real body and must shadow same-named plugin globals.
         // Context bounds `[A: TC]` → prepend a `__tc_TC` dictionary param;
         // summon[TC[A]] in the body resolves to it (see the summon case), and
         // call sites synthesize the instance via __resolve_given__.
