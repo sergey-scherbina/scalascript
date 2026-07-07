@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-parity-singles2
+worktree: ../scalascript-wt-p3-parity-singles2
+started: 2026-07-07
+status: in-progress
+task: p3-parity remaining single mismatches — os-env, dsl-calc-parser, signals-demo, spark-udf-demo (diff → probe → fix pipeline)
