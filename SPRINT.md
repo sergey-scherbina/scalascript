@@ -132,11 +132,15 @@ Claimable slices for the above (queued 2026-07-07):
       (prints <native:platform>); spark-udf-demo = spark lane (harness lane-skip widened).
       V1-BUG list for a v1 owner: effects.ssc (3 of 6 lines), os-env 0-arg natives,
       dsl-calc-parser .many(), + 7 v1-only parity entries (v2 works, v1 empty).
-- [ ] **p3-server-actor-parity-harness** — the parity harness SKIPS 132 server/actor examples
-      (two thirds of the corpus have NO output-equality signal). Extend scripts/v2-output-parity:
-      run server examples with a bounded driver (start, probe one route via httpRetry, stop —
-      the AgentConformanceTest pattern), actors with the batch watchdog; diff the bounded stdout.
-      Without this the Phase-3 gate is blind on the biggest class.
+- [x] **p3-server-actor-parity-harness** — DONE 2026-07-07 (cd5c3a42a): SKIP_RE narrowed to
+      true servers; terminating actor/async/dataset examples now run BOUNDED (rc via file — the
+      grep pipe clobbers $?; v1 timeout → long-running class). FIRST honest full baseline:
+      **46/89 identical · 18 mismatch · 1 v2-error · 24 v1-only** (36 both-fail · 36 true-server ·
+      32 backend-lane · 2 nondet · 195). The 24 v1-only (ALL MCP servers, x402, dsl family,
+      dataset-word-count) = v2 RUNS them, plain `ssc run` prints nothing — v1-side lane to
+      investigate (plugins not loaded on default run?). NEW measured mismatch queue:
+      rozum-agent ×4 (likely transport-nondet), async-demo/async-parallel, actors-pingpong,
+      dataset-stats, lenses, storage-demo, yaml-parse.
 - [ ] **p3-effects-output-divergence** — first concrete v2 effects-SEMANTICS gap:
       `examples/algebraic-effects.ssc` exits 0 on v2 but prints DIFFERENT output than v1
       (v2: `List() / 1 / …` vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`).
