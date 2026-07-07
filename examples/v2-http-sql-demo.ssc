@@ -1,0 +1,37 @@
+#!/usr/bin/env ssc
+---
+name: v2-http-sql-demo
+version: 1.0.0
+description: Full-application demo — HTTP client + H2 in-process SQL under v2 bridge (T4.3).
+databases:
+  default:
+    url: "jdbc:h2:mem:v2demo;DB_CLOSE_DELAY=-1"
+---
+
+# v2 HTTP + SQL Demo
+
+Proves that the v2 bridge can run programs that combine HTTP client requests
+with in-process SQL (H2 in-memory), establishing full-application compatibility.
+
+```scalascript
+[httpGet](std/http.ssc)
+
+// ── SQL: set up schema and seed data ────────────────────────────────────────
+Db.execute("default", "CREATE TABLE IF NOT EXISTS greetings (id INT PRIMARY KEY, msg VARCHAR(200))", [])
+Db.execute("default", "INSERT INTO greetings VALUES (1, 'Hello from v2!')", [])
+Db.execute("default", "INSERT INTO greetings VALUES (2, 'SQL works under v2 bridge')", [])
+Db.execute("default", "INSERT INTO greetings VALUES (3, 'H2 in-memory DB — no server needed')", [])
+
+// ── SQL: query rows back ─────────────────────────────────────────────────────
+val rows = Db.query("default", "SELECT id, msg FROM greetings ORDER BY id", [])
+println("SQL results:")
+rows.foreach { row =>
+  println(s"  ${row("ID")}: ${row("MSG")}")
+}
+
+// ── HTTP client: prove network access works ──────────────────────────────────
+val resp = httpGet("https://httpbin.org/status/200")
+println(s"HTTP status: ${resp.status}")
+
+println("T4.3 demo: HTTP + SQL both work under v2.")
+```
