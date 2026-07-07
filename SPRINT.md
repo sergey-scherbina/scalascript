@@ -119,9 +119,16 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `StableSpiEnforcementTest` (`tcp-plugin` imported `scalascript.interpreter.Value` from a
       value-surface plugin; fixed in `484d56101`), `AgentConformanceTest` (`Address already in use`
       in `beforeAll`, fixed in `eae491e11`), plus
-      Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Next slice: reproduce the
-      smallest deterministic suite first, likely `CrossBackendIntrinsicParityTest` or
-      `StableSpiEnforcementTest`, and fix/record the policy before rerunning root `sbt "test"`.
+      Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Remaining targeted blockers
+      reproduced on 2026-07-07:
+      `backendWasm/testOnly scalascript.codegen.WasmBackendTest` has 7 effectful-WASM failures
+      (handler/resume, effectful `String*` mains, arithmetic/HOF effect bodies, cross-module effects);
+      `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` has one value-shape failure in
+      `loadBackend` (`Long` vs `DataValue.IntV`); and
+      `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` has one `mcp-types` failure
+      (`user.name` blank; missing-field validation prints `no error`). Next slice: fix the
+      `v2PluginBridge` value-shape mismatch first, then the `mcp-types` bridge regression, then
+      WASM effects, and only then rerun root `sbt "test"`.
       Done-when: the affected suites pass or are intentionally isolated/pending with documented CI policy,
       and a subsequent root `sbt "test"` no longer fails on this set.
 
