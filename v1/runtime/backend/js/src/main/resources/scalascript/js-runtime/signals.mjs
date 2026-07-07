@@ -689,6 +689,20 @@ function _ssc_ui_mount(sigs) {
           a.textContent = String(value);
           return a;
         }
+        case 'stacked': {
+          var subRaw = kind.subFieldPath ? getField(row, kind.subFieldPath) : null;
+          var subText = subRaw == null ? '' : String(subRaw);
+          if (!subText) return String(value);
+          var wrap = document.createElement('div');
+          var main = document.createElement('div');
+          main.textContent = String(value);
+          wrap.appendChild(main);
+          var sub = document.createElement('div');
+          sub.textContent = subText;
+          sub.setAttribute('style', 'font-size:0.8em;opacity:0.75;line-height:1.4');
+          wrap.appendChild(sub);
+          return wrap;
+        }
         default:
           return String(value);
       }
@@ -938,6 +952,9 @@ function _ssc_ui_statusColumn(title, fieldPath, align, colorMap) {
 }
 function _ssc_ui_linkColumn(title, fieldPath, align, urlTemplate) {
   return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'link', urlTemplate: urlTemplate || '' }, null);
+}
+function _ssc_ui_stackedColumn(title, fieldPath, subFieldPath, align) {
+  return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'stacked', subFieldPath: subFieldPath || '' }, null);
 }
 function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: '_RowDelete', url, idField, tick, headers: headers || null }; }
 function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField, tick, headers: headers || null }; }

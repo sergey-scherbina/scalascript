@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: stackedColumn — two-line datatable cell
+
+`stackedColumn(title, fieldPath, subFieldPath, align)` in std/ui/primitives.ssc + a `'stacked'`
+column kind in the js-runtime datatable renderer: the main field value with a smaller, dimmer
+sub-line beneath (empty sub → plain one-line cell). Additive; no existing kinds touched. First
+consumer: rozum UCC model pickers (model name with its ★ matrix rating underneath).
+
+---
+
 ## 2026-07-07 — v2: PR #72 (t44-conformance) integrated — repo fully de-orphaned
 
 Salvage-merged `feature/v2-t44-conformance` (PR #72), the last branch holding unlanded work. Its

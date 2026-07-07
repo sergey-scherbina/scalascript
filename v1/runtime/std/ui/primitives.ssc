@@ -51,6 +51,7 @@ exports:
   - moneyColumn
   - statusColumn
   - linkColumn
+  - stackedColumn
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -241,4 +242,10 @@ extern def statusColumn(title: String, fieldPath: String, align: String = "",
                         colorMap: Any = null): Any
 extern def linkColumn(title: String, fieldPath: String, align: String = "",
                       urlTemplate: String = ""): Any
+
+// stackedColumn — two-line cell: the main field value with a smaller, dimmer
+// sub-line beneath it (e.g. a model name with its ★ rating underneath).
+// An empty/absent subFieldPath value renders as a plain one-line cell.
+extern def stackedColumn(title: String, fieldPath: String, subFieldPath: String,
+                         align: String = ""): Any
 ```
