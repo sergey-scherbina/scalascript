@@ -1,7 +1,7 @@
 feature/finish-green-main 2026-07-07T01:59:05Z
 agent: claude-fable-5 (taken over from codex — heartbeat stale 4.5h, worktree had uncommitted wasm fix)
-heartbeat: 2026-07-07T07:54:33Z
+heartbeat: 2026-07-07T08:26:52Z
 status: in-progress
 done-so-far (codex): plugin-cli-oslib-shadow, CrossBackendIntrinsicParityTest, StableSpiEnforcementTest, JvmGenSwingRuntimeTest, AgentConformanceTest, v2PluginBridge PluginBridgeTest, v2FrontendBridge mcp-types
 in-flight (adopted): preserveTotalEffectfulReturnTypes flag in JvmGen + WasmGen passes false — wasm effect path must not cast Free results to declared types
-next: root sbt test running (bg); backendWasm 48/48 green, wasm fix pushed 9f04f8a29; jvmgen-block-call-empty-parens root-caused (JvmGen:4241 unconditional f(){block}) — fix staged in scalascript-wt-jvmgen-block-call-fix, verification pending
+next: wasm-effects FIXED+landed (9f04f8a29, 48/48); jvmgen 3-bug chain FIXED+landed (7bc09fffa, 4/4 conformance repros + guards green); remaining: cluster-test family CI policy (same 18+5 fails local+CI), Scala.js module retest (suspected load-flake), then final root sbt test
