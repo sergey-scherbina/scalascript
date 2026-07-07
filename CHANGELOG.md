@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - fix(test): Swing example repo-root resolution
+
+Fixed `JvmGenSwingRuntimeTest` after the v1 path restructure: the suite's local
+repo-root finder stopped at `v1/` and looked for examples under `v1/examples`.
+It now uses `TestPaths.repoRoot` and reads the real root `examples/` tree. Verified
+`backendInterpreter/testOnly scalascript.JvmGenSwingRuntimeTest` (5/5).
+
 ## 2026-07-07 - fix(tcp): stable plugin value surface
 
 Migrated `tcp-plugin` intrinsics off direct `scalascript.interpreter.Value`

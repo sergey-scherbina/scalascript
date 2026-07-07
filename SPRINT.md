@@ -115,7 +115,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       targeted `clientEvm/Test/compile` passed immediately. The second full run completed in 29:08 and
       confirmed `PluginCliTest` passes, but failed unrelated suites: `CrossBackendIntrinsicParityTest`
       (`webauthnConfigureStore`/`webauthnStoreRemove` JS-only drift; fixed in `8dfd2989e`),
-      `JvmGenSwingRuntimeTest`,
+      `JvmGenSwingRuntimeTest` (local helper resolved repo root as `v1`, fixed in `395e8aab3`),
       `StableSpiEnforcementTest` (`tcp-plugin` imported `scalascript.interpreter.Value` from a
       value-surface plugin; fixed in `484d56101`), `AgentConformanceTest` (`Address already in use` in `beforeAll`), plus
       Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Next slice: reproduce the

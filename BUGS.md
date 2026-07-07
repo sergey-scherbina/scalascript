@@ -40,6 +40,9 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Progress (2026-07-07, `484d56101`):** `StableSpiEnforcementTest` fixed by
   migrating `tcp-plugin` from direct `scalascript.interpreter.Value` constructors
   to `PluginValue`; `StableSpiEnforcementTest` and `tcpPlugin/test` pass.
+- **Progress (2026-07-07, `395e8aab3`):** `JvmGenSwingRuntimeTest` fixed by
+  replacing the local `v1`-anchored repo-root finder with `TestPaths.repoRoot`;
+  targeted Swing runtime test passes 5/5.
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
