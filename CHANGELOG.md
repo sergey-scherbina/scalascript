@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - fix(test): PluginCliTest os-lib shadow
+
+Fixed the `sbt test` CI blocker in `PluginCliTest`: the test package
+`scalascript.compiler.plugin` made unqualified `os.*` resolve to the local
+`scalascript.compiler.plugin.os` package instead of os-lib. The test now uses
+`_root_.os.*`. Verified `cli/Test/compile` and
+`cli/testOnly scalascript.compiler.plugin.PluginCliTest` (8/8).
+
 ## 2026-07-07 — ops: Qwen3.6 rozum launch path checked
 
 Checked the local `rozum` setup for starting a room session with Qwen3.6. The installed model is

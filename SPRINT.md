@@ -109,7 +109,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       validates. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
       from the default `bin/ssc` launcher.
 
-- [ ] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
+- [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.
       Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "cli/Test/compile"` fails with
       `type Path is not a member of scalascript.compiler.plugin.os` plus missing `temp`, `read`, `write`,
@@ -118,6 +118,10 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `_root_.os` (or an explicit alias) inside the test, then rerun `cli/Test/compile` and the affected
       `cli/testOnly scalascript.compiler.plugin.PluginCliTest`. Done-when: the CI `sbt - compile and test`
       job no longer fails at `PluginCliTest.scala` test compilation.
+      Result: fixed in `f2d8ebc8b` by qualifying os-lib as `_root_.os` inside `PluginCliTest`, avoiding the
+      local `scalascript.compiler.plugin.os` package shadow. Verified:
+      `sbt "cli/Test/compile"` and
+      `sbt "cli/testOnly scalascript.compiler.plugin.PluginCliTest"` (8/8).
 
 - [x] **green-main-markdownlint-policy** — make the Markdown lint job match the repository's actual historical
       documentation style instead of failing on legacy board/spec/changelog formatting. Current CI fails before

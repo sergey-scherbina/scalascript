@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## plugin-cli-oslib-shadow — `open` (2026-07-07)
+## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
 - **Found by:** codex, while stabilizing the red `origin/main` CI run
   `28832706348`.
@@ -23,10 +23,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
   The failure reports `type Path is not a member of scalascript.compiler.plugin.os`
   and missing `temp`, `remove`, `makeDir`, `read`, `write`, `exists`, `list`,
   `copy`, and `walk` members.
-- **Hypothesis:** because `PluginCliTest` is in package `scalascript.compiler.plugin`,
+- **Root cause:** because `PluginCliTest` is in package `scalascript.compiler.plugin`,
   the local `scalascript.compiler.plugin.os` package shadows os-lib's root `os`
-  package. The test should qualify os-lib as `_root_.os`.
-- **Status:** open; fix in progress under SPRINT item `green-main-plugin-cli-oslib-shadow`.
+  package.
+- **FIXED (2026-07-07, `f2d8ebc8b`):** qualified all os-lib references in
+  `PluginCliTest` as `_root_.os`, so the test no longer resolves the local plugin
+  package.
+- **Verified:** `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "cli/Test/compile"`;
+  `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "cli/testOnly scalascript.compiler.plugin.PluginCliTest"`
+  (8/8).
 
 ## v2-cellset-flc-corruption — `fixed` (2026-07-05)
 
