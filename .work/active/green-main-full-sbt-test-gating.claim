@@ -1,7 +1,0 @@
-feature/finish-green-main 2026-07-07T01:59:05Z
-agent: claude-fable-5 (taken over from codex — heartbeat stale 4.5h, worktree had uncommitted wasm fix)
-heartbeat: 2026-07-07T08:52:31Z
-status: in-progress
-done-so-far (codex): plugin-cli-oslib-shadow, CrossBackendIntrinsicParityTest, StableSpiEnforcementTest, JvmGenSwingRuntimeTest, AgentConformanceTest, v2PluginBridge PluginBridgeTest, v2FrontendBridge mcp-types
-in-flight (adopted): preserveTotalEffectfulReturnTypes flag in JvmGen + WasmGen passes false — wasm effect path must not cast Free results to declared types
-next: two diagnosed blockers left (BUGS.md): bytecode-shared-runtime-routes-unbound (genRuntime gating) + scalajs-jsenv-run-terminated (node-26); then final root sbt test. 4 families fixed today: wasm-effects, jvmgen 3-bug chain, runActors fat-jar, facade harness.
