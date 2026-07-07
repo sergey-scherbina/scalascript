@@ -13,6 +13,7 @@ exports:
   - defaultTheme
   - darkTheme
   - mobileTheme
+  - cssVariables
 ---
 
 # `std.ui.theme` — design tokens
@@ -119,4 +120,37 @@ val darkTheme = Theme(
   ),
   RadiusScale(sm = 4, md = 8, lg = 12, full = 9999)
 )
+
+// cssVariables — the theme as CSS custom properties (`:root { --ssc-*: … }`).
+// Feed one Theme to BOTH the toolkit (lower) and any hand-kept CSS via
+// var(--ssc-color-primary) etc., so the identity lives in one ssc value
+// (ssc toolkit v2, slice tkv2-theme-css-vars).
+def cssVariables(t: Theme): String =
+  ":root {\n" +
+  "  --ssc-color-primary: " + t.colors.primary + ";\n" +
+  "  --ssc-color-on-primary: " + t.colors.onPrimary + ";\n" +
+  "  --ssc-color-secondary: " + t.colors.secondary + ";\n" +
+  "  --ssc-color-surface: " + t.colors.surface + ";\n" +
+  "  --ssc-color-on-surface: " + t.colors.onSurface + ";\n" +
+  "  --ssc-color-background: " + t.colors.background + ";\n" +
+  "  --ssc-color-muted: " + t.colors.muted + ";\n" +
+  "  --ssc-color-danger: " + t.colors.danger + ";\n" +
+  "  --ssc-color-success: " + t.colors.success + ";\n" +
+  "  --ssc-color-warning: " + t.colors.warning + ";\n" +
+  "  --ssc-space-xs: " + t.spacing.xs + "px;\n" +
+  "  --ssc-space-sm: " + t.spacing.sm + "px;\n" +
+  "  --ssc-space-smd: " + t.spacing.smd + "px;\n" +
+  "  --ssc-space-md: " + t.spacing.md + "px;\n" +
+  "  --ssc-space-lg: " + t.spacing.lg + "px;\n" +
+  "  --ssc-space-xl: " + t.spacing.xl + "px;\n" +
+  "  --ssc-space-xxl: " + t.spacing.xxl + "px;\n" +
+  "  --ssc-font-body: " + t.typography.body.fontSize + "px;\n" +
+  "  --ssc-font-heading: " + t.typography.heading.fontSize + "px;\n" +
+  "  --ssc-font-caption: " + t.typography.caption.fontSize + "px;\n" +
+  "  --ssc-font-family: " + t.typography.body.fontFamily + ";\n" +
+  "  --ssc-radius-sm: " + t.radii.sm + "px;\n" +
+  "  --ssc-radius-md: " + t.radii.md + "px;\n" +
+  "  --ssc-radius-lg: " + t.radii.lg + "px;\n" +
+  "  --ssc-radius-full: " + t.radii.full + "px;\n" +
+  "}"
 ```

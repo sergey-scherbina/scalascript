@@ -1,0 +1,25 @@
+---
+name: tkv2-theme-css-vars
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 — theme as CSS custom properties
+
+Slice `tkv2-theme-css-vars` of `specs/ssc-toolkit-v2.md`: one `Theme` value
+drives both the toolkit and any hand-kept CSS via `var(--ssc-*)`.
+
+[Theme, defaultTheme, darkTheme, cssVariables](std/ui/theme.ssc)
+
+```scalascript
+val css = cssVariables(defaultTheme)
+println(css.startsWith(":root {"))
+println(css.contains("--ssc-color-primary: #2563eb;"))
+println(css.contains("--ssc-space-md: 16px;"))
+println(css.contains("--ssc-radius-full: "))
+println(css.endsWith("}"))
+
+val dark = cssVariables(darkTheme)
+println(dark != css)
+println(dark.contains("--ssc-color-primary: "))
+```
