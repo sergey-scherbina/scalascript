@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: formBody by-name field signals fixed in the SPA bridge
+
+`_ssc_ui_signal(name, init)` discarded the user-facing name while `formBody([("k","sigName")])`
+references field signals by NAME — the submit-time `_sv` lookup (numeric-id-keyed) resolved nothing
+and every such POST sent empty values (found live: rozum UCC session-launch posted
+`{"agent":"","model":"","workdir":""}` → 400 with the form visibly filled). Fix: `_signalsByName`
+registry + `_ssc_ui_resolveFormFields` — the render walk resolves field refs to bridge ids and
+collects the signals so their `_sv` entries stay fresh; unresolved refs pass through verbatim
+(sv-by-name runtimes). Regression test: SpaFormBodyNamedSignalsTest (real runtime, headless node).
+
+---
+
+---
+
 ## 2026-07-07 — fix: plugin-lazyload-extern-imports — advanced plugins reachable again
 
 The essential/advanced `.sscpkg` split kept startup fast but left the advanced set

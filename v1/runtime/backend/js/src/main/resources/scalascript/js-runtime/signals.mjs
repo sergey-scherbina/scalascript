@@ -10,6 +10,10 @@
 
 let _signalSeq = 0;
 const _signals = new Map();   // id → { value, subs:Set<eid>, _isComputed?, _f?, _deps?, _seedSource? }
+// User-facing signal NAME → Signal object (the `signal("name", init)` first arg).
+// The bridge keys everything by numeric id, but `formBody` fields reference
+// signals by NAME from .ssc — this registry lets the walk resolve name → id.
+const _signalsByName = new Map();
 const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
 const _effectStack = [];
 const _pendingEffects = new Set();  // insertion-ordered in JS Sets
@@ -116,10 +120,15 @@ function computed(thunk) {
 // ── Node.js stubs for std/ui/primitives.ssc extern defs ───────────────────
 // Provide real implementations for run-js mode so extern def symbols
 // are non-undefined when extracted from std.ui.primitives namespace.
-function _ssc_ui_signal(name, initial) { return Signal(initial); }
+function _ssc_ui_signal(name, initial) {
+  const sig = Signal(initial);
+  if (name != null && String(name) !== '') _signalsByName.set(String(name), sig);
+  return sig;
+}
 function _ssc_ui_seedSignal(name, source) {
   const initial = _seedInitial(source);
   const sig = Signal(initial == null ? '' : String(initial));
+  if (name != null && String(name) !== '') _signalsByName.set(String(name), sig);
   const state = _signals.get(sig.id);
   if (state) { state._seedSource = source || null; state._seedPristine = true; }
   sig._seedSource = source || null;
@@ -303,7 +312,16 @@ function _ssc_ui_renderBody(view) {
             if (uSigId) aStr += ` data-ssc-fetch-url-sig="${_esc(uSigId)}"`;
             if (hId) aStr += ` data-ssc-fetch-headers="${_esc(hId)}"`;
             if (iId) aStr += ` data-ssc-fetch-into="${_esc(iId)}"`;
-            if (bodyFields) aStr += ` data-ssc-fetch-body-fields="${_esc(JSON.stringify(bodyFields))}"`;
+            if (bodyFields) {
+              // Field refs arrive as signal NAMES from .ssc (`formBody([("k","sigName")])`),
+              // but the submit-time lookup reads the bridge store `_sv`, which is keyed by
+              // NUMERIC signal id — resolve name → id here and COLLECT each signal so its
+              // _sv entry exists and stays fresh. Unresolvable refs pass through verbatim
+              // (non-bridge runtimes key sv by name).
+              const rf = _ssc_ui_resolveFormFields(bodyFields);
+              rf.signals.forEach(collectSig);
+              aStr += ` data-ssc-fetch-body-fields="${_esc(JSON.stringify(rf.fields))}"`;
+            }
             if (h._type === '_FetchActionClear') aStr += ` data-ssc-fetch-clear="1"`;
             if (h.onSuccess && h.onSuccess.length) {                // Scope B.4
               const effs = h.onSuccess.map(function(e) {
@@ -898,6 +916,22 @@ function _ssc_ui_onNavigate(path) { return { _eff: 'navigate', path: String(path
 function _ssc_ui_fetchActionWith(method, url, body, onSuccess, headers) { return { _type: '_FetchAction', method, url, body, headers: headers || null, onSuccess: onSuccess || [] }; }
 // Scope B.4+ — a request-body source assembled from named field signals at submit.
 function _ssc_ui_formBody(fields) { return { _body: 'fields', fields: fields || [] }; }
+// Resolve formBody field refs — each entry a bare ref or a [jsonKey, ref] pair, where
+// ref is a signal NAME string (the common .ssc form) or a Signal object — into
+// [[jsonKey, sigIdStr]] pairs plus the resolved Signal objects (for collectSig).
+// Unresolvable refs pass through verbatim for back-compat with sv-by-name runtimes.
+function _ssc_ui_resolveFormFields(fields) {
+  const out = [], signals = [];
+  (fields || []).forEach(function(f) {
+    let key = f, ref = f;
+    if (Array.isArray(f)) { key = f[0]; ref = f.length > 1 ? f[1] : f[0]; }
+    const sig = (ref && ref._type === 'Signal') ? ref
+              : (typeof _signalsByName !== 'undefined' ? _signalsByName.get(String(ref)) : null);
+    if (sig && sig._type === 'Signal') { signals.push(sig); out.push([String(key), String(sig.id)]); }
+    else out.push([String(key), String(ref)]);
+  });
+  return { fields: out, signals };
+}
 // Assemble a flat JSON object body `{ key: <signal value> }` from the named field
 // signals (pure + testable: `sv` is the mount's value store).  Each entry is either
 // a bare field name (the JSON key equals the signal id) or a `[jsonKey, signalId]`
