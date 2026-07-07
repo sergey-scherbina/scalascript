@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-dataset-natives
-worktree: ../scalascript-wt-p3-dataset-natives
-started: 2026-07-07
-status: in-progress
-task: p3-dataset-natives — Dataset.of/fromFile/map/collect natives over plain lists + wire codecs in the v2 bridge; gate = 7 distributed-* batch conformance entries flip to PASS (SPRINT "Phase-3 readiness" / p3-dataset-natives)
