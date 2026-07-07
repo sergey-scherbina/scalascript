@@ -1,6 +1,6 @@
 package scalascript.crypto.bouncycastle
 
-import scalascript.crypto.*
+import scalascript.crypto.{CryptoBackend, Curve, HashAlgo, HdKey}
 
 /** Default JVM `CryptoBackend` implementation, backed by BouncyCastle
  *  for the curve / hash / KDF primitives and JCA (`AES/GCM/NoPadding`)
