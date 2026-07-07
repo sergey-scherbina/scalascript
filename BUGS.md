@@ -38,6 +38,31 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Note:** `tests/conformance/tkv2-pwa.ssc` covers the .ssc-level path;
   `PwaPluginTest` covers the generators.
 
+## bytecode-shared-runtime-routes-unbound — `open` (2026-07-07)
+
+- **Found by:** claude (green-main takeover), unmasked by fixing EmitScalaFacadeCliTest's missing
+  `-Dssc.lib.path` (the CompilerLoader env error hid it).
+- **Symptom:** `ssc compile-jvm --bytecode` fails: "shared runtime compile failed …
+  `_ssc_runtime.scala:4931: Not found: _routes` / `Not found: route`" — `JvmGen.genRuntime`'s
+  capability gating emits runtime code that references the route registry without emitting its
+  definitions (route infra lives in the http/serve runtime piece; the gate combination for the
+  bytecode shared runtime includes the referencing piece but not the defining one).
+- **Repro:** `sbt 'cli/testOnly *EmitScalaFacadeCliTest'` — 5 of 7 fail on this (2 pass after the
+  lib-path harness fix). Or any `compile-jvm --bytecode` invocation.
+- **Impact:** the whole `--bytecode` separate-compilation happy path (compile-jvm/link facade family).
+
+## scalajs-jsenv-run-terminated — `open` (2026-07-07)
+
+- **Found by:** claude (green-main takeover), root `sbt test` + serial retest.
+- **Symptom:** Scala.js test modules (walletVaultEncryptedJs, walletStrategyErc4337Js,
+  blockchainEvmAbiJs, markupNode, cryptoNobleJs, walletConnectJs) die in `loadedTestFrameworks`
+  with `JSEnvRPC$RunTerminatedException` / `ExternalJSRun$NonZeroExitException: exited with code 1`
+  — the node process exits immediately. Reproduces SERIALLY (not load-related) on node v26.4.0
+  locally AND in CI (18 occurrences in the failed CI log).
+- **Suspect:** Scala.js jsEnv vs modern node (v26) incompatibility, or a shared JS-env config
+  regression; NOT test-content-related (multiple unrelated modules, identical signature).
+- **Repro:** `sbt cryptoNobleJs/test`.
+
 ## scjvm-artifact-cache-ignores-compiler-version — `open` (2026-07-07)
 
 - **Found by:** claude (green-main takeover), while fixing jvmgen-block-call-empty-parens: after
