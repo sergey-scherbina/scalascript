@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — fix: plugin-lazyload-extern-imports — advanced plugins reachable again
+
+The essential/advanced `.sscpkg` split kept startup fast but left the advanced set
+(`plugin-available/`: smtp, tcp, pwa, sql, auth, crypto, …) wired into NO load path — every std
+module backed by them was dead from `.ssc` (imports failed with "not found", bare externs with
+"Undefined"; the stock pwa-demo example crashed). Fix: the CLI registers the available dirs at
+startup and the interpreter's lazy `ensurePluginsLoaded()` commits them on first missing
+name/extern — startup unchanged, correctness restored. Unblocks busi's ssc pin bump (its hub
+imports `[smtpSend](std/smtp.ssc)`). tkv2-pwa conformance un-pended and green.
+
 ## 2026-07-07 — std/ui: tkv2-theme-css-vars — the theme as CSS custom properties
 
 `cssVariables(t: Theme)` in `std/ui/theme.ssc` — emits `:root { --ssc-color-*, --ssc-space-*,
