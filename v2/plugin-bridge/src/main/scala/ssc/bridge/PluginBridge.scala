@@ -1807,8 +1807,33 @@ object PluginBridge:
       }))
     })
     V2PluginRegistry.registerGlobal("handle", handleClosure)
-    // Also register "effect" as a no-op (FrontendBridge emits it for `effect Foo:` declarations)
-    V2PluginRegistry.registerGlobal("effect", V2Value.ClosV(Runtime.emptyEnv, 1, _ => Done(V2Value.UnitV)))
+    // "effect" is TWO things: `effect Foo:` declarations (no-op — FrontendBridge
+    // emits a marker call) and `effect { … }` REACTIVE blocks (signals-demo):
+    // run the thunk once while TRACKING signal reads, subscribe it to every
+    // cell it read, and re-run it in ONE flush per write (LinkedHashSet — the
+    // diamond of count+computed(count) must rerun the effect once, not twice).
+    val subscribers = new java.util.IdentityHashMap[AnyRef, java.util.LinkedHashSet[V2Value.ClosV]]()
+    def runTracked(thunk: V2Value.ClosV): Unit =
+      val reads = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[AnyRef, java.lang.Boolean]())
+      Runtime.signalReadHook.set(cell => { reads.add(cell); () })
+      try callClosure(thunk, Nil)
+      finally Runtime.signalReadHook.set(null)
+      reads.forEach { cell =>
+        subscribers.computeIfAbsent(cell, _ => new java.util.LinkedHashSet[V2Value.ClosV]()).add(thunk)
+      }
+    Runtime.signalWriteHook = cell => {
+      val subs = subscribers.get(cell)
+      if subs != null then
+        // snapshot: re-tracking during the flush may re-subscribe
+        val flush = new java.util.LinkedHashSet[V2Value.ClosV](subs)
+        flush.forEach(th => runTracked(th))
+    }
+    V2PluginRegistry.registerGlobal("effect", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      env.last match
+        case thunk: V2Value.ClosV if thunk.arity == 0 => runTracked(thunk)
+        case _                                        => () // effect-declaration marker
+      Done(V2Value.UnitV)
+    }))
 
   /** Run the Free-monad interpreter loop.
    *  - Op("EffTag.opName", arg, k): call handler with DataV(opName, [arg, resumeFn])

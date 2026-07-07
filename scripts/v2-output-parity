@@ -58,7 +58,7 @@ for f in "${FILES[@]}"; do
   if [ "${1:-}" = "--all" ] && grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then
     skip=$((skip+1)); continue   # server/actor/dataset — never terminates, excluded from the ratio
   fi
-  if head -15 "$f" | grep -qE '^backend:[[:space:]]*jvm'; then
+  if head -15 "$f" | grep -qE '^backend:[[:space:]]*(jvm|spark|js|rust|wasm)'; then
     printf '%-38s %s\n' "$(basename "$f")" "· skip (jvm lane)"; lane_skip=$((lane_skip+1)); continue
   fi
   if basename "$f" | grep -qE "$NONDET_RE"; then

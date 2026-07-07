@@ -68,6 +68,13 @@ object Runtime:
    *  handler and then continues with `rest`. Without this, any effect op in
    *  statement position silently vanished (the whole effects-semantics
    *  divergence class: examples/effects.ssc, algebraic-effects.ssc). */
+  /** Reactive-signal hooks (installed by the plugin bridge; kernel stays
+   *  bridge-agnostic). readHook fires on every signal-cell read while an
+   *  `effect { … }` thunk is tracking; writeHook fires after every cell write
+   *  so subscribed effects re-run in one flush. */
+  val signalReadHook:  ThreadLocal[(AnyRef => Unit) | Null] = ThreadLocal.withInitial(() => null)
+  @volatile var signalWriteHook: (AnyRef => Unit) | Null = null
+
   /** Let-binding variant of [[seqThreadOp]]: the resumed VALUE is needed by the
    *  continuation (it becomes the bound val), not just control flow. */
   def letThreadOp(op: Value, use: Value => Value): Value = op match
@@ -1350,6 +1357,19 @@ object Prims:
         case UnitV => UnitV
         case DataV("Op", _) => UnitV
         case v => println(anyStr(v)); UnitV
+    case "__arithExt__" => a =>
+      // __arithExt__(opName, l, r, extensionClosure): numeric operands use the
+      // kernel arith table; anything else calls the user extension (parser `|`,
+      // Doc `++`, …).
+      val num = (v: Value) => v match { case IntV(_) | FloatV(_) | BigV(_) => true; case _ => false }
+      (a(0), a(3)) match
+        case (StrV(op), ext: ClosV) =>
+          if num(a(1)) && num(a(2)) then arithOp(op, a(1), a(2))
+          else callClos(ext, Array(a(1), a(2)))
+        case _ => sys.error("__arithExt__: bad args")
+    case "__isNum2__" => a =>
+      val num = (v: Value) => v match { case IntV(_) | FloatV(_) | BigV(_) => true; case _ => false }
+      BoolV(num(a(0)) && num(a(1)))
     case "__mdStrip__" => a => a(0) match
       case StrV(s) =>
         // v1 Interpreter.stripIndent: drop blank edge lines, remove the
@@ -1485,12 +1505,14 @@ object Prims:
           case "+" | "++" => StrV(x.toString + y)
           case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for Int+String")
+        // Float↔String concat renders via floatStr (v1 collapses whole doubles:
+        // "" + 1.0 is "1", not "1.0" — raw toString broke output parity).
         case (FloatV(x), StrV(y)) => op match
-          case "+" | "++" => StrV(x.toString + y)
+          case "+" | "++" => StrV(Writer.floatStr(x) + y)
           case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for Float+String")
         case (StrV(x), FloatV(y)) => op match
-          case "+" | "++" => StrV(x + y.toString)
+          case "+" | "++" => StrV(x + Writer.floatStr(y))
           case "==" => BoolV(false); case "!=" => BoolV(true)
           case _   => sys.error(s"__arith__: unknown op $op for String+Float")
         case (BoolV(x), BoolV(y)) => op match
@@ -1618,7 +1640,10 @@ object Prims:
         // program behave differently depending on which path compiled it.
         case (StrV(s), "toInt", Nil)         => IntV(s.trim.toLong)
         case (StrV(s), "toIntOption", Nil)   => s.toLongOption.fold(none)(n => some(IntV(n)))
-        case (StrV(s), "toDouble", Nil)      => s.toDoubleOption.fold(none)(d => some(FloatV(d)))
+        // v1 semantics: .toDouble is the RAW conversion (throws on junk) —
+        // the Option-returning variant is .toDoubleOption, mirroring .toInt.
+        case (StrV(s), "toDouble", Nil)       => FloatV(s.trim.toDouble)
+        case (StrV(s), "toDoubleOption", Nil) => s.toDoubleOption.fold(none)(d => some(FloatV(d)))
         case (StrV(s), "trim", Nil)          => StrV(s.trim)
         case (StrV(s), "matchPrefix", List(StrV(pat))) =>
           // v1 DispatchRuntime: regex prefix match (lookingAt) -> Some(matched) | None
@@ -1955,7 +1980,9 @@ object Prims:
             case (k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))
           })
         // ── Signal/cell — ForeignV(Array[Value]) with .get/.set/.update ──────────
-        case (ForeignV(arr: Array[?]), "get", Nil) => arr.asInstanceOf[Array[Value]](0)
+        case (ForeignV(arr: Array[?]), "get", Nil) =>
+          val rh = Runtime.signalReadHook.get(); if rh != null then rh(arr)
+          arr.asInstanceOf[Array[Value]](0)
         // Row-style field access on a map value: `row.text` where the row is a
         // ForeignV(Map) (Db.query rows; v2 strips the [Todo] type arg so no
         // case-class decoding happens). Look the field up by KEY name, with a
@@ -1970,12 +1997,18 @@ object Prims:
           mm.getOrElse(StrV(fieldName),
             mm.collectFirst { case (StrV(k), v) if k.equalsIgnoreCase(fieldName) => v }
               .getOrElse(sys.error(s"__method__: no column '$fieldName' in row ${mm.keys.map(anyStr).mkString("[", ",", "]")}")))
-        case (ForeignV(arr: Array[?]), "set", List(v)) => arr.asInstanceOf[Array[Value]](0) = v; UnitV
+        case (ForeignV(arr: Array[?]), "set", List(v)) =>
+          arr.asInstanceOf[Array[Value]](0) = v
+          val wh = Runtime.signalWriteHook; if wh != null then wh(arr)
+          UnitV
         case (ForeignV(arr: Array[?]), "update", List(fn: ClosV)) =>
           val cur = arr.asInstanceOf[Array[Value]](0)
           arr.asInstanceOf[Array[Value]](0) = callClos(fn, Array(cur))
+          val wh = Runtime.signalWriteHook; if wh != null then wh(arr)
           UnitV
-        case (ForeignV(arr: Array[?]), "apply", Nil) => arr.asInstanceOf[Array[Value]](0)
+        case (ForeignV(arr: Array[?]), "apply", Nil) =>
+          val rh = Runtime.signalReadHook.get(); if rh != null then rh(arr)
+          arr.asInstanceOf[Array[Value]](0)
         // ── Plugin-owned named-field objects (e.g. oauth AuthServer) ─────────────
         case (ForeignV(obj: NamedMethodObj), _, _) =>
           obj.getField(name) match

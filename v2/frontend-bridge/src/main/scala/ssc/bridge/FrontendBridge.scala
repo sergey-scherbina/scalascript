@@ -1751,10 +1751,27 @@ object FrontendBridge:
           CT.Lam(1, desugarDirect(rest, "_" :: scope, vars))))
       case _ :: rest => desugarDirect(rest, scope, vars)
 
+  /** Operators the kernel's arithOp implements. Anything else that is a
+   *  registered EXTENSION method (std/parsing's ~ | ~> <~ etc.) must call the
+   *  extension global — __arith__ has no arm for user symbolic operators and
+   *  the whole parser chain silently degraded to Unit. */
+  private val arithInfixOps = Set(
+    "+", "-", "*", "/", "%", "&", "^", "|", "++", ":+",
+    "<<", ">>", ">>>", "<", "<=", ">", ">=", "==", "!=")
+
   private def convertInfix(op: String, l: CT, r: CT, scope: List[String]): CT = op match
     case "&&" => CT.If(l, r, CT.Lit(Const.CBool(false)))
     case "||" => CT.If(l, CT.Lit(Const.CBool(true)), r)
     case "::"  => CT.Ctor("Cons", List(l, r))
+    case _ if !arithInfixOps(op) && extensionMethods.contains(op) =>
+      CT.App(CT.Global(op), List(l, r))
+    case _ if arithInfixOps(op) && extensionMethods.contains(op) =>
+      // Ambiguous (e.g. `|`: bitwise-or on numbers, parser-choice extension on
+      // data; `++`: concat vs Doc-beside): branch on RUNTIME operand types via
+      // a single prim — prim args all evaluate in the CURRENT scope. (A Let
+      // formulation shifted the second operand's De Bruijn locals: Let rhs #2
+      // runs in an env already extended by rhs #1.)
+      CT.Prim("__arithExt__", List(CT.Lit(Const.CStr(op)), l, r, CT.Global(op)))
     case _    => CT.Prim("__arith__", List(CT.Lit(Const.CStr(op)), l, r))
 
   private def convertMatch(scrut: CT, cases: List[Case], scope: List[String]): CT =
