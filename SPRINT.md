@@ -35,10 +35,14 @@ detail: **[`specs/ssc-toolkit-v2.md`](specs/ssc-toolkit-v2.md)**. Additive over 
 changes for existing consumers (rozum control-center, busi server pages). Every slice ships
 conformance cases (INT==JS) and runs the affected-slice conformance before push (AGENTS.md 4b).
 
-- [ ] **tkv2-components** — `component(kind, key)(Ctx => View)`: instance-scoped signal names
-      (`<kind>/<key>/<name>`) + disposal hook; typed props = function params. The deepest gap
-      (signals today are GLOBAL string ids — `FrontendIntrinsics.scala` `ReactiveSignal(name)`,
-      duplicate registration is an error) and the busi-pilot prerequisite.
+- [x] **tkv2-components** ✓ DONE 2026-07-07 — `std/ui/component.ssc`: `component(kind, key)(Ctx => N)`
+      + `ctxSignal` → `<kind>__<key>__<name>` (SANITIZED — emitter contract: signal ids must be JS
+      identifiers `[A-Za-z_][A-Za-z0-9_]*`; React derives useState var names from them, so `/`
+      separators are rejected at emit). `childCtx` nesting; pure .ssc. Disposal DEFERRED to
+      tkv2-keyed-for (tree is built once today). Conformance `tkv2-component` INT==JS; example
+      `component-demo` browser-driven. Fixed 2 JsGen bugs en route (BUGS.md: Signal-import-vs-preamble,
+      reserved-word param body rename). GOTCHA for later slices: char comparisons + regex replaceAll
+      diverge between lanes — sanitize with substring+contains (see ctxClean).
 - [ ] **tkv2-offline** — `localStorageGet/Set` + `onlineSignal()` externs (neither exists today;
       IndexedDB facade exists JsGen-side), `persistedSignal`, `fetchOrLocal(url, tick, local)`.
       JVM lowering: per-process map storage, `onlineSignal`≡true.

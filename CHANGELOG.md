@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: tkv2-components — instance-scoped component signals
+
+First slice of `specs/ssc-toolkit-v2.md` (busi's React→ssc migration requirements). New
+`std/ui/component.ssc`: `component(kind, key)(Ctx => N)` + `ctxSignal` namespace signals to
+`<kind>__<key>__<name>` (sanitized to the emitters' JS-identifier contract), `childCtx` nesting;
+pure .ssc over the existing `signal` extern. Two JsGen bugs found + fixed en route (BUGS.md):
+the opaque-`Signal`-import vs signals.mjs-preamble collision (#5-class, declaredBindings seed)
+and reserved-word params (`default`) unrenamed in object-member def bodies. Conformance
+`tkv2-component` INT==JS; example `examples/frontend/component-demo` browser-driven (three
+counters, clicks stay per-instance); full-corpus A/B vs main baseline — no failures caused by
+this slice (the 4 JVM-lane diffs turned out to be the pre-existing `jvmgen-block-call-empty-parens`
+regression on origin/main, masked by the main checkout's stale bin/ssc — see BUGS.md).
+
 ## 2026-07-07 - fix(test): AgentConformance ephemeral port
 
 Fixed the `AgentConformanceTest` root-suite port collision by binding the mock

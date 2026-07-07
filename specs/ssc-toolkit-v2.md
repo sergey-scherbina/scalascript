@@ -124,27 +124,31 @@ The single deepest gap. Today `signal(name, default)` registers a global
 name; a `def` that creates signals is a footgun (every call site shares
 them). Proposal:
 
-```scalascript
-// std/ui/component.ssc
-// A component instance = a keyed scope for signals + a View.
-def component(kind: String, key: String)(body: Ctx => View): View
+**Landed 2026-07-07 (slice tkv2-components)** as `std/ui/component.ssc` —
+pure `.ssc`, free functions (no extern needed):
 
-// Ctx namespaces signal names to "<kind>/<key>/<name>" and tracks them
-// for disposal when the instance unmounts (keyed For swap).
-case class Ctx(...):
-  def signal[T](name: String, default: T): Signal[T]
-  def computed[T](f: () => T): Signal[T]
+```scalascript
+// std/ui/component.ssc (as landed)
+case class Ctx(prefix: String)
+def component[N](kind: String, key: String)(body: Ctx => N): N
+def childCtx(parent: Ctx, kind: String, key: String): Ctx
+def ctxSignal[T](ctx: Ctx, name: String, default: T): Signal[T]
+def ctxSeedSignal(ctx: Ctx, name: String, source: Signal[String]): Signal[String]
 ```
 
+- Signals register as `"<kind>__<key>__<name>"`, **sanitized** — the emitter
+  contract requires signal ids to be JS identifiers (`[A-Za-z_][A-Za-z0-9_]*`;
+  the React emitter derives `useState` variable names from them), so `/`
+  separators are rejected at emit time and non-identifier chars map to `_`.
 - **Typed props** = ordinary function parameters (already typed by the ssc
-  typer): `def todoCard(o: Obligation): View = component("todoCard", o.id) {
-  ctx => ... }`.
-- **Lifecycle**: instance signals are disposed when the owning keyed node
-  leaves the tree (ties into P1-7 keyed diffing; until then, disposal on
-  full re-render of the enclosing `For`).
-- Runtime cost: one extern (`componentScope(kind, key)`) or pure-`.ssc` name
-  prefixing over the existing `signal` extern — decide in the slice after
-  measuring both against the browser runtime's signal registry.
+  typer): `def todoCard(o: Obligation): TkNode = component("todoCard", o.id)(
+  ctx => ...)`.
+- **Lifecycle**: DEFERRED — the view tree is built once today, so instance
+  signals live for the app's lifetime; disposal lands with P1-7 keyed diffing
+  (`tkv2-keyed-for`), where instances actually unmount.
+- Portability gotchas recorded for later slices: per-char comparisons and
+  regex `replaceAll` diverge between the INT and JS lanes — `ctxClean`
+  sanitizes via substring+contains.
 
 ### 4.2 Offline/PWA primitives (P0-2)
 

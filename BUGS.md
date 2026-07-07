@@ -12,6 +12,26 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jvmgen-block-call-empty-parens — `open` (2026-07-07)
+
+- **Found by:** claude (tkv2-components slice), via the full-corpus A/B: 4 tests
+  (signals, effects, rest-validate, distributed-map) fail the JVM lane in any FRESH
+  build of origin/main, while the shared main checkout "passes" only because its
+  `bin/ssc` is STALE (pre-2026-07-03 source — its generated preamble lacks the
+  webauthn `configureStore` block and `Bench.opaque`). Reproduced on a pristine
+  origin/main worktree + fresh `installBin`.
+- **Symptom:** `ssc run-jvm tests/conformance/signals.ssc` — user code
+  `val doubled = computed { … }` is emitted as `computed() { … }` (empty first arg
+  list + trailing block) → Scala compile error "missing argument for parameter
+  thunk". Same for `effect { … }`.
+- **Repro:** `scripts/new-worktree probe && cd ../scalascript-wt-probe &&
+  scripts/sbtc installBin && bin/ssc run-jvm tests/conformance/signals.ssc`.
+- **Suspect window:** whatever changed JvmGen's call-with-block emission between the
+  main checkout's stale binary (~2026-07-03) and current origin/main. Not caused by
+  the tkv2 slice (repro has none of its commits). NOTE: rebuild the shared main
+  checkout's bin/ssc after fixing — its staleness masks this class of regression
+  in any corpus run executed from the main checkout.
+
 ## jsgen-signal-type-import-vs-preamble — `fixed` (2026-07-07)
 
 - **Found by:** claude (tkv2-components slice) — first .ssc module importing the opaque
