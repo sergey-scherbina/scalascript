@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - fix(test): AgentConformance ephemeral port
+
+Fixed the `AgentConformanceTest` root-suite port collision by binding the mock
+OpenAI gateway to loopback port `0` and using the assigned port in test scripts.
+Verified `backendInterpreterPluginTests/testOnly scalascript.AgentConformanceTest`
+(3/3).
+
 ## 2026-07-07 - fix(test): Swing example repo-root resolution
 
 Fixed `JvmGenSwingRuntimeTest` after the v1 path restructure: the suite's local

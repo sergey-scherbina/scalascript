@@ -43,6 +43,9 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Progress (2026-07-07, `395e8aab3`):** `JvmGenSwingRuntimeTest` fixed by
   replacing the local `v1`-anchored repo-root finder with `TestPaths.repoRoot`;
   targeted Swing runtime test passes 5/5.
+- **Progress (2026-07-07, `eae491e11`):** `AgentConformanceTest` fixed by
+  binding its mock OpenAI gateway to a loopback ephemeral port instead of
+  hard-coded `19694`; targeted conformance test passes 3/3.
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
