@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-parity-quoted-macros
+worktree: ../scalascript-wt-p3-parity-quoted-macros
+started: 2026-07-07
+status: in-progress
+task: p3-parity-quoted-macros — quoted-macro-constfold + quoted-macro-interpreter mismatches; plan: MacroCodegen.expand pre-pass in FrontendBridge (Track B machinery already on interp/JVM/JS)
