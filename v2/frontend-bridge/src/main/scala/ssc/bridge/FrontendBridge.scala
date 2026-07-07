@@ -84,6 +84,8 @@ object FrontendBridge:
     objMethodDefaults.clear()
     objMethodVarargs.clear()
     sqlSectionIds.clear()
+    yamlSectionIds.clear()
+    hoistedValNames.clear()
     globalVarNames.clear()
     defParamNames.clear()
     varargDefs.clear()
@@ -166,6 +168,8 @@ object FrontendBridge:
 
   /** Section ids that own a ```sql fence: `Section.sql` resolves to __sql_<Section>. */
   private val sqlSectionIds = collection.mutable.HashSet[String]()
+  private val yamlSectionIds = collection.mutable.HashSet[String]()
+  private val hoistedValNames = collection.mutable.HashSet[String]()
 
   /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
   private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
@@ -740,8 +744,8 @@ object FrontendBridge:
       // (running them cost 23 corpus files when enabled unconditionally).
       val hasSqlFences = noFront.contains("```sql") || noFront.contains("```transaction")
       val anyFence =
-        if hasSqlFences then """```(scalascript|scala|sql|transaction)([^\n]*)\n""".r
-        else """```(scalascript)()\n""".r
+        if hasSqlFences then """```(scalascript|scala|sql|transaction|yaml|yml)([^\n]*)\n""".r
+        else """```(scalascript|yaml|yml)([^\n]*)\n""".r
       var sqlBlockIdx = 0
       var pos = 0
       var lastHeading = "S0"
@@ -785,6 +789,12 @@ object FrontendBridge:
                 blocks += s"""val __sql_$lastHeading = __sqlExec__("$urlForBlock", "$sqlText", List(${binds.mkString(", ")}))"""
                 blocks += s"""val _sqlBlock_$sqlBlockIdx = __sql_$lastHeading"""
                 sqlBlockIdx += 1
+              case "yaml" | "yml" =>
+                // <SectionId>.yaml — the PARSED yaml of the section's fence
+                // (v1 SectionRuntime stores InstanceV(id, "yaml" -> parsed)).
+                yamlSectionIds += lastHeading
+                val esc = code.trim.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+                blocks += s"""val __yaml_$lastHeading = __yamlSection__("$esc")"""
               case _ =>
                 blocks += autoPrintLast(filterImportLines(code))
             pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
@@ -952,9 +962,16 @@ object FrontendBridge:
           // Section.sql resolves to the ENTRY-local __sql_<Section> val
           case Term.Select(Term.Name(sec), Term.Name("sql")) if sqlSectionIds.contains(sec) => sec
         }.nonEmpty
-        if isPureValRhs(v.rhs) && !mentionsEntryVal(v.rhs) then
+        // DUPLICATE top-level val names (val r = … in two fences): only the
+        // FIRST occurrence may hoist to a global — a second CDef would clobber
+        // the first for ALL references (lenses.ssc: prism-section r=Rect was
+        // read as the later r=Roster). Duplicates go to the entry block, where
+        // the local binding shadows the global from its position onward.
+        val dupName = hoistedValNames.contains(name) || entryValNames.contains(name)
+        if !dupName && isPureValRhs(v.rhs) && !mentionsEntryVal(v.rhs) then
           val rhs  = convertExpr(v.rhs, Nil)
           defsB += CDef(name, rhs)
+          hoistedValNames += name
         else
           entryB += v
           entryValNames += name
@@ -1304,6 +1321,8 @@ object FrontendBridge:
     // Section.sql → the synthetic __sql_<Section> result val (sql fenced blocks)
     case Term.Select(Term.Name(sec), Term.Name("sql")) if sqlSectionIds.contains(sec) =>
       lookupVarFull(s"__sql_$sec", scope)
+    case Term.Select(Term.Name(sec), Term.Name("yaml")) if yamlSectionIds.contains(sec) =>
+      lookupVarFull(s"__yaml_$sec", scope)
     // EnumName.values (bare, no parens) → list of the enum's zero-arg cases
     case Term.Select(Term.Name(en), Term.Name("values")) if enumCaseNames.contains(en) =>
       enumCaseNames(en).foldRight(CT.Ctor("Nil", Nil): CT)((c, acc) =>
@@ -1601,7 +1620,10 @@ object FrontendBridge:
           val q = convertExpr(qual, scope)
           // Extension method → global call with receiver as first arg
           if extensionMethods.contains(mname) && !suppressExtName.contains(mname) then
-            CT.App(CT.Global(mname), q :: args)
+            // Runtime-branching: a method-object receiver with its OWN `mname`
+            // field wins over the extension global (a Prism's modify was hijacked
+            // by the optic-path extension modify and returned a stale walk).
+            CT.Prim("__methodOrExt__", CT.Lit(Const.CStr(mname)) :: q :: (args :+ CT.Global(mname)))
           // If it's a known field accessor with no args, use fieldAt
           else if args.isEmpty then
             fieldIndex(mname) match
@@ -1690,6 +1712,8 @@ object FrontendBridge:
         CT.Prim("__sqlExec__", args)
       case Term.Name("__autoPrint__") =>
         CT.Prim("__autoPrint__", args)
+      case Term.Name("__yamlSection__") =>
+        CT.Prim("__yamlSection__", args)
       // Regular function call (with optional default-param synthesis for known defs)
       case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
         val fullArgs = args ++ dictArgsFor(name, args)

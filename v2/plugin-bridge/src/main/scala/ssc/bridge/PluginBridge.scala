@@ -105,6 +105,8 @@ object PluginBridge:
   def loadAll(): Int =
     registerHandle()
     registerRunStream()
+    registerYamlSection()
+    registerRunAsync()
     // Render native v1 Values (DocV, MarkupV, …) that ride inside ForeignV via
     // v1's own show — println(doc) on the v2 side printed "<foreign>" otherwise.
     Show.foreignRenderer = {
@@ -1068,6 +1070,8 @@ object PluginBridge:
         if q != null then q.put(Some(v))
         Done(UnitV)
       }))
+    def esc(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")
+    def unesc(s: String): String = s.replace("\\\"", "\"").replace("\\\\", "\\")
     // runEphemeralStorage { body } — run body with an in-memory map store
     if V2PluginRegistry.lookupGlobal("runEphemeralStorage").isEmpty then
       V2PluginRegistry.registerGlobal("runEphemeralStorage", ClosV(Runtime.emptyEnv, -1, env => {
@@ -1081,6 +1085,35 @@ object PluginBridge:
         finally storageLocal.set(prev)
         Done(result)
       }))
+    // runStorage { body } — like runEphemeralStorage but FILE-BACKED: loads
+    // ./ssc-storage.json before the body, persists it after (v1 storage-plugin
+    // semantics; storage-demo round-trips a value across two invocations).
+    if V2PluginRegistry.lookupGlobal("runStorage").isEmpty then
+      V2PluginRegistry.registerGlobal("runStorage", ClosV(Runtime.emptyEnv, -1, env => {
+        val thunk = env.last
+        val file = new java.io.File("ssc-storage.json")
+        val map = scala.collection.mutable.LinkedHashMap.empty[String, String]
+        if file.exists then
+          try
+            val txt = scala.io.Source.fromFile(file).mkString.trim
+            // minimal flat {"k":"v",…} parse — the storage plugin writes only this shape
+            """"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"""".r
+              .findAllMatchIn(txt).foreach(m => map(unesc(m.group(1))) = unesc(m.group(2)))
+          catch case _: Throwable => ()
+        val prev = storageLocal.get()
+        storageLocal.set(map)
+        val result = try thunk match
+          case c: ClosV => callClosure(c, Nil)
+          case v => v
+        finally
+          storageLocal.set(prev)
+          try
+            val json = map.map((k, v) => s"\"${esc(k)}\":\"${esc(v)}\"").mkString("{", ",", "}")
+            java.nio.file.Files.write(file.toPath, json.getBytes("UTF-8"))
+          catch case _: Throwable => ()
+        Done(result)
+      }))
+
     // args — command-line args as a Cons/Nil list
     if V2PluginRegistry.lookupGlobal("args").isEmpty then
       val argsList = sys.props.get("scalascript.args")
@@ -1764,6 +1797,98 @@ object PluginBridge:
    *  runToList(). Relies on Op statement-threading (84503577e) for emits in
    *  statement position. */
   private final class StreamComplete extends RuntimeException
+  /** runAsync { body } / runAsyncParallel { body } — Async effect runners
+   *  (async-demo, async-parallel-demo). Ops: async(thunk) → future handle,
+   *  await(f) → join, delay(ms), parallel(List[thunk]) → List[result] — run
+   *  SEQUENTIALLY under runAsync, CONCURRENTLY under runAsyncParallel (the
+   *  demo measures exactly this difference). Child virtual threads re-push
+   *  the handler: V2EffectContext is a ThreadLocal. */
+  private def registerRunAsync(): Unit =
+    import V2Value.*
+    if V2PluginRegistry.lookupGlobal("runAsync").isDefined then return
+    def unlist(v: V2Value): List[V2Value] =
+      val b = List.newBuilder[V2Value]; var cur = v
+      var go = true
+      while go do cur match
+        case DataV("Cons", IndexedSeq(h, tl)) => b += h; cur = tl
+        case _ => go = false
+      b.result()
+    def listOf(xs: List[V2Value]): V2Value =
+      xs.foldRight(DataV("Nil", Vector.empty): V2Value)((x, acc) => DataV("Cons", Vector(x, acc)))
+    final class Fut(val thread: Thread, val cell: Array[V2Value])
+    def mkRunner(par: Boolean): V2Value = ClosV(Runtime.emptyEnv, 1, env => {
+      val thunk = env.last match
+        case c: ClosV if c.arity == 0 => c
+        case other => sys.error(s"runAsync: expected a block, got ${Show.show(other)}")
+      lazy val handler: V2EffectContext.EH = (op, args) => op match
+        case "delay" =>
+          args.head match { case IntV(ms) => Thread.sleep(ms); case _ => () }
+          UnitV
+        case "async" =>
+          val c = args.head.asInstanceOf[ClosV]
+          val cell = new Array[V2Value](1)
+          val th = Thread.ofVirtual().start { () =>
+            V2EffectContext.push("Async", handler)
+            try cell(0) = callClosure(c, Nil)
+            finally V2EffectContext.pop("Async")
+          }
+          ForeignV(new Fut(th, cell))
+        case "await" =>
+          args.head match
+            case ForeignV(f: Fut) => f.thread.join(); Option(f.cell(0)).getOrElse(UnitV)
+            case other            => other // await on an already-plain value
+        case "parallel" =>
+          val thunks = unlist(args.head).collect { case c: ClosV => c }
+          if par then
+            val futs = thunks.map { c =>
+              val cell = new Array[V2Value](1)
+              val th = Thread.ofVirtual().start { () =>
+                V2EffectContext.push("Async", handler)
+                try cell(0) = callClosure(c, Nil)
+                finally V2EffectContext.pop("Async")
+              }
+              (th, cell)
+            }
+            listOf(futs.map { (th, cell) => th.join(); Option(cell(0)).getOrElse(UnitV) })
+          else listOf(thunks.map(c => callClosure(c, Nil)))
+        case other => sys.error(s"runAsync: unsupported Async.$other")
+      V2EffectContext.push("Async", handler)
+      val result = try callThunk(thunk) finally V2EffectContext.pop("Async")
+      Done(result)
+    })
+    V2PluginRegistry.registerGlobal("runAsync", mkRunner(par = false))
+    V2PluginRegistry.registerGlobal("runAsyncParallel", mkRunner(par = true))
+
+  /** ```yaml section fences → parsed value for `<SectionId>.yaml` (mirrors v1
+   *  SectionRuntime.runYamlBlock: SimpleYaml + yamlAnyToValue; no plugin import
+   *  needed). Registered as a prim; the frontend emits __yamlSection__("raw"). */
+  private def registerYamlSection(): Unit =
+    V2PluginRegistry.register("__yamlSection__", args => args match
+      case List(V2Value.StrV(raw)) =>
+        // Local replica of v1 SectionRuntime.yamlAnyToValue (it is private there).
+        import scalascript.interpreter.Value as V1V
+        def conv(a: Any): V1V =
+          import scala.jdk.CollectionConverters.*
+          a match
+            case null                  => V1V.InstanceV("YNull", Map.empty)
+            case b: java.lang.Boolean  => V1V.InstanceV("YBool", Map("value" -> V1V.boolV(b)))
+            case i: java.lang.Integer  => V1V.InstanceV("YNum",  Map("value" -> V1V.DoubleV(i.toDouble)))
+            case l: java.lang.Long     => V1V.InstanceV("YNum",  Map("value" -> V1V.DoubleV(l.toDouble)))
+            case d: java.lang.Double   => V1V.InstanceV("YNum",  Map("value" -> V1V.DoubleV(d)))
+            case f: java.lang.Float    => V1V.InstanceV("YNum",  Map("value" -> V1V.DoubleV(f.toDouble)))
+            case s: String             => V1V.InstanceV("YStr",  Map("value" -> V1V.StringV(s)))
+            case m: java.util.Map[?, ?] =>
+              val fields = m.asScala.map { case (k, v) => V1V.StringV(k.toString).asInstanceOf[V1V] -> conv(v) }.toMap
+              V1V.InstanceV("YObj", Map("fields" -> V1V.MapV(fields)))
+            case l: java.util.List[?]  =>
+              V1V.InstanceV("YArr", Map("items" -> V1V.ListV(l.asScala.toList.map(conv))))
+            case other                 => V1V.InstanceV("YStr", Map("value" -> V1V.StringV(other.toString)))
+        val v1parsed: V1Value =
+          try conv(scalascript.parser.SimpleYaml.load[Any](raw))
+          catch case _: Throwable => scalascript.interpreter.Value.InstanceV("YNull", Map.empty)
+        V2Value.ForeignV(v1parsed)
+      case _ => sys.error("__yamlSection__(raw)"))
+
   private def registerRunStream(): Unit =
     if V2PluginRegistry.lookupGlobal("runStream").isDefined then return
     V2PluginRegistry.registerGlobal("runStream", V2Value.ClosV(Runtime.emptyEnv, 1, env => {

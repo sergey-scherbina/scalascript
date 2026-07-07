@@ -1357,6 +1357,21 @@ object Prims:
         case UnitV => UnitV
         case DataV("Op", _) => UnitV
         case v => println(anyStr(v)); UnitV
+    case "__methodOrExt__" => a =>
+      // __methodOrExt__(name, recv, args…, extensionClosure): a method-object
+      // receiver exposing `name` uses ITS method; everything else calls the
+      // user extension global (status quo before method-objects existed).
+      val mname = a.head match { case StrV(s) => s; case v => Show.show(v) }
+      val recv  = a(1)
+      val ext   = a.last.asInstanceOf[ClosV]
+      val margs = a.drop(2).dropRight(1)
+      recv match
+        case ForeignV(obj: NamedMethodObj) if obj.getField(mname).isDefined =>
+          obj.getField(mname) match
+            case Some(fn: ClosV)              => callClos(fn, margs.toArray)
+            case Some(v) if margs.isEmpty     => v
+            case _                            => callClos(ext, (recv :: margs).toArray)
+        case _ => callClos(ext, (recv :: margs).toArray)
     case "__arithExt__" => a =>
       // __arithExt__(opName, l, r, extensionClosure): numeric operands use the
       // kernel arith table; anything else calls the user extension (parser `|`,
@@ -2067,26 +2082,25 @@ object Prims:
                   // (reading v1 TLS that is empty on v2) returned Stub and shadowed the
                   // whole State-effect family. Db.query/execute keep working: nothing
                   // pushes a "Db" context, so peek misses and the plugin handles them.
-                  V2EffectContext.peek(effectTag) match
-                    case Some(handler) => handler(name, margs)
-                    case None =>
-                      V2PluginRegistry.lookup(s"$effectTag.$name") match
-                        case Some(pluginFn) => pluginFn(margs)
-                        case None => V2PluginRegistry.lookup(s"__fallback__.$effectTag.$name") match
-                          case Some(fallbackFn) =>
-                            // Bridge-registered LAST-RESORT native (e.g. Dataset.* over
-                            // plain lists) — consulted only after the plugin registry
-                            // and effect context both missed, so a plugin-provided
-                            // surface (spark's Dataset) or an active handler always wins.
-                            fallbackFn(margs)
-                          case None =>
-                          // No active handler: return Free monad Op for typed `handle` dispatch
-                          val argV = margs match
-                            case Nil       => UnitV
-                            case List(one) => one
-                            case many      => DataV(s"Tuple${many.length}", many.toVector)
-                          val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
-                          DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                  // Chain written with EXPLICIT Options (no nested equal-indent
+                  // `case None =>` bodies — those parse as statement SEQUENCES and
+                  // silently discard the taken branch: the __fallback__ arm ran but
+                  // an Op was ALWAYS built and returned; Dataset.* leaked Ops on the
+                  // assembled binary).
+                  val viaCtx    = V2EffectContext.peek(effectTag).map(h => h(name, margs))
+                  val viaPlugin = if viaCtx.isDefined then None
+                                  else V2PluginRegistry.lookup(s"$effectTag.$name").map(_(margs))
+                  val viaFall   = if viaCtx.isDefined || viaPlugin.isDefined then None
+                                  else V2PluginRegistry.lookup(s"__fallback__.$effectTag.$name").map(_(margs))
+                  viaCtx.orElse(viaPlugin).orElse(viaFall).getOrElse {
+                    // No active handler: Free monad Op for typed `handle` dispatch
+                    val argV = margs match
+                      case Nil       => UnitV
+                      case List(one) => one
+                      case many      => DataV(s"Tuple${many.length}", many.toVector)
+                    val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
+                    DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                  }
                 case DataV("Stub", fs) =>
                   // A method ON a stub stays that stub — keep the ORIGINAL missed-method
                   // breadcrumb instead of burying it under Stub.<name> chains.
@@ -2362,6 +2376,13 @@ object Prims:
     // quotes strings, both breaking v1 output parity in interpolations).
     case DataV("Cons", _) | DataV("Nil", _) =>
       s"List(${unlistPub(v).map(anyStr).mkString(", ")})"
+    // Constructors and tuples render with anyStr FIELDS in interpolation —
+    // v1 shows Some(got delivered) / (42, List(…)) UNQUOTED; deferring to
+    // Show.show quoted the strings ("got delivered") and broke parity.
+    case DataV(tag, fields) if tag.startsWith("Tuple") && fields.nonEmpty =>
+      s"(${fields.map(anyStr).mkString(", ")})"
+    case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
+      s"$tag(${fields.map(anyStr).mkString(", ")})"
     // SQL result rows (and map.new maps) are ForeignV(scala Map) with Value
     // keys — v1 renders them Map(K -> V, …) with unquoted scalars; "<foreign>"
     // broke output parity for every SELECT-printing example. METHOD-OBJECTS

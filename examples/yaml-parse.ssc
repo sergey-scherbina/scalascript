@@ -56,5 +56,5 @@ features:
 
 ```scalascript
 println("\nFrom fenced block:")
-println("App: " + yamlStr(yamlGet(Config_block_inline_YAML.yaml, "appName")))
+println("App: " + yamlStr(yamlGet(ConfigBlockInlineYAML.yaml, "appName")))
 ```
