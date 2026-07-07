@@ -921,6 +921,15 @@ JS/Rust as ssc0 programs — are done; WASM toolchain-blocked; JVM = the VM itse
       Examples: `hm-stdlib-map.hm` (30055, JS-only full test) + `hm-parser-comb.hm` (11, all 3 backends).
       Conformance: chk_hm + JS for map; chk_hm + run-ir + JS + Rust for parser-comb (all pass). 2c0824c73.
 
+- [ ] **K51-followup — tagOfArg element-type inference for literal list/pair args** — salvaged from the
+      dropped duplicate-K51 branch `feature/v2-dict-pass-showcases` (deleted 2026-07-07 hygiene sweep; K51
+      itself landed independently). Its unique fix: dict-fns called with LITERAL list/alist arguments
+      default the element type to Int. Add to `tagOfArg` in `v2/lib/mira-emit.ssc0` two cases:
+      `case LCons(h, t) => tagOfArg(h)` and inside ConApp:
+      `case ConApp(name, args) => (if #seq(name, "Pair") then tagOfArg(nthArg(args, 0)) else conTyName(name))`.
+      Repro/gate: a dict-fn over a literal `[("a",1)]`-style alist with String keys must infer "String", not
+      "Int"; add a conformance case (the dropped branch verified green on run-ir/JS/Rust with this shape).
+
 - [x] **K52 — showcase programs** — DONE 2026-06-30. Two self-contained programs on all 3 backends:
       (a) `hm-lambda.hm`: lambda calculus interpreter (ADTs + subst + reduce + showE); `(const (id a) b)` → `"a"`.
       (b) `hm-arith-parser.hm`: recursive-descent arithmetic parser; `"1+2*3"` → 7 (correct * > + precedence).
