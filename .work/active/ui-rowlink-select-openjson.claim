@@ -1,6 +1,0 @@
-agent: claude-fable-5 (rozum UCC session)
-branch: feature/ui-rowlink-select-openjson
-worktree: ../scalascript-wt-ui-rowlink-select-openjson
-started: 2026-07-07
-status: in-progress
-task: two std/ui polish items from rozum UCC phone feedback: (1) datatable _RowLink buttons show WHICH row is selected (✓ via CSS ::before + accent when the bound signal equals the row value — ::before so the i18n text-walker keeps translating labels); (2) new onSuccess effect onOpenJson(urlTemplate, field) — on 2xx parse the response JSON and location.href the templated URL (launch button opens the session terminal directly); jobPanel gains launchEffects param. Node tests + conformance update.
