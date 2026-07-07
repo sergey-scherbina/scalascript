@@ -26,10 +26,31 @@ Remaining 21 batch fails, classified:
 
 Claimable slices for the above (queued 2026-07-07):
 
-- [ ] **p3-dataset-natives** — the 7-fail `distributed-*` cluster with ONE mechanism:
-      `Dataset.of/fromFile/map/collect` natives over plain lists + wire codecs in the v2
-      bridge (local-loopback actor sim already landed). Biggest single unblocker toward
-      Phase 3. Gate: the 7 distributed-* batch conformance entries flip to PASS.
+- [x] **p3-dataset-natives** — DONE 2026-07-07 (de98b551c). The "7-fail cluster / ONE
+      mechanism" premise was WRONG — peeling exposed SIX distinct v2 bugs (all fixed,
+      each minimally repro'd) + an honest reclassification:
+      • FIXED: Dataset natives as __fallback__.* (plain keys shadowed spark's Dataset —
+        runtime consults fallbacks only after plugin+effect miss); std/-suffix import
+        fallback for pre-move ../runtime/ paths; Cons.grouped; NESTED tuple patterns in
+        case-lambdas; set-minus / Map+(k->v) in arithOp; def param names pre-registered
+        in pass 1 (all-named call to a LOWER-defined def compiled args as ASSIGNMENTS —
+        all params arrived Unit; also hit defs without defaults).
+      • Harness: BatchCli per-file watchdog (SSC_BATCH_TIMEOUT_MS) + lane-SKIP for
+        `backend: jvm` examples; SSC_DEBUG_ACTORS actor-death diagnostics.
+      • RECLASSIFIED (not v2-VM gaps): wire-protocol/wire-shuffle/codec/typed-helpers =
+        jvm-lane (scalascript.typeddata imports; previously FALSE-passed as never-run
+        lazy Free chains); join/log-aggregation = environmental (data files absent, fail
+        v1-interp too); parallel-sum = v2-perf (honest compute now, >45s; was a false
+        exit-0 pass). word-count: 6 layers fixed, final blocker = connectNode local sim
+        returns the address string — needs a node-sim seam (design decision, see below).
+      • Corpus vs same-day clean: 165P/21F/9SKIP vs 170P/25F; conformance identical.
+- [ ] **p3-connectnode-node-sim** — the LAST distributed-* blocker: the local-loopback
+      actors sim has no node simulation behind `connectNode(address)` (returns the raw
+      address string; sends go nowhere; collectors hang in receive — now visible thanks
+      to the batch watchdog). Design decision needed: either cluster.ssc spawns the
+      .ssc-defined WorkerProtocol locally when the address is not a live node, or the
+      bridge grows a registerNodeSim seam. Owner call; all groundwork (natives, message
+      flow, diagnostics) landed in p3-dataset-natives.
 - [ ] **p3-corpus-singles** — the 8 independent single fails, each its own small fix:
       actors-typed-remote-spawn (registerBehavior variant), datatable-static-spa (parse),
       dsl-ast-builder (/ by zero), dsl-mini-language (tuple-lambda auto-untuple),
