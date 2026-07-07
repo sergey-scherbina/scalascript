@@ -134,8 +134,12 @@ object FrontendIntrinsics:
         case List(Foreign("ReactiveSignal", rs: ReactiveSignal[?]), raw) =>
           val initial = rs.apply().asInstanceOf[Any] == raw
           val safeSuffix = raw.toString.replaceAll("[^A-Za-z0-9]", "_")
+          // Re-read the source on every read (see computedSignal): the JS
+          // lane's eq wiring re-evaluates reactively; matching read-freshness
+          // keeps derived state (e.g. std/ui/form formValid) INT==JS.
           PluginValue.foreign("ReactiveSignal",
-            new ReactiveSignal[Boolean](s"${rs.id}__eq__${safeSuffix}", initial))
+            new ReactiveSignal[Boolean](s"${rs.id}__eq__${safeSuffix}", initial):
+              override def apply(): Boolean = rs.apply().asInstanceOf[Any] == raw)
         case _ => PluginError.raise("eqSignal(signal, value)")
     },
 
@@ -195,16 +199,24 @@ object FrontendIntrinsics:
     // JVM: evaluates f() once for the static initial value.
     // JS emitter wires "__computed__N" to a computed() ref that re-runs f reactively.
     QualifiedName("computedSignal") -> PluginNative.evalLegacy { (ctx, args) =>
-      def mkSignal(raw: Any): PluginValue =
-        val str = raw match
-          case s: String => s
-          case Str(s)    => s
-          case null      => ""
-          case other     => other.toString
-        PluginValue.foreign("ReactiveSignal",
-          new ReactiveSignal[String](s"__computed__${computedIdCounter.getAndIncrement()}", str))
+      def asStr(raw: Any): String = raw match
+        case s: String => s
+        case Str(s)    => s
+        case null      => ""
+        case other     => other.toString
       args match
-        case List(Fn(fn)) => mkSignal(ctx.invokeCallback(fn, Nil))
+        case List(Fn(fn)) =>
+          // Recompute on every read (tkv2-forms): the JS lane's computed()
+          // re-runs the thunk on dependency change, so reads there are always
+          // fresh — matching that read-freshness on the interpreter makes
+          // reactive composition (e.g. form validation over draft signals)
+          // conformance-testable INT==JS. Thunks are pure by contract. The
+          // initial value is still computed eagerly for emitters that read
+          // the signal once at build time.
+          val initial = asStr(ctx.invokeCallback(fn, Nil))
+          val rs = new ReactiveSignal[String](s"__computed__${computedIdCounter.getAndIncrement()}", initial):
+            override def apply(): String = asStr(ctx.invokeCallback(fn, Nil))
+          PluginValue.foreign("ReactiveSignal", rs)
         case _ => PluginError.raise("computedSignal(f)")
     },
 

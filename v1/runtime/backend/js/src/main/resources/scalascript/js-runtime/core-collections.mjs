@@ -348,6 +348,8 @@ function _dispatch(obj, method, args) {
       case 'trim': return obj.trim();
       case 'split': return obj.split(args[0]);
       case 'replace': return obj.replaceAll(args[0], args[1]);
+      // Scala String.matches = FULL-string regex match — anchor the pattern.
+      case 'matches': return new RegExp('^(?:' + args[0] + ')$').test(obj);
       case 'startsWith': return obj.startsWith(args[0]);
       case 'endsWith': return obj.endsWith(args[0]);
       case 'contains': return obj.includes(args[0]);

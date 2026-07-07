@@ -1185,6 +1185,11 @@ class JsGen(
       "contentToolkit",
       "localStorageGet", "localStorageSet", "localStorageRemove",
       "onlineSignal", "persistedSignal",
+      // std/ui/form.ssc + component.ssc APIs — capability detection reads the
+      // ENTRY module's code blocks only, so each std/ui module's user-facing
+      // names must appear here or import-only usage emits without signals.mjs.
+      "validateField", "fieldError", "formErrors", "formValid", "formField",
+      "submitGate", "ctxSignal", "ctxSeedSignal",
       "textNode", "signalText", "showSignal", "fragment("
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||

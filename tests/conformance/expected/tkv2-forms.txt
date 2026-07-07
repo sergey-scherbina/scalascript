@@ -1,0 +1,16 @@
+Name is required
+Name must be at least 2 characters
+Name must be at most 5 characters
+
+Email: must be an email
+
+
+Name is required
+false
+
+
+true
+Email: must be an email
+false
+
+true

@@ -1,0 +1,46 @@
+---
+name: form-demo
+version: 1.0.0
+description: Declarative form — validators as data, live per-field errors, submit gated on validity (std/ui/form.ssc, ssc toolkit v2).
+frontend: custom
+---
+
+# form-demo — validators as data
+
+Two fields with live validation: the error lines update as you type, and the
+Submit button only appears once the whole form validates. Build with
+`ssc emit-spa --frontend custom examples/frontend/form-demo/form-demo.ssc > form-demo.html`,
+or run `ssc run examples/frontend/form-demo/form-demo.ssc`.
+
+[signal, serve](std/ui/primitives.ssc)
+[Ctx, component](std/ui/component.ssc)
+[field, form, formField, submitGate](std/ui/form.ssc)
+[vstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[actionButton](std/ui/input.ssc)
+[incSignal](std/ui/primitives.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val submitTick = signal("submitTick", 0)
+
+val tree = component("signup", "main")(ctx => {
+  val f = form(ctx, [
+    field("name",  label = "Name",  required = true, minLength = 2),
+    field("email", label = "Email", required = true,
+          pattern = "[^@]+@[^@]+", patternMsg = "must be an email")
+  ])
+  vstack(gap = 16)(
+    heading(1, "Sign-up"),
+    formField(f, "name"),
+    formField(f, "email"),
+    submitGate(f,
+      actionButton(incSignal(submitTick), "Submit"),
+      text("→ fill the form to enable submit"))
+  )
+})
+
+serve(lower(tree, defaultTheme), 8080)
+```

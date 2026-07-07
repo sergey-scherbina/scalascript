@@ -1,0 +1,52 @@
+---
+name: tkv2-forms
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 — form model (FieldSpec validators-as-data, reactive errors, validity)
+
+Slice `tkv2-forms` of `specs/ssc-toolkit-v2.md`. Validators are data, so the
+same rules run on every backend; errors/validity are computed signals that
+stay fresh as drafts change (INT recomputes on read; JS recomputes on change).
+
+[Ctx, component](std/ui/component.ssc)
+[field, validateField, form, draft, fieldError, formErrors, formValid](std/ui/form.ssc)
+
+```scalascript
+// Pure rules, every branch.
+val name  = field("name", label = "Name", required = true, minLength = 2, maxLength = 5)
+val email = field("email", label = "Email", pattern = "[^@]+@[^@]+", patternMsg = "must be an email")
+
+println(validateField(name, ""))
+println(validateField(name, "a"))
+println(validateField(name, "abcdef"))
+println(validateField(name, "abc"))
+println(validateField(email, "nope"))
+println(validateField(email, "a@b.io"))
+println(validateField(email, ""))
+
+// Reactive wiring: drafts are component-scoped signals; errors/validity are
+// computed and stay fresh after set.
+val f = component("signup", "t1")(ctx => form(ctx, [name, email]))
+
+val nameErr = fieldError(f, "name")
+val allErrs = formErrors(f)
+val valid   = formValid(f)
+
+println(nameErr())
+println(valid())
+
+draft(f, "name").set("ok")
+println(nameErr())
+println(allErrs())
+println(valid())
+
+draft(f, "email").set("bad-email")
+println(allErrs())
+println(valid())
+
+draft(f, "email").set("a@b.io")
+println(allErrs())
+println(valid())
+```

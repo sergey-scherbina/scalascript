@@ -1,0 +1,15 @@
+---
+name: string-matches
+---
+
+# String.matches — full-string regex match, INT==JS==JVM
+
+Guard for the JS-lane `matches` dispatch (added for tkv2-forms pattern
+validators): Scala semantics = the WHOLE string must match.
+
+```scalascript
+println("abc@x.io".matches("[^@]+@[^@]+"))
+println("nope".matches("[^@]+@[^@]+"))
+println("12345".matches("[0-9]{5}"))
+println("123".matches("[0-9]{5}"))
+```

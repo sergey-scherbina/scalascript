@@ -1,0 +1,119 @@
+---
+name: ui-form
+version: 1.0.0
+description: Form model — FieldSpec data-DSL, per-field draft signals + reactive validation, validity gating. ssc toolkit v2 (specs/ssc-toolkit-v2.md), slice tkv2-forms.
+package: std.ui.form
+exports:
+  - FieldSpec
+  - field
+  - validateField
+  - Form
+  - form
+  - draft
+  - fieldError
+  - formErrors
+  - formValid
+  - formField
+  - submitGate
+---
+
+# `std.ui.form` — declarative forms
+
+A form is **data**: a list of `FieldSpec`s (validators as fields, not
+closures — so the same rules run in the browser, on the server, and in
+tests). `form(ctx, specs)` creates one draft signal per field (scoped via
+the component `Ctx`, so two form instances never collide); `fieldError` /
+`formValid` are computed signals that re-validate as the user types.
+
+```scala
+val f = form(ctx, [
+  field("name",  label = "Name", required = true, minLength = 2),
+  field("email", label = "Email", pattern = "[^@]+@[^@]+", patternMsg = "must be an email")
+])
+
+vstack(gap = 12)(
+  formField(f, "name"),
+  formField(f, "email"),
+  submitGate(f,
+    actionButton(fetchActionWith("POST", "/api/thing", formBody([...]), [onBumpTick(tick)]), "Save"),
+    text("Fill the form to submit"))
+)
+```
+
+Validation messages: `""` means valid. Submit transport stays the existing
+`fetchAction*`/`formBody` machinery — this module gates it on validity, it
+does not replace it. (A submit tri-state — busy/error — needs an onFailure
+effect in the fetch runtime; deferred, see specs/ssc-toolkit-v2.md.)
+
+[Signal, signal, computedSignal, eqSignal](primitives.ssc)
+[Ctx, ctxSignal](component.ssc)
+[TkNode](nodes.ssc)
+[textField](input.ssc)
+[signalText_, showWhen](reactive.ssc)
+[vstack](layout.ssc)
+
+```scalascript
+case class FieldSpec(name: String, label: String, required: Boolean,
+                     minLength: Int, maxLength: Int,
+                     pattern: String, patternMsg: String)
+
+def field(name: String, label: String = "", required: Boolean = false,
+          minLength: Int = 0, maxLength: Int = 0,
+          pattern: String = "", patternMsg: String = "invalid format"): FieldSpec =
+  FieldSpec(name, if label == "" then name else label,
+            required, minLength, maxLength, pattern, patternMsg)
+
+// "" = valid; otherwise the message to show. Pure — the same rule runs on
+// every backend and in unit tests.
+def validateField(spec: FieldSpec, value: String): String =
+  if spec.required && value.trim() == "" then
+    spec.label + " is required"
+  else if spec.minLength > 0 && value.length < spec.minLength then
+    spec.label + " must be at least " + spec.minLength + " characters"
+  else if spec.maxLength > 0 && value.length > spec.maxLength then
+    spec.label + " must be at most " + spec.maxLength + " characters"
+  else if spec.pattern != "" && value != "" && !value.matches(spec.pattern) then
+    spec.label + ": " + spec.patternMsg
+  else ""
+
+case class Form(specs: List[FieldSpec], drafts: Map[String, Any])
+
+// foldLeft+updated, not .toMap — toMap on a List of pairs isn't dispatched
+// on the interpreter lane.
+def form(ctx: Ctx, specs: List[FieldSpec]): Form =
+  Form(specs, specs.foldLeft(Map[String, Any]())((m, s) =>
+    m.updated(s.name, ctxSignal(ctx, s.name, ""))))
+
+def draft(f: Form, name: String): Any = f.drafts(name)
+
+def spec(f: Form, name: String): FieldSpec =
+  f.specs.filter(s => s.name == name).head
+
+// Reactive per-field error — recomputes as the draft changes.
+def fieldError(f: Form, name: String): Any = {
+  val sp = spec(f, name)
+  val d  = f.drafts(name)
+  computedSignal(() => validateField(sp, d()))
+}
+
+// All current messages, "; "-joined ("" when the whole form is valid).
+def formErrors(f: Form): Any =
+  computedSignal(() =>
+    f.specs.map(s => validateField(s, f.drafts(s.name)())).filter(e => e != "").mkString("; "))
+
+// Signal[Boolean]: true while every field validates.
+def formValid(f: Form): Any = eqSignal(formErrors(f), "")
+
+// A labeled input + its live error line.
+def formField(f: Form, name: String): TkNode = {
+  val sp = spec(f, name)
+  vstack(gap = 4)(
+    textField(value = f.drafts(name), label = sp.label, required = sp.required),
+    signalText_(fieldError(f, name))
+  )
+}
+
+// Show the real submit control only while the form validates.
+def submitGate(f: Form, whenValid: TkNode, whenInvalid: TkNode): TkNode =
+  showWhen(formValid(f), whenValid, whenInvalid)
+```
