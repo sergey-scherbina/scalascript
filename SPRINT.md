@@ -99,10 +99,13 @@ Claimable slices for the above (queued 2026-07-07):
       • algebraic-effects: remaining diff is State-effect get/set semantics (v2 prints
         List()/Stub1 where v1 prints 0/1) — parameterized-handler state threading.
       • runStream runner still not bridged (unbound global: runStream) — separate item.
-- [ ] **p3-parity-quoted-macros** — `TermSplicedMacroExprImpl` mismatches: quoted-macro examples
-      produce different (or empty) output on v2 — the bridge has no macro expansion pre-pass
-      (v1 runs MacroCodegen.expand). Decide: port the expansion pre-pass into FrontendBridge
-      or classify macros as v1-frontend-lane for the gate.
+- [~] **p3-parity-quoted-macros** — constfold at PARITY 2026-07-07 (4bb475c47): convertSource
+      runs MacroCodegen.expand as a TEXT pre-pass (expanded block sources spliced back pairwise;
+      trailing-newline boundary preserved — gluing broke the fence). quoted-macro-interpreter
+      UNMASKED as a false pass (exit-0 with "Unsupported:" garbage before): its impls have
+      COMPUTED non-quote bodies ("literal: " + x.asValue.getOrElse, x.asTerm.name) — expansion
+      needs Linker-style const-fold EVALUATION of impl bodies, not just beta-reduction. Resume
+      there (Linker.MacroExpansion machinery).
 - [x] **p3-parity-stub-op-leaks** — CLOSED 2026-07-07 (b4235a6aa) as harness
       reclassification: after the advanced-plugin-tier fix flipped 7 of 11, the remaining 4
       "v2-errors" (graph-codecs, object-store-jdbc, spark-schema-mapping, typed-object-codec)
