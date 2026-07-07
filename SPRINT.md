@@ -24,6 +24,24 @@ Remaining 21 batch fails, classified:
   (tuple-lambda auto-untuple), seed-signal + typed-sql-crud + rozum-agent-streaming
   + spark-shared-schema-reader (plugin-boundary conversions).
 
+Claimable slices for the above (queued 2026-07-07):
+
+- [ ] **p3-dataset-natives** — the 7-fail `distributed-*` cluster with ONE mechanism:
+      `Dataset.of/fromFile/map/collect` natives over plain lists + wire codecs in the v2
+      bridge (local-loopback actor sim already landed). Biggest single unblocker toward
+      Phase 3. Gate: the 7 distributed-* batch conformance entries flip to PASS.
+- [ ] **p3-corpus-singles** — the 8 independent single fails, each its own small fix:
+      actors-typed-remote-spawn (registerBehavior variant), datatable-static-spa (parse),
+      dsl-ast-builder (/ by zero), dsl-mini-language (tuple-lambda auto-untuple),
+      seed-signal, typed-sql-crud, rozum-agent-streaming, spark-shared-schema-reader
+      (plugin-boundary conversions). Can be split; claim per-single if working in parallel.
+- [ ] **p3-effects-output-divergence** — first concrete v2 effects-SEMANTICS gap:
+      `examples/algebraic-effects.ssc` exits 0 on v2 but prints DIFFERENT output than v1
+      (v2: `List() / 1 / …` vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`).
+      Not a bridge/flag bug — a v2 VM effects divergence (see Phase 3 item, OUTPUT-PARITY
+      FINDING). Fix the divergence AND add the output-equality check to the Phase-3 gate
+      (exit-0 coverage overstates compat).
+
 ## Active tasks
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
