@@ -54,10 +54,19 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       browser, invisible to the Node conformance run); use `window.localStorage`, not the bare global
       (Node 26 defines a warning getter). `fetchOrLocal` DEFERRED to the busi-home slice (needs the
       fetch machinery + a local compute fn — design it against the real screen, not speculatively).
-- [ ] **tkv2-forms** — `FieldSpec` data-DSL (validators as data, JS-translatable — per
-      frontend-toolkit-spec risk #1; port the Scala toolkit's `Validators` semantics, today
-      unexposed to .ssc) + `form(...)` / `FormCtx` (draft signals, per-field errors, tri-state
-      submit over existing `fetchAction`/`formBody`).
+- [x] **tkv2-forms** ✓ DONE 2026-07-07 — `std/ui/form.ssc`: `FieldSpec` data-DSL (required/min/max/
+      pattern — pure `validateField`, same rules every backend) + `form(ctx, specs)` (drafts =
+      component-scoped signals) + `fieldError`/`formErrors`/`formValid` (computed, live) +
+      `formField`/`submitGate` widgets. ALSO: `String.matches` added to the JS lane (anchored,
+      Scala full-match semantics; guard `string-matches` INT==JS==JVM); interp `computedSignal`/
+      `eqSignal` now RECOMPUTE ON READ (JS read-freshness parity → reactive derived state is
+      conformance-testable). Conformance `tkv2-forms` INT==JS; form-demo browser-driven (live
+      errors, gate opens/closes). GOTCHAS: `.toMap` on List-of-pairs isn't dispatched on interp
+      (use foldLeft+updated); JsGen capability detection reads the ENTRY file only — every new
+      std/ui module must register its API names in the hasUiHelpers list or import-only usage
+      emits without signals.mjs; SPA drivers must assert page.innerText (textContent includes
+      script source + display:none branches). DEFERRED: touched-state (errors show from start),
+      submit busy/error tri-state (needs an onFailure fetch effect).
 - [ ] **tkv2-spa-pipeline** — decision recorded in the spec: the production SPA path is
       `emit-spa`/`JsGen` + the framework-free runtime (react/vue/solid emitters stay demos).
       Audit `emit-spa` output fully self-contained (no CDN), verify toolkit-v2 externs on it.

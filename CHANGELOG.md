@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: tkv2-forms — validators as data, live errors, validity gating
+
+Third slice of `specs/ssc-toolkit-v2.md`. New `std/ui/form.ssc`: `FieldSpec` data-DSL
+(required/minLength/maxLength/pattern — `validateField` is pure, so the same rules run in the
+browser, server-side, and in tests), `form(ctx, specs)` (drafts = component-scoped signals),
+`fieldError`/`formErrors`/`formValid` computed signals, `formField`/`submitGate` widgets. Enablers
+landed with it: `String.matches` on the JS lane (anchored full-match, guard string-matches
+INT==JS==JVM) and read-freshness for interp `computedSignal`/`eqSignal` (recompute on read — JS
+parity, so reactive derived state is conformance-testable). Verified: conformance `tkv2-forms`
+INT==JS; `examples/frontend/form-demo` browser-driven (errors appear/clear as you type; the real
+Submit swaps in only while the form validates). Deferred: touched-state, submit busy/error
+tri-state (needs an onFailure fetch effect).
+
 ## 2026-07-07 — std/ui: tkv2-offline — localStorage, onlineSignal, persistedSignal
 
 Second slice of `specs/ssc-toolkit-v2.md`. New `std/ui/offline.ssc`: `localStorageGet/Set/Remove`,
