@@ -444,7 +444,9 @@ class JvmGen(
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
       sb.append(sscJarDirective("scalascript-backend-sql-runtime"))
 
-    sb.append(JvmRuntimePreamble.source)
+    // User-name-aware preamble: the `object Console` println-shadow is
+    // omitted when the module defines its own `Console` (e.g. an effect).
+    sb.append(JvmRuntimePreamble.sourceFor(collectUserTopNames(blocks)))
     sb.append(commonRuntime)
     sb.append(generatorRuntime)
     sb.append(fsRuntime)
@@ -3248,7 +3250,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           val argList = if params.isEmpty then "" else ", " + params.mkString(", ")
           s"  def ${dd.name.value}($paramSig): Any = _perform(\"${d.name.value}\", \"${dd.name.value}\"$argList)"
       }
-      s"object ${d.name.value}:\n${ops.mkString("\n")}\n"
+      // A user effect named `Console` REPLACES the preamble's println-shadow
+      // object (omitted via JvmRuntimePreamble.sourceFor) — carry the
+      // println/print bridges here so Normalize's bare-println rewrite
+      // (`println` → `Console.println`) keeps routing through `_show`.
+      val consoleBridges =
+        if d.name.value == "Console" then
+          "\n  def println(v: Any): Unit = scala.Predef.println(_show(v))" +
+          "\n  def print(v: Any): Unit   = scala.Predef.print(_show(v))"
+        else ""
+      s"object ${d.name.value}:\n${ops.mkString("\n")}$consoleBridges\n"
 
     // Effectful function: emit CPS body
     case d: Defn.Def if isEffectfulFun(d.name.value) =>
@@ -3280,11 +3291,23 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // preservation so direct `_bind`/`_perform` results are not cast to
       // `Unit`/`Int` before the surrounding handler can interpret them.
       val cpsBody = emitCpsExpr(d.body)
+      // Keep the declared result type ONLY when the def handles its own
+      // effects (a `handle(...)`/`handle { ... }` inside the body resolves
+      // the Free before returning — the benchmark-sink case codex's flag
+      // preserved). A def that merely PERFORMS ops handled at the CALL SITE
+      // (`val r = handle(greet()) {...}`) returns an UNRESOLVED Free; casting
+      // it to the declared type threw ClassCastException (_FlatMap → String
+      // in tests/conformance/effects.ssc, _FlatMap → DistributedResult in
+      // distributed-map.ssc) before the surrounding handler could run it.
+      val selfHandles = d.body.collect {
+        case Term.Apply.After_4_6_0(Term.Name("handle"), _) => ()
+      }.nonEmpty
+      val preserveDeclared = preserveTotalEffectfulReturnTypes && selfHandles
       val retType =
-        if preserveTotalEffectfulReturnTypes then emitEffectfulResultType(d)
+        if preserveDeclared then emitEffectfulResultType(d)
         else ": Any"
       val body =
-        if preserveTotalEffectfulReturnTypes then castCpsResultToDeclared(d, cpsBody)
+        if preserveDeclared then castCpsResultToDeclared(d, cpsBody)
         else cpsBody
       s"def ${d.name.value}$params$retType = $body"
 
@@ -4235,11 +4258,20 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           val f = emitExpr(fun)
           // Widget { body } pattern: bare-name call with a single block arg.
           // Emit as `Widget() { body }` (empty first clause + trailing block)
-          // so the block goes to the last curried arg clause, not the first
-          // positional slot.  Only apply when `fun` is a Term.Name (not
-          // already a partial application via Term.Apply).
+          // ONLY when the callee is a known CURRIED def (≥2 param clauses,
+          // e.g. `def vstack(gap: Int = 0)(children: => Any)` from a dep or
+          // the local module) so the block reaches the trailing clause.
+          // Everything else — single-clause defs and unknown callees such as
+          // the preamble's `computed`/`effect(thunk: => A)`, `validate { }`,
+          // `runActors { }`, `handle { }` — keeps the plain `f({ block })`
+          // form; the unconditional `f() { block }` emission broke every
+          // single-thunk callee ("missing argument for parameter thunk",
+          // jvmgen-block-call-empty-parens, 4 conformance fails).
           app.argClause.values match
-            case List(block: Term.Block) if fun.isInstanceOf[Term.Name] =>
+            case List(block: Term.Block) if fun.isInstanceOf[Term.Name]
+                && depDefs.get(fun.asInstanceOf[Term.Name].value)
+                     .orElse(localDefSigs.get(fun.asInstanceOf[Term.Name].value))
+                     .exists(_.paramClauseGroups.flatMap(_.paramClauses).length >= 2) =>
               s"$f() ${emitExprDeep(block)}"
             case _ =>
               // jvmgen-handle-result-mainpath: a call arg that references an Any-typed handle-result

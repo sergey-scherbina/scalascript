@@ -1,7 +1,36 @@
 package scalascript.codegen
 
 object JvmRuntimePreamble:
-  val source: String =
+  /** The `object Console` println/print shadow (Stage 5+/B.3). Emitted ONLY
+   *  when the user module does not define its own top-level `Console` — a
+   *  user `effect Console:` lowers to `object Console` and the duplicate
+   *  definition broke compilation (tests/conformance/effects.ssc). When the
+   *  user owns the name, the effect-object lowering adds the println/print
+   *  bridges itself (see JvmGen's effect-declaration case). */
+  private val consoleShadow: String =
+    """|// Stage 5+/B.3 — `Console` shadows `scala.Console` so that Normalize's
+       |// bare-println rewrite (`println` → `Console.println`) routes through
+       |// `_show` in both the emitExpr intrinsic path and the passthrough path.
+       |object Console:
+       |  def println(v: Any): Unit = scala.Predef.println(_show(v))
+       |  def print(v: Any): Unit   = scala.Predef.print(_show(v))""".stripMargin
+
+  /** Preamble source with user-name-aware pieces resolved. */
+  def sourceFor(userTopNames: Set[String]): String =
+    if sys.env.contains("SSC_DEBUG_PREAMBLE") then
+      System.err.println(s"[preamble] userTopNames=${userTopNames.toList.sorted.mkString(",")}")
+    template.replace(
+      "@SSC_CONSOLE_SHADOW@",
+      if userTopNames.contains("Console") then
+        "// (Console shadow omitted — the module defines its own `Console`)"
+      else consoleShadow)
+
+  /** Full preamble (no user-name knowledge) — used by `genRuntime`, which
+   *  emits into `package _ssc_runtime` where user names cannot collide.
+   *  (`lazy` — `template` is declared below and would still be null here.) */
+  lazy val source: String = sourceFor(Set.empty)
+
+  private val template: String =
     """|
        |// ── Show / println override (scripting-style Double formatting) ────────
        |// Mirrors the interpreter / JS backends: a Double whose value is an
@@ -60,12 +89,7 @@ object JvmRuntimePreamble:
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
        |def print(v: Any): Unit   = scala.Predef.print(_show(v))
        |
-       |// Stage 5+/B.3 — `Console` shadows `scala.Console` so that Normalize's
-       |// bare-println rewrite (`println` → `Console.println`) routes through
-       |// `_show` in both the emitExpr intrinsic path and the passthrough path.
-       |object Console:
-       |  def println(v: Any): Unit = scala.Predef.println(_show(v))
-       |  def print(v: Any): Unit   = scala.Predef.print(_show(v))
+       |@SSC_CONSOLE_SHADOW@
        |
        |// std.bench — Bench.opaque: an anti-folding identity barrier.  Returns
        |// `x` unchanged, but the volatile-field comparison forces HotSpot to

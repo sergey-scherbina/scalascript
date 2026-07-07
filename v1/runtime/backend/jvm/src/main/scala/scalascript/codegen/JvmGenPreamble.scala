@@ -68,6 +68,11 @@ private[codegen] trait JvmGenPreamble:
       block.node.tree match
         case Source(stats)     => fromStats(stats)
         case Term.Block(stats) => fromStats(stats)
+        // A fence whose tree is a single top-level definition arrives as the
+        // bare Defn (no Source/Block wrapper) — without this arm a lone
+        // `effect Console:` fence was invisible here, so the preamble's
+        // Console println-shadow collided with the user's effect object.
+        case s: Stat           => fromStats(List(s))
         case _                 => ()
     }
     names.toSet
