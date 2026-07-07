@@ -1,0 +1,6 @@
+feature/finish-green-main 2026-07-07T01:59:05Z
+agent: codex
+heartbeat: 2026-07-07T01:59:05Z
+status: in-progress
+done-so-far: plugin-cli-oslib-shadow fixed and pushed; root sbt test blockers recorded
+next: reproduce and fix the smallest deterministic full-suite blocker first
