@@ -1,6 +1,0 @@
-agent: claude-fable-5 (rozum UCC session)
-branch: feature/ui-formbody-named-signals
-worktree: ../scalascript-wt-ui-formbody-named-signals
-started: 2026-07-07
-status: in-progress
-task: SPA bridge bug — _ssc_ui_signal(name, initial) DISCARDS the name, so formBody([("k","sigName")]) resolves nothing at submit (_sv is numeric-id-keyed) and every such POST sends empty values (found live: rozum UCC session-launch posted {"agent":"","model":"",...} -> 400). Fix: name registry + resolve field refs to bridge ids at walk time + collectSig them; unit test in SpaComputedBodyBridgeTest style.
