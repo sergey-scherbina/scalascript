@@ -977,6 +977,10 @@ object FrontendBridge:
     CDef("__unsupported__", CT.Lam(1, CT.Prim("io.println",
       List(CT.Prim("__arith__", List(CT.Lit(Const.CStr("++")),
         CT.Lit(Const.CStr("Unsupported: ")), CT.Local(0))))))),
+    // Match-exhaustion sentinel: caseChain/guard fallthrough compiles to
+    // __match_fail__() — without this def the global was UNBOUND and a failed
+    // match crashed with an opaque unknown-global error instead of this one.
+    CDef("__match_fail__", CT.Lam(0, CT.Prim("__match_fail_prim__", Nil))),
     CDef("nanoTime", CT.Lam(0, CT.Prim("io.nanoTime", Nil))),
     // Bench harness stub — Bench.opaque(x) = identity (prevents constant folding)
     CDef("Bench", CT.Ctor("BenchObj", Nil)),

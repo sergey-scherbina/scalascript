@@ -1296,6 +1296,7 @@ object Prims:
     case "arr.pop"   => a => asArr(a(0)).remove(asArr(a(0)).length - 1)
     case "arr.slice" => a => ForeignV(collection.mutable.ArrayBuffer.from(asArr(a(0)).slice(int(a, 1).toInt, int(a, 2).toInt)))
     // Cell (Foreign, single mutable ref)
+    case "__match_fail_prim__" => _ => sys.error("match: no matching case")
     case "__mk_method_obj__" => a =>
       val pairs = a.grouped(2).map { case List(StrV(k), v) => k -> v; case g => g(0).toString -> g(1) }.toList
       ForeignV(collection.immutable.Map.from(pairs))
@@ -1544,6 +1545,13 @@ object Prims:
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
         case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
         case (StrV(s), "indexOf", List(StrV(sub)))      => IntV(s.indexOf(sub).toLong)
+        case (StrV(s), "indexOf", List(IntV(ch)))       => IntV(s.indexOf(ch.toInt).toLong)
+        case (StrV(s), "indexOf", List(StrV(sub), IntV(from))) => IntV(s.indexOf(sub, from.toInt).toLong)
+        case (StrV(s), "indexOf", List(IntV(ch), IntV(from)))  => IntV(s.indexOf(ch.toInt, from.toInt).toLong)
+        case (StrV(s), "lastIndexOf", List(StrV(sub)))  => IntV(s.lastIndexOf(sub).toLong)
+        case (StrV(s), "lastIndexOf", List(IntV(ch)))   => IntV(s.lastIndexOf(ch.toInt).toLong)
+        case (StrV(s), "lastIndexOf", List(StrV(sub), IntV(from))) => IntV(s.lastIndexOf(sub, from.toInt).toLong)
+        case (StrV(s), "lastIndexOf", List(IntV(ch), IntV(from)))  => IntV(s.lastIndexOf(ch.toInt, from.toInt).toLong)
         case (StrV(s), "replace",     List(StrV(from), StrV(to))) => StrV(s.replace(from, to))
         case (StrV(s), "replaceAll",  List(StrV(regex), StrV(to))) => StrV(s.replaceAll(regex, to))
         case (StrV(s), "replaceFirst",List(StrV(regex), StrV(to))) => StrV(s.replaceFirst(regex, to))
@@ -1558,7 +1566,12 @@ object Prims:
         case (StrV(s), "getBytes",    List(StrV(enc))) =>
           listOf(s.getBytes(enc).map(b => IntV((b & 0xff).toLong)).toList)
         case (StrV(s), "toCharArray", Nil)              => listOf(s.toCharArray.map(c => StrV(c.toString)).toList)
-        case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+        case (StrV(s), "matchPrefix", List(StrV(pat))) =>
+          val m = java.util.regex.Pattern.compile(pat).matcher(s)
+          if m.lookingAt() then DataV("Some", Array[Value](StrV(m.group()))) else DataV("None", Array.empty[Value])
+        case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "forall",      List(fn: ClosV))  => BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "exists",      List(fn: ClosV))  => BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         // ── scala.math object ──────────────────────────────────────────────────────
         case (ForeignV("__math__"), "Pi", Nil)         => FloatV(math.Pi)
         case (ForeignV("__math__"), "E", Nil)          => FloatV(math.E)
@@ -1883,6 +1896,8 @@ object Prims:
                   V2PluginRegistry.lookup(s"$effectTag.$name") match
                     case Some(pluginFn) => pluginFn(margs)
                     case None =>
+                      // Active effect handler wins (aligns the batch path with methodOp);
+                      // only with NO handler does the call escape as a Free monad Op.
                       V2EffectContext.peek(effectTag) match
                         case Some(handler) => handler(name, margs)
                         case None =>
@@ -2253,6 +2268,12 @@ object Show:
     case FloatV(d)    => Writer.floatStr(d)
     case StrV(s)      => "\"" + s + "\""
     case BytesV(bs)   => bs.map(x => f"${x & 0xff}%02x").mkString("#", "", "")
+    case DataV("Cons", _) | DataV("Nil", _) =>
+      def ul(x: Value): List[Value] = x match
+        case DataV("Cons", Seq(h, t)) => h :: ul(t)
+        case _ => Nil
+      s"List(${ul(v).map(show).mkString(", ")})"
+    case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
