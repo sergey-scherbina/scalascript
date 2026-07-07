@@ -26,6 +26,13 @@ Remaining 21 batch fails, classified:
 
 ## Active tasks
 
+### Local model session help (2026-07-07)
+
+- [ ] **qwen-rozum-session** — help Sergiy start a local `rozum` chat session with a Qwen 3.6 model.
+      Why: user wants an actionable on-machine launch path, not compiler work.
+      How: inspect existing repo docs/scripts/examples for `rozum` gateway/client commands and Qwen/OpenAI-compatible model configuration; avoid code changes unless a missing script/doc is discovered and explicitly needed. Verify commands with non-destructive `--help`/status/list checks first, then provide the minimal terminal sequence. If the requested exact model name is not present locally, explain the likely model id/config place and how to list/install it.
+      Done-when: Sergiy has concrete commands for starting the model backend/gateway and opening a `rozum` chat/session, plus any prerequisites or unknowns called out.
+
 ### Green main recovery (2026-07-06, user asked to finish the stabilization)
 
 - [x] **green-main-crypto-ci** — restore `origin/main` to a buildable state before more v2 feature work.
