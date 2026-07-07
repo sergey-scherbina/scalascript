@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/ssc-toolkit-v2
+worktree: ../scalascript-wt-ssc-toolkit-v2
+started: 2026-07-07
+status: in-progress
+task: ssc toolkit v2 — spec + SPRINT plan responding to busi's frontend-on-scalascript requirements (P0: component abstraction w/ instance-scoped signals, offline/PWA primitives, form binding+validation, production JS codegen w/ busi as conformance target), then first slice
