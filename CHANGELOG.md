@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — v2: PR #72 (t44-conformance) integrated — repo fully de-orphaned
+
+Salvage-merged `feature/v2-t44-conformance` (PR #72), the last branch holding unlanded work. Its
+summon/using layer proved to be a parallel earlier implementation of main's landed dict-passing
+(`__resolve_given__`); main won all overlapping hunks and the branch's DataV-based optics were
+stripped as dead code (main's optics live in PluginBridge). Genuinely new pieces kept: String
+`indexOf`/`lastIndexOf` char+from overloads, `matchPrefix`, char-predicate `filter/forall/exists`,
+`__match_fail__` prelude def + prim (the global was UNBOUND on main — a failed match crashed with an
+opaque unknown-global error), batch-path `V2EffectContext.peek` alignment, Show pretty List/Tuple.
+Gate: V2ConformanceTest identical to pure origin/main (63 pass / 3 pre-existing tkv2 fails);
+v2PluginBridge 22/22. Also landed `examples/control-center-live.ssc` (347-line rozum control-center
+PWA, `ssc check` OK) from the `wip/control-center-live` parking branch. Both branches deleted —
+origin now carries no work that is not on main.
+
 ## 2026-07-07 — std/ui: tkv2-busi-home-conformance — the integration bar
 
 Sixth slice of `specs/ssc-toolkit-v2.md`. `tests/conformance/tkv2-busi-home.ssc` exercises

@@ -502,15 +502,16 @@ Phase 3 (CLI switch) is gated on this entire track completing.
       - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
         environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
         runtime + network bridging; a sibling/env concern, deliberately deferred here.
-      - [ ] **t44-pr72-summon-using-integration** — integrate the UNLANDED layer of PR #72
-        (`origin/feature/v2-t44-conformance`, kept alive as the sole holder of this work; local worktree
-        removed 2026-07-07 hygiene sweep). Verified absent on main by symbol: generic summon/using runtime
-        resolution (`enumCasesRegistry`, `usingParamTypes`, `usingCurriedArgs` — commit 6e5131d4e) + parts of
-        the extension-group machinery from 678c7218f (`extRegEntries`, `extensionMethodConflicts`; main has a
-        DIVERGENT own implementation via PR #73/#75). Do NOT plain-merge: measured 31 conflict hunks in
-        FrontendBridge + 7 Runtime + 3 PluginBridge. Cherry-pick/re-apply the summon/using layer onto current
-        main; gate = V2ConformanceTest + batch conformance not regressing. Already superseded (skip): wip
-        floatStr commit (identical on main), conformance-score bookkeeping. See PR #72 comment for details.
+      - [x] **t44-pr72-summon-using-integration** — DONE 2026-07-07 (salvage merge of PR #72).
+        VERDICT after full review: the branch's summon/using layer (`__rt_summon__`/`__reg_given__`/cb-params)
+        was a PARALLEL EARLIER implementation of main's landed dict-passing (`defContextBounds`/
+        `givenByTcHead`/`__resolve_given__`) — main won every overlapping hunk (all 31 FrontendBridge
+        conflicts → main; branch's DataV-based optics stripped as dead vs main's PluginBridge optics).
+        Salvaged: String `indexOf`/`lastIndexOf` char+from overloads, `matchPrefix`, char-predicate
+        `filter/forall/exists`, `__match_fail__` prelude def + prim (was an UNBOUND global — failed
+        matches crashed with an opaque unknown-global error), batch-path `V2EffectContext.peek`
+        alignment, Show pretty List/Tuple. Gate: V2ConformanceTest 63/3-preexisting-tkv2 — identical
+        to pure origin/main; v2PluginBridge 22/22.
 ### ▶▶ v2-replaces-v1 — remaining work to close the true output-parity gap (2026-07-06)
 
 TRUE parity is **11/47 ≈ 23%** (not the exit-0 96%), per `v2/output-parity-baseline.md`. Roadmap to raise it,
