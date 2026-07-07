@@ -71,14 +71,17 @@ Claimable slices for the above (queued 2026-07-07):
       • spark-shared-schema-reader — "unbound global: java" (scala-block java.* use; likely
         belongs in the jvm lane like the typeddata quartet — decide classification).
       Corpus now 171 PASS / 15 FAIL / 9 SKIP(jvm-lane) vs clean-2026-07-07 170/25.
-- [ ] **p3-parity-derives-mirror** — the FATTEST terminating-set parity cluster: derives/
-      Mirror-based codecs render `String|Int` element types as `Any|Any` on v2 (and friends:
-      graph-codecs, typed-object-codec families in the 17-mismatch list). Root: FrontendBridge
-      builds inline Mirrors with `elemTypes = List("Any", ...)` (see the summon[Mirror.Of[X]]
-      case — fieldTypeRegistry exists but defaults to "Any"). Fix: populate fieldTypeRegistry
-      from case-class param decltpe at registerCaseClass time and emit REAL type names in the
-      Mirror ctor; verify with `SSC=bin/ssc scripts/v2-output-parity --all` (gate: mismatch
-      count drops; zero corpus regressions vs same-day clean).
+- [x] **p3-parity-derives-mirror → REPURPOSED p3-parity-sql-cluster** — DONE 2026-07-07
+      (f7feafaa2). Fresh parity data showed derives/mirror already MATCHing (stale premise);
+      the real fat cluster was sql + advanced plugins. Landed: sql-fence section ids use v1
+      sectionIdent camelCase; anyStr renders Value-keyed ForeignV maps + lists v1-style
+      (String-keyed method-objects excluded — unguarded cast CCE'd typeclass mid-run);
+      RunV2 loads BOTH plugin tiers + extracts ALL .sscpkg jars (Db.insert/crypto/oauth
+      escaped as Free Ops with essential-only); fieldAt(recv, idx, NAME) 3-arg form + by-name
+      row access (rows are UNORDERED UPPERCASE-labeled maps; [T] stripped ⇒ no decoding).
+      **Parity 21→30/54 identical, v2-error 11→4; corpus 172P/14F/9SKIP; conformance 65/5.**
+      NOTE: sql-sqlite-file mismatch = by-design persistent /tmp db (nondeterministic-output
+      class, same as uuid-v7 — harness should normalize/exclude both).
 - [ ] **p3-parity-effects-shape** — effects-family output-shape mismatches on the terminating
       set (handle/resume result rendering differs from v1). Overlaps p3-effects-output-divergence
       (the algebraic-effects exit-0 divergence) — take together: fix the v2 VM effects semantics
