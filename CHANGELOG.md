@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — ops: Qwen3.6 rozum launch path checked
+
+Checked the local `rozum` setup for starting a room session with Qwen3.6. The installed model is
+`mlx-community:Qwen3.6-35B-A3B-4bit-DWQ`; the meeting daemon is already running, but no gateway is active.
+The correct room flow is gateway on `8089` plus `rozum meetings participant --gateway-url
+http://127.0.0.1:8089/v1`, then `rozum meetings attach --room <room>`. Dry-run currently refuses Qwen3.6
+because available RAM is short by roughly 0.4 GiB even with `--n-ctx 4096 --min-free-ram-gb 0`; the small
+`mlx-community:Qwen3-4B-4bit` model passes dry-run for smoke testing.
+
 ## 2026-07-07 — ci: align markdownlint policy with existing docs
 
 Expanded `.markdownlint.json` to disable the additional markdownlint rules already

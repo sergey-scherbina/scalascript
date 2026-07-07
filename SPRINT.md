@@ -28,10 +28,18 @@ Remaining 21 batch fails, classified:
 
 ### Local model session help (2026-07-07)
 
-- [ ] **qwen-rozum-session** — help Sergiy start a local `rozum` chat session with a Qwen 3.6 model.
+- [x] **qwen-rozum-session** — help Sergiy start a local `rozum` chat session with a Qwen 3.6 model.
       Why: user wants an actionable on-machine launch path, not compiler work.
       How: inspect existing repo docs/scripts/examples for `rozum` gateway/client commands and Qwen/OpenAI-compatible model configuration; avoid code changes unless a missing script/doc is discovered and explicitly needed. Verify commands with non-destructive `--help`/status/list checks first, then provide the minimal terminal sequence. If the requested exact model name is not present locally, explain the likely model id/config place and how to list/install it.
       Done-when: Sergiy has concrete commands for starting the model backend/gateway and opening a `rozum` chat/session, plus any prerequisites or unknowns called out.
+      Result: `rozum` and `ollama` are installed; meeting daemon is running with rooms including
+      `scalascript`; no shared gateway is running. The exact installed Qwen 3.6 model is
+      `mlx-community:Qwen3.6-35B-A3B-4bit-DWQ` (19 GiB on disk). Verified launch shape from
+      `USER_MANUAL.md`: start gateway on `8089`, run `rozum meetings participant --gateway-url
+      http://127.0.0.1:8089/v1`, then attach with `rozum meetings attach --room <room>`.
+      Current dry-run refuses Qwen3.6: even `--n-ctx 4096 --min-free-ram-gb 0` needs 21.84 GiB
+      available vs 21.45 GiB, short ~0.4 GiB; with normal margin it is short ~2.35 GiB.
+      `mlx-community:Qwen3-4B-4bit` dry-run passes and can be used as a small-model smoke.
 
 ### Green main recovery (2026-07-06, user asked to finish the stabilization)
 
