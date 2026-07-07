@@ -26,6 +26,14 @@ private[interpreter] trait ActorInterp extends ActorRuntimeHost:
 
   private def currentActorRuntimeSession: ActorRuntimeSession =
     if actorRuntimeSession == null then
+      // `runActors` is a core language form — it never takes the
+      // missing-name lazy-load path that normally triggers
+      // ensurePluginsLoaded(), so a fat-jar launch (`java -jar ssc.jar`,
+      // no staged .sscpkg registry; plugins live on the classpath via
+      // ServiceLoader) reached here with the Missing provider and died
+      // with "runActors requires the actors plugin". Force the same
+      // idempotent plugin load before opening the session.
+      if actorRuntimeProvider eq MissingActorRuntimeProvider then ensurePluginsLoaded()
       actorRuntimeSession = actorRuntimeProvider.open(this)
     actorRuntimeSession
 
