@@ -26,13 +26,19 @@ object FrontendBridge:
    *  whichever case class was registered FIRST (import order) — deterministic. */
   private val fieldRegistry = collection.mutable.LinkedHashMap[String, Vector[String]]()
 
-  /** Lookup field index for a class member field, if known.
-   *  Returns the index from the FIRST registered class that contains the field.
-   *  Deterministic because fieldRegistry is insertion-ordered (LinkedHashMap). */
+  /** Lookup field index for a class member field, if known — ONLY when the
+   *  index is the SAME in every registered class containing the field. When
+   *  two classes disagree (`transportError` = idx 1 in AgentStreamAttempt but
+   *  idx 2 in AgentHttpAttempt), the old first-registered pick silently read
+   *  the WRONG FIELD off the other class's values; ambiguous names now return
+   *  None so the call site falls back to tag-aware `__method__` dispatch. */
   private def fieldIndex(name: String): Option[Int] =
-    fieldRegistry.values.collectFirst {
+    val idxs = fieldRegistry.values.collect {
       case fields if fields.contains(name) => fields.indexOf(name)
-    }
+    }.toList.distinct
+    idxs match
+      case List(one) => Some(one)
+      case _         => None
 
   /** Lookup field index for a specific class's field. */
   private def fieldIndexOf(className: String, name: String): Option[Int] =
@@ -1305,7 +1311,14 @@ object FrontendBridge:
     // ── Try/catch: __try__(bodyThunk, handlerLam) — the runtime catches
     // BridgeThrow (carries the thrown v2 VALUE) and calls the handler with it.
     case Term.Try(expr, catchCases, _) if catchCases.nonEmpty =>
-      val bodyThunk = CT.Lam(0, convertExpr(expr, "_unit_" :: scope))
+      // The body thunk is a ZERO-arity Lam and the runtime calls it with NO
+      // args (callClosure(thunk, Nil)) — pushing a phantom "_unit_" onto the
+      // conversion scope shifted every OUTER-local reference inside the try
+      // body one slot too high (off-by-one → env out-of-bounds at runtime;
+      // std/agent postChatCompletionsOnce crashed on any try inside a def
+      // that referenced the def's params). Top-level tries never noticed —
+      // their references are globals.
+      val bodyThunk = CT.Lam(0, convertExpr(expr, scope))
       val handler   = CT.Lam(1, convertMatch(CT.Local(0), catchCases, "_exc_" :: scope))
       CT.Prim("__try__", List(bodyThunk, handler))
     case Term.Try(expr, _, _) => convertExpr(expr, scope)
