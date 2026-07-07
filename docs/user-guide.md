@@ -3356,6 +3356,29 @@ become `_`); keys must be unique per `kind`. Nested components scope through
 `childCtx(parent, kind, key)`. Runnable example:
 `examples/frontend/component-demo/component-demo.ssc`.
 
+Signals also support programmatic `sig()` / `sig.get()` reads and
+`sig.set(v)` writes on both the interpreter and JS lanes (server-side
+init, tests, event closures).
+
+#### Offline-first primitives (`std/ui/offline.ssc`)
+
+```scalascript
+[localStorageGet, localStorageSet, localStorageRemove,
+ onlineSignal, persistedSignal](std/ui/offline.ssc)
+
+val draft  = persistedSignal("draft", "")   // survives a reload
+val online = onlineSignal()                  // Signal[Boolean], navigator.onLine
+localStorageSet("k", "v")                    // raw storage access
+```
+
+`persistedSignal(name, default)` initializes from `localStorage` (falling
+back to `default`) and writes every change back — regardless of who set the
+signal (an input binding, a fetch action, or `sig.set`). `onlineSignal()`
+tracks the browser's `online`/`offline` events; both lower to a per-process
+map and constant `true` off-browser (JVM interpreter, Node), so the same
+logic is unit-testable server-side. Runnable example:
+`examples/frontend/offline-demo/offline-demo.ssc`.
+
 ---
 
 ### 17.5 Widget catalog
