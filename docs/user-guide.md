@@ -3379,6 +3379,38 @@ map and constant `true` off-browser (JVM interpreter, Node), so the same
 logic is unit-testable server-side. Runnable example:
 `examples/frontend/offline-demo/offline-demo.ssc`.
 
+#### Forms — validators as data (`std/ui/form.ssc`)
+
+```scalascript
+[Ctx, component](std/ui/component.ssc)
+[field, form, formField, submitGate](std/ui/form.ssc)
+
+component("signup", "main")(ctx => {
+  val f = form(ctx, [
+    field("name",  label = "Name",  required = true, minLength = 2),
+    field("email", label = "Email", pattern = "[^@]+@[^@]+",
+          patternMsg = "must be an email")
+  ])
+  vstack(gap = 16)(
+    formField(f, "name"),          // input + live error line
+    formField(f, "email"),
+    submitGate(f,                   // real submit only while valid
+      actionButton(fetchActionWith("POST", "/api/signup", formBody([...]), [...]), "Save"),
+      text("fill the form to submit"))
+  )
+})
+```
+
+A form is a list of `FieldSpec`s — validators are **data**
+(`required`/`minLength`/`maxLength`/`pattern`), so the same rules run in the
+browser, on the server, and in unit tests (`validateField(spec, value)` is
+pure). Drafts are component-scoped signals; `fieldError`/`formValid` are
+computed signals that re-validate as the user types. Submit transport stays
+the existing `fetchAction*`/`formBody` machinery. Current limits (see
+`specs/ssc-toolkit-v2.md`): errors show from the start (no touched-state
+yet), and there is no busy/error submit tri-state (needs an onFailure fetch
+effect). Runnable example: `examples/frontend/form-demo/form-demo.ssc`.
+
 ---
 
 ### 17.5 Widget catalog
