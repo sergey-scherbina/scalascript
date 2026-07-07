@@ -37,7 +37,7 @@ val refresh = signal[Int]("refresh", 0)
 val sourceName = fetchUrlSignal("sourceName", "/api/profile/name", refresh)
 val draftName = seedSignal("draftName", sourceName)
 
-val view = lower(defaultTheme(vstack(gap = 12)(
+val view = lower(vstack(gap = 12)(
   heading(1, "Profile draft"),
   text("The field seeds from GET /api/profile/name until the user edits it."),
   signalPre(sourceName),
@@ -45,7 +45,7 @@ val view = lower(defaultTheme(vstack(gap = 12)(
   hstack(gap = 8)(
     actionButton(incSignal(refresh), "Reload source")
   )
-)))
+), defaultTheme)
 
 serve(view, 8080)
 ```

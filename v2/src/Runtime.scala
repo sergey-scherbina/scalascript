@@ -1885,6 +1885,13 @@ object Prims:
               V2PluginRegistry.lookup(s"__method__.$name") match
                 case Some(fn) => fn(a)
                 case None => sys.error(s"__method__: no method '$name' in method-object")
+        // Function composition on closures (Scala Function1.andThen/compose) —
+        // std/dsl pipelines chain passes with `.andThen`; there was NO arm for
+        // ClosV receivers and the whole pipeline died on dispatch.
+        case (f: ClosV, "andThen", List(g: ClosV)) =>
+          ClosV(Runtime.emptyEnv, 1, env => Done(callClos(g, Array(callClos(f, Array(env.last))))))
+        case (f: ClosV, "compose", List(g: ClosV)) =>
+          ClosV(Runtime.emptyEnv, 1, env => Done(callClos(f, Array(callClos(g, Array(env.last))))))
         case (v, "toString", Nil) => StrV(anyStr(v))
         case _ =>
           V2PluginRegistry.lookup(s"__method__.$name") match

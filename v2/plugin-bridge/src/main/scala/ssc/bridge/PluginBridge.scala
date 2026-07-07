@@ -1879,6 +1879,23 @@ object PluginBridge:
         case _ => ()
       Done(V2Value.UnitV)
     }))
+    // Typed ActorRef surface over a loopback mailbox (actors-typed-remote-spawn):
+    // address/isLocal/tryLocal as plain method-object fields, tell/publishAs as
+    // closures. publishAs + globalWhereis share a process-local name registry —
+    // everything is local in the loopback sim.
+    val namedRefs = new java.util.concurrent.ConcurrentHashMap[String, V2Value]()
+    def mkActorRef(nodeId: String, mb: ActorMailbox): V2Value =
+      lazy val ref: V2Value = V2Value.ForeignV(collection.immutable.Map[String, V2Value](
+        "address"   -> V2Value.DataV("Some", Vector(V2Value.StrV(nodeId))),
+        "isLocal"   -> V2Value.BoolV(true),
+        "tryLocal"  -> V2Value.DataV("Some", Vector(V2Value.ForeignV(mb))),
+        "tell"      -> V2Value.ClosV(Runtime.emptyEnv, 1, env2 => { mb.queue.put(env2.last); Done(V2Value.UnitV) }),
+        "publishAs" -> V2Value.ClosV(Runtime.emptyEnv, 1, env2 => {
+          env2.last match { case V2Value.StrV(n) => namedRefs.put(n, ref); case _ => () }
+          Done(V2Value.UnitV)
+        }),
+      ).asInstanceOf[AnyRef])
+      ref
     V2PluginRegistry.registerGlobal("spawnRemote", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
       // spawnRemote(nodeId, behaviorName, arg) — node id ignored locally
       val (name, arg) = env.toList match
@@ -1886,6 +1903,9 @@ object PluginBridge:
         case V2Value.StrV(n) :: a :: _      => (n, a)
         case V2Value.StrV(n) :: Nil         => (n, V2Value.UnitV)
         case _                      => ("?", V2Value.UnitV)
+      val nodeId = env.toList match
+        case V2Value.StrV(nid) :: V2Value.StrV(_) :: _ => nid
+        case _                                          => "local"
       behaviors.get(name) match
         case null => sys.error(s"spawnRemote: no behavior '$name' registered")
         case fn =>
@@ -1897,7 +1917,19 @@ object PluginBridge:
             finally { mb.dead = true }
           })
           mb.thread = t
-          Done(V2Value.ForeignV(mb))
+          Done(mkActorRef(nodeId, mb))
+    }))
+    V2PluginRegistry.registerGlobal("globalWhereis", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val res = env.last match
+        case V2Value.StrV(n) => Option(namedRefs.get(n))
+        case _               => None
+      Done(res.map(r => V2Value.DataV("Some", Vector(r))).getOrElse(V2Value.DataV("None", Vector.empty)))
+    }))
+    V2PluginRegistry.registerGlobal("globalRegister", V2Value.ClosV(Runtime.emptyEnv, 2, env => {
+      (env(0), env(1)) match
+        case (V2Value.StrV(n), r) => namedRefs.put(n, r)
+        case _ => ()
+      Done(V2Value.UnitV)
     }))
     // Typed ActorRef helpers — locally an actor ref IS the mailbox
     V2PluginRegistry.registerGlobal("actorRef", V2Value.ClosV(Runtime.emptyEnv, -1, env =>
