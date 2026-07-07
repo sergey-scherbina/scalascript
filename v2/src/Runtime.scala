@@ -1692,6 +1692,8 @@ object Prims:
         case (ls, "flatten", Nil) if isList(ls) => listOf(unlist(ls).flatMap(unlist))
         case (ls, "reverse", Nil) if isList(ls) => listOf(unlist(ls).reverse)
         case (ls, "distinct", Nil) if isList(ls) => listOf(unlist(ls).distinct)
+        case (ls, "grouped", List(IntV(n))) if isList(ls) =>
+          listOf(unlist(ls).grouped(n.toInt).map(listOf).toList)
         case (ls, "last", Nil) if isList(ls) => unlist(ls).last
         case (ls, "init", Nil) if isList(ls) => listOf(unlist(ls).init)
         case (ls, "sum", Nil) if isList(ls) =>
@@ -1900,7 +1902,14 @@ object Prims:
                       // only with NO handler does the call escape as a Free monad Op.
                       V2EffectContext.peek(effectTag) match
                         case Some(handler) => handler(name, margs)
-                        case None =>
+                        case None => V2PluginRegistry.lookup(s"__fallback__.$effectTag.$name") match
+                          case Some(fallbackFn) =>
+                            // Bridge-registered LAST-RESORT native (e.g. Dataset.* over
+                            // plain lists) — consulted only after the plugin registry
+                            // and effect context both missed, so a plugin-provided
+                            // surface (spark's Dataset) or an active handler always wins.
+                            fallbackFn(margs)
+                          case None =>
                           // No active handler: return Free monad Op for typed `handle` dispatch
                           val argV = margs match
                             case Nil       => UnitV
@@ -1949,6 +1958,18 @@ object Prims:
     Runtime.run(k.code, Runtime.extend(k.env, Array(arg)))
 
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
+    // Set-as-list element removal: v2 sets are distinct lists (`.toSet`), so
+    // `pending - partId` (std/mapreduce collect loops) = filterNot. Without
+    // this the op fell through to the plugin stub and returned Unit, which
+    // then blew up on the next `pending.isEmpty`.
+    case (DataV("Cons" | "Nil", _), _) if op == "-" =>
+      listOf(unlistPub(l).filterNot(_ == r))
+    // Map + (k -> v): copy-on-write over the mutable-HashMap map repr so the
+    // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
+    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+      val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
+      nm(k) = v
+      ForeignV(nm)
     // Char semantics: bridge char literals are Int codepoints, while chars
     // extracted from strings (charAt/forall) are 1-char strings — comparisons
     // between the two compare codepoints (c >= 'a' in parser predicates).

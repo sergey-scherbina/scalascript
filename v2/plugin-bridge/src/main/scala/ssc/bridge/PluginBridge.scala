@@ -124,6 +124,7 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
     registerBatchRunnerStubs()
     registerFsBuiltins()
+    registerDatasetNatives()
     // Actor runtime registers LAST so its spawn/receive/self/exit/runActors
     // globals win over same-named v1 plugin intrinsics (a bridged os 'exit'
     // used to shadow the actor exit and System.exit(0) killed the batch JVM).
@@ -210,6 +211,132 @@ object PluginBridge:
     reg("listDir", 1)    { case List(p: String) =>
       val f = new java.io.File(p)
       if f.isDirectory then f.listFiles().map(_.getName).toList.sorted else Nil }
+
+  // ── Dataset natives (v1 DatasetRuntime mirror — p3-dataset-natives) ────────
+  // v1 implements Dataset as interpreter-CORE intrinsics (DatasetRuntime.scala),
+  // which the plugin ServiceLoader loop never sees — so on v2 `Dataset.fromFile`
+  // leaked as a Free Op straight into list prims. A dataset here is a METHOD
+  // OBJECT (ForeignV(immutable.Map[String, ClosV])) over a lazily-captured List —
+  // the __method__ method-object arm dispatches `.map/.collect/...`; the
+  // `Dataset.of/fromList/fromFile` factories arrive via the empty-fields DataV
+  // plugin lookup ("Dataset.<name>").
+  private def registerDatasetNatives(): Unit =
+    import V2Value.*
+    def listOf(xs: Seq[V2Value]): V2Value =
+      xs.foldRight[V2Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
+    def clos(arity: Int)(f: List[V2Value] => V2Value): V2Value =
+      ClosV(Runtime.emptyEnv, arity, env => Done(f(env.toList)))
+    // Prims.anyStr is private — same rendering (unquoted strings, integral Doubles).
+    def str(v: V2Value): String = v match
+      case StrV(s)   => s
+      case IntV(n)   => n.toString
+      case BoolV(b)  => b.toString
+      case FloatV(d) => ssc.Writer.floatStr(d)
+      case _         => Show.show(v)
+    def cmp(a: V2Value, b: V2Value): Int = (a, b) match
+      case (IntV(x),   IntV(y))   => x.compareTo(y)
+      case (FloatV(x), FloatV(y)) => x.compareTo(y)
+      case (IntV(x),   FloatV(y)) => x.toDouble.compareTo(y)
+      case (FloatV(x), IntV(y))   => x.compareTo(y.toDouble)
+      case (StrV(x),   StrV(y))   => x.compareTo(y)
+      case (BoolV(x),  BoolV(y))  => x.compareTo(y)
+      case _                      => Show.show(a).compareTo(Show.show(b))
+    def call1(f: V2Value, x: V2Value): V2Value = callClosure(f, List(x))
+    def isTrue(v: V2Value): Boolean = v == BoolV(true)
+    def otherItems(other: V2Value): List[V2Value] = other match
+      case ForeignV(m: collection.immutable.Map[?, ?]) =>
+        m.asInstanceOf[collection.immutable.Map[String, V2Value]].get("collect") match
+          case Some(c: ClosV) => ssc.Prims.unlistPub(callClosure(c, Nil))
+          case _ => Nil
+      case l @ DataV("Cons" | "Nil", _) => ssc.Prims.unlistPub(l)
+      case _ => Nil
+    def mkDataset(run: () => List[V2Value]): V2Value =
+      lazy val self: V2Value = ForeignV(collection.immutable.Map[String, V2Value](
+        "map"      -> clos(1) { case List(f) => mkDataset(() => run().map(call1(f, _))) },
+        "filter"   -> clos(1) { case List(f) => mkDataset(() => run().filter(x => isTrue(call1(f, x)))) },
+        "flatMap"  -> clos(1) { case List(f) => mkDataset(() => run().flatMap(x => ssc.Prims.unlistPub(call1(f, x)))) },
+        "take"     -> clos(1) { case List(IntV(n)) => mkDataset(() => run().take(n.toInt)) },
+        "drop"     -> clos(1) { case List(IntV(n)) => mkDataset(() => run().drop(n.toInt)) },
+        "distinct" -> clos(0) { _ => mkDataset(() => run().distinct) },
+        "zipWithIndex" -> clos(0) { _ => mkDataset(() =>
+          run().zipWithIndex.map((v, i) => DataV("Tuple2", Vector(v, IntV(i.toLong))))) },
+        "groupBy"  -> clos(1) { case List(kf) => mkDataset(() =>
+          run().groupBy(call1(kf, _)).toList.map((k, vs) => DataV("Tuple2", Vector(k, listOf(vs))))) },
+        "sortBy"   -> clos(1) { case List(kf) => mkDataset(() =>
+          run().map(x => x -> call1(kf, x)).sortWith((p, q) => cmp(p._2, q._2) < 0).map(_._1)) },
+        "reduceByKey" -> clos(1) { case List(kf) => clos(1) { case List(cf) => mkDataset(() =>
+          run().groupBy(call1(kf, _)).toList.map((k, vs) =>
+            DataV("Tuple2", Vector(k, vs.reduce((a, b) => callClosure(cf, List(a, b))))))) } },
+        "top"         -> clos(1) { case List(IntV(n)) => listOf(run().sortWith(cmp(_, _) > 0).take(n.toInt)) },
+        "takeOrdered" -> clos(1) { case List(IntV(n)) => listOf(run().sortWith(cmp(_, _) < 0).take(n.toInt)) },
+        "countByValue" -> clos(0) { _ =>
+          val m = collection.mutable.HashMap.empty[V2Value, V2Value]
+          run().groupBy(identity).foreach((k, vs) => m(k) = IntV(vs.length.toLong)); ForeignV(m) },
+        "partition" -> clos(1) { case List(f) =>
+          val (yes, no) = run().partition(x => isTrue(call1(f, x)))
+          DataV("Tuple2", Vector(listOf(yes), listOf(no))) },
+        "mkString" -> ClosV(Runtime.emptyEnv, -1, env => Done(StrV(env.toList match
+          case Nil                                  => run().map(str).mkString
+          case List(StrV(sep))                      => run().map(str).mkString(sep)
+          case List(StrV(a), StrV(sep), StrV(b))    => run().map(str).mkString(a, sep, b)
+          case _ => sys.error("Dataset.mkString[(sep)|(start, sep, end)]")))),
+        "toMap" -> clos(0) { _ =>
+          val m = collection.mutable.HashMap.empty[V2Value, V2Value]
+          run().foreach {
+            case DataV("Tuple2", IndexedSeq(k, v)) => m(k) = v
+            case other => sys.error(s"Dataset.toMap: element is not a 2-tuple: ${Show.show(other)}")
+          }; ForeignV(m) },
+        "toSet"       -> clos(0) { _ => listOf(run().distinct) },
+        "saveToFile"  -> clos(1) { case List(StrV(path)) =>
+          java.nio.file.Files.write(java.nio.file.Paths.get(path),
+            run().map(str).mkString("", "\n", "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8))
+          UnitV },
+        // Set-like binary ops: the other dataset is our own method-object —
+        // pull its items through its "collect" closure.
+        "union"     -> clos(1) { case List(other) => mkDataset(() => run() ++ otherItems(other)) },
+        "intersect" -> clos(1) { case List(other) => mkDataset(() => run().intersect(otherItems(other))) },
+        "zip"       -> clos(1) { case List(other) => mkDataset(() =>
+          run().zip(otherItems(other)).map((a, b) => DataV("Tuple2", Vector(a, b)))) },
+        "runLocal"    -> clos(0) { _ => mkDataset(run) },
+        "runParallel" -> clos(0) { _ => mkDataset(run) },
+        "collect"     -> clos(0) { _ => listOf(run()) },
+        "count"       -> clos(0) { _ => IntV(run().length.toLong) },
+        "sum"         -> clos(0) { _ => run().foldLeft[V2Value](IntV(0))((a, v) => ssc.Prims.arithOp("+", a, v)) },
+        "min"         -> clos(0) { _ => val xs = run(); if xs.isEmpty then sys.error("Dataset.min: empty dataset") else xs.reduce((a, b) => if cmp(a, b) <= 0 then a else b) },
+        "max"         -> clos(0) { _ => val xs = run(); if xs.isEmpty then sys.error("Dataset.max: empty dataset") else xs.reduce((a, b) => if cmp(a, b) >= 0 then a else b) },
+        "avg"         -> clos(0) { _ =>
+          val xs = run()
+          if xs.isEmpty then sys.error("Dataset.avg: empty dataset")
+          else ssc.Prims.arithOp("/",
+            xs.foldLeft[V2Value](FloatV(0.0))((a, v) => ssc.Prims.arithOp("+", a, v)),
+            FloatV(xs.length.toDouble)) },
+        "reduce" -> clos(1) { case List(cf) =>
+          val xs = run(); if xs.isEmpty then sys.error("Dataset.reduce: empty dataset")
+          else xs.reduce((a, b) => callClosure(cf, List(a, b))) },
+        "fold" -> clos(1) { case List(z) => clos(1) { case List(cf) =>
+          run().foldLeft(z)((a, x) => callClosure(cf, List(a, x))) } },
+        "foreach" -> clos(1) { case List(f) => run().foreach(call1(f, _)); UnitV },
+        "first"   -> clos(0) { _ => run().headOption
+          .map(v => DataV("Some", Vector(v))).getOrElse(DataV("None", Vector.empty)) },
+      ).asInstanceOf[AnyRef])
+      self
+    def dsOf(items: List[V2Value]): V2Value = mkDataset(() => items)
+    // FALLBACK keys: the spark plugin provides its OWN Dataset surface for the
+    // spark/dataset example families — plain "Dataset.of" registration here
+    // SHADOWED it (spark-* examples then hit this method-object and died on
+    // .toDF/.write). The runtime consults "__fallback__.<Tag>.<m>" only after
+    // the plugin lookup AND effect context both miss — exactly the case that
+    // previously leaked a Free Op into list prims (distributed-*).
+    V2PluginRegistry.register("__fallback__.Dataset.of",       args => dsOf(args))
+    V2PluginRegistry.register("__fallback__.Dataset.fromList", {
+      case List(l) => dsOf(ssc.Prims.unlistPub(l))
+      case args    => sys.error("Dataset.fromList(list: List[T]): Dataset[T]") })
+    V2PluginRegistry.register("__fallback__.Dataset.fromFile", {
+      case List(StrV(path)) =>
+        val src = scala.io.Source.fromFile(path)
+        val lines = try src.getLines().toList.map(StrV(_): V2Value) finally src.close()
+        dsOf(lines)
+      case _ => sys.error("Dataset.fromFile(path: String): Dataset[String]") })
 
   private def registerBatchRunnerStubs(): Unit =
     import V2Value.*
@@ -1691,7 +1818,14 @@ object PluginBridge:
         try callThunk(thunk.asInstanceOf[V2Value.ClosV])
         catch
           case _: InterruptedException => reason = V2Value.StrV("killed")
-          case e: Throwable => reason = V2Value.StrV(Option(e.getMessage).getOrElse("error"))
+          case e: Throwable =>
+            reason = V2Value.StrV(Option(e.getMessage).getOrElse("error"))
+            // An actor dying with an error is otherwise INVISIBLE (the reason
+            // only travels to linked actors) — a dead worker leaves its
+            // collector blocked in receive forever with no diagnostic.
+            if sys.env.contains("SSC_DEBUG_ACTORS") then
+              System.err.println(s"[actor-death] ${Option(e.getMessage).getOrElse(e.toString)}")
+              e.getStackTrace.take(4).foreach(f => System.err.println(s"  at $f"))
         finally
           mb.dead = true
           notifyDeath(mb, reason)

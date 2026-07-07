@@ -275,6 +275,16 @@ object FrontendBridge:
 
   /** First pass: scan all stats and collect case class / enum / extension definitions. */
   private def registerTypes(stats: List[Stat]): Unit = stats.foreach {
+    // Pre-register def param NAMES here (first pass) so a named-arg call that
+    // textually PRECEDES the callee's definition still resolves positions —
+    // std/mapreduce's `runDistributed` (line ~222) calls `collectResults`
+    // (defined ~140 lines LOWER) with all-named args; second-pass-only
+    // registration compiled those `name = value` args as assignments and the
+    // callee received Units for every param. Defaults still register in the
+    // second pass (they need convertExpr); names alone are enough here.
+    case d: Defn.Def =>
+      val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      if ps.nonEmpty then defParamNames(d.name.value) = ps.map(_.name.value).toVector
     case d: Defn.Class if d.mods.exists(_.is[Mod.Case]) =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList
       registerCaseClass(d.name.value, params)
@@ -617,6 +627,15 @@ object FrontendBridge:
         found.flatMap(root => tryOsPath(root / os.RelPath(rel)))
       }
       .orElse(tryOsPath(os.pwd / os.RelPath(rel)))
+      // Pre-v1/-move import paths: examples still say `../runtime/std/mapreduce/x.ssc`,
+      // which no longer exists relative to examples/ (runtime/ moved to v1/runtime/).
+      // The v1 ImportResolver falls back by std/ suffix; mirror that here — extract
+      // the `std/...` tail and resolve it through the same chain (once; the tail
+      // differs from `rel` so this cannot loop).
+      .orElse {
+        val i = rel.indexOf("std/")
+        if i > 0 then resolveStdPathWithFile(rel.substring(i), fileDir) else None
+      }
 
   private def resolveStdPath(rel: String, fileDir: Option[java.io.File]): Option[String] =
     resolveStdPathWithFile(rel, fileDir).map(_._1)
@@ -843,8 +862,13 @@ object FrontendBridge:
           defaultParams(d.name.value) = defVec
           defaultParamTerms(d.name.value) =
             (allParamTerms.map(_.name.value).toVector, allParamTerms.map(_.default).toVector)
-        // Register param names for named-arg call-site synthesis
-        if allParamTerms.nonEmpty && defVec.exists(_.isDefined) then
+        // Register param names for named-arg call-site synthesis — for EVERY
+        // def with params, not only those with defaults: a fully-named call to
+        // a default-free def (`collectResults(jobId = …, pending = …, …)` in
+        // std/mapreduce) otherwise fell to the generic path, which compiled
+        // each `name = value` arg as an ASSIGNMENT (Unit) — the callee then
+        // received Units for all params (".isEmpty on ()").
+        if allParamTerms.nonEmpty then
           defParamNames(d.name.value) = allParamTerms.map(_.name.value).toVector
         // Register vararg defs: last clause has a Type.Repeated param
         val lastClause = allClauses.lastOption.toList.flatMap(_.values)
@@ -1758,6 +1782,11 @@ object FrontendBridge:
         case Pat.Tuple(pats) =>
           pats.exists {
             case _: Pat.Extract | _: Pat.ExtractInfix | _: Lit => true
+            // NESTED tuple sub-pattern (`case (((wPid, node), part), idx) =>`,
+            // std/mapreduce zip-chains) — the fast path binds only the top
+            // level, leaving inner names unbound globals; route to the
+            // general if-chain where flattenPattern recurses.
+            case _: Pat.Tuple => true
             case Pat.Var(Term.Name(n)) if isCtorName(n) => true
             case _ => false
           }
