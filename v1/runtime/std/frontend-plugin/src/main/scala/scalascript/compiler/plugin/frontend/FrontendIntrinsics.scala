@@ -11,6 +11,11 @@ object FrontendIntrinsics:
 
   private val computedIdCounter = new java.util.concurrent.atomic.AtomicInteger(0)
 
+  // std/ui/offline.ssc backing state: per-process localStorage stand-in and
+  // the single online-state signal (constant true off-browser).
+  private val localStore = new java.util.concurrent.ConcurrentHashMap[String, String]()
+  private lazy val onlineSignalInstance = new ReactiveSignal[Boolean]("__online__", true)
+
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     // NB: `args` is `List[Any]` post-unwrap (Interpreter.installNativeIntrinsics
@@ -140,6 +145,50 @@ object FrontendIntrinsics:
       args match
         case List() => PluginValue.foreign("ReactiveSignal", new ReactiveSignal[String]("__hash__", ""))
         case _      => PluginError.raise("hashSignal()")
+    },
+
+    // ── localStorageGet/Set/Remove (std/ui/offline.ssc) ────────────────────
+    // Off-browser lowering: a per-process map, so server-side/test code
+    // exercises the same offline-first logic the browser runs over the real
+    // localStorage (JsGen `_ssc_ui_localStorage*` shims).
+    QualifiedName("localStorageGet") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(key: String) =>
+          PluginValue.option(Option(localStore.get(key)).map(PluginValue.string))
+        case _ => PluginError.raise("localStorageGet(key)")
+    },
+    QualifiedName("localStorageSet") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(key: String, value: String) => localStore.put(key, value); ()
+        case _ => PluginError.raise("localStorageSet(key, value)")
+    },
+    QualifiedName("localStorageRemove") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(key: String) => localStore.remove(key); ()
+        case _ => PluginError.raise("localStorageRemove(key)")
+    },
+
+    // ── onlineSignal(): Signal[Boolean] (std/ui/offline.ssc) ───────────────
+    // One process-wide instance; constant true off-browser. The browser
+    // runtime tracks navigator.onLine + online/offline window events.
+    QualifiedName("onlineSignal") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List() => PluginValue.foreign("ReactiveSignal", onlineSignalInstance)
+        case _      => PluginError.raise("onlineSignal()")
+    },
+
+    // ── persistedSignal(name, default): Signal[String] (std/ui/offline.ssc) ─
+    // Initialized from storage (else default); every set writes back, so the
+    // value survives a reload (browser) / is observable via localStorageGet
+    // (everywhere).
+    QualifiedName("persistedSignal") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(name: String, default: String) =>
+          val init = Option(localStore.get(name)).getOrElse(default)
+          val rs = new ReactiveSignal[String](name, init)
+          rs.subscribe(v => localStore.put(name, v))
+          PluginValue.foreign("ReactiveSignal", rs)
+        case _ => PluginError.raise("persistedSignal(name, default)")
     },
 
     // ── computedSignal(f: () => String): Signal[String] ───────────────────────

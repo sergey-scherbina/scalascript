@@ -1183,6 +1183,8 @@ class JsGen(
       "staticRowsSource", "signalRowsSource", "fetchRowsSource",
       "fieldPayload", "wholeRowPayload", "fieldsPayload",
       "contentToolkit",
+      "localStorageGet", "localStorageSet", "localStorageRemove",
+      "onlineSignal", "persistedSignal",
       "textNode", "signalText", "showSignal", "fragment("
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||

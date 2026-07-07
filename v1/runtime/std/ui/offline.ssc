@@ -1,0 +1,37 @@
+---
+name: ui-offline
+version: 1.0.0
+description: Offline-first primitives — localStorage, reactive online state, persisted signals. ssc toolkit v2 (specs/ssc-toolkit-v2.md), slice tkv2-offline.
+package: std.ui.offline
+exports:
+  - localStorageGet
+  - localStorageSet
+  - localStorageRemove
+  - onlineSignal
+  - persistedSignal
+---
+
+# `std.ui.offline` — offline-first primitives
+
+The storage + connectivity building blocks of an offline-first SPA:
+
+- `localStorageGet/Set/Remove` — the browser's `localStorage` from `.ssc`.
+  Off-browser (JVM interpreter, Node) they run over a per-process map, so
+  server-side/test code exercises the same logic.
+- `onlineSignal()` — a `Signal[Boolean]` tracking `navigator.onLine`
+  (`online`/`offline` window events). Constant `true` off-browser. One
+  process-wide instance.
+- `persistedSignal(name, default)` — a `Signal[String]` initialized from
+  `localStorage` (falling back to `default`) whose every `set` also writes
+  back to storage — state that survives a reload. Store JSON strings for
+  structured state (busi caches its whole home payload this way).
+
+[Signal](primitives.ssc)
+
+```scalascript
+extern def localStorageGet(key: String): Option[String]
+extern def localStorageSet(key: String, value: String): Unit
+extern def localStorageRemove(key: String): Unit
+extern def onlineSignal(): Signal[Boolean]
+extern def persistedSignal(name: String, default: String): Signal[String]
+```

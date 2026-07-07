@@ -1524,7 +1524,7 @@ class Interpreter(
     val msg = Option(e.getMessage).getOrElse("")
     msg == name || msg.startsWith(name + "(") || msg.startsWith(name + ": expected ")
 
-  private def unwrapValueAsAny(v: Value): Any = v match
+  private[interpreter] def unwrapValueAsAny(v: Value): Any = v match
     case Value.IntV(n)    => n
     case Value.DoubleV(d) => d
     case Value.StringV(s) => s

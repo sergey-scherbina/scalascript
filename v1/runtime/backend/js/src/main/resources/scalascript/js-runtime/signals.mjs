@@ -127,6 +127,57 @@ function _ssc_ui_seedSignal(name, source) {
   sig.set = (v) => { if (state) state._seedPristine = false; baseSet(v); };
   return sig;
 }
+// ── std/ui/offline.ssc externs (tkv2-offline) ──────────────────────────────
+// Browser: real localStorage + navigator.onLine; Node: per-process map + true.
+const _ssc_ls_mem = new Map();
+function _ssc_ls() {
+  // window.localStorage (not the bare global) — Node 26+ defines a global
+  // localStorage getter that warns unless --localstorage-file is set.
+  try { return (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : null; }
+  catch (_e) { return null; }  // privacy modes can throw on access
+}
+function _ssc_ui_localStorageGet(key) {
+  const ls = _ssc_ls();
+  const v = ls ? ls.getItem(key) : (_ssc_ls_mem.has(key) ? _ssc_ls_mem.get(key) : null);
+  return (v === null || v === undefined) ? {_type: '_None'} : {_type: '_Some', value: v};
+}
+function _ssc_ui_localStorageSet(key, value) {
+  const ls = _ssc_ls();
+  if (ls) ls.setItem(key, value); else _ssc_ls_mem.set(key, value);
+}
+function _ssc_ui_localStorageRemove(key) {
+  const ls = _ssc_ls();
+  if (ls) ls.removeItem(key); else _ssc_ls_mem.delete(key);
+}
+let _ssc_online_sig = null;
+function _ssc_ui_onlineSignal() {
+  if (_ssc_online_sig) return _ssc_online_sig;
+  const init = (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean')
+    ? navigator.onLine : true;
+  _ssc_online_sig = Signal(init);
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('online',  () => _ssc_online_sig.set(true));
+    window.addEventListener('offline', () => _ssc_online_sig.set(false));
+  }
+  return _ssc_online_sig;
+}
+function _ssc_ui_persistedSignal(name, def) {
+  const cur = _ssc_ui_localStorageGet(name);
+  const sig = Signal(cur._type === '_Some' ? cur.value : def);
+  // Persist via an effect subscription, NOT a set-wrapper: DOM wiring
+  // (data-ssc-change) and fetch actions write through _signalSet by id,
+  // bypassing this object's .set. The first run only registers the
+  // dependency — write-back starts with the first actual change (parity
+  // with the interpreter lane's subscribe semantics).
+  let first = true;
+  effect(() => {
+    const v = sig.get();
+    if (first) { first = false; return; }
+    _ssc_ui_localStorageSet(name, v);
+  });
+  return sig;
+}
+
 function _ssc_ui_element(tag, attrs, events, children) {
   return { _type: '_Element', tag,
     attrs: (_isMap(attrs)) ? Object.fromEntries(attrs) : (attrs || {}),

@@ -1,0 +1,43 @@
+---
+name: tkv2-offline
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 — offline primitives (localStorage, onlineSignal, persistedSignal)
+
+Slice `tkv2-offline` of `specs/ssc-toolkit-v2.md`. Off-browser both lanes run
+localStorage over a per-process map and report online — the same code drives
+real `localStorage`/`navigator.onLine` in the browser.
+
+[localStorageGet, localStorageSet, localStorageRemove, onlineSignal, persistedSignal](std/ui/offline.ssc)
+
+```scalascript
+// Storage round-trip, including the missing-key shape.
+println(localStorageGet("missing"))
+localStorageSet("k1", "v1")
+println(localStorageGet("k1"))
+localStorageRemove("k1")
+println(localStorageGet("k1"))
+
+// Online state: constant true off-browser (JVM interpreter and Node alike).
+val online = onlineSignal()
+println(online())
+
+// persistedSignal: default when nothing stored…
+val p1 = persistedSignal("draft", "empty")
+println(p1())
+
+// …write-back on set (observable via raw storage)…
+p1.set("hello")
+println(localStorageGet("draft"))
+
+// …and a later signal for the same key initializes from storage.
+val p2 = persistedSignal("draft", "empty")
+println(p2())
+
+// Pre-seeded storage wins over the default.
+localStorageSet("lang", "pl")
+val lang = persistedSignal("lang", "en")
+println(lang())
+```

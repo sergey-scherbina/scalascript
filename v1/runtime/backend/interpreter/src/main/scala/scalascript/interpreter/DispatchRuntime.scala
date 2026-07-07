@@ -3162,9 +3162,21 @@ private[interpreter] object DispatchRuntime:
         dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
 
   private def dispatchForeign(recv: Value, typeName: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    interp.globals.get(s"$typeName.$name") match
-      case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
-      case None     => dispatchFallback(recv, name, args, env, interp)
+    // ReactiveSignal get/set — programmatic read/write, matching the JS lane's
+    // sig.get()/sig.set(v) (signals.mjs). Read parity with `sig()` (CallRuntime);
+    // write makes ui-signal behavior (e.g. std/ui/offline persistedSignal
+    // write-back) testable INT==JS instead of browser-only.
+    recv match
+      case Value.Foreign("ReactiveSignal", sig: scalascript.frontend.ReactiveSignal[?])
+          if (name == "get" && args.isEmpty) || (name == "set" && args.length == 1) =>
+        if name == "get" then Pure(interp.wrapAnyAsValue(sig.apply()))
+        else
+          sig.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]].set(interp.unwrapValueAsAny(args.head))
+          Pure(Value.UnitV)
+      case _ =>
+        interp.globals.get(s"$typeName.$name") match
+          case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
+          case None     => dispatchFallback(recv, name, args, env, interp)
 
   /** Reconstruct a `Map[String, Value]` from `fieldsArr + fieldNames` for
    *  instances created by StatRuntime (which now stores `Map.empty` in `fields`).
