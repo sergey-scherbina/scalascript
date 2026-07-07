@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-state-effect
-worktree: ../scalascript-wt-p3-state-effect
-started: 2026-07-07
-status: in-progress
-task: p3-state-effect-semantics — algebraic-effects.ssc remainder: State-effect get/set through parameterized handlers (v2 prints List()/Stub1 where v1 prints 0/1); continues 84503577e effects-threading work
