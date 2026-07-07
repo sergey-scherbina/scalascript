@@ -53,6 +53,42 @@ object PluginBridge:
    *  PARSED DOCUMENT via featureGet(ContentDocument). */
   private val featureBag = new java.util.concurrent.ConcurrentHashMap[String, Any]()
 
+  /** Quoted-macro PRE-PASS: run v1's MacroCodegen.expand over the parsed
+   *  module and splice each expanded code block's source back into the raw
+   *  text (fence contents replaced pairwise, in document order). The bridge
+   *  itself has no conversion for Term.SplicedMacroExpr — without this,
+   *  ${'{…}} macro call sites printed "Unsupported: TermSplicedMacroExprImpl".
+   *  Fault-tolerant: any mismatch/parse failure returns the input unchanged. */
+  def expandMacrosInSource(raw: String, fileDir: Option[java.io.File]): String =
+    try
+      val module = scalascript.parser.Parser.parse(raw)
+      val base   = fileDir.map(f => os.Path(f.getAbsolutePath))
+      val expanded = scalascript.artifact.MacroCodegen.expand(module, base)
+      def codeBlocks(m: scalascript.ast.Module): List[scalascript.ast.Content.CodeBlock] =
+        def go(s: scalascript.ast.Section): List[scalascript.ast.Content.CodeBlock] =
+          s.content.collect { case cb: scalascript.ast.Content.CodeBlock => cb } ++ s.subsections.flatMap(go)
+        m.sections.flatMap(go)
+      val orig = codeBlocks(module); val exp = codeBlocks(expanded)
+      if orig.length != exp.length then raw
+      else
+        var out = raw
+        var cursor = 0
+        orig.zip(exp).foreach { (o, e) =>
+          if o.source != e.source then
+            val idx = out.indexOf(o.source, cursor)
+            if idx >= 0 then
+              // Preserve the trailing-newline boundary: the expanded source is
+              // newline-less and gluing it to the closing ``` broke the fence.
+              val rep = if o.source.endsWith("\n") && !e.source.endsWith("\n") then e.source + "\n" else e.source
+              out = out.substring(0, idx) + rep + out.substring(idx + o.source.length)
+              cursor = idx + rep.length
+          else
+            val idx = out.indexOf(o.source, cursor)
+            if idx >= 0 then cursor = idx + o.source.length
+        }
+        out
+    catch case _: Throwable => raw
+
   /** Parse the raw .ssc source with the v1 parser and expose its document
    *  content to plugins — mirrors Interpreter's `module.document.foreach
    *  (nativeFeatureSet(ContentDocument, _))`. Call once per convertSource. */

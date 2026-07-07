@@ -405,7 +405,10 @@ object FrontendBridge:
    *  Supports script mode: bare expressions at the top level are wrapped in a block.
    *  Handles .ssc file format: optional shebang + YAML front matter + markdown prose +
    *  ```scalascript...``` fence; if no fence, uses the whole source. */
-  def convertSource(src: String, fileDir: Option[java.io.File] = None): Program =
+  def convertSource(src0: String, fileDir: Option[java.io.File] = None): Program =
+    // Quoted-macro expansion pre-pass (v1 MacroCodegen) — the bridge has no
+    // conversion for splice syntax, so expand call sites in the TEXT first.
+    val src = PluginBridge.expandMacrosInSource(src0, fileDir)
     // Expose the parsed document to content-introspection natives
     // (contentBlock/contentData read markdown tables & yaml fences from it).
     PluginBridge.setDocumentFromSource(src)
