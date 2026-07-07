@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/std-process-fix
+worktree: ../scalascript-wt-std-process-fix
+started: 2026-07-07
+status: in-progress
+task: std/process.ssc unusable on the interpreter — Map.empty in ProcessOptions default crashes at import; fix to Map() + guard probe
