@@ -109,6 +109,20 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       validates. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
       from the default `bin/ssc` launcher.
 
+- [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
+      `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&
+      sbt "test"`. The first run hit a transient Scala 3 compiler crash in `clientEvm/Test/compile`;
+      targeted `clientEvm/Test/compile` passed immediately. The second full run completed in 29:08 and
+      confirmed `PluginCliTest` passes, but failed unrelated suites: `CrossBackendIntrinsicParityTest`
+      (`webauthnConfigureStore`/`webauthnStoreRemove` JS-only drift), `JvmGenSwingRuntimeTest`,
+      `StableSpiEnforcementTest` (`tcp-plugin` imports `scalascript.interpreter.Value` from a
+      value-surface plugin), `AgentConformanceTest` (`Address already in use` in `beforeAll`), plus
+      Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Next slice: reproduce the
+      smallest deterministic suite first, likely `CrossBackendIntrinsicParityTest` or
+      `StableSpiEnforcementTest`, and fix/record the policy before rerunning root `sbt "test"`.
+      Done-when: the affected suites pass or are intentionally isolated/pending with documented CI policy,
+      and a subsequent root `sbt "test"` no longer fails on this set.
+
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.
       Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "cli/Test/compile"` fails with
@@ -118,7 +132,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `_root_.os` (or an explicit alias) inside the test, then rerun `cli/Test/compile` and the affected
       `cli/testOnly scalascript.compiler.plugin.PluginCliTest`. Done-when: the CI `sbt - compile and test`
       job no longer fails at `PluginCliTest.scala` test compilation.
-      Result: fixed in `f2d8ebc8b` by qualifying os-lib as `_root_.os` inside `PluginCliTest`, avoiding the
+      Result: fixed in `6d133361a` by qualifying os-lib as `_root_.os` inside `PluginCliTest`, avoiding the
       local `scalascript.compiler.plugin.os` package shadow. Verified:
       `sbt "cli/Test/compile"` and
       `sbt "cli/testOnly scalascript.compiler.plugin.PluginCliTest"` (8/8).

@@ -12,6 +12,29 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## green-main-full-sbt-test-gating — `open` (2026-07-07)
+
+- **Found by:** codex, while verifying the `plugin-cli-oslib-shadow` fix.
+- **Symptom:** after the `PluginCliTest` compile blocker is fixed, the root
+  `sbt "test"` gate is still red in unrelated integration suites.
+- **Repro:** `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "test"`.
+  The second full run completed in 29:08 with non-zero exit. It confirmed
+  `PluginCliTest` now passes, then reported:
+  - `CrossBackendIntrinsicParityTest`: JS-only drift for `webauthnConfigureStore`
+    and `webauthnStoreRemove`.
+  - `JvmGenSwingRuntimeTest`: failed inside the `cli / Test / test` aggregate.
+  - `StableSpiEnforcementTest`: `tcp-plugin` still imports
+    `scalascript.interpreter.Value` from a value-surface plugin.
+  - `AgentConformanceTest`: suite aborted with `java.net.BindException:
+    Address already in use` in `beforeAll`.
+  - JS test-framework fallout: several Scala.js modules report
+    `RPCCore$ClosedException` after a Node-side non-zero exit.
+- **Notes:** the first full run hit a transient Scala 3 compiler crash in
+  `clientEvm/Test/compile`; targeted `clientEvm/Test/compile` passed immediately,
+  so the durable gate is the second run's failure set above.
+- **Status:** open. Split into focused fixes or intentional skips/pending policy,
+  then rerun the affected suites before another root `sbt "test"` attempt.
+
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
 - **Found by:** codex, while stabilizing the red `origin/main` CI run
@@ -26,7 +49,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Root cause:** because `PluginCliTest` is in package `scalascript.compiler.plugin`,
   the local `scalascript.compiler.plugin.os` package shadows os-lib's root `os`
   package.
-- **FIXED (2026-07-07, `f2d8ebc8b`):** qualified all os-lib references in
+- **FIXED (2026-07-07, `6d133361a`):** qualified all os-lib references in
   `PluginCliTest` as `_root_.os`, so the test no longer resolves the local plugin
   package.
 - **Verified:** `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "cli/Test/compile"`;
