@@ -1274,6 +1274,17 @@ object Prims:
       case DataV(_, fields) =>
         val i = int(a, 1).toInt
         if i < fields.length then fields(i) else DataV("Stub", Vector.empty)  // graceful OOB
+      // 3-arg form fieldAt(recv, idx, name): SQL rows are UNORDERED maps with
+      // UPPERCASE column labels (Db.query; the [T] type arg is stripped so no
+      // case-class decoding happens) — an index is meaningless there, so the
+      // emitter also passes the FIELD NAME and we resolve by key,
+      // case-insensitively.
+      case ForeignV(m: collection.Map[?, ?]) if a.length >= 3 =>
+        val mm = m.asInstanceOf[collection.Map[Value, Value]]
+        val fieldName = a(2) match { case StrV(s) => s; case other => Show.show(other) }
+        mm.getOrElse(StrV(fieldName),
+          mm.collectFirst { case (StrV(k), v) if k.equalsIgnoreCase(fieldName) => v }
+            .getOrElse(sys.error(s"fieldAt: no column '$fieldName' in row ${mm.keys.map(anyStr).mkString("[", ",", "]")}")))
       case _ => asData(a(0))._2(int(a, 1).toInt)
     case "__isTag__" => a => a(0) match
       case DataV(t, fs) => BoolV(t == str(a, 1) && fs.length == int(a, 2).toInt)
@@ -1853,6 +1864,20 @@ object Prims:
           })
         // ── Signal/cell — ForeignV(Array[Value]) with .get/.set/.update ──────────
         case (ForeignV(arr: Array[?]), "get", Nil) => arr.asInstanceOf[Array[Value]](0)
+        // Row-style field access on a map value: `row.text` where the row is a
+        // ForeignV(Map) (Db.query rows; v2 strips the [Todo] type arg so no
+        // case-class decoding happens). Look the field up by KEY name, with a
+        // case-insensitive fallback for SQL column labels (H2 upper-cases).
+        // Placed AFTER the named map METHODS above so get/keys/… keep their
+        // Scala semantics.
+        case (ForeignV(m: collection.Map[?, ?]), fieldName, Nil)
+            // Guard on the UNCAST keys: casting first made the forall lambda
+            // cast String keys (method-objects) to Value → CCE inside forall.
+            if m.keysIterator.forall(k => k.isInstanceOf[StrV]) =>
+          val mm = m.asInstanceOf[collection.Map[Value, Value]]
+          mm.getOrElse(StrV(fieldName),
+            mm.collectFirst { case (StrV(k), v) if k.equalsIgnoreCase(fieldName) => v }
+              .getOrElse(sys.error(s"__method__: no column '$fieldName' in row ${mm.keys.map(anyStr).mkString("[", ",", "]")}")))
         case (ForeignV(arr: Array[?]), "set", List(v)) => arr.asInstanceOf[Array[Value]](0) = v; UnitV
         case (ForeignV(arr: Array[?]), "update", List(fn: ClosV)) =>
           val cur = arr.asInstanceOf[Array[Value]](0)
@@ -2188,7 +2213,27 @@ object Prims:
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
-  private def anyStr(v: Value): String = v match { case StrV(s) => s; case IntV(n) => n.toString; case BoolV(b) => b.toString; case FloatV(d) => Writer.floatStr(d); case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString; case _ => Show.show(v) }
+  private def anyStr(v: Value): String = v match
+    case StrV(s)   => s
+    case IntV(n)   => n.toString
+    case BoolV(b)  => b.toString
+    case FloatV(d) => Writer.floatStr(d)
+    case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
+    // Lists render with anyStr ELEMENTS here — deferring to Show.show made
+    // rows inside List(...) render as "<foreign>" (show has no Map case and
+    // quotes strings, both breaking v1 output parity in interpolations).
+    case DataV("Cons", _) | DataV("Nil", _) =>
+      s"List(${unlistPub(v).map(anyStr).mkString(", ")})"
+    // SQL result rows (and map.new maps) are ForeignV(scala Map) with Value
+    // keys — v1 renders them Map(K -> V, …) with unquoted scalars; "<foreign>"
+    // broke output parity for every SELECT-printing example. METHOD-OBJECTS
+    // are ForeignV(Map[String, Value]) — keep them out of this arm (the cast
+    // on their String keys crashed typeclass/generators with a CCE) and let
+    // them fall to Show.show as before.
+    case ForeignV(m: collection.Map[?, ?])
+        if m.keysIterator.forall(_.isInstanceOf[Value]) =>
+      s"Map(${m.asInstanceOf[collection.Map[Value, Value]].map((k, x) => s"${anyStr(k)} -> ${anyStr(x)}").mkString(", ")})"
+    case _ => Show.show(v)
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }

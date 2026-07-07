@@ -47,19 +47,31 @@ object RunV2:
         Thread.currentThread().setContextClassLoader(cl)
     catch case _: Throwable => ()  // best-effort: fall back to the classpath as-is
 
-  /** `bin/lib/compiler/plugins` (auto-load set), located relative to the running `ssc.jar`. */
+  /** `bin/lib/compiler/plugins` (essential) PLUS `plugin-available` (advanced,
+   *  opt-in on v1), located relative to the running `ssc.jar`. v1 lazy-loads
+   *  the advanced set when an import demands it (plugin-lazyload-extern-imports),
+   *  so the v2 parity runner must expose the same effective surface — with only
+   *  the essential dir, every advanced-plugin native (Db.insert/update from
+   *  sql-plugin, crypto, smtp, …) silently escaped as a Free Op on `run --v2`
+   *  while the same program worked on v1. Natives register but only run when
+   *  called, so loading both dirs is behaviour-neutral otherwise. */
   private def pluginDirs: List[java.io.File] =
     val libDir: Option[java.io.File] =
       try Some(new java.io.File(getClass.getProtectionDomain.getCodeSource.getLocation.toURI).getParentFile)
       catch case _: Throwable => Option(System.getProperty("ssc.lib.path")).map(p => new java.io.File(p, "bin/lib"))
-    libDir.map(new java.io.File(_, "compiler/plugins")).filter(_.isDirectory).toList
+    libDir.toList.flatMap { lib =>
+      List(new java.io.File(lib, "compiler/plugins"), new java.io.File(lib, "compiler/plugin-available"))
+    }.filter(_.isDirectory)
 
   private def extractIntrinsicsJars(pkg: java.io.File, tmp: java.io.File): List[java.net.URL] =
     import scala.jdk.CollectionConverters.*
     val zf = new java.util.zip.ZipFile(pkg)
     try
       zf.entries().asScala.toList
-        .filter(e => !e.isDirectory && e.getName.startsWith("intrinsics/") && e.getName.endsWith(".jar"))
+        // ALL bundled jars, not only intrinsics/: plugin natives reference
+        // sibling helper jars inside the package (oauth's OidcIntrinsicHelpers
+        // lives outside intrinsics/ and NoClassDefFound'ed at runtime).
+        .filter(e => !e.isDirectory && e.getName.endsWith(".jar"))
         .map { e =>
           val leaf = e.getName.substring(e.getName.lastIndexOf('/') + 1)
           val out  = new java.io.File(tmp, s"${pkg.getName}-$leaf")

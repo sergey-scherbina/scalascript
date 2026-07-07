@@ -751,8 +751,15 @@ object FrontendBridge:
             // nearest preceding heading for the sql section id
             noFront.substring(0, fenceStart).linesIterator.foreach { ln =>
               if ln.startsWith("#") then
-                val h = ln.dropWhile(_ == '#').trim.takeWhile(c => c.isLetterOrDigit || c == '_')
-                if h.nonEmpty then lastHeading = h
+                // v1 sectionIdent semantics (JvmGen): split the heading on
+                // non-alphanumerics and camelCase-join — "## Active users" →
+                // "ActiveUsers". The old takeWhile stopped at the first space
+                // ("Active"), so `ActiveUsers.sql` never resolved and leaked
+                // as an effect Op (sql-h2-quickstart parity mismatch).
+                val parts = ln.dropWhile(_ == '#').trim.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
+                if parts.nonEmpty then
+                  val raw = parts.head + parts.tail.map(p => s"${p.head.toUpper}${p.tail}").mkString
+                  lastHeading = if raw.head.isDigit then "_" + raw else raw
             }
             val fenceEnd = noFront.indexOf("\n```", codeStart)
             val code     = if fenceEnd < 0 then noFront.drop(codeStart) else noFront.slice(codeStart, fenceEnd)
@@ -1166,7 +1173,7 @@ object FrontendBridge:
             val recv = go(q)
             if extensionMethods.contains(mname) then CT.App(CT.Global(mname), List(recv))
             else fieldIndex(mname) match
-              case Some(i) => CT.Prim("fieldAt", List(recv, CT.Lit(Const.CInt(i))))
+              case Some(i) => CT.Prim("fieldAt", List(recv, CT.Lit(Const.CInt(i)), CT.Lit(Const.CStr(mname))))
               case None    => CT.Prim("__method__", List(CT.Lit(Const.CStr(mname)), recv))
           case Term.Apply.After_4_6_0(fn, ac) =>
             // Process args directly through go to resolve placeholders as CT.Local(idx)
@@ -1285,7 +1292,7 @@ object FrontendBridge:
           CT.App(CT.Global(name), List(q))
         else
           fieldIndex(name) match
-            case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i))))
+            case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i)), CT.Lit(Const.CStr(name))))
             case None    => CT.Prim("__method__", List(CT.Lit(Const.CStr(name)), q))
 
     // ── Assign ────────────────────────────────────────────────────────────────
@@ -1562,7 +1569,7 @@ object FrontendBridge:
           // If it's a known field accessor with no args, use fieldAt
           else if args.isEmpty then
             fieldIndex(mname) match
-              case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i))))
+              case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i)), CT.Lit(Const.CStr(mname))))
               case None    => CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
           else
             CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
