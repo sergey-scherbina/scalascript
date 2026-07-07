@@ -12,6 +12,36 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jsgen-signal-type-import-vs-preamble — `fixed` (2026-07-07)
+
+- **Found by:** claude (tkv2-components slice) — first .ssc module importing the opaque
+  `Signal` TYPE from `std/ui/primitives.ssc` and emitting to JS.
+- **Symptom:** `ssc emit-js` of any file importing `[Signal, …](std/ui/primitives.ssc)`
+  dies on Node with `SyntaxError: Identifier 'Signal' has already been declared` —
+  the import emits `const Signal = std.ui.primitives.Signal`, colliding with the
+  signals.mjs preamble `function Signal`.
+- **Root cause / fix:** the `jsgen-toplevel-name-vs-preamble` (#5) class. `Signal` is
+  now pre-seeded into `declaredBindings` (like the std/fs file-ops): the import const
+  is skipped; type positions erase, and value uses correctly resolve to the preamble
+  reactivity constructor. `JsGen.scala` declaredBindings init.
+- **Guard:** `tests/conformance/tkv2-component.ssc` (imports the type transitively via
+  `std/ui/component.ssc`, INT==JS).
+
+## jsgen-reserved-param-body-rename — `fixed` (2026-07-07)
+
+- **Found by:** claude (tkv2-components slice) — `std/ui/component.ssc`'s
+  `ctxSignal(ctx, name, default)` parameter named `default`.
+- **Symptom:** a def with a JS-reserved-word parameter (e.g. `default`), emitted through
+  the namespace/object member path (`const f = (a, b, default_p) => …`), renames the
+  formal via `safeJsParam` but NOT the body references — the body emits bare `default`
+  → Node `SyntaxError: Unexpected token 'default'`.
+- **Root cause / fix:** the object-member def emission built `bodyJsRaw` without
+  `withParamRenames` (unlike the top-level def paths at JsGen.scala:2462-2482). Now the
+  same `objDefRenames` map wraps body generation. Any .ssc module function with a
+  reserved-word param was affected on the JS lane.
+- **Guard:** `tests/conformance/tkv2-component.ssc` (ctxSignal carries a `default`
+  param, INT==JS).
+
 ## green-main-full-sbt-test-gating — `open` (2026-07-07)
 
 - **Found by:** codex, while verifying the `plugin-cli-oslib-shadow` fix.

@@ -3331,6 +3331,31 @@ The draft copies `serverName` while pristine. The first `inputChange` or
 `setSignal` write marks it dirty; later refreshes of `serverName` do not
 overwrite the edited draft.
 
+#### Components — instance-scoped signals (`std/ui/component.ssc`)
+
+Signal names are global, so a reusable widget function that calls
+`signal("count", 0)` would collide with itself when instantiated twice.
+`component(kind, key)(body)` scopes a `Ctx`: signals created through
+`ctxSignal(ctx, name, default)` register as `"<kind>__<key>__<name>"` —
+one namespace per instance. Props are just the function's typed parameters.
+
+```scalascript
+[Ctx, component, ctxSignal](std/ui/component.ssc)
+
+def counterCard(key: String, label: String): TkNode =
+  component("counterCard", key)(ctx => {
+    val count = ctxSignal(ctx, "count", 0)
+    cardWithHeader(heading(3, label))(
+      hstack(gap = 8)(signalText_(count), actionButton(incSignal(count), "+1"))
+    )
+  })
+```
+
+Segments are sanitized to valid JS identifiers (non-`[A-Za-z0-9_]` chars
+become `_`); keys must be unique per `kind`. Nested components scope through
+`childCtx(parent, kind, key)`. Runnable example:
+`examples/frontend/component-demo/component-demo.ssc`.
+
 ---
 
 ### 17.5 Widget catalog
