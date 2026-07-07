@@ -1,0 +1,79 @@
+---
+name: ui-component
+version: 1.0.0
+description: Component scopes — instance-scoped signal names for reusable widgets. ssc toolkit v2 (specs/ssc-toolkit-v2.md), slice tkv2-components.
+package: std.ui.component
+exports:
+  - Ctx
+  - component
+  - childCtx
+  - ctxClean
+  - ctxName
+  - ctxSignal
+  - ctxSeedSignal
+---
+
+# `std.ui.component` — component scopes
+
+A component is an ordinary function: its **props are its typed parameters**,
+and its **local state** lives in signals namespaced to one instance.
+`component(kind, key)(body)` builds a `Ctx`; `ctxSignal(ctx, name, default)`
+registers `"<kind>__<key>__<name>"` instead of a bare global name, so two
+instances with distinct keys get independent state, and a reusable widget
+function stops being a signal-name collision hazard.
+
+```scala
+def counterCard(key: String, label: String): TkNode =
+  component("counterCard", key)(ctx => {
+    val count = ctxSignal(ctx, "count", 0)
+    card(heading(3, label), signalText_(count), signalButton(count, ...))
+  })
+```
+
+Signal ids must be valid JS identifiers (`[A-Za-z_][A-Za-z0-9_]*` — the React
+emitter derives `useState` variable names from them), so segments are joined
+with `__` and every non-`[A-Za-z0-9_]` character in `kind`/`key`/`name` is
+mapped to `_`. Give `kind` a letter-leading name; prefer keys that are already
+clean identifiers — `"a-b"` and `"a_b"` sanitize to the same id.
+
+Keys must be unique per `kind` — two instances sharing `kind + key` share
+signals (the emitter's duplicate-registration check catches conflicting
+defaults). Instance signals currently live for the app's lifetime (the view
+tree is built once); disposal on unmount lands with keyed reconciliation
+(`tkv2-keyed-for`, see `specs/ssc-toolkit-v2.md`).
+
+[Signal, signal, seedSignal](primitives.ssc)
+
+```scalascript
+case class Ctx(prefix: String)
+
+// substring+contains instead of char comparisons — chars box differently on
+// the JS lane, string ops are lane-portable.
+val ctxAllowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+
+def ctxClean(s: String): String = {
+  var out = ""
+  var i = 0
+  while i < s.length do {
+    val ch = s.substring(i, i + 1)
+    out = out + (if ctxAllowed.contains(ch) then ch else "_")
+    i = i + 1
+  }
+  out
+}
+
+def component[N](kind: String, key: String)(body: Ctx => N): N =
+  body(Ctx(ctxClean(kind) + "__" + ctxClean(key)))
+
+def childCtx(parent: Ctx, kind: String, key: String): Ctx =
+  Ctx(parent.prefix + "__" + ctxClean(kind) + "__" + ctxClean(key))
+
+def ctxName(ctx: Ctx, name: String): String =
+  ctx.prefix + "__" + ctxClean(name)
+
+def ctxSignal[T](ctx: Ctx, name: String, default: T): Signal[T] =
+  signal(ctxName(ctx, name), default)
+
+def ctxSeedSignal(ctx: Ctx, name: String, source: Signal[String]): Signal[String] =
+  seedSignal(ctxName(ctx, name), source)
+```

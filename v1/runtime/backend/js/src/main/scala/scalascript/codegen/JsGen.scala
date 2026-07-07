@@ -360,7 +360,13 @@ class JsGen(
     private[codegen] val declaredBindings: mutable.Set[String] =
       mutable.Set("Left", "Right", "Some", "None", "Nil",
         "readFile", "writeFile", "appendFile", "readBytes", "writeBytes", "exists",
-        "isFile", "isDir", "mkdir", "mkdirs", "listDir", "deleteFile", "copyFile", "moveFile"),
+        "isFile", "isDir", "mkdir", "mkdirs", "listDir", "deleteFile", "copyFile", "moveFile",
+        // `Signal` is std/ui/primitives' opaque TYPE; its runtime value is the signals.mjs
+        // preamble `function Signal`. Importing it (`[Signal, …](std/ui/primitives.ssc)`)
+        // must not emit `const Signal = std.ui.primitives.Signal` — that redeclares the
+        // preamble function (SyntaxError). Type positions erase; value uses correctly hit
+        // the preamble constructor.
+        "Signal"),
     // Shared across parent + all child generators: top-level (global) enum-case binding names
     // already emitted. Two enums in different modules that share a parameterless case name
     // (e.g. ObligationStatus.Pending and DeferredActionStatus.Pending) each emit a global
@@ -2742,13 +2748,20 @@ class JsGen(
         val savedCbMap2 = cbSummonMap.toMap
         cbSummonMap.clear()
         objCbParams.foreach { (pname, skey) => cbSummonMap(skey) = pname }
-        val bodyJsRaw = dd.body match
-          case Term.Block(bodyStats) =>
-            if objCbGuards.isEmpty then genBlockAsIife(bodyStats)
-            else s"{ ${objCbGuards.mkString(" ")} return ${genBlockAsIife(bodyStats)}; }"
-          case expr =>
-            if objCbGuards.isEmpty then genExpr(expr)
-            else s"{ ${objCbGuards.mkString(" ")} return ${genExpr(expr)}; }"
+        // Reserved-word params are renamed in the signature (safeJsParam, e.g.
+        // `default` → `default_p`); the body must see the same renames or its
+        // references emit the bare reserved word (SyntaxError on Node).
+        val objDefRenames = allClauses.flatMap(_.values).map(_.name.value)
+          .collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
+        val bodyJsRaw = withParamRenames(objDefRenames) {
+          dd.body match
+            case Term.Block(bodyStats) =>
+              if objCbGuards.isEmpty then genBlockAsIife(bodyStats)
+              else s"{ ${objCbGuards.mkString(" ")} return ${genBlockAsIife(bodyStats)}; }"
+            case expr =>
+              if objCbGuards.isEmpty then genExpr(expr)
+              else s"{ ${objCbGuards.mkString(" ")} return ${genExpr(expr)}; }"
+        }
         cbSummonMap.clear()
         cbSummonMap ++= savedCbMap2
         def clauseSig(params: List[Term.Param]): String =

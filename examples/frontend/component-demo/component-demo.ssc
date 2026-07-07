@@ -1,0 +1,48 @@
+---
+name: component-demo
+version: 1.0.0
+description: Reusable component with instance-scoped signals — three counter cards, each owning its own count (std/ui/component.ssc, ssc toolkit v2).
+frontend: custom
+---
+
+# component-demo — instance-scoped components
+
+Three instances of one `counterCard` component. Each owns its `count` signal
+(`counterCard/<key>/count`), so clicking one card's `+1` never touches the
+others — the reusable widget function is no longer a signal-name collision
+hazard. Run `ssc run examples/frontend/component-demo/component-demo.ssc`,
+then open <http://localhost:8080>.
+
+[signal, incSignal, serve](std/ui/primitives.ssc)
+[Ctx, component, ctxSignal](std/ui/component.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[actionButton](std/ui/input.ssc)
+[signalText_](std/ui/reactive.ssc)
+[cardWithHeader](std/ui/containers.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+def counterCard(key: String, label: String): TkNode =
+  component("counterCard", key)(ctx => {
+    val count = ctxSignal(ctx, "count", 0)
+    cardWithHeader(heading(3, label))(
+      hstack(gap = 8)(
+        signalText_(count),
+        actionButton(incSignal(count), "+1")
+      )
+    )
+  })
+
+val tree = vstack(gap = 16)(
+  heading(1, "Component demo — three independent counters"),
+  text("Each card is one component instance; its count signal is scoped to its key."),
+  counterCard("a", "Counter A"),
+  counterCard("b", "Counter B"),
+  counterCard("c", "Counter C")
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```

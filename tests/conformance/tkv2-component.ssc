@@ -1,0 +1,48 @@
+---
+name: tkv2-component
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 — component scopes (instance-scoped signal names)
+
+Slice `tkv2-components` of `specs/ssc-toolkit-v2.md`: a reusable widget
+function gets instance-scoped signals via `component`/`Ctx` instead of
+colliding module-global names.
+
+[Ctx, component, childCtx, ctxClean, ctxName, ctxSignal](std/ui/component.ssc)
+
+```scalascript
+// Instance scoping: same component, different keys → distinct names;
+// same key → the same (stable) name.
+def counterName(key: String): String =
+  component("counter", key)(ctx => ctxName(ctx, "count"))
+
+println(counterName("a"))
+println(counterName("b"))
+println(counterName("a") == counterName("a"))
+println(counterName("a") == counterName("b"))
+
+// Ids stay valid JS identifiers: non-[A-Za-z0-9_] chars sanitize to '_'
+// (signal ids feed React useState variable names — emitter contract).
+println(counterName("pit-28/2026"))
+
+// Signals created through a Ctx are real signals reading their own defaults.
+val sigA = component("card", "a")(ctx => ctxSignal(ctx, "expanded", false))
+val sigB = component("card", "b")(ctx => ctxSignal(ctx, "expanded", true))
+println(sigA())
+println(sigB())
+
+// The generic wrapper passes String and Int defaults through.
+val draft = component("form", "f1")(ctx => ctxSignal(ctx, "draft", "hello"))
+val tick  = component("form", "f1")(ctx => ctxSignal(ctx, "tick", 0))
+println(draft())
+println(tick())
+
+// Nesting: childCtx prefixes compose parent → child.
+val nested = component("page", "home")(ctx => {
+  val row = childCtx(ctx, "row", "42")
+  ctxName(row, "open")
+})
+println(nested)
+```
