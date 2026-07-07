@@ -89,12 +89,21 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       global-resolution trap) — bind module functions to local vals before closing over them.
 - [ ] **tkv2-keyed-for** — `forKeyed(items, key)(render)`: keyed reconciliation in the JsGen/custom
       runtime (today `View.ForSignal` wipes + rebuilds the container); component signals survive moves.
+      DESIGN NOTES (2026-07-07 survey): the emit-spa renderer (signals.mjs `_ssc_ui_renderBody`) is
+      HTML-STRING based (walk → join) with a post-injection bind pass (`_ssc_ui_mount`: querySelectorAll
+      over data-ssc-* attrs + closure-local _sub/_sv bridge). Keyed-for needs: a `_ForKeyed` node
+      (container `data-ssc-forkeyed`, children `data-ssc-key`), reconcile-on-items-change (reuse DOM
+      node by key = state survives; append order = moves; remove missing), and a REFACTOR of
+      `_ssc_ui_mount` to late-bind dynamically inserted subtrees (its _sub/_sv are closure-local
+      today). Item-value changes with same key deliberately do NOT re-render — inner state flows
+      through per-item signals (component model). This is a focused-session slice.
 - [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
       missing entirely; the server verifier exists on JVM + JS. Option shapes match `webauthnStore*`.
 - [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =
       existing in-process transport (fullstack spec phases 0–5).
-- [ ] **tkv2-theme-css-vars** — `cssVariables(theme)` emitter (busi's instrument-panel theme as one
-      ssc object driving toolkit + legacy CSS).
+- [x] **tkv2-theme-css-vars** ✓ DONE 2026-07-07 (taken out of order — small) — `cssVariables(t: Theme)`
+      in theme.ssc: the theme as `:root { --ssc-* }` custom properties; one ssc value drives toolkit
+      AND hand-kept CSS. Conformance `tkv2-theme-css-vars` INT==JS.
 
 ### Local model session help (2026-07-07)
 

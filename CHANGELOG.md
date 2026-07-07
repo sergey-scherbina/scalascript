@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: tkv2-theme-css-vars — the theme as CSS custom properties
+
+`cssVariables(t: Theme)` in `std/ui/theme.ssc` — emits `:root { --ssc-color-*, --ssc-space-*,
+--ssc-font-*, --ssc-radius-* }` so one ssc Theme value drives both the toolkit and any hand-kept
+CSS (busi's instrument-panel identity without a parallel theme.css). Conformance
+`tkv2-theme-css-vars` INT==JS.
+
 ## 2026-07-07 — std/ui: stackedColumn — two-line datatable cell
 
 `stackedColumn(title, fieldPath, subFieldPath, align)` in std/ui/primitives.ssc + a `'stacked'`
