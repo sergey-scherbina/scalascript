@@ -110,7 +110,12 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       because `crypto-plugin.sscpkg` is staged under `bin/lib/compiler/plugin-available/` (advanced, opt-in),
       while the test is marked `backends: [int, js]`. Decide per case whether to auto-load the plugin, add an
       explicit plugin flag to the runner, or narrow/pending the conformance case to the backend it actually
-      validates. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
+      validates. 2026-07-07 targeted check: `scripts/conformance -- --only mcp-types` passes INT but JS fails
+      with `SyntaxError: Identifier 'args' has already been declared` because the fixture's `val args` collides
+      with the JS preamble `function args()` (tracked in BUGS.md `jsgen-toplevel-name-vs-preamble`). Narrow fix:
+      rename that fixture local to `mcpArgs` so the MCP conformance case is not blocked by the known unrelated
+      JS top-level-name bug; done in `2e1f2c287`, and
+      `scripts/conformance -- --only mcp-types --no-memo` now passes INT/JS. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
       from the default `bin/ssc` launcher.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
@@ -129,9 +134,9 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       (handler/resume, effectful `String*` mains, arithmetic/HOF effect bodies, cross-module effects);
       `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` had one value-shape failure in
       `loadBackend` (`Long` vs `DataValue.IntV`, fixed in `7e2650e2c`); and
-      `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` has one `mcp-types` failure
-      (`user.name` blank; missing-field validation prints `no error`). Next slice: fix the
-      `mcp-types` bridge regression, then WASM effects, and only then rerun root `sbt "test"`.
+      `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` had one `mcp-types` failure
+      (`user.name` blank; missing-field validation printed `no error`, fixed in `2e1f2c287`).
+      Next slice: fix WASM effects, then re-check the Scala.js fallout, and only then rerun root `sbt "test"`.
       Done-when: the affected suites pass or are intentionally isolated/pending with documented CI policy,
       and a subsequent root `sbt "test"` no longer fails on this set.
 

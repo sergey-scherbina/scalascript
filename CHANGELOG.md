@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - fix(v2): mcp-types std def shadowing
+
+Fixed the `v2FrontendBridge` `mcp-types` blocker by letting real imported
+`.ssc` definitions shadow same-named plugin globals; `std/mcp/types.ssc`
+`requireString` now throws `McpError` instead of calling the `validate {}`
+helper. Also renamed the conformance fixture local `args` to `mcpArgs` to avoid
+the already tracked JS preamble-name collision. Verified full
+`v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` (62/62) and
+`scripts/conformance -- --only mcp-types --no-memo` (INT/JS pass).
+
 ## 2026-07-07 - fix(test): PluginBridge raw NativeImpl args
 
 Fixed the `v2PluginBridge` root-suite blocker by updating the stub backend test

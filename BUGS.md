@@ -101,14 +101,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
   (`IntV` args arrive at `NativeImpl` as `Long`, and raw `Long` returns wrap back
   to v2 `IntV`); targeted `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest`
   passes 22/22.
+- **Progress (2026-07-07, `2e1f2c287`):** `V2ConformanceTest` fixed by letting
+  real `.ssc` `Defn.Def` bodies shadow same-named plugin globals after
+  `stripExternDecls`; `std/mcp/types.ssc` `requireString` now wins over the
+  `validate {}` helper in mcp imports. Also renamed the conformance fixture's
+  local `args` to `mcpArgs` so the JS lane avoids the known
+  `jsgen-toplevel-name-vs-preamble` collision. Verified full
+  `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` (62/62) and
+  `scripts/conformance -- --only mcp-types --no-memo` (INT/JS pass).
 - **Remaining targeted blockers (2026-07-07):**
   `backendWasm/testOnly scalascript.codegen.WasmBackendTest` still has 7
   effectful-WASM failures: handler/resume and `String*` effectful mains print
   empty output or throw under Node v26.4.0, arithmetic/HOF effect bodies print
   empty output, and the cross-module imported-effect case prints empty output.
-  `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` fails only
-  `mcp-types`: `user.name` prints blank instead of `Alice`, and the missing-field
-  check prints `no error` instead of `McpError: missing field: 'missing'`.
+  Scala.js `loadedTestFrameworks` fallout still needs re-checking after the
+  deterministic JVM/v2/WASM failures are fixed.
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
@@ -261,6 +268,13 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #5 of 5 in `src/v2/specs/lf-1-browser-bundle.md`.
 - **Symptom:** a top-level user binding named exactly like a preamble helper (e.g. `val scope = …` vs the runtime's user-facing `function scope(scopeName)` for CSS scoping, SPEC §8.4) emits a colliding top-level `const scope = …` → `SyntaxError: Identifier 'scope' has already been declared` under `node --check`. Other preamble names (`doc`, `escape`, `assert`, `List`, `Decimal`, …) can collide the same way.
+- **Additional repro (2026-07-07):** `scripts/conformance -- --only mcp-types`
+  passes INT but JS fails before printing anything because
+  `tests/conformance/mcp-types.ssc` used `val args = ...`, colliding with the
+  JS preamble's `function args()` from `std/os`. The conformance fixture should
+  avoid this unrelated known bug (`mcpArgs`), while the general name-mangling
+  fix remains open here. Fixture workaround landed in `2e1f2c287`; the broad
+  top-level user-binding rename is still open.
 - **Workaround (documented in the lf-1 spec):** name the top-level binding something the preamble doesn't define (e.g. `lfScope`). Low frequency.
 - **Fix sketch (deferred):** a robust fix needs the set of names the (capability-gated) preamble declares; emit a colliding top-level user binding under a renamed identifier (propagating references) or as a shadow. There is a curated `preambleConsts = Set("Console","attr","scope")` in JsGen used today only for *object* declarations (via `Object.assign`); it would need to cover `val`/`def`/`enum` and the full preamble surface. Left as a documented limitation pending the dedicated effort.
 
