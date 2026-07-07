@@ -1993,21 +1993,34 @@ object Prims:
           ClosV(Runtime.emptyEnv, 1, env => Done(callClos(f, Array(callClos(g, Array(env.last))))))
         case (v, "toString", Nil) => StrV(anyStr(v))
         case _ =>
-          V2PluginRegistry.lookup(s"__method__.$name") match
+          // An ACTIVE effect handler on an empty-DataV receiver wins over the
+          // generic __method__.* natives: State.get() inside runState { … }
+          // was swallowed by __method__.get's `case _ => Stub` fallback and
+          // the runner's handler never saw the op. Dynamic scope > generic
+          // method — nothing pushes contexts for Storage/map receivers, so
+          // their __method__.get behaviour is unchanged.
+          val activeCtx = recv match
+            case DataV(ctxTag, IndexedSeq()) => V2EffectContext.peek(ctxTag)
+            case _                            => None
+          if activeCtx.isDefined then activeCtx.get.apply(name, margs)
+          else V2PluginRegistry.lookup(s"__method__.$name") match
             case Some(fn) => fn(a)
             case None =>
               // Effect dispatch: DataV("Logger"/"State"/...) with no method → check effect context
               recv match
                 case DataV(effectTag, IndexedSeq()) =>
-                  // Check for a plugin method registered as "Tag.method" before effect dispatch.
-                  // Db.query/execute etc. are plugins, not algebraic effects.
-                  V2PluginRegistry.lookup(s"$effectTag.$name") match
-                    case Some(pluginFn) => pluginFn(margs)
+                  // Dispatch order: an ACTIVE effect handler (dynamic scope) wins over a
+                  // plugin native registered under the same "Tag.method" (static default).
+                  // State.get is both a stdlib intrinsic AND a parameterized effect op —
+                  // inside `runState { … }` the runner's handler must see it; the intrinsic
+                  // (reading v1 TLS that is empty on v2) returned Stub and shadowed the
+                  // whole State-effect family. Db.query/execute keep working: nothing
+                  // pushes a "Db" context, so peek misses and the plugin handles them.
+                  V2EffectContext.peek(effectTag) match
+                    case Some(handler) => handler(name, margs)
                     case None =>
-                      // Active effect handler wins (aligns the batch path with methodOp);
-                      // only with NO handler does the call escape as a Free monad Op.
-                      V2EffectContext.peek(effectTag) match
-                        case Some(handler) => handler(name, margs)
+                      V2PluginRegistry.lookup(s"$effectTag.$name") match
+                        case Some(pluginFn) => pluginFn(margs)
                         case None => V2PluginRegistry.lookup(s"__fallback__.$effectTag.$name") match
                           case Some(fallbackFn) =>
                             // Bridge-registered LAST-RESORT native (e.g. Dataset.* over

@@ -51,6 +51,7 @@ object PluginBridge:
    *  BlockForm runners. Also registers the built-in `handle` global. */
   def loadAll(): Int =
     registerHandle()
+    registerRunStream()
     registerSys()
     registerInterpreterBuiltins()
     registerAmbientEffectOps()
@@ -1696,6 +1697,37 @@ object PluginBridge:
       }),
     ).asInstanceOf[AnyRef])
     V2PluginRegistry.registerGlobal("sys", sysObj)
+
+  /** `runStream { body }` — v1 keeps this runner in interpreter CORE (not a
+   *  BlockForm), so the auto-bridge never picks it up. Semantics: run the body
+   *  under a "Stream" effect context; `emit` collects, `complete()` aborts the
+   *  rest of the body; result = (Source, bodyResult) where Source exposes
+   *  runToList(). Relies on Op statement-threading (84503577e) for emits in
+   *  statement position. */
+  private final class StreamComplete extends RuntimeException
+  private def registerRunStream(): Unit =
+    if V2PluginRegistry.lookupGlobal("runStream").isDefined then return
+    V2PluginRegistry.registerGlobal("runStream", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      val thunk = env.last match
+        case t: V2Value.ClosV if t.arity == 0 => t
+        case other => sys.error(s"runStream: expected a block, got ${Show.show(other)}")
+      val buf = scala.collection.mutable.ListBuffer[V2Value]()
+      val handler: V2EffectContext.EH = (op, args) => op match
+        case "emit"     => buf += args.head; V2Value.UnitV
+        case "complete" => throw new StreamComplete
+        case other      => sys.error(s"runStream: unsupported Stream.$other")
+      V2EffectContext.push("Stream", handler)
+      val bodyResult =
+        try callThunk(thunk)
+        catch { case _: StreamComplete => V2Value.UnitV }
+        finally V2EffectContext.pop("Stream")
+      val items = buf.toList.foldRight(V2Value.DataV("Nil", Vector.empty): V2Value)(
+        (x, acc) => V2Value.DataV("Cons", Vector(x, acc)))
+      val source = V2Value.ForeignV(scala.collection.immutable.Map[String, V2Value](
+        "runToList" -> V2Value.ClosV(Runtime.emptyEnv, 0, _ => Done(items)),
+      ).asInstanceOf[AnyRef])
+      Done(V2Value.DataV("Tuple2", Vector(source, bodyResult)))
+    }))
 
   private def registerHandle(): Unit =
     if V2PluginRegistry.lookupGlobal("handle").isDefined then return // idempotent
