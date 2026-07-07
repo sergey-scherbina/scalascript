@@ -62,6 +62,34 @@ object Runtime:
   /** Applying a non-closure value: bridged v1 facade objects (NamedMethodObj,
    *  e.g. the json plugin's JsonValue) expose an `apply` FIELD — call it.
    *  Everything else is the familiar error. */
+  /** Free-monad STATEMENT threading: a non-final statement that evaluates to an
+   *  effect Op must not be discarded — the remaining statements become the Op's
+   *  continuation, so `Console.writeLine(x); rest` inside handle() reaches the
+   *  handler and then continues with `rest`. Without this, any effect op in
+   *  statement position silently vanished (the whole effects-semantics
+   *  divergence class: examples/effects.ssc, algebraic-effects.ssc). */
+  /** Let-binding variant of [[seqThreadOp]]: the resumed VALUE is needed by the
+   *  continuation (it becomes the bound val), not just control flow. */
+  def letThreadOp(op: Value, use: Value => Value): Value = op match
+    case Value.DataV("Op", IndexedSeq(l, a, k)) =>
+      val kc = k.asInstanceOf[Value.ClosV]
+      val k2 = Value.ClosV(Array[Value](kc), 1, env2 => {
+        val r = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
+        Done(letThreadOp(r, use))
+      })
+      Value.DataV("Op", Vector(l, a, k2))
+    case v => use(v)
+
+  def seqThreadOp(op: Value, rest: () => Value): Value = op match
+    case Value.DataV("Op", IndexedSeq(l, a, k)) =>
+      val kc = k.asInstanceOf[Value.ClosV]
+      val k2 = Value.ClosV(Array[Value](kc), 1, env2 => {
+        val r = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
+        Done(seqThreadOp(r, rest))
+      })
+      Value.DataV("Op", Vector(l, a, k2))
+    case _ => rest()
+
   def applyFallback(v: Value, avs: Array[Value]): Step = v match
     case Value.DataV("Op", IndexedSeq(l, a, k)) =>
       val kc = k.asInstanceOf[Value.ClosV]
@@ -240,11 +268,37 @@ object Compiler:
               case BoolV(false) => ec(env)
               case v => sys.error(s"if: condition not Bool: ${Show.show(v)}")
       case Let(rhs, body) =>
-        val rcs = rhs.map(compile); val bc = compile(body)
+        val rcs = rhs.map(compile).toArray; val bc = compile(body)
+        val nRcs = rcs.length
         (env: Env) =>
+          // Common path stays TAIL (bc(e) returns a Step for the trampoline —
+          // 1M-tail-call TCO depends on it). Only when an rhs evaluates to an
+          // effect Op do we leave tail-land: the remaining bindings + body
+          // become the Op's continuation (`val name = Console.readLine()`
+          // used to bind the raw Op and the op never reached the handler).
           var e = env
-          rcs.foreach(rc => e = Runtime.appendOne(e, Runtime.value(rc, e)))  // sequential, non-tail rhs
-          bc(e)                                                      // body: tail
+          var i = 0
+          var opHit: Value | Null = null
+          while (opHit == null) && i < nRcs do
+            val v = Runtime.value(rcs(i), e)
+            v match
+              case opv @ Value.DataV("Op", _) => opHit = opv
+              case _ => e = Runtime.appendOne(e, v); i += 1
+          if opHit == null then bc(e)                                // body: tail
+          else
+            val eAtOp = e; val iAtOp = i
+            def continue(k: Int, e2: Env, x: Value): Value =
+              var e3 = Runtime.appendOne(e2, x)
+              var j = k + 1
+              var op2: Value | Null = null
+              while (op2 == null) && j < nRcs do
+                val v2 = Runtime.value(rcs(j), e3)
+                v2 match
+                  case opv2 @ Value.DataV("Op", _) => op2 = opv2
+                  case _ => e3 = Runtime.appendOne(e3, v2); j += 1
+              if op2 == null then Runtime.run(bc, e3)
+              else Runtime.letThreadOp(op2.asInstanceOf[Value], x2 => continue(j, e3, x2))
+            Done(Runtime.letThreadOp(opHit.asInstanceOf[Value], x => continue(iAtOp, eAtOp, x)))
       case LetRec(lams, body) =>
         val acs = lams.map {
           case Lam(ar, b) => (ar, compile(b))
@@ -417,16 +471,24 @@ object Compiler:
           val fcsArr = fastOpts.map(_.get).toArray
           val nFcs   = fcsArr.length
           (env: Env) =>
-            var k = 0; var last: Value = Value.UnitV
-            while k < nFcs do { last = fcsArr(k)(env); k += 1 }
-            Done(last)
+            def go(k: Int): Value =
+              val v = fcsArr(k)(env)
+              if k == nFcs - 1 then v
+              else v match
+                case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, () => go(k + 1))
+                case _ => go(k + 1)
+            Done(go(0))
         else
           val tcsArr = terms.map(compile).toArray
           val nTcs   = tcsArr.length
           (env: Env) =>
-            var k = 0; var last: Value = Value.UnitV
-            while k < nTcs do { last = Runtime.value(tcsArr(k), env); k += 1 }
-            Done(last)
+            def go(k: Int): Value =
+              val v = Runtime.value(tcsArr(k), env)
+              if k == nTcs - 1 then v
+              else v match
+                case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, () => go(k + 1))
+                case _ => go(k + 1)
+            Done(go(0))
       case Prim(op, args) =>
         // Fast paths for 1/2/3-arg primitives: avoid List[Value] allocation for args
         args match
@@ -491,9 +553,13 @@ object FastCode:
   // `var last` in apply() is a plain JVM local — no ObjectRef boxing.
   final class SeqFastCode(private val fcs: Array[FC], private val n: Int) extends (Env => Value):
     def apply(env: Env): Value =
-      var i = 0; var last: Value = Value.UnitV
-      while i < n do { last = fcs(i)(env); i += 1 }
-      last
+      def go(i: Int): Value =
+        val v = fcs(i)(env)
+        if i == n - 1 then v
+        else v match
+          case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, () => go(i + 1))
+          case _ => go(i + 1)
+      go(0)
 
   /** True if t (a match arm body) only references Local(k) for k < arity.
    *  When true, the arm can be called with a compact env of length = arity,
@@ -828,10 +894,18 @@ object FastCode:
         // Direct captures for 1/2/3 terms: JIT inlines f0/f1/f2 as known types.
         // SeqFastCode fallback for n≥4 keeps class diversity bounded.
         val fcsArr = opts.map(_.get).toArray
+        // Non-final values must be Op-checked (Runtime.seqThreadOp) like every
+        // other Seq path — the plain `f0(env); f1(env)` forms silently dropped
+        // effect Ops in statement position.
+        inline def step(v: Value, rest: () => Value): Value = v match
+          case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, rest)
+          case _ => rest()
         fcsArr.length match
           case 1 => val f0 = fcsArr(0); Some(env => f0(env))
-          case 2 => val f0 = fcsArr(0); val f1 = fcsArr(1); Some(env => { f0(env); f1(env) })
-          case 3 => val f0 = fcsArr(0); val f1 = fcsArr(1); val f2 = fcsArr(2); Some(env => { f0(env); f1(env); f2(env) })
+          case 2 => val f0 = fcsArr(0); val f1 = fcsArr(1)
+                    Some(env => step(f0(env), () => f1(env)))
+          case 3 => val f0 = fcsArr(0); val f1 = fcsArr(1); val f2 = fcsArr(2)
+                    Some(env => step(f0(env), () => step(f1(env), () => f2(env))))
           case n => Some(new SeqFastCode(fcsArr, n))
       else None
     case If(c, th, el) =>
