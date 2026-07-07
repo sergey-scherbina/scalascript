@@ -1,6 +1,6 @@
 feature/finish-green-main 2026-07-07T01:59:05Z
 agent: codex
-heartbeat: 2026-07-07T02:54:22Z
+heartbeat: 2026-07-07T03:08:17Z
 status: in-progress
 done-so-far: plugin-cli-oslib-shadow, CrossBackendIntrinsicParityTest, StableSpiEnforcementTest, JvmGenSwingRuntimeTest, AgentConformanceTest, v2PluginBridge PluginBridgeTest, and v2FrontendBridge mcp-types fixed; affected conformance mcp-types passes INT/JS after fixture avoids known JS val-args preamble collision
-next: fix backendWasm effectful execution failures, then re-check Scala.js fallout and root sbt test
+next: diagnosing backendWasm effectful execution failures, then re-check Scala.js fallout and root sbt test
