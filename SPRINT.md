@@ -71,6 +71,32 @@ Claimable slices for the above (queued 2026-07-07):
       • spark-shared-schema-reader — "unbound global: java" (scala-block java.* use; likely
         belongs in the jvm lane like the typeddata quartet — decide classification).
       Corpus now 171 PASS / 15 FAIL / 9 SKIP(jvm-lane) vs clean-2026-07-07 170/25.
+- [ ] **p3-parity-derives-mirror** — the FATTEST terminating-set parity cluster: derives/
+      Mirror-based codecs render `String|Int` element types as `Any|Any` on v2 (and friends:
+      graph-codecs, typed-object-codec families in the 17-mismatch list). Root: FrontendBridge
+      builds inline Mirrors with `elemTypes = List("Any", ...)` (see the summon[Mirror.Of[X]]
+      case — fieldTypeRegistry exists but defaults to "Any"). Fix: populate fieldTypeRegistry
+      from case-class param decltpe at registerCaseClass time and emit REAL type names in the
+      Mirror ctor; verify with `SSC=bin/ssc scripts/v2-output-parity --all` (gate: mismatch
+      count drops; zero corpus regressions vs same-day clean).
+- [ ] **p3-parity-effects-shape** — effects-family output-shape mismatches on the terminating
+      set (handle/resume result rendering differs from v1). Overlaps p3-effects-output-divergence
+      (the algebraic-effects exit-0 divergence) — take together: fix the v2 VM effects semantics
+      first, then re-measure the shape cluster.
+- [ ] **p3-parity-quoted-macros** — `TermSplicedMacroExprImpl` mismatches: quoted-macro examples
+      produce different (or empty) output on v2 — the bridge has no macro expansion pre-pass
+      (v1 runs MacroCodegen.expand). Decide: port the expansion pre-pass into FrontendBridge
+      or classify macros as v1-frontend-lane for the gate.
+- [ ] **p3-parity-stub-op-leaks** — the 11 v2-error (empty output) terminating examples:
+      remaining Stub/Op leaks at plugin boundaries (content-form-submit, content-live-rows,
+      content-slot, ui-fetch-json parser gap, ui-remote-table, object-store-jdbc). Use
+      SSC_DEBUG_ACTORS-style breadcrumbs + the batch runner; several may be plugin natives
+      one registerX() away (fs-builtins pattern).
+- [ ] **p3-server-actor-parity-harness** — the parity harness SKIPS 132 server/actor examples
+      (two thirds of the corpus have NO output-equality signal). Extend scripts/v2-output-parity:
+      run server examples with a bounded driver (start, probe one route via httpRetry, stop —
+      the AgentConformanceTest pattern), actors with the batch watchdog; diff the bounded stdout.
+      Without this the Phase-3 gate is blind on the biggest class.
 - [ ] **p3-effects-output-divergence** — first concrete v2 effects-SEMANTICS gap:
       `examples/algebraic-effects.ssc` exits 0 on v2 but prints DIFFERENT output than v1
       (v2: `List() / 1 / …` vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`).
