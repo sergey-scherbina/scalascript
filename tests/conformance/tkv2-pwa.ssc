@@ -2,10 +2,6 @@
 name: tkv2-pwa
 version: 1.0.0
 backends: [int]
-pending: plugin lazy-load broken on main (BUGS.md plugin-lazyload-extern-imports) — smtp/tcp/pwa extern imports all fail; enable once fixed. Generators covered by PwaPluginTest meanwhile.
-requires:
-  - std.http
-  - std.pwa
 ---
 
 # tkv2 — std/pwa extensions (cacheVersion, networkFirst, offlineHtml, maskableIcon)

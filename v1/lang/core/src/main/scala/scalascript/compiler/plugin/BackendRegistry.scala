@@ -211,6 +211,30 @@ object BackendRegistry extends PluginRegistry:
   def preambleFor(backendId: String): String =
     extraPreambles.get(backendId).map(_.toString.stripLeading()).getOrElse("")
 
+  // ── Bundled-but-opt-in plugins (`lib/compiler/plugin-available/`) ────
+  // The essential/advanced .sscpkg split keeps STARTUP fast (Main auto-loads
+  // only `plugins/`), but the advanced set must still be reachable lazily:
+  // `Interpreter.ensurePluginsLoaded()` (which only fires on a missing
+  // name/extern) commits every available package via `loadAvailableNow()`.
+  // Without this, std modules backed by advanced plugins (smtp/tcp/pwa/…)
+  // are dead from user code (BUGS.md plugin-lazyload-extern-imports).
+  private var availableDirs: List[os.Path] = Nil
+  private var availableLoaded = false
+
+  /** Register the `plugin-available/` search dirs (called once by the CLI at startup). */
+  def setAvailableDirs(dirs: List[os.Path]): Unit =
+    availableDirs = dirs
+
+  /** Commit every not-yet-loaded `.sscpkg` from the available dirs. Idempotent;
+   *  best-effort per package (a broken archive never takes down the run). */
+  def loadAvailableNow(): Unit =
+    if availableLoaded then return
+    availableLoaded = true
+    availableDirs.filter(os.isDir)
+      .flatMap(d => os.list(d).filter(_.ext == "sscpkg"))
+      .distinct
+      .foreach { p => try loadSscpkg(p) catch case scala.util.control.NonFatal(_) => () }
+
   /** Add a plugin-discovery directory (peer of `~/.scalascript/compiler/plugins/`). */
   def addPluginDir(dir: os.Path): Unit =
     extraPluginDirs += dir

@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## plugin-lazyload-extern-imports — `open` (2026-07-07)
+## plugin-lazyload-extern-imports — `fixed` (2026-07-07)
 
 - **Found by:** claude (tkv2-pwa-adopt slice) — the stock `examples/pwa/pwa-demo.ssc`
   fails on clean origin/main.
@@ -27,8 +27,16 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** every opt-in plugin capability (smtp send, raw TCP / IMAP sim, pwa) is
   dead from user code on main. busi's live deploys pin an older ssc, so production
   is unaffected until a bump.
-- **Note:** `tests/conformance/tkv2-pwa.ssc` is `pending:` on this — flip it on once
-  fixed. The pwa generators are covered by `PwaPluginTest` meanwhile.
+- **Fix (2026-07-07):** the essential/advanced .sscpkg split (fast startup) never
+  wired the advanced set into any load path. Now: Main registers the
+  `plugin-available/` dirs (`BackendRegistry.setAvailableDirs`) and the
+  interpreter's LAZY `ensurePluginsLoaded()` (first missing name/extern) commits
+  them via `BackendRegistry.loadAvailableNow()` (idempotent, best-effort per pkg).
+  Startup stays fast; smtp/tcp/pwa/sql/auth/crypto… are reachable again. Verified:
+  probes ([smtpSend](std/smtp.ssc), [tcpListen](std/tcp.ssc), bare tcpConnect
+  extern), stock pwa-demo boots, `tkv2-pwa` conformance un-pended and green.
+- **Note:** `tests/conformance/tkv2-pwa.ssc` covers the .ssc-level path;
+  `PwaPluginTest` covers the generators.
 
 ## jvmgen-block-call-empty-parens — `open` (2026-07-07)
 

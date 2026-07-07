@@ -268,6 +268,11 @@ class Interpreter(
   private[interpreter] def ensurePluginsLoaded(): Unit =
     if _pluginsLoaded then return
     _pluginsLoaded = true
+    // Commit the bundled-but-opt-in `plugin-available/` packages before
+    // collecting inProcess — the essential/advanced split keeps startup fast,
+    // and this lazy path (first missing name/extern) is exactly where the
+    // advanced set must become reachable (plugin-lazyload-extern-imports).
+    scalascript.compiler.plugin.BackendRegistry.loadAvailableNow()
     import scalascript.backend.spi.NativeImpl
     val plugins = scalascript.compiler.plugin.BackendRegistry.inProcess.toList
     val pluginImpls: List[(scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl)] =

@@ -52,6 +52,10 @@ import ArtifactInfoPrinters.*
         .filter(_.ext == "sscpkg")
         .foreach(BackendRegistry.loadSscpkg)
     }
+  // Register the opt-in `plugin-available/` dirs so the interpreter's lazy
+  // ensurePluginsLoaded() can commit them on first missing name/extern
+  // (plugin-lazyload-extern-imports). Not loaded here — startup stays fast.
+  BackendRegistry.setAvailableDirs(pluginAvailableDirs)
   // Strip global plugin-management flags from anywhere in the
   // argument list before dispatching to a command.  --plugin and
   // --plugin-dir mutate BackendRegistry; --target / --backend are

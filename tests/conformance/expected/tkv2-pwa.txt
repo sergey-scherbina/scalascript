@@ -1,0 +1,11 @@
+ScalaScript web · http://localhost:18631/  (root: .)
+  (backend=jdk)
+Ctrl+C to stop.
+true
+true
+true
+true
+true
+true
+true
+true
