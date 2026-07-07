@@ -34,6 +34,9 @@ commit SHA until the reporter confirms, then they can be trimmed.
   so the durable gate is the second run's failure set above.
 - **Status:** open. Split into focused fixes or intentional skips/pending policy,
   then rerun the affected suites before another root `sbt "test"` attempt.
+- **Progress (2026-07-07, `8dfd2989e`):** `CrossBackendIntrinsicParityTest`
+  fixed by documenting `webauthnConfigureStore` and `webauthnStoreRemove` as
+  JS-core/JVM-`auth-plugin` exceptions; targeted parity test passes.
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 

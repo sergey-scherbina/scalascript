@@ -1,6 +1,6 @@
 feature/finish-green-main 2026-07-07T01:59:05Z
 agent: codex
-heartbeat: 2026-07-07T01:59:05Z
+heartbeat: 2026-07-07T02:02:12Z
 status: in-progress
-done-so-far: plugin-cli-oslib-shadow fixed and pushed; root sbt test blockers recorded
-next: reproduce and fix the smallest deterministic full-suite blocker first
+done-so-far: plugin-cli-oslib-shadow fixed and pushed; CrossBackendIntrinsicParityTest fixed in 8dfd2989e
+next: reproduce StableSpiEnforcementTest and migrate or exempt tcp-plugin value-surface import

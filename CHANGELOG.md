@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - test: WebAuthn auth-plugin intrinsic parity exceptions
+
+Fixed `CrossBackendIntrinsicParityTest` by documenting
+`webauthnConfigureStore` and `webauthnStoreRemove` as JS-core/JVM-`auth-plugin`
+registration-location exceptions. Verified
+`backendInterpreter/testOnly scalascript.CrossBackendIntrinsicParityTest`.
+
 ## 2026-07-07 - fix(test): PluginCliTest os-lib shadow
 
 Fixed the `sbt test` CI blocker in `PluginCliTest`: the test package

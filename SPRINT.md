@@ -114,7 +114,8 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       sbt "test"`. The first run hit a transient Scala 3 compiler crash in `clientEvm/Test/compile`;
       targeted `clientEvm/Test/compile` passed immediately. The second full run completed in 29:08 and
       confirmed `PluginCliTest` passes, but failed unrelated suites: `CrossBackendIntrinsicParityTest`
-      (`webauthnConfigureStore`/`webauthnStoreRemove` JS-only drift), `JvmGenSwingRuntimeTest`,
+      (`webauthnConfigureStore`/`webauthnStoreRemove` JS-only drift; fixed in `8dfd2989e`),
+      `JvmGenSwingRuntimeTest`,
       `StableSpiEnforcementTest` (`tcp-plugin` imports `scalascript.interpreter.Value` from a
       value-surface plugin), `AgentConformanceTest` (`Address already in use` in `beforeAll`), plus
       Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Next slice: reproduce the
