@@ -43,9 +43,17 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `component-demo` browser-driven. Fixed 2 JsGen bugs en route (BUGS.md: Signal-import-vs-preamble,
       reserved-word param body rename). GOTCHA for later slices: char comparisons + regex replaceAll
       diverge between lanes — sanitize with substring+contains (see ctxClean).
-- [ ] **tkv2-offline** — `localStorageGet/Set` + `onlineSignal()` externs (neither exists today;
-      IndexedDB facade exists JsGen-side), `persistedSignal`, `fetchOrLocal(url, tick, local)`.
-      JVM lowering: per-process map storage, `onlineSignal`≡true.
+- [x] **tkv2-offline** ✓ DONE 2026-07-07 — `std/ui/offline.ssc`: `localStorageGet/Set/Remove` +
+      `onlineSignal()` + `persistedSignal(name, default)` externs (frontend-plugin JVM lowering:
+      per-process map + constant-true; signals.mjs `_ssc_ui_*` shims: real localStorage/navigator.onLine
+      in-browser, mem-map/true on Node). ALSO: interp dispatch for `sig.get()`/`sig.set(v)` on
+      ReactiveSignal (JS-lane parity) — makes ui-signal BEHAVIOR conformance-testable INT==JS for all
+      future slices. Conformance `tkv2-offline`; browser-driven via emit-spa (type → localStorage →
+      reload restores → offline badge flips). GOTCHAS: persist via effect-subscription, NOT a set-wrapper
+      (DOM/fetch write through `_signalSet` by id, bypassing the object's .set — caught in the real
+      browser, invisible to the Node conformance run); use `window.localStorage`, not the bare global
+      (Node 26 defines a warning getter). `fetchOrLocal` DEFERRED to the busi-home slice (needs the
+      fetch machinery + a local compute fn — design it against the real screen, not speculatively).
 - [ ] **tkv2-forms** — `FieldSpec` data-DSL (validators as data, JS-translatable — per
       frontend-toolkit-spec risk #1; port the Scala toolkit's `Validators` semantics, today
       unexposed to .ssc) + `form(...)` / `FormCtx` (draft signals, per-field errors, tri-state

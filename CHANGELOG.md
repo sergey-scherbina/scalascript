@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: tkv2-offline — localStorage, onlineSignal, persistedSignal
+
+Second slice of `specs/ssc-toolkit-v2.md`. New `std/ui/offline.ssc`: `localStorageGet/Set/Remove`,
+`onlineSignal()` (navigator.onLine + events in-browser; constant true off-browser), and
+`persistedSignal(name, default)` (initializes from storage, writes every change back — state that
+survives a reload). JVM lowering = per-process map, so the same logic is testable server-side.
+Plus: interpreter dispatch for programmatic `sig.get()`/`sig.set(v)` on ReactiveSignal (JS-lane
+parity) — ui-signal behavior is now conformance-testable INT==JS. Verified: conformance
+`tkv2-offline` INT==JS; `examples/frontend/offline-demo` driven in a real browser over the
+emit-spa path (typing persists to localStorage, reload restores, offline badge flips live).
+Gotcha caught by the browser (not by Node): persistence must subscribe via an effect — DOM/fetch
+write signals through `_signalSet` by id, bypassing a wrapped `.set`.
+
 ## 2026-07-07 - fix(v2): mcp-types std def shadowing
 
 Fixed the `v2FrontendBridge` `mcp-types` blocker by letting real imported
