@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-parity-v2-errors
+worktree: ../scalascript-wt-p3-parity-v2-errors
+started: 2026-07-07
+status: in-progress
+task: p3-parity-stub-op-leaks — the 4 remaining v2-error (v1 works, v2 empty) terminating examples; identify current list via parity run, fix each (advanced-plugin loading 21:00 already flipped 7 of 11)
