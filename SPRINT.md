@@ -67,9 +67,11 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       emits without signals.mjs; SPA drivers must assert page.innerText (textContent includes
       script source + display:none branches). DEFERRED: touched-state (errors show from start),
       submit busy/error tri-state (needs an onFailure fetch effect).
-- [ ] **tkv2-spa-pipeline** — decision recorded in the spec: the production SPA path is
-      `emit-spa`/`JsGen` + the framework-free runtime (react/vue/solid emitters stay demos).
-      Audit `emit-spa` output fully self-contained (no CDN), verify toolkit-v2 externs on it.
+- [x] **tkv2-spa-pipeline** ✓ DONE 2026-07-07 — audited: `emit-spa --frontend custom` output has
+      ZERO external script/link/import tags (offline-demo + form-demo bundles); the only http(s)
+      strings are inert jwt-auth endpoint constants riding the serve→HtmlDsl→Jwt capability chain
+      (tree-shake candidate, size-only). Production path documented in user-guide §17.9; all
+      toolkit-v2 primitives already verified on this path (slices 1–3 browser drives).
 - [ ] **tkv2-pwa-adopt** — `std/pwa.ssc` already exists (manifest + sw + precache): extend with
       busi's needs (offline fallback page, cache versioning, theme fields); busi `http/pwa.ssc`
       replaced by it as the consumer proof.

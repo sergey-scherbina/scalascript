@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: tkv2-spa-pipeline — production SPA path audited + documented
+
+Fourth slice of `specs/ssc-toolkit-v2.md` (docs/audit). `ssc emit-spa --frontend custom` confirmed
+fully self-contained (no CDN/external tags; the http(s) strings in the bundle are inert jwt-auth
+endpoint constants — noted as a tree-shake candidate). The decision "JsGen + framework-free runtime
+= THE production path; react/vue/solid emit-spa flavors stay demos" is now in user-guide §17.9.
+
 ## 2026-07-07 — std/ui: tkv2-forms — validators as data, live errors, validity gating
 
 Third slice of `specs/ssc-toolkit-v2.md`. New `std/ui/form.ssc`: `FieldSpec` data-DSL

@@ -3694,6 +3694,18 @@ ssc serve myapp.ssc               # dev server with hot reload
 ssc myapp.ssc                     # emit bundle to ./dist/
 ```
 
+#### The production SPA path: `emit-spa` (self-contained)
+
+For a deployable single-file SPA, the **production path is
+`ssc emit-spa --frontend custom app.ssc > app.html`** — the whole program is
+compiled by the static JS backend (JsGen) with the framework-free signals
+runtime inlined; the output makes **no external requests** (no CDN scripts,
+no fonts — audited; the OAuth endpoint constants visible in the bundle are
+inert `jwt-auth` runtime strings, only used if OAuth is called). The
+`react`/`vue`/`solid` emit-spa flavors load their framework from a CDN and
+stay demo-grade. All toolkit-v2 primitives (components, offline storage,
+forms) are verified on this path (see `specs/ssc-toolkit-v2.md`).
+
 ---
 
 ### 17.10 Full example
