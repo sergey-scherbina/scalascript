@@ -28,7 +28,7 @@ Remaining 21 batch fails, classified:
 
 ### Green main recovery (2026-07-06, user asked to finish the stabilization)
 
-- [ ] **green-main-crypto-ci** — restore `origin/main` to a buildable state before more v2 feature work.
+- [x] **green-main-crypto-ci** — restore `origin/main` to a buildable state before more v2 feature work.
       Why: the latest CI push is red in markdownlint, `sbt compile cli/assembly`, and conformance; v2 parity
       work is hard to trust while the main branch cannot assemble the launcher.
       How: first fix the concrete compile blocker in `payments/crypto/bouncycastle/BouncyCastleBackend.scala`
@@ -39,6 +39,23 @@ Remaining 21 batch fails, classified:
       of the failed launcher or a separate runner issue, and record any remaining follow-up separately.
       Done-when: `cd <worktree> && sbt "cryptoBouncycastle/compile"` passes; broader compile/assembly is either
       green or has a newly diagnosed next blocker recorded here.
+      Result: fixed the compile blocker by replacing the wildcard `scalascript.crypto.*` import in
+      `BouncyCastleBackend.scala` with explicit SPI imports, so unqualified `ChaCha20Poly1305` and `X25519`
+      resolve to the JVM/BouncyCastle package helpers again. Verified:
+      `sbt "cryptoBouncycastle/compile"`, `sbt "cryptoBouncycastle/test"` (55/55), and
+      `sbt "compile" "cli/assembly"` all pass in `/Users/sergiy/work/my/scalascript-wt-finish-green-main`.
+
+- [ ] **green-main-conformance-gating** — fix the remaining CI conformance failures separately from the crypto
+      compile blocker. Repro from the same worktree after `bash install.sh --dev`:
+      `scripts/conformance -- --no-memo` starts running but shows multiple pre-existing non-crypto clusters:
+      INT actor/cluster tests print empty output while JS/JVM pass; JVM-only cluster/distributed/effect-imported
+      tests print empty output; `http-client` returns `0`/empty and then stalls on a network-adjacent section.
+      A single-case check `scripts/conformance -- --only js-crypto-extern-standalone --no-memo` also fails INT
+      because `crypto-plugin.sscpkg` is staged under `bin/lib/compiler/plugin-available/` (advanced, opt-in),
+      while the test is marked `backends: [int, js]`. Decide per case whether to auto-load the plugin, add an
+      explicit plugin flag to the runner, or narrow/pending the conformance case to the backend it actually
+      validates. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
+      from the default `bin/ssc` launcher.
 
 ### Workflow polish (2026-07-06, Sergiy approved proposals 1-2)
 

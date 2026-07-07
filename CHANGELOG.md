@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — fix(crypto): BouncyCastle helper-name resolution
+
+Fixed the CI compile blocker in `BouncyCastleBackend`: the wildcard `scalascript.crypto.*`
+import shadowed the same-package JVM helper objects `ChaCha20Poly1305` and `X25519`, so
+the backend tried to call portable-reference APIs that do not expose the JVM helper method
+names. The backend now imports only the SPI types it needs, letting the same-package helpers
+resolve correctly. Verified `cryptoBouncycastle/compile`, `cryptoBouncycastle/test` (55/55),
+and `compile` + `cli/assembly`.
+
 ## 2026-07-06 — v2 conformance: html-dsl + rest-validate bridge (v2-conf-pure-gated)
 
 Full HTML tag DSL registered in PluginBridge: `div`, `p`, `ul`, `li`, `a`, `h1`–`h6`, `em`, `strong`,
