@@ -1343,6 +1343,24 @@ object Prims:
     // Data (generic reflection)
     case "tagOf"   => a => StrV(asData(a(0))._1)
     case "arity"   => a => IntV(asData(a(0))._2.length.toLong)
+    case "__autoPrint__" => a =>
+      // v1 auto-output: print a fence's final expression value unless Unit
+      // (or an unhandled effect Op — those surface through `handle`, not here).
+      a(0) match
+        case UnitV => UnitV
+        case DataV("Op", _) => UnitV
+        case v => println(anyStr(v)); UnitV
+    case "__mdStrip__" => a => a(0) match
+      case StrV(s) =>
+        // v1 Interpreter.stripIndent: drop blank edge lines, remove the
+        // minimum leading-space indent of the non-blank body lines.
+        val lines = s.split('\n').toList
+        val body  = lines.dropWhile(_.isBlank).reverse.dropWhile(_.isBlank).reverse
+        if body.isEmpty then StrV("")
+        else
+          val minIndent = body.filter(_.exists(_ != ' ')).map(_.takeWhile(_ == ' ').length).minOption.getOrElse(0)
+          StrV(body.map(l => if l.isBlank then "" else l.drop(minIndent)).mkString("\n"))
+      case other => other
     case "fieldAt" => a => a(0) match
       case DataV("Stub", _) => DataV("Stub", Vector.empty)  // stub: field access on Stub returns stub
       case DataV(_, fields) =>
@@ -2419,6 +2437,14 @@ object IrEncode:
     case x => sys.error(s"coreir.encode: expected list, got ${Show.show(x)}")
 
 object Show:
+  /** Pluggable renderer for opaque ForeignV payloads. The v1 bridge installs a
+   *  callback that renders native v1 interpreter Values (DocV, MarkupV, …) via
+   *  v1's own show — the v2 kernel itself stays v1-free. Return null to decline. */
+  @volatile var foreignRenderer: (AnyRef => String | Null) | Null = null
+  private[ssc] def tryForeign(h: AnyRef): String | Null =
+    val fr = foreignRenderer
+    if fr == null then null else fr(h)
+
   import Value.*
   def show(v: Value): String = v match
     case UnitV        => "()"
@@ -2437,5 +2463,7 @@ object Show:
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
-    case ForeignV(_)  => "<foreign>"
+    case ForeignV(h)  =>
+      val r = tryForeign(h)
+      if r == null then "<foreign>" else r
     case c: LongCellV => s"<lcell:${c.v}>"

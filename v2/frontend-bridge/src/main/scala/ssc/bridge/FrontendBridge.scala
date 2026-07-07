@@ -406,6 +406,9 @@ object FrontendBridge:
    *  Handles .ssc file format: optional shebang + YAML front matter + markdown prose +
    *  ```scalascript...``` fence; if no fence, uses the whole source. */
   def convertSource(src: String, fileDir: Option[java.io.File] = None): Program =
+    // Expose the parsed document to content-introspection natives
+    // (contentBlock/contentData read markdown tables & yaml fences from it).
+    PluginBridge.setDocumentFromSource(src)
     // Reset per-file state so batch runs don't pollute each other
     fieldRegistry.clear()
     extensionMethods.clear()
@@ -780,10 +783,36 @@ object FrontendBridge:
                 blocks += s"""val _sqlBlock_$sqlBlockIdx = __sql_$lastHeading"""
                 sqlBlockIdx += 1
               case _ =>
-                blocks += filterImportLines(code)
+                blocks += autoPrintLast(filterImportLines(code))
             pos = if fenceEnd < 0 then noFront.length else fenceEnd + 4
             if pos >= noFront.length then done = true
       blocks.mkString("\n")
+
+  /** v1 auto-output: the LAST expression of a top-level fence is printed when
+   *  it is not Unit (SectionRuntime prints each section's final value). Parse
+   *  the fence and textually wrap its last statement in __autoPrint__(…) when
+   *  that statement is an EXPRESSION (not a definition/val/import). */
+  private def autoPrintLast(code: String): String =
+    try
+      given Dialect = Scala3
+      // Parse the same two ways parseStats does, but keep track of the OFFSET
+      // between parsed positions and `code` (the block fallback prepends "{\n").
+      val (stats, off): (List[Stat], Int) = code.parse[Source] match
+        case Parsed.Success(tree) => (tree.stats.toList, 0)
+        case _: Parsed.Error =>
+          s"{\n$code\n}".parse[Term] match
+            case Parsed.Success(Term.Block(ss)) => (ss.toList, 2)
+            case _                              => (Nil, 0)
+      if stats.isEmpty then code
+      else stats.last match
+        case _: Defn | _: Decl | _: Import | _: Term.Assign => code
+        case last: Term =>
+          val s = last.pos.start - off; val e = last.pos.end - off
+          if s >= 0 && e <= code.length && s < e
+          then code.substring(0, s) + "__autoPrint__(" + code.substring(s, e) + ")" + code.substring(e)
+          else code
+        case _ => code
+    catch case _: Throwable => code
 
   /** Convert a list of scalameta Trees (parsed body of a .ssc module) to Program. */
   def convertTrees(trees: List[Tree]): Program =
@@ -1351,7 +1380,7 @@ object FrontendBridge:
 
     // ── String interpolation s"... $x ..." (and all other interpolators) ────────
     // Unknown interpolators (html"...", sql"...", etc.) are treated as s"..." (string concat).
-    case Term.Interpolate(_, parts, args) =>
+    case Term.Interpolate(interpName, parts, args) =>
       val strs = parts.map {
         case Lit.String(s) => CT.Lit(Const.CStr(s))
         case _             => CT.Lit(Const.CStr(""))
@@ -1359,7 +1388,11 @@ object FrontendBridge:
       val vals = args.map { e =>
         CT.Prim("__method__", List(CT.Lit(Const.CStr("toString")), convertExpr(e, scope)))
       }
-      interleaveConcat(strs, vals)
+      val concat = interleaveConcat(strs, vals)
+      // md"…" strips the leading/trailing blank lines and the common indent
+      // (v1 Interpreter.stripIndent) — treating it as plain s"…" left the raw
+      // indented block in the output (content.ssc parity).
+      if interpName.value == "md" then CT.Prim("__mdStrip__", List(concat)) else concat
 
     // ── Unknown — emit stub that errors at runtime ────────────────────────────
     case other =>
@@ -1652,6 +1685,8 @@ object FrontendBridge:
       // Synthetic sql-fence executor call → prim (registered in PluginBridge)
       case Term.Name("__sqlExec__") =>
         CT.Prim("__sqlExec__", args)
+      case Term.Name("__autoPrint__") =>
+        CT.Prim("__autoPrint__", args)
       // Regular function call (with optional default-param synthesis for known defs)
       case Term.Name(name) if !scope.contains(name) && defaultParams.contains(name) =>
         val fullArgs = args ++ dictArgsFor(name, args)

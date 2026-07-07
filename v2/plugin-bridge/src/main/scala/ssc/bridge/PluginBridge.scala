@@ -46,12 +46,35 @@ object PluginBridge:
       Option(dbRegistry.get(dbName)).getOrElse(
         throw new RuntimeException(
           s"No database registered for '$dbName' — add a databases: section to front-matter"))
+    override def featureGet(key: String): Option[Any] = Option(featureBag.get(key))
+
+  /** Feature bag mirrored from v1's nativeFeatureSet — the content plugin's
+   *  document-introspection natives (contentBlock/contentData/…) read the
+   *  PARSED DOCUMENT via featureGet(ContentDocument). */
+  private val featureBag = new java.util.concurrent.ConcurrentHashMap[String, Any]()
+
+  /** Parse the raw .ssc source with the v1 parser and expose its document
+   *  content to plugins — mirrors Interpreter's `module.document.foreach
+   *  (nativeFeatureSet(ContentDocument, _))`. Call once per convertSource. */
+  def setDocumentFromSource(raw: String): Unit =
+    try
+      val module = scalascript.parser.Parser.parse(raw)
+      module.document.foreach { doc =>
+        featureBag.put(scalascript.backend.spi.NativeContextFeatureKeys.ContentDocument, doc)
+      }
+    catch case _: Throwable => () // no document — introspection natives raise their own error
 
   /** Load all Backend plugins via ServiceLoader; register NativeImpl prims AND
    *  BlockForm runners. Also registers the built-in `handle` global. */
   def loadAll(): Int =
     registerHandle()
     registerRunStream()
+    // Render native v1 Values (DocV, MarkupV, …) that ride inside ForeignV via
+    // v1's own show — println(doc) on the v2 side printed "<foreign>" otherwise.
+    Show.foreignRenderer = {
+      case v1v: scalascript.interpreter.Value => scalascript.interpreter.Value.show(v1v)
+      case _                                  => null
+    }
     registerSys()
     registerInterpreterBuiltins()
     registerAmbientEffectOps()
@@ -2317,6 +2340,11 @@ object PluginBridge:
         case other => scalascript.interpreter.Value.Foreign(other.getClass.getSimpleName, other)
     case V2Value.ForeignV(tf: TaggedForeign) =>
       scalascript.interpreter.Value.Foreign(tf.tag, tf.value)
+    // A ForeignV that already wraps a NATIVE v1 interpreter Value (a plugin
+    // round-trip, e.g. the content builder's DocV) must pass through UNCHANGED —
+    // re-wrapping as Foreign made v1's show print "<foreign:DocV (DocV)>"
+    // instead of rendering the document.
+    case V2Value.ForeignV(h: scalascript.interpreter.Value) => h
     case V2Value.ForeignV(h) =>
       scalascript.interpreter.Value.Foreign(h.getClass.getSimpleName, h)
     case c: V2Value.ClosV =>
