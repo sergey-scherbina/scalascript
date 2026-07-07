@@ -124,6 +124,14 @@ Claimable slices for the above (queued 2026-07-07):
       contentPlainText/contentToMarkdown expect (block found, renders empty). Resume: probe what
       shape contentBlock's blockValue takes through rawToV2 and preserve it (ForeignV passthrough
       for plugin-owned structs vs deep conversion for plain data).
+- [x] **p3-parity-singles2** — DONE 2026-07-07 (77de9926b): signals-demo PARITY (reactive
+      effect{} blocks: kernel read/write hooks + single-flush diamond semantics); dsl-calc-parser
+      v2-side CORRECT (symbolic-operator routing: extension ops ~ | ~> <~ ++ were dying in
+      __arith__; new __arithExt__ prim for ambiguous ops; String.toDouble raw-Double v1 semantics;
+      floatStr in Float-String concat) — v1 .many() bug truncates its own output; os-env = v1 bug
+      (prints <native:platform>); spark-udf-demo = spark lane (harness lane-skip widened).
+      V1-BUG list for a v1 owner: effects.ssc (3 of 6 lines), os-env 0-arg natives,
+      dsl-calc-parser .many(), + 7 v1-only parity entries (v2 works, v1 empty).
 - [ ] **p3-server-actor-parity-harness** — the parity harness SKIPS 132 server/actor examples
       (two thirds of the corpus have NO output-equality signal). Extend scripts/v2-output-parity:
       run server examples with a bounded driver (start, probe one route via httpRetry, stop —
