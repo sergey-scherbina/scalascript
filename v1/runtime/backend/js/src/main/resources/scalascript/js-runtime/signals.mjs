@@ -328,6 +328,7 @@ function _ssc_ui_renderBody(view) {
                 if (e._eff === 'bumpTick' && e.tick) { collectSig(e.tick); return { eff: 'bumpTick', id: String(e.tick.id) }; }
                 if (e._eff === 'setSignal' && e.s)   { collectSig(e.s);    return { eff: 'setSignal', id: String(e.s.id), v: e.v }; }
                 if (e._eff === 'navigate')           { return { eff: 'navigate', path: String(e.path || '') }; }
+                if (e._eff === 'openJson')           { return { eff: 'openJson', urlTemplate: String(e.urlTemplate || ''), field: String(e.field || '') }; }
                 return null;
               }).filter(function(x) { return x; });
               if (effs.length) aStr += ` data-ssc-fetch-onsuccess="${_esc(JSON.stringify(effs))}"`;
@@ -605,7 +606,7 @@ function _ssc_ui_mount(sigs) {
           if (clear && bodyId) _set(bodyId, '');
           // Scope B.4 — run the structured onSuccess effects in order, but only on
           // a 2xx (a failed write must not navigate / flip a status signal).
-          _ssc_ui_runOnSuccess(onSuccessRaw, ok, _set, _sv);
+          _ssc_ui_runOnSuccess(onSuccessRaw, ok, _set, _sv, text);
         });
     });
   });
@@ -789,9 +790,21 @@ function _ssc_ui_mount(sigs) {
                 });
               } else if (act._type === '_RowLink') {
                 btn.setAttribute('style', btnStyle); _actLabel(btn, act.label);
+                var rowVal = String(getField(r, act.fieldPath) || '');
                 btn.addEventListener('click', function() {
-                  if (act.signal && act.signal.id) _set(String(act.signal.id), String(getField(r, act.fieldPath) || ''));
+                  if (act.signal && act.signal.id) _set(String(act.signal.id), rowVal);
                 });
+                // Selection-aware picker: mark the button whose row value the bound signal
+                // currently holds (✓ via CSS ::before + accent — ::before is not a text node,
+                // so an i18n text-walker keeps translating the label). The _sub survives
+                // re-renders; the isConnected guard makes stale entries no-ops.
+                if (act.signal && act.signal.id && rowVal !== '') {
+                  _ssc_ui_ensureRowlinkCss();
+                  _sub(String(act.signal.id), function(v) {
+                    if (!btn.isConnected && document.body && !document.body.contains(btn)) return;
+                    btn.classList.toggle('ssc-rowlink-selected', String(v == null ? '' : v) === rowVal);
+                  });
+                }
               }
               tdA.appendChild(btn);
             })(row);
@@ -919,7 +932,14 @@ function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _
 // Scope B.4 — structured onSuccess effects + fetchActionWith.
 function _ssc_ui_onBumpTick(tick) { return { _eff: 'bumpTick', tick }; }
 function _ssc_ui_onSetSignal(sig, value) { return { _eff: 'setSignal', s: sig, v: value }; }
+function _ssc_ui_ensureRowlinkCss() {
+  if (typeof document === 'undefined' || document.getElementById('ssc-rowlink-css')) return;
+  var st = document.createElement('style'); st.id = 'ssc-rowlink-css';
+  st.textContent = '.ssc-rowlink-selected::before{content:"\2713 "}.ssc-rowlink-selected{font-weight:700;filter:brightness(1.25)}';
+  document.head.appendChild(st);
+}
 function _ssc_ui_onNavigate(path) { return { _eff: 'navigate', path: String(path == null ? '' : path) }; }
+function _ssc_ui_onOpenJson(urlTemplate, field) { return { _eff: 'openJson', urlTemplate: String(urlTemplate == null ? '' : urlTemplate), field: String(field == null ? '' : field) }; }
 function _ssc_ui_fetchActionWith(method, url, body, onSuccess, headers) { return { _type: '_FetchAction', method, url, body, headers: headers || null, onSuccess: onSuccess || [] }; }
 // Scope B.4+ — a request-body source assembled from named field signals at submit.
 function _ssc_ui_formBody(fields) { return { _body: 'fields', fields: fields || [] }; }
@@ -958,13 +978,24 @@ function _ssc_ui_buildFormBody(raw, sv) {
 // Run a fetch action's serialised onSuccess effects, in order, on a 2xx (`ok`).
 // `setFn`/`sv` are the mount's signal setter + value store (passed in so the
 // effect runner is a pure, testable top-level function).  A non-2xx runs nothing.
-function _ssc_ui_runOnSuccess(raw, ok, setFn, sv) {
+function _ssc_ui_runOnSuccess(raw, ok, setFn, sv, respText) {
   if (!ok || !raw) return;
   try {
     JSON.parse(raw).forEach(function(e) {
       if (e.eff === 'bumpTick' && e.id) setFn(e.id, ((sv[e.id] || 0) | 0) + 1);
       else if (e.eff === 'setSignal' && e.id) setFn(e.id, e.v);
       else if (e.eff === 'navigate' && typeof window !== 'undefined' && window.location) window.location.hash = e.path;
+      else if (e.eff === 'openJson' && e.urlTemplate) {
+        // Navigate to a URL built from the RESPONSE body: parse it as JSON, take e.field,
+        // substitute :value. Lets a launch button open the created resource (e.g. the rozum
+        // UCC session terminal) without a hand-rolled fetch. No-op if the field is absent.
+        try {
+          var j = JSON.parse(respText == null ? '{}' : String(respText));
+          var v = j[e.field];
+          if (v != null && typeof window !== 'undefined' && window.location)
+            window.location.href = String(e.urlTemplate).replace(':value', encodeURIComponent(String(v)));
+        } catch (_e2) {}
+      }
     });
   } catch(_e) {}
 }

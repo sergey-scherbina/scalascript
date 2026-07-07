@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: selection-aware rowLink pickers + onOpenJson effect
+
+Two phone-driven polish items from the rozum UCC: (1) datatable `_RowLink` buttons now mark the
+SELECTED row — ✓ via CSS `::before` + accent when the bound signal equals the row value (`::before`
+is not a text node, so i18n text-walkers keep translating labels); (2) new onSuccess effect
+`onOpenJson(urlTemplate, field)` — on a 2xx the runtime parses the response body as JSON and
+`location.href`s the templated URL (`:value` ← field), letting a launch button open the resource it
+just created (UCC: straight into the session terminal). `jobPanel` gains a `launchEffects` param.
+Tests: SpaOpenJsonEffectTest (real runtime, headless node); std-ui-jobpanel conformance still green.
+
+---
+
 ## 2026-07-07 — std/ui: patterns.ssc — jobPanel, the async-job toolkit expression
 
 New composite layer `std/ui/patterns.ssc`: patterns compose the widget layer into whole app

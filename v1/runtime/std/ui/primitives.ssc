@@ -32,6 +32,7 @@ exports:
   - onBumpTick
   - onSetSignal
   - onNavigate
+  - onOpenJson
   - formBody
   - fetchActionWith
   - emptyHeaders
@@ -159,10 +160,13 @@ extern def fetchActionClear(method: String, url: String, body: Signal[String], o
 // ── Scope B.4: structured onSuccess effects ────────────────────────────────────
 // Effect descriptors passed to fetchActionWith; the browser runs them in order on
 // a 2xx response. onBumpTick → increment a tick (re-fetch); onSetSignal → set a
-// signal to a literal; onNavigate → set the location hash (route).
+// signal to a literal; onNavigate → set the location hash (route);
+// onOpenJson → parse the 2xx response body as JSON and location.href the
+// urlTemplate with :value replaced by the named field (open-what-you-created).
 extern def onBumpTick(tick: Signal[Int]): Any
 extern def onSetSignal[T](sig: Signal[T], value: T): Any
 extern def onNavigate(path: String): Any
+extern def onOpenJson(urlTemplate: String, field: String): Any
 
 // formBody — a request-body source (Scope B.4+) assembled at submit from the named
 // field signals into a flat JSON object; pass it as the `body` of fetchActionWith
