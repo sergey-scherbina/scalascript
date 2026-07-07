@@ -777,7 +777,14 @@ function _ssc_ui_mount(sigs) {
                 btn.addEventListener('click', function() {
                   var pOpts = {method: act.method || 'POST', body: resolvePayload(r, act.bodyField)};
                   var dh = getHeaders(act.headers && act.headers.id); if (dh) pOpts.headers = dh;
-                  fetch(act.url, pOpts).then(function(res) { return res.text(); })
+                  // Path templating (tkv2): '/api/paid/:id' → ':id' replaced with the row's
+                  // field (URL-encoded). Mirrors rowLink's ':value'. Unknown fields stay
+                  // verbatim so ':'-containing literal URLs keep working.
+                  var theUrl = String(act.url).replace(/\/:([A-Za-z_][A-Za-z0-9_]*)/g, function(m, f) {
+                    var v = getField(r, f);
+                    return (v === undefined || v === null) ? m : '/' + encodeURIComponent(String(v));
+                  });
+                  fetch(theUrl, pOpts).then(function(res) { return res.text(); })
                     .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
                 });
               } else if (act._type === '_RowLink') {

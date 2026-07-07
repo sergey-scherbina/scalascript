@@ -201,6 +201,9 @@ extern def rowDeleteAction(url: String, idField: String, tick: Signal[Int],
                            headers: Signal[String] = emptyHeaders): Any
 
 // rowPostAction — per-row custom action: POSTs/PUTs bodyField value via method, bumps tick.
+// url supports path templating: '/:field' segments are replaced with the row's
+// (URL-encoded) field value at click time — e.g. "/api/paid/:id" (mirrors
+// rowLink's ':value'). Unknown fields stay verbatim.
 extern def rowPostAction(label: String, method: String, url: String, bodyField: String,
                          tick: Signal[Int], headers: Signal[String] = emptyHeaders): Any
 
