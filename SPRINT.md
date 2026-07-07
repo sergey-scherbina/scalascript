@@ -51,11 +51,26 @@ Claimable slices for the above (queued 2026-07-07):
       .ssc-defined WorkerProtocol locally when the address is not a live node, or the
       bridge grows a registerNodeSim seam. Owner call; all groundwork (natives, message
       flow, diagnostics) landed in p3-dataset-natives.
-- [ ] **p3-corpus-singles** — the 8 independent single fails, each its own small fix:
-      actors-typed-remote-spawn (registerBehavior variant), datatable-static-spa (parse),
-      dsl-ast-builder (/ by zero), dsl-mini-language (tuple-lambda auto-untuple),
-      seed-signal, typed-sql-crud, rozum-agent-streaming, spark-shared-schema-reader
-      (plugin-boundary conversions). Can be split; claim per-single if working in parallel.
+- [~] **p3-corpus-singles** — 6 of 8 RESOLVED 2026-07-07 (8624649f0 + c3c44aa03):
+      dsl-ast-builder + rozum-agent-streaming fixed by the p3-dataset-natives systemic fixes;
+      the rozum-agent family (streaming incl.) needed TWO more systemic bugs — try/catch scope
+      off-by-one (phantom "_unit_" slot for the zero-arity body thunk; ANY try inside a def
+      referencing params was broken) and ambiguous fieldIndex (first-registered class's index
+      read the WRONG FIELD when same-named fields sit at different positions — transportError);
+      actors-typed-remote-spawn got a typed ActorRef surface (address/isLocal/tryLocal/tell/
+      publishAs + globalWhereis registry) in the actors bridge; seed-signal was a BROKEN EXAMPLE
+      (applied the Theme value as a function; fails v1 too) — fixed to lower(node, defaultTheme).
+      Closure Function1.andThen/compose added to methodOp (std/dsl pipelines).
+      REMAINING (each diagnosed):
+      • dsl-mini-language — andThen now dispatches, but the 4-stage Pass pipeline still dies
+        "arity: 0 expected, 1 given" INSIDE the composed chain; 5 isolation probes (typed-val
+        lambda, def-returning-lambda, cross-fence composition) all PASS — the failing construct
+        is subtler (Pass type-alias + Either.map chain suspected). Resume from /tmp probes.
+      • typed-sql-crud — "expected Data, got <foreign>" (plugin-boundary value conversion).
+      • datatable-static-spa — generated-JS parse error (emit path, ":1049 illegal start").
+      • spark-shared-schema-reader — "unbound global: java" (scala-block java.* use; likely
+        belongs in the jvm lane like the typeddata quartet — decide classification).
+      Corpus now 171 PASS / 15 FAIL / 9 SKIP(jvm-lane) vs clean-2026-07-07 170/25.
 - [ ] **p3-effects-output-divergence** — first concrete v2 effects-SEMANTICS gap:
       `examples/algebraic-effects.ssc` exits 0 on v2 but prints DIFFERENT output than v1
       (v2: `List() / 1 / …` vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`).
