@@ -113,6 +113,14 @@ Claimable slices for the above (queued 2026-07-07):
       international-bank-rails, paginated-typed-client, sql-browser-duckdb, x402-metamask) are
       programs v2 RUNS and v1 crashes on — v1 bugs; dsl-mini-language's v2 side (the corpus
       single) is thereby DONE.
+- [~] **p3-parity-content** — flagship content.ssc at PARITY MATCH 2026-07-07 (73019def7):
+      md-strip prim, per-fence __autoPrint__ (v1 auto-output), v1-Value passthrough in v2ToV1,
+      Show.foreignRenderer hook (kernel v1-free), setDocumentFromSource→featureGet(ContentDocument).
+      REMAINING: content-tables / content-to-markdown / content-linked-namespaces need round-trip
+      FIDELITY for structured block values — rawToV2/v1ToV2 deep-conversion loses the plugin shape
+      contentPlainText/contentToMarkdown expect (block found, renders empty). Resume: probe what
+      shape contentBlock's blockValue takes through rawToV2 and preserve it (ForeignV passthrough
+      for plugin-owned structs vs deep conversion for plain data).
 - [ ] **p3-server-actor-parity-harness** — the parity harness SKIPS 132 server/actor examples
       (two thirds of the corpus have NO output-equality signal). Extend scripts/v2-output-parity:
       run server examples with a bounded driver (start, probe one route via httpRetry, stop —
