@@ -1,6 +1,6 @@
 feature/finish-green-main 2026-07-07T01:59:05Z
 agent: codex
-heartbeat: 2026-07-07T02:24:02Z
+heartbeat: 2026-07-07T02:33:04Z
 status: in-progress
-done-so-far: plugin-cli-oslib-shadow, CrossBackendIntrinsicParityTest, StableSpiEnforcementTest, JvmGenSwingRuntimeTest, and AgentConformanceTest fixed and pushed; remaining targeted blockers recorded in BUGS.md/SPRINT.md
-next: fix v2PluginBridge loadBackend value-shape mismatch, then v2FrontendBridge mcp-types and backendWasm effects
+done-so-far: plugin-cli-oslib-shadow, CrossBackendIntrinsicParityTest, StableSpiEnforcementTest, JvmGenSwingRuntimeTest, AgentConformanceTest, and v2PluginBridge PluginBridgeTest fixed; remaining blockers recorded in BUGS.md/SPRINT.md
+next: fix v2FrontendBridge mcp-types regression, then backendWasm effects

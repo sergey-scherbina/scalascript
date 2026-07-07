@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - fix(test): PluginBridge raw NativeImpl args
+
+Fixed the `v2PluginBridge` root-suite blocker by updating the stub backend test
+to match the stable SPI bridge contract: scalar v2 args are unwrapped before
+`NativeImpl` and raw scalar returns wrap back into v2 values. Verified
+`v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` (22/22).
+
 ## 2026-07-07 — std/ui: tkv2-components — instance-scoped component signals
 
 First slice of `specs/ssc-toolkit-v2.md` (busi's React→ssc migration requirements). New
