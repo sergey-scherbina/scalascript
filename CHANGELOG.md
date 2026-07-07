@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 - fix(tcp): stable plugin value surface
+
+Migrated `tcp-plugin` intrinsics off direct `scalascript.interpreter.Value`
+constructors and onto `PluginValue`, restoring the stable SPI enforcement gate.
+Verified `backendInterpreterPluginTests/testOnly scalascript.StableSpiEnforcementTest`
+and `tcpPlugin/test`.
+
 ## 2026-07-07 - test: WebAuthn auth-plugin intrinsic parity exceptions
 
 Fixed `CrossBackendIntrinsicParityTest` by documenting

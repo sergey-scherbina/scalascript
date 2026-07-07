@@ -116,8 +116,8 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       confirmed `PluginCliTest` passes, but failed unrelated suites: `CrossBackendIntrinsicParityTest`
       (`webauthnConfigureStore`/`webauthnStoreRemove` JS-only drift; fixed in `8dfd2989e`),
       `JvmGenSwingRuntimeTest`,
-      `StableSpiEnforcementTest` (`tcp-plugin` imports `scalascript.interpreter.Value` from a
-      value-surface plugin), `AgentConformanceTest` (`Address already in use` in `beforeAll`), plus
+      `StableSpiEnforcementTest` (`tcp-plugin` imported `scalascript.interpreter.Value` from a
+      value-surface plugin; fixed in `484d56101`), `AgentConformanceTest` (`Address already in use` in `beforeAll`), plus
       Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Next slice: reproduce the
       smallest deterministic suite first, likely `CrossBackendIntrinsicParityTest` or
       `StableSpiEnforcementTest`, and fix/record the policy before rerunning root `sbt "test"`.

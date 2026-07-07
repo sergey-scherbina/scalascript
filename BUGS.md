@@ -37,6 +37,9 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Progress (2026-07-07, `8dfd2989e`):** `CrossBackendIntrinsicParityTest`
   fixed by documenting `webauthnConfigureStore` and `webauthnStoreRemove` as
   JS-core/JVM-`auth-plugin` exceptions; targeted parity test passes.
+- **Progress (2026-07-07, `484d56101`):** `StableSpiEnforcementTest` fixed by
+  migrating `tcp-plugin` from direct `scalascript.interpreter.Value` constructors
+  to `PluginValue`; `StableSpiEnforcementTest` and `tcpPlugin/test` pass.
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
