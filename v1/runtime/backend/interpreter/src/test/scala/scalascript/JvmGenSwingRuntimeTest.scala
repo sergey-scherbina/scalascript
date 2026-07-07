@@ -4,9 +4,6 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.codegen.JvmGen
 import scalascript.parser.Parser
 
-import java.nio.file.Files
-import java.nio.file.Path
-
 class JvmGenSwingRuntimeTest extends AnyFunSuite:
 
   test("Swing frontend helper launches same-process runtime instead of nested scala-cli"):
@@ -33,11 +30,11 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(!code.contains("ProcessBuilder(_scalaCli"))
 
   test("Swing full-stack example generates same-process fetch dispatcher"):
-    val root = repoRoot
-    val src = Files.readString(root.resolve("examples/frontend/swing-fullstack/swing-fullstack.ssc"))
+    val root = TestPaths.repoRoot
+    val src = os.read(root / "examples" / "frontend" / "swing-fullstack" / "swing-fullstack.ssc")
     val code = JvmGen.generate(
       Parser.parse(src),
-      baseDir = Some(os.Path(root.resolve("runtime").toFile)),
+      baseDir = Some(root / "runtime"),
       frontendOverride = Some("swing")
     )
 
@@ -53,11 +50,11 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(code.contains("new scalascript.frontend.swing.SwingRuntime.FetchDispatcher"))
 
   test("Swing typed-client example generates callable client over same-process dispatcher"):
-    val root = repoRoot
-    val src = Files.readString(root.resolve("examples/frontend/swing-typed-client/swing-typed-client.ssc"))
+    val root = TestPaths.repoRoot
+    val src = os.read(root / "examples" / "frontend" / "swing-typed-client" / "swing-typed-client.ssc")
     val code = JvmGen.generate(
       Parser.parse(src),
-      baseDir = Some(os.Path(root.resolve("runtime").toFile)),
+      baseDir = Some(root / "runtime"),
       frontendOverride = Some("swing")
     )
 
@@ -99,10 +96,3 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
 
     assert(!code.contains("iconPath"))
-
-  private def repoRoot: Path =
-    Iterator.iterate(Path.of(System.getProperty("user.dir")).toAbsolutePath)(_.getParent)
-      .takeWhile(_ != null)
-      .map(_.toAbsolutePath)
-      .find(path => Files.exists(path.resolve("runtime/std/ui/primitives.ssc")))
-      .getOrElse(fail("missing repo root"))
