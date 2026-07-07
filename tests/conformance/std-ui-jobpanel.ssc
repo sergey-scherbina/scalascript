@@ -1,0 +1,70 @@
+---
+name: std-ui-jobpanel
+version: 1.0.0
+backends: [int, js]
+---
+
+# std/ui — jobPanel composite pattern (async-job launch/observe)
+
+The pattern extracted from the rozum UCC: registry table (status rows, per-row
+✕ close) + instant-POST launch form on a shared refresh tick. This asserts the
+tree SHAPE the one call produces — the interactive semantics (instant POST,
+status flips) live server-side and in the SPA bridge, already covered by
+SpaFormBodyNamedSignalsTest.
+
+[jobPanel](std/ui/patterns.ssc)
+[signal, fieldColumn, fetchUrlSignal](std/ui/primitives.ssc)
+[text](std/ui/typography.ssc)
+[VStackNode, CardNode, DividerNode, HeadingNode, ActionButtonNode, TextNode_](std/ui/nodes.ssc)
+
+```scalascript
+val refresh = signal("jpRefresh", 0)
+val st      = fetchUrlSignal("jpSt", "/api/status", refresh)
+
+val panel = jobPanel(st, refresh,
+  "Jobs", [fieldColumn("id", "id"), fieldColumn("status", "status")], "jobs", "/api/job/stop",
+  "New job", text("job-form-here"),
+  "🚀 launch", "/api/job/launch", [("kind", "jpKind")])
+
+def kindOf(n: Any): String = n match
+  case VStackNode(_, _)          => "vstack"
+  case CardNode(_, _, _)         => "card"
+  case DividerNode()             => "divider"
+  case _                         => "?"
+
+val children = panel match
+  case VStackNode(gap, cs) => { println(gap); cs }
+  case _                   => []
+
+// list card / divider / launch card
+println(children.map(c => kindOf(c)).mkString(","))
+
+// the list card holds exactly the registry table (dataTableView is an opaque
+// intrinsic node — asserting its presence, not its internals)
+children.head match
+  case CardNode(hdr, body, _) =>
+    hdr.head match
+      case HeadingNode(level, title) => println(level.toString + ":" + title)
+      case _                         => println("?")
+    println(body.length)
+  case _ => println("?")
+
+// the launch card ends in the launch button, form first
+children.tail.tail.head match
+  case CardNode(hdr, body, _) =>
+    hdr.head match
+      case HeadingNode(level, title) => println(level.toString + ":" + title)
+      case _                         => println("?")
+    body.head match
+      case VStackNode(gap, inner) => {
+        println(gap)
+        inner.head match
+          case TextNode_(t) => println(t)
+          case _            => println("?")
+        inner.tail.head match
+          case ActionButtonNode(_, label, disabled) => println(label + ":" + disabled.toString)
+          case _                                    => println("?")
+      }
+      case _ => println("?")
+  case _ => println("?")
+```

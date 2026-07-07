@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: patterns.ssc — jobPanel, the async-job toolkit expression
+
+New composite layer `std/ui/patterns.ssc`: patterns compose the widget layer into whole app
+sections. First entry `jobPanel(st, refresh, …)` — the async-job launch/observe pattern extracted
+from the rozum UCC: a registry table whose rows carry a server-maintained status
+(starting…/running/failed:…/exited) with a per-row ✕ close (`rowPost`), plus a launch form whose
+POST returns instantly and bumps the shared refresh tick (the new "starting…" row is the click
+feedback; failed rows stay visible until closed). rozum's three job kinds (tmux sessions, chat
+agents, batch coders) are three calls. Conformance: std-ui-jobpanel (INT+JS, node-tree shape).
+
+---
+
 ## 2026-07-07 — std/ui: formBody by-name field signals fixed in the SPA bridge
 
 `_ssc_ui_signal(name, init)` discarded the user-facing name while `formBody([("k","sigName")])`
