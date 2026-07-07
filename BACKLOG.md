@@ -14,6 +14,19 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## ssc-toolkit-v2 P2 follow-ups (2026-07-07) — see `specs/ssc-toolkit-v2.md`
+
+Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
+`src/v2/specs/frontend-on-scalascript.md`.
+
+- [ ] **tkv2-dev-loop** — watch-rebuild-reload for the web target (sub-second; React-HMR-class
+      productivity is the bar, plain reload is acceptable).
+- [ ] **tkv2-tri-state** — loading/empty/error helper for fetched views (busi P2-10).
+- [ ] **tkv2-raw-html** — raw-markup escape hatch (only `rawText` exists today — it's a text node,
+      not markup injection); needed so a missing widget never blocks a migration screen.
+- [ ] **tkv2-spa-i18n-parity** — verify/fix `std/ui/i18n` live-switch inside an emitted browser SPA
+      bundle (server pages already work; the SPA path needs a conformance case, 4 locales).
+
 ## v1→v2 migration follow-ups (2026-07-03)
 
 - [x] **v2-ssc1c-globals-bug** — ✓ Landed (2026-07-05). Root cause: `lowerE`'s

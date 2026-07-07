@@ -26,6 +26,43 @@ Remaining 21 batch fails, classified:
 
 ## Active tasks
 
+### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
+
+Requirements source: busi `src/v2/specs/frontend-on-scalascript.md` (owner 2026-07-06). busi is the
+**conformance target** — toolkit v2 is done when busi's `App.tsx` (99 pieces of state, ~91 form
+interactions, offline-first PWA, WebAuthn, 4 locales) is expressible in `.ssc`. Design + full slice
+detail: **[`specs/ssc-toolkit-v2.md`](specs/ssc-toolkit-v2.md)**. Additive over `std/ui` — no breaking
+changes for existing consumers (rozum control-center, busi server pages). Every slice ships
+conformance cases (INT==JS) and runs the affected-slice conformance before push (AGENTS.md 4b).
+
+- [ ] **tkv2-components** — `component(kind, key)(Ctx => View)`: instance-scoped signal names
+      (`<kind>/<key>/<name>`) + disposal hook; typed props = function params. The deepest gap
+      (signals today are GLOBAL string ids — `FrontendIntrinsics.scala` `ReactiveSignal(name)`,
+      duplicate registration is an error) and the busi-pilot prerequisite.
+- [ ] **tkv2-offline** — `localStorageGet/Set` + `onlineSignal()` externs (neither exists today;
+      IndexedDB facade exists JsGen-side), `persistedSignal`, `fetchOrLocal(url, tick, local)`.
+      JVM lowering: per-process map storage, `onlineSignal`≡true.
+- [ ] **tkv2-forms** — `FieldSpec` data-DSL (validators as data, JS-translatable — per
+      frontend-toolkit-spec risk #1; port the Scala toolkit's `Validators` semantics, today
+      unexposed to .ssc) + `form(...)` / `FormCtx` (draft signals, per-field errors, tri-state
+      submit over existing `fetchAction`/`formBody`).
+- [ ] **tkv2-spa-pipeline** — decision recorded in the spec: the production SPA path is
+      `emit-spa`/`JsGen` + the framework-free runtime (react/vue/solid emitters stay demos).
+      Audit `emit-spa` output fully self-contained (no CDN), verify toolkit-v2 externs on it.
+- [ ] **tkv2-pwa-adopt** — `std/pwa.ssc` already exists (manifest + sw + precache): extend with
+      busi's needs (offline fallback page, cache versioning, theme fields); busi `http/pwa.ssc`
+      replaced by it as the consumer proof.
+- [ ] **tkv2-busi-home-conformance** — reduced busi home screen (list + expand + form + offline
+      fallback) as a standing corpus case; the integration bar for slices 1–4.
+- [ ] **tkv2-keyed-for** — `forKeyed(items, key)(render)`: keyed reconciliation in the JsGen/custom
+      runtime (today `View.ForSignal` wipes + rebuilds the container); component signals survive moves.
+- [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
+      missing entirely; the server verifier exists on JVM + JS. Option shapes match `webauthnStore*`.
+- [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =
+      existing in-process transport (fullstack spec phases 0–5).
+- [ ] **tkv2-theme-css-vars** — `cssVariables(theme)` emitter (busi's instrument-panel theme as one
+      ssc object driving toolkit + legacy CSS).
+
 ### Local model session help (2026-07-07)
 
 - [x] **qwen-rozum-session** — help Sergiy start a local `rozum` chat session with a Qwen 3.6 model.
