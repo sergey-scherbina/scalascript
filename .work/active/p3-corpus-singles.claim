@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-corpus-singles
-worktree: ../scalascript-wt-p3-corpus-singles
-started: 2026-07-07
-status: in-progress
-task: p3-corpus-singles — the 8 independent corpus single-fails (SPRINT Phase-3 readiness); note: dsl-ast-builder + typed-sql-crud may already be fixed by p3-dataset-natives systemic fixes — verify and check off first
