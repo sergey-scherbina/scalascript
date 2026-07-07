@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-server-actor-parity
-worktree: ../scalascript-wt-p3-server-actor-parity
-started: 2026-07-07
-status: in-progress
-task: p3-server-actor-parity-harness — extend scripts/v2-output-parity with bounded drivers for the 132 skipped server/actor examples (actors: run-to-completion with timeout; servers: SSC_EXIT_AFTER-style bounded run), diff bounded stdout v1-vs-v2
