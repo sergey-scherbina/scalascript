@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/ssc-toolkit-v2
+worktree: ../scalascript-wt-ssc-toolkit-v2
+started: 2026-07-07
+status: in-progress
+task: fix plugin-lazyload-extern-imports (BUGS.md) — plugin-available .sscpkgs never load; ensurePluginsLoaded to lazily commit them (prereq for busi ssc-pin bump / migration pilot)
