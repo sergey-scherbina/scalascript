@@ -1,0 +1,347 @@
+#!/usr/bin/env ssc
+---
+name: rozum-control-center
+version: 1.1.0
+description: rozum UCC — dashboard + native chat, one ssc PWA. Web (React) deploy build.
+frontend: react
+---
+# rozum — control center (+ chat)
+
+One std/ui app: a dashboard (live `/control/status`) AND a native chat view per room
+(messages from `/chat/messages?room=…`, post via `/chat/post`) — same origin, so it all
+stays inside the standalone PWA. Hash routing (`#/chat/<room>`) switches the view in place.
+
+## Setup
+[signal, emit, serve, fetchUrlSignal, fetchUrlSignalTo, fetchActionClear, fetchActionWith, formBody, onBumpTick, incSignal, computedSignal, fieldColumn, hashSignal](std/ui/primitives.ssc)
+[jsonValue](std/json.ssc)
+[lower](std/ui/lower.ssc)
+[darkTheme](std/ui/theme.ssc)
+[vstack, hstack, divider](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[badge, link](std/ui/display.ssc)
+[card, cardWithHeader](std/ui/containers.ssc)
+[signalText_](std/ui/reactive.ssc)
+[actionButton, textField, signalButton](std/ui/input.ssc)
+[remoteTable, lcol, rowLink](std/ui/data.ssc)
+[route, router](std/ui/routing.ssc)
+
+## State + routing
+```scalascript
+val refresh = signal("refresh", 0)
+val st      = fetchUrlSignal("status", "/control/status", refresh)
+
+val hash = hashSignal()
+val room = computedSignal(() => {
+  val h = hash()
+  if h.contains("/chat/") then h.split("/chat/").last else ""
+})
+val mode = computedSignal(() => if hash().contains("/chat/") then "chat" else if hash().contains("/agents") then "agents" else if hash().contains("/coders") then "coders" else if hash().contains("/sessions") then "sessions" else "home")
+
+val chatTick = signal("chatTick", 0)
+val msgUrl   = computedSignal(() => "/chat/messages?room=" + room())
+val messages = fetchUrlSignalTo("messages", msgUrl, chatTick)
+val incUrl   = computedSignal(() => "/chat/incidents?room=" + room())
+val incidents = fetchUrlSignalTo("incidents", incUrl, chatTick)
+```
+
+## Dashboard
+```scalascript
+def gib(b: Double): String = {
+  val t = (b / 107374182.4).toInt
+  (t / 10).toString + "." + (t % 10).toString + " GiB"
+}
+val availTxt     = computedSignal(() => gib(jsonValue(st()).get("residency").get("available_bytes").asDouble))
+val budgetTxt    = computedSignal(() => gib(jsonValue(st()).get("residency").get("host_budget_bytes").asDouble))
+val committedTxt = computedSignal(() => gib(jsonValue(st()).get("residency").get("committed_bytes").asDouble))
+
+val meetingsCard = cardWithHeader(heading(2, "Meetings"))(
+  remoteTable(st, [lcol("Room", "room", "#/chat/:value")], "meetings")
+)
+val gwCard = cardWithHeader(heading(2, "Gateway / residency"))(
+  vstack(gap = 6)(
+    hstack(gap = 8)(
+      text("source:"), badge("rozum control-API (always-up)", "success"),
+      actionButton(incSignal(refresh), "↻ refresh")
+    ),
+    hstack(gap = 8)(text("available:"),   signalText_(availTxt)),
+    hstack(gap = 8)(text("host budget:"), signalText_(budgetTxt)),
+    hstack(gap = 8)(text("committed:"),   signalText_(committedTxt))
+  )
+)
+val residentsCard = cardWithHeader(heading(2, "Resident models (in memory now)"))(
+  remoteTable(st, [fieldColumn("PID", "pid"), fieldColumn("Model", "model"), fieldColumn("GiB", "size_gib")], "residency.residents")
+)
+val catCard = cardWithHeader(heading(2, "Installed catalog"))(
+  remoteTable(st, [fieldColumn("Model", "spec"), fieldColumn("Size", "size_gib")], "installed")
+)
+val modelSelectCols = [fieldColumn("модель", "spec"), fieldColumn("GiB", "size_gib")]
+
+val gwModel = signal("gwModel", "")
+val modelsPanel = cardWithHeader(heading(2, "Загрузить модель"))(
+  vstack(gap = 8)(
+    remoteTable(st, modelSelectCols, "installed", [rowLink("выбрать", gwModel, "spec")]),
+    hstack(gap = 8)(
+      signalText_(gwModel),
+      actionButton(fetchActionWith("POST", "/control/gateway/load", formBody([("model", "gwModel")]), [onBumpTick(refresh)]), "загрузить"),
+      actionButton(fetchActionWith("POST", "/control/gateway/stop", formBody([]), [onBumpTick(refresh)]), "остановить")
+    )
+  )
+)
+
+val dashboard = vstack(gap = 16)(
+  heading(1, "rozum — control center"),
+  hstack(gap = 10)(link("#/agents", "🤖 Агенты"), link("#/coders", "💻 Кодеры"), link("#/sessions", "🖥 Сессии"), link("/matrix.html", "📊 Матрица"), link("/login.html", "🔐 вход")),
+  divider(),
+  meetingsCard,
+  divider(),
+  gwCard,
+  divider(),
+  residentsCard,
+  divider(),
+  modelsPanel,
+  divider(),
+  catCard
+)
+```
+
+## Chat view
+```scalascript
+val chatHeader = hstack(gap = 10)(
+  link("#/", "← back"),
+  signalText_(computedSignal(() => "room: " + room())),
+  actionButton(incSignal(chatTick), "↻")
+)
+val draft      = signal("draft", "")
+val roomHeader = computedSignal(() => "{\"X-Room\":\"" + room() + "\"}")
+val composer = hstack(gap = 8)(
+  textField(draft, "message…"),
+  actionButton(fetchActionClear("POST", "/chat/post", draft, chatTick, roomHeader), "send")
+)
+val incidentsCard = cardWithHeader(heading(2, "Инциденты комнаты"))(
+  remoteTable(incidents, [
+    fieldColumn("severity", "severity"),
+    fieldColumn("state", "state"),
+    fieldColumn("инцидент", "title"),
+    fieldColumn("owner", "owner")
+  ], "")
+)
+val chatBody = vstack(gap = 12)(
+  chatHeader,
+  divider(),
+  incidentsCard,
+  divider(),
+  remoteTable(messages, [
+    fieldColumn("", "time"),
+    fieldColumn("", "author"),
+    fieldColumn("", "content")
+  ], ""),
+  composer
+)
+```
+
+## Agents
+```scalascript
+val agModel   = signal("agModel", "")
+val agRoom    = signal("agRoom", "")
+val agPolicy  = signal("agPolicy", "mention")
+val agPersona = signal("agPersona", "")
+val stopId    = signal("stopId", "")
+
+val agentsList = cardWithHeader(heading(2, "Запущенные агенты"))(
+  remoteTable(st, [
+    fieldColumn("agent", "handle"),
+    fieldColumn("model", "model"),
+    lcol("room", "room", "#/chat/:value"),
+    fieldColumn("policy", "policy"),
+    fieldColumn("id", "id")
+  ], "agents")
+)
+val agentModelList = remoteTable(st, modelSelectCols, "installed", [rowLink("выбрать", agModel, "spec")])
+val launchForm = cardWithHeader(heading(2, "Запустить агента (модель в комнате)"))(
+  vstack(gap = 8)(
+    hstack(gap = 8)(text("свободно RAM:"), signalText_(availTxt)),
+    hstack(gap = 8)(text("модель:"), signalText_(agModel)),
+    agentModelList,
+    textField(agRoom, "комната…"),
+    textField(agPolicy, "когда отвечать: mention | always | manual"),
+    textField(agPersona, "персона / контекст (необязательно)…"),
+    actionButton(
+      fetchActionWith("POST", "/control/agent/launch",
+        formBody([("model", "agModel"), ("room", "agRoom"), ("policy", "agPolicy"), ("persona", "agPersona")]),
+        [onBumpTick(refresh)]),
+      "🤖 запустить (с проверкой памяти)")
+  )
+)
+
+val stopForm = cardWithHeader(heading(2, "Остановить агента"))(
+  hstack(gap = 8)(
+    textField(stopId, "id агента (из списка)…"),
+    actionButton(
+      fetchActionWith("POST", "/control/agent/stop", formBody([("id", "stopId")]), [onBumpTick(refresh)]),
+      "стоп")
+  )
+)
+
+val agentsBody = vstack(gap = 16)(
+  hstack(gap = 10)(
+    link("#/", "← назад"),
+    heading(1, "Агенты"),
+    actionButton(incSignal(refresh), "↻")
+  ),
+  divider(),
+  agentsList,
+  divider(),
+  launchForm,
+  divider(),
+  stopForm,
+  divider(),
+  catCard
+)
+```
+
+## Coders
+```scalascript
+val cdAgent   = signal("cdAgent", "claude")
+val cdModel   = signal("cdModel", "")
+val cdWorkdir = signal("cdWorkdir", "")
+val cdPrompt  = signal("cdPrompt", "")
+val newProjectPath = signal("newProjectPath", "")
+val cdLogId   = signal("cdLogId", "")
+val cdStopId  = signal("cdStopId", "")
+val logTick   = signal("logTick", 0)
+val cdLogUrl  = computedSignal(() => "/control/coder/log?id=" + cdLogId() + "&tail=120")
+val cdLog     = fetchUrlSignalTo("coderLog", cdLogUrl, logTick)
+val cdLogText = computedSignal(() => jsonValue(cdLog()).get("log").asString)
+
+val codersList = cardWithHeader(heading(2, "Запущенные кодеры"))(
+  remoteTable(st, [
+    fieldColumn("агент", "agent"),
+    fieldColumn("модель", "model"),
+    fieldColumn("репо", "workdir"),
+    fieldColumn("жив", "alive"),
+    fieldColumn("id", "id")
+  ], "coders")
+)
+val coderModelList = remoteTable(st, modelSelectCols, "installed", [rowLink("выбрать", cdModel, "spec")])
+val coderWorkdirList = remoteTable(st, [fieldColumn("проект", "name")], "projects", [rowLink("выбрать", cdWorkdir, "path")])
+val coderLaunch = cardWithHeader(heading(2, "Запустить кодера (реальная работа в репо)"))(
+  vstack(gap = 8)(
+    hstack(gap = 8)(text("свободно RAM:"), signalText_(availTxt)),
+    vstack(gap = 4)(
+      hstack(gap = 8)(text("агент:"), signalText_(cdAgent)),
+      hstack(gap = 8)(signalButton(cdAgent, "claude", "claude"), signalButton(cdAgent, "codex", "codex"), signalButton(cdAgent, "opencode", "opencode"))
+    ),
+    hstack(gap = 8)(text("модель:"), signalText_(cdModel)),
+    coderModelList,
+    vstack(gap = 4)(
+      hstack(gap = 8)(text("папка:"), signalText_(cdWorkdir)),
+      coderWorkdirList,
+      hstack(gap = 8)(textField(newProjectPath, "имя проекта…"), actionButton(fetchActionWith("POST", "/control/project/add", formBody([("name", "newProjectPath")]), [onBumpTick(refresh)]), "＋ создать"))
+    ),
+    textField(cdPrompt, "задание…"),
+    actionButton(
+      fetchActionWith("POST", "/control/coder/launch",
+        formBody([("agent", "cdAgent"), ("model", "cdModel"), ("workdir", "cdWorkdir"), ("prompt", "cdPrompt")]),
+        [onBumpTick(refresh)]),
+      "💻 запустить (с проверкой памяти)")
+  )
+)
+
+val coderLogCard = cardWithHeader(heading(2, "Лог кодера"))(
+  vstack(gap = 8)(
+    hstack(gap = 8)(textField(cdLogId, "id кодера (из списка)…"), actionButton(incSignal(logTick), "↻ лог")),
+    signalText_(cdLogText)
+  )
+)
+
+val coderStop = cardWithHeader(heading(2, "Остановить кодера"))(
+  hstack(gap = 8)(
+    textField(cdStopId, "id кодера…"),
+    actionButton(fetchActionWith("POST", "/control/coder/stop", formBody([("id", "cdStopId")]), [onBumpTick(refresh)]), "стоп")
+  )
+)
+
+val codersBody = vstack(gap = 16)(
+  hstack(gap = 10)(link("#/", "← назад"), heading(1, "Кодеры"), actionButton(incSignal(refresh), "↻")),
+  divider(),
+  codersList,
+  divider(),
+  coderLaunch,
+  divider(),
+  coderLogCard,
+  divider(),
+  coderStop
+)
+```
+
+## Sessions
+```scalascript
+val seAgent   = signal("seAgent", "claude")
+val seModel   = signal("seModel", "")
+val seWorkdir = signal("seWorkdir", "")
+val sePrompt  = signal("sePrompt", "")
+val seStopId  = signal("seStopId", "")
+
+val sessionsList = cardWithHeader(heading(2, "Живые сессии (терминал)"))(
+  remoteTable(st, [
+    fieldColumn("агент", "agent"),
+    fieldColumn("модель", "model"),
+    fieldColumn("репо", "workdir"),
+    lcol("🖥 терминал", "id", "/terminal.html?id=:value")
+  ], "sessions")
+)
+val sessionModelList = remoteTable(st, modelSelectCols, "installed", [rowLink("выбрать", seModel, "spec")])
+val sessionWorkdirList = remoteTable(st, [fieldColumn("проект", "name")], "projects", [rowLink("выбрать", seWorkdir, "path")])
+val sessionLaunch = cardWithHeader(heading(2, "Новая интерактивная сессия"))(
+  vstack(gap = 8)(
+    hstack(gap = 8)(text("свободно RAM:"), signalText_(availTxt)),
+    vstack(gap = 4)(
+      hstack(gap = 8)(text("агент:"), signalText_(seAgent)),
+      hstack(gap = 8)(signalButton(seAgent, "claude", "claude"), signalButton(seAgent, "codex", "codex"), signalButton(seAgent, "opencode", "opencode"))
+    ),
+    hstack(gap = 8)(text("модель:"), signalText_(seModel)),
+    sessionModelList,
+    vstack(gap = 4)(
+      hstack(gap = 8)(text("папка:"), signalText_(seWorkdir)),
+      sessionWorkdirList,
+      hstack(gap = 8)(textField(newProjectPath, "имя проекта…"), actionButton(fetchActionWith("POST", "/control/project/add", formBody([("name", "newProjectPath")]), [onBumpTick(refresh)]), "＋ создать"))
+    ),
+    textField(sePrompt, "первое задание (необязательно)…"),
+    actionButton(
+      fetchActionWith("POST", "/control/session/launch",
+        formBody([("agent", "seAgent"), ("model", "seModel"), ("workdir", "seWorkdir"), ("prompt", "sePrompt")]),
+        [onBumpTick(refresh)]),
+      "🖥 запустить сессию")
+  )
+)
+
+val sessionStop = cardWithHeader(heading(2, "Остановить сессию"))(
+  hstack(gap = 8)(
+    textField(seStopId, "id сессии…"),
+    actionButton(fetchActionWith("POST", "/control/session/stop", formBody([("id", "seStopId")]), [onBumpTick(refresh)]), "стоп")
+  )
+)
+
+val sessionsBody = vstack(gap = 16)(
+  hstack(gap = 10)(link("#/", "← назад"), heading(1, "Сессии"), actionButton(incSignal(refresh), "↻"), link("/login.html", "🔐 вход")),
+  divider(),
+  sessionsList,
+  divider(),
+  sessionLaunch,
+  divider(),
+  sessionStop
+)
+```
+
+## Compose + serve
+```scalascript
+val view = router(mode, [
+  route("home", [dashboard]),
+  route("chat", [chatBody]),
+  route("agents", [agentsBody]),
+  route("coders", [codersBody]),
+  route("sessions", [sessionsBody])
+])
+
+serve(lower(view, darkTheme), 8410)
+```
