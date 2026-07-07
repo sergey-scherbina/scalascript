@@ -1,6 +1,0 @@
-agent: claude-fable-5 (rozum UCC session)
-branch: feature/ui-jobpanel-pattern
-worktree: ../scalascript-wt-ui-jobpanel-pattern
-started: 2026-07-07
-status: in-progress
-task: std/ui/patterns.ssc — jobPanel(st, refresh, …): the async-job toolkit expression (registry table with status rows + per-row ✕ close rowPostAction + instant-POST launch form on a shared refresh tick). Battle-tested in rozum UCC (three panels are three calls). Conformance case std-ui-jobpanel (INT+JS, node-tree assertions).
