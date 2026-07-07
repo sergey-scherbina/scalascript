@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-parity-content
+worktree: ../scalascript-wt-p3-parity-content
+started: 2026-07-07
+status: in-progress
+task: p3-parity content cluster — content.ssc, content-tables, content-to-markdown, content-linked-namespaces mismatches (fattest remaining cluster of the 12)
