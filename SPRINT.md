@@ -26,6 +26,20 @@ Remaining 21 batch fails, classified:
 
 ## Active tasks
 
+### Green main recovery (2026-07-06, user asked to finish the stabilization)
+
+- [ ] **green-main-crypto-ci** — restore `origin/main` to a buildable state before more v2 feature work.
+      Why: the latest CI push is red in markdownlint, `sbt compile cli/assembly`, and conformance; v2 parity
+      work is hard to trust while the main branch cannot assemble the launcher.
+      How: first fix the concrete compile blocker in `payments/crypto/bouncycastle/BouncyCastleBackend.scala`
+      by adapting it to the current portable crypto APIs (`ChaCha20Poly1305.seal/open`,
+      `X25519.derivePublicKey/sharedSecret`, random private key generation). Then run targeted compile for
+      `cryptoBouncycastle` and the affected crypto tests; if compile is green, re-check `sbt compile cli/assembly`
+      with an explicit worktree `cd`. After code is green, triage whether CI conformance failures are downstream
+      of the failed launcher or a separate runner issue, and record any remaining follow-up separately.
+      Done-when: `cd <worktree> && sbt "cryptoBouncycastle/compile"` passes; broader compile/assembly is either
+      green or has a newly diagnosed next blocker recorded here.
+
 ### Workflow polish (2026-07-06, Sergiy approved proposals 1-2)
 
 - [x] **ws-1 workflow-verify-step**: THE WORKFLOW gains step 4b — run the affected
