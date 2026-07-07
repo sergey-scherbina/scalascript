@@ -229,6 +229,13 @@ Consequences:
 
 ## 5. Slice plan (SPRINT queue)
 
+**Status 2026-07-07:** slices 1–6 and 10 SHIPPED (components, offline, forms,
+spa-pipeline audit, pwa-adopt, busi-home integration case, theme-css-vars).
+Remaining: 7 keyed-for (design notes in SPRINT — needs an `_ssc_ui_mount`
+late-bind refactor; focused session), 8 webauthn, 9 typed-client. The busi
+migration pilot (SPA shell + home screen in busi) is UNBLOCKED — the pilot's
+P0 toolkit surface exists and is browser-verified.
+
 Ordered so busi's migration pilot (SPA shell + home screen) unblocks earliest:
 
 1. **tkv2-components** — `component`/`Ctx` instance-scoped signals + disposal
