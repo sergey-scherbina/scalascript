@@ -27,18 +27,27 @@ if [ "${1:-}" = "--all" ]; then FILES=(examples/*.ssc)
 else FILES=("$@"); [ ${#FILES[@]} -eq 0 ] && FILES=("${DEFAULT[@]}"); fi
 
 # Programs that spin a server / spawn actors / stream infinite datasets don't terminate — skip (don't stall).
-SKIP_RE='serve|listen|WebServer|route\(|spawn|actor|await|socket|dataset|distributed|cluster|websocket|\btui\b|@main|Thread\b|async'
+# TRUE servers (bind a port / event loop) never terminate — skip without running.
+# Everything else (actors, async, datasets, spawn) is MEASURED with a bounded run:
+# most of those terminate; a v1 timeout reclassifies to long-running.
+SKIP_RE='serve\(|listen|WebServer|websocket|\btui\b'
 
 # Run one program on one backend, returning only its stdout (strip sbt/JVM noise).
 # Each run is bounded by $PARITY_TIMEOUT seconds so a server/actor example can't stall the sweep.
+# Exit code travels via a file: $(run_one …) runs in a subshell, and piping
+# through grep would clobber $? anyway. 124 = timeout (long-running program).
+RC_FILE="$(mktemp)"; trap 'rm -f "$RC_FILE"' EXIT
 run_one() { # $1=file  $2=extra-flag(--v2 or empty)
+  local out rc
   if [ -n "${SSC:-}" ]; then
     # $SSC is a command (unquoted so "java -jar ssc.jar" word-splits).
-    timeout "${PARITY_TIMEOUT:-90}" $SSC run $2 "$1" 2>/dev/null \
-      | grep -vE '^NOTE: Picked up'
+    out=$(timeout "${PARITY_TIMEOUT:-45}" $SSC run $2 "$1" 2>/dev/null); rc=$?
+    echo "$rc" > "$RC_FILE"
+    printf '%s' "$out" | grep -vE '^NOTE: Picked up'
   else
-    timeout "${PARITY_TIMEOUT:-180}" sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null \
-      | grep -vE '^\[(info|success|warn|error)\]|^NOTE: Picked up|running scalascript\.cli'
+    out=$(timeout "${PARITY_TIMEOUT:-180}" sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null); rc=$?
+    echo "$rc" > "$RC_FILE"
+    printf '%s' "$out" | grep -vE '^\[(info|success|warn|error)\]|^NOTE: Picked up|running scalascript\.cli'
   fi
 }
 
@@ -52,7 +61,7 @@ printf '%-38s %s\n' "-------" "------"
 #   sql-sqlite-file — persistent /tmp db, the count grows every run
 #   uuid-v7         — random UUIDs
 NONDET_RE='^(sql-sqlite-file|uuid-v7)\.ssc$'
-lane_skip=0; nondet_skip=0
+lane_skip=0; nondet_skip=0; longrun_skip=0
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }
   if [ "${1:-}" = "--all" ] && grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then
@@ -64,8 +73,14 @@ for f in "${FILES[@]}"; do
   if basename "$f" | grep -qE "$NONDET_RE"; then
     printf '%-38s %s\n' "$(basename "$f")" "· skip (nondeterministic output by design)"; nondet_skip=$((nondet_skip+1)); continue
   fi
-  v1=$(run_one "$f" "");     v2=$(run_one "$f" "--v2")
+  v1=$(run_one "$f" "");     v1_rc=$(cat "$RC_FILE")
   name=$(basename "$f")
+  if [ "$v1_rc" = "124" ]; then
+    # v1 didn't terminate within PARITY_TIMEOUT — long-running (actor loop /
+    # stream); no output-equality signal without a driver. Not a v2 gap.
+    printf '%-38s %s\n' "$name" "· skip (long-running: v1 timeout)"; longrun_skip=$((longrun_skip+1)); continue
+  fi
+  v2=$(run_one "$f" "--v2")
   # NB: "both empty" means the program fails/prints nothing on BOTH runners (e.g. needs a --plugin the
   # default `ssc run` doesn't load) — that is NOT a v2 gap, so it must not count as an identical match.
   if [ -z "$v1" ] && [ -z "$v2" ]; then
@@ -86,5 +101,5 @@ total=${#FILES[@]}
 real=$((match + mismatch + err + v1only))   # examples where at least one runner produced real output
 echo
 echo "parity: $match/$real identical · $mismatch mismatch · $err v2-error · $v1only v1-only"
-echo "        ($bothfail both-fail not-a-gap · $skip skipped server/actor · $lane_skip jvm-lane · $nondet_skip nondet · $total total)"
+echo "        ($bothfail both-fail not-a-gap · $skip true-server · $longrun_skip long-running · $lane_skip backend-lane · $nondet_skip nondet · $total total)"
 [ $((mismatch + err)) -eq 0 ]
