@@ -20,7 +20,7 @@ See `specs/std-fs-os.md` §4 for the full API, `ProcessOptions`, `ProcessResult`
 ```scalascript
 case class ProcessOptions(
   cwd:     Option[String]       = None,
-  env:     Map[String, String]  = Map.empty,
+  env:     Map[String, String]  = Map(),
   timeout: Option[Int]          = None
 )
 

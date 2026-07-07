@@ -1,0 +1,20 @@
+---
+name: std-process-import
+version: 1.0.0
+backends: [int]
+---
+
+# std/process imports and runs on the interpreter
+
+Guard: `ProcessOptions`' default `Map.empty` crashed the whole module at
+import ("No method 'empty' on NativeFnV(<native:Map>)") — std/process was
+unusable from `.ssc` on the interpreter (found by busi's sites-as-files
+git-backup slice).
+
+[exec, ProcessOptions, ProcessResult](std/process.ssc)
+
+```scalascript
+val r = exec("echo", List("process-ok"), ProcessOptions(None, Map(), None))
+println(r.stdout.trim())
+println(r.exitCode)
+```
