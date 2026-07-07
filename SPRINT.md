@@ -72,9 +72,14 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       strings are inert jwt-auth endpoint constants riding the serve→HtmlDsl→Jwt capability chain
       (tree-shake candidate, size-only). Production path documented in user-guide §17.9; all
       toolkit-v2 primitives already verified on this path (slices 1–3 browser drives).
-- [ ] **tkv2-pwa-adopt** — `std/pwa.ssc` already exists (manifest + sw + precache): extend with
-      busi's needs (offline fallback page, cache versioning, theme fields); busi `http/pwa.ssc`
-      replaced by it as the consumer proof.
+- [x] **tkv2-pwa-adopt** ✓ DONE 2026-07-07 (code+tests; .ssc drive PENDING on
+      plugin-lazyload-extern-imports) — `std/pwa.ssc` extended: `cacheVersion` (cache-name bump +
+      activate cleanup), `networkFirst` (fresh-online/cached-offline read routes; never list write
+      routes), `offlineHtml` (navigation fallback page), `maskableIcon`. Everything busi's
+      hand-written `http/pwa.ssc` does. PwaPluginTest 4/4 (generators); conformance `tkv2-pwa`
+      written but `pending:` — FOUND pre-existing regression: lazy-loaded plugin externs
+      (smtp/tcp/pwa) are dead from .ssc on main (BUGS.md plugin-lazyload-extern-imports; stock
+      pwa-demo example fails). busi-side adoption happens at the migration pilot (needs a pin bump).
 - [ ] **tkv2-busi-home-conformance** — reduced busi home screen (list + expand + form + offline
       fallback) as a standing corpus case; the integration bar for slices 1–4.
 - [ ] **tkv2-keyed-for** — `forKeyed(items, key)(render)`: keyed reconciliation in the JsGen/custom
