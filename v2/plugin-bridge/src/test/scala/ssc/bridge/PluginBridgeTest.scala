@@ -99,9 +99,9 @@ class PluginBridgeTest extends AnyFunSuite:
     val op = s"test.bridge.add.${java.util.UUID.randomUUID()}" // unique per run
     val stubBackend = new MinimalBackendStub(Map(
       QualifiedName(op) -> NativeImpl { (_, args) =>
-        val a = args(0).asInstanceOf[DataValue.IntV].v
-        val b = args(1).asInstanceOf[DataValue.IntV].v
-        DataValue.IntV(a + b)
+        val a = args(0).asInstanceOf[Long]
+        val b = args(1).asInstanceOf[Long]
+        a + b
       }
     ))
     val count = PluginBridge.loadBackend(stubBackend)
