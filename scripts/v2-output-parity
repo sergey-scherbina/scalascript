@@ -45,10 +45,24 @@ run_one() { # $1=file  $2=extra-flag(--v2 or empty)
 match=0; mismatch=0; err=0; bothfail=0; v1only=0; skip=0
 printf '%-38s %s\n' "EXAMPLE" "PARITY"
 printf '%-38s %s\n' "-------" "------"
+# jvm-lane examples (front-matter `backend: jvm`, scala fences, typeddata imports) are
+# AUTHOR-declared JVM-codegen programs — same lane rule as BatchCli's SKIP(lane); after the
+# v2 switch they keep running via `--backend jvm`, so they are not part of the v2 gate.
+# Nondeterministic-output examples can never byte-match across two runs by DESIGN:
+#   sql-sqlite-file — persistent /tmp db, the count grows every run
+#   uuid-v7         — random UUIDs
+NONDET_RE='^(sql-sqlite-file|uuid-v7)\.ssc$'
+lane_skip=0; nondet_skip=0
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }
   if [ "${1:-}" = "--all" ] && grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then
     skip=$((skip+1)); continue   # server/actor/dataset — never terminates, excluded from the ratio
+  fi
+  if head -15 "$f" | grep -qE '^backend:[[:space:]]*jvm'; then
+    printf '%-38s %s\n' "$(basename "$f")" "· skip (jvm lane)"; lane_skip=$((lane_skip+1)); continue
+  fi
+  if basename "$f" | grep -qE "$NONDET_RE"; then
+    printf '%-38s %s\n' "$(basename "$f")" "· skip (nondeterministic output by design)"; nondet_skip=$((nondet_skip+1)); continue
   fi
   v1=$(run_one "$f" "");     v2=$(run_one "$f" "--v2")
   name=$(basename "$f")
@@ -72,5 +86,5 @@ total=${#FILES[@]}
 real=$((match + mismatch + err + v1only))   # examples where at least one runner produced real output
 echo
 echo "parity: $match/$real identical · $mismatch mismatch · $err v2-error · $v1only v1-only"
-echo "        ($bothfail both-fail not-a-gap · $skip skipped server/actor · $total total)"
+echo "        ($bothfail both-fail not-a-gap · $skip skipped server/actor · $lane_skip jvm-lane · $nondet_skip nondet · $total total)"
 [ $((mismatch + err)) -eq 0 ]
