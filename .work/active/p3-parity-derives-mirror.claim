@@ -3,4 +3,4 @@ branch: feature/p3-parity-derives-mirror
 worktree: ../scalascript-wt-p3-parity-derives-mirror
 started: 2026-07-07
 status: in-progress
-task: p3-parity-derives-mirror — real elemTypes in bridge-built Mirrors (fieldTypeRegistry from decltpe); gate = parity mismatch count drops, zero corpus regressions (SPRINT p3-parity-derives-mirror)
+task: REPURPOSED to p3-parity-sql-cluster — fresh parity run shows custom-derives-mirror already MATCHes; the real fat clusters are sql x3 (Section.sql Op-leak + ForeignV row rendering) and content x4. Working sql first, same worktree/branch.
