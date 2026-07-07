@@ -30,8 +30,9 @@ class CrossBackendIntrinsicParityTest extends AnyFunSuite:
   )
 
   // JS-only in the CORE table because JVM provides each via a PLUGIN (not the core
-  // val): JS bundles crypto/uuid/graphql/json intrinsics into `JsIntrinsics`, while
-  // JVM delegates them to crypto-plugin / uuid-plugin / graphql-plugin / json-plugin.
+  // val): JS bundles crypto/uuid/graphql/json/auth intrinsics into `JsIntrinsics`, while
+  // JVM delegates them to crypto-plugin / uuid-plugin / graphql-plugin / json-plugin /
+  // auth-plugin.
   // A registration-location inconsistency, NOT a capability gap (each verified present
   // on JVM via its plugin, 2026-06-15). Harmonising this is a separate BACKLOG follow-up
   // (`intrinsic-registration-harmonise`); until then these are documented exceptions.
@@ -47,7 +48,9 @@ class CrossBackendIntrinsicParityTest extends AnyFunSuite:
     "graphqlHandler", "graphqlMount", "graphqlQuery", "graphqlSse",
     "graphqlSubgraphMount", "graphqlSubscribe", "serveGraphQL", "serveSubgraph",
     // → JVM json-plugin
-    "jsonValue"
+    "jsonValue",
+    // → JVM auth-plugin
+    "webauthnConfigureStore", "webauthnStoreRemove"
   )
 
   private val jvmKeys: Set[String] = JvmIntrinsics.keySet.map(_.value)

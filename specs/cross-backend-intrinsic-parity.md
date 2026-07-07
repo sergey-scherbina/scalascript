@@ -17,7 +17,7 @@ Each core backend exposes `Backend.intrinsics: Map[QualifiedName, IntrinsicImpl]
 parallel hand-maintained sub-tables:
 
 - `JvmIntrinsics` (`scalascript.codegen`, `JvmCapabilities.scala`) = base ++ `Jvm{Http,Ws,Auth,Core,Json,Request,Mcp,Dataset,Payment}Intrinsics`. **147 keys.**
-- `JsIntrinsics`  (`scalascript.codegen`, `JsCapabilities.scala`)  = base ++ `Js{…}Intrinsics`. **171 keys.**
+- `JsIntrinsics`  (`scalascript.codegen`, `JsCapabilities.scala`)  = base ++ `Js{…}Intrinsics`. **173 keys.**
 - `InterpreterIntrinsics` (`scalascript.interpreter`) = **26 keys** — SPARSE: the interpreter
   dispatches the overwhelming majority of intrinsics via hardcoded `nativeP(...)` natives in
   `initBuiltins`/`DispatchRuntime`, NOT this SPI map.
@@ -29,7 +29,7 @@ is dominated by the interpreter's sparse map (122 names are on jvm+js but not th
 | diff | count | nature |
 |---|---|---|
 | jvm-only (not js core) | 3 | `ApplePay.decryptToken`, `ApplePay.validateMerchant`, `GooglePay.decryptToken` — **intentional**: JVM-native wallet-token crypto with no browser equivalent |
-| js-only (not jvm core) | 27 | `sha256`/`hmacSha256`/`base64*`/`uuid*`/`GraphQL.*`/… — **JVM provides these via PLUGINS** (`crypto-plugin`, `uuid-plugin`, `graphql-plugin`), not the core table; JS bundles them into the core `JsIntrinsics` val. A registration-location inconsistency, not a capability gap |
+| js-only (not jvm core) | 29 | `sha256`/`hmacSha256`/`base64*`/`uuid*`/`GraphQL.*`/WebAuthn store ops/… — **JVM provides these via PLUGINS** (`crypto-plugin`, `uuid-plugin`, `graphql-plugin`, `auth-plugin`), not the core table; JS bundles them into the core `JsIntrinsics` val. A registration-location inconsistency, not a capability gap |
 
 ## Scope (honest)
 
@@ -56,7 +56,7 @@ jsOnly  = JsIntrinsics.keySet  -- JvmIntrinsics.keySet
 
 and asserts each **equals** a documented allowlist EXACTLY (a ratchet):
 - `allowedJvmOnly` — the 3 intentional JVM-native wallet crypto ops.
-- `allowedJsOnly`  — the 27 JS-core entries that JVM provides via plugins (each grouped + reasoned).
+- `allowedJsOnly`  — the 29 JS-core entries that JVM provides via plugins (each grouped + reasoned).
 
 Exact-equality (not subset) makes the allowlist self-maintaining:
 - a NEW undocumented divergence (real drift) → `jvmOnly`/`jsOnly` grows → **test fails** with the
