@@ -128,7 +128,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `backendWasm/testOnly scalascript.codegen.WasmBackendTest` has 7 effectful-WASM failures
       (handler/resume, effectful `String*` mains, arithmetic/HOF effect bodies, cross-module effects);
       `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` had one value-shape failure in
-      `loadBackend` (`Long` vs `DataValue.IntV`, fixed in `805af8bc7`); and
+      `loadBackend` (`Long` vs `DataValue.IntV`, fixed in `7e2650e2c`); and
       `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` has one `mcp-types` failure
       (`user.name` blank; missing-field validation prints `no error`). Next slice: fix the
       `mcp-types` bridge regression, then WASM effects, and only then rerun root `sbt "test"`.

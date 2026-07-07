@@ -96,7 +96,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Progress (2026-07-07, `eae491e11`):** `AgentConformanceTest` fixed by
   binding its mock OpenAI gateway to a loopback ephemeral port instead of
   hard-coded `19694`; targeted conformance test passes 3/3.
-- **Progress (2026-07-07, `805af8bc7`):** `PluginBridgeTest` fixed by aligning
+- **Progress (2026-07-07, `7e2650e2c`):** `PluginBridgeTest` fixed by aligning
   the test stub with the bridge's stable SPI raw-value contract
   (`IntV` args arrive at `NativeImpl` as `Long`, and raw `Long` returns wrap back
   to v2 `IntV`); targeted `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest`
