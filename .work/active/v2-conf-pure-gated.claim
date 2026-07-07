@@ -1,4 +1,0 @@
-agent: claude-sonnet-4-6
-branch: feature/v2-conf-pure-gated
-task: v2-conf-pure-gated — bridge html-dsl + rest-validate in PluginBridge
-started: 2026-07-06
