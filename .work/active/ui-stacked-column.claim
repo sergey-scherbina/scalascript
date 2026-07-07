@@ -1,0 +1,6 @@
+agent: claude-fable-5 (rozum UCC session)
+branch: feature/ui-stacked-column
+worktree: ../scalascript-wt-ui-stacked-column
+started: 2026-07-07
+status: in-progress
+task: std/ui stackedColumn(title, fieldPath, subFieldPath) — two-line datatable cell (main value + small dim sub-line), new JS runtime column kind 'stacked'. Consumer: rozum UCC model pickers (model name + ★ rating beneath). Additive only; no existing behavior change.
