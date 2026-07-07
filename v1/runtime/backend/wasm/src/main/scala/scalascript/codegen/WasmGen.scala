@@ -192,9 +192,17 @@ object WasmGen:
    *  minimal pure-Scala effect runtime (`WasmEffectRuntime`) in `_ssc_runtime`.
    *  `generateUserOnly` strips the user's `@main` (returning a plain `def`), so
    *  re-add a wasm entry that calls it and preserves the supported main-args
-   *  shape. */
+   *  shape. The WASM path asks `JvmGen` not to preserve declared return
+   *  types on effectful user defs: direct `_bind`/`_perform` results must
+   *  remain `Any` until `_handle` interprets them, otherwise a helper such as
+   *  `def shout(): Unit = Log.write(...)` casts the computation to `Unit`
+   *  before the handler sees it. */
   private def compileEffectfulToWasm(module: Module, baseDir: Option[os.Path]): WasmBundle =
-    val lowered = scalascript.codegen.JvmGen.generateUserOnly(module, baseDir)
+    val lowered = scalascript.codegen.JvmGen.generateUserOnly(
+      module,
+      baseDir,
+      preserveTotalEffectfulReturnTypes = false
+    )
     val entry   = mainEntry(module).getOrElse(throw RuntimeException(
       "An effectful WASM module needs an `@main def` entry point (effects run from it)."))
     val full =

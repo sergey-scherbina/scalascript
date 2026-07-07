@@ -122,9 +122,15 @@ object JvmGen:
       module:     Module,
       baseDir:    Option[os.Path] = None,
       intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-      lockPath:   Option[os.Path] = None
+      lockPath:   Option[os.Path] = None,
+      preserveTotalEffectfulReturnTypes: Boolean = true
   ): String =
-    JvmGen(baseDir, intrinsics, lockPath).genUserOnly(scalascript.artifact.MacroCodegen.expand(module))
+    JvmGen(
+      baseDir,
+      intrinsics,
+      lockPath,
+      preserveTotalEffectfulReturnTypes = preserveTotalEffectfulReturnTypes
+    ).genUserOnly(scalascript.artifact.MacroCodegen.expand(module))
 
   /** Emit user code only AND a generated-Scala-line → original-`.ssc`-line
    *  map suitable for JSR-45 SMAP injection.  Returns the same Scala
@@ -146,9 +152,15 @@ object JvmGen:
       module:     Module,
       baseDir:    Option[os.Path] = None,
       intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-      lockPath:   Option[os.Path] = None
+      lockPath:   Option[os.Path] = None,
+      preserveTotalEffectfulReturnTypes: Boolean = true
   ): (String, Map[Int, Int]) =
-    JvmGen(baseDir, intrinsics, lockPath).genUserOnlyWithLineMap(scalascript.artifact.MacroCodegen.expand(module))
+    JvmGen(
+      baseDir,
+      intrinsics,
+      lockPath,
+      preserveTotalEffectfulReturnTypes = preserveTotalEffectfulReturnTypes
+    ).genUserOnlyWithLineMap(scalascript.artifact.MacroCodegen.expand(module))
 
   /** Block carries its original `.ssc` source-line offset so the emitter
    *  can build a JSR-45 SMAP line map.  `lineOffset` is the 1-based line
@@ -171,7 +183,8 @@ class JvmGen(
     private[codegen] val baseDir:  Option[os.Path] = None,
     private[codegen] val intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
     private[codegen] val lockPath: Option[os.Path] = None,
-    frontendOverride: Option[String]  = None) extends JvmGenBlockAnalysis, JvmGenTermAnalysis, JvmGenMutualRecursion, JvmGenEffectAnalysis, JvmGenRuntimeSources, JvmGenCpsTransform, JvmGenMutualTco, JvmGenPreamble, JvmGenContentEmit:
+    frontendOverride: Option[String]  = None,
+    private val preserveTotalEffectfulReturnTypes: Boolean = true) extends JvmGenBlockAnalysis, JvmGenTermAnalysis, JvmGenMutualRecursion, JvmGenEffectAnalysis, JvmGenRuntimeSources, JvmGenCpsTransform, JvmGenMutualTco, JvmGenPreamble, JvmGenContentEmit:
   // Effect operations declared in the module, keyed as "Eff.op".
   // `private[codegen]` so the extracted `JvmGenEffectAnalysis` mixin can populate/read them.
   private[codegen] val effectOps     = mutable.Set.empty[String]
@@ -3261,11 +3274,19 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         p.decltpe.foreach(t => declaredVarTypes(p.name.value) = t.syntax)
       }
       // Effect-row defs (`A ! Eff`) still return Any because they may
-      // produce a Free value that the caller/handler unwraps. Total defs
-      // that merely contain handled effects keep their declared result
-      // type; otherwise wrappers like the benchmark AtomicLong sink see
-      // `workload(...): Any` instead of the user's `: Long`.
-      s"def ${d.name.value}$params${emitEffectfulResultType(d)} = ${castCpsResultToDeclared(d, emitCpsExpr(d.body))}"
+      // produce a Free value that the caller/handler unwraps. JVM split
+      // runtime keeps declared result types for total defs that merely
+      // contain handled effects; the WASM effect path disables that
+      // preservation so direct `_bind`/`_perform` results are not cast to
+      // `Unit`/`Int` before the surrounding handler can interpret them.
+      val cpsBody = emitCpsExpr(d.body)
+      val retType =
+        if preserveTotalEffectfulReturnTypes then emitEffectfulResultType(d)
+        else ": Any"
+      val body =
+        if preserveTotalEffectfulReturnTypes then castCpsResultToDeclared(d, cpsBody)
+        else cpsBody
+      s"def ${d.name.value}$params$retType = $body"
 
     // Non-effectful function with `T ! Eff` return-type annotation: strip the
     // effect row (not valid Scala syntax) and emit with `: Any` return type.
