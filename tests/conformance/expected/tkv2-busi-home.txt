@@ -1,0 +1,12 @@
+3
+obCard__pit_28_2026_07__expanded,obCard__zus_2026_07__expanded,obCard__health_2026_07__expanded
+true,false,false
+false
+Amount: digits only
+false
+
+true
+{}
+Some({"cash":"12000","attention":1})
+{"cash":"12000","attention":1}
+true

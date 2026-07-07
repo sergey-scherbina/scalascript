@@ -72,11 +72,21 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       strings are inert jwt-auth endpoint constants riding the serve→HtmlDsl→Jwt capability chain
       (tree-shake candidate, size-only). Production path documented in user-guide §17.9; all
       toolkit-v2 primitives already verified on this path (slices 1–3 browser drives).
-- [ ] **tkv2-pwa-adopt** — `std/pwa.ssc` already exists (manifest + sw + precache): extend with
-      busi's needs (offline fallback page, cache versioning, theme fields); busi `http/pwa.ssc`
-      replaced by it as the consumer proof.
-- [ ] **tkv2-busi-home-conformance** — reduced busi home screen (list + expand + form + offline
-      fallback) as a standing corpus case; the integration bar for slices 1–4.
+- [x] **tkv2-pwa-adopt** ✓ DONE 2026-07-07 (code+tests; .ssc drive PENDING on
+      plugin-lazyload-extern-imports) — `std/pwa.ssc` extended: `cacheVersion` (cache-name bump +
+      activate cleanup), `networkFirst` (fresh-online/cached-offline read routes; never list write
+      routes), `offlineHtml` (navigation fallback page), `maskableIcon`. Everything busi's
+      hand-written `http/pwa.ssc` does. PwaPluginTest 4/4 (generators); conformance `tkv2-pwa`
+      written but `pending:` — FOUND pre-existing regression: lazy-loaded plugin externs
+      (smtp/tcp/pwa) are dead from .ssc on main (BUGS.md plugin-lazyload-extern-imports; stock
+      pwa-demo example fails). busi-side adoption happens at the migration pilot (needs a pin bump).
+- [x] **tkv2-busi-home-conformance** ✓ DONE 2026-07-07 — `tkv2-busi-home` corpus case (INT==JS):
+      busi-shaped obligation ids → per-card instance-scoped expand; income form (digits/date
+      patterns) with live gate; persisted home payload surviving the reload shape; onlineSignal.
+      Browser twin `examples/frontend/busi-home-demo` driven via emit-spa (only the toggled card
+      expands; Record appears on valid form). GOTCHA found+fixed in form.ssc: a computed thunk
+      invoked from ANOTHER module's context doesn't resolve this module's globals (load-order/
+      global-resolution trap) — bind module functions to local vals before closing over them.
 - [ ] **tkv2-keyed-for** — `forKeyed(items, key)(render)`: keyed reconciliation in the JsGen/custom
       runtime (today `View.ForSignal` wipes + rebuilds the container); component signals survive moves.
 - [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —

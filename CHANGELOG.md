@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — std/ui: tkv2-busi-home-conformance — the integration bar
+
+Sixth slice of `specs/ssc-toolkit-v2.md`. `tests/conformance/tkv2-busi-home.ssc` exercises
+components + offline + forms together in busi's home-screen shape (obligation cards with
+instance-scoped expand, income form with pattern validators and a live validity gate, persisted
+home payload, online flag) — INT==JS. Browser twin `examples/frontend/busi-home-demo` driven over
+emit-spa. Fixed in `std/ui/form.ssc` en route: computed thunks must close over LOCAL bindings of
+module functions (the module global-resolution trap bit deferred invocation from another module).
+
+## 2026-07-07 — std/pwa: tkv2-pwa-adopt — offline-first PWA parameters
+
+Fifth slice of `specs/ssc-toolkit-v2.md`. `std/pwa.ssc` gains `cacheVersion`, `networkFirst`
+(network-first read routes with cache fallback — the busi pattern: reads work offline, writes are
+never cached), `offlineHtml` (navigation fallback page) and `maskableIcon`. Covers everything busi
+hand-writes in `http/pwa.ssc`. Verified by `PwaPluginTest` (4/4). Found en route: lazy-loaded
+plugin externs (smtp/tcp/pwa) are unreachable from `.ssc` on main — filed as
+`plugin-lazyload-extern-imports` (open, BUGS.md; the stock pwa-demo example fails); the
+`tkv2-pwa` conformance case is `pending:` on it.
+
 ## 2026-07-07 — std/ui: tkv2-spa-pipeline — production SPA path audited + documented
 
 Fourth slice of `specs/ssc-toolkit-v2.md` (docs/audit). `ssc emit-spa --frontend custom` confirmed

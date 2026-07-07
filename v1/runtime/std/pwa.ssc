@@ -25,6 +25,13 @@ register the plugin routes **before** `serve(port)`.
 //   startUrl        — URL opened when launched from home screen, default "/"
 //   icons           — list of icon URLs (serve them as static files)
 //   precache        — URLs cached on service-worker install (cache-first on fetch)
+//   cacheVersion    — cache-name suffix; bump to invalidate old caches on activate
+//   networkFirst    — path prefixes served network-first with cache fallback
+//                     (reads stay fresh online, still work offline; never cache
+//                     write routes — list read paths only)
+//   offlineHtml     — full HTML served to page navigations when offline and
+//                     nothing is cached ("" = browser default error)
+//   maskableIcon    — 512x512 icon URL emitted with purpose:"maskable"
 extern def pwa(
   name:            String,
   shortName:       String        = "",
@@ -34,6 +41,10 @@ extern def pwa(
   display:         String        = "standalone",
   startUrl:        String        = "/",
   icons:           List[String]  = List(),
-  precache:        List[String]  = List()
+  precache:        List[String]  = List(),
+  cacheVersion:    String        = "v1",
+  networkFirst:    List[String]  = List(),
+  offlineHtml:     String        = "",
+  maskableIcon:    String        = ""
 ): Unit
 ```

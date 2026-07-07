@@ -1,0 +1,71 @@
+---
+name: tkv2-busi-home
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 — the reduced busi home screen (integration bar for slices 1–4)
+
+Slice `tkv2-busi-home-conformance` of `specs/ssc-toolkit-v2.md`: the shapes
+busi's real home screen needs — an obligations list with per-item
+instance-scoped expand state, an income form with validators-as-data, and an
+offline-cached home payload — exercised together, INT==JS.
+
+[Ctx, component, ctxSignal, ctxName](std/ui/component.ssc)
+[field, form, draft, formErrors, formValid](std/ui/form.ssc)
+[localStorageGet, localStorageSet, persistedSignal, onlineSignal](std/ui/offline.ssc)
+
+```scalascript
+// ── Obligations: busi-shaped ids, one expand signal per card ─────────────
+case class Ob(id: String, title: String, amount: String)
+val obs = [
+  Ob("pit-28/2026-07", "PIT-28 advance", "1200"),
+  Ob("zus/2026-07", "ZUS social", "1600"),
+  Ob("health/2026-07", "Skladka zdrowotna", "461")
+]
+
+def expandSignal(o: Ob): Any =
+  component("obCard", o.id)(ctx => ctxSignal(ctx, "expanded", false))
+
+val expands = obs.map(o => expandSignal(o))
+println(expands.length)
+
+// ids sanitize to distinct JS-safe names
+println(obs.map(o => component("obCard", o.id)(ctx => ctxName(ctx, "expanded"))).mkString(","))
+
+// expanding one card never touches the others
+expands.head.set(true)
+println(expands.map(e => e()).mkString(","))
+
+// ── Income form: amount digits-only + date shape, gate flips live ────────
+val f = component("income", "home")(ctx => form(ctx, [
+  field("amount", label = "Amount", required = true, pattern = "[0-9]+(\\.[0-9]{1,2})?",
+        patternMsg = "digits only"),
+  field("date", label = "Date", required = true, pattern = "[0-9]{4}-[0-9]{2}-[0-9]{2}",
+        patternMsg = "YYYY-MM-DD")
+]))
+val valid = formValid(f)
+println(valid())
+
+draft(f, "amount").set("not-a-number")
+draft(f, "date").set("2026-07-07")
+println(formErrors(f)())
+println(valid())
+
+draft(f, "amount").set("3500.00")
+println(formErrors(f)())
+println(valid())
+
+// ── Offline home cache: last payload survives via storage ────────────────
+val home = persistedSignal("busiLastHome", "{}")
+println(home())
+home.set("{\"cash\":\"12000\",\"attention\":1}")
+println(localStorageGet("busiLastHome"))
+
+// a fresh signal for the same key sees the cached payload (reload shape)
+val homeAfterReload = persistedSignal("busiLastHome", "{}")
+println(homeAfterReload())
+
+// online flag readable (constant true off-browser)
+println(onlineSignal()())
+```
