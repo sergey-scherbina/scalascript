@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-07 — ci: align markdownlint policy with existing docs
+
+Expanded `.markdownlint.json` to disable the additional markdownlint rules already
+violated across historical board/spec/changelog documentation, instead of mass-reformatting
+durable project history. Verified locally with
+`npx --yes markdownlint-cli '**/*.md' --ignore node_modules`.
+
 ## 2026-07-07 — fix(crypto): BouncyCastle helper-name resolution
 
 Fixed the CI compile blocker in `BouncyCastleBackend`: the wildcard `scalascript.crypto.*`

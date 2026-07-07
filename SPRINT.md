@@ -57,12 +57,14 @@ Remaining 21 batch fails, classified:
       validates. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
       from the default `bin/ssc` launcher.
 
-- [ ] **green-main-markdownlint-policy** — make the Markdown lint job match the repository's actual historical
+- [x] **green-main-markdownlint-policy** — make the Markdown lint job match the repository's actual historical
       documentation style instead of failing on legacy board/spec/changelog formatting. Current CI fails before
       useful validation on rules already violated broadly (`MD007`, `MD009`, `MD011`, `MD012`, `MD014`, `MD022`,
       `MD026`, `MD029`, `MD034`, `MD037`, `MD038`, `MD050`, `MD058`). Update `.markdownlint.json` rather than
       mass-reformatting durable project history. Done-when: `markdownlint '**/*.md' --ignore node_modules`
       exits 0 locally.
+      Result: disabled the legacy-violated rules in `.markdownlint.json`; verified locally with
+      `npx --yes markdownlint-cli '**/*.md' --ignore node_modules` (exit 0).
 
 ### Workflow polish (2026-07-06, Sergiy approved proposals 1-2)
 
