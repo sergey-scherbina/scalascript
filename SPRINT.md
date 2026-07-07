@@ -82,10 +82,18 @@ Claimable slices for the above (queued 2026-07-07):
       **Parity 21→30/54 identical, v2-error 11→4; corpus 172P/14F/9SKIP; conformance 65/5.**
       NOTE: sql-sqlite-file mismatch = by-design persistent /tmp db (nondeterministic-output
       class, same as uuid-v7 — harness should normalize/exclude both).
-- [ ] **p3-parity-effects-shape** — effects-family output-shape mismatches on the terminating
-      set (handle/resume result rendering differs from v1). Overlaps p3-effects-output-divergence
-      (the algebraic-effects exit-0 divergence) — take together: fix the v2 VM effects semantics
-      first, then re-measure the shape cluster.
+- [~] **p3-parity-effects-shape + p3-effects-output-divergence** — CORE FIXED 2026-07-07
+      (84503577e): the entire divergence class was the v2 VM DISCARDING effect Ops in
+      statement position and val bindings (all Seq/Let paths). Free-monad threading added
+      (Runtime.seqThreadOp/letThreadOp; Let keeps the common path TAIL — 1M-TCO probe green).
+      examples/effects.ssc on v2 now prints ALL SIX documented lines exactly.
+      REMAINING (smaller, each diagnosed):
+      • v1 BUG (new): v1 `ssc run examples/effects.ssc` prints only 3 of 6 documented lines
+        (stops after the Collecting-Output section) — the parity entry can't MATCH until the
+        V1 side is fixed; v2 now matches the documented expected output.
+      • algebraic-effects: remaining diff is State-effect get/set semantics (v2 prints
+        List()/Stub1 where v1 prints 0/1) — parameterized-handler state threading.
+      • runStream runner still not bridged (unbound global: runStream) — separate item.
 - [ ] **p3-parity-quoted-macros** — `TermSplicedMacroExprImpl` mismatches: quoted-macro examples
       produce different (or empty) output on v2 — the bridge has no macro expansion pre-pass
       (v1 runs MacroCodegen.expand). Decide: port the expansion pre-pass into FrontendBridge
