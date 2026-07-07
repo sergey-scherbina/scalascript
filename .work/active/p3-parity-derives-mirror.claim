@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-parity-derives-mirror
+worktree: ../scalascript-wt-p3-parity-derives-mirror
+started: 2026-07-07
+status: in-progress
+task: p3-parity-derives-mirror — real elemTypes in bridge-built Mirrors (fieldTypeRegistry from decltpe); gate = parity mismatch count drops, zero corpus regressions (SPRINT p3-parity-derives-mirror)
