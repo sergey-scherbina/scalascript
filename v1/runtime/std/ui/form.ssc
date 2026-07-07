@@ -90,16 +90,25 @@ def spec(f: Form, name: String): FieldSpec =
   f.specs.filter(s => s.name == name).head
 
 // Reactive per-field error — recomputes as the draft changes.
+// NB: bind validateField to a local val before closing over it — a thunk
+// invoked later from ANOTHER module's context does not resolve this module's
+// global names (the module load-order/global-resolution trap); a captured
+// local resolves from the closure environment on every backend.
 def fieldError(f: Form, name: String): Any = {
   val sp = spec(f, name)
   val d  = f.drafts(name)
-  computedSignal(() => validateField(sp, d()))
+  val vf = validateField
+  computedSignal(() => vf(sp, d()))
 }
 
 // All current messages, "; "-joined ("" when the whole form is valid).
-def formErrors(f: Form): Any =
+def formErrors(f: Form): Any = {
+  val vf = validateField
+  val specs = f.specs
+  val drafts = f.drafts
   computedSignal(() =>
-    f.specs.map(s => validateField(s, f.drafts(s.name)())).filter(e => e != "").mkString("; "))
+    specs.map(s => vf(s, drafts(s.name)())).filter(e => e != "").mkString("; "))
+}
 
 // Signal[Boolean]: true while every field validates.
 def formValid(f: Form): Any = eqSignal(formErrors(f), "")

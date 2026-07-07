@@ -1,0 +1,74 @@
+---
+name: busi-home-demo
+version: 1.0.0
+description: The reduced busi home screen — obligation cards with per-instance expand, an income form gated on validity (ssc toolkit v2 integration demo).
+frontend: custom
+---
+
+# busi-home-demo — the toolkit-v2 integration screen
+
+Three obligation cards (each expands independently — instance-scoped
+signals), plus a record-income form whose Submit appears only when both
+fields validate. The browser-driven twin of
+`tests/conformance/tkv2-busi-home.ssc`.
+
+[signal, serve, incSignal](std/ui/primitives.ssc)
+[Ctx, component, ctxSignal](std/ui/component.ssc)
+[field, form, formField, submitGate](std/ui/form.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[checkbox, actionButton](std/ui/input.ssc)
+[signalText_, showWhen](std/ui/reactive.ssc)
+[cardWithHeader](std/ui/containers.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+case class Ob(id: String, title: String, amount: String)
+val obs = [
+  Ob("pit-28/2026-07", "PIT-28 advance", "1200 zl"),
+  Ob("zus/2026-07", "ZUS social", "1600 zl"),
+  Ob("health/2026-07", "Skladka zdrowotna", "461 zl")
+]
+
+def obCard(o: Ob): TkNode =
+  component("obCard", o.id)(ctx => {
+    val expanded = ctxSignal(ctx, "expanded", false)
+    cardWithHeader(heading(3, o.title))(
+      checkbox(checked = expanded, label = "details"),
+      showWhen(expanded,
+        text("Pay " + o.amount + " -> gate: Clear"),
+        text(""))
+    )
+  })
+
+val submitTick = signal("submitTick", 0)
+
+val incomeForm = component("income", "home")(ctx => {
+  val f = form(ctx, [
+    field("amount", label = "Amount", required = true,
+          pattern = "[0-9]+(\\.[0-9]{1,2})?", patternMsg = "digits only"),
+    field("date", label = "Date", required = true,
+          pattern = "[0-9]{4}-[0-9]{2}-[0-9]{2}", patternMsg = "YYYY-MM-DD")
+  ])
+  vstack(gap = 8)(
+    heading(2, "Record income"),
+    formField(f, "amount"),
+    formField(f, "date"),
+    submitGate(f,
+      actionButton(incSignal(submitTick), "Record"),
+      text("-> fill amount and date"))
+  )
+})
+
+val tree = vstack(gap = 16)(
+  heading(1, "busi home (reduced)"),
+  obCard(obs(0)),
+  obCard(obs(1)),
+  obCard(obs(2)),
+  incomeForm
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```
