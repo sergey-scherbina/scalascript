@@ -103,11 +103,16 @@ Claimable slices for the above (queued 2026-07-07):
       produce different (or empty) output on v2 — the bridge has no macro expansion pre-pass
       (v1 runs MacroCodegen.expand). Decide: port the expansion pre-pass into FrontendBridge
       or classify macros as v1-frontend-lane for the gate.
-- [ ] **p3-parity-stub-op-leaks** — the 11 v2-error (empty output) terminating examples:
-      remaining Stub/Op leaks at plugin boundaries (content-form-submit, content-live-rows,
-      content-slot, ui-fetch-json parser gap, ui-remote-table, object-store-jdbc). Use
-      SSC_DEBUG_ACTORS-style breadcrumbs + the batch runner; several may be plugin natives
-      one registerX() away (fs-builtins pattern).
+- [x] **p3-parity-stub-op-leaks** — CLOSED 2026-07-07 (b4235a6aa) as harness
+      reclassification: after the advanced-plugin-tier fix flipped 7 of 11, the remaining 4
+      "v2-errors" (graph-codecs, object-store-jdbc, spark-schema-mapping, typed-object-codec)
+      are ALL `backend: jvm` lane examples (scala fences, typeddata imports) — the harness now
+      lane-skips them like BatchCli, plus a nondeterministic-output class (sql-sqlite-file,
+      uuid-v7). Corrected metric: **31/50 identical (62%) · 12 mismatch · 0 v2-error ·
+      7 v1-only**. The 7 v1-only entries (dsl-mini-language, dsl-json-parser, dsl-sql-recovery,
+      international-bank-rails, paginated-typed-client, sql-browser-duckdb, x402-metamask) are
+      programs v2 RUNS and v1 crashes on — v1 bugs; dsl-mini-language's v2 side (the corpus
+      single) is thereby DONE.
 - [ ] **p3-server-actor-parity-harness** — the parity harness SKIPS 132 server/actor examples
       (two thirds of the corpus have NO output-equality signal). Extend scripts/v2-output-parity:
       run server examples with a bounded driver (start, probe one route via httpRetry, stop —
