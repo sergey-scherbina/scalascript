@@ -779,6 +779,22 @@ fn show(v: &V) -> String {
         V::Float(d)    => float_to_str(*d),
         V::Str(s)      => s.clone(),
         V::Bytes(b)    => format!("Bytes({})", b.iter().map(|x| format!("{:02x}", x)).collect::<String>()),
+        V::Data(tag, _) if tag == "Cons" || tag == "Nil" => {
+            // VM anyStr semantics: Cons/Nil chains render as List(…)
+            let mut items: Vec<String> = Vec::new();
+            let mut cur = v.clone();
+            loop {
+                match cur {
+                    V::Data(ref t2, ref fs) if t2 == "Cons" => {
+                        items.push(show(&fs[0]));
+                        let next = fs[1].clone();
+                        cur = next;
+                    }
+                    _ => break,
+                }
+            }
+            format!("List({})", items.join(", "))
+        }
         V::Data(tag, fields) if fields.is_empty() => tag.clone(),
         V::Data(tag, fields) => {
             let fs: Vec<String> = fields.iter().map(show).collect();

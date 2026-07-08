@@ -247,7 +247,16 @@ private def _show(v: V): String = v match
   case s: String  => s
   case bi: BigInt => bi.toString
   case (tag: String, fields: Array[V]) =>
-    if fields.isEmpty then tag else s"$tag(${fields.map(_show).mkString(", ")})"
+    // VM anyStr semantics: Cons/Nil chains render as List(…)
+    if tag == "Cons" || tag == "Nil" then
+      val items = scala.collection.mutable.ListBuffer.empty[String]
+      var cur: V = (tag, fields)
+      var go = true
+      while go do cur match
+        case ("Cons", fs: Array[V]) => items += _show(fs(0)); cur = fs(1)
+        case _ => go = false
+      s"List(${items.mkString(", ")})"
+    else if fields.isEmpty then tag else s"$tag(${fields.map(_show).mkString(", ")})"
   case v: Vector[?] => v.asInstanceOf[Vector[Byte]].map(b => f"${b & 0xff}%02x").mkString("#", "", "")
   case _: Function1[?, ?] => "<closure>"
   case _ => v.toString

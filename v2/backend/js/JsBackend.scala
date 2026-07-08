@@ -426,6 +426,10 @@ function $show(v){
   if(v.$k!==undefined) return '<tco>';
   if(v.m!==undefined) return '<map>';
   if(v.t!==undefined){
+    if(v.t==='Cons'||v.t==='Nil'){
+      var items=[]; for(var cur=v;cur.t==='Cons';cur=cur.f[1]) items.push($show(cur.f[0]));
+      return 'List('+items.join(', ')+')';
+    }
     if(!v.f||v.f.length===0) return v.t;
     return v.t+'('+v.f.map($show).join(', ')+')';
   }
