@@ -217,6 +217,55 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
       code should include ("import mylib.ops.{mk, twice}")
     finally os.remove.all(dir)
 
+  test("JvmGen: colon object survives unindented triple-quoted literal body"):
+    val code = jvmCode(
+      "object std:\n" +
+        "  object one:\n" +
+        "    def value: Int = 1\n" +
+        "object std:\n" +
+        "  object two:\n" +
+        "    def value: Int = 2\n" +
+        "object SubmitButton:\n" +
+        "  val js: String = s\"\"\"\n" +
+        "document.querySelectorAll('form').forEach(form => {\n" +
+        "  form.addEventListener('submit', () => {\n" +
+        "    form.querySelectorAll('button[type=\"submit\"]').forEach(b => {\n" +
+        "      b.disabled = true;\n" +
+        "    });\n" +
+        "  });\n" +
+        "});\"\"\"\n" +
+        "  def render: String = \"ok\"\n" +
+        "object Stack:\n" +
+        "  def render: String = SubmitButton.render\n" +
+        "println(Stack.render)\n"
+    )
+    code should include ("object SubmitButton {")
+    val submitStart = code.indexOf("object SubmitButton {")
+    val stackStart  = code.indexOf("object Stack {", submitStart)
+    submitStart should be >= 0
+    stackStart should be > submitStart
+    val submit = code.substring(submitStart, stackStart)
+    submit should include ("  def render: String = \"ok\"")
+    submit.trim should endWith ("}")
+    submit should not include "s\"\"\"\n}"
+    submit should not include "sx\"\"\"\n}"
+
+  test("JvmGen: std-ui directory import keeps SubmitButton object closed after js literal"):
+    val root = TestPaths.repoRoot
+    val file = root / "tests" / "conformance" / "std-ui-extended.ssc"
+    val m    = Parser.parse(os.read(file))
+    val code = JvmGen.generate(m, baseDir = Some(file / os.up))
+    code should include ("object SubmitButton {")
+    val submitStart = code.indexOf("object SubmitButton {")
+    val stackStart  = code.indexOf("object Stack {", submitStart)
+    submitStart should be >= 0
+    stackStart should be > submitStart
+    val submit = code.substring(submitStart, stackStart)
+    submit should include ("  def render(")
+    submit.trim should endWith ("}")
+    submit should not include "val js: String = s\"\"\"\n}"
+    submit should not include "val js: String = sx\"\"\"\n}"
+
 // ─── JS reserved-keyword parameter names ─────────────────────────────────────
 
 class JsGenReservedParamTest extends AnyFunSuite with Matchers:

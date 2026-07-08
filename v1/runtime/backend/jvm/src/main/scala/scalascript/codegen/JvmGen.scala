@@ -644,7 +644,10 @@ class JvmGen(
    *
    *  Only exact `object NAME:` lines (colon immediately follows the name,
    *  nothing else on the line) at the current column-0 level are touched;
-   *  arbitrary inner braces / definitions are passed through unchanged. */
+   *  arbitrary inner braces / definitions are passed through unchanged.
+   *  Body collection tracks triple-quoted strings because generated/imported
+   *  UI modules can contain JavaScript literals whose content starts at
+   *  column 0; those lines are still part of the object body. */
   // Resolve an io.scalascript artifact to an absolute //> using jar path so that
   // scala-cli/Coursier never tries Maven Central for internal packages.
   // Falls back to //> using dep if the jar directory cannot be found.
@@ -698,14 +701,28 @@ class JvmGen(
     val result   = new StringBuilder(src.length)
     var i        = 0
     val ColonObj = "^(object \\w+):$".r
+    def togglesTripleString(line: String): Boolean =
+      var idx   = line.indexOf("\"\"\"")
+      var count = 0
+      while idx >= 0 do
+        count += 1
+        idx = line.indexOf("\"\"\"", idx + 3)
+      (count % 2) == 1
     while i < n do
       lines(i) match
         case ColonObj(header) =>
           // Collect body: all lines that are blank OR indented (start with space/tab).
           i += 1
           val body = new StringBuilder()
-          while i < n && (lines(i).isEmpty || lines(i).charAt(0) == ' ' || lines(i).charAt(0) == '\t') do
+          var inTripleString = false
+          while i < n && (
+              inTripleString ||
+              lines(i).isEmpty ||
+              lines(i).charAt(0) == ' ' ||
+              lines(i).charAt(0) == '\t'
+            ) do
             body.append(lines(i)).append('\n')
+            if togglesTripleString(lines(i)) then inTripleString = !inTripleString
             i += 1
           // Strip trailing blank lines so the closing `}` lands cleanly.
           var bodyStr = body.toString
@@ -729,9 +746,9 @@ class JvmGen(
    *  blocks (column-0 `object` keyword); groups by name; merges bodies of
    *  same-name blocks into the FIRST occurrence and removes the rest.
    *  Plain string-level — scala.meta can't parse the 300KB+ emitted source.
-   *  Brace counting respects double-quoted strings and `//` line comments;
-   *  triple-quoted strings and `/* */` comments are rare enough at the
-   *  outer indent level that we don't track them. */
+   *  Brace counting respects ordinary strings, triple-quoted strings, and
+   *  comments; imported UI modules often contain JavaScript/CSS triple
+   *  literals with their own braces. */
   private def mergeDuplicatePackageObjects(src: String): String =
     // First merge top-level (column-0) duplicates; then recursively
     // merge inside each merged outer object's body so a collapsed
@@ -757,20 +774,7 @@ class JvmGen(
         while j < n && (src.charAt(j).isLetterOrDigit || src.charAt(j) == '_') do j += 1
         while j < n && src.charAt(j) == ' ' do j += 1
         if j < n && src.charAt(j) == '{' then
-          var depth = 1
-          var k     = j + 1
-          var inStr = false; var inLnCmt = false
-          while k < n && depth > 0 do
-            val c = src.charAt(k)
-            if inLnCmt then { if c == '\n' then inLnCmt = false }
-            else if inStr then { if c == '\\' && k + 1 < n then k += 1 else if c == '"' then inStr = false }
-            else c match
-              case '"' => inStr = true
-              case '/' if k + 1 < n && src.charAt(k + 1) == '/' => inLnCmt = true; k += 1
-              case '{' => depth += 1
-              case '}' => depth -= 1
-              case _   => ()
-            k += 1
+          val k = findMatchingBraceEnd(src, j)
           // Emit header + brace
           out.append(src.substring(i, j + 1))
           // Recursively merge inside body. Strip leading 2-space indent
@@ -792,6 +796,47 @@ class JvmGen(
       else
         out.append(src.charAt(i)); i += 1
     out.toString
+
+  private def findMatchingBraceEnd(src: String, openBrace: Int): Int =
+    val n = src.length
+    var depth      = 1
+    var k          = openBrace + 1
+    var inStr      = false
+    var inTriple   = false
+    var inLnCmt    = false
+    var inBlockCmt = false
+    while k < n && depth > 0 do
+      val c = src.charAt(k)
+      if inLnCmt then
+        if c == '\n' then inLnCmt = false
+      else if inBlockCmt then
+        if c == '*' && k + 1 < n && src.charAt(k + 1) == '/' then
+          inBlockCmt = false
+          k += 1
+      else if inTriple then
+        if src.startsWith("\"\"\"", k) then
+          inTriple = false
+          k += 2
+      else if inStr then
+        if c == '\\' && k + 1 < n then k += 1
+        else if c == '"' then inStr = false
+      else if src.startsWith("\"\"\"", k) then
+        inTriple = true
+        k += 2
+      else
+        c match
+          case '"' => inStr = true
+          case '/' if k + 1 < n && src.charAt(k + 1) == '/' =>
+            inLnCmt = true
+            k += 1
+          case '/' if k + 1 < n && src.charAt(k + 1) == '*' =>
+            inBlockCmt = true
+            k += 1
+          case '{' => depth += 1
+          case '}' => depth -= 1
+          case _   => ()
+      k += 1
+    k
 
   /** After `colonObjectsToBraces`, alias import blocks like
    *  `import std.ui.nodes.{TkNode,...}` end up between (or after) the
@@ -896,25 +941,7 @@ class JvmGen(
         while j < n && src.charAt(j) == ' ' do j += 1
         if j < n && src.charAt(j) == '{' then
           // Brace-match to find the closing }.
-          var depth   = 1
-          var k       = j + 1
-          var inStr   = false
-          var inLnCmt = false
-          while k < n && depth > 0 do
-            val c = src.charAt(k)
-            if inLnCmt then
-              if c == '\n' then inLnCmt = false
-            else if inStr then
-              if c == '\\' && k + 1 < n then k += 1
-              else if c == '"' then inStr = false
-            else
-              c match
-                case '"' => inStr = true
-                case '/' if k + 1 < n && src.charAt(k + 1) == '/' => inLnCmt = true; k += 1
-                case '{' => depth += 1
-                case '}' => depth -= 1
-                case _   => ()
-            k += 1
+          val k = findMatchingBraceEnd(src, j)
           blocks += Block(name, skipped, i, k, j + 1, k - 1)  // [start, end), body = (headerEnd, bodyEnd]
           i = k
         else i = j
