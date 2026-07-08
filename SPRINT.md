@@ -93,7 +93,18 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       23 v1-only**; the extra mismatch was a transient `invoice-email` generated
       byte-count mismatch, and an immediate targeted rerun of `invoice-email` +
       `dataset-parallel-sum` was **2/2 MATCH**.
-- [ ] **v2-prod-invoice-email-nondet** — stabilize the `examples/invoice-email.ssc`
+- [x] **v2-prod-invoice-email-nondet** — DONE 2026-07-08 (d8e0ecee4): stabilized
+      `examples/invoice-email.ssc` by keeping the MIME/PDF assembly path but removing
+      the exact generated `message.length` from stdout. The example now prints the
+      stable semantic result `MIME message assembled: PDF attached` once the message is
+      non-empty. Verification: direct `bin/ssc run` and `bin/ssc run --v2` both print
+      the stable line; repeated targeted parity
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/invoice-email.ssc`
+      was **5/5 MATCH**; neighbor cluster
+      `examples/invoice*.ssc examples/pdf-extract-demo.ssc` was **3/3 MATCH**.
+      Affected conformance globs `invoice*`, `*pdf*`, and `*mime*` contain **0 cases**,
+      so the production gate is the examples parity check.
+      ORIGINAL PLAN: stabilize the `examples/invoice-email.ssc`
       output so the v2 production parity gate is not sensitive to generated MIME/PDF
       byte counts. Why: the latest full sweep has zero v2-error cases, but one run
       observed `invoice-email.ssc` as an extra mismatch (`2681` vs `2685`) before an

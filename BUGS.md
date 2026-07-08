@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-invoice-email-nondet — `open` (2026-07-08)
+## v2-invoice-email-nondet — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` full-corpus production parity
   verification.
@@ -25,10 +25,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Suspect:** the example prints generated MIME/PDF byte length instead of stable
   semantic facts. Byte-exact generated artifacts can vary across runners and should not
   be the user-facing example contract for the v2 production gate.
-- **Plan:** inspect `examples/invoice-email.ssc`, change the printed contract to stable
-  semantic output if the byte count is user-visible, then verify repeated targeted parity
-  plus the nearest invoice/pdf/mime conformance slice. Avoid sibling-owned
-  `scripts/v2-output-parity` normalization.
+- **Root cause:** the user-facing example contract exposed exact generated MIME/PDF
+  message length. That length is not semantically important and can vary when the PDF
+  renderer/MIME generator changes incidental bytes.
+- **Fix (d8e0ecee4):** keep building the PDF and MIME message, but print a stable
+  semantic line after confirming the message is non-empty:
+  `MIME message assembled: PDF attached`.
+- **Verification:** direct v1/v2 runs print the same stable line; repeated targeted
+  parity for `examples/invoice-email.ssc` was **5/5 MATCH**; neighbor parity for
+  `examples/invoice*.ssc examples/pdf-extract-demo.ssc` was **3/3 MATCH**. Conformance
+  globs `invoice*`, `*pdf*`, and `*mime*` have **0 cases**, so there is no affected
+  conformance case to run.
 
 ## v2-list-unlist-stack-overflow — `fixed` (2026-07-08)
 

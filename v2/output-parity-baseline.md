@@ -91,6 +91,29 @@ Full corpus after the fix measured **54/88 identical · 11 mismatch · 0 v2-erro
 targeted rerun of `invoice-email.ssc` plus `dataset-parallel-sum.ssc` was **2/2 MATCH**.
 The production-relevant change is that the full gate now has **zero v2-error cases**.
 
+### Update — 2026-07-08, invoice email output stabilization
+
+`examples/invoice-email.ssc` no longer prints the exact generated MIME message byte
+count. The example still renders the PDF and builds the MIME message, but stdout now
+uses the stable semantic line `MIME message assembled: PDF attached` after confirming
+the message is non-empty. This closes the transient byte-count mismatch class without
+normalizing the parity harness.
+
+Verification:
+
+```bash
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/invoice-email.ssc
+# repeated 5 times: parity: 1/1 identical · 0 mismatch · 0 v2-error · 0 v1-only
+
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/invoice*.ssc examples/pdf-extract-demo.ssc
+# parity: 3/3 identical · 0 mismatch · 0 v2-error · 0 v1-only
+
+scala-cli tests/conformance/run.sc -- --only 'invoice*' --no-memo
+scala-cli tests/conformance/run.sc -- --only '*pdf*' --no-memo
+scala-cli tests/conformance/run.sc -- --only '*mime*' --no-memo
+# each glob: 0 matching case(s)
+```
+
 ## Result — 2026-07-05, 52 terminating examples (no server/actor/network)
 
 | | count |

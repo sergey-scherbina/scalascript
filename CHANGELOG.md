@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: invoice email output stabilized
+
+`examples/invoice-email.ssc` no longer prints the exact generated MIME message byte
+count. It still renders the PDF and builds the MIME message, then prints a stable
+semantic line (`MIME message assembled: PDF attached`) once the message is non-empty.
+This removes the transient parity mismatch class where incidental generated artifact
+lengths differed while the v1/v2 behavior was otherwise equivalent.
+
+---
+
 ## 2026-07-08 — std/ui: serve(view, port, extraCss) — app-supplied page CSS
 
 `serve`'s extern gained an optional `extraCss: String = ""` third arg, appended to the base
