@@ -665,6 +665,15 @@ object FrontendBridge:
       .orElse(scalascript.imports.ImportResolver.stdPath.flatMap { root =>
         tryOsPath(root / os.RelPath(rel))
       })
+      // Mirror ImportResolver.resolve's secondary fallback: the launcher sets
+      // ssc.lib.path to the INSTALL ROOT (parent of bin/), where std/ lives at
+      // runtime/std (the tracked runtime → v1/runtime symlink). Without this,
+      // std/ imports on the v2 lane resolved only when os.pwd happened to be
+      // inside the repo — busi's `std/money.ssc` import was unbound from its
+      // own cwd while the v1 lane resolved it fine.
+      .orElse(scalascript.imports.ImportResolver.libPath.flatMap { root =>
+        tryOsPath(root / "runtime" / os.RelPath(rel))
+      })
       .orElse {
         var cur = os.pwd
         var found: Option[os.Path] = None
