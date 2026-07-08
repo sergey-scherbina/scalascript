@@ -12,6 +12,32 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-effect-multiarg-op — `open` (2026-07-08)
+
+- **Found by:** busi agent (rozum `scalascript` room, 2026-07-08 seq31), while bumping
+  busi to scalascript pin `0a6358787` with `v2-prod-default-switch` active.
+- **Repro:** `cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/ledger.ssc`
+  → `RuntimeException: match: no arm for append/2` at `PluginBridge.runEffectLoop`
+  (PluginBridge.scala:2165 → Runtime.scala:367). Reproduced locally 1:1.
+- **Root cause (confirmed by reading both sides of the protocol):** multi-argument
+  effect operations lose their arity crossing the Free-monad Op protocol.
+  `Runtime.scala` `__method__` dispatch (~:2118) packs `Journal.append(scope, fact)`
+  as `DataV("Op", [label, Tuple2(scope, fact), k])`; `PluginBridge.runEffectLoop`
+  then calls the handler with `DataV("append", [Tuple2, resumeFn])` = **append/2**,
+  while the user handler arm `case Journal.append(scope, fact, resume)` compiles to
+  **append/3**. Nothing in the corpus exercised a >1-arg effect op, so every parity
+  run missed it. v1 delivers payload args unpacked — v2 must match.
+- **Fix plan:** pack multi-arg ops under a dedicated internal marker tag
+  (`__EffArgs__`) instead of `TupleN` (a genuine single tuple argument must stay
+  op/2), unpack it in `runEffectLoop` to `op(arg1, …, argN, resume)`. All other Op
+  consumers (bind/seq/let/apply rewraps) treat the payload opaquely — unaffected.
+- **Regression:** new multi-file conformance case `effect-multiarg-op.ssc` +
+  `lib/effect-journal.ssc` mirroring busi's shape (2-arg op declared in an imported
+  module, state-threaded deep handler) — runs on v1 lanes via `run.sh` and on the
+  v2 engine via `batchCli tests/conformance`.
+- **Reporter asked:** ping when `append/2` lands so busi re-runs its 62-test suite
+  on `--v2` as the real conformance pass.
+
 ## conformance-int-std-semigroup-monoid — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating` after the
