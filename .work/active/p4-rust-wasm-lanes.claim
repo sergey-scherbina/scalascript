@@ -1,6 +1,6 @@
 feature/p4-rust-wasm-lanes 2026-07-08T21:23:32Z
 agent: codex
-heartbeat: 2026-07-08T21:23:32Z
-status: not-started
-done-so-far:
-next: create worktree and write detailed rust/wasm lane plan before coding
+heartbeat: 2026-07-08T21:24:02Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-p4-rust-wasm-lanes
+next: audit rust/wasm lane surfaces, write detailed SPRINT/spec plan, then implement first green gate slice
