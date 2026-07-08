@@ -894,7 +894,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `std-semigroup-monoid`, failing only on INT with expected lines 4-6
       missing (`Some(24)`, `42`, `foo`) while JS/JVM pass. Tracked in `BUGS.md`
       as `conformance-int-std-semigroup-monoid`.
-      - [ ] **conformance-int-std-semigroup-monoid** — final full-gate blocker:
+      - [x] **conformance-int-std-semigroup-monoid** — final full-gate blocker:
             reproduce with `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`
             and `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`;
             inspect INT handling of std Semigroup/Monoid givens/extensions or
@@ -902,6 +902,19 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             Done-when direct INT output includes all expected lines, the targeted
             conformance slice is green across enabled backends, and the full
             default conformance gate is rerun.
+            FIXED 2026-07-08 in `e571fd3ae`: INT concrete/parametric given
+            registration now exposes parent typeclass aliases through
+            `parentTypes`, so a `Monoid[Int]` given also satisfies a
+            `Semigroup[Int]` demand. Root cause: `combineAllOption[A: Semigroup]`
+            failed after the first three lines because `intSum` was only
+            registered as `Monoid[Int]`; JS/JVM inherited Scala's subtype
+            evidence behavior. Verification: direct
+            `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`;
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.FinalTaglessConformanceTest scalascript.GivenUsingTest"`
+            (**17/17 green**); and
+            `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`
+            (**1/1 green**). Next: rerun full default conformance; if green,
+            mark `green-main-conformance-gating` complete and release the claim.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

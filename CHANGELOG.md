@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: INT Semigroup via Monoid givens fixed
+
+`std-semigroup-monoid` now passes INT/JS/JVM. The interpreter registers parent
+typeclass aliases for givens, so `Monoid[Int]` evidence also satisfies
+`Semigroup[Int]` when `Monoid extends Semigroup`. Targeted gate:
+`tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo` is **1/1
+green**.
+
+---
+
 ## 2026-07-08 — fix: JVM `.scjvm` cache invalidates old codegen
 
 Source-fresh `.scjvm` artifacts now carry a JVM `codegenVersion` cache key, so

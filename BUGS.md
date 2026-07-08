@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## conformance-int-std-semigroup-monoid — `open` (2026-07-08)
+## conformance-int-std-semigroup-monoid — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating` after the
   `.scjvm` cache invalidation fix.
@@ -22,9 +22,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Observed:** full conformance reports `std-semigroup-monoid` failing only on
   INT: expected lines 4-6 are `Some(24)`, `42`, and `foo`, but INT prints fewer
   lines (`<missing>` for those entries). JS and JVM pass.
-- **Status:** open; reproduce directly in the real CLI harness, inspect the
-  interpreter/std path for imported Semigroup/Monoid extension or given
-  resolution, add a focused regression, and verify the targeted conformance slice.
+- **Status:** fixed in `e571fd3ae`. Root cause was INT given registration:
+  `given intSum: Monoid[Int]` was registered only as `Monoid[Int]`, while
+  `combineAllOption[A: Semigroup]` needs `Semigroup[Int]`. Scala/JS/JVM accept
+  this because `Monoid extends Semigroup`; the interpreter did not expose that
+  parent typeclass key.
+- **Fix:** concrete and parametric `given` registration now follows the
+  interpreter's `parentTypes` chain and registers parent typeclass aliases such
+  as `Semigroup[Int]` for `Monoid[Int]`. Exact concrete keys still own ambiguity
+  tracking; aliases fill only missing parent keys.
+- **Verified:** direct `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`
+  prints all six expected lines; `scripts/sbtc "backendInterpreter/testOnly scalascript.FinalTaglessConformanceTest scalascript.GivenUsingTest"`
+  (**17/17 green**); and
+  `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`
+  (**1/1 green** across INT/JS/JVM).
 
 ## jvm-scjvm-cache-codegen-version — `fixed` (2026-07-08)
 
