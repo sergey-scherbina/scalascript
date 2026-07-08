@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p4-bc-coverage
+worktree: ../scalascript-wt-p4-cov
+started: 2026-07-08
+status: in-progress
+task: p4-bytecode coverage probe (compile-sweep all examples, Unsupported census) + CLI flag (run --bytecode via RunV2 routing)
