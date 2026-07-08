@@ -5,6 +5,46 @@ After this plan is complete, Phase 3 (CLI switch) can proceed safely.
 
 Spec for Phase 2 continuation. See also: `specs/v1-to-v2-migration.md`.
 
+## Production gate addendum (2026-07-08)
+
+Sergiy's current goal is production v2: `ssc run` can default to v2 with `ssc --v1`
+as the rollback path. The decisive compatibility metric is **observable output
+parity** between v1 and v2 for the runnable corpus, not exit-code coverage alone.
+
+The gate command is:
+
+```bash
+SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Run it after staging `bin/ssc` from the same worktree. The baseline must be recorded
+in `v2/output-parity-baseline.md` with exact counts for:
+
+- output-identical programs;
+- output mismatches;
+- v2-only errors;
+- v1-only failures;
+- explicitly excluded lane/env/nondeterministic/server cases.
+
+### Production execution order
+
+1. Refresh the output-parity baseline before semantic changes.
+2. Fix output divergences where v2 exits 0 but produces different results. These are
+   production-critical because ordinary exit-code/conformance gates can miss them.
+3. Fix plugin-boundary shape gaps (`Stub`/`Op` leaks, foreign conversion, lazy-load
+   externs) that affect real `.ssc` programs.
+4. Classify Spark, distributed actor/node simulation, live-server, JVM-lane, external
+   credential, and nondeterministic examples into separate lanes before the default
+   switch. A program should not silently disappear from the gate.
+5. Switch the default only after all remaining non-parity cases are either fixed or
+   intentionally scoped out with a documented lane-specific gate.
+
+### Current first blocker
+
+`examples/algebraic-effects.ssc` is the first semantic blocker to close in this
+workstream: v2 can exit successfully while disagreeing with v1 on State-effect output.
+The fix must include an output-equality regression, not only an exit-code test.
+
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).
 > T5.1 in progress (`feature/v2-ssc1c-globals-bug`). Track 3 overlaps SPRINT's
@@ -242,6 +282,9 @@ T4.1-T4.4 (verify)     ← last, after all tracks
 
 ## Done-when (Phase 3 gate)
 
+- [ ] Fresh `SSC="bin/ssc" scripts/v2-output-parity --all` baseline is recorded.
+- [ ] Runnable production-scope examples are output-identical under v1 and v2.
+- [ ] v2 output divergences are regression-tested with output equality, not only exit code.
 - [ ] `ssc run --v2 foo.ssc` works for ALL examples/ programs
 - [ ] All plugin categories work through v2 (logger, state, http, sql, actors)
 - [ ] v2 VM performance within 2× of v1 interpreter on bench corpus
