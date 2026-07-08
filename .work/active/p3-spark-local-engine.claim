@@ -1,6 +1,0 @@
-feature/p3-spark-local-engine 2026-07-08T23:37:56Z
-agent: codex
-heartbeat: 2026-07-08T23:38:23Z
-status: in-progress
-done-so-far: worktree created
-next: mark p3 Spark/effects stale queue entries as reclassified by v2-prod-corpus-scope
