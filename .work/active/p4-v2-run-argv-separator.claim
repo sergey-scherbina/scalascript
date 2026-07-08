@@ -1,6 +1,6 @@
-feature/p4-v2-run-argv-separator 2026-07-08T21:12:26Z
+feature/p4-v2-run-argv-separator 2026-07-08T21:12:47Z
 agent: codex
-heartbeat: 2026-07-08T21:12:26Z
-status: not-started
-done-so-far:
-next: create worktree and implement explicit -- argv separator for run --v2/--bytecode
+heartbeat: 2026-07-08T21:12:47Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-p4-v2-run-argv-separator
+next: implement explicit -- argv separator for run --v2/--bytecode and add assembled-CLI regression
