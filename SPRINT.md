@@ -145,6 +145,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       Done-when: v2 either implements actor timer delivery for this repro and
       relevant actor conformance slices, or rejects unsupported actor APIs under
       `--v2` with a clear diagnostic instead of silent success.
+      Active plan 2026-07-08 (`v2-actors-sendafter-cli-default-noop` / codex):
+      - [ ] Reproduce the fat-jar/default/`--v2` no-output behavior and the
+            `--v1` expected `got: hello` baseline using `cli/assembly`.
+      - [ ] Locate the v2 path for actor primitives (`runActors`, `spawn`,
+            `sendAfter`, `receive`) and decide whether timer delivery belongs
+            in the v2 actor bridge now or should be a hard unsupported diagnostic.
+      - [ ] Add a faithful regression in the real CLI/runtime harness: no silent
+            exit-0 when `sendAfter` is used under default/`--v2`.
+      - [ ] Run focused actor/CLI tests plus affected conformance before push;
+            if fixed, update `BUGS.md`, `SPRINT.md`, and `CHANGELOG.md`.
 
 - [x] **p3-mcp-and-tails** — DONE 2026-07-08 (5377e271f): the "MCP switch regression" was an
       UNMASKED exit-0 fiction (default invokeCallback is a NO-OP — setup blocks never ran; the
