@@ -1456,9 +1456,9 @@ private def loadModule(path: os.Path): scalascript.ast.Module =
 
 final class RunCmd extends CliCommand:
   def name = "run"
-  override def summary = "Execute .ssc via the tree-walking interpreter (the default runner)"
+  override def summary = "Execute .ssc via the v2 VM by default"
   override def category = "Run & develop"
-  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --v2  (run on the ssc 2.0 VM via FrontendBridge — migration preview)")
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --v2  (force the ssc 2.0 VM via FrontendBridge; default for plain runs)")
   def run(args: List[String]): Unit =
     if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -1480,7 +1480,8 @@ final class RunCmd extends CliCommand:
     var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
     var deviceFlag:        Boolean        = false  // --device
     var deviceIdFlag:      Option[String] = None   // --device-id <udid>
-    var v2Flag:            Boolean        = false  // --v2 (run on the ssc 2.0 VM via FrontendBridge)
+    var v1Flag:            Boolean        = false  // --v1 (rollback to the v1 tree-walking interpreter)
+    var v2Flag:            Boolean        = false  // --v2 (force the ssc 2.0 VM via FrontendBridge)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
@@ -1503,6 +1504,7 @@ final class RunCmd extends CliCommand:
         case "--rebuild"                   => rebuildFlag  = true
         case "--no-rebuild"                => rebuildFlag  = false
         case "--device"                    => deviceFlag   = true
+        case "--v1"                        => v1Flag       = true
         case "--v2"                        => v2Flag       = true
         case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
         case "--frontend"         if it.hasNext =>
@@ -1513,8 +1515,12 @@ final class RunCmd extends CliCommand:
           frontendFlag = Some(name)
         case f => fileArgs += f
 
-    // `--v2`: run on the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime). Separate path; the
-    // v1 interpreter remains the default. This is the Phase-3 migration preview mechanism.
+    if v1Flag && v2Flag then
+      System.err.println("run: --v1 and --v2 are mutually exclusive")
+      System.exit(1)
+
+    // `--v2`: force the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime).
+    // Plain default-lane runs reach the same path below unless `--v1` is set.
     if v2Flag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
       RunV2.run(fileArgs.toList, Nil)
@@ -1623,6 +1629,28 @@ final class RunCmd extends CliCommand:
       for file <- fileArgs.toList do
         val code = TuiRunner.runFile(os.Path(file, os.pwd))
         if code != 0 then System.exit(code)
+      return
+
+    if !v1Flag &&
+        runFlagsAllowV2Default(
+          targetSelection,
+          frontendFlag,
+          ActiveFlags.current.backend,
+          runMode,
+          serverUrlFlag,
+          transportFlag,
+          hostFlag,
+          portFlag,
+          openBrowserFlag
+        ) &&
+        fileArgs.nonEmpty &&
+        fileArgs.toList.forall { file =>
+          val path = os.Path(file, os.pwd)
+          os.exists(path) &&
+            scala.util.Try(shouldUseV2DefaultRunner(loadModule(path))).getOrElse(false)
+        }
+    then
+      RunV2.run(fileArgs.toList, Nil)
       return
 
     frontendFlag.foreach(applyFrontendBackend)
@@ -2186,6 +2214,36 @@ private[cli] def shouldDefaultToElectronJvmRest(module: Module, source: String):
     module.manifest.exists(_.routes.nonEmpty) ||
       """(?m)\broute\s*\(""".r.findFirstIn(source).isDefined
   frontendIsElectron && hasBackendRoute && detectServePort(source).isDefined
+
+private[cli] def runFlagsAllowV2Default(
+    targetSelection: Option[String],
+    frontendFlag:    Option[String],
+    backendFlag:     Option[String],
+    runMode:         Option[String],
+    serverUrlFlag:   Option[String],
+    transportFlag:   Option[BackendTransportKind],
+    hostFlag:        Option[String],
+    portFlag:        Option[Int],
+    openBrowserFlag: Option[Boolean]
+): Boolean =
+  targetSelection.isEmpty &&
+    frontendFlag.isEmpty &&
+    backendFlag.isEmpty &&
+    runMode.isEmpty &&
+    serverUrlFlag.isEmpty &&
+    transportFlag.isEmpty &&
+    hostFlag.isEmpty &&
+    portFlag.isEmpty &&
+    openBrowserFlag.isEmpty
+
+private[cli] def shouldUseV2DefaultRunner(module: Module): Boolean =
+  val explicitLaneKeys = Set("backend", "frontend", "target", "transport", "fullstack")
+  val rawKeys =
+    module.manifest
+      .map(_.raw.keySet.map(_.trim.toLowerCase).toSet)
+      .getOrElse(Set.empty)
+  rawKeys.intersect(explicitLaneKeys).isEmpty &&
+    module.manifest.flatMap(_.frontendFramework).isEmpty
 
 private[cli] def targetRequestsElectron(target: Option[String]): Boolean =
   target.exists(t => t == "desktop" || t == "desktop-electron" || t == "desktop-jvm")

@@ -1,11 +1,11 @@
 package scalascript.cli
 
-/** `ssc run --v2 <file.ssc>` — route a v1 `.ssc` through the v1 frontend → `FrontendBridge` → the v2 VM
+/** `ssc run <file.ssc>` / `ssc run --v2 <file.ssc>` — route a v1 `.ssc` through the v1 frontend → `FrontendBridge` → the v2 VM
  *  (the clean-room ssc 2.0 runtime), instead of the v1 tree-walking interpreter.
  *
- *  This is the Phase-3 preview mechanism for the v1→v2 migration: it lets the same source run on the v2
- *  engine from the normal CLI, without changing the default runner. It also underpins v1-vs-v2 output
- *  parity checks. Mirrors `ssc.bridge.bridgeCli`'s `run` path. */
+ *  This is the Phase-3 default runner for plain `ssc run` programs after the v1→v2 migration.
+ *  `ssc run --v1` remains the rollback path for the old tree-walking interpreter. This runner
+ *  also underpins v1-vs-v2 output parity checks. Mirrors `ssc.bridge.bridgeCli`'s `run` path. */
 object RunV2:
   // `_root_.ssc` disambiguates the ssc 2.0 package from the `def ssc(...)` CLI command in this package.
   def run(files: List[String], argv: List[String]): Unit =
