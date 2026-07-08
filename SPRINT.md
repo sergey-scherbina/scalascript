@@ -855,9 +855,19 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
             (**5/5 green**). Follow-up cache invalidation risk tracked separately
             as `jvm-scjvm-cache-codegen-version`.
-      - [ ] **conformance-int-variables-while-update** — INT `variables` prints
+      - [x] **conformance-int-variables-while-update** — INT `variables` prints
             `sum=10` for the first while loop; inspect mutable var read-after-write
             inside interpreter while sequencing.
+            FIXED 2026-07-08 in `4e67a2f41`: the closed-form while optimizer now
+            bails when an accumulator RHS reads a counter that was assigned earlier
+            in the same loop body, preserving ScalaScript's sequential assignment
+            order. This keeps `x = x + 1; sum = sum + x` on the sequential loop path
+            so `sum` sees the post-update `x`. Verification:
+            `scripts/sbtc 'backendInterpreter/testOnly scalascript.SscVmTest -- -z "closed-form"'`
+            (**6/6 green**); `scripts/sbtc "installBin"`; direct
+            `bin/ssc run --v1 tests/conformance/variables.ssc`; and
+            `tests/conformance/run.sh --only 'variables' --no-memo`
+            (**1/1 green**).
       - [ ] **jvm-scjvm-cache-codegen-version** — production cache follow-up found
             while fixing std-ui: `run-jvm` reused source-fresh `.scjvm` artifacts
             emitted by an older JVM backend, so the assembled CLI kept failing until

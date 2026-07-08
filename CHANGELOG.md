@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: INT while assignment order fixed
+
+`variables` now passes INT/JS/JVM. The interpreter's closed-form while optimizer
+now skips order-dependent accumulator folds when the accumulator reads a counter
+assigned earlier in the same loop body, preserving sequential assignment
+semantics. Targeted gate:
+`tests/conformance/run.sh --only 'variables' --no-memo` is **1/1 green**.
+
+---
+
 ## 2026-07-08 — conformance: JVM std-ui generated braces fixed
 
 `std-ui-aggregator` and `std-ui-extended*` now pass INT/JS/JVM. JVM codegen now

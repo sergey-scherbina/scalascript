@@ -29,7 +29,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   and adding a CLI regression that stale source-fresh artifacts regenerate after a
   codegen version change.
 
-## conformance-int-variables-while-update — `open` (2026-07-08)
+## conformance-int-variables-while-update — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -38,8 +38,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Observed:** INT prints `5`, `10`, `720`, `55`; expected line 2 is `15`.
   JS/JVM pass. The first `while x < 5` loop increments `x` but does not accumulate
   the updated `x` into `sum`.
-- **Status:** open; root cause likely in interpreter while/assignment sequencing or
-  mutable-var read-after-write inside a loop body.
+- **Status:** fixed in `4e67a2f41`. Root cause was the interpreter closed-form
+  while optimizer, not the generic assignment path: it folded a body shaped like
+  `x = x + 1; sum = sum + x` as if `sum` read the pre-update counter, producing
+  `0+1+2+3+4 = 10`. ScalaScript assignment order requires `sum` to read the
+  post-update `x`, producing `1+2+3+4+5 = 15`.
+- **Verified:** `scripts/sbtc 'backendInterpreter/testOnly scalascript.SscVmTest -- -z "closed-form"'`
+  (**6/6 green**); `scripts/sbtc "installBin"`; direct
+  `bin/ssc run --v1 tests/conformance/variables.ssc`; and
+  `tests/conformance/run.sh --only 'variables' --no-memo` (**1/1 green**).
 
 ## conformance-jvm-std-ui-generated-braces — `fixed` (2026-07-08)
 
