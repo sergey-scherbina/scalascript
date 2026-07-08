@@ -275,6 +275,13 @@ Claimable slices for the above (queued 2026-07-07):
       CDef clobbered the first — lenses r=Rect read as r=Roster), anyStr ctor/tuple unquoted
       rendering. Remainders: async-parallel (~Nms timing nondet), actors-pingpong (v1
       exit-cascade — v1 doesn't print final done).
+- [x] **p3-final-push** — DONE 2026-07-08 (a0f032c15): REAL web server on `run --v2`
+      (route/serveAsync/stop bridged to WebServer; batch stubs split out of loadAll; banner-
+      deterministic serveAsync; curried route). desugarListLiterals TRIPLE-QUOTE fix — \" inside
+      """…""" shifted quote pairing and rewrote [1,2] INSIDE later string literals (silent JSON
+      corruption on the wire — rozum bodies). __method__.get on named-instance objects. Harness:
+      fixed-port examples get port+1 on the v2 lane. BatchCli lanes widened (spark|js|rust|wasm).
+      **rozum-agent family at parity; parity 55/85 (65%); corpus 152/11/32-lane; conformance 65.**
 - [ ] **p3-spark-local-engine** — UNMASKED 2026-07-07: spark-config-demo, spark-delta-demo,
       spark-lakehouse-{delta,hudi,iceberg}, word-count "passed" all day as never-executed lazy
       Op chains (equal-indent dispatch bug discarded the fallback branch). They need spark
