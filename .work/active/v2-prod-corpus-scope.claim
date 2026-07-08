@@ -1,0 +1,6 @@
+feature/v2-prod-corpus-scope 2026-07-08T10:14:00Z
+agent: codex
+heartbeat: 2026-07-08T10:14:00Z
+status: not-started
+done-so-far:
+next: create worktree, expand SPRINT plan, classify remaining corpus gate scope
