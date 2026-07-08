@@ -1,6 +1,6 @@
-feature/v2-production-readiness 2026-07-08T06:50:16Z
+feature/v2-production-readiness 2026-07-08T06:50:38Z
 agent: codex
-heartbeat: 2026-07-08T06:50:16Z
-status: not-started
-done-so-far: claimed v2 production-readiness workstream
-next: create isolated worktree and commit SPRINT/spec plan before implementation
+heartbeat: 2026-07-08T06:50:38Z
+status: in-progress
+done-so-far: claim pushed; worktree created at /Users/sergiy/work/my/scalascript-wt-v2-production-readiness
+next: commit SPRINT/spec plan for v2 production gate, then measure fresh output-parity baseline
