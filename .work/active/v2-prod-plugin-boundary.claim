@@ -1,6 +1,6 @@
 feature/v2-prod-plugin-boundary 2026-07-08T09:45:33Z
 agent: codex
-heartbeat: 2026-07-08T09:59:31Z
+heartbeat: 2026-07-08T10:10:30Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-prod-plugin-boundary
-next: run installBin and targeted rozum parity after FrontendBridge/Runtime fixes
+done-so-far: fix verified locally: targeted tests, installBin, rozum parity, full parity baseline captured
+next: commit docs/bookkeeping, rebase on heartbeat, push feature branch to origin/main
