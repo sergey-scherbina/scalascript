@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T14:48:51Z
-status: not-started
-done-so-far:
-next: create worktree and reproduce root sbt test gate
+heartbeat: 2026-07-08T14:49:09Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating
+next: read SPRINT/BUGS details and reproduce current root sbt test gate
