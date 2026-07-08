@@ -2198,15 +2198,137 @@ object PluginBridge:
 
   // ── Actor runtime — VirtualThread-per-actor model ───────────────────────────
 
+  private class ActorRunState:
+    private val lock = new Object
+    private val actors = java.util.concurrent.ConcurrentHashMap.newKeySet[ActorMailbox]()
+    private val timers = new java.util.concurrent.atomic.AtomicInteger(0)
+
+    def addActor(mb: ActorMailbox): Unit =
+      actors.add(mb)
+      signal()
+
+    def startTimer(): Unit =
+      timers.incrementAndGet()
+      signal()
+
+    def finishTimer(): Unit =
+      timers.decrementAndGet()
+      signal()
+
+    def signal(): Unit =
+      lock.synchronized(lock.notifyAll())
+
+    private def isQuiescent: Boolean =
+      if timers.get() != 0 then false
+      else
+        val it = actors.iterator()
+        var done = true
+        while done && it.hasNext do
+          val mb = it.next()
+          done = mb.dead || (mb.blocked && mb.queue.isEmpty && mb.blockDeadlineMs < 0L)
+        done
+
+    def awaitQuiescent(): Unit =
+      lock.synchronized:
+        while !isQuiescent do lock.wait(50L)
+
+  private final class ActorTimer(val id: Long, val scope: ActorRunState | Null):
+    @volatile var cancelled: Boolean = false
+    @volatile var thread: Thread | Null = null
+    val finished = new java.util.concurrent.atomic.AtomicBoolean(false)
+
+  private val nextActorTimerId = new java.util.concurrent.atomic.AtomicLong(1L)
+  private val actorTimers = new java.util.concurrent.ConcurrentHashMap[Long, ActorTimer]()
+
   /** One actor's mailbox + thread state. */
   private class ActorMailbox:
     val queue = new java.util.concurrent.LinkedBlockingQueue[V2Value]()
     @volatile var thread: Thread | Null = null
     @volatile var dead: Boolean = false
     @volatile var trapExit: Boolean = false  // Erlang-style: exits become messages
+    @volatile var blocked: Boolean = false
+    @volatile var blockDeadlineMs: Long = -1L
+    @volatile var scope: ActorRunState | Null = null
     // Supervision: links are notified with Exit(reason), monitors with Down(reason)
     val links    = java.util.concurrent.ConcurrentHashMap.newKeySet[ActorMailbox]()
     val monitors = java.util.concurrent.ConcurrentHashMap.newKeySet[ActorMailbox]()
+
+  private def signalActor(mb: ActorMailbox): Unit =
+    val scope = mb.scope
+    if scope != null then scope.signal()
+
+  private def markBlocked(mb: ActorMailbox, deadlineMs: Long): Unit =
+    mb.blocked = true
+    mb.blockDeadlineMs = deadlineMs
+    signalActor(mb)
+
+  private def clearBlocked(mb: ActorMailbox): Unit =
+    mb.blocked = false
+    mb.blockDeadlineMs = -1L
+    signalActor(mb)
+
+  private def takeActorMessage(mb: ActorMailbox): V2Value =
+    val immediate = mb.queue.poll()
+    if immediate != null then immediate
+    else
+      markBlocked(mb, -1L)
+      try mb.queue.take()
+      finally clearBlocked(mb)
+
+  private def pollActorMessage(mb: ActorMailbox, timeoutMs: Long): V2Value | Null =
+    val immediate = mb.queue.poll()
+    if immediate != null then immediate
+    else if timeoutMs < 0 then takeActorMessage(mb)
+    else
+      markBlocked(mb, System.currentTimeMillis() + timeoutMs)
+      try mb.queue.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+      finally clearBlocked(mb)
+
+  private def deliverActorMessage(mb: ActorMailbox, msg: V2Value): Unit =
+    if !mb.dead then
+      mb.queue.put(msg)
+      signalActor(mb)
+
+  private def finishActorTimer(timer: ActorTimer): Unit =
+    if timer.finished.compareAndSet(false, true) then
+      actorTimers.remove(timer.id, timer)
+      val scope = timer.scope
+      if scope != null then scope.finishTimer()
+
+  private def scheduleActorSend(delayMs: Long, target: ActorMailbox, msg: V2Value, repeat: Boolean): V2Value =
+    val current = actorTL.get()
+    val scope =
+      if target.scope != null then target.scope
+      else if current != null then current.scope
+      else null
+    val id = nextActorTimerId.getAndIncrement()
+    val timer = new ActorTimer(id, scope)
+    actorTimers.put(id, timer)
+    if scope != null then scope.startTimer()
+    val period = math.max(0L, delayMs)
+    val t = Thread.ofVirtual().start(() => {
+      try
+        if repeat then
+          while !timer.cancelled && !target.dead do
+            Thread.sleep(period)
+            if !timer.cancelled && !target.dead then deliverActorMessage(target, msg)
+        else
+          Thread.sleep(period)
+          if !timer.cancelled && !target.dead then deliverActorMessage(target, msg)
+      catch case _: InterruptedException => ()
+      finally finishActorTimer(timer)
+      ()
+    })
+    timer.thread = t
+    V2Value.IntV(id)
+
+  private def cancelActorTimer(id: Long): Unit =
+    val timer = actorTimers.get(id)
+    if timer != null then
+      timer.cancelled = true
+      val t = timer.thread
+      if t != null then t.interrupt()
+      finishActorTimer(timer)
 
   /** Notify links + monitors that `mb` terminated with `reason` (Erlang semantics:
    *  a trapping link gets Exit(reason) as a message; a non-trapping link is killed;
@@ -2214,13 +2336,14 @@ object PluginBridge:
   private def notifyDeath(mb: ActorMailbox, reason: V2Value): Unit =
     mb.links.forEach { l =>
       if !l.dead then
-        if l.trapExit then l.queue.put(V2Value.DataV("Exit", Vector(reason)))
-        else { l.dead = true; val t = l.thread; if t != null then t.interrupt() }
+        if l.trapExit then deliverActorMessage(l, V2Value.DataV("Exit", Vector(reason)))
+        else { l.dead = true; val t = l.thread; if t != null then t.interrupt(); signalActor(l) }
     }
     mb.monitors.forEach { m =>
-      if !m.dead then m.queue.put(V2Value.DataV("Down", Vector(reason)))
+      if !m.dead then deliverActorMessage(m, V2Value.DataV("Down", Vector(reason)))
     }
     mb.links.clear(); mb.monitors.clear()
+    signalActor(mb)
 
   private val actorTL = new ThreadLocal[ActorMailbox | Null]:
     override def initialValue(): ActorMailbox | Null = null
@@ -2237,8 +2360,7 @@ object PluginBridge:
       val timeoutMs = env2(0).asInstanceOf[V2Value.IntV].n
       val mb = actorTL.get()
       if mb == null then sys.error("receive(timeout) called outside an actor")
-      val msg = if timeoutMs < 0 then mb.queue.take()
-                else mb.queue.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+      val msg = pollActorMessage(mb, timeoutMs)
       if msg == null || mb.dead then Done(V2Value.DataV("None", Vector.empty))
       else Done(V2Value.DataV("Some", Vector(callClosure(handler.asInstanceOf[V2Value.ClosV], List(msg)))))
     })
@@ -2259,7 +2381,11 @@ object PluginBridge:
     // spawn { () => body } — starts a VirtualThread, returns ForeignV(mailbox)
     V2PluginRegistry.registerGlobal("spawn", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
       val thunk = env.last
+      val parent = actorTL.get()
+      val scope = if parent != null then parent.scope else null
       val mb = new ActorMailbox()
+      mb.scope = scope
+      if scope != null then scope.addActor(mb)
       val t = Thread.ofVirtual().start(() => {
         actorTL.set(mb)
         mb.thread = Thread.currentThread()
@@ -2278,6 +2404,7 @@ object PluginBridge:
         finally
           mb.dead = true
           notifyDeath(mb, reason)
+          actorTL.remove()
         ()
       })
       mb.thread = t
@@ -2293,7 +2420,7 @@ object PluginBridge:
           // Direct receive: receive { case msg => ... }
           val mb = actorTL.get()
           if mb == null then sys.error("receive called outside an actor")
-          val msg = mb.queue.take()
+          val msg = takeActorMessage(mb)
           if mb.dead then Done(V2Value.UnitV) else Done(callClosure(handler, List(msg)))
         case V2Value.UnitV =>
           // receive(timeout = n) {...}: named arg emits cell.set(@timeout, n) → UnitV
@@ -2338,7 +2465,7 @@ object PluginBridge:
         "address"   -> V2Value.DataV("Some", Vector(V2Value.StrV(nodeId))),
         "isLocal"   -> V2Value.BoolV(true),
         "tryLocal"  -> V2Value.DataV("Some", Vector(V2Value.ForeignV(mb))),
-        "tell"      -> V2Value.ClosV(Runtime.emptyEnv, 1, env2 => { mb.queue.put(env2.last); Done(V2Value.UnitV) }),
+        "tell"      -> V2Value.ClosV(Runtime.emptyEnv, 1, env2 => { deliverActorMessage(mb, env2.last); Done(V2Value.UnitV) }),
         "publishAs" -> V2Value.ClosV(Runtime.emptyEnv, 1, env2 => {
           env2.last match { case V2Value.StrV(n) => namedRefs.put(n, ref); case _ => () }
           Done(V2Value.UnitV)
@@ -2358,12 +2485,16 @@ object PluginBridge:
       behaviors.get(name) match
         case null => sys.error(s"spawnRemote: no behavior '$name' registered")
         case fn =>
+          val parent = actorTL.get()
+          val scope = if parent != null then parent.scope else null
           val mb = new ActorMailbox()
+          mb.scope = scope
+          if scope != null then scope.addActor(mb)
           val t = Thread.ofVirtual().start(() => {
             actorTL.set(mb)
             try { callClosure(fn, List(arg)); () }
             catch { case _: InterruptedException => () ; case e: Throwable => notifyDeath(mb, V2Value.StrV(e.getMessage)) }
-            finally { mb.dead = true }
+            finally { mb.dead = true; signalActor(mb); actorTL.remove() }
           })
           mb.thread = t
           Done(mkActorRef(nodeId, mb))
@@ -2443,13 +2574,14 @@ object PluginBridge:
           if mb.trapExit then
             // trapExit: deliver Exit(reason) as a message instead of killing
             val reason = if env.length >= 2 then env(1) else V2Value.StrV("normal")
-            mb.queue.put(V2Value.DataV("Exit", Vector(reason)))
+            deliverActorMessage(mb, V2Value.DataV("Exit", Vector(reason)))
           else
             mb.dead = true
             val t = mb.thread
             if t != null then t.interrupt()
             val reason = if env.length >= 2 then env(1) else V2Value.StrV("killed")
             notifyDeath(mb, reason)
+            signalActor(mb)
           Done(V2Value.UnitV)
         case V2Value.IntV(code) => Runtime.exitHandler(code.toInt)
         case _ => Runtime.exitHandler(0)
@@ -2459,32 +2591,61 @@ object PluginBridge:
     // and waits for it to complete
     V2PluginRegistry.registerGlobal("runActors", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
       val thunk = env.last.asInstanceOf[V2Value.ClosV]
+      val scope = new ActorRunState()
       val mb = new ActorMailbox()
+      mb.scope = scope
+      scope.addActor(mb)
       @volatile var result: V2Value = V2Value.UnitV
       @volatile var err: Throwable | Null = null
-      val latch = new java.util.concurrent.CountDownLatch(1)
       val t = Thread.ofVirtual().start(() => {
         actorTL.set(mb)
         mb.thread = Thread.currentThread()
+        var reason: V2Value = V2Value.StrV("normal")
         try
           result = callThunk(thunk)
         catch
-          case e: InterruptedException => ()
-          case e: Throwable => err = e
-        finally latch.countDown()
+          case e: InterruptedException =>
+            reason = V2Value.StrV("killed")
+          case e: Throwable =>
+            err = e
+            reason = V2Value.StrV(Option(e.getMessage).getOrElse("error"))
+        finally
+          mb.dead = true
+          notifyDeath(mb, reason)
+          actorTL.remove()
         ()
       })
       mb.thread = t
-      latch.await()
+      scope.awaitQuiescent()
       val e = err
       if e != null then throw e
       Done(result)
     }))
 
+    V2PluginRegistry.registerGlobal("sendAfter", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      env.toList match
+        case V2Value.IntV(delayMs) :: V2Value.ForeignV(mb: ActorMailbox) :: msg :: _ =>
+          Done(scheduleActorSend(delayMs, mb, msg, repeat = false))
+        case _ => sys.error("sendAfter(delayMs, pid, msg)")
+    }))
+    V2PluginRegistry.registerGlobal("sendInterval", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      env.toList match
+        case V2Value.IntV(periodMs) :: V2Value.ForeignV(mb: ActorMailbox) :: msg :: _ =>
+          Done(scheduleActorSend(periodMs, mb, msg, repeat = true))
+        case _ => sys.error("sendInterval(periodMs, pid, msg)")
+    }))
+    V2PluginRegistry.registerGlobal("cancelTimer", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      env.headOption.foreach {
+        case V2Value.IntV(id) => cancelActorTimer(id)
+        case _                => ()
+      }
+      Done(V2Value.UnitV)
+    }))
+
     // Register "!" operator handler in __arith__ dispatch (ForeignV send)
     V2PluginRegistry.register("actor.send", args => args match
       case List(V2Value.ForeignV(mb: ActorMailbox), msg) =>
-        if !mb.dead then mb.queue.put(msg)
+        deliverActorMessage(mb, msg)
         V2Value.UnitV
       case _ => V2Value.UnitV
     )
