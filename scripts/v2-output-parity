@@ -2,8 +2,8 @@
 # v2-output-parity — TRUE v1-vs-v2 output-equality for examples/, the real "does v2 replace v1?" metric.
 #
 # For each .ssc it runs the program BOTH ways and diffs stdout:
-#   v1 (default runner):  ssc run <file>
-#   v2 (ssc 2.0 VM):      ssc run --v2 <file>   (the FrontendBridge path)
+#   v1 (rollback runner): ssc run --v1 <file>
+#   v2 (ssc 2.0 VM):      ssc run --v2 <file>   (the FrontendBridge path; also the plain default)
 # and reports MATCH / MISMATCH / V2-ERROR per example plus the overall parity %.
 #
 # This is the output-equality gate the exit-0 coverage number (`scripts/v2-compat-coverage`) can't give:
@@ -37,7 +37,7 @@ SKIP_RE='serve\(|listen|WebServer|websocket|\btui\b'
 # Exit code travels via a file: $(run_one …) runs in a subshell, and piping
 # through grep would clobber $? anyway. 124 = timeout (long-running program).
 RC_FILE="$(mktemp)"; trap 'rm -f "$RC_FILE"' EXIT
-run_one() { # $1=file  $2=extra-flag(--v2 or empty)
+run_one() { # $1=file  $2=extra-flag(--v1 or --v2)
   local out rc
   if [ -n "${SSC:-}" ]; then
     # $SSC is a command (unquoted so "java -jar ssc.jar" word-splits).
@@ -74,7 +74,7 @@ for f in "${FILES[@]}"; do
   if basename "$f" | grep -qE "$NONDET_RE"; then
     printf '%-38s %s\n' "$(basename "$f")" "· skip (nondeterministic output by design)"; nondet_skip=$((nondet_skip+1)); continue
   fi
-  v1=$(run_one "$f" "");     v1_rc=$(cat "$RC_FILE")
+  v1=$(run_one "$f" "--v1"); v1_rc=$(cat "$RC_FILE")
   name=$(basename "$f")
   if [ "$v1_rc" = "124" ]; then
     # v1 didn't terminate within PARITY_TIMEOUT — long-running (actor loop /
