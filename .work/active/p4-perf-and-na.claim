@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p4-perf-and-na
+worktree: ../scalascript-wt-p4-perf
+started: 2026-07-08
+status: in-progress
+task: p4-bench-na-fixes (loadPluginJars in timeV2, Bump ambient, type-lambda parse gap) + p4-perf-lazylist (~3560x pathology hunt)
