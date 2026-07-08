@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: INT SQL block scope survives IR round-trip
+
+`sql-basic` and `sql-transaction` now pass the INT conformance lane. The CLI
+`Normalize -> Denormalize` backend path re-parses parseable embedded ScalaScript
+blocks, so SQL bind expressions can see globals defined by preceding `scala`
+fenced blocks. Targeted gate:
+`tests/conformance/run.sh --only 'sql-basic,sql-transaction' --no-memo` is
+**2/2 green**.
+
+---
+
 ## 2026-07-08 — conformance: JS product rendering hides internal tags
 
 `prisms`, `optic-polish`, `optics-index-at`, and `optional` now pass

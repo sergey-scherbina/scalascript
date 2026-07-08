@@ -766,8 +766,17 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             arguments over product fields. Direct JS repros for `prisms` and
             `optic-polish` now match expected output; the affected conformance
             slice is **4/4 green**.
-      - [ ] **conformance-int-sql-block-scope** — INT SQL interpolation cannot see
+      - [x] **conformance-int-sql-block-scope** — INT SQL interpolation cannot see
             preceding Scala block vals (`newId`); verify `sql-basic,sql-transaction`.
+            FIXED 2026-07-08 in `c31389b25`: `Denormalize` now re-parses parseable
+            embedded `scala`/`ssc`/`scalascript` blocks after the CLI
+            `Normalize -> Denormalize` backend path, so the interpreter executes the
+            preceding Scala block and SQL bind expressions see its globals.
+            Verification: `scripts/sbtc "sqlPlugin/testOnly scalascript.compiler.plugin.sql.SqlPluginInterpreterTest"`,
+            `scripts/sbtc "installBin"`, direct `bin/ssc run --v1` for
+            `sql-basic` and `sql-transaction`, and
+            `tests/conformance/run.sh --only 'sql-basic,sql-transaction' --no-memo`
+            (**2/2 green**).
       - [ ] **conformance-std-typeclass-int-jvm-gaps** — INT `std-index` stack
             overflows after two lines; JVM typeclass aggregate imports miss exported
             helpers/`Left`/`Right`; verify `std-*` typeclass cases.

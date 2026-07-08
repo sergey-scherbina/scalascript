@@ -52,7 +52,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Status:** open; likely a combination of interpreter recursive extension dispatch
   and JVM transitive-export/import emission.
 
-## conformance-int-sql-block-scope — `open` (2026-07-08)
+## conformance-int-sql-block-scope — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -61,7 +61,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `[line 1, col 1] Undefined: newId` even though the preceding Scala block defines
   `val newId = 1L`; `sql-basic` and `sql-transaction` therefore produce missing
   stdout. JS/JVM are skipped by backend metadata.
-- **Status:** open; inspect section/block evaluation scope for SQL interpolations.
+- **Status:** fixed in `c31389b25`; root cause was the CLI backend path
+  normalizing parseable fenced `scala` blocks to `ir.Content.EmbeddedBlock` and
+  denormalizing them back to AST code blocks without a parsed tree. The interpreter
+  therefore skipped those blocks, so globals such as `newId` / `personId` never
+  existed when SQL bind expressions were evaluated. `Denormalize` now re-parses
+  parseable embedded blocks (`scala`, `ssc`, `scalascript`) while keeping opaque
+  foreign blocks tree-less.
+- **Verified:** `scripts/sbtc "sqlPlugin/testOnly scalascript.compiler.plugin.sql.SqlPluginInterpreterTest"`;
+  `scripts/sbtc "installBin"`; direct `bin/ssc run --v1 tests/conformance/sql-basic.ssc`
+  and `bin/ssc run --v1 tests/conformance/sql-transaction.ssc`; and
+  `tests/conformance/run.sh --only 'sql-basic,sql-transaction' --no-memo`
+  (**2/2 green**).
 
 ## conformance-js-product-show-synthetic-tag — `fixed` (2026-07-08)
 
