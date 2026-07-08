@@ -283,7 +283,26 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       JvmBackend.scala остаётся как reference/debug-генератор для check.sh.
       Горизонт «без Scala вообще»: build-time Scala невидим пользователю (fat-jar, нужен JRE);
       runtime scala-library уходит опциональной фазой — порт ядрового Runtime (~1-2kloc) на Java.
-- [ ] **p4-js-lane-bridge** — то же для JS (*Js* 290 тестов как гейт).
+- [ ] **p4-js-lane-bridge** — v2 CoreIR -> JS bridge, first as an opt-in
+      Node runner (`run-js --v2`) before any default JS-lane flip. Spec:
+      `specs/v2-js-lane-bridge.md`.
+      Active plan 2026-07-08 (`p4-js-lane-bridge` / codex):
+      - [x] Claim the slice and read the existing v2 JS backend, JVM bytecode
+            lane, CLI `RunV2`, and production compatibility specs.
+      - [ ] Commit the spec/SPRINT planning slice before implementation.
+      - [ ] Add an sbt-built `v2JsBackend` module for `v2/backend/js` so the
+            fat-jar CLI can call the generator in-process.
+      - [ ] Add `ssc run-js --v2 <file.ssc> [args...]` as an opt-in route:
+            FrontendBridge -> CoreIR -> `ssc.js.JsGen.generate` -> temp `.cjs`
+            -> Node, while preserving legacy `run-js` without `--v2`.
+      - [ ] Add focused CLI regression(s) for `run-js --v2` and unchanged
+            legacy routing.
+      - [ ] Verify with `scripts/sbtc "v2JsBackend/compile"`, focused CLI tests,
+            `scripts/sbtc "installBin"`, direct `bin/ssc run-js --v2
+            examples/hello.ssc`, the CoreIR backend JS fixture harness, and the
+            nearest affected conformance JS slice.
+      Done-when: the opt-in v2 JS runner is available from the installed CLI,
+      has a regression, and the spec/SPRINT records exact verification results.
 - [ ] **p4-rust-wasm-lanes** — Rust (260 тестов) и WASM.
 - [ ] **p4-default-flip** — per-lane дефолт на v2-кодген после зелёных гейтов; --via-v1 люк.
 
