@@ -12,6 +12,61 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## root-test-cluster-cli-runtime-readiness — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` root
+  `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
+  dependency fixes.
+- **Repro observed in root gate:** the full root test PTY was lost before the final
+  sbt summary, but the running output showed a deterministic cluster failure
+  family: `ClusterStepDownCliTest`, `ClusterStatusCliTest`, and
+  `ClusterAuthCliTest` fail because nodes do not bind within 8s; `MultiNodeClusterTest`
+  fails to print `LEADER:` / `REMOTE_SPAWN_OK`; `ClusterBullyStatusConvergenceTest`
+  never sees the status HTTP endpoint; `PartitionHealingTest` reports every node
+  as `LEADER=<none>`; `SingletonFailoverTest` never propagates `SENT1:true`.
+- **Targeted repro to run before fixing:** `scripts/sbtc "cli/testOnly
+  scalascript.cli.ClusterStepDownCliTest scalascript.cli.ClusterStatusCliTest
+  scalascript.cli.ClusterAuthCliTest scalascript.cli.MultiNodeClusterTest
+  scalascript.cli.ClusterBullyStatusConvergenceTest scalascript.cli.PartitionHealingTest
+  scalascript.cli.SingletonFailoverTest"`.
+- **Initial hypothesis:** this is one cluster-runtime/CLI readiness family, not
+  separate assertion issues. The subprocesses start and print the web banner, but
+  the cluster markers/status endpoints are missing or late. Confirm whether the
+  regression is runtime startup, test timeout/readiness detection, or an interaction
+  with concurrent root-suite execution before changing semantics.
+
+## root-test-command-registry-other-category — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` root
+  `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
+  dependency fixes.
+- **Repro observed in root gate:** `CommandRegistryTest` failed
+  `every command category is in the help ordering` with `List("Other") was not
+  empty` at `CommandRegistryTest.scala:57`.
+- **Targeted repro to run before fixing:** `scripts/sbtc "cli/testOnly
+  scalascript.cli.CommandRegistryTest"`.
+- **Initial hypothesis:** at least one command provider now reports or defaults to
+  category `Other`, but the help category ordering omits it. Either assign the
+  provider a real existing category or deliberately add `Other` to the ordering
+  if it is now a supported category; do not silence the test without preserving
+  deterministic help grouping.
+
+## root-test-sealed-extension-option-dispatch — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` root
+  `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
+  dependency fixes.
+- **Repro observed in root gate:** `SealedExtensionDispatchTest` failed
+  `Some dispatches extension on Option`: expected stdout `42\n99`, actual
+  `Some(42)\n99` at `SealedExtensionDispatchTest.scala:81`.
+- **Targeted repro to run before fixing:** `scripts/sbtc "backendInterpreter/testOnly
+  scalascript.SealedExtensionDispatchTest"`.
+- **Initial hypothesis:** the `Some` receiver path dispatches an extension found on
+  the sealed parent `Option`, but passes the case instance instead of the expected
+  unwrapped payload for this extension shape. Inspect the test before changing
+  dispatch: `None` still prints `99`, so the bug may be specific to case payload
+  extraction for `Some`.
+
 ## v2-op-arg-lifting — `open` (2026-07-08)
 
 - **Found by:** claude-fable-5, working busi's ledger repro past the append/2 fix.

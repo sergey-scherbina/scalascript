@@ -1015,6 +1015,26 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             `blockchainEvmAbiJs`, `walletConnectJs`, and `markupNode`.
             Verified those six suites plus `tests/conformance/run.sh --only
             'std-semigroup-monoid' --no-memo`.
+      ROOT RETEST 2026-07-08: started `scripts/sbtc "test"` from
+      `/Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating`.
+      The PTY session was lost before the final sbt summary, so do not treat this
+      as the authoritative complete failure list. Observed root-gate blockers were
+      recorded in `BUGS.md` and must be reproduced targeted before coding:
+      - [ ] **root-test-command-registry-other-category** — deterministic-looking
+            `CommandRegistryTest` failure: `every command category is in the help
+            ordering` reports `List("Other")`. First repro/fix because it is a
+            narrow CLI test and not entangled with cluster timing:
+            `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`.
+      - [ ] **root-test-sealed-extension-option-dispatch** — `SealedExtensionDispatchTest`
+            expected `42\n99`, got `Some(42)\n99` for the `Some` case. Repro:
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.SealedExtensionDispatchTest"`.
+      - [ ] **root-test-cluster-cli-runtime-readiness** — cluster CLI/runtime
+            family: `ClusterStepDownCliTest`, `ClusterStatusCliTest`,
+            `ClusterAuthCliTest`, `MultiNodeClusterTest`,
+            `ClusterBullyStatusConvergenceTest`, `PartitionHealingTest`, and
+            `SingletonFailoverTest` showed node bind/readiness/leader marker
+            failures. Repro the family after the two narrow failures:
+            `scripts/sbtc "cli/testOnly scalascript.cli.ClusterStepDownCliTest scalascript.cli.ClusterStatusCliTest scalascript.cli.ClusterAuthCliTest scalascript.cli.MultiNodeClusterTest scalascript.cli.ClusterBullyStatusConvergenceTest scalascript.cli.PartitionHealingTest scalascript.cli.SingletonFailoverTest"`.
       Done-when: run root `scripts/sbtc "test"` after both fixed slices are on the branch;
       if green, mark this gate done and release the claim. If red, record the next deterministic
       blocker in BUGS.md + SPRINT before fixing it.
