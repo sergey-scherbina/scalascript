@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T15:34:51Z
+heartbeat: 2026-07-08T16:20:52Z
 status: in-progress
-done-so-far: root sbt test still running; remaining failures observed in sealed extension dispatch, command registry category, and cluster CLI/runtime suites
-next: wait for final root test summary, then record/fix the first deterministic production blocker
+done-so-far: root sbt test PTY was lost; observed blockers recorded in SPRINT.md and BUGS.md, planning commit 8dd08dab9 landed
+next: reproduce and fix root-test-command-registry-other-category with cli/testOnly scalascript.cli.CommandRegistryTest
