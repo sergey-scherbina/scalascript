@@ -1,6 +1,6 @@
 feature/v2-prod-content-toolkit-section 2026-07-08T08:58:25Z
 agent: codex
-heartbeat: 2026-07-08T08:58:48Z
+heartbeat: 2026-07-08T09:13:02Z
 status: in-progress
-done-so-far: worktree created
-next: rebase worktree; reproduce content-toolkit-yaml-controls v2-error and content-slot mismatch; fix contentToolkitSection parity
+done-so-far: content-toolkit-yaml-controls and content-slot now run clean under bin/ssc --v2; 2-file parity is MATCH; regression test for spaced infix list literal passes
+next: run affected conformance and wider content parity; update BUGS/SPRINT/baseline docs; commit and push
