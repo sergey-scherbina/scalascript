@@ -60,7 +60,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   (**8/8 green**) and `tests/conformance/run.sh --only 'std-semigroup-monoid'
   --no-memo` (**1/1 green**).
 
-## root-test-sealed-extension-option-dispatch — `open` (2026-07-08)
+## root-test-sealed-extension-option-dispatch — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -75,6 +75,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
   unwrapped payload for this extension shape. Inspect the test before changing
   dispatch: `None` still prints `99`, so the bug may be specific to case payload
   extraction for `Some`.
+- **Status:** fixed in `1e503de04`. Actual root cause was built-in dispatch
+  applicability, not payload extraction: interpreter `Option.orElse` accepted any
+  single argument, so `Some(42).orElse(0)` returned the built-in receiver `Some(42)`
+  before the user extension `def orElse(default: A): A` could run. Built-in
+  `Option.orElse` now handles only Option-valued alternatives; non-Option
+  defaults fall through to extension dispatch.
+- **Verified:** `scripts/sbtc "backendInterpreter/testOnly
+  scalascript.SealedExtensionDispatchTest"` (**4/4 green**);
+  `scripts/sbtc "backendInterpreter/testOnly scalascript.SealedExtensionDispatchTest
+  scalascript.InterpreterTest -- -z \"built-in members take precedence\" -z
+  \"option orElse\""` (filtered invariant slice green); and
+  `tests/conformance/run.sh --only
+  'option,optional,typeclass-extension,std-functor-applicative-monad,std-monaderror'
+  --no-memo` (**5/5 green** on INT/JS/JVM).
 
 ## v2-op-arg-lifting — `open` (2026-07-08)
 

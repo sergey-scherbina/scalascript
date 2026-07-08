@@ -1033,9 +1033,19 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             ordering` reports `List("Other")`. First repro/fix because it is a
             narrow CLI test and not entangled with cluster timing:
             `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`.
-      - [ ] **root-test-sealed-extension-option-dispatch** — `SealedExtensionDispatchTest`
-            expected `42\n99`, got `Some(42)\n99` for the `Some` case. Repro:
-            `scripts/sbtc "backendInterpreter/testOnly scalascript.SealedExtensionDispatchTest"`.
+      - [x] **root-test-sealed-extension-option-dispatch** — fixed in `1e503de04`.
+            Root cause: built-in `Option.orElse` accepted any single argument, so
+            `Some(42).orElse(0)` returned the built-in receiver `Some(42)` before
+            the user extension `def orElse(default: A): A` could run. Built-in
+            `orElse` now handles only Option-valued alternatives; non-Option
+            defaults fall through to extension dispatch. Verified
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.SealedExtensionDispatchTest"`
+            (**4/4 green**), the filtered `InterpreterTest` built-in-priority /
+            `option orElse` slice, and `tests/conformance/run.sh --only
+            'option,optional,typeclass-extension,std-functor-applicative-monad,std-monaderror'
+            --no-memo` (**5/5 green** on INT/JS/JVM). Original repro:
+            `SealedExtensionDispatchTest` expected `42\n99`, got `Some(42)\n99`
+            for the `Some` case.
       - [ ] **root-test-cluster-cli-runtime-readiness** — cluster CLI/runtime
             family: `ClusterStepDownCliTest`, `ClusterStatusCliTest`,
             `ClusterAuthCliTest`, `MultiNodeClusterTest`,

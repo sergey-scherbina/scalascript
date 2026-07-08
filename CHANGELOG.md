@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — fix: Option.orElse extensions handle non-Option defaults
+
+Interpreter `Option.orElse` now applies the built-in method only when the
+alternative is Option-valued. Calls such as `Some(42).orElse(0)` can now dispatch
+to a user extension `orElse(default: A): A` instead of returning `Some(42)`, while
+the built-in `n.orElse(Some(99))` behavior remains intact. Targeted gates:
+`backendInterpreter/testOnly scalascript.SealedExtensionDispatchTest` is **4/4
+green**; affected conformance slice
+`option,optional,typeclass-extension,std-functor-applicative-monad,std-monaderror`
+is **5/5 green** on INT/JS/JVM.
+
+---
+
 ## 2026-07-08 — fix: version command classified in help output
 
 `ssc version` / `--version` now uses the existing `Help` command category instead
