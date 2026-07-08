@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p4-bytecode-m3
-worktree: ../scalascript-wt-p4-m3
-started: 2026-07-08
-status: in-progress
-task: p4-bytecode-m3 — tail recursion: tail-position tracking in the emitter; self-tail App(Global(self)) -> Emit.rebind(frame, args) + GOTO start (one mechanism for top-level defs AND letrec lams); probes: tco 1M, fib regression, mutual-tail documented
