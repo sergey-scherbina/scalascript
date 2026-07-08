@@ -1,0 +1,6 @@
+feature/p4-v2-run-argv-separator 2026-07-08T21:12:26Z
+agent: codex
+heartbeat: 2026-07-08T21:12:26Z
+status: not-started
+done-so-far:
+next: create worktree and implement explicit -- argv separator for run --v2/--bytecode
