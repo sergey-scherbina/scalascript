@@ -111,6 +111,14 @@ object Runtime:
       nmo.getField("apply") match
         case Some(c: Value.ClosV) => Call(c, avs)
         case _ => sys.error(s"app: not a function: ${Show.show(v)}")
+    // Indexed array read `a(i)` outside the compile fast paths (e.g. the array
+    // value came from Array.fill via the companion dispatch, bound as a Local).
+    case Value.ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
+      avs(0) match
+        case Value.IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt))
+        case _             => sys.error("app: array index must be Int")
+    case Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
+      Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](avs(0)))
     case Value.DataV("Stub", fs) => Done(Value.DataV("Stub", fs))
     case _ => sys.error(s"app: not a function: ${Show.show(v)}")
 
@@ -672,12 +680,19 @@ object FastCode:
         )
       else None
     // __method__("length"/"size", recv) — string/collection length for local/lit receivers.
+    // HONEST variants only: Cons/Nil walk the real list (fs.length on a Cons cell
+    // is always 2), ArrayBuffer reports its size, and unknown receivers ERROR
+    // instead of the old tolerant `0L` — that silent zero masked the args-global
+    // native shadowing and emptied every `while i < msg.length` loop over an
+    // Array.fill result (busi qr: a data-less, mask-only QR matrix).
     case Prim("__method__", List(Lit(Const.CStr(n)), recv)) if n == "length" || n == "size" =>
       tryFC(recv, globals).map { fcr => (env: Env) =>
         fcr(env) match
-          case StrV(s)        => s.length.toLong
-          case DataV(_, fs)   => fs.length.toLong
-          case _              => 0L
+          case StrV(s)                        => s.length.toLong
+          case lv @ DataV("Cons" | "Nil", _)  => Prims.unlistPub(lv).length.toLong
+          case DataV(_, fs)                   => fs.length.toLong
+          case ForeignV(ab: collection.mutable.ArrayBuffer[?]) => ab.length.toLong
+          case v                              => sys.error(s"length/size on ${Show.show(v)}")
       }
     // __method__("_N", recv) — tuple field accessor; returns Long only if the field is Int/Long
     case Prim("__method__", List(Lit(Const.CStr(n)), recv)) if n.matches("_\\d+") =>
@@ -1135,16 +1150,17 @@ object FastCode:
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
   def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
-    // __arith__ ORDERING comparisons — bridge generates these; fast path via unboxed Long comparison.
-    // GUARD (ordering only): only when BOTH operands are provably Long. tryFLC reads a Local optimistically
-    // as a Long and returns 0L for a FloatV (see the Local case), so an unguarded fast path makes Double
-    // `<`/`>` inside a fold/loop always compare 0<0 → false (foldLeft over Doubles returned the last
-    // element; min/max broken). Non-provably-Long operands fall through to the general, Double-aware compare.
-    // `==`/`!=` keep the existing (unguarded) path — equality is handled separately below.
+    // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison.
+    // GUARD (ALL ops): only when BOTH operands are provably Long. tryFLC reads a Local optimistically
+    // as a Long and returns 0L for a FloatV OR StrV (see the Local case), so an unguarded fast path makes
+    // Double `<`/`>` inside a fold/loop always compare 0<0 → false (foldLeft over Doubles returned the
+    // last element; min/max broken) — and unguarded `==`/`!=` made STRING equality of two locals
+    // always 0==0 → TRUE (busi incomeFor: `if p == period` matched EVERY period; the July fact
+    // leaked into the June query). Non-provably-Long operands fall through to the general,
+    // type-honest compare.
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1))
-        if (op == "==" || op == "!=") ||   // equality keeps the existing (unguarded) fast path
-           ((op == "<" || op == "<=" || op == ">" || op == ">=")
-             && flcProvablyLong(a0) && flcProvablyLong(a1)) =>   // ordering: only when provably Long
+        if (op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=")
+           && flcProvablyLong(a0) && flcProvablyLong(a1) =>   // only when provably Long
       tryFLC(a0, globals).flatMap { f0 => tryFLC(a1, globals).map { f1 =>
         val fn: (Long, Long) => Boolean = op match
           case "<"  => _ < _; case "<=" => _ <= _; case ">"  => _ > _
@@ -1575,7 +1591,16 @@ object Prims:
             case _    => sys.error(s"__arith__: op $op not valid for Int+Decimal")
         case (lv, rv) => op match
           case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
-          case "++" | "+" => if isList(lv) then listOf(unlist(lv) ++ unlist(rv)) else StrV(anyStr(lv) + anyStr(rv))
+          // Map + (k -> v): same copy-on-write as Prims.arithOp — this table
+          // arith serves non-literal op names; without the case, attrs + pair
+          // string-concatenated (busi litdoc).
+          case "+" => (lv, rv) match
+            case (ForeignV(m0: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k2, v2))) =>
+              val nm = collection.mutable.HashMap.from(m0.asInstanceOf[collection.mutable.Map[Value, Value]])
+              nm(k2) = v2
+              ForeignV(nm)
+            case _ => if isList(lv) then listOf(unlist(lv) ++ unlist(rv)) else StrV(anyStr(lv) + anyStr(rv))
+          case "++" => if isList(lv) then listOf(unlist(lv) ++ unlist(rv)) else StrV(anyStr(lv) + anyStr(rv))
           case ":+" if isList(lv) => listOf(unlist(lv) :+ rv)
           case "->" => DataV("Tuple2", collection.immutable.ArraySeq(lv, rv))  // k -> v pair
           case "!"  =>
@@ -1766,6 +1791,16 @@ object Prims:
         case (DataV("Cons", _), "isEmpty", Nil) => BoolV(false)
         case (DataV("Nil", _), "nonEmpty", Nil)  => BoolV(false)
         case (DataV("Cons", _), "nonEmpty", Nil) => BoolV(true)
+        // Mutable array (ForeignV(ArrayBuffer)) basics — Array.fill/tabulate
+        // return these now (busi qr: g.length on an rs table).
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "length" | "size", Nil) =>
+          IntV(ab.length.toLong)
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "isEmpty", Nil) =>
+          BoolV(ab.isEmpty)
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "nonEmpty", Nil) =>
+          BoolV(ab.nonEmpty)
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "toList", Nil) =>
+          listOf(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList)
         case (DataV("Nil", _), "length", Nil) | (DataV("Nil", _), "size", Nil) =>
           IntV(unlist(recv).length.toLong)
         case (DataV("Cons", _), "length", Nil) | (DataV("Cons", _), "size", Nil) =>
@@ -1778,34 +1813,38 @@ object Prims:
         // Tuple-spreading: a multi-param lambda `(a, b) => …` on a list of tuples
         // gets called with the tuple fields spread as separate args.
         case (ls, "map", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).map { x =>
+          def step(x: Value): Value =
             if fn.arity > 1 then x match
               case DataV(tag, fs) if tag.startsWith("Tuple") && fs.length == fn.arity =>
                 callClos(fn, fs.toArray)
               case _ => callClos(fn, Array(x))
             else callClos(fn, Array(x))
-          })
+          mapThreadOp(unlist(ls), step, listOf)
         case (ls, "flatMap", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).flatMap { x =>
-            val r = if fn.arity > 1 then x match
+          def step(x: Value): Value =
+            if fn.arity > 1 then x match
               case DataV(tag, fs) if tag.startsWith("Tuple") && fs.length == fn.arity =>
                 callClos(fn, fs.toArray)
               case _ => callClos(fn, Array(x))
             else callClos(fn, Array(x))
-            r match
-              case r2 @ (DataV("Cons", _) | DataV("Nil", _)) => unlist(r2)
-              case scalar => List(scalar)
-          })
+          mapThreadOp(unlist(ls), step, rs => listOf(rs.flatMap {
+            case r2 @ (DataV("Cons", _) | DataV("Nil", _)) => unlist(r2)
+            case scalar => List(scalar)
+          }))
         case (ls, "filter", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).filter(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+          val xs = unlist(ls)
+          mapThreadOp(xs, x => callClos(fn, Array(x)),
+            rs => listOf(xs.zip(rs).collect { case (x, Value.BoolV(true)) => x }))
         case (ls, "filterNot", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).filterNot(x => callClos(fn, Array(x)) == Value.BoolV(true)))
+          val xs = unlist(ls)
+          mapThreadOp(xs, x => callClos(fn, Array(x)),
+            rs => listOf(xs.zip(rs).collect { case (x, r) if r != Value.BoolV(true) => x }))
         case (ls, "foldLeft", List(z, fn: Value.ClosV)) if isList(ls) =>
-          unlist(ls).foldLeft(z)((acc, x) => callClos(fn, Array(acc, x)))
+          foldThreadOp(unlist(ls), z, (acc, x) => callClos(fn, Array(acc, x)))
         case (ls, "foldRight", List(z, fn: Value.ClosV)) if isList(ls) =>
-          unlist(ls).foldRight(z)((x, acc) => callClos(fn, Array(x, acc)))
+          foldThreadOp(unlist(ls).reverse, z, (acc, x) => callClos(fn, Array(x, acc)))
         case (ls, "foreach", List(fn: Value.ClosV)) if isList(ls) =>
-          unlist(ls).foreach(x => callClos(fn, Array(x))); UnitV
+          mapThreadOp(unlist(ls), x => callClos(fn, Array(x)), _ => UnitV)
         case (ls, "find", List(fn: Value.ClosV)) if isList(ls) =>
           unlist(ls).find(x => callClos(fn, Array(x)) == Value.BoolV(true)) match
             case Some(v) => some(v); case None => none
@@ -1955,6 +1994,15 @@ object Prims:
         // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
         case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
         case (DataV("Map", _), "empty", Nil) => ForeignV(collection.mutable.HashMap[Value, Value]())
+        // Array companion statics return a REAL mutable array (ForeignV(ArrayBuffer)) —
+        // they were folded into the List lane and `Array.fill(512)(0)` came back a
+        // Cons-list, so the first `m(i) = v` hit arr.set with "expected Array, got
+        // List" (busi qr.ssc: every rs/gf table). Indexed App reads on ArrayBuffer
+        // already work (compile fast path + applyFallback).
+        case (DataV("Array", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
+          ForeignV(collection.mutable.ArrayBuffer.from((0 until n.toInt).map(i => callClos(fn, Array(IntV(i.toLong))))))
+        case (DataV("Array", _), "fill", List(IntV(n), elem)) =>
+          ForeignV(collection.mutable.ArrayBuffer.fill(n.toInt)(elem))
         case (DataV("List" | "Array" | "Seq" | "Vector", _), "tabulate", List(IntV(n), fn: Value.ClosV)) =>
           listOf((0 until n.toInt).map(i => callClos(fn, Array(IntV(i.toLong)))))
         case (DataV("List" | "Array" | "Seq" | "Vector", _), "fill", List(IntV(n), elem)) =>
@@ -2264,6 +2312,34 @@ object Prims:
   /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
   def methodOp(name: String, recv: Value, args: List[Value]): Value =
     resolve("__method__")(StrV(name) :: recv :: args)
+
+  // ── Effect-aware list traversal (bridged-lane list HOFs) ─────────────────────
+  // A perform INSIDE a HOF lambda (`items.map(i => OperatorPlan(i.id,
+  // Operator.decide(i)))`) makes the per-element call return an unresolved
+  // DataV("Op",…); the eager natives used to collect those RAW into the result
+  // (busi operator: hPlan was a list of Ops — .length matched, every field
+  // access misfired). Like methodOp's receiver lifting, these live only behind
+  // the bridge-emitted __method__ dispatch, so the Mira/hm lane (where Op values
+  // in lists are legitimate data) never routes through them.
+  /** Apply `step` per element; on an Op result, defer the REST of the traversal
+   *  into the op's continuation (letThreadOp protocol), else accumulate. */
+  def mapThreadOp(xs: List[Value], step: Value => Value, rebuild: List[Value] => Value): Value =
+    def go(rest: List[Value], acc: List[Value]): Value = rest match
+      case Nil => rebuild(acc.reverse)
+      case x :: t => step(x) match
+        case op @ Value.DataV("Op", _) => Runtime.letThreadOp(op, r => go(t, r :: acc))
+        case v => go(t, v :: acc)
+    go(xs, Nil)
+
+  /** Fold with an effect-aware step: an Op step-result defers the remaining
+   *  fold into the op's continuation (the resumed value is the new acc). */
+  def foldThreadOp(xs: List[Value], z: Value, step: (Value, Value) => Value): Value =
+    def go(rest: List[Value], acc: Value): Value = rest match
+      case Nil => acc
+      case x :: t => step(acc, x) match
+        case op @ Value.DataV("Op", _) => Runtime.letThreadOp(op, r => go(t, r))
+        case v => go(t, v)
+    go(xs, z)
 
   // ── Allocation-free fast paths for 1/2/3-arg primitives ─────────────────────
   // These avoid creating a List[Value] for arg passing on the hot path.
