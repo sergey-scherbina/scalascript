@@ -935,7 +935,7 @@ function _ssc_ui_onSetSignal(sig, value) { return { _eff: 'setSignal', s: sig, v
 function _ssc_ui_ensureRowlinkCss() {
   if (typeof document === 'undefined' || document.getElementById('ssc-rowlink-css')) return;
   var st = document.createElement('style'); st.id = 'ssc-rowlink-css';
-  st.textContent = '.ssc-rowlink-selected::before{content:"\2713 "}.ssc-rowlink-selected{font-weight:700;filter:brightness(1.25)}';
+  st.textContent = '.ssc-rowlink-selected::before{content:"✓ "}.ssc-rowlink-selected{font-weight:700;filter:brightness(1.25)}';
   document.head.appendChild(st);
 }
 function _ssc_ui_onNavigate(path) { return { _eff: 'navigate', path: String(path == null ? '' : path) }; }

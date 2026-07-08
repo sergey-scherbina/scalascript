@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — fix: rowLink selection checkmark was mojibake ("¹3")
+
+`_ssc_ui_ensureRowlinkCss` built `content:"\2713 "` inside a JS STRING literal, where `\271` is a
+legacy OCTAL escape (→ U+00B9 '3' = "¹3"), so selected rowLink buttons showed "¹3 <label>" instead
+of a ✓. Fixed by using the literal ✓ character (emits clean through the pipeline, same as ★).
+
+---
+
 ## 2026-07-08 — conformance: INT SQL block scope survives IR round-trip
 
 `sql-basic` and `sql-transaction` now pass the INT conformance lane. The CLI
