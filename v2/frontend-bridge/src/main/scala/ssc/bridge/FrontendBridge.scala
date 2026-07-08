@@ -589,6 +589,7 @@ object FrontendBridge:
             resolveStdPathWithFile(rel, dir).foreach { case (content, resolvedFile) =>
               val key = resolvedFile.getCanonicalPath
               if seen.add(key) then
+                PluginBridge.registerImportedContent(rel, resolvedFile, content)
                 // DFS: recurse first so dependencies come before their dependents
                 collectImports(content, Some(resolvedFile.getParentFile), fenceOnly = false)
                 ordered += key -> extractCode(content, allFences = true)

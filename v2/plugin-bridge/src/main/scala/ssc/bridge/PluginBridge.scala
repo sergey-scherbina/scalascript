@@ -93,12 +93,58 @@ object PluginBridge:
    *  content to plugins — mirrors Interpreter's `module.document.foreach
    *  (nativeFeatureSet(ContentDocument, _))`. Call once per convertSource. */
   def setDocumentFromSource(raw: String): Unit =
+    val docKey = scalascript.backend.spi.NativeContextFeatureKeys.ContentDocument
+    val importedKey = scalascript.backend.spi.NativeContextFeatureKeys.ContentImportedModules
+    val currentKey = scalascript.backend.spi.NativeContextFeatureKeys.ContentCurrentSection
+    featureBag.remove(docKey)
+    featureBag.remove(importedKey)
+    featureBag.remove(currentKey)
     try
       val module = scalascript.parser.Parser.parse(raw)
       module.document.foreach { doc =>
-        featureBag.put(scalascript.backend.spi.NativeContextFeatureKeys.ContentDocument, doc)
+        featureBag.put(docKey, doc)
+        currentExecutableSection(doc).foreach(section => featureBag.put(currentKey, section))
       }
     catch case _: Throwable => () // no document — introspection natives raise their own error
+
+  /** Register a parsed imported document for std.content's contentModule* APIs.
+   *  Mirrors SectionRuntime.registerImportedContent for the FrontendBridge path. */
+  def registerImportedContent(rel: String, resolvedFile: java.io.File, raw: String): Unit =
+    if isContentHelperImport(rel) then return
+    try
+      val module = scalascript.parser.Parser.parse(raw)
+      module.document.foreach { doc =>
+        val namespace = module.manifest.flatMap(_.name).map(_.trim).filter(_.nonEmpty).getOrElse {
+          val last = resolvedFile.getName
+          if last.endsWith(".ssc") then last.stripSuffix(".ssc") else last
+        }
+        val key = scalascript.backend.spi.NativeContextFeatureKeys.ContentImportedModules
+        val current = Option(featureBag.get(key)).collect {
+          case table: Map[?, ?] =>
+            table.toList.collect {
+              case (ns: String, docs: List[?]) =>
+                ns -> docs.collect { case d: scalascript.ast.DocumentContent => d }
+            }.toMap
+        }.getOrElse(Map.empty[String, List[scalascript.ast.DocumentContent]])
+        featureBag.put(key, current.updated(namespace, current.getOrElse(namespace, Nil) :+ doc))
+      }
+    catch case _: Throwable => ()
+
+  private def isContentHelperImport(path: String): Boolean =
+    path == "std/content.ssc" || path.endsWith("std/content.ssc") ||
+      path == "std/ui/content.ssc" || path.endsWith("std/ui/content.ssc")
+
+  private def currentExecutableSection(doc: scalascript.ast.DocumentContent): Option[scalascript.ast.SectionContent] =
+    def hasExecutableBlock(section: scalascript.ast.SectionContent): Boolean =
+      section.blocks.exists {
+        case scalascript.ast.ContentBlock.Embedded(_, _, scalascript.ast.EmbeddedKind.Executable, _, _) => true
+        case _ => false
+      }
+    def go(section: scalascript.ast.SectionContent): List[scalascript.ast.SectionContent] =
+      val childHits = section.children.flatMap(go)
+      val selfHit = if hasExecutableBlock(section) then List(section) else Nil
+      selfHit ++ childHits
+    doc.sections.flatMap(go).lastOption
 
   /** Load all Backend plugins via ServiceLoader; register NativeImpl prims AND
    *  BlockForm runners. Also registers the built-in `handle` global. */
@@ -406,33 +452,14 @@ object PluginBridge:
     val dividerNode = DataV("DividerNode", Vector.empty)
     def noopClos = ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV))
     def stubClos = ClosV(Runtime.emptyEnv, -1, _ => Done(stub))
-    def stubOpt  = DataV("Some", Vector(stub))
 
-    // ── Content plugin stubs (require document context, batch runner has none) ──────
-    // These override the NativeImpl registrations from the content plugin.
-    Seq(
-      "contentDocument" -> ClosV(Runtime.emptyEnv, 0, _ => Done(stub)),
-      "contentCurrentSection" -> ClosV(Runtime.emptyEnv, 0, _ => Done(stub)),
-      "contentSection" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentBlock"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentData"    -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentMetadata" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentBind"    -> ClosV(Runtime.emptyEnv, -1, env => Done(if env.nonEmpty then env(0) else stub)),
-      "contentPlainText"  -> ClosV(Runtime.emptyEnv, -1, _ => Done(StrV(""))),
-      "contentToMarkdown" -> ClosV(Runtime.emptyEnv, -1, _ => Done(StrV(""))),
-      "contentToolkitNode"    -> ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode)),
-      "contentToolkitBlock"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode)),
-      "contentToolkitSection" -> ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode)),
-      "contentModules"     -> ClosV(Runtime.emptyEnv, 0, _ => Done(ForeignV(collection.immutable.Map.empty[String, V2Value].asInstanceOf[AnyRef]))),
-      "contentModule"      -> ClosV(Runtime.emptyEnv, -1, _ => Done(DataV("None", Vector.empty))),
-      "contentModuleSection" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentModuleBlock"   -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentModuleData"    -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-      "contentModuleMetadata" -> ClosV(Runtime.emptyEnv, -1, _ => Done(stubOpt)),
-    ).foreach { case (name, fn) =>
-      V2PluginRegistry.registerGlobal(name, fn)
-      V2PluginRegistry.register(name, args => Runtime.run(fn.code, if fn.env.isEmpty then Array.empty else fn.env))
-    }
+    // contentToolkitSection still needs a v2 lowering pass for full toolkit parity.
+    // Keep the historical batch stub only for section-level toolkit rendering while
+    // letting content document/module/markdown and contentToolkitBlock use the real
+    // content plugin implementations.
+    val toolkitSectionStub = ClosV(Runtime.emptyEnv, -1, _ => Done(dividerNode))
+    V2PluginRegistry.registerGlobal("contentToolkitSection", toolkitSectionStub)
+    V2PluginRegistry.register("contentToolkitSection", _ => dividerNode)
 
     // ── Sync stub (browser IndexedDB sync helper) ─────────────────────────────────
     val syncStatusStub = DataV("SyncStatus", Vector(IntV(0), IntV(0), BoolV(false)))
@@ -995,6 +1022,8 @@ object PluginBridge:
           case other                                   => items += ("…" + v1Show(other)); listy = false
         items.mkString("List(", ", ", ")")
       case V2Value.DataV("_Raw", IndexedSeq(V2Value.StrV(html))) => html
+      case V2Value.DataV("TableNode", IndexedSeq(columns, rows, V2Value.DataV("None", _))) =>
+        s"TableNode(${v1Show(columns)}, ${v1Show(rows)}, null)"
       case V2Value.DataV(tag, fs) if fs.isEmpty => tag
       case V2Value.DataV(tag, fs) => tag + fs.map(v1Show).mkString("(", ", ", ")")
       case V2Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
