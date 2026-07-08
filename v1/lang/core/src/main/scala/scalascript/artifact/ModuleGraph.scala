@@ -267,7 +267,10 @@ object ModuleGraph:
    *  - The `.scjvm` artifact does not exist, OR
    *  - The artifact's envelope is invalid (wrong magic / ABI), OR
    *  - The SHA-256 of the current source bytes does not match the
-   *    `sourceHash` stored in the `.scjvm` artifact.
+   *    `sourceHash` stored in the `.scjvm` artifact, OR
+   *  - The artifact was emitted by an older JVM backend codegen cache key
+   *    (`codegenVersion` missing/old), even when its source hash still
+   *    matches.
    *
    *  v2.0 — JVM incremental codegen cache.
    *
@@ -282,7 +285,7 @@ object ModuleGraph:
       case Left(_) => true
       case Right(art) =>
         val currentHash = InterfaceExtractor.sourceFileHash(os.read.bytes(srcPath))
-        art.sourceHash != currentHash
+        art.sourceHash != currentHash || !JvmArtifactIO.hasCurrentCodegenVersion(art)
 
   /** Check whether a `.ssc` module's JS-backend cached `.scjs` artifact is
    *  stale relative to the current source.

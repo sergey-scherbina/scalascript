@@ -1,6 +1,7 @@
 package scalascript.artifact
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.ir.{ArtifactVersion, ModuleJvmArtifact}
 
 /** v2.0 — tests that `ModuleGraph.build` topologically sorts a tree of
  *  `.ssc` modules and that `ModuleGraph.isStale` correctly detects
@@ -187,4 +188,74 @@ class ModuleGraphTest extends AnyFunSuite:
       os.write(d / "m.scim", "this is not valid JSON")
       assert(ModuleGraph.isStale(src, d),
         "unreadable artifact must be treated as stale")
+    }
+
+  // ── isJvmStale ─────────────────────────────────────────────────────────
+
+  test("isJvmStale — false when source hash and JVM codegen version match"):
+    withTempDir { d =>
+      val src = d / "m.ssc"
+      val srcBytes = "# Hello\n\n```scalascript\nval x = 1\n```\n".getBytes("UTF-8")
+      os.write(src, srcBytes)
+      val sourceHash = InterfaceExtractor.sourceFileHash(srcBytes)
+
+      JvmArtifactIO.writeJvmFile(
+        moduleId = "m",
+        pkg = Nil,
+        moduleName = Some("m"),
+        sourceHash = sourceHash,
+        scalaSource = "object m { val x = 1 }\n",
+        imports = Nil,
+        path = d / "m.scjvm"
+      )
+
+      assert(!ModuleGraph.isJvmStale(src, d),
+        "fresh .scjvm with current JVM codegen version should not be stale")
+    }
+
+  test("isJvmStale — true for legacy source-fresh `.scjvm` without codegen version"):
+    withTempDir { d =>
+      val src = d / "m.ssc"
+      val srcBytes = "# Hello\n\n```scalascript\nval x = 1\n```\n".getBytes("UTF-8")
+      os.write(src, srcBytes)
+      val sourceHash = InterfaceExtractor.sourceFileHash(srcBytes)
+
+      val legacy = ModuleJvmArtifact(
+        magic = ArtifactVersion.magic,
+        abiVersion = ArtifactVersion.current,
+        moduleId = "m",
+        pkg = Nil,
+        moduleName = Some("m"),
+        sourceHash = sourceHash,
+        scalaSource = "object m { val x = 1 }\n",
+        imports = Nil
+      )
+      JvmArtifactIO.writeJvmFile(legacy, d / "m.scjvm")
+
+      assert(ModuleGraph.isJvmStale(src, d),
+        "legacy .scjvm with matching source hash but no codegen version must be stale")
+    }
+
+  test("isJvmStale — true for source-fresh `.scjvm` with old codegen version"):
+    withTempDir { d =>
+      val src = d / "m.ssc"
+      val srcBytes = "# Hello\n\n```scalascript\nval x = 1\n```\n".getBytes("UTF-8")
+      os.write(src, srcBytes)
+      val sourceHash = InterfaceExtractor.sourceFileHash(srcBytes)
+
+      val old = ModuleJvmArtifact(
+        magic = ArtifactVersion.magic,
+        abiVersion = ArtifactVersion.current,
+        moduleId = "m",
+        pkg = Nil,
+        moduleName = Some("m"),
+        sourceHash = sourceHash,
+        scalaSource = "object m { val x = 1 }\n",
+        imports = Nil,
+        codegenVersion = "jvm-codegen-old"
+      )
+      JvmArtifactIO.writeJvmFile(old, d / "m.scjvm")
+
+      assert(ModuleGraph.isJvmStale(src, d),
+        "old JVM codegen cache key must invalidate an otherwise source-fresh .scjvm")
     }

@@ -750,6 +750,14 @@ case class ModuleJvmArtifact(
   sourceHash:   String,        // SHA-256 hex of the source bytes
   scalaSource:  String,        // JvmGen.generate(module) output — Scala 3 source for THIS module
   imports:      List[String],  // FQNs of foreign-module symbols this artifact references
+  /** JVM backend codegen cache key.
+   *
+   *  `sourceHash` only tracks the `.ssc` bytes.  This field also invalidates
+   *  source-fresh `.scjvm` files emitted by an older JVM backend after the
+   *  generated Scala semantics change.  Empty default preserves backward
+   *  compatibility with legacy artifacts; `ModuleGraph.isJvmStale` treats
+   *  legacy/old-version values as stale so they are regenerated. */
+  codegenVersion: String = "",
   /** Optional base64-encoded ZIP of `.class` files compiled from `scalaSource`.
    *
    *  Populated by `ssc compile-jvm --bytecode` (which drives scala-cli on the

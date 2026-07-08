@@ -18,6 +18,18 @@ import upickle.default.{read, write, writeBinary, readBinary}
  *  v2.0 — JVM incremental codegen cache. */
 object JvmArtifactIO:
 
+  /** Cache key for JVM generated Scala.
+   *
+   *  Bump this when a JVM backend/runtime codegen change can alter
+   *  `scalaSource` without changing the `.ssc` source bytes.  This is not the
+   *  artifact ABI: old artifacts should remain readable, then be treated as
+   *  stale by `ModuleGraph.isJvmStale`.
+   */
+  val CurrentCodegenVersion: String = "jvm-codegen-2026-07-08-1"
+
+  def hasCurrentCodegenVersion(art: ModuleJvmArtifact): Boolean =
+    art.codegenVersion == CurrentCodegenVersion
+
   /** Serialise a `ModuleJvmArtifact` to a pretty-printed JSON string.
    *  Use `writeJvmFile` to write to disk — it uses the binary MessagePack format. */
   def writeJvm(art: ModuleJvmArtifact): String =
@@ -49,6 +61,7 @@ object JvmArtifactIO:
       sourceHash    = sourceHash,
       scalaSource   = scalaSource,
       imports       = imports,
+      codegenVersion = CurrentCodegenVersion,
       classBundle   = classBundle,
       capabilities  = capabilities.sorted,
       sectionHashes = sectionHashes,
@@ -107,6 +120,7 @@ object JvmArtifactIO:
       magic = ArtifactVersion.magic, abiVersion = ArtifactVersion.current,
       moduleId = moduleId, pkg = pkg, moduleName = moduleName,
       sourceHash = sourceHash, scalaSource = scalaSource, imports = imports,
+      codegenVersion = CurrentCodegenVersion,
       classBundle = classBundle, capabilities = capabilities.sorted,
       sectionHashes = sectionHashes, lineMap = lineMap
     )
