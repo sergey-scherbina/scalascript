@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — std/ui: rowPostAction — immediate click feedback + skip empty-body buttons
+
+Two browser-runtime UX fixes for `_RowPost` (no API change): (1) on click, disable the button and
+append '…' immediately (restore on a failed fetch; a 2xx re-renders the table and clears it) — a
+slow POST (loading a model) no longer looks dead and invites a double-tap; (2) render nothing when
+the row's body resolves empty — a rowPost that would POST nothing is never intended, and this lets a
+table show a per-row conditional action (e.g. load XOR unload, one field empty per row) with no
+hidden column or CSS hack. Interpreter/JS intrinsic arity unchanged; conformance green.
+
+---
+
 ## 2026-07-08 — fix: Scala.js npm test deps install automatically
 
 Scala.js test modules with `package.json` no longer depend on a manual

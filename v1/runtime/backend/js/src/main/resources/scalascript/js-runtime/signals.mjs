@@ -774,9 +774,20 @@ function _ssc_ui_mount(sigs) {
                     .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
                 });
               } else if (act._type === '_RowPost') {
+                var _postBody = resolvePayload(r, act.bodyField);
+                // Render nothing when this row's body is empty — a rowPost that would POST nothing is
+                // never intended, and skipping it lets a table show a per-row conditional action
+                // (e.g. load XOR unload, one field empty per row) without a hidden column / CSS hack.
+                if (_postBody == null || _postBody === '') return;
                 btn.setAttribute('style', btnStyle); _actLabel(btn, act.label);
                 btn.addEventListener('click', function() {
-                  var pOpts = {method: act.method || 'POST', body: resolvePayload(r, act.bodyField)};
+                  if (btn.disabled) return;
+                  // Immediate feedback: a slow POST (e.g. loading a model) otherwise looks dead and
+                  // invites a second tap. Disable + append '…'; a 2xx re-renders the table (clearing
+                  // this button); a failure restores it.
+                  var _orig = btn.textContent;
+                  btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = _orig + ' …';
+                  var pOpts = {method: act.method || 'POST', body: _postBody};
                   var dh = getHeaders(act.headers && act.headers.id); if (dh) pOpts.headers = dh;
                   // Path templating (tkv2): '/api/paid/:id' → ':id' replaced with the row's
                   // field (URL-encoded). Mirrors rowLink's ':value'. Unknown fields stay
@@ -786,7 +797,8 @@ function _ssc_ui_mount(sigs) {
                     return (v === undefined || v === null) ? m : '/' + encodeURIComponent(String(v));
                   });
                   fetch(theUrl, pOpts).then(function(res) { return res.text(); })
-                    .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
+                    .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); })
+                    .catch(function() { btn.disabled = false; btn.style.opacity = ''; btn.textContent = _orig; });
                 });
               } else if (act._type === '_RowLink') {
                 btn.setAttribute('style', btnStyle); _actLabel(btn, act.label);
