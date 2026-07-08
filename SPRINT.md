@@ -93,6 +93,27 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       23 v1-only**; the extra mismatch was a transient `invoice-email` generated
       byte-count mismatch, and an immediate targeted rerun of `invoice-email` +
       `dataset-parallel-sum` was **2/2 MATCH**.
+- [ ] **v2-prod-invoice-email-nondet** — stabilize the `examples/invoice-email.ssc`
+      output so the v2 production parity gate is not sensitive to generated MIME/PDF
+      byte counts. Why: the latest full sweep has zero v2-error cases, but one run
+      observed `invoice-email.ssc` as an extra mismatch (`2681` vs `2685`) before an
+      immediate targeted rerun matched; production readiness should not depend on
+      byte-exact generated artifacts that can vary across runners. How: inspect the
+      example output contract, prefer changing the example to print stable semantic
+      facts (PDF attached / MIME assembled / recipient or subject) instead of
+      `bytes.length`, and avoid touching sibling-owned files:
+      `scripts/v2-output-parity`, `build.sbt`, `v2/frontend-bridge/**`,
+      `v2/plugin-bridge/**`, and `v1/runtime/std/ui/primitives.ssc`. Rejected
+      alternative: normalize this in `scripts/v2-output-parity`, because
+      `p3-final-push` already owns that harness file and normalizing a single example
+      hides a poor demo contract. Verify with a fresh staged binary and repeated
+      targeted parity:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/invoice-email.ssc`
+      plus the nearest affected conformance slice
+      `scala-cli tests/conformance/run.sc -- --only 'invoice*|pdf*|mime*' --no-memo`
+      (record if no such cases are present). Done-when: targeted parity is stable
+      across repeated runs, docs/baseline record the result, and no sibling-claimed
+      files are modified.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected

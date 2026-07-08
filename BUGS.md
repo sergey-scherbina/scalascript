@@ -12,6 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-invoice-email-nondet — `open` (2026-07-08)
+
+- **Found by:** codex, during `v2-prod-plugin-boundary` full-corpus production parity
+  verification.
+- **Symptom:** a full `scripts/v2-output-parity --all` run after the dataset stack fix
+  reported one extra mismatch in `examples/invoice-email.ssc`: the generated artifact
+  byte-count line differed (`2681` vs `2685`). An immediate targeted rerun matched, so
+  this is treated as nondeterministic/generated-output exposure rather than a v2-error.
+- **Repro:** after `scripts/sbtc "installBin"`, run targeted parity repeatedly:
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/invoice-email.ssc`.
+- **Suspect:** the example prints generated MIME/PDF byte length instead of stable
+  semantic facts. Byte-exact generated artifacts can vary across runners and should not
+  be the user-facing example contract for the v2 production gate.
+- **Plan:** inspect `examples/invoice-email.ssc`, change the printed contract to stable
+  semantic output if the byte count is user-visible, then verify repeated targeted parity
+  plus the nearest invoice/pdf/mime conformance slice. Avoid sibling-owned
+  `scripts/v2-output-parity` normalization.
+
 ## v2-list-unlist-stack-overflow — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` production parity work.
