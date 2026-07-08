@@ -125,7 +125,23 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       (record if no such cases are present). Done-when: targeted parity is stable
       across repeated runs, docs/baseline record the result, and no sibling-claimed
       files are modified.
-- [ ] **v2-prod-post-p3-baseline** — refresh the authoritative production parity
+- [x] **v2-prod-post-p3-baseline** — DONE 2026-07-08: refreshed the full production
+      parity gate after `a0f032c15` and `d8e0ecee4`. Build:
+      `scripts/sbtc "installBin"` from the worktree. Full gate:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` =>
+      **55/85 identical · 9 mismatch · 1 v2-error · 20 v1-only**
+      `(40 both-fail not-a-gap · 36 true-server · 0 long-running · 32 backend-lane ·
+      2 nondet · 195 total)`. The single v2-error is
+      `content-toolkit-yaml-controls.ssc`; `content-slot.ssc` also mismatches with an
+      extra `Unsupported: TermSelectPostfixImpl` line. Important improvements now
+      confirmed in the full gate: `content-form-submit`, `content-live-rows`,
+      `typed-sql-crud`, `ui-fetch-json`, `ui-remote-table`, `rozum-agent`, and
+      `rozum-agent-pool` are MATCH. Remaining production-relevant blockers are the
+      content toolkit section family, quoted macro interpreter body evaluation, and
+      the rozum schema-derived/streaming mismatch/scope decision; actors-pingpong,
+      async-parallel, effects, os-env, and most v1-only entries are scope/v1/nondet
+      issues, not v2-default blockers.
+      ORIGINAL PLAN: refresh the authoritative production parity
       baseline after `a0f032c15` (real v2 web server + rozum family parity) and
       `d8e0ecee4` (invoice email stable output). Why: `v2-prod-default-switch`
       cannot be judged from the older 54/88 + transient-invoice baseline, and the p3
@@ -141,6 +157,19 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       in `BUGS.md` and queue a separate fix. Done-when: the post-p3 full-corpus
       result is reproducible from one command and the next action is clear:
       either claim a concrete remaining blocker or proceed to `v2-prod-corpus-scope`.
+- [ ] **v2-prod-content-toolkit-section** — fix the last current v2-error and its
+      sibling content-toolkit mismatch. Repro after `scripts/sbtc "installBin"`:
+      `bin/ssc run --v2 examples/content-toolkit-yaml-controls.ssc` fails with
+      `contentToolkitNode: table column builder 'fieldColumn' is not available —
+      import it from std/ui/data (fcol/mcol/scol/dcol/lcol)`, and
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/content-slot.ssc examples/content-toolkit-yaml-controls.ssc`
+      reports `content-slot.ssc` mismatch due to extra
+      `Unsupported: TermSelectPostfixImpl` plus `content-toolkit-yaml-controls.ssc`
+      V2-ERROR. Likely area: real `contentToolkitSection` lowering through
+      `v1/runtime/std/content-plugin/**`, std/ui/data `fcol` -> `fieldColumn`
+      availability, and v2 bridge handling of the UI helper shape. Done-when:
+      both examples are parity MATCH, `scala-cli tests/conformance/run.sc -- --only 'content*' --no-memo`
+      remains green, and full parity has **0 v2-error** again.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected

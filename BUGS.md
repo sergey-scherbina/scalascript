@@ -12,6 +12,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-content-toolkit-section-parity — `open` (2026-07-08)
+
+- **Found by:** codex, during `v2-prod-post-p3-baseline` full-corpus production
+  parity verification.
+- **Symptom:** the latest full `scripts/v2-output-parity --all` has exactly one
+  v2-error: `examples/content-toolkit-yaml-controls.ssc`. The same content/toolkit
+  section family also has a mismatch in `examples/content-slot.ssc`, where v2 prints
+  an extra `Unsupported: TermSelectPostfixImpl` before the expected
+  `content-slot:ok` line.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `bin/ssc run --v2 examples/content-toolkit-yaml-controls.ssc` and
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/content-slot.ssc examples/content-toolkit-yaml-controls.ssc`.
+- **Observed direct error:** `contentToolkitNode: table column builder 'fieldColumn'
+  is not available — import it from std/ui/data (fcol/mcol/scol/dcol/lcol)`.
+- **Notes:** this is the remaining production-relevant `contentToolkitSection` gap
+  that earlier work intentionally left behind as a batch stub. The YAML controls
+  example imports `fcol` from `std/ui/data.ssc`; the real content plugin path still
+  looks for the underlying `fieldColumn` builder by name while lowering inline YAML
+  table columns.
+- **Next:** fix in a separate claimed slice; do not paper over it in
+  `scripts/v2-output-parity`.
+
 ## v2-invoice-email-nondet — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` full-corpus production parity

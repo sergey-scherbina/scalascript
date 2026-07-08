@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: post-p3 parity baseline refreshed
+
+After the real v2 web-server / rozum runner work and stable invoice-email output,
+the full `scripts/v2-output-parity --all` gate now measures **55/85 identical ·
+9 mismatch · 1 v2-error · 20 v1-only** across 195 examples. The remaining v2-error
+is isolated to `content-toolkit-yaml-controls.ssc`; `content-slot.ssc`,
+`quoted-macro-interpreter.ssc`, and two rozum variants are the next production
+parity decisions/fixes.
+
+---
+
 ## 2026-07-08 — v2 production: invoice email output stabilized
 
 `examples/invoice-email.ssc` no longer prints the exact generated MIME message byte

@@ -7,6 +7,57 @@ routes a source through the v1 frontend → FrontendBridge → the v2 VM).
 This is the REAL "does v2 replace v1?" gate: each example is run on v1 (`ssc run`) AND v2 (`ssc run --v2`)
 and stdout is diffed. It is far stricter than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
+## Latest full corpus re-measure — 2026-07-08, after p3-final-push + invoice stabilization
+
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-post-p3-baseline` with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Current result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **55 / 85 = 65%** |
+| ❌ mismatch | 9 |
+| ⚠️ v2-error (v1 works, v2 empty) | 1 |
+| v1-only (v2 works, v1 empty) | 20 |
+| both-fail (not a v2 gap) | 40 |
+| true-server skipped | 36 |
+| long-running skipped | 0 |
+| backend-lane skipped | 32 |
+| nondeterministic-output skipped | 2 |
+| total examples seen | 195 |
+
+Confirmed improvements in this gate: `content-form-submit`, `content-live-rows`,
+`typed-sql-crud`, `ui-fetch-json`, `ui-remote-table`, `rozum-agent`, and
+`rozum-agent-pool` are now output-identical. `invoice-email.ssc` also remains MATCH
+with stable semantic output.
+
+Current production-relevant blockers:
+
+- **Content toolkit section lowering** — the only current v2-error is
+  `content-toolkit-yaml-controls.ssc`. Direct v2 repro:
+  `contentToolkitNode: table column builder 'fieldColumn' is not available — import it
+  from std/ui/data (fcol/mcol/scol/dcol/lcol)`. `content-slot.ssc` also mismatches by
+  printing an extra `Unsupported: TermSelectPostfixImpl` before the expected line.
+- **Quoted macro body evaluation** — `quoted-macro-interpreter.ssc` still prints only
+  `42` on v2, missing the computed-body outputs `literal: 7` and `x`.
+- **Rozum schema/streaming scope** — `rozum-agent` and `rozum-agent-pool` match, but
+  `rozum-agent-schema-derived.ssc` and `rozum-agent-streaming.ssc` still mismatch in
+  this full run.
+
+Non-blocker/scope categories still appearing as mismatches:
+
+- `actors-pingpong.ssc` — v1 exit-cascade/missing final `done`;
+- `async-parallel-demo.ssc` — wall-clock timing nondeterminism;
+- `effects.ssc` — v2 prints the documented full output while v1 stops early;
+- `os-env.ssc` — v2 resolves real platform values while v1 prints native placeholders;
+- `dsl-calc-parser.ssc` — existing parser/DSL output-shape/v1-side bug classification
+  needs to be kept out of the v2 default-switch decision unless reclassified.
+
 ## Full corpus re-measure — 2026-07-08, production-readiness baseline
 
 Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-production-readiness` with:
