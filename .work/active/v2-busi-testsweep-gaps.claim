@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-busi-testsweep-gaps
+worktree: ../scalascript-wt-v2-busi-testsweep-gaps
+started: 2026-07-08
+status: in-progress
+task: v2-busi-testsweep-gaps — close the 14 real v2 parity gaps from busi tests/v2 sweep (47/61 on --v2, 61/61 on v1). Per-file loop: repro via cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/<f>.ssc, fix in v2, conformance regression, rerun sweep. Goal 61/61.
