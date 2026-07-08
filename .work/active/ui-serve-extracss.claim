@@ -1,0 +1,6 @@
+agent: claude-fable-5 (rozum UCC session)
+branch: feature/ui-serve-extracss
+worktree: ../scalascript-wt-ui-serve-extracss
+started: 2026-07-08
+status: in-progress
+task: std/ui serve(view, port, extraCss) — the runtime _ssc_ui_serve already accepts an extraCss 3rd arg + has a ${extraCss} template slot, but the extern is only serve(View,Int) so no .ssc app can override the hardcoded body{background:#fff}. Add the 3-arg extern; consumer = rozum UCC center.ssc (removes a post-emit sed patch of the body background). Additive; conformance uses 2-arg form unchanged.
