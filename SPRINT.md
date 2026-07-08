@@ -746,11 +746,17 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `conformance-int-variables-while-update`.
       Active-claim subslice plan, do not claim separately while
       `green-main-conformance-gating` is active:
-      - [ ] **conformance-js-json-stringify-missing-global** — smallest JS-only
+      - [x] **conformance-js-json-stringify-missing-global** — smallest JS-only
             crash: `bin/ssc run-js tests/conformance/json-read.ssc` fails with
             `ReferenceError: jsonStringify is not defined`. Fix the JS global/import
             path or std-json JS intrinsic registration; verify with
             `tests/conformance/run.sh --only 'json-read' --no-memo`.
+            FIXED 2026-07-08 in `718d04027`: JS JSON intrinsics now target the
+            existing `_ssc_ui_jsonStringify` / `_ssc_ui_jsonValue` runtime helpers
+            instead of undefined bare globals, and `JsGenStdImportTest` covers the
+            bare intrinsic path. Verification: `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest"`,
+            `scripts/sbtc "installBin"`, direct `bin/ssc run-js tests/conformance/json-read.ssc`,
+            and `tests/conformance/run.sh --only 'json-read' --no-memo` (**1/1 green**).
       - [ ] **conformance-js-product-show-synthetic-tag** — JS product rendering
             includes ADT/case-class synthetic tag indexes, breaking `prisms`,
             `optic-polish`, `optics-index-at`, and `optional`. Verify with

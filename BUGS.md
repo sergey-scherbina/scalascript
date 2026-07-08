@@ -74,15 +74,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Status:** open; inspect JS ADT/case-class representation and `_show` product
   rendering so discriminant/tag-index metadata is not printed as a user field.
 
-## conformance-js-json-stringify-missing-global — `open` (2026-07-08)
+## conformance-js-json-stringify-missing-global — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
   `bin/ssc run-js tests/conformance/json-read.ssc`.
 - **Observed:** JS crashes before stdout with `ReferenceError: jsonStringify is not
   defined` at the first `jsonStringify(42)` call. INT/JVM pass.
-- **Status:** open; `std/json.ssc` exports `jsonStringify`, but the JS backend does
-  not currently provide/import the matching global for this fixture.
+- **Status:** fixed in `718d04027`; root cause was JS intrinsic registration still
+  targeting bare `jsonStringify` / `jsonValue` after the runtime helpers were
+  intentionally renamed to `_ssc_ui_jsonStringify` / `_ssc_ui_jsonValue` to avoid
+  duplicate top-level declarations with std import bindings.
+- **Verified:** `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest"`;
+  `scripts/sbtc "installBin"`; `bin/ssc run-js tests/conformance/json-read.ssc`;
+  `tests/conformance/run.sh --only 'json-read' --no-memo` (**1/1 green**).
 
 ## conformance-jvm-cps-local-unit-effect-cast — `fixed` (2026-07-08)
 

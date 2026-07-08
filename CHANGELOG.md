@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: JS std/json intrinsic targets fixed
+
+`json-read` now passes INT/JS/JVM in `green-main-conformance-gating`. The JS
+backend routes bare `jsonStringify` / `jsonValue` intrinsic calls to the
+renamed `_ssc_ui_*` runtime helpers, preserving the existing std import
+duplicate-declaration fix while avoiding undefined globals. Targeted gate:
+`tests/conformance/run.sh --only 'json-read' --no-memo` is **1/1 green**.
+
+---
+
 ## 2026-07-08 — conformance: JVM CPS cluster/distributed slice fixed
 
 The remaining deterministic JVM-only conformance failures in
