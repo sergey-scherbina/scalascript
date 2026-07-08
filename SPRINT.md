@@ -1272,6 +1272,30 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             rather than masking the fork exit. Done-when: `scripts/sbtc
             "cli/test"` exits 0 and the final root-equivalent gate no longer
             reports the CLI task failure.
+            Progress 2026-07-08 (uncommitted): focused
+            `ElectronJvmRestCliTest` is green with fork exit 0 after updating
+            stale fake-Electron greps for the typed-route client signatures and
+            fetch retry loop. Full `cli/test` no longer shows the old after-green
+            fork exit; it now reports ordinary assertion failures below.
+      - [ ] **root-test-cli-toolkit-electron-duplicate-seqmap** — new full
+            `cli/test` blocker after the fork-exit fix. Focused repro:
+            `scripts/sbtc "cli/testOnly scalascript.cli.ToolkitElectronSmokeTest"`.
+            Full-run symptom: Electron renderer throws
+            `Uncaught SyntaxError: Identifier '_seqMap' has already been declared`,
+            causing `SMOKE_FAIL initial render missing`. Work loop: inspect the
+            generated toolkit Electron bundle and deduplicate/scope repeated JS
+            helper preamble emission so `_seqMap` is declared once. Done-when:
+            focused smoke test is green and full `cli/test` no longer reports it.
+      - [ ] **root-test-cli-spark-submit-dry-run-deps** — new full `cli/test`
+            blocker after the fork-exit fix. Focused repro:
+            `scripts/sbtc "cli/testOnly scalascript.cli.SubmitCommandTest"`.
+            Failures: dry-run output no longer contains
+            `org.apache.spark::spark-core:4.0.0` for the default Spark version
+            nor `spark-core:3.5.1` for `--spark-version 3.5.1`. Work loop:
+            inspect current `submit` dry-run output/contract; either restore the
+            dependency strings/options or update the stale test expectations if
+            the dependency surface intentionally moved. Done-when: focused
+            `SubmitCommandTest` is green and full `cli/test` no longer reports it.
 
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.

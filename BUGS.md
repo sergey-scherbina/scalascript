@@ -12,6 +12,46 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## root-test-cli-spark-submit-dry-run-deps — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` focused
+  `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
+- **Repro:** `cd /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating &&
+  scripts/sbtc "cli/testOnly scalascript.cli.SubmitCommandTest"`.
+- **Observed failure:** `SubmitCommandTest` reports two failed assertions:
+  `--dry-run prints package + submit argv with default master` no longer includes
+  `org.apache.spark::spark-core:4.0.0`, and `--spark-version threads through to
+  both deps` no longer includes `spark-core:3.5.1`.
+- **Impact:** the CLI aggregate remains red; Spark submit dry-run output may have
+  intentionally moved dependency information or stopped emitting it. The test and
+  command contract must agree before root `test` can be a production gate.
+- **Fix direction:** inspect `submit` dry-run output generation and the current
+  intended Spark dependency surface. If deps are intentionally no longer present in
+  the package argv, update the test to assert the current contract; otherwise
+  restore dependency lines/options.
+- **Done-when:** focused `SubmitCommandTest` is green and full `cli/test` no
+  longer reports this suite.
+
+## root-test-cli-toolkit-electron-duplicate-seqmap — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` focused
+  `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
+- **Repro:** `cd /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating &&
+  scripts/sbtc "cli/testOnly scalascript.cli.ToolkitElectronSmokeTest"`.
+- **Observed failure:** `ToolkitElectronSmokeTest` case
+  `toolkit-demo Electron bundle renders, routes Add, and persists after restart`
+  fails with renderer error
+  `Uncaught SyntaxError: Identifier '_seqMap' has already been declared`; the
+  smoke then reports `SMOKE_FAIL initial render missing`.
+- **Impact:** toolkit Electron smoke is a real browser/Electron bundle execution
+  gate, not just a string assertion. Duplicate JS helper declarations in emitted
+  bundles can blank desktop UI startup.
+- **Fix direction:** reproduce focused, inspect the generated Electron bundle, and
+  deduplicate or scope duplicate helper preamble emission (`_seqMap`) so runtime
+  helpers are emitted once per bundle.
+- **Done-when:** focused `ToolkitElectronSmokeTest` is green and full `cli/test`
+  no longer reports this suite.
+
 ## root-test-cli-fork-exit-after-green — `open` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
@@ -29,6 +69,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `v1/tools/cli/ssc-storage.json`; do not paper over the non-zero fork exit.
 - **Done-when:** targeted repro is understood and fixed, `scripts/sbtc "cli/test"`
   exits 0, and the final root-equivalent gate no longer reports this task failure.
+- **Progress (2026-07-08, uncommitted worktree):** minimal
+  `ElectronJvmRestCliTest` fork exit was caused by stale fake-Electron greps in
+  the typed-route client smoke. The generated client now accepts
+  `headers, cancelToken` and the HTTP runtime assigns `response = await fetch(...)`
+  in a retry loop. Updating those smoke assertions made focused
+  `ElectronJvmRestCliTest` pass with fork exit 0. Full `cli/test` now reaches
+  ordinary assertion failures tracked separately above instead of the old
+  after-green fork exit.
 
 ## root-test-js-rowpost-runtime-contract — `open` (2026-07-08)
 
