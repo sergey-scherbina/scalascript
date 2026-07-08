@@ -1,6 +1,0 @@
-feature/v2-prod-quoted-macro-interpreter 2026-07-08T09:23:03Z
-agent: codex
-heartbeat: 2026-07-08T09:36:21Z
-status: in-progress
-done-so-far: v2 quoted macro helpers implemented; unit/regression and real CLI repro pass; targeted parity quoted examples 2/2 MATCH
-next: run full v2 parity, update BUGS/SPRiNT/baseline docs, commit, push, release claim
