@@ -1,6 +1,0 @@
-feature/v2-prod-plugin-boundary 2026-07-08T07:28:08Z
-agent: codex
-heartbeat: 2026-07-08T07:28:28Z
-status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-prod-plugin-boundary
-next: build/stage bin/ssc, reproduce dataset-parallel-sum v2-error, then fix or classify the first plugin-boundary blocker
