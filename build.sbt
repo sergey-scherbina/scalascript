@@ -10,6 +10,7 @@ ThisBuild / version      := "0.1.0-SNAPSHOT"
 // remains JVM-only for now — continues to `.dependsOn(walletSpi)` /
 // `.dependsOn(cryptoSpi)` / `.dependsOn(blockchainSpi)` unchanged.
 import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
+import scala.sys.process.{Process, ProcessLogger}
 
 // Forked test JVMs default to ~512 KB stack which trips
 // `mutual-TCO` / `stack-safe bind chains` / Async tests under
@@ -53,6 +54,37 @@ val commonmarkV = "0.28.0"
 val scalatestTest       = "org.scalatest" %% "scalatest" % scalatestV % Test
 val commonmarkCore      = "org.commonmark" %  "commonmark"       % commonmarkV
 val commonmarkGfmTables = "org.commonmark" %  "commonmark-ext-gfm-tables" % commonmarkV
+
+lazy val npmInstallForScalaJsTest =
+  taskKey[Unit]("Install package.json dependencies required by a Scala.js test runner")
+
+def npmInstallForScalaJsTestSettings(packageDir: File): Seq[Def.Setting[?]] = Seq(
+  Test / npmInstallForScalaJsTest := {
+    val log         = streams.value.log
+    val pkg         = packageDir / "package.json"
+    val lock        = packageDir / "package-lock.json"
+    val nodeModules = packageDir / "node_modules"
+    val stamp       = target.value / "npm-install-for-scalajs-test.stamp"
+    val pkgTime     = if (pkg.exists) pkg.lastModified else 0L
+    val lockTime    = if (lock.exists) lock.lastModified else 0L
+    val stampTime   = if (stamp.exists) stamp.lastModified else 0L
+    val needsInstall =
+      pkg.exists && (!nodeModules.exists || !stamp.exists || pkgTime > stampTime || lockTime > stampTime)
+
+    if (needsInstall) {
+      val command = if (lock.exists) Seq("npm", "ci") else Seq("npm", "install")
+      log.info(s"Installing npm dependencies in ${packageDir.getPath} via `${command.mkString(" ")}`")
+      val exit = Process(command, packageDir).!(ProcessLogger(log.info(_), log.error(_)))
+      if (exit != 0)
+        sys.error(s"${command.mkString(" ")} failed in ${packageDir.getPath} with exit code $exit")
+      IO.touch(stamp)
+    } else if (pkg.exists) {
+      log.info(s"npm dependencies are up to date in ${packageDir.getPath}")
+    }
+  },
+  Test / loadedTestFrameworks :=
+    (Test / loadedTestFrameworks).dependsOn(Test / npmInstallForScalaJsTest).value,
+)
 
 val javafxVersion: String = "21.0.5"
 val javafxClassifier: String = {
@@ -1853,8 +1885,8 @@ lazy val cryptoFrostJs = cryptoFrostCross.js
 
 // Scala.js-only `CryptoBackend` impl — specs/wallet-spi-scalajs.md §5
 // Stage 2.  Backed by `@noble/curves` + `@noble/hashes` (npm pkgs at
-// `crypto-noble-js/package.json`; install with `npm install` from that
-// directory before running `sbt cryptoNobleJs/test`).  Output bytes
+// `crypto-noble-js/package.json`; `sbt cryptoNobleJs/test` runs `npm ci`
+// automatically when node_modules is missing or stale).  Output bytes
 // match the JVM BouncyCastle backend bit-for-bit so the same SPI call
 // is platform-agnostic — see the cross-verification fixtures in
 // `crypto-noble-js/src/test/scala/.../NobleCryptoBackendTest.scala`.
@@ -1876,6 +1908,7 @@ lazy val cryptoNobleJs = project
     // ThisBuild's `Test / fork := true` would break that pipe.
     Test / fork         := false,
   )
+  .settings(npmInstallForScalaJsTestSettings(file("payments/crypto/noble-js")): _*)
 
 // Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md §3.2.
 // Stage 1: SPI traits in `shared/`; `object Blockchain` ServiceLoader
@@ -1984,6 +2017,7 @@ lazy val walletVaultEncryptedCross =
       // tests must use the same module kind.
       scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
     )
+    .jsSettings(npmInstallForScalaJsTestSettings(file("payments/wallet/vault-encrypted")): _*)
 
 lazy val walletVaultEncryptedJvm = walletVaultEncryptedCross.jvm
 lazy val walletVaultEncryptedJs  = walletVaultEncryptedCross.js
@@ -2161,6 +2195,7 @@ lazy val walletStrategyErc4337Cross =
       // dependency forces the same module kind here too.
       scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
     )
+    .jsSettings(npmInstallForScalaJsTestSettings(file("payments/wallet/strategy-erc4337")): _*)
 
 lazy val walletStrategyErc4337Jvm = walletStrategyErc4337Cross.jvm
 lazy val walletStrategyErc4337Js  = walletStrategyErc4337Cross.js
@@ -2243,6 +2278,7 @@ lazy val walletConnectCross =
       // on it in tests must use the same module kind.
       scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
     )
+    .jsSettings(npmInstallForScalaJsTestSettings(file("payments/wallet/connect")): _*)
 
 lazy val walletConnectJvm = walletConnectCross.jvm
 lazy val walletConnectJs  = walletConnectCross.js
@@ -2492,6 +2528,7 @@ lazy val blockchainEvmAbiCross =
       // the same module kind.
       scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
     )
+    .jsSettings(npmInstallForScalaJsTestSettings(file("payments/blockchain/evm-abi")): _*)
 
 lazy val blockchainEvmAbiJvm = blockchainEvmAbiCross.jvm
 lazy val blockchainEvmAbiJs  = blockchainEvmAbiCross.js
@@ -3455,7 +3492,7 @@ lazy val markupJs = project
   )
 
 // ── Markup — Node.js @xmldom/xmldom codec (v1.55.7) ──────────────────────
-// Requires `npm install` in runtime/std/markup-node/ before running tests.
+// Runs `npm ci` in runtime/std/markup-node/ automatically before tests.
 // sbt markupNode/test  — real @xmldom/xmldom parse + walk integration tests.
 lazy val markupNode = project
   .in(file("v1/runtime/std/markup-node"))
@@ -3469,6 +3506,7 @@ lazy val markupNode = project
     Test    / scalacOptions ++= sharedScalacOptions,
     Test / fork := false,
   )
+  .settings(npmInstallForScalaJsTestSettings(file("v1/runtime/std/markup-node")): _*)
 
 // ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
 lazy val paymentsSepa = project
