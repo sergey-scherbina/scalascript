@@ -157,8 +157,28 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       in `BUGS.md` and queue a separate fix. Done-when: the post-p3 full-corpus
       result is reproducible from one command and the next action is clear:
       either claim a concrete remaining blocker or proceed to `v2-prod-corpus-scope`.
-- [ ] **v2-prod-content-toolkit-section** — fix the last current v2-error and its
-      sibling content-toolkit mismatch. Repro after `scripts/sbtc "installBin"`:
+- [x] **v2-prod-content-toolkit-section** — DONE 2026-07-08 (7dee6daf0): fixed the
+      last current v2-error and its sibling content-toolkit mismatch. Root causes:
+      v2 `MinimalCtx` did not expose plugin global resolution/callback invocation to
+      real content-plugin lowering, so inline YAML table columns could not call
+      `fieldColumn`; and FrontendBridge did not desugar `[bodyEl]` after the spaced
+      infix operator in `headerParts ++ [bodyEl] ++ footerParts`, leaving scalameta's
+      unsupported `TermSelectPostfixImpl` in `std/ui/lower.ssc`. Fix: bridge
+      callbacks through v2/v1 value conversion and classify spaced operator-following
+      `[` as expression-position list literal syntax. Verification:
+      `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z infix"`
+      => 1/1 green; `scripts/sbtc "installBin"` green; direct v2 runs of
+      `examples/content-toolkit-yaml-controls.ssc` and `examples/content-slot.ssc`
+      print only their expected `:ok` lines; targeted parity is **2/2 MATCH**;
+      `scala-cli tests/conformance/run.sc -- --only 'content*' --no-memo` =>
+      **5 passed, 0 failed**; `PARITY_TIMEOUT=45 SSC="bin/ssc"
+      scripts/v2-output-parity examples/content*.ssc` => **10/10 MATCH** plus the
+      expected `content-introspection` v1 timeout classification; full production
+      parity now has **0 v2-error** and measures **57/81 identical · 8 mismatch ·
+      16 v1-only** `(44 both-fail · 36 true-server · 32 backend-lane · 2 nondet ·
+      195 total)`.
+      ORIGINAL PLAN: fix the last current v2-error and its sibling content-toolkit
+      mismatch. Repro after `scripts/sbtc "installBin"`:
       `bin/ssc run --v2 examples/content-toolkit-yaml-controls.ssc` fails with
       `contentToolkitNode: table column builder 'fieldColumn' is not available —
       import it from std/ui/data (fcol/mcol/scol/dcol/lcol)`, and

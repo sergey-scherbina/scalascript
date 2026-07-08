@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: content toolkit section parity fixed
+
+`content-toolkit-yaml-controls.ssc` and `content-slot.ssc` now match v1 on v2.
+The fix wires v2 plugin global callback invocation for real content-toolkit lowering
+and teaches FrontendBridge to desugar list literals after spaced infix operators.
+Full output parity now has **0 v2-error** cases and measures **57/81 identical ·
+8 mismatch · 16 v1-only** across 195 examples.
+
+---
+
 ## 2026-07-08 — v2 production: post-p3 parity baseline refreshed
 
 After the real v2 web-server / rozum runner work and stable invoice-email output,

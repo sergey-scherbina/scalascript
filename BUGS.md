@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-content-toolkit-section-parity — `open` (2026-07-08)
+## v2-content-toolkit-section-parity — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `v2-prod-post-p3-baseline` full-corpus production
   parity verification.
@@ -26,13 +26,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/content-slot.ssc examples/content-toolkit-yaml-controls.ssc`.
 - **Observed direct error:** `contentToolkitNode: table column builder 'fieldColumn'
   is not available — import it from std/ui/data (fcol/mcol/scol/dcol/lcol)`.
-- **Notes:** this is the remaining production-relevant `contentToolkitSection` gap
-  that earlier work intentionally left behind as a batch stub. The YAML controls
-  example imports `fcol` from `std/ui/data.ssc`; the real content plugin path still
-  looks for the underlying `fieldColumn` builder by name while lowering inline YAML
-  table columns.
-- **Next:** fix in a separate claimed slice; do not paper over it in
-  `scripts/v2-output-parity`.
+- **Root cause:** the v2 plugin `MinimalCtx` did not implement `resolveGlobal` or
+  `invokeCallback`, so the real content plugin could not call imported toolkit
+  builders such as `fieldColumn` while lowering inline YAML table columns. The
+  sibling `content-slot.ssc` mismatch was a separate FrontendBridge lowering issue:
+  `[bodyEl]` after the spaced infix operator in `headerParts ++ [bodyEl] ++
+  footerParts` was not desugared as a list literal, so scalameta produced an
+  unsupported `TermSelectPostfixImpl` node.
+- **Fix (7dee6daf0):** `MinimalCtx` now resolves v2 globals and invokes v2/v1
+  callbacks with value conversion; FrontendBridge treats spaced operator-following
+  list literals as expression-position list literals and has a regression test for
+  `xs ++ [y]`.
+- **Verification:** `bin/ssc run --v2 examples/content-toolkit-yaml-controls.ssc`
+  and `bin/ssc run --v2 examples/content-slot.ssc` both print only the expected
+  `:ok` line; targeted parity for both examples is **2/2 MATCH**; `scala-cli
+  tests/conformance/run.sc -- --only 'content*' --no-memo` passes **5/5**; full
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` has
+  **0 v2-error** and now measures **57/81 identical · 8 mismatch · 16 v1-only**.
 
 ## v2-invoice-email-nondet — `fixed` (2026-07-08)
 

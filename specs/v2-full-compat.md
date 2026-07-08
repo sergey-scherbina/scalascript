@@ -93,6 +93,32 @@ The remaining actors/async/effects/os-env/parser mismatches are currently treate
 v1-side, nondeterministic, or scope/classification work unless a future slice
 reclassifies one as a v2 default-switch blocker.
 
+Content-toolkit section update (2026-07-08): `7dee6daf0` closes the post-p3
+content-toolkit section blocker. The full production gate now has **0 v2-error**
+cases:
+
+```text
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 57/81 identical · 8 mismatch · 0 v2-error · 16 v1-only
+        (44 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         32 backend-lane · 2 nondet · 195 total)
+```
+
+The fixed content causes were:
+
+- real content-plugin lowering needed `MinimalCtx.resolveGlobal` /
+  `MinimalCtx.invokeCallback` to call imported toolkit builders such as
+  `fieldColumn` while lowering inline YAML table columns;
+- FrontendBridge needed to treat `[bodyEl]` after a spaced infix operator in
+  `headerParts ++ [bodyEl] ++ footerParts` as a list literal, not as scalameta's
+  unsupported `TermSelectPostfixImpl`.
+
+The remaining production blockers are now:
+
+- quoted macro body evaluation: `quoted-macro-interpreter.ssc`;
+- rozum schema-derived / streaming parity or scope decision:
+  `rozum-agent-schema-derived.ssc` and `rozum-agent-streaming.ssc`.
+
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).
 > T5.1 in progress (`feature/v2-ssc1c-globals-bug`). Track 3 overlaps SPRINT's

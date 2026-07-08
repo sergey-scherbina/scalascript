@@ -7,9 +7,9 @@ routes a source through the v1 frontend → FrontendBridge → the v2 VM).
 This is the REAL "does v2 replace v1?" gate: each example is run on v1 (`ssc run`) AND v2 (`ssc run --v2`)
 and stdout is diffed. It is far stricter than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-08, after p3-final-push + invoice stabilization
+## Latest full corpus re-measure — 2026-07-08, after content toolkit section fix
 
-Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-post-p3-baseline` with:
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-content-toolkit-section` with:
 
 ```bash
 scripts/sbtc "installBin"
@@ -20,29 +20,36 @@ Current result:
 
 | | count |
 |---|---|
-| ✅ output-identical | **55 / 85 = 65%** |
-| ❌ mismatch | 9 |
-| ⚠️ v2-error (v1 works, v2 empty) | 1 |
-| v1-only (v2 works, v1 empty) | 20 |
-| both-fail (not a v2 gap) | 40 |
+| ✅ output-identical | **57 / 81 = 70%** |
+| ❌ mismatch | 8 |
+| ⚠️ v2-error (v1 works, v2 empty) | 0 |
+| v1-only (v2 works, v1 empty) | 16 |
+| both-fail (not a v2 gap) | 44 |
 | true-server skipped | 36 |
 | long-running skipped | 0 |
 | backend-lane skipped | 32 |
 | nondeterministic-output skipped | 2 |
 | total examples seen | 195 |
 
-Confirmed improvements in this gate: `content-form-submit`, `content-live-rows`,
-`typed-sql-crud`, `ui-fetch-json`, `ui-remote-table`, `rozum-agent`, and
-`rozum-agent-pool` are now output-identical. `invoice-email.ssc` also remains MATCH
-with stable semantic output.
+Confirmed improvements in this gate: `content-slot.ssc` and
+`content-toolkit-yaml-controls.ssc` are now output-identical, closing the last
+post-p3 v2-error and the sibling unsupported-AST mismatch. The earlier confirmed
+matches still hold: `content-form-submit`, `content-live-rows`, `typed-sql-crud`,
+`ui-fetch-json`, `ui-remote-table`, `rozum-agent`, `rozum-agent-pool`, and
+`invoice-email.ssc`.
+
+Closed in this slice (`7dee6daf0`):
+
+- **Content toolkit section lowering** — `MinimalCtx` now lets real content-plugin
+  lowering resolve/call imported toolkit builder globals such as `fieldColumn`, and
+  FrontendBridge now desugars `[bodyEl]` after a spaced infix operator in
+  `std/ui/lower.ssc`. Targeted parity for `content-slot.ssc` and
+  `content-toolkit-yaml-controls.ssc` is **2/2 MATCH**; all `examples/content*.ssc`
+  are **10/10 MATCH** with the expected `content-introspection` v1 timeout
+  classification; affected conformance `content*` is **5/5** green.
 
 Current production-relevant blockers:
 
-- **Content toolkit section lowering** — the only current v2-error is
-  `content-toolkit-yaml-controls.ssc`. Direct v2 repro:
-  `contentToolkitNode: table column builder 'fieldColumn' is not available — import it
-  from std/ui/data (fcol/mcol/scol/dcol/lcol)`. `content-slot.ssc` also mismatches by
-  printing an extra `Unsupported: TermSelectPostfixImpl` before the expected line.
 - **Quoted macro body evaluation** — `quoted-macro-interpreter.ssc` still prints only
   `42` on v2, missing the computed-body outputs `literal: 7` and `x`.
 - **Rozum schema/streaming scope** — `rozum-agent` and `rozum-agent-pool` match, but
