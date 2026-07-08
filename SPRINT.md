@@ -65,7 +65,18 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       ORIGINAL PLAN: resume `p3-parity-content`: preserve plugin-owned structured
       content block values across rawToV2/v1ToV2 so `content-tables`,
       `content-to-markdown`, and `content-linked-namespaces` round-trip like v1.
-- [ ] **v2-prod-plugin-boundary** — close remaining production-relevant plugin bridge
+- [x] **v2-prod-plugin-boundary** — DONE 2026-07-08 (e80b1e70b): closed the
+      remaining current production-relevant plugin bridge blockers. `dataset-parallel-sum`
+      was fixed earlier in this item by iterative list conversion; this final subslice
+      makes all four rozum agent examples output-identical by preserving mixed
+      positional/named constructor args (`AgentEvent("TextDelta", text = ...)`) and
+      dispatching `AgentSchemaInstance.decode` through its `decodeAny` field. Targeted
+      parity: `examples/rozum-agent-schema-derived.ssc` +
+      `examples/rozum-agent-streaming.ssc` => **2/2 MATCH**; full rozum cluster =>
+      **4/4 MATCH**. `scala-cli tests/conformance/run.sc -- --only 'rozum*'
+      --no-memo` has **0 matching cases**. Full output parity:
+      **60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only**.
+      ORIGINAL PLAN: close remaining production-relevant plugin bridge
       shape gaps: `Stub`/`Op` leaks, foreign value conversion, lazy-loaded plugin
       extern imports, native registration misses, and the deliberate
       `contentToolkitSection` batch stub left by `v2-prod-content-parity`. Do not
@@ -110,6 +121,18 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `scala-cli tests/conformance/run.sc -- --only 'rozum*' --no-memo` (record if
       no cases), relevant sbt test(s), and a full parity/baseline update if counts
       change.
+      SECOND SUBSLICE RESULT: DONE 2026-07-08 (e80b1e70b). Repro showed real v2
+      bugs, not a lane/scope exclusion: schema-derived crashed after the server banner
+      with `match: no arm for Stub/0`, and streaming returned the final result but
+      skipped user-visible callback prints because `event.kind` was `Unit`. Fixes:
+      mixed constructor named-arg lowering now keeps positional args, and
+      `AgentSchemaInstance.decode` dispatch calls the stored `decodeAny` closure.
+      Verification:
+      `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest -- -z constructor`
+      and `-- -z AgentSchemaInstance` pass; `scripts/sbtc "installBin"` passes;
+      targeted rozum parity is **2/2 MATCH**; full rozum cluster is **4/4 MATCH**;
+      affected conformance `rozum*` has **0 cases**; full corpus is
+      **60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only**.
 - [x] **v2-prod-invoice-email-nondet** — DONE 2026-07-08 (d8e0ecee4): stabilized
       `examples/invoice-email.ssc` by keeping the MIME/PDF assembly path but removing
       the exact generated `message.length` from stdout. The example now prints the

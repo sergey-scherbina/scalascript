@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-rozum-schema-streaming-parity — `open` (2026-07-08)
+## v2-rozum-schema-streaming-parity — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the v2 production parity loop after
   `v2-quoted-macro-interpreter-parity` was fixed.
@@ -32,9 +32,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Notes:** decide by evidence whether this is a v2 bridge/server/batch bug or a
   scope classification issue. Do not normalize `scripts/v2-output-parity`; fix the
   real output path or document an explicit lane/scope exclusion.
-- **Next:** reproduce in the real staged CLI, inspect the rozum plugin/runner bridge
-  path, then either make both examples MATCH or update the production gate docs with
-  a defensible non-default lane classification.
+- **Root cause:** two independent v2 bridge/runtime gaps. `AgentSchemaInstance` is a
+  case class with a method body (`decode`), but v2 only dispatched its fields, so
+  `schema.decode(argsJson)` returned `Stub` and the typed handler later matched on
+  `Stub` instead of `Some`/`None`. Separately, FrontendBridge's constructor lowering
+  dropped positional args whenever any named arg was present, so
+  `AgentEvent("TextDelta", text = content)` produced `kind = Unit`; streaming callbacks
+  ran but every `event.kind == ...` guard was false.
+- **Fix:** `e80b1e70b` preserves positional constructor args in mixed
+  positional/named case-class calls, adds `AgentSchemaInstance.decode` dispatch to the
+  v2 runtime, and adds v2 regression tests for both shapes.
+- **Verification:** after `scripts/sbtc "installBin"`, targeted parity
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/rozum-agent-schema-derived.ssc examples/rozum-agent-streaming.ssc`
+  is **2/2 MATCH**; the full rozum cluster (`rozum-agent`, `rozum-agent-pool`,
+  `rozum-agent-schema-derived`, `rozum-agent-streaming`) is **4/4 MATCH**. Affected
+  conformance `scala-cli tests/conformance/run.sc -- --only 'rozum*' --no-memo`
+  has **0 matching cases**. Full parity is now **60/81 identical · 5 mismatch ·
+  0 v2-error · 16 v1-only**.
 
 ## v2-quoted-macro-interpreter-parity — `fixed` (2026-07-08)
 

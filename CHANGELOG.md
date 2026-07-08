@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: rozum schema and streaming parity fixed
+
+`rozum-agent-schema-derived.ssc` and `rozum-agent-streaming.ssc` now match v1
+under `ssc run --v2`; all four self-contained rozum agent examples are green in
+the output-parity gate. FrontendBridge now preserves positional constructor args
+when named args are mixed in, and the v2 runtime dispatches
+`AgentSchemaInstance.decode`. Full output parity is now **60/81 identical ·
+5 mismatch · 0 v2-error · 16 v1-only** across 195 examples.
+
+---
+
 ## 2026-07-08 — v2 production: quoted macro interpreter parity fixed
 
 `quoted-macro-interpreter.ssc` now matches v1 under `ssc run --v2`, including

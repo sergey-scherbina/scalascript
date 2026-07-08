@@ -137,9 +137,32 @@ The fixed quoted-macro causes were:
 - FrontendBridge converted a forward inline macro entrypoint before it had recorded
   that the later impl helper needed a synthesized `using QuotedContext` argument.
 
-The remaining production blocker is now the rozum schema-derived / streaming parity
-or scope decision: `rozum-agent-schema-derived.ssc` and
-`rozum-agent-streaming.ssc`.
+Rozum agent schema/streaming update (2026-07-08): `e80b1e70b` closes the last
+currently identified production-relevant blocker in the default output-parity gate.
+The full production gate is now:
+
+```text
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only
+        (44 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         32 backend-lane · 2 nondet · 195 total)
+```
+
+The fixed rozum causes were:
+
+- FrontendBridge dropped positional constructor args whenever any named arg was
+  present, so `AgentEvent("TextDelta", text = content)` had `kind = Unit` and
+  user callbacks skipped every `event.kind == ...` branch;
+- `AgentSchemaInstance.decode` is a case-class method, not a field. v2 only
+  dispatched the fields, so `schema.decode(argsJson)` returned `Stub` and typed
+  tool handlers later matched on `Stub` instead of the decoded case-class value.
+
+All four self-contained rozum agent examples now match: `rozum-agent.ssc`,
+`rozum-agent-pool.ssc`, `rozum-agent-schema-derived.ssc`, and
+`rozum-agent-streaming.ssc`. The remaining five mismatches are classified outside
+the default-switch blocker set unless future evidence reclassifies one:
+`actors-pingpong.ssc`, `async-parallel-demo.ssc`, `dsl-calc-parser.ssc`,
+`effects.ssc`, and `os-env.ssc`.
 
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).
