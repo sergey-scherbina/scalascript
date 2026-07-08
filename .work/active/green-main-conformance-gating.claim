@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T12:10:06Z
+heartbeat: 2026-07-08T12:17:04Z
 status: in-progress
-done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM Any-typing codegen fix is in worktree; effect-transitive-handler and distributed-shuffle direct JVM runs now pass; cluster-connect compiles but healthCheck reports 3 unhealthy nodes
-next: root-cause cluster healthCheck JVM semantics, then run targeted conformance slice with the serverless wrapper and push only if green
+done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS Any-typing, nested effect args, and local Unit actor loop fixes pushed in df7cfb613/54c0dc02f; targeted cluster/distributed/effect-transitive slice passes 6/6
+next: run the full default conformance gate with tests/conformance/run.sh --no-memo; mark done/release only if green, otherwise record the next deterministic blocker
