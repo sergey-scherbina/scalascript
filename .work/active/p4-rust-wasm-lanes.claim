@@ -1,6 +1,6 @@
 feature/p4-rust-wasm-lanes 2026-07-08T21:23:32Z
 agent: codex
-heartbeat: 2026-07-08T21:38:49Z
+heartbeat: 2026-07-08T21:45:31Z
 status: in-progress
-done-so-far: spec/SPRINT/BUGS baseline pushed in 9fa380d89; v2/backend/check green; v2/conformance red causes recorded
-next: fix self-hosted JS/Rust display drift and Rust float literal emission, then rerun v2 conformance gates
+done-so-far: target display/float emitter fixed locally; conformance expectations being realigned
+next: rebase worktree, run full v2 conformance/backend gates, then commit/push if green
