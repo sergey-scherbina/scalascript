@@ -1,6 +1,6 @@
 feature/v2-prod-default-switch 2026-07-08T10:36:50Z
 agent: codex
-heartbeat: 2026-07-08T10:36:50Z
-status: not-started
-done-so-far:
-next: create worktree, inspect CLI run default and v1/v2 flag path, then update SPRINT plan before code edits
+heartbeat: 2026-07-08T10:37:17Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-prod-default-switch
+next: inspect CLI run default and v1/v2 flag path; update SPRINT plan before code edits
