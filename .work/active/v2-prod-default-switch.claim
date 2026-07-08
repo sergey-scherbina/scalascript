@@ -1,6 +1,0 @@
-feature/v2-prod-default-switch 2026-07-08T10:36:50Z
-agent: codex
-heartbeat: 2026-07-08T10:57:41Z
-status: in-progress
-done-so-far: worktree created; SPRINT plan pushed; CLI switch, explicit parity --v1 harness, unit tests, installBin, hello/effects direct checks complete in worktree
-next: final rebase, rerun affected gates if needed, push default-switch slice
