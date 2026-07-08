@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-case-class-instance-methods-stub — `open` (2026-07-08)
+## v2-case-class-instance-methods-stub — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p3-connectnode-node-sim` verification.
 - **Repro:** after `scripts/sbtc "installBin"`, run a `.ssc` program that
@@ -36,6 +36,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Done-when:** `cluster.close()` executes without printing a stub under the
   assembled default v2 CLI, the focused regression is green, and the fixed SHA
   is recorded here.
+- **Root cause:** `FrontendBridge` registered case-class field names but ignored
+  `Defn.Def` members inside case-class templates when emitting v2 CoreIR.
+  Calls such as `Cluster.close()` therefore had no generated closure and fell
+  through to `Stub(Tag.method)`.
+- **FIXED (2026-07-08, `f12cad127`):** v2 now lowers case-class template
+  methods through the existing tag-dispatched extension machinery, binding
+  constructor fields from the receiver before compiling method bodies.
+  `__methodOrExt__` also preserves registered `DataV` field precedence so a
+  generated method name such as `name` does not hijack ordinary `.name` fields
+  on other case classes. The distributed examples were restored to the public
+  `cluster.close()` shutdown API.
+- **Verified:** `V2CaseClassMethodCliTest` passed 3/3 through the assembled CLI;
+  `V2TuplePatternCliTest` stayed 4/4 green; direct default-v2 runs of
+  `distributed-word-count`, `distributed-log-aggregation`, and
+  `distributed-join` passed with `cluster.close()`; affected conformance
+  `cluster-connect,distributed-*` passed 6/6 and
+  `data-types,lenses,optional,traversal,fn-typed-field` passed 4/4.
 
 ## v2-mapreduce-handler-registry-tuple-lookup — `fixed` (2026-07-08)
 

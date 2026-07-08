@@ -15,21 +15,20 @@ APIs such as `Cluster.close()` execute on the production v2 lane.
 - Calls keep the existing surface: `value.m(args...)`.
 - Field access remains unchanged and continues through the registered case-class
   field table.
-- `Cluster.close()` remains the public MapReduce shutdown API. The p3 examples
-  may keep explicit shutdown for clarity, but the method itself must work under
-  default v2.
+- `Cluster.close()` remains the public MapReduce shutdown API and the
+  distributed examples use it under default v2.
 
 ## Behavior
 
-- [ ] A case-class method with no parameters can read constructor fields and
+- [x] A case-class method with no parameters can read constructor fields and
       return a value under `bin/ssc run` default v2.
-- [ ] A case-class method with ordinary parameters can read both constructor
+- [x] A case-class method with ordinary parameters can read both constructor
       fields and method parameters.
-- [ ] Case-class method dispatch is tag-aware, so same-named methods on
+- [x] Case-class method dispatch is tag-aware, so same-named methods on
       different case classes dispatch by receiver runtime tag.
-- [ ] Existing field access, `.copy(...)`, object methods, and extension methods
+- [x] Existing field access, `.copy(...)`, object methods, and extension methods
       keep their current behavior.
-- [ ] `Cluster.close()` executes without returning or printing
+- [x] `Cluster.close()` executes without returning or printing
       `Stub("Cluster.close")`.
 
 ## Out of Scope
@@ -77,4 +76,21 @@ field access and method-object members win when present; otherwise
 
 ## Results
 
-Fill after verification with exact commands and outputs.
+Implemented in `f12cad127`.
+
+Verification:
+
+- `scripts/sbtc "v2Core/compile; v2FrontendBridge/compile"` passed.
+- `scripts/sbtc "cli/assembly; cli/testOnly scalascript.cli.V2CaseClassMethodCliTest"`
+  passed after the focused suite added 3 assembled-CLI default-v2 tests.
+- `scripts/sbtc "cli/testOnly scalascript.cli.V2TuplePatternCliTest"`
+  passed 4/4 as a guard for the adjacent tuple/select lowering path.
+- `scripts/sbtc "installBin"` passed.
+- Direct default-v2 examples passed with `cluster.close()`:
+  `distributed-word-count`, `distributed-log-aggregation` with
+  `/tmp/ssc-log-aggregation.log`, and `distributed-join` with
+  `/tmp/ssc-orders.csv` + `/tmp/ssc-customers.csv`.
+- `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`
+  passed 6/6.
+- `tests/conformance/run.sh --only 'data-types,lenses,optional,traversal,fn-typed-field' --no-memo`
+  passed 4/4.

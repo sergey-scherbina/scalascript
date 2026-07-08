@@ -881,18 +881,21 @@ Claimable slices for the above (queued 2026-07-07):
       `ShutdownWorker()` sends so the distributed smoke can pass; the bridge
       fix is queued below as `v2-bridge-case-class-instance-methods` and tracked
       in `BUGS.md` as `v2-case-class-instance-methods-stub`.
-- [ ] **v2-bridge-case-class-instance-methods** — compile methods declared
-      inside `case class ...:` bodies on the v2/default lane. Repro:
-      `Cluster.close()` currently prints `Stub("Cluster.close")` instead of
-      sending shutdown messages, and a minimal case-class method reading a
-      constructor field should fail the same way. How: extend
-      `v2/frontend-bridge` lowering for `Defn.Class` template methods, probably
-      by reusing the existing tag-dispatched extension-method machinery and
-      binding constructor fields from the receiver before compiling the method
-      body. Add a focused assembled-CLI/v2 regression and a std-facing
-      `Cluster.close` regression. Done-when the default `bin/ssc run` lane
-      executes the method body without a `Stub(...)`, affected tests are green,
-      and `BUGS.md` `v2-case-class-instance-methods-stub` records the fixed SHA.
+- [x] **v2-bridge-case-class-instance-methods** — DONE 2026-07-08
+      (`f12cad127`): methods declared inside `case class ...:` bodies now lower
+      on the v2/default lane through the existing tag-dispatched
+      extension-method machinery. Constructor fields are bound from the
+      receiver before method bodies compile, same-named methods dispatch by
+      receiver tag, and runtime `__methodOrExt__` preserves registered field
+      precedence so ordinary fields such as `.name` still win. The distributed
+      examples are back on the public `cluster.close()` API. Gates:
+      `scripts/sbtc "v2Core/compile; v2FrontendBridge/compile"`,
+      `scripts/sbtc "cli/assembly; cli/testOnly scalascript.cli.V2CaseClassMethodCliTest"`
+      3/3, `scripts/sbtc "cli/testOnly scalascript.cli.V2TuplePatternCliTest"`
+      4/4, `scripts/sbtc "installBin"`, direct default-v2 distributed
+      word-count/log-aggregation/join runs, conformance
+      `cluster-connect,distributed-*` 6/6, and conformance
+      `data-types,lenses,optional,traversal,fn-typed-field` 4/4.
 - [~] **p3-corpus-singles** — 6 of 8 RESOLVED 2026-07-07 (8624649f0 + c3c44aa03):
       dsl-ast-builder + rozum-agent-streaming fixed by the p3-dataset-natives systemic fixes;
       the rozum-agent family (streaming incl.) needed TWO more systemic bugs — try/catch scope

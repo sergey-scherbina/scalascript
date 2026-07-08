@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: case-class instance methods run on the default lane
+
+`case class ...:` template methods now lower into tag-dispatched v2 method
+closures, including constructor-field binding inside method bodies and
+field-first precedence for ordinary selectors. `Cluster.close()` no longer
+falls through to `Stub("Cluster.close")`, and the distributed examples use the
+public shutdown API again. Gates: `V2CaseClassMethodCliTest` 3/3,
+`V2TuplePatternCliTest` 4/4, direct default-v2 distributed examples, and
+affected conformance `cluster-connect,distributed-*` plus field-selector cases.
+
 ## 2026-07-08 — v2: offline distributed MapReduce examples run locally
 
 `std.mapreduce.localLoopbackCluster` now builds explicit local shuffle-capable
