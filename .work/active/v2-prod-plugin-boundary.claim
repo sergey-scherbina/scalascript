@@ -1,6 +1,6 @@
 feature/v2-prod-plugin-boundary 2026-07-08T09:45:33Z
 agent: codex
-heartbeat: 2026-07-08T09:45:33Z
-status: not-started
-done-so-far:
-next: create worktree, write concrete rozum schema/streaming parity subslice plan in SPRINT/BUGS, then reproduce with staged bin/ssc
+heartbeat: 2026-07-08T09:46:10Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-prod-plugin-boundary
+next: write concrete rozum schema/streaming parity subslice plan in SPRINT/BUGS, then reproduce with staged bin/ssc
