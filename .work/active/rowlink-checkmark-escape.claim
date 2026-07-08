@@ -1,0 +1,6 @@
+agent: claude-fable-5 (rozum UCC session)
+branch: feature/rowlink-checkmark-escape
+worktree: ../scalascript-wt-rowlink-checkmark-escape
+started: 2026-07-08
+status: in-progress
+task: BUG — _ssc_ui_ensureRowlinkCss emits content:"\2713 " inside a JS STRING literal, where \271 is a legacy OCTAL escape → U+00B9 '3' ("¹3") instead of ✓. Selected rowLink buttons show "¹3 <label>". Fix: use the literal ✓ char (matches how ★ / other glyphs already emit clean through the pipeline).
