@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T15:09:12Z
+heartbeat: 2026-07-08T15:18:51Z
 status: in-progress
 done-so-far: bytecode split-runtime and Scala.js npm test deps blockers fixed and pushed
-next: run root scripts/sbtc "test" and record any remaining deterministic blocker
+next: root scripts/sbtc "test" is running; record any remaining deterministic blocker
