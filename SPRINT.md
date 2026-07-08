@@ -323,7 +323,20 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
             nearest affected conformance JS slice.
       Done-when: the opt-in v2 JS runner is available from the installed CLI,
       has a regression, and the spec/SPRINT records exact verification results.
-- [ ] **p4-v2-run-argv-separator** — fix the default/explicit v2 VM runner's
+- [x] **p4-v2-run-argv-separator** — DONE 2026-07-08 (`64de9b9af`): default
+      `ssc run <file.ssc> -- [args...]`, explicit `ssc run --v2 <file.ssc> --
+      [args...]`, and `ssc run --bytecode <file.ssc> -- [args...]` now forward
+      program argv into v2 `Runtime.argv`. Positionals before `--` remain source
+      files, preserving multi-file runs. The bytecode lane also now mirrors the
+      VM's list application fallback so `args(0)` works through compiled
+      `Emit.app`. Gates: `scripts/sbtc "cli/compile; cli/assembly; cli/testOnly
+      *V2RunArgvCliTest"` (2/2); `scripts/sbtc "installBin"`; direct installed
+      CLI smokes for default/`--v2`/`--bytecode` all print `2`, `one`, `two`;
+      `tests/conformance/run.sh --only 'collections' --no-memo` green
+      (INT/JS/JVM); combined assembled-CLI smoke
+      `scripts/sbtc "cli/testOnly *V2RunArgvCliTest *V2JsLaneCliTest"` green
+      (3/3). BUGS.md `v2-run-cli-argv-not-forwarded` moved to fixed.
+      Original: fix the default/explicit v2 VM runner's
       program argv forwarding without breaking multi-file runs. Found during
       `p4-js-lane-bridge`: `bin/ssc run-js --v2 /tmp/args.ssc one two` sees
       `args.length == 2`, while `bin/ssc run --v2 /tmp/args.ssc one two`

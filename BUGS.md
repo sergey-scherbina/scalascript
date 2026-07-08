@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-run-cli-argv-not-forwarded — `open` (2026-07-08)
+## v2-run-cli-argv-not-forwarded — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p4-js-lane-bridge` direct argv smoke.
 - **Repro:** after `scripts/sbtc "installBin"`, run a temp `.ssc`:
@@ -32,6 +32,16 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `RunV2.runBytecode`; keep legacy/default behavior clear in usage text.
 - **Done-when:** a real assembled-CLI regression covers `run --v2 <file> --
   one two`, default v2 if applicable, and `run-js --v2` remains green.
+- **FIXED (2026-07-08, `64de9b9af`):** `ssc run` now treats `--` as the
+  explicit separator between source files and program argv for v2 VM runners.
+  Default `ssc run <file> -- one two`, explicit `ssc run --v2 <file> -- one
+  two`, and `ssc run --bytecode <file> -- one two` forward argv into
+  `Runtime.argv`. The bytecode lane also gained list-application fallback parity
+  so `args(0)` works through `Emit.app`.
+- **Verified:** `scripts/sbtc "cli/compile; cli/assembly; cli/testOnly
+  *V2RunArgvCliTest"`; `scripts/sbtc "installBin"`; direct installed CLI smokes
+  for default/`--v2`/`--bytecode`; conformance `collections`; combined
+  assembled-CLI smoke `*V2RunArgvCliTest *V2JsLaneCliTest`.
 
 ## root-test-cli-spark-submit-dry-run-deps — `fixed` (2026-07-08)
 

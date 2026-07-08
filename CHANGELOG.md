@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: `ssc run` forwards argv after `--`
+
+The v2 VM runners now support program argv with an explicit separator:
+`ssc run <file.ssc> -- [args...]`, `ssc run --v2 <file.ssc> -- [args...]`,
+and `ssc run --bytecode <file.ssc> -- [args...]`. Positionals before `--`
+remain source files, so multi-file runs are unchanged. The bytecode lane also
+matches VM list-application fallback for `args(0)`. Gates:
+`cli/assembly`, `cli/testOnly *V2RunArgvCliTest`, `installBin`, direct
+default/`--v2`/`--bytecode` argv smokes, conformance `collections`, and
+combined `*V2RunArgvCliTest *V2JsLaneCliTest`.
+
 ## 2026-07-08 — v2: opt-in JS lane runs through CoreIR
 
 `ssc run-js --v2 <file.ssc> [args...]` now routes `.ssc` sources through

@@ -246,6 +246,7 @@ performance) use `--target jvm` or `run-js`:
 ```bash
 ssc run              hello.ssc   # v2 VM default runner
 ssc run --v1         hello.ssc   # v1 tree-walking interpreter rollback
+ssc run              hello.ssc -- one two  # v2 VM program args
 ssc run --target jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
 ssc run-jvm          hello.ssc   # same — backward-compat alias
 ssc run-js           hello.ssc   # JsGen  → temp .js → node
@@ -258,6 +259,15 @@ The generated-backend commands (`run --target jvm`, `run-jvm`, and `run-js`):
 - execute it and forward stdout/stderr transparently
 - leave **no artifacts on disk** — use `ssc compile-jvm` / `ssc compile-js`
   if you want reusable `.scjvm` / `.scjs` artifacts
+
+For v2 VM runners, `--` separates source files from program argv. Positionals
+before `--` are still source files, so multi-file runs are unchanged:
+
+```bash
+ssc run app.ssc -- one two
+ssc run --v2 app.ssc -- one two
+ssc run --bytecode app.ssc -- one two
+```
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
@@ -277,6 +287,7 @@ When to use each:
 |---------|---------|-------------|
 | `ssc run` | v2 VM | Default day-to-day runner |
 | `ssc run --v1` | v1 interpreter | Rollback/debug path for old tree-walking behavior |
+| `ssc run <file> -- [args...]` | v2 VM | Pass program args to v2 `args` without changing source-file positionals |
 | `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
 | `ssc run-jvm` | JVM via scala-cli | Backward-compat alias for `ssc run --target jvm` |
 | `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
@@ -4705,6 +4716,7 @@ See [examples/nfc-ndef.ssc](../examples/nfc-ndef.ssc) and
 
 ```bash
 ssc run file.ssc                    # interpret
+ssc run file.ssc -- arg1 arg2       # v2 VM program args
 ssc run --target jvm file.ssc       # compile + run on JVM (scala-cli)
 ssc run-js file.ssc                 # compile + run with node
 ssc run-js --v2 file.ssc            # opt-in v2 CoreIR JS lane
