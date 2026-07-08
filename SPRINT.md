@@ -63,12 +63,12 @@ array-update 279 vs 0.72 (~386×), pattern-match-heavy 385×, vector-index 136×
       прим-диспатч (__method__ на ForeignV(ArrayBuffer)); кандидат — fast-path армы.
 - [ ] **p4-perf-effect-stream** — 1700×: runStream-раннер пересоздаёт буфер/контекст на
       итерацию? Профилировать.
-- [ ] **p4-bench-na-fixes** — три n/a лейна v2 с диагнозами: effect-oneshot —
-      Op("Bump.tick") без хендлера (bench-прелюдия Bump: нужен ambient, как Random/Clock);
-      effect-pure — unbound runLogger (timeV2 зовёт loadAll, но НЕ RunV2.loadPluginJars —
-      blockform-плагины не грузятся в bench-пути; открыть loadPluginJars и звать в timeV2);
-      type-lambda-native — ParseException «`}` expected but `(`» (parse-гап бриджа на
-      type-lambda синтаксисе врэппера).
+- [~] **p4-bench-na-fixes** — 2 из 3 закрыты 2026-07-08 (3d11617a0): effect-pure 0.130 ms/iter
+      (плагин-джары в bench-пути); effect-oneshot семантически РАЗБЛОКИРОВАН четырьмя Op-lift
+      швами (__method__-ресивер, arithOp оба операнда, cell/lcell.set через liftOverOp) +
+      __effect__-прим для декларированных эффектов (FastCode отказывается от effectful-деревьев
+      вместо asInt-краша) — теперь перф-bound (класс p4-perf-* патологий, эффект-в-горячем-цикле).
+      ОСТАЛОСЬ: type-lambda-native — parse-гап `[X] =>>` (семья type-lambda).
 
 ## Phase 4 — compiled lanes on v2 (программа, 2026-07-08)
 
