@@ -835,7 +835,19 @@ Claimable slices for the above (queued 2026-07-07):
         exit-0 pass). word-count: 6 layers fixed, final blocker = connectNode local sim
         returns the address string — needs a node-sim seam (design decision, see below).
       • Corpus vs same-day clean: 165P/21F/9SKIP vs 170P/25F; conformance identical.
-- [ ] **p3-connectnode-node-sim** — the LAST distributed-* blocker: the local-loopback
+- [x] **p3-connectnode-node-sim** — DONE 2026-07-08 (`6c0e39559`): the LAST
+      distributed-* blocker is closed. `std.mapreduce.localLoopbackCluster`
+      builds explicit local workers running `ShuffleProtocol`, offline
+      distributed examples no longer hang on `Cluster.connect` documentation
+      addresses, and v2 tuple/handler-registry lowering bugs exposed by the real
+      worker path are fixed or avoided in std. Gates:
+      `scripts/sbtc "cli/assembly; cli/testOnly scalascript.cli.V2TuplePatternCliTest"`
+      4/4 green; direct default-v2 runs of distributed word-count/log
+      aggregation/join green; affected conformance selector
+      `cluster-connect,distributed-*` 6/6 green. Follow-up queued:
+      `v2-bridge-case-class-instance-methods` for the remaining
+      `cluster.close()` stub class.
+      Original: the local-loopback
       actors sim has no node simulation behind `connectNode(address)` (returns the raw
       address string; sends go nowhere; collectors hang in receive — now visible thanks
       to the batch watchdog). Design decision needed: either cluster.ssc spawns the
@@ -854,6 +866,33 @@ Claimable slices for the above (queued 2026-07-07):
       `bin/ssc run examples/distributed-word-count.ssc`, affected distributed
       examples if their data dependencies are local, and
       `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`.
+      MID-FIX DISCOVERY (2026-07-08): after `localLoopbackCluster` reaches real
+      local worker actors, v2 still kills workers through tuple lowering
+      (`lookup(v, key)` in actor death logs). Minimal repro:
+      `val pair: Any = ("ada", 1); pair match { case (w: String, _: Int) => w }`
+      fails under default v2 with `unbound global: w`, while `--v1` prints `ada`.
+      Current slice must harden map-reduce tuple access and add/fix the focused
+      v2 tuple pattern/selector regression before the word-count smoke can go
+      green. Tracked in `BUGS.md` as `v2-mapreduce-handler-registry-tuple-lookup`.
+      MID-FIX DISCOVERY 2 (2026-07-08): `cluster.close()` on the v2 lane lowers
+      to `Stub("Cluster.close")` because `v2/frontend-bridge` registers
+      case-class fields but does not emit methods defined inside case-class
+      templates. This slice will avoid the stub in examples with explicit
+      `ShutdownWorker()` sends so the distributed smoke can pass; the bridge
+      fix is queued below as `v2-bridge-case-class-instance-methods` and tracked
+      in `BUGS.md` as `v2-case-class-instance-methods-stub`.
+- [ ] **v2-bridge-case-class-instance-methods** — compile methods declared
+      inside `case class ...:` bodies on the v2/default lane. Repro:
+      `Cluster.close()` currently prints `Stub("Cluster.close")` instead of
+      sending shutdown messages, and a minimal case-class method reading a
+      constructor field should fail the same way. How: extend
+      `v2/frontend-bridge` lowering for `Defn.Class` template methods, probably
+      by reusing the existing tag-dispatched extension-method machinery and
+      binding constructor fields from the receiver before compiling the method
+      body. Add a focused assembled-CLI/v2 regression and a std-facing
+      `Cluster.close` regression. Done-when the default `bin/ssc run` lane
+      executes the method body without a `Stub(...)`, affected tests are green,
+      and `BUGS.md` `v2-case-class-instance-methods-stub` records the fixed SHA.
 - [~] **p3-corpus-singles** — 6 of 8 RESOLVED 2026-07-07 (8624649f0 + c3c44aa03):
       dsl-ast-builder + rozum-agent-streaming fixed by the p3-dataset-natives systemic fixes;
       the rozum-agent family (streaming incl.) needed TWO more systemic bugs — try/catch scope

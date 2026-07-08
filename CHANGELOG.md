@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: offline distributed MapReduce examples run locally
+
+`std.mapreduce.localLoopbackCluster` now builds explicit local shuffle-capable
+actor workers for offline examples and corpus gates, while `Cluster.connect`
+remains the real remote-node API. The default v2 lane also now handles the tuple
+pattern/destructuring and map-reduce hoisting shapes exposed by those real
+workers. Gates: `V2TuplePatternCliTest` 4/4, direct default-v2 runs of
+distributed word-count/log aggregation/join, and affected conformance
+`cluster-connect,distributed-*` 6/6.
+
 ## 2026-07-08 — v2: stale p4 default-flip queue item closed
 
 `p4-default-flip` was a duplicate of the already-landed

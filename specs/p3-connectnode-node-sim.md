@@ -26,14 +26,14 @@ actors without pretending to open remote WebSocket nodes.
 
 ## Behavior
 
-- [ ] Offline distributed examples can build a deterministic local worker cluster
+- [x] Offline distributed examples can build a deterministic local worker cluster
       with `localLoopbackCluster(...)` and do not hang on `connectNode` address
       strings.
-- [ ] `distributed-word-count.ssc` runs through the default v2 runner and prints
+- [x] `distributed-word-count.ssc` runs through the default v2 runner and prints
       a non-empty top-10 word count.
-- [ ] Existing distributed conformance stays green:
+- [x] Existing distributed conformance stays green:
       `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`.
-- [ ] The implementation does not alter `connectNode`, `startNode`, real WS actor
+- [x] The implementation does not alter `connectNode`, `startNode`, real WS actor
       routing, or the explicit `Cluster(nodes, pids)` constructor.
 
 ## Out Of Scope
@@ -77,4 +77,18 @@ registration.
 
 ## Results
 
-Fill after verification with the exact commands and output counts.
+Implemented in `6c0e39559`.
+
+- `scripts/sbtc "installBin"` completed successfully after the bridge/std
+  changes.
+- `scripts/sbtc "cli/assembly; cli/testOnly scalascript.cli.V2TuplePatternCliTest"`
+  passed 4/4 tests through the assembled CLI jar.
+- `bin/ssc run examples/distributed-word-count.ssc` completed on the default
+  v2 lane and printed 10 non-empty word-count rows.
+- `bin/ssc run examples/distributed-log-aggregation.ssc -- /tmp/ssc-log-aggregation.log`
+  completed and printed the expected local counts (`payments: 2 errors`,
+  `search: 1 errors`).
+- `bin/ssc run examples/distributed-join.ssc -- /tmp/ssc-orders.csv /tmp/ssc-customers.csv`
+  completed and printed three joined rows.
+- `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`
+  passed 6/6 cases.

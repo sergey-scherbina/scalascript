@@ -12,6 +12,80 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-case-class-instance-methods-stub — `open` (2026-07-08)
+
+- **Found by:** codex, during `p3-connectnode-node-sim` verification.
+- **Repro:** after `scripts/sbtc "installBin"`, run a `.ssc` program that
+  constructs a case-class value with an instance method and calls it, or run
+  `bin/ssc run examples/distributed-word-count.ssc` before the local shutdown
+  workaround. `cluster.close()` lowers to a runtime `Stub("Cluster.close")`
+  instead of executing the case-class method body.
+- **Observed failure:** v2 registers case-class fields and can read them, but
+  methods defined inside `case class ...:` are not emitted as callable closures.
+  Runtime method dispatch therefore falls through from field lookup to a
+  `Stub(Tag.method)` value.
+- **Impact:** std APIs that rely on case-class instance methods are not fully
+  production-safe on the default v2 lane. `p3-connectnode-node-sim` avoids this
+  in the distributed examples by sending `ShutdownWorker()` directly; the
+  language/runtime gap remains.
+- **Fix direction:** extend `v2/frontend-bridge` lowering for case-class
+  template methods, likely by reusing the existing tag-dispatched extension
+  method path and binding constructor fields from the receiver before compiling
+  the method body. Add a focused CLI/v2 regression for a case-class method that
+  reads a constructor field and a std-facing regression for `Cluster.close`.
+- **Done-when:** `cluster.close()` executes without printing a stub under the
+  assembled default v2 CLI, the focused regression is green, and the fixed SHA
+  is recorded here.
+
+## v2-mapreduce-handler-registry-tuple-lookup — `fixed` (2026-07-08)
+
+- **Found by:** codex, during `p3-connectnode-node-sim` implementation after
+  adding the local loopback map-reduce worker helper.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `SSC_DEBUG_ACTORS=1 timeout 60 bin/ssc run examples/distributed-word-count.ssc`
+  from the assembled CLI in the worktree. Minimal lowering repro:
+  `val pair: Any = ("ada", 1); pair match { case (w: String, _: Int) => w }`
+  fails under `bin/ssc run` with `unbound global: w`, while
+  `bin/ssc run --v1` prints `ada`.
+- **Observed failure:** the original `Cluster.connect(...)` address-string hang
+  is replaced by actor deaths:
+  `[actor-death] lookup(v, key)`, followed by main-task failure
+  `RuntimeException: match: no arm for Exit/1`.
+- **Impact:** offline distributed map-reduce examples cannot be used as a v2
+  production smoke until the worker handler registry survives the real actor
+  worker boundary.
+- **Root cause:** the local worker path exposed several v2 lowering/library
+  gaps that were previously masked by the `Cluster.connect` hang:
+  typed tuple patterns did not bind names; nested tuple patterns inside
+  constructor patterns such as `Some((_, found))` stayed on the fast
+  non-recursive match path and lost binders; tuple `val` destructuring ignored
+  wildcard field positions; unqualified `lookup(name)` inside
+  `HandlerRegistry.apply` resolved to the JSON `lookup` intrinsic; top-level
+  map-reduce calls were hoisted before handler registration; and std
+  map-reduce relied on tuple selectors, as-patterns, `List.reduce`, and
+  `List.flatMap(Option)` shapes that are not production-safe on the current v2
+  lane.
+- **Fix direction:** keep the map-reduce API unchanged, remove selector use from
+  the std/examples path as a narrow hardening step, and fix v2 tuple
+  pattern/selector lowering with a focused regression so tuple values crossing
+  actor/map-reduce boundaries remain ordinary tuples.
+- **Done-when:** direct `bin/ssc run examples/distributed-word-count.ssc` prints a
+  non-empty result, affected conformance
+  `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`
+  passes, and the fixed SHA/root cause are recorded here.
+- **FIXED (2026-07-08, `6c0e39559`):** added `localLoopbackCluster`, hardened
+  std map-reduce against the v2 tuple/collection gaps, fixed v2 tuple pattern
+  and tuple val-destructuring lowering, qualified the handler registry lookup
+  self-call, blocked eager hoisting for impure map-reduce method-object calls,
+  and rewired the offline distributed examples to use local workers plus
+  explicit shutdown.
+- **Verified:** `scripts/sbtc "cli/assembly; cli/testOnly scalascript.cli.V2TuplePatternCliTest"`
+  passed 4/4; direct default-v2 runs of `distributed-word-count`,
+  `distributed-log-aggregation` with a temp log, and `distributed-join` with
+  temp CSVs passed; affected conformance
+  `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`
+  passed 6/6.
+
 ## v2-vm-effect-handlers-return-raw-op — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` full

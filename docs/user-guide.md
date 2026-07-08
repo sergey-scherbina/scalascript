@@ -2480,6 +2480,12 @@ val result = bigDataset.runDistributed(clusterNodes,
 )
 ```
 
+For offline MapReduce examples and local conformance runs, use
+`localLoopbackCluster(Node(...), ...)` from `std.mapreduce`. It creates local
+actor workers that handle both map partitions and shuffle key partitions.
+`Cluster.connect(...)` remains the remote-node API and does not silently fall
+back to local workers.
+
 ### File I/O
 
 ```scalascript

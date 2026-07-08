@@ -467,6 +467,9 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [ws-recv-demo.ssc](examples/ws-recv-demo.ssc) | Sync-style `ws.recv()` loop alternative to `onMessage` callbacks |
 | [mcp-demo.ssc](examples/mcp-demo.ssc) | MCP server with tools and resources; MCP client usage |
 | [dataset-stats.ssc](examples/dataset-stats.ssc) | Dataset MapReduce — `runLocal`, `runParallel`, aggregations |
+| [distributed-word-count.ssc](examples/distributed-word-count.ssc) | Offline distributed word count using local MapReduce actor workers via `localLoopbackCluster` |
+| [distributed-log-aggregation.ssc](examples/distributed-log-aggregation.ssc) | Offline distributed ERROR-count aggregation; pass a log path after `--` |
+| [distributed-join.ssc](examples/distributed-join.ssc) | Offline distributed customer/order join using local shuffle workers; pass order and customer CSV paths after `--` |
 | [dsl-demo.ssc](examples/dsl-demo.ssc) | Parser combinators, error recovery, multi-pass compilation pipeline |
 | [lenses.ssc](examples/lenses.ssc) | `.copy(field = v)`, `Focus[T](_.a.b)`, `get` / `set` / `modify` / `andThen` |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
