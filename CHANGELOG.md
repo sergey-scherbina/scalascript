@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — test: bounded root sbt gate is green
+
+The v2 production-hardening root gate now completes successfully:
+`scripts/sbtc "test"` is green in 1668s with bounded root Test concurrency
+(`SSC_SBT_TEST_CONCURRENCY`, default 4). The slice also fixed strict-mode JS
+runtime duplicate declarations that blanked Electron/toolkit bundles, made the
+typed JSON facade repeat-safe, aligned Electron typed-route and Spark submit
+CLI smoke tests with the current generated contracts, and sharpened the row POST
+payload resolver assertion. Gates: full `cli/test` (554 succeeded, 29 canceled),
+affected conformance `collections,dataset-from-file,dataset-shape,json-*,std-ui-*,tkv2-*`
+(19/19), and full root `test`.
+
 ## 2026-07-08 — v2: frontend bridge conformance toolkit gate is green
 
 The remaining v2 `V2ConformanceTest` blockers from the root gate are fixed.

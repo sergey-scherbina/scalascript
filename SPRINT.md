@@ -1110,7 +1110,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       **122 passed, 0 failed out of 122 tests (+2 pending)**. No deterministic
       conformance blockers remain in this claim.
 
-- [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
+- [x] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&
       sbt "test"`. The first run hit a transient Scala 3 compiler crash in `clientEvm/Test/compile`;
       targeted `clientEvm/Test/compile` passed immediately. The second full run completed in 29:08 and
@@ -1231,7 +1231,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             ArrayBuffer as list-like for read-only collection dispatch. Gates:
             targeted `array-companion-statics`, affected conformance, and full
             `V2ConformanceTest` are green.
-      - [ ] **root-test-sbt-aggregate-heap-oom** — root
+      - [x] **root-test-sbt-aggregate-heap-oom** — root
             `scripts/sbtc "test"` on `origin/main@c9d300335` is now blocked by
             sbt/JVM heap stability, not a known deterministic v2 conformance
             failure. The run progressed through many suites, then printed
@@ -1251,7 +1251,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             OOM/hung sbt JVM symptom. It still exited 1 because two later
             deterministic/root-runner blockers surfaced; fix those next, then
             rerun the root gate before marking this item fixed.
-      - [ ] **root-test-js-rowpost-runtime-contract** — new backendInterpreter
+      - [x] **root-test-js-rowpost-runtime-contract** — new backendInterpreter
             blocker from the bounded root gate. Repro in root stream:
             `scalascript.JsGenStdImportTest` case `JS signal runtime defines the
             std/ui row-data natives` failed because generated JS did not contain
@@ -1262,7 +1262,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             restore the real row POST body resolver or update the assertion if
             current code is semantically equivalent. Done-when: focused
             `JsGenStdImportTest` is green plus affected std/ui conformance.
-      - [ ] **root-test-cli-fork-exit-after-green** — new CLI aggregate blocker
+      - [x] **root-test-cli-fork-exit-after-green** — new CLI aggregate blocker
             from the bounded root gate. Repro in root stream: `cli / Test / test`
             reported all CLI tests passed (488 succeeded, 0 failed, 19 canceled),
             then sbt failed because the forked `sbt.ForkMain` JVM exited 1.
@@ -1277,7 +1277,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             stale fake-Electron greps for the typed-route client signatures and
             fetch retry loop. Full `cli/test` no longer shows the old after-green
             fork exit; it now reports ordinary assertion failures below.
-      - [ ] **root-test-cli-toolkit-electron-duplicate-seqmap** — new full
+      - [x] **root-test-cli-toolkit-electron-duplicate-seqmap** — new full
             `cli/test` blocker after the fork-exit fix. Focused repro:
             `scripts/sbtc "cli/testOnly scalascript.cli.ToolkitElectronSmokeTest"`.
             Full-run symptom: Electron renderer throws
@@ -1286,7 +1286,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             generated toolkit Electron bundle and deduplicate/scope repeated JS
             helper preamble emission so `_seqMap` is declared once. Done-when:
             focused smoke test is green and full `cli/test` no longer reports it.
-      - [ ] **root-test-cli-spark-submit-dry-run-deps** — new full `cli/test`
+      - [x] **root-test-cli-spark-submit-dry-run-deps** — new full `cli/test`
             blocker after the fork-exit fix. Focused repro:
             `scripts/sbtc "cli/testOnly scalascript.cli.SubmitCommandTest"`.
             Failures: dry-run output no longer contains
@@ -1296,6 +1296,17 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             dependency strings/options or update the stale test expectations if
             the dependency surface intentionally moved. Done-when: focused
             `SubmitCommandTest` is green and full `cli/test` no longer reports it.
+      Result 2026-07-08 (`cea0c3aed`): root gate is green. Fixes included a
+      bounded root Test concurrency cap (`SSC_SBT_TEST_CONCURRENCY`, default 4),
+      strict-mode-safe JS runtime helper emission for Electron/browser bundles,
+      repeat-safe typed JSON facade bindings, updated typed route client smoke
+      assertions, sharper `_RowPost` payload-resolver assertions, and Spark
+      submit dry-run assertions against the generated package source. Verified:
+      `scripts/sbtc "cli/test"` (554 succeeded, 29 canceled, 0 failed),
+      `tests/conformance/run.sh --only
+      'collections,dataset-from-file,dataset-shape,json-*,std-ui-*,tkv2-*'
+      --no-memo` (19/19), and bounded root `scripts/sbtc "test"` (`[success]`
+      elapsed 1668s / 0:27:48.0).
 
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.

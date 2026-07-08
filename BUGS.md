@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## root-test-cli-spark-submit-dry-run-deps — `open` (2026-07-08)
+## root-test-cli-spark-submit-dry-run-deps — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused
   `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
@@ -31,8 +31,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
   restore dependency lines/options.
 - **Done-when:** focused `SubmitCommandTest` is green and full `cli/test` no
   longer reports this suite.
+- **FIXED (2026-07-08, `cea0c3aed`):** the dry-run contract is the generated
+  package source, not inline `spark-submit --dep` argv. `SubmitCommandTest` now
+  parses the `# source:` path from dry-run output and asserts Spark dependency
+  directives in that generated source.
+- **Verified:** `scripts/sbtc "cli/testOnly scalascript.cli.SubmitCommandTest"`;
+  full `scripts/sbtc "cli/test"` (554 succeeded, 29 canceled, 0 failed);
+  bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
-## root-test-cli-toolkit-electron-duplicate-seqmap — `open` (2026-07-08)
+## root-test-cli-toolkit-electron-duplicate-seqmap — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused
   `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
@@ -51,8 +58,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
   helpers are emitted once per bundle.
 - **Done-when:** focused `ToolkitElectronSmokeTest` is green and full `cli/test`
   no longer reports this suite.
+- **FIXED (2026-07-08, `cea0c3aed`):** the renderer bundle had a broader
+  strict-mode duplicate/binding chain: collection sequencing helpers existed in
+  both `core-collections.mjs` and `async.mjs`; session HMAC reused the core
+  crypto helper name; the typed JSON facade could be included twice; browser
+  patch assignments lacked stable bindings; and `_ssc_frontend_name` was split
+  between ws/server and injected frontend code. The runtime now has a single
+  collection helper source, repeat-safe typed JSON facade bindings, distinct
+  session HMAC name, and a base frontend-name binding.
+- **Verified:** `scripts/sbtc "cli/testOnly scalascript.cli.ToolkitElectronSmokeTest"`;
+  full `scripts/sbtc "cli/test"` (554 succeeded, 29 canceled, 0 failed);
+  bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
-## root-test-cli-fork-exit-after-green — `open` (2026-07-08)
+## root-test-cli-fork-exit-after-green — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
@@ -77,8 +95,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `ElectronJvmRestCliTest` pass with fork exit 0. Full `cli/test` now reaches
   ordinary assertion failures tracked separately above instead of the old
   after-green fork exit.
+- **FIXED (2026-07-08, `cea0c3aed`):** after updating the stale Electron typed
+  client smoke assertions and fixing the later deterministic CLI/runtime
+  blockers, the full forked `cli/test` exits 0.
+- **Verified:** `scripts/sbtc "cli/testOnly scalascript.cli.ElectronJvmRestCliTest"`;
+  full `scripts/sbtc "cli/test"` (554 succeeded, 29 canceled, 0 failed);
+  bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
-## root-test-js-rowpost-runtime-contract — `open` (2026-07-08)
+## root-test-js-rowpost-runtime-contract — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
@@ -99,8 +123,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Done-when:** focused `JsGenStdImportTest` is green, the row POST body
   contract is covered by the test, and affected std/ui conformance runs before
   pushing.
+- **FIXED (2026-07-08, `cea0c3aed`):** the runtime still resolves row POST
+  bodies through `resolvePayload`; the old string assertion expected the whole
+  object literal inline shape and missed the current `_postBody` local. The test
+  now asserts the resolver assignment and the fetch body use separately.
+- **Verified:** `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest"`;
+  affected conformance `tests/conformance/run.sh --only
+  'collections,dataset-from-file,dataset-shape,json-*,std-ui-*,tkv2-*'
+  --no-memo` (19/19); bounded root `scripts/sbtc "test"` (elapsed 1668s,
+  success).
 
-## root-test-sbt-aggregate-heap-oom — `open` (2026-07-08)
+## root-test-sbt-aggregate-heap-oom — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root retest
   after v2 `V2ConformanceTest` was green and pushed through `ab37c7d0b`.
@@ -129,6 +162,12 @@ commit SHA until the reporter confirms, then they can be trimmed.
   sbt JVM pattern. The gate still exited 1 because it exposed the two separate
   blockers tracked above: `root-test-js-rowpost-runtime-contract` and
   `root-test-cli-fork-exit-after-green`.
+- **FIXED (2026-07-08, `cea0c3aed`):** bounded root `scripts/sbtc "test"`
+  completed successfully with the `Tags.Test` cap defaulting to 4. No heap OOM,
+  hung sbt JVM, or lingering fork-exit failure remained.
+- **Verified:** `cd /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating &&
+  rm -f v1/tools/cli/ssc-storage.json && scripts/sbtc "test"`:
+  `[success] elapsed: 1668 s (0:27:48.0)`.
 
 ## v2-busi-testsweep-gaps batch — `fixed` (2026-07-08)
 
@@ -1182,7 +1221,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Guard:** `tests/conformance/tkv2-component.ssc` (ctxSignal carries a `default`
   param, INT==JS).
 
-## green-main-full-sbt-test-gating — `open` (2026-07-07)
+## green-main-full-sbt-test-gating — `fixed` (2026-07-07)
 
 - **Found by:** codex, while verifying the `plugin-cli-oslib-shadow` fix.
 - **Symptom:** after the `PluginCliTest` compile blocker is fixed, the root
@@ -1202,8 +1241,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Notes:** the first full run hit a transient Scala 3 compiler crash in
   `clientEvm/Test/compile`; targeted `clientEvm/Test/compile` passed immediately,
   so the durable gate is the second run's failure set above.
-- **Status:** open. Split into focused fixes or intentional skips/pending policy,
-  then rerun the affected suites before another root `sbt "test"` attempt.
+- **Status:** fixed in `cea0c3aed`; the root `sbt "test"` gate is green.
 - **Progress (2026-07-07, `8dfd2989e`):** `CrossBackendIntrinsicParityTest`
   fixed by documenting `webauthnConfigureStore` and `webauthnStoreRemove` as
   JS-core/JVM-`auth-plugin` exceptions; targeted parity test passes.
@@ -1236,6 +1274,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   empty output, and the cross-module imported-effect case prints empty output.
   Scala.js `loadedTestFrameworks` fallout still needs re-checking after the
   deterministic JVM/v2/WASM failures are fixed.
+- **Final verification (2026-07-08, `cea0c3aed`):** full `cli/test` is green
+  (554 succeeded, 29 canceled, 0 failed), affected conformance
+  `collections,dataset-from-file,dataset-shape,json-*,std-ui-*,tkv2-*` is green
+  (19/19), and bounded root `scripts/sbtc "test"` is green
+  (`[success] elapsed: 1668 s (0:27:48.0)`).
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
 
