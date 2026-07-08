@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — std/ui: serve(view, port, extraCss) — app-supplied page CSS
+
+`serve`'s extern gained an optional `extraCss: String = ""` third arg, appended to the base
+template LAST (so it wins). The js-runtime already threaded a 3rd extraCss arg + a `${extraCss}`
+template slot — only the extern hid it, so no .ssc app could override the base template's hardcoded
+`body{background:#fff}`. A named overload was rejected (two `const serve` → duplicate-identifier in
+the JS extern shim); one defaulted extern keeps `serve(view, port)` working. First consumer: rozum
+UCC drops its post-emit `sed` patch of the body background. Conformance unchanged (2-arg form).
+
+---
+
 ## 2026-07-08 — v2 production: dataset parallel sum no longer stack-overflows
 
 `Prims.unlistPub` and `listOf` in the v2 runtime are now iterative, so large

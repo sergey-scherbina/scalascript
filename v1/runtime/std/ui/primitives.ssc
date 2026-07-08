@@ -116,7 +116,12 @@ extern def computedSignal(f: () => String): Signal[String]
 
 // ── Output ────────────────────────────────────────────────────────────────
 extern def emit(tree: View, outDir: String): Unit
-extern def serve(tree: View, port: Int): Unit
+// `extraCss` (optional) is appended to the base template LAST (so it wins) — e.g.
+// `serve(view, 8080, "body{background:#111827}")` to set the page canvas the base template
+// hardcodes to #fff. The runtime already threads a 3rd extraCss arg + a ${extraCss} template
+// slot; the default keeps the common `serve(view, port)` form. A NAMED overload would break the
+// JS extern shim (two `const serve` → duplicate-identifier), so this is one defaulted extern.
+extern def serve(tree: View, port: Int, extraCss: String = ""): Unit
 
 // ── Fetch primitives (std/ui-fetch-plugin) ───────────────────────────────
 // emptyHeaders — default no-op headers Signal; value is always "".
