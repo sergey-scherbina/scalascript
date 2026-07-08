@@ -348,7 +348,36 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       a real assembled-CLI regression. Done-when: focused CLI test proves
       `run --v2` argv delivery and current multi-file/file-argument behavior is
       not silently reinterpreted.
-- [ ] **p4-rust-wasm-lanes** — Rust (260 тестов) и WASM.
+- [ ] **p4-rust-wasm-lanes** — restore the self-hosted v2 Rust/WASM target
+      gate before any default-lane flip. Spec: `specs/v2-rust-wasm-lanes.md`.
+      Baseline 2026-07-08 from this claim:
+      `./v2/backend/check.sh` is green (`ALL GREEN (8 fixtures x 3
+      backends)`), but `./v2/conformance/check.sh` is red. The red gate splits
+      into two concrete bugs tracked in `BUGS.md`:
+      `v2-ssc0-target-display-drift` (self-hosted JS/Rust target display and
+      stale conformance expectations still use raw `Cons(..., Nil)` / `10.0`
+      after `p4-kernel-green` accepted VM `List(...)` + collapsed whole-float
+      display) and `v2-ssc0-rust-float-literal-emits-int` (`V::Fl(2)` /
+      `V::Fl(1)` rustc E0308 after `#f->str` collapses whole floats).
+      Active plan 2026-07-08 (`p4-rust-wasm-lanes` / codex):
+      - [ ] Commit this spec/SPRINT/BUGS planning slice before code.
+      - [ ] Align `v2/lib/backend-js-gen.ssc0` and
+            `v2/lib/backend-rust-gen.ssc0` `show` helpers with VM
+            `Show.show`: proper `Cons`/`Nil` chains render as `List(...)`.
+            Because `ssc0-wasm` reuses the Rust generator, this also defines
+            WASM display.
+      - [ ] Normalize self-hosted Rust float literal emission so `IrFloat(2.0)`
+            becomes valid Rust inside `V::Fl(...)` (`2.0`, or Rust constants
+            for `nan`/`inf` if encountered).
+      - [ ] Update only stale `v2/conformance/check.sh` expectations caused by
+            accepted kernel display semantics (`List(...)`, collapsed whole
+            floats); do not paper over semantic mismatches.
+      - [ ] Verify `./v2/conformance/check.sh`, `./v2/backend/check.sh`, and
+            affected repo-level conformance (`tests/conformance/run.sh --only
+            'rust*,wasm*'` or the nearest matching slice if no cases match).
+      Done-when: self-hosted Rust rows compile/pass, WASM quicksort/TCO remains
+      green, the target display contract is documented, and the bugs move to
+      `fixed` with the landing SHA.
 - [ ] **p4-default-flip** — per-lane дефолт на v2-кодген после зелёных гейтов; --via-v1 люк.
 
 ## v2 production readiness (2026-07-08, Sergiy: "довести v2 до production")

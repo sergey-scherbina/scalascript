@@ -12,6 +12,51 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-ssc0-target-display-drift — `open` (2026-07-08)
+
+- **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
+- **Repro:** from a fresh worktree with Rust and Node available, run
+  `./v2/conformance/check.sh`.
+- **Observed failure:** the v2 VM now renders proper `Cons`/`Nil` chains as
+  `List(...)` and whole floats with collapsed `Writer.floatStr` output such as
+  `10`, but the self-hosted JS/Rust target backends and parts of
+  `v2/conformance/check.sh` still expect or emit the older `Cons(..., Nil)` /
+  `10.0` shape. Representative failures:
+  `js map.ssc0 vm=[List(2, 4, 6)] node=[Cons(...)]`,
+  `rust map.ssc0 vm=[List(2, 4, 6)] rust=[Cons(...)]`,
+  `run-ir map.coreir got [List(...)] want [Cons(...)]`, and
+  `kc-float Double math got [10 ...] want [10.0 ...]`.
+- **Impact:** the self-hosted v2 target gate is red even though the Scala
+  `v2/backend/check.sh` CoreIR source-generator harness is green. This blocks a
+  credible Rust/WASM lane gate for Phase 4.
+- **Fix direction:** update `v2/lib/backend-js-gen.ssc0` and
+  `v2/lib/backend-rust-gen.ssc0` display helpers to match VM `Show.show`
+  semantics for proper lists, and update `v2/conformance/check.sh` expectations
+  for the accepted list/float display contract. Keep WASM expectations aligned
+  because `ssc0-wasm` reuses the Rust generator.
+- **Done-when:** `./v2/conformance/check.sh` no longer reports list/float display
+  mismatches; JS/Rust/WASM target rows compare against the VM output.
+
+## v2-ssc0-rust-float-literal-emits-int — `open` (2026-07-08)
+
+- **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
+- **Repro:** run `./v2/conformance/check.sh` and inspect the diagnostics log.
+- **Observed failure:** several Rust target rows fail at `rustc` with
+  `error[E0308]: mismatched types`, because the self-hosted Rust backend emits
+  collapsed whole-float literals such as `V::Fl(2)` / `V::Fl(1)` after
+  `#f->str`, but Rust's `V::Fl` variant requires `f64`. Representative rows:
+  `numops Rust`, `numcmp Rust`, `div Rust`, `float math Rust`, `mathx* Rust`,
+  `letrec poly Rust`, `dict-passing Rust`, `dict ord Rust`.
+- **Impact:** real Rust target compilation is broken for typed numeric programs
+  that contain whole-valued float constants. WASM inherits this through
+  `ssc0-wasm` because it compiles the same Rust source to `wasm32-wasip1`.
+- **Fix direction:** normalize generated Rust float literals in
+  `v2/lib/backend-rust-gen.ssc0`: whole finite values need a Rust float suffix
+  or decimal (`2.0`), while `nan`/`inf`/`-inf` should map to valid Rust
+  constants if they surface.
+- **Done-when:** the Rust rows above compile and pass in
+  `./v2/conformance/check.sh`, and the WASM quicksort/TCO gate remains green.
+
 ## v2-run-cli-argv-not-forwarded — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p4-js-lane-bridge` direct argv smoke.
