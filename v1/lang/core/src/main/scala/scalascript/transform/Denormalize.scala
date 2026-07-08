@@ -22,8 +22,10 @@ import scalascript.parser.Parser
  *      will fill it; codegens still use the scalameta tree.
  *
  *    - `ir.Content.EmbeddedBlock(lang, source, span)` →
- *      `ast.Content.CodeBlock(lang, source, None, span)` — foreign
- *      blocks keep no scalameta tree (they aren't Scala dialect).
+ *      `ast.Content.CodeBlock(lang, source, None, span)` for opaque
+ *      foreign blocks. Parseable embedded blocks (`scala`, `ssc`,
+ *      `scalascript`) are re-parsed so the interpreter can execute
+ *      them after the CLI Normalize → Denormalize backend path.
  *
  *  Performance: a re-parse on every compile() invocation.  Acceptable
  *  for Stage 5; the post-Stage-5 cleanup removes both Normalize and
@@ -186,6 +188,9 @@ object Denormalize:
     case ir.Content.CodeBlock(source, _, sp) =>
       val tree = Parser.parseScalaSource(source)
       ast.Content.CodeBlock(ast.Lang.ScalaScript, source, tree, sp.map(span))
+    case ir.Content.EmbeddedBlock(language, source, sp, _) if ast.Lang.isParseable(language) =>
+      val tree = Parser.parseScalaSource(source)
+      ast.Content.CodeBlock(language, source, tree, sp.map(span))
     case ir.Content.EmbeddedBlock(language, source, sp, _) =>
       ast.Content.CodeBlock(language, source, None, sp.map(span))
     case ir.Content.SqlBlock(source, _, dbName, sp, side) =>

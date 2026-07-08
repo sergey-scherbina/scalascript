@@ -6,6 +6,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 import scalascript.testkit.TestInterpreter
+import scalascript.transform.{Denormalize, Normalize}
 
 class SqlPluginInterpreterTest extends AnyFunSuite:
 
@@ -96,6 +97,47 @@ class SqlPluginInterpreterTest extends AnyFunSuite:
 
     assert(result == List("Ada", 1L, true))
 
+  test("SQL fenced-block binds survive Normalize/Denormalize scala block round-trip"):
+    val result = evalWithSqlPlugin(
+      s"""|---
+      |databases:
+      |  default:
+      |    url: "${uniqueDb()}"
+      |---
+      |
+      |# Schema
+      |
+      |```sql
+      |CREATE TABLE people (id BIGINT PRIMARY KEY, name VARCHAR(64))
+      |```
+      |
+      |# Seed
+      |
+      |```scala
+      |val personId = 1L
+      |val personName = "Ada"
+      |```
+      |
+      |```sql
+      |INSERT INTO people (id, name) VALUES ($${personId}, $${personName})
+      |```
+      |
+      |# Read
+      |
+      |```sql
+      |SELECT name FROM people WHERE id = $${personId}
+      |```
+      |
+      |```scala
+      |val row = Read.sql.head
+      |List(row("NAME"), _sqlBlock_1, _sqlBlock_2 == Read.sql)
+      |```
+      |""".stripMargin,
+      roundTripIr = true
+    )
+
+    assert(result == List("Ada", 1L, true))
+
   test("SQL plugin owns interpreter transaction fenced-block execution"):
     val result = evalWithSqlPlugin(
       s"""|---
@@ -166,8 +208,10 @@ class SqlPluginInterpreterTest extends AnyFunSuite:
   private def uniqueDb(): String =
     s"jdbc:h2:mem:sql-plugin-${UUID.randomUUID().toString.take(8)};DB_CLOSE_DELAY=-1"
 
-  private def evalWithSqlPlugin(source: String): Any =
+  private def evalWithSqlPlugin(source: String, roundTripIr: Boolean = false): Any =
     val interp = Interpreter(java.io.PrintStream(java.io.OutputStream.nullOutputStream()))
     interp.installPlugins(List(SqlPlugin()))
-    interp.run(Parser.parse(source))
+    val parsed = Parser.parse(source)
+    val module = if roundTripIr then Denormalize(Normalize(parsed)) else parsed
+    interp.run(module)
     TestInterpreter.unwrap(interp.lastResult)
