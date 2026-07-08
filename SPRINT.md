@@ -724,7 +724,19 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       `sbt "cryptoBouncycastle/compile"`, `sbt "cryptoBouncycastle/test"` (55/55), and
       `sbt "compile" "cli/assembly"` all pass in `/Users/sergiy/work/my/scalascript-wt-finish-green-main`.
 
-- [ ] **green-main-conformance-gating** — fix the remaining CI conformance failures separately from the crypto
+- [x] **green-main-conformance-gating** — DONE 2026-07-08 (`3008b2677`):
+      full default conformance is green with
+      `tests/conformance/run.sh --no-memo` => **122 passed, 0 failed out of
+      122 tests (+2 pending)**. Pending cases are intentional metadata gates:
+      `http-client` (external httpbin.org dependency) and `sql-browser-basic`
+      (needs npm install in the JS lane, pinned by its capture test). This slice
+      fixed the deterministic blockers found after the original 102/20 baseline:
+      actors/effects INT, JVM CPS cluster/distributed/effect cases, JS std/json
+      intrinsic targets, JS product rendering, INT SQL block scope, std
+      typeclass INT/JVM aggregate gaps, JVM std-ui generated braces, stale
+      `.scjvm` codegen cache invalidation, INT while assignment order, and INT
+      Semigroup-via-Monoid given resolution.
+      ORIGINAL PLAN: fix the remaining CI conformance failures separately from the crypto
       compile blocker. Repro from the same worktree after `bash install.sh --dev`:
       `scripts/conformance -- --no-memo` starts running but shows multiple pre-existing non-crypto clusters:
       INT actor/cluster tests print empty output while JS/JVM pass; JVM-only cluster/distributed/effect-imported
@@ -915,6 +927,9 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`
             (**1/1 green**). Next: rerun full default conformance; if green,
             mark `green-main-conformance-gating` complete and release the claim.
+      FINAL GATE 2026-07-08: `tests/conformance/run.sh --no-memo` reports
+      **122 passed, 0 failed out of 122 tests (+2 pending)**. No deterministic
+      conformance blockers remain in this claim.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: default gate green
+
+The full default conformance gate now reports **122 passed, 0 failed out of
+122 tests (+2 pending)** via `tests/conformance/run.sh --no-memo`. The remaining
+pending cases are intentional environment gates (`http-client`,
+`sql-browser-basic`); no deterministic conformance failures remain in
+`green-main-conformance-gating`.
+
+---
+
 ## 2026-07-08 — conformance: INT Semigroup via Monoid givens fixed
 
 `std-semigroup-monoid` now passes INT/JS/JVM. The interpreter registers parent
