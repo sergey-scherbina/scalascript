@@ -73,6 +73,15 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       against `content-slot`, `content-toolkit-yaml-controls`, and the other
       `contentToolkitSection` examples. Non-production examples must be explicitly
       classified as env-gated, backend-lane, nondeterministic, or v1-bug.
+      FIRST SUBSLICE (2026-07-08, claim `v2-prod-plugin-boundary`): start with the
+      only remaining full-parity `v2-error`, `examples/dataset-parallel-sum.ssc`.
+      Reproduce with the real staged binary:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/dataset-parallel-sum.ssc`.
+      If v2 is timing out on honest compute, inspect the Dataset bridge implementation
+      for `runLocal`/`runParallel`/`reduce` over `List.range(1, 100_001)` and either
+      make that path finish within the parity watchdog or record a defensible lane/scope
+      classification. Done-when: the example is MATCH or intentionally excluded from
+      the production-required gate with a recorded reason and follow-up.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected
