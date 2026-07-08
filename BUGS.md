@@ -12,6 +12,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-rozum-schema-streaming-parity — `open` (2026-07-08)
+
+- **Found by:** codex, during the v2 production parity loop after
+  `v2-quoted-macro-interpreter-parity` was fixed.
+- **Symptom:** the latest full
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` has **0
+  v2-error** cases and only one remaining production-relevant blocker cluster:
+  `examples/rozum-agent-schema-derived.ssc` and
+  `examples/rozum-agent-streaming.ssc` still mismatch, while
+  `rozum-agent.ssc` and `rozum-agent-pool.ssc` already match.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/rozum-agent-schema-derived.ssc examples/rozum-agent-streaming.ssc`.
+  If needed, compare direct outputs:
+  `bin/ssc run examples/rozum-agent-schema-derived.ssc`,
+  `bin/ssc run --v2 examples/rozum-agent-schema-derived.ssc`,
+  `bin/ssc run examples/rozum-agent-streaming.ssc`, and
+  `bin/ssc run --v2 examples/rozum-agent-streaming.ssc`.
+- **Notes:** decide by evidence whether this is a v2 bridge/server/batch bug or a
+  scope classification issue. Do not normalize `scripts/v2-output-parity`; fix the
+  real output path or document an explicit lane/scope exclusion.
+- **Next:** reproduce in the real staged CLI, inspect the rozum plugin/runner bridge
+  path, then either make both examples MATCH or update the production gate docs with
+  a defensible non-default lane classification.
+
 ## v2-quoted-macro-interpreter-parity — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the v2 production parity sweep after content-toolkit

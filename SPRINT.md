@@ -93,6 +93,23 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       23 v1-only**; the extra mismatch was a transient `invoice-email` generated
       byte-count mismatch, and an immediate targeted rerun of `invoice-email` +
       `dataset-parallel-sum` was **2/2 MATCH**.
+      SECOND SUBSLICE (2026-07-08, claim `v2-prod-plugin-boundary`): close or
+      explicitly classify the last current production-relevant rozum mismatch
+      cluster after `v2-quoted-macro-interpreter-parity` raised the full corpus to
+      **58/81 identical · 7 mismatch · 0 v2-error · 16 v1-only**:
+      `examples/rozum-agent-schema-derived.ssc` and
+      `examples/rozum-agent-streaming.ssc`. Start with the real staged binary:
+      `scripts/sbtc "installBin"` then
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/rozum-agent-schema-derived.ssc examples/rozum-agent-streaming.ssc`.
+      If needed, compare direct v1/v2 stdout for both examples. Inspect the rozum
+      plugin/runner bridge path and the matching neighbors (`rozum-agent.ssc`,
+      `rozum-agent-pool.ssc`) before changing behavior. Done-when: both examples
+      MATCH, or the docs classify them out of the default production gate with an
+      explicit lane/scope reason and follow-up. Verification to record before push:
+      targeted parity for both examples, affected conformance
+      `scala-cli tests/conformance/run.sc -- --only 'rozum*' --no-memo` (record if
+      no cases), relevant sbt test(s), and a full parity/baseline update if counts
+      change.
 - [x] **v2-prod-invoice-email-nondet** — DONE 2026-07-08 (d8e0ecee4): stabilized
       `examples/invoice-email.ssc` by keeping the MIME/PDF assembly path but removing
       the exact generated `message.length` from stdout. The example now prints the
