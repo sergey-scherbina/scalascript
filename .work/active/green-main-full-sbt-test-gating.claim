@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T16:44:41Z
+heartbeat: 2026-07-08T16:55:14Z
 status: in-progress
-done-so-far: cluster family reproduced; root cause is v2-default node subprocesses running v1 actor-cluster fixtures without --v1
-next: verify cluster node-launch --v1 harness patch with targeted cli/testOnly family plus affected conformance
+done-so-far: sealed extension dispatch and v1 cluster fixture launch blockers fixed/pushed; targeted cli and conformance slices green
+next: wait for full root sbt test summary; if green, persist result and release claim; if red, capture next blocker
