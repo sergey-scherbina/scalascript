@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: ReactiveSignal method objects expose get/set
+
+v1 `ReactiveSignal` values round-tripped through the v2 plugin bridge as
+`NamedMethodObj`s with only `apply`, so `sig()` worked but `sig.set(v)` failed
+with `__method__: no field 'set' on named-method-obj`. The wrapper now exposes
+`get`/`set` and writes raw host values, restoring toolkit state updates.
+Targeted V2 gates: `tkv2-busi-home`, `tkv2-forms`, and `tkv2-offline` green;
+affected conformance for the same three cases is 3/3 green across INT+JS.
+
 ## 2026-07-08 — std/os: OS plugin uses the stable plugin error surface
 
 `runtime/std/os-plugin` no longer imports interpreter internals from its

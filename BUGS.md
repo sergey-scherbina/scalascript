@@ -29,6 +29,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
   family because it blocks three tk cases, then `pwa`, then the jobpanel label
   rendering gap. Verify the selected `V2ConformanceTest` cases and the affected
   conformance slice before pushing.
+- **Progress (2026-07-08, `dad57a70b`):** the shared
+  `named-method-obj.set` family is fixed. v1 `ReactiveSignal` values converted
+  into v2 `NamedMethodObj`s now expose `get`/`set` and writes use host raw
+  values, so `tkv2-busi-home`, `tkv2-forms`, and `tkv2-offline` pass targeted
+  `V2ConformanceTest` filters. Affected conformance
+  `tkv2-busi-home,tkv2-forms,tkv2-offline` is 3/3 green across INT+JS.
+  Remaining failures from this root entry: `tkv2-pwa` (`unbound global: pwa`)
+  and `std-ui-jobpanel` heading labels (`?` instead of `2:...`).
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
 
