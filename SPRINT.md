@@ -844,8 +844,9 @@ Claimable slices for the above (queued 2026-07-07):
       flow, diagnostics) landed in p3-dataset-natives.
       IMPLEMENTATION PLAN (2026-07-08, claim `p3-connectnode-node-sim`): choose an
       explicit local map-reduce helper, not a `connectNode`/bridge SPI change. Add
-      `localLoopbackCluster(ns: Node*)` in `std.mapreduce.distributed`, returning a
-      `Cluster` whose pids are local actors running `WorkerProtocol.handleMessages()`;
+      `localLoopbackCluster(ns: Node*)` exported from `std.mapreduce`, returning a
+      `Cluster` whose pids are local actors running `ShuffleProtocol.handleMessages()`
+      (the superset worker loop for map-only and shuffle jobs);
       mirror the std change in both `runtime/std/` and `v1/runtime/std/`; update
       offline distributed examples to use the helper instead of documentation
       addresses through `Cluster.connect`; keep `Cluster.connect` as the real remote

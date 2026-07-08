@@ -198,11 +198,12 @@ down.  See `specs/cluster-management.md` (deferred future
 work) for fancier discovery / membership patterns.
 
 Offline examples and corpus gates that run all workers in the same process use
-`localLoopbackCluster(nodes...)` from `std.mapreduce.distributed`. It spawns one
-local `WorkerProtocol.handleMessages()` actor per node and returns a normal
-`Cluster(nodes, pids)` handle. This is intentionally explicit: `Cluster.connect`
-remains the remote-node API and must not silently downgrade a deployment mistake
-to an in-process simulation.
+`localLoopbackCluster(nodes...)` from `std.mapreduce`. It spawns one local
+`ShuffleProtocol.handleMessages()` actor per node and returns a normal
+`Cluster(nodes, pids)` handle. `ShuffleProtocol` is used because it handles both
+ordinary map partitions and shuffle key partitions. This is intentionally
+explicit: `Cluster.connect` remains the remote-node API and must not silently
+downgrade a deployment mistake to an in-process simulation.
 
 ### 4.2 Dispatch model
 

@@ -12,10 +12,13 @@ actors without pretending to open remote WebSocket nodes.
 
 ## Interface
 
-- Add a top-level helper in `std.mapreduce.distributed`:
+- Add a top-level helper exported from `std.mapreduce`:
   `localLoopbackCluster(ns: Node*): Cluster`.
 - The helper returns `Cluster(ns.toList, pids)` where each pid is a local actor
-  running `WorkerProtocol.handleMessages()`.
+  running `ShuffleProtocol.handleMessages()`. `ShuffleProtocol` is the local
+  worker loop because it is a superset of `WorkerProtocol`: it handles ordinary
+  `ProcessPartition` messages and the shuffle `ProcessKeyPartition` messages
+  needed by word-count.
 - `Cluster(nodes, pids)` remains the lower-level explicit constructor.
 - `Cluster.connect(...)` remains the remote-node API surface and continues to be
   documented as a real distributed connection hook. This slice does not change
@@ -43,11 +46,12 @@ actors without pretending to open remote WebSocket nodes.
 
 ## Design
 
-`localLoopbackCluster` belongs in `std.mapreduce.distributed`, not
-`std.mapreduce.cluster`, because it needs `WorkerProtocol`. Keeping the helper in
-the distributed module avoids an import cycle between `cluster.ssc` and
-`distributed.ssc`, and keeps `Cluster.connect(...)` free to remain the remote
-node API.
+`localLoopbackCluster` is implemented in the shuffle module and re-exported from
+`std.mapreduce`, not in `std.mapreduce.cluster`, because it needs the worker
+message loop. `ShuffleProtocol.handleMessages()` is intentionally used even for
+map-only jobs: it delegates no-shuffle `ProcessPartition` messages to the same
+`PartitionResult` path as `WorkerProtocol`, and also supports the second-stage
+key-partition messages used by `runDistributedShuffle`.
 
 The helper is explicit rather than fallback magic: examples that are meant to run
 offline say so in source. Production code that wants a real remote cluster still
@@ -61,6 +65,10 @@ registration.
   changing remote actor primitives. Rejected: changing `connectNode` to return a
   pid, because v1 declares it as `Unit` and the WS actor stack has broader
   semantics than map-reduce worker lookup.
+- **Use `ShuffleProtocol` workers** — chosen because distributed word-count uses
+  both `runDistributed` and `runDistributedShuffle`. Rejected: spawning
+  `WorkerProtocol` from the helper, because it would handle the map phase and
+  then hang on shuffle key partitions.
 - **Do not make `Cluster.connect` fallback to local workers** — chosen because a
   silent fallback would hide deployment mistakes. Rejected: automatic
   reachability probing, because it would make examples depend on timing/network
