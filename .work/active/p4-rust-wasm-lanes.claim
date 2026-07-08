@@ -1,6 +1,0 @@
-feature/p4-rust-wasm-lanes 2026-07-08T21:23:32Z
-agent: codex
-heartbeat: 2026-07-08T22:11:19Z
-status: in-progress
-done-so-far: v2 conformance green locally after scoped Runtime Op fix
-next: run backend and affected repo conformance gates, then commit and push
