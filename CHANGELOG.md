@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: self-hosted Rust/WASM target gate is green
+
+The self-hosted `ssc0 -> JS/Rust/WASM` lane now matches the VM display contract:
+proper lists render as `List(...)`, whole-valued Rust float literals compile as
+`f64`, and stale conformance expectations were rebaselined to the accepted
+kernel display semantics. The full v2 gate also exposed and fixed a VM-only
+typed effect regression: `Let`/`Seq` auto-threading now applies only to
+bridge/runtime Ops with dotted labels, while pure free-monad `Op(...)` values
+remain data for handlers/schedulers. Gates: `v2/conformance/check.sh`,
+`v2/backend/check.sh`, affected effect/async conformance, and the top-level
+`rust*,wasm*` selector check (0 matching cases; Rust/WASM covered by v2 gate).
+
 ## 2026-07-08 — v2: `ssc run` forwards argv after `--`
 
 The v2 VM runners now support program argv with an explicit separator:

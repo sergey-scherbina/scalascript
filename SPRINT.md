@@ -348,7 +348,24 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       a real assembled-CLI regression. Done-when: focused CLI test proves
       `run --v2` argv delivery and current multi-file/file-argument behavior is
       not silently reinterpreted.
-- [ ] **p4-rust-wasm-lanes** — restore the self-hosted v2 Rust/WASM target
+- [x] **p4-rust-wasm-lanes** — DONE 2026-07-08 in `84d7ac77f`: restored the
+      self-hosted v2 Rust/WASM target gate. JS/Rust/WASM target display now
+      matches VM `List(...)`; self-hosted Rust emits valid whole-float literals
+      (`V::Fl(2.0)`, not `V::Fl(2)`); stale display expectations were
+      rebaselined; and the VM-only typed effect-handler regression was fixed by
+      restricting `Let`/`Seq` auto-threading to bridge/runtime Ops with dotted
+      labels while preserving pure free-monad `Op(...)` values as data. Gates:
+      `./v2/conformance/check.sh` green; `./v2/backend/check.sh` green (`ALL
+      GREEN (8 fixtures x 3 backends)`); affected conformance
+      `tests/conformance/run.sh --only 'effects,effect-*,async*,direct-*,js-*-effect-*,std-functor-applicative-monad,std-foldable-traversable,std-index' --no-memo`
+      = 12 passed, 0 failed; `tests/conformance/run.sh --only 'rust*,wasm*'
+      --no-memo` = 0 matching top-level cases, so Rust/WASM coverage is through
+      the v2 gate. Gotcha: top-level conformance uses `bin/ssc`; if
+      `bin/lib/ssc.jar` is missing, it reports `<missing>` outputs because
+      stderr is suppressed. Build the launcher (`bash install.sh --dev` or the
+      equivalent `installBin`) before interpreting affected conformance output.
+      Original:
+      restore the self-hosted v2 Rust/WASM target
       gate before any default-lane flip. Spec: `specs/v2-rust-wasm-lanes.md`.
       Baseline 2026-07-08 from this claim:
       `./v2/backend/check.sh` is green (`ALL GREEN (8 fixtures x 3
@@ -362,24 +379,24 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       Active plan 2026-07-08 (`p4-rust-wasm-lanes` / codex):
       - [x] Commit this spec/SPRINT/BUGS planning slice before code
             (`9fa380d89`, pushed before implementation).
-      - [ ] Align `v2/lib/backend-js-gen.ssc0` and
+      - [x] Align `v2/lib/backend-js-gen.ssc0` and
             `v2/lib/backend-rust-gen.ssc0` `show` helpers with VM
             `Show.show`: proper `Cons`/`Nil` chains render as `List(...)`.
             Because `ssc0-wasm` reuses the Rust generator, this also defines
             WASM display.
-      - [ ] Normalize self-hosted Rust float literal emission so `IrFloat(2.0)`
+      - [x] Normalize self-hosted Rust float literal emission so `IrFloat(2.0)`
             becomes valid Rust inside `V::Fl(...)` (`2.0`, or Rust constants
             for `nan`/`inf` if encountered).
-      - [ ] Update only stale `v2/conformance/check.sh` expectations caused by
+      - [x] Update only stale `v2/conformance/check.sh` expectations caused by
             accepted kernel display semantics (`List(...)`, collapsed whole
             floats); do not paper over semantic mismatches.
-      - [ ] Fix the VM-only effect-handler regression found after the target
+      - [x] Fix the VM-only effect-handler regression found after the target
             fixes: `async-tasks.ssc0`, typed `hm-async.hm`, and `handleM`
             rows return raw `Op(...)` under `run`/`run-ir` while JS/Rust target
             rows produce values. Track as `BUGS.md`
             `v2-vm-effect-handlers-return-raw-op`; do not accept raw `Op(...)`
             as the expected result.
-      - [ ] Verify `./v2/conformance/check.sh`, `./v2/backend/check.sh`, and
+      - [x] Verify `./v2/conformance/check.sh`, `./v2/backend/check.sh`, and
             affected repo-level conformance (`tests/conformance/run.sh --only
             'rust*,wasm*'` or the nearest matching slice if no cases match).
       Done-when: self-hosted Rust rows compile/pass, WASM quicksort/TCO remains

@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-vm-effect-handlers-return-raw-op — `open` (2026-07-08)
+## v2-vm-effect-handlers-return-raw-op — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` full
   `./v2/conformance/check.sh` after list/float expectation realignment.
@@ -33,8 +33,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
   value.
 - **Done-when:** the focused rows above and the full `./v2/conformance/check.sh`
   pass, with the fix SHA and root cause recorded here.
+- **FIXED (2026-07-08, `84d7ac77f`):** VM `Let`/`Seq` auto-threading treated
+  every `DataV("Op", ...)` as a runtime statement effect. That is correct for
+  bridge-emitted runtime ops with dotted labels such as `Console.writeLine`, but
+  wrong for pure v2/typed free-monad values such as `Op("log", ...)`,
+  `Op("yield", ...)`, and `Op("QA", ...)`, which handlers/schedulers must match
+  as ordinary data. `Runtime.isAutoThreadOp` now limits statement/binding
+  auto-threading to dotted bridge labels, preserving free-monad Ops as values.
+- **Verified:** minimal `run-ir` repro now returns `List(1)` instead of raw
+  `Op("log", 1, <closure>)`; focused rows
+  `async-tasks.ssc0`, `hm-async.hm`, `hm-eff-multiop.hm`, and `handleM row
+  composition` pass; full `./v2/conformance/check.sh` is green.
 
-## v2-ssc0-target-display-drift — `open` (2026-07-08)
+## v2-ssc0-target-display-drift — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
 - **Repro:** from a fresh worktree with Rust and Node available, run
@@ -58,8 +69,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
   because `ssc0-wasm` reuses the Rust generator.
 - **Done-when:** `./v2/conformance/check.sh` no longer reports list/float display
   mismatches; JS/Rust/WASM target rows compare against the VM output.
+- **FIXED (2026-07-08, `84d7ac77f`):** self-hosted JS and Rust target preludes
+  now render proper `Cons`/`Nil` chains as `List(...)`, matching VM `Show.show`
+  and the Scala source-generator backends. `v2/conformance/check.sh` was
+  rebaselined to the accepted kernel display contract for proper lists and
+  collapsed whole-float display.
+- **Verified:** full `./v2/conformance/check.sh`; `./v2/backend/check.sh`;
+  affected conformance
+  `tests/conformance/run.sh --only 'effects,effect-*,async*,direct-*,js-*-effect-*,std-functor-applicative-monad,std-foldable-traversable,std-index' --no-memo`;
+  `tests/conformance/run.sh --only 'rust*,wasm*' --no-memo` has no matching
+  top-level cases, so Rust/WASM coverage is the v2 gate.
 
-## v2-ssc0-rust-float-literal-emits-int — `open` (2026-07-08)
+## v2-ssc0-rust-float-literal-emits-int — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
 - **Repro:** run `./v2/conformance/check.sh` and inspect the diagnostics log.
@@ -78,6 +99,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
   constants if they surface.
 - **Done-when:** the Rust rows above compile and pass in
   `./v2/conformance/check.sh`, and the WASM quicksort/TCO gate remains green.
+- **FIXED (2026-07-08, `84d7ac77f`):** the self-hosted Rust backend normalizes
+  `IrFloat` literals after `#f->str`: whole finite values get a decimal
+  (`2.0`), existing decimal/exponent spellings are preserved, and
+  `nan`/`inf`/`-inf` map to Rust `f64` constants.
+- **Verified:** full `./v2/conformance/check.sh`; Rust numeric rows including
+  `hm-numops`, `hm-numcmp`, `hm-div`, mathx, rounding, dict-passing, and
+  method-poly/self compile and pass; WASM quicksort and 1e6-tail-call TCO remain
+  green.
 
 ## v2-run-cli-argv-not-forwarded — `fixed` (2026-07-08)
 
