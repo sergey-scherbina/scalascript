@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-mcp-and-tails
-worktree: ../scalascript-wt-p3-mcp-and-tails
-started: 2026-07-08
-status: in-progress
-task: p3-mcp-and-tails — fix the MCP srv.tool regression (bisect the switch range), then corpus tails (dsl-mini arity, control-center-live, node-fs-read, datatable-static-spa) and the two v1-deep digs (.many() truncation, actors scheduler-termination race)
