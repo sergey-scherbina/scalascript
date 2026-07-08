@@ -1,0 +1,6 @@
+feature/sprint-stale-v2-busi-duplicate 2026-07-08T20:34:05Z
+agent: codex
+heartbeat: 2026-07-08T20:34:05Z
+status: not-started
+done-so-far:
+next: remove stale duplicate v2-busi-testsweep-gaps queue entry from SPRINT; no code changes
