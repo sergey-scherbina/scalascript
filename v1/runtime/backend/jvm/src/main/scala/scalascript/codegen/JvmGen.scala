@@ -1040,6 +1040,7 @@ class JvmGen(
     if capabilities.contains(MutualTco) then body.append(JvmRuntimeMutualTco.source)
     if capabilities.contains(Reactive)  then body.append(reactiveRuntime)
     if capabilities.contains(Serve)     then body.append(serveRuntime)
+    else body.append(stubServeRuntime)
     if capabilities.contains(Mcp)       then body.append(JvmRuntimeMcp)
     if capabilities.contains(Dataset)   then body.append(JvmRuntimeDataset)
 
