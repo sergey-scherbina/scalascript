@@ -306,9 +306,23 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       queue a concrete fix before `v2-prod-default-switch`. Done-when: a fresh agent
       can decide from docs alone whether `v2-prod-default-switch` is unblocked, with
       the exact verification command and all exclusions justified.
-- [ ] **v2-prod-js-dsl-conformance** — fix or reclassify the JS-lane conformance
-      failure surfaced during `v2-prod-corpus-scope`. Repro after `scripts/sbtc
-      "installBin"`:
+- [x] **v2-prod-js-dsl-conformance** — DONE 2026-07-08 (39ebb6fda): fixed the
+      JS-lane `dsl-multi-pass` conformance failure surfaced during
+      `v2-prod-corpus-scope`. Root cause: JS `String.forall` passes boxed `_Char`
+      values to predicates, but `_arith` compared `_Char` against one-character JS
+      string literals with native object-vs-string ordering, so
+      `c >= 'a' && c <= 'z'` rejected alphabetic identifiers. Fix: add a shared
+      `_charCodeOrNull` helper and normalize `<`, `>`, `<=`, `>=` only when either
+      operand is `_Char`, preserving ordinary string comparison and string
+      concatenation. Verification: `scripts/sbtc "installBin"` green;
+      `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo` passes
+      `dsl-multi-pass` in INT/JS/JVM. Neighbor check
+      `scala-cli tests/conformance/run.sc -- --only 'dsl*,collections,parsing*,indent*' --no-memo`
+      confirms `collections` + `dsl-multi-pass` pass; it exposed unrelated INT-only
+      std/parsing empty-output failures, now tracked as
+      BUGS.md / SPRINT `conformance-parsing-int-empty-output`.
+      ORIGINAL PLAN: fix or reclassify the JS-lane conformance failure surfaced
+      during `v2-prod-corpus-scope`. Repro after `scripts/sbtc "installBin"`:
       `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo` currently
       reports `dsl-multi-pass` INT PASS / JS FAIL / JVM PASS. JS prints
       `[parse] unrecognised token: x` for the `"x + z"` and `"x + y"` scenarios
@@ -325,6 +339,16 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       the earlier slices. Start by identifying the CLI flag/parser path for `run`,
       preserving an explicit v1 escape hatch, then update docs and gate with the same
       full output-parity command recorded above.
+- [ ] **conformance-parsing-int-empty-output** — fix or reclassify the INT-only
+      std/parsing conformance failures found while verifying
+      `v2-prod-js-dsl-conformance`. Repro after `scripts/sbtc "installBin"`:
+      `scala-cli tests/conformance/run.sc -- --only 'parsing*' --no-memo`.
+      Current expanded-run evidence:
+      `parsing-error-node`, `parsing-parse-all`, and `parsing-recover-until` all
+      report missing output in the INT lane while JS/JVM are skipped by backend
+      metadata. Scope: release hygiene / parser-combinator conformance, not a v2
+      default output-parity blocker. Done-when: the three cases pass or BUGS.md
+      records a defensible exclusion with a follow-up owner.
 
 ## Phase-3 readiness (2026-07-06, corpus-tails run)
 

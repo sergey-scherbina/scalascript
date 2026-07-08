@@ -12,7 +12,25 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## conformance-dsl-multi-pass-js — `open` (2026-07-08)
+## conformance-parsing-int-empty-output — `open` (2026-07-08)
+
+- **Found by:** codex, while running a neighbor conformance slice for
+  `v2-prod-js-dsl-conformance`.
+- **Repro:**
+  `scala-cli tests/conformance/run.sc -- --only 'dsl*,collections,parsing*,indent*' --no-memo`
+- **Observed:** `collections` and `dsl-multi-pass` pass, but three INT-only parsing
+  cases produce empty output:
+  `parsing-error-node`, `parsing-parse-all`, and `parsing-recover-until`. JS/JVM are
+  skipped for those cases by backend metadata, so this is not the JS char-ordering
+  failure and not a v2 default output-parity blocker.
+- **Scope:** std/parsing conformance hygiene. Fix before claiming broad repo-wide
+  conformance green; do not mix with the v2 default-switch slice unless its gate
+  explicitly requires these parser-combinator cases.
+- **Next:** claim/fix a separate `conformance-parsing-int-empty-output` slice; start
+  by running the three parsing cases directly and checking whether the INT runner is
+  dropping stdout or the std/parsing examples now require a plugin/import update.
+
+## conformance-dsl-multi-pass-js — `fixed` (2026-07-08)
 
 - **Found by:** codex, while verifying the docs-only `v2-prod-corpus-scope` slice.
 - **Repro:**
@@ -27,8 +45,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Hypothesis:** JS lowering/runtime mishandles the string-character predicate
   shape used by `t.forall(c => (c >= 'a' && c <= 'z') || c == '_')`, so alphabetic
   identifiers are rejected as parse errors.
-- **Next:** claim/fix `v2-prod-js-dsl-conformance` before or alongside the default
-  switch if conformance must be green for release.
+- **Root cause:** JS `String.forall` passes boxed `_Char` values to the predicate, but
+  `_arith` ordered `_Char` against a one-character JS string literal with native JS
+  object-vs-string comparison. Equality already normalized `_Char`; ordering did not,
+  so `c >= 'a' && c <= 'z'` was false for alphabetic characters.
+- **Fix:** `39ebb6fda` adds a shared `_charCodeOrNull` helper and normalizes `<`, `>`,
+  `<=`, and `>=` when either operand is `_Char`, while preserving normal string
+  concatenation and ordinary string-vs-string comparison.
+- **Verification:** after `scripts/sbtc "installBin"`,
+  `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo` passes
+  `dsl-multi-pass` in INT/JS/JVM. Neighbor slice
+  `scala-cli tests/conformance/run.sc -- --only 'dsl*,collections,parsing*,indent*' --no-memo`
+  confirms `collections` and `dsl-multi-pass` still pass; the remaining `parsing*`
+  INT-only failures are tracked separately as `conformance-parsing-int-empty-output`.
 
 ## v2-rozum-schema-streaming-parity — `fixed` (2026-07-08)
 

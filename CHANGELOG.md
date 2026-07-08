@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — JS runtime: boxed char ordering in conformance DSL fixed
+
+`dsl-multi-pass` now passes the JS conformance lane. JS `String.forall` predicates
+compare boxed `_Char` values against char-literal strings by code point for ordering
+operators, preserving normal string concatenation and ordinary string comparison.
+The unrelated INT-only `parsing*` empty-output failures found during neighbor
+verification are tracked separately in `BUGS.md` / `SPRINT.md`.
+
+---
+
 ## 2026-07-08 — v2 production: corpus scope classified
 
 The full output-parity gate was re-run from the corpus-scope worktree and reproduced
