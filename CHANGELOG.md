@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance runner is now bloop-serverless (tests/conformance/run.sh)
+
+The conformance runner was the last one still documented as `scala-cli tests/conformance/run.sc`,
+which spawns a persistent bloop daemon (PPID 1, multi-GB, never exits) whenever the interactive
+`--server=false` shell wrapper isn't in effect — non-interactive shells and other agents. Added
+`tests/conformance/run.sh` (`exec scala-cli --server=false run.sc`), mirroring the existing
+`bench.sh` fix (bloop-serverless-scripts), and pointed AGENTS.md at it. Transparent wrapper —
+identical PASS output — but never leaves a bloop daemon behind.
+
+---
+
 ## 2026-07-08 — conformance: actors/effects INT lane fixed
 
 `actors-supervision` now passes INT/JS/JVM after the interpreter preserves the

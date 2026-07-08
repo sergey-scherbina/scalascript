@@ -19,7 +19,8 @@ Every piece of work, always, in this order:
    (`git push origin <branch>:main`, rebase on rejection) — small commits,
    feature and docs/bookkeeping separated. Verify (suite/corpus) BEFORE the push.
    4b. **Conformance before push**: run the affected slice —
-   `scala-cli tests/conformance/run.sc -- --only '<globs>'` (memoized green runs
+   `tests/conformance/run.sh --only '<globs>'` (serverless wrapper — never spawns a bloop
+   daemon; memoized green runs
    skip; warm JVM lane is the default). It costs seconds now, so a push without
    at least the affected-slice run is not acceptable. Full corpus stays for CI.
 5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
@@ -54,7 +55,8 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 - **Remove worktrees with `scripts/rm-worktree <name>`**, not bare `git worktree
   remove` — it also kills the worktree's sbt/bloop daemons (2-3 GB RSS each
   otherwise leak). `scripts/kill-stale-builders` finds orphans (--kill to stop).
-- **Conformance loop**: `scala-cli tests/conformance/run.sc -- --only 'glob*'`
+- **Conformance loop**: `tests/conformance/run.sh --only 'glob*'` (the wrapper forces
+  `--server=false` so no persistent bloop daemon is left behind — see bench.sh, bloop-serverless-scripts)
   runs just your cases; green runs are memoized (unchanged cases skip;
   `--no-memo` to force). `SSC_SCALACLI_SERVER=1` keeps a warm compiler for the
   JVM lane. RAM-bounded entrypoint: `scripts/conformance`.
