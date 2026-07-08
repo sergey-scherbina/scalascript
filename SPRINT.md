@@ -868,7 +868,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             `bin/ssc run --v1 tests/conformance/variables.ssc`; and
             `tests/conformance/run.sh --only 'variables' --no-memo`
             (**1/1 green**).
-      - [ ] **jvm-scjvm-cache-codegen-version** — production cache follow-up found
+      - [x] **jvm-scjvm-cache-codegen-version** — production cache follow-up found
             while fixing std-ui: `run-jvm` reused source-fresh `.scjvm` artifacts
             emitted by an older JVM backend, so the assembled CLI kept failing until
             `tests/conformance/.ssc-artifacts/std-ui*.scjvm` was removed. Tracked in
@@ -876,6 +876,18 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             codegen version (or an equivalent invalidation signal) and a CLI
             regression proves stale source-fresh artifacts regenerate after the
             version changes.
+            FIXED 2026-07-08 in `322ee868f`: JVM `.scjvm` artifacts now carry a
+            `codegenVersion` cache key set by `JvmArtifactIO`, and
+            `ModuleGraph.isJvmStale` invalidates source-fresh artifacts whose
+            codegen key is missing or old. Legacy artifacts remain ABI-readable
+            and regenerate instead of being reused. Verification:
+            `scripts/sbtc "core/testOnly scalascript.artifact.ModuleGraphTest"`
+            (**15/15 green**), `scripts/sbtc "cli/testOnly scalascript.cli.VerifyCliTest"`
+            (**7/7 green**), `scripts/sbtc "installBin"`, and
+            `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+            (**5/5 green**). Next: run full default conformance with the
+            serverless wrapper and either mark `green-main-conformance-gating`
+            complete or record the next blocker before releasing the claim.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

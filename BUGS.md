@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## jvm-scjvm-cache-codegen-version — `open` (2026-07-08)
+## jvm-scjvm-cache-codegen-version — `fixed` (2026-07-08)
 
 - **Found by:** codex, while fixing `conformance-jvm-std-ui-generated-braces`.
 - **Repro:** keep a stale generated artifact such as
@@ -24,10 +24,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `tests/conformance/.ssc-artifacts/std-ui*.scjvm` forced regeneration and the same
   assembled command passed. This means the `.scjvm` freshness key does not account
   for backend codegen/runtime changes.
-- **Status:** open; decide and implement a production-safe cache key/invalidation
-  scheme, likely by recording the compiler/backend version in `.scjvm` artifacts
-  and adding a CLI regression that stale source-fresh artifacts regenerate after a
-  codegen version change.
+- **Status:** fixed in `322ee868f`. Root cause was that `.scjvm` artifacts used
+  only the `.ssc` `sourceHash` as their freshness key, so generated Scala from an
+  older JVM backend survived source-fresh after codegen/runtime fixes.
+- **Fix:** `.scjvm` artifacts now carry `codegenVersion =
+  "jvm-codegen-2026-07-08-1"` when emitted by the normal JVM artifact writer.
+  `ModuleGraph.isJvmStale` treats missing/old codegen versions as stale while
+  preserving ABI compatibility: legacy artifacts remain readable, then regenerate.
+- **Verified:** `scripts/sbtc "core/testOnly scalascript.artifact.ModuleGraphTest"`
+  (**15/15 green**, including legacy/old-version source-fresh `.scjvm`
+  invalidation), `scripts/sbtc "cli/testOnly scalascript.cli.VerifyCliTest"`
+  (**7/7 green**), `scripts/sbtc "installBin"`, and
+  `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+  (**5/5 green**).
 
 ## conformance-int-variables-while-update — `fixed` (2026-07-08)
 

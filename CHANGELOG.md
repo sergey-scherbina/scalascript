@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — fix: JVM `.scjvm` cache invalidates old codegen
+
+Source-fresh `.scjvm` artifacts now carry a JVM `codegenVersion` cache key, so
+`run-jvm` regenerates artifacts emitted by older JVM backend code instead of
+reusing stale generated Scala after compiler/runtime fixes. Targeted gate:
+`tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+is **5/5 green**.
+
+---
+
 ## 2026-07-08 — conformance: INT while assignment order fixed
 
 `variables` now passes INT/JS/JVM. The interpreter's closed-form while optimizer
