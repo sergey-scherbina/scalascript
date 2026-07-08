@@ -1,7 +1,0 @@
-agent: claude-fable-5
-branch: feature/p4-compiled-lanes-audit
-worktree: ../scalascript-wt-p4-lanes
-started: 2026-07-08
-status: in-progress
-status-update: audit DONE (18/24 -> 24/24 kernel green; programme in SPRINT; jvm-lane = direct ASM bytecode decision). NEXT: p4-ssc1c-corpus-probe, p4-jvm-lane-bytecode
-task: p4-compiled-lanes — AUDIT v2 target backends (what exists in v2/backend, coverage vs corpus), then SPRINT plan: route --backend jvm/js/rust/wasm + emit-* through CoreIR→v2 codegens with per-lane parity gates; execute lane-by-lane
