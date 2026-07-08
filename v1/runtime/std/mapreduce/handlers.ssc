@@ -39,15 +39,21 @@ object HandlerRegistry:
   // with the same name (last-wins; allows re-registration at restart).
   def register[A, B](h: NamedHandler[A, B]): Unit =
     val erasedFn: Any => Any = x => h.fn(x.asInstanceOf[A]).asInstanceOf[Any]
-    entries = (h.name, erasedFn) :: entries.filter(_._1 != h.name)
+    entries = (h.name, erasedFn) :: entries.filter {
+      case (key, _) => key != h.name
+    }
 
   // Look up by name.  Returns Some(fn) or None if not registered.
   def lookup(name: String): Option[Any => Any] =
-    entries.find(_._1 == name).map(_._2)
+    entries.find {
+      case (key, _) => key == name
+    }.map {
+      case (_, fn) => fn
+    }
 
   // Apply a registered handler to a value.  Throws if name is unknown.
   def apply(name: String, value: Any): Any =
-    lookup(name) match
+    HandlerRegistry.lookup(name) match
       case Some(fn) => fn(value)
       case None   => throw new RuntimeException(
         s"HandlerRegistry: no handler registered for '$name'. " +
@@ -55,16 +61,16 @@ object HandlerRegistry:
 
   // Apply a registered predicate (Boolean-returning handler).
   def applyPredicate(name: String, value: Any): Boolean =
-    apply(name, value).asInstanceOf[Boolean]
+    HandlerRegistry.apply(name, value).asInstanceOf[Boolean]
 
   // Apply a registered key extractor (returns the groupBy key).
   def applyKey(name: String, value: Any): Any =
-    apply(name, value)
+    HandlerRegistry.apply(name, value)
 
   // Apply a registered combiner (T, T) => T reducer.
   def applyCombine(name: String, a: Any, b: Any): Any =
     // Combiners are stored as Any => Any where the input is a pair.
-    apply(name, (a, b))
+    HandlerRegistry.apply(name, (a, b))
 
   // Clear the registry (useful in tests).
   def clear(): Unit =
@@ -72,7 +78,9 @@ object HandlerRegistry:
 
   // List all registered names (for diagnostics / health-check).
   def registeredNames(): List[String] =
-    entries.map(_._1)
+    entries.map {
+      case (key, _) => key
+    }
 
 // ── DSL helper ────────────────────────────────────────────────────────
 // `named("parseRow")` builds a NamedRef that the coordinator embeds in

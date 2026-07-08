@@ -22,18 +22,28 @@ HandlerRegistry.register(NamedHandler("splitWords",
 
 HandlerRegistry.register(NamedHandler("toPair", (w: String) => (w, 1)))
 
-HandlerRegistry.register(NamedHandler("wordKey", (pair: (String, Int)) => pair._1))
+HandlerRegistry.register(NamedHandler("wordKey", (pair: Any) =>
+  pair match
+    case (word: String, _: Int) => word
+    case _ => ""
+))
 
 HandlerRegistry.register(NamedHandler("sumCounts",
-  (pair: (String, Int), b: (String, Int)) => (pair._1, pair._2 + b._2)
+  (pair: Any) =>
+    pair match
+      case ((word: String, left: Int), (_: String, right: Int)) => (word, left + right)
+      case _ => ("", 0)
 ))
 
 HandlerRegistry.register(NamedHandler("nonEmptyPair",
-  (pair: (String, Int)) => pair._1.nonEmpty
+  (pair: Any) =>
+    pair match
+      case (word: String, _: Int) => word.nonEmpty
+      case _ => false
 ))
 
 // ── Cluster setup ──────────────────────────────────────────────────────
-val cluster = Cluster.connect(
+val cluster = localLoopbackCluster(
   Node("worker-1@10.0.0.10:9100"),
   Node("worker-2@10.0.0.11:9100"),
   Node("worker-3@10.0.0.12:9100")
@@ -64,13 +74,33 @@ val counted = runDistributedShuffle(
 )
 
 // ── Collect and display top 10 ─────────────────────────────────────────
-val top10 = counted.results
-  .asInstanceOf[List[(String, Int)]]
-  .sortBy(_._2)
+val wordCounts = counted.results
+  .asInstanceOf[List[(String, Any)]]
+  .map { pair =>
+    pair match
+      case (word: String, value) =>
+        val count = value match
+          case (_: String, c: Int) => c
+          case c: Int => c
+          case _ => 0
+        (word, count)
+      case _ => ("", 0)
+  }
+
+val top10 = wordCounts
+  .sortBy { pair =>
+    pair match
+      case (_: String, count: Int) => count
+      case _ => 0
+  }
   .reverse
   .take(10)
 
-top10.foreach { case (w, c) => println(s"$w: $c") }
+top10.foreach { pair =>
+  pair match
+    case (w: String, c: Int) => println(s"$w: $c")
+    case _ => ()
+}
 
-cluster.close()
+cluster.pids.foreach(pid => pid ! ShutdownWorker())
 ```

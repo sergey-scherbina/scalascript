@@ -163,6 +163,8 @@ object WorkerProtocol:
         handleMessages()
       case ShutdownWorker() =>
         ()   // exit gracefully
+      case "__shutdown__" =>
+        ()   // backward-compatible shutdown signal from older Cluster.close
       case ProcessPartition(jobId, partId, data, stage, replyTo) =>
         val result = applyStage(stage, data)
         replyTo ! PartitionResult(jobId, partId, result)
@@ -256,7 +258,7 @@ def runDistributed(
     assignments  = assignments,
     partitionMap = partitionMap,
     stage        = stage,
-    pending      = assignments.map(_._1).toSet,
+    pending      = assignments.map { case (partId, _, _) => partId }.toSet,
     results      = Map(),
     failures     = Nil,
     retries      = retries,
@@ -312,7 +314,7 @@ def runDistributedWire(
     assignments  = assignments,
     partitionMap = partitionMap,
     stage        = stage,
-    pending      = assignments.map(_._1).toSet,
+    pending      = assignments.map { case (partId, _, _) => partId }.toSet,
     results      = Map(),
     failures     = Nil,
     retries      = retries,
@@ -373,7 +375,9 @@ def collectResults(
   retried:      Set[Int]
 ): DistributedResult[Any] =
   if pending.isEmpty then
-    val ordered = assignments.map(_._1).flatMap(i => results.getOrElse(i, Nil))
+    val ordered = assignments
+      .map { case (partId, _, _) => partId }
+      .flatMap(i => results.getOrElse(i, Nil))
     DistributedResult(ordered, failures)
   else
     (receive {
@@ -397,7 +401,7 @@ def collectResults(
 
       // Link failure — worker actor died
       case Exit(deadPid, reason) =>
-        val maybeAssignment = assignments.find(_._2 == deadPid)
+        val maybeAssignment = assignments.find { case (_, pid, _) => pid == deadPid }
         maybeAssignment match
           case None =>
             collectResults(
@@ -432,7 +436,9 @@ def collectWireResults(
   wireFormat:   String
 ): DistributedResult[DatasetWirePartition] =
   if pending.isEmpty then
-    val ordered = assignments.map(_._1).flatMap(i => results.get(i))
+    val ordered = assignments
+      .map { case (partId, _, _) => partId }
+      .flatMap(i => results.get(i))
     DistributedResult(ordered, failures)
   else
     (receive {
@@ -469,7 +475,7 @@ def collectWireResults(
 
       // Link failure — worker actor died
       case Exit(deadPid, reason) =>
-        val maybeAssignment = assignments.find(_._2 == deadPid)
+        val maybeAssignment = assignments.find { case (_, pid, _) => pid == deadPid }
         maybeAssignment match
           case None =>
             collectWireResults(
@@ -539,7 +545,9 @@ def handleFailure(
       retried + partId
     )
   else if allowPartial then
-    val failedNode = assignments.find(_._1 == partId).map(_._3)
+    val failedNode = assignments
+      .find { case (id, _, _) => id == partId }
+      .map { case (_, _, node) => node }
       .getOrElse(Node("unknown@unknown:0"))
     val err = DistributedError(failedNode, reason)
     collectResults(
@@ -549,7 +557,9 @@ def handleFailure(
       0, allowPartial, cluster, retried
     )
   else
-    val failedNode = assignments.find(_._1 == partId).map(_._3)
+    val failedNode = assignments
+      .find { case (id, _, _) => id == partId }
+      .map { case (_, _, node) => node }
       .getOrElse(Node("unknown@unknown:0"))
     throw DistributedError(failedNode, reason)
 
@@ -599,7 +609,9 @@ def handleWireFailure(
       wireFormat
     )
   else if allowPartial then
-    val failedNode = assignments.find(_._1 == partId).map(_._3)
+    val failedNode = assignments
+      .find { case (id, _, _) => id == partId }
+      .map { case (_, _, node) => node }
       .getOrElse(Node("unknown@unknown:0"))
     val err = DistributedError(failedNode, reason)
     collectWireResults(
@@ -609,7 +621,9 @@ def handleWireFailure(
       0, allowPartial, cluster, retried, wireFormat
     )
   else
-    val failedNode = assignments.find(_._1 == partId).map(_._3)
+    val failedNode = assignments
+      .find { case (id, _, _) => id == partId }
+      .map { case (_, _, node) => node }
       .getOrElse(Node("unknown@unknown:0"))
     throw DistributedError(failedNode, reason)
 ```

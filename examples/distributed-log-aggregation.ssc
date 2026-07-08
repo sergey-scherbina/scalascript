@@ -26,18 +26,25 @@ HandlerRegistry.register(NamedHandler("toServicePair",
 ))
 
 HandlerRegistry.register(NamedHandler("serviceKey",
-  (pair: (String, Long)) => pair._1
+  (pair: Any) =>
+    pair match
+      case (service: String, _: Long) => service
+      case _ => "unknown"
 ))
 
 HandlerRegistry.register(NamedHandler("sumLongs",
-  (a: (String, Long), b: (String, Long)) => (a._1, a._2 + b._2)
+  (pair: Any) =>
+    pair match
+      case ((service: String, left: Long), (_: String, right: Long)) =>
+        (service, left + right)
+      case _ => ("unknown", 0L)
 ))
 ```
 
 Main program:
 
 ```scalascript
-val cluster = Cluster.connect(
+val cluster = localLoopbackCluster(
   Node("worker-1@10.0.0.10:9100"),
   Node("worker-2@10.0.0.11:9100"),
   Node("worker-3@10.0.0.12:9100")
@@ -68,14 +75,30 @@ val aggregated = runDistributedShuffle(
 if aggregated.failures.nonEmpty then
   println("Warning: partial result — " + aggregated.failures.length + " node(s) failed")
 
-val sorted = aggregated.results
-  .asInstanceOf[List[(String, Long)]]
-  .sortBy(_._2)
+val serviceCounts = aggregated.results
+  .asInstanceOf[List[(String, Any)]]
+  .map { pair =>
+    pair match
+      case (service: String, value) =>
+        val count = value match
+          case (_: String, c: Long) => c
+          case c: Long => c
+          case _ => 0L
+        (service, count)
+      case _ => ("unknown", 0L)
+  }
+
+val sorted = serviceCounts
+  .sortBy { pair =>
+    pair match
+      case (_: String, count: Long) => count
+      case _ => 0L
+  }
   .reverse
 
 sorted.foreach { case (svc, count) =>
   println(svc + ": " + count + " errors")
 }
 
-cluster.close()
+cluster.pids.foreach(pid => pid ! ShutdownWorker())
 ```

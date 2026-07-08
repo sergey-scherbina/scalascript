@@ -101,7 +101,7 @@ def withFailurePolicy(
     val healthyPid = cluster.pids
       .zip(cluster.nodes)
       .find { case (_, n) => n.address != failedNode.address }
-      .map(_._1)
+      .map { case (pid, _) => pid }
       .getOrElse(cluster.pids.head)   // last resort: retry on same node family
 
     healthyPid ! ProcessPartition(jobId, failedPart, state.partition, stage, me)

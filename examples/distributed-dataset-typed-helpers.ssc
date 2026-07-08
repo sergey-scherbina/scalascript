@@ -46,14 +46,14 @@ def addBonus(json: TJsonValue): TJsonValue =
     case other => other
 
 def sumSaleJson(pair: (TJsonValue, TJsonValue)): TJsonValue =
-  val left = pair._1
-  val right = pair._2
-  val user = userKey(left)
-  val total = amountOf(left) + amountOf(right)
-  TJsonValue.Obj(Map(
-    "user" -> user,
-    "amount" -> TJsonValue.Num(BigDecimal(total))
-  ))
+  pair match
+    case (left, right) =>
+      val user = userKey(left)
+      val total = amountOf(left) + amountOf(right)
+      TJsonValue.Obj(Map(
+        "user" -> user,
+        "amount" -> TJsonValue.Num(BigDecimal(total))
+      ))
 
 val sales = List(
   Sale("ada", 10),

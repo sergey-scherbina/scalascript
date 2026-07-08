@@ -37,14 +37,14 @@ def amountOf(json: TJsonValue): Int =
     case _ => 0
 
 def sumSaleJson(pair: (TJsonValue, TJsonValue)): TJsonValue =
-  val left = pair._1
-  val right = pair._2
-  val user = userKey(left)
-  val total = amountOf(left) + amountOf(right)
-  TJsonValue.Obj(Map(
-    "user" -> user,
-    "amount" -> TJsonValue.Num(BigDecimal(total))
-  ))
+  pair match
+    case (left, right) =>
+      val user = userKey(left)
+      val total = amountOf(left) + amountOf(right)
+      TJsonValue.Obj(Map(
+        "user" -> user,
+        "amount" -> TJsonValue.Num(BigDecimal(total))
+      ))
 
 val partitions = DatasetCodec.encodePartitions(Vector(
   Vector(Sale("ada", 10), Sale("grace", 3)),

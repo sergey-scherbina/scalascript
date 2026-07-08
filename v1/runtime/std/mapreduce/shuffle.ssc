@@ -8,6 +8,7 @@ exports:
   - ShuffleProtocol
   - runDistributedShuffle
   - runDistributedShuffleWire
+  - localLoopbackCluster
   - WireShufflePartial
   - WireShufflePartialFrame
   - WireProcessKeyPartition
@@ -138,6 +139,9 @@ object ShuffleProtocol:
       case ShutdownWorker() =>
         ()
 
+      case "__shutdown__" =>
+        ()
+
       case ProcessPartition(jobId, partId, data, stage, replyTo) =>
         // Check if stage ends with a GroupByOp or ReduceByKeyOp.
         // If so, we are in Phase A of shuffle: produce buckets.
@@ -175,7 +179,11 @@ object ShuffleProtocol:
           if combineHandlerName.isEmpty then
             items   // groupBy: return the list as-is
           else
-            items.reduce((a, b) => HandlerRegistry.applyCombine(combineHandlerName, a, b))
+            items match
+              case Nil => Nil
+              case head :: tail =>
+                tail.foldLeft(head)((acc, item) =>
+                  HandlerRegistry.applyCombine(combineHandlerName, acc, item))
         replyTo ! KeyResult(jobId, key, result)
         handleMessages()
 
@@ -276,8 +284,11 @@ object ShuffleProtocol:
             .updated("values", valueArray)
         TJsonValue.Obj(fields)
       else
-        items.reduce((a, b) =>
-          HandlerRegistry.applyCombine(combineHandlerName, a, b).asInstanceOf[TJsonValue])
+        items match
+          case Nil => TJsonValue.Arr(Vector.empty[TJsonValue])
+          case head :: tail =>
+            tail.foldLeft(head)((acc, item) =>
+              HandlerRegistry.applyCombine(combineHandlerName, acc, item).asInstanceOf[TJsonValue])
     if format == "json" then
       replyTo ! WireKeyResult(jobId, key, result)
     else
@@ -293,8 +304,9 @@ object ShuffleProtocol:
   def splitAtShuffle(ops: List[StageOp]): (List[StageOp], Option[StageOp]) =
     ops match
       case Nil => (Nil, None)
-      case (op @ GroupByOp(_)) :: _      => (Nil, Some(op))
-      case (op @ ReduceByKeyOp(_, _)) :: _ => (Nil, Some(op))
+      case GroupByOp(keyName) :: _ => (Nil, Some(GroupByOp(keyName)))
+      case ReduceByKeyOp(keyName, combineName) :: _ =>
+        (Nil, Some(ReduceByKeyOp(keyName, combineName)))
       case head :: tail =>
         val (prior, shuffle) = splitAtShuffle(tail)
         (head :: prior, shuffle)
@@ -302,18 +314,22 @@ object ShuffleProtocol:
   // Build key-bucketed list from intermediate items.
   def buildBuckets(items: List[Any], keyName: String): List[(Any, List[Any])] =
     val keyedItems = items.map(x => (HandlerRegistry.applyKey(keyName, x), x))
-    val keys = keyedItems.map(_._1).distinct
+    val keys = keyedItems.map { case (key, _) => key }.distinct
     keys.map { k =>
-      val group = keyedItems.filter(_._1 == k).map(_._2)
+      val group = keyedItems
+        .filter { case (key, _) => key == k }
+        .map { case (_, item) => item }
       (k, group)
     }
 
   // Build key-bucketed list from typed wire JsonValue items.
   def buildWireBuckets(items: List[TJsonValue], keyName: String): List[(TJsonValue, List[TJsonValue])] =
     val keyedItems = items.map(x => (HandlerRegistry.applyKey(keyName, x).asInstanceOf[TJsonValue], x))
-    val keys = keyedItems.map(_._1).distinct
+    val keys = keyedItems.map { case (key, _) => key }.distinct
     keys.map { k =>
-      val group = keyedItems.filter(_._1 == k).map(_._2)
+      val group = keyedItems
+        .filter { case (key, _) => key == k }
+        .map { case (_, item) => item }
       (k, group)
     }
 
@@ -327,6 +343,15 @@ object ShuffleProtocol:
         case Right(bytes) => (key, bytes)
         case Left(_)      => throw RuntimeException("DatasetWire encodePartition failed")
     }
+
+// Build an in-process map-reduce cluster for offline examples and corpus gates.
+// `ShuffleProtocol` handles both plain map partitions and shuffle key partitions.
+def localLoopbackCluster(ns: Node*): Cluster =
+  val nodeList = ns.toList
+  val pids = nodeList.map { _ =>
+    spawn { () => ShuffleProtocol.handleMessages() }
+  }
+  Cluster(nodeList, pids)
 
 // ── Shuffle coordinator ───────────────────────────────────────────────
 
@@ -385,11 +410,15 @@ def runDistributedShuffle(
   val mergedByKey = mergeBuckets(allBuckets)
 
   // Phase B: dispatch each key's items to a worker for reduction / grouping
-  val keys = mergedByKey.map(_._1)
+  val keys = mergedByKey.map { case (key, _) => key }
   val keyAssignments = keys.zipWithIndex.map { case (key, idx) =>
     val w = workers(idx % workers.length)
-    val wPid = w._1
-    val items = mergedByKey.find(_._1 == key).map(_._2).getOrElse(Nil)
+    val wPid = w match
+      case (pid, _) => pid
+    val items = mergedByKey
+      .find { case (candidate, _) => candidate == key }
+      .map { case (_, values) => values }
+      .getOrElse(Nil)
     wPid ! ProcessKeyPartition(
       jobId, key, items,
       shuffleStage.combineHandlerName,
@@ -406,7 +435,13 @@ def runDistributedShuffle(
   )
 
   // Build final result as List[(K, V)] in original key order
-  val ordered = keys.flatMap(k => keyResults.find(_._1 == k).map(x => (k, x._2)))
+  val ordered = keys.map { k =>
+    val value = keyResults
+      .find { case (key, _) => key == k } match
+        case Some((_, found)) => found
+        case None => Nil
+    (k, value)
+  }
   DistributedResult(ordered.asInstanceOf[List[Any]], Nil)
 
 // Run a typed wire distributed groupBy or reduceByKey with coordinator-mediated shuffle.
@@ -450,13 +485,17 @@ def runDistributedShuffleWire(
   )
 
   val mergedByKey = mergeWireBuckets(allBuckets)
-  val keys = mergedByKey.map(_._1)
+  val keys = mergedByKey.map { case (key, _) => key }
 
   // Correctness-first wire path: dispatch key partitions through the first
   // available shuffle worker. Later phases can add round-robin/direct shuffle.
-  val reducePid = workers.head._1
+  val reducePid = workers.head match
+    case (pid, _) => pid
   val keyAssignments = keys.map { key =>
-    val items = mergedByKey.find(_._1 == key).map(_._2).getOrElse(Nil)
+    val items = mergedByKey
+      .find { case (candidate, _) => candidate == key }
+      .map { case (_, values) => values }
+      .getOrElse(Nil)
     sendWireKeyProcess(
       reducePid,
       jobId,
@@ -475,7 +514,12 @@ def runDistributedShuffleWire(
     results = Nil
   )
 
-  val orderedValues = keys.flatMap(k => keyResults.find(_._1 == k).map(_._2))
+  val orderedValues = keys.map { k =>
+    keyResults
+      .find { case (key, _) => key == k } match
+        case Some((_, value)) => value
+        case None => TJsonValue.Arr(Vector.empty[TJsonValue])
+  }
   val outputValues: Vector[TJsonValue] = orderedValues.toVector
   val outputPartition =
     DatasetWirePartition(0, outputValues)
@@ -497,9 +541,11 @@ def collectShufflePartials(
 
 // Merge key-bucketed lists from multiple workers into one per-key list.
 def mergeBuckets(buckets: List[(Any, List[Any])]): List[(Any, List[Any])] =
-  val keys = buckets.map(_._1).distinct
+  val keys = buckets.map { case (key, _) => key }.distinct
   keys.map { k =>
-    val allItems = buckets.filter(_._1 == k).flatMap(_._2)
+    val allItems = buckets
+      .filter { case (key, _) => key == k }
+      .flatMap { case (_, values) => values }
     (k, allItems)
   }
 
@@ -521,9 +567,11 @@ def collectWireShufflePartials(
 
 // Merge typed wire key-bucketed lists from multiple workers into one per-key list.
 def mergeWireBuckets(buckets: List[(TJsonValue, List[TJsonValue])]): List[(TJsonValue, List[TJsonValue])] =
-  val keys = buckets.map(_._1).distinct
+  val keys = buckets.map { case (key, _) => key }.distinct
   keys.map { k =>
-    val allItems = buckets.filter(_._1 == k).flatMap(_._2)
+    val allItems = buckets
+      .filter { case (key, _) => key == k }
+      .flatMap { case (_, values) => values }
     (k, allItems)
   }
 

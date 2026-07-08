@@ -32,7 +32,7 @@ HandlerRegistry.register(NamedHandler("orderCustomerKey",
   (row: Any) =>
     row match
       case ("order", _, customerId: String, _) => customerId
-      case ("customer", customerId: String, _) => customerId
+      case ("customer", customerId: String, _, _) => customerId
       case _ => "unknown"
 ))
 
@@ -56,7 +56,7 @@ HandlerRegistry.register(NamedHandler("parseTagged",
 Main program:
 
 ```scalascript
-val cluster = Cluster.connect(
+val cluster = localLoopbackCluster(
   Node("worker-1@10.0.0.10:9100"),
   Node("worker-2@10.0.0.11:9100"),
   Node("worker-3@10.0.0.12:9100")
@@ -67,9 +67,9 @@ val customersPath = if args.length > 1 then args(1) else "./data/customers.csv"
 
 // Load both datasets locally (small reference table pattern)
 val orderLines    = Dataset.fromFile(ordersPath).collect()
-    .filter(!_.startsWith("orderId"))
+    .filter(line => !line.startsWith("orderId"))
 val customerLines = Dataset.fromFile(customersPath).collect()
-    .filter(!_.startsWith("customerId"))
+    .filter(line => !line.startsWith("customerId"))
 
 // Tag rows before merging into one dataset for co-shuffle
 val taggedOrders    = orderLines.map(l => "order," + l)
@@ -90,21 +90,41 @@ val grouped = runDistributedShuffle(
 // Local join per customerId group: match orders with their customer
 val joined = grouped.results.asInstanceOf[List[(String, List[Any])]].flatMap {
   case (customerId, rows) =>
-    val customers = rows.filter(r => r.asInstanceOf[(String, Any, Any, Any)]._1 == "customer")
-    val orders    = rows.filter(r => r.asInstanceOf[(String, Any, Any, Any)]._1 == "order")
+    val customers = rows.filter { row =>
+      row match
+        case ("customer", _, _, _) => true
+        case _ => false
+    }
+    val orders = rows.filter { row =>
+      row match
+        case ("order", _, _, _) => true
+        case _ => false
+    }
     customers.flatMap { cust =>
-      val (_, _, customerName, _) = cust.asInstanceOf[(String, String, String, String)]
+      val customerName =
+        cust match
+          case ("customer", _: String, name: String, _) => name
+          case _ => ""
       orders.map { ord =>
-        val (_, orderId, _, amount) = ord.asInstanceOf[(String, String, String, String)]
+        val orderId =
+          ord match
+            case ("order", id: String, _: String, _: String) => id
+            case _ => ""
+        val amount =
+          ord match
+            case ("order", _: String, _: String, value: String) => value
+            case _ => ""
         (customerId, customerName, orderId, amount)
       }
     }
 }
 
-val sorted = joined.sortBy(_._3)   // sort by orderId
+val sorted = joined.sortBy {
+  case (_, _, orderId, _) => orderId
+}
 sorted.foreach { case (cid, name, oid, amount) =>
   println(s"$oid | $cid | $name | $amount")
 }
 
-cluster.close()
+cluster.pids.foreach(pid => pid ! ShutdownWorker())
 ```

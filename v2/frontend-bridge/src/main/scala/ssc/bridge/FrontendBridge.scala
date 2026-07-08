@@ -1255,8 +1255,17 @@ object FrontendBridge:
       // val (a, b) = rhs; rest (tuple destructuring)
       case (v: Defn.Val) :: rest =>
         val rhs   = convertExpr(v.rhs, scope)
-        val names = v.pats.flatMap(patNames)
-        if names.isEmpty then
+        val indexedNames: List[(String, Int)] =
+          v.pats match
+            case List(Pat.Tuple(pats)) =>
+              pats.toList.zipWithIndex.flatMap {
+                case (Pat.Var(Term.Name(n)), i) => Some((n, i))
+                case (Pat.Typed(Pat.Var(Term.Name(n)), _), i) => Some((n, i))
+                case _ => None
+              }
+            case _ =>
+              v.pats.flatMap(patNames).zipWithIndex
+        if indexedNames.isEmpty then
           CT.Let(List(rhs), convertBlock(rest, "_blk_" :: scope, topLevel))
         else
           // Bind tuple to "_tup_", then extract each field
@@ -1270,7 +1279,7 @@ object FrontendBridge:
                   List(CT.Prim("fieldAt", List(lookupVar(tupName, sc), CT.Lit(Const.CInt(i))))),
                   chain(tail, nm :: sc)
                 )
-          CT.Let(List(rhs), chain(names.zipWithIndex.toList, withTup))
+          CT.Let(List(rhs), chain(indexedNames, withTup))
 
       // var name = rhs; rest (mutable cell)
       case (v: Defn.Var) :: rest =>
@@ -2062,7 +2071,12 @@ object FrontendBridge:
           val key = s"${ctorPatName(ctor)}/${ac.values.length}"
           val dup = !seen.add(key)
           dup || ac.values.exists {
-            case _: Pat.Extract | _: Lit => true
+            case _: Pat.Extract | _: Pat.Tuple | _: Lit => true
+            case Pat.Typed(inner, _) =>
+              inner match
+                case _: Pat.Extract | _: Pat.Tuple | _: Lit => true
+                case Pat.Var(Term.Name(n)) if isCtorName(n) => true
+                case _ => false
             case Pat.Var(Term.Name(n)) if isCtorName(n) => true
             case _ => false
           }
@@ -2186,9 +2200,11 @@ object FrontendBridge:
       case Pat.Tuple(pats) =>
         val arity = pats.length
         val names = pats.toList.flatMap {
-          case Pat.Var(Term.Name(n)) => List(n)
-          case Pat.Wildcard()        => List("_")
-          case _                     => List("_")
+          case Pat.Var(Term.Name(n))               => List(n)
+          case Pat.Typed(Pat.Var(Term.Name(n)), _) => List(n)
+          case Pat.Wildcard()                      => List("_")
+          case Pat.Typed(Pat.Wildcard(), _)        => List("_")
+          case _                                   => List("_")
         }.reverse
         (Some((s"Tuple$arity", arity)), names)
       case Pat.Alternative(alts) =>
@@ -2323,6 +2339,10 @@ object FrontendBridge:
         "RuntimeException", "Exception", "IllegalArgumentException",
         "IllegalStateException", "UnsupportedOperationException")
 
+  private val impureMethodObjects: Set[String] =
+    Set("Dataset", "DistributedDataset", "HandlerRegistry", "WorkerProtocol",
+        "ShuffleProtocol", "Cluster")
+
   private def allParams(d: Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value)))
 
@@ -2339,6 +2359,9 @@ object FrontendBridge:
                           "Nil","Right","Left","Option","Tuple","BigInt","BigDecimal",
                           "Currency","Money","Duration","Range","Pair","Triple")
       (pureCtors.contains(ctor) || ctor.head.isUpper) && args.forall(isPureValRhs)
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(obj), _), _)
+        if impureMethodObjects.contains(obj) =>
+      false
     case Term.Apply.After_4_6_0(Term.Select(Term.Name(obj), _), ac)
         if methodObjectNames.contains(obj) =>
       // Factory calls on converted OBJECTS (Parser.regex, Tool.text, ...) are
