@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: actors/effects INT lane fixed
+
+`actors-supervision` now passes INT/JS/JVM after the interpreter preserves the
+core actor `exit(pid, reason)` native when os-plugin registers `exit(code)`.
+`effects` now declares `Choose` as `multi effect`, matching its nondeterminism
+handler and the algebraic-effects spec.
+
+---
+
 ## 2026-07-08 — conformance: external httpbin fixture pending
 
 `tests/conformance/http-client.ssc` is now pending by default because it depends

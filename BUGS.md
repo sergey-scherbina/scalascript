@@ -12,6 +12,46 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## conformance-effects-choose-one-shot — `fixed` (2026-07-08)
+
+- **Found by:** codex, while refreshing `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `scripts/conformance -- --only 'effects' --no-memo`.
+- **Observed:** the INT lane printed only `Alice` and then failed with
+  `One-shot violation: Choose.pick resumed more than once`; JS/JVM printed the
+  expected nondeterminism list and passed.
+- **Root cause:** `tests/conformance/effects.ssc` documented the `Choose` block as
+  "Multi-shot: nondeterminism" but declared it as plain `effect Choose`. Per
+  `specs/algebraic-effects.md` and existing interpreter tests, multi-resume
+  handlers must opt in with `multi effect`.
+- **Fix:** `edda7c5d3` changes the conformance declaration to
+  `multi effect Choose`.
+- **Verification:** `bin/ssc run --v1 tests/conformance/effects.ssc` prints all
+  three expected lines, and
+  `scripts/conformance -- --only 'effects' --no-memo` passes INT/JS/JVM.
+
+## conformance-actors-exit-os-shadow — `fixed` (2026-07-08)
+
+- **Found by:** codex, while refreshing `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run --v1 tests/conformance/actors-supervision.ssc` or
+  `scripts/conformance -- --only 'actors-supervision' --no-memo`.
+- **Observed:** the INT lane printed only `worker starting`; JS/JVM passed. A
+  focused trace showed `link(worker)` registered but `exit(me, "crash")` never
+  reached `ActorScheduler.killActor`.
+- **Root cause:** lazy plugin loading registered `std.os.exit(code)` under the same
+  bare global name as the core actor primitive `exit(pid, reason)`, overwriting the
+  actor native. The OS intrinsic treated non-code argument shapes as `sys.exit(0)`,
+  so the worker actor stopped the process path instead of sending an actor exit
+  signal.
+- **Fix:** `96bf969ed` keeps a pre-existing native binding as a fallback when a
+  plugin intrinsic reports a usage mismatch, and changes `std.os.exit` to throw a
+  usage error for non-`Int` arguments. A regression test loads actors+os plugins
+  together and verifies actor `exit(pid, reason)` still drives supervision.
+- **Verification:** `scripts/sbtc "backendInterpreterPluginTests/testOnly scalascript.ActorSupervisionTest"`
+  passes 10/10; after `scripts/sbtc "installBin"`,
+  `scripts/conformance -- --only 'actors-supervision' --no-memo` passes INT/JS/JVM.
+
 ## conformance-http-client-external-httpbin — `fixed` (2026-07-08)
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.

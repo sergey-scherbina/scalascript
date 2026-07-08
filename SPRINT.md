@@ -696,6 +696,21 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       INT, `effects` INT, `effect-transitive-handler` JVM, and JVM-only
       `cluster-connect` / `distributed-failure-*` / `distributed-heterogeneous` /
       `distributed-shuffle`.
+      UPDATE 2026-07-08 (`conformance-actors-exit-os-shadow`,
+      `conformance-effects-choose-one-shot`): INT cluster fixed in two shippable
+      slices. `actors-supervision` root cause was lazy os-plugin `exit(code)`
+      shadowing the core actor `exit(pid, reason)`; fix `96bf969ed` preserves the
+      previous native fallback and makes OS `exit` report a usage mismatch for
+      non-code arguments. `effects` root cause was a conformance source bug:
+      `Choose` was declared one-shot despite the expected multi-shot handler; fix
+      `edda7c5d3` declares `multi effect Choose`. Verification:
+      `backendInterpreterPluginTests/testOnly scalascript.ActorSupervisionTest`,
+      direct `bin/ssc run --v1` checks, and
+      `scripts/conformance -- --only 'actors-supervision' --no-memo` /
+      `scripts/conformance -- --only 'effects' --no-memo` pass INT/JS/JVM.
+      Remaining known failures in this claim are JVM-only generated-Scala compile
+      errors: `effect-transitive-handler` and the cluster/distributed cases where
+      local values are inferred/emitted as `Any`.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&
