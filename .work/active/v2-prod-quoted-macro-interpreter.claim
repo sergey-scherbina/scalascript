@@ -1,0 +1,6 @@
+feature/v2-prod-quoted-macro-interpreter 2026-07-08T09:23:03Z
+agent: codex
+heartbeat: 2026-07-08T09:23:03Z
+status: not-started
+done-so-far:
+next: create worktree; write SPRINT/BUGS plan for quoted macro interpreter parity before code
