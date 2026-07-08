@@ -1,6 +1,6 @@
 feature/p3-connectnode-node-sim 2026-07-08T22:27:51Z
 agent: codex
-heartbeat: 2026-07-08T23:00:21Z
+heartbeat: 2026-07-08T23:12:19Z
 status: in-progress
-done-so-far: localLoopbackCluster, typed tuple pattern lowering, registry lookup qualification, impure mapreduce call hoisting, as-pattern, and reduce fallback fixes are in the worktree; direct pipeline now runs but shuffle returns Some((key,value)) wrappers and examples still print Cluster.close stub
-next: fix shuffle ordering shape and example shutdown, then rerun direct smoke plus affected conformance
+done-so-far: localLoopbackCluster plus v2 tuple/hoist/shuffle fixes are green locally; word-count/log/join direct smokes pass; V2TuplePatternCliTest 4/4 and conformance cluster-connect,distributed-* 6/6 pass
+next: commit code, update specs/BUGS/SPRINT/CHANGELOG, push to origin/main, release claim
