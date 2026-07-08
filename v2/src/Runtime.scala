@@ -2553,6 +2553,7 @@ object Prims:
   private def some(v: Value): Value = DataV("Some", collection.immutable.ArraySeq(v))
   private def isList(v: Value): Boolean = v match
     case DataV("Nil", _) | DataV("Cons", _) => true
+    case ForeignV(_: collection.mutable.ArrayBuffer[?]) => true
     case _ => false
   private def callClos(fn: Value.ClosV, args: Array[Value]): Value =
     Runtime.run(fn.code, if args.isEmpty then fn.env else Runtime.extend(fn.env, args))
@@ -2578,6 +2579,9 @@ object Prims:
     var done = false
     while !done do
       cur match
+        case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
+          out ++= ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]]
+          done = true
         case DataV("Cons", Seq(h, t)) =>
           out += h
           cur = t
