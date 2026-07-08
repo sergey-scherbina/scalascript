@@ -1,6 +1,6 @@
 feature/v2-bridge-case-class-instance-methods 2026-07-08T23:17:19Z
 agent: codex
-heartbeat: 2026-07-08T23:17:19Z
+heartbeat: 2026-07-08T23:20:27Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-bridge-case-class-instance-methods
-next: write and commit spec for v2 case-class instance method lowering, then implement focused bridge/runtime regression
+done-so-far: worktree created; spec landed in f32d04aca
+next: implement bridge lowering for case-class instance methods and add assembled CLI regressions
