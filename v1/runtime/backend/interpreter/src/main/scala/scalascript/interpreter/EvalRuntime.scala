@@ -1813,6 +1813,11 @@ private[interpreter] object EvalRuntime:
     val accIdx  = if counterIdx == 0 then 1 else 0
     val accName = body.names(accIdx)
     if accName == body.names(counterIdx) then return null
+    // If the counter assignment precedes the accumulator, the accumulator RHS
+    // reads the post-update counter. The fold below models pre-update
+    // counter values, so leave order-dependent bodies to the sequential loop.
+    if counterIdx < accIdx && freeNames(body.rhs(accIdx)).contains(body.names(counterIdx)) then
+      return null
     val accStart = (frameView.getOrElse(accName, null) match
       case null => interp.globals.getOrElse(accName, null)
       case v    => v) match
@@ -1968,6 +1973,11 @@ private[interpreter] object EvalRuntime:
     val accName = body.names(accIdx)
     val ctrName = body.names(counterIdx)
     if accName == ctrName then return null
+    // If the counter assignment precedes the accumulator, the accumulator RHS
+    // reads the post-update counter. The fold below models pre-update
+    // counter values, so leave order-dependent bodies to the sequential loop.
+    if counterIdx < accIdx && freeNames(body.rhs(accIdx)).contains(ctrName) then
+      return null
     val accStart: Long = (frameView.getOrElse(accName, null) match
       case null => interp.globals.getOrElse(accName, null)
       case v    => v) match

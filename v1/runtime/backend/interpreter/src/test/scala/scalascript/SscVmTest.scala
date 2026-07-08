@@ -739,6 +739,18 @@ class SscVmTest extends AnyFunSuite with Matchers:
   // All tests verify the numerical result, which is the same regardless of
   // whether the closed form or the normal JIT path runs.
 
+  test("closed-form: counter update before accumulator preserves sequential assignment order") {
+    val out = captured(
+      """var x = 0
+        |var sum = 0
+        |while x < 5 do
+        |  x = x + 1
+        |  sum = sum + x
+        |println(x)
+        |println(sum)""".stripMargin)
+    out shouldBe "5\n15"
+  }
+
   test("closed-form: 1-param linear f(x)=x+1 folds Σ(i+1) correctly") {
     // Σ_{i=0}^{999999} (i+1) = 1+2+...+1000000 = 1000000*1000001/2 = 500000500000
     val out = captured(
