@@ -1,6 +1,0 @@
-agent: claude-fable-5 (rozum UCC session)
-branch: feature/conformance-serverless-wrapper
-worktree: ../scalascript-wt-conformance-serverless-wrapper
-started: 2026-07-08
-status: in-progress
-task: kill the persistent bloop daemon (6GB, PPID1) at the root — conformance is the last runner still invoked as `scala-cli tests/conformance/run.sc` (AGENTS.md), which spawns bloop when the shell wrapper isn't in effect (non-interactive shells / sibling agents). Add tests/conformance/run.sh (exec scala-cli --server=false ...), mirroring the existing bench.sh fix (bloop-serverless-scripts), + update AGENTS.md to use it. No behavior change beyond dropping the daemon.
