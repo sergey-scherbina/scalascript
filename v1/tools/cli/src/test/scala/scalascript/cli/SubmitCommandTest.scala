@@ -18,7 +18,8 @@ import java.io.ByteArrayOutputStream
  *       jar paths the orchestration uses for the real shell-out.
  *
  *  Tests rely on `--dry-run` so no actual `scala-cli package` or
- *  `spark-submit` ever runs — every assertion is on the printed argv. */
+ *  `spark-submit` ever runs — assertions cover the printed argv plus the
+ *  generated source file named by the dry-run header. */
 class SubmitCommandTest extends AnyFunSuite:
 
   private def captureStdout(thunk: => Unit): String =
@@ -38,6 +39,14 @@ class SubmitCommandTest extends AnyFunSuite:
     os.write(path, src)
     path
 
+  private def generatedSourceFromDryRun(out: String): String =
+    val sourceLine = out.linesIterator.find(_.startsWith("# source:")).getOrElse(
+      fail(s"submit dry-run did not print source path, got:\n$out")
+    )
+    val sourcePath = os.Path(sourceLine.stripPrefix("# source:").trim)
+    assert(os.exists(sourcePath), s"submit must write the source file even in dry-run: $sourcePath")
+    os.read(sourcePath)
+
   test("--dry-run prints package + submit argv with default master") {
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp)
@@ -47,8 +56,10 @@ class SubmitCommandTest extends AnyFunSuite:
     assert(out.contains("scala-cli --power package"),
       s"missing package argv, got:\n$out")
     assert(out.contains("--assembly"))
-    assert(out.contains("org.apache.spark::spark-core:4.0.0"))
-    assert(out.contains("org.apache.spark::spark-sql:4.0.0"))
+    assert(!out.contains("--dep"), s"deps should come from //> using directives in source, got:\n$out")
+    val source = generatedSourceFromDryRun(out)
+    assert(source.contains("""//> using dep "org.apache.spark:spark-core_2.13:4.0.0""""))
+    assert(source.contains("""//> using dep "org.apache.spark:spark-sql_2.13:4.0.0""""))
     // Default master = local[*] (no front-matter, no CLI flag).
     assert(out.contains("spark-submit --master local[*] --class runSparkJob"),
       s"expected spark-submit with local[*] master, got:\n$out")
@@ -101,8 +112,9 @@ class SubmitCommandTest extends AnyFunSuite:
         "--dry-run", "--spark-version", "3.5.1", ssc.toString
       ))
     }
-    assert(out.contains("spark-core:3.5.1"))
-    assert(out.contains("spark-sql:3.5.1"))
+    val source = generatedSourceFromDryRun(out)
+    assert(source.contains("""spark-core_2.13:3.5.1"""))
+    assert(source.contains("""spark-sql_2.13:3.5.1"""))
     assert(!out.contains("4.0.0"),
       s"default version must not leak when --spark-version=3.5.1, got:\n$out")
   }

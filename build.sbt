@@ -11,6 +11,15 @@ ThisBuild / version      := "0.1.0-SNAPSHOT"
 // `.dependsOn(cryptoSpi)` / `.dependsOn(blockchainSpi)` unchanged.
 import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
 import scala.sys.process.{Process, ProcessLogger}
+import scala.util.Try
+
+def positiveIntEnv(name: String, default: Int): Int =
+  sys.env.get(name).flatMap(s => Try(s.toInt).toOption).filter(_ > 0).getOrElse(default)
+
+// The root aggregate has many Scala.js projects whose tests run inside the sbt
+// JVM (`Test / fork := false`) and spawn node runners. Unbounded root `test`
+// fan-out has exhausted the sbt server heap; keep the production gate bounded.
+Global / concurrentRestrictions += Tags.limit(Tags.Test, positiveIntEnv("SSC_SBT_TEST_CONCURRENCY", 4))
 
 // Forked test JVMs default to ~512 KB stack which trips
 // `mutual-TCO` / `stack-safe bind chains` / Async tests under

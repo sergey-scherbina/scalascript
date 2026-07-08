@@ -34,7 +34,7 @@ object ElectronBundleBuilder:
       JsGen.detectCapabilities(module, baseDir) -
         JsGen.Capability.Mcp -
         JsGen.Capability.Dataset
-    val frontendInit = "_ssc_frontend_name = 'electron'; // injected by ssc\n"
+    val frontendInit = "_ssc_frontend_name = 'electron'; globalThis._ssc_frontend_name = _ssc_frontend_name; // injected by ssc\n"
     val backendInit = backendBaseUrl.fold("") { url =>
       s"globalThis.__sscBackendBaseUrl = ${jsString(url)}; // injected by ssc jvm-rest\n"
     }

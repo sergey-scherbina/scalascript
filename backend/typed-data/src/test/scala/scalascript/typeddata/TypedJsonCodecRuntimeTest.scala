@@ -7,9 +7,9 @@ class TypedJsonCodecRuntimeTest extends AnyFunSuite:
   test("typed JSON facade exposes stable JS and JVM entrypoints"):
     assert(TypedJsonCodecRuntime.encodeFunctionName == "_ssc_typed_json_encode")
     assert(TypedJsonCodecRuntime.decodeResponseFunctionName == "_ssc_typed_json_decode_response")
-    assert(TypedJsonCodecRuntime.jsFacade.contains("function _ssc_typed_json_register_product(typeName, fields, ctor)"))
-    assert(TypedJsonCodecRuntime.jsFacade.contains("function _ssc_typed_json_encode(value, typeName)"))
-    assert(TypedJsonCodecRuntime.jsFacade.contains("function _ssc_typed_json_decode_response(text, contentType, typeName)"))
+    assert(TypedJsonCodecRuntime.jsFacade.contains("var _ssc_typed_json_register_product = globalThis._ssc_typed_json_register_product || function(typeName, fields, ctor)"))
+    assert(TypedJsonCodecRuntime.jsFacade.contains("var _ssc_typed_json_encode = globalThis._ssc_typed_json_encode || function(value, typeName)"))
+    assert(TypedJsonCodecRuntime.jsFacade.contains("var _ssc_typed_json_decode_response = globalThis._ssc_typed_json_decode_response || function(text, contentType, typeName)"))
     assert(TypedJsonCodecRuntime.jvmFacade.contains("private inline def _ssc_typed_json_encode[T](value: T): String"))
     assert(TypedJsonCodecRuntime.jvmFacade.contains("summonInline[scalascript.typeddata.JsonCodec[T]].encode(value)"))
     assert(TypedJsonCodecRuntime.jvmFacade.contains("summonInline[scalascript.typeddata.JsonCodec[T]].decode"))

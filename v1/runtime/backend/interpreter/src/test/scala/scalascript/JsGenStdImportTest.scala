@@ -53,8 +53,10 @@ class JsGenStdImportTest extends AnyFunSuite:
   test("browser patch overrides Node helpers without duplicate ES module declarations"):
     assert(!JsRuntimeBrowserPatch.contains("function _ssc_http_serve()"))
     assert(!JsRuntimeBrowserPatch.contains("function _ssc_ui_serve("))
-    assert(JsRuntimeBrowserPatch.contains("_ssc_http_serve = function()"))
+    assert(JsRuntimeBrowserPatch.contains("var _ssc_http_serve = function()"))
+    assert(JsRuntimeBrowserPatch.contains("globalThis._ssc_http_serve = _ssc_http_serve"))
     assert(JsRuntimeBrowserPatch.contains("_ssc_ui_serve = function("))
+    assert(JsRuntimeBrowserPatch.contains("globalThis._ssc_ui_serve = _ssc_ui_serve"))
 
   test("browser patch routes same-app fetch calls through registered routes"):
     assert(JsRuntimeBrowserPatch.contains("globalThis.fetch = function(input, init)"))
@@ -215,7 +217,7 @@ class JsGenStdImportTest extends AnyFunSuite:
 
   test("JS runtime upload directory default is guarded for browser renderers"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Core))
-    assert(runtime.contains("typeof require === 'function'"))
+    assert(runtime.contains("typeof require !== 'undefined'"))
     assert(!runtime.contains("let _uploadDir = require('os').tmpdir();"))
 
   test("JS signal runtime defines std/ui typed DataTable column helpers"):
@@ -400,7 +402,8 @@ class JsGenStdImportTest extends AnyFunSuite:
     }
     // RowPayload resolution lives in the _RowPost mount handler
     assert(runtime.contains("function resolvePayload("), "mount must resolve RowPayload markers")
-    assert(runtime.contains("body: resolvePayload(r, act.bodyField)"), "_RowPost body must use resolvePayload")
+    assert(runtime.contains("var _postBody = resolvePayload(r, act.bodyField);"), "_RowPost body must use resolvePayload")
+    assert(runtime.contains("body: _postBody"), "_RowPost fetch must submit the resolved payload")
 
   test("renderBody emits inline rows for a static DataTable source"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))

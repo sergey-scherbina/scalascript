@@ -321,7 +321,7 @@ function _b64urlDec(s) {
   const pad = (4 - s.length % 4) % 4;
   return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad), 'base64');
 }
-function _hmacSha256(body) {
+function _sessionHmacSha256(body) {
   const crypto = require('crypto');
   return crypto.createHmac('sha256', _sessionSecret()).update(body).digest();
 }
@@ -336,7 +336,7 @@ function _sessionJson(map) {
 }
 function _packSession(map) {
   const body = _b64urlEnc(Buffer.from(_sessionJson(map), 'utf-8'));
-  const sig  = _b64urlEnc(_hmacSha256(body));
+  const sig  = _b64urlEnc(_sessionHmacSha256(body));
   return body + '.' + sig;
 }
 function _unpackSession(cookieValue) {
@@ -345,7 +345,7 @@ function _unpackSession(cookieValue) {
   const body = cookieValue.substring(0, dot);
   const sig  = cookieValue.substring(dot + 1);
   try {
-    const expected = _b64urlEnc(_hmacSha256(body));
+    const expected = _b64urlEnc(_sessionHmacSha256(body));
     // Constant-time-ish compare: never short-circuit on first byte.
     if (expected.length !== sig.length) return new Map();
     let diff = 0;
@@ -545,4 +545,3 @@ function _sessionStoreGet(ssid) {
   return entry.payload;
 }
 function _sessionStoreDelete(ssid) { _sessionStore.delete(ssid); }
-

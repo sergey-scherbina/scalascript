@@ -3100,7 +3100,7 @@ final class RunJsCmd extends CliCommand:
       case CompileResult.Failed(diags) =>
         diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
       case CompileResult.TextOutput(userCode, _, sources) =>
-        val frontendInit = effectiveFrontendName.fold("")(n => s"_ssc_frontend_name = '${n.replace("'", "\\'")}'; // injected by ssc\n")
+        val frontendInit = effectiveFrontendName.fold("")(n => s"_ssc_frontend_name = '${n.replace("'", "\\'")}'; globalThis._ssc_frontend_name = _ssc_frontend_name; // injected by ssc\n")
         val bundle  = runtime + "\n" + frontendInit + userCode
         val pkgJson = sources.collectFirst { case scalascript.backend.spi.SourceArtifact("package.json", c) => c }
         pkgJson match

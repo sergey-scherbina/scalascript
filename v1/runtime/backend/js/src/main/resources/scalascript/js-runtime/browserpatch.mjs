@@ -6,7 +6,8 @@
 // Same route(method, path)(handler) surface as the Node target; same
 // Response shape; same _routes / _matchPath / _mkRequest reused unchanged.
 
-_ssc_http_serve = function() {}   // no-op: no TCP server in the browser/Electron renderer
+var _ssc_http_serve = function() {}   // no-op: no TCP server in the browser/Electron renderer
+globalThis._ssc_http_serve = _ssc_http_serve;
 
 function _spaFlush() {
   if (_output.length) {
@@ -184,4 +185,5 @@ _ssc_ui_serve = function(treeOrPort, portOrUndef, extraCssOrUndef) {
     _spaDispatch('GET', location.pathname || '/');
   });
   _spaDispatch('GET', '/');
-}
+};
+globalThis._ssc_ui_serve = _ssc_ui_serve;

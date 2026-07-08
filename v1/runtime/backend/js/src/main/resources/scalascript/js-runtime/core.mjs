@@ -6,6 +6,12 @@ function _print(...args) { const s = args.map(_show).join(''); _output.push(s); 
 // directly (or after Normalize's bare-println → Console.println rewrite).
 const Console = { println: _println, print: _print };
 
+// Selected frontend name injected by CLI/Electron runners. Keep a base binding
+// so user code can reference `_ssc_frontend_name` even without the Node server
+// runtime fragment.
+var _ssc_frontend_name = globalThis._ssc_frontend_name || '';
+globalThis._ssc_frontend_name = _ssc_frontend_name;
+
 // `_call(fn, ...args)` — wrapper for arbitrary callables in user code.
 // Functions are invoked directly; Arrays and Maps route through `_dispatch`
 // so `xs(i)` / `m(k)` behave like List / Map indexing.
@@ -257,4 +263,3 @@ function getenv(key, defaultVal) {
   if (v === undefined || v === null || v === '') return defaultVal ?? '';
   return v;
 }
-

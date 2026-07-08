@@ -316,7 +316,7 @@ object JsGen:
 val JsRuntime: String =
   JsRuntimeCore + JsRuntimeHttpServer + JsRuntimeJwtAuth + JsRuntimeWsServer +
   JsRuntimeCoreDispatch + JsRuntimeOptics + JsRuntimeCoreCollections + JsRuntimeSignals +
-  TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
+  JsRuntimeFs.source + TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
 
 /** Built-in `Async` effect runtime (loaded from the `async.mjs` resource).  Same semantics as
  *  the interpreter and JvmGen: `delay` blocks via Atomics on Node, thunks passed to `async` /

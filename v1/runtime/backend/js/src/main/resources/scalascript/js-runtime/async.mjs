@@ -2349,51 +2349,7 @@ function _runStorage(bodyFn, path) {
   return interp(bodyFn());
 }
 
-// ── CPS-aware collection helpers ──────────────────────────────────────────
-//
-// When a higher-order method like `xs.map(fn)` is called inside an
-// effectful context, `fn(x)` may return a Free tree instead of a plain
-// value.  These helpers detect that and stitch the per-element Free
-// values into a single sequenced Free that yields the final array.
-// Pure callbacks pass straight through with no overhead.
-// (_seq, _seqMap, _seqFlatMap, _seqFilter are defined in JsRuntimePart2 so
-// they are available in the base runtime too.)
-function _seqForeach(arr, fn) {
-  const comps = arr.map(x => fn(x));
-  const s     = _seq(comps);
-  if (_isFree(s)) return _bind(s, () => undefined);
-  return undefined;
-}
-function _seqExists(arr, fn) {
-  const seq = _seq(arr.map(x => fn(x)));
-  if (_isFree(seq)) return _bind(seq, (bs) => bs.some(b => b));
-  return seq.some(b => b);
-}
-function _seqForall(arr, fn) {
-  const seq = _seq(arr.map(x => fn(x)));
-  if (_isFree(seq)) return _bind(seq, (bs) => bs.every(b => b));
-  return seq.every(b => b);
-}
-function _seqCount(arr, fn) {
-  const seq = _seq(arr.map(x => fn(x)));
-  if (_isFree(seq)) return _bind(seq, (bs) => bs.filter(b => b).length);
-  return seq.filter(b => b).length;
-}
-function _seqFind(arr, fn) {
-  const seq = _seq(arr.map(x => fn(x)));
-  const pick = (bs) => {
-    const i = bs.findIndex(b => b);
-    return i < 0 ? _None : _Some(arr[i]);
-  };
-  if (_isFree(seq)) return _bind(seq, pick);
-  return pick(seq);
-}
-function _seqFoldLeft(arr, init, fn) {
-  function loop(i, acc) {
-    if (i === arr.length) return acc;
-    const next = fn(acc, arr[i]);
-    if (_isFree(next)) return _bind(next, (v) => loop(i + 1, v));
-    return loop(i + 1, next);
-  }
-  return loop(0, init);
-}
+// Collection sequencing helpers (_seqForeach, _seqExists, _seqForall,
+// _seqCount, _seqFind, _seqFoldLeft) live in core-collections.mjs. Keep this
+// fragment free of duplicate top-level declarations: runtime fragments are
+// concatenated into one classic-script scope by JsGen.generateRuntime.

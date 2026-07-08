@@ -20,7 +20,8 @@ package scalascript.codegen
  *    2. Generate Spark Scala 3 source via `SparkGen.generate(...)`.
  *    3. Write to `/tmp/ssc-spark-<hash>.scala`.
  *    4. Build a fat JAR — `scala-cli --power package <src> --assembly
- *       -o /tmp/ssc-spark-<hash>.jar --dep …spark-core… --dep …spark-sql…`.
+ *       -o /tmp/ssc-spark-<hash>.jar --force`; Spark deps come from
+ *       `//> using dep` directives in the generated source.
  *    5. Launch — `spark-submit --master <url> --class runSparkJob <jar>`.
  *
  *  Step 5 is what makes `ssc submit` different from `ssc run --backend

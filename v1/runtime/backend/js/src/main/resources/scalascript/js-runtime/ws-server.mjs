@@ -871,7 +871,6 @@ function _ssc_http_serve(port, _tlsCfg) {
 }
 
 let _activeServer = null;
-let _ssc_frontend_name = '';
 
 function serve(port, _tlsCfg) {
   return _ssc_http_serve(port, _tlsCfg);

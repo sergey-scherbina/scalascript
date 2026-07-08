@@ -1,21 +1,12 @@
-
-// Sync fallbacks — overridden by JsRuntimeAsyncB when Async capability is present.
-function _seqForeach(arr, fn) { for (let _i = 0; _i < arr.length; _i++) fn(arr[_i]); return undefined; }
+// Collection helpers live below as Free-aware declarations. Function hoisting keeps
+// them available to _forEach and _dispatch without duplicate top-level names.
 // _forEach: direct-call alternative to _dispatch(xs,'foreach',[fn]).
-// Routes arrays through _seqForeach (so AsyncB can override it for effectful callbacks);
-// falls back to _dispatch for Map/Set/Option and other non-array types.
+// Routes arrays through _seqForeach; falls back to _dispatch for Map/Set/Option and
+// other non-array types.
 function _forEach(xs, fn) {
   if (Array.isArray(xs)) return _seqForeach(xs, fn);
   return _dispatch(xs, 'foreach', [fn]);
 }
-function _seqMap(arr, fn) { return arr.map(fn); }
-function _seqFlatMap(arr, fn) { return arr.flatMap(fn); }
-function _seqFilter(arr, fn, negate) { return arr.filter(x => negate ? !fn(x) : fn(x)); }
-function _seqExists(arr, fn) { return arr.some(fn); }
-function _seqForall(arr, fn) { return arr.every(fn); }
-function _seqFind(arr, fn) { const r = arr.find(fn); return r !== undefined ? {_type:'_Some',value:r} : {_type:'_None'}; }
-function _seqCount(arr, fn) { return arr.filter(fn).length; }
-function _seqFoldLeft(arr, init, fn) { return arr.reduce((acc, x) => fn(acc, x), init); }
 
 function _tupleConcat(a, b) {
   const aArr = Array.isArray(a) ? a : [a];
@@ -940,13 +931,11 @@ function _seqFilter(arr, fn, neg) {
   if (_isFree(seq)) return _bind(seq, pick);
   return pick(seq);
 }
-// CPS-aware redefinitions (mirroring _seqMap/_seqFilter above) so foreach/exists/forall/count/find ALSO
-// sequence a Free-returning callback when an effectful caller runs WITHOUT the async runtime bundled —
-// the base runtime already carries Free + _bind + _seq. Pure callbacks are unchanged (_seq short-circuits
-// when nothing is Free). JsRuntimeAsyncB still overrides these identically when Async is present. Without
-// this, the sync versions above silently drop a foreach body's effects, and exists/forall/count see a
-// truthy Free per element (e.g. a predicate that reads a field/enum compiles to `_bind(...)`), returning
-// the wrong answer.
+// CPS-aware collection helpers: foreach/exists/forall/count/find/foldLeft sequence
+// a Free-returning callback when an effectful caller runs without the async runtime
+// bundled. Pure callbacks are unchanged because _seq short-circuits when nothing is
+// Free. Keep these as the single declarations; JS runtime fragments are concatenated
+// in one classic-script scope, so duplicate helper declarations break strict bundles.
 function _seqForeach(arr, fn) {
   const s = _seq(arr.map(x => fn(x)));
   if (_isFree(s)) return _bind(s, () => undefined);
@@ -969,9 +958,18 @@ function _seqCount(arr, fn) {
 }
 function _seqFind(arr, fn) {
   const seq = _seq(arr.map(x => fn(x)));
-  const pick = (bs) => { const i = bs.findIndex(b => b); return i >= 0 ? {_type:'_Some',value:arr[i]} : {_type:'_None'}; };
+  const pick = (bs) => { const i = bs.findIndex(b => b); return i >= 0 ? _Some(arr[i]) : _None; };
   if (_isFree(seq)) return _bind(seq, pick);
   return pick(seq);
+}
+function _seqFoldLeft(arr, init, fn) {
+  function loop(i, acc) {
+    if (i === arr.length) return acc;
+    const next = fn(acc, arr[i]);
+    if (_isFree(next)) return _bind(next, (v) => loop(i + 1, v));
+    return loop(i + 1, next);
+  }
+  return loop(0, init);
 }
 
 function _perform(eff, op, args) { return new _Perform(eff, op, args); }
@@ -1141,26 +1139,6 @@ function _handleWithReturn(bodyFn, handledOps, handlers, retMap) {
   return hwr(bodyFn());
 }
 
-// ── std.fs — synchronous file primitives (Node only) ───────────────────
-// Defined under user-facing names so nested calls like
-// `_println(readFile(p))` resolve directly.
-const _fsMod = (typeof require === 'function') ? require('fs') : null;
-function writeFile(path, contents) {
-  if (!_fsMod) throw new Error('writeFile: fs not available in this environment');
-  _fsMod.writeFileSync(path, contents);
-}
-function readFile(path) {
-  if (!_fsMod) throw new Error('readFile: fs not available in this environment');
-  return _fsMod.readFileSync(path, 'utf-8');
-}
-function deleteFile(path) {
-  if (!_fsMod) throw new Error('deleteFile: fs not available in this environment');
-  try { _fsMod.unlinkSync(path); } catch (e) { if (e && e.code !== 'ENOENT') throw e; }
-}
-function exists(path) {
-  if (!_fsMod) return false;
-  return _fsMod.existsSync(path);
-}
 // UUID intrinsics — v4 (random) and v7 (time-ordered, RFC 9562 §5.7)
 function uuidV4() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();

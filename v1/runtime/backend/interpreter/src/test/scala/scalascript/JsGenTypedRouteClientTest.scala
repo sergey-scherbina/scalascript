@@ -221,8 +221,8 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("""{client: "Messages", name: "create", method: "POST", path: "/api/messages", requestType: "CreateMessage", responseType: "Message"}"""))
     assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders, cancelToken)"))
     assert(code.contains("function _ssc_api_cancel_token()"))
-    assert(code.contains("function _ssc_typed_json_encode(value, typeName)"))
-    assert(code.contains("function _ssc_typed_json_decode_response(text, contentType, typeName)"))
+    assert(code.contains("var _ssc_typed_json_encode = globalThis._ssc_typed_json_encode || function(value, typeName)"))
+    assert(code.contains("var _ssc_typed_json_decode_response = globalThis._ssc_typed_json_decode_response || function(text, contentType, typeName)"))
     assert(code.contains("return _ssc_typed_json_encode(input, requestType);"))
     assert(code.contains("response = await fetch(url, init);"))
     assert(code.contains("return _ssc_typed_json_decode_response(text, contentType, responseType);"))
@@ -232,6 +232,16 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("""get(input, headers, cancelToken) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message", headers, cancelToken); }"""))
     assert(code.contains("""_ssc_typed_json_register_product("CreateMessage", ["text"], CreateMessage)"""))
     assert(code.contains("""_ssc_typed_json_register_product("Message", ["id", "text"], Message)"""))
+
+  test("JS typed route client bundle is strict-mode syntax valid with generated runtime"):
+    assume(hasNode, "node not available")
+    val module = Parser.parse(source)
+    val bundle =
+      "\"use strict\";\n" +
+        JsGen.generateRuntime(JsGen.detectCapabilities(module)) +
+        "\n" +
+        JsGen.generate(module)
+    assertNodeSyntax(bundle)
 
   test("JS typed route runtime builds path params and GET query strings"):
     val code = JsGen.generate(Parser.parse(source))
@@ -300,6 +310,17 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     val out = Source.fromInputStream(proc.getInputStream).mkString
     ProcTestUtil.awaitExit(proc)
     out.trim
+
+  private def assertNodeSyntax(js: String): Unit =
+    val tmp = java.io.File.createTempFile("ssc-js-typed-client-syntax-", ".cjs")
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("node", "--check", tmp.getAbsolutePath)
+      .redirectErrorStream(true)
+      .start()
+    val out = Source.fromInputStream(proc.getInputStream).mkString
+    val exit = ProcTestUtil.awaitExit(proc)
+    assert(exit == 0, s"node --check failed:\n$out")
 
   test("def with awaitClient in body emits async function"):
     val src =

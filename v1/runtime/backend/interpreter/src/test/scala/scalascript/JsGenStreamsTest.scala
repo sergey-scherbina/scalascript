@@ -15,8 +15,41 @@ class JsGenStreamsTest extends AnyFunSuite:
     Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n")
 
   private def js(code: String): String = JsGen.generate(module(code))
+  private def occurrences(haystack: String, needle: String): Int =
+    haystack.sliding(needle.length).count(_ == needle)
 
   // ── _makeAsyncStream runtime operators ──────────────────────────────────
+
+  test("Async runtime declares collection sequencing helpers once"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Async))
+    val helpers = List(
+      "_seqMap",
+      "_seqFlatMap",
+      "_seqFilter",
+      "_seqForeach",
+      "_seqExists",
+      "_seqForall",
+      "_seqCount",
+      "_seqFind",
+      "_seqFoldLeft"
+    )
+    helpers.foreach { helper =>
+      val decl = s"function $helper("
+      assert(occurrences(runtime, decl) == 1, s"$helper must be declared exactly once")
+    }
+
+  test("full runtime has no duplicate top-level function declarations"):
+    val runtime = JsGen.generateRuntime(JsGen.Capability.all)
+    val decl = """(?m)^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(""".r
+    val duplicates =
+      decl.findAllMatchIn(runtime)
+        .map(_.group(1))
+        .toList
+        .groupBy(identity)
+        .collect { case (name, hits) if hits.size > 1 => name }
+        .toList
+        .sorted
+    assert(duplicates.isEmpty, s"duplicate top-level functions: ${duplicates.mkString(", ")}")
 
   test("_makeAsyncStream runtime includes scan method"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Async))

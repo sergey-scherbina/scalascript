@@ -18,22 +18,24 @@ object TypedJsonCodecRuntime:
         |// boundary instead of embedding transport-specific JSON operations.
         |var _ssc_typed_json_codecs = globalThis.__sscTypedJsonCodecs || (globalThis.__sscTypedJsonCodecs = new Map());
         |
-        |function _ssc_typed_json_register_product(typeName, fields, ctor) {
+        |var _ssc_typed_json_register_product = globalThis._ssc_typed_json_register_product || function(typeName, fields, ctor) {
         |  _ssc_typed_json_codecs.set(String(typeName), {
         |    kind: "product",
         |    fields: Array.from(fields || []),
         |    ctor: typeof ctor === "function" ? ctor : undefined
         |  });
-        |}
+        |};
+        |globalThis._ssc_typed_json_register_product = _ssc_typed_json_register_product;
         |
-        |function _ssc_typed_json_inner(typeName) {
+        |var _ssc_typed_json_inner = globalThis._ssc_typed_json_inner || function(typeName) {
         |  const s = String(typeName || "");
         |  if (s.startsWith("List[") && s.endsWith("]")) return s.slice(5, -1);
         |  if (s.startsWith("Option[") && s.endsWith("]")) return s.slice(7, -1);
         |  return "";
-        |}
+        |};
+        |globalThis._ssc_typed_json_inner = _ssc_typed_json_inner;
         |
-        |function _ssc_typed_json_plain(value, typeName) {
+        |var _ssc_typed_json_plain = globalThis._ssc_typed_json_plain || function(value, typeName) {
         |  if (value === undefined) return undefined;
         |  if (value === null) return null;
         |  const tpe = String(typeName || "");
@@ -62,13 +64,15 @@ object TypedJsonCodecRuntime:
         |    return tpe && tpe !== value._type ? {"$$type": value._type, value: payload} : payload;
         |  }
         |  return value;
-        |}
+        |};
+        |globalThis._ssc_typed_json_plain = _ssc_typed_json_plain;
         |
-        |function $encodeFunctionName(value, typeName) {
+        |var $encodeFunctionName = globalThis.$encodeFunctionName || function(value, typeName) {
         |  return JSON.stringify(_ssc_typed_json_plain(value, typeName));
-        |}
+        |};
+        |globalThis.$encodeFunctionName = $encodeFunctionName;
         |
-        |function _ssc_typed_json_decode_value(value, typeName) {
+        |var _ssc_typed_json_decode_value = globalThis._ssc_typed_json_decode_value || function(value, typeName) {
         |  const tpe = String(typeName || "");
         |  if (tpe === "" || tpe === "Any") return value;
         |  if (tpe === "Unit") return undefined;
@@ -95,9 +99,10 @@ object TypedJsonCodecRuntime:
         |    return out;
         |  }
         |  return value;
-        |}
+        |};
+        |globalThis._ssc_typed_json_decode_value = _ssc_typed_json_decode_value;
         |
-        |function $decodeResponseFunctionName(text, contentType, typeName) {
+        |var $decodeResponseFunctionName = globalThis.$decodeResponseFunctionName || function(text, contentType, typeName) {
         |  if (text === "") return _ssc_typed_json_decode_value(undefined, typeName);
         |  let parsed;
         |  if (String(contentType || "").includes("application/json")) parsed = JSON.parse(text);
@@ -105,7 +110,8 @@ object TypedJsonCodecRuntime:
         |    try { parsed = JSON.parse(text); } catch (_) { parsed = text; }
         |  }
         |  return _ssc_typed_json_decode_value(parsed, typeName);
-        |}
+        |};
+        |globalThis.$decodeResponseFunctionName = $decodeResponseFunctionName;
         |
         |""".stripMargin
 
