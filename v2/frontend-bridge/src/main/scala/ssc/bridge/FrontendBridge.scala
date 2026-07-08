@@ -93,6 +93,7 @@ object FrontendBridge:
     globalVarNames.clear()
     defParamNames.clear()
     varargDefs.clear()
+    curriedVarargDefs.clear()
     zeroArgDefs.clear()
     curryFirstClauseDefaults.clear()
 
@@ -254,6 +255,7 @@ object FrontendBridge:
   /** Vararg-def registry: functions whose last param clause contains a * (vararg) param.
    *  Maps def name → number of non-vararg params in the last clause (0 for single vararg clause). */
   private val varargDefs = collection.mutable.HashSet[String]()
+  private val curriedVarargDefs = collection.mutable.HashSet[String]()
 
   /** Zero-arg extern/def registry: `extern def foo: T` or `def foo: T = body` with no params.
    *  These are auto-called at the use site (like Scala's no-parens defs). */
@@ -448,6 +450,7 @@ object FrontendBridge:
     defaultParamTerms.clear()
     defParamNames.clear()
     varargDefs.clear()
+    curriedVarargDefs.clear()
     zeroArgDefs.clear()
     curryFirstClauseDefaults.clear()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
@@ -1070,8 +1073,10 @@ object FrontendBridge:
           defParamNames(d.name.value) = allParamTerms.map(_.name.value).toVector
         // Register vararg defs: last clause has a Type.Repeated param
         val lastClause = allClauses.lastOption.toList.flatMap(_.values)
-        if lastClause.exists(p => p.decltpe.exists(_.isInstanceOf[Type.Repeated])) then
+        val hasVarargLastClause = lastClause.exists(p => p.decltpe.exists(_.isInstanceOf[Type.Repeated]))
+        if hasVarargLastClause then
           varargDefs += d.name.value
+          if allClauses.length > 1 then curriedVarargDefs += d.name.value
         // Register 0-arg no-parens defs: `def foo: T = body` (no param clauses at all) → auto-call.
         // Excludes `def foo(): T` (has one empty clause) which needs explicit `()`.
         if allClauses.isEmpty then
@@ -1394,7 +1399,7 @@ object FrontendBridge:
                 val recvCT = go(recv)
                 if extensionMethods.contains(mname) then CT.App(CT.Global(mname), recvCT :: rawArgs)
                 else CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: recvCT :: rawArgs)
-              case Term.Name(n) if !innerScope.contains(n) && varargDefs.contains(n) =>
+              case Term.Name(n) if !innerScope.contains(n) && varargDefs.contains(n) && !curriedVarargDefs.contains(n) =>
                 CT.App(go(fn), List(listOf(rawArgs)))
               case _ =>
                 CT.App(go(fn), rawArgs)
@@ -1921,7 +1926,7 @@ object FrontendBridge:
         CT.App(CT.App(CT.Global(name), args), dicts)
       // Direct single-clause vararg call: f(a, b, c) where f has vararg — always wrap in list
       // (single-arg calls f(x) must also wrap: body expects a List, e.g. body.toList)
-      case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) =>
+      case Term.Name(name) if !scope.contains(name) && varargDefs.contains(name) && !curriedVarargDefs.contains(name) =>
         CT.App(CT.Global(name), List(listOf(args)))
       case other => CT.App(convertExpr(other, scope), args)
 
