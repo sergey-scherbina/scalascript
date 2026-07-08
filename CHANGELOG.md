@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — perf: dispatch-class workloads remeasured after bytecode M2
+
+`array-update`, `vector-index`, `pattern-match-heavy`, and `effect-stream` are
+closed as one performance class, not four separate hunts. Corpus measurement
+after `installBin` shows the `ssc`/target lanes are already healthy for these
+workloads, while the explicit `v2` VM column remains the common generic-dispatch
+tail. Gates: `scripts/bench smoke`; `./bench.sh --warmup-time 1000 --reps 50
+array-update vector-index pattern-match-heavy effect-stream`.
+
 ## 2026-07-08 — v2: actor `sendAfter` works under the default CLI runner
 
 The default v2 fat-jar path no longer exits 0 before scheduled actor messages

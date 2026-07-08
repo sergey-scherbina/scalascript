@@ -188,25 +188,41 @@ array-update 279 vs 0.72 (~386×), pattern-match-heavy 385×, vector-index 136×
       диспетча в methodOp, безаллокационный 0/1-арг путь __method__ (сейчас всегда List).
       Тот же вердикт применим к array-update/vector-index/pattern-match-heavy — снять их
       отдельные охоты, объединить в «generic-dispatch constant» класс под байткод-лейн.
-- [ ] **p4-perf-dispatch-class** — array-update/vector-index/pattern-match-heavy/effect-stream:
+- [x] **p4-perf-dispatch-class** — DONE 2026-07-08: array-update/vector-index/pattern-match-heavy/effect-stream:
       скорее всего тот же generic-dispatch constant (см. lazylist-диагноз). После bytecode-
       milestone-2 пере-мерить; если хвосты останутся — точечные охоты.
+      Result: no code changes. Re-measurement confirms these are not four
+      independent workload bugs. `ssc`, `ssc-asm`, JVM, JS, and Rust target
+      lanes are already in the expected low-ms/sub-ms range for the supported
+      cases; the remaining pathological column is the explicit `v2` VM runner,
+      matching the `p4-perf-lazylist` generic-dispatch / VM-constant diagnosis.
+      Treat per-workload hunts as closed; remaining production path is
+      `p4-jvm-lane-bytecode` / compiled-lane defaulting, not ad hoc fixes here.
       Active plan 2026-07-08 (`p4-perf-dispatch-class` / codex):
-      - [ ] Stage the current runner with `scripts/sbtc "installBin"` because
+      - [x] Stage the current runner with `scripts/sbtc "installBin"` because
             corpus benchmarks use `bin/ssc`, then run `scripts/bench smoke`.
-      - [ ] Re-measure the named corpus workloads with the existing corpus
+      - [x] Re-measure the named corpus workloads with the existing corpus
             wrapper, recording the exact command and rows:
             `./bench.sh --warmup-time 1000 --reps 50 array-update vector-index pattern-match-heavy effect-stream`.
-      - [ ] Compare against the checked-in `bench/BASELINE.md` rows and the
+      - [x] Compare against the checked-in `bench/BASELINE.md` rows and the
             `p4-perf-lazylist` diagnosis. If the rows are now explained by the
             compiled-lane/generic-dispatch class, close this item as a class
             decision with no code changes.
-      - [ ] If a workload still has a distinct unexplained gap, queue a narrow
+      - [x] If a workload still has a distinct unexplained gap, queue a narrow
             follow-up in SPRINT/BACKLOG with the measured command, affected
             backend, and suspected owner; do not start a broad optimization in
             this slice.
+            No new per-workload follow-up queued: all four share the same
+            explicit-`v2` VM column shape.
       Done-when: SPRINT/CHANGELOG record the measurement table and decision,
       with no stale open `p4-perf-dispatch-class` item left behind.
+      Measurement (`./bench.sh --warmup-time 1000 --reps 50 array-update vector-index pattern-match-heavy effect-stream`):
+      | Workload | ssc | ssc-asm | v2 | jvm | js | rust |
+      | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+      | `array-update` | 0.694 | 0.648 | 272.7 | 0.506 | 4.88 | 0.644 |
+      | `effect-stream` | 0.016 | 0.017 | 28.1 | n/a | 0.017 | 0.020 |
+      | `pattern-match-heavy` | 0.053 | 0.052 | 46.3 | 0.046 | 0.047 | 1.37 |
+      | `vector-index` | 1.00 | 0.848 | 142.6 | 0.477 | 4.89 | 0.593 |
 - [~] **p4-bench-na-fixes** — 2 из 3 закрыты 2026-07-08 (3d11617a0): effect-pure 0.130 ms/iter
       (плагин-джары в bench-пути); effect-oneshot семантически РАЗБЛОКИРОВАН четырьмя Op-lift
       швами (__method__-ресивер, arithOp оба операнда, cell/lcell.set через liftOverOp) +
