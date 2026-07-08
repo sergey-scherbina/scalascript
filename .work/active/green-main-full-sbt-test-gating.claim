@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T19:11:43Z
+heartbeat: 2026-07-08T19:22:44Z
 status: in-progress
-done-so-far: rowpost JsGen focus test is green after assertion update; ElectronJvmRestCliTest is green after typed-client smoke grep update
-next: run full cli/test, then affected conformance and root test if targeted gates stay green
+done-so-far: full cli/test no longer fork-exits after green; SubmitCommandTest is green focused after dry-run source assertions
+next: fix ToolkitElectronSmokeTest duplicate _seqMap, rerun full cli/test, affected conformance, then root test
