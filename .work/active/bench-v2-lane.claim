@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/bench-v2-lane
-worktree: ../scalascript-wt-bench-v2
-started: 2026-07-08
-status: in-progress
-task: bench-v2-lane — add a v2 engine lane to ssc bench (timeV2 via FrontendBridge+v2 VM, stdout capture like timeInterp) + v2 in bench/run.sc default lanes; run the harness for first v2 numbers
