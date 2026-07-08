@@ -272,6 +272,27 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected
       alternatives, especially whether Spark local shim is required before default v2.
+      PLAN (2026-07-08, claim `v2-prod-corpus-scope`): this is a docs/gate slice,
+      not a feature-fix slice. First rebuild/stage `bin/ssc` in this worktree with
+      `scripts/sbtc "installBin"` and rerun the authoritative gate:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`. Use that
+      exact output to classify every remaining non-MATCH bucket:
+      1. default production gate: examples that should run under `ssc run` after the
+         default switch and therefore must be MATCH or explicitly v1-bug/v2-better;
+      2. lane-specific gates: `backend: jvm|spark|js|rust|wasm`, true servers,
+         distributed actor/node simulations, external credentials/services, and
+         nondeterministic-output examples;
+      3. known follow-up bugs that should not block the default switch but must be
+         visible in BACKLOG/BUGS if not already tracked.
+      Update `v2/output-parity-baseline.md` and `specs/v2-full-compat.md` with the
+      taxonomy, exact counts, remaining five mismatch classifications, and the
+      Spark/local-node-sim decision. Rejected default: do not require a Spark local
+      shim before `ssc run` defaults to v2 unless a no-frontmatter default-lane example
+      requires Spark semantics. If the fresh run exposes a new v2-error or a mismatch
+      that belongs in the default gate, stop this slice, file it in `BUGS.md`, and
+      queue a concrete fix before `v2-prod-default-switch`. Done-when: a fresh agent
+      can decide from docs alone whether `v2-prod-default-switch` is unblocked, with
+      the exact verification command and all exclusions justified.
 - [ ] **v2-prod-default-switch** — only after the previous gates are green/explicitly
       scoped: switch `ssc run` default to v2, keep `ssc --v1` rollback, update docs and
       install/CI gates. No feature work belongs in this slice; a failed gate sends work
