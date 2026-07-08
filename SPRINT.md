@@ -842,6 +842,17 @@ Claimable slices for the above (queued 2026-07-07):
       .ssc-defined WorkerProtocol locally when the address is not a live node, or the
       bridge grows a registerNodeSim seam. Owner call; all groundwork (natives, message
       flow, diagnostics) landed in p3-dataset-natives.
+      IMPLEMENTATION PLAN (2026-07-08, claim `p3-connectnode-node-sim`): choose an
+      explicit local map-reduce helper, not a `connectNode`/bridge SPI change. Add
+      `localLoopbackCluster(ns: Node*)` in `std.mapreduce.distributed`, returning a
+      `Cluster` whose pids are local actors running `WorkerProtocol.handleMessages()`;
+      mirror the std change in both `runtime/std/` and `v1/runtime/std/`; update
+      offline distributed examples to use the helper instead of documentation
+      addresses through `Cluster.connect`; keep `Cluster.connect` as the real remote
+      node API. Spec: `specs/p3-connectnode-node-sim.md`. Verify with direct
+      `bin/ssc run examples/distributed-word-count.ssc`, affected distributed
+      examples if their data dependencies are local, and
+      `tests/conformance/run.sh --only 'cluster-connect,distributed-*' --no-memo`.
 - [~] **p3-corpus-singles** — 6 of 8 RESOLVED 2026-07-07 (8624649f0 + c3c44aa03):
       dsl-ast-builder + rozum-agent-streaming fixed by the p3-dataset-natives systemic fixes;
       the rozum-agent family (streaming incl.) needed TWO more systemic bugs — try/catch scope
