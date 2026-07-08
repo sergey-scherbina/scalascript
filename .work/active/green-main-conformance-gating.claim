@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T12:34:52Z
+heartbeat: 2026-07-08T12:39:03Z
 status: in-progress
-done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; json-read JS std/json intrinsic blocker fixed and pushed in 718d04027/017db7122; full gate still has remaining JS product-rendering, INT SQL/variables, std typeclass, and JVM std-ui blockers
-next: fix conformance-js-product-show-synthetic-tag; verify prisms, optic-polish, optics-index-at, optional
+done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; json-read JS std/json intrinsic blocker fixed and pushed in 718d04027/017db7122; JS product-rendering blocker fixed and pushed in 4e8cbb635/d67291757; full gate still has remaining INT SQL/variables, std typeclass, and JVM std-ui blockers
+next: fix conformance-int-sql-block-scope; verify sql-basic, sql-transaction
