@@ -1,6 +1,0 @@
-feature/v2-prod-post-p3-baseline 2026-07-08T08:45:34Z
-agent: codex
-heartbeat: 2026-07-08T08:48:02Z
-status: in-progress
-done-so-far: worktree created; SPRINT plan pushed in e90935905
-next: build bin/ssc in worktree and run full v2 output parity after p3+invoice changes
