@@ -360,7 +360,8 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       display) and `v2-ssc0-rust-float-literal-emits-int` (`V::Fl(2)` /
       `V::Fl(1)` rustc E0308 after `#f->str` collapses whole floats).
       Active plan 2026-07-08 (`p4-rust-wasm-lanes` / codex):
-      - [ ] Commit this spec/SPRINT/BUGS planning slice before code.
+      - [x] Commit this spec/SPRINT/BUGS planning slice before code
+            (`9fa380d89`, pushed before implementation).
       - [ ] Align `v2/lib/backend-js-gen.ssc0` and
             `v2/lib/backend-rust-gen.ssc0` `show` helpers with VM
             `Show.show`: proper `Cons`/`Nil` chains render as `List(...)`.
@@ -372,6 +373,12 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       - [ ] Update only stale `v2/conformance/check.sh` expectations caused by
             accepted kernel display semantics (`List(...)`, collapsed whole
             floats); do not paper over semantic mismatches.
+      - [ ] Fix the VM-only effect-handler regression found after the target
+            fixes: `async-tasks.ssc0`, typed `hm-async.hm`, and `handleM`
+            rows return raw `Op(...)` under `run`/`run-ir` while JS/Rust target
+            rows produce values. Track as `BUGS.md`
+            `v2-vm-effect-handlers-return-raw-op`; do not accept raw `Op(...)`
+            as the expected result.
       - [ ] Verify `./v2/conformance/check.sh`, `./v2/backend/check.sh`, and
             affected repo-level conformance (`tests/conformance/run.sh --only
             'rust*,wasm*'` or the nearest matching slice if no cases match).

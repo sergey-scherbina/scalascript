@@ -12,6 +12,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-vm-effect-handlers-return-raw-op — `open` (2026-07-08)
+
+- **Found by:** codex, during `p4-rust-wasm-lanes` full
+  `./v2/conformance/check.sh` after list/float expectation realignment.
+- **Repro:** run `./v2/conformance/check.sh`, or focus these rows:
+  `examples/async-tasks.ssc0`, `examples/hm-async.hm`,
+  `examples/hm-eff-multiop.hm`, and the inline `handleM row composition`
+  program through `bin/mirac.ssc0` + `run-ir`.
+- **Observed failure:** the VM `run`/`run-ir` lane returns unhandled effect
+  values such as `Op("log", 1, <closure>)`, `Op("yield", 0, <closure>)`, and
+  `Op("QA", Pair("ask", 0), <closure>)` where the JS/Rust generated lanes for
+  the same typed programs produce the expected results (`List(...)` or `42`).
+- **Impact:** the self-hosted v2 conformance gate remains red after the
+  Rust/WASM target fixes, and production cannot treat the VM as authoritative
+  for typed async / multi-op effect handler examples.
+- **Fix direction:** inspect VM effect handling in `v2/src/Runtime.scala` and
+  the generated CoreIR for the failing programs. Do not update expectations to
+  raw `Op(...)`; the JS/Rust rows show the intended semantics still runs to a
+  value.
+- **Done-when:** the focused rows above and the full `./v2/conformance/check.sh`
+  pass, with the fix SHA and root cause recorded here.
+
 ## v2-ssc0-target-display-drift — `open` (2026-07-08)
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
