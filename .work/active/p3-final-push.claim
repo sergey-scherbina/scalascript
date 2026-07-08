@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p3-final-push
-worktree: ../scalascript-wt-p3-final-push
-started: 2026-07-08
-status: in-progress
-task: p3-final-push — drive the parity queue to done: spark-lane classification (default decision, reversible), rozum x4 assessment, content block-value fidelity, macro impl-body eval, v1-side bug fixes (effects sections, os-env natives, .many(), exit-cascade, MCP default-run plugins), connectnode loopback-sim, final gates + readiness verdict
