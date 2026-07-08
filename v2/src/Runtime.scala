@@ -62,12 +62,10 @@ object Runtime:
   /** Applying a non-closure value: bridged v1 facade objects (NamedMethodObj,
    *  e.g. the json plugin's JsonValue) expose an `apply` FIELD — call it.
    *  Everything else is the familiar error. */
-  /** Free-monad STATEMENT threading: a non-final statement that evaluates to an
-   *  effect Op must not be discarded — the remaining statements become the Op's
-   *  continuation, so `Console.writeLine(x); rest` inside handle() reaches the
-   *  handler and then continues with `rest`. Without this, any effect op in
-   *  statement position silently vanished (the whole effects-semantics
-   *  divergence class: examples/effects.ssc, algebraic-effects.ssc). */
+  /** Runtime-effect STATEMENT threading: bridge-emitted effects use labels like
+   *  `Console.writeLine`; pure v2/typed libraries also use DataV("Op", ...) as
+   *  ordinary free-monad data with labels like "log" or "QA". Only the former may
+   *  be floated into the remaining statement/binding continuation. */
   /** Reactive-signal hooks (installed by the plugin bridge; kernel stays
    *  bridge-agnostic). readHook fires on every signal-cell read while an
    *  `effect { … }` thunk is tracking; writeHook fires after every cell write
@@ -75,10 +73,14 @@ object Runtime:
   val signalReadHook:  ThreadLocal[(AnyRef => Unit) | Null] = ThreadLocal.withInitial(() => null)
   @volatile var signalWriteHook: (AnyRef => Unit) | Null = null
 
+  def isAutoThreadOp(v: Value): Boolean = v match
+    case Value.DataV("Op", IndexedSeq(Value.StrV(label), _, _)) => label.contains(".")
+    case _ => false
+
   /** Let-binding variant of [[seqThreadOp]]: the resumed VALUE is needed by the
    *  continuation (it becomes the bound val), not just control flow. */
   def letThreadOp(op: Value, use: Value => Value): Value = op match
-    case Value.DataV("Op", IndexedSeq(l, a, k)) =>
+    case Value.DataV("Op", IndexedSeq(l, a, k)) if isAutoThreadOp(op) =>
       val kc = k.asInstanceOf[Value.ClosV]
       val k2 = Value.ClosV(Array[Value](kc), 1, env2 => {
         val r = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
@@ -88,7 +90,7 @@ object Runtime:
     case v => use(v)
 
   def seqThreadOp(op: Value, rest: () => Value): Value = op match
-    case Value.DataV("Op", IndexedSeq(l, a, k)) =>
+    case Value.DataV("Op", IndexedSeq(l, a, k)) if isAutoThreadOp(op) =>
       val kc = k.asInstanceOf[Value.ClosV]
       val k2 = Value.ClosV(Array[Value](kc), 1, env2 => {
         val r = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
@@ -292,16 +294,17 @@ object Compiler:
         (env: Env) =>
           // Common path stays TAIL (bc(e) returns a Step for the trampoline —
           // 1M-tail-call TCO depends on it). Only when an rhs evaluates to an
-          // effect Op do we leave tail-land: the remaining bindings + body
-          // become the Op's continuation (`val name = Console.readLine()`
-          // used to bind the raw Op and the op never reached the handler).
+          // bridge/runtime effect Op do we leave tail-land: the remaining
+          // bindings + body become the Op's continuation (`val name =
+          // Console.readLine()` used to bind the raw Op and the op never reached
+          // the handler). Pure v2 free-monad Ops are data and must bind normally.
           var e = env
           var i = 0
           var opHit: Value | Null = null
           while (opHit == null) && i < nRcs do
             val v = Runtime.value(rcs(i), e)
             v match
-              case opv @ Value.DataV("Op", _) => opHit = opv
+              case opv @ Value.DataV("Op", _) if Runtime.isAutoThreadOp(opv) => opHit = opv
               case _ => e = Runtime.appendOne(e, v); i += 1
           if opHit == null then bc(e)                                // body: tail
           else
@@ -313,7 +316,7 @@ object Compiler:
               while (op2 == null) && j < nRcs do
                 val v2 = Runtime.value(rcs(j), e3)
                 v2 match
-                  case opv2 @ Value.DataV("Op", _) => op2 = opv2
+                  case opv2 @ Value.DataV("Op", _) if Runtime.isAutoThreadOp(opv2) => op2 = opv2
                   case _ => e3 = Runtime.appendOne(e3, v2); j += 1
               if op2 == null then Runtime.run(bc, e3)
               else Runtime.letThreadOp(op2.asInstanceOf[Value], x2 => continue(j, e3, x2))
@@ -494,7 +497,7 @@ object Compiler:
               val v = fcsArr(k)(env)
               if k == nFcs - 1 then v
               else v match
-                case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, () => go(k + 1))
+                case opv @ Value.DataV("Op", _) if Runtime.isAutoThreadOp(opv) => Runtime.seqThreadOp(opv, () => go(k + 1))
                 case _ => go(k + 1)
             Done(go(0))
         else
@@ -505,7 +508,7 @@ object Compiler:
               val v = Runtime.value(tcsArr(k), env)
               if k == nTcs - 1 then v
               else v match
-                case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, () => go(k + 1))
+                case opv @ Value.DataV("Op", _) if Runtime.isAutoThreadOp(opv) => Runtime.seqThreadOp(opv, () => go(k + 1))
                 case _ => go(k + 1)
             Done(go(0))
       case Prim(op, args) =>
@@ -576,7 +579,7 @@ object FastCode:
         val v = fcs(i)(env)
         if i == n - 1 then v
         else v match
-          case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, () => go(i + 1))
+          case opv @ Value.DataV("Op", _) if Runtime.isAutoThreadOp(opv) => Runtime.seqThreadOp(opv, () => go(i + 1))
           case _ => go(i + 1)
       go(0)
 
@@ -920,11 +923,12 @@ object FastCode:
         // Direct captures for 1/2/3 terms: JIT inlines f0/f1/f2 as known types.
         // SeqFastCode fallback for n≥4 keeps class diversity bounded.
         val fcsArr = opts.map(_.get).toArray
-        // Non-final values must be Op-checked (Runtime.seqThreadOp) like every
-        // other Seq path — the plain `f0(env); f1(env)` forms silently dropped
-        // effect Ops in statement position.
+        // Non-final bridge-effect values must be Op-checked
+        // (Runtime.seqThreadOp) like every other Seq path — the plain
+        // `f0(env); f1(env)` forms silently dropped runtime effects in statement
+        // position.
         inline def step(v: Value, rest: () => Value): Value = v match
-          case opv @ Value.DataV("Op", _) => Runtime.seqThreadOp(opv, rest)
+          case opv @ Value.DataV("Op", _) if Runtime.isAutoThreadOp(opv) => Runtime.seqThreadOp(opv, rest)
           case _ => rest()
         fcsArr.length match
           case 1 => val f0 = fcsArr(0); Some(env => f0(env))

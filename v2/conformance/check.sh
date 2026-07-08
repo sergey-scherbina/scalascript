@@ -119,7 +119,7 @@ chk_raw_targets() { # label file want
 
 echo "# ssc0 source -> ir -> run"
 chk run examples/fact.ssc0 "120"
-chk run examples/map.ssc0  "Cons(2, Cons(4, Cons(6, Nil)))"
+chk run examples/map.ssc0  "List(2, 4, 6)"
 chk run examples/tco.ssc0  "500000500000"
 
 echo "# widened primitives (strings, BigInt, maps, Option)"
@@ -132,14 +132,14 @@ chk run examples/uselib.ssc0 "4950"
 echo "# stdlib + an interpreter, written in ssc0"
 chk run examples/pipeline.ssc0 "120"
 chk run examples/calc.ssc0     "42"
-chk run examples/quicksort.ssc0     "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))"
-chk run examples/quicksort-lib.ssc0 "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))"
+chk run examples/quicksort.ssc0     "List(1, 1, 2, 3, 4, 5)"
+chk run examples/quicksort-lib.ssc0 "List(1, 1, 2, 3, 4, 5)"
 chk run examples/stdlib-demo.ssc0   '"0, 1, 2"'                       # strJoin + map + take + range
-chk run examples/zipwith.ssc0       "Cons(11, Cons(22, Cons(33, Nil)))"
+chk run examples/zipwith.ssc0       "List(11, 22, 33)"
 chk run examples/map-demo.ssc0      "Pair(2, 3)"                      # lib/map: insert/lookup/size
 chk run examples/mapx-demo.ssc0     '"pair|triple|int|nested|?  size=4  upd=PAIR2"'   # lib/mapx: STRUCTURAL keys (tuple/int/ADT/nested), valEq oracle
 chk run examples/set-demo.ssc0      "234211"                          # lib/set: structural Set (union/inter/diff/member/subset; tuple dedup) — tup2 s1=3 ∪4 ∩2 \1 mem1
-chk run examples/sieve.ssc0         "Cons(2, Cons(3, Cons(5, Cons(7, Cons(11, Cons(13, Cons(17, Cons(19, Cons(23, Cons(29, Nil))))))))))"  # mutable #arr.*
+chk run examples/sieve.ssc0         "List(2, 3, 5, 7, 11, 13, 17, 19, 23, 29)"  # mutable #arr.*
 chk run examples/sha256-demo.ssc0   "4"                                # SHA-256 (lib/sha256.ssc0) vs 4 standard vectors incl. multi-block; VM-only (64-bit bitwise+byte+#arr)
 chk run examples/irbin-demo.ssc0    'Pair("roundtrip-ok", Pair(108, 334))'   # v2-bin (lib/irbin.ssc0): IR-tree -> compact binary -> IR-tree, all node types; 108 bytes vs 334 S-expr chars
 # v2-bin executable round-trip: a runnable IR through binary -> back to S-expr -> actually runs to 42
@@ -147,22 +147,22 @@ ssc run examples/irbin-run.ssc0 > "${TMPDIR:-/tmp}/irbin.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/irbin.coreir" | tail -1)
 if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "v2-bin round-trip -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [42]\n' "v2-bin round-trip" "$got"; fail=1; fi
 chk run examples/string-build.ssc0  '"n=42"'                          # #sconcat + #i->str
-chk run examples/stream-squares.ssc0 "Cons(1, Cons(4, Cons(9, Cons(16, Cons(25, Nil)))))"  # lazy infinite stream
+chk run examples/stream-squares.ssc0 "List(1, 4, 9, 16, 25)"  # lazy infinite stream
 chk run examples/letrec-fact.ssc0   "120"                            # local `let rec` -> Core IR letrec
 
 echo "# algebraic effects + handlers (lib/effects.ssc0) — incl. MULTI-SHOT continuations"
 chk run examples/effects-state.ssc0  "Pair(2, 2)"
-chk run examples/effects-nondet.ssc0 "Cons(11, Cons(21, Cons(12, Cons(22, Nil))))"
+chk run examples/effects-nondet.ssc0 "List(11, 21, 12, 22)"
 
 echo "# async: cooperative scheduler on effects (lib/async.ssc0) — yield + fork"
-chk run examples/async-tasks.ssc0 "Cons(1, Cons(10, Cons(2, Cons(20, Cons(3, Nil)))))"
-chk run examples/async-fork.ssc0  "Cons(1, Cons(2, Cons(100, Cons(3, Cons(200, Nil)))))"
+chk run examples/async-tasks.ssc0 "List(1, 10, 2, 20, 3)"
+chk run examples/async-fork.ssc0  "List(1, 2, 100, 3, 200)"
 
 echo "# K46 async: futures, channels, buffered channels, mailbox helpers (lib/async.ssc0 runAsync)"
-K46_FUTURE="Cons(1, Cons(2, Cons(10, Cons(20, Cons(7, Cons(7, Nil))))))"
-K46_CHANNEL="Cons(1, Cons(2, Cons(42, Nil)))"
-K46_BUFFER="Cons(1, Cons(5, Cons(6, Nil)))"
-K46_MAILBOX="Cons(0, Cons(1, Cons(2, Cons(3, Cons(4, Nil)))))"
+K46_FUTURE="List(1, 2, 10, 20, 7, 7)"
+K46_CHANNEL="List(1, 2, 42)"
+K46_BUFFER="List(1, 5, 6)"
+K46_MAILBOX="List(0, 1, 2, 3, 4)"
 chk run examples/async-future.ssc0 "$K46_FUTURE"
 chk run examples/async-channel.ssc0 "$K46_CHANNEL"
 chk run examples/async-channel-buffer.ssc0 "$K46_BUFFER"
@@ -204,10 +204,10 @@ chk run examples/hm-run-err.ssc0 'TypeError("Add needs Int operands")'  # ill-ty
 
 echo "# mira POLYMORPHIC LISTS: infer [a], typecheck length/map, reject heterogeneous lists"
 chk run examples/hm-nil.ssc0      '"[t0]"'                            # nil : forall a. [a]
-chk run examples/hm-list.ssc0     'Typed("[Int]", Cons(1, Cons(2, Cons(3, Nil))))'
+chk run examples/hm-list.ssc0     'Typed("[Int]", List(1, 2, 3))'
 chk run examples/hm-list-err.ssc0 '"TypeError: list elements must have the same type"'
 chk run examples/hm-length.ssc0   'Typed("Int", 3)'                  # length [1,2,3] (isNil/tail + recursion)
-chk run examples/hm-map.ssc0      'Typed("[Int]", Cons(1, Cons(4, Cons(9, Nil))))'  # map (x*x) [1,2,3]
+chk run examples/hm-map.ssc0      'Typed("[Int]", List(1, 4, 9))'  # map (x*x) [1,2,3]
 
 echo "# mira USER ADTs: one general ConApp/MatchT mechanism types Option/Either/Pair/Tree"
 chk run examples/hm-adt-some.ssc0    '"Option Int"'                   # Some 5
@@ -234,7 +234,7 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 
 echo "# mira lists COMPILE: map/length erase to Core IR (ctor + Cons-match) and run on VM/JS/Rust"
-LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
+LMAP="List(1, 4, 9)"
 ssc run examples/hm-length-emit.ssc0 > "${TMPDIR:-/tmp}/hm-length.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/hm-length.coreir" | tail -1)
 if [ "$got" = "3" ]; then printf 'ok   %-26s => %s\n' "hm-length -> ir -> run-ir" "$got"; else printf 'FAIL %-26s got [%s] want [3]\n' "hm-length" "$got"; fail=1; fi
@@ -253,7 +253,7 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 
 echo "# actors: message passing + per-actor behavior (lib/actors.ssc0)"
-chk run examples/actors-pingpong.ssc0 "Cons(Ball(0), Cons(Ball(1), Cons(Ball(2), Cons(Ball(3), Cons(Ball(4), Cons(Ball(5), Nil))))))"
+chk run examples/actors-pingpong.ssc0 "List(Ball(0), Ball(1), Ball(2), Ball(3), Ball(4), Ball(5))"
 
 echo "# ssct — the typed layer (a type checker written in ssc0)"
 chk run examples/typed.ssc0    'Typed("Int", 42)'
@@ -606,7 +606,7 @@ chk_hm examples/hm-ord.hm '"Int"'
 ssc run bin/mirac.ssc0 examples/hm-ord.hm > "${TMPDIR:-/tmp}/o.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/o.coreir" | tail -1)
 if [ "$got" = "42" ]; then printf 'ok   %-26s => %s\n' "ord (>= <> <=) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "ord" "$got"; fail=1; fi
-QS2="Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Nil)))))"
+QS2="List(1, 1, 2, 3, 4)"
 ssc run bin/mirac.ssc0 examples/hm-qsort2.hm > "${TMPDIR:-/tmp}/q2.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/q2.coreir" | tail -1)
 if [ "$got" = "$QS2" ]; then printf 'ok   %-26s => %s\n' "qsort dup (>=) -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "qsort dup" "$got"; fail=1; fi
@@ -998,7 +998,7 @@ fi
 echo -n "ok   mixed div rejected       => "; printf '9.0 / 2' > "${TMPDIR:-/tmp}/dmx.hm"; dmx=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/dmx.hm" | tail -1); if [ "$dmx" = '"TypeError: arithmetic operands must have the same type"' ]; then echo "Int/Float mix rejected (correct)"; else echo "FAIL [$dmx]"; fail=1; fi
 echo "# mira TYPED ASYNC: cooperative scheduler (yield/log) on the typed effect monad, all backends"
 chk_hm examples/hm-async.hm '"[Int]"'
-AYW="Cons(1, Cons(2, Cons(101, Cons(102, Nil))))"
+AYW="List(1, 2, 101, 102)"
 ssc run bin/mirac.ssc0 examples/hm-async.hm > "${TMPDIR:-/tmp}/ay.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/ay.coreir" | tail -1)
 if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s\n' "async sched -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "async" "$got"; fail=1; fi
@@ -1014,7 +1014,7 @@ if command -v rustc >/dev/null 2>&1; then
 fi
 echo "# mira TYPED ACTORS: stateful behavior (state, msg) -> (state', out) over a message stream, all backends"
 chk_hm examples/hm-actors.hm '"[Int]"'
-ATW="Cons(2, Cons(3, Cons(2, Nil)))"
+ATW="List(2, 3, 2)"
 ssc run bin/mirac.ssc0 examples/hm-actors.hm > "${TMPDIR:-/tmp}/at.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/at.coreir" | tail -1)
 if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s\n' "actor behavior -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors" "$got"; fail=1; fi
@@ -1048,7 +1048,7 @@ echo -n "ok   effect tracked in type   => "; printf 'getE' > "${TMPDIR:-/tmp}/er
 echo -n "ok   unhandled effect = error => "; printf 'runE getE' > "${TMPDIR:-/tmp}/er2.hm"; eu=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/er2.hm" | tail -1); if [ "$eu" = '"TypeError: effect not handled: State"' ]; then echo "rejected (correct)"; else echo "FAIL [$eu]"; fail=1; fi
 echo "# K10.4c — TWO effects (State + Log): the ROW tracks both; runE demands BOTH handled; runs on all backends"
 chk_hm examples/hm-eff2.hm '"((Int, Int), [Dyn])"'                   # put 3; log 7; get -> row {State, Log}, both handled
-E2V="Pair(Pair(103, 3), Cons(7, Nil))"
+E2V="Pair(Pair(103, 3), List(7))"
 ssc run bin/mirac.ssc0 examples/hm-eff2.hm > "${TMPDIR:-/tmp}/e2.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/e2.coreir" | tail -1)
 if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s\n' "two effects -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2" "$got"; fail=1; fi
@@ -1067,7 +1067,7 @@ echo -n "ok   second effect tracked too => "; printf 'runE (runStateE (bindE (lo
 echo "# K41 — EFFECT-ROW INFERENCE incl. EFFECT-POLYMORPHIC HOFs: traverseE infers (a -> Comp e b) -> [a] -> Comp e [b] — the row var e threads from the callback through the whole traversal (no annotation). Runs on 3 backends."
 echo -n "ok   traverseE is effect-poly  => "; printf 'let rec traverseE = fun f => fun xs => if isNil xs then pureE nil else bindE (f (head xs)) (fun y => bindE (traverseE f (tail xs)) (fun ys => pureE (cons y ys))) in traverseE' > "${TMPDIR:-/tmp}/tvt.hm"; tvt=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/tvt.hm" | tail -1); if [ "$tvt" = '"((t22 -> Comp e21 t20) -> ([t22] -> Comp e21 [t20]))"' ]; then echo "row var e21 inferred + propagated"; else echo "FAIL [$tvt]"; fail=1; fi
 chk_hm examples/hm-eff-traverse.hm '"([Int], Int)"'                  # callback performs State -> whole traversal is Comp {State|e} [Int]
-TVV="Pair(Cons(1, Cons(3, Cons(6, Nil))), 6)"
+TVV="Pair(List(1, 3, 6), 6)"
 ssc run bin/mirac.ssc0 examples/hm-eff-traverse.hm > "${TMPDIR:-/tmp}/tv.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tv.coreir" | tail -1)
 if [ "$got" = "$TVV" ]; then printf 'ok   %-26s => %s\n' "eff-poly traverse -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-traverse" "$got"; fail=1; fi
@@ -1075,7 +1075,7 @@ if command -v node >/dev/null 2>&1; then ssc run bin/mira-js.ssc0 examples/hm-ef
 if command -v rustc >/dev/null 2>&1; then ssc run bin/mira-rust.ssc0 examples/hm-eff-traverse.hm > "${TMPDIR:-/tmp}/tv.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/tv.rs" -o "${TMPDIR:-/tmp}/tv-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tv-bin"); else got="(rustc err)"; fi; if [ "$got" = "$TVV" ]; then printf 'ok   %-26s => %s (rustc)\n' "eff-poly traverse -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-traverse Rust" "$got"; fail=1; fi; fi
 echo "# K10.4d — USER-EXTENSIBLE effects: 'perform' any effect + general deep 'handle' (incl MULTI-SHOT). No built-in support."
 chk_hm examples/hm-eff-handle.hm '"[Int]"'                            # nondeterminism: flip;flip via a user handler that resumes TWICE
-EHV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"
+EHV="List(3, 2, 1, 0)"
 ssc run bin/mirac.ssc0 examples/hm-eff-handle.hm > "${TMPDIR:-/tmp}/eh.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/eh.coreir" | tail -1)
 if [ "$got" = "$EHV" ]; then printf 'ok   %-26s => %s\n' "multi-shot handle -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-handle" "$got"; fail=1; fi
@@ -1113,7 +1113,7 @@ ssc run bin/mirac.ssc0 examples/hm-eff-do.hm > "${TMPDIR:-/tmp}/edo.coreir" 2>/d
 got=$(ssc run-ir "${TMPDIR:-/tmp}/edo.coreir" | tail -1)
 if [ "$got" = "$DOV" ]; then printf 'ok   %-26s => %s\n' "doE State -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do" "$got"; fail=1; fi
 chk_hm examples/hm-eff-do-nondet.hm '"[Int]"'                         # doE in BOTH the handler body and the computation (multi-shot)
-DNV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"
+DNV="List(3, 2, 1, 0)"
 ssc run bin/mirac.ssc0 examples/hm-eff-do-nondet.hm > "${TMPDIR:-/tmp}/edn.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/edn.coreir" | tail -1)
 if [ "$got" = "$DNV" ]; then printf 'ok   %-26s => %s\n' "doE nondet -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do-nondet" "$got"; fail=1; fi
@@ -1135,7 +1135,7 @@ ssc run bin/mirac.ssc0 examples/hm-eff-decl.hm > "${TMPDIR:-/tmp}/edl.coreir" 2>
 got=$(ssc run-ir "${TMPDIR:-/tmp}/edl.coreir" | tail -1)
 if [ "$got" = "$EDV" ]; then printf 'ok   %-26s => %s\n' "effect decl State -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl" "$got"; fail=1; fi
 chk_hm examples/hm-eff-decl-choose.hm '"[Int]"'                       # effect Choose flip in … + general handle (multi-shot)
-EDCV="Cons(3, Cons(2, Cons(1, Cons(0, Nil))))"
+EDCV="List(3, 2, 1, 0)"
 ssc run bin/mirac.ssc0 examples/hm-eff-decl-choose.hm > "${TMPDIR:-/tmp}/edc.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/edc.coreir" | tail -1)
 if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s\n' "effect decl Choose -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose" "$got"; fail=1; fi
@@ -1219,7 +1219,7 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/mo48.coreir" | tail -1)
 if [ "$got" = "$MV" ]; then printf 'ok   %-26s => %s\n' "handleM -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "handleM" "$got"; fail=1; fi
 if command -v node >/dev/null 2>&1; then ssc run bin/mira-js.ssc0 examples/hm-eff-multiop.hm > "${TMPDIR:-/tmp}/mo48.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mo48.js" 2>/dev/null | tail -1); if [ "$got" = "$MV" ]; then printf 'ok   %-26s => %s (node)\n' "handleM -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "handleM JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/mira-rust.ssc0 examples/hm-eff-multiop.hm > "${TMPDIR:-/tmp}/mo48.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/mo48.rs" -o "${TMPDIR:-/tmp}/mo48-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mo48-bin"); else got="(rustc err)"; fi; if [ "$got" = "$MV" ]; then printf 'ok   %-26s => %s (rustc)\n' "handleM -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "handleM Rust" "$got"; fail=1; fi; fi
-echo -n "ok   handleM row composition => "; printf 'effect QA { ask : Dyn -> Int , tell : String -> String } in let prog = doE { x <- ask ; u <- logE "seen" ; t <- tell "hello" ; pureE (x * 2) } in runE (runLogE (handleM "QA" prog { | ask a k => k 21 | tell a k => k "done" } (fun v => pureE v)))' > "${TMPDIR:-/tmp}/mo48compose.hm"; mc=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/mo48compose.hm" | tail -1); ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/mo48compose.hm" > "${TMPDIR:-/tmp}/mo48compose.coreir" 2>/dev/null; got=$(ssc run-ir "${TMPDIR:-/tmp}/mo48compose.coreir" | tail -1); if [ "$mc" = '"(Int, [Dyn])"' ] && [ "$got" = 'Pair(42, Cons("seen", Nil))' ]; then echo "handled QA composes with Log"; else echo "FAIL type [$mc] run [$got]"; fail=1; fi
+echo -n "ok   handleM row composition => "; printf 'effect QA { ask : Dyn -> Int , tell : String -> String } in let prog = doE { x <- ask ; u <- logE "seen" ; t <- tell "hello" ; pureE (x * 2) } in runE (runLogE (handleM "QA" prog { | ask a k => k 21 | tell a k => k "done" } (fun v => pureE v)))' > "${TMPDIR:-/tmp}/mo48compose.hm"; mc=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/mo48compose.hm" | tail -1); ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/mo48compose.hm" > "${TMPDIR:-/tmp}/mo48compose.coreir" 2>/dev/null; got=$(ssc run-ir "${TMPDIR:-/tmp}/mo48compose.coreir" | tail -1); if [ "$mc" = '"(Int, [Dyn])"' ] && [ "$got" = 'Pair(42, List("seen"))' ]; then echo "handled QA composes with Log"; else echo "FAIL type [$mc] run [$got]"; fail=1; fi
 echo -n "ok   handleM wrong-type rejected => "; printf 'effect QA { ask : Dyn -> Int , tell : String -> String } in runE (handleM "QA" (doE { x <- ask ; u <- tell "hi" ; pureE (x * 2) }) { | ask a k => k 21 | tell a k => k 99 } (fun v => pureE v))' > "${TMPDIR:-/tmp}/mo48b.hm"; mb=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/mo48b.hm" | tail -1); if echo "$mb" | grep -q TypeError; then echo "tell arm k 99 (Int, not String) rejected (correct)"; else echo "FAIL [$mb]"; fail=1; fi
 echo -n "ok   handleM missing-arm rejected => "; printf 'effect QA { ask : Dyn -> Int , tell : String -> String } in runE (handleM "QA" (doE { x <- ask ; u <- tell "hi" ; pureE x }) { | ask a k => k 21 } (fun v => pureE v))' > "${TMPDIR:-/tmp}/mo48missing.hm"; mm=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/mo48missing.hm" | tail -1); if echo "$mm" | grep -q TypeError; then echo "missing tell arm rejected (correct)"; else echo "FAIL [$mm]"; fail=1; fi
 echo -n "ok   handleM foreign-arm rejected => "; printf 'effect QA { ask : Dyn -> Int , tell : String -> String } in effect Other { ping : Dyn -> Int } in runE (handleM "QA" (doE { x <- ask ; u <- tell "hi" ; pureE x }) { | ask a k => k 21 | tell a k => k "ok" | ping a k => k 1 } (fun v => pureE v))' > "${TMPDIR:-/tmp}/mo48foreign.hm"; mf=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/mo48foreign.hm" | tail -1); if echo "$mf" | grep -q TypeError; then echo "foreign ping arm rejected (correct)"; else echo "FAIL [$mf]"; fail=1; fi
@@ -1345,7 +1345,7 @@ echo -n "ok   neg precedence + binary '-' => "; printf 'let n = -3 in n * -2' > 
 
 echo "# LET ANNOTATION: 'let x : T = e in body' ascribes e to T (enforced, aids error localization)"
 chk_hm examples/hm-letann.hm '"[Int]"'                                # let x : Int = 5 in let xs : [Int] = [x,2,3] in xs
-LANN="Cons(5, Cons(2, Cons(3, Nil)))"
+LANN="List(5, 2, 3)"
 ssc run bin/mirac.ssc0 examples/hm-letann.hm > "${TMPDIR:-/tmp}/la.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/la.coreir" | tail -1)
 if [ "$got" = "$LANN" ]; then printf 'ok   %-26s => %s\n' "let annot -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "let annot" "$got"; fail=1; fi
@@ -1369,7 +1369,7 @@ got=$(ssc run-ir "${TMPDIR:-/tmp}/lc.coreir" | tail -1)
 if [ "$got" = "15" ]; then printf 'ok   %-26s => %s\n' "list ++ -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "list ++" "$got"; fail=1; fi
 if command -v node >/dev/null 2>&1; then ssc run bin/mira-js.ssc0 examples/hm-listconcat.hm > "${TMPDIR:-/tmp}/lc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/lc.js" 2>/dev/null | tail -1); if [ "$got" = "15" ]; then printf 'ok   %-26s => %s (node)\n' "list ++ -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "list ++ JS" "$got"; fail=1; fi; fi
 if command -v rustc >/dev/null 2>&1; then ssc run bin/mira-rust.ssc0 examples/hm-listconcat.hm > "${TMPDIR:-/tmp}/lc.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/lc.rs" -o "${TMPDIR:-/tmp}/lc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/lc-bin"); else got="(rustc err)"; fi; if [ "$got" = "15" ]; then printf 'ok   %-26s => %s (rustc)\n' "list ++ -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "list ++ Rust" "$got"; fail=1; fi; fi
-echo -n "ok   list ++ shape + string ++ both => "; printf '[1, 2] ++ [3]' > "${TMPDIR:-/tmp}/lc2.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/lc2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/lc2.coreir"; lc2=$(ssc run-ir "${TMPDIR:-/tmp}/lc2.coreir" | tail -1); printf '"foo" ++ "bar"' > "${TMPDIR:-/tmp}/lc3.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/lc3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/lc3.coreir"; lc3=$(ssc run-ir "${TMPDIR:-/tmp}/lc3.coreir" | tail -1); if [ "$lc2" = "Cons(1, Cons(2, Cons(3, Nil)))" ] && [ "$lc3" = '"foobar"' ]; then echo "[1,2]++[3]=list ; \"foo\"++\"bar\"=foobar (one ++, both types)"; else echo "FAIL [$lc2 / $lc3]"; fail=1; fi
+echo -n "ok   list ++ shape + string ++ both => "; printf '[1, 2] ++ [3]' > "${TMPDIR:-/tmp}/lc2.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/lc2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/lc2.coreir"; lc2=$(ssc run-ir "${TMPDIR:-/tmp}/lc2.coreir" | tail -1); printf '"foo" ++ "bar"' > "${TMPDIR:-/tmp}/lc3.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/lc3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/lc3.coreir"; lc3=$(ssc run-ir "${TMPDIR:-/tmp}/lc3.coreir" | tail -1); if [ "$lc2" = "List(1, 2, 3)" ] && [ "$lc3" = '"foobar"' ]; then echo "[1,2]++[3]=list ; \"foo\"++\"bar\"=foobar (one ++, both types)"; else echo "FAIL [$lc2 / $lc3]"; fail=1; fi
 
 echo "# LET DESTRUCTURE: let (pat) = e in body  ->  match e { pat => body }  (tuples, nested) — used to crash"
 chk_hm examples/hm-letdestr.hm '"Int"'                                # let (a,b)=(3,4) in let (c,(d,e))=(5,(6,7)) in ...
@@ -1578,7 +1578,7 @@ if command -v node >/dev/null 2>&1; then ssc run bin/mira-js.ssc0 examples/hm-st
 if command -v rustc >/dev/null 2>&1; then ssc run bin/mira-rust.ssc0 examples/hm-stringfns.hm > "${TMPDIR:-/tmp}/sfc.rs" 2>/dev/null; if rustc -O "${TMPDIR:-/tmp}/sfc.rs" -o "${TMPDIR:-/tmp}/sfc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sfc-bin"); else got="(rustc err)"; fi; if [ "$got" = "431" ]; then printf 'ok   %-26s => %s (rustc)\n' "string fns -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "string fns Rust" "$got"; fail=1; fi; fi
 echo -n "ok   split by char literal + words => "; printf "length (split ',' \"a,b,c\") * 10 + length (words \"p q r s\")" > "${TMPDIR:-/tmp}/sf2.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/sf2.hm" 2>/dev/null > "${TMPDIR:-/tmp}/sf2.coreir"; sf2=$(ssc run-ir "${TMPDIR:-/tmp}/sf2.coreir" | tail -1); if [ "$sf2" = "34" ]; then echo "split ',' (3) *10 + words (4) => 34"; else echo "FAIL [$sf2]"; fail=1; fi
 
-LMAP="Cons(1, Cons(4, Cons(9, Nil)))"
+LMAP="List(1, 4, 9)"
 ssc run bin/mirac.ssc0 examples/hm-map.hm > "${TMPDIR:-/tmp}/tmap.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/tmap.coreir" | tail -1)
 if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s\n' "mirac map.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "mirac map.hm" "$got"; fail=1; fi
@@ -1595,7 +1595,7 @@ fi
 
 echo "# mira TYPED QUICKSORT: filter/append/qsort + less-than as source text -> infer [Int] -> 3 backends"
 chk_hm examples/hm-qsort.hm '"[Int]"'
-QS="Cons(1, Cons(2, Cons(3, Cons(4, Nil))))"
+QS="List(1, 2, 3, 4)"
 ssc run bin/mirac.ssc0 examples/hm-qsort.hm > "${TMPDIR:-/tmp}/qs.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/qs.coreir" | tail -1)
 if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s\n' "mirac qsort.hm -> run-ir" "$got"; else printf 'FAIL %-26s got [%s]\n' "mirac qsort.hm" "$got"; fail=1; fi
@@ -1662,7 +1662,7 @@ else printf 'FAIL %-26s got [%s] want [120]\n' "ssc0c fact -> run-ir" "$got"; fa
 # bootstrap Scala front stays frozen and still rejects bare prims — compile via bin/ssc0c.ssc0.)
 ssc run bin/ssc0c.ssc0 examples/eta-prim.ssc0 > "${TMPDIR:-/tmp}/eta.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/eta.coreir" | tail -1)
-wanteta='Pair(Cons(-1, Cons(-2, Cons(-3, Nil))), 10)'
+wanteta='Pair(List(-1, -2, -3), 10)'
 if [ "$got" = "$wanteta" ]; then printf 'ok   %-26s => %s\n' "ssc0c #prim η-expansion" "$got"
 else printf 'FAIL %-26s got [%s] want [%s]\n' "ssc0c #prim η-expansion" "$got" "$wanteta"; fail=1; fi
 
@@ -1742,7 +1742,7 @@ fi
 echo "# ir bytecode -> run"
 chk run-ir conformance/thunk.coreir  "42"
 chk run-ir conformance/fact.coreir   "120"
-chk run-ir conformance/map.coreir    "Cons(2, Cons(4, Cons(6, Nil)))"
+chk run-ir conformance/map.coreir    "List(2, 4, 6)"
 chk run-ir conformance/letrec.coreir "true"
 chk run-ir conformance/tco.coreir    "500000500000"
 
@@ -1814,7 +1814,7 @@ if [ "$K55GOT" = "$K55WANT" ]; then printf 'ok   %-26s => 2 blocks extracted\n' 
 else printf 'FAIL %-26s\n  got:  [%s]\n  want: [%s]\n' "ssc-front hm-md-demo.ssc" "$K55GOT" "$K55WANT"; fail=1; fi
 
 echo '# KC2 — v1.0 Mira lexer (examples/hm-lex.mira, needs -Xss512m like hm-json)'
-KC2WANT='Cons(TKw("def"), Cons(TId("f"), Cons(TLParen, Cons(TId("x"), Cons(TColon, Cons(TUId("Int"), Cons(TRParen, Cons(TEq, Cons(TId("x"), Cons(TOp("+"), Cons(TInt(1), Cons(TEof, Nil))))))))))))'
+KC2WANT='List(TKw("def"), TId("f"), TLParen, TId("x"), TColon, TUId("Int"), TRParen, TEq, TId("x"), TOp("+"), TInt(1), TEof)'
 kc2t=$(sscx run bin/mira.ssc0 examples/hm-lex.mira | tail -1)
 if [ "$kc2t" = '"[Token]"' ]; then printf 'ok   %-26s => [Token]\n' "mira type hm-lex.mira"
 else printf 'FAIL %-26s got [%s]\n' "mira type hm-lex.mira" "$kc2t"; fail=1; fi
@@ -1932,7 +1932,7 @@ echo '# WASM (ssc0-wasm: Rust backend -> wasm32-wasip1 -> Node WASI) — toolcha
 if rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1 \
    && node -e 'require("node:wasi")' 2>/dev/null; then
   wq=$(./ssc0-wasm examples/quicksort.ssc0 2>/dev/null | tail -1)
-  if [ "$wq" = "Cons(1, Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil))))))" ]; then
+  if [ "$wq" = "List(1, 1, 2, 3, 4, 5)" ]; then
     printf 'ok   %-26s => quicksort matches VM\n' "wasm quicksort"
   else printf 'FAIL %-26s\n  got: [%s]\n' "wasm quicksort" "$wq"; fail=1; fi
   wt=$(./ssc0-wasm examples/tco.ssc0 2>/dev/null | tail -1)
@@ -1945,10 +1945,10 @@ fi
 
 echo '# T5.6 — Float/Double arithmetic via ssc1c (numeric-poly i.* prims)'
 kcflt=$(ssc run bin/ssc1c.ssc0 examples/kc-float.ssc | ssc run-ir /dev/stdin | tr '\n' ' ')
-if [ "$kcflt" = "10.0 3.75 4.5 true -2.5 " ]; then printf 'ok   %-26s => %s\n' "kc-float Double math" "$kcflt"
-else printf 'FAIL %-26s\n  got: [%s] want: [10.0 3.75 4.5 true -2.5 ]\n' "kc-float Double math" "$kcflt"; fail=1; fi
+if [ "$kcflt" = "10 3.75 4.5 true -2.5 " ]; then printf 'ok   %-26s => %s\n' "kc-float Double math" "$kcflt"
+else printf 'FAIL %-26s\n  got: [%s] want: [10 3.75 4.5 true -2.5 ]\n' "kc-float Double math" "$kcflt"; fail=1; fi
 fnum=$(ssc run-ir conformance/floatnum.coreir)
-if [ "$fnum" = "Pair(3.0, Pair(4.5, Pair(true, -2.5)))" ]; then printf 'ok   %-26s => VM numeric-poly prims\n' "floatnum fixture"
+if [ "$fnum" = "Pair(3, Pair(4.5, Pair(true, -2.5)))" ]; then printf 'ok   %-26s => VM numeric-poly prims\n' "floatnum fixture"
 else printf 'FAIL %-26s\n  got: [%s]\n' "floatnum fixture" "$fnum"; fail=1; fi
 
 echo '# T5.7 — top-level statements via ssc1 (examples/recursion.ssc end-to-end)'

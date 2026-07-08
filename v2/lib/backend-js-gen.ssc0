@@ -113,7 +113,7 @@ def letrecE = (d, lams, body, tail) =>
 def genDefs = (defs) =>
   match defs { case Nil => "" case Cons(dd, t) => match dd { case IrDef(name, body) => cats(Cons("const ", Cons(gName(name), Cons(" = ", Cons(genE(0, body, false), Cons(";\n", Cons(genDefs(t), Nil))))))) } }
 
-def jsPrelude = "const bounce = (f, a) => ({$b: f, $a: a});\nconst app = (f, a) => { let s = f(a); while (s && s.$b !== undefined) s = s.$b(s.$a); return s; };\nconst show = (v) => typeof v === 'number' ? String(v) : typeof v === 'boolean' ? String(v) : typeof v === 'string' ? JSON.stringify(v) : (v && v.t !== undefined) ? (v.f.length === 0 ? v.t : v.t + \"(\" + v.f.map(show).join(\", \") + \")\") : String(v);\nconst UNIT = {t:\"unit\",f:[]};\n"
+def jsPrelude = "const bounce = (f, a) => ({$b: f, $a: a});\nconst app = (f, a) => { let s = f(a); while (s && s.$b !== undefined) s = s.$b(s.$a); return s; };\nconst listItems = (v) => { const out = []; let cur = v; while (cur && cur.t === 'Cons') { out.push(cur.f[0]); cur = cur.f[1]; } return out; };\nconst show = (v) => typeof v === 'number' ? String(v) : typeof v === 'boolean' ? String(v) : typeof v === 'string' ? JSON.stringify(v) : (v && v.t !== undefined) ? ((v.t === 'Cons' || v.t === 'Nil') ? \"List(\" + listItems(v).map(show).join(\", \") + \")\" : (v.f.length === 0 ? v.t : v.t + \"(\" + v.f.map(show).join(\", \") + \")\")) : String(v);\nconst UNIT = {t:\"unit\",f:[]};\n"
 
 def genProg = (prog) =>
   match prog { case IrProg(defs, entry) => cats(Cons(jsPrelude, Cons(genDefs(defs), Cons("console.log(show(", Cons(genE(0, entry, false), Cons("));\n", Nil)))))) }
