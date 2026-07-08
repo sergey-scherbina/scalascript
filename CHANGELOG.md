@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — queue: stale p3 Spark/effects blockers reclassified
+
+The remaining open p3 Spark/effects queue items now point at the newer
+`v2-prod-corpus-scope` and `v2-prod-effects-parity audit` decisions: Spark
+examples are explicit backend-lane work, `algebraic-effects.ssc` is already
+output-identical, and the remaining `effects.ssc` mismatch is v1-side rather
+than a v2 production blocker.
+
 ## 2026-07-08 — v2: case-class instance methods run on the default lane
 
 `case class ...:` template methods now lower into tag-dispatched v2 method

@@ -1002,19 +1002,24 @@ Claimable slices for the above (queued 2026-07-07):
       corruption on the wire — rozum bodies). __method__.get on named-instance objects. Harness:
       fixed-port examples get port+1 on the v2 lane. BatchCli lanes widened (spark|js|rust|wasm).
       **rozum-agent family at parity; parity 55/85 (65%); corpus 152/11/32-lane; conformance 65.**
-- [ ] **p3-spark-local-engine** — UNMASKED 2026-07-07: spark-config-demo, spark-delta-demo,
-      spark-lakehouse-{delta,hudi,iceberg}, word-count "passed" all day as never-executed lazy
-      Op chains (equal-indent dispatch bug discarded the fallback branch). They need spark
-      surfaces the plain-list fallback datasets lack: .toDF, createOrReplaceTempView,
-      spark.sql, delta tables. v1 runs them via its in-core local Dataset+SQL shim. Options:
-      (a) v2 local shim over H2/DuckDB, (b) classify backend: spark lane (they ARE spark
-      programs; v1-interp ability is bonus). Decide with owner.
-- [ ] **p3-effects-output-divergence** — first concrete v2 effects-SEMANTICS gap:
-      `examples/algebraic-effects.ssc` exits 0 on v2 but prints DIFFERENT output than v1
-      (v2: `List() / 1 / …` vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`).
-      Not a bridge/flag bug — a v2 VM effects divergence (see Phase 3 item, OUTPUT-PARITY
-      FINDING). Fix the divergence AND add the output-equality check to the Phase-3 gate
-      (exit-0 coverage overstates compat).
+- [x] **p3-spark-local-engine** — RECLASSIFIED 2026-07-08: no v2 default-lane
+      local Spark shim is required for production. `v2-prod-corpus-scope`
+      reran the authoritative gate and decided that all Spark examples are
+      explicit backend-lane programs, not blockers for plain `ssc run` defaulting
+      to v2. Keep future Spark local-engine work in a Spark/backend milestone,
+      not the default runtime production queue. Original context: spark-config-demo,
+      spark-delta-demo, spark-lakehouse-{delta,hudi,iceberg}, and word-count were
+      unmasked after lazy Op chains began executing honestly; they need Spark
+      surfaces such as `.toDF`, `createOrReplaceTempView`, `spark.sql`, and delta
+      tables that are outside the plain default-lane gate.
+- [x] **p3-effects-output-divergence** — SUPERSEDED 2026-07-08: the current
+      production gate no longer reproduces the old `algebraic-effects.ssc`
+      divergence. `v2-prod-baseline-refresh` and `v2-prod-effects-parity audit`
+      record that `examples/algebraic-effects.ssc` is output-identical on v2.
+      `examples/effects.ssc` still differs because v1 prints only the first three
+      documented lines while v2 prints the full documented six-line behavior; that
+      is a v1-side follow-up, not a v2 default-switch blocker. The output-equality
+      gate remains `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`.
 
 ## Active tasks
 
