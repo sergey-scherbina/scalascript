@@ -1317,6 +1317,13 @@ object FrontendBridge:
       convertMatch(convertExpr(t.expr, scope), t.cases, scope)
 
     // ── Infix ─────────────────────────────────────────────────────────────────
+    // Compound assignment: x += e → x = (x op e) via the var-cell machinery
+    case Term.ApplyInfix.After_4_6_0(lhs @ Term.Name(_), op, _, argClause)
+        if Set("+=", "-=", "*=", "/=")(op.value) && argClause.values.length == 1 =>
+      val baseOp = op.value.stripSuffix("=")
+      val combined = Term.ApplyInfix(lhs, Term.Name(baseOp), Type.ArgClause(Nil),
+        Term.ArgClause(argClause.values, None))
+      convertAssign(Term.Assign(lhs, combined), scope)
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val l = convertExpr(lhs, scope)
       // Multi-arg RHS (e.g. `a ++ (b, c)` parses as two args, not a Tuple)
@@ -1850,6 +1857,12 @@ object FrontendBridge:
 
   private def convertInfix(op: String, l: CT, r: CT, scope: List[String]): CT = op match
     case "&&" => CT.If(l, r, CT.Lit(Const.CBool(false)))
+    // Compound assignment (x += e etc): scala.meta parses it as ApplyInfix;
+    // the arith table has no "+=" — desugar to a var-cell write of x op e.
+    // The CALLER (convertExpr ApplyInfix arm) handles the Name-lhs case before
+    // reaching here, so this arm only fires when misused — keep the error clear.
+    case "+=" | "-=" | "*=" | "/=" =>
+      sys.error(s"compound assignment '$op' reached convertInfix — non-var lhs?")
     case "||" => CT.If(l, CT.Lit(Const.CBool(true)), r)
     case "::"  => CT.Ctor("Cons", List(l, r))
     case _ if !arithInfixOps(op) && extensionMethods.contains(op) =>

@@ -7126,7 +7126,7 @@ final class BenchCmd extends CliCommand:
 
     // "interp" accepted as a backward-compatible alias for "ssc".
     if backend == "interp" then backend = "ssc"
-    val validBackends = Set("ssc", "jvm", "js")
+    val validBackends = Set("ssc", "jvm", "js", "v2")
     if !validBackends(backend) then
       System.err.println(s"bench: unknown backend '$backend', valid: ${validBackends.mkString(", ")}")
       System.exit(1)
@@ -7445,6 +7445,27 @@ final class BenchCmd extends CliCommand:
       catch case _: Throwable => ()
       parseBenchMs(outBuf.toString("UTF-8"))
 
+    // v2 engine lane: same wrapper, run through FrontendBridge + the v2 VM
+    // (the post-switch `ssc run` default). Stdout captured like timeInterp —
+    // the wrapper prints its own per-iteration ms.
+    def timeV2(): Option[Double] =
+      val outBuf = new java.io.ByteArrayOutputStream()
+      val outPs  = new java.io.PrintStream(outBuf, true, "UTF-8")
+      // NB: Console.withOut ONLY — a System.setOut swap here poisons
+      // scala.Console's lazily-captured default stream (its DynamicVariable
+      // snapshots System.out at class-init; if that happens inside the swap,
+      // every later println in this process goes to the dead buffer).
+      try
+        _root_.ssc.bridge.PluginBridge.loadAll()
+        Console.withOut(outPs) {
+          val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
+          _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value])
+        }
+      catch case e: Throwable =>
+        if System.getenv("SSC_BENCH_DEBUG") != null then
+          System.err.println(s"[timeV2] ${e.getClass.getSimpleName}: ${e.getMessage}")
+      parseBenchMs(outBuf.toString("UTF-8"))
+
     // Fuse `(lo to hi).map(f).filter(g).foldLeft(z)(h)` → manual while loop.
     // HotSpot can JIT the chained-Vector form well, but it still allocates
     // an IndexedSeq per `.map`/`.filter` step (~46 ns/iter vs ~3 ns for the
@@ -7532,6 +7553,7 @@ final class BenchCmd extends CliCommand:
     val result: Option[Double] = backend match
       case "jvm"    => timeJvm()
       case "js"     => timeJs()
+      case "v2"     => timeV2()
       case _        => timeInterp()
 
     if machine then

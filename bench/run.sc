@@ -44,7 +44,7 @@ val backendFlag: Option[String] =
 
 val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
-  case None    => Seq("ssc", "ssc-asm", "jvm", "js", "rust")
+  case None    => Seq("ssc", "ssc-asm", "v2", "jvm", "js", "rust")
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
