@@ -1,6 +1,0 @@
-feature/p4-perf-dispatch-class 2026-07-08T20:36:36Z
-agent: codex
-heartbeat: 2026-07-08T20:37:00Z
-status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-p4-perf-dispatch-class
-next: write/commit SPRINT plan for dispatch-class remeasurement, then run scripts/bench cases after bytecode milestone 2
