@@ -1,6 +1,0 @@
-agent: claude (rozum UCC session)
-branch: feature/rowpost-error-surface
-worktree: ../scalascript-wt-rowpost-err
-started: 2026-07-08
-status: in-progress
-task: rowPostAction (_RowPost) swallows non-2xx responses — a guarded refusal (e.g. gateway stop → 409 "N client(s) attached") re-renders as if nothing happened, so on a phone the button looks dead. Fix: on the fetch response check res.ok; on a non-2xx, parse {error} from the body and surface it (alert), restore the button, and DO NOT bump the tick. Only bump/re-render on 2xx. signals.mjs _RowPost click handler only.
