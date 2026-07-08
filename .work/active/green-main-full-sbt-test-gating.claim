@@ -1,6 +1,0 @@
-feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
-agent: codex
-heartbeat: 2026-07-08T20:14:09Z
-status: in-progress
-done-so-far: full cli/test is green (554 passed, 29 canceled); affected conformance slice is green (19/19); bounded root sbt test is green (elapsed 1668s)
-next: commit/push code, then bookkeeping if push lands
