@@ -1,0 +1,6 @@
+feature/v2-prod-js-dsl-conformance 2026-07-08T10:26:49Z
+agent: codex
+heartbeat: 2026-07-08T10:26:49Z
+status: not-started
+done-so-far:
+next: create worktree, reproduce dsl-multi-pass JS conformance failure, fix or reclassify
