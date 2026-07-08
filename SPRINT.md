@@ -132,7 +132,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `js-applyunary-effect-cps.ssc` on v2 (`__unary__: - on Op`). Full notes in
       BUGS.md `v2-op-arg-lifting`. BLOCKS busi's --v2 conformance re-run.
 
-- [ ] **v2-actors-sendafter-cli-default-noop** — production follow-up from
+- [x] **v2-actors-sendafter-cli-default-noop** — DONE 2026-07-08
+      (`a6c9d8b7c`): production follow-up from
       `green-main-full-sbt-test-gating`: v2/default fat-jar actor flows with
       `sendAfter` exit 0 without delivering delayed messages, while `--v1` prints
       the expected message. Repro: after `scripts/sbtc "cli/assembly"`, run a
@@ -145,16 +146,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       Done-when: v2 either implements actor timer delivery for this repro and
       relevant actor conformance slices, or rejects unsupported actor APIs under
       `--v2` with a clear diagnostic instead of silent success.
+      Outcome: implemented v2 actor timer delivery in
+      `PluginBridge.registerActors` instead of rejecting actor APIs. The v2 actor
+      bridge now tracks actor-run quiescence, blocked receives, scheduled sends,
+      and queue wakeups so `runActors` does not return while child/timer work is
+      still live. Default, `--v2`, and `--v1` fat-jar repros now all print
+      `got: hello`.
       Active plan 2026-07-08 (`v2-actors-sendafter-cli-default-noop` / codex):
-      - [ ] Reproduce the fat-jar/default/`--v2` no-output behavior and the
+      - [x] Reproduce the fat-jar/default/`--v2` no-output behavior and the
             `--v1` expected `got: hello` baseline using `cli/assembly`.
-      - [ ] Locate the v2 path for actor primitives (`runActors`, `spawn`,
+      - [x] Locate the v2 path for actor primitives (`runActors`, `spawn`,
             `sendAfter`, `receive`) and decide whether timer delivery belongs
             in the v2 actor bridge now or should be a hard unsupported diagnostic.
-      - [ ] Add a faithful regression in the real CLI/runtime harness: no silent
+      - [x] Add a faithful regression in the real CLI/runtime harness: no silent
             exit-0 when `sendAfter` is used under default/`--v2`.
-      - [ ] Run focused actor/CLI tests plus affected conformance before push;
+      - [x] Run focused actor/CLI tests plus affected conformance before push;
             if fixed, update `BUGS.md`, `SPRINT.md`, and `CHANGELOG.md`.
+            Gates: `scripts/sbtc "v2PluginBridge/compile"`;
+            `scripts/sbtc "cli/assembly"`; original fat-jar repro default/`--v2`/`--v1`;
+            `scripts/sbtc "cli/testOnly *V2ActorCliTest"`; `scripts/sbtc "installBin"`;
+            `tests/conformance/run.sh --only 'actors-*' --no-memo` (8/8 passed).
+            Gotcha: conformance uses `bin/ssc` / `bin/lib/ssc.jar`; run `installBin`
+            after changing CLI/v2 runtime code, otherwise it can test a stale or
+            missing installed jar.
 
 - [x] **p3-mcp-and-tails** — DONE 2026-07-08 (5377e271f): the "MCP switch regression" was an
       UNMASKED exit-0 fiction (default invokeCallback is a NO-OP — setup blocks never ran; the

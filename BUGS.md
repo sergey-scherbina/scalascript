@@ -327,7 +327,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
   green; `tests/conformance/run.sh --only 'std-process-import' --no-memo` 1/1
   green.
 
-## v2-actors-sendafter-cli-default-noop — `open` (2026-07-08)
+## v2-actors-sendafter-cli-default-noop — `fixed` (2026-07-08)
 
 - **Found by:** codex, while fixing `root-test-cluster-cli-runtime-readiness`.
 - **Repro:** after `scripts/sbtc "cli/assembly"`, run a fat-jar script containing
@@ -343,6 +343,21 @@ same launcher; every fail was a real engine gap). One entry per cause:
   path or explicitly reject unsupported actor APIs under `--v2` with a diagnostic
   until v2 actor support is complete. Verify with the fat-jar repro above plus
   actor/cluster conformance slices.
+- **Root cause:** `PluginBridge.registerActors` had a partial v2 actor runtime:
+  `spawn`, `receive`, `self`, and `runActors` existed, but scheduled sends were
+  not registered and `runActors` waited only for the root actor thread. In the
+  fat-jar path the root actor completed immediately after `spawn`, so the JVM
+  exited with virtual child/timer work still pending and no diagnostic.
+- **Fix:** `a6c9d8b7c` adds v2 actor run-state/quiescence tracking, real
+  `sendAfter` / `sendInterval` / `cancelTimer` globals, queue wakeups, and a
+  real assembled-CLI regression covering default and `--v2`.
+- **Verified:** `scripts/sbtc "v2PluginBridge/compile"`; `scripts/sbtc
+  "cli/assembly"`; the original fat-jar repro now prints `got: hello` under
+  default, `--v2`, and `--v1`; `scripts/sbtc "cli/testOnly *V2ActorCliTest"`;
+  `scripts/sbtc "installBin"` followed by `tests/conformance/run.sh --only
+  'actors-*' --no-memo` (8/8 passed; first pre-install run was invalid because
+  the conformance runner uses `bin/ssc` / `bin/lib/ssc.jar`, not the freshly
+  assembled `v1/tools/cli/.../ssc.jar`).
 
 ## root-test-cluster-cli-runtime-readiness — `fixed` (2026-07-08)
 

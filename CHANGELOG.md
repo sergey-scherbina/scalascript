@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: actor `sendAfter` works under the default CLI runner
+
+The default v2 fat-jar path no longer exits 0 before scheduled actor messages
+fire. `PluginBridge.registerActors` now tracks actor-run quiescence and supports
+`sendAfter` / `sendInterval` / `cancelTimer`, so the default runner and `--v2`
+match `--v1` for the minimal timer actor repro. Gates: `v2PluginBridge/compile`,
+`cli/assembly`, `cli/testOnly *V2ActorCliTest`, and conformance `actors-*` (8/8
+after `installBin`).
+
 ## 2026-07-08 — test: bounded root sbt gate is green
 
 The v2 production-hardening root gate now completes successfully:
