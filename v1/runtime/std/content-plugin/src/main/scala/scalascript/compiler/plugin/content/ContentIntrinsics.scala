@@ -32,22 +32,32 @@ object ContentIntrinsics:
               )
         case _ => PluginError.raise("contentCurrentSection()")
     },
+    // contentSection/contentBlock/contentData: current document first, then the
+    // registered IMPORTED documents (same v2-bridge rationale as
+    // toolkitSectionById — a module's own sections must stay reachable from the
+    // module's code after the bridge inlines it under the entry document).
     QualifiedName("contentSection") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
-          PluginValue.option(contentSectionById(currentDocument(ctx, "contentSection(id)"), id).map(sectionValue))
+          val hit = contentSectionById(currentDocument(ctx, "contentSection(id)"), id)
+            .orElse(importedDocumentTable(ctx).values.flatten.toList.flatMap(d => contentSectionById(d, id)).headOption)
+          PluginValue.option(hit.map(sectionValue))
         case _ => PluginError.raise("contentSection(id)")
     },
     QualifiedName("contentBlock") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
-          PluginValue.option(contentBlockById(currentDocument(ctx, "contentBlock(id)"), id).map(blockValue))
+          val hit = contentBlockById(currentDocument(ctx, "contentBlock(id)"), id)
+            .orElse(importedDocumentTable(ctx).values.flatten.toList.flatMap(d => contentBlockById(d, id)).headOption)
+          PluginValue.option(hit.map(blockValue))
         case _ => PluginError.raise("contentBlock(id)")
     },
     QualifiedName("contentData") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
-          PluginValue.option(contentDataById(currentDocument(ctx, "contentData(id)"), id).map(contentValue))
+          val hit = contentDataById(currentDocument(ctx, "contentData(id)"), id)
+            .orElse(importedDocumentTable(ctx).values.flatten.toList.flatMap(d => contentDataById(d, id)).headOption)
+          PluginValue.option(hit.map(contentValue))
         case _ => PluginError.raise("contentData(id)")
     },
     QualifiedName("contentMetadata") -> PluginNative.evalLegacy { (ctx, args) =>
@@ -366,7 +376,21 @@ object ContentIntrinsics:
       case section :: Nil =>
         toolkitSectionNode(ctx, doc, section, options, toolkitEnvFor(ctx, toolkitMarkdownEnv(section), options), topLevel = true)
       case Nil =>
-        PluginError.raise(s"contentToolkitSection: no section with id '$id'")
+        // Not in the current document: fall back to the registered IMPORTED
+        // documents. On v1 an imported module's code runs with ITS OWN document
+        // as current, so `contentToolkitSection("id")` inside the module finds
+        // the module's section; the v2 bridge inlines imports into one program
+        // whose current document is the entry file's — the module's sections
+        // are only reachable through ContentImportedModules. Fires only where
+        // this previously raised, so behavior elsewhere is unchanged.
+        importedDocumentTable(ctx).values.flatten.toList
+          .flatMap(d => sectionsDeep(d).filter(_.id == id).map(s => (d, s))) match
+          case (d2, s2) :: Nil =>
+            toolkitSectionNode(ctx, d2, s2, options, toolkitEnvFor(ctx, toolkitMarkdownEnv(s2), options), topLevel = true)
+          case Nil =>
+            PluginError.raise(s"contentToolkitSection: no section with id '$id'")
+          case _ =>
+            PluginError.raise(s"contentToolkitSection: duplicate section id '$id'")
       case _ =>
         PluginError.raise(s"contentToolkitSection: duplicate section id '$id'")
 
