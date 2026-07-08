@@ -12,6 +12,57 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## root-test-v2-conformance-toolkit-regressions — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` full root
+  `scripts/sbtc "test"` after the sealed-extension and cluster blockers were fixed.
+- **Repro observed in root gate:** `V2ConformanceTest` failed:
+  `std-ui-jobpanel` rendered `?` labels instead of `2:Jobs` / `2:New job`;
+  `tkv2-busi-home`, `tkv2-forms`, and `tkv2-offline` threw
+  `RuntimeException: __method__: no field 'set' on named-method-obj (None)`;
+  `tkv2-pwa` threw `RuntimeException: unbound global: pwa`.
+- **Impact:** v2 default is not production-ready for the tk/std-ui conformance
+  cluster until these cases either pass or are explicitly classified out of the
+  production gate with a documented reason.
+- **Fix direction:** split into focused repros from `V2ConformanceTest` and fix
+  the underlying bridge/runtime gaps. Start with the shared `named-method-obj.set`
+  family because it blocks three tk cases, then `pwa`, then the jobpanel label
+  rendering gap. Verify the selected `V2ConformanceTest` cases and the affected
+  conformance slice before pushing.
+
+## root-test-stable-spi-os-plugin-import — `open` (2026-07-08)
+
+- **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
+- **Repro observed in root gate:** `StableSpiEnforcementTest` failed
+  `value-surface plugins depend only on scalascript-plugin-api` with
+  `os-plugin/scala/scalascript/compiler/plugin/os/OsIntrinsics.scala: import
+  scalascript.interpreter.InterpretError`.
+- **Impact:** stable plugin API enforcement is red; value-surface plugins are not
+  fully isolated from interpreter internals.
+- **Fix direction:** migrate the OS plugin off `scalascript.interpreter`
+  references using the stable plugin API error/value surface, or add a documented
+  exemption only if the plugin is intentionally not value-surface. Verify with the
+  stable SPI enforcement test.
+
+## root-test-verify-default-srcdir-parent-scan — `open` (2026-07-08)
+
+- **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
+- **Repro observed in root gate:** `VerifyCliTest` cases such as
+  `verify .../ssc-verify-noruntime-* --strict` and `verify
+  .../ssc-verify-json-* --json` spent about 1-2 minutes each on tiny temp
+  directories. Thread dump showed the child process hot in
+  `runVerify(Main.scala:4125)` at `os.walk(srcDir).filter(os.isFile)`; default
+  `srcDir` was `artifactDir / os.up`, so temp sandboxes scanned the entire
+  `/var/.../T` parent containing many other root-suite temp directories.
+- **Impact:** root `sbt test` becomes needlessly slow and can look hung after the
+  first real failures; production `ssc verify <dir>` can also scan far outside
+  the requested artifact set by default.
+- **Fix direction:** bound default source discovery. Prefer the artifact directory
+  itself when it contains sources or is not a conventional `.ssc-artifacts`
+  directory; only default to the parent for known artifact-output directories, or
+  otherwise require/encourage explicit `--src-dir`. Verify with
+  `VerifyCliTest` and a targeted subprocess repro.
+
 ## v2-actors-sendafter-cli-default-noop — `open` (2026-07-08)
 
 - **Found by:** codex, while fixing `root-test-cluster-cli-runtime-readiness`.
