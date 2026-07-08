@@ -796,11 +796,11 @@ fn show(v: &V) -> String {
 }
 
 fn float_to_str(d: f64) -> String {
-    if d.is_nan() { return "NaN".to_string(); }
-    if d.is_infinite() { return if d > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }; }
-    // Match Scala's Double.toString: always include decimal point
-    let s = format!("{}", d);
-    if s.contains('.') || s.contains('e') || s.contains('E') { s } else { s + ".0" }
+    // VM floatStr semantics: whole doubles collapse ("3", not "3.0"); nan/inf lowercase.
+    if d.is_nan() { return "nan".to_string(); }
+    if d.is_infinite() { return if d > 0.0 { "inf".to_string() } else { "-inf".to_string() }; }
+    if d == (d as i64) as f64 { return format!("{}", d as i64); }
+    format!("{}", d)
 }
 
 // ── Coercions ─────────────────────────────────────────────────────────────────

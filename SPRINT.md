@@ -35,8 +35,16 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       map (ForeignV-карты) в трёх кодгенах; гейт = check.sh 24/24.
 - [ ] **p4-ssc1c-corpus-probe** — прогнать ssc1c по терминирующему корпус-сабсету: сколько
       примеров вообще компилится в CoreIR; классифицировать разрывы (фичи vs plugin-поверхность).
-- [ ] **p4-jvm-lane-bridge** — экспериментальный `--backend jvm --via-v2`: Program→CoreIR→
-      JvmBackend + линковка v1 JvmRuntimePreamble; гейт = backendJvm-сьют на сабсете.
+- [ ] **p4-jvm-lane-bytecode** — РЕШЕНИЕ (2026-07-08, обсуждено с владельцем): CoreIR → JVM
+      байткод НАПРЯМУЮ через ASM 9.7 (уже в deps), in-process, БЕЗ scala-cli/bloop/scalac.
+      Рантайм НЕ генерится: байткод статически линкуется против пребилт scalascript-v2-core.jar
+      (ssc.Runtime/ssc.Prims). run = ClassWriter→defineClass; build = jar. Паттерны эмиссии
+      (Value-репрезентация, TCO-трамплин, dispatch) адаптировать из v1 AsmJitBackend (парити
+      с javac, зелёный сьют). Эмиссию изолировать за узким ClassEmitter-интерфейсом — на
+      JDK 24+ свап на стандартный ClassFile API (JEP 484) без ASM. Текущий Scala-source
+      JvmBackend.scala остаётся как reference/debug-генератор для check.sh.
+      Горизонт «без Scala вообще»: build-time Scala невидим пользователю (fat-jar, нужен JRE);
+      runtime scala-library уходит опциональной фазой — порт ядрового Runtime (~1-2kloc) на Java.
 - [ ] **p4-js-lane-bridge** — то же для JS (*Js* 290 тестов как гейт).
 - [ ] **p4-rust-wasm-lanes** — Rust (260 тестов) и WASM.
 - [ ] **p4-default-flip** — per-lane дефолт на v2-кодген после зелёных гейтов; --via-v1 люк.

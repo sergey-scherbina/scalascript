@@ -253,9 +253,12 @@ private def _show(v: V): String = v match
   case _ => v.toString
 
 private def _showDouble(d: Double): String =
-  if d.isNaN then "NaN"
-  else if d == Double.PositiveInfinity then "Infinity"
-  else if d == Double.NegativeInfinity then "-Infinity"
+  // VM floatStr semantics (CoreIR.Writer): whole doubles collapse to the
+  // integer form ("3", not "3.0"); nan/inf are lowercase.
+  if d.isNaN then "nan"
+  else if d == Double.PositiveInfinity then "inf"
+  else if d == Double.NegativeInfinity then "-inf"
+  else if d == d.toLong.toDouble then d.toLong.toString
   else d.toString
 
 // ADT list helpers (Cons/Nil encoding used by many primitives)

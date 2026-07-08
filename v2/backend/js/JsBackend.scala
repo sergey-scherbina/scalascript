@@ -480,9 +480,11 @@ function $sfromCodes(list){
   for(var cur=list;cur.t==='Cons';cur=cur.f[1]) codes.push(Number(cur.f[0]));
   return String.fromCharCode.apply(null,codes);
 }
-// Scala-style Double display for f->str: integral doubles show a trailing .0
+// VM floatStr semantics: whole doubles collapse ("3", not "3.0"); nan/inf lowercase.
 function $fToStr(v){
-  if(Number.isFinite(v)&&Number.isInteger(v)&&Math.abs(v)<1e21) return String(v)+'.0';
+  if(Number.isNaN(v)) return 'nan';
+  if(v===Infinity) return 'inf';
+  if(v===-Infinity) return '-inf';
   return String(v);
 }
 
