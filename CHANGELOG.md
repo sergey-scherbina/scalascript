@@ -49,6 +49,22 @@ non-2xx parse {error} from the body, alert it, restore the button, and DON'T bum
 
 ---
 
+## 2026-07-08 — v2: busi conformance target GREEN — 61/61 tests on --v2
+
+The full busi tests/v2 suite now passes on the v2 engine (was 47/61 after OpAnf; 0/61 at the day's
+start). Seven root causes (BUGS.md `v2-busi-testsweep-gaps` batch): top-level vars referenced from
+defs were split across two cells (assignments from defs vanished); tryFBc's UNGUARDED ==/!= made
+string equality of two locals always true inside if-conditions (period filters matched everything);
+list HOFs collected raw effect Ops from performing lambdas (now mapThreadOp/foldThreadOp defer the
+traversal into the op's continuation); Array.fill/tabulate returned lists (now real ArrayBuffers with
+indexing/length dispatch); the tolerant 0L length FastCode emptied `while i < xs.length` loops (now
+honest + errors on unknown receivers); the all-fences regex matched mid-line fence opens inside
+string literals (now line-anchored); OpAnf's letify displaced literal op-names, demoting arith to the
+weaker table dispatch (pure args now stay in place; Map+(k->v) added to the table; unification
+queued); content section/block/data lookups fall back to imported documents (v2 inlines imports under
+the entry document). New conformance regressions: var-topdef-shared, string-eq-locals. Gates: corpus
+153/9 = baseline, conformance run.sh 125/125, benches at/below baseline.
+
 ## 2026-07-08 — v2: Op-argument lifting (OpAnf) — strict consumers defer unresolved effect Ops
 
 Third and final leak in busi's --v2 ledger chain: a strict call (`formatMoney(...)`, `println`,

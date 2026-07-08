@@ -9,6 +9,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [x] **v2-busi-testsweep-gaps** — DONE 2026-07-08: **61/61 busi tests green on --v2** (was 47/61).
+      Seven root causes, one BUGS.md entry each (batch `v2-busi-testsweep-gaps`): shared top-level
+      var cells; tryFBc string-equality optimism (`if p == period` always true — 5 tests); HOF
+      effect threading (map/filter/fold collect raw Ops); Array companion returned lists; tolerant
+      0L length FastCode; mid-line fence regex desync; OpAnf Lit-binding demoted arith to the
+      weaker table dispatch (+ Map+(k->v) added there); content section lookups now fall back to
+      imported documents. Gates: corpus 153/9 = base, conformance run.sh 125/125, v2 batch 110/40,
+      benches at/below baseline. FOLLOW-UP queued in BACKLOG: unify Prims.arithOp vs table __arith__.
+      Original: busi tests/v2 on --v2: 47/61 PASS after op-arg-lifting
 - [x] **root-test-verify-default-srcdir-parent-scan** — DONE 2026-07-08 in
       `6c996bd63`: `ssc verify <artifact-dir>` now bounds implicit source
       discovery to the artifact directory itself, except for conventional

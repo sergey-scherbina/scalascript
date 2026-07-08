@@ -12,6 +12,58 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-busi-testsweep-gaps batch — `fixed` (2026-07-08)
+
+Seven root causes closed working busi tests/v2 47/61 → 61/61 on --v2 (v1 = 61/61
+same launcher; every fail was a real engine gap). One entry per cause:
+
+- **v2-topvar-def-split-cell** — a top-level `var` referenced from def bodies was
+  TWO cells: entry-local Let cell vs the defs' auto-created `Global("@name")`.
+  Assignments from defs vanished (busi persistence: `def saveLocal(t) = localCell = t`).
+  Fix: convertStats pre-pass (sharedTopVars) + global.reg of the entry cell under
+  "@name". Regression: `tests/conformance/var-topdef-shared.ssc`. Killed sync,
+  sync_http, local_journal, deferred_action.
+- **v2-fbc-string-eq-optimistic** — tryFBc kept `==`/`!=` UNGUARDED on the Long
+  fast path while ordering ops required provably-Long operands; tryFLC reads a
+  StrV Local as 0L → string equality of two locals was ALWAYS true inside If
+  conditions (`if p == period` matched every period — July facts leaked into June
+  folds). Fix: extend the flcProvablyLong guard to equality. Regression:
+  `tests/conformance/string-eq-locals.ssc`. Killed income, invoicing, trust, vat,
+  meeting_room.
+- **v2-hof-effect-threading** — a perform inside a list-HOF lambda returned a raw
+  Op that map/filter/fold/foreach collected as DATA (busi operator: hPlan was a
+  list of Ops). Fix: mapThreadOp/foldThreadOp — per-element Op results defer the
+  REST of the traversal into the op's continuation (letThreadOp protocol);
+  bridge-only by construction (__method__ dispatch). Killed operator.
+- **v2-array-companion-list** — `Array.fill/tabulate` returned Cons-lists;
+  `m(i) = v` then hit arr.set with "expected Array, got List". Fix: Array
+  companion returns ForeignV(ArrayBuffer); + ArrayBuffer indexing in
+  applyFallback, ArrayBuffer length/size/isEmpty/toList in dispatch. Part 1 of qr.
+- **v2-fastcode-length-tolerant** — the length/size FastCode returned `0L` for ANY
+  unrecognized receiver (and cons-cell field count 2 for lists): every
+  `while i < msg.length` over an Array.fill result ran ZERO iterations (busi qr:
+  a data-less, mask-only QR matrix that STILL passed structural checks). Fix:
+  honest lengths (unlist walk for Cons/Nil, ArrayBuffer size) + sys.error for
+  unknown receivers. Part 2 of qr.
+- **v2-fence-regex-midline** — the all-fences extractor matched fence opens
+  MID-LINE (inside a string literal holding markdown), desyncing the fence walk —
+  prose after the next real close parsed as code ("illegal unicode codepoint:
+  0xab"). Fix: (?m)^ anchors + newline-anchored first-fence search. Killed model.
+- **v2-arith-table-divergence** — TWO arith implementations: Prims.arithOp (full:
+  Map+(k->v), char semantics) for LITERAL op names vs the resolve-table __arith__
+  (string-concat fallback) for non-literal names. OpAnf's letify was binding
+  `Lit("+")` into a Local — demoting map-extend to string concat (busi litdoc:
+  attrs became "Map()(id, Str(demo))…"). Fix: OpAnf keeps pure args (Lit/Global/
+  Lam/Local) IN PLACE (also preserves FastCode shapes), and the table arith gained
+  the Map+Tuple2 case. Full unification of the two ariths → BACKLOG. Killed
+  litdoc_content.
+- **v1-content-imported-doc-fallback** — contentToolkitSection/contentSection/
+  contentBlock/contentData resolve only the CURRENT document; on v1 an imported
+  module runs with its own document, but the v2 bridge inlines imports under the
+  entry file's document, so a module's sections were unreachable from its own
+  code. Fix (v1 content-plugin, fires only where it previously errored/None'd):
+  fall back to the registered ContentImportedModules documents. Killed
+  content_toolkit.
 ## root-test-v2-conformance-toolkit-regressions — `open` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` full root

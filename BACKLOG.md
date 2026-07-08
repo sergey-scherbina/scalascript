@@ -37,6 +37,15 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       v1 side: force parameterless natives in receiver position (or bind `args`
       as a value list like v2 now does).
 
+- [ ] **v2-arith-unification** (2026-07-08) — TWO diverged arith implementations:
+      `Prims.arithOp` (full: Op-lifting, Map+(k->v), char comparisons, Cons-minus) used
+      when the op name is a LITERAL, vs the resolve-table `__arith__` entry (weaker,
+      string-concat fallback) for non-literal names. The busi litdoc bug was exactly this
+      divergence (BUGS.md v2-arith-table-divergence). Map+Tuple2 was patched into the
+      table; the honest fix is delegation (table entry → Prims.arithOp) after auditing
+      the table-only cases (actor `!`, BigDecimal) into arithOp. Same lesson as T5.4:
+      "a fast path stricter than the general table silently diverges".
+
 - [ ] **v1-jvm-state-threaded-handler-codegen** (2026-07-08) — `run-jvm` fails to
       compile effect handlers whose arms return lambdas (state-threading idiom,
       busi's `runJournal`): "could not infer the type of the parameter s /
