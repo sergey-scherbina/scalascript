@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T17:06:15Z
+heartbeat: 2026-07-08T17:29:59Z
 status: in-progress
-done-so-far: sealed extension dispatch and v1 cluster fixture launch blockers fixed/pushed; targeted cli and conformance slices green
-next: full root sbt test still running in worktree; wait for final summary, then persist green or capture next blocker
+done-so-far: sealed extension dispatch and v1 cluster fixture launch blockers fixed/pushed; full root gate has progressed through cluster CLI green and exposed new SPI/v2 conformance blockers
+next: wait for final sbt test summary, then record exact blockers in BUGS.md/SPRINT.md and start the narrowest reproducible fix
