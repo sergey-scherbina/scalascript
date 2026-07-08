@@ -1,6 +1,0 @@
-feature/p4-js-lane-bridge 2026-07-08T20:47:03Z
-agent: codex
-heartbeat: 2026-07-08T20:51:01Z
-status: in-progress
-done-so-far: spec and SPRINT plan pushed in 0e82f3c0f
-next: add sbt v2JsBackend module and opt-in run-js --v2 CLI route
