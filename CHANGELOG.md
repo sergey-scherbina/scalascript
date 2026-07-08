@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: opt-in JS lane runs through CoreIR
+
+`ssc run-js --v2 <file.ssc> [args...]` now routes `.ssc` sources through
+FrontendBridge, emits v2 CoreIR JavaScript in-process, and runs the temporary
+CommonJS file with Node. Legacy `ssc run-js <file.ssc>` remains on the existing
+v1 JS path. The v2 JS preamble now supports the bridge globals/primitives needed
+for hello/argv smoke programs. Gates: `v2JsBackend/compile`,
+`cli/assembly`, `cli/testOnly *V2JsLaneCliTest`, `installBin`,
+`v2/backend/check.sh`, and affected conformance
+`js-cps-intrinsic-rewrite,node-basic`.
+
 ## 2026-07-08 — perf: dispatch-class workloads remeasured after bytecode M2
 
 `array-update`, `vector-index`, `pattern-match-heavy`, and `effect-stream` are

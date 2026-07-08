@@ -12,6 +12,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-run-cli-argv-not-forwarded — `open` (2026-07-08)
+
+- **Found by:** codex, during `p4-js-lane-bridge` direct argv smoke.
+- **Repro:** after `scripts/sbtc "installBin"`, run a temp `.ssc`:
+  `println(args.length); println(args(0))`. Then compare
+  `bin/ssc run-js --v2 /tmp/args.ssc one two` with
+  `bin/ssc run --v2 /tmp/args.ssc one two`.
+- **Observed failure:** `run-js --v2` prints `2` and `one`; `run --v2`
+  prints `0` and then fails with `IndexOutOfBoundsException: 0`.
+- **Impact:** the v2 VM runner has an `argv` parameter internally, and
+  `PluginBridge` documents `args` as runner-provided command-line args, but
+  `RunCmd` currently treats every non-flag as another source file and calls
+  `RunV2.run(..., Nil)`. User code reading `args` under the default/explicit v2
+  runner cannot receive program argv.
+- **Fix direction:** add an explicit argv separator for `ssc run`, most likely
+  `ssc run [flags] <file.ssc> -- [args...]`, so existing multi-file run
+  semantics are not reinterpreted. Forward the trailing argv to `RunV2.run` and
+  `RunV2.runBytecode`; keep legacy/default behavior clear in usage text.
+- **Done-when:** a real assembled-CLI regression covers `run --v2 <file> --
+  one two`, default v2 if applicable, and `run-js --v2` remains green.
+
 ## root-test-cli-spark-submit-dry-run-deps — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused

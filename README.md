@@ -697,6 +697,7 @@ ScalaScript supports the following bundled backends, all loaded through the
 | `ssc run --target jvm file.ssc`      | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
 | `ssc run-jvm file.ssc`               | `jvm`         | Alias for `ssc run --target jvm` (kept for backward compatibility) |
 | `ssc run-js  file.ssc`               | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
+| `ssc run-js --v2 file.ssc [args...]` | `v2-js`       | Opt-in v2 JS lane: FrontendBridge → CoreIR → v2 JsGen → temp `.cjs` → `node`. Legacy `run-js` remains the default JS path. |
 | `bin/jssc file.ssc`        | `js`          | Alias for `ssc run-js` via `bin/` wrapper |
 | `bin/sscc file.ssc`        | `jvm`         | Alias for `ssc run-jvm` via `bin/` wrapper |
 | `ssc emit-openapi file.ssc` | `openapi`     | Headless interpreter dry-run that exports registered routes as OpenAPI 3.1 JSON or YAML. Flags: `--format json\|yaml`, `-o`, `--title`, `--version`, repeatable `--server`. |
@@ -794,6 +795,7 @@ ssc run --v2 file.ssc         # explicit v2 VM runner
 ssc run --target jvm file.ssc # compile via JvmGen + run with scala-cli (no artifacts)
 ssc run-jvm file.ssc          # same as above (backward-compat alias)
 ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
+ssc run-js --v2 file.ssc      # opt-in v2 CoreIR JS lane through node
 ssc watch file.ssc            # watch mode (re-run on change)
 ssc watch-bench file.ssc      # benchmark watch reload cycles on a temp copy
 ssc bench --smoke             # quick interpreter-only benchmark wiring smoke

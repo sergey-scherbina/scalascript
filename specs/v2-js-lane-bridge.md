@@ -24,15 +24,15 @@ legacy v1 `run-js`/`emit-js` implementation for default JS-target execution.
 
 ## Behavior
 
-- [ ] `v2JsBackend/compile` builds the CoreIR JS generator under sbt.
-- [ ] `ssc run-js --v2 examples/hello.ssc` prints the same output as
+- [x] `v2JsBackend/compile` builds the CoreIR JS generator under sbt.
+- [x] `ssc run-js --v2 examples/hello.ssc` prints the same output as
       `ssc run --v2 examples/hello.ssc`.
-- [ ] CLI argv reaches generated JS through Node's `process.argv`, so
+- [x] CLI argv reaches generated JS through Node's `process.argv`, so
       `io.args`-style programs see arguments after the source file.
-- [ ] `ssc run-js <file.ssc>` without `--v2` keeps the legacy v1 JsGen path.
-- [ ] The existing CoreIR backend harness still passes the JS lane for kernel
+- [x] `ssc run-js <file.ssc>` without `--v2` keeps the legacy v1 JsGen path.
+- [x] The existing CoreIR backend harness still passes the JS lane for kernel
       fixtures.
-- [ ] A focused CLI regression covers the `run-js --v2` route and the legacy
+- [x] A focused CLI regression covers the `run-js --v2` route and the legacy
       route-selection guard.
 
 ## Out of Scope
@@ -71,4 +71,26 @@ pass user args after the temp script path rather than trying to mutate
 
 ## Results
 
-Fill this after verification with exact commands and counts.
+Verified 2026-07-08:
+
+- `scripts/sbtc "v2JsBackend/compile"` — green.
+- `scripts/sbtc "cli/compile; cli/assembly; cli/testOnly *V2JsLaneCliTest"` —
+  green, 1 ScalaTest test. The assembled jar route covers legacy `run-js`,
+  `run-js --v2`, and `run-js --v2` argv forwarding through `args.length` /
+  `args(0)` / `args(1)`.
+- `scripts/sbtc "installBin"` — green.
+- Direct installed CLI smoke:
+  `bin/ssc run-js examples/hello.ssc`,
+  `bin/ssc run-js --v2 examples/hello.ssc`, and
+  `bin/ssc run --v2 examples/hello.ssc` all print `Hello, World!`.
+- Direct argv smoke:
+  `bin/ssc run-js --v2 /tmp/v2js-args.ssc one two` prints `2` and `one`.
+- `v2/backend/check.sh` — green, `ALL GREEN (8 fixtures x 3 backends)`.
+- `tests/conformance/run.sh --only 'js-cps-intrinsic-rewrite,node-basic' --no-memo`
+  — green, 2 passed / 0 failed.
+
+Follow-up discovered while verifying: default/explicit `ssc run --v2` does not
+currently forward program argv because `RunCmd` treats trailing positionals as
+additional source files and calls `RunV2.run(..., Nil)`. Tracked separately as
+`BUGS.md` entry `v2-run-cli-argv-not-forwarded` and SPRINT item
+`p4-v2-run-argv-separator`; this does not change the `run-js --v2` contract.

@@ -283,26 +283,58 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       JvmBackend.scala остаётся как reference/debug-генератор для check.sh.
       Горизонт «без Scala вообще»: build-time Scala невидим пользователю (fat-jar, нужен JRE);
       runtime scala-library уходит опциональной фазой — порт ядрового Runtime (~1-2kloc) на Java.
-- [ ] **p4-js-lane-bridge** — v2 CoreIR -> JS bridge, first as an opt-in
+- [x] **p4-js-lane-bridge** — DONE 2026-07-08: v2 CoreIR -> JS bridge is
+      available as opt-in `ssc run-js --v2 <file.ssc> [args...]` while legacy
+      `run-js` stays on the v1 JS path. The production CLI now builds
+      `v2/backend/js` as `v2JsBackend`, calls `ssc.js.JsGen.generate` in-process,
+      writes a temp `.cjs`, and runs Node with forwarded argv. The v2 JS preamble
+      now includes the FrontendBridge standard globals/bridge primitives needed
+      for `.ssc -> FrontendBridge -> CoreIR -> JS` (`println`, `print`, `args`,
+      `__autoPrint__`, `__arith__`, `__method__`, `__math_obj__`, etc.).
+      Gates: `scripts/sbtc "v2JsBackend/compile"`;
+      `scripts/sbtc "cli/compile; cli/assembly; cli/testOnly *V2JsLaneCliTest"`
+      (1 test green, including argv); `scripts/sbtc "installBin"`; direct
+      installed CLI smokes `bin/ssc run-js examples/hello.ssc`,
+      `bin/ssc run-js --v2 examples/hello.ssc`, and
+      `bin/ssc run --v2 examples/hello.ssc` all print `Hello, World!`;
+      `v2/backend/check.sh` green (`ALL GREEN (8 fixtures x 3 backends)`);
+      affected conformance
+      `tests/conformance/run.sh --only 'js-cps-intrinsic-rewrite,node-basic' --no-memo`
+      green (2/2). Follow-up discovered and queued: `p4-v2-run-argv-separator`
+      / `BUGS.md` `v2-run-cli-argv-not-forwarded` for default `ssc run --v2`
+      argv syntax; `run-js --v2` argv forwarding is covered here.
+      Original: v2 CoreIR -> JS bridge, first as an opt-in
       Node runner (`run-js --v2`) before any default JS-lane flip. Spec:
       `specs/v2-js-lane-bridge.md`.
       Active plan 2026-07-08 (`p4-js-lane-bridge` / codex):
       - [x] Claim the slice and read the existing v2 JS backend, JVM bytecode
             lane, CLI `RunV2`, and production compatibility specs.
-      - [ ] Commit the spec/SPRINT planning slice before implementation.
-      - [ ] Add an sbt-built `v2JsBackend` module for `v2/backend/js` so the
+      - [x] Commit the spec/SPRINT planning slice before implementation.
+      - [x] Add an sbt-built `v2JsBackend` module for `v2/backend/js` so the
             fat-jar CLI can call the generator in-process.
-      - [ ] Add `ssc run-js --v2 <file.ssc> [args...]` as an opt-in route:
+      - [x] Add `ssc run-js --v2 <file.ssc> [args...]` as an opt-in route:
             FrontendBridge -> CoreIR -> `ssc.js.JsGen.generate` -> temp `.cjs`
             -> Node, while preserving legacy `run-js` without `--v2`.
-      - [ ] Add focused CLI regression(s) for `run-js --v2` and unchanged
+      - [x] Add focused CLI regression(s) for `run-js --v2` and unchanged
             legacy routing.
-      - [ ] Verify with `scripts/sbtc "v2JsBackend/compile"`, focused CLI tests,
+      - [x] Verify with `scripts/sbtc "v2JsBackend/compile"`, focused CLI tests,
             `scripts/sbtc "installBin"`, direct `bin/ssc run-js --v2
             examples/hello.ssc`, the CoreIR backend JS fixture harness, and the
             nearest affected conformance JS slice.
       Done-when: the opt-in v2 JS runner is available from the installed CLI,
       has a regression, and the spec/SPRINT records exact verification results.
+- [ ] **p4-v2-run-argv-separator** — fix the default/explicit v2 VM runner's
+      program argv forwarding without breaking multi-file runs. Found during
+      `p4-js-lane-bridge`: `bin/ssc run-js --v2 /tmp/args.ssc one two` sees
+      `args.length == 2`, while `bin/ssc run --v2 /tmp/args.ssc one two`
+      currently passes `Nil` into `RunV2.run`, prints `0`, then crashes on
+      `args(0)`. Track root cause and repro in `BUGS.md`
+      `v2-run-cli-argv-not-forwarded`. How: add an explicit `--` separator
+      contract such as `ssc run [flags] <file.ssc> -- [args...]`, forward the
+      trailing argv to `RunV2.run` and `RunV2.runBytecode`, and update usage plus
+      a real assembled-CLI regression. Done-when: focused CLI test proves
+      `run --v2` argv delivery and current multi-file/file-argument behavior is
+      not silently reinterpreted.
 - [ ] **p4-rust-wasm-lanes** — Rust (260 тестов) и WASM.
 - [ ] **p4-default-flip** — per-lane дефолт на v2-кодген после зелёных гейтов; --via-v1 люк.
 

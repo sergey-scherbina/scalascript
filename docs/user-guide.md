@@ -249,6 +249,7 @@ ssc run --v1         hello.ssc   # v1 tree-walking interpreter rollback
 ssc run --target jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
 ssc run-jvm          hello.ssc   # same — backward-compat alias
 ssc run-js           hello.ssc   # JsGen  → temp .js → node
+ssc run-js --v2      hello.ssc   # FrontendBridge → CoreIR → v2 JsGen → node
 ```
 
 The generated-backend commands (`run --target jvm`, `run-jvm`, and `run-js`):
@@ -257,6 +258,11 @@ The generated-backend commands (`run --target jvm`, `run-jvm`, and `run-js`):
 - execute it and forward stdout/stderr transparently
 - leave **no artifacts on disk** — use `ssc compile-jvm` / `ssc compile-js`
   if you want reusable `.scjvm` / `.scjs` artifacts
+
+`ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
+legacy `run-js` path unchanged, but routes the source through FrontendBridge,
+emits v2 CoreIR JavaScript, and passes trailing args through Node's
+`process.argv` so ScalaScript `args` works in the generated JS process.
 
 `ssc run --target jvm` also accepts `--server-backend jdk|jetty|netty` to
 select the HTTP server implementation when the script defines HTTP routes.
@@ -274,6 +280,7 @@ When to use each:
 | `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
 | `ssc run-jvm` | JVM via scala-cli | Backward-compat alias for `ssc run --target jvm` |
 | `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
+| `ssc run-js --v2` | Node.js via v2 CoreIR JS | Opt-in v2 JS lane verification before the default JS flip |
 | `ssc run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
 | `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
 
@@ -4700,6 +4707,7 @@ See [examples/nfc-ndef.ssc](../examples/nfc-ndef.ssc) and
 ssc run file.ssc                    # interpret
 ssc run --target jvm file.ssc       # compile + run on JVM (scala-cli)
 ssc run-js file.ssc                 # compile + run with node
+ssc run-js --v2 file.ssc            # opt-in v2 CoreIR JS lane
 ssc watch file.ssc                  # watch mode
 ssc repl                            # REPL
 ssc test file.ssc                   # run tests
