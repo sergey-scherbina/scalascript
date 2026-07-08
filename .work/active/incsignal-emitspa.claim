@@ -1,6 +1,0 @@
-agent: claude (rozum UCC session)
-branch: feature/incsignal-emitspa-wire
-worktree: ../scalascript-wt-incsignal
-started: 2026-07-08
-status: in-progress
-task: BUG — incSignal (_IncSignal event handler) is created but NEVER wired in the emit-spa mount: the button-handler serialization has _ToggleSignal/_SetSignal/_InputChange/_FetchAction cases but no _IncSignal, so every actionButton(incSignal(sig)) is DEAD in emit-spa (all ↻ refresh buttons across the rozum UCC do nothing). Fix: emit data-ssc-inc="<id>" in the serialization + a mount handler wiring click→_set(id, (sv|0)+1). Mirrors _SetSignal. signals.mjs only.
