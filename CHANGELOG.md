@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: PWA plugin routes run through the bridge
+
+`tkv2-pwa` now passes on the v2 frontend bridge. The bridge classpath includes
+the existing `pwaPlugin`, `pwa(...)` named args/defaults lower positionally, and
+plugin-owned `ctx.registerRoute(...)` calls register with the real v2 web server
+route registry. Gates: `V2ConformanceTest -z tkv2-pwa`, `V2ConformanceTest -z
+tkv2` (6/6), and conformance `tkv2-pwa` (INT pass; JS/JVM skipped by metadata).
+
 ## 2026-07-08 — v2: ReactiveSignal method objects expose get/set
 
 v1 `ReactiveSignal` values round-tripped through the v2 plugin bridge as

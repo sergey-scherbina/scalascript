@@ -37,6 +37,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `tkv2-busi-home,tkv2-forms,tkv2-offline` is 3/3 green across INT+JS.
   Remaining failures from this root entry: `tkv2-pwa` (`unbound global: pwa`)
   and `std-ui-jobpanel` heading labels (`?` instead of `2:...`).
+- **Progress (2026-07-08, `a9028b830`):** `tkv2-pwa` is fixed. Root causes:
+  `pwaPlugin` was absent from the v2 plugin bridge classpath, `pwa(...)` named
+  args were not pre-registered in the v2 frontend bridge, and plugin-owned
+  `ctx.registerRoute(...)` calls were no-ops under `MinimalCtx`, so PWA routes
+  never reached the v2 web server registry. Gates: `V2ConformanceTest -z
+  tkv2-pwa` green, `V2ConformanceTest -z tkv2` green (6/6), and
+  `tests/conformance/run.sh --only 'tkv2-pwa' --no-memo` green (INT pass;
+  JS/JVM skipped by metadata). Remaining failure from this root entry:
+  `std-ui-jobpanel` heading labels (`?` instead of `2:...`).
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
 
