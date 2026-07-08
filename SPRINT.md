@@ -191,6 +191,22 @@ array-update 279 vs 0.72 (~386×), pattern-match-heavy 385×, vector-index 136×
 - [ ] **p4-perf-dispatch-class** — array-update/vector-index/pattern-match-heavy/effect-stream:
       скорее всего тот же generic-dispatch constant (см. lazylist-диагноз). После bytecode-
       milestone-2 пере-мерить; если хвосты останутся — точечные охоты.
+      Active plan 2026-07-08 (`p4-perf-dispatch-class` / codex):
+      - [ ] Stage the current runner with `scripts/sbtc "installBin"` because
+            corpus benchmarks use `bin/ssc`, then run `scripts/bench smoke`.
+      - [ ] Re-measure the named corpus workloads with the existing corpus
+            wrapper, recording the exact command and rows:
+            `./bench.sh --warmup-time 1000 --reps 50 array-update vector-index pattern-match-heavy effect-stream`.
+      - [ ] Compare against the checked-in `bench/BASELINE.md` rows and the
+            `p4-perf-lazylist` diagnosis. If the rows are now explained by the
+            compiled-lane/generic-dispatch class, close this item as a class
+            decision with no code changes.
+      - [ ] If a workload still has a distinct unexplained gap, queue a narrow
+            follow-up in SPRINT/BACKLOG with the measured command, affected
+            backend, and suspected owner; do not start a broad optimization in
+            this slice.
+      Done-when: SPRINT/CHANGELOG record the measurement table and decision,
+      with no stale open `p4-perf-dispatch-class` item left behind.
 - [~] **p4-bench-na-fixes** — 2 из 3 закрыты 2026-07-08 (3d11617a0): effect-pure 0.130 ms/iter
       (плагин-джары в bench-пути); effect-oneshot семантически РАЗБЛОКИРОВАН четырьмя Op-lift
       швами (__method__-ресивер, arithOp оба операнда, cell/lcell.set через liftOverOp) +
