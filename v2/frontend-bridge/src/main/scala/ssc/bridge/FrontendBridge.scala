@@ -87,6 +87,7 @@ object FrontendBridge:
     yamlSectionIds.clear()
     hoistedValNames.clear()
     curriedExternMethods.clear()
+    effectNames.clear()
     globalVarNames.clear()
     defParamNames.clear()
     varargDefs.clear()
@@ -176,6 +177,11 @@ object FrontendBridge:
    *  two-step protocol — the curried-merge conversion must NOT collapse
    *  `srv.tool(a, b) { h }` into one call. */
   private val curriedExternMethods = collection.mutable.HashSet[String]()
+  /** Declared effect names (`effect Foo:` / `multi effect Foo:`): ops on these
+   *  receivers emit the __effect__ prim so FastCode's long fast-tier declines
+   *  the containing tree — an un-handled Op must reach the lifting dispatch,
+   *  not an unboxing asInt seam. */
+  private val effectNames = collection.mutable.HashSet[String]()
 
   /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
   private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
@@ -499,7 +505,10 @@ object FrontendBridge:
     // Free-monad Op lifting makes every effect resumable); `multi` alone would
     // parse as an unbound ident.
     val noMulti =
-      if code.contains("multi effect ") then code.replace("multi effect ", "effect ") else code
+      val norm = if code.contains("multi effect ") then code.replace("multi effect ", "effect ") else code
+      """(?m)^\s*effect\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""".r
+        .findAllMatchIn(norm).foreach(m => effectNames += m.group(1))
+      norm
     if !noMulti.contains("@openapi") then noMulti
     else noMulti.replace("@openapi(", "openapi(")
 
@@ -1512,6 +1521,14 @@ object FrontendBridge:
         CT.Ctor(name, Nil)  // e.g. Nil, None, True, case objects
       else CT.Global(name)
 
+  /** __effect__ for ops on DECLARED effect receivers (Bump.tick()): same
+   *  runtime semantics as __method__, but FastCode has no arm for it — the
+   *  long fast-tier declines the containing tree and un-handled Ops reach
+   *  the lifting dispatch instead of an unboxing asInt seam. */
+  private def methodPrimFor(qual: Term): String = qual match
+    case Term.Name(n) if effectNames.contains(n) => "__effect__"
+    case _                                       => "__method__"
+
   private def convertAssign(a: Term.Assign, scope: List[String]): CT =
     a.lhs match
       case Term.Name(name) =>
@@ -1703,9 +1720,9 @@ object FrontendBridge:
           else if args.isEmpty then
             fieldIndex(mname) match
               case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i)), CT.Lit(Const.CStr(mname))))
-              case None    => CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
+              case None    => CT.Prim(methodPrimFor(qual), CT.Lit(Const.CStr(mname)) :: q :: args)
           else
-            CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: args)
+            CT.Prim(methodPrimFor(qual), CT.Lit(Const.CStr(mname)) :: q :: args)
       // Curried method application: qual.method(a)(b) — merge into one __method__ call
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name(mname)), innerClause) if !isCtorName(mname) =>
         val q     = convertExpr(qual, scope)

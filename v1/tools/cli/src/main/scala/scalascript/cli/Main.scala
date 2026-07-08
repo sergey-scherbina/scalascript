@@ -7456,6 +7456,7 @@ final class BenchCmd extends CliCommand:
       // snapshots System.out at class-init; if that happens inside the swap,
       // every later println in this process goes to the dead buffer).
       try
+        RunV2.loadPluginJars()
         _root_.ssc.bridge.PluginBridge.loadAll()
         Console.withOut(outPs) {
           val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
@@ -7464,6 +7465,7 @@ final class BenchCmd extends CliCommand:
       catch case e: Throwable =>
         if System.getenv("SSC_BENCH_DEBUG") != null then
           System.err.println(s"[timeV2] ${e.getClass.getSimpleName}: ${e.getMessage}")
+          e.getStackTrace.take(6).foreach(f => System.err.println(s"[timeV2]   at $f"))
       parseBenchMs(outBuf.toString("UTF-8"))
 
     // Fuse `(lo to hi).map(f).filter(g).foldLeft(z)(h)` → manual while loop.

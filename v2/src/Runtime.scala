@@ -1385,6 +1385,7 @@ object Prims:
     case "__isNum2__" => a =>
       val num = (v: Value) => v match { case IntV(_) | FloatV(_) | BigV(_) => true; case _ => false }
       BoolV(num(a(0)) && num(a(1)))
+    case "__effect__" => resolve("__method__")   // alias: effect-receiver ops (FastCode declines it)
     case "__mdStrip__" => a => a(0) match
       case StrV(s) =>
         // v1 Interpreter.stripIndent: drop blank edge lines, remove the
@@ -1882,6 +1883,18 @@ object Prims:
           val (yes, no) = unlist(ls).partition(x => callClos(fn, Array(x)) == Value.BoolV(true))
           DataV("Tuple2", collection.immutable.ArraySeq(listOf(yes), listOf(no)))
         // ── Tuple accessors ──────────────────────────────────────────────────────
+        // EXPRESSION-position effects: a method call on an un-handled Op lifts
+        // over it — Op(l, a, k).m(args) becomes Op(l, a, x -> k(x).m(args)), so
+        // `acc + Bump.tick().toLong` reaches the handler and THEN applies
+        // .toLong to the resumed value (statement/binding positions are
+        // covered by seqThreadOp/letThreadOp; this is the operand case).
+        case (DataV("Op", IndexedSeq(l, arg, k)), mname, margs) =>
+          val kc = k.asInstanceOf[ClosV]
+          val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+            val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+            Done(resolve("__method__")(StrV(mname) :: resumed :: margs))
+          })
+          DataV("Op", Vector(l, arg, k2))
         case (DataV("Stub", _), n, _) if n.matches("_\\d+") || n == "fieldAt" =>
           DataV("Stub", Vector.empty)  // stub tuple/field accessor
         case (DataV(tag, fields), n, Nil) if tag.startsWith("Tuple") && n.matches("_\\d+") =>
@@ -2167,6 +2180,23 @@ object Prims:
     Runtime.run(k.code, Runtime.extend(k.env, Array(arg)))
 
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
+    // EXPRESSION-position effects: an un-handled Op OPERAND lifts over the
+    // arithmetic — `acc + Bump.tick().toLong` runs the handler first, then
+    // the op applies to the resumed value (mirrors the __method__ lift).
+    case (DataV("Op", IndexedSeq(lb, arg, k)), _) =>
+      val kc = k.asInstanceOf[ClosV]
+      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(arithOp(op, resumed, r))
+      })
+      DataV("Op", Vector(lb, arg, k2))
+    case (_, DataV("Op", IndexedSeq(rb, arg, k))) =>
+      val kc = k.asInstanceOf[ClosV]
+      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(arithOp(op, l, resumed))
+      })
+      DataV("Op", Vector(rb, arg, k2))
     // Set-as-list element removal: v2 sets are distinct lists (`.toSet`), so
     // `pending - partId` (std/mapreduce collect loops) = filterNot. Without
     // this the op fell through to the plugin stub and returned Unit, which
@@ -2335,8 +2365,15 @@ object Prims:
                                 val nilV: Value = DataV("Nil", IndexedSeq.empty)
                                 parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
                               case _ => sys.error("str.split: not Str") }
-    case "cell.set" => Some { (c, v) => asCell(c)(0) = v; UnitV }
-    case "lcell.set"=> Some { (c, v) => c.asInstanceOf[LongCellV].v = asInt1(v); UnitV }
+    // Var writes LIFT over un-handled effect Ops: `acc = acc + Bump.tick()`
+    // stores through the continuation AFTER the handler resumes (the lcell
+    // unboxing seam was the last place an Op could crash instead of lifting).
+    case "cell.set" => Some { (c, v) => v match
+      case op @ DataV("Op", _) => liftOverOp(op, x => { asCell(c)(0) = x; UnitV })
+      case _ => asCell(c)(0) = v; UnitV }
+    case "lcell.set"=> Some { (c, v) => v match
+      case op @ DataV("Op", _) => liftOverOp(op, x => { c.asInstanceOf[LongCellV].v = asInt1(x); UnitV })
+      case _ => c.asInstanceOf[LongCellV].v = asInt1(v); UnitV }
     case "map.get"  => Some { (m, k) => asMap(m).get(k).fold(none)(some) }
     case "map.has"  => Some { (m, k) => BoolV(asMap(m).contains(k)) }
     case "map.del"  => Some { (m, k) => asMap(m).remove(k); UnitV }
@@ -2363,6 +2400,16 @@ object Prims:
     case "arr.set"  => Some { (a, i, v) => asArr(a)(asInt1(i).toInt) = v; UnitV }
     case "bslice"   => Some { case (BytesV(b), IntV(i), IntV(j)) => BytesV(b.slice(i.toInt, j.toInt)); case _ => sys.error("bslice") }
     case _          => None
+
+  /** Lift a computation over an un-handled Op: Op(l, a, k) -> Op(l, a, x -> use(k(x))). */
+  private def liftOverOp(op: Value, use: Value => Value): Value = op match
+    case DataV("Op", IndexedSeq(l, a, k)) =>
+      val kc = k.asInstanceOf[ClosV]
+      DataV("Op", Vector(l, a, ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(resumed match { case op2 @ DataV("Op", _) => liftOverOp(op2, use); case r => use(r) })
+      })))
+    case v => use(v)
 
   private def asInt1(v: Value): Long = v match { case IntV(n) => n; case x => sys.error(s"expected Int, got ${Show.show(x)}") }
 

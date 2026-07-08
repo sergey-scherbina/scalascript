@@ -32,7 +32,7 @@ object RunV2:
    *  context loader) and install it as the context loader BEFORE `loadAll()`, so ServiceLoader finds every
    *  plugin Backend. No-op — and harmless — when the plugins dir isn't present (sbt / test runs already
    *  have every plugin jar on the classpath); any failure falls back to the previous behaviour. */
-  private def loadPluginJars(): Unit =
+  private[cli] def loadPluginJars(): Unit =
     try
       val dirs = pluginDirs
       if dirs.isEmpty then return
