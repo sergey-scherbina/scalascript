@@ -1,0 +1,6 @@
+feature/v2-prod-content-toolkit-section 2026-07-08T08:58:25Z
+agent: codex
+heartbeat: 2026-07-08T08:58:25Z
+status: not-started
+done-so-far:
+next: create worktree; reproduce content-toolkit-yaml-controls v2-error and content-slot mismatch; fix contentToolkitSection parity
