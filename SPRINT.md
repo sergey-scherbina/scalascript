@@ -9,6 +9,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [x] **p3-mcp-and-tails** — DONE 2026-07-08 (5377e271f): the "MCP switch regression" was an
+      UNMASKED exit-0 fiction (default invokeCallback is a NO-OP — setup blocks never ran; the
+      switch-owner's override made them execute honestly). Fixed properly: curried extern-method
+      protocol (two-clause `def m(a)(b)` decls scanned from extern-class bodies; conversion keeps
+      the two-step) — ALL 7 MCP examples PASS. std/mcp exports Tool/Transport/requireString;
+      phantom readOnlyHint/destructiveHint args removed from 2 examples; node-fs-read → js lane.
+      **Corpus 153/9 — zero systemic v2 fails remain** (wip control-center, datatable emit-path,
+      4 environmental, dsl-mini batch-ghost, x402-cardano external). Parity 63/85, conf 68.
+      REMAINING (non-gate): v1-deep ×2 (actors scheduler-termination race; dsl-calc .many()),
+      dsl-mini batch-vs-run arity ghost, control-center-live wip mechanics, datatable emit-path.
 ## v2 production readiness (2026-07-08, Sergiy: "довести v2 до production")
 
 Goal: make v2 safe to become the default `ssc` runtime, with `ssc --v1` kept as the
