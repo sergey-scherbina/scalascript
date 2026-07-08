@@ -63,7 +63,7 @@ class ClusterStepDownCliTest extends AnyFunSuite:
       val sscFile = sandbox / "node.ssc"
       os.write(sscFile, src)
       val outFile = (sandbox / "node.out").toIO
-      val pb = new ProcessBuilder("java", "-jar", jar.toString, sscFile.toString)
+      val pb = new ProcessBuilder("java", "-jar", jar.toString, "--v1", sscFile.toString)
         .redirectErrorStream(true).redirectOutput(outFile)
       proc = Some(pb.start())
 

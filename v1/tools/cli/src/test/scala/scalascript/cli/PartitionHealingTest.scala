@@ -139,7 +139,7 @@ class PartitionHealingTest extends AnyFunSuite with Matchers:
         val sscFile    = sandbox / s"node-$nid.ssc"
         os.write(sscFile, src)
         val outFile = (sandbox / s"node-$nid.out").toIO
-        val pb = new ProcessBuilder("java", "-jar", jar.toString, sscFile.toString)
+        val pb = new ProcessBuilder("java", "-jar", jar.toString, "--v1", sscFile.toString)
           .redirectErrorStream(true).redirectOutput(outFile)
         val proc = pb.start()
         procs    += proc

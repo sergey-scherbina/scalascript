@@ -92,7 +92,7 @@ class MultiNodeClusterTest extends AnyFunSuite:
     val sscFile = sandbox / s"node-$nodeId.ssc"
     os.write(sscFile, srcText)
     val outFile = (sandbox / s"node-$nodeId.out").toIO
-    val pb = new ProcessBuilder("java", "-jar", jar.toString, sscFile.toString)
+    val pb = new ProcessBuilder("java", "-jar", jar.toString, "--v1", sscFile.toString)
       .redirectErrorStream(true)
       .redirectOutput(outFile)
     // Pass `SSC_CLUSTER_DEBUG=1` via the env to capture per-link

@@ -97,7 +97,7 @@ class ClusterBullyStatusConvergenceTest extends AnyFunSuite:
     val sscFile = sandbox / s"$nodeId.ssc"
     os.write(sscFile, nodeSrc(nodeId, port, peerUrl))
     val outFile = (sandbox / s"$nodeId.out").toIO
-    val pb = new ProcessBuilder("java", "-jar", jar.toString, sscFile.toString)
+    val pb = new ProcessBuilder("java", "-jar", jar.toString, "--v1", sscFile.toString)
       .redirectErrorStream(true)
       .redirectOutput(outFile)
     val proc = pb.start()
