@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T19:37:55Z
+heartbeat: 2026-07-08T19:45:25Z
 status: in-progress
-done-so-far: ToolkitElectronSmokeTest is green focused after JS runtime duplicate/binding fixes; typed-json/client/runtime focused tests are green
-next: rerun full cli/test, affected conformance, then bounded root test
+done-so-far: full cli/test is green (554 passed, 29 canceled); affected conformance slice is green (19/19)
+next: run bounded root sbt test, then commit/push code and bookkeeping if green
