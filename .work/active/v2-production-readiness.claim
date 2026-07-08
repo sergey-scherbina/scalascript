@@ -1,0 +1,6 @@
+feature/v2-production-readiness 2026-07-08T06:50:16Z
+agent: codex
+heartbeat: 2026-07-08T06:50:16Z
+status: not-started
+done-so-far: claimed v2 production-readiness workstream
+next: create isolated worktree and commit SPRINT/spec plan before implementation
