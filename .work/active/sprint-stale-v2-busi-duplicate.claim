@@ -1,6 +1,0 @@
-feature/sprint-stale-v2-busi-duplicate 2026-07-08T20:34:05Z
-agent: codex
-heartbeat: 2026-07-08T20:34:27Z
-status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-sprint-stale-v2-busi-duplicate
-next: remove stale duplicate v2-busi-testsweep-gaps queue entry from SPRINT; no code changes
