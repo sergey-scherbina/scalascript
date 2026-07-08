@@ -1,0 +1,6 @@
+feature/v2-prod-plugin-boundary 2026-07-08T07:28:08Z
+agent: codex
+heartbeat: 2026-07-08T07:28:08Z
+status: not-started
+done-so-far:
+next: investigate dataset-parallel-sum v2-error as first production plugin-boundary blocker
