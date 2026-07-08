@@ -190,8 +190,27 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       availability, and v2 bridge handling of the UI helper shape. Done-when:
       both examples are parity MATCH, `scala-cli tests/conformance/run.sc -- --only 'content*' --no-memo`
       remains green, and full parity has **0 v2-error** again.
-- [ ] **v2-prod-quoted-macro-interpreter** — fix the remaining production-relevant
-      quoted macro interpreter output mismatch. Repro after `scripts/sbtc
+- [x] **v2-prod-quoted-macro-interpreter** — DONE 2026-07-08 (387c804da): fixed the
+      remaining production-relevant quoted macro interpreter output mismatch. Root
+      causes: v2 run left interpreter-only macro impls in helper form but had not
+      registered the v1 interpreter helper globals/methods (`__ssc_macro__`,
+      `__ssc_quote__`, `Expr.asValue`, `Expr.asTerm`, `QuotedContext`), and
+      FrontendBridge converted forward macro entrypoints before recording the
+      implementation helper's `using QuotedContext` metadata, leaving curried
+      closures in stdout. Fix: register v2 helper globals, add `Expr` method
+      dispatch, resolve the built-in `QuotedContext`, and pre-record `using`
+      metadata before converting top-level bodies. Verification:
+      `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest -- -z quoted"`
+      green; `scripts/sbtc "v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest"`
+      => **22/22 green**; `scripts/sbtc "installBin"` green; direct v1/v2 runs of
+      `examples/quoted-macro-interpreter.ssc` both print `42`, `literal: 7`, `x`;
+      targeted parity for `quoted-macro-interpreter.ssc` and
+      `quoted-macro-constfold.ssc` is **2/2 MATCH**; affected conformance
+      `scala-cli tests/conformance/run.sc -- --only '*quoted*' --no-memo` has
+      **0 matching cases**; full production parity is now **58/81 identical ·
+      7 mismatch · 0 v2-error · 16 v1-only**.
+      ORIGINAL PLAN: fix the remaining production-relevant quoted macro interpreter
+      output mismatch. Repro after `scripts/sbtc
       "installBin"`:
       `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/quoted-macro-interpreter.ssc`
       reports v1 output `42`, `literal: 7`, `x` but v2 prints only `42`.

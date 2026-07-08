@@ -7,9 +7,9 @@ routes a source through the v1 frontend → FrontendBridge → the v2 VM).
 This is the REAL "does v2 replace v1?" gate: each example is run on v1 (`ssc run`) AND v2 (`ssc run --v2`)
 and stdout is diffed. It is far stricter than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-08, after content toolkit section fix
+## Latest full corpus re-measure — 2026-07-08, after quoted macro interpreter fix
 
-Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-content-toolkit-section` with:
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-quoted-macro-interpreter` with:
 
 ```bash
 scripts/sbtc "installBin"
@@ -20,8 +20,8 @@ Current result:
 
 | | count |
 |---|---|
-| ✅ output-identical | **57 / 81 = 70%** |
-| ❌ mismatch | 8 |
+| ✅ output-identical | **58 / 81 = 72%** |
+| ❌ mismatch | 7 |
 | ⚠️ v2-error (v1 works, v2 empty) | 0 |
 | v1-only (v2 works, v1 empty) | 16 |
 | both-fail (not a v2 gap) | 44 |
@@ -31,27 +31,26 @@ Current result:
 | nondeterministic-output skipped | 2 |
 | total examples seen | 195 |
 
-Confirmed improvements in this gate: `content-slot.ssc` and
-`content-toolkit-yaml-controls.ssc` are now output-identical, closing the last
-post-p3 v2-error and the sibling unsupported-AST mismatch. The earlier confirmed
-matches still hold: `content-form-submit`, `content-live-rows`, `typed-sql-crud`,
-`ui-fetch-json`, `ui-remote-table`, `rozum-agent`, `rozum-agent-pool`, and
-`invoice-email.ssc`.
+Confirmed improvements in this gate: `quoted-macro-interpreter.ssc` is now
+output-identical, closing the computed quoted-macro interpreter-body blocker while
+keeping `quoted-macro-constfold.ssc` green. The earlier confirmed matches still
+hold: `content-slot.ssc`, `content-toolkit-yaml-controls.ssc`,
+`content-form-submit`, `content-live-rows`, `typed-sql-crud`, `ui-fetch-json`,
+`ui-remote-table`, `rozum-agent`, `rozum-agent-pool`, and `invoice-email.ssc`.
 
-Closed in this slice (`7dee6daf0`):
+Closed in this slice (`387c804da`):
 
-- **Content toolkit section lowering** — `MinimalCtx` now lets real content-plugin
-  lowering resolve/call imported toolkit builder globals such as `fieldColumn`, and
-  FrontendBridge now desugars `[bodyEl]` after a spaced infix operator in
-  `std/ui/lower.ssc`. Targeted parity for `content-slot.ssc` and
-  `content-toolkit-yaml-controls.ssc` is **2/2 MATCH**; all `examples/content*.ssc`
-  are **10/10 MATCH** with the expected `content-introspection` v1 timeout
-  classification; affected conformance `content*` is **5/5** green.
+- **Quoted macro interpreter helper path** — `ssc run --v2` now registers the v1
+  interpreter's restricted quoted-macro helper globals (`__ssc_macro__`,
+  `__ssc_quote__`, `Expr`, `QuotedContext`, etc.), handles `Expr.asValue` /
+  `Expr.asTerm` in v2 method dispatch, and pre-records `using` metadata so an
+  inline macro entrypoint can call a later `impl(...)(using QuotedContext)` helper.
+  Targeted parity for `quoted-macro-interpreter.ssc` and
+  `quoted-macro-constfold.ssc` is **2/2 MATCH**; affected conformance `*quoted*`
+  has **0 cases**.
 
 Current production-relevant blockers:
 
-- **Quoted macro body evaluation** — `quoted-macro-interpreter.ssc` still prints only
-  `42` on v2, missing the computed-body outputs `literal: 7` and `x`.
 - **Rozum schema/streaming scope** — `rozum-agent` and `rozum-agent-pool` match, but
   `rozum-agent-schema-derived.ssc` and `rozum-agent-streaming.ssc` still mismatch in
   this full run.
@@ -110,7 +109,7 @@ production blocker order:
   and v2 prints real platform data; classify as v2-better / v1 bug.
 - `async-parallel-demo.ssc` differs only in wall-clock timings; classify as
   nondeterministic-output unless the example is normalized.
-- Remaining v2 production blockers by cluster:
+- Remaining v2 production blockers by cluster at this historical point:
   - **v2-error class:** closed by `44f3d4a24`; no v2-error cases remain in the
     latest full sweep;
   - **parser/DSL output shape:** `dsl-calc-parser`;

@@ -12,26 +12,41 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-quoted-macro-interpreter-parity — `open` (2026-07-08)
+## v2-quoted-macro-interpreter-parity — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the v2 production parity sweep after content-toolkit
   section parity was fixed.
-- **Symptom:** `examples/quoted-macro-interpreter.ssc` is a remaining production
-  mismatch. v1 prints three lines (`42`, `literal: 7`, `x`), while v2 currently
-  prints only `42`.
+- **Symptom:** `examples/quoted-macro-interpreter.ssc` was a remaining production
+  mismatch. v1 printed three lines (`42`, `literal: 7`, `x`), while v2 printed
+  only `42` or, after registering the first helper, returned curried closures for
+  the computed-body macros.
 - **Repro:** after `scripts/sbtc "installBin"`, run:
   `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/quoted-macro-interpreter.ssc`.
   Direct check:
   `bin/ssc run examples/quoted-macro-interpreter.ssc` versus
   `bin/ssc run --v2 examples/quoted-macro-interpreter.ssc`.
-- **Notes:** `quoted-macro-constfold.ssc` already matches. The failing example uses
-  interpreter-only computed implementation bodies (`"literal: " +
-  x.asValue.getOrElse("?")` and `x.asTerm.name`) rather than a direct quote or the
-  supported `Expr.asValue match` const-fold shape. The likely fix area is the v2
-  FrontendBridge macro pre-pass (`PluginBridge.expandMacrosInSource` /
-  `MacroCodegen.expand`) and the Linker macro-expansion machinery it reuses.
-- **Next:** fix in a separate claimed slice; keep `quoted-macro-constfold.ssc`
-  parity green.
+- **Root cause:** the v2 run path used `MacroCodegen.expand` only for generated-
+  backend-expandable macro bodies. That correctly left interpreter-only bodies
+  (`x.asValue.getOrElse(...)`, `x.asTerm.name`) in helper form, but the v2 bridge
+  did not register the v1 interpreter's helper globals (`__ssc_macro__`,
+  `__ssc_quote__`, `Expr`, `QuotedContext`, etc.) or `Expr.asValue` /
+  `Expr.asTerm` method dispatch. A second forward-reference bug meant an inline
+  macro entrypoint that appeared before its `impl(...)(using QuotedContext)` helper
+  converted before FrontendBridge knew the helper needed a synthesized `using`
+  argument, so the impl call returned a curried closure.
+- **Fix (387c804da):** `PluginBridge.registerInterpreterBuiltins` registers the
+  restricted quoted-macro helper globals for v2 runs, `Prims.__method__` handles
+  `DataV("Expr").asValue/asTerm`, `__resolve_given__` supplies the built-in
+  `QuotedContext`, and FrontendBridge pre-records `using` metadata before converting
+  top-level bodies.
+- **Verification:** `bin/ssc run examples/quoted-macro-interpreter.ssc` and
+  `bin/ssc run --v2 examples/quoted-macro-interpreter.ssc` both print `42`,
+  `literal: 7`, `x`; targeted parity for `quoted-macro-interpreter.ssc` plus
+  `quoted-macro-constfold.ssc` is **2/2 MATCH**; affected conformance
+  `scala-cli tests/conformance/run.sc -- --only '*quoted*' --no-memo` has **0
+  matching cases**; full
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` is now
+  **58/81 identical · 7 mismatch · 0 v2-error · 16 v1-only**.
 
 ## v2-content-toolkit-section-parity — `fixed` (2026-07-08)
 

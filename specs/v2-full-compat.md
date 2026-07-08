@@ -79,7 +79,7 @@ parity: 55/85 identical · 9 mismatch · 1 v2-error · 20 v1-only
          32 backend-lane · 2 nondet · 195 total)
 ```
 
-The next production blockers are now:
+The next production blockers at that post-p3 measurement point were:
 
 - content toolkit section lowering: `content-toolkit-yaml-controls.ssc` is the only
   v2-error, and `content-slot.ssc` still emits an extra unsupported-AST line;
@@ -113,11 +113,33 @@ The fixed content causes were:
   `headerParts ++ [bodyEl] ++ footerParts` as a list literal, not as scalameta's
   unsupported `TermSelectPostfixImpl`.
 
-The remaining production blockers are now:
+Quoted-macro interpreter update (2026-07-08): `387c804da` closes the
+`quoted-macro-interpreter.ssc` blocker. The v2 run path now mirrors the v1
+interpreter helper environment for interpreter-only quoted macro bodies, while the
+generated JVM/JS backend contract remains unchanged: `MacroCodegen` expands only
+direct quotes and `Expr.asValue match` const-folds, and warns for interpreter-only
+impls.
 
-- quoted macro body evaluation: `quoted-macro-interpreter.ssc`;
-- rozum schema-derived / streaming parity or scope decision:
-  `rozum-agent-schema-derived.ssc` and `rozum-agent-streaming.ssc`.
+```text
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 58/81 identical · 7 mismatch · 0 v2-error · 16 v1-only
+        (44 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         32 backend-lane · 2 nondet · 195 total)
+```
+
+The fixed quoted-macro causes were:
+
+- `PluginBridge.registerInterpreterBuiltins` did not register the restricted
+  quoted-macro helper globals (`__ssc_macro__`, `__ssc_quote__`,
+  `__ssc_quote_expr__`, `__ssc_splice__`, `Expr`, `QuotedContext`) for v2 runs;
+- `Prims.__method__` did not dispatch `Expr.asValue` / `Expr.asTerm` on the v2
+  `DataV("Expr")` carrier;
+- FrontendBridge converted a forward inline macro entrypoint before it had recorded
+  that the later impl helper needed a synthesized `using QuotedContext` argument.
+
+The remaining production blocker is now the rozum schema-derived / streaming parity
+or scope decision: `rozum-agent-schema-derived.ssc` and
+`rozum-agent-streaming.ssc`.
 
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).

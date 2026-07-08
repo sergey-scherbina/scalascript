@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: quoted macro interpreter parity fixed
+
+`quoted-macro-interpreter.ssc` now matches v1 under `ssc run --v2`, including
+computed interpreter-only macro bodies using `Expr.asValue.getOrElse(...)` and
+`Expr.asTerm.name`. The v2 bridge registers the restricted quoted-macro helper
+globals/methods for run-path parity and pre-records `using` metadata for forward
+macro helper calls. Full output parity is now **58/81 identical · 7 mismatch ·
+0 v2-error · 16 v1-only** across 195 examples.
+
+---
+
 ## 2026-07-08 — v2 production: content toolkit section parity fixed
 
 `content-toolkit-yaml-controls.ssc` and `content-slot.ssc` now match v1 on v2.

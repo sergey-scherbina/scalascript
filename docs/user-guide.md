@@ -5305,8 +5305,9 @@ consumer), on JVM and JS.
 
 A macro whose implementation is **interpreter-only** (its body is not a direct
 quote `'{ … }` and not an `Expr.asValue match` — e.g. `x.asValue.getOrElse(…)` or
-`x.asTerm`) runs on `ssc run` but cannot compile to the JVM/JS backends. `ssc
-check` now warns about these up front (`quoted macro \`name\` has an
+`x.asTerm`) runs on `ssc run` and on the v2 bridge run path (`ssc run --v2`), but
+cannot compile to the JVM/JS backends. `ssc check` now warns about these up front
+(`quoted macro \`name\` has an
 interpreter-only implementation …`) instead of leaving you with a cryptic
 target-compiler error.
 
