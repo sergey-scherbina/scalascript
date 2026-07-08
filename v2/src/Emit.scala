@@ -7,11 +7,22 @@ package ssc
  *  invokestatic per site, no collection building inside bytecode. Keeping
  *  the surface tiny and stable is what makes the emitter small. */
 object Emit:
-  private def fn(op: String) = Prims.resolve(op)
+  // resolve is string-keyed and non-trivial — cache per op (hot: every prim site)
+  private val fnCache = new java.util.concurrent.ConcurrentHashMap[String, List[Value] => Value]()
+  private def fn(op: String) = fnCache.computeIfAbsent(op, o => Prims.resolve(o))
+
+  /** Direct arithmetic — no resolve, no List, no StrV boxing of the op. */
+  def arith(op: String, a: Value, b: Value): Value = Prims.arithOp(op, a, b)
 
   def prim0(op: String): Value = fn(op)(Nil)
   def prim1(op: String, a: Value): Value = fn(op)(a :: Nil)
-  def prim2(op: String, a: Value, b: Value): Value = fn(op)(a :: b :: Nil)
+  def prim2(op: String, a: Value, b: Value): Value =
+    // global.reg is a COMPILER-internal prim (top-level val registration);
+    // in the bytecode lane it writes straight into the shared globals map.
+    if op == "global.reg" then
+      a match { case Value.StrV(n) => registerGlobal(n, b); case _ => () }
+      Value.UnitV
+    else fn(op)(a :: b :: Nil)
   def prim3(op: String, a: Value, b: Value, c: Value): Value = fn(op)(a :: b :: c :: Nil)
   def primN(op: String, args: Array[Value]): Value = fn(op)(args.toList)
 
@@ -26,10 +37,54 @@ object Emit:
 
   def ctor(tag: String, fields: Array[Value]): Value = Value.DataV(tag, fields.toVector)
 
+  /** SAM for compiled lambda bodies (invokedynamic target from generated code). */
+  trait LamFn { def call(env: Array[Value]): Value }
+
+  /** Wrap a compiled lambda body as a VM-compatible closure: interop with the
+   *  VM (Runtime.run / callClos) is by construction — the ClosV's code just
+   *  forwards to the compiled static method. */
+  def clos(arity: Int, fn: LamFn, captured: Array[Value]): Value =
+    Value.ClosV(captured, arity, env => Done(fn.call(env)))
+
+  /** LetRec: create the closures, extend env, tie the cyclic frame (VM semantics). */
+  def letrec(arities: Array[Int], fns: Array[LamFn], env: Array[Value]): Array[Value] =
+    val cs = new Array[Value](fns.length)
+    var i = 0
+    while i < fns.length do
+      val f = fns(i)
+      cs(i) = Value.ClosV(Array.empty[Value], arities(i), e => Done(f.call(e)))
+      i += 1
+    val envP = Runtime.extend(env, cs)
+    i = 0
+    while i < fns.length do
+      cs(i).asInstanceOf[Value.ClosV].env = envP
+      i += 1
+    envP
+
+  /** Concatenate the array part of the frame with materialized let-slot values
+   *  (closure capture: the compiled code keeps lets in JVM slots; a nested Lam
+   *  must see them as env entries). */
+  def capture(env: Array[Value], slots: Array[Value]): Array[Value] =
+    if slots.length == 0 then env else Runtime.extend(env, slots)
+
+  def matchFields(v: Value, tag: String, arity: Int): Array[Value] | Null = v match
+    case Value.DataV(t, fs) if t == tag && fs.length == arity => fs.toArray
+    case _ => null
+  def isData(v: Value): Boolean = v.isInstanceOf[Value.DataV]
+  def dataTag(v: Value): String = v match { case Value.DataV(t, _) => t; case _ => "" }
+  def dataArity(v: Value): Int = v match { case Value.DataV(_, fs) => fs.length; case _ => -1 }
+  def dataFields(v: Value): Array[Value] = v match { case Value.DataV(_, fs) => fs.toArray; case _ => Array.empty }
+  def matchFail(tag: String, ar: Int): Value = sys.error(s"match: no arm for $tag/$ar")
+
   /** Program globals for the generated class (set once before invocation). */
   @volatile var globalsRef: scala.collection.Map[String, Value] = Map.empty
+  def registerGlobal(name: String, v: Value): Unit =
+    globalsRef match
+      case m: scala.collection.mutable.Map[String, Value] @unchecked => m(name) = v
+      case ro => globalsRef = scala.collection.mutable.HashMap.from(ro).addOne(name -> v)
   def global(name: String): Value =
-    globalsRef.getOrElse(name, sys.error(s"unbound global: $name"))
+    globalsRef.getOrElse(name,
+      V2PluginRegistry.lookupGlobal(name).getOrElse(sys.error(s"unbound global: $name")))
   def strV(s: String): Value = Value.StrV(s)
   def intV(n: Long): Value = Value.IntV(n)
   def floatV(d: Double): Value = Value.FloatV(d)

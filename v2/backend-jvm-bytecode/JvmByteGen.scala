@@ -1,53 +1,143 @@
 package ssc.bytecode
 
-import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes, Type as AsmType, Label}
+import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes, Label, Handle, Type as AsmType}
 import ssc.{Term, Const, Value, Program}
 
-/** CoreIR → JVM bytecode, milestone 1 (Phase 4 jvm-lane).
+/** CoreIR → JVM bytecode, milestone 2 (Phase 4 jvm-lane).
  *
- *  Scope: the ENTRY term's structural forms — Lit / Global / Local / Prim /
- *  App / Seq / If / Let / Ctor. Values stay `ssc.Value` on the JVM stack;
- *  every prim/application is ONE invokestatic into the `ssc.Emit` shims, so
- *  emission is push-args-and-call. Globals come from the existing VM compiler
- *  (hybrid milestone): `Emit.globalsRef` is set before invocation.
+ *  Structure compiled: Lit/Global/Local/Prim/App/Seq/If/Let/Ctor/Lam/Match/
+ *  LetRec. Values stay `ssc.Value`; prims/apps are invokestatic into ssc.Emit.
  *
- *  Unsupported forms throw Unsupported — the corpus probe counts coverage.
- *  Lam/Match/LetRec compilation is milestone 2. */
+ *  ENV MODEL (hybrid): each compiled body receives the De Bruijn frame as a
+ *  Value[] param; Let/Match bindings live in JVM SLOTS on top of it.
+ *  Local(i): i < slotDepth → the slot; else array[len-1-(i-slotDepth)].
+ *  A nested Lam/LetRec MATERIALIZES the slots (Emit.capture) so captured
+ *  frames match VM extend-semantics exactly.
+ *
+ *  Lam sites emit invokedynamic (LambdaMetafactory) against the Emit.LamFn
+ *  SAM targeting the body's static method — closure creation is one indy call
+ *  plus Emit.clos; the resulting ClosV interops with the VM by construction. */
 final class Unsupported(val form: String) extends RuntimeException(form)
 
 object JvmByteGen:
-  private val EMIT = "ssc/Emit"
-  private val VAL  = "ssc/Value"
-  private val OBJ  = "java/lang/Object"
+  private val EMIT  = "ssc/Emit"
+  private val LAMFN = "ssc/Emit$LamFn"
+  private val VAL   = "ssc/Value"
+  private val OBJ   = "java/lang/Object"
+  private val GEN   = "ssc/gen/Entry"
 
-  /** Emit a class `ssc.gen.Entry` with `public static Value entry()`. */
-  def emitEntry(entry: Term): Array[Byte] =
+  private val metafactory = new Handle(
+    Opcodes.H_INVOKESTATIC,
+    "java/lang/invoke/LambdaMetafactory", "metafactory",
+    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+    false)
+
+  private final case class Pending(name: String, body: Term)
+
+  private final class Gen(val cw: ClassWriter):
+    val pending = collection.mutable.Queue.empty[Pending]
+    var lamIdx = 0
+    def freshLam(): String = { lamIdx += 1; s"lam$$$lamIdx" }
+    /** Top-level Lam defs: name → (methodName, arity). Calls to these compile
+     *  to DIRECT invokestatic — no global lookup, no ClosV, no Emit.app. */
+    val defMethods = collection.mutable.HashMap.empty[String, (String, Int)]
+
+  /** Emitter context for ONE method body. */
+  private final class Ctx(val mv: MethodVisitor, val g: Gen):
+    var nextSlot = 1                       // slot 0 = env array param
+    private val stack = collection.mutable.ArrayBuffer.empty[Int]
+    def slotDepth: Int = stack.length
+    def slots: List[Int] = stack.toList
+    def push(): Int = { val s = nextSlot; nextSlot += 1; stack += s; s }
+    def pop(n: Int): Unit = stack.remove(stack.length - n, n)
+    def slotFor(deBruijn: Int): Int = stack(stack.length - 1 - deBruijn)
+    def saveSlots(): List[Int] = { val s = stack.toList; stack.clear(); s }
+    def restoreSlots(s: List[Int]): Unit = { stack.clear(); stack ++= s }
+
+  def emitProgram(p: Program): Array[Byte] =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
-    cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "ssc/gen/Entry", null, OBJ, null)
-    val mv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "entry", s"()L$VAL;", null, null)
-    mv.visitCode()
-    val ctx = new Ctx(mv)
-    gen(entry, ctx)
-    mv.visitInsn(Opcodes.ARETURN)
-    mv.visitMaxs(0, 0)
-    mv.visitEnd()
+    cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, GEN, null, OBJ, null)
+    val g = new Gen(cw)
+
+    // pre-register def methods FIRST so entry and def bodies alike can call
+    // them directly (invokestatic) — names issued once, no re-issuing
+    p.defs.foreach { d =>
+      d.body match
+        case Term.Lam(ar, _) => g.defMethods(d.name) = (g.freshLam(), ar)
+        case _ => ()
+    }
+
+    // entry(): compiled entry term with an EMPTY frame
+    emitBody(g, "entry", p.entry, paramIsEnv = false)
+
+    // install(): compiled ClosV for every top-level Lam def (overrides the
+    // VM-compiled version in Emit.globalsRef; value defs stay VM-compiled)
+    val installMv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "install", "()V", null, null)
+    installMv.visitCode()
+    p.defs.foreach { d =>
+      d.body match
+        case Term.Lam(ar, body) =>
+          val (m, _) = g.defMethods(d.name)
+          g.pending.enqueue(Pending(m, body))
+          installMv.visitLdcInsn(d.name)
+          installMv.visitLdcInsn(ar)
+          installMv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
+            AsmType.getType(s"([L$VAL;)L$VAL;"),
+            new Handle(Opcodes.H_INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false),
+            AsmType.getType(s"([L$VAL;)L$VAL;"))
+          installMv.visitInsn(Opcodes.ICONST_0)
+          installMv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
+          installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
+          installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "registerGlobal", s"(Ljava/lang/String;L$VAL;)V", false)
+        case _ => () // non-lam defs remain VM-compiled in globalsRef
+    }
+    installMv.visitInsn(Opcodes.RETURN)
+    installMv.visitMaxs(0, 0); installMv.visitEnd()
+
+    // drain pending lam bodies (may enqueue more)
+    while g.pending.nonEmpty do
+      val pnd = g.pending.dequeue()
+      emitBody(g, pnd.name, pnd.body, paramIsEnv = true)
+
     cw.visitEnd()
     cw.toByteArray
 
-  /** Emitter context: De Bruijn frame → JVM local slots (static methods: slot 0 free). */
-  private final class Ctx(val mv: MethodVisitor):
-    private var next = 0
-    private val stack = collection.mutable.ArrayBuffer.empty[Int]
-    def depth: Int = stack.length
-    def push(): Int = { val s = next; next += 1; stack += s; s }
-    def pop(n: Int): Unit = stack.remove(stack.length - n, n)
-    def slotOf(deBruijn: Int): Int = stack(stack.length - 1 - deBruijn)
+  private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean): Unit =
+    val desc = if paramIsEnv then s"([L$VAL;)L$VAL;" else s"()L$VAL;"
+    val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
+    mv.visitCode()
+    val ctx = new Ctx(mv, g)
+    if !paramIsEnv then
+      // no env param: slot 0 hosts an empty frame for uniformity
+      mv.visitInsn(Opcodes.ICONST_0)
+      mv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
+      mv.visitVarInsn(Opcodes.ASTORE, 0)
+    gen(body, ctx)
+    mv.visitInsn(Opcodes.ARETURN)
+    mv.visitMaxs(0, 0)
+    mv.visitEnd()
 
-  private def emitShim(mv: MethodVisitor, name: String, desc: String): Unit =
-    // Emit is a Scala object: call through its MODULE$ instance method
-    mv.visitFieldInsn(Opcodes.GETSTATIC, s"$EMIT$$", "MODULE$", s"L$EMIT$$;")
-    // stack: args..., module — need module FIRST; simpler: swap for arity<=1, else recompute.
-    throw new Unsupported("shim-call-ordering") // replaced below by the static-forwarder strategy
+  private def loadEnv(ctx: Ctx): Unit = ctx.mv.visitVarInsn(Opcodes.ALOAD, 0)
+
+  /** Materialize slot values into a captured frame on the stack: Emit.capture(env, slotVals). */
+  private def emitCapture(ctx: Ctx): Unit =
+    val mv = ctx.mv
+    loadEnv(ctx)
+    val ss = ctx.slots
+    mv.visitLdcInsn(ss.length)
+    mv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
+    ss.zipWithIndex.foreach { (slot, i) =>
+      mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i)
+      mv.visitVarInsn(Opcodes.ALOAD, slot)
+      mv.visitInsn(Opcodes.AASTORE)
+    }
+    mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "capture", s"([L$VAL;[L$VAL;)[L$VAL;", false)
+
+  private def emitLamFnRef(ctx: Ctx, methodName: String): Unit =
+    ctx.mv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
+      AsmType.getType(s"([L$VAL;)L$VAL;"),
+      new Handle(Opcodes.H_INVOKESTATIC, GEN, methodName, s"([L$VAL;)L$VAL;", false),
+      AsmType.getType(s"([L$VAL;)L$VAL;"))
 
   private def gen(t: Term, ctx: Ctx): Unit =
     val mv = ctx.mv
@@ -59,18 +149,33 @@ object JvmByteGen:
         case Const.CFloat(d) => mv.visitLdcInsn(d); callD(mv, "floatV")
         case Const.CStr(s)   => mv.visitLdcInsn(s); callStr(mv, "strV")
         case other           => throw new Unsupported(s"lit:$other")
-      case Term.Global(g) =>
-        mv.visitLdcInsn(g); callStr(mv, "global")
+      case Term.Global(gname) =>
+        mv.visitLdcInsn(gname); callStr(mv, "global")
       case Term.Local(i) =>
-        mv.visitVarInsn(Opcodes.ALOAD, ctx.slotOf(i))
+        if i < ctx.slotDepth then
+          mv.visitVarInsn(Opcodes.ALOAD, ctx.slotFor(i))
+        else
+          // env[env.length - 1 - (i - slotDepth)]
+          loadEnv(ctx)
+          mv.visitInsn(Opcodes.DUP)
+          mv.visitInsn(Opcodes.ARRAYLENGTH)
+          mv.visitLdcInsn(1 + (i - ctx.slotDepth))
+          mv.visitInsn(Opcodes.ISUB)
+          mv.visitInsn(Opcodes.AALOAD)
+      case Term.Lam(ar, body) =>
+        val m = ctx.g.freshLam()
+        ctx.g.pending.enqueue(Pending(m, body))
+        mv.visitLdcInsn(ar)
+        emitLamFnRef(ctx, m)
+        emitCapture(ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
       case Term.Seq(ts) =>
         ts.zipWithIndex.foreach { (s, i) =>
           gen(s, ctx)
           if i < ts.length - 1 then mv.visitInsn(Opcodes.POP)
         }
       case Term.If(c, a, b) =>
-        gen(c, ctx)
-        callVB(mv, "bool")
+        gen(c, ctx); callVB(mv, "bool")
         val elseL = new Label(); val endL = new Label()
         mv.visitJumpInsn(Opcodes.IFEQ, elseL)
         gen(a, ctx); mv.visitJumpInsn(Opcodes.GOTO, endL)
@@ -83,19 +188,118 @@ object JvmByteGen:
         }
         gen(body, ctx)
         ctx.pop(rhs.length)
+      case Term.LetRec(lams, body) =>
+        // materialize the current frame, then Emit.letrec(arities, fns, env)
+        val entries = lams.map {
+          case Term.Lam(ar, b) =>
+            val m = ctx.g.freshLam()
+            ctx.g.pending.enqueue(Pending(m, b))
+            (ar, m)
+          case other => throw new Unsupported("letrec:non-lam")
+        }
+        // arities array
+        mv.visitLdcInsn(entries.length)
+        mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT)
+        entries.zipWithIndex.foreach { case ((ar, _), i) =>
+          mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i); mv.visitLdcInsn(ar); mv.visitInsn(Opcodes.IASTORE)
+        }
+        // fns array
+        mv.visitLdcInsn(entries.length)
+        mv.visitTypeInsn(Opcodes.ANEWARRAY, LAMFN)
+        entries.zipWithIndex.foreach { case ((_, m), i) =>
+          mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i); emitLamFnRef(ctx, m); mv.visitInsn(Opcodes.AASTORE)
+        }
+        emitCapture(ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "letrec", s"([I[L$LAMFN;[L$VAL;)[L$VAL;", false)
+        // the returned frame becomes the body's env: store into slot 0 of a
+        // FRESH context region — simplest correct: overwrite slot 0 after
+        // saving? Instead: new env slot + a child ctx view.
+        // the returned frame becomes the body's env; the old slots were
+        // MATERIALIZED into it, so the body runs with an EMPTY slot stack
+        mv.visitVarInsn(Opcodes.ASTORE, 0)
+        val savedSlots = ctx.saveSlots()
+        gen(body, ctx)
+        ctx.restoreSlots(savedSlots)
+      case Term.While(cond, body) =>
+        val startL = new Label(); val endL = new Label()
+        mv.visitLabel(startL)
+        gen(cond, ctx); callVB(mv, "bool")
+        mv.visitJumpInsn(Opcodes.IFEQ, endL)
+        gen(body, ctx); mv.visitInsn(Opcodes.POP)
+        mv.visitJumpInsn(Opcodes.GOTO, startL)
+        mv.visitLabel(endL)
+        call0(mv, "unitV")
+      case Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
+        mv.visitLdcInsn(aop); gen(a, ctx); gen(b, ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "arith", s"(Ljava/lang/String;L$VAL;L$VAL;)L$VAL;", false)
       case Term.Prim(op, args) =>
         args.length match
           case 0 => mv.visitLdcInsn(op); callP(mv, "prim0", 0)
           case 1 => mv.visitLdcInsn(op); gen(args(0), ctx); callP(mv, "prim1", 1)
           case 2 => mv.visitLdcInsn(op); gen(args(0), ctx); gen(args(1), ctx); callP(mv, "prim2", 2)
           case 3 => mv.visitLdcInsn(op); gen(args(0), ctx); gen(args(1), ctx); gen(args(2), ctx); callP(mv, "prim3", 3)
-          case n =>
-            mv.visitLdcInsn(op); genArray(args, ctx); callArr(mv, "primN")
+          case _ => mv.visitLdcInsn(op); genArray(args, ctx); callArr(mv, "primN")
+      case Term.App(Term.Global(gname), args) if ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
+        // direct call to a compiled top-level def: invokestatic, no lookup
+        val (m, _) = ctx.g.defMethods(gname)
+        genArray(args, ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false)
       case Term.App(f, args) =>
         gen(f, ctx); genArray(args, ctx); callApp(mv)
       case Term.Ctor(tag, fields) =>
         mv.visitLdcInsn(tag); genArray(fields, ctx); callCtorArr(mv)
+      case Term.Match(scrut, arms, default) =>
+        gen(scrut, ctx)
+        val scrutSlot = ctx.nextSlot; ctx.nextSlot += 1
+        mv.visitVarInsn(Opcodes.ASTORE, scrutSlot)
+        val endL = new Label()
+        val defaultL = new Label()
+        // if !isData → default
+        mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "isData", s"(L$VAL;)Z", false)
+        mv.visitJumpInsn(Opcodes.IFEQ, defaultL)
+        // tag/arity chain
+        arms.foreach { arm =>
+          val skipL = new Label()
+          mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataTag", s"(L$VAL;)Ljava/lang/String;", false)
+          mv.visitLdcInsn(arm.tag)
+          mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "equals", s"(L$OBJ;)Z", false)
+          mv.visitJumpInsn(Opcodes.IFEQ, skipL)
+          mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataArity", s"(L$VAL;)I", false)
+          mv.visitLdcInsn(arm.arity)
+          mv.visitJumpInsn(Opcodes.IF_ICMPNE, skipL)
+          // bind fields (in order → Local(0)=last field, VM extend semantics)
+          if arm.arity > 0 then
+            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataFields", s"(L$VAL;)[L$VAL;", false)
+            val fieldsSlot = ctx.nextSlot; ctx.nextSlot += 1
+            mv.visitVarInsn(Opcodes.ASTORE, fieldsSlot)
+            (0 until arm.arity).foreach { i =>
+              mv.visitVarInsn(Opcodes.ALOAD, fieldsSlot)
+              mv.visitLdcInsn(i)
+              mv.visitInsn(Opcodes.AALOAD)
+              val s = ctx.push()
+              mv.visitVarInsn(Opcodes.ASTORE, s)
+            }
+          gen(arm.body, ctx)
+          if arm.arity > 0 then ctx.pop(arm.arity)
+          mv.visitJumpInsn(Opcodes.GOTO, endL)
+          mv.visitLabel(skipL)
+        }
+        mv.visitLabel(defaultL)
+        default match
+          case Some(d) => gen(d, ctx)
+          case None =>
+            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataTag", s"(L$VAL;)Ljava/lang/String;", false)
+            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataArity", s"(L$VAL;)I", false)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "matchFail", s"(Ljava/lang/String;I)L$VAL;", false)
+        mv.visitLabel(endL)
       case other => throw new Unsupported(other.getClass.getSimpleName)
+
 
   private def genArray(items: List[Term], ctx: Ctx): Unit =
     val mv = ctx.mv
@@ -108,8 +312,6 @@ object JvmByteGen:
       mv.visitInsn(Opcodes.AASTORE)
     }
 
-  // ── static forwarders on Emit's companion-object: Scala objects expose
-  //    STATIC forwarders on the companion class for public methods ✓
   private def call0(mv: MethodVisitor, m: String) =
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, m, s"()L$VAL;", false)
   private def callJ(mv: MethodVisitor, m: String) =
@@ -132,11 +334,12 @@ object JvmByteGen:
   private def callCtorArr(mv: MethodVisitor) =
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "ctor", s"(Ljava/lang/String;[L$VAL;)L$VAL;", false)
 
-  /** defineClass + invoke entry(). */
   private final class GenLoader(parent: ClassLoader) extends ClassLoader(parent):
     def define(name: String, bytes: Array[Byte]): Class[?] =
       defineClass(name, bytes, 0, bytes.length)
 
-  def runEntry(bytes: Array[Byte]): Value =
+  /** defineClass + install compiled defs + invoke entry(). */
+  def runProgram(bytes: Array[Byte]): Value =
     val cls = new GenLoader(getClass.getClassLoader).define("ssc.gen.Entry", bytes)
+    cls.getMethod("install").invoke(null)
     cls.getMethod("entry").invoke(null).asInstanceOf[Value]
