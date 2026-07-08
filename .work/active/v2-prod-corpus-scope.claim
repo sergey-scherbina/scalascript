@@ -1,6 +1,6 @@
 feature/v2-prod-corpus-scope 2026-07-08T10:14:00Z
 agent: codex
-heartbeat: 2026-07-08T10:14:00Z
-status: not-started
-done-so-far:
-next: create worktree, expand SPRINT plan, classify remaining corpus gate scope
+heartbeat: 2026-07-08T10:14:23Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-prod-corpus-scope
+next: expand SPRINT plan, inspect baseline/script classifications, write corpus-scope docs
