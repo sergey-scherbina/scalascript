@@ -1,6 +1,6 @@
 feature/v2-prod-quoted-macro-interpreter 2026-07-08T09:23:03Z
 agent: codex
-heartbeat: 2026-07-08T09:23:15Z
+heartbeat: 2026-07-08T09:28:14Z
 status: in-progress
-done-so-far: worktree created
-next: write SPRINT/BUGS plan for quoted macro interpreter parity, then reproduce on staged bin/ssc
+done-so-far: SPRINT/BUGS plan committed; staged binary reproduces v2 unbound __ssc_macro__ on examples/quoted-macro-interpreter.ssc
+next: inspect v1 macro expansion/runtime helpers and implement the narrow v2 interpreter parity fix
