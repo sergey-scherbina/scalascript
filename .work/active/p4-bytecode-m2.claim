@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p4-bytecode-m2
+worktree: ../scalascript-wt-p4-m2
+started: 2026-07-08
+status: in-progress
+task: p4-jvm-lane-bytecode milestone 2 — Lam -> static methods (indy SAM) + hybrid env (array + let-slots), Match -> tag dispatch, LetRec, def compilation; smoke = fib perf vs 63.5 VM baseline
