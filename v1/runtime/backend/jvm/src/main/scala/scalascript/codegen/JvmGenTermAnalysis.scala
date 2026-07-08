@@ -237,10 +237,11 @@ private[codegen] trait JvmGenTermAnalysis:
     // as `Actor.subscribeClusterEvents`, and the rewriter only fires
     // when the rhs goes through `emitExpr`).
     case Term.Apply.After_4_6_0(Term.Name(n), _) if actorBareNames(n)             => true
-    case _ => t.children.exists {
-      case tt: Term => termUsesEffects(tt)
-      case _        => false
-    }
+    case _ => t.children.exists(treeUsesEffects)
+
+  private def treeUsesEffects(tree: Tree): Boolean = tree match
+    case t: Term => termUsesEffects(t)
+    case other   => other.children.exists(treeUsesEffects)
 
   /** True if the term needs codegen rewriting (effect machinery,
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
@@ -452,4 +453,3 @@ private[codegen] trait JvmGenTermAnalysis:
           case _ => false
         }
       case _ => false
-

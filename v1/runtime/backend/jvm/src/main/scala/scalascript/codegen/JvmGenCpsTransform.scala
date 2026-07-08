@@ -919,6 +919,96 @@ private[codegen] trait JvmGenCpsTransform:
       case (None, Some(y))    => Some(y)
       case _                  => None
 
+  private val externalConstructorSigs: Map[String, (String, List[(String, String)])] =
+    Map(
+      "DatasetWirePartition" -> (
+        "scalascript.typeddata.DatasetWirePartition",
+        List(
+          "partitionId" -> "Int",
+          "values"      -> "Vector[scalascript.typeddata.JsonValue]"
+        )
+      )
+    )
+
+  private def qualifyDepTypeNames(tpeSyntax: String): String =
+    depTypeNames.foldLeft(tpeSyntax) { case (acc, (name, pkg)) =>
+      if pkg.isEmpty then acc
+      else
+        val qualified = (pkg :+ name).mkString(".")
+        // Negative lookbehind for `.` so we don't re-prefix an
+        // already-qualified occurrence.
+        acc.replaceAll(
+          s"(?<![.A-Za-z0-9_])${java.util.regex.Pattern.quote(name)}(?![A-Za-z0-9_])",
+          qualified
+        )
+    }
+
+  private def substituteAndQualifyType(
+      t:           scala.meta.Type,
+      tparamNames: Set[String],
+      typeArgMap:  Map[String, String]
+  ): String =
+    val afterTparams =
+      if tparamNames.isEmpty then t.syntax
+      else
+        tparamNames.foldLeft(t.syntax) { (acc, tp) =>
+          val replacement = typeArgMap.getOrElse(tp, "Any")
+          acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", replacement)
+        }
+    qualifyDepTypeNames(afterTparams)
+
+  private def knownCalleeHasSignature(callee: String): Boolean =
+    depClasses.contains(callee) || depDefs.contains(callee) ||
+      localDefSigs.contains(callee) || externalConstructorSigs.contains(callee)
+
+  private def declaredResultType(
+      t:           scala.meta.Type,
+      tparamNames: Set[String],
+      typeArgMap:  Map[String, String]
+  ): Option[String] =
+    t match
+      case Type.ApplyInfix(lhs, Type.Name("!"), _) =>
+        Some(substituteAndQualifyType(lhs, tparamNames, typeArgMap))
+      case Type.Name("Any") =>
+        None
+      case other =>
+        Some(substituteAndQualifyType(other, tparamNames, typeArgMap))
+
+  private def calleeResultType(callee: String, typeArgMap: Map[String, String]): Option[String] =
+    externalConstructorSigs.get(callee).map(_._1).orElse {
+      depClasses.get(callee).map { cls =>
+        val tparams = cls.tparamClause.values.map(_.name.value)
+        val args =
+          if tparams.isEmpty then ""
+          else tparams.map(tp => typeArgMap.getOrElse(tp, "Any")).mkString("[", ", ", "]")
+        qualifyDepTypeNames(callee + args)
+      }.orElse {
+        depDefs.get(callee).orElse(localDefSigs.get(callee)).flatMap { d =>
+          val tparams = d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet
+          d.decltpe.flatMap(t => declaredResultType(t, tparams, typeArgMap))
+        }
+      }
+    }
+
+  private def inferCpsValType(rhs: Term): Option[String] =
+    rhs match
+      case Term.Apply.After_4_6_0(Term.Name(callee), _) =>
+        calleeResultType(callee, Map.empty)
+      case Term.Apply.After_4_6_0(
+            Term.ApplyType.After_4_6_0(Term.Name(callee), typeArgClause),
+            _
+          ) =>
+        calleeResultType(callee, calleeTypeArgMap(callee, typeArgClause.values))
+      case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(callee)), _) =>
+        calleeResultType(callee, Map.empty)
+      case Term.Apply.After_4_6_0(
+            Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name(callee)), typeArgClause),
+            _
+          ) =>
+        calleeResultType(callee, calleeTypeArgMap(callee, typeArgClause.values))
+      case _ =>
+        None
+
   /** Look up the declared param type for a call to a known dep def
    *  or dep class constructor, by position (`argIdx`) or by name
    *  (when the arg is `Term.Assign(Term.Name(n), _)`).  Returns the
@@ -935,55 +1025,36 @@ private[codegen] trait JvmGenCpsTransform:
   ): Option[String] =
     val classDef = depClasses.get(callee)
     val defDef = depDefs.get(callee).orElse(localDefSigs.get(callee))
-    val ps: Option[List[scala.meta.Term.Param]] =
-      classDef.map(_.ctor.paramClauses.flatMap(_.values).toList)
-        .orElse(
-          defDef.map(d =>
-            d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
-          )
-        )
-    // Names of any class-level type params we need to exclude from
-    // the cast (caller isn't inside the class scope so `T` is unbound).
-    val tparamNames: Set[String] =
-      classDef.map(_.tparamClause.values.map(_.name.value).toSet).getOrElse(Set.empty) ++
-        defDef.map(_.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet).getOrElse(Set.empty)
-    /** Substitute class-scoped tparam names with `Any` (chunk 5) AND
-     *  qualify dep-defined type names with their package path (chunk 8)
-     *  so casts emitted at user call sites compile regardless of which
-     *  dep types the user explicitly imported.  E.g.
-     *  `List[StageOp]` → `List[std.mapreduce.StageOp]` when StageOp is
-     *  a sealed trait in `std/mapreduce/distributed.ssc` and the user
-     *  only imported `MapOp`, `FilterOp`, …. */
-    def substituteTparams(t: scala.meta.Type): String =
-      // Step 1: class-tparam substitution (chunk 5).
-      val afterTparams =
-        if tparamNames.isEmpty then t.syntax
-        else
-          tparamNames.foldLeft(t.syntax) { (acc, tp) =>
-            val replacement = typeArgMap.getOrElse(tp, "Any")
-            acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", replacement)
-          }
-      // Step 2: qualify any dep type name (chunk 8).  Word-boundary
-      // anchored; skip names that already appear qualified
-      // (`std.mapreduce.X.Y` shouldn't get re-prefixed).
-      depTypeNames.foldLeft(afterTparams) { case (acc, (name, pkg)) =>
-        if pkg.isEmpty then acc
-        else
-          val qualified = (pkg :+ name).mkString(".")
-          // Negative lookbehind for `.` so we don't re-prefix an
-          // already-qualified occurrence.
-          acc.replaceAll(s"(?<![.A-Za-z0-9_])${java.util.regex.Pattern.quote(name)}(?![A-Za-z0-9_])", qualified)
+    if classDef.isEmpty && defDef.isEmpty then
+      externalConstructorSigs.get(callee).flatMap { case (_, params) =>
+        argName match
+          case Some(n) => params.find(_._1 == n).map(_._2)
+          case None    => params.lift(argIdx).map(_._2)
       }
-    ps.flatMap { params =>
-      val targetOpt = argName match
-        case Some(n) => params.find(_.name.value == n)
-        case None    => params.lift(argIdx)
-      targetOpt.flatMap { p =>
-        p.decltpe match
-          // Skip varargs — `asInstanceOf[Node*]` doesn't parse.
-          case Some(_: scala.meta.Type.Repeated) => None
-          case Some(t)                           => Some(substituteTparams(t))
-          case None                              => None
+    else {
+      val ps: Option[List[scala.meta.Term.Param]] =
+        classDef.map(_.ctor.paramClauses.flatMap(_.values).toList)
+          .orElse(
+            defDef.map(d =>
+              d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+            )
+          )
+      // Names of any class-level type params we need to exclude from
+      // the cast (caller isn't inside the class scope so `T` is unbound).
+      val tparamNames: Set[String] =
+        classDef.map(_.tparamClause.values.map(_.name.value).toSet).getOrElse(Set.empty) ++
+          defDef.map(_.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet).getOrElse(Set.empty)
+      ps.flatMap { params =>
+        val targetOpt = argName match
+          case Some(n) => params.find(_.name.value == n)
+          case None    => params.lift(argIdx)
+        targetOpt.flatMap { p =>
+          p.decltpe match
+            // Skip varargs — `asInstanceOf[Node*]` doesn't parse.
+            case Some(_: scala.meta.Type.Repeated) => None
+            case Some(t)                           => Some(substituteAndQualifyType(t, tparamNames, typeArgMap))
+            case None                              => None
+        }
       }
     }
 
@@ -996,7 +1067,7 @@ private[codegen] trait JvmGenCpsTransform:
       vs:     List[String],
       typeArgMap: Map[String, String] = Map.empty
   ): List[String] =
-    if depClasses.get(callee).isEmpty && depDefs.get(callee).isEmpty && localDefSigs.get(callee).isEmpty then vs
+    if !knownCalleeHasSignature(callee) then vs
     else
       vs.zip(args).zipWithIndex.map { case ((v, arg), i) =>
         arg match
@@ -1037,7 +1108,11 @@ private[codegen] trait JvmGenCpsTransform:
       // contains an effect primitive (same predicate dep-mode uses).
       def emitDefMaybeCps(d: Defn.Def): String =
         if containsEffectPrimitive(d.body) then
-          s"def ${d.name.value}${emitEffectfulParamGroups(d)}${emitEffectfulResultType(d)} = ${castCpsResultToDeclared(d, emitCpsExpr(d.body))}"
+          val cpsBody = emitCpsExpr(d.body)
+          if shouldPreserveCpsDeclaredResult(d) then
+            s"def ${d.name.value}${emitEffectfulParamGroups(d)}${emitEffectfulResultType(d)} = ${castCpsResultToDeclared(d, cpsBody)}"
+          else
+            s"def ${d.name.value}${emitEffectfulParamGroups(d)}: Any = $cpsBody"
         else d.syntax
       def build(remaining: List[Stat]): String = remaining match
         case Nil => "()"
@@ -1111,10 +1186,10 @@ private[codegen] trait JvmGenCpsTransform:
     // with `name` registered as Any-bound if tpe was None — so
     // `name.member` inside `body` routes via _dispatch (chunk 8).
     val rhsEmit = emitCpsExpr(rhs)
-    tpe match
+    val tpeSyntax = tpe.map(_.syntax).orElse(inferCpsValType(rhs))
+    tpeSyntax match
       case None =>
         val bodyStr = withAnyBoundNames(Set(name))(body)
         s"_bind($rhsEmit, (${name}: Any) => ${bodyStr})"
-      case Some(t) =>
-        val tSyntax = t.syntax
+      case Some(tSyntax) =>
         s"_bind($rhsEmit, ((${name}: ${tSyntax}) => ${body}).asInstanceOf[Any => Any])"

@@ -3202,6 +3202,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private[codegen] def castCpsResultToDeclared(d: Defn.Def, body: String): String =
     declaredCpsResultType(d).map(t => s"($body).asInstanceOf[$t]").getOrElse(body)
 
+  private[codegen] def shouldPreserveCpsDeclaredResult(d: Defn.Def): Boolean =
+    // Keep the declared result type ONLY when the def handles its own
+    // effects.  A def that merely performs ops handled by its caller must
+    // return the unresolved Free tree as Any; casting it here would force
+    // `_FlatMap`/`_Perform` to Unit/String/etc. before the runner sees it.
+    preserveTotalEffectfulReturnTypes && d.body.collect {
+      case Term.Apply.After_4_6_0(Term.Name("handle"), _) => ()
+    }.nonEmpty
+
   /** Extract the first string literal argument from a named annotation in `mods`.
    *  Returns `Some(expr)` when `@name("expr")` is present, `None` otherwise. */
   private def extractAnnotationArg(mods: List[Mod], name: String): Option[String] =
@@ -3299,10 +3308,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // it to the declared type threw ClassCastException (_FlatMap → String
       // in tests/conformance/effects.ssc, _FlatMap → DistributedResult in
       // distributed-map.ssc) before the surrounding handler could run it.
-      val selfHandles = d.body.collect {
-        case Term.Apply.After_4_6_0(Term.Name("handle"), _) => ()
-      }.nonEmpty
-      val preserveDeclared = preserveTotalEffectfulReturnTypes && selfHandles
+      val preserveDeclared = shouldPreserveCpsDeclaredResult(d)
       val retType =
         if preserveDeclared then emitEffectfulResultType(d)
         else ": Any"
@@ -3544,7 +3550,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     val qn = scalascript.ir.QualifiedName(fname)
     intrinsics.get(qn).map {
       case scalascript.backend.spi.RuntimeCall(target) =>
-        s"$target(${argClause.values.map(_.syntax).mkString(", ")})"
+        s"$target(${argClause.values.map(emitCallArg).mkString(", ")})"
       case scalascript.backend.spi.InlineCode(emit) =>
         // Convert scalameta args → IR exprs (literal types preserved;
         // everything else as a VarRef of its syntactic surface).
@@ -3556,7 +3562,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       case _ =>
         // NativeImpl / HostCallback don't emit target source; fall
         // through to scalameta's default emission.
-        argClause.values.map(_.syntax).mkString(s"$fname(", ", ", ")")
+        argClause.values.map(emitCallArg).mkString(s"$fname(", ", ", ")")
     }
 
   /** Minimum-viable IrExpr conversion for intrinsic dispatch — only
@@ -4220,6 +4226,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  syntax (represented as Term.Ascribe) to Scala `name = value`. */
   private def emitCallArg(arg: Term): String = arg match
     case Term.Ascribe(Term.Name(n), tpe) => s"$n = ${tpe.syntax}"
+    case f @ Term.Function.After_4_6_0(_, body) if termUsesEffects(body) =>
+      emitCpsExpr(f)
     case other                           => emitExpr(other)
 
   /** Emit a term that contains effect-related content, walking children. */
