@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: stale p4 default-flip queue item closed
+
+`p4-default-flip` was a duplicate of the already-landed
+`v2-prod-default-switch`: plain `ssc run <file>` defaults to the v2 VM, `--v1`
+is the rollback path, and `--v2` remains an explicit force flag. Fresh gates in
+the claimed worktree: `V2DefaultSwitchTest` + `CommandRegistryTest` 11/11,
+`installBin`, direct default/`--v1`/`--v2` hello smokes, and affected conformance
+`tests/conformance/run.sh --only 'dsl*' --no-memo`.
+
 ## 2026-07-08 — v2: self-hosted Rust/WASM target gate is green
 
 The self-hosted `ssc0 -> JS/Rust/WASM` lane now matches the VM display contract:

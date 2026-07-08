@@ -402,7 +402,19 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       Done-when: self-hosted Rust rows compile/pass, WASM quicksort/TCO remains
       green, the target display contract is documented, and the bugs move to
       `fixed` with the landing SHA.
-- [ ] **p4-default-flip** — per-lane дефолт на v2-кодген после зелёных гейтов; --via-v1 люк.
+- [x] **p4-default-flip** — DONE 2026-07-08: stale queue duplicate closed after
+      verifying it was already implemented by `v2-prod-default-switch`
+      (`719943f40`, `d2ba78c0a`, `89a38f1e3`). Plain default-lane
+      `ssc run <file>` already routes through the v2 VM; `ssc run --v1 <file>`
+      remains the rollback path; `ssc run --v2 <file>` remains an explicit
+      force flag. Fresh verification from
+      `/Users/sergiy/work/my/scalascript-wt-p4-default-flip`:
+      `scripts/sbtc "cli/testOnly scalascript.cli.V2DefaultSwitchTest scalascript.cli.CommandRegistryTest"`
+      => 11/11 tests passed; `scripts/sbtc "installBin"` passed; direct
+      `bin/ssc run`, `bin/ssc run --v1`, and `bin/ssc run --v2`
+      `examples/hello.ssc` all printed `Hello, World!`; affected conformance
+      `tests/conformance/run.sh --only 'dsl*' --no-memo` passed
+      `dsl-multi-pass` in INT/JS/JVM. No code/spec changes were needed.
 
 ## v2 production readiness (2026-07-08, Sergiy: "довести v2 до production")
 
