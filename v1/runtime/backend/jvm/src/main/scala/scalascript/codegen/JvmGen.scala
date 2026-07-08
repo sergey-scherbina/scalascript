@@ -178,6 +178,8 @@ object JvmGen:
    *  same source position as the surrounding parsed blocks, then bind to
    *  `<sectionId>.<lang>` (html or css) at the end of the module. */
   private case class StringBlockEntry(lang: String, src: String, sectionId: String, order: Int)
+  private case class ReExportTarget(pkg: List[String], name: String)
+  private case class ImportSpec(name: String, alias: Option[String])
 
 class JvmGen(
     private[codegen] val baseDir:  Option[os.Path] = None,
@@ -185,6 +187,8 @@ class JvmGen(
     private[codegen] val lockPath: Option[os.Path] = None,
     frontendOverride: Option[String]  = None,
     private val preserveTotalEffectfulReturnTypes: Boolean = true) extends JvmGenBlockAnalysis, JvmGenTermAnalysis, JvmGenMutualRecursion, JvmGenEffectAnalysis, JvmGenRuntimeSources, JvmGenCpsTransform, JvmGenMutualTco, JvmGenPreamble, JvmGenContentEmit:
+  import JvmGen.{ImportSpec, ReExportTarget}
+
   // Effect operations declared in the module, keyed as "Eff.op".
   // `private[codegen]` so the extracted `JvmGenEffectAnalysis` mixin can populate/read them.
   private[codegen] val effectOps     = mutable.Set.empty[String]
@@ -250,6 +254,8 @@ class JvmGen(
   // the type resolves — mirroring the interpreter, where a dependency's
   // module-level names are merged into the importer's scope.
   private val importedTypeExports = mutable.Map.empty[String, List[String]]
+  private val importedExtensionExports = mutable.Map.empty[String, List[String]]
+  private val importedReExports = mutable.Map.empty[String, Map[String, ReExportTarget]]
 
   // ─── Strategy D, Step 2 — dep-mode CPS fixpoint state ─────────────
   //
@@ -794,15 +800,14 @@ class JvmGen(
    *  those imports land AFTER the merged block's closing `}` — outside the
    *  scope of nested `object lower { def lower(n: TkNode,...) }`.
    *
-   *  Fix: hoist top-level `import std.*` lines that export ONLY TYPE names
-   *  (first character uppercase) to the start of `object std`'s body.
+   *  Fix: hoist type-like names (first character uppercase) from top-level
+   *  `import std.*` lines to the start of `object std`'s body.
    *  Convert `import std.X.Y.{A,B}` → `import X.Y.{A,B}` (drop `std.`)
    *  since the injection site is already inside `object std`.
    *
-   *  Imports for value-level names (functions/vals starting lowercase, e.g.
-   *  `import std.ui.primitives.{signal, serve, ...}`) are left in place —
-   *  those names don't exist as Scala members of the package objects (extern
-   *  defs are filtered) and are only needed by user code at the file level.
+   *  Lowercase value-level names (functions/vals such as `mapRight` or
+   *  `serve`) are left in place — those are only needed by user code at the
+   *  file level, while nested std package code needs the type-like names.
    *
    *  Additionally: if `object std.ui.primitives` is present in the output
    *  (std/ui is in use), inject `import ui.primitives.{Signal, View,
@@ -821,26 +826,30 @@ class JvmGen(
     }
     if firstStdObj < 0 then return src
 
-    // Collect `import std.*` lines that export ONLY type names (uppercase).
-    // Heuristic: extract names between `{` and `}`, check each starts uppercase.
-    def isTypeOnlyImport(line: String): Boolean =
+    // Collect uppercase specs from `import std.*` lines. Mixed imports such
+    // as `{Either, Left, Right, mapRight}` still need `Either` visible inside
+    // `object std`, but the lowercase helpers must remain file-level imports.
+    def uppercaseImportSpecs(line: String): List[String] =
       val lb = line.lastIndexOf('{')
       val rb = line.lastIndexOf('}')
-      if lb < 0 || rb <= lb then false
+      if lb < 0 || rb <= lb then Nil
       else
         val namesPart = line.substring(lb + 1, rb)
-        val names = namesPart.split(",").map(_.trim).map { s =>
-          if s.contains(" as ") then s.substring(0, s.indexOf(" as ")).trim else s
+        namesPart.split(",").map(_.trim).filter(_.nonEmpty).toList.filter { spec =>
+          val target = if spec.contains(" as ") then spec.substring(0, spec.indexOf(" as ")).trim else spec
+          target.headOption.exists(_.isUpper)
         }
-        names.nonEmpty && names.forall(n => n.headOption.exists(_.isUpper))
 
     val importBuf    = scala.collection.mutable.ListBuffer.empty[String]
     val removedLines = scala.collection.mutable.Set.empty[Int]
     for idx <- firstStdObj + 1 until n do
       val l = lines(idx)
-      if l.startsWith("import std.") && isTypeOnlyImport(l) then
-        val relative = "  " + l.replaceFirst("import std\\.", "import ")
-        importBuf   += relative
+      if l.startsWith("import std.") && !l.startsWith("import std.{") then
+        val specs = uppercaseImportSpecs(l)
+        if specs.nonEmpty then
+          val lb = l.lastIndexOf('{')
+          val relativeHead = "  " + l.substring(0, lb + 1).replaceFirst("import std\\.", "import ")
+          importBuf += (relativeHead + specs.mkString(", ") + "}")
 
     // Inject std/ui opaque type aliases at the start if std.ui.primitives is present.
     // Replace any partial ui.primitives.{ import (types-only) with the full one.
@@ -861,7 +870,7 @@ class JvmGen(
       else
         out.append(l).append('\n')
         if idx == firstStdObj then
-          importBuf.foreach { il => out.append(il).append('\n') }
+          importBuf.distinct.foreach { il => out.append(il).append('\n') }
     out.toString.stripTrailing
 
   private def mergeDuplicatePackageObjectsOnce(src: String): String =
@@ -2470,17 +2479,37 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         (pkgPath == "std.content" || pkgPath == "std.ui.content") && contentIntrinsicNames(b.name)
       }
       val boundNames = importBindings.map(_.name).toSet
-      val valueSpecs = importBindings.map { b => b.alias match
-        case None    => b.name
-        case Some(a) => s"${b.name} as $a"
-      }
       // Pull in the dep's TYPE-like exports that the import list omits, so
       // type annotations referring to them resolve in generated Scala.
-      val typeSpecs = importedTypeExports.getOrElse(pkgPath, Nil)
+      val typeSpecs = importedTypeExports.getOrElse(pkgPath, Nil).distinct
         .filterNot(boundNames.contains)
-      val specs = (valueSpecs ++ typeSpecs).mkString(", ")
+      val extensionSpecs = importedExtensionExports.getOrElse(pkgPath, Nil)
+        .filterNot(boundNames.contains)
+      val requested =
+        importBindings.map(b => ImportSpec(b.name, b.alias)) ++
+          typeSpecs.map(n => ImportSpec(n, None)) ++
+          extensionSpecs.map(n => ImportSpec(n, None))
+      val reExports = importedReExports.getOrElse(pkgPath, Map.empty)
+      val grouped = mutable.LinkedHashMap.empty[List[String], mutable.ListBuffer[(ReExportTarget, ImportSpec)]]
+      requested.foreach { spec =>
+        val target = reExports.getOrElse(spec.name, ReExportTarget(pkg, spec.name))
+        grouped.getOrElseUpdate(target.pkg, mutable.ListBuffer.empty) += ((target, spec))
+      }
+      val importLines = grouped.toList.flatMap { case (targetPkg, specs) =>
+        if targetPkg.isEmpty then Nil
+        else
+          val specText = specs.map { case (target, spec) =>
+            val alias = spec.alias.orElse {
+              if target.name != spec.name then Some(spec.name) else None
+            }
+            alias match
+              case None    => target.name
+              case Some(a) => s"${target.name} as $a"
+          }.mkString(", ")
+          List(s"import ${targetPkg.mkString(".")}.{$specText}")
+      }
       val lines =
-        (if specs.nonEmpty then List(s"import $pkgPath.{$specs}") else Nil) ++ helperAliases
+        importLines ++ helperAliases
       if lines.isEmpty then None
       else
         val src   = lines.mkString("\n")
@@ -2508,7 +2537,11 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       catch case e: Throwable => throw new RuntimeException(s"Import $path: ${e.getMessage}")
     val key = resolved.toString
     if importedFiles.contains(key) then
-      (Nil, importedPkgs.getOrElse(key, Nil))
+      val pkg = importedPkgs.getOrElse(key, Nil)
+      if pkg.nonEmpty && os.exists(resolved) then
+        val importedModule = Parser.parse(os.read(resolved))
+        recordImportMetadata(importedModule, resolved, pkg)
+      (Nil, pkg)
     else if !os.exists(resolved) then
       throw new RuntimeException(s"Import not found: $path")
     else
@@ -2516,14 +2549,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val importedModule = Parser.parse(os.read(resolved))
       val pkg = importedModule.manifest.flatMap(_.pkg).getOrElse(Nil)
       importedPkgs(key) = pkg
-      // Record the dep's TYPE-like exports (capitalised) under its pkg path so
-      // aliasBlock can import them alongside the listed value bindings.
-      if pkg.nonEmpty then
-        val pkgPath  = pkg.mkString(".")
-        val typeExps = importedModule.manifest.toList.flatMap(_.exports)
-          .filter(n => n.nonEmpty && n.charAt(0).isUpper)
-        importedTypeExports(pkgPath) =
-          (importedTypeExports.getOrElse(pkgPath, Nil) ++ typeExps).distinct
+      recordImportMetadata(importedModule, resolved, pkg)
       val nested = new JvmGen(Some(resolved / os.up), lockPath = lockPath)
       nested.importedFiles ++= importedFiles
       // Propagate pkg/type-export knowledge so a TRANSITIVE import of an
@@ -2532,6 +2558,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // emitted with the right qualifier and type names.
       nested.importedPkgs       ++= importedPkgs
       nested.importedTypeExports ++= importedTypeExports
+      nested.importedExtensionExports ++= importedExtensionExports
+      nested.importedReExports  ++= importedReExports
       // Apply the bare-actor-name rewrite to dep blocks before they enter
       // the main emit pipeline. Without this, code like `def healthCheck =
       // { val me = self(); pid ! msg }` lands verbatim inside the eventual
@@ -2549,6 +2577,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       importedFiles       ++= nested.importedFiles
       importedPkgs        ++= nested.importedPkgs
       importedTypeExports ++= nested.importedTypeExports
+      importedExtensionExports ++= nested.importedExtensionExports
+      importedReExports   ++= nested.importedReExports
+      if pkg.nonEmpty then
+        val pkgPath = pkg.mkString(".")
+        val extensionExps =
+          (moduleTopLevelExtensionNames(importedModule) ++ topLevelExtensionNames(rawBlocks)).distinct
+        if extensionExps.nonEmpty then
+          importedExtensionExports(pkgPath) =
+            (importedExtensionExports.getOrElse(pkgPath, Nil) ++ extensionExps).distinct
       val rewrittenBlocks = rawBlocks.map(qualifyBareActorCallsInBlock)
       // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
       // or nested in object/class) so the fixpoint can analyse its body.
@@ -2571,6 +2608,106 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         }
       }
       (rewrittenBlocks, pkg)
+
+  private def recordImportMetadata(importedModule: Module, resolved: os.Path, pkg: List[String]): Unit =
+    if pkg.nonEmpty then
+      val pkgPath  = pkg.mkString(".")
+      val typeExps = importedModule.manifest.toList.flatMap(_.exports)
+        .filter(n => n.nonEmpty && n.charAt(0).isUpper)
+      importedTypeExports(pkgPath) =
+        (importedTypeExports.getOrElse(pkgPath, Nil) ++ typeExps).distinct
+      val extensionExps = moduleTopLevelExtensionNames(importedModule)
+      if extensionExps.nonEmpty then
+        importedExtensionExports(pkgPath) =
+          (importedExtensionExports.getOrElse(pkgPath, Nil) ++ extensionExps).distinct
+      val reExports = inferReExportTargets(importedModule, resolved / os.up, Set(resolved.toString))
+      if reExports.nonEmpty then
+        importedReExports(pkgPath) =
+          importedReExports.getOrElse(pkgPath, Map.empty) ++ reExports
+
+  private def topLevelExtensionNames(blocks: List[JvmGen.Block]): List[String] =
+    blocks.flatMap { block =>
+      ScalaNode.fold(block.node)(topLevelExtensionNamesInTree) ++
+        topLevelExtensionNamesInSource(block.src)
+    }.distinct
+
+  private def moduleTopLevelExtensionNames(module: Module): List[String] =
+    val moduleIndent = module.manifest.flatMap(_.pkg).fold(0)(_.size * 2)
+    def loop(sections: List[Section]): List[String] =
+      sections.flatMap { section =>
+        section.content.flatMap {
+          case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+            cb.tree.toList.flatMap(node => ScalaNode.fold(node)(topLevelExtensionNamesInTree)) ++
+              topLevelExtensionNamesInSource(cb.source, moduleIndent)
+          case _ => Nil
+        } ++ loop(section.subsections)
+      }
+    loop(module.sections).distinct
+
+  private def topLevelExtensionNamesInSource(src: String, topIndent: Int = 0): List[String] =
+    val indent = " " * topIndent
+    val nextIndent = " " * (topIndent + 2)
+    val sameLine =
+      ("""(?m)^""" + java.util.regex.Pattern.quote(indent) +
+        """extension\b[^\n]*\bdef\s+([A-Za-z_][A-Za-z0-9_]*)""").r
+    val indentedDef =
+      ("""(?m)^""" + java.util.regex.Pattern.quote(indent) +
+        """extension\b[^\n]*(?:\n""" + java.util.regex.Pattern.quote(nextIndent) +
+        """def\s+([A-Za-z_][A-Za-z0-9_]*))""").r
+    (sameLine.findAllMatchIn(src).map(_.group(1)) ++
+      indentedDef.findAllMatchIn(src).map(_.group(1))).toList.distinct
+
+  private def topLevelExtensionNamesInTree(tree: Tree): List[String] =
+    def methodNames(eg: Defn.ExtensionGroup): List[String] =
+      eg.body match
+        case d: Defn.Def       => List(d.name.value)
+        case Term.Block(stats) => stats.collect { case d: Defn.Def => d.name.value }
+        case _                 => Nil
+
+    tree match
+      case Source(stats) =>
+        stats.collect { case eg: Defn.ExtensionGroup => methodNames(eg) }.flatten
+      case Term.Block(stats) =>
+        stats.collect { case eg: Defn.ExtensionGroup => methodNames(eg) }.flatten
+      case eg: Defn.ExtensionGroup =>
+        methodNames(eg)
+      case _ =>
+        Nil
+
+  private def inferReExportTargets(
+    module: Module,
+    moduleBase: os.Path,
+    seen: Set[String]
+  ): Map[String, ReExportTarget] =
+    val exported = module.manifest.toList.flatMap(_.exports).toSet
+    if exported.isEmpty then return Map.empty
+
+    def importsIn(sections: List[Section]): List[Content.Import] =
+      sections.flatMap { section =>
+        section.content.collect { case imp: Content.Import => imp } ++
+          importsIn(section.subsections)
+      }
+
+    val out = mutable.LinkedHashMap.empty[String, ReExportTarget]
+    importsIn(module.sections).foreach { imp =>
+      val resolved =
+        try Some(scalascript.imports.ImportResolver.resolve(imp.path, moduleBase, moduleDeps, lockPath))
+        catch case _: Throwable => None
+      resolved.foreach { path =>
+        val key = path.toString
+        if !seen.contains(key) && os.exists(path) then
+          val targetModule = scalascript.parser.Parser.parse(os.read(path))
+          val targetPkg = targetModule.manifest.flatMap(_.pkg).getOrElse(Nil)
+          val targetReExports = inferReExportTargets(targetModule, path / os.up, seen + key)
+          imp.bindings.foreach { binding =>
+            val exportedName = binding.alias.getOrElse(binding.name)
+            if exported(exportedName) && !out.contains(exportedName) then
+              val target = targetReExports.getOrElse(binding.name, ReExportTarget(targetPkg, binding.name))
+              if target.pkg.nonEmpty then out(exportedName) = target
+          }
+      }
+    }
+    out.toMap
 
   /** Pre-emit string rewrite for dep blocks. Targets the narrow set of
    *  bare actor names the runtime exposes only as `Actor.<n>` (not as
@@ -3015,7 +3152,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     // `_show` so whole-number Doubles strip trailing ".0" the way the
     // interpreter and JS backends do.
     val rewritten =
-      if !blockNeedsRewrite(block.node) then block.src
+      if !blockNeedsRewrite(block.node) && !blockContainsExplicitContextualCall(block.node) then block.src
       else
         val out = StringBuilder()
         ScalaNode.fold(block.node) {
@@ -3396,7 +3533,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     // converts `name: value` ascriptions to `name = value` named args.
     // When the body uses effect runners, the runner returns Any; widen
     // the declared return type to Any so Scala 3 doesn't reject the def.
-    case d: Defn.Def if termNeedsCustomEmit(d.body) =>
+    case d: Defn.Def if termNeedsCustomEmit(d.body) || termContainsExplicitContextualCall(d.body) =>
       val modStr  = if d.mods.isEmpty then "" else d.mods.map(_.syntax).mkString(" ") + " "
       val paramStr = d.paramClauseGroups.map(_.syntax).mkString
       val retStr  = if termUsesEffects(d.body) then ": Any"
@@ -3933,6 +4070,9 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case single: Term      => emitExpr(single)
         case null              => "??? /* direct: expected block */"
 
+    case app: Term.Apply if emitExplicitContextualCall(app.fun, app.argClause).isDefined =>
+      emitExplicitContextualCall(app.fun, app.argClause).get
+
     // Registered (non-native) interpolator — jvmEmit takes precedence over raw Scala syntax.
     case Term.Interpolate(Term.Name(prefix), parts, args)
         if !jvmNativeInterpolators.contains(prefix)
@@ -3949,7 +4089,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case Lit.Boolean(false) => t.elsep match
           case Lit.Unit() => "()"
           case e          => emitExpr(e)
-        case _ if termNeedsCustomEmit(t) => emitExprDeep(t)
+        case _ if termNeedsCustomEmit(t) || termContainsExplicitContextualCall(t) => emitExprDeep(t)
         case _                           => t.syntax
 
     // Constant folding: literal-only binary arithmetic/comparison/logic.
@@ -3958,10 +4098,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       foldConstantScala(lhs, op.value, argClause.values.head.asInstanceOf[Term]) match
         case Some(folded) => folded
         case None =>
-          if termNeedsCustomEmit(term) then emitExprDeep(term) else term.syntax
+          if termNeedsCustomEmit(term) || termContainsExplicitContextualCall(term) then emitExprDeep(term) else term.syntax
 
-    // If the term has nested effect or Focus / Prism content, walk children.
-    case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
+    // If the term has nested effect / optics content or a flat explicit contextual call, walk children.
+    case _ if termNeedsCustomEmit(term) || termContainsExplicitContextualCall(term) => emitExprDeep(term)
 
     // Otherwise emit Scala source as-is.
     case other => other.syntax
@@ -4230,6 +4370,59 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       emitCpsExpr(f)
     case other                           => emitExpr(other)
 
+  private def contextualCalleeName(fun: Term): Option[String] = fun match
+    case Term.Name(n) => Some(n)
+    case Term.ApplyType.After_4_6_0(Term.Name(n), _) => Some(n)
+    case _ => None
+
+  private def contextualCallShape(d: Defn.Def): Option[(Int, Int)] =
+    def isUsingClause(clause: Term.ParamClause): Boolean =
+      clause.mod.exists(_.is[Mod.Using]) ||
+        clause.values.exists(_.mods.exists(_.is[Mod.Using]))
+
+    val termClauses = d.paramClauseGroups.flatMap(_.paramClauses)
+    val regularClauses = termClauses.filterNot(isUsingClause)
+    val usingParamCount = termClauses.filter(isUsingClause).map(_.values.size).sum
+    val contextBoundCount =
+      d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.bounds.context.size).sum
+    val contextualParamCount = usingParamCount + contextBoundCount
+    if contextualParamCount > 0 && regularClauses.size == 1 && regularClauses.head.values.nonEmpty then
+      Some((regularClauses.head.values.size, contextualParamCount))
+    else None
+
+  private def explicitContextualCallShape(fun: Term, argClause: Term.ArgClause): Option[(Int, Int)] =
+    if argClause.mod.nonEmpty then None
+    else
+      for
+        name <- contextualCalleeName(fun)
+        d <- depDefs.get(name).orElse(localDefSigs.get(name))
+        shape <- contextualCallShape(d)
+        if argClause.values.size == shape._1 + shape._2
+      yield shape
+
+  private def emitExplicitContextualCall(fun: Term, argClause: Term.ArgClause): Option[String] =
+    explicitContextualCallShape(fun, argClause).map { case (regularParamCount, _) =>
+      val regularArgs = argClause.values.take(regularParamCount).map(emitCallArg).mkString(", ")
+      val usingArgs = argClause.values.drop(regularParamCount).map(emitCallArg).mkString(", ")
+      s"${emitExpr(fun)}($regularArgs)(using $usingArgs)"
+    }
+
+  private def termContainsExplicitContextualCall(t: Term): Boolean =
+    treeContainsExplicitContextualCall(t)
+
+  private def blockContainsExplicitContextualCall(node: ScalaNode): Boolean =
+    ScalaNode.fold(node)(treeContainsExplicitContextualCall)
+
+  private def treeContainsExplicitContextualCall(tree: Tree): Boolean =
+    var found = false
+    def walk(t: Tree): Unit =
+      if !found then t match
+        case app: Term.Apply if explicitContextualCallShape(app.fun, app.argClause).isDefined =>
+          found = true
+        case _ => t.children.foreach(walk)
+    walk(tree)
+    found
+
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
     case Term.Block(stats) =>
@@ -4253,50 +4446,52 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case ta: Term.ApplyType if isPrismApplyType(ta) =>
       emitPrism(ta)
     case app: Term.Apply =>
-      app.fun match
-        case Term.Apply.After_4_6_0(Term.Name("handle"), _) =>
-          emitExpr(app)  // re-route to handle path
-        case _ if isFocusApp(app) =>
-          emitFocus(app)
-        case Term.Select(qual, Term.Name(m)) =>
-          val q = emitExpr(qual)
-          val args = app.argClause.values.map(emitCallArg).mkString(", ")
-          s"$q.$m($args)"
-        case fun =>
-          val f = emitExpr(fun)
-          // Widget { body } pattern: bare-name call with a single block arg.
-          // Emit as `Widget() { body }` (empty first clause + trailing block)
-          // ONLY when the callee is a known CURRIED def (≥2 param clauses,
-          // e.g. `def vstack(gap: Int = 0)(children: => Any)` from a dep or
-          // the local module) so the block reaches the trailing clause.
-          // Everything else — single-clause defs and unknown callees such as
-          // the preamble's `computed`/`effect(thunk: => A)`, `validate { }`,
-          // `runActors { }`, `handle { }` — keeps the plain `f({ block })`
-          // form; the unconditional `f() { block }` emission broke every
-          // single-thunk callee ("missing argument for parameter thunk",
-          // jvmgen-block-call-empty-parens, 4 conformance fails).
-          app.argClause.values match
-            case List(block: Term.Block) if fun.isInstanceOf[Term.Name]
-                && depDefs.get(fun.asInstanceOf[Term.Name].value)
-                     .orElse(localDefSigs.get(fun.asInstanceOf[Term.Name].value))
-                     .exists(_.paramClauseGroups.flatMap(_.paramClauses).length >= 2) =>
-              s"$f() ${emitExprDeep(block)}"
-            case _ =>
-              // jvmgen-handle-result-mainpath: a call arg that references an Any-typed handle-result
-              // val (`dbl(r)`) is cast to the callee's declared param type, mirroring the CPS-path
-              // `applyCalleeCasts` — otherwise `dbl(r)` fails (Found Any / Required Int).
-              val calleeName = fun match { case Term.Name(n) => Some(n); case _ => None }
-              val args = app.argClause.values.zipWithIndex.map { (a, i) =>
-                val emitted = emitCallArg(a)
-                a match
-                  case Term.Ascribe(_, _) => emitted
-                  case _ if termRefsHandleResultVal(a) =>
-                    calleeName.flatMap(n => calleeParamType(n, i, None, Map.empty)) match
-                      case Some(t) => s"$emitted.asInstanceOf[$t]"
-                      case None    => emitted
-                  case _ => emitted
-              }.mkString(", ")
-              s"$f($args)"
+      emitExplicitContextualCall(app.fun, app.argClause).getOrElse {
+        app.fun match
+          case Term.Apply.After_4_6_0(Term.Name("handle"), _) =>
+            emitExpr(app)  // re-route to handle path
+          case _ if isFocusApp(app) =>
+            emitFocus(app)
+          case Term.Select(qual, Term.Name(m)) =>
+            val q = emitExpr(qual)
+            val args = app.argClause.values.map(emitCallArg).mkString(", ")
+            s"$q.$m($args)"
+          case fun =>
+            val f = emitExpr(fun)
+            // Widget { body } pattern: bare-name call with a single block arg.
+            // Emit as `Widget() { body }` (empty first clause + trailing block)
+            // ONLY when the callee is a known CURRIED def (≥2 param clauses,
+            // e.g. `def vstack(gap: Int = 0)(children: => Any)` from a dep or
+            // the local module) so the block reaches the trailing clause.
+            // Everything else — single-clause defs and unknown callees such as
+            // the preamble's `computed`/`effect(thunk: => A)`, `validate { }`,
+            // `runActors { }`, `handle { }` — keeps the plain `f({ block })`
+            // form; the unconditional `f() { block }` emission broke every
+            // single-thunk callee ("missing argument for parameter thunk",
+            // jvmgen-block-call-empty-parens, 4 conformance fails).
+            app.argClause.values match
+              case List(block: Term.Block) if fun.isInstanceOf[Term.Name]
+                  && depDefs.get(fun.asInstanceOf[Term.Name].value)
+                       .orElse(localDefSigs.get(fun.asInstanceOf[Term.Name].value))
+                       .exists(_.paramClauseGroups.flatMap(_.paramClauses).length >= 2) =>
+                s"$f() ${emitExprDeep(block)}"
+              case _ =>
+                // jvmgen-handle-result-mainpath: a call arg that references an Any-typed handle-result
+                // val (`dbl(r)`) is cast to the callee's declared param type, mirroring the CPS-path
+                // `applyCalleeCasts` — otherwise `dbl(r)` fails (Found Any / Required Int).
+                val calleeName = fun match { case Term.Name(n) => Some(n); case _ => None }
+                val args = app.argClause.values.zipWithIndex.map { (a, i) =>
+                  val emitted = emitCallArg(a)
+                  a match
+                    case Term.Ascribe(_, _) => emitted
+                    case _ if termRefsHandleResultVal(a) =>
+                      calleeName.flatMap(n => calleeParamType(n, i, None, Map.empty)) match
+                        case Some(t) => s"$emitted.asInstanceOf[$t]"
+                        case None    => emitted
+                    case _ => emitted
+                }.mkString(", ")
+                s"$f($args)"
+      }
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val args = argClause.values
       val constResult =

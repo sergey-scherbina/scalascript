@@ -4,6 +4,7 @@ version: 1.0.0
 description: MonadError typeclass — std v1.1 step 5
 package: std.monaderror
 exports:
+  - MonadError
   - optionUnitError
   - raiseOption
   - handleOption
@@ -28,7 +29,7 @@ The trait has two type parameters — the effect `F[_]` and the error
     (landed v1.13); helpers `raiseEither`, `handleEither`, `attemptEither`
     remain as function-style aliases.
 
-[Left, Right](./either.ssc)
+[Either, Left, Right](./either.ssc)
 
 ## Typeclass definition
 

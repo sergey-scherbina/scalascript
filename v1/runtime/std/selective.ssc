@@ -4,6 +4,7 @@ version: 1.0.0
 description: Selective typeclass — std v1.1 step 4
 package: std.selective
 exports:
+  - Selective
   - Left
   - Right
   - mapRight
@@ -33,7 +34,7 @@ conditional effects with up-front analysis.  Smaller user base than
 the rest of the v1.1 hierarchy; ships standalone here, with
 instances for `List` and `Option`.
 
-[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](./either.ssc)
+[Either, Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](./either.ssc)
 
 ## Typeclass definition
 

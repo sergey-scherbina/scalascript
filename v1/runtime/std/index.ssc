@@ -4,11 +4,16 @@ version: 1.0.0
 description: v1.1 typeclass library aggregator — one import for the whole std
 package: std
 exports:
+  - Semigroup
+  - Monoid
   - intSum
   - stringConcat
   - listConcat
   - combineAll
   - combineAllOption
+  - Functor
+  - Applicative
+  - Monad
   - listMonad
   - optionMonad
   - pureList
@@ -17,6 +22,8 @@ exports:
   - map2Option
   - sequenceList
   - sequenceOption
+  - Foldable
+  - Traversable
   - listFoldable
   - optionFoldable
   - listTraversable
@@ -27,6 +34,7 @@ exports:
   - foldRightOption
   - traverseListOption
   - traverseOptionList
+  - Either
   - Left
   - Right
   - mapRight
@@ -34,12 +42,14 @@ exports:
   - foldEither
   - isLeft
   - isRight
+  - Selective
   - listSelective
   - optionSelective
   - selectList
   - selectOption
   - branchList
   - branchOption
+  - MonadError
   - optionUnitError
   - raiseOption
   - handleOption
@@ -47,6 +57,7 @@ exports:
   - raiseEither
   - handleEither
   - attemptEither
+  - Bifunctor
   - tupleBifunctor
   - bimapTuple
   - leftMapTuple
@@ -72,16 +83,16 @@ Transitive imports propagate through all three backends as of step 7,
 so loading this file pulls in every typeclass, instance, and helper
 the library ships.
 
-[intSum, stringConcat, listConcat, combineAll, combineAllOption](./semigroup-monoid.ssc)
+[Semigroup, Monoid, intSum, stringConcat, listConcat, combineAll, combineAllOption](./semigroup-monoid.ssc)
 
-[listMonad, optionMonad, pureList, pureOption, map2List, map2Option, sequenceList, sequenceOption](./functor-applicative-monad.ssc)
+[Functor, Applicative, Monad, listMonad, optionMonad, pureList, pureOption, map2List, map2Option, sequenceList, sequenceOption](./functor-applicative-monad.ssc)
 
-[listFoldable, optionFoldable, listTraversable, optionTraversable, foldLeftList, foldLeftOption, foldRightList, foldRightOption, traverseListOption, traverseOptionList](./foldable-traversable.ssc)
+[Foldable, Traversable, listFoldable, optionFoldable, listTraversable, optionTraversable, foldLeftList, foldLeftOption, foldRightList, foldRightOption, traverseListOption, traverseOptionList](./foldable-traversable.ssc)
 
-[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](./either.ssc)
+[Either, Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](./either.ssc)
 
-[listSelective, optionSelective, selectList, selectOption, branchList, branchOption](./selective.ssc)
+[Selective, listSelective, optionSelective, selectList, selectOption, branchList, branchOption](./selective.ssc)
 
-[optionUnitError, raiseOption, handleOption, attemptOption, raiseEither, handleEither, attemptEither](./monaderror.ssc)
+[MonadError, optionUnitError, raiseOption, handleOption, attemptOption, raiseEither, handleEither, attemptEither](./monaderror.ssc)
 
-[tupleBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](./bifunctor.ssc)
+[Bifunctor, tupleBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](./bifunctor.ssc)

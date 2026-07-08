@@ -133,6 +133,33 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
     code should include (": Show")
     code should include ("summon")
 
+  test("JvmGen: explicit context-bound instance arg lowers to using clause"):
+    val code = jvmCode("""
+      trait Monoid[A]:
+        def empty: A
+        def combine(a: A, b: A): A
+      given intSum: Monoid[Int] with
+        def empty: Int = 0
+        def combine(a: Int, b: Int): Int = a + b
+      def combineAll[A: Monoid](xs: List[A]): A =
+        xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+      println(combineAll(List(1, 2, 3), intSum))
+    """)
+    code should include ("combineAll(List(1, 2, 3))(using intSum)")
+    code should not include "combineAll(List(1, 2, 3), intSum)"
+
+  test("JvmGen: explicit using instance arg lowers from flat call"):
+    val code = jvmCode("""
+      trait Show[A]:
+        def show(a: A): String
+      given showInt: Show[Int] with
+        def show(a: Int): String = "int:" + a
+      def display[A](x: A)(using s: Show[A]): String = s.show(x)
+      println(display(42, showInt))
+    """)
+    code should include ("display(42)(using showInt)")
+    code should not include "display(42, showInt)"
+
   test("JvmGen: cross-file trait import uses Scala import, not val alias"):
     val dir = os.temp.dir(deleteOnExit = true)
     try
@@ -158,6 +185,36 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
       val code = JvmGen.generate(m, baseDir = Some(dir))
       code should include ("import mylib.functor")
       code should not include "val Functor ="
+    finally os.remove.all(dir)
+
+  test("JvmGen: cross-file standalone extension import is brought into scope"):
+    val dir = os.temp.dir(deleteOnExit = true)
+    try
+      os.write(dir / "ops.ssc", """|---
+          |name: ops
+          |package: mylib.ops
+          |exports:
+          |  - mk
+          |---
+          |# Ops
+          |```scalascript
+          |def mk: Int = 21
+          |
+          |extension (x: Int)
+          |  def twice: Int = x * 2
+          |```
+          |""".stripMargin)
+      val consumerSrc = """|# Consumer
+          |
+          |[mk](ops.ssc)
+          |
+          |```scalascript
+          |println(mk.twice)
+          |```
+          |""".stripMargin
+      val m    = Parser.parse(consumerSrc)
+      val code = JvmGen.generate(m, baseDir = Some(dir))
+      code should include ("import mylib.ops.{mk, twice}")
     finally os.remove.all(dir)
 
 // ─── JS reserved-keyword parameter names ─────────────────────────────────────

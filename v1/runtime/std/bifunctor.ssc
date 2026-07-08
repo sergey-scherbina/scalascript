@@ -4,6 +4,7 @@ version: 1.0.0
 description: Bifunctor typeclass — std v1.1 step 6
 package: std.bifunctor
 exports:
+  - Bifunctor
   - tupleBifunctor
   - eitherBifunctor
   - bimapTuple
@@ -29,7 +30,7 @@ constructors: `Tuple2` and `Either`, both via full extension dispatch
 (landed v1.13 — sealed-parent chain walk lets `Left`/`Right` values
 reach extensions registered on `Either`).
 
-[Left, Right](./either.ssc)
+[Either, Left, Right](./either.ssc)
 
 ## Typeclass definition
 
