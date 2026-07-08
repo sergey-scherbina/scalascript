@@ -243,7 +243,7 @@ function _show(v) {
     // Hide internal optic helpers (`get`, `set`, …) by skipping any value
     // whose type indicates it's an optic but no `_path`/`_steps` survived.
     const fields = Object.entries(v).filter(([k]) =>
-      k !== '_type' && k !== '_path' && k !== '_steps' && k !== '_variant');
+      k !== '_type' && k !== '_tag' && k !== '_path' && k !== '_steps' && k !== '_variant');
     if (!fields.length) return v._type;
     return v._type + '(' + fields.map(([,vv]) => _show(vv)).join(', ') + ')';
   }
@@ -441,7 +441,7 @@ function _Map(...pairs) { return _hamtOf(pairs); }
 function _copy(obj, positional, named) {
   const result = { ...obj, ...named };
   if (positional.length === 0) return result;
-  const keys = Object.keys(obj).filter(k => k !== '_type');
+  const keys = Object.keys(obj).filter(k => k !== '_type' && k !== '_tag');
   let posIdx = 0;
   for (const k of keys) {
     if (posIdx >= positional.length) break;
