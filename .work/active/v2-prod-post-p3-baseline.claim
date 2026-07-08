@@ -1,6 +1,6 @@
 feature/v2-prod-post-p3-baseline 2026-07-08T08:45:34Z
 agent: codex
-heartbeat: 2026-07-08T08:45:34Z
-status: not-started
-done-so-far:
-next: create worktree, write SPRINT plan, build bin/ssc, run full v2 output parity after p3+invoice changes
+heartbeat: 2026-07-08T08:45:59Z
+status: in-progress
+done-so-far: worktree created
+next: rebase worktree, write SPRINT plan, build bin/ssc, run full v2 output parity after p3+invoice changes
