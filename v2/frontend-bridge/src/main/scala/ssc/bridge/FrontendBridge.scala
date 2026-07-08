@@ -459,6 +459,26 @@ object FrontendBridge:
       Some(CT.Lit(Const.CBool(false))),   // deprecated
       Some(CT.Ctor("Nil", Nil))           // security
     )
+    defParamNames("pwa") = Vector(
+      "name", "shortName", "description", "themeColor", "backgroundColor",
+      "display", "startUrl", "icons", "precache", "cacheVersion",
+      "networkFirst", "offlineHtml", "maskableIcon"
+    )
+    defaultParams("pwa") = Vector(
+      None,                               // name
+      Some(CT.Lit(Const.CStr(""))),       // shortName
+      Some(CT.Lit(Const.CStr(""))),       // description
+      Some(CT.Lit(Const.CStr("#ffffff"))), // themeColor
+      Some(CT.Lit(Const.CStr("#ffffff"))), // backgroundColor
+      Some(CT.Lit(Const.CStr("standalone"))),
+      Some(CT.Lit(Const.CStr("/"))),
+      Some(CT.Ctor("Nil", Nil)),          // icons
+      Some(CT.Ctor("Nil", Nil)),          // precache
+      Some(CT.Lit(Const.CStr("v1"))),
+      Some(CT.Ctor("Nil", Nil)),          // networkFirst
+      Some(CT.Lit(Const.CStr(""))),
+      Some(CT.Lit(Const.CStr("")))        // maskableIcon
+    )
     parseDatabasesFromFrontmatter(src)
     val merged = resolveImportsCode(src, fileDir)
     // Op-arg lifting is only NEEDED by programs where a raw effect Op can

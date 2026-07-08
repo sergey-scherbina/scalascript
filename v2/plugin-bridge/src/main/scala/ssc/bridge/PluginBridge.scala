@@ -38,6 +38,11 @@ object PluginBridge:
   /** Clear all registered DB connections (call between batch runs). */
   def clearDbs(): Unit = dbRegistry.clear()
 
+  private def routeHandlerToV1(handler: Any): V1Value = handler match
+    case v: V1Value  => v
+    case v: V2Value  => v2ToV1(v)
+    case other       => rawToV1(other)
+
   /** Minimal NativeContext for stateless intrinsics (IO, hash, math, etc.). */
   private object MinimalCtx extends NativeContext:
     def out: java.io.PrintStream = Console.out
@@ -69,6 +74,15 @@ object PluginBridge:
           scalascript.interpreter.Computation.run(nfv.f(args.map(rawToV1)))
         case other =>
           throw new RuntimeException(s"invokeCallback: not callable: ${Option(other).fold("null")(_.getClass.getName)}")
+    override def registerRoute(method: String, path: String, handler: Any): Unit =
+      scalascript.server.Routes.register(method, path, routeHandlerToV1(handler), routeInterp)
+    override def registerRouteWithOpenApi(
+        method: String,
+        path: String,
+        handler: Any,
+        metadata: scalascript.backend.spi.OpenApiGenerator.OpenApiMetadata
+    ): Unit =
+      scalascript.server.Routes.register(method, path, routeHandlerToV1(handler), routeInterp, metadata = metadata)
 
   /** Feature bag mirrored from v1's nativeFeatureSet — the content plugin's
    *  document-introspection natives (contentBlock/contentData/…) read the
