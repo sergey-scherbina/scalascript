@@ -26,8 +26,8 @@ object RunV2:
    *  ssc.Emit, VM-compiled value-defs interop via Emit.globalsRef. */
   def runBytecode(files: List[String], argv: List[String]): Unit =
     loadPluginJars()
-    _root_.ssc.bridge.PluginBridge.loadAll()
     _root_.ssc.Runtime.argv = argv
+    _root_.ssc.bridge.PluginBridge.loadAll()
     for file <- files do
       val f    = new java.io.File(file)
       val src  = scala.io.Source.fromFile(f).mkString

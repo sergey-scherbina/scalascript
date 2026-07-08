@@ -1458,7 +1458,7 @@ final class RunCmd extends CliCommand:
   def name = "run"
   override def summary = "Execute .ssc via the v2 VM by default"
   override def category = "Run & develop"
-  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --v2  (force the ssc 2.0 VM via FrontendBridge; default for plain runs)")
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --v2  (force the ssc 2.0 VM via FrontendBridge; default for plain runs)", "       -- separates source files from program args for v2 VM runners")
   def run(args: List[String]): Unit =
     if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -1484,9 +1484,14 @@ final class RunCmd extends CliCommand:
     var v2Flag:            Boolean        = false  // --v2 (force the ssc 2.0 VM via FrontendBridge)
     var bytecodeFlag:      Boolean        = false  // --bytecode (v2 lane compiled to JVM bytecode, Phase 4)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
+    val programArgs = scala.collection.mutable.ArrayBuffer.empty[String]
+    var afterArgSeparator = false
     val it = args.iterator
     while it.hasNext do
-      it.next() match
+      val next = it.next()
+      if afterArgSeparator then programArgs += next
+      else next match
+        case "--" => afterArgSeparator = true
         case "--spark-version"    if it.hasNext => sparkVersionFlag  = Some(it.next())
         case "--spark-master"     if it.hasNext => sparkMasterFlag   = Some(it.next())
         case "--server-backend"   if it.hasNext => serverBackendFlag = it.next()
@@ -1516,6 +1521,12 @@ final class RunCmd extends CliCommand:
             System.exit(1)
           frontendFlag = Some(name)
         case f => fileArgs += f
+    val programArgv = programArgs.toList
+    def rejectProgramArgs(mode: String): Unit =
+      if programArgv.nonEmpty then
+        System.err.println(s"run: program args after -- are supported only by v2 VM runners, not $mode")
+        System.err.println("Usage: ssc run [--v2|--bytecode] <file.ssc> -- [args...]")
+        System.exit(1)
 
     if v1Flag && v2Flag then
       System.err.println("run: --v1 and --v2 are mutually exclusive")
@@ -1525,18 +1536,19 @@ final class RunCmd extends CliCommand:
     // Plain default-lane runs reach the same path below unless `--v1` is set.
     if bytecodeFlag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      RunV2.runBytecode(fileArgs.toList, Nil)
+      RunV2.runBytecode(fileArgs.toList, programArgv)
       return
 
     if v2Flag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      RunV2.run(fileArgs.toList, Nil)
+      RunV2.run(fileArgs.toList, programArgv)
       return
 
     val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
     val runMode = modeFlag.map(_.trim.toLowerCase)
     runMode match
       case Some("server") =>
+        rejectProgramArgs("run --mode server")
         ActiveFlags.current.backend match
           case Some(backend) if backend != "jvm" && backend != "jvm-rest" =>
             System.err.println(s"run --mode server requires --backend jvm or --backend jvm-rest, got '$backend'")
@@ -1549,6 +1561,7 @@ final class RunCmd extends CliCommand:
               runJvmServerHook(path, serverBackendFlag, bind)
             return
       case Some("client") =>
+        rejectProgramArgs("run --mode client")
         for file <- fileArgs.toList do
           val path = os.Path(file, os.pwd)
           validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
@@ -1585,16 +1598,19 @@ final class RunCmd extends CliCommand:
 
     // --target jvm: compile via JvmGen → scala-cli → execute
     if targetSelection.contains("jvm") then
+      rejectProgramArgs("run --target jvm")
       for file <- fileArgs.toList do
         runJvmViaScalaCli(os.Path(file, os.pwd), serverBackendFlag, "run --target jvm")
       return
 
     // --target macos / desktop-macos: build Swift package + swift build + launch binary
     if targetSelection.exists(t => t == "macos" || t == "desktop-macos") then
+      rejectProgramArgs("run --target macos")
       runMacosTargets(fileArgs.toList, rebuildFlag, consoleFlag); return
 
     // --target ios / mobile-ios: Simulator (default) or real device (--device)
     if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
+      rejectProgramArgs("run --target ios")
       runIosTargets(fileArgs.toList, deviceFlag, deviceIdFlag, consoleFlag, rebuildFlag); return
 
     val noExplicitRunMode =
@@ -1607,6 +1623,7 @@ final class RunCmd extends CliCommand:
           scala.util.Try(shouldDefaultToElectronJvmRest(loadModule(path), os.read(path))).getOrElse(false)
       }
       if shouldRunDefault then
+        rejectProgramArgs("frontend/electron default run")
         for file <- files do
           runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
         return
@@ -1620,10 +1637,12 @@ final class RunCmd extends CliCommand:
       System.err.println("run --backend jvm-rest currently requires --frontend electron, --target desktop, or --target desktop-jvm")
       System.exit(1)
     if isElectronRun && isJvmRestRun then
+      rejectProgramArgs("Electron JVM REST run")
       for file <- fileArgs.toList do
         runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
       return
     if isElectronRun then
+      rejectProgramArgs("Electron run")
       for file <- fileArgs.toList do
         runElectronDev(os.Path(file, os.pwd))
       return
@@ -1633,6 +1652,7 @@ final class RunCmd extends CliCommand:
     // computedSignal reactivity is LIVE. Supersedes the static frontend/tui
     // emitter. Falls back to the interpreter path below when cargo is absent.
     if frontendFlag.contains("tui") && TuiRunner.cargoAvailable then
+      rejectProgramArgs("TUI run")
       for file <- fileArgs.toList do
         val code = TuiRunner.runFile(os.Path(file, os.pwd))
         if code != 0 then System.exit(code)
@@ -1657,8 +1677,10 @@ final class RunCmd extends CliCommand:
             scala.util.Try(shouldUseV2DefaultRunner(loadModule(path))).getOrElse(false)
         }
     then
-      RunV2.run(fileArgs.toList, Nil)
+      RunV2.run(fileArgs.toList, programArgv)
       return
+
+    rejectProgramArgs("the selected non-v2 runner")
 
     frontendFlag.foreach(applyFrontendBackend)
     val backendId = ActiveFlags.current.backend.getOrElse("int")

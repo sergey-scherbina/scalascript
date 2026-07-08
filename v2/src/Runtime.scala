@@ -117,6 +117,10 @@ object Runtime:
       avs(0) match
         case Value.IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt))
         case _             => sys.error("app: array index must be Int")
+    case lv @ Value.DataV("Cons" | "Nil", _) =>
+      avs(0) match
+        case Value.IntV(i) => Done(Prims.unlistPub(lv)(i.toInt))
+        case _             => sys.error("app: list index must be Int")
     case Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
       Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](avs(0)))
     case Value.DataV("Stub", fs) => Done(Value.DataV("Stub", fs))
