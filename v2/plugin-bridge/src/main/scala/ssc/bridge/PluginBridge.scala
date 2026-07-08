@@ -2823,7 +2823,11 @@ object PluginBridge:
         def getField(name: String): Option[V2Value] = name match
           case "apply" => Some(V2Value.ClosV(Runtime.emptyEnv, -1, env =>
             if env.isEmpty then Done(rawToV2(s.apply().asInstanceOf[Any]))
-            else { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToV1(env.last)); Done(V2Value.UnitV) }))
+            else { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToRaw(env.last)); Done(V2Value.UnitV) }))
+          case "get" => Some(V2Value.ClosV(Runtime.emptyEnv, 0, _ =>
+            Done(rawToV2(s.apply().asInstanceOf[Any]))))
+          case "set" => Some(V2Value.ClosV(Runtime.emptyEnv, 1, env =>
+            { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToRaw(env.last)); Done(V2Value.UnitV) }))
           case _ => None
       })
     case scalascript.interpreter.Value.Foreign(tag, h: AnyRef) =>
