@@ -28,5 +28,8 @@ val message = buildMimeMessage(
   List(("faktura-FV-2026-1.pdf", "application/pdf", pdfBase64))
 )
 
-println(s"MIME message assembled: ${message.length} bytes, PDF attached")
+if message.length > 0 then
+  println("MIME message assembled: PDF attached")
+else
+  println("MIME message assembly failed")
 ```
