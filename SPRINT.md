@@ -339,6 +339,25 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       the earlier slices. Start by identifying the CLI flag/parser path for `run`,
       preserving an explicit v1 escape hatch, then update docs and gate with the same
       full output-parity command recorded above.
+      PLAN (2026-07-08, claim `v2-prod-default-switch`): implement the switch in
+      `v1/tools/cli/src/main/scala/scalascript/cli/Main.scala` / `RunCmd`. Current
+      state: `run --v2` is an early preview branch, and the plain fallback path runs
+      v1 through `compileViaBackend(..., "int")`. Change: add `--v1` rollback and
+      make the plain default-lane fallback call `RunV2.run(...)`. Preserve explicit
+      lanes on the existing v1/specialized paths: `--target`, `--backend`,
+      `--frontend`, `--mode`, transport/server/client flags, electron/JVM-rest
+      auto-detection, TUI, and any source with explicit `backend:` or `frontend:`
+      front matter. Keep `--v2` accepted as an explicit v2 force flag; `--v1 --v2`
+      is a usage error. Add a small test around the routing predicate / flag handling
+      instead of a broad refactor. Update `README.md`, `v2/output-parity-baseline.md`,
+      and `specs/v2-full-compat.md` to say `ssc run` now defaults to v2 and
+      `ssc run --v1` is rollback. Verify with:
+      `scripts/sbtc "cli/testOnly scalascript.cli.*V2* scalascript.cli.CommandRegistryTest"`,
+      `scripts/sbtc "installBin"`, direct `bin/ssc run examples/hello.ssc`,
+      direct `bin/ssc run --v1 examples/hello.ssc`, direct
+      `bin/ssc run --v2 examples/hello.ssc`, the production gate
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`, and affected
+      conformance `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo`.
 - [ ] **conformance-parsing-int-empty-output** — fix or reclassify the INT-only
       std/parsing conformance failures found while verifying
       `v2-prod-js-dsl-conformance`. Repro after `scripts/sbtc "installBin"`:
