@@ -1,6 +1,6 @@
 feature/v2-actors-sendafter-cli-default-noop 2026-07-08T20:18:34Z
 agent: codex
-heartbeat: 2026-07-08T20:18:34Z
-status: not-started
-done-so-far:
+heartbeat: 2026-07-08T20:18:50Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-actors-sendafter-cli-default-noop
 next: reproduce v2 sendAfter default/fat-jar no-op, then fix or make unsupported explicit
