@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-op-arg-lifting
+worktree: ../scalascript-wt-v2-op-arg-lifting
+started: 2026-07-08
+status: in-progress
+task: v2-op-arg-lifting — strict calls (closures + natives) and perform-args with an unresolved effect Op argument must defer into the Op's continuation (BUGS.md v2-op-arg-lifting). Blocks busi --v2 ledger check #2. Repro: cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/ledger.ssc
