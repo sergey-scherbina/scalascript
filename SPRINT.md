@@ -120,7 +120,15 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       p4-jvm-lane-bytecode: ASM-кодген компилирует ТОЛЬКО структуру (lam/app/let/match/seq/
       letrec/ctor/if), все примы = invokestatic в ssc.Prims; plugin-поверхность = тот же
       PluginBridge.loadAll() на старте. Перф — из компиляции структуры (циклы/вызовы/матчи).
-- [~] **p4-jvm-lane-bytecode** — MILESTONE 1 GREEN 2026-07-08: модуль v2JvmBytecode
+- [~] **p4-jvm-lane-bytecode** — MILESTONE 2 GREEN 2026-07-08 (7d385b541): ВСЕ структурные
+      формы компилируются (Lam через indy/SAM, Match tag-диспетч, LetRec, While; гибридная
+      env-модель массив+слоты с материализацией при захвате). **fib(25)×30: 116ms байткод
+      против 266 v2-VM и 378 v1-интерп — лейн БЫСТРЕЕ обоих (2.3×/3.3×)**; рычаги: прямой
+      invokestatic для известных дефов, кэш резолва в шимах, прямой Emit.arith без StrV-боксинга
+      оператора. Валидировано: hello/fib/match-рекурсия/замыкания/каррирование.
+      MILESTONE 3: self-tail-call → цикл + trampoline-fallback (глубокая хвостовая рекурсия
+      сейчас переполняет стек — прямые вызовы не трамплинятся), затем корпус-покрытие и CLI-флаг.
+      MILESTONE 1 GREEN 2026-07-08: модуль v2JvmBytecode
       (v2/backend-jvm-bytecode, ASM 9.7 + v2Core), шимы ssc.Emit (prim0..N/app/ctor/global/
       литералы — эмиссия = push-args + invokestatic), эмиттер девяти структурных форм entry
       (Lit/Global/Local/Prim/App/Seq/If/Let/Ctor; De Bruijn → JVM-слоты). Смоук: hello.ssc →
