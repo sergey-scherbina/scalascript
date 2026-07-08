@@ -4061,7 +4061,7 @@ final class VerifyCmd extends CliCommand:
       System.err.println(s"verify: not a directory: $artifactDir")
       System.exit(1)
 
-    val srcDir = srcDirArg.map(os.Path(_, os.pwd)).getOrElse(artifactDir / os.up)
+    val srcDir = srcDirArg.map(os.Path(_, os.pwd)).getOrElse(defaultVerifySrcDir(artifactDir))
     // Source dir is allowed to be missing; freshness checks just degrade to WARN.
 
     val (rows, summary) = runVerify(artifactDir, srcDir, strict)
@@ -4088,6 +4088,10 @@ private case class VerifyRow(
 
 private case class VerifySummary(ok: Int, warn: Int, fail: Int):
   def total: Int = ok + warn + fail
+
+private def defaultVerifySrcDir(artifactDir: os.Path): os.Path =
+  if artifactDir.last == ".ssc-artifacts" then artifactDir / os.up
+  else artifactDir
 
 /** Walk every supported artifact in `artifactDir`, classify each, and return
  *  the row + summary counts.  Pure read-only. */

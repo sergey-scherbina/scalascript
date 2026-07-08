@@ -168,6 +168,37 @@ class VerifyCliTest extends AnyFunSuite:
         s"expected 'sourceHash mismatch' diagnostic:\n$out")
     finally os.remove.all(sandbox)
 
+  test("verify custom artifact dir does not scan parent sources by default"):
+    val sandbox = os.temp.dir(prefix = "ssc-verify-bounded-src-")
+    try
+      val artDir = sandbox / "out"
+      os.makeDir.all(artDir)
+      os.write(sandbox / "a.ssc", "parent source should not be inspected\n")
+
+      val jvmArt = scalascript.ir.ModuleJvmArtifact(
+        magic        = "SSCART",
+        abiVersion   = scalascript.ir.ArtifactVersion.current,
+        moduleId     = "a",
+        pkg          = Nil,
+        moduleName   = Some("a"),
+        sourceHash   = "0".repeat(64),
+        scalaSource  = "object a { def add(x: Int, y: Int): Int = x + y }\n",
+        imports      = Nil,
+        classBundle  = None,
+        capabilities = Nil
+      )
+      os.write(artDir / "a.scjvm", scalascript.artifact.JvmArtifactIO.writeJvm(jvmArt))
+
+      val res = runSsc(sandbox, "verify", artDir.toString, "--strict")
+      assert(res.exitCode == 1,
+        s"strict bounded verify should fail on missing source only; got ${res.exitCode}\n${res.out.text()}")
+      val out = res.out.text()
+      assert(out.contains("sourceHash MISSING"),
+        s"expected missing-source warning from the artifact dir itself:\n$out")
+      assert(!out.contains("sourceHash mismatch"),
+        s"custom artifact dir must not inspect parent a.ssc by default:\n$out")
+    finally os.remove.all(sandbox)
+
   // ── 5. .scjvm modules but no _runtime — runtime coverage warning ─────────
 
   test("verify with .scjvm modules declaring caps but no runtime — WARN (or FAIL with --strict)"):
