@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — fix: Scala.js npm test deps install automatically
+
+Scala.js test modules with `package.json` no longer depend on a manual
+`npm install` before `sbt test`. The build now runs idempotent `npm ci` before
+`loadedTestFrameworks` for the npm-dependent JS suites. Targeted gates:
+`cryptoNobleJs/test`, `walletVaultEncryptedJs/test`, `walletStrategyErc4337Js/test`,
+`blockchainEvmAbiJs/test`, `walletConnectJs/test`, and `markupNode/test` are green.
+
+---
+
 ## 2026-07-08 — fix: split JVM runtime emits serve stubs
 
 `compile-jvm --bytecode` no longer fails compiling shared `_ssc_runtime.scala`

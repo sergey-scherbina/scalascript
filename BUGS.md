@@ -576,7 +576,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `scripts/sbtc "installBin"`; `scripts/sbtc "cli/assembly"`; `scripts/sbtc "cli/testOnly *EmitScalaFacadeCliTest"`;
   `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
 
-## scalajs-jsenv-run-terminated — `open` (2026-07-07)
+## scalajs-jsenv-run-terminated — `fixed` (2026-07-07)
 
 - **Found by:** claude (green-main takeover), root `sbt test` + serial retest.
 - **Symptom:** Scala.js test modules (walletVaultEncryptedJs, walletStrategyErc4337Js,
@@ -584,9 +584,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
   with `JSEnvRPC$RunTerminatedException` / `ExternalJSRun$NonZeroExitException: exited with code 1`
   — the node process exits immediately. Reproduces SERIALLY (not load-related) on node v26.4.0
   locally AND in CI (18 occurrences in the failed CI log).
-- **Suspect:** Scala.js jsEnv vs modern node (v26) incompatibility, or a shared JS-env config
-  regression; NOT test-content-related (multiple unrelated modules, identical signature).
-- **Repro:** `sbt cryptoNobleJs/test`.
+- **Root cause:** the Node process was exiting because required npm packages were not installed in
+  the module-local `node_modules` trees. The first concrete repro was `cryptoNobleJs/test` failing
+  with `MODULE_NOT_FOUND: '@noble/ciphers/aes'`; the other failing Scala.js modules had the same
+  manual-install assumption for their `package.json` dependencies.
+- **Fix:** `1da48bfd5` adds an idempotent `npmInstallForScalaJsTest` sbt task and wires it into
+  `Test / loadedTestFrameworks` for the npm-dependent Scala.js test projects, so clean worktrees and
+  CI run `npm ci` automatically before the Scala.js test runner loads.
+- **Verified:** `scripts/sbtc "cryptoNobleJs/test"`;
+  `scripts/sbtc "walletVaultEncryptedJs/test; walletStrategyErc4337Js/test; blockchainEvmAbiJs/test; walletConnectJs/test; markupNode/test"`;
+  `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
+- **Repro:** `scripts/sbtc "cryptoNobleJs/test"` in a clean worktree with no
+  `payments/crypto/noble-js/node_modules` previously failed before the fix.
 
 ## scjvm-artifact-cache-ignores-compiler-version — `open` (2026-07-07)
 

@@ -969,12 +969,18 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             Verified `backendInterpreter/testOnly scalascript.JvmGenRuntimeSeparationTest`,
             `installBin`, `cli/assembly`, `cli/testOnly *EmitScalaFacadeCliTest`, and
             `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
-      - [ ] **scalajs-jsenv-run-terminated** — second slice / recheck after bytecode
-            is green. Reproduce serially with `scripts/sbtc "cryptoNobleJs/test"`
-            on the current Node/Scala.js setup; fix jsEnv config or isolate with a
-            documented CI policy only if it is still deterministic.
-      Done-when: the affected suites pass or are intentionally isolated/pending with documented CI policy,
-      and a subsequent root `sbt "test"` no longer fails on this set.
+      - [x] **scalajs-jsenv-run-terminated** — fixed in `1da48bfd5`. Serial repro
+            `scripts/sbtc "cryptoNobleJs/test"` resolved to Node `MODULE_NOT_FOUND`
+            for `@noble/ciphers/aes` because npm deps were never installed in clean
+            worktrees/CI. Added idempotent `npmInstallForScalaJsTest` and wired it
+            into `Test / loadedTestFrameworks` for `cryptoNobleJs`,
+            `walletVaultEncryptedJs`, `walletStrategyErc4337Js`,
+            `blockchainEvmAbiJs`, `walletConnectJs`, and `markupNode`.
+            Verified those six suites plus `tests/conformance/run.sh --only
+            'std-semigroup-monoid' --no-memo`.
+      Done-when: run root `scripts/sbtc "test"` after both fixed slices are on the branch;
+      if green, mark this gate done and release the claim. If red, record the next deterministic
+      blocker in BUGS.md + SPRINT before fixing it.
 
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.
