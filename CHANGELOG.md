@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: JVM std-ui generated braces fixed
+
+`std-ui-aggregator` and `std-ui-extended*` now pass INT/JS/JVM. JVM codegen now
+keeps braces inside triple-quoted JavaScript/CSS literals out of structural
+object/package merging, so imported UI component objects such as `SubmitButton`
+stay properly closed. Targeted gate:
+`tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+is **5/5 green**.
+
+---
+
 ## 2026-07-08 — conformance: std typeclass aggregate slice fixed
 
 `std-functor-applicative-monad`, `std-foldable-traversable`, `std-index`,

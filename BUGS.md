@@ -12,6 +12,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jvm-scjvm-cache-codegen-version — `open` (2026-07-08)
+
+- **Found by:** codex, while fixing `conformance-jvm-std-ui-generated-braces`.
+- **Repro:** keep a stale generated artifact such as
+  `tests/conformance/.ssc-artifacts/std-ui-extended.scjvm` from before a JVM
+  backend codegen fix, rebuild/install the CLI, then run
+  `bin/ssc run-jvm tests/conformance/std-ui-extended.ssc`.
+- **Observed:** `run-jvm` reused the source-fresh `.scjvm` artifact and still
+  failed with the old generated Scala `'}' expected, but eof found`. Removing only
+  `tests/conformance/.ssc-artifacts/std-ui*.scjvm` forced regeneration and the same
+  assembled command passed. This means the `.scjvm` freshness key does not account
+  for backend codegen/runtime changes.
+- **Status:** open; decide and implement a production-safe cache key/invalidation
+  scheme, likely by recording the compiler/backend version in `.scjvm` artifacts
+  and adding a CLI regression that stale source-fresh artifacts regenerate after a
+  codegen version change.
+
 ## conformance-int-variables-while-update — `open` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
@@ -24,7 +41,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Status:** open; root cause likely in interpreter while/assignment sequencing or
   mutable-var read-after-write inside a loop body.
 
-## conformance-jvm-std-ui-generated-braces — `open` (2026-07-08)
+## conformance-jvm-std-ui-generated-braces — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -33,8 +50,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
   warnings start where many imported `std/ui` component `object`s begin, so the
   conformance harness reports missing stdout for `std-ui-aggregator` and
   `std-ui-extended*`. INT/JS pass.
-- **Status:** open; inspect JVM emission for imported component modules before
-  changing the fixture.
+- **Status:** fixed in `9bd6cb87d`. Root cause was two string-level JVM source
+  transforms treating braces inside imported UI triple-quoted JavaScript/CSS
+  literals as Scala structure. `colonObjectsToBraces` also stopped collecting an
+  `object Name:` body when a triple-quoted literal continued at column 0, which
+  prematurely inserted `}` inside `SubmitButton.js`. `JvmGen` now tracks
+  triple-quoted strings while collecting colon-object bodies and uses a shared
+  string/comment-aware brace matcher for duplicate object/package merges.
+- **Verified:** `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenUsingTest"`
+  (**14/14 green**); direct
+  `bin/ssc run-jvm tests/conformance/std-ui-extended.ssc` after regenerating the
+  stale local `.scjvm` artifact; and
+  `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+  (**5/5 green**).
 
 ## conformance-std-typeclass-int-jvm-gaps — `fixed` (2026-07-08)
 

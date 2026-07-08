@@ -839,12 +839,33 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             `scripts/sbtc "installBin"`, direct INT/JVM repros, and
             `tests/conformance/run.sh --only 'std-functor-applicative-monad,std-foldable-traversable,std-index,std-bifunctor,std-monaderror,std-selective' --no-memo`
             (**6/6 green**).
-      - [ ] **conformance-jvm-std-ui-generated-braces** — JVM `std-ui-extended*`
+      - [x] **conformance-jvm-std-ui-generated-braces** — JVM `std-ui-extended*`
             generated Scala has an unmatched brace/EOF; inspect imported UI
             component object emission.
+            FIXED 2026-07-08 in `9bd6cb87d`: `JvmGen` now preserves
+            triple-quoted JavaScript/CSS literals while converting `object X:`
+            blocks and while merging duplicate package/object blocks, so braces
+            inside imported UI strings no longer close Scala objects early. The
+            regression covers both a minimal duplicate-object source and the real
+            `tests/conformance/std-ui-extended.ssc` directory import. Verification:
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenUsingTest"`
+            (**14/14 green**); direct
+            `bin/ssc run-jvm tests/conformance/std-ui-extended.ssc` after forced
+            regeneration of stale local `std-ui*.scjvm`; and
+            `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+            (**5/5 green**). Follow-up cache invalidation risk tracked separately
+            as `jvm-scjvm-cache-codegen-version`.
       - [ ] **conformance-int-variables-while-update** — INT `variables` prints
             `sum=10` for the first while loop; inspect mutable var read-after-write
             inside interpreter while sequencing.
+      - [ ] **jvm-scjvm-cache-codegen-version** — production cache follow-up found
+            while fixing std-ui: `run-jvm` reused source-fresh `.scjvm` artifacts
+            emitted by an older JVM backend, so the assembled CLI kept failing until
+            `tests/conformance/.ssc-artifacts/std-ui*.scjvm` was removed. Tracked in
+            `BUGS.md`. Done-when `.scjvm` freshness accounts for compiler/backend
+            codegen version (or an equivalent invalidation signal) and a CLI
+            regression proves stale source-fresh artifacts regenerate after the
+            version changes.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&
