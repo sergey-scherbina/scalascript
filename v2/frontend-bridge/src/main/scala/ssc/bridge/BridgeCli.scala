@@ -11,10 +11,10 @@ import ssc.*
  *    run  <file>        Parse .ssc via scalameta → Core IR → v2 VM
  *    emit <file>        Print Core IR text (for debugging) */
 @main def bridgeCli(args: String*): Unit =
-  PluginBridge.loadAll()
   args.toList match
   case "run" :: file :: rest =>
-    Runtime.argv = rest
+    Runtime.argv = rest  // BEFORE loadAll: the args global captures it
+    PluginBridge.loadAll()
     val f    = new java.io.File(file)
     val src  = scala.io.Source.fromFile(f).mkString
     val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
@@ -25,6 +25,7 @@ import ssc.*
 
   case "run-module" :: file :: rest =>
     Runtime.argv = rest
+    PluginBridge.loadAll()
     val module  = scalascript.parser.Parser.parse(scala.io.Source.fromFile(file).mkString)
     val prog    = ModuleBridge.convert(module)
     val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
@@ -33,6 +34,7 @@ import ssc.*
       case other       => println(Show.show(other))
 
   case "emit" :: file :: rest =>
+    PluginBridge.loadAll()
     val f    = new java.io.File(file)
     val src  = scala.io.Source.fromFile(f).mkString
     val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))

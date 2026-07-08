@@ -221,6 +221,20 @@ object PluginBridge:
     V2PluginRegistry.registerGlobal("cwd", V2Value.StrV(System.getProperty("user.dir", ".")))
     V2PluginRegistry.registerGlobal("sep", V2Value.StrV(java.io.File.separator))
     V2PluginRegistry.registerGlobal("platform", V2Value.DataV("JVM", Vector.empty))
+    // args — command-line args as a Cons/Nil VALUE list, same post-plugins
+    // override: a plugin bridges a native FUNCTION under "args", and with the
+    // native winning, `args.length` dispatched .length on a closure (the length
+    // FastCode's tolerant `case _ => 0L` masked it on v2; the v1 lane has the
+    // same gap on NativeFnV(<native:args>)). The list is the documented
+    // semantics (dataset-word-count.ssc: `args.length`, `args(0)`). Runners set
+    // Runtime.argv BEFORE loadAll; the scalascript.args prop is the embedder
+    // fallback.
+    V2PluginRegistry.registerGlobal("args",
+      (if Runtime.argv.nonEmpty then Runtime.argv
+       else sys.props.get("scalascript.args").map(_.split(",").toList).getOrElse(Nil))
+        .foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (a, acc) =>
+          V2Value.DataV("Cons", Vector(V2Value.StrV(a), acc))
+        })
     // Pre-call known 0-arg plugin functions (declared as `extern def foo: T` with no parens in ssc).
     // These must be registered as plain values, not ClosV, so `fetchActionClear(..., emptyHeaders)`
     // works without `emptyHeaders()` at the call site (ssc no-parens def semantics).
@@ -1232,15 +1246,8 @@ object PluginBridge:
         Done(result)
       }))
 
-    // args — command-line args as a Cons/Nil list
-    if V2PluginRegistry.lookupGlobal("args").isEmpty then
-      val argsList = sys.props.get("scalascript.args")
-        .map(_.split(",").toList)
-        .getOrElse(Nil)
-        .foldRight[V2Value](DataV("Nil", Vector.empty)) { (a, acc) =>
-          DataV("Cons", Vector(StrV(a), acc))
-        }
-      V2PluginRegistry.registerGlobal("args", argsList)
+    // (args registration moved to loadAll AFTER the plugin loop — a plugin
+    // bridges a native FUNCTION under "args" that must not shadow the list.)
     // startNode — cluster node stub
     if V2PluginRegistry.lookupGlobal("startNode").isEmpty then
       V2PluginRegistry.registerGlobal("startNode", ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))

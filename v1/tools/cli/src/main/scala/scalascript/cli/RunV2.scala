@@ -10,8 +10,8 @@ object RunV2:
   // `_root_.ssc` disambiguates the ssc 2.0 package from the `def ssc(...)` CLI command in this package.
   def run(files: List[String], argv: List[String]): Unit =
     loadPluginJars()
+    _root_.ssc.Runtime.argv = argv  // BEFORE loadAll: the args global captures it
     _root_.ssc.bridge.PluginBridge.loadAll()
-    _root_.ssc.Runtime.argv = argv
     for file <- files do
       val f    = new java.io.File(file)
       val src  = scala.io.Source.fromFile(f).mkString
