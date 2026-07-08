@@ -1890,6 +1890,23 @@ object Prims:
         case (DataV("Mirror", fields), "elemLabels", Nil) => fields(1)
         case (DataV("Mirror", fields), "elemTypes", Nil)  => fields(2)
         case (DataV(_, fields), "fieldAt", List(IntV(i))) => fields(i.toInt)
+        // Restricted quoted-macro interpreter helpers. PluginBridge registers
+        // the Expr/QuotedContext globals; the VM owns the method dispatch shape.
+        case (DataV("Expr", fields), "asValue", Nil) =>
+          fields.lift(1) match
+            case Some(DataV("None", _)) | None => none
+            case Some(v)                       => some(v)
+        case (DataV("Expr", fields), "asTerm", Nil) =>
+          DataV("ScalaScriptTerm", Vector(
+            fields.headOption.getOrElse(StrV("<expr>")),
+            fields.lift(1).getOrElse(UnitV)
+          ))
+        case (DataV("Expr", fields), "toString", Nil) =>
+          StrV(s"Expr(${anyStr(fields.headOption.getOrElse(StrV("<expr>")))})")
+        case (DataV("ScalaScriptTerm", fields), "name", Nil) =>
+          fields.headOption.getOrElse(StrV("<expr>"))
+        case (DataV("ScalaScriptTerm", fields), "value", Nil) =>
+          fields.lift(1).getOrElse(UnitV)
         // ── Option methods ───────────────────────────────────────────────────────
         case (DataV("Some", Seq(v)), "get", Nil) => v
         case (DataV("None", _), "get", Nil) => sys.error("None.get")

@@ -889,6 +889,26 @@ object FrontendBridge:
       case obj: Defn.Object                   => List(obj.name.value)
     }).flatten.toSet
 
+    // Forward-call metadata: quoted macro entrypoints commonly appear before
+    // their implementation helper (`inline def m = ${ impl('x) }`), so call-site
+    // conversion must know about the helper's trailing `using` clause before the
+    // first stats pass reaches the helper definition itself.
+    def rememberUsingBounds(d: Defn.Def): Unit =
+      val allPcs = d.paramClauseGroups.flatMap(_.paramClauses)
+      val usingParams = allPcs.flatMap(_.values).filter(_.mods.exists(_.is[Mod.Using]))
+      if usingParams.nonEmpty then
+        val userCount = allPcs.flatMap(_.values).count(!_.mods.exists(_.is[Mod.Using]))
+        val firstTpe  = allPcs.flatMap(_.values).filter(!_.mods.exists(_.is[Mod.Using]))
+          .headOption.flatMap(_.decltpe).map(_.syntax).getOrElse("")
+        val ubs = usingParams.flatMap(_.decltpe).map { t =>
+          val tc = t.syntax.takeWhile(c => c != '[' && c != ' ')
+          val tv = t.syntax.dropWhile(_ != '[').drop(1).dropRight(1)
+          val drill = if firstTpe.matches(s"List\\[\\s*$tv\\s*\\]") then "elem" else "self"
+          (tc, drill)
+        }.toList
+        defUsingBounds(d.name.value) = (ubs, userCount)
+    stats.foreach { case d: Defn.Def => rememberUsingBounds(d); case _ => () }
+
     stats.foreach {
       case d: Defn.Def =>
         // `stripExternDecls` removes plugin-backed extern declarations before parsing; any

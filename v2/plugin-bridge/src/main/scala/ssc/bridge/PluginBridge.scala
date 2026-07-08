@@ -958,6 +958,9 @@ object PluginBridge:
     // head matches the runtime WITNESS value. args = tc :: drill :: witness ::
     // (head, instance) pairs (table embedded at the call site by the bridge).
     V2PluginRegistry.register("__resolve_given__", args => args match
+      case StrV("QuotedContext") :: _ =>
+        V2PluginRegistry.lookupGlobal("QuotedContext")
+          .getOrElse(DataV("QuotedContext", Vector.empty))
       case StrV(tc) :: StrV(drill) :: witness :: table =>
         def headOf(v: V2Value): String = v match
           case IntV(_)   => "Int"
@@ -1076,6 +1079,57 @@ object PluginBridge:
         if env.nonEmpty then Console.out.print(showForPrint(env(0)))
         Done(UnitV)
       }))
+    // Restricted quoted macro helpers for interpreter/run-path parity.
+    // `MacroCodegen` intentionally leaves interpreter-only macro bodies alone;
+    // `ssc run --v2` still has to execute the helper form that the v1 parser
+    // emits for `${ impl('x) }`, `Expr(v)`, and direct quote/splice helpers.
+    val quotedNone = DataV("None", Vector.empty)
+    def quotedExpr(name: String, value: V2Value): V2Value =
+      DataV("Expr", Vector(StrV(name), value))
+    def exprValue(v: V2Value): Option[V2Value] = v match
+      case DataV("Expr", fields) => Some(fields.lift(1).getOrElse(UnitV))
+      case _                     => None
+    if V2PluginRegistry.lookupGlobal("__ssc_macro__").isEmpty then
+      V2PluginRegistry.registerGlobal("__ssc_macro__", ClosV(Runtime.emptyEnv, -1, env => {
+        if env.length != 1 then sys.error("__ssc_macro__(expr)")
+        Done(exprValue(env(0)).getOrElse(env(0)))
+      }))
+    if V2PluginRegistry.lookupGlobal("__ssc_macro_error__").isEmpty then
+      V2PluginRegistry.registerGlobal("__ssc_macro_error__", ClosV(Runtime.emptyEnv, -1, env => {
+        val msg = env.headOption match
+          case Some(StrV(s)) => s
+          case Some(v)      => showForPrint(v)
+          case None         => "unsupported restricted quoted macro form"
+        sys.error(s"quoted macro error: $msg")
+      }))
+    if V2PluginRegistry.lookupGlobal("__ssc_quote__").isEmpty then
+      V2PluginRegistry.registerGlobal("__ssc_quote__", ClosV(Runtime.emptyEnv, -1, env => {
+        env.toList match
+          case StrV(name) :: value :: Nil => Done(quotedExpr(name, value))
+          case StrV(name) :: Nil          => Done(quotedExpr(name, quotedNone))
+          case _                          => sys.error("__ssc_quote__(name, value)")
+      }))
+    if V2PluginRegistry.lookupGlobal("__ssc_quote_expr__").isEmpty then
+      V2PluginRegistry.registerGlobal("__ssc_quote_expr__", ClosV(Runtime.emptyEnv, -1, env => {
+        if env.length != 1 then sys.error("__ssc_quote_expr__(value)")
+        Done(env(0))
+      }))
+    if V2PluginRegistry.lookupGlobal("__ssc_splice__").isEmpty then
+      V2PluginRegistry.registerGlobal("__ssc_splice__", ClosV(Runtime.emptyEnv, -1, env => {
+        env.toList match
+          case StrV(_) :: expr :: Nil => Done(exprValue(expr).getOrElse(expr))
+          case expr :: Nil            => Done(exprValue(expr).getOrElse(expr))
+          case _                      => sys.error("__ssc_splice__(name, expr)")
+      }))
+    if V2PluginRegistry.lookupGlobal("Expr").isEmpty then
+      V2PluginRegistry.registerGlobal("Expr", ClosV(Runtime.emptyEnv, -1, env => {
+        if env.length != 1 then sys.error("Expr(value)")
+        Done(quotedExpr("<literal>", env(0)))
+      }))
+    if V2PluginRegistry.lookupGlobal("QuotedContext").isEmpty then
+      V2PluginRegistry.registerGlobal("QuotedContext", DataV("QuotedContext", Vector.empty))
+    V2PluginRegistry.registerFieldNames("Expr", Vector("name", "value"))
+    V2PluginRegistry.registerFieldNames("ScalaScriptTerm", Vector("name", "value"))
     // setHttpServerBackend(name) — already no-op'd in registerBatchRunnerStubs()
     // runAsync { body } — run the body immediately (no async in v2 yet)
     if V2PluginRegistry.lookupGlobal("runAsync").isEmpty then

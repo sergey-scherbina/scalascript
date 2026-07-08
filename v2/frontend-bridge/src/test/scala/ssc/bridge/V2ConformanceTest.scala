@@ -81,6 +81,31 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     super.beforeAll()
     PluginBridge.loadAll()
 
+  test("v2 quoted macro interpreter helper globals run computed bodies") {
+    FrontendBridge.resetState()
+    val src =
+      """inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }
+        |
+        |def plusOneImpl(x: Expr[Int])(using q: QuotedContext): Expr[Int] =
+        |  '{ $x + 1 }
+        |
+        |inline def literalLabel(x: Int): String = ${ literalLabelImpl('x) }
+        |
+        |def literalLabelImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        |  "literal: " + x.asValue.getOrElse("?")
+        |
+        |inline def termName(x: Int): String = ${ termNameImpl('x) }
+        |
+        |def termNameImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        |  x.asTerm.name
+        |
+        |println(plusOne(41))
+        |println(literalLabel(7))
+        |println(termName(5))
+        |""".stripMargin
+    assert(capture(src, None) == "42\nliteral: 7\nx")
+  }
+
   // Dynamically build one test per conformance file that has an expected file.
   locally:
     if !conformanceDir.exists() then
