@@ -711,6 +711,20 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       Remaining known failures in this claim are JVM-only generated-Scala compile
       errors: `effect-transitive-handler` and the cluster/distributed cases where
       local values are inferred/emitted as `Any`.
+      UPDATE 2026-07-08 (`conformance-jvm-cps-any-typing-and-effect-args`,
+      `conformance-jvm-cps-local-unit-effect-cast`): fixed the remaining
+      deterministic JVM-only slice in `df7cfb613`. Root causes: CPS continuations
+      widened untyped vals from known constructors/defs to `Any`; effectful lambdas
+      nested under call argument clauses could bypass CPS emission; and local
+      actor-loop defs declared `Unit` cast unresolved `receive` computations to
+      `Unit`, causing workers to exit before health-check replies. Verification:
+      `scripts/sbtc "backendInterpreter/compile"`, `scripts/sbtc "installBin"`,
+      direct `bin/ssc run-jvm tests/conformance/cluster-connect.ssc` prints
+      `unhealthy nodes: 0`, and
+      `tests/conformance/run.sh --only 'cluster-connect,distributed-failure-*,distributed-heterogeneous,distributed-shuffle,effect-transitive-handler' --no-memo`
+      passes **6/6**. Next: run the full default conformance gate with the
+      serverless wrapper and either mark this item done or record any newly exposed
+      blockers before release.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

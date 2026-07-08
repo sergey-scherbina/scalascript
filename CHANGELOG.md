@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: JVM CPS cluster/distributed slice fixed
+
+The remaining deterministic JVM-only conformance failures in
+`green-main-conformance-gating` now pass. JVM CPS codegen preserves typed
+continuations for known constructor/def results, emits nested effectful call args
+through CPS, and no longer casts local effectful `Unit` actor loops before
+`runActors` can schedule them. Targeted gate:
+`tests/conformance/run.sh --only 'cluster-connect,distributed-failure-*,distributed-heterogeneous,distributed-shuffle,effect-transitive-handler' --no-memo`
+is **6/6 green**.
+
+---
+
 ## 2026-07-08 — conformance runner is now bloop-serverless (tests/conformance/run.sh)
 
 The conformance runner was the last one still documented as `scala-cli tests/conformance/run.sc`,

@@ -12,6 +12,53 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## conformance-jvm-cps-local-unit-effect-cast — `fixed` (2026-07-08)
+
+- **Found by:** codex, while refreshing `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `tests/conformance/run.sh --only 'cluster-connect' --no-memo`.
+- **Observed:** the JVM lane compiled and ran, but printed
+  `unhealthy nodes: 3` instead of `unhealthy nodes: 0`.
+- **Root cause:** a local actor loop declared as `def workerLoop(): Unit =
+  receive { ... }` inside a CPS block emitted as
+  `Actor.receive_(...).asInstanceOf[Unit]`. The cast discarded the unresolved Free
+  computation before `runActors` could schedule it, so the worker actors exited
+  immediately and never answered the health-check messages.
+- **Fix:** `df7cfb613` makes local CPS-emitted defs follow the same result-type
+  rule as top-level effectful defs: preserve the declared return type only when
+  the def handles its own effects; otherwise return the unresolved computation as
+  `Any`.
+- **Verification:** `bin/ssc run-jvm tests/conformance/cluster-connect.ssc` prints
+  `unhealthy nodes: 0`; the full targeted slice
+  `tests/conformance/run.sh --only 'cluster-connect,distributed-failure-*,distributed-heterogeneous,distributed-shuffle,effect-transitive-handler' --no-memo`
+  passes 6/6.
+
+## conformance-jvm-cps-any-typing-and-effect-args — `fixed` (2026-07-08)
+
+- **Found by:** codex, while refreshing `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `tests/conformance/run.sh --only 'cluster-connect,distributed-failure-*,distributed-heterogeneous,distributed-shuffle,effect-transitive-handler' --no-memo`.
+- **Observed:** the JVM lane failed during generated Scala compilation. Examples:
+  `effect-transitive-handler` widened a handled value to `Any` before `+`;
+  cluster/distributed cases widened `cluster` to `Any` before method calls; and
+  `DatasetWirePartition(_t197, _t198)` passed `Any` where the constructor expects
+  `Int` and `Vector[JsonValue]`.
+- **Root cause:** the CPS transform only preserved explicit val ascriptions.
+  Untyped vals bound from known dep constructors/defs were passed to
+  continuations as `Any`; casts for known constructors did not include the JVM
+  runtime `DatasetWirePartition` case; and effectful lambdas nested under call
+  argument clauses could stay raw because effect detection only recursed through
+  direct `Term` children and intrinsic dispatch emitted `.syntax` args.
+- **Fix:** `df7cfb613` infers CPS val continuation types from known dep class/def
+  result signatures, qualifies dep type names at generated call sites, adds the
+  `DatasetWirePartition` external constructor signature, recursively detects
+  effects through non-`Term` tree nodes, and routes effectful call args through
+  CPS emission.
+- **Verification:** `scripts/sbtc "backendInterpreter/compile"`,
+  `scripts/sbtc "installBin"`, and
+  `tests/conformance/run.sh --only 'cluster-connect,distributed-failure-*,distributed-heterogeneous,distributed-shuffle,effect-transitive-handler' --no-memo`
+  pass.
+
 ## conformance-effects-choose-one-shot — `fixed` (2026-07-08)
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
