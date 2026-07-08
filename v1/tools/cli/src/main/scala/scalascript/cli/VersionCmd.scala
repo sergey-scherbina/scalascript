@@ -10,7 +10,7 @@ final class VersionCmd extends CliCommand:
   def name: String = "version"
   override def aliases: List[String] = List("--version", "-V")
   override def summary: String = "Print the ssc version"
-  override def category: String = "Other"
+  override def category: String = "Help"
 
   def run(args: List[String]): Unit =
     val v = Option(getClass.getPackage)
