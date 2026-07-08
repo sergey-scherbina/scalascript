@@ -125,6 +125,22 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       (record if no such cases are present). Done-when: targeted parity is stable
       across repeated runs, docs/baseline record the result, and no sibling-claimed
       files are modified.
+- [ ] **v2-prod-post-p3-baseline** — refresh the authoritative production parity
+      baseline after `a0f032c15` (real v2 web server + rozum family parity) and
+      `d8e0ecee4` (invoice email stable output). Why: `v2-prod-default-switch`
+      cannot be judged from the older 54/88 + transient-invoice baseline, and the p3
+      commit reports a materially different gate: **55/85 identical (65%) · 9
+      mismatch · 1 v2-error** before the invoice-output cleanup. How: in this
+      worktree only, build with `scripts/sbtc "installBin"` (explicit `cd` to the
+      worktree), then run
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`. Record the
+      exact counts and the remaining production blockers in `v2/output-parity-baseline.md`,
+      `specs/v2-full-compat.md`, and this SPRINT item; add a CHANGELOG entry. Do not
+      edit `scripts/v2-output-parity`, `v2/frontend-bridge/**`, or
+      `v2/plugin-bridge/**` in this slice; if the run exposes a new code bug, file it
+      in `BUGS.md` and queue a separate fix. Done-when: the post-p3 full-corpus
+      result is reproducible from one command and the next action is clear:
+      either claim a concrete remaining blocker or proceed to `v2-prod-corpus-scope`.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected
