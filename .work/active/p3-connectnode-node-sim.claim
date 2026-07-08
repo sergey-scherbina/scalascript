@@ -1,6 +1,6 @@
 feature/p3-connectnode-node-sim 2026-07-08T22:27:51Z
 agent: codex
-heartbeat: 2026-07-08T22:27:51Z
-status: not-started
-done-so-far:
-next: create worktree, write committed spec for local connectNode simulation, then reproduce the distributed example gap
+heartbeat: 2026-07-08T22:28:13Z
+status: in-progress
+done-so-far: worktree created
+next: write committed spec for local connectNode simulation, then reproduce the distributed example gap
