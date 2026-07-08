@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T11:11:48Z
+heartbeat: 2026-07-08T11:17:53Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-green-main-conformance-gating
-next: run current full conformance, classify/fix remaining default-lane failures
+done-so-far: worktree created; installBin passed; partial full conformance reproduced actors-supervision INT, cluster/distributed JVM, effect-transitive-handler JVM, effects INT, and http-client INT/JS failures before hanging at http-client
+next: isolate http-client with --only, then split/fix or reclassify remaining conformance clusters
