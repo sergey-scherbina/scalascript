@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T12:17:04Z
+heartbeat: 2026-07-08T12:25:24Z
 status: in-progress
-done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS Any-typing, nested effect args, and local Unit actor loop fixes pushed in df7cfb613/54c0dc02f; targeted cluster/distributed/effect-transitive slice passes 6/6
-next: run the full default conformance gate with tests/conformance/run.sh --no-memo; mark done/release only if green, otherwise record the next deterministic blocker
+done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; full gate after p3 rebase is still red: targeted failed globs show 4 passed / 20 failed out of 24
+next: fix conformance-js-json-stringify-missing-global first, verify json-read, then continue JS product-rendering and remaining INT/JVM clusters
