@@ -1,6 +1,6 @@
 feature/v2-prod-js-dsl-conformance 2026-07-08T10:26:49Z
 agent: codex
-heartbeat: 2026-07-08T10:27:08Z
+heartbeat: 2026-07-08T10:31:33Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-prod-js-dsl-conformance
-next: reproduce JS lane failure, inspect generated JS/string char predicate semantics
+done-so-far: worktree created; installBin passed; dsl* conformance reproduced JS failure; generated JS shows _Char compared with one-char string through _arith ordering
+next: patch JS runtime char ordering in core-dispatch.mjs, rerun dsl* conformance
