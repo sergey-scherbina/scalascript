@@ -1573,11 +1573,17 @@ object FrontendBridge:
         val overrides: Map[String, CT] = rawArgs.collect {
           case Term.Assign(Term.Name(n), rhs) => n -> convertExpr(rhs, scope)
         }.toMap
+        val positional = rawArgs.collect {
+          case e if !e.isInstanceOf[Term.Assign] => convertExpr(wrapIfPH(e), scope)
+        }
         fieldRegistry.get(name) match
           case Some(fields) =>
             val ctorDefs = defaultParams.get(name)
             CT.Ctor(name, fields.zipWithIndex.map { case (fn, i) =>
-              overrides.getOrElse(fn, ctorDefs.flatMap(defs => defs.lift(i).flatten).getOrElse(CT.Lit(Const.CUnit)))
+              overrides
+                .get(fn)
+                .orElse(positional.lift(i))
+                .getOrElse(ctorDefs.flatMap(defs => defs.lift(i).flatten).getOrElse(CT.Lit(Const.CUnit)))
             }.toList)
           case None =>
             // Unknown ctor with named args — extract RHS in call order (best-effort)

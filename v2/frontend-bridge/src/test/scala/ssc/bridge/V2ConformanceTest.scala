@@ -106,6 +106,30 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     assert(capture(src, None) == "42\nliteral: 7\nx")
   }
 
+  test("v2 preserves positional constructor args when named args are mixed in") {
+    FrontendBridge.resetState()
+    val src =
+      """case class AgentEvent(kind: String, text: String = "", stop: String = "")
+        |
+        |val event = AgentEvent("TextDelta", text = "hello")
+        |println(event.kind + ":" + event.text + ":" + event.stop)
+        |""".stripMargin
+    assert(capture(src, None) == "TextDelta:hello:")
+  }
+
+  test("v2 dispatches AgentSchemaInstance.decode method body") {
+    FrontendBridge.resetState()
+    val src =
+      """case class AgentSchemaInstance(parametersJson: String, decodeAny: String => Any):
+        |  def decode(argsJson: String): Any =
+        |    decodeAny(argsJson)
+        |
+        |val schema = AgentSchemaInstance("{}", argsJson => "decoded:" + argsJson)
+        |println(schema.decode("payload"))
+        |""".stripMargin
+    assert(capture(src, None) == "decoded:payload")
+  }
+
   // Dynamically build one test per conformance file that has an expected file.
   locally:
     if !conformanceDir.exists() then

@@ -1907,6 +1907,10 @@ object Prims:
           fields.headOption.getOrElse(StrV("<expr>"))
         case (DataV("ScalaScriptTerm", fields), "value", Nil) =>
           fields.lift(1).getOrElse(UnitV)
+        case (DataV("AgentSchemaInstance", fields), "decode", List(argsJson)) =>
+          fields.lift(1) match
+            case Some(fn: ClosV) => callClos(fn, Array(argsJson))
+            case _               => DataV("Stub", Vector(StrV("AgentSchemaInstance.decode")))
         // ── Option methods ───────────────────────────────────────────────────────
         case (DataV("Some", Seq(v)), "get", Nil) => v
         case (DataV("None", _), "get", Nil) => sys.error("None.get")
