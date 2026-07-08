@@ -1,6 +1,6 @@
 feature/p3-connectnode-node-sim 2026-07-08T22:27:51Z
 agent: codex
-heartbeat: 2026-07-08T22:35:26Z
+heartbeat: 2026-07-08T22:46:20Z
 status: in-progress
-done-so-far: spec commits e98fee085 and 22d98e00c pushed; baseline word-count timeout reproduced
-next: implement localLoopbackCluster helper in shuffle/index and update offline distributed examples
+done-so-far: localLoopbackCluster and offline example rewrites are in the worktree; direct word-count now reaches worker actors but workers still die with v2 json lookup(v, key)
+next: isolate the remaining v2 tuple/pattern lowering issue in the map-reduce worker path, then rerun direct smoke and distributed conformance
