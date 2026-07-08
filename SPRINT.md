@@ -34,8 +34,15 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
 - [x] **p4-kernel-green** — DONE 2026-07-08: floatStr-семантика (целые даблы сворачиваются,
       nan/inf lowercase) + Cons/Nil→List(…) рендер выровнены на VM-эталон во всех трёх
       кодгенах. **check.sh: 24/24 ALL GREEN.**
-- [ ] **p4-ssc1c-corpus-probe** — прогнать ssc1c по терминирующему корпус-сабсету: сколько
-      примеров вообще компилится в CoreIR; классифицировать разрывы (фичи vs plugin-поверхность).
+- [x] **p4-corpus-probe** — DONE 2026-07-08. Ключевой сдвиг: ssc1c (self-hosted KC-инструмент)
+      для лейнов НЕ нужен — **FrontendBridge и есть .ssc→CoreIR компилятор: 194/195 корпуса
+      конвертится** (запускается и без scala-cli: `java -cp bin/lib/jars ssc.cli run`).
+      Перепись примов бридж-эмиссии (31 отличный прим): __arith__ 12k, __method__ 10k,
+      fieldAt 8.6k, __isTag__ 1.7k, __mk_map__ 1.3k, global.reg, __autoPrint__, cell.*, __try__,
+      __sqlExec__… — ВСЕ реализованы в ssc.Prims/Runtime (пребилт v2-core.jar). СЛЕДСТВИЕ для
+      p4-jvm-lane-bytecode: ASM-кодген компилирует ТОЛЬКО структуру (lam/app/let/match/seq/
+      letrec/ctor/if), все примы = invokestatic в ssc.Prims; plugin-поверхность = тот же
+      PluginBridge.loadAll() на старте. Перф — из компиляции структуры (циклы/вызовы/матчи).
 - [ ] **p4-jvm-lane-bytecode** — РЕШЕНИЕ (2026-07-08, обсуждено с владельцем): CoreIR → JVM
       байткод НАПРЯМУЮ через ASM 9.7 (уже в deps), in-process, БЕЗ scala-cli/bloop/scalac.
       Рантайм НЕ генерится: байткод статически линкуется против пребилт scalascript-v2-core.jar
