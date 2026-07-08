@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T16:28:20Z
+heartbeat: 2026-07-08T16:32:38Z
 status: in-progress
-done-so-far: root sbt test blockers recorded; command-registry blocker fixed and pushed in 631ed8052/6f212f712
-next: fix root-test-sealed-extension-option-dispatch; verify backendInterpreter targeted test plus affected conformance
+done-so-far: command-registry and sealed-extension root blockers fixed and pushed through a166cf8cd
+next: reproduce root-test-cluster-cli-runtime-readiness with targeted cli/testOnly family
