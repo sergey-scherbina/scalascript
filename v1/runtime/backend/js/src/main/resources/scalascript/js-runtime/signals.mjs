@@ -293,6 +293,7 @@ function _ssc_ui_renderBody(view) {
           if (!h || typeof h !== 'object') continue;
           if (h._type === '_ToggleSignal' && h.s) { collectSig(h.s); aStr += ` data-ssc-toggle="${h.s.id}"`; }
           else if (h._type === '_SetSignal'  && h.s) { collectSig(h.s); aStr += ` data-ssc-set="${h.s.id}" data-ssc-set-val="${_esc(JSON.stringify(h.v))}"`; }
+          else if (h._type === '_IncSignal'  && h.s) { collectSig(h.s); aStr += ` data-ssc-inc="${h.s.id}"`; }
           else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
           else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && (h.url || h.urlSig)) {
             // Scope B.4+ — body may be a formBody descriptor (assemble from named
@@ -561,6 +562,12 @@ function _ssc_ui_mount(sigs) {
     var id  = el.getAttribute('data-ssc-set');
     var val = JSON.parse(el.getAttribute('data-ssc-set-val'));
     el.addEventListener('click', function() { _set(id, val); });
+  });
+  // button incSignal — increment an Int signal by 1 on click (the ↻ refresh buttons). Was missing:
+  // the _IncSignal handler produced no attribute and no listener, so every incSignal button was dead.
+  document.querySelectorAll('[data-ssc-inc]').forEach(function(el) {
+    var id = el.getAttribute('data-ssc-inc');
+    el.addEventListener('click', function() { _set(id, ((_sv[id] || 0) | 0) + 1); });
   });
   // text input change
   document.querySelectorAll('[data-ssc-change]').forEach(function(el) {

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — std/ui: emit-spa wires incSignal (↻ refresh buttons were dead)
+
+The button-handler serialization in the emit-spa mount had cases for _ToggleSignal/_SetSignal/
+_InputChange/_FetchAction but NONE for _IncSignal — so `actionButton(incSignal(sig))` produced a
+button with no data attribute and no click listener: every incSignal button (↻ refresh across an
+emit-spa app) did nothing. Fix: emit `data-ssc-inc="<id>"` and a mount handler wiring click →
+`_set(id, (sv|0)+1)`, mirroring _SetSignal. (Interpreter/server-render path already worked via
+EventHandler.IncrementSignal; this was the emit-spa gap only.)
+
+---
+
 ## 2026-07-08 — test: v1 cluster fixture nodes stay on v1 under v2 default
 
 Cluster CLI integration tests now start their actor-cluster node fixture
