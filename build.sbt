@@ -107,7 +107,9 @@ lazy val v2Core = project
 // known limitation documented in v2/plugin-bridge/src/.../PluginBridge.scala.
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
-  .dependsOn(v2Core, backendSpi, valueData, core,
+  // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
+  // driven from the v2 bridge — Phase-3 `run --v2` must serve for real.
+  .dependsOn(v2Core, backendSpi, valueData, core, backendInterpreterServer,
     loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin,
     clockEffectPlugin, envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
     httpPlugin, sqlPlugin, frontendPlugin, wsPlugin, fetchPlugin, contentPlugin,

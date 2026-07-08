@@ -227,12 +227,16 @@ object PluginBridge:
     // Override serve/emit/mount with no-op stubs: batch runner has no web server.
     // These are called at end of program; silently succeeding avoids plugin arg-type errors.
     import V2Value.*
-    V2PluginRegistry.registerGlobal("serve",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
-    V2PluginRegistry.registerGlobal("emit",   ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
-    V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
-    registerBatchRunnerStubs()
+    // NB: serve/emit/mount stubbing + batch-runner stubs are BATCH-ONLY —
+    // `ssc run --v2` must run REAL servers (Phase-3: the switch can't ship a
+    // runner that silently no-ops serve). BatchCli calls installBatchStubs()
+    // explicitly after loadAll.
     registerFsBuiltins()
     registerDatasetNatives()
+    // Web server bridge registers AFTER the plugin loop so route/serveAsync/
+    // stop WIN over same-named http-plugin intrinsics (same discipline as
+    // registerActors below).
+    registerWebServer()
     // Actor runtime registers LAST so its spawn/receive/self/exit/runActors
     // globals win over same-named v1 plugin intrinsics (a bridged os 'exit'
     // used to shadow the actor exit and System.exit(0) killed the batch JVM).
@@ -445,6 +449,15 @@ object PluginBridge:
         val lines = try src.getLines().toList.map(StrV(_): V2Value) finally src.close()
         dsOf(lines)
       case _ => sys.error("Dataset.fromFile(path: String): Dataset[String]") })
+
+  /** BATCH-ONLY overrides: no web server in the corpus runner. Called by
+   *  BatchCli after loadAll(); `ssc run --v2` keeps the real plugin natives. */
+  def installBatchStubs(): Unit =
+    import V2Value.*
+    V2PluginRegistry.registerGlobal("serve",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    V2PluginRegistry.registerGlobal("emit",   ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    V2PluginRegistry.registerGlobal("mount",  ClosV(Runtime.emptyEnv, -1, _ => Done(UnitV)))
+    registerBatchRunnerStubs()
 
   private def registerBatchRunnerStubs(): Unit =
     import V2Value.*
@@ -1586,7 +1599,18 @@ object PluginBridge:
           val sv = map.getOrElse(key, null)
           if sv != null then V2Value.DataV("Some", Vector(V2Value.StrV(sv)))
           else V2Value.DataV("None", Vector.empty)
-        case _ => V2Value.DataV("Stub", Vector.empty)  // stub: .get on unknown/Op value
+        // Named-field instance objects (v1 InstanceV riding as NamedMethodObj —
+        // e.g. std/agent's parsed chat message): .get(key) reads the FIELD.
+        case V2Value.ForeignV(nmo: ssc.Value.NamedMethodObj) if args.length >= 3 =>
+          val key = args(2) match { case V2Value.StrV(s) => s; case v => v.toString }
+          val r = nmo.getField(key).getOrElse(V2Value.DataV("None", Vector.empty))
+          if System.getenv("SSC_DEBUG_DISPATCH") != null then
+            System.err.println(s"[nmo.get] key=$key -> ${r.getClass.getSimpleName} inner=${r match { case V2Value.ForeignV(h) => h.getClass.getName; case _ => "-" }}")
+          r
+        case other =>
+          if System.getenv("SSC_DEBUG_DISPATCH") != null then
+            System.err.println(s"[__method__.get] recv=${other.getClass.getSimpleName} inner=${other match { case V2Value.ForeignV(h) => h.getClass.getName; case _ => "-" }}")
+          V2Value.DataV("Stub", Vector.empty)  // stub: .get on unknown/Op value
       else sys.error(s"__method__.get: too few args")
     })
     V2PluginRegistry.register("__method__.put", args => {
@@ -1826,6 +1850,61 @@ object PluginBridge:
    *  runToList(). Relies on Op statement-threading (84503577e) for emits in
    *  statement position. */
   private final class StreamComplete extends RuntimeException
+  /** route/serveAsync/stop — the REAL v1 web server driven from v2
+   *  (Phase-3: `ssc run --v2` on a route() program must serve for real).
+   *  Handlers are v2 closures wrapped as v1 NativeFnV (v2ToV1); the route
+   *  registry + InterpreterHttpHandler invoke them via callValue, which is
+   *  interpreter-state-free for NativeFnV — a minimal Interpreter instance
+   *  satisfies the registry's interp parameter. serveAsync BLOCKS until the
+   *  socket is bound (onBound latch) so a client in the next statement can
+   *  connect immediately. */
+  private lazy val routeInterp = new scalascript.interpreter.Interpreter()
+  private def registerWebServer(): Unit =
+    import V2Value.*
+    def doRegisterRoute(method: V2Value, path: V2Value, h: V2Value): Unit =
+      (method, path, h) match
+        case (StrV(m), StrV(pth), c: ClosV) =>
+          scalascript.server.Routes.register(m, pth, v2ToV1(c), routeInterp)
+        case _ => sys.error("route(method, path, handler)")
+    V2PluginRegistry.registerGlobal("route", ClosV(Runtime.emptyEnv, -1, env => {
+      // Both call shapes: route(m, p, h) and CURRIED route(m, p) { h }
+      if env.length >= 3 then { doRegisterRoute(env(0), env(1), env(2)); Done(UnitV) }
+      else
+        val m = env(0); val pth = env(1)
+        Done(ClosV(Runtime.emptyEnv, 1, env2 => { doRegisterRoute(m, pth, env2.last); Done(UnitV) }))
+    }))
+    V2PluginRegistry.registerGlobal("serveAsync", ClosV(Runtime.emptyEnv, -1, env => {
+      val port = env(0) match { case IntV(n) => n.toInt; case _ => 8080 }
+      val bound = new java.util.concurrent.CountDownLatch(1)
+      // onBound fires BEFORE the banner prints (WebServer.start:132 vs 135) —
+      // waiting on the bind alone raced the banner with the caller's next
+      // println. Count the three banner lines through a log wrapper so
+      // serveAsync returns only after the banner is fully out (v1 ordering).
+      val bannerDone = new java.util.concurrent.CountDownLatch(3)
+      val logWrap = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true) {
+        override def println(s: String): Unit = {
+          Console.out.println(s)
+          Console.out.flush()
+          bannerDone.countDown()
+        }
+      }
+      val th = new Thread(() => {
+        try scalascript.server.WebServer.start(port, ".", logWrap, onBound = () => bound.countDown())
+        catch case e: Throwable =>
+          System.err.println(s"serveAsync: ${e.getMessage}")
+          bound.countDown(); while bannerDone.getCount > 0 do bannerDone.countDown()
+      }, "ssc-v2-web")
+      th.setDaemon(true)
+      th.start()
+      bound.await(10, java.util.concurrent.TimeUnit.SECONDS)
+      bannerDone.await(2, java.util.concurrent.TimeUnit.SECONDS)
+      Done(UnitV)
+    }))
+    V2PluginRegistry.registerGlobal("stop", ClosV(Runtime.emptyEnv, -1, _ => {
+      try scalascript.server.WebServer.stop() catch case _: Throwable => ()
+      Done(UnitV)
+    }))
+
   /** runAsync { body } / runAsyncParallel { body } — Async effect runners
    *  (async-demo, async-parallel-demo). Ops: async(thunk) → future handle,
    *  await(f) → join, delay(ms), parallel(List[thunk]) → List[result] — run

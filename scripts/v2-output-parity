@@ -43,7 +43,8 @@ run_one() { # $1=file  $2=extra-flag(--v2 or empty)
     # $SSC is a command (unquoted so "java -jar ssc.jar" word-splits).
     out=$(timeout "${PARITY_TIMEOUT:-45}" $SSC run $2 "$1" 2>/dev/null); rc=$?
     echo "$rc" > "$RC_FILE"
-    printf '%s' "$out" | grep -vE '^NOTE: Picked up'
+    # normalize random server ports so real-server banners can byte-match
+    printf '%s' "$out" | grep -vE '^NOTE: Picked up' | sed -E 's#localhost:[0-9]+#localhost:PORT#g'
   else
     out=$(timeout "${PARITY_TIMEOUT:-180}" sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null); rc=$?
     echo "$rc" > "$RC_FILE"
@@ -80,7 +81,16 @@ for f in "${FILES[@]}"; do
     # stream); no output-equality signal without a driver. Not a v2 gap.
     printf '%-38s %s\n' "$name" "· skip (long-running: v1 timeout)"; longrun_skip=$((longrun_skip+1)); continue
   fi
-  v2=$(run_one "$f" "--v2")
+  # Fixed-port server examples: the v1 process/socket may still be draining
+  # when the v2 lane starts — run --v2 against a temp copy with port+1
+  # (the localhost:PORT normalization keeps outputs comparable).
+  v2f="$f"
+  if grep -qE '^val port = [0-9]+' "$f"; then
+    v2f=$(mktemp -t sscparity).ssc
+    sed -E 's/^val port = ([0-9]+)/val port = \1 + 1/' "$f" > "$v2f"
+  fi
+  v2=$(run_one "$v2f" "--v2")
+  [ "$v2f" != "$f" ] && rm -f "$v2f"
   # NB: "both empty" means the program fails/prints nothing on BOTH runners (e.g. needs a --plugin the
   # default `ssc run` doesn't load) — that is NOT a v2 gap, so it must not count as an identical match.
   if [ -z "$v1" ] && [ -z "$v2" ]; then

@@ -9,6 +9,7 @@ private final class BatchExit(val code: Int) extends RuntimeException(s"exit($co
 
 @main def batchCli(args: String*): Unit =
   PluginBridge.loadAll()
+  PluginBridge.installBatchStubs()
   // A program's exit(0) must not kill the batch JVM (actors-pingpong ends with
   // exit() — this silently killed sbt and looked like a "hang"). Exit code 0
   // counts as PASS; nonzero as FAIL.
@@ -43,7 +44,7 @@ private final class BatchExit(val code: Int) extends RuntimeException(s"exit($co
   val timeoutMs = sys.env.get("SSC_BATCH_TIMEOUT_MS").flatMap(_.toLongOption).getOrElse(60000L)
   for f <- files do
     val decl = declaredBackend(f)
-    if decl.contains("jvm") then
+    if decl.exists(d => Set("jvm", "spark", "js", "rust", "wasm").exists(d.contains)) then
       println(s"SKIP ${f.getName} (backend: ${decl.get})")
       skip += 1
     else {

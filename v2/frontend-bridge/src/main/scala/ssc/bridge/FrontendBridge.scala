@@ -412,7 +412,7 @@ object FrontendBridge:
   def convertSource(src0: String, fileDir: Option[java.io.File] = None): Program =
     // Quoted-macro expansion pre-pass (v1 MacroCodegen) — the bridge has no
     // conversion for splice syntax, so expand call sites in the TEXT first.
-    val src = PluginBridge.expandMacrosInSource(src0, fileDir)
+    val src = if System.getenv("SSC_NO_MACRO_PREPASS") != null then src0 else PluginBridge.expandMacrosInSource(src0, fileDir)
     // Expose the parsed document to content-introspection natives
     // (contentBlock/contentData read markdown tables & yaml fences from it).
     PluginBridge.setDocumentFromSource(src)
@@ -502,6 +502,24 @@ object FrontendBridge:
     var i = 0
     while i < code.length do
       code.charAt(i) match
+        // TRIPLE-QUOTED strings copy verbatim with NO escape processing — the
+        // single-quote scanner treated \" inside them as an escape, shifted
+        // its quote pairing, and rewrote [1,2] INSIDE a later string literal
+        // into List(1,2) (rozum-agent's response bodies came out mangled).
+        case '"' if i + 2 < code.length && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' =>
+          sb.append("\"\"\""); i += 3
+          var tdone = false
+          while i < code.length && !tdone do
+            if code.charAt(i) == '"' && i + 2 < code.length
+               && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' then
+              // consume ALL consecutive quotes (Scala: """…x"""" ends with a quote)
+              var q = 0
+              while i + q < code.length && code.charAt(i + q) == '"' do q += 1
+              var k = 0
+              while k < q do { sb.append('"'); k += 1 }
+              i += q; tdone = true
+            else
+              sb.append(code.charAt(i)); i += 1
         case '"' =>
           // Copy string literal verbatim
           sb.append('"'); i += 1
@@ -807,6 +825,7 @@ object FrontendBridge:
    *  the fence and textually wrap its last statement in __autoPrint__(…) when
    *  that statement is an EXPRESSION (not a definition/val/import). */
   private def autoPrintLast(code: String): String =
+    if System.getenv("SSC_NO_AUTOPRINT") != null then return code
     try
       given Dialect = Scala3
       // Parse the same two ways parseStats does, but keep track of the OFFSET
