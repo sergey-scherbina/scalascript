@@ -61,6 +61,7 @@ object FrontendBridge:
   /** Reset all per-compilation mutable state.  Call between batch examples to prevent
    *  field-registry pollution from one example affecting the next. */
   def resetState(): Unit =
+    opAnfNeeded = true
     PluginBridge.clearDbs()
     fieldRegistry.clear()
     // Mirror is a built-in type with known fields at fixed indices.
@@ -448,8 +449,17 @@ object FrontendBridge:
       Some(CT.Ctor("Nil", Nil))           // security
     )
     parseDatabasesFromFrontmatter(src)
+    val merged = resolveImportsCode(src, fileDir)
+    // Op-arg lifting is only NEEDED by programs where a raw effect Op can
+    // materialize: typed `handle` programs / `effect` declarations (context-based
+    // runners intercept ops BEFORE an Op value is built — viaCtx in Runtime's
+    // effect dispatch). Effect-free programs skip the pass entirely so its Let
+    // wrapping costs nothing on hot loops (pattern-match-heavy went 3-4x slower
+    // with the pass unconditionally on). False positives (the words in prose)
+    // only re-enable the pass — a perf tax, never a semantics change.
+    opAnfNeeded = merged.contains("effect ") || merged.contains("handle")
     convertStats(parseStats(desugarListLiterals(
-      stripExternDecls(preprocessAtAnnotations(resolveImportsCode(src, fileDir))))))
+      stripExternDecls(preprocessAtAnnotations(merged)))))
 
   /** Strip ScalaScript-specific `extern` declarations that scalameta cannot parse.
    *  Handles extern def/val (single or multi-line via open parens) and
@@ -902,6 +912,10 @@ object FrontendBridge:
 
   // ── Top-level stats → Program ─────────────────────────────────────────────────
 
+  /** Whether convertStats applies OpAnf (set per-conversion by convertSource;
+   *  safe default ON for standalone convertStats/convertTrees callers). */
+  private var opAnfNeeded: Boolean = true
+
   def convertStats(stats: List[Stat]): Program =
     registerTypes(stats)  // first pass: populate field registry
 
@@ -1122,7 +1136,13 @@ object FrontendBridge:
     val entry =
       if entryStmts.nonEmpty then convertBlock(entryStmts, Nil, topLevel = true)
       else CT.Lit(Const.CUnit)
-    Program(defs, entry)
+    // Op-argument lifting (bridged lane only — see OpAnf): arguments that may
+    // evaluate to an unresolved effect Op are Let-bound so the kernel's
+    // Let-threading defers the consumer into the Op's continuation. Gated:
+    // convertSource turns it off for effect-free sources; standalone
+    // convertStats/convertTrees callers keep the safe default (on).
+    val prog = Program(defs, entry)
+    if opAnfNeeded then OpAnf.lift(prog) else prog
 
   /** Standard prelude defs injected into every converted program.
    *  Maps common v1 scalascript globals to v2 primitives. */
