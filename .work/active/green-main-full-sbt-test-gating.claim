@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T19:04:47Z
+heartbeat: 2026-07-08T19:11:43Z
 status: in-progress
-done-so-far: bounded root test completed without OOM, but exposed backend JsGenStdImportTest row-post JS runtime failure and cli fork exit-after-green failure
-next: record both blockers in BUGS/SPRINT, then fix backend JS runtime contract and isolate cli fork exit
+done-so-far: rowpost JsGen focus test is green after assertion update; ElectronJvmRestCliTest is green after typed-client smoke grep update
+next: run full cli/test, then affected conformance and root test if targeted gates stay green
