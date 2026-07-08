@@ -34,6 +34,11 @@ private[interpreter] object DispatchRuntime:
       case _: Value.MapV    => "Map"
       case _                => null
 
+  private def isOptionValue(value: Value): Boolean =
+    value match
+      case _: Value.OptionV => true
+      case _                => false
+
   private def hasBuiltinMemberBeforeExtension(recv: Value, name: String): Boolean =
     recv match
       case _: Value.OptionV =>
@@ -788,9 +793,10 @@ private[interpreter] object DispatchRuntime:
       case "getOrElse" => opt match
         case Some(v) => Pure(v)
         case None    => Pure(arg)
-      case "orElse"    => opt match
+      case "orElse" if isOptionValue(arg) => opt match
         case Some(_) => Pure(recv)
         case None    => Pure(arg)
+      case "orElse" => dispatchFallback(recv, name, arg :: Nil, env, interp)
       case "contains"  => Computation.pureBool(opt.contains(arg))
       case "map"       => opt match
         case None    => Computation.PureNone
@@ -2407,11 +2413,11 @@ private[interpreter] object DispatchRuntime:
           case Some(v) => Pure(v)
           case None    => Pure(d)
         case _          => dispatchFallback(recv, name, args, env, interp)
-      case "orElse"    => opt match
-        case Some(_) => Pure(recv)
-        case None    => args match
-          case List(other) => Pure(other)
-          case _           => dispatchFallback(recv, name, args, env, interp)
+      case "orElse"    => args match
+        case List(other) if isOptionValue(other) => opt match
+          case Some(_) => Pure(recv)
+          case None    => Pure(other)
+        case _ => dispatchFallback(recv, name, args, env, interp)
       case "map"       => args match
         case List(f) => opt match
           case None    => Computation.PureNone
