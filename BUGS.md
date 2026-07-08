@@ -12,6 +12,25 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-list-unlist-stack-overflow — `fixed` (2026-07-08)
+
+- **Found by:** codex, during `v2-prod-plugin-boundary` production parity work.
+- **Symptom:** `examples/dataset-parallel-sum.ssc` was the only remaining full-parity
+  v2-error. Direct v2 execution crashed before stdout with `StackOverflowError`.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `bin/ssc run --v2 examples/dataset-parallel-sum.ssc`.
+- **Root cause:** `Prims.unlistPub` recursively converted ScalaScript `Cons/Nil`
+  lists to Scala `List`; `Dataset.fromList(List.range(1, 100_001))` crosses that
+  boundary with 100k elements and overflowed the JVM stack. `Prims.listOf` also used
+  `foldRight`, which had the same large-list stack-risk in the opposite direction.
+- **Fix (44f3d4a24):** `Prims.unlistPub` and `Prims.listOf` are iterative. The stale
+  `dataset-parallel-int` expected snapshot was updated to match the numeric sorted
+  output already produced by both v1 and v2 direct runs.
+- **Verification:** `dataset-parallel-sum.ssc` parity is MATCH; `scala-cli
+  tests/conformance/run.sc -- --only 'dataset*' --no-memo` passes **15/15**;
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/dataset*.ssc`
+  has **0 v2-error**; full corpus has **0 v2-error**.
+
 ## v2-content-document-context — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the `v2-production-readiness` output-parity baseline.

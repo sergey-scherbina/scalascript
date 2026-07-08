@@ -82,6 +82,17 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       make that path finish within the parity watchdog or record a defensible lane/scope
       classification. Done-when: the example is MATCH or intentionally excluded from
       the production-required gate with a recorded reason and follow-up.
+      FIRST SUBSLICE RESULT: DONE 2026-07-08 (44f3d4a24). The v2 side was not slow;
+      it crashed with `StackOverflowError` in recursive `Prims.unlistPub` while
+      converting the 100k-element `List.range` passed to `Dataset.fromList`.
+      `unlistPub` and `listOf` are now iterative. Verification:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/dataset-parallel-sum.ssc`
+      => MATCH; `scala-cli tests/conformance/run.sc -- --only 'dataset*' --no-memo`
+      => **15 passed, 0 failed**; `examples/dataset*.ssc` parity has **0 v2-error**.
+      Full corpus after the fix: **54/88 identical · 11 mismatch · 0 v2-error ·
+      23 v1-only**; the extra mismatch was a transient `invoice-email` generated
+      byte-count mismatch, and an immediate targeted rerun of `invoice-email` +
+      `dataset-parallel-sum` was **2/2 MATCH**.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected

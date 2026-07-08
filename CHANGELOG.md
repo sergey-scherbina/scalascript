@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: dataset parallel sum no longer stack-overflows
+
+`Prims.unlistPub` and `listOf` in the v2 runtime are now iterative, so large
+ScalaScript lists no longer blow the JVM stack while crossing plugin/runtime
+boundaries. This fixes `examples/dataset-parallel-sum.ssc`: full parity now has
+zero v2-error cases, and the affected dataset conformance slice is 15/15 green.
+
+---
+
 ## 2026-07-08 — v2 production: content structured-block parity
 
 `ssc run --v2` now seeds content document/current-section context and imported content
