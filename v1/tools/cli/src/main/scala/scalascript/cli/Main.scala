@@ -1482,6 +1482,7 @@ final class RunCmd extends CliCommand:
     var deviceIdFlag:      Option[String] = None   // --device-id <udid>
     var v1Flag:            Boolean        = false  // --v1 (rollback to the v1 tree-walking interpreter)
     var v2Flag:            Boolean        = false  // --v2 (force the ssc 2.0 VM via FrontendBridge)
+    var bytecodeFlag:      Boolean        = false  // --bytecode (v2 lane compiled to JVM bytecode, Phase 4)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
@@ -1506,6 +1507,7 @@ final class RunCmd extends CliCommand:
         case "--device"                    => deviceFlag   = true
         case "--v1"                        => v1Flag       = true
         case "--v2"                        => v2Flag       = true
+        case "--bytecode"                  => bytecodeFlag = true
         case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
         case "--frontend"         if it.hasNext =>
           val name = it.next()
@@ -1521,6 +1523,11 @@ final class RunCmd extends CliCommand:
 
     // `--v2`: force the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime).
     // Plain default-lane runs reach the same path below unless `--v1` is set.
+    if bytecodeFlag then
+      if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
+      RunV2.runBytecode(fileArgs.toList, Nil)
+      return
+
     if v2Flag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
       RunV2.run(fileArgs.toList, Nil)

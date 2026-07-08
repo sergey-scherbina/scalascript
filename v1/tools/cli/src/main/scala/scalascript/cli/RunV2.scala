@@ -20,6 +20,25 @@ object RunV2:
         case _root_.ssc.Value.UnitV => ()
         case other                  => println(_root_.ssc.Show.show(other))
 
+  /** `ssc run --bytecode` — the Phase-4 jvm lane: the same bridge pipeline,
+   *  but the program compiles to JVM BYTECODE (ASM, in-process defineClass)
+   *  instead of interpreting: structural forms compile, prims delegate to
+   *  ssc.Emit, VM-compiled value-defs interop via Emit.globalsRef. */
+  def runBytecode(files: List[String], argv: List[String]): Unit =
+    loadPluginJars()
+    _root_.ssc.bridge.PluginBridge.loadAll()
+    _root_.ssc.Runtime.argv = argv
+    for file <- files do
+      val f    = new java.io.File(file)
+      val src  = scala.io.Source.fromFile(f).mkString
+      val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
+      val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
+      _root_.ssc.Emit.globalsRef = globals
+      val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
+      _root_.ssc.bytecode.JvmByteGen.runProgram(bytes) match
+        case _root_.ssc.Value.UnitV => ()
+        case other                  => println(_root_.ssc.Show.show(other))
+
   /** Make plugin Backends discoverable to `PluginBridge.loadAll()`'s ServiceLoader.
    *
    *  The `bin/ssc` launcher deliberately keeps plugin jars OFF the startup classpath — they ship as
