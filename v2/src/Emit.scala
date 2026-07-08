@@ -61,6 +61,17 @@ object Emit:
       i += 1
     envP
 
+  /** Self-tail-call frame rebind: the frame is envP ++ args with envP fixed —
+   *  clone and overwrite the arg suffix (the array may be aliased by captured
+   *  closures, so no in-place mutation). Top-level defs have envP empty:
+   *  same-length fast path returns the new args array directly. */
+  def rebind(env: Array[Value], args: Array[Value]): Array[Value] =
+    if env.length == args.length then args
+    else
+      val n = env.clone()
+      System.arraycopy(args, 0, n, n.length - args.length, args.length)
+      n
+
   /** Concatenate the array part of the frame with materialized let-slot values
    *  (closure capture: the compiled code keeps lets in JVM slots; a nested Lam
    *  must see them as env entries). */

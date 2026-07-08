@@ -32,7 +32,7 @@ object JvmByteGen:
     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
     false)
 
-  private final case class Pending(name: String, body: Term)
+  private final case class Pending(name: String, body: Term, selfGlobal: String | Null = null, selfArity: Int = -1)
 
   private final class Gen(val cw: ClassWriter):
     val pending = collection.mutable.Queue.empty[Pending]
@@ -51,6 +51,9 @@ object JvmByteGen:
     def push(): Int = { val s = nextSlot; nextSlot += 1; stack += s; s }
     def pop(n: Int): Unit = stack.remove(stack.length - n, n)
     def slotFor(deBruijn: Int): Int = stack(stack.length - 1 - deBruijn)
+    var selfGlobal: String | Null = null
+    var selfArity: Int = -1
+    var startLabel: Label | Null = null
     def saveSlots(): List[Int] = { val s = stack.toList; stack.clear(); s }
     def restoreSlots(s: List[Int]): Unit = { stack.clear(); stack ++= s }
 
@@ -78,7 +81,7 @@ object JvmByteGen:
       d.body match
         case Term.Lam(ar, body) =>
           val (m, _) = g.defMethods(d.name)
-          g.pending.enqueue(Pending(m, body))
+          g.pending.enqueue(Pending(m, body, selfGlobal = d.name, selfArity = ar))
           installMv.visitLdcInsn(d.name)
           installMv.visitLdcInsn(ar)
           installMv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
@@ -97,22 +100,29 @@ object JvmByteGen:
     // drain pending lam bodies (may enqueue more)
     while g.pending.nonEmpty do
       val pnd = g.pending.dequeue()
-      emitBody(g, pnd.name, pnd.body, paramIsEnv = true)
+      emitBody(g, pnd.name, pnd.body, paramIsEnv = true, selfGlobal = pnd.selfGlobal, selfArity = pnd.selfArity)
 
     cw.visitEnd()
     cw.toByteArray
 
-  private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean): Unit =
+  private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean,
+                       selfGlobal: String | Null = null, selfArity: Int = -1): Unit =
     val desc = if paramIsEnv then s"([L$VAL;)L$VAL;" else s"()L$VAL;"
     val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
+    ctx.selfGlobal = selfGlobal
+    ctx.selfArity = selfArity
     if !paramIsEnv then
       // no env param: slot 0 hosts an empty frame for uniformity
       mv.visitInsn(Opcodes.ICONST_0)
       mv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
       mv.visitVarInsn(Opcodes.ASTORE, 0)
-    gen(body, ctx)
+    // self-tail-calls jump here with a rebound frame in slot 0
+    val startL = new Label()
+    mv.visitLabel(startL)
+    ctx.startLabel = startL
+    gen(body, ctx, tail = true)
     mv.visitInsn(Opcodes.ARETURN)
     mv.visitMaxs(0, 0)
     mv.visitEnd()
@@ -139,7 +149,7 @@ object JvmByteGen:
       new Handle(Opcodes.H_INVOKESTATIC, GEN, methodName, s"([L$VAL;)L$VAL;", false),
       AsmType.getType(s"([L$VAL;)L$VAL;"))
 
-  private def gen(t: Term, ctx: Ctx): Unit =
+  private def gen(t: Term, ctx: Ctx, tail: Boolean = false): Unit =
     val mv = ctx.mv
     t match
       case Term.Lit(c) => c match
@@ -171,22 +181,23 @@ object JvmByteGen:
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
       case Term.Seq(ts) =>
         ts.zipWithIndex.foreach { (s, i) =>
-          gen(s, ctx)
-          if i < ts.length - 1 then mv.visitInsn(Opcodes.POP)
+          val last = i == ts.length - 1
+          gen(s, ctx, tail && last)
+          if !last then mv.visitInsn(Opcodes.POP)
         }
       case Term.If(c, a, b) =>
         gen(c, ctx); callVB(mv, "bool")
         val elseL = new Label(); val endL = new Label()
         mv.visitJumpInsn(Opcodes.IFEQ, elseL)
-        gen(a, ctx); mv.visitJumpInsn(Opcodes.GOTO, endL)
-        mv.visitLabel(elseL); gen(b, ctx); mv.visitLabel(endL)
+        gen(a, ctx, tail); mv.visitJumpInsn(Opcodes.GOTO, endL)
+        mv.visitLabel(elseL); gen(b, ctx, tail); mv.visitLabel(endL)
       case Term.Let(rhs, body) =>
         rhs.foreach { r =>
           gen(r, ctx)
           val slot = ctx.push()
           mv.visitVarInsn(Opcodes.ASTORE, slot)
         }
-        gen(body, ctx)
+        gen(body, ctx, tail)
         ctx.pop(rhs.length)
       case Term.LetRec(lams, body) =>
         // materialize the current frame, then Emit.letrec(arities, fns, env)
@@ -218,7 +229,10 @@ object JvmByteGen:
         // MATERIALIZED into it, so the body runs with an EMPTY slot stack
         mv.visitVarInsn(Opcodes.ASTORE, 0)
         val savedSlots = ctx.saveSlots()
-        gen(body, ctx)
+        val savedSelf = ctx.selfGlobal
+        ctx.selfGlobal = null // slot 0 no longer holds the def's own frame
+        gen(body, ctx, tail)
+        ctx.selfGlobal = savedSelf
         ctx.restoreSlots(savedSlots)
       case Term.While(cond, body) =>
         val startL = new Label(); val endL = new Label()
@@ -239,6 +253,18 @@ object JvmByteGen:
           case 2 => mv.visitLdcInsn(op); gen(args(0), ctx); gen(args(1), ctx); callP(mv, "prim2", 2)
           case 3 => mv.visitLdcInsn(op); gen(args(0), ctx); gen(args(1), ctx); gen(args(2), ctx); callP(mv, "prim3", 3)
           case _ => mv.visitLdcInsn(op); genArray(args, ctx); callArr(mv, "primN")
+      // SELF-TAIL: rebind the frame and jump to the method start — constant
+      // stack depth for arbitrarily deep tail recursion.
+      case Term.App(Term.Global(gname), args)
+          if tail && ctx.selfGlobal == gname && ctx.selfArity == args.length && ctx.startLabel != null =>
+        mv.visitVarInsn(Opcodes.ALOAD, 0)         // current frame (env intact: lets live in slots)
+        genArray(args, ctx)                        // evaluate args against the OLD frame
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "rebind", s"([L$VAL;[L$VAL;)[L$VAL;", false)
+        mv.visitVarInsn(Opcodes.ASTORE, 0)
+        mv.visitJumpInsn(Opcodes.GOTO, ctx.startLabel.asInstanceOf[Label])
+        // unreachable value for the verifier's stack shape at merge points
+        mv.visitInsn(Opcodes.ACONST_NULL)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, VAL)
       case Term.App(Term.Global(gname), args) if ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
         // direct call to a compiled top-level def: invokestatic, no lookup
         val (m, _) = ctx.g.defMethods(gname)
@@ -283,14 +309,14 @@ object JvmByteGen:
               val s = ctx.push()
               mv.visitVarInsn(Opcodes.ASTORE, s)
             }
-          gen(arm.body, ctx)
+          gen(arm.body, ctx, tail)
           if arm.arity > 0 then ctx.pop(arm.arity)
           mv.visitJumpInsn(Opcodes.GOTO, endL)
           mv.visitLabel(skipL)
         }
         mv.visitLabel(defaultL)
         default match
-          case Some(d) => gen(d, ctx)
+          case Some(d) => gen(d, ctx, tail)
           case None =>
             mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataTag", s"(L$VAL;)Ljava/lang/String;", false)
