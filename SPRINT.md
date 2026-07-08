@@ -333,13 +333,33 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       and BUGS.md `conformance-dsl-multi-pass-js` is updated with root cause and
       fix SHA. This is not a default output-parity blocker, but it is a release
       hygiene gate if production requires conformance green.
-- [ ] **v2-prod-default-switch** — UNBLOCKED by `v2-prod-corpus-scope`; switch
-      `ssc run` default to v2, keep `ssc --v1` rollback, update docs and install/CI
-      gates. No feature work belongs in this slice; a failed gate sends work back to
-      the earlier slices. Start by identifying the CLI flag/parser path for `run`,
-      preserving an explicit v1 escape hatch, then update docs and gate with the same
-      full output-parity command recorded above.
-      PLAN (2026-07-08, claim `v2-prod-default-switch`): implement the switch in
+- [x] **v2-prod-default-switch** — DONE 2026-07-08 (719943f40, d2ba78c0a,
+      89a38f1e3): plain default-lane `ssc run <file>` now routes through the v2 VM
+      via FrontendBridge; `ssc run --v1 <file>` is the explicit v1 tree-walking
+      interpreter rollback; `ssc run --v2 <file>` remains accepted as an explicit
+      v2 force flag. Explicit lanes remain on their specialized paths: `--target`,
+      `--backend`, `--frontend`, `--mode`, transport/server/client options,
+      electron/JVM-rest auto-detection, TUI, and sources with explicit `backend:`,
+      `frontend:`, `target:`, `transport:`, or `fullstack:` front matter.
+      `scripts/v2-output-parity` now compares explicit `run --v1` vs `run --v2`,
+      and the conformance INT lane uses `run-batch --v1`, so existing gates still
+      measure v1-vs-v2 rather than v2-vs-v2. Verification:
+      `scripts/sbtc "cli/testOnly scalascript.cli.V2DefaultSwitchTest scalascript.cli.CommandRegistryTest"`
+      => 11/11 passed; `scripts/sbtc "installBin"` passed; `bin/ssc run`,
+      `bin/ssc run --v1`, and `bin/ssc run --v2` all print `Hello, World!` for
+      `examples/hello.ssc`; `examples/effects.ssc` plain `run` matches `--v2`
+      full output while `--v1` preserves the old rollback one-shot failure;
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` reproduces
+      **60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only**; affected
+      conformance `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo`
+      passes `dsl-multi-pass` in INT/JS/JVM.
+      ORIGINAL PLAN: UNBLOCKED by `v2-prod-corpus-scope`; switch `ssc run` default
+      to v2, keep `ssc --v1` rollback, update docs and install/CI gates. No feature
+      work belongs in this slice; a failed gate sends work back to the earlier
+      slices. Start by identifying the CLI flag/parser path for `run`, preserving
+      an explicit v1 escape hatch, then update docs and gate with the same full
+      output-parity command recorded above.
+      IMPLEMENTATION PLAN (2026-07-08, claim `v2-prod-default-switch`): implement the switch in
       `v1/tools/cli/src/main/scala/scalascript/cli/Main.scala` / `RunCmd`. Current
       state: `run --v2` is an early preview branch, and the plain fallback path runs
       v1 through `compileViaBackend(..., "int")`. Change: add `--v1` rollback and

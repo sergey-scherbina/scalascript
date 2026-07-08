@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: `ssc run` defaults to v2
+
+Plain default-lane `ssc run <file>` now runs on the v2 VM through FrontendBridge.
+`ssc run --v1 <file>` is the explicit rollback path for the v1 tree-walking
+interpreter, while explicit target/backend/frontend/server lanes keep their existing
+specialized behavior. The v2 output-parity and conformance INT harnesses now use
+explicit `--v1` for the v1 side. Full production parity remains
+**60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only**.
+
+---
+
 ## 2026-07-08 — JS runtime: boxed char ordering in conformance DSL fixed
 
 `dsl-multi-pass` now passes the JS conformance lane. JS `String.forall` predicates

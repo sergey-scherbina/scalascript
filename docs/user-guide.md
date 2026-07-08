@@ -43,7 +43,8 @@ cd scalascript
 After installation:
 
 ```bash
-ssc examples/hello.ssc     # interpreter
+ssc examples/hello.ssc     # v2 VM default runner
+ssc run --v1 examples/hello.ssc  # rollback: v1 tree-walking interpreter
 jssc examples/hello.ssc    # JS backend
 sscc examples/hello.ssc    # JVM backend
 ```
@@ -71,7 +72,8 @@ println(greet("World"))
 Run it four ways:
 
 ```bash
-ssc hello.ssc           # interpreter — instant, no compilation
+ssc hello.ssc           # v2 VM default runner
+ssc run --v1 hello.ssc  # rollback: v1 tree-walking interpreter
 ssc run-jvm hello.ssc   # compile via JvmGen + run with scala-cli
 ssc run-js  hello.ssc   # compile via JsGen  + run with Node.js
 jssc hello.ssc          # alias for run-js via bin/ wrapper
@@ -234,21 +236,22 @@ errorDetails = true
 See [`specs/repl-web.md`](repl-web.md) and [`specs/mount-handlers.md`](mount-handlers.md)
 for the full command reference, handler-file contract, and typed-handler deserialization rules.
 
-### `run --target jvm`, `run-jvm`, and `run-js` — compile and run in one step
+### `run`, `run --v1`, `run --target jvm`, `run-jvm`, and `run-js`
 
-`ssc run` interprets the script with the tree-walking interpreter — no
-compilation, instant startup (~0.31 s cold start for a script that uses no
-plugins; plugin intrinsics load lazily on first access).  When you need true JVM or Node.js
-execution semantics (or want to benchmark performance) use `--target jvm` or
-`run-js`:
+`ssc run` uses the v2 VM by default through the v1 frontend and FrontendBridge.
+Use `ssc run --v1` as the rollback path for the old tree-walking interpreter.
+When you need true JVM or Node.js execution semantics (or want to benchmark
+performance) use `--target jvm` or `run-js`:
 
 ```bash
+ssc run              hello.ssc   # v2 VM default runner
+ssc run --v1         hello.ssc   # v1 tree-walking interpreter rollback
 ssc run --target jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
 ssc run-jvm          hello.ssc   # same — backward-compat alias
 ssc run-js           hello.ssc   # JsGen  → temp .js → node
 ```
 
-All three commands:
+The generated-backend commands (`run --target jvm`, `run-jvm`, and `run-js`):
 - compile the `.ssc` file through the respective backend codegen
 - write the output to a temporary file (deleted after the run)
 - execute it and forward stdout/stderr transparently
@@ -266,7 +269,8 @@ When to use each:
 
 | Command | Runtime | When to use |
 |---------|---------|-------------|
-| `ssc run` | Interpreter | Day-to-day scripting, fast iteration, REPL-style |
+| `ssc run` | v2 VM | Default day-to-day runner |
+| `ssc run --v1` | v1 interpreter | Rollback/debug path for old tree-walking behavior |
 | `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
 | `ssc run-jvm` | JVM via scala-cli | Backward-compat alias for `ssc run --target jvm` |
 | `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |

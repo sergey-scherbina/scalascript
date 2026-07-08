@@ -7,9 +7,10 @@ Spec for Phase 2 continuation. See also: `specs/v1-to-v2-migration.md`.
 
 ## Production gate addendum (2026-07-08)
 
-Sergiy's current goal is production v2: `ssc run` can default to v2 with `ssc --v1`
-as the rollback path. The decisive compatibility metric is **observable output
-parity** between v1 and v2 for the runnable corpus, not exit-code coverage alone.
+Sergiy's current goal is production v2: `ssc run` defaults to v2 for plain
+default-lane sources, with `ssc run --v1` as the rollback path. The decisive
+compatibility metric is **observable output parity** between v1 and v2 for the
+runnable corpus, not exit-code coverage alone.
 
 The gate command is:
 
@@ -202,6 +203,37 @@ The default-switch scope is now explicit:
 Decision: `v2-prod-default-switch` is unblocked by corpus scope; the next slice may
 switch `ssc run` to v2 with `--v1` rollback, while preserving the output-parity gate
 and documenting the lane split.
+
+Default-switch update (2026-07-08): `v2-prod-default-switch` switches plain
+default-lane `ssc run <file>` to the v2 VM, keeps `ssc run --v1 <file>` as the
+explicit v1 interpreter rollback, and preserves `ssc run --v2 <file>` as an explicit
+v2 force flag. The switch deliberately does **not** reroute explicit lanes:
+`--target`, `--backend`, `--frontend`, `--mode`, transport/server/client options,
+electron/JVM-rest auto-detection, TUI, and sources with explicit `backend:`,
+`frontend:`, `target:`, `transport:`, or `fullstack:` front matter stay on their
+existing specialized paths. The output-parity harness now compares
+`run --v1` against `run --v2`, so the gate remains a real v1-vs-v2 check after plain
+`run` defaults to v2.
+
+Verification from `/Users/sergiy/work/my/scalascript-wt-v2-prod-default-switch`:
+
+```text
+scripts/sbtc "cli/testOnly scalascript.cli.V2DefaultSwitchTest scalascript.cli.CommandRegistryTest"
+# 11 tests passed
+
+scripts/sbtc "installBin"
+bin/ssc run examples/hello.ssc       # Hello, World!
+bin/ssc run --v1 examples/hello.ssc  # Hello, World!
+bin/ssc run --v2 examples/hello.ssc  # Hello, World!
+
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only
+        (44 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         32 backend-lane · 2 nondet · 195 total)
+
+scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo
+# dsl-multi-pass PASS [INT], PASS [JS], PASS [JVM]
+```
 
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).

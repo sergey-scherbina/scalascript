@@ -1,11 +1,60 @@
 # v2 output-parity baseline (v1 vs v2, true output-equality)
 
 Reproduce: `SSC="bin/ssc" scripts/v2-output-parity $(<terminating-list>)`
-(build the runner first: `sbt installBin` — `cli` now `dependsOn v2FrontendBridge`, so `bin/ssc run --v2`
-routes a source through the v1 frontend → FrontendBridge → the v2 VM).
+(build the runner first: `sbt installBin` — `bin/ssc run` and `bin/ssc run --v2`
+route plain default-lane sources through the v1 frontend → FrontendBridge → the v2 VM;
+`bin/ssc run --v1` is the rollback path for the old interpreter).
 
-This is the REAL "does v2 replace v1?" gate: each example is run on v1 (`ssc run`) AND v2 (`ssc run --v2`)
-and stdout is diffed. It is far stricter than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
+This is the REAL "does v2 replace v1?" gate: each example is run on v1
+(`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
+than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
+
+## Latest full corpus re-measure — 2026-07-08, after default runner switch
+
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-default-switch` with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Current result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **60 / 81 = 74%** |
+| ❌ mismatch | 5 |
+| ⚠️ v2-error (v1 works, v2 empty) | 0 |
+| v1-only (v2 works, v1 empty) | 16 |
+| both-fail (not a v2 gap) | 44 |
+| true-server skipped | 36 |
+| long-running skipped | 0 |
+| backend-lane skipped | 32 |
+| nondeterministic-output skipped | 2 |
+| total examples seen | 195 |
+
+Default-switch changes in this slice:
+
+- `ssc run <file>` now uses the v2 VM for plain default-lane sources.
+- `ssc run --v1 <file>` is the explicit rollback path for the old tree-walking
+  interpreter.
+- `ssc run --v2 <file>` remains accepted as an explicit v2 force flag.
+- Explicit lanes stay on their existing paths: `--target`, `--backend`, `--frontend`,
+  `--mode`, transport/server/client options, electron/JVM-rest auto-detection, TUI,
+  and sources with explicit `backend:`, `frontend:`, `target:`, `transport:`, or
+  `fullstack:` front matter.
+- `scripts/v2-output-parity` now uses `run --v1` for the v1 side so the gate keeps
+  measuring real v1-vs-v2 output after plain `run` defaults to v2.
+
+Direct checks after staging:
+
+```bash
+bin/ssc run examples/hello.ssc       # Hello, World!
+bin/ssc run --v1 examples/hello.ssc  # Hello, World!
+bin/ssc run --v2 examples/hello.ssc  # Hello, World!
+bin/ssc run examples/effects.ssc     # matches --v2 full documented output
+bin/ssc run --v1 examples/effects.ssc # old v1 rollback still hits its one-shot violation
+```
 
 ## Latest full corpus re-measure — 2026-07-08, after corpus-scope classification
 
