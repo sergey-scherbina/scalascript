@@ -12,7 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## root-test-cluster-cli-runtime-readiness — `open` (2026-07-08)
+## v2-actors-sendafter-cli-default-noop — `open` (2026-07-08)
+
+- **Found by:** codex, while fixing `root-test-cluster-cli-runtime-readiness`.
+- **Repro:** after `scripts/sbtc "cli/assembly"`, run a fat-jar script containing
+  `runActors { val me = spawn { () => val pid = self(); sendAfter(10, pid,
+  "hello"); receive { case msg => println("got: " + msg) } } }`.
+  `java -jar v1/tools/cli/target/scala-3.8.3/ssc.jar <file>` and `--v2`
+  exit 0 with no `got: hello`; `--v1` prints `got: hello`.
+- **Impact:** v2/default does not yet execute delayed actor flows that v1's actor
+  scheduler supports. The root `sbt test` blocker below was fixed by making v1
+  cluster integration fixtures explicit `--v1`; this entry tracks the actual v2
+  production gap separately instead of hiding it behind test harness selection.
+- **Fix direction:** implement/parity-check actor timer handling in the v2 runtime
+  path or explicitly reject unsupported actor APIs under `--v2` with a diagnostic
+  until v2 actor support is complete. Verify with the fat-jar repro above plus
+  actor/cluster conformance slices.
+
+## root-test-cluster-cli-runtime-readiness — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -34,6 +51,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
   the cluster markers/status endpoints are missing or late. Confirm whether the
   regression is runtime startup, test timeout/readiness detection, or an interaction
   with concurrent root-suite execution before changing semantics.
+- **Status:** fixed in `da63bb96a`. Actual root cause was the v2 default switch in
+  the fat-jar launch path: the cluster suites spawn node fixture scripts with
+  `java -jar ssc.jar <node.ssc>`, so those v1 actor-cluster fixtures started on
+  v2/default. Minimal repro showed `sendAfter` actor flows print under `--v1` but
+  exit 0 with no delayed message under default/`--v2`. The test harness now runs
+  node fixture subprocesses with explicit `--v1`; CLI subcommands such as
+  `cluster status`, `cluster drain`, and `cluster step-down` still run normally
+  against those nodes.
+- **Verified:** `scripts/sbtc "cli/testOnly scalascript.cli.ClusterStepDownCliTest
+  scalascript.cli.ClusterStatusCliTest scalascript.cli.ClusterAuthCliTest
+  scalascript.cli.MultiNodeClusterTest scalascript.cli.ClusterBullyStatusConvergenceTest
+  scalascript.cli.PartitionHealingTest scalascript.cli.SingletonFailoverTest
+  scalascript.cli.ClusterDrainCliTest scalascript.cli.ClusterEventsCliTest
+  scalascript.cli.PartitionTest"` (**13/13 green**); `tests/conformance/run.sh
+  --only 'actors*,cluster-connect,distributed*' --no-memo` (**14 passed,
+  0 failed**).
 
 ## root-test-command-registry-other-category — `fixed` (2026-07-08)
 

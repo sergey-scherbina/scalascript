@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — test: v1 cluster fixture nodes stay on v1 under v2 default
+
+Cluster CLI integration tests now start their actor-cluster node fixture
+subprocesses with explicit `--v1`, while the `ssc cluster ...` CLI subcommands
+still run normally against those nodes. This restores the root `sbt test` cluster
+family after the v2 default switch: the tests are v1 actor-cluster runtime tests,
+and v2 actor timer parity is tracked separately as
+`v2-actors-sendafter-cli-default-noop`. Targeted gates: expanded cluster
+`cli/testOnly` slice is **13/13 green**; affected conformance
+`actors*,cluster-connect,distributed*` is **14 passed, 0 failed**.
+
+---
+
 ## 2026-07-08 — fix: Option.orElse extensions handle non-Option defaults
 
 Interpreter `Option.orElse` now applies the built-in method only when the

@@ -23,6 +23,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `js-applyunary-effect-cps.ssc` on v2 (`__unary__: - on Op`). Full notes in
       BUGS.md `v2-op-arg-lifting`. BLOCKS busi's --v2 conformance re-run.
 
+- [ ] **v2-actors-sendafter-cli-default-noop** — production follow-up from
+      `green-main-full-sbt-test-gating`: v2/default fat-jar actor flows with
+      `sendAfter` exit 0 without delivering delayed messages, while `--v1` prints
+      the expected message. Repro: after `scripts/sbtc "cli/assembly"`, run a
+      temp `.ssc` containing `runActors { val me = spawn { () => val pid = self();
+      sendAfter(10, pid, "hello"); receive { case msg => println("got: " + msg) } } }`
+      with default, `--v2`, and `--v1`. Default/`--v2` produce no `got: hello`;
+      `--v1` does. This is NOT fixed by the root-test harness commit
+      `da63bb96a`; that commit only marks v1 cluster integration fixture nodes
+      explicit `--v1` so root `sbt test` tests the runtime it was written for.
+      Done-when: v2 either implements actor timer delivery for this repro and
+      relevant actor conformance slices, or rejects unsupported actor APIs under
+      `--v2` with a clear diagnostic instead of silent success.
+
 - [x] **p3-mcp-and-tails** — DONE 2026-07-08 (5377e271f): the "MCP switch regression" was an
       UNMASKED exit-0 fiction (default invokeCallback is a NO-OP — setup blocks never ran; the
       switch-owner's override made them execute honestly). Fixed properly: curried extern-method
@@ -1046,7 +1060,24 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             --no-memo` (**5/5 green** on INT/JS/JVM). Original repro:
             `SealedExtensionDispatchTest` expected `42\n99`, got `Some(42)\n99`
             for the `Some` case.
-      - [ ] **root-test-cluster-cli-runtime-readiness** — cluster CLI/runtime
+      - [x] **root-test-cluster-cli-runtime-readiness** — fixed in `da63bb96a`.
+            Root cause: after the v2 default switch, these v1 actor-cluster
+            integration tests spawned node fixtures with `java -jar ssc.jar
+            <node.ssc>`, so the node scripts ran on v2/default. Minimal fat-jar
+            repro showed `sendAfter` actor flows print under `--v1` but exit 0
+            with no delayed message under default/`--v2`; the v2 gap is tracked
+            separately as `v2-actors-sendafter-cli-default-noop`. Harness fix:
+            node fixture subprocesses now pass explicit `--v1`; CLI subcommands
+            (`cluster status`, `cluster drain`, `cluster step-down`, etc.) still
+            run normally against those nodes. Verified the expanded cluster
+            slice `scripts/sbtc "cli/testOnly scalascript.cli.ClusterStepDownCliTest
+            scalascript.cli.ClusterStatusCliTest scalascript.cli.ClusterAuthCliTest
+            scalascript.cli.MultiNodeClusterTest scalascript.cli.ClusterBullyStatusConvergenceTest
+            scalascript.cli.PartitionHealingTest scalascript.cli.SingletonFailoverTest
+            scalascript.cli.ClusterDrainCliTest scalascript.cli.ClusterEventsCliTest
+            scalascript.cli.PartitionTest"` (**13/13 green**) and
+            `tests/conformance/run.sh --only 'actors*,cluster-connect,distributed*'
+            --no-memo` (**14 passed, 0 failed**). Original repro: cluster CLI/runtime
             family: `ClusterStepDownCliTest`, `ClusterStatusCliTest`,
             `ClusterAuthCliTest`, `MultiNodeClusterTest`,
             `ClusterBullyStatusConvergenceTest`, `PartitionHealingTest`, and
