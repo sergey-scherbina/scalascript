@@ -2114,11 +2114,15 @@ object Prims:
                   val viaFall   = if viaCtx.isDefined || viaPlugin.isDefined then None
                                   else V2PluginRegistry.lookup(s"__fallback__.$effectTag.$name").map(_(margs))
                   viaCtx.orElse(viaPlugin).orElse(viaFall).getOrElse {
-                    // No active handler: Free monad Op for typed `handle` dispatch
+                    // No active handler: Free monad Op for typed `handle` dispatch.
+                    // Multi-arg ops pack under the internal __EffArgs__ marker (NOT
+                    // TupleN): the handler arm `case op(a, b, resume)` is op/3, so
+                    // runEffectLoop must deliver the args unpacked — while a genuine
+                    // single tuple argument stays one payload value (op/2).
                     val argV = margs match
                       case Nil       => UnitV
                       case List(one) => one
-                      case many      => DataV(s"Tuple${many.length}", many.toVector)
+                      case many      => DataV("__EffArgs__", many.toVector)
                     val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
                     DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
                   }

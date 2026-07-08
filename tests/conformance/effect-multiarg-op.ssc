@@ -1,0 +1,25 @@
+#!/usr/bin/env ssc
+---
+name: effect-multiarg-op
+---
+
+# 2-arg effect op through an imported handler (busi Journal shape)
+
+Regression for `match: no arm for append/2` (BUGS.md `v2-effect-multiarg-op`):
+`Journal.append(scope, fact)` carries two payload args, and the handler arm
+`case Journal.append(scope, fact, resume)` is append/3 — the v2 effect dispatch
+packed the args into one Tuple2 payload (append/2) and no arm matched. Multi-arg
+ops must reach the handler unpacked; the 1-arg op (`read`) stays a single payload.
+
+[Journal, runJournal](./lib/effect-journal.ssc)
+
+```scalascript
+val log = runJournal(() => {
+  Journal.append("acme", 100)
+  Journal.append("acme", 50)
+  Journal.append("other", 7)
+  val xs = Journal.read("acme")
+  xs.foldLeft(0)((a, b) => a + b)
+})
+println(log)
+```

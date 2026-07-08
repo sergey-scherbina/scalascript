@@ -2145,7 +2145,9 @@ object PluginBridge:
     }))
 
   /** Run the Free-monad interpreter loop.
-   *  - Op("EffTag.opName", arg, k): call handler with DataV(opName, [arg, resumeFn])
+   *  - Op("EffTag.opName", arg, k): call handler with DataV(opName, [args…, resumeFn])
+   *    (a multi-arg op arrives packed as __EffArgs__ — see Runtime's effect dispatch —
+   *    and is delivered unpacked so `case op(a, b, resume)` arms match)
    *  - anything else:                call handler with DataV("Return", [v]) */
   private def runEffectLoop(v: V2Value, handler: V2Value): V2Value = v match
     case V2Value.DataV("Op", IndexedSeq(V2Value.StrV(label), arg, k)) =>
@@ -2160,8 +2162,9 @@ object PluginBridge:
         Done(runEffectLoop(next, h))
       })
       val margs = arg match
-        case V2Value.UnitV => List(resumeFn)
-        case _             => List(arg, resumeFn)
+        case V2Value.UnitV                       => List(resumeFn)
+        case V2Value.DataV("__EffArgs__", fs)    => fs.toList :+ resumeFn
+        case _                                   => List(arg, resumeFn)
       callClosure(handler, List(V2Value.DataV(opName, margs.toVector)))
     case _ =>
       // Pure result — call handler with Return(v). A handler WITHOUT a Return

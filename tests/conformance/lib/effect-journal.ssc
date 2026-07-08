@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: effect-journal
+---
+
+# effect-journal — a 2-arg effect op next to a 1-arg op, one deep handler
+
+Mirrors busi's Journal port (BUGS.md `v2-effect-multiarg-op`): `append` takes TWO
+payload arguments, so the handler arm is `append/3` (scope, fact, resume). The
+effect dispatch must deliver the payload args unpacked — packing them into one
+tuple made the handler see `append/2` and die with "match: no arm for append/2".
+`read` keeps the 1-arg shape so both arities cross the same handler.
+
+## effect
+
+```scalascript
+effect Journal:
+  def append(scope: String, fact: Int): Unit
+  def read(scope: String): List[Int]
+```
+
+## runner — a deep handler collecting the append log
+
+```scalascript
+def runJournal[A](body: () => A): List[String] =
+  handle { body() } {
+    case Journal.append(scope, fact, resume) => (scope + "=" + fact) :: resume(())
+    case Journal.read(scope, resume)         => resume(List(1, 2, 3))
+    case Return(x)                           => List("ret=" + x)
+  }
+```
