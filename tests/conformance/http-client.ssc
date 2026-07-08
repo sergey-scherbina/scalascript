@@ -1,6 +1,7 @@
 ---
 name: http-client
 requires: HttpClient
+pending: external httpbin.org dependency; replace with local deterministic fixture before enabling default conformance
 ---
 
 # v1.5 Phase B — `httpGet` / `httpPost` / `httpClient` primitives
