@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T14:06:16Z
+heartbeat: 2026-07-08T14:12:17Z
 status: in-progress
-done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; json-read JS std/json intrinsic blocker fixed and pushed in 718d04027/017db7122; JS product-rendering blocker fixed in 4e8cbb635/d67291757; INT SQL scope fixed in c31389b25/d727c8e95; std typeclass INT/JVM aggregate slice fixed through dd76a88c8 (6/6 green); std-ui JVM generated-brace slice fixed through 4bcbe6ff0 (5/5 green)
-next: investigate conformance-int-variables-while-update; repro tests/conformance/run.sh --only 'variables' --no-memo
+done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; json-read JS std/json intrinsic blocker fixed and pushed in 718d04027/017db7122; JS product-rendering blocker fixed in 4e8cbb635/d67291757; INT SQL scope fixed in c31389b25/d727c8e95; std typeclass INT/JVM aggregate slice fixed through dd76a88c8 (6/6 green); std-ui JVM generated-brace slice fixed through 4bcbe6ff0 (5/5 green); variables INT while-order slice fixed through 82d335109 (1/1 green)
+next: investigate jvm-scjvm-cache-codegen-version; repro stale .scjvm reuse after codegen version change
