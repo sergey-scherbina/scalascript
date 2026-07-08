@@ -7,9 +7,9 @@ routes a source through the v1 frontend → FrontendBridge → the v2 VM).
 This is the REAL "does v2 replace v1?" gate: each example is run on v1 (`ssc run`) AND v2 (`ssc run --v2`)
 and stdout is diffed. It is far stricter than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-08, after rozum schema/streaming fix
+## Latest full corpus re-measure — 2026-07-08, after corpus-scope classification
 
-Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-plugin-boundary` with:
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-corpus-scope` with:
 
 ```bash
 scripts/sbtc "installBin"
@@ -58,14 +58,44 @@ Current production-relevant blockers:
   output-shape follow-up unless a future slice reclassifies one as default-switch
   blocking.
 
+Corpus-scope decision for `v2-prod-default-switch`:
+
+- The default-switch gate is the terminating default-lane `ssc run` corpus. It must
+  have **0 v2-error** and no mismatch whose root cause is a v2 regression in default
+  runtime semantics.
+- Explicit backend front matter (`backend: jvm`, `spark`, `js`, `rust`, `wasm`) is
+  lane-specific. Those 32 examples stay in backend-specific gates; `ssc run` defaulting
+  to v2 must not silently reinterpret them as v2 VM programs.
+- Spark local shim is **not required** before the default switch. Every Spark example
+  in this corpus is explicit `backend: spark` or otherwise in the backend lane, so the
+  default v2 VM gate has no Spark semantic blocker. Spark remains a backend-lane CI
+  responsibility.
+- Distributed actor/node simulation is a lane follow-up, not a default-switch blocker:
+  the remaining distributed examples either both-fail under v1/v2 default output or
+  are explicit backend-lane cases. `p3-connectnode-node-sim` can continue independently.
+- True servers (36) need a server smoke/request lane, not byte-for-byte stdout parity:
+  they intentionally bind ports or run event loops and are non-terminating examples.
+- External credential/service demos and advanced provider examples that both-fail under
+  v1 and v2 default runs are not v2 regressions. They should get provider-specific
+  smoke tests, but they do not block replacing the default runner.
+- `v1-only` entries are not default-switch regressions: v2 produces output where the
+  current v1 default runner prints nothing. Keep them visible for follow-up, but do
+  not treat them as blockers unless the new v2 output is shown incorrect.
+
 Non-blocker/scope categories still appearing as mismatches:
 
 - `actors-pingpong.ssc` — v1 exit-cascade/missing final `done`;
-- `async-parallel-demo.ssc` — wall-clock timing nondeterminism;
+- `async-parallel-demo.ssc` — wall-clock timing nondeterminism only; semantic lines
+  match;
 - `effects.ssc` — v2 prints the documented full output while v1 stops early;
 - `os-env.ssc` — v2 resolves real platform values while v1 prints native placeholders;
-- `dsl-calc-parser.ssc` — existing parser/DSL output-shape/v1-side bug classification
-  needs to be kept out of the v2 default-switch decision unless reclassified.
+- `dsl-calc-parser.ssc` — parser/DSL output-shape follow-up: v1 truncates every
+  round-trip to the first number, while v2 renders the full expression string. Keep
+  this visible, but it is not a v2-error or a proven v2 regression.
+
+`v2-prod-default-switch` is therefore unblocked by corpus scope: the next slice may
+switch the default runner, keeping `--v1` as rollback, provided it preserves the gate
+command above and documents the lane split.
 
 ## Full corpus re-measure — 2026-07-08, production-readiness baseline
 

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: corpus scope classified
+
+The full output-parity gate was re-run from the corpus-scope worktree and reproduced
+**60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only** across 195 examples.
+The remaining Spark/backend/server/distributed/external-credential buckets are now
+documented as lane-specific rather than default-runner blockers. `v2-prod-default-switch`
+is unblocked by corpus scope.
+
+---
+
 ## 2026-07-08 — v2 production: rozum schema and streaming parity fixed
 
 `rozum-agent-schema-derived.ssc` and `rozum-agent-streaming.ssc` now match v1

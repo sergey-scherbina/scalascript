@@ -12,6 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## conformance-dsl-multi-pass-js — `open` (2026-07-08)
+
+- **Found by:** codex, while verifying the docs-only `v2-prod-corpus-scope` slice.
+- **Repro:**
+  `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo`
+- **Observed:** `dsl-multi-pass` passes the INT and JVM lanes but fails JS:
+  expected line 2 `[name-resolve] undefined: z` and line 3 `ok: 8`, got
+  `[parse] unrecognised token: x` for both. The failing source parses
+  `"x + z"` / `"x + y"`; `parseExpr("x")` should produce `Var("x")`.
+- **Scope:** JS backend/conformance lane. Not caused by the corpus-scope docs
+  change and not a default output-parity blocker, but it is a production hygiene
+  gate before claiming broad green status.
+- **Hypothesis:** JS lowering/runtime mishandles the string-character predicate
+  shape used by `t.forall(c => (c >= 'a' && c <= 'z') || c == '_')`, so alphabetic
+  identifiers are rejected as parse errors.
+- **Next:** claim/fix `v2-prod-js-dsl-conformance` before or alongside the default
+  switch if conformance must be green for release.
+
 ## v2-rozum-schema-streaming-parity — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the v2 production parity loop after

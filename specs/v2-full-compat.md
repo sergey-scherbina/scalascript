@@ -164,6 +164,45 @@ the default-switch blocker set unless future evidence reclassifies one:
 `actors-pingpong.ssc`, `async-parallel-demo.ssc`, `dsl-calc-parser.ssc`,
 `effects.ssc`, and `os-env.ssc`.
 
+Corpus-scope decision (2026-07-08): a fresh full run from
+`/Users/sergiy/work/my/scalascript-wt-v2-prod-corpus-scope` reproduced the same
+production gate:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only
+        (44 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         32 backend-lane · 2 nondet · 195 total)
+```
+
+The default-switch scope is now explicit:
+
+- **Production-required default lane:** terminating examples without explicit backend
+  front matter, excluding nondeterministic-output examples. This lane has **0
+  v2-error** and no currently identified v2 regression blocker.
+- **Backend-specific lanes:** all `backend: jvm|spark|js|rust|wasm` examples remain
+  under their backend gates. Spark local shim is not required before `ssc run`
+  defaults to v2 because the Spark corpus is explicit `backend: spark` or otherwise
+  backend-lane; the v2 VM default gate has no Spark semantic blocker.
+- **Server lane:** true servers are intentionally non-terminating and should be gated
+  by bounded request/health checks, not byte-for-byte stdout parity.
+- **Distributed actor/node simulation:** remaining node-sim work (for example
+  `p3-connectnode-node-sim`) is a distributed lane follow-up, not a default-runner
+  blocker, because those examples both-fail under current v1/v2 default output or are
+  explicit backend-lane programs.
+- **External credential/service demos:** bank rails, x402/Cardano, provider-backed
+  GraphQL/MCP/payment examples that both-fail under default v1 and v2 are not v2
+  regressions. They need provider-specific smoke gates, but do not block the default
+  runner switch.
+- **`v1-only` entries:** v2 producing output where v1 default prints nothing is not a
+  regression for replacing v1 as default. Keep those examples visible for follow-up
+  and only reclassify them as blockers if their v2 output is shown incorrect.
+
+Decision: `v2-prod-default-switch` is unblocked by corpus scope; the next slice may
+switch `ssc run` to v2 with `--v1` rollback, while preserving the output-parity gate
+and documenting the lane split.
+
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).
 > T5.1 in progress (`feature/v2-ssc1c-globals-bug`). Track 3 overlaps SPRINT's

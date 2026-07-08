@@ -268,7 +268,20 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       is MATCH, affected conformance `scala-cli tests/conformance/run.sc -- --only
       '*quoted*' --no-memo` is green or explicitly has 0 cases, and the full
       production parity blocker list/baseline is updated.
-- [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
+- [x] **v2-prod-corpus-scope** — DONE 2026-07-08: made the Phase-3 corpus gate
+      honest and unblocked the default-switch slice by scope. Fresh verification from
+      `/Users/sergiy/work/my/scalascript-wt-v2-prod-corpus-scope` after
+      `scripts/sbtc "installBin"` reproduced:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` =>
+      **60/81 identical · 5 mismatch · 0 v2-error · 16 v1-only**
+      `(44 both-fail · 36 true-server · 0 long-running · 32 backend-lane ·
+      2 nondet · 195 total)`. Decision: no current default-lane v2 regression blocks
+      `v2-prod-default-switch`. Spark/local node simulation/server/external-credential
+      work is lane-specific; Spark local shim is not required before the default switch
+      because all Spark examples are explicit backend-lane programs. The five
+      remaining mismatches are classified as v1-side/v2-better/nondeterministic/DSL
+      follow-up, not default-switch blockers.
+      ORIGINAL PLAN: make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected
       alternatives, especially whether Spark local shim is required before default v2.
@@ -293,10 +306,25 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       queue a concrete fix before `v2-prod-default-switch`. Done-when: a fresh agent
       can decide from docs alone whether `v2-prod-default-switch` is unblocked, with
       the exact verification command and all exclusions justified.
-- [ ] **v2-prod-default-switch** — only after the previous gates are green/explicitly
-      scoped: switch `ssc run` default to v2, keep `ssc --v1` rollback, update docs and
-      install/CI gates. No feature work belongs in this slice; a failed gate sends work
-      back to the earlier slices.
+- [ ] **v2-prod-js-dsl-conformance** — fix or reclassify the JS-lane conformance
+      failure surfaced during `v2-prod-corpus-scope`. Repro after `scripts/sbtc
+      "installBin"`:
+      `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo` currently
+      reports `dsl-multi-pass` INT PASS / JS FAIL / JVM PASS. JS prints
+      `[parse] unrecognised token: x` for the `"x + z"` and `"x + y"` scenarios
+      where INT/JVM produce `[name-resolve] undefined: z` and `ok: 8`. Likely area:
+      JS backend/runtime lowering of string-character predicates in
+      `t.forall(c => (c >= 'a' && c <= 'z') || c == '_')`, or char/string compare
+      semantics in generated JS. Done-when: the command is green with `--no-memo`
+      and BUGS.md `conformance-dsl-multi-pass-js` is updated with root cause and
+      fix SHA. This is not a default output-parity blocker, but it is a release
+      hygiene gate if production requires conformance green.
+- [ ] **v2-prod-default-switch** — UNBLOCKED by `v2-prod-corpus-scope`; switch
+      `ssc run` default to v2, keep `ssc --v1` rollback, update docs and install/CI
+      gates. No feature work belongs in this slice; a failed gate sends work back to
+      the earlier slices. Start by identifying the CLI flag/parser path for `run`,
+      preserving an explicit v1 escape hatch, then update docs and gate with the same
+      full output-parity command recorded above.
 
 ## Phase-3 readiness (2026-07-06, corpus-tails run)
 
