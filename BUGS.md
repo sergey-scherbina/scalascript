@@ -98,6 +98,24 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `tests/conformance/run.sh --only 'tkv2-pwa' --no-memo` green (INT pass;
   JS/JVM skipped by metadata). Remaining failure from this root entry:
   `std-ui-jobpanel` heading labels (`?` instead of `2:...`).
+- **Progress (2026-07-08, local `0facf7506`):** `std-ui-jobpanel` is fixed
+  on the rebased `green-main-full-sbt-test-gating` branch. Root cause:
+  `FrontendBridge` registered curried vararg defs such as
+  `cardWithHeader(header)(body*)` as ordinary direct-vararg defs, so the first
+  clause call lowered as `cardWithHeader(List(heading))`; the UI header became
+  `List(List(HeadingNode(...)))` and the label extractor fell through to `?`.
+  Gates after rebasing on `origin/main@9e48204e5`: `V2ConformanceTest -z
+  std-ui-jobpanel` green, `V2ConformanceTest -z tkv2` green (6/6), and
+  `tests/conformance/run.sh --only 'std-ui-jobpanel' --no-memo` green
+  (INT+JS pass; JVM skipped by metadata).
+- **New blocker after rebase (2026-07-08, `origin/main@9e48204e5`):** full
+  `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` now fails only
+  `array-companion-statics` with
+  `RuntimeException: __method__: no dispatch for .sum on <foreign>`. Repro:
+  `cd /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating &&
+  scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`.
+  Fix before marking this root entry fixed; likely interaction with the fresh
+  array/list/foreign runtime semantics batch.
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
 
