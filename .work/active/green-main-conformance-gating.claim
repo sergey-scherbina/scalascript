@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T11:38:10Z
+heartbeat: 2026-07-08T11:56:22Z
 status: in-progress
 done-so-far: http-client pending pushed; actors-supervision/effects INT failures fixed and pushed; remaining targeted failures are JVM-only generated-Scala Any-typing errors in effect-transitive-handler and cluster/distributed cases
 next: root-cause JVM codegen Any typing for effect handlers and cluster/distributed locals, then fix or record narrow production-safe reclassification
