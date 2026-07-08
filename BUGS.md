@@ -36,7 +36,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Status:** open; inspect JVM emission for imported component modules before
   changing the fixture.
 
-## conformance-std-typeclass-int-jvm-gaps — `open` (2026-07-08)
+## conformance-std-typeclass-int-jvm-gaps — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`, run either
@@ -49,8 +49,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
   and aggregate exports such as `std.intSum` are missing. Related full-gate misses:
   `std-foldable-traversable`, `std-functor-applicative-monad`, `std-index`,
   `std-bifunctor`, `std-monaderror`, and `std-selective`.
-- **Status:** open; likely a combination of interpreter recursive extension dispatch
-  and JVM transitive-export/import emission.
+- **Status:** fixed in `f92d147b0` and `7328e35db`. Root causes were split
+  across both lanes: INT extension dispatch preferred an imported same-named
+  extension over built-in members, so `Option.map` in `map2Option` recursed;
+  JVM import generation lost std typeclass re-export provenance, omitted
+  standalone top-level extension imports, and emitted explicit context-bound /
+  `using` instance calls as flat Scala calls. The std typeclass manifests also
+  needed explicit type exports/imports so the strict import gate can resolve
+  aggregator exports deterministically.
+- **Verified:** `scripts/sbtc "backendJvm/compile"`;
+  `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenUsingTest"`;
+  `scripts/sbtc "installBin"`; direct INT/JVM repros for `std-index`,
+  `std-selective`, `std-monaderror`, and `std-foldable-traversable`; and
+  `tests/conformance/run.sh --only 'std-functor-applicative-monad,std-foldable-traversable,std-index,std-bifunctor,std-monaderror,std-selective' --no-memo`
+  (**6/6 green**).
 
 ## conformance-int-sql-block-scope — `fixed` (2026-07-08)
 

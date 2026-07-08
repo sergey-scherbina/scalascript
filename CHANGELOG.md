@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: std typeclass aggregate slice fixed
+
+`std-functor-applicative-monad`, `std-foldable-traversable`, `std-index`,
+`std-bifunctor`, `std-monaderror`, and `std-selective` now pass INT/JS/JVM.
+INT dispatch no longer recurses through same-named imported extensions when a
+built-in member exists, and JVM codegen now preserves std typeclass re-export,
+extension-import, type-hoist, and explicit `(using ...)` call semantics. Targeted
+gate:
+`tests/conformance/run.sh --only 'std-functor-applicative-monad,std-foldable-traversable,std-index,std-bifunctor,std-monaderror,std-selective' --no-memo`
+is **6/6 green**.
+
+---
+
 ## 2026-07-08 — fix: rowLink selection checkmark was mojibake ("¹3")
 
 `_ssc_ui_ensureRowlinkCss` built `content:"\2713 "` inside a JS STRING literal, where `\271` is a

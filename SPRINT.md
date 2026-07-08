@@ -815,9 +815,24 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             `sql-basic` and `sql-transaction`, and
             `tests/conformance/run.sh --only 'sql-basic,sql-transaction' --no-memo`
             (**2/2 green**).
-      - [ ] **conformance-std-typeclass-int-jvm-gaps** — INT `std-index` stack
+      - [x] **conformance-std-typeclass-int-jvm-gaps** — INT `std-index` stack
             overflows after two lines; JVM typeclass aggregate imports miss exported
             helpers/`Left`/`Right`; verify `std-*` typeclass cases.
+            FIXED 2026-07-08 in `f92d147b0` / `7328e35db`: INT dispatch now
+            prefers real built-in members over same-named imported extensions,
+            preventing `Option.map` recursion in std typeclass helpers. JVM
+            codegen records imported type/extension metadata even across
+            de-duplicated imports, imports standalone top-level extensions,
+            preserves re-export provenance for std/index aggregate names, hoists
+            uppercase type specs from mixed std imports into `object std`, and
+            lowers explicit contextual instance args to Scala `(using ...)`
+            calls. Std typeclass manifests now export/import their type names
+            explicitly for strict import resolution. Verification:
+            `scripts/sbtc "backendJvm/compile"`,
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenUsingTest"`,
+            `scripts/sbtc "installBin"`, direct INT/JVM repros, and
+            `tests/conformance/run.sh --only 'std-functor-applicative-monad,std-foldable-traversable,std-index,std-bifunctor,std-monaderror,std-selective' --no-memo`
+            (**6/6 green**).
       - [ ] **conformance-jvm-std-ui-generated-braces** — JVM `std-ui-extended*`
             generated Scala has an unmatched brace/EOF; inspect imported UI
             component object emission.
