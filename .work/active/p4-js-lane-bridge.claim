@@ -1,0 +1,6 @@
+feature/p4-js-lane-bridge 2026-07-08T20:47:03Z
+agent: codex
+heartbeat: 2026-07-08T20:47:03Z
+status: not-started
+done-so-far:
+next: write resume-cold plan in SPRINT, then implement JS lane bridge slice
