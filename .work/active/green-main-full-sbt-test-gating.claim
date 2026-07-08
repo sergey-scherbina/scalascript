@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T18:20:21Z
+heartbeat: 2026-07-08T18:32:15Z
 status: in-progress
-done-so-far: sealed extension dispatch, v1 cluster fixture launch, verify source-scan, stable SPI OS plugin, v2 ReactiveSignal set, PWA, std-ui-jobpanel, and array-companion V2Conformance blockers fixed/pushed through ab37c7d0b
-next: rerun root gate via scripts/sbtc "test"; record next deterministic blocker in BUGS.md + SPRINT if red
+done-so-far: v2 V2Conformance blockers fixed/pushed through ab37c7d0b; root scripts/sbtc "test" retest hit sbt JVM heap OOM/hang and blocker is recorded through 91524e7ee
+next: isolate root-test-sbt-aggregate-heap-oom; make root-equivalent gate complete without sbt heap OOM/hung JVM
