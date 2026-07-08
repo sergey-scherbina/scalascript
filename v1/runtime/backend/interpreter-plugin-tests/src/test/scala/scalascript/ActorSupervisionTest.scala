@@ -4,6 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.interpreter.actors.ActorsInterpreterPlugin
+import scalascript.compiler.plugin.os.OsInterpreterPlugin
 import scalascript.parser.Parser
 
 /** Unit tests for v1.6 Phase 2 — Erlang-style actor supervision.
@@ -13,11 +14,14 @@ import scalascript.parser.Parser
 class ActorSupervisionTest extends AnyFunSuite with Matchers:
 
   private def captured(code: String): String =
+    capturedWith(List(new ActorsInterpreterPlugin))(code)
+
+  private def capturedWith(plugins: List[scalascript.backend.spi.Backend])(code: String): String =
     val buf = java.io.ByteArrayOutputStream()
     val ps  = java.io.PrintStream(buf, true)
     val src = s"# Test\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
-    val _i = Interpreter(ps); _i.installPlugins(List(new ActorsInterpreterPlugin)); _i.run(module)
+    val _i = Interpreter(ps); _i.installPlugins(plugins); _i.run(module)
     ps.flush()
     buf.toString.trim
 
@@ -110,6 +114,23 @@ class ActorSupervisionTest extends AnyFunSuite with Matchers:
         }
       }
     """) shouldBe "worker start\nsupervisor got: crash"
+
+  test("actor exit keeps precedence over std.os exit when both plugins are loaded"):
+    capturedWith(List(new ActorsInterpreterPlugin, new OsInterpreterPlugin))("""
+      runActors {
+        val sup = spawn { () =>
+          trapExit(true)
+          val worker = spawn { () =>
+            val me = self()
+            exit(me, "crash")
+          }
+          link(worker)
+          receive {
+            case Exit(from, reason) => println("supervisor got: " + reason)
+          }
+        }
+      }
+    """) shouldBe "supervisor got: crash"
 
   test("demonitor cancels a monitor before actor exits"):
     captured("""

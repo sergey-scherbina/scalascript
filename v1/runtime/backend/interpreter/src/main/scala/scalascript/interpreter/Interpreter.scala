@@ -1485,18 +1485,22 @@ class Interpreter(
       case (name, _) if userDefShadowsIntrinsic(name) =>
         warnIntrinsicShadow(name)
       case (name, List((_, eval))) =>
-        pluginNativeNames += name
-        registerNative(name, args =>
-          val raw = args.map(unwrapValueAsAny)
-          val ret = eval(ctx, raw)
-          wrapAnyAsValue(ret)
-        )
-      case (name, overloads) =>
+        val fallback = nativeFallbackForPlugin(name)
         pluginNativeNames += name
         globals(name) = Value.NativeFnV(name, args =>
-          Computation.Pure(dispatchNativeOverload(name, overloads.map(_._2), ctx, args))
+          dispatchNativeOverload(name, List(eval), ctx, args, fallback)
+        )
+      case (name, overloads) =>
+        val fallback = nativeFallbackForPlugin(name)
+        pluginNativeNames += name
+        globals(name) = Value.NativeFnV(name, args =>
+          dispatchNativeOverload(name, overloads.map(_._2), ctx, args, fallback)
         )
     }
+
+  private def nativeFallbackForPlugin(name: String): Option[Value.NativeFnV] =
+    if pluginNativeNames.contains(name) then None
+    else globals.get(name).collect { case native: Value.NativeFnV => native }
 
   /** True when `globals(name)` currently holds a user-authored function (a
    *  `FunV`) that is not a plugin native — i.e. installing the intrinsic here
@@ -1510,20 +1514,24 @@ class Interpreter(
       name:      String,
       overloads: List[(scalascript.backend.spi.NativeContext, List[Any]) => Any],
       ctx:       scalascript.backend.spi.NativeContext,
-      args:      List[Value]
-  ): Value =
+      args:      List[Value],
+      fallback:  Option[Value.NativeFnV]
+  ): Computation =
     val raw = args.map(unwrapValueAsAny)
     val usageErrors = scala.collection.mutable.ListBuffer.empty[InterpretError]
-    var matched: Option[Value] = None
+    var matched: Option[Computation] = None
     val it = overloads.iterator
     while matched.isEmpty && it.hasNext do
       val eval = it.next()
-      try matched = Some(wrapAnyAsValue(eval(ctx, raw)))
+      try matched = Some(Computation.Pure(wrapAnyAsValue(eval(ctx, raw))))
       catch
         case e: InterpretError if isNativeUsageError(name, e) =>
           usageErrors += e
     matched.getOrElse:
-      throw usageErrors.headOption.getOrElse(InterpretError(s"$name: no matching native overload"))
+      fallback match
+        case Some(native) => native.f(args)
+        case None =>
+          throw usageErrors.headOption.getOrElse(InterpretError(s"$name: no matching native overload"))
 
   private def isNativeUsageError(name: String, e: InterpretError): Boolean =
     val msg = Option(e.getMessage).getOrElse("")
