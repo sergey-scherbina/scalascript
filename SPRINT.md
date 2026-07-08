@@ -757,10 +757,15 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             bare intrinsic path. Verification: `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest"`,
             `scripts/sbtc "installBin"`, direct `bin/ssc run-js tests/conformance/json-read.ssc`,
             and `tests/conformance/run.sh --only 'json-read' --no-memo` (**1/1 green**).
-      - [ ] **conformance-js-product-show-synthetic-tag** — JS product rendering
+      - [x] **conformance-js-product-show-synthetic-tag** — JS product rendering
             includes ADT/case-class synthetic tag indexes, breaking `prisms`,
             `optic-polish`, `optics-index-at`, and `optional`. Verify with
             `tests/conformance/run.sh --only 'prisms,optic-polish,optics-index-at,optional' --no-memo`.
+            FIXED 2026-07-08 in `4e8cbb635`: JS runtime `_show` skips internal
+            `_tag`, and positional `.copy(...)` skips `_type`/`_tag` when mapping
+            arguments over product fields. Direct JS repros for `prisms` and
+            `optic-polish` now match expected output; the affected conformance
+            slice is **4/4 green**.
       - [ ] **conformance-int-sql-block-scope** — INT SQL interpolation cannot see
             preceding Scala block vals (`newId`); verify `sql-basic,sql-transaction`.
       - [ ] **conformance-std-typeclass-int-jvm-gaps** — INT `std-index` stack

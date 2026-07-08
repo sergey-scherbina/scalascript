@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: JS product rendering hides internal tags
+
+`prisms`, `optic-polish`, `optics-index-at`, and `optional` now pass
+INT/JS/JVM in `green-main-conformance-gating`. The JS runtime keeps `_tag` for
+pattern matching, but no longer renders it as a product field or consumes it as
+a positional `.copy(...)` slot. Targeted gate:
+`tests/conformance/run.sh --only 'prisms,optic-polish,optics-index-at,optional' --no-memo`
+is **4/4 green**.
+
+---
+
 ## 2026-07-08 — conformance: JS std/json intrinsic targets fixed
 
 `json-read` now passes INT/JS/JVM in `green-main-conformance-gating`. The JS

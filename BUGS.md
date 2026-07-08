@@ -63,7 +63,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   stdout. JS/JVM are skipped by backend metadata.
 - **Status:** open; inspect section/block evaluation scope for SQL interpolations.
 
-## conformance-js-product-show-synthetic-tag — `open` (2026-07-08)
+## conformance-js-product-show-synthetic-tag — `fixed` (2026-07-08)
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -71,8 +71,16 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Observed:** JS prints product values with an extra synthetic numeric field, e.g.
   `Circle(0, 5)` instead of `Circle(5)`, `Rect(1, 3, 4)` instead of `Rect(3, 4)`,
   and `User(0, bob, false)` in optics/optional cases. INT/JVM pass.
-- **Status:** open; inspect JS ADT/case-class representation and `_show` product
-  rendering so discriminant/tag-index metadata is not printed as a user field.
+- **Status:** fixed in `4e8cbb635`; root cause was JS runtime product handling
+  treating the internal `_tag` field as user data. `_show` now skips `_tag`, and
+  positional `.copy(...)` maps arguments over user fields only (`_type` / `_tag`
+  excluded), so enum tags remain available for pattern matching without leaking
+  into display or copy semantics.
+- **Verified:** `scripts/sbtc "installBin"`; direct
+  `bin/ssc run-js tests/conformance/prisms.ssc` and
+  `bin/ssc run-js tests/conformance/optic-polish.ssc`; and
+  `tests/conformance/run.sh --only 'prisms,optic-polish,optics-index-at,optional' --no-memo`
+  (**4/4 green**).
 
 ## conformance-js-json-stringify-missing-global — `fixed` (2026-07-08)
 
