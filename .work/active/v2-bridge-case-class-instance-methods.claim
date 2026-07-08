@@ -1,6 +1,0 @@
-feature/v2-bridge-case-class-instance-methods 2026-07-08T23:17:19Z
-agent: codex
-heartbeat: 2026-07-08T23:28:37Z
-status: in-progress
-done-so-far: bridge lowering/runtime field precedence/tests/examples are being implemented in worktree
-next: run compile and assembled CLI regressions, then affected conformance
