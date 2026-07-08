@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — std/parsing recovery conformance fixed
+
+`std/parsing/recovery.ssc` now exports its documented recovery extension methods
+and runner helpers (`recoverUntil`, `errorNode`, `parseAll`, `advanceToSync`,
+`runParserAll`). The INT-only `parsing-error-node`, `parsing-parse-all`, and
+`parsing-recover-until` conformance cases now pass instead of failing before
+stdout during import.
+
+---
+
 ## 2026-07-08 — v2 production: `ssc run` defaults to v2
 
 Plain default-lane `ssc run <file>` now runs on the v2 VM through FrontendBridge.

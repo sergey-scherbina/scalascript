@@ -378,16 +378,20 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `bin/ssc run --v2 examples/hello.ssc`, the production gate
       `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`, and affected
       conformance `scala-cli tests/conformance/run.sc -- --only 'dsl*' --no-memo`.
-- [ ] **conformance-parsing-int-empty-output** — fix or reclassify the INT-only
-      std/parsing conformance failures found while verifying
-      `v2-prod-js-dsl-conformance`. Repro after `scripts/sbtc "installBin"`:
-      `scala-cli tests/conformance/run.sc -- --only 'parsing*' --no-memo`.
-      Current expanded-run evidence:
-      `parsing-error-node`, `parsing-parse-all`, and `parsing-recover-until` all
-      report missing output in the INT lane while JS/JVM are skipped by backend
-      metadata. Scope: release hygiene / parser-combinator conformance, not a v2
-      default output-parity blocker. Done-when: the three cases pass or BUGS.md
-      records a defensible exclusion with a follow-up owner.
+- [x] **conformance-parsing-int-empty-output** — DONE 2026-07-08 (d65c678bd):
+      fixed the INT-only std/parsing conformance failures found while verifying
+      `v2-prod-js-dsl-conformance`. Root cause: `std/parsing/recovery.ssc`
+      defined/documented `runParserAll`, `advanceToSync`, and recovery extension
+      methods but omitted them from front-matter `exports:`, so the explicit imports
+      failed on stderr before any stdout. Fix: export `recoverUntil`, `errorNode`,
+      `parseAll`, `advanceToSync`, and `runParserAll`. Verification after
+      `scripts/sbtc "installBin"`: direct
+      `bin/ssc run --v1 tests/conformance/parsing-error-node.ssc` prints expected
+      output; `scala-cli tests/conformance/run.sc -- --only 'parsing*' --no-memo`
+      passes all three INT cases; expanded neighbor slice
+      `scala-cli tests/conformance/run.sc -- --only 'dsl*,collections,parsing*,indent*' --no-memo`
+      passes 5/5 runnable cases, with the two indent cases still skipped for missing
+      expected files.
 
 ## Phase-3 readiness (2026-07-06, corpus-tails run)
 

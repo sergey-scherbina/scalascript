@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## conformance-parsing-int-empty-output — `open` (2026-07-08)
+## conformance-parsing-int-empty-output — `fixed` (2026-07-08)
 
 - **Found by:** codex, while running a neighbor conformance slice for
   `v2-prod-js-dsl-conformance`.
@@ -26,9 +26,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Scope:** std/parsing conformance hygiene. Fix before claiming broad repo-wide
   conformance green; do not mix with the v2 default-switch slice unless its gate
   explicitly requires these parser-combinator cases.
-- **Next:** claim/fix a separate `conformance-parsing-int-empty-output` slice; start
-  by running the three parsing cases directly and checking whether the INT runner is
-  dropping stdout or the std/parsing examples now require a plugin/import update.
+- **Root cause:** `std/parsing/recovery.ssc` documented and defined
+  `recoverUntil`, `errorNode`, `parseAll`, `advanceToSync`, and `runParserAll`, but
+  its front-matter `exports:` omitted those public names. The conformance files
+  explicitly import `runParserAll` / `advanceToSync`, so INT failed during import on
+  stderr before any `println`, which the conformance harness reported as missing
+  stdout.
+- **Fix:** `d65c678bd` exports the recovery extension methods and runner helpers
+  from `std/parsing/recovery.ssc`.
+- **Verification:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run --v1 tests/conformance/parsing-error-node.ssc` prints the expected
+  eight lines; `scala-cli tests/conformance/run.sc -- --only 'parsing*' --no-memo`
+  passes all three INT parsing cases; the neighbor slice
+  `scala-cli tests/conformance/run.sc -- --only 'dsl*,collections,parsing*,indent*' --no-memo`
+  passes 5/5 runnable cases with the two indent cases skipped for missing expected
+  files.
 
 ## conformance-dsl-multi-pass-js — `fixed` (2026-07-08)
 
