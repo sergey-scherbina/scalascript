@@ -9,6 +9,41 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2 production readiness (2026-07-08, Sergiy: "довести v2 до production")
+
+Goal: make v2 safe to become the default `ssc` runtime, with `ssc --v1` kept as the
+rollback path. This workstream does **not** try to green every unrelated repo-wide
+test first; it fixes repo-wide gates only when they block the v2 production gate.
+Coordinate with existing Phase-3/p3 items below instead of duplicating their fixes.
+
+- [ ] **v2-prod-baseline-refresh** — refresh the authoritative v1-vs-v2 output-parity
+      baseline before changing semantics. How: from the claimed worktree, build/stage
+      `bin/ssc`, run `SSC="bin/ssc" scripts/v2-output-parity --all`, record exact
+      match/mismatch/v2-error/v1-only counts in `v2/output-parity-baseline.md`,
+      `specs/v2-full-compat.md`, and this section. Done-when: a fresh agent can
+      reproduce the baseline with one command and knows which failures are production
+      blockers vs lane/env/v1 bugs.
+- [ ] **v2-prod-effects-parity** — first semantic blocker: close
+      `p3-effects-output-divergence` for `examples/algebraic-effects.ssc` and add a
+      regression/gate that checks output equality, not just exit code. Why first:
+      production cannot accept programs that exit 0 while producing different effect
+      results. Start from State-effect get/set/parameterized-handler threading.
+- [ ] **v2-prod-content-parity** — resume `p3-parity-content`: preserve plugin-owned
+      structured content block values across rawToV2/v1ToV2 so `content-tables`,
+      `content-to-markdown`, and `content-linked-namespaces` round-trip like v1.
+- [ ] **v2-prod-plugin-boundary** — close remaining production-relevant plugin bridge
+      shape gaps: `Stub`/`Op` leaks, foreign value conversion, lazy-loaded plugin
+      extern imports, and native registration misses. Non-production examples must be
+      explicitly classified as env-gated, backend-lane, nondeterministic, or v1-bug.
+- [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
+      distributed actors/node simulation, live servers, JVM-lane examples, and external
+      credentials into production-required vs lane-specific gates. Record rejected
+      alternatives, especially whether Spark local shim is required before default v2.
+- [ ] **v2-prod-default-switch** — only after the previous gates are green/explicitly
+      scoped: switch `ssc run` default to v2, keep `ssc --v1` rollback, update docs and
+      install/CI gates. No feature work belongs in this slice; a failed gate sends work
+      back to the earlier slices.
+
 ## Phase-3 readiness (2026-07-06, corpus-tails run)
 
 **Conformance suite 59/59 GREEN; corpus 172/193 (89.1%).** T4.2/T4.3 done earlier.
