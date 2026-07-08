@@ -1231,6 +1231,19 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             ArrayBuffer as list-like for read-only collection dispatch. Gates:
             targeted `array-companion-statics`, affected conformance, and full
             `V2ConformanceTest` are green.
+      - [ ] **root-test-sbt-aggregate-heap-oom** — root
+            `scripts/sbtc "test"` on `origin/main@c9d300335` is now blocked by
+            sbt/JVM heap stability, not a known deterministic v2 conformance
+            failure. The run progressed through many suites, then printed
+            repeated `OutOfMemoryError: Java heap space` from `pool-453`
+            threads; the sbt JVM was non-responsive to `jcmd`, Ctrl-C did not
+            stop it, SIGTERM only removed 47 node children, and SIGKILL was
+            required. Work loop: identify whether this is root aggregate
+            parallelism, Scala.js jsEnv node fan-out, or one leaking module; try
+            bounded root-equivalent test invocation / focused module groups; then
+            encode the stable production gate command or build setting. Done-when:
+            a root-equivalent gate completes without heap OOM/hung sbt JVM and
+            the command/result are recorded.
 
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.

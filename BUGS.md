@@ -12,6 +12,29 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## root-test-sbt-aggregate-heap-oom — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` root retest
+  after v2 `V2ConformanceTest` was green and pushed through `ab37c7d0b`.
+- **Repro:** `cd /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating &&
+  scripts/sbtc "test"` on `origin/main@c9d300335`.
+- **Observed failure:** the aggregate root test run progressed through many
+  payments/crypto/config/server suites, then entered a long silent section with
+  the sbt JVM pegged at >1000% CPU, ~5.7 GB RSS despite `-Xmx4G`, and 47 idle
+  node children. It printed repeated
+  `Exception in thread "pool-453-thread-..." java.lang.OutOfMemoryError: Java heap space`.
+  `jcmd <pid> Thread.print` could not attach within 10.5s. Ctrl-C did not stop
+  the run; SIGTERM removed the node children but the sbt JVM required SIGKILL.
+- **Impact:** root `sbt "test"` is not yet a reliable production gate even after
+  deterministic v2 conformance blockers are fixed.
+- **Fix direction:** determine whether the failure is root-aggregate parallelism,
+  Scala.js jsEnv node fan-out, or a specific test module leaking heap. Start by
+  reproducing with a bounded/constrained root test invocation or focused
+  Scala.js module groups, then encode the fix in build/test settings or the
+  project wrapper. Record the exact command that becomes the production gate.
+- **Done-when:** a root-equivalent gate completes without heap OOM/hung sbt JVM,
+  and the chosen command is recorded in `SPRINT.md`/`CHANGELOG.md`.
+
 ## v2-busi-testsweep-gaps batch — `fixed` (2026-07-08)
 
 Seven root causes closed working busi tests/v2 47/61 → 61/61 on --v2 (v1 = 61/61
