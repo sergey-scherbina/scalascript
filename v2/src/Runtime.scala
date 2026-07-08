@@ -1382,9 +1382,8 @@ object Prims:
         case DataV("Op", _) => UnitV
         case v => println(anyStr(v)); UnitV
     case "__methodOrExt__" => a =>
-      // __methodOrExt__(name, recv, args…, extensionClosure): a method-object
-      // receiver exposing `name` uses ITS method; everything else calls the
-      // user extension global (status quo before method-objects existed).
+      // __methodOrExt__(name, recv, args…, extensionClosure): receiver-owned
+      // members win; otherwise call the user extension global.
       val mname = a.head match { case StrV(s) => s; case v => Show.show(v) }
       val recv  = a(1)
       val ext   = a.last.asInstanceOf[ClosV]
@@ -1395,6 +1394,24 @@ object Prims:
             case Some(fn: ClosV)              => callClos(fn, margs.toArray)
             case Some(v) if margs.isEmpty     => v
             case _                            => callClos(ext, (recv :: margs).toArray)
+        case DataV(tag, fields) =>
+          V2PluginRegistry.lookupFieldNames(tag) match
+            case Some(fnames) =>
+              val i = fnames.indexOf(mname)
+              if i >= 0 && i < fields.length then
+                val fv = fields(i)
+                if margs.isEmpty then fv
+                else fv match
+                  case fn: ClosV => callClos(fn, margs.toArray)
+                  case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
+                    margs.head match
+                      case IntV(ix) => unlistPub(lv)(ix.toInt)
+                      case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
+                  case ForeignV(m: collection.mutable.Map[?, ?]) =>
+                    m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
+                  case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
+              else callClos(ext, (recv :: margs).toArray)
+            case None => callClos(ext, (recv :: margs).toArray)
         case _ => callClos(ext, (recv :: margs).toArray)
     case "__arithExt__" => a =>
       // __arithExt__(opName, l, r, extensionClosure): numeric operands use the

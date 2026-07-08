@@ -126,5 +126,5 @@ sorted.foreach { case (cid, name, oid, amount) =>
   println(s"$oid | $cid | $name | $amount")
 }
 
-cluster.pids.foreach(pid => pid ! ShutdownWorker())
+cluster.close()
 ```

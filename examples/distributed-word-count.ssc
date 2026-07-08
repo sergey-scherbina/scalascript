@@ -102,5 +102,5 @@ top10.foreach { pair =>
     case _ => ()
 }
 
-cluster.pids.foreach(pid => pid ! ShutdownWorker())
+cluster.close()
 ```

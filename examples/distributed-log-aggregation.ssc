@@ -100,5 +100,5 @@ sorted.foreach { case (svc, count) =>
   println(svc + ": " + count + " errors")
 }
 
-cluster.pids.foreach(pid => pid ! ShutdownWorker())
+cluster.close()
 ```

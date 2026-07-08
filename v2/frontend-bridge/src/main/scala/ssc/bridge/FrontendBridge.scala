@@ -72,6 +72,7 @@ object FrontendBridge:
     generalDerives.clear()
     givenRegistry.clear()
     extensionMethods.clear()
+    caseClassMethodNames.clear()
     extAccum.clear()
     defaultParams.clear()
     defaultParamTerms.clear()
@@ -135,6 +136,7 @@ object FrontendBridge:
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
+  private val caseClassMethodNames = collection.mutable.HashSet[String]()
 
   /** Objects: `case object X` stays a zero-arg Ctor; `object X { def m }` is a
    *  method-obj GLOBAL — a bare uppercase name must not shadow it with Ctor(X). */
@@ -324,6 +326,9 @@ object FrontendBridge:
     case d: Defn.Class if d.mods.exists(_.is[Mod.Case]) =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList
       registerCaseClass(d.name.value, params)
+      d.templ.stats.collect { case m: Defn.Def => m }.foreach { m =>
+        caseClassMethodNames += m.name.value
+      }
       d.templ.derives.foreach { derivedType =>
         val tcName = derivedType match
           case Type.Name(n) => n
@@ -445,6 +450,7 @@ object FrontendBridge:
     // Reset per-file state so batch runs don't pollute each other
     fieldRegistry.clear()
     extensionMethods.clear()
+    caseClassMethodNames.clear()
     extAccum.clear()
     defaultParams.clear()
     defaultParamTerms.clear()
@@ -1138,6 +1144,8 @@ object FrontendBridge:
         }
       case eg: Defn.ExtensionGroup =>
         emitExtensionGroup(eg, defsB)
+      case cls: Defn.Class if cls.mods.exists(_.is[Mod.Case]) =>
+        emitCaseClassMethods(cls, defsB)
       case obj: Defn.Object if !V2PluginRegistry.hasGlobal(obj.name.value) =>
         // object Foo { def m(...) = ... } → Foo = __mk_method_obj__(["m", lam, ...])
         val methods = obj.templ.stats.collect { case m: Defn.Def => m }
@@ -1521,6 +1529,8 @@ object FrontendBridge:
         val q = convertExpr(qual, scope)
         if extensionMethods.contains(name) then
           CT.App(CT.Global(name), List(q))
+        else if caseClassMethodNames.contains(name) then
+          CT.Prim("__methodOrExt__", List(CT.Lit(Const.CStr(name)), q, CT.Global(name)))
         else
           fieldIndex(name) match
             case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i)), CT.Lit(Const.CStr(name))))
@@ -1813,7 +1823,8 @@ object FrontendBridge:
         else
           val q = convertExpr(qual, scope)
           // Extension method → global call with receiver as first arg
-          if extensionMethods.contains(mname) && !suppressExtName.contains(mname) then
+          if (extensionMethods.contains(mname) || caseClassMethodNames.contains(mname)) &&
+             !suppressExtName.contains(mname) then
             // Runtime-branching: a method-object receiver with its OWN `mname`
             // field wins over the extension global (a Prism's modify was hijacked
             // by the optic-path extension modify and returned a stale walk).
@@ -2421,6 +2432,37 @@ object FrontendBridge:
   /** General typeclass derivation via `T.derived(mirror)`: class name → list of typeclass names.
    *  Populated from `case class X(...) derives Tc` for any Tc not handled specially. */
   private val generalDerives = collection.mutable.LinkedHashMap[String, List[String]]()
+
+  private def emitCaseClassMethods(cls: Defn.Class, defsB: collection.mutable.Builder[CDef, List[CDef]]): Unit =
+    val className = cls.name.value
+    val fields = fieldRegistry.getOrElse(className, Vector.empty).toList
+    cls.templ.stats.collect { case m: Defn.Def => m }.foreach { m =>
+      caseClassMethodNames += m.name.value
+      val params = "this" :: allParams(m)
+      val baseScope = params.reverse
+      val saved = suppressExtName
+      suppressExtName = Some(m.name.value)
+      val body =
+        try
+          def bindFields(todo: List[(String, Int)], sc: List[String]): CT =
+            todo match
+              case Nil => convertExpr(m.body, sc)
+              case (fieldName, _) :: rest if sc.contains(fieldName) =>
+                bindFields(rest, sc)
+              case (fieldName, idx) :: rest =>
+                val recv = lookupVar("this", sc)
+                val field = CT.Prim("fieldAt", List(
+                  recv,
+                  CT.Lit(Const.CInt(idx)),
+                  CT.Lit(Const.CStr(fieldName))
+                ))
+                CT.Let(List(field), bindFields(rest, fieldName :: sc))
+          bindFields(fields.zipWithIndex, baseScope)
+        finally suppressExtName = saved
+      val lam = CT.Lam(params.length, body)
+      extAccum.getOrElseUpdate(m.name.value, collection.mutable.ListBuffer.empty) +=
+        ((className, params.length, lam))
+    }
 
   /** Convert a `given name: T with { defs }` to a method-object prim. */
   /** extension (recv: T) def m(a...) = ... → accumulate (typeHead, arity, lam);
