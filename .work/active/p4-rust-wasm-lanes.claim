@@ -1,0 +1,6 @@
+feature/p4-rust-wasm-lanes 2026-07-08T21:23:32Z
+agent: codex
+heartbeat: 2026-07-08T21:23:32Z
+status: not-started
+done-so-far:
+next: create worktree and write detailed rust/wasm lane plan before coding
