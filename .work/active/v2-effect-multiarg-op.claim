@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-effect-multiarg-op
-worktree: ../scalascript-wt-v2-effect-multiarg-op
-started: 2026-07-08
-status: in-progress
-task: v2-effect-multiarg-op — busi rozum seq31: `match: no arm for append/2` in PluginBridge.runEffectLoop; multi-arg effect ops (Journal.append(scope, fact)) must reach handler arms as op(arg1, arg2, resume). Repro: cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/ledger.ssc
