@@ -1,0 +1,6 @@
+feature/p4-default-flip 2026-07-08T22:19:47Z
+agent: codex
+heartbeat: 2026-07-08T22:19:47Z
+status: not-started
+done-so-far:
+next: expand spec/SPRINT plan in worktree before implementation
