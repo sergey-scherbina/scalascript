@@ -1,6 +1,6 @@
 feature/v2-prod-invoice-email-nondet 2026-07-08T08:32:12Z
 agent: codex
-heartbeat: 2026-07-08T08:32:12Z
-status: not-started
-done-so-far:
-next: plan and fix invoice-email nondeterministic byte-count output without touching sibling p3-final-push files
+heartbeat: 2026-07-08T08:34:51Z
+status: in-progress
+done-so-far: worktree created; siblings checked for overlap
+next: rebase worktree, write SPRINT plan, then stabilize invoice-email output
