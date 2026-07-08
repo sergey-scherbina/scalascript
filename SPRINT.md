@@ -686,6 +686,16 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       JS top-level-name bug; done in `2e1f2c287`, and
       `scripts/conformance -- --only mcp-types --no-memo` now passes INT/JS. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
       from the default `bin/ssc` launcher.
+      UPDATE 2026-07-08 (`conformance-http-client-external-httpbin`): current
+      `scripts/conformance -- --only 'http-client' --no-memo` returned five INT
+      `503` statuses from live `https://httpbin.org` and then stalled in the JS
+      lane. Reclassified this fixture with `pending:` because default conformance
+      must not depend on an external network service. Follow-up: replace it with a
+      local deterministic HTTP fixture before re-enabling. Remaining fresh
+      deterministic failures after the p3-remaining-ten landing: `actors-supervision`
+      INT, `effects` INT, `effect-transitive-handler` JVM, and JVM-only
+      `cluster-connect` / `distributed-failure-*` / `distributed-heterogeneous` /
+      `distributed-shuffle`.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

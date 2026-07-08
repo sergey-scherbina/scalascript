@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — conformance: external httpbin fixture pending
+
+`tests/conformance/http-client.ssc` is now pending by default because it depends
+on live `https://httpbin.org`; the current run returned 503s and stalled in the JS
+lane. The fixture remains documented, with a follow-up to replace it by a local
+deterministic HTTP test before re-enabling it in default conformance.
+
+---
+
 ## 2026-07-08 — std/parsing recovery conformance fixed
 
 `std/parsing/recovery.ssc` now exports its documented recovery extension methods
