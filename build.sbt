@@ -105,6 +105,17 @@ lazy val v2Core = project
 // valueData, core) for Backend/DataValue/Value types.
 // Scope: NativeImpl intrinsics only; effect-based plugins (BlockForm) are a
 // known limitation documented in v2/plugin-bridge/src/.../PluginBridge.scala.
+// CoreIR → JVM bytecode, in-process (Phase 4 jvm-lane): ASM behind the
+// ClassEmitter seam; structure compiled, prims delegate to ssc.Emit shims.
+lazy val v2JvmBytecode = project
+  .in(file("v2/backend-jvm-bytecode"))
+  .dependsOn(v2Core)
+  .settings(
+    name := "scalascript-v2-jvm-bytecode",
+    libraryDependencies += "org.ow2.asm" % "asm" % "9.7",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -127,7 +138,7 @@ lazy val v2PluginBridge = project
 // Depends on: v2Core (ssc.Term/Const/Program), core (scalameta + v1 pipeline types).
 lazy val v2FrontendBridge = project
   .in(file("v2/frontend-bridge"))
-  .dependsOn(v2Core, v2PluginBridge, core)
+  .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core)
   .settings(
     name := "scalascript-v2-frontend-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),

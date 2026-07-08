@@ -43,7 +43,13 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       p4-jvm-lane-bytecode: ASM-кодген компилирует ТОЛЬКО структуру (lam/app/let/match/seq/
       letrec/ctor/if), все примы = invokestatic в ssc.Prims; plugin-поверхность = тот же
       PluginBridge.loadAll() на старте. Перф — из компиляции структуры (циклы/вызовы/матчи).
-- [ ] **p4-jvm-lane-bytecode** — РЕШЕНИЕ (2026-07-08, обсуждено с владельцем): CoreIR → JVM
+- [~] **p4-jvm-lane-bytecode** — MILESTONE 1 GREEN 2026-07-08: модуль v2JvmBytecode
+      (v2/backend-jvm-bytecode, ASM 9.7 + v2Core), шимы ssc.Emit (prim0..N/app/ctor/global/
+      литералы — эмиссия = push-args + invokestatic), эмиттер девяти структурных форм entry
+      (Lit/Global/Local/Prim/App/Seq/If/Let/Ctor; De Bruijn → JVM-слоты). Смоук: hello.ssc →
+      бридж → CoreIR → 288 байт байткода → defineClass → «Hello, World!». Гибрид: дефы от
+      VM-компилятора (Emit.globalsRef). MILESTONE 2: Lam→методы+ClosV-подкласс, Match→tag-switch,
+      LetRec; затем корпус-покрытие и CLI-флаг. РЕШЕНИЕ (2026-07-08, обсуждено с владельцем): CoreIR → JVM
       байткод НАПРЯМУЮ через ASM 9.7 (уже в deps), in-process, БЕЗ scala-cli/bloop/scalac.
       Рантайм НЕ генерится: байткод статически линкуется против пребилт scalascript-v2-core.jar
       (ssc.Runtime/ssc.Prims). run = ClassWriter→defineClass; build = jar. Паттерны эмиссии
