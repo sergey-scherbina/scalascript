@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T19:22:44Z
+heartbeat: 2026-07-08T19:37:55Z
 status: in-progress
-done-so-far: full cli/test no longer fork-exits after green; SubmitCommandTest is green focused after dry-run source assertions
-next: fix ToolkitElectronSmokeTest duplicate _seqMap, rerun full cli/test, affected conformance, then root test
+done-so-far: ToolkitElectronSmokeTest is green focused after JS runtime duplicate/binding fixes; typed-json/client/runtime focused tests are green
+next: rerun full cli/test, affected conformance, then bounded root test
