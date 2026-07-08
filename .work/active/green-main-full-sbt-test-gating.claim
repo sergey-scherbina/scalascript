@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T18:45:26Z
+heartbeat: 2026-07-08T19:04:47Z
 status: in-progress
-done-so-far: root scripts/sbtc "test" retest is running with bounded sbt Test concurrency; no repeat OOM symptom so far
-next: wait for root test exit; if green commit bounded Test concurrency and close root-test-sbt-aggregate-heap-oom
+done-so-far: bounded root test completed without OOM, but exposed backend JsGenStdImportTest row-post JS runtime failure and cli fork exit-after-green failure
+next: record both blockers in BUGS/SPRINT, then fix backend JS runtime contract and isolate cli fork exit
