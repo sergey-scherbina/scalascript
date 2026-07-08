@@ -1,7 +1,7 @@
 package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.codegen.{JsGen, JsRuntimeBrowserPatch}
+import scalascript.codegen.{JsGen, JsIntrinsics, JsRuntimeBrowserPatch}
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
@@ -317,6 +317,27 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(moduleJs.contains("const jsonValue = std.json.jsonValue;"), "expected jsonValue import binding")
     // and the full bundle actually parses as JS (the bug was a parse error)
     checkNodeSyntax(js)
+
+  test("bare std/json intrinsics call the renamed JS runtime helpers"):
+    val source =
+      """# JSON
+        |
+        |```scalascript
+        |println(jsonStringify(42))
+        |println(jsonValue("{\"a\":1}").get("a").asInt)
+        |```
+        |""".stripMargin
+
+    val js = JsGen.generate(
+      Parser.parse(source),
+      baseDir = Some(TestPaths.repoRoot / "examples"),
+      intrinsics = JsIntrinsics
+    )
+
+    assert(js.contains("_ssc_ui_jsonStringify(42)"), "bare jsonStringify must call the runtime helper")
+    assert(js.contains("_ssc_ui_jsonValue("), "bare jsonValue must call the runtime helper")
+    assert(!js.contains("_println(jsonStringify(42))"), "bare jsonStringify must not emit an undefined global")
+    assert(!js.contains("_println(jsonValue("), "bare jsonValue must not emit an undefined global")
 
   // fetchCaptureAction / fetchJsonCaptureAction (busi durable-auth login): a POST
   // whose 2xx response body is captured into a signal (instead of discarded).
