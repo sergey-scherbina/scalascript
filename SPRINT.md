@@ -1244,6 +1244,34 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             encode the stable production gate command or build setting. Done-when:
             a root-equivalent gate completes without heap OOM/hung sbt JVM and
             the command/result are recorded.
+            Progress 2026-07-08 (uncommitted): a global sbt
+            `Tags.Test` concurrency cap, env-overridable via
+            `SSC_SBT_TEST_CONCURRENCY` and defaulting to 4, made the next root
+            `scripts/sbtc "test"` complete in about 27m32s without the prior
+            OOM/hung sbt JVM symptom. It still exited 1 because two later
+            deterministic/root-runner blockers surfaced; fix those next, then
+            rerun the root gate before marking this item fixed.
+      - [ ] **root-test-js-rowpost-runtime-contract** — new backendInterpreter
+            blocker from the bounded root gate. Repro in root stream:
+            `scalascript.JsGenStdImportTest` case `JS signal runtime defines the
+            std/ui row-data natives` failed because generated JS did not contain
+            `_RowPost` body payload resolution
+            `body: resolvePayload(r, act.bodyField)`. Work loop: run focused
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest -- -z row-data"`;
+            inspect `_RowPost`/`resolvePayload` runtime generation; either
+            restore the real row POST body resolver or update the assertion if
+            current code is semantically equivalent. Done-when: focused
+            `JsGenStdImportTest` is green plus affected std/ui conformance.
+      - [ ] **root-test-cli-fork-exit-after-green** — new CLI aggregate blocker
+            from the bounded root gate. Repro in root stream: `cli / Test / test`
+            reported all CLI tests passed (488 succeeded, 0 failed, 19 canceled),
+            then sbt failed because the forked `sbt.ForkMain` JVM exited 1.
+            Work loop: reproduce with focused `cli/testOnly` suites starting
+            from the last emitted CLI suite, then widen to `cli/test`; inspect
+            late JVM/process cleanup and generated `v1/tools/cli/ssc-storage.json`
+            rather than masking the fork exit. Done-when: `scripts/sbtc
+            "cli/test"` exits 0 and the final root-equivalent gate no longer
+            reports the CLI task failure.
 
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.

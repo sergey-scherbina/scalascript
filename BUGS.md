@@ -12,6 +12,46 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## root-test-cli-fork-exit-after-green — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` root
+  `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
+- **Repro observed in root gate:** `cli / Test / test` reported
+  `Total number of tests run: 488`, `Tests: succeeded 488, failed 0, canceled 19`,
+  and `All tests passed.`, then sbt still failed the task with
+  `Error during tests: Running java with options ... sbt.ForkMain ... failed with exit code 1`.
+- **Impact:** the CLI aggregate is red even though ScalaTest reports no failing
+  test. Root `test` cannot be treated as a production gate until the forked JVM
+  exits cleanly or the late exit is traced to a real failing resource cleanup path.
+- **Fix direction:** reproduce with focused `cli/testOnly` suites first, starting
+  from the last emitted suite in the root stream and then widening to `cli/test` if
+  needed. Inspect late JVM/process cleanup and generated files such as
+  `v1/tools/cli/ssc-storage.json`; do not paper over the non-zero fork exit.
+- **Done-when:** targeted repro is understood and fixed, `scripts/sbtc "cli/test"`
+  exits 0, and the final root-equivalent gate no longer reports this task failure.
+
+## root-test-js-rowpost-runtime-contract — `open` (2026-07-08)
+
+- **Found by:** codex, during `green-main-full-sbt-test-gating` root
+  `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
+- **Repro observed in root gate:** `backendInterpreter / Test / test` failed
+  `scalascript.JsGenStdImportTest` case
+  `JS signal runtime defines the std/ui row-data natives` at
+  `JsGenStdImportTest.scala:403`: generated runtime did not contain the expected
+  `_RowPost` body payload line `body: resolvePayload(r, act.bodyField)`.
+- **Impact:** JS std/ui row-data runtime contract may no longer send row POST
+  body payloads through the same resolver used by other row fields. If this is a
+  true runtime regression, browser UI row actions can submit stale or unresolved
+  bodies; if only the string assertion is stale, the production contract still
+  needs a sharper test.
+- **Fix direction:** run the focused `JsGenStdImportTest` filter, inspect the
+  emitted JS runtime around `_RowPost` / `resolvePayload`, then either restore the
+  payload resolution path or update the structural assertion to match the current
+  equivalent implementation.
+- **Done-when:** focused `JsGenStdImportTest` is green, the row POST body
+  contract is covered by the test, and affected std/ui conformance runs before
+  pushing.
+
 ## root-test-sbt-aggregate-heap-oom — `open` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root retest
@@ -34,6 +74,13 @@ commit SHA until the reporter confirms, then they can be trimmed.
   project wrapper. Record the exact command that becomes the production gate.
 - **Done-when:** a root-equivalent gate completes without heap OOM/hung sbt JVM,
   and the chosen command is recorded in `SPRINT.md`/`CHANGELOG.md`.
+- **Progress (2026-07-08, uncommitted worktree):** adding
+  `Global / concurrentRestrictions += Tags.limit(Tags.Test,
+  SSC_SBT_TEST_CONCURRENCY default 4)` to `build.sbt` made the next root
+  `scripts/sbtc "test"` complete in about 27m32s without the previous OOM/hung
+  sbt JVM pattern. The gate still exited 1 because it exposed the two separate
+  blockers tracked above: `root-test-js-rowpost-runtime-contract` and
+  `root-test-cli-fork-exit-after-green`.
 
 ## v2-busi-testsweep-gaps batch — `fixed` (2026-07-08)
 
