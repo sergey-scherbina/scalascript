@@ -29,6 +29,14 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 
 ## v1→v2 migration follow-ups (2026-07-03)
 
+- [ ] **v1-args-native-method-gap** (2026-07-08) — the v1 interpreter lane fails
+      `args.length` with `No method 'length' on NativeFnV(<native:args>)` (same
+      class as the fixed v2 v2-args-global-shadowed-by-native, BUGS.md): the bare
+      parameterless-extern auto-call fix does not cover method-receiver position.
+      Repro: `bin/ssc run --v1` on a file with `val n = args.length`. Fix on the
+      v1 side: force parameterless natives in receiver position (or bind `args`
+      as a value list like v2 now does).
+
 - [ ] **v1-jvm-state-threaded-handler-codegen** (2026-07-08) — `run-jvm` fails to
       compile effect handlers whose arms return lambdas (state-threading idiom,
       busi's `runJournal`): "could not infer the type of the parameter s /

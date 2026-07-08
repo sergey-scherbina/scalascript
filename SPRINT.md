@@ -9,7 +9,27 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-op-arg-lifting** — strict calls (closures AND plugin natives, incl. `println`,
+- [ ] **v2-busi-testsweep-gaps** — busi tests/v2 on --v2: 47/61 PASS after op-arg-lifting
+      (v1 same launcher/flags: 61/61 — every fail is a REAL v2 parity gap, not environment).
+      14 failing: content_toolkit, deferred_action, income, invoicing, litdoc_content,
+      local_journal, meeting_room, model, operator, qr, sync_http, sync, trust, vat.
+      Sampled diagnoses: qr — `expected Array, got List(0,0,…)` (Array/List coercion at a
+      native boundary); vat — passes 5 checks then fails after `nextMonth25 June → Jul-25`
+      (date logic downstream). Work loop: per file, run
+      `cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/<f>.ssc`,
+      fix the gap in v2 (bridge/runtime), regression-test in tests/conformance, rerun sweep.
+      GOAL: 61/61 on --v2 → busi flips scripts/ssc back from --v1 (their conformance ask).
+
+- [x] **v2-op-arg-lifting** — DONE 2026-07-08: OpAnf bridge-side CoreIR pass (NOT a runtime
+      lift — that would break the Mira/hm kernel lane where Op values are legal fn args).
+      Let-binds may-be-Op args (App/Prim/Ctor/Match-scrut/If-cond); kernel letThread does the
+      deferral; `handle(expr)` paren-form args excluded (op must reach handle raw); GATED to
+      sources mentioning effect/handle (ungated = pattern-match-heavy 3-4× slower; gated =
+      baseline everywhere, effect-multishot 5.19 ≈ 5.04 base). busi ledger ALL OK on --v2;
+      corpus 153/9 = base; conf v2 batch 109/39 (js-applyunary-effect-cps FLIPPED TO PASS).
+      Companion fix: args global was shadowed by a bridged native fn (BUGS.md
+      v2-args-global-shadowed-by-native). Details in BUGS.md v2-op-arg-lifting.
+      Original: strict calls (closures AND plugin natives, incl. `println`,
       and perform-argument evaluation) with an unresolved effect `Op` ARGUMENT must defer
       into the Op's continuation instead of consuming the Op as a value. Found working
       busi's ledger past append/2: `formatMoney(accountBalance(...))` gets a raw

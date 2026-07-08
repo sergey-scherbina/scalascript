@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: Op-argument lifting (OpAnf) — strict consumers defer unresolved effect Ops
+
+Third and final leak in busi's --v2 ledger chain: a strict call (`formatMoney(...)`, `println`,
+Ctor fields, match scrutinees, if conditions) receiving an unresolved effect `Op` consumed it as a
+raw value. Runtime lifting would break the Mira/hm kernel lane (Op values are legitimate fn args
+there), so the fix is `OpAnf` — a bridge-only CoreIR pass Let-binding may-be-Op argument positions;
+the kernel's existing Let/Seq threading does the deferral (de Bruijn cutoff-shifting; `handle(expr)`
+paren-form excluded; gated to sources mentioning effect/handle so effect-free hot loops pay zero —
+ungated, pattern-match-heavy ran 3-4× slower; gated, all benches at baseline, effect-multishot
+5.19 ≈ 5.04). busi tests/v2/ledger.ssc: ALL OK on --v2. Corpus 153/9 = baseline; conformance v2
+batch 109/39 — `js-applyunary-effect-cps` flipped to PASS. Companion: the `args` global was
+shadowed by a bridged native fn (`args.length` → `.length on <closure>`, masked by the length
+FastCode's tolerant `0L`) — the value list now registers post-plugins from `Runtime.argv`.
+
+---
+
 ## 2026-07-08 — std/ui: emit-spa wires incSignal (↻ refresh buttons were dead)
 
 The button-handler serialization in the emit-spa mount had cases for _ToggleSignal/_SetSignal/

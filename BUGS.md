@@ -123,7 +123,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
   'option,optional,typeclass-extension,std-functor-applicative-monad,std-monaderror'
   --no-memo` (**5/5 green** on INT/JS/JVM).
 
-## v2-op-arg-lifting — `open` (2026-07-08)
+## v2-args-global-shadowed-by-native — `fixed` (2026-07-08)
+
+- **Found by:** claude-fable-5, unmasked while testing OpAnf (entry below): the
+  If-cond Let-wrap re-routed `if args.length > 0` from the length FastCode (whose
+  tolerant `case _ => 0L` swallowed the wrong receiver) to the honest generic
+  dispatch — which crashed `.length on <closure>` (dataset-word-count et al).
+- **Root cause:** `loadAll()`'s SPI bridging registers a native FUNCTION global
+  under "args"; the args VALUE-list registration was guarded by `if isEmpty` and
+  never fired — `args` was a closure everywhere on v2. `args.length`/`args(0)`
+  (the documented semantics, examples/dataset-word-count.ssc) only "worked" via
+  the FastCode accident. Pre-existing on origin/main, INDEPENDENT of OpAnf; the
+  v1 lane has the same gap (`No method 'length' on NativeFnV(<native:args>)`) —
+  v1 side left open (BACKLOG note).
+- **Fix:** register the args Cons/Nil list AFTER the plugin loop (same
+  post-plugins override pattern as cwd/sep/platform), built from `Runtime.argv`
+  (now set BEFORE loadAll in RunV2/bridgeCli); `scalascript.args` prop stays as
+  the embedder fallback.
+- **Verified:** `println(args)` → `List()`, `args.length` → `0` through the
+  generic dispatch; dataset-word-count PASSES honestly (not via `0L` tolerance).
+
+## v2-op-arg-lifting — `fixed` (2026-07-08)
 
 - **Found by:** claude-fable-5, working busi's ledger repro past the append/2 fix.
 - **Symptom:** a strict call (user fn OR native) with an unresolved effect `Op` as an
@@ -142,11 +162,32 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `println("balance=" + formatMoney(accountBalance(...)))` prints the Op raw.
   Full: `cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/ledger.ssc`
   (on ≥ d2340f85e) → `FAIL: cash debit = 100.00` after `ok: entry balances`.
-- **Fix direction:** lift at the uniform call chokepoint (`Runtime.run`'s `Call`
-  step or the App arg-evaluation paths incl. global fast paths): if any evaluated
-  arg is `DataV("Op",…)`, rebuild `Op(l, a, r => reapply(...))`. HOT PATH — needs
-  `scripts/bench` A/B (coordinate with the active bench-v2-lane claim).
-- **Blocks:** busi's `--v2` conformance re-run (their declared target).
+- **Fix (landed):** NOT at the runtime call chokepoint — a blanket runtime lift
+  would break the Mira/hm kernel lane, where passing Op VALUES to functions is
+  legitimate (`runState(k(r), s)` must receive the op raw; deferring forwards it
+  past its own handler). Instead: `OpAnf` — a bridge-side CoreIR pass (bridged
+  lane only) that Let-binds potentially-Op arguments (App args, Prim args, Ctor
+  fields, Match scrutinees, If conditions), so the kernel's existing
+  letThreadOp/seqThreadOp threading performs the deferral. De Bruijn
+  cutoff-shifting for the inserted binders. Exclusions: `handle(expr)(handler)`
+  paren form (the body's Op must reach handle RAW — effect-multishot bench
+  caught this); `While` untouched (per-iteration re-evaluation). GATED: the pass
+  runs only when the merged source mentions `effect `/`handle` — ops cannot
+  materialize otherwise (context runners intercept pre-Op), and unconditional
+  wrapping made pattern-match-heavy 3-4× slower; with the gate it's at baseline.
+- **Bench A/B (bin/ssc bench --machine --backend v2):** pattern-match-heavy
+  26.2-26.9 vs baseline ~28 ✓; effect-multishot 5.19 vs 5.04-6.01 ✓;
+  streams-pipeline 0.0080 vs 0.0085 ✓; arith-loop/nested-loop/list-fold/
+  hof-pipeline parity.
+- **Verified:** busi ledger.ssc ALL OK on --v2 (was: FAIL check #2); examples
+  corpus 153/9 = baseline; tests/conformance v2 batch 109/39 (was 108/40 —
+  `js-applyunary-effect-cps` FLIPPED TO PASS: `-Op` unary operand now threads);
+  run.sh effect family 4/4 INT/JS/JVM; v2 kernel check.sh 8×3 ALL GREEN
+  (kernel lane untouched by construction).
+- **busi full sweep (tests/v2, 61 files):** --v2 47/61 PASS (was 0 — died on the
+  first test); --v1 same launcher/flags 61/61 → the 14 remaining fails are real
+  v2 parity gaps, queued as SPRINT `v2-busi-testsweep-gaps`. run.sh full
+  conformance 123/123.
 
 ## v1-jvm-state-threaded-handler-codegen — `open` (2026-07-08)
 
