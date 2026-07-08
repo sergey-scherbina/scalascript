@@ -1,6 +1,0 @@
-agent: claude-fable-5 (rozum UCC session)
-branch: feature/ui-rowpost-feedback
-worktree: ../scalascript-wt-ui-rowpost-feedback
-started: 2026-07-08
-status: in-progress
-task: rowPostAction UX — (1) immediate click feedback (disable + "…" during the fetch, restore on error, re-render clears on success) so a slow POST doesn't look dead; (2) opt-in skipEmpty param — don't render the button when its row body resolves empty, so a table can show a per-row conditional action (load XOR unload) without a hidden column/CSS hacks. Consumer: rozum UCC models panel single load/unload button. primitives.ssc extern + data.ssc wrapper + signals.mjs render.
