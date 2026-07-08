@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — std/os: OS plugin uses the stable plugin error surface
+
+`runtime/std/os-plugin` no longer imports interpreter internals from its
+value-surface intrinsics. The invalid `exit(...)` fallback now raises through
+`PluginError`, keeping stable SPI enforcement green; the old NUL arg separator
+literal was normalized to `"\u0000"` for text-safe future diffs. Gates:
+`StableSpiEnforcementTest` 2/2 green, `OsPluginTest` 14/14 green, conformance
+`std-process-import` 1/1 green.
+
 ## 2026-07-08 — cli: verify bounds default source scans for custom artifact dirs
 
 `ssc verify <artifact-dir>` no longer defaults source freshness lookup to the

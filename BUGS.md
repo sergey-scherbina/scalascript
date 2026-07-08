@@ -30,7 +30,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   rendering gap. Verify the selected `V2ConformanceTest` cases and the affected
   conformance slice before pushing.
 
-## root-test-stable-spi-os-plugin-import — `open` (2026-07-08)
+## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
 - **Repro observed in root gate:** `StableSpiEnforcementTest` failed
@@ -39,10 +39,16 @@ commit SHA until the reporter confirms, then they can be trimmed.
   scalascript.interpreter.InterpretError`.
 - **Impact:** stable plugin API enforcement is red; value-surface plugins are not
   fully isolated from interpreter internals.
-- **Fix direction:** migrate the OS plugin off `scalascript.interpreter`
-  references using the stable plugin API error/value surface, or add a documented
-  exemption only if the plugin is intentionally not value-surface. Verify with the
-  stable SPI enforcement test.
+- **Root cause:** OS plugin had already migrated to `PluginNative`/`PluginValue`,
+  but one fallback still imported and threw interpreter `InterpretError` directly.
+- **Fix:** `c3e277723` replaces the direct interpreter error with
+  `PluginError.raise("exit(code: Int)")`, keeping the value-surface plugin on
+  `scalascript-plugin-api`; the existing NUL separator literal was also normalized
+  to `"\u0000"` so future diffs stay text-friendly.
+- **Verified:** `scripts/sbtc "backendInterpreterPluginTests/testOnly scalascript.StableSpiEnforcementTest"`
+  2/2 green; `scripts/sbtc "osPlugin/testOnly scalascript.compiler.plugin.os.OsPluginTest"`
+  14/14 green; `tests/conformance/run.sh --only 'std-process-import' --no-memo`
+  1/1 green.
 
 ## root-test-verify-default-srcdir-parent-scan — `fixed` (2026-07-08)
 

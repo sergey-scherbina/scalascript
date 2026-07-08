@@ -31,7 +31,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `scripts/sbtc "cli/testOnly scalascript.cli.VerifyCliTest"` is green and
       the no-runtime/json cases no longer scan the temp parent.
 
-- [ ] **root-test-stable-spi-os-plugin-import** — restore stable SPI enforcement.
+- [x] **root-test-stable-spi-os-plugin-import** — DONE 2026-07-08 in
+      `c3e277723`: OS plugin no longer imports `scalascript.interpreter`;
+      invalid `exit(...)` args now raise through the stable `PluginError`
+      surface, and the existing NUL arg separator literal was normalized to
+      `"\u0000"` so future diffs stay text-friendly. Gates:
+      `scripts/sbtc "backendInterpreterPluginTests/testOnly scalascript.StableSpiEnforcementTest"`
+      2/2 green; `scripts/sbtc "osPlugin/testOnly scalascript.compiler.plugin.os.OsPluginTest"`
+      14/14 green; `tests/conformance/run.sh --only 'std-process-import' --no-memo`
+      1/1 green. Original: restore stable SPI enforcement.
       Root-gate repro: `StableSpiEnforcementTest` failed because
       `runtime/std/os-plugin/src/main/scala/scalascript/compiler/plugin/os/OsIntrinsics.scala`
       imports `scalascript.interpreter.InterpretError`, which is forbidden for
