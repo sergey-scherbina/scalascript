@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p4-perf-lazylist
-worktree: ../scalascript-wt-p4-lazy
-started: 2026-07-08
-status: in-progress
-task: p4-perf-lazylist — hunt the ~3560x lazylist-take pathology (suspected quadratic re-force of LazyCons); scaling probe -> JFR/inspection -> kernel fix -> re-bench
