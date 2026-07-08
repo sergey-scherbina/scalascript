@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T12:51:35Z
+heartbeat: 2026-07-08T13:00:18Z
 status: in-progress
-done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; json-read JS std/json intrinsic blocker fixed and pushed in 718d04027/017db7122; JS product-rendering blocker fixed and pushed in 4e8cbb635/d67291757; INT SQL scope blocker fixed and pushed in c31389b25/d727c8e95; std typeclass INT recursion fixed locally in f5cdf28c6 (not pushed to main yet); full gate still has remaining INT variables, JVM std typeclass, and JVM std-ui blockers
-next: fix JVM std/index aggregate export/import errors; verify std-index plus typeclass std-* slice
+done-so-far: http-client pending pushed; actors/effects INT failures fixed and pushed; JVM CPS slice pushed; json-read JS std/json intrinsic blocker fixed and pushed in 718d04027/017db7122; JS product-rendering blocker fixed in 4e8cbb635/d67291757; INT SQL scope fixed in c31389b25/d727c8e95; std typeclass INT recursion fixed locally in 351f93281; JVM std/index re-export import rewrite compiles locally
+next: lower explicit context-bound instance calls such as combineAll(xs, intSum) to Scala using calls; verify std-index plus typeclass std-* slice
