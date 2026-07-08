@@ -1,0 +1,30 @@
+#!/usr/bin/env ssc
+---
+name: var-topdef-shared
+---
+
+# top-level var mutated from def bodies (shared cell)
+
+Regression for BUGS.md `v2-topvar-def-split-cell`: a top-level `var` referenced
+from def bodies must be ONE shared cell. The v2 bridge bound the entry-block
+occurrences to a Let-local cell while def bodies reached an auto-created
+`Global("@name")` — two different cells, so mutations from defs silently
+vanished (busi's `def saveLocal(t) = localCell = t` persistence pattern).
+
+```scalascript
+var cell = ""
+var count = 0
+
+def saveText(t: String): Unit = cell = t
+
+def bump(): Unit =
+  count = count + 1
+  cell = cell + "!"
+
+saveText("one")
+println(cell)
+bump()
+bump()
+println(cell)
+println(count)
+```

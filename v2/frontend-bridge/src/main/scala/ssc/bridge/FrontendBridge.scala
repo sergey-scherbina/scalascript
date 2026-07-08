@@ -62,6 +62,7 @@ object FrontendBridge:
    *  field-registry pollution from one example affecting the next. */
   def resetState(): Unit =
     opAnfNeeded = true
+    sharedTopVars.clear()
     PluginBridge.clearDbs()
     fieldRegistry.clear()
     // Mirror is a built-in type with known fields at fixed indices.
@@ -168,6 +169,16 @@ object FrontendBridge:
   /** Names of OBJECT-level `var` members — stored as global cells @name
    *  (CDef("@name", cell.new(init)); reads cell.get, writes cell.set). */
   private val globalVarNames = collection.mutable.HashSet[String]()
+
+  /** TOP-LEVEL `var`s referenced inside a top-level def body. These must be
+   *  SHARED cells: the entry block binds them as locals, but def bodies reach
+   *  them as Global("@name") — without registration those were two DIFFERENT
+   *  cells and mutations from defs silently vanished (busi local_journal:
+   *  `def saveLocal(t) = localCell = t` never persisted; the sweep's whole
+   *  "two facts" family). Populated by a convertStats pre-pass; the var decl
+   *  then global.reg's its cell under "@name" (forced boxed — lcell is skipped
+   *  for these so def-side cell.set/cell.get stay kind-coherent). */
+  private val sharedTopVars = collection.mutable.HashSet[String]()
 
   /** Section ids that own a ```sql fence: `Section.sql` resolves to __sql_<Section>. */
   private val sqlSectionIds = collection.mutable.HashSet[String]()
@@ -919,6 +930,20 @@ object FrontendBridge:
   def convertStats(stats: List[Stat]): Program =
     registerTypes(stats)  // first pass: populate field registry
 
+    // Pre-pass: top-level vars referenced inside any top-level def body become
+    // shared @-cells (see sharedTopVars). Names-only scan is conservative — a
+    // shadowing local of the same name inside a def costs only the lcell
+    // optimization, never correctness.
+    locally {
+      val topVars = stats.collect { case v: Defn.Var => v.pats.flatMap(patNames) }.flatten.toSet
+      if topVars.nonEmpty then
+        val referenced = stats.collect { case d: Defn.Def =>
+          d.body.collect { case Term.Name(n) if topVars(n) => n }
+        }.flatten.toSet
+        sharedTopVars ++= referenced
+        globalVarNames ++= referenced
+    }
+
     val defsB  = List.newBuilder[CDef]
     val entryB = List.newBuilder[Stat]
 
@@ -1214,11 +1239,21 @@ object FrontendBridge:
         val names = v.pats.flatMap(patNames)
         val rhs   = varRhs(v)
         val rhsIr = convertExpr(rhs, scope)
+        // A top-level var referenced from def bodies must be ONE shared boxed
+        // cell, published as Global("@name") (see sharedTopVars): defs read it
+        // via cell.get(Global @name) and assign via cell.set(Global @name),
+        // while the entry block keeps using the scope local — same object.
+        val shared = topLevel && names.headOption.exists(sharedTopVars.contains)
         val (cellOp, prefix) =
-          if isIntLit(rhs) then ("lcell.new", "@@")
-          else                   ("cell.new",  "@")
+          if !shared && isIntLit(rhs) then ("lcell.new", "@@")
+          else                             ("cell.new",  "@")
         val cellName = names.headOption.map(n => s"$prefix$n").getOrElse("@_")
-        CT.Let(List(CT.Prim(cellOp, List(rhsIr))), convertBlock(rest, cellName :: scope, topLevel))
+        val body = convertBlock(rest, cellName :: scope, topLevel)
+        val bodyWithReg =
+          if shared then CT.Seq(List(
+            CT.Prim("global.reg", List(CT.Lit(Const.CStr(cellName)), CT.Local(0))), body))
+          else body
+        CT.Let(List(CT.Prim(cellOp, List(rhsIr))), bodyWithReg)
 
       // def name(params) = body; rest (local LetRec for self-recursion)
       case (d: Defn.Def) :: rest =>
