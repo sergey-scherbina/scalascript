@@ -433,6 +433,21 @@ def main(): Unit =
     """) shouldBe "20"
   }
 
+  test("built-in members take precedence over same-named extensions") {
+    captured("""
+      extension (xs: List[Int])
+        def map(f: Int => Int): List[Int] = List(999)
+
+      extension (oa: Option[Int])
+        def map(f: Int => Int): Option[Int] = Some(999)
+        def flatMap(f: Int => Option[Int]): Option[Int] = Some(999)
+
+      println(List(1, 2).map(x => x + 1))
+      println(Some(5).map(x => x + 1))
+      println(Some(5).flatMap(x => Some(x + 1)))
+    """) shouldBe "List(2, 3)\nSome(6)\nSome(6)"
+  }
+
   test("multiple extension methods in one block") {
     captured("""
       extension (s: String)

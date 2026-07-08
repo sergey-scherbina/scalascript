@@ -5,7 +5,9 @@ import scala.collection.immutable.{Map => IMap}
 
 /** Built-in method dispatch: String, Char, Int, Double, Boolean, List, Option, Map,
  *  Tuple, Either, and instance field access.  User-defined extensions are checked
- *  first (via `interp.extensions`), then type-dispatched built-in methods.
+ *  first (via `interp.extensions`) only when the receiver does not already have a
+ *  real built-in member with that name; Scala member methods take precedence over
+ *  extension methods.
  *
  *  v1.61.1 — Reorganized from a flat 300-case tuple match to a two-level dispatch:
  *  1. `recv match` on the value type (one instanceof check, O(1))
@@ -20,6 +22,54 @@ private[interpreter] object DispatchRuntime:
   private val tupleTypeNames: Array[String] = Array.tabulate(23)(i => s"Tuple$i")
   private def tupleTypeName(n: Int): String =
     if n < tupleTypeNames.length then tupleTypeNames(n) else s"Tuple$n"
+
+  private def extensionReceiverTypeName(recv: Value): String | Null =
+    recv match
+      case _: Value.OptionV => "Option"
+      case _: Value.ListV   => "List"
+      case _: Value.IntV    => "Int"
+      case _: Value.DoubleV => "Double"
+      case _: Value.StringV => "String"
+      case _: Value.BoolV   => "Boolean"
+      case _: Value.MapV    => "Map"
+      case _                => null
+
+  private def hasBuiltinMemberBeforeExtension(recv: Value, name: String): Boolean =
+    recv match
+      case _: Value.OptionV =>
+        name match
+          case "map" | "flatMap" | "filter" | "foreach" | "exists" | "forall" |
+              "fold" | "getOrElse" | "orElse" | "contains" | "zip" | "toList" |
+              "isDefined" | "isEmpty" | "nonEmpty" | "get" | "getOrNull" |
+              "getOrElseThrow" | "orNull" | "toRight" | "toLeft" =>
+            true
+          case _ => false
+      case _: Value.ListV =>
+        name match
+          case "map" | "flatMap" | "foldLeft" | "foldRight" | "foreach" |
+              "filter" | "filterNot" | "exists" | "forall" | "find" |
+              "contains" | "indexOf" | "appended" | "prepended" | "take" |
+              "drop" | "apply" | "grouped" | "sliding" | "scanLeft" |
+              "reduceLeft" | "partition" | "count" | "collect" | "span" |
+              "sortBy" | "sortWith" | "groupBy" | "mkString" | "zip" |
+              "takeRight" | "dropRight" | "splitAt" | "intersect" | "diff" |
+              "takeWhile" | "dropWhile" | "toList" | "toSeq" | "toIterable" |
+              "head" | "tail" | "headOption" | "last" | "lastOption" |
+              "isEmpty" | "nonEmpty" | "size" | "length" | "sum" | "product" |
+              "min" | "max" | "reverse" | "distinct" | "sorted" | "flatten" |
+              "zipWithIndex" | "++" | "::" | "+:" | ":+" =>
+            true
+          case _ => false
+      case _ => false
+
+  private def lookupDirectExtension(recv: Value, name: String, interp: Interpreter): Value.FunV | Null =
+    if interp.extensions.isEmpty || hasBuiltinMemberBeforeExtension(recv, name) then null
+    else
+      val typeName = extensionReceiverTypeName(recv)
+      if typeName == null then null
+      else
+        val typeExts = interp.extensions.getOrElse(typeName, null)
+        if typeExts != null then typeExts.getOrElse(name, null) else null
 
   def dispatch(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // `.asInstanceOf[T]` — types are erased; always a no-op at runtime.
@@ -39,21 +89,8 @@ private[interpreter] object DispatchRuntime:
           else Pure(Value.StringV(Value.show(recv)))
         case _ => Pure(Value.StringV(Value.show(recv)))
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
-    if interp.extensions.nonEmpty then
-      val typeName: String = recv match
-        case _: Value.OptionV => "Option"
-        case _: Value.ListV   => "List"
-        case _: Value.IntV    => "Int"
-        case _: Value.DoubleV => "Double"
-        case _: Value.StringV => "String"
-        case _: Value.BoolV   => "Boolean"
-        case _: Value.MapV    => "Map"
-        case _                => null
-      if typeName != null then
-        val typeExts = interp.extensions.getOrElse(typeName, null)
-        if typeExts != null then
-          val fn = typeExts.getOrElse(name, null)
-          if fn != null then return interp.callValuePrepend(fn, recv, args, env)
+    val directExt = lookupDirectExtension(recv, name, interp)
+    if directExt != null then return interp.callValuePrepend(directExt, recv, args, env)
     recv match
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
       case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
@@ -82,21 +119,8 @@ private[interpreter] object DispatchRuntime:
    *  Covers the most common 1-arg operations on List/Map/Option/String/Int/instances.
    *  Falls through to dispatch(recv, name, arg :: Nil, ...) for uncommon operations. */
   def dispatch1(recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
-    if interp.extensions.nonEmpty then
-      val typeName: String = recv match
-        case _: Value.OptionV => "Option"
-        case _: Value.ListV   => "List"
-        case _: Value.IntV    => "Int"
-        case _: Value.DoubleV => "Double"
-        case _: Value.StringV => "String"
-        case _: Value.BoolV   => "Boolean"
-        case _: Value.MapV    => "Map"
-        case _                => null
-      if typeName != null then
-        val typeExts = interp.extensions.getOrElse(typeName, null)
-        if typeExts != null then
-          val fn = typeExts.getOrElse(name, null)
-          if fn != null then return interp.callValue2(fn, recv, arg, env)
+    val directExt = lookupDirectExtension(recv, name, interp)
+    if directExt != null then return interp.callValue2(directExt, recv, arg, env)
     recv match
       case Value.ListV(ls)      => dispatchList1(ls, recv, name, arg, env, interp)
       case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
@@ -112,21 +136,8 @@ private[interpreter] object DispatchRuntime:
    *  Covers the most common 2-arg operations on Map/String/Int.
    *  Falls through to dispatch(recv, name, arg1 :: arg2 :: Nil, ...) for uncommon ops. */
   def dispatch2(recv: Value, name: String, arg1: Value, arg2: Value, env: Env, interp: Interpreter): Computation =
-    if interp.extensions.nonEmpty then
-      val typeName: String = recv match
-        case _: Value.OptionV => "Option"
-        case _: Value.ListV   => "List"
-        case _: Value.IntV    => "Int"
-        case _: Value.DoubleV => "Double"
-        case _: Value.StringV => "String"
-        case _: Value.BoolV   => "Boolean"
-        case _: Value.MapV    => "Map"
-        case _                => null
-      if typeName != null then
-        val typeExts = interp.extensions.getOrElse(typeName, null)
-        if typeExts != null then
-          val fn = typeExts.getOrElse(name, null)
-          if fn != null then return interp.callValuePrepend(fn, recv, arg1 :: arg2 :: Nil, env)
+    val directExt = lookupDirectExtension(recv, name, interp)
+    if directExt != null then return interp.callValuePrepend(directExt, recv, arg1 :: arg2 :: Nil, env)
     recv match
       case Value.MapV(m) => name match
         case "getOrElse" | "getOrDefault" =>
