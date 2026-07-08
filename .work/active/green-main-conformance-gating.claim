@@ -1,0 +1,6 @@
+feature/green-main-conformance-gating 2026-07-08T11:11:33Z
+agent: codex
+heartbeat: 2026-07-08T11:11:33Z
+status: not-started
+done-so-far:
+next: create worktree, run current full conformance, classify/fix remaining default-lane failures
