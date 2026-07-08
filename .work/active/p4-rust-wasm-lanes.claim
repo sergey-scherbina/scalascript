@@ -1,6 +1,6 @@
 feature/p4-rust-wasm-lanes 2026-07-08T21:23:32Z
 agent: codex
-heartbeat: 2026-07-08T21:45:31Z
+heartbeat: 2026-07-08T21:55:05Z
 status: in-progress
-done-so-far: target display/float emitter fixed locally; conformance expectations being realigned
-next: rebase worktree, run full v2 conformance/backend gates, then commit/push if green
+done-so-far: target display/float emitter fixed locally; full conformance exposed VM effect-handler blocker, tracked in BUGS.md
+next: fix VM run-ir effect-handler regression, then rerun v2 conformance/backend gates
