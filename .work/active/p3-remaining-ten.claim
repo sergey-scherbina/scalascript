@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p3-remaining-ten
+worktree: ../scalascript-wt-p3-remaining-ten
+started: 2026-07-08
+status: in-progress
+task: p3-remaining-ten — finish the last parity entries: async-parallel nondet class, rozum streaming/schema, content-slot + toolkit-yaml, quoted-macro impl-body (runtime splice), then v1 bugs (effects sections, os-env natives, .many(), exit-cascade)
