@@ -1,0 +1,6 @@
+feature/tkv2-keyed-for 2026-07-08T23:40:09Z
+agent: codex
+heartbeat: 2026-07-08T23:40:09Z
+status: not-started
+done-so-far:
+next: create feature spec for keyed-for before implementation
