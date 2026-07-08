@@ -1,6 +1,6 @@
 feature/green-main-full-sbt-test-gating 2026-07-08T14:48:51Z
 agent: codex
-heartbeat: 2026-07-08T17:50:02Z
+heartbeat: 2026-07-08T17:55:45Z
 status: in-progress
-done-so-far: sealed extension dispatch, v1 cluster fixture launch, verify source-scan, and stable SPI OS plugin blockers fixed/pushed through 7cd6d20d6
-next: reproduce root-test-v2-conformance-toolkit-regressions with targeted V2ConformanceTest filters, then split/fix the narrowest remaining v2 parity gap
+done-so-far: sealed extension dispatch, v1 cluster fixture launch, verify source-scan, stable SPI OS plugin, and v2 ReactiveSignal named-method set blockers fixed/pushed through 847404378
+next: fix remaining root-test-v2-conformance-toolkit-regressions starting with tkv2-pwa unbound global pwa, then std-ui-jobpanel heading labels
