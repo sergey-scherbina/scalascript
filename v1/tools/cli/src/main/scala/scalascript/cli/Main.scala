@@ -3057,22 +3057,27 @@ final class RunJsCmd extends CliCommand:
   override def category = "Separate compilation (v2.0)"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
+      System.err.println("Usage: ssc run-js [--v2] [--frontend <custom|react|solid|vue>] <file.ssc> [args...]")
       System.exit(1)
     var jsFrontendFlag: Option[String] = None
     var jsFileArg:      Option[String] = None
+    var jsV2Flag:       Boolean        = false
+    val jsArgv = scala.collection.mutable.ArrayBuffer.empty[String]
     val jsIt = args.iterator
     while jsIt.hasNext do
       jsIt.next() match
+        case "--v2" => jsV2Flag = true
         case "--frontend" if jsIt.hasNext =>
           val name = jsIt.next()
           if !browserFrontendNames(name) then
             System.err.println(s"run-js: unknown --frontend '$name', valid: ${browserFrontendNames.mkString(", ")}")
             System.exit(1)
           jsFrontendFlag = Some(name)
-        case f => jsFileArg = Some(f)
+        case f =>
+          if jsFileArg.isEmpty then jsFileArg = Some(f)
+          else jsArgv += f
     val file = jsFileArg.getOrElse {
-      System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
+      System.err.println("Usage: ssc run-js [--v2] [--frontend <custom|react|solid|vue>] <file.ssc> [args...]")
       System.exit(1); ""
     }
     // Node.js execution doesn't use FrontendFrameworks (browser-side concern),
@@ -3086,6 +3091,9 @@ final class RunJsCmd extends CliCommand:
     }.getOrElse(false)
     if !nodeAvailable then
       System.err.println("run-js: node not found on PATH"); System.exit(1)
+    if jsV2Flag then
+      RunV2.runJs(List(path.toString), jsArgv.toList)
+      return
     // Detect capabilities to build the runtime preamble, then compile user code.
     val module  = Parser.parse(os.read(path))
     val baseDir = Some(path / os.up)
@@ -3107,7 +3115,7 @@ final class RunJsCmd extends CliCommand:
           case None =>
             // No npm deps — write single temp file and run directly.
             val tmp = os.temp(bundle, suffix = ".cjs", deleteOnExit = true)
-            runNodeAndWait(Seq("node", tmp.toString), cwd = None)
+            runNodeAndWait(Seq("node", tmp.toString) ++ jsArgv.toSeq, cwd = None)
           case Some(pkg) =>
             // SQL deps present — set up a temp work dir, npm install, then run.
             val npmAvailable = scala.util.Try {
@@ -3123,7 +3131,7 @@ final class RunJsCmd extends CliCommand:
             if inst.exitCode != 0 then
               System.err.println(s"run-js: npm install failed:\n${inst.out.text()}${inst.err.text()}")
               System.exit(1)
-            runNodeAndWait(Seq("node", "main.cjs"), cwd = Some(workDir))
+            runNodeAndWait(Seq("node", "main.cjs") ++ jsArgv.toSeq, cwd = Some(workDir))
       case other =>
         System.err.println(s"run-js: unexpected compile result ${other.getClass.getSimpleName}"); System.exit(1)
 

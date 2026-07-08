@@ -1,0 +1,78 @@
+package scalascript.cli
+
+import org.scalatest.funsuite.AnyFunSuite
+
+/** Opt-in v2 JS lane smoke tests through the real assembled CLI jar.
+ *
+ *  Run with: `sbt cli/assembly "cli/testOnly *V2JsLaneCliTest"`
+ */
+class V2JsLaneCliTest extends AnyFunSuite:
+
+  private val sscJar: Option[os.Path] =
+    val cwd = os.pwd
+
+    def jarUnder(root: os.Path): os.Path =
+      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
+
+    List(jarUnder(cwd), jarUnder(cwd / os.up)).find(os.exists)
+
+  private def requireJar(): os.Path = sscJar.getOrElse:
+    cancel("ssc.jar not found - run `sbt cli/assembly` first")
+
+  private def requireNode(): Unit =
+    val ok = scala.util.Try {
+      os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+    }.getOrElse(false)
+    if !ok then cancel("node not found on PATH")
+
+  private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
+    val jar = requireJar()
+    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
+      args.map(a => a: os.Shellable)
+    os.proc(cmd).call(
+      cwd = cwd,
+      check = false,
+      stderr = os.Pipe,
+      stdout = os.Pipe,
+      timeout = 15000
+    )
+
+  test("run-js --v2 routes through the v2 CoreIR JS lane"):
+    requireNode()
+    val sandbox = os.temp.dir(prefix = "ssc-v2-js-lane-")
+    try
+      val src = sandbox / "hello.ssc"
+      os.write(src,
+        """# Hello
+          |
+          |```scalascript
+          |println("hello from js")
+          |```
+          |""".stripMargin)
+
+      val legacy = runSsc(sandbox, "run-js", "hello.ssc")
+      val v2     = runSsc(sandbox, "run-js", "--v2", "hello.ssc")
+
+      assert(legacy.exitCode == 0,
+        s"legacy run-js failed: exit=${legacy.exitCode}\nstdout=${legacy.out.text()}\nstderr=${legacy.err.text()}")
+      assert(v2.exitCode == 0,
+        s"run-js --v2 failed: exit=${v2.exitCode}\nstdout=${v2.out.text()}\nstderr=${v2.err.text()}")
+      assert(legacy.out.text().trim == "hello from js")
+      assert(v2.out.text().trim == "hello from js")
+
+      val argsSrc = sandbox / "args.ssc"
+      os.write(argsSrc,
+        """# Args
+          |
+          |```scalascript
+          |println(args.length)
+          |println(args(0))
+          |println(args(1))
+          |```
+          |""".stripMargin)
+
+      val withArgs = runSsc(sandbox, "run-js", "--v2", "args.ssc", "one", "two")
+      assert(withArgs.exitCode == 0,
+        s"run-js --v2 argv failed: exit=${withArgs.exitCode}\nstdout=${withArgs.out.text()}\nstderr=${withArgs.err.text()}")
+      assert(withArgs.out.text().trim.linesIterator.toList == List("2", "one", "two"))
+    finally os.remove.all(sandbox)

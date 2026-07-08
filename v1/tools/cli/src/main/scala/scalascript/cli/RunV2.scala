@@ -39,6 +39,36 @@ object RunV2:
         case _root_.ssc.Value.UnitV => ()
         case other                  => println(_root_.ssc.Show.show(other))
 
+  /** `ssc run-js --v2` — opt-in Phase-4 JS lane. The same bridge pipeline emits
+   *  CoreIR and then JavaScript, writes a temporary CommonJS file, and executes
+   *  it with Node. Plain `run-js` remains on the legacy v1 JsGen path until this
+   *  lane has broader conformance coverage. */
+  def runJs(files: List[String], argv: List[String]): Unit =
+    loadPluginJars()
+    _root_.ssc.bridge.PluginBridge.loadAll()
+    for file <- files do
+      val f    = new java.io.File(file)
+      val src  = scala.io.Source.fromFile(f).mkString
+      val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
+      val js   = _root_.ssc.js.JsGen.generate(prog)
+      val tmp  = java.nio.file.Files.createTempFile("ssc-v2-js-", ".cjs")
+      java.nio.file.Files.writeString(tmp, js, java.nio.charset.StandardCharsets.UTF_8)
+      tmp.toFile.deleteOnExit()
+      runNodeAndWait(Seq("node", tmp.toString) ++ argv)
+
+  private def runNodeAndWait(cmd: Seq[String]): Unit =
+    val proc = new ProcessBuilder(cmd*).inheritIO().start()
+    val hook = new Thread(() => proc.destroy())
+    Runtime.getRuntime.addShutdownHook(hook)
+    try
+      val exitCode = proc.waitFor()
+      Runtime.getRuntime.removeShutdownHook(hook)
+      if exitCode != 0 then System.exit(exitCode)
+    catch
+      case _: InterruptedException =>
+        proc.destroy()
+        System.exit(1)
+
   /** Make plugin Backends discoverable to `PluginBridge.loadAll()`'s ServiceLoader.
    *
    *  The `bin/ssc` launcher deliberately keeps plugin jars OFF the startup classpath — they ship as

@@ -33,6 +33,7 @@ object JsGen:
   def generate(prog: Program): String =
     val sb = new StringBuilder
     sb.append(preamble)
+    emitBridgePrelude(sb, prog)
     sb.append("\n// ── Generated definitions ─────────────────────────────────────────────────\n\n")
     // Declare all def names first (allow forward/mutual references)
     for d <- prog.defs do
@@ -47,6 +48,24 @@ object JsGen:
     sb.append(genE(prog.entry, Nil, tco = false))
     sb.append(";\n  if($result!==null&&$result!==undefined){ console.log($show($result)); }\n})();\n")
     sb.toString
+
+  private def emitBridgePrelude(sb: StringBuilder, prog: Program): Unit =
+    val generated = prog.defs.iterator.map(_.name).toSet
+    val globals = List(
+      "println" -> "function(){ return $bridgePrintln(Array.prototype.slice.call(arguments)); }",
+      "print"   -> "function(){ return $bridgePrint(Array.prototype.slice.call(arguments)); }",
+      "args"    -> "$ioArgs()",
+      "cwd"     -> "process.cwd()",
+      "sep"     -> "require('path').sep",
+      "platform"-> "{t:'JS',f:[]}",
+      "getenv"  -> "function(key, fallback){ var v=process.env[String(key)]; return (v!==undefined&&v!=='')?v:(arguments.length>=2?fallback:''); }"
+    )
+    val needed = globals.filterNot((name, _) => generated.contains(name))
+    if needed.nonEmpty then
+      sb.append("\n// ── FrontendBridge standard globals ────────────────────────────────────────\n\n")
+      for (name, rhs) <- needed do
+        sb.append(s"var ${dn(name)} = $rhs;\n")
+      sb.append("\n")
 
   // ── Naming ───────────────────────────────────────────────────────────────────
 
@@ -351,6 +370,28 @@ object JsGen:
       case "io.env"      => s"$$ioEnv(${a(0)})"
       case "io.readFile" => s"$$ioReadFile(${a(0)})"
       case "io.writeFile"=> s"(require('fs').writeFileSync(${a(0)},Buffer.from(${a(1)})),null)"
+      // FrontendBridge dynamic/runtime primitives
+      case "__autoPrint__" => s"$$autoPrint(${a(0)})"
+      case "__match_fail_prim__" => "(function(){ throw new Error('match: no matching case'); })()"
+      case "__math_obj__" => "$mathObj"
+      case "__arith__" => s"$$arith(${a(0)},${a(1)},${a(2)})"
+      case "__unary__" => s"$$unary(${a(0)},${a(1)})"
+      case "__eq__" => s"$$eq(${a(0)},${a(1)})"
+      case "__isTag__" => s"$$isTag(${a(0)},${a(1)},${a(2)})"
+      case "__method__" =>
+        val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
+        s"$$method($argsJs)"
+      case "__effect__" =>
+        val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
+        s"$$method($argsJs)"
+      case "__mk_arr__" =>
+        val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
+        s"[$argsJs]"
+      case "__mk_map__" =>
+        val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
+        s"$$mkMap([$argsJs])"
+      case "__isNum2__" => s"($$isNum(${a(0)})&&$$isNum(${a(1)}))"
+      case "__mdStrip__" => s"$$mdStrip(${a(0)})"
       // Fallback
       case other =>
         val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
@@ -405,11 +446,228 @@ function $nneg(a){ return typeof a==='bigint' ? BigInt.asIntN(64,-a) : -a; }
 // Tail calls (tco=true in codegen) return $tco thunks instead of calling directly.
 function $tco(fn,args){ return {$k:fn,$a:args}; }
 function $c(fn,args){
+  if(typeof fn!=='function') return $apply(fn,args);
   var r=fn.apply(null,args);
   while(r!==null&&r!==undefined&&typeof r==='object'&&r.$k!==undefined){
     r=r.$k.apply(null,r.$a);
   }
   return r;
+}
+function $apply(fn,args){
+  if($isList(fn) && args.length===1) return $listGet(fn, Number(args[0]));
+  if(Array.isArray(fn) && args.length===1) return fn[Number(args[0])];
+  throw new Error('not callable: '+$show(fn));
+}
+
+// ── FrontendBridge compatibility helpers ────────────────────────────────────
+function $isList(v){ return v!==null&&v!==undefined&&typeof v==='object'&&(v.t==='Cons'||v.t==='Nil'); }
+function $listToArray(v){
+  var out=[]; var cur=v;
+  while(cur&&cur.t==='Cons'){ out.push(cur.f[0]); cur=cur.f[1]; }
+  if(!cur||cur.t!=='Nil') throw new Error('expected list, got '+$show(v));
+  return out;
+}
+function $listOf(items){
+  var r={t:'Nil',f:[]};
+  for(var i=items.length-1;i>=0;i--) r={t:'Cons',f:[items[i],r]};
+  return r;
+}
+function $listGet(v,n){
+  var cur=v; var i=n;
+  while(cur&&cur.t==='Cons'){
+    if(i===0) return cur.f[0];
+    i--; cur=cur.f[1];
+  }
+  throw new Error('list index out of bounds: '+n);
+}
+function $isNum(v){ return typeof v==='bigint'||typeof v==='number'; }
+function $asNumber(v){ return typeof v==='bigint'?Number(v):v; }
+function $asIntLike(v){ return typeof v==='bigint'?v:BigInt(Math.trunc(v)); }
+function $bridgeShow(v){
+  if(v===null||v===undefined) return '()';
+  if(typeof v==='string') return v;
+  if(typeof v==='number') return $fToStr(v);
+  if(typeof v==='bigint') return String(v);
+  if(typeof v==='boolean') return String(v);
+  if($isList(v)) return 'List('+$listToArray(v).map($bridgeShow).join(', ')+')';
+  if(v instanceof Uint8Array) return $show(v);
+  if(Array.isArray(v)) return '<arr>';
+  if(v&&v.t!==undefined){
+    if(/^Tuple\d+$/.test(v.t)) return '('+v.f.map($bridgeShow).join(', ')+')';
+    if(!v.f||v.f.length===0) return v.t;
+    return v.t+'('+v.f.map($bridgeShow).join(', ')+')';
+  }
+  return $show(v);
+}
+function $bridgePrintln(args){
+  if(args.length===0) console.log('');
+  else console.log($bridgeShow(args[0]));
+  return null;
+}
+function $bridgePrint(args){
+  if(args.length!==0) process.stdout.write($bridgeShow(args[0]));
+  return null;
+}
+function $autoPrint(v){
+  if(v===null||v===undefined) return null;
+  if(v&&v.t==='Op') return null;
+  console.log($bridgeShow(v));
+  return null;
+}
+var $mathObj={__math:true};
+function $eq(a,b){
+  if(a===b) return true;
+  if(typeof a!==typeof b) return (typeof a==='bigint'&&typeof b==='number'&&Number(a)===b)||
+    (typeof a==='number'&&typeof b==='bigint'&&a===Number(b));
+  if(a&&b&&a.t!==undefined&&b.t!==undefined){
+    if(a.t!==b.t||a.f.length!==b.f.length) return false;
+    for(var i=0;i<a.f.length;i++) if(!$eq(a.f[i],b.f[i])) return false;
+    return true;
+  }
+  if($isList(a)&&$isList(b)){
+    var ax=$listToArray(a), bx=$listToArray(b);
+    if(ax.length!==bx.length) return false;
+    for(var j=0;j<ax.length;j++) if(!$eq(ax[j],bx[j])) return false;
+    return true;
+  }
+  return false;
+}
+function $isTag(v,tag,arity){ return !!(v&&v.t===tag&&v.f&&v.f.length===Number(arity)); }
+function $unary(op,v){
+  if(op==='-') return typeof v==='bigint'?BigInt.asIntN(64,-v):(-v);
+  if(op==='~') return typeof v==='bigint'?BigInt.asIntN(64,~v):(~v);
+  if(op==='!') return !v;
+  throw new Error('__unary__: '+op+' on '+$show(v));
+}
+function $arith(op,l,r){
+  if(op==='->') return {t:'Tuple2',f:[l,r]};
+  if(op==='to'||op==='until'){
+    var start=Number(l), end=Number(r), arr=[];
+    for(var i=start; op==='to'?i<=end:i<end; i++) arr.push(typeof l==='bigint'||typeof r==='bigint'?BigInt(i):i);
+    return $listOf(arr);
+  }
+  if(typeof l==='bigint'&&typeof r==='bigint'){
+    switch(op){
+      case '+': return BigInt.asIntN(64,l+r); case '-': return BigInt.asIntN(64,l-r);
+      case '*': return BigInt.asIntN(64,l*r); case '/': return BigInt.asIntN(64,l/r);
+      case '%': return l%r; case '==': return l===r; case '!=': return l!==r;
+      case '<': return l<r; case '<=': return l<=r; case '>': return l>r; case '>=': return l>=r;
+      case '&': return l&r; case '|': return l|r; case '^': return l^r;
+      case '<<': return BigInt.asIntN(64,l<<(r&63n)); case '>>': return l>>(r&63n);
+      case '>>>': return BigInt.asIntN(64,(BigInt.asUintN(64,l)>>(r&63n)));
+      case '++': return String(l)+String(r);
+    }
+  }
+  if($isNum(l)&&$isNum(r)){
+    var x=$asNumber(l), y=$asNumber(r);
+    switch(op){
+      case '+': return x+y; case '-': return x-y; case '*': return x*y; case '/': return x/y; case '%': return x%y;
+      case '==': return x===y; case '!=': return x!==y;
+      case '<': return x<y; case '<=': return x<=y; case '>': return x>y; case '>=': return x>=y;
+      case '++': return $bridgeShow(l)+$bridgeShow(r);
+    }
+  }
+  if(typeof l==='string'&&typeof r==='string'){
+    switch(op){
+      case '+': case '++': return l+r; case '==': return l===r; case '!=': return l!==r;
+      case '<': return l<r; case '<=': return l<=r; case '>': return l>r; case '>=': return l>=r;
+    }
+  }
+  if((typeof l==='string'||typeof r==='string')&&(op==='+'||op==='++')) return $bridgeShow(l)+$bridgeShow(r);
+  if(typeof l==='boolean'&&typeof r==='boolean'){
+    if(op==='==') return l===r; if(op==='!=') return l!==r;
+  }
+  if($isList(l)&&(op==='++'||op==='+')) return $listOf($listToArray(l).concat($listToArray(r)));
+  if($isList(l)&&op===':+') return $listOf($listToArray(l).concat([r]));
+  if(op==='==') return $eq(l,r);
+  if(op==='!=') return !$eq(l,r);
+  if(op==='+'||op==='++') return $bridgeShow(l)+$bridgeShow(r);
+  return null;
+}
+function $method(name,recv){
+  var args=Array.prototype.slice.call(arguments,2);
+  if(name==='asInstanceOf') return recv;
+  if(/^_\d+$/.test(name)&&recv&&recv.f) return recv.f[Number(name.substring(1))-1];
+  if(recv===$mathObj){
+    switch(name){
+      case 'Pi': return Math.PI; case 'E': return Math.E;
+      case 'abs': return typeof args[0]==='bigint' ? (args[0]<0n?-args[0]:args[0]) : Math.abs(args[0]);
+      case 'round': return BigInt(Math.round($asNumber(args[0])));
+      case 'floor': return Math.floor($asNumber(args[0])); case 'ceil': return Math.ceil($asNumber(args[0]));
+      case 'sqrt': return Math.sqrt($asNumber(args[0])); case 'pow': return Math.pow($asNumber(args[0]),$asNumber(args[1]));
+      case 'sin': return Math.sin($asNumber(args[0])); case 'cos': return Math.cos($asNumber(args[0]));
+      case 'tan': return Math.tan($asNumber(args[0])); case 'log': return Math.log($asNumber(args[0]));
+      case 'log10': return Math.log10($asNumber(args[0])); case 'exp': return Math.exp($asNumber(args[0]));
+      case 'min': return (args[0]<args[1]?args[0]:args[1]); case 'max': return (args[0]>args[1]?args[0]:args[1]);
+    }
+  }
+  if(typeof recv==='bigint'){
+    switch(name){
+      case 'toString': return String(recv); case 'toInt': case 'toLong': return recv;
+      case 'toDouble': case 'toFloat': return Number(recv); case 'abs': return recv<0n?-recv:recv;
+    }
+  }
+  if(typeof recv==='number'){
+    switch(name){
+      case 'toString': return $fToStr(recv); case 'toInt': case 'toLong': return BigInt(Math.trunc(recv));
+      case 'toDouble': case 'toFloat': return recv; case 'abs': return Math.abs(recv);
+    }
+  }
+  if(typeof recv==='string'){
+    switch(name){
+      case 'length': case 'size': return BigInt(recv.length);
+      case 'isEmpty': return recv.length===0; case 'nonEmpty': return recv.length!==0;
+      case 'toString': return recv; case 'toInt': return BigInt(recv.trim());
+      case 'toIntOption': try{return {t:'Some',f:[BigInt(recv.trim())]};}catch(e){return {t:'None',f:[]};}
+      case 'toDouble': return Number(recv.trim());
+      case 'trim': return recv.trim(); case 'toUpperCase': return recv.toUpperCase(); case 'toLowerCase': return recv.toLowerCase();
+      case 'contains': return recv.indexOf(args[0])>=0; case 'startsWith': return recv.startsWith(args[0]); case 'endsWith': return recv.endsWith(args[0]);
+      case 'substring': return args.length===1?recv.substring(Number(args[0])):recv.substring(Number(args[0]),Number(args[1]));
+      case 'charAt': return BigInt(recv.charCodeAt(Number(args[0])));
+      case 'indexOf': return BigInt(args.length===1?recv.indexOf(args[0]):recv.indexOf(args[0],Number(args[1])));
+      case 'split': return $listOf(recv.split(args[0]));
+    }
+  }
+  if($isList(recv)){
+    var xs=$listToArray(recv);
+    switch(name){
+      case 'length': case 'size': return BigInt(xs.length);
+      case 'isEmpty': return xs.length===0; case 'nonEmpty': return xs.length!==0;
+      case 'head': if(xs.length===0) throw new Error('head on empty list'); return xs[0];
+      case 'tail': if(xs.length===0) throw new Error('tail on empty list'); return $listOf(xs.slice(1));
+      case 'mkString': return xs.map($bridgeShow).join(args.length===0?'':String(args[0]));
+      case 'reverse': return $listOf(xs.slice().reverse());
+      case 'foreach': xs.forEach(function(x){ $c(args[0],[x]); }); return null;
+      case 'map': return $listOf(xs.map(function(x){ return $c(args[0],[x]); }));
+      case 'filter': return $listOf(xs.filter(function(x){ return $c(args[0],[x])===true; }));
+      case 'sum': return xs.reduce(function(a,b){ return $arith('+',a,b); }, 0n);
+    }
+  }
+  if(Array.isArray(recv)){
+    if(name==='length'||name==='size') return BigInt(recv.length);
+    if(name==='toList') return $listOf(recv);
+  }
+  throw new Error('__method__: no dispatch for .'+name+' on '+$show(recv));
+}
+function $mkMap(pairs){
+  var m=$mapNew();
+  pairs.forEach(function(p){
+    if(p&&p.t==='Tuple2') $mapPut(m,p.f[0],p.f[1]);
+    else if(p&&p.t==='->') $mapPut(m,p.f[0],p.f[1]);
+    else throw new Error('Map factory: expected pair, got '+$show(p));
+  });
+  return m;
+}
+function $mdStrip(s){
+  if(typeof s!=='string') return s;
+  var lines=s.split('\n');
+  while(lines.length&&lines[0].trim()==='') lines.shift();
+  while(lines.length&&lines[lines.length-1].trim()==='') lines.pop();
+  if(lines.length===0) return '';
+  var min=null;
+  lines.forEach(function(l){ if(l.trim()!==''){ var n=(l.match(/^ */)||[''])[0].length; min=min===null?n:Math.min(min,n); } });
+  min=min||0;
+  return lines.map(function(l){ return l.trim()===''?'':l.slice(min); }).join('\n');
 }
 
 // ── Show (value → display string) ────────────────────────────────────────────
