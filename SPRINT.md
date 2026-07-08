@@ -190,6 +190,25 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       availability, and v2 bridge handling of the UI helper shape. Done-when:
       both examples are parity MATCH, `scala-cli tests/conformance/run.sc -- --only 'content*' --no-memo`
       remains green, and full parity has **0 v2-error** again.
+- [ ] **v2-prod-quoted-macro-interpreter** — fix the remaining production-relevant
+      quoted macro interpreter output mismatch. Repro after `scripts/sbtc
+      "installBin"`:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/quoted-macro-interpreter.ssc`
+      reports v1 output `42`, `literal: 7`, `x` but v2 prints only `42`.
+      Direct commands:
+      `bin/ssc run examples/quoted-macro-interpreter.ssc` and
+      `bin/ssc run --v2 examples/quoted-macro-interpreter.ssc`. How: read
+      `specs/arch-metaprogramming-v2.md` and `specs/macro-codegen-backends.md`;
+      preserve the already-green `quoted-macro-constfold.ssc` path; inspect the v2
+      macro pre-pass (`FrontendBridge.convertSource` →
+      `PluginBridge.expandMacrosInSource` / `MacroCodegen.expand`) and reuse or
+      mirror the Linker `MacroExpansion` evaluation path for computed interpreter
+      bodies (`x.asValue.getOrElse`, `x.asTerm.name`) rather than papering over
+      output in the parity harness. Done-when: targeted parity for
+      `examples/quoted-macro-interpreter.ssc` and `examples/quoted-macro-constfold.ssc`
+      is MATCH, affected conformance `scala-cli tests/conformance/run.sc -- --only
+      '*quoted*' --no-memo` is green or explicitly has 0 cases, and the full
+      production parity blocker list/baseline is updated.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected

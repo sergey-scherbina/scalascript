@@ -12,6 +12,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-quoted-macro-interpreter-parity — `open` (2026-07-08)
+
+- **Found by:** codex, during the v2 production parity sweep after content-toolkit
+  section parity was fixed.
+- **Symptom:** `examples/quoted-macro-interpreter.ssc` is a remaining production
+  mismatch. v1 prints three lines (`42`, `literal: 7`, `x`), while v2 currently
+  prints only `42`.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/quoted-macro-interpreter.ssc`.
+  Direct check:
+  `bin/ssc run examples/quoted-macro-interpreter.ssc` versus
+  `bin/ssc run --v2 examples/quoted-macro-interpreter.ssc`.
+- **Notes:** `quoted-macro-constfold.ssc` already matches. The failing example uses
+  interpreter-only computed implementation bodies (`"literal: " +
+  x.asValue.getOrElse("?")` and `x.asTerm.name`) rather than a direct quote or the
+  supported `Expr.asValue match` const-fold shape. The likely fix area is the v2
+  FrontendBridge macro pre-pass (`PluginBridge.expandMacrosInSource` /
+  `MacroCodegen.expand`) and the Linker macro-expansion machinery it reuses.
+- **Next:** fix in a separate claimed slice; keep `quoted-macro-constfold.ssc`
+  parity green.
+
 ## v2-content-toolkit-section-parity — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `v2-prod-post-p3-baseline` full-corpus production
