@@ -35,7 +35,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   regression is runtime startup, test timeout/readiness detection, or an interaction
   with concurrent root-suite execution before changing semantics.
 
-## root-test-command-registry-other-category — `open` (2026-07-08)
+## root-test-command-registry-other-category — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -50,6 +50,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
   provider a real existing category or deliberately add `Other` to the ordering
   if it is now a supported category; do not silence the test without preserving
   deterministic help grouping.
+- **Status:** fixed in `631ed8052`. Root cause was `VersionCmd` explicitly using
+  the fallback-style `Other` category. `Other` is the default for unclassified
+  commands, while `CommandRegistryTest` intentionally requires every visible
+  command to be placed into an ordered help bucket. `version` is metadata/help
+  output, so it now uses the existing `Help` category instead of normalising
+  `Other` as a public bucket.
+- **Verified:** `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`
+  (**8/8 green**) and `tests/conformance/run.sh --only 'std-semigroup-monoid'
+  --no-memo` (**1/1 green**).
 
 ## root-test-sealed-extension-option-dispatch — `open` (2026-07-08)
 

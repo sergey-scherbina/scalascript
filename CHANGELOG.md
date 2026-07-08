@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — fix: version command classified in help output
+
+`ssc version` / `--version` now uses the existing `Help` command category instead
+of the fallback-style `Other` bucket. This restores `CommandRegistryTest` as a
+gate that catches visible commands without explicit help grouping. Targeted gate:
+`cli/testOnly scalascript.cli.CommandRegistryTest` is **8/8 green**; affected
+conformance slice `std-semigroup-monoid` is **1/1 green**.
+
+---
+
 ## 2026-07-08 — v2: multi-arg effect ops reach handler arms unpacked + cwd-independent std/ imports
 
 busi's first `--v2` blocker (rozum seq31): `Journal.append(scope, fact)` died with

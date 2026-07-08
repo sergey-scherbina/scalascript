@@ -1020,7 +1020,15 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       The PTY session was lost before the final sbt summary, so do not treat this
       as the authoritative complete failure list. Observed root-gate blockers were
       recorded in `BUGS.md` and must be reproduced targeted before coding:
-      - [ ] **root-test-command-registry-other-category** — deterministic-looking
+      - [x] **root-test-command-registry-other-category** — fixed in `631ed8052`.
+            Root cause: `VersionCmd` used the unclassified fallback-style
+            category `Other`; `version` now appears under the existing `Help`
+            bucket, preserving the registry test that catches future commands
+            without explicit help grouping. Verified
+            `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`
+            (**8/8 green**) and `tests/conformance/run.sh --only
+            'std-semigroup-monoid' --no-memo` (**1/1 green**).
+            Original repro: deterministic-looking
             `CommandRegistryTest` failure: `every command category is in the help
             ordering` reports `List("Other")`. First repro/fix because it is a
             narrow CLI test and not entangled with cluster timing:
