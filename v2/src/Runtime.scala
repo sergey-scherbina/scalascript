@@ -2416,13 +2416,28 @@ object Prims:
     case (FloatV(a), IntV(b))   => a < b.toDouble
     case _                      => false
   }
-  private def listOf(vs: Seq[Value]): Value = vs.foldRight[Value](DataV("Nil", IndexedSeq.empty))((x, acc) => DataV("Cons", collection.immutable.ArraySeq(x, acc)))
+  private def listOf(vs: Seq[Value]): Value =
+    var acc: Value = DataV("Nil", IndexedSeq.empty)
+    val it = vs.reverseIterator
+    while it.hasNext do
+      acc = DataV("Cons", collection.immutable.ArraySeq(it.next(), acc))
+    acc
   private def strList(xs: Seq[String]): Value = listOf(xs.map(StrV(_)))
   private def unlist(v: Value): List[Value] = unlistPub(v)
-  def unlistPub(v: Value): List[Value] = v match
-    case DataV("Cons", Seq(h, t)) => h :: unlistPub(t)
-    case DataV("Nil", _) => Nil
-    case x => sys.error(s"expected a list, got ${Show.show(x)}")
+  def unlistPub(v: Value): List[Value] =
+    val out = collection.mutable.ListBuffer.empty[Value]
+    var cur = v
+    var done = false
+    while !done do
+      cur match
+        case DataV("Cons", Seq(h, t)) =>
+          out += h
+          cur = t
+        case DataV("Nil", _) =>
+          done = true
+        case x =>
+          sys.error(s"expected a list, got ${Show.show(x)}")
+    out.toList
 
   // O(i) list indexed access without materializing the whole list; used by tryFLC App path.
   def listAt(v: Value, i: Int): Value = v match
