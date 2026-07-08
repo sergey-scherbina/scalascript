@@ -1,6 +1,6 @@
 feature/tkv2-keyed-for 2026-07-08T23:40:09Z
 agent: codex
-heartbeat: 2026-07-08T23:44:25Z
+heartbeat: 2026-07-08T23:51:41Z
 status: in-progress
-done-so-far: worktree created; feature spec landed in d6b1232a0
-next: implement frontend-core keyed node, std/ui helper, custom emitter reconciliation, and tests
+done-so-far: worktree created; feature spec landed in d6b1232a0; production-path spec update landed in 5013c775d
+next: implement std/ui KeyedForNode, JS _ForKeyed runtime reconciliation, scoped mount binding, and tests
