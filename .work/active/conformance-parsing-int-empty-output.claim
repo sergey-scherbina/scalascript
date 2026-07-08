@@ -1,0 +1,6 @@
+feature/conformance-parsing-int-empty-output 2026-07-08T11:05:17Z
+agent: codex
+heartbeat: 2026-07-08T11:05:17Z
+status: not-started
+done-so-far:
+next: create worktree, reproduce parsing* INT empty output, isolate harness vs std/parsing behavior
