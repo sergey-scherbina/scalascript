@@ -9,19 +9,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-effect-multiarg-op** (claimed: claude-fable-5) — busi rozum seq31: v2 dies with
-      `match: no arm for append/2` in `PluginBridge.runEffectLoop` on `Journal.append(scope, fact)`.
-      Root cause: `Runtime.scala` `__method__` effect dispatch (~:2118) packs multi-arg ops as one
-      `TupleN` payload, so the handler sees `op(tuple, resume)` = op/2 while user arms are
-      `op(a, b, resume)` = op/3 (v1 delivers args unpacked). Slices:
-      1. Pack multi-arg op payloads as internal `DataV("__EffArgs__", args)` (NOT TupleN — a real
-         single-tuple arg must stay op/2); unpack in `runEffectLoop` to `op(a1..aN, resume)`.
-      2. Regression: `tests/conformance/effect-multiarg-op.ssc` + `lib/effect-journal.ssc`
-         (busi's shape: 2-arg op in imported module + state-threaded deep handler) + expected.
-      3. Verify: repro `cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql
-         tests/v2/ledger.ssc` on the rebuilt jar; `tests/conformance/run.sh --only 'effect*'`;
-         `batchCli tests/conformance effect-` + `batchCli examples effects` for the v2 lane.
-      4. BUGS.md → fixed; `done:` ping @busi in rozum with SHA (they re-run 62 tests on --v2).
+- [ ] **v2-op-arg-lifting** — strict calls (closures AND plugin natives, incl. `println`,
+      and perform-argument evaluation) with an unresolved effect `Op` ARGUMENT must defer
+      into the Op's continuation instead of consuming the Op as a value. Found working
+      busi's ledger past append/2: `formatMoney(accountBalance(...))` gets a raw
+      `Op(Journal.read, …)` (v1's compile-time CPS never faces this). Existing lifts:
+      letThreadOp (val), seqThreadOp (statements), methodOp (receiver), arithOp
+      (operands), applyFallback (fn-position) — the missing one is ARG-position.
+      Fix at the uniform chokepoint (`Runtime.run` `Call` step or App arg-eval paths,
+      incl. global fast paths): any arg `DataV("Op",…)` → rebuild Op with a reapplying
+      continuation. HOT PATH: A/B with `scripts/bench` (bench-v2-lane claim is active —
+      coordinate). Repros: busi ledger.ssc check #2 (`FAIL: cash debit`), conformance
+      `js-applyunary-effect-cps.ssc` on v2 (`__unary__: - on Op`). Full notes in
+      BUGS.md `v2-op-arg-lifting`. BLOCKS busi's --v2 conformance re-run.
 
 - [x] **p3-mcp-and-tails** — DONE 2026-07-08 (5377e271f): the "MCP switch regression" was an
       UNMASKED exit-0 fiction (default invokeCallback is a NO-OP — setup blocks never ran; the

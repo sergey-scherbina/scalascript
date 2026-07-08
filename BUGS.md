@@ -12,31 +12,72 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-effect-multiarg-op — `open` (2026-07-08)
+## v2-op-arg-lifting — `open` (2026-07-08)
+
+- **Found by:** claude-fable-5, working busi's ledger repro past the append/2 fix.
+- **Symptom:** a strict call (user fn OR native) with an unresolved effect `Op` as an
+  ARGUMENT executes immediately instead of deferring into the Op's continuation.
+  busi `tests/v2/ledger.ssc` now fails at check #2: `accountBalance` (imported fn
+  performing `Journal.read` inside) returns a raw `Op(Journal.read, …)`; `formatMoney`
+  / `println` then consume the Op as a value. Same family: conformance
+  `js-applyunary-effect-cps.ssc` on the v2 lane (`__unary__: - on Op(...)`), and a
+  perform whose argument is effectful (`Journal.append("sum", xs.foldLeft(...))`
+  where `xs` came from a read) leaks the Op into the handler's payload.
+- **What works vs not:** val-binding (`letThreadOp`), statement sequencing
+  (`seqThreadOp`), method-receiver (`methodOp`), arith operands, and fn-position
+  (`applyFallback`) all lift Ops; **call-argument position does not** — neither for
+  closures nor for plugin natives.
+- **Repro (minimal):** inside `runJournal(() => { … })`:
+  `println("balance=" + formatMoney(accountBalance(...)))` prints the Op raw.
+  Full: `cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/ledger.ssc`
+  (on ≥ d2340f85e) → `FAIL: cash debit = 100.00` after `ok: entry balances`.
+- **Fix direction:** lift at the uniform call chokepoint (`Runtime.run`'s `Call`
+  step or the App arg-evaluation paths incl. global fast paths): if any evaluated
+  arg is `DataV("Op",…)`, rebuild `Op(l, a, r => reapply(...))`. HOT PATH — needs
+  `scripts/bench` A/B (coordinate with the active bench-v2-lane claim).
+- **Blocks:** busi's `--v2` conformance re-run (their declared target).
+
+## v1-jvm-state-threaded-handler-codegen — `open` (2026-07-08)
+
+- **Found by:** claude-fable-5, while shaping the effect-multiarg-op regression.
+- **Symptom:** `bin/ssc run-jvm` fails to COMPILE any handler whose arms return
+  lambdas (the state-threading deep-handler idiom, busi's `runJournal`):
+  "I could not infer the type of the parameter s / Expected type for the whole
+  anonymous function: Any". Arity-independent (1-arg op repros identically);
+  INT and JS lanes run the same code fine.
+- **Repro:** `effect Cnt: def tick(n: Int): Unit` + handler arms
+  `case Cnt.tick(n, resume) => (s: Int) => resume(())(s + n)` /
+  `case Return(x) => (s: Int) => x`, applied as `threaded(0)` → `run-jvm` fails,
+  `run --v1` / `emit-js` pass.
+- **Impact:** low today — busi runs the interpreter lane; no corpus case uses the
+  idiom on the JVM lane (that's why it was never seen).
+
+## v2-effect-multiarg-op — `fixed` (2026-07-08)
 
 - **Found by:** busi agent (rozum `scalascript` room, 2026-07-08 seq31), while bumping
   busi to scalascript pin `0a6358787` with `v2-prod-default-switch` active.
 - **Repro:** `cd ~/work/my/busi && scalascript/bin/ssc --v2 --plugin crypto,auth,smtp,tcp,sql tests/v2/ledger.ssc`
   → `RuntimeException: match: no arm for append/2` at `PluginBridge.runEffectLoop`
   (PluginBridge.scala:2165 → Runtime.scala:367). Reproduced locally 1:1.
-- **Root cause (confirmed by reading both sides of the protocol):** multi-argument
-  effect operations lose their arity crossing the Free-monad Op protocol.
-  `Runtime.scala` `__method__` dispatch (~:2118) packs `Journal.append(scope, fact)`
-  as `DataV("Op", [label, Tuple2(scope, fact), k])`; `PluginBridge.runEffectLoop`
-  then calls the handler with `DataV("append", [Tuple2, resumeFn])` = **append/2**,
-  while the user handler arm `case Journal.append(scope, fact, resume)` compiles to
-  **append/3**. Nothing in the corpus exercised a >1-arg effect op, so every parity
-  run missed it. v1 delivers payload args unpacked — v2 must match.
-- **Fix plan:** pack multi-arg ops under a dedicated internal marker tag
-  (`__EffArgs__`) instead of `TupleN` (a genuine single tuple argument must stay
-  op/2), unpack it in `runEffectLoop` to `op(arg1, …, argN, resume)`. All other Op
-  consumers (bind/seq/let/apply rewraps) treat the payload opaquely — unaffected.
-- **Regression:** new multi-file conformance case `effect-multiarg-op.ssc` +
-  `lib/effect-journal.ssc` mirroring busi's shape (2-arg op declared in an imported
-  module, state-threaded deep handler) — runs on v1 lanes via `run.sh` and on the
-  v2 engine via `batchCli tests/conformance`.
-- **Reporter asked:** ping when `append/2` lands so busi re-runs its 62-test suite
-  on `--v2` as the real conformance pass.
+- **Root cause:** multi-argument effect operations lost their arity crossing the
+  Free-monad Op protocol. `Runtime.scala` effect dispatch packed
+  `Journal.append(scope, fact)` as `DataV("Op", [label, Tuple2(scope, fact), k])`;
+  `PluginBridge.runEffectLoop` called the handler with **append/2** while the user
+  arm `case Journal.append(scope, fact, resume)` compiles to **append/3**. Nothing
+  in the corpus exercised a >1-arg effect op. v1 delivers payload args unpacked.
+- **Fix:** `2ef288004` — multi-arg payloads pack under the internal `__EffArgs__`
+  marker (NOT `TupleN`: a genuine single tuple argument must stay op/2);
+  `runEffectLoop` unpacks to `op(a1…aN, resume)`. Companion fix `d2340f85e` —
+  std/ imports on the v2 lane now fall back to `libPath/runtime/<path>` (mirrors
+  v1's ImportResolver), fixing `unbound global: money` when running the assembled
+  jar from busi's cwd (std resolution was cwd-sensitive).
+- **Verified:** regression `tests/conformance/effect-multiarg-op.ssc` (+
+  `lib/effect-journal.ssc`, imported-module handler, 2-arg + 1-arg ops) green on
+  INT/JS/JVM + v2 engine; `run.sh --only 'effect*'` 4/4; examples corpus at the
+  153/9 baseline; busi ledger repro gets past both failures (now blocked by
+  `v2-op-arg-lifting` above — reported to busi).
+- **Awaiting:** busi re-runs its 62-test suite on `--v2` (blocked on
+  v2-op-arg-lifting for ledger.ssc at least).
 
 ## conformance-int-std-semigroup-monoid — `fixed` (2026-07-08)
 

@@ -29,6 +29,18 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 
 ## v1→v2 migration follow-ups (2026-07-03)
 
+- [ ] **v1-jvm-state-threaded-handler-codegen** (2026-07-08) — `run-jvm` fails to
+      compile effect handlers whose arms return lambdas (state-threading idiom,
+      busi's `runJournal`): "could not infer the type of the parameter s /
+      Expected type for the whole anonymous function: Any". Arity-independent;
+      INT/JS run the same code fine. Repro in BUGS.md
+      `v1-jvm-state-threaded-handler-codegen` (`case Cnt.tick(n, resume) =>
+      (s: Int) => resume(())(s + n)` + `threaded(0)`). Low urgency: busi runs the
+      interpreter lane; no corpus case uses the idiom on the JVM lane. When fixed,
+      add a conformance case with the state-threaded shape (the current
+      `effect-multiarg-op.ssc` deliberately uses a plain deep handler to stay
+      green on all lanes).
+
 - [x] **v2-ssc1c-globals-bug** — ✓ Landed (2026-07-05). Root cause: `lowerE`'s
       expression-position `"assign"` case missed `@@name` LongCell vars → bogus
       `(global @count)`. Fixed in `v2/lib/ssc1-lower.ssc0`; bool-predicate +

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: multi-arg effect ops reach handler arms unpacked + cwd-independent std/ imports
+
+busi's first `--v2` blocker (rozum seq31): `Journal.append(scope, fact)` died with
+`match: no arm for append/2` — the effect dispatch packed multi-arg payloads into one TupleN, so
+handler arms (`case op(a, b, resume)` = op/3) never matched. Now packed as internal `__EffArgs__`
+and unpacked by `runEffectLoop` (2ef288004; a genuine single-tuple argument stays op/2). Companion
+(d2340f85e): std/ imports on the v2 lane now fall back to `libPath/runtime/<path>` like v1 — the
+assembled jar run from another project's cwd no longer leaves `std/money.ssc` unbound. Regression:
+`tests/conformance/effect-multiarg-op.ssc` (imported handler, 2-arg + 1-arg ops), green INT/JS/JVM +
+v2; examples corpus at the 153/9 baseline. Discovered and queued: `v2-op-arg-lifting` (SPRINT — still
+blocks busi's ledger at check #2) and `v1-jvm-state-threaded-handler-codegen` (BACKLOG).
+
 ## 2026-07-08 — std/ui: rowPostAction — immediate click feedback + skip empty-body buttons
 
 Two browser-runtime UX fixes for `_RowPost` (no API change): (1) on click, disable the button and
