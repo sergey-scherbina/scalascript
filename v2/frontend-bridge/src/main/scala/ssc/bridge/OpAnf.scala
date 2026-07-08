@@ -67,7 +67,9 @@ object OpAnf:
   private def tx(t: T): T = t match
     case T.App(f, as) =>
       val f2 = tx(f); val as2 = as.map(tx)
-      if !isHandle(f2) && as2.exists(mayOp) then letify(as2, ls => T.App(shift(f2, as2.length, 0), ls))
+      if !isHandle(f2) && as2.exists(mayOp) then
+        val binders = as2.count(a => !isPure(a))
+        letify(as2, ls => T.App(shift(f2, binders, 0), ls))
       else T.App(f2, as2)
     case T.Prim(op, as) =>
       val as2 = as.map(tx)
@@ -97,14 +99,32 @@ object OpAnf:
     case T.While(c, b)     => T.While(tx(c), tx(b))
     case _                 => t // Lit, Local, Global
 
-  /** Bind every arg through a Let (progressive extension: rhs_i moves under i
-   *  new binders) and rebuild the node over the bound Locals. After binding
-   *  a1..an, Local(0) is the LAST binding, so arg_i maps to Local(n-1-i). */
+  /** Values whose evaluation is effect-free and position-independent: they
+   *  stay IN PLACE (shifted under the new binders) instead of being Let-bound.
+   *  Binding literals was not just noise — a bound `Lit("+")` turned
+   *  `__arith__(Lit(+), …)` into `__arith__(Local, …)`, demoting the compile
+   *  from Prims.arithOp (full dispatch: Map + Tuple2, char semantics) to the
+   *  weaker resolve-table arith (string-concat fallback) — busi litdoc's
+   *  `attrs + (k -> v)` came back as a concatenated STRING. Keeping Lits in
+   *  place also preserves the FastCode shapes keyed on literal names. */
+  private def isPure(t: T): Boolean = t match
+    case T.Lit(_) | T.Global(_) | T.Lam(_, _) | T.Local(_) => true
+    case _                                                 => false
+
+  /** Bind the impure args through a Let (progressive extension: rhs_i moves
+   *  under i prior binders); pure args stay in place, shifted by the total
+   *  binder count. After binding b0..b(n-1), Local(0) is the LAST binding, so
+   *  bind-index i maps to Local(n-1-i). */
   private def letify(args: List[T], rebuild: List[T] => T): T =
-    val n = args.length
-    val rhs = args.zipWithIndex.map((a, i) => shift(a, i, 0))
-    val locals = (0 until n).toList.map(i => T.Local(n - 1 - i))
-    T.Let(rhs, rebuild(locals))
+    val bindIdx = args.zipWithIndex.collect { case (a, i) if !isPure(a) => i }
+    val n = bindIdx.length
+    val rhs = bindIdx.zipWithIndex.map((argI, bindI) => shift(args(argI), bindI, 0))
+    val bindPos = bindIdx.zipWithIndex.toMap // arg index -> bind index
+    val rebuilt = args.zipWithIndex.map((a, i) =>
+      bindPos.get(i) match
+        case Some(bi) => T.Local(n - 1 - bi)
+        case None     => shift(a, n, 0))
+    T.Let(rhs, rebuild(rebuilt))
 
   /** Standard de Bruijn shift: add `d` to every Local >= cutoff `c`. */
   private def shift(t: T, d: Int, c: Int): T =

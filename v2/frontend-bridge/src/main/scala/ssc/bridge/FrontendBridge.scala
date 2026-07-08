@@ -807,7 +807,16 @@ object FrontendBridge:
     val anyRunnableFence =
       allFences && (noFront.contains(fence)
         || noFront.contains("```sql") || noFront.contains("```transaction"))
-    val firstFence = if anyRunnableFence then 0 else noFront.indexOf(fence)
+    // line-start anchored for the same string-literal reason as anyFence below
+    val firstFence =
+      if anyRunnableFence then 0
+      else
+        val i = noFront.indexOf(fence)
+        if i <= 0 then i
+        else
+          var j = i
+          while j > 0 && noFront.charAt(j - 1) != '\n' do j = noFront.indexOf(fence, j + 1)
+          j
     // No fence: if the content looks like markdown prose (starts with # or ---), it's
     // a doc-only example with no runnable code — return empty so it compiles as a no-op.
     // Otherwise treat as raw Scala source (for test-style usage with no front matter).
@@ -834,9 +843,13 @@ object FrontendBridge:
       // ```sql/```transaction fences) — elsewhere they are illustrative prose
       // (running them cost 23 corpus files when enabled unconditionally).
       val hasSqlFences = noFront.contains("```sql") || noFront.contains("```transaction")
+      // (?m)^ — fence opens must sit at LINE START: a ``` embedded inside a
+      // string literal (markdown content in a val, busi model.ssc) matched
+      // mid-line and desynced the whole fence walk — prose after the next real
+      // close was parsed as code ("illegal unicode codepoint: 0xab" on «).
       val anyFence =
-        if hasSqlFences then """```(scalascript|scala|sql|transaction|yaml|yml)([^\n]*)\n""".r
-        else """```(scalascript|yaml|yml)([^\n]*)\n""".r
+        if hasSqlFences then """(?m)^```(scalascript|scala|sql|transaction|yaml|yml)([^\n]*)\n""".r
+        else """(?m)^```(scalascript|yaml|yml)([^\n]*)\n""".r
       var sqlBlockIdx = 0
       var pos = 0
       var lastHeading = "S0"
