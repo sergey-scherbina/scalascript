@@ -126,8 +126,11 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       против 266 v2-VM и 378 v1-интерп — лейн БЫСТРЕЕ обоих (2.3×/3.3×)**; рычаги: прямой
       invokestatic для известных дефов, кэш резолва в шимах, прямой Emit.arith без StrV-боксинга
       оператора. Валидировано: hello/fib/match-рекурсия/замыкания/каррирование.
-      MILESTONE 3: self-tail-call → цикл + trampoline-fallback (глубокая хвостовая рекурсия
-      сейчас переполняет стек — прямые вызовы не трамплинятся), затем корпус-покрытие и CLI-флаг.
+      MILESTONE 3 GREEN 2026-07-08 (214c71f7b): tail-позиции трекаются; self-tail =
+      Emit.rebind(frame, args) + GOTO start (клон фрейма — алиасинг замыканиями; fast-path для
+      top-level дефов). tco(1M) = константный стек ✓; fib 152ms (1.75× быстрее VM) ✓; регрессий
+      нет. ОСТАЛОСЬ ДЛЯ ЛЕЙНА: mutual/non-self tail (общий trampoline-fallback), корпус-покрытие,
+      CLI-флаг; внутри letrec-тел self-tail отключён (слот 0 занят letrec-фреймом).
       MILESTONE 1 GREEN 2026-07-08: модуль v2JvmBytecode
       (v2/backend-jvm-bytecode, ASM 9.7 + v2Core), шимы ssc.Emit (prim0..N/app/ctor/global/
       литералы — эмиссия = push-args + invokestatic), эмиттер девяти структурных форм entry
