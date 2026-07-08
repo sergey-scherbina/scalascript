@@ -217,7 +217,7 @@ var pendingCount = 0
 
 // ── F4 batch lanes (specs/conformance-perf.md) ──────────────────────────────
 // One JVM runs ALL eligible cases per lane instead of a cold JVM per case:
-// INT executes in one `ssc run-batch`; JS emits every source in one JVM
+// INT executes in one explicit `ssc run-batch --v1`; JS emits every source in one JVM
 // (node stays per-case — its start is ~50 ms). A case missing from the batch
 // output (e.g. an earlier case called exit()) falls back to a per-case run.
 val BATCH_MARK = "<<<SSC-BATCH-CASE:"
@@ -262,7 +262,7 @@ def batchLane(extra: Seq[String], eligible: List[Meta]): Map[String, String] =
     splitBatch(res.out.text())
 
 val runnable   = metas.filter(m => m.pending.isEmpty && m.expected.isDefined && !m.memoHit)
-val intBatch   = batchLane(Nil, runnable.filter(metaSupports(_, "int")))
+val intBatch   = batchLane(Seq("--v1"), runnable.filter(metaSupports(_, "int")))
 val jsEmitted  = batchLane(Seq("--emit-js"), runnable.filter(metaSupports(_, "js")))
 
 for test <- tests do
@@ -307,7 +307,7 @@ for test <- tests do
         println(s"  SKIP [INT] (${skipReason("int")})")
         true
       else
-        val intOut = intBatch.getOrElse(name, run(ssc(test.toString)))
+        val intOut = intBatch.getOrElse(name, run(ssc("run", "--v1", test.toString)))
         check("INT", intOut, expected)
 
     // JS via Node.js
