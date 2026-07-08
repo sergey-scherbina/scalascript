@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — std/ui: rowPostAction surfaces non-2xx errors (was silently swallowed)
+
+_RowPost read the response but only ever bumped the tick — a guarded refusal (e.g. a gateway stop
+returning 409 "N client(s) attached; stop them first") re-rendered as if the button did nothing, the
+classic "нажимаю — ничего не происходит". Now check res.ok: on a 2xx bump the tick as before; on a
+non-2xx parse {error} from the body, alert it, restore the button, and DON'T bump (nothing changed).
+
+---
+
 ## 2026-07-08 — v2: Op-argument lifting (OpAnf) — strict consumers defer unresolved effect Ops
 
 Third and final leak in busi's --v2 ledger chain: a strict call (`formatMoney(...)`, `println`,

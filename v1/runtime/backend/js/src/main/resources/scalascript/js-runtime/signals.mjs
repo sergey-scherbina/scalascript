@@ -803,8 +803,23 @@ function _ssc_ui_mount(sigs) {
                     var v = getField(r, f);
                     return (v === undefined || v === null) ? m : '/' + encodeURIComponent(String(v));
                   });
-                  fetch(theUrl, pOpts).then(function(res) { return res.text(); })
-                    .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); })
+                  var _ok = true;
+                  fetch(theUrl, pOpts)
+                    .then(function(res) { _ok = !!(res && res.ok); return res.text(); })
+                    .then(function(text) {
+                      if (_ok) {
+                        if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1);
+                        return;
+                      }
+                      // Non-2xx: SURFACE the server's reason instead of swallowing it. A guarded
+                      // refusal (e.g. "N client(s) attached; stop them first") otherwise re-renders as
+                      // if the button did nothing — the exact "нажимаю, ничего не происходит" trap.
+                      // Restore the button and don't bump the tick (nothing changed server-side).
+                      var msg = text;
+                      try { var j = JSON.parse(text); if (j && j.error) msg = j.error; } catch (_e) {}
+                      btn.disabled = false; btn.style.opacity = ''; btn.textContent = _orig;
+                      if (typeof alert === 'function' && msg) alert(msg);
+                    })
                     .catch(function() { btn.disabled = false; btn.style.opacity = ''; btn.textContent = _orig; });
                 });
               } else if (act._type === '_RowLink') {
