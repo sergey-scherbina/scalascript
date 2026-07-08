@@ -1,0 +1,6 @@
+feature/p3-spark-local-engine 2026-07-08T23:37:56Z
+agent: codex
+heartbeat: 2026-07-08T23:37:56Z
+status: not-started
+done-so-far:
+next: reconcile stale p3 Spark/effects queue entries against v2-prod-corpus-scope classification
