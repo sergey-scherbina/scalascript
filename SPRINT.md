@@ -735,6 +735,37 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       passes **6/6**. Next: run the full default conformance gate with the
       serverless wrapper and either mark this item done or record any newly exposed
       blockers before release.
+      FULL-GATE BASELINE 2026-07-08: after `scripts/sbtc "installBin"` and the
+      landed JVM CPS fix, `tests/conformance/run.sh --no-memo` reports
+      **102 passed, 20 failed out of 122 tests (+2 pending)**. New blockers are
+      recorded in `BUGS.md`: `conformance-js-json-stringify-missing-global`,
+      `conformance-js-product-show-synthetic-tag`,
+      `conformance-int-sql-block-scope`,
+      `conformance-std-typeclass-int-jvm-gaps`,
+      `conformance-jvm-std-ui-generated-braces`, and
+      `conformance-int-variables-while-update`.
+      Active-claim subslice plan, do not claim separately while
+      `green-main-conformance-gating` is active:
+      - [ ] **conformance-js-json-stringify-missing-global** — smallest JS-only
+            crash: `bin/ssc run-js tests/conformance/json-read.ssc` fails with
+            `ReferenceError: jsonStringify is not defined`. Fix the JS global/import
+            path or std-json JS intrinsic registration; verify with
+            `tests/conformance/run.sh --only 'json-read' --no-memo`.
+      - [ ] **conformance-js-product-show-synthetic-tag** — JS product rendering
+            includes ADT/case-class synthetic tag indexes, breaking `prisms`,
+            `optic-polish`, `optics-index-at`, and `optional`. Verify with
+            `tests/conformance/run.sh --only 'prisms,optic-polish,optics-index-at,optional' --no-memo`.
+      - [ ] **conformance-int-sql-block-scope** — INT SQL interpolation cannot see
+            preceding Scala block vals (`newId`); verify `sql-basic,sql-transaction`.
+      - [ ] **conformance-std-typeclass-int-jvm-gaps** — INT `std-index` stack
+            overflows after two lines; JVM typeclass aggregate imports miss exported
+            helpers/`Left`/`Right`; verify `std-*` typeclass cases.
+      - [ ] **conformance-jvm-std-ui-generated-braces** — JVM `std-ui-extended*`
+            generated Scala has an unmatched brace/EOF; inspect imported UI
+            component object emission.
+      - [ ] **conformance-int-variables-while-update** — INT `variables` prints
+            `sum=10` for the first while loop; inspect mutable var read-after-write
+            inside interpreter while sequencing.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

@@ -12,6 +12,78 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## conformance-int-variables-while-update — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `tests/conformance/run.sh --only 'variables' --no-memo` or
+  `bin/ssc run --v1 tests/conformance/variables.ssc`.
+- **Observed:** INT prints `5`, `10`, `720`, `55`; expected line 2 is `15`.
+  JS/JVM pass. The first `while x < 5` loop increments `x` but does not accumulate
+  the updated `x` into `sum`.
+- **Status:** open; root cause likely in interpreter while/assignment sequencing or
+  mutable-var read-after-write inside a loop body.
+
+## conformance-jvm-std-ui-generated-braces — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run-jvm tests/conformance/std-ui-extended.ssc`.
+- **Observed:** JVM generated Scala fails with `'}' expected, but eof found`; the
+  warnings start where many imported `std/ui` component `object`s begin, so the
+  conformance harness reports missing stdout for `std-ui-aggregator` and
+  `std-ui-extended*`. INT/JS pass.
+- **Status:** open; inspect JVM emission for imported component modules before
+  changing the fixture.
+
+## conformance-std-typeclass-int-jvm-gaps — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`, run either
+  `bin/ssc run --v1 tests/conformance/std-index.ssc` or
+  `bin/ssc run-jvm tests/conformance/std-index.ssc`.
+- **Observed:** INT prints the first two lines of `std-index` and then hits
+  `StackOverflowError` in `EvalRuntime.evalApplyGeneral`/`DispatchRuntime.dispatch1`.
+  JVM generated Scala rejects imports from `std/index.ssc` and sibling typeclass
+  modules: `Left`/`Right` are imported from module objects that do not define them,
+  and aggregate exports such as `std.intSum` are missing. Related full-gate misses:
+  `std-foldable-traversable`, `std-functor-applicative-monad`, `std-index`,
+  `std-bifunctor`, `std-monaderror`, and `std-selective`.
+- **Status:** open; likely a combination of interpreter recursive extension dispatch
+  and JVM transitive-export/import emission.
+
+## conformance-int-sql-block-scope — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run --v1 tests/conformance/sql-basic.ssc`.
+- **Observed:** SQL block interpolation fails with
+  `[line 1, col 1] Undefined: newId` even though the preceding Scala block defines
+  `val newId = 1L`; `sql-basic` and `sql-transaction` therefore produce missing
+  stdout. JS/JVM are skipped by backend metadata.
+- **Status:** open; inspect section/block evaluation scope for SQL interpolations.
+
+## conformance-js-product-show-synthetic-tag — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run-js tests/conformance/prisms.ssc`.
+- **Observed:** JS prints product values with an extra synthetic numeric field, e.g.
+  `Circle(0, 5)` instead of `Circle(5)`, `Rect(1, 3, 4)` instead of `Rect(3, 4)`,
+  and `User(0, bob, false)` in optics/optional cases. INT/JVM pass.
+- **Status:** open; inspect JS ADT/case-class representation and `_show` product
+  rendering so discriminant/tag-index metadata is not printed as a user field.
+
+## conformance-js-json-stringify-missing-global — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating`.
+- **Repro:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run-js tests/conformance/json-read.ssc`.
+- **Observed:** JS crashes before stdout with `ReferenceError: jsonStringify is not
+  defined` at the first `jsonStringify(42)` call. INT/JVM pass.
+- **Status:** open; `std/json.ssc` exports `jsonStringify`, but the JS backend does
+  not currently provide/import the matching global for this fixture.
+
 ## conformance-jvm-cps-local-unit-effect-cast — `fixed` (2026-07-08)
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
