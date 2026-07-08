@@ -1,3 +1,4 @@
+scalascript.cli.VersionCmd
 scalascript.cli.RunCmd
 scalascript.cli.TuiCmd
 scalascript.cli.WatchCmd
