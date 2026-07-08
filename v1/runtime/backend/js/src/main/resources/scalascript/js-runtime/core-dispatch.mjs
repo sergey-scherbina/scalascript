@@ -15,6 +15,12 @@ class _Char {
 }
 function _char(code) { return new _Char(code); }
 function _isChar(x)  { return x instanceof _Char; }
+function _charCodeOrNull(x) {
+  if (x instanceof _Char) return x.__c;
+  if (typeof x === 'number') return x;
+  if (typeof x === 'string' && [...x].length === 1) return x.codePointAt(0);
+  return null;
+}
 
 // ── Exact numerics (v1.64): BigInt is native; Decimal is BigInt-backed ──────
 // A Decimal is { _type:'_Decimal', u: bigint, s: int } with value = u * 10^-s.
@@ -130,10 +136,7 @@ function _eq(a, b) {
   // literal (char literals stay JS strings). (interp-js-string-map-nonchar.)
   const _aC = a instanceof _Char, _bC = b instanceof _Char;
   if (_aC || _bC) {
-    const cp = x => x instanceof _Char ? x.__c
-      : (typeof x === 'number' ? x
-        : (typeof x === 'string' && [...x].length === 1 ? x.codePointAt(0) : null));
-    const av = cp(a), bv = cp(b);
+    const av = _charCodeOrNull(a), bv = _charCodeOrNull(b);
     return av !== null && bv !== null && av === bv;
   }
   if (a == null || b == null) return false;
@@ -161,6 +164,16 @@ function _arith(op, a, b) {
   // String concatenation keeps priority (matches the interpreter's `a + show(b)`).
   if (op === '+' && (typeof a === 'string' || typeof b === 'string'))
     return (typeof a === 'string' ? a : _show(a)) + (typeof b === 'string' ? b : _show(b));
+  if ((a instanceof _Char || b instanceof _Char) &&
+      (op === '<' || op === '>' || op === '<=' || op === '>=')) {
+    const x = _charCodeOrNull(a), y = _charCodeOrNull(b);
+    if (x !== null && y !== null) {
+      switch (op) {
+        case '<': return x < y; case '>': return x > y;
+        case '<=': return x <= y; case '>=': return x >= y;
+      }
+    }
+  }
   const aDec = a && a._type === '_Decimal', bDec = b && b._type === '_Decimal';
   if (aDec || bDec) {
     const x = _toDec(a), y = _toDec(b);
