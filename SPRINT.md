@@ -961,12 +961,14 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       blocks the 5 facade tests + compile-jvm --bytecode) and `scalajs-jsenv-run-terminated`
       (node-26 jsEnv, 6 JS test modules, serial + CI). Root `sbt test` after those two = the gate.
       ACTIVE CLAIM PLAN 2026-07-08 (`green-main-full-sbt-test-gating` / codex):
-      - [ ] **bytecode-shared-runtime-routes-unbound** — first slice. Reproduce with
+      - [x] **bytecode-shared-runtime-routes-unbound** — fixed in `83fc339e2`. Reproduced with
             `scripts/sbtc "cli/testOnly *EmitScalaFacadeCliTest"` from this worktree;
-            inspect `JvmGen.genRuntime` capability gating so any runtime piece that
-            references route registry also emits the `_routes` / `route` definitions
-            in the shared bytecode runtime. Verify the facade test plus the smallest
-            affected compile-jvm/link bytecode test, then push before moving on.
+            root cause was split `JvmGen.genRuntime` omitting `stubServeRuntime` when
+            `Serve` was absent even though the always-included common/effects runtime
+            references `_routes`, `route`, `onWebSocket`, and `_httpDoRequest`.
+            Verified `backendInterpreter/testOnly scalascript.JvmGenRuntimeSeparationTest`,
+            `installBin`, `cli/assembly`, `cli/testOnly *EmitScalaFacadeCliTest`, and
+            `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
       - [ ] **scalajs-jsenv-run-terminated** — second slice / recheck after bytecode
             is green. Reproduce serially with `scripts/sbtc "cryptoNobleJs/test"`
             on the current Node/Scala.js setup; fix jsEnv config or isolate with a

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — fix: split JVM runtime emits serve stubs
+
+`compile-jvm --bytecode` no longer fails compiling shared `_ssc_runtime.scala`
+for no-server artifacts. Split `JvmGen.generateRuntime` now mirrors the
+self-contained JVM path by emitting `stubServeRuntime` whenever the `Serve`
+capability is absent. Targeted gate: `cli/testOnly *EmitScalaFacadeCliTest`
+is **7/7 green**.
+
+---
+
 ## 2026-07-08 — conformance: default gate green
 
 The full default conformance gate now reports **122 passed, 0 failed out of

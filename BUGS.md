@@ -552,7 +552,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Note:** `tests/conformance/tkv2-pwa.ssc` covers the .ssc-level path;
   `PwaPluginTest` covers the generators.
 
-## bytecode-shared-runtime-routes-unbound — `open` (2026-07-07)
+## bytecode-shared-runtime-routes-unbound — `fixed` (2026-07-07)
 
 - **Found by:** claude (green-main takeover), unmasked by fixing EmitScalaFacadeCliTest's missing
   `-Dssc.lib.path` (the CompilerLoader env error hid it).
@@ -564,6 +564,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Repro:** `sbt 'cli/testOnly *EmitScalaFacadeCliTest'` — 5 of 7 fail on this (2 pass after the
   lib-path harness fix). Or any `compile-jvm --bytecode` invocation.
 - **Impact:** the whole `--bytecode` separate-compilation happy path (compile-jvm/link facade family).
+- **Root cause:** self-contained `JvmGen.genModule` always emitted either `serveRuntime` or
+  `stubServeRuntime`, but split `JvmGen.genRuntime` omitted both when the unioned capability set did
+  not contain `Serve`. The always-included common/effects runtime still references route/http/ws
+  dispatch symbols, so the shared `_ssc_runtime.scala` could not compile for no-server bytecode
+  artifacts.
+- **Fix:** `83fc339e2` emits `stubServeRuntime` in split runtime when `Serve` is absent and adds a
+  `JvmGen.generateRuntime(Set.empty)` regression test for `_routes`, `route`, `onWebSocket`, and
+  `_httpDoRequest`.
+- **Verified:** `scripts/sbtc "backendInterpreter/testOnly scalascript.JvmGenRuntimeSeparationTest"`;
+  `scripts/sbtc "installBin"`; `scripts/sbtc "cli/assembly"`; `scripts/sbtc "cli/testOnly *EmitScalaFacadeCliTest"`;
+  `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
 
 ## scalajs-jsenv-run-terminated — `open` (2026-07-07)
 
