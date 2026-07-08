@@ -44,7 +44,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   exemption only if the plugin is intentionally not value-surface. Verify with the
   stable SPI enforcement test.
 
-## root-test-verify-default-srcdir-parent-scan — `open` (2026-07-08)
+## root-test-verify-default-srcdir-parent-scan — `fixed` (2026-07-08)
 
 - **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
 - **Repro observed in root gate:** `VerifyCliTest` cases such as
@@ -57,11 +57,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** root `sbt test` becomes needlessly slow and can look hung after the
   first real failures; production `ssc verify <dir>` can also scan far outside
   the requested artifact set by default.
-- **Fix direction:** bound default source discovery. Prefer the artifact directory
-  itself when it contains sources or is not a conventional `.ssc-artifacts`
-  directory; only default to the parent for known artifact-output directories, or
-  otherwise require/encourage explicit `--src-dir`. Verify with
-  `VerifyCliTest` and a targeted subprocess repro.
+- **Root cause:** default `srcDir` was always `artifactDir / os.up`; custom
+  artifact directories such as temp `out/` folders therefore indexed every
+  sibling `.ssc` file in the parent tree before checking a tiny artifact set.
+- **Fix:** `6c996bd63` changes the implicit default to the artifact directory
+  itself, preserving parent lookup only for conventional `.ssc-artifacts`
+  output dirs, and adds a subprocess regression for a custom `out/` directory.
+- **Verified:** `scripts/sbtc "cli/testOnly scalascript.cli.VerifyCliTest"` 8/8
+  green; `tests/conformance/run.sh --only 'std-process-import' --no-memo` 1/1
+  green.
 
 ## v2-actors-sendafter-cli-default-noop — `open` (2026-07-08)
 

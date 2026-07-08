@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — cli: verify bounds default source scans for custom artifact dirs
+
+`ssc verify <artifact-dir>` no longer defaults source freshness lookup to the
+artifact directory's parent for arbitrary custom output dirs. The parent lookup
+is kept only for conventional `.ssc-artifacts` outputs; otherwise implicit
+lookup stays inside the artifact dir and callers can still pass `--src-dir`.
+This removes the root-test slowdown where tiny temp verify cases recursively
+walked the whole temp parent. Gates: `VerifyCliTest` 8/8 green; conformance
+`std-process-import` 1/1 green.
+
 ## 2026-07-08 — std/ui: rowPostAction surfaces non-2xx errors (was silently swallowed)
 
 _RowPost read the response but only ever bumped the tick — a guarded refusal (e.g. a gateway stop

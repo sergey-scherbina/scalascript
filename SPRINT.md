@@ -9,7 +9,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **root-test-verify-default-srcdir-parent-scan** — fix `ssc verify` default
+- [x] **root-test-verify-default-srcdir-parent-scan** — DONE 2026-07-08 in
+      `6c996bd63`: `ssc verify <artifact-dir>` now bounds implicit source
+      discovery to the artifact directory itself, except for conventional
+      `.ssc-artifacts` dirs where parent source lookup remains intentional.
+      Added a subprocess regression proving a custom `out/` dir under a parent
+      with stale `a.ssc` reports `sourceHash MISSING` under `--strict` rather
+      than scanning the parent and producing `sourceHash mismatch`. Gates:
+      `scripts/sbtc "cli/testOnly scalascript.cli.VerifyCliTest"` 8/8 green;
+      `tests/conformance/run.sh --only 'std-process-import' --no-memo` 1/1 green.
+      Original: fix `ssc verify` default
       source discovery so `verify <artifact-dir>` does not recursively scan the
       whole parent temp/workspace tree. Root-gate repro: during
       `scripts/sbtc "test"`, `VerifyCliTest` tiny temp cases spent ~1-2 min each
