@@ -47,6 +47,18 @@ object PluginBridge:
         throw new RuntimeException(
           s"No database registered for '$dbName' — add a databases: section to front-matter"))
     override def featureGet(key: String): Option[Any] = Option(featureBag.get(key))
+    override def resolveGlobal(name: String): Option[Any] =
+      V2PluginRegistry.lookupGlobal(name)
+    override def invokeCallback(fn: Any, args: List[Any]): Any =
+      fn match
+        case c: V2Value.ClosV =>
+          val v2Args = args.map(rawToV2).toArray
+          val result = Runtime.run(c.code, if v2Args.isEmpty then c.env else Runtime.extend(c.env, v2Args))
+          v2ToRaw(result)
+        case nfv: scalascript.interpreter.Value.NativeFnV =>
+          scalascript.interpreter.Computation.run(nfv.f(args.map(rawToV1)))
+        case other =>
+          throw new RuntimeException(s"invokeCallback: not callable: ${Option(other).fold("null")(_.getClass.getName)}")
 
   /** Feature bag mirrored from v1's nativeFeatureSet — the content plugin's
    *  document-introspection natives (contentBlock/contentData/…) read the
@@ -2556,6 +2568,22 @@ object PluginBridge:
       }
     case null       => V2Value.DataV("None", Vector.empty)
     case other      => V2Value.ForeignV(other.asInstanceOf[AnyRef])
+
+  private def rawToV1(a: Any): V1Value = a match
+    case n: Long    => DataValue.IntV(n)
+    case i: Int     => DataValue.IntV(i.toLong)
+    case d: Double  => DataValue.DoubleV(d)
+    case f: Float   => DataValue.DoubleV(f.toDouble)
+    case s: String  => DataValue.StringV(s)
+    case b: Boolean => DataValue.BoolV(b)
+    case ()         => DataValue.UnitV
+    case null       => DataValue.NullV
+    case v: V1Value => v
+    case lst: scala.collection.immutable.List[?] =>
+      scalascript.interpreter.Value.ListV(lst.map(x => rawToV1(x.asInstanceOf[Any])))
+    case map: scala.collection.immutable.Map[?, ?] =>
+      scalascript.interpreter.Value.MapV(map.map { case (k, v) => rawToV1(k.asInstanceOf[Any]) -> rawToV1(v.asInstanceOf[Any]) }.toMap)
+    case other      => DataValue.StringV(other.toString)
 
   // ── Value translation: v2 Value → v1 Value ─────────────────────────────
 

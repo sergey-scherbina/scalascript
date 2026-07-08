@@ -92,3 +92,13 @@ class FrontendBridgeTest extends AnyFunSuite:
     val src = "val name = \"v2\"\ns\"Hello $name!\""
     assert(run(src) == Value.StrV("Hello v2!"))
   }
+
+  test("list literal after spaced infix operator") {
+    val src =
+      """val head = [1]
+        |val xs = head ++ [2]
+        |xs""".stripMargin
+    assert(run(src) ==
+      Value.DataV("Cons", Vector(Value.IntV(1),
+        Value.DataV("Cons", Vector(Value.IntV(2), Value.DataV("Nil", Vector.empty))))))
+  }

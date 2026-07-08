@@ -548,8 +548,12 @@ object FrontendBridge:
           // Only treat [ as list literal when unambiguously in expression position.
           // Operators (+,-,*,/,|,&,<,>,!) are excluded — they also appear as method names
           // before type-param brackets (e.g. def |[B], def +[A]).
+          val prevIsWhitespace = i > 0 && code.charAt(i - 1).isWhitespace
+          val spacedAfterOperator =
+            prevIsWhitespace && "+-*/%|&<>!~^?=".contains(prevNonWs)
           val exprPos = prevNonWs match
             case '=' | '(' | ',' | '{' | '[' | '\n' | ';' | ':' => true
+            case _ if spacedAfterOperator => true
             case _ => Set("then","else","return","yield","do","in","of","by","if","while","to","until","match","case","=>")(prevToken)
           if exprPos then
             sb.append("List("); stack.push(true)
