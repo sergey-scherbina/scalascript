@@ -52,7 +52,17 @@ object PluginBridge:
     override def invokeCallback(fn: Any, args: List[Any]): Any =
       fn match
         case c: V2Value.ClosV =>
-          val v2Args = args.map(rawToV2).toArray
+          // Builder/instance args (mcpServer's srv) must ride OPAQUE like the
+          // BlockContext.applyFn path (spiToV2 wraps ForeignV(raw)): the deep
+          // rawToV2 conversion turned them into named-method objects whose
+          // variadic field wrappers broke the natives' CURRIED two-step
+          // protocol (srv.tool(name, desc)(handler) got all three at once and
+          // raised its usage error). Scalars still convert normally.
+          val v2Args = args.map {
+            case v1v: V1Value if v1v.isInstanceOf[scalascript.interpreter.Value.InstanceV] =>
+              V2Value.ForeignV(v1v)
+            case a => rawToV2(a)
+          }.toArray
           val result = Runtime.run(c.code, if v2Args.isEmpty then c.env else Runtime.extend(c.env, v2Args))
           v2ToRaw(result)
         case nfv: scalascript.interpreter.Value.NativeFnV =>

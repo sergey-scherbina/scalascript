@@ -1,6 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: node-fs-read
+backend: js
 version: 1.0.0
 description: Read a file via a Node.js glue block called from ScalaScript code
 ---

@@ -86,6 +86,7 @@ object FrontendBridge:
     sqlSectionIds.clear()
     yamlSectionIds.clear()
     hoistedValNames.clear()
+    curriedExternMethods.clear()
     globalVarNames.clear()
     defParamNames.clear()
     varargDefs.clear()
@@ -170,6 +171,11 @@ object FrontendBridge:
   private val sqlSectionIds = collection.mutable.HashSet[String]()
   private val yamlSectionIds = collection.mutable.HashSet[String]()
   private val hoistedValNames = collection.mutable.HashSet[String]()
+  /** Methods declared with TWO parameter clauses inside `extern class/trait`
+   *  bodies (`def tool(name)(handler)`): their natives implement a CURRIED
+   *  two-step protocol — the curried-merge conversion must NOT collapse
+   *  `srv.tool(a, b) { h }` into one call. */
+  private val curriedExternMethods = collection.mutable.HashSet[String]()
 
   /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
   private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
@@ -468,11 +474,14 @@ object FrontendBridge:
         val baseIndent = line.length - line.stripLeading().length
         sb.append("//").append(line); i += 1
         var done = false
+        val curriedDef = """def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\(""".r
         while i < lines.length && !done do
           val next = lines(i)
           val stripped = next.stripLeading()
           val indent = next.length - stripped.length
           if stripped.isEmpty || indent > baseIndent then
+            // remember two-clause method decls: their natives are curried
+            curriedDef.findFirstMatchIn(stripped).foreach(m => curriedExternMethods += m.group(1))
             sb.append("//").append(next); i += 1
           else done = true // break: indentation returned, don't advance i
       else
@@ -1685,7 +1694,13 @@ object FrontendBridge:
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name(mname)), innerClause) if !isCtorName(mname) =>
         val q     = convertExpr(qual, scope)
         val inner = innerClause.values.toList.map(e => convertExpr(e, scope))
-        CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: (inner ++ args))
+        if curriedExternMethods.contains(mname) then
+          // extern `def m(a…)(b…)`: the native returns the SECOND-step fn from
+          // the first application — keep the two-step (merging fed all args at
+          // once and the native raised its usage error: srv.tool of std/mcp).
+          CT.App(CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: inner), args)
+        else
+          CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: (inner ++ args))
       // Prism[Outer, Variant] — variant prism (v1 OpticsRuntime.buildPrism mirror)
       case Term.ApplyType.After_4_6_0(Term.Name("Prism"), argClause) =>
         val variant = argClause match

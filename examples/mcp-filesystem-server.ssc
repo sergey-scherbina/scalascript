@@ -24,20 +24,20 @@ import scala.jdk.CollectionConverters._
 
 mcpServer { srv =>
 
-  srv.tool("read_file", "Read text content of a file", readOnlyHint = true) { args =>
+  srv.tool("read_file", "Read text content of a file") { args =>
     val path = requireString(args, "path")
     val src = Source.fromFile(path)
     try Tool.text(src.mkString) finally src.close()
   }
 
-  srv.tool("write_file", "Write text content to a file (overwrites)", destructiveHint = true) { args =>
+  srv.tool("write_file", "Write text content to a file (overwrites)") { args =>
     val path = requireString(args, "path")
     val content = requireString(args, "content")
     Files.write(Paths.get(path), content.getBytes("UTF-8"))
     Tool.text(s"Wrote ${content.length} chars to $path")
   }
 
-  srv.tool("list_directory", "List entries in a directory", readOnlyHint = true) { args =>
+  srv.tool("list_directory", "List entries in a directory") { args =>
     val path = requireString(args, "path")
     val stream = Files.list(Paths.get(path))
     try {
@@ -46,7 +46,7 @@ mcpServer { srv =>
     } finally stream.close()
   }
 
-  srv.tool("delete_file", "Delete a file from disk", destructiveHint = true) { args =>
+  srv.tool("delete_file", "Delete a file from disk") { args =>
     val path = requireString(args, "path")
     val deleted = Files.deleteIfExists(Paths.get(path))
     Tool.text(if (deleted) s"Deleted $path" else s"No such file: $path")

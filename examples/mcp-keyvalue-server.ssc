@@ -31,18 +31,18 @@ mcpServer { srv =>
     Tool.text(s"Set $key")
   }
 
-  srv.tool("kv_get", "Retrieve a value by key", readOnlyHint = true) { args =>
+  srv.tool("kv_get", "Retrieve a value by key") { args =>
     val key = requireString(args, "key")
     Tool.text(store.getOrElse(key, s"not found: $key"))
   }
 
-  srv.tool("kv_delete", "Remove a key from the store", destructiveHint = true) { args =>
+  srv.tool("kv_delete", "Remove a key from the store") { args =>
     val key = requireString(args, "key")
     val removed = store.remove(key).isDefined
     Tool.text(if (removed) s"Deleted $key" else s"not found: $key")
   }
 
-  srv.tool("kv_list", "List all keys currently in the store", readOnlyHint = true) { _ =>
+  srv.tool("kv_list", "List all keys currently in the store") { _ =>
     val keys = store.keys.toList.sorted
     Tool.text(if (keys.isEmpty) "(empty)" else keys.mkString("\n"))
   }

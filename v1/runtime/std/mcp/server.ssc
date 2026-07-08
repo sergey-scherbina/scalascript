@@ -7,6 +7,9 @@ exports:
   - McpServer
   - mcpServer
   - serveMcp
+  - Tool
+  - Transport
+  - requireString
 ---
 
 # `std.mcp.server`
