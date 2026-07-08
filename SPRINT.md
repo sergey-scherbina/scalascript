@@ -57,7 +57,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       if it is intentionally outside the value-surface class. Done-when: the
       stable SPI enforcement test is green plus affected conformance.
 
-- [ ] **root-test-v2-conformance-toolkit-regressions** — clear the remaining
+- [x] **root-test-v2-conformance-toolkit-regressions** — clear the remaining
       v2/default conformance failures seen in the post-cluster full root gate.
       Repro from `scripts/sbtc "test"`: `V2ConformanceTest` failed
       `std-ui-jobpanel` (`?` labels instead of `2:Jobs` / `2:New job`),
@@ -80,7 +80,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       registry. Gates: `V2ConformanceTest -z tkv2-pwa` green, `-z tkv2` green
       (6/6), and conformance `tkv2-pwa` green (INT pass; JS/JVM skipped by
       metadata). Remaining in this item: `std-ui-jobpanel` heading label shape.
-      Progress 2026-07-08 local `0facf7506`: `std-ui-jobpanel` fixed by keeping
+      Progress 2026-07-08 `0facf7506`: `std-ui-jobpanel` fixed by keeping
       curried vararg defs (`cardWithHeader(header)(body*)`) out of the direct
       single-clause vararg call wrapper; first clauses now receive the header
       value directly instead of `List(header)`. Gates after rebasing on
@@ -89,6 +89,14 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `std-ui-jobpanel` green (INT+JS pass; JVM skipped). New remaining blocker
       from the full suite after that rebase: `array-companion-statics`
       (`__method__: no dispatch for .sum on <foreign>`).
+      Result 2026-07-08 `f6e6383ac`: `array-companion-statics` fixed by making
+      `ForeignV(ArrayBuffer)` list-like for read-only collection dispatch while
+      preserving real mutable array operations. Gates:
+      `V2ConformanceTest -z array-companion-statics` green,
+      conformance `array-companion-statics` green (INT+JS+JVM), and full
+      `V2ConformanceTest` green (76 succeeded, 54 ignored, 0 failed). This
+      root v2 conformance-toolkit item has no remaining known deterministic
+      blockers.
 
 - [ ] **v2-busi-testsweep-gaps** — busi tests/v2 on --v2: 47/61 PASS after op-arg-lifting
       (v1 same launcher/flags: 61/61 — every fail is a REAL v2 parity gap, not environment).
@@ -1207,7 +1215,8 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       Done-when: run root `scripts/sbtc "test"` after both fixed slices are on the branch;
       if green, mark this gate done and release the claim. If red, record the next deterministic
       blocker in BUGS.md + SPRINT before fixing it.
-      - [ ] **root-test-v2-array-companion-foreign-sum** — new deterministic
+      - [x] **root-test-v2-array-companion-foreign-sum** — fixed in
+            `f6e6383ac`. New deterministic
             `V2ConformanceTest` blocker discovered after rebasing the jobpanel
             fix onto `origin/main@9e48204e5`: full
             `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`
@@ -1216,11 +1225,12 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             Targeted repro first: `scripts/sbtc "v2FrontendBridge/testOnly
             ssc.bridge.V2ConformanceTest -- -z array-companion-statics"` plus
             `tests/conformance/run.sh --only 'array-companion-statics' --no-memo`.
-            Likely interaction with the fresh VM semantics batch: Array companion
-            statics or HOF/list methods now return/keep a host foreign array where
-            runtime method dispatch expects the shared list representation. Fix in
-            the v2 runtime/bridge, then rerun the targeted case, affected
-            conformance, and full `V2ConformanceTest`.
+            Root cause: Array companion statics now intentionally return real
+            `ForeignV(ArrayBuffer)` values for mutable arrays, but collection
+            methods still only accepted Cons/Nil lists. Runtime fix: treat
+            ArrayBuffer as list-like for read-only collection dispatch. Gates:
+            targeted `array-companion-statics`, affected conformance, and full
+            `V2ConformanceTest` are green.
 
 - [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
       `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.

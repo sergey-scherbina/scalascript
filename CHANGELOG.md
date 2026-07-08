@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2: frontend bridge conformance toolkit gate is green
+
+The remaining v2 `V2ConformanceTest` blockers from the root gate are fixed.
+Curried vararg first clauses such as `cardWithHeader(header)(body*)` no longer
+wrap the header in a list, restoring `std-ui-jobpanel`, and real
+`ForeignV(ArrayBuffer)` arrays now dispatch through read-only collection methods
+such as `sum` and `mkString`. Gates: `std-ui-jobpanel`, `tkv2` (6/6),
+`array-companion-statics` affected conformance (INT+JS+JVM), and full
+`v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` (76 succeeded,
+54 ignored, 0 failed).
+
 ## 2026-07-08 — v2: PWA plugin routes run through the bridge
 
 `tkv2-pwa` now passes on the v2 frontend bridge. The bridge classpath includes

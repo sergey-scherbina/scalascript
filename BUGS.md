@@ -64,7 +64,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
   code. Fix (v1 content-plugin, fires only where it previously errored/None'd):
   fall back to the registered ContentImportedModules documents. Killed
   content_toolkit.
-## root-test-v2-conformance-toolkit-regressions — `open` (2026-07-08)
+## root-test-v2-conformance-toolkit-regressions — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` full root
   `scripts/sbtc "test"` after the sealed-extension and cluster blockers were fixed.
@@ -98,7 +98,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `tests/conformance/run.sh --only 'tkv2-pwa' --no-memo` green (INT pass;
   JS/JVM skipped by metadata). Remaining failure from this root entry:
   `std-ui-jobpanel` heading labels (`?` instead of `2:...`).
-- **Progress (2026-07-08, local `0facf7506`):** `std-ui-jobpanel` is fixed
+- **Progress (2026-07-08, `0facf7506`):** `std-ui-jobpanel` is fixed
   on the rebased `green-main-full-sbt-test-gating` branch. Root cause:
   `FrontendBridge` registered curried vararg defs such as
   `cardWithHeader(header)(body*)` as ordinary direct-vararg defs, so the first
@@ -114,8 +114,18 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `RuntimeException: __method__: no dispatch for .sum on <foreign>`. Repro:
   `cd /Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating &&
   scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`.
-  Fix before marking this root entry fixed; likely interaction with the fresh
-  array/list/foreign runtime semantics batch.
+  Root cause confirmed below: the fresh real-array runtime semantics batch left
+  read-only collection dispatch list-only.
+- **FIXED (2026-07-08, `f6e6383ac`):** `array-companion-statics` is fixed.
+  `ForeignV(ArrayBuffer)` is now list-like for read-only collection dispatch
+  (`sum`, `mkString`, HOFs, etc.) while keeping mutable array operations
+  (`arr.get/set`, indexed apply, `length`) on the real ArrayBuffer. Gates:
+  `V2ConformanceTest -z array-companion-statics` green,
+  `tests/conformance/run.sh --only 'array-companion-statics' --no-memo` green
+  (INT+JS+JVM), and full
+  `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` green
+  (76 succeeded, 54 ignored, 0 failed). No known deterministic blocker remains
+  in this `V2ConformanceTest` root entry.
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
 
