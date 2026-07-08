@@ -12,6 +12,32 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-content-document-context — `fixed` (2026-07-08)
+
+- **Found by:** codex, during the `v2-production-readiness` output-parity baseline.
+- **Symptom:** `ssc run --v2` produced non-v1 output for structured Markdown content
+  examples: `content-linked-namespaces.ssc` leaked a `Stub`/`Op` shape instead of the
+  imported section title, `content-to-markdown.ssc` rendered empty content, and
+  `content-tables.ssc` differed on the toolkit table value.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/content-linked-namespaces.ssc examples/content-tables.ssc examples/content-to-markdown.ssc`.
+- **Root cause:** the v2 bridge populated only the current source document and then
+  let batch content stubs override the real content plugin natives. The FrontendBridge
+  import walk also did not register imported Markdown documents under
+  `ContentImportedModules`, so `contentModuleSection` had no namespace table. After
+  enabling the real content plugin path, bridged println still rendered
+  `TableNode.sortCol` as `None` where v1 case-class output uses `null`.
+- **Fix (146779cb6):** `PluginBridge.setDocumentFromSource` resets/seeds content
+  document/current-section context, `FrontendBridge` registers imported content
+  documents by namespace, content introspection/module/markdown natives use the real
+  plugin path, and bridge display preserves the v1 `TableNode(..., null)` rendering.
+  Only `contentToolkitSection` remains a selective batch stub until section-level
+  toolkit lowering is fixed.
+- **Verification:** `examples/content*.ssc` parity is **10/10 identical** (one
+  v1 long-running skip), `scala-cli tests/conformance/run.sc -- --only 'content*'
+  --no-memo` passes **5/5**, and the full parity gate is **54/88 identical ·
+  10 mismatch · 1 v2-error · 23 v1-only**.
+
 ## plugin-lazyload-extern-imports — `fixed` (2026-07-07)
 
 - **Found by:** claude (tkv2-pwa-adopt slice) — the stock `examples/pwa/pwa-demo.ssc`

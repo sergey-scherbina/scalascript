@@ -16,12 +16,12 @@ scripts/sbtc "installBin"
 PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
 ```
 
-Fresh result:
+Current result after the content bridge parity fix (`146779cb6`):
 
 | | count |
 |---|---|
-| ✅ output-identical | **51 / 88 = 58%** |
-| ❌ mismatch | 13 |
+| ✅ output-identical | **54 / 88 = 61%** |
+| ❌ mismatch | 10 |
 | ⚠️ v2-error (v1 works, v2 empty) | 1 |
 | v1-only (v2 works, v1 empty) | 23 |
 | both-fail (not a v2 gap) | 37 |
@@ -29,6 +29,16 @@ Fresh result:
 | backend-lane skipped | 32 |
 | nondeterministic-output skipped | 2 |
 | total examples seen | 195 |
+
+Before that slice, the same worktree measured **51/88 output-identical · 13 mismatch ·
+1 v2-error · 23 v1-only**. The content cluster was the first contained v2 production
+blocker and is now closed:
+
+- `content-linked-namespaces.ssc` => MATCH;
+- `content-tables.ssc` => MATCH;
+- `content-to-markdown.ssc` => MATCH;
+- all top-level `examples/content*.ssc` parity-check as 10/10 identical, with
+  `content-introspection.ssc` classified long-running because the v1 side times out.
 
 This is a large improvement over the corrected 2026-07-06 baseline (11/47 real-output
 parity, then 21/47 after plugin packaging fixes). It also changes the immediate
@@ -42,18 +52,20 @@ production blocker order:
   and v2 prints real platform data; classify as v2-better / v1 bug.
 - `async-parallel-demo.ssc` differs only in wall-clock timings; classify as
   nondeterministic-output unless the example is normalized.
-- Fresh v2 production blockers by cluster:
-  - **content structured-block round-trip:** `content-linked-namespaces`,
-    `content-tables`, `content-to-markdown`;
+- Remaining v2 production blockers by cluster:
   - **single v2-error:** `dataset-parallel-sum`;
   - **parser/DSL output shape:** `dsl-calc-parser`;
   - **quoted macro body evaluation:** `quoted-macro-interpreter`;
   - **rozum server/batch behavior:** `rozum-agent`, `rozum-agent-pool`,
     `rozum-agent-schema-derived`, `rozum-agent-streaming` (needs a lane/scope decision
     because v1 emits server startup lines and v2 uses batch stubs).
+  - **toolkit section lowering:** `contentToolkitSection` is deliberately still a
+    batch stub in the v2 bridge. Do not remove it until section-level toolkit lowering
+    is parity-checked against `content-slot`, `content-toolkit-yaml-controls`, and
+    the other section-rendering examples.
 
-First code slice after this baseline: fix the content structured-block round-trip,
-because it is a contained 3-example cluster already diagnosed under `p3-parity-content`.
+Next code slice after this baseline: close the production-relevant plugin-boundary
+gaps without reintroducing content structured-block regressions.
 
 ## Result — 2026-07-05, 52 terminating examples (no server/actor/network)
 

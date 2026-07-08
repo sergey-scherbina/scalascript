@@ -41,21 +41,32 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and first blocker
 
-2026-07-08 fresh baseline:
+2026-07-08 current baseline after the content bridge parity fix (`146779cb6`):
 
 ```text
 PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
-parity: 51/88 identical · 13 mismatch · 1 v2-error · 23 v1-only
+parity: 54/88 identical · 10 mismatch · 1 v2-error · 23 v1-only
         (37 both-fail not-a-gap · 36 true-server · 0 long-running ·
          32 backend-lane · 2 nondet · 195 total)
 ```
 
-`examples/algebraic-effects.ssc` now matches v1 output. The first contained v2
-production blocker is the content structured-block round-trip cluster:
-`content-linked-namespaces`, `content-tables`, and `content-to-markdown`.
+Before the content bridge fix, the same gate was **51/88 identical · 13 mismatch ·
+1 v2-error · 23 v1-only**. The first contained v2 production blocker, the content
+structured-block round-trip cluster (`content-linked-namespaces`, `content-tables`,
+and `content-to-markdown`), is now closed and all top-level `examples/content*.ssc`
+parity-check as **10/10 identical** (with `content-introspection.ssc` classified
+long-running because v1 times out).
+
+`examples/algebraic-effects.ssc` now matches v1 output.
 `examples/effects.ssc` still mismatches, but v1 prints only the first 3 documented
 lines while v2 prints the full documented output, so that mismatch is a v1-side
 follow-up rather than a v2 default-switch blocker.
+
+The next production blockers are the remaining single v2-error (`dataset-parallel-sum`),
+the parser/DSL output shape gap (`dsl-calc-parser`), quoted macro body evaluation
+(`quoted-macro-interpreter`), the rozum server/batch scope decision, and the deliberate
+`contentToolkitSection` batch stub left in the v2 bridge until section-level toolkit
+lowering is parity-checked.
 
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-08 — v2 production: content structured-block parity
+
+`ssc run --v2` now seeds content document/current-section context and imported content
+module documents through the v2 FrontendBridge/PluginBridge path. This closes the
+production parity cluster for `content-linked-namespaces`, `content-tables`, and
+`content-to-markdown`; full output parity moved from 51/88 to 54/88 identical. The
+bridge keeps only `contentToolkitSection` as a selective batch stub until section-level
+toolkit lowering is fixed.
+
+---
+
 ## 2026-07-07 — std/ui: selection-aware rowLink pickers + onOpenJson effect
 
 Two phone-driven polish items from the rozum UCC: (1) datatable `_RowLink` buttons now mark the

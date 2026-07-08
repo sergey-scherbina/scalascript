@@ -44,13 +44,35 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       ORIGINAL PLAN: close `p3-effects-output-divergence` for
       `examples/algebraic-effects.ssc` and add a regression/gate that checks output
       equality, not just exit code.
-- [ ] **v2-prod-content-parity** — resume `p3-parity-content`: preserve plugin-owned
-      structured content block values across rawToV2/v1ToV2 so `content-tables`,
+- [x] **v2-prod-content-parity** — DONE 2026-07-08 (146779cb6): restored v2 bridge
+      document context for structured content parity. Root cause: PluginBridge's
+      batch stubs overrode real content plugin natives, the FrontendBridge import walk
+      did not populate `ContentImportedModules`, and bridged println rendered
+      `TableNode.sortCol` as `None` where v1 case-class output uses `null`. Fix:
+      `setDocumentFromSource` now resets/seeds content document/current-section
+      context, imports register parsed content documents by namespace, content
+      introspection/module/markdown natives use the real plugin, and bridge display
+      preserves v1 `TableNode(..., null)` output. No-regression decision: keep only
+      `contentToolkitSection` as the historical batch stub until section-level
+      toolkit lowering is fixed; `contentToolkitBlock` remains real for table parity.
+      Verification:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/content*.ssc`
+      => **10/10 identical** (1 v1 long-running skip); `scala-cli
+      tests/conformance/run.sc -- --only 'content*' --no-memo` => **5 passed,
+      0 failed**; full corpus now **54/88 identical · 10 mismatch · 1 v2-error ·
+      23 v1-only** `(37 both-fail · 36 true-server · 32 backend-lane · 2 nondet ·
+      195 total)`.
+      ORIGINAL PLAN: resume `p3-parity-content`: preserve plugin-owned structured
+      content block values across rawToV2/v1ToV2 so `content-tables`,
       `content-to-markdown`, and `content-linked-namespaces` round-trip like v1.
 - [ ] **v2-prod-plugin-boundary** — close remaining production-relevant plugin bridge
       shape gaps: `Stub`/`Op` leaks, foreign value conversion, lazy-loaded plugin
-      extern imports, and native registration misses. Non-production examples must be
-      explicitly classified as env-gated, backend-lane, nondeterministic, or v1-bug.
+      extern imports, native registration misses, and the deliberate
+      `contentToolkitSection` batch stub left by `v2-prod-content-parity`. Do not
+      remove that stub until real section-level toolkit lowering is parity-checked
+      against `content-slot`, `content-toolkit-yaml-controls`, and the other
+      `contentToolkitSection` examples. Non-production examples must be explicitly
+      classified as env-gated, backend-lane, nondeterministic, or v1-bug.
 - [ ] **v2-prod-corpus-scope** — make the Phase-3 corpus gate honest: classify Spark,
       distributed actors/node simulation, live servers, JVM-lane examples, and external
       credentials into production-required vs lane-specific gates. Record rejected
