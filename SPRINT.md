@@ -888,6 +888,20 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
             (**5/5 green**). Next: run full default conformance with the
             serverless wrapper and either mark `green-main-conformance-gating`
             complete or record the next blocker before releasing the claim.
+      FULL-GATE UPDATE 2026-07-08: after `322ee868f` / `4463a6117`,
+      `tests/conformance/run.sh --no-memo` reports **121 passed, 1 failed out of
+      122 tests (+2 pending)**. The only remaining blocker is
+      `std-semigroup-monoid`, failing only on INT with expected lines 4-6
+      missing (`Some(24)`, `42`, `foo`) while JS/JVM pass. Tracked in `BUGS.md`
+      as `conformance-int-std-semigroup-monoid`.
+      - [ ] **conformance-int-std-semigroup-monoid** — final full-gate blocker:
+            reproduce with `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`
+            and `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`;
+            inspect INT handling of std Semigroup/Monoid givens/extensions or
+            imported typeclass dispatch; add a focused interpreter/std regression.
+            Done-when direct INT output includes all expected lines, the targeted
+            conformance slice is green across enabled backends, and the full
+            default conformance gate is rerun.
 
 - [ ] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
       `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&

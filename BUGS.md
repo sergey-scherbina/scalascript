@@ -12,6 +12,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## conformance-int-std-semigroup-monoid — `open` (2026-07-08)
+
+- **Found by:** codex, during full `green-main-conformance-gating` after the
+  `.scjvm` cache invalidation fix.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo` or direct
+  `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`.
+- **Observed:** full conformance reports `std-semigroup-monoid` failing only on
+  INT: expected lines 4-6 are `Some(24)`, `42`, and `foo`, but INT prints fewer
+  lines (`<missing>` for those entries). JS and JVM pass.
+- **Status:** open; reproduce directly in the real CLI harness, inspect the
+  interpreter/std path for imported Semigroup/Monoid extension or given
+  resolution, add a focused regression, and verify the targeted conformance slice.
+
 ## jvm-scjvm-cache-codegen-version — `fixed` (2026-07-08)
 
 - **Found by:** codex, while fixing `conformance-jvm-std-ui-generated-braces`.
