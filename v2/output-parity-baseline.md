@@ -7,6 +7,54 @@ routes a source through the v1 frontend → FrontendBridge → the v2 VM).
 This is the REAL "does v2 replace v1?" gate: each example is run on v1 (`ssc run`) AND v2 (`ssc run --v2`)
 and stdout is diffed. It is far stricter than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
+## Full corpus re-measure — 2026-07-08, production-readiness baseline
+
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-production-readiness` with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Fresh result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **51 / 88 = 58%** |
+| ❌ mismatch | 13 |
+| ⚠️ v2-error (v1 works, v2 empty) | 1 |
+| v1-only (v2 works, v1 empty) | 23 |
+| both-fail (not a v2 gap) | 37 |
+| true-server skipped | 36 |
+| backend-lane skipped | 32 |
+| nondeterministic-output skipped | 2 |
+| total examples seen | 195 |
+
+This is a large improvement over the corrected 2026-07-06 baseline (11/47 real-output
+parity, then 21/47 after plugin packaging fixes). It also changes the immediate
+production blocker order:
+
+- `algebraic-effects.ssc` now **MATCHES**. The old State-effect divergence is not the
+  first v2 production blocker anymore.
+- `effects.ssc` still mismatches, but v1 prints only the first 3 documented lines while
+  v2 prints the full documented output; classify as a v1-side follow-up, not a v2 blocker.
+- `os-env.ssc` still mismatches because v1 prints unresolved `<native:...>` placeholders
+  and v2 prints real platform data; classify as v2-better / v1 bug.
+- `async-parallel-demo.ssc` differs only in wall-clock timings; classify as
+  nondeterministic-output unless the example is normalized.
+- Fresh v2 production blockers by cluster:
+  - **content structured-block round-trip:** `content-linked-namespaces`,
+    `content-tables`, `content-to-markdown`;
+  - **single v2-error:** `dataset-parallel-sum`;
+  - **parser/DSL output shape:** `dsl-calc-parser`;
+  - **quoted macro body evaluation:** `quoted-macro-interpreter`;
+  - **rozum server/batch behavior:** `rozum-agent`, `rozum-agent-pool`,
+    `rozum-agent-schema-derived`, `rozum-agent-streaming` (needs a lane/scope decision
+    because v1 emits server startup lines and v2 uses batch stubs).
+
+First code slice after this baseline: fix the content structured-block round-trip,
+because it is a contained 3-example cluster already diagnosed under `p3-parity-content`.
+
 ## Result — 2026-07-05, 52 terminating examples (no server/actor/network)
 
 | | count |

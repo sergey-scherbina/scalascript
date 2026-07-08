@@ -39,11 +39,23 @@ in `v2/output-parity-baseline.md` with exact counts for:
 5. Switch the default only after all remaining non-parity cases are either fixed or
    intentionally scoped out with a documented lane-specific gate.
 
-### Current first blocker
+### Current baseline and first blocker
 
-`examples/algebraic-effects.ssc` is the first semantic blocker to close in this
-workstream: v2 can exit successfully while disagreeing with v1 on State-effect output.
-The fix must include an output-equality regression, not only an exit-code test.
+2026-07-08 fresh baseline:
+
+```text
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 51/88 identical · 13 mismatch · 1 v2-error · 23 v1-only
+        (37 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         32 backend-lane · 2 nondet · 195 total)
+```
+
+`examples/algebraic-effects.ssc` now matches v1 output. The first contained v2
+production blocker is the content structured-block round-trip cluster:
+`content-linked-namespaces`, `content-tables`, and `content-to-markdown`.
+`examples/effects.ssc` still mismatches, but v1 prints only the first 3 documented
+lines while v2 prints the full documented output, so that mismatch is a v1-side
+follow-up rather than a v2 default-switch blocker.
 
 > Status (2026-07-05): drafted 2026-07-03, committed 2026-07-05. Track 1 (T1.1-T1.3)
 > has substantial in-flight work on branch `feature/v2-frontend-bridge` (unmerged).
@@ -282,7 +294,7 @@ T4.1-T4.4 (verify)     ← last, after all tracks
 
 ## Done-when (Phase 3 gate)
 
-- [ ] Fresh `SSC="bin/ssc" scripts/v2-output-parity --all` baseline is recorded.
+- [x] Fresh `SSC="bin/ssc" scripts/v2-output-parity --all` baseline is recorded.
 - [ ] Runnable production-scope examples are output-identical under v1 and v2.
 - [ ] v2 output divergences are regression-tested with output equality, not only exit code.
 - [ ] `ssc run --v2 foo.ssc` works for ALL examples/ programs

@@ -16,18 +16,34 @@ rollback path. This workstream does **not** try to green every unrelated repo-wi
 test first; it fixes repo-wide gates only when they block the v2 production gate.
 Coordinate with existing Phase-3/p3 items below instead of duplicating their fixes.
 
-- [ ] **v2-prod-baseline-refresh** — refresh the authoritative v1-vs-v2 output-parity
+- [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
+      full-corpus output-parity baseline from this worktree after `scripts/sbtc
+      "installBin"`. Command:
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`.
+      Result: **51/88 output-identical · 13 mismatch · 1 v2-error · 23 v1-only**
+      `(37 both-fail not-a-gap · 36 true-server · 32 backend-lane · 2 nondet ·
+      195 total)`. Major reclassification: `algebraic-effects.ssc` now MATCHES, so
+      the old p3 effects divergence is no longer the first production blocker.
+      Fresh first engine slice is content structured-block round-trip
+      (`content-linked-namespaces`, `content-tables`, `content-to-markdown`).
+      Baseline recorded in `v2/output-parity-baseline.md` and
+      `specs/v2-full-compat.md`.
+      ORIGINAL PLAN: refresh the authoritative v1-vs-v2 output-parity
       baseline before changing semantics. How: from the claimed worktree, build/stage
       `bin/ssc`, run `SSC="bin/ssc" scripts/v2-output-parity --all`, record exact
       match/mismatch/v2-error/v1-only counts in `v2/output-parity-baseline.md`,
       `specs/v2-full-compat.md`, and this section. Done-when: a fresh agent can
       reproduce the baseline with one command and knows which failures are production
       blockers vs lane/env/v1 bugs.
-- [ ] **v2-prod-effects-parity** — first semantic blocker: close
-      `p3-effects-output-divergence` for `examples/algebraic-effects.ssc` and add a
-      regression/gate that checks output equality, not just exit code. Why first:
-      production cannot accept programs that exit 0 while producing different effect
-      results. Start from State-effect get/set/parameterized-handler threading.
+- [x] **v2-prod-effects-parity audit** — RECLASSIFIED 2026-07-08: no code needed in
+      this workstream for `examples/algebraic-effects.ssc`; fresh full-corpus parity
+      shows it output-identical on v2. `examples/effects.ssc` still mismatches, but
+      v1 prints only the first 3 documented lines while v2 prints the full 6-line
+      documented behavior; treat that as a v1-side follow-up, not a v2 production
+      blocker. The output-equality gate is `scripts/v2-output-parity --all`.
+      ORIGINAL PLAN: close `p3-effects-output-divergence` for
+      `examples/algebraic-effects.ssc` and add a regression/gate that checks output
+      equality, not just exit code.
 - [ ] **v2-prod-content-parity** — resume `p3-parity-content`: preserve plugin-owned
       structured content block values across rawToV2/v1ToV2 so `content-tables`,
       `content-to-markdown`, and `content-linked-namespaces` round-trip like v1.
