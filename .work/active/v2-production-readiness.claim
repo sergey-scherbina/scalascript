@@ -1,6 +1,6 @@
-feature/v2-production-readiness 2026-07-08T06:53:34Z
+feature/v2-production-readiness 2026-07-08T06:59:31Z
 agent: codex
-heartbeat: 2026-07-08T06:53:34Z
+heartbeat: 2026-07-08T06:59:31Z
 status: in-progress
-done-so-far: SPRINT/spec plan pushed; bin/ssc staged successfully in v2-production worktree
-next: run SSC=bin/ssc scripts/v2-output-parity --all and record fresh baseline
+done-so-far: v2 production baseline pushed (51/88, 13 mismatch, 1 v2-error); effects reclassified
+next: implement v2-prod-content-parity for content structured-block round-trip mismatches
