@@ -1,6 +1,6 @@
 feature/green-main-conformance-gating 2026-07-08T11:11:33Z
 agent: codex
-heartbeat: 2026-07-08T11:17:53Z
+heartbeat: 2026-07-08T11:25:33Z
 status: in-progress
-done-so-far: worktree created; installBin passed; partial full conformance reproduced actors-supervision INT, cluster/distributed JVM, effect-transitive-handler JVM, effects INT, and http-client INT/JS failures before hanging at http-client
-next: isolate http-client with --only, then split/fix or reclassify remaining conformance clusters
+done-so-far: http-client reclassified as pending external fixture and pushed; remaining targeted conformance failures isolated to actors-supervision INT, effects INT, cluster/distributed JVM, effect-transitive-handler JVM
+next: root-cause actors-supervision/effects INT and JVM codegen Any-typing failures, then fix or record narrow production-safe reclassification
