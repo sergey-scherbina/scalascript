@@ -94,12 +94,13 @@ class FinalTaglessConformanceTest extends AnyFunSuite with Matchers:
 
   test("std combineAll[A: Monoid] auto-resolves given from imported std"):
     runWithStd(
-      "[intSum, stringConcat, combineAll](std/semigroup-monoid.ssc)",
+      "[intSum, stringConcat, combineAll, combineAllOption](std/semigroup-monoid.ssc)",
       """
         println(combineAll(List(1, 2, 3, 4, 5)))
         println(combineAll(List("a", "b", "c")))
+        println(combineAllOption(List(7, 8, 9)))
       """
-    ) shouldBe "15\nabc"
+    ) shouldBe "15\nabc\nSome(24)"
 
   // ── 5: Sealed-trait extension dispatch — Either bimap ───────────────────
 

@@ -474,18 +474,22 @@ private[interpreter] object StatRuntime:
           if isParametric then
             // Parametric given: register as a factory for later recursive resolution.
             // The captured env is the current env snapshot (minus interp.globals that haven't changed).
+            // Also expose parent typeclass templates: `given foo[A]: Monoid[A]`
+            // satisfies a `Semigroup[A]` demand when `Monoid extends Semigroup`.
             val captured: Map[String, Value] =
               if env eq interp.globals then Map.empty
               else env.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
-            val factory = ParametricGiven(
-              name               = d.name.value,
-              typeParams         = givenTypeParams,
-              usingDeps          = givenUsingDeps,
-              returnTypeTemplate = typeKey,
-              givenNode          = d,
-              capturedEnv        = captured
-            )
-            interp.givenFactories += factory
+            (typeKey :: parentTypeclassKeys(typeKey, interp)).foreach { returnTypeTemplate =>
+              val factory = ParametricGiven(
+                name               = d.name.value,
+                typeParams         = givenTypeParams,
+                usingDeps          = givenUsingDeps,
+                returnTypeTemplate = returnTypeTemplate,
+                givenNode          = d,
+                capturedEnv        = captured
+              )
+              interp.givenFactories += factory
+            }
             // Register by name so explicit `using factoryName` still works —
             // for that we eagerly build an instance without binding type vars
             // (type vars remain as-is; explicit calls supply concrete args).
@@ -502,6 +506,10 @@ private[interpreter] object StatRuntime:
             val implNames = d.templ.body.stats.collect { case dd: Defn.Def => dd.name.value }.toSet
             val instance  = Value.InstanceV(typeKey, members.view.filterKeys(implNames.contains).toMap)
             env(typeKey) = instance
+            parentTypeclassKeys(typeKey, interp).foreach { parentKey =>
+              if !env.contains(parentKey) && !interp.globals.contains(parentKey) then
+                env(parentKey) = instance
+            }
             // Track candidate count for ambiguity detection.
             interp.givenCandidateCount(typeKey) = interp.givenCandidateCount.getOrElse(typeKey, 0) + 1
             val explicitName = d.name.value
@@ -592,6 +600,35 @@ private[interpreter] object StatRuntime:
         case _              => ""
       if pn.nonEmpty then interp.parentTypes(typeName) = pn
     }
+
+  private def parentTypeclassKeys(typeKey: String, interp: Interpreter): List[String] =
+    typeclassHeadAndArgs(typeKey) match
+      case None => Nil
+      case Some((head, args)) =>
+        val keys = mutable.ListBuffer.empty[String]
+        var cur = head
+        var seen = Set(head)
+        var done = false
+        while !done do
+          interp.parentTypes.get(cur) match
+            case Some(parent) if parent.nonEmpty && !seen(parent) =>
+              keys += typeclassKey(parent, args)
+              seen += parent
+              cur = parent
+            case _ =>
+              done = true
+        keys.toList
+
+  private def typeclassHeadAndArgs(typeKey: String): Option[(String, String)] =
+    val i = typeKey.indexOf('[')
+    if i < 0 || !typeKey.endsWith("]") then None
+    else
+      val head = typeKey.substring(0, i).trim
+      val args = typeKey.substring(i + 1, typeKey.length - 1).trim
+      if head.isEmpty || args.isEmpty then None else Some(head -> args)
+
+  private def typeclassKey(head: String, args: String): String =
+    s"$head[$args]"
 
   private def hasAnnot(mods: List[Mod], name: String): Boolean =
     mods.exists {
