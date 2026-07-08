@@ -9,6 +9,11 @@ exports:
   - PParseAll
   - ErrorNode
   - ParseErrors
+  - recoverUntil
+  - errorNode
+  - parseAll
+  - advanceToSync
+  - runParserAll
 ---
 
 # `std/parsing/recovery` — parser error recovery strategies
