@@ -9,6 +9,26 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-source-rust-recursion-fib-perf** - narrow Phase-3 source-backend
+      performance slice for the v2 Rust source backend on
+      `bench/corpus/recursion-fib.ssc`. Context: BACKLOG
+      `v2-source-backend-production-perf-gates` says the separate-backend
+      harness is honest and JVM `recursion-fib` is now closed, but the latest
+      default `scripts/bench v2-backends recursion-fib` still reported
+      `v2-rust=235.5 ms` after the JVM fix. Spec:
+      `specs/v2-source-rust-recursion-fib-perf.md`. Plan: commit this
+      SPRINT/spec slice before code, stage the worktree CLI with
+      `scripts/sbtc "installBin"`, capture a fresh baseline with
+      `scripts/bench v2-backends recursion-fib`, inspect the emitted Rust source
+      for the recursive `fib` shape, then land one conservative Rust backend
+      optimization only if it preserves semantics and improves the measured row.
+      Rejected scope: do not mix in VM/JVM work, Rust `arith-loop` anti-fold
+      questions, benchmark workload changes, or broad Rust backend rewrites.
+      Done when before/after numbers are recorded in the spec/SPRINT, affected
+      recursion conformance is green, backend parity gates covering Rust stay
+      green, `scripts/bench v2-backends recursion-fib` demonstrates the result,
+      and `git diff --check` passes.
+
 - [x] **v2-scripts-bench-mktemp-template** - DONE 2026-07-09 in `ed680a585`:
       small harness hygiene fix found
       while verifying `v2-backend-check-ssc1c-wrapper-app-lit`: parallel
