@@ -296,6 +296,24 @@ object JvmByteGen:
       mv.visitInsn(Opcodes.ICONST_0)
       mv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
       mv.visitVarInsn(Opcodes.ASTORE, 0)
+    val paramLongName =
+      if paramIsEnv && selfGlobal != null && selfArity == 1 &&
+          canParamLong(body, selfGlobal.nn, selfArity) then
+        val ln = s"${name}$$long"
+        emitParamLongMethod(g, ln, body, selfGlobal.nn, selfArity)
+        Some(ln)
+      else None
+    val genericStart = new Label()
+    paramLongName.foreach { ln =>
+      loadEnvArgValue(mv, 0)
+      mv.visitTypeInsn(Opcodes.INSTANCEOF, INTV)
+      mv.visitJumpInsn(Opcodes.IFEQ, genericStart)
+      loadEnvArgLong(mv, 0)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, ln, "(J)J", false)
+      callJ(mv, "intV")
+      mv.visitInsn(Opcodes.ARETURN)
+    }
+    mv.visitLabel(genericStart)
     // self-tail-calls jump here with a rebound frame in slot 0
     val startL = new Label()
     mv.visitLabel(startL)
@@ -411,6 +429,101 @@ object JvmByteGen:
       mv.visitLabel(endL)
       callZ(mv, "boolV")
       true
+
+  private def canParamLong(t: Term, selfName: String, arity: Int): Boolean = t match
+    case Term.Lit(Const.CInt(_)) => true
+    case Term.Local(i) if i >= 0 && i < arity => true
+    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+        if op.length == 1 && "+-*/%".contains(op) =>
+      canParamLong(a, selfName, arity) && canParamLong(b, selfName, arity)
+    case Term.If(c, a, b) =>
+      canParamLongCond(c, selfName, arity) &&
+        canParamLong(a, selfName, arity) &&
+        canParamLong(b, selfName, arity)
+    case Term.App(Term.Global(name), args) if name == selfName && args.length == arity =>
+      args.forall(canParamLong(_, selfName, arity))
+    case _ => false
+
+  private def canParamLongCond(t: Term, selfName: String, arity: Int): Boolean = t match
+    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) if isLongCmp(op) =>
+      canParamLong(a, selfName, arity) && canParamLong(b, selfName, arity)
+    case _ => false
+
+  private def loadEnvArgValue(mv: MethodVisitor, deBruijn: Int): Unit =
+    mv.visitVarInsn(Opcodes.ALOAD, 0)
+    mv.visitInsn(Opcodes.DUP)
+    mv.visitInsn(Opcodes.ARRAYLENGTH)
+    mv.visitLdcInsn(1 + deBruijn)
+    mv.visitInsn(Opcodes.ISUB)
+    mv.visitInsn(Opcodes.AALOAD)
+
+  private def loadEnvArgLong(mv: MethodVisitor, deBruijn: Int): Unit =
+    loadEnvArgValue(mv, deBruijn)
+    mv.visitTypeInsn(Opcodes.CHECKCAST, INTV)
+    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, INTV, "n", "()J", false)
+
+  private def longParamSlot(deBruijn: Int, arity: Int): Int =
+    (arity - 1 - deBruijn) * 2
+
+  private def emitParamLong(t: Term, mv: MethodVisitor, selfName: String, arity: Int, longName: String): Unit =
+    t match
+      case Term.Lit(Const.CInt(n)) =>
+        mv.visitLdcInsn(n)
+      case Term.Local(i) if i >= 0 && i < arity =>
+        mv.visitVarInsn(Opcodes.LLOAD, longParamSlot(i, arity))
+      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+          if op.length == 1 && "+-*/%".contains(op) =>
+        emitParamLong(a, mv, selfName, arity, longName)
+        emitParamLong(b, mv, selfName, arity, longName)
+        mv.visitInsn(longArithOpcode(op))
+      case Term.If(c, a, b) =>
+        val elseL = new Label()
+        val endL = new Label()
+        emitParamLongCondFalse(c, mv, selfName, arity, longName, elseL)
+        emitParamLong(a, mv, selfName, arity, longName)
+        mv.visitJumpInsn(Opcodes.GOTO, endL)
+        mv.visitLabel(elseL)
+        emitParamLong(b, mv, selfName, arity, longName)
+        mv.visitLabel(endL)
+      case Term.App(Term.Global(name), args) if name == selfName && args.length == arity =>
+        args.foreach(emitParamLong(_, mv, selfName, arity, longName))
+        val desc = "(" + ("J" * arity) + ")J"
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, longName, desc, false)
+      case other =>
+        throw new Unsupported(s"param-long:${other.getClass.getSimpleName}")
+
+  private def emitParamLongCondFalse(
+      t: Term,
+      mv: MethodVisitor,
+      selfName: String,
+      arity: Int,
+      longName: String,
+      falseLabel: Label
+  ): Unit =
+    t match
+      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) if isLongCmp(op) =>
+        emitParamLong(a, mv, selfName, arity, longName)
+        emitParamLong(b, mv, selfName, arity, longName)
+        mv.visitInsn(Opcodes.LCMP)
+        val jump = op match
+          case "<"  => Opcodes.IFGE
+          case "<=" => Opcodes.IFGT
+          case ">"  => Opcodes.IFLE
+          case ">=" => Opcodes.IFLT
+          case "==" => Opcodes.IFNE
+          case "!=" => Opcodes.IFEQ
+        mv.visitJumpInsn(jump, falseLabel)
+      case other =>
+        throw new Unsupported(s"param-long-cond:${other.getClass.getSimpleName}")
+
+  private def emitParamLongMethod(g: Gen, name: String, body: Term, selfName: String, arity: Int): Unit =
+    val desc = "(" + ("J" * arity) + ")J"
+    val mv = g.cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name, desc, null, null)
+    mv.visitCode()
+    emitParamLong(body, mv, selfName, arity, name)
+    mv.visitInsn(Opcodes.LRETURN)
+    mv.visitMaxs(0, 0)
+    mv.visitEnd()
 
   private def gen(t: Term, ctx: Ctx, tail: Boolean = false): Unit =
     val mv = ctx.mv

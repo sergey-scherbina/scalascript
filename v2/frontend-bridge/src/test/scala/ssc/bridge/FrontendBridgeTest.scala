@@ -513,6 +513,18 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(runBytecode(src) == Value.IntV(499500))
   }
 
+  test("v2 bytecode self-recursive int arithmetic keeps VM result") {
+    val src =
+      """def fib(n: Int): Int =
+        |  if n <= 1 then n
+        |  else fib(n - 1) + fib(n - 2)
+        |
+        |fib(30)
+        |""".stripMargin
+
+    assert(runBytecode(src) == Value.IntV(832040))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
