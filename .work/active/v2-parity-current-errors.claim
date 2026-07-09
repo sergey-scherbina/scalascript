@@ -1,6 +1,6 @@
-feature/v2-parity-current-errors 2026-07-09T01:08:15Z
+feature/v2-parity-current-errors 2026-07-09T01:14:54Z
 agent: codex
-heartbeat: 2026-07-09T01:08:15Z
+heartbeat: 2026-07-09T01:14:54Z
 status: in-progress
-done-so-far: SPRINT plan pushed in b88cb2ef7
-next: installBin, run full v2-output-parity, reconcile stale parity blockers or file/fix first new bug
+done-so-far: fresh parity gate found v2-standard-scala-fences-skipped; BUGS/SPRINT pushed in 2853c04de
+next: fix FrontendBridge scala-fence extraction, add tests, rerun targeted/full parity, update docs
