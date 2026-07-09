@@ -23,11 +23,17 @@ object RustBackend:
   // Rust names of global Lam defs — used in genLam/genLetRec to choose
   // cell-based vs direct access for forward-ref safety.
   private var topLamDefNames: Set[String] = Set.empty
+  private var topDefs: Map[String, Term] = Map.empty
   private var longGlobalDefs: Map[String, Int] = Map.empty
+  private var floatGlobalDefs: Map[String, Int] = Map.empty
+  private var floatFnDefs: Set[String] = Set.empty
 
   def generate(p: Program): String =
     _cnt = 0
+    topDefs = p.defs.map(d => d.name -> d.body).toMap
     longGlobalDefs = Map.empty
+    floatGlobalDefs = Map.empty
+    floatFnDefs = Set.empty
     val sb = new StringBuilder
     sb ++= RUNTIME_HEADER
     sb ++= "\n"
@@ -59,6 +65,30 @@ object RustBackend:
 
     longGlobalDefs = inferLongGlobalDefs()
 
+    def inferFloatGlobalDefs(): Map[String, Int] =
+      var current = globalLambdaArities
+      var changed = true
+      while changed do
+        floatGlobalDefs = current
+        val next = lamDefs.flatMap {
+          case Def(n, Lam(arity, body)) =>
+            val params = (0 until arity).map(k => s"p${k}_float").toList
+            if isFloatTyped(body, params, Set.empty, Set.empty, Set.empty) then Some(n -> arity) else None
+          case _ => None
+        }.toMap
+        changed = next != current
+        current = next
+      current
+
+    floatGlobalDefs = inferFloatGlobalDefs()
+    val lamDefNames = lamDefs.map(_.name).toSet
+    floatFnDefs = lamDefs.collect {
+      case Def(n, Lam(_, body))
+          if floatGlobalDefs.contains(n) &&
+             freeGlobals(body).forall(g => lamDefNames(g) || !p.defs.exists(_.name == g)) =>
+        n
+    }.toSet
+
     sb ++= "fn ssc_run() {\n"
 
     val generatedRawNames = p.defs.map(_.name).toSet
@@ -80,6 +110,18 @@ object RustBackend:
           sb ++= s"    }\n"
         case _ => ()
 
+    for d <- lamDefs do
+      d.body match
+        case Lam(arity, body) if floatGlobalDefs.get(d.name).contains(arity) && floatFnDefs(d.name) =>
+          val n = rustDefName(d.name)
+          val params = (0 until arity).map(k => s"p${k}_${n}_float")
+          val paramDecls = params.map(p => s"$p: V").mkString(", ")
+          val bodyExpr = genFloatExpr(body, params.toList, 2, Set.empty, Set.empty, Set.empty)
+          sb ++= s"    fn ${n}_float($paramDecls) -> f64 {\n"
+          sb ++= s"        $bodyExpr\n"
+          sb ++= s"    }\n"
+        case _ => ()
+
     // Phase 1: forward-ref cells for all Lam defs (declared before any closure)
     for d <- p.defs do d.body match
       case Lam(_, _) =>
@@ -92,6 +134,10 @@ object RustBackend:
       val name = rustDefName(d.name)
       d.body match
         case Lam(_, _) =>
+          if floatGlobalDefs.contains(d.name) && !floatFnDefs(d.name) then
+            val Lam(arity, body) = d.body: @unchecked
+            val expr = genFloatHelperClosure(d.name, arity, body, 1)
+            sb ++= s"    let ${name}_float = $expr;\n"
           val expr = genExpr(d.body, Nil, 0)
           sb ++= s"    let $name: V = $expr;\n"
           sb ++= s"    *${name}__fwd.borrow_mut() = Some($name.clone());\n"
@@ -213,11 +259,7 @@ object RustBackend:
         // represent BigInt as i64 (lossy but handles common cases)
         s"V::Int(${n.toLong}i64) /*big*/"
       case Lit(CFloat(d)) =>
-        val s = if d.isNaN then "f64::NAN"
-          else if d.isInfinite && d > 0 then "f64::INFINITY"
-          else if d.isInfinite then "f64::NEG_INFINITY"
-          else s"${d}f64"
-        s"V::Float($s)"
+        s"V::Float(${rustFloatLit(d)})"
       case Lit(CStr(s))  => s"V::Str(${rustStrLit(s)}.to_string())"
       case Lit(CBytes(b)) =>
         val hex = b.map(x => f"${x & 0xff}%02x").mkString
@@ -243,6 +285,9 @@ object RustBackend:
                  args.forall(isLongTyped(_, ctx, longVars)) =>
             val argExprs = args.map(a => genIntExpr(a, ctx, indent, longVars)).mkString(", ")
             s"V::Int(${rustDefName(name)}_long($argExprs))"
+          case Global(name) if floatGlobalDefs.get(name).contains(args.length) =>
+            val argExprs = args.map(a => genExpr(a, ctx, indent, longVars)).mkString(", ")
+            s"V::Float(${rustDefName(name)}_float($argExprs))"
           case _ =>
             val fnExpr = genExpr(fn, ctx, indent, longVars)
             if args.isEmpty then
@@ -409,6 +454,344 @@ object RustBackend:
     case Prim("not", List(a))      => s"!(${genBoolExpr(a, ctx, indent, longVars)})"
     case _ => s"as_bool(${genExpr(t, ctx, indent, longVars)})"
 
+  // Float helpers keep boxed V inputs for ADTs/lists, but return raw f64.
+  // This removes dynamic call/arithmetic/cell overhead in proven Float hot paths
+  // while preserving the generic V fallback for unproven shapes.
+  def genFloatExpr(
+      t: Term,
+      ctx: List[String],
+      indent: Int,
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): String =
+    val pad = "    " * indent
+    t match
+      case Lit(CFloat(d)) => rustFloatLit(d)
+      case Local(i) =>
+        val nm = localName(ctx, i)
+        if floatVars.contains(nm) then nm else s"as_float(${nm}.clone())"
+      case Prim("cell.get", List(Local(i))) =>
+        val nm = localName(ctx, i)
+        if floatVars.contains(nm) then nm
+        else s"as_float(${genExpr(t, ctx, indent, longVars)})"
+      case Prim("__arith__", List(Lit(CStr(op)), a, b))
+          if floatArithOps(op) &&
+             isFloatTyped(a, ctx, longVars, floatVars, boxedFloatVars) &&
+             isFloatTyped(b, ctx, longVars, floatVars, boxedFloatVars) =>
+        val l = genFloatExpr(a, ctx, indent, longVars, floatVars, boxedFloatVars)
+        val r = genFloatExpr(b, ctx, indent, longVars, floatVars, boxedFloatVars)
+        op match
+          case "+" => s"($l) + ($r)"
+          case "-" => s"($l) - ($r)"
+          case "*" => s"($l) * ($r)"
+          case "/" => s"($l) / ($r)"
+          case "%" => s"($l) % ($r)"
+          case _   => s"as_float(${genExpr(t, ctx, indent, longVars)})"
+      case Prim("f.add", List(a, b)) =>
+        s"(${genFloatExpr(a, ctx, indent, longVars, floatVars, boxedFloatVars)}) + (${genFloatExpr(b, ctx, indent, longVars, floatVars, boxedFloatVars)})"
+      case Prim("f.sub", List(a, b)) =>
+        s"(${genFloatExpr(a, ctx, indent, longVars, floatVars, boxedFloatVars)}) - (${genFloatExpr(b, ctx, indent, longVars, floatVars, boxedFloatVars)})"
+      case Prim("f.mul", List(a, b)) =>
+        s"(${genFloatExpr(a, ctx, indent, longVars, floatVars, boxedFloatVars)}) * (${genFloatExpr(b, ctx, indent, longVars, floatVars, boxedFloatVars)})"
+      case Prim("f.div", List(a, b)) =>
+        s"(${genFloatExpr(a, ctx, indent, longVars, floatVars, boxedFloatVars)}) / (${genFloatExpr(b, ctx, indent, longVars, floatVars, boxedFloatVars)})"
+      case Prim("f.neg", List(a)) =>
+        s"-(${genFloatExpr(a, ctx, indent, longVars, floatVars, boxedFloatVars)})"
+      case App(Global(name), args) if floatGlobalDefs.get(name).contains(args.length) =>
+        val argExprs = args.map(a => genExpr(a, ctx, indent, longVars)).mkString(", ")
+        s"${rustDefName(name)}_float($argExprs)"
+      case If(c, th, el)
+          if isBoolTyped(c, ctx, longVars) &&
+             isFloatTyped(th, ctx, longVars, floatVars, boxedFloatVars) &&
+             isFloatTyped(el, ctx, longVars, floatVars, boxedFloatVars) =>
+        val cExpr = genBoolExpr(c, ctx, indent, longVars)
+        val tExpr = genFloatExpr(th, ctx, indent + 1, longVars, floatVars, boxedFloatVars)
+        val eExpr = genFloatExpr(el, ctx, indent + 1, longVars, floatVars, boxedFloatVars)
+        s"if $cExpr {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
+      case Match(scrut, arms, default) =>
+        genFloatMatch(scrut, arms, default, ctx, indent, longVars, floatVars, boxedFloatVars)
+      case Let(rhs, body) =>
+        val names = rhs.map(_ => fresh("l"))
+        val bodyCtx = ctx ++ names
+        val sb = new StringBuilder("{\n")
+        var curCtx = ctx
+        var curLongs = longVars
+        var curFloats = floatVars
+        var curBoxed = boxedFloatVars
+        for ((r, n), _) <- rhs.zip(names).zipWithIndex do
+          r match
+            case Prim("cell.new", List(init))
+                if isFloatTyped(init, curCtx, curLongs, curFloats, curBoxed) =>
+              val initExpr = genFloatExpr(init, curCtx, indent + 1, curLongs, curFloats, curBoxed)
+              sb ++= s"${pad}    let mut $n: f64 = $initExpr;\n"
+              curFloats = curFloats + n
+            case Prim("lcell.new", List(Lit(CInt(v)))) =>
+              sb ++= s"${pad}    let mut $n: i64 = ${v}i64;\n"
+              curLongs = curLongs + n
+            case unit if isUnitTyped(unit, curCtx, curLongs, curFloats, curBoxed) =>
+              sb ++= genFloatStmt(unit, curCtx, indent + 1, curLongs, curFloats, curBoxed) + "\n"
+              sb ++= s"${pad}    let $n: V = V::Unit;\n"
+            case _ =>
+              val rExpr = genExpr(r, curCtx, indent + 1, curLongs)
+              sb ++= s"${pad}    let $n: V = $rExpr;\n"
+          curCtx = curCtx :+ n
+        sb ++= s"${pad}    ${genFloatExpr(body, bodyCtx, indent + 1, curLongs, curFloats, curBoxed)}\n"
+        sb ++= s"${pad}}"
+        sb.toString
+      case Seq(terms) =>
+        if terms.isEmpty then "0.0f64"
+        else if terms.length == 1 then genFloatExpr(terms.head, ctx, indent, longVars, floatVars, boxedFloatVars)
+        else
+          val sb = new StringBuilder("{\n")
+          for t <- terms.init do
+            sb ++= genFloatStmt(t, ctx, indent + 1, longVars, floatVars, boxedFloatVars) + "\n"
+          sb ++= s"${pad}    ${genFloatExpr(terms.last, ctx, indent + 1, longVars, floatVars, boxedFloatVars)}\n"
+          sb ++= s"${pad}}"
+          sb.toString
+      case _ =>
+        s"as_float(${genExpr(t, ctx, indent, longVars)})"
+
+  def genFloatMatch(
+      scrut: Term,
+      arms: List[Arm],
+      default: Option[Term],
+      ctx: List[String],
+      indent: Int,
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): String =
+    val pad = "    " * indent
+    val sName = fresh("s")
+    val scrutExpr = genExpr(scrut, ctx, indent, longVars)
+    val sb = new StringBuilder(s"{\n${pad}    let $sName: V = $scrutExpr;\n")
+    sb ++= s"${pad}    match &$sName {\n"
+    for arm <- arms do
+      val fieldNames = (0 until arm.arity).toList.map(_ => fresh("f"))
+      val armCtx = ctx ++ fieldNames
+      val armBoxed = boxedFloatVars ++ fieldNames
+      val tagStr = rustStrLit(arm.tag)
+      if arm.arity == 0 then
+        val bodyExpr = genFloatExpr(arm.body, ctx, indent + 2, longVars, floatVars, boxedFloatVars)
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == 0 => {\n"""
+        sb ++= s"""${pad}            $bodyExpr\n"""
+        sb ++= s"""${pad}        }\n"""
+      else
+        val fieldPatterns = fieldNames.zipWithIndex.map { case (n, i) =>
+          s"let $n = _fields[$i].clone();"
+        }.mkString(s"\n${pad}            ")
+        val bodyExpr = genFloatExpr(arm.body, armCtx, indent + 2, longVars, floatVars, armBoxed)
+        sb ++= s"""${pad}        V::Data(ref _tag, ref _fields) if _tag == $tagStr && _fields.len() == ${arm.arity} => {\n"""
+        sb ++= s"""${pad}            $fieldPatterns\n"""
+        sb ++= s"""${pad}            $bodyExpr\n"""
+        sb ++= s"""${pad}        }\n"""
+    val defaultExpr = default match
+      case Some(d) => genFloatExpr(d, ctx, indent + 2, longVars, floatVars, boxedFloatVars)
+      case None    => s"""panic!("match: no arm matched {}", show(&$sName))"""
+    sb ++= s"""${pad}        _ => { $defaultExpr }\n"""
+    sb ++= s"${pad}    }\n"
+    sb ++= s"${pad}}"
+    sb.toString
+
+  def genFloatStmt(
+      t: Term,
+      ctx: List[String],
+      indent: Int,
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): String =
+    val pad = "    " * indent
+    t match
+      case Seq(ts) =>
+        ts.map(s => genFloatStmt(s, ctx, indent, longVars, floatVars, boxedFloatVars)).mkString("\n")
+      case While(cond, body) =>
+        val condStr = genBoolExpr(cond, ctx, indent, longVars)
+        staticFloatWhileBody(body, ctx, indent + 1, longVars, floatVars, boxedFloatVars) match
+          case Some((prelude, bodyStmts)) =>
+            s"${pad}{\n$prelude\n${pad}    while $condStr {\n$bodyStmts\n${pad}    }\n${pad}}"
+          case None =>
+            val bodyStmts = genFloatStmt(body, ctx, indent + 1, longVars, floatVars, boxedFloatVars)
+            s"${pad}while $condStr {\n$bodyStmts\n${pad}}"
+      case Prim("cell.set", List(Local(i), rhs)) =>
+        val nm = localName(ctx, i)
+        if floatVars.contains(nm) then
+          s"${pad}$nm = ${genFloatExpr(rhs, ctx, indent, longVars, floatVars, boxedFloatVars)};"
+        else
+          s"${pad}${genExpr(t, ctx, indent, longVars)};"
+      case Prim("lcell.set", List(Local(i), rhs)) =>
+        val nm = localName(ctx, i)
+        if longVars.contains(nm) then
+          s"${pad}$nm = ${genIntExpr(rhs, ctx, indent, longVars)};"
+        else
+          s"${pad}${genExpr(t, ctx, indent, longVars)};"
+      case Prim("__method__", List(Lit(CStr("foreach")), recv, Lam(1, body))) =>
+        val cur = fresh("cur")
+        val item = fresh("item")
+        val recvTmp = fresh("recv")
+        val (recvBinding, curInit) = recv match
+          case Global(n) => ("", s"&${rustDefName(n)}")
+          case _ =>
+            val recvExpr = genExpr(recv, ctx, indent, longVars)
+            (s"${pad}    let $recvTmp: V = $recvExpr;\n", s"&$recvTmp")
+        val itemCtx = ctx :+ item
+        val itemBoxed = boxedFloatVars + item
+        val listBody = genFloatStmt(body, itemCtx, indent + 4, longVars, floatVars, itemBoxed)
+        val arrBody = genFloatStmt(body, itemCtx, indent + 5, longVars, floatVars, itemBoxed)
+        s"""${pad}{
+${recvBinding}${pad}    let mut $cur: &V = $curInit;
+${pad}    loop {
+${pad}        match $cur {
+${pad}            V::Data(ref _tag, ref _fields) if _tag == "Cons" => {
+${pad}                let $item: V = _fields[0].clone();
+$listBody
+${pad}                $cur = &_fields[1];
+${pad}            }
+${pad}            V::Data(ref _tag, _) if _tag == "Nil" => break,
+${pad}            V::Arr(arr) => {
+${pad}                for $item in arr.borrow().iter().cloned() {
+$arrBody
+${pad}                }
+${pad}                break;
+${pad}            }
+${pad}            other => panic!("foreach: expected list/array, got {:?}", other),
+${pad}        }
+${pad}    }
+${pad}}"""
+      case _ =>
+        s"${pad}${genExpr(t, ctx, indent, longVars)};"
+
+  private def staticFloatWhileBody(
+      body: Term,
+      ctx: List[String],
+      indent: Int,
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): Option[(String, String)] =
+    val terms = body match
+      case Seq(ts) => ts
+      case other   => List(other)
+    val preludes = collection.mutable.ListBuffer.empty[String]
+    val stmts = collection.mutable.ListBuffer.empty[String]
+    var changed = false
+    var ok = true
+    for term <- terms do
+      if ok then
+        staticFloatForeach(term, ctx, indent, longVars, floatVars, boxedFloatVars) match
+          case Some((prelude, stmt)) =>
+            changed = true
+            preludes += prelude
+            stmts += stmt
+          case None if isUnitTyped(term, ctx, longVars, floatVars, boxedFloatVars) =>
+            stmts += genFloatStmt(term, ctx, indent, longVars, floatVars, boxedFloatVars)
+          case None =>
+            ok = false
+    if changed && ok then Some((preludes.mkString("\n"), stmts.mkString("\n"))) else None
+
+  private def staticFloatForeach(
+      term: Term,
+      ctx: List[String],
+      indent: Int,
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): Option[(String, String)] =
+    term match
+      case Prim("__method__", List(Lit(CStr("foreach")), Global(listName), Lam(1, body))) =>
+        for
+          listTerm <- topDefs.get(listName)
+          elems <- staticListElements(listTerm)
+          (accName, fnName) <- floatAccumulatingForeachBody(body, ctx, floatVars)
+          if floatGlobalDefs.get(fnName).contains(1)
+        yield
+          val pad = "    " * indent
+          val areas = fresh("areas")
+          val item = fresh("area")
+          val values = elems.map { elem =>
+            genFloatExpr(App(Global(fnName), List(elem)), ctx, indent, longVars, floatVars, boxedFloatVars)
+          }
+          val arrayLit = values.mkString(", ")
+          val prelude = s"${pad}let $areas: [f64; ${values.length}] = [$arrayLit];"
+          val stmt =
+            s"""${pad}for $item in $areas.iter() {
+${pad}    $accName = ($accName) + (*$item);
+${pad}}"""
+          (prelude, stmt)
+      case _ => None
+
+  private def staticListElements(t: Term): Option[List[Term]] = t match
+    case Ctor("Nil", Nil) => Some(Nil)
+    case Ctor("Cons", List(head, tail)) =>
+      staticListElements(tail).map(head :: _)
+    case _ => None
+
+  private def floatAccumulatingForeachBody(
+      body: Term,
+      ctx: List[String],
+      floatVars: Set[String]
+  ): Option[(String, String)] =
+    val itemCtx = ctx :+ "__static_foreach_item"
+    def sameFloatCell(a: Int, b: Int): Option[String] =
+      val an = localName(itemCtx, a)
+      val bn = localName(itemCtx, b)
+      if an == bn && floatVars(an) then Some(an) else None
+
+    body match
+      case Prim("cell.set", List(
+            Local(setIdx),
+            Prim("__arith__", List(
+              Lit(CStr("+")),
+              Prim("cell.get", List(Local(getIdx))),
+              App(Global(fnName), List(Local(0)))
+            ))
+          )) =>
+        sameFloatCell(setIdx, getIdx).map(_ -> fnName)
+      case _ => None
+
+  def genFloatHelperClosure(name: String, arity: Int, body: Term, indent: Int): String =
+    val pad = "    " * indent
+    val helperTag = fresh("fh")
+    val allGlobals = freeGlobals(body).toList.sorted.map(rustDefName)
+    val (lamGlobals, directGlobals) = allGlobals.partition(topLamDefNames.contains)
+    val params = (0 until arity).toList.map(k => s"p${k}_${rustDefName(name)}_float")
+
+    val lamCellPreClones = lamGlobals.map { g =>
+      s"let ${g}__fwd_cap_$helperTag = ${g}__fwd.clone();"
+    }
+    val directGlobalPreClones = directGlobals.map { g =>
+      s"let ${g}_cap_$helperTag = $g.clone();"
+    }
+    val allPreClones =
+      (lamCellPreClones ++ directGlobalPreClones).mkString(s"\n${pad}    ") +
+      (if lamCellPreClones.nonEmpty || directGlobalPreClones.nonEmpty then s"\n${pad}    " else "")
+
+    val lamGlobalRebinds = lamGlobals.map { g =>
+      s"let $g: V = ${g}__fwd_cap_$helperTag.borrow().clone().unwrap();"
+    }
+    val directGlobalRebinds = directGlobals.map { g =>
+      s"let $g: V = ${g}_cap_$helperTag.clone();"
+    }
+    val allRebinds =
+      (lamGlobalRebinds ++ directGlobalRebinds).mkString(s"\n${pad}        ") +
+      (if lamGlobalRebinds.nonEmpty || directGlobalRebinds.nonEmpty then s"\n${pad}        " else "")
+
+    val bodyExpr = genFloatExpr(body, params, indent + 1, Set.empty, Set.empty, Set.empty)
+    val paramDecls = params.map(p => s"$p: V").mkString(", ")
+    if arity == 0 then
+      s"""|{
+${pad}    ${allPreClones}move || -> f64 {
+${pad}        ${allRebinds}$bodyExpr
+${pad}    }
+${pad}}""".stripMargin
+    else
+      s"""|{
+${pad}    ${allPreClones}move |$paramDecls| -> f64 {
+${pad}        ${allRebinds}$bodyExpr
+${pad}    }
+${pad}}""".stripMargin
+
   // Generate term as a Rust STATEMENT (no V::Unit creation).
   // Used for While bodies and Seq intermediates to avoid V-enum overhead in hot loops.
   def genStmt(t: Term, ctx: List[String], indent: Int, longVars: Set[String]): String =
@@ -435,6 +818,7 @@ object RustBackend:
 
   private val longArithOps: Set[String] = Set("+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>")
   private val longCmpOps: Set[String] = Set("==", "!=", "<", "<=", ">", ">=")
+  private val floatArithOps: Set[String] = Set("+", "-", "*", "/", "%")
 
   private def isLongTyped(t: Term, ctx: List[String], longVars: Set[String]): Boolean = t match
     case Lit(CInt(_)) => true
@@ -465,6 +849,93 @@ object RustBackend:
     case Prim("__arith__", List(Lit(CStr(op)), l, r)) =>
       longCmpOps.contains(op) && isLongTyped(l, ctx, longVars) && isLongTyped(r, ctx, longVars)
     case Prim("not", List(a)) => isBoolTyped(a, ctx, longVars)
+    case _ => false
+
+  private def isFloatTyped(
+      t: Term,
+      ctx: List[String],
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): Boolean = t match
+    case Lit(CFloat(_)) => true
+    case Local(i) =>
+      val nm = localName(ctx, i)
+      floatVars.contains(nm) || boxedFloatVars.contains(nm)
+    case Prim("cell.get", List(Local(i))) =>
+      val nm = localName(ctx, i)
+      floatVars.contains(nm)
+    case App(Global(name), args) if floatGlobalDefs.get(name).contains(args.length) =>
+      true
+    case If(c, th, el) =>
+      isBoolTyped(c, ctx, longVars) &&
+      isFloatTyped(th, ctx, longVars, floatVars, boxedFloatVars) &&
+      isFloatTyped(el, ctx, longVars, floatVars, boxedFloatVars)
+    case Match(_, arms, default) =>
+      arms.forall { arm =>
+        val fieldNames = (0 until arm.arity).toList.map(k => s"__match_f_${ctx.length}_${arm.tag}_$k")
+        isFloatTyped(arm.body, ctx ++ fieldNames, longVars, floatVars, boxedFloatVars ++ fieldNames)
+      } &&
+      default.forall(isFloatTyped(_, ctx, longVars, floatVars, boxedFloatVars))
+    case Let(rhs, body) =>
+      val names = rhs.indices.map(k => s"__let_f_${ctx.length}_${rhs.length}_$k").toList
+      val bodyCtx = ctx ++ names
+      var curCtx = ctx
+      var curLongs = longVars
+      var curFloats = floatVars
+      var curBoxed = boxedFloatVars
+      var ok = true
+      for (r, n) <- rhs.zip(names) do
+        r match
+          case Prim("cell.new", List(init))
+              if isFloatTyped(init, curCtx, curLongs, curFloats, curBoxed) =>
+            curFloats = curFloats + n
+          case Prim("lcell.new", List(Lit(CInt(_)))) =>
+            curLongs = curLongs + n
+          case unit if isUnitTyped(unit, curCtx, curLongs, curFloats, curBoxed) =>
+            ()
+          case _ =>
+            ok = false
+        curCtx = curCtx :+ n
+      ok && isFloatTyped(body, bodyCtx, curLongs, curFloats, curBoxed)
+    case Seq(terms) =>
+      terms.nonEmpty &&
+      terms.init.forall(isUnitTyped(_, ctx, longVars, floatVars, boxedFloatVars)) &&
+      isFloatTyped(terms.last, ctx, longVars, floatVars, boxedFloatVars)
+    case Prim("__arith__", List(Lit(CStr(op)), l, r)) =>
+      floatArithOps(op) &&
+      isFloatTyped(l, ctx, longVars, floatVars, boxedFloatVars) &&
+      isFloatTyped(r, ctx, longVars, floatVars, boxedFloatVars)
+    case Prim("f.add" | "f.sub" | "f.mul" | "f.div", List(l, r)) =>
+      isFloatTyped(l, ctx, longVars, floatVars, boxedFloatVars) &&
+      isFloatTyped(r, ctx, longVars, floatVars, boxedFloatVars)
+    case Prim("f.neg", List(a)) =>
+      isFloatTyped(a, ctx, longVars, floatVars, boxedFloatVars)
+    case _ => false
+
+  private def isUnitTyped(
+      t: Term,
+      ctx: List[String],
+      longVars: Set[String],
+      floatVars: Set[String],
+      boxedFloatVars: Set[String]
+  ): Boolean = t match
+    case While(cond, body) =>
+      isBoolTyped(cond, ctx, longVars) &&
+      isUnitTyped(body, ctx, longVars, floatVars, boxedFloatVars)
+    case Seq(ts) =>
+      ts.forall(isUnitTyped(_, ctx, longVars, floatVars, boxedFloatVars))
+    case Prim("cell.set", List(Local(i), rhs)) =>
+      val nm = localName(ctx, i)
+      floatVars.contains(nm) &&
+      isFloatTyped(rhs, ctx, longVars, floatVars, boxedFloatVars)
+    case Prim("lcell.set", List(Local(i), rhs)) =>
+      val nm = localName(ctx, i)
+      longVars.contains(nm) &&
+      isLongTyped(rhs, ctx, longVars)
+    case Prim("__method__", List(Lit(CStr("foreach")), _, Lam(1, body))) =>
+      val item = s"__foreach_item_${ctx.length}"
+      isUnitTyped(body, ctx :+ item, longVars, floatVars, boxedFloatVars + item)
     case _ => false
 
   // ── Lambda generation ─────────────────────────────────────────────────────
@@ -863,6 +1334,12 @@ ${pad}    }));\n"""
         s"""{ panic!("unimplemented prim: {}", ${rustStrLit(unknown)}); }"""
 
   // ── Rust string literal ───────────────────────────────────────────────────
+
+  def rustFloatLit(d: Double): String =
+    if d.isNaN then "f64::NAN"
+    else if d.isInfinite && d > 0 then "f64::INFINITY"
+    else if d.isInfinite then "f64::NEG_INFINITY"
+    else s"${d}f64"
 
   def rustStrLit(s: String): String =
     val sb = new StringBuilder("\"")
