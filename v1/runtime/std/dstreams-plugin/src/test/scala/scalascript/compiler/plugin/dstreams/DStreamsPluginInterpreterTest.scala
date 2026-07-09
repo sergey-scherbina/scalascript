@@ -369,6 +369,18 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     }.toMap
     assert(kvs.values.forall(_ == Value.IntV(42L)))
 
+  test("timerProcessing callback may consume the full KV element"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("timer-kv-test")
+        .read(InMemory.source(List(KV("a", 1), KV("b", 2), KV("a", 3))))
+        .timerProcessing(1000)(kv => List(kv.key))
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val values = result.asInstanceOf[List[?]]
+    assert(values.size == 2, s"Expected 2 unique keys, got $values")
+
   test("window requires EventTime capability — provided by Backend.Direct"):
     // window(Window.fixed) triggers EventTime; Direct provides it in v2.1.2
     val result = interp.eval(
@@ -491,6 +503,18 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     val values = result.asInstanceOf[List[?]]
     assert(values.size == 3, s"Expected 3 elements, got $values")
 
+  test("statefulMap callback may consume and return full KV elements"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("kv-stateful-test")
+        .read(InMemory.source(List(KV("a", 1), KV("a", 2))))
+        .statefulMap(0)((state, kv) => (state + kv.value, KV(kv.key, state + kv.value)))
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val values = result.asInstanceOf[List[?]]
+    assert(values.size == 2, s"Expected 2 elements, got $values")
+
   test("statefulFlatMap emits zero or more outputs per element"):
     val result = interp.eval(
       """
@@ -516,6 +540,32 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == 2L || result == Value.IntV(2L), s"Expected 2 paired elements, got: $result")
+
+  test("broadcastState accepts an InMemory DSource side input"):
+    val result = interp.eval(
+      """
+      val state = InMemory.source(List(KV("x", 10)))
+      val paired = Pipeline.create("main")
+        .read(InMemory.source(List(KV("a", 1), KV("b", 2))))
+        .broadcastState(state)
+      InMemory.runAndCollect(paired).length
+      """
+    )
+    assert(result == 2L || result == Value.IntV(2L), s"Expected 2 paired elements, got: $result")
+
+  test("broadcastState output supports tuple-pattern callbacks"):
+    val result = interp.eval(
+      """
+      val state = InMemory.source(List(KV("p1", "Widget")))
+      val out = Pipeline.create("main")
+        .read(InMemory.source(List(KV("p1", 3))))
+        .broadcastState(state)
+        .map { case (order, catalog) => catalog.get(order.key).getOrElse("Unknown") }
+        .runToList()
+      out.mkString(", ")
+      """
+    )
+    assert(result.toString.contains("Widget"), s"Expected tuple-pattern enrichment, got: $result")
 
   test("timerEventTime fires per unique key"):
     val result = interp.eval(
@@ -551,6 +601,17 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     assert(result == 2L || result == Value.IntV(2L),
       s"Expected 2 paired elements (1×singleton), got: $result")
 
+  test("withSideInput output supports tuple-pattern callbacks"):
+    val result = interp.eval(
+      """
+      val main = Pipeline.create("main").read(InMemory.source(List(1, 2)))
+      val si   = SideInput.singleton(10)
+      main.withSideInput(si).map { case (v, m) => v * m }.runToList().mkString(", ")
+      """
+    )
+    assert(result.toString.contains("10") && result.toString.contains("20"),
+      s"Expected scaled tuple-pattern output, got: $result")
+
   test("SideInput.of materializes a stream into a side input"):
     val result = interp.eval(
       """
@@ -573,6 +634,17 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     )
     assert(result == 3L || result == Value.IntV(3L),
       s"Expected main stream length 3, got: $result")
+
+  test("sideOutput supports curried OutputTag.withFilter"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test").read(InMemory.source(List("INFO ok", "ERR bad")))
+      val tag    = OutputTag.withFilter[String]("errors")(e => if e.startsWith("ERR") then Some(e) else None)
+      val pair   = stream.sideOutput(tag)
+      pair._2.runToList().mkString(", ")
+      """
+    )
+    assert(result.toString.contains("ERR bad"), s"Expected filtered side output, got: $result")
 
   // ── v2.1.9 — Windowed joins + flatten ────────────────────────────────────
 
@@ -597,6 +669,24 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     )
     assert(result == 3L || result == Value.IntV(3L),
       s"Expected 3 left-outer-join elements (all left), got: $result")
+
+  test("leftOuterJoin option output supports map and getOrElse"):
+    val result = interp.eval(
+      """
+      val users   = InMemory.source(List(KV("u1", "Alice"), KV("u2", "Bob")))
+      val premium = InMemory.source(List(KV("u1", true)))
+      val out = Pipeline.create("users")
+        .read(users)
+        .leftOuterJoin(premium)
+        .map { case KV(uid, (name, isPrem)) =>
+          isPrem.map(_ => "premium").getOrElse("free")
+        }
+        .runToList()
+      out.mkString(", ")
+      """
+    )
+    assert(result.toString.contains("premium") && result.toString.contains("free"),
+      s"Expected mapped option tiers, got: $result")
 
   test("rightOuterJoin includes unmatched right elements with None on left"):
     val result = interp.eval(

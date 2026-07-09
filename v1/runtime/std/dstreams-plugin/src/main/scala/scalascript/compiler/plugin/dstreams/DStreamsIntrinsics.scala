@@ -4,7 +4,7 @@ import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scala.collection.mutable.{ListBuffer, LinkedHashMap}
 import scalascript.plugin.api.{PluginContext, PluginError, PluginNative, PluginValue}
-import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Lst, Inst, InstAny, Tpl}
+import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Lst, Inst, InstAny, Tpl, Opt}
 
 /** DStream / Pipeline intrinsics for the tree-walking interpreter.
  *
@@ -60,14 +60,61 @@ object DStreamsIntrinsics:
     PluginValue.instance(s"_dag_$kind", fields)
 
   private def getDag(v: PluginValue): PluginValue = v match
-    case Inst("DStream", fields) =>
-      fields.getOrElse("__dag", PluginError.raise("DStream missing __dag"))
-    case other => PluginError.raise(s"Expected DStream, got: $other")
+    case Inst("DStream" | "DSource", fields) =>
+      fields.getOrElse("__dag", PluginError.raise("DStream/DSource missing __dag"))
+    case other => PluginError.raise(s"Expected DStream/DSource, got: $other")
 
   // ── DAG evaluation (DirectRunner) ─────────────────────────────────────────
 
   private def call(ctx: PluginContext, f: PluginValue, args: List[PluginValue]): PluginValue =
     ctx.synchronized { PluginValue.wrap(ctx.invokeCallback(f, args)) }
+
+  private def fieldDispatchFailed(t: RuntimeException): Boolean =
+    Option(t.getMessage).exists(msg =>
+      msg.contains("no dispatch for .") || msg.contains("No method '")
+    )
+
+  private def callStateful(ctx: PluginContext, f: PluginValue, state: PluginValue, value: PluginValue, elem: PluginValue): PluginValue =
+    try call(ctx, f, List(state, value))
+    catch case t: RuntimeException if fieldDispatchFailed(t) =>
+      call(ctx, f, List(state, elem))
+
+  private def callKeyedTimer(ctx: PluginContext, f: PluginValue, key: PluginValue, elem: PluginValue): PluginValue =
+    try call(ctx, f, List(key))
+    catch case t: RuntimeException if fieldDispatchFailed(t) =>
+      call(ctx, f, List(elem))
+
+  private def outputForKey(key: PluginValue, out: PluginValue): PluginValue =
+    out match
+      case Inst("KV", _) => out
+      case _             => PluginValue.instance("KV", Map("key" -> key, "value" -> out))
+
+  private def pluginSome(value: PluginValue, ctx: PluginContext): PluginValue =
+    val getOrElse = PluginValue.nativeFn("Some.getOrElse", {
+      case List(_) => value
+      case _       => value
+    })
+    val mapFn = PluginValue.nativeFn("Some.map", {
+      case List(f) => pluginSome(call(ctx, f, List(value)), ctx)
+      case _       => pluginSome(value, ctx)
+    })
+    PluginValue.instance("Some", Map(
+      "value" -> value,
+      "get" -> value,
+      "getOrElse" -> getOrElse,
+      "map" -> mapFn,
+    ))
+
+  private def pluginNone(ctx: PluginContext): PluginValue =
+    val getOrElse = PluginValue.nativeFn("None.getOrElse", {
+      case List(default) => default
+      case _             => PluginValue.unit
+    })
+    val mapFn = PluginValue.nativeFn("None.map", {
+      case List(_) => pluginNone(ctx)
+      case _       => pluginNone(ctx)
+    })
+    PluginValue.instance("None", Map("getOrElse" -> getOrElse, "map" -> mapFn))
 
   private def evalDag(dag: PluginValue, ctx: PluginContext): Iterator[PluginValue] =
     dag match
@@ -192,15 +239,17 @@ object DStreamsIntrinsics:
         // DirectRunner: no wall-clock delay; fires synchronously after the bounded source is exhausted.
         val upstream = evalDag(fields("upstream"), ctx)
         val f        = fields("f")
-        val keys = scala.collection.mutable.LinkedHashSet[PluginValue]()
+        val keyedElems = LinkedHashMap[PluginValue, PluginValue]()
         for elem <- upstream do
           elem match
-            case Inst("KV", kvFields) => keys += kvFields("key")
+            case Inst("KV", kvFields) =>
+              val key = kvFields("key")
+              if !keyedElems.contains(key) then keyedElems(key) = elem
             case _                               =>
-        keys.iterator.flatMap { k =>
-          call(ctx, f, List(k)) match
-            case Lst(xs) => xs.iterator.map(v => PluginValue.instance("KV", Map("key" -> k, "value" -> v)))
-            case single          => Iterator.single(PluginValue.instance("KV", Map("key" -> k, "value" -> single)))
+        keyedElems.iterator.flatMap { case (k, elem) =>
+          callKeyedTimer(ctx, f, k, elem) match
+            case Lst(xs) => xs.iterator.map(v => outputForKey(k, v))
+            case single          => Iterator.single(outputForKey(k, single))
         }
 
       // ── v2.1.7 — Stateful processing eval ────────────────────────────────────
@@ -209,15 +258,17 @@ object DStreamsIntrinsics:
         // Same as timerProcessing in DirectRunner: fires synchronously for all keys.
         val upstream = evalDag(fields("upstream"), ctx)
         val f        = fields("f")
-        val keys = scala.collection.mutable.LinkedHashSet[PluginValue]()
+        val keyedElems = LinkedHashMap[PluginValue, PluginValue]()
         for elem <- upstream do
           elem match
-            case Inst("KV", kvFields) => keys += kvFields("key")
+            case Inst("KV", kvFields) =>
+              val key = kvFields("key")
+              if !keyedElems.contains(key) then keyedElems(key) = elem
             case _                               =>
-        keys.iterator.flatMap { k =>
-          call(ctx, f, List(k)) match
-            case Lst(xs) => xs.iterator.map(v => PluginValue.instance("KV", Map("key" -> k, "value" -> v)))
-            case single          => Iterator.single(PluginValue.instance("KV", Map("key" -> k, "value" -> single)))
+        keyedElems.iterator.flatMap { case (k, elem) =>
+          callKeyedTimer(ctx, f, k, elem) match
+            case Lst(xs) => xs.iterator.map(v => outputForKey(k, v))
+            case single          => Iterator.single(outputForKey(k, single))
         }
 
       case Inst("_dag_statefulMap", fields) =>
@@ -234,17 +285,20 @@ object DStreamsIntrinsics:
               val k = kvFields("key")
               val v = kvFields("value")
               val s = states.getOrElse(k, init)
-              call(ctx, f, List(s, v)) match
+              callStateful(ctx, f, s, v, elem) match
                 case Inst(_, pairFields) =>
                   val ns  = pairFields.getOrElse("_1", pairFields.getOrElse("first",  s))
                   val out = pairFields.getOrElse("_2", pairFields.getOrElse("second", v))
                   states(k) = ns
-                  results += PluginValue.instance("KV", Map("key" -> k, "value" -> out))
+                  results += outputForKey(k, out)
                 case Lst(List(ns, out)) =>
                   states(k) = ns
-                  results += PluginValue.instance("KV", Map("key" -> k, "value" -> out))
+                  results += outputForKey(k, out)
+                case Tpl(List(ns, out)) =>
+                  states(k) = ns
+                  results += outputForKey(k, out)
                 case other =>
-                  results += PluginValue.instance("KV", Map("key" -> k, "value" -> other))
+                  results += outputForKey(k, other)
             case _ =>
         results.iterator
 
@@ -260,18 +314,19 @@ object DStreamsIntrinsics:
               val k = kvFields("key")
               val v = kvFields("value")
               val s = states.getOrElse(k, init)
-              val (ns, outs) = call(ctx, f, List(s, v)) match
+              val (ns, outs) = callStateful(ctx, f, s, v, elem) match
                 case Inst(_, pairFields) =>
                   val ns   = pairFields.getOrElse("_1", pairFields.getOrElse("first", s))
                   val outs = pairFields.getOrElse("_2", pairFields.getOrElse("second", PluginValue.list(Nil)))
                   (ns, outs)
                 case Lst(List(ns, outs)) => (ns, outs)
+                case Tpl(List(ns, outs)) => (ns, outs)
                 case other                       => (s, other)
               states(k) = ns
               val outList = outs match
                 case Lst(xs) => xs
                 case single          => List(single)
-              results ++= outList.map(o => PluginValue.instance("KV", Map("key" -> k, "value" -> o)))
+              results ++= outList.map(o => outputForKey(k, o))
             case _ =>
         results.iterator
 
@@ -290,13 +345,13 @@ object DStreamsIntrinsics:
           case List(k) =>
             val kv = toValue(k)
             frozenMap.get(kv) match
-              case Some(v) => PluginValue.instance("Some", Map("value" -> v, "get" -> v))
-              case None    => PluginValue.instance("None", Map.empty)
-          case _ => PluginValue.instance("None", Map.empty)
+              case Some(v) => pluginSome(v, ctx)
+              case None    => pluginNone(ctx)
+          case _ =>
+            pluginNone(ctx)
         })
         val stateAccessor = PluginValue.instance("_broadcast_map", Map("get" -> getterFn))
-        upstream.map(elem => PluginValue.instance("_broadcast_pair",
-          Map("_1" -> elem, "_2" -> stateAccessor)))
+        upstream.map(elem => PluginValue.tuple(List(elem, stateAccessor)))
 
       // ── v2.1.8 — Side inputs / side outputs ──────────────────────────────────
 
@@ -312,7 +367,7 @@ object DStreamsIntrinsics:
           case Lst(xs) => xs
           case _               => List(siVal)
         upstream.flatMap { e =>
-          siElems.map(b => PluginValue.instance("_tuple2", Map("_1" -> e, "_2" -> b)))
+          siElems.map(b => PluginValue.tuple(List(e, b)))
         }
 
       case Inst("_dag_sideOutput", fields) =>
@@ -327,6 +382,8 @@ object DStreamsIntrinsics:
                 upstream.flatMap { e =>
                   call(ctx, filterFn, List(e)) match
                     case Inst("Some", sf) => sf.get("value").orElse(sf.get("get")).toList
+                    case Opt(Some(v))     => List(v)
+                    case Opt(None)        => Nil
                     case _ => Nil
                 }
               case _ => Iterator.empty
@@ -346,7 +403,7 @@ object DStreamsIntrinsics:
             val k = kf("key"); val v = kf("value")
             rightMap.getOrElse(k, Nil).map { r =>
               PluginValue.instance("KV", Map("key" -> k,
-                "value" -> PluginValue.instance("_tuple2", Map("_1" -> v, "_2" -> r))))
+                "value" -> PluginValue.tuple(List(v, r))))
             }
           case _ => Nil
         }
@@ -362,10 +419,9 @@ object DStreamsIntrinsics:
           case Inst("KV", kf) =>
             val k = kf("key"); val v = kf("value")
             val rs = rightMap.getOrElse(k, Nil)
-            val rightOpt = if rs.isEmpty then PluginValue.instance("None", Map.empty)
-                           else PluginValue.instance("Some", Map("value" -> rs.head, "get" -> rs.head))
+            val rightOpt = if rs.isEmpty then pluginNone(ctx) else pluginSome(rs.head, ctx)
             PluginValue.instance("KV", Map("key" -> k,
-              "value" -> PluginValue.instance("_tuple2", Map("_1" -> v, "_2" -> rightOpt))))
+              "value" -> PluginValue.tuple(List(v, rightOpt))))
           case other => other
         }
 
@@ -380,10 +436,9 @@ object DStreamsIntrinsics:
           case Inst("KV", kf) =>
             val k = kf("key"); val v = kf("value")
             val ls = leftMap.getOrElse(k, Nil)
-            val leftOpt = if ls.isEmpty then PluginValue.instance("None", Map.empty)
-                          else PluginValue.instance("Some", Map("value" -> ls.head, "get" -> ls.head))
+            val leftOpt = if ls.isEmpty then pluginNone(ctx) else pluginSome(ls.head, ctx)
             PluginValue.instance("KV", Map("key" -> k,
-              "value" -> PluginValue.instance("_tuple2", Map("_1" -> leftOpt, "_2" -> v))))
+              "value" -> PluginValue.tuple(List(leftOpt, v))))
           case other => other
         }
 
@@ -418,12 +473,16 @@ object DStreamsIntrinsics:
       "runToList" -> PluginValue.nativeFn("Source.runToList", { _ =>
         PluginValue.list(arr.toList)
       }),
-      "runFold" -> PluginValue.nativeFn("Source.runFold", {
-        case List(z) => PluginValue.nativeFn("Source.runFold$1", {
-          case List(f) => arr.foldLeft(z)((acc, v) => call(ctx, f, List(acc, v)))
-          case _       => PluginError.raise("Source.runFold(z)(f) — inner")
-        })
-        case _ => PluginError.raise("Source.runFold(z)(f) — outer")
+      "runFold" -> PluginValue.nativeFn("Source.runFold", { args =>
+        def fold(z: PluginValue, f: PluginValue): PluginValue =
+          arr.foldLeft(z)((acc, v) => call(ctx, f, List(acc, v)))
+        args match
+          case List(z, f) => fold(z, f)
+          case List(z) => PluginValue.nativeFn("Source.runFold$1", {
+            case List(f) => fold(z, f)
+            case _       => PluginError.raise("Source.runFold(z)(f) — inner")
+          })
+          case _ => PluginError.raise("Source.runFold(z)(f) — outer")
       }),
       "map" -> PluginValue.nativeFn("Source.map", {
         case List(f) => mkCollectedSourceV(arr.toList.map(v => call(ctx, f, List(v))), ctx)
@@ -603,6 +662,7 @@ object DStreamsIntrinsics:
 
     // timerProcessing(durationMs)(f: K => Iterable[B]) — curried
     "timerProcessing" -> PluginValue.nativeFn("DStream.timerProcessing", {
+      case List(_, f) => mkDStreamWithOps(dagNode("timerProcessing", Map("upstream" -> dag, "f" -> f)), ctx)
       case List(_) => PluginValue.nativeFn("DStream.timerProcessing$1", {
         case List(f) => mkDStreamWithOps(dagNode("timerProcessing", Map("upstream" -> dag, "f" -> f)), ctx)
         case _       => PluginError.raise("DStream.timerProcessing(d)(f) — inner")
@@ -614,6 +674,7 @@ object DStreamsIntrinsics:
 
     // timerEventTime(tsMs)(f: K => Iterable[B]) — curried, event-time timer
     "timerEventTime" -> PluginValue.nativeFn("DStream.timerEventTime", {
+      case List(_, f) => mkDStreamWithOps(dagNode("timerEventTime", Map("upstream" -> dag, "f" -> f)), ctx)
       case List(_) => PluginValue.nativeFn("DStream.timerEventTime$1", {
         case List(f) => mkDStreamWithOps(dagNode("timerEventTime", Map("upstream" -> dag, "f" -> f)), ctx)
         case _       => PluginError.raise("DStream.timerEventTime(ts)(f) — inner")
@@ -623,6 +684,7 @@ object DStreamsIntrinsics:
 
     // statefulMap(initState)(f: (S, A) => (S, B)) — curried, per-key state
     "statefulMap" -> PluginValue.nativeFn("DStream.statefulMap", {
+      case List(init, f) => mkDStreamWithOps(dagNode("statefulMap", Map("upstream" -> dag, "init" -> init, "f" -> f)), ctx)
       case List(init) => PluginValue.nativeFn("DStream.statefulMap$1", {
         case List(f) => mkDStreamWithOps(dagNode("statefulMap", Map("upstream" -> dag, "init" -> init, "f" -> f)), ctx)
         case _       => PluginError.raise("DStream.statefulMap(init)(f) — inner")
@@ -632,6 +694,7 @@ object DStreamsIntrinsics:
 
     // statefulFlatMap(initState)(f: (S, A) => (S, Iterable[B])) — curried
     "statefulFlatMap" -> PluginValue.nativeFn("DStream.statefulFlatMap", {
+      case List(init, f) => mkDStreamWithOps(dagNode("statefulFlatMap", Map("upstream" -> dag, "init" -> init, "f" -> f)), ctx)
       case List(init) => PluginValue.nativeFn("DStream.statefulFlatMap$1", {
         case List(f) => mkDStreamWithOps(dagNode("statefulFlatMap", Map("upstream" -> dag, "init" -> init, "f" -> f)), ctx)
         case _       => PluginError.raise("DStream.statefulFlatMap(init)(f) — inner")
@@ -728,15 +791,18 @@ object DStreamsIntrinsics:
       PluginValue.list(runToList(dag, ctx))
     }),
 
-    "runFold" -> PluginValue.nativeFn("DStream.runFold", {
-      case List(z) => PluginValue.nativeFn("DStream.runFold$1", {
-        case List(f) =>
-          var acc = z
-          for v <- evalDag(dag, ctx) do acc = call(ctx, f, List(acc, v))
-          acc
-        case _ => PluginError.raise("DStream.runFold(z)(f) — inner")
-      })
-      case _ => PluginError.raise("DStream.runFold(z)(f) — outer")
+    "runFold" -> PluginValue.nativeFn("DStream.runFold", { args =>
+      def fold(z: PluginValue, f: PluginValue): PluginValue =
+        var acc = z
+        for v <- evalDag(dag, ctx) do acc = call(ctx, f, List(acc, v))
+        acc
+      args match
+        case List(z, f) => fold(z, f)
+        case List(z) => PluginValue.nativeFn("DStream.runFold$1", {
+          case List(f) => fold(z, f)
+          case _       => PluginError.raise("DStream.runFold(z)(f) — inner")
+        })
+        case _ => PluginError.raise("DStream.runFold(z)(f) — outer")
     }),
 
     "runForeach" -> PluginValue.nativeFn("DStream.runForeach", {
@@ -1112,6 +1178,12 @@ object DStreamsIntrinsics:
       args match
         case List(name, fn) =>
           PluginValue.instance("OutputTag", Map("name" -> toValue(name), "filter" -> toValue(fn)))
+        case List(name) =>
+          PluginValue.nativeFn("OutputTag.withFilter$1", {
+            case List(fn) =>
+              PluginValue.instance("OutputTag", Map("name" -> toValue(name), "filter" -> fn))
+            case _ => PluginError.raise("OutputTag.withFilter(name)(fn) — inner")
+          })
         case _ => PluginError.raise("OutputTag.withFilter(name)(fn)")
     },
 

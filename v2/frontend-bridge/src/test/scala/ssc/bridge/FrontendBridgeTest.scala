@@ -103,6 +103,36 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(capture("println(\"Hello, World!\")") == "Hello, World!")
   }
 
+  test("v2 stream Source.runFold accepts curried source syntax") {
+    val src =
+      """println(Source.from(1 to 5).runFold(0)((acc, x) => acc + x))"""
+
+    assert(capture(src) == "15")
+  }
+
+  test("v2 stream Source.from takes a small prefix from a large range") {
+    val src =
+      """println(Source.from(1 to 20000).take(3).runToList().mkString(", "))"""
+
+    assert(capture(src) == "1, 2, 3")
+  }
+
+  test("v2 stream Source.throttle reads Rate case class fields"):
+    val src =
+      """println(Source.from(1 to 4).throttle(Rate(2, 0)).runToList().mkString(", "))"""
+
+    assert(capture(src) == "1, 2, 3, 4")
+
+  test("v2 stream ReactiveSignal.bind is available as a signal method"):
+    val src =
+      """val count = signal("count", 0)
+        |val observed = Source.signal(count).take(3)
+        |count.bind(Source.from(List(1, 2)))
+        |println(observed.runToList().mkString(", "))
+        |""".stripMargin
+
+    assert(capture(src) == "0, 1, 2")
+
   test("markdown standard scala fence is runnable when it is the document source") {
     val src =
       """# Standard Scala block

@@ -43,6 +43,54 @@ class PluginBridgeTest extends AnyFunSuite:
         assert(arr.toList == List(DataValue.IntV(1L), DataValue.StringV("x")))
       case other => fail(s"expected InstanceV, got $other")
 
+  test("v2ToV1: registered KV fields are named key/value for DStreams plugins"):
+    val snap = V2PluginRegistry.snapshot()
+    try
+      PluginBridge.loadAll()
+      val v2 = V2Value.DataV("KV", Vector(V2Value.StrV("a"), V2Value.IntV(2L)))
+      val v1 = PluginBridge.v2ToV1(v2)
+      v1 match
+        case inst: scalascript.interpreter.Value.InstanceV =>
+          assert(inst.typeName == "KV")
+          assert(inst.fields("key") == DataValue.StringV("a"))
+          assert(inst.fields("value") == DataValue.IntV(2L))
+          assert(inst.fields("_0") == DataValue.StringV("a"))
+          assert(inst.fields("_1") == DataValue.IntV(2L))
+        case other => fail(s"expected InstanceV, got $other")
+    finally
+      V2PluginRegistry.restore(snap)
+
+  test("v2ToV1: registered Rate fields are named elements/perMillis for Streams plugins"):
+    val snap = V2PluginRegistry.snapshot()
+    try
+      PluginBridge.loadAll()
+      val v2 = V2Value.DataV("Rate", Vector(V2Value.IntV(2L), V2Value.IntV(0L)))
+      val v1 = PluginBridge.v2ToV1(v2)
+      v1 match
+        case inst: scalascript.interpreter.Value.InstanceV =>
+          assert(inst.typeName == "Rate")
+          assert(inst.fields("elements") == DataValue.IntV(2L))
+          assert(inst.fields("perMillis") == DataValue.IntV(0L))
+          assert(inst.fields("_0") == DataValue.IntV(2L))
+          assert(inst.fields("_1") == DataValue.IntV(0L))
+        case other => fail(s"expected InstanceV, got $other")
+    finally
+      V2PluginRegistry.restore(snap)
+
+  test("v2ToV1: large Cons/Nil list converts without stack overflow"):
+    val size = 20000
+    var v2: V2Value = V2Value.DataV("Nil", Vector.empty)
+    for i <- (1 to size).reverse do
+      v2 = V2Value.DataV("Cons", Vector(V2Value.IntV(i.toLong), v2))
+
+    val v1 = PluginBridge.v2ToV1(v2)
+    v1 match
+      case scalascript.interpreter.Value.ListV(items) =>
+        assert(items.length == size)
+        assert(items.head == DataValue.IntV(1L))
+        assert(items.last == DataValue.IntV(size.toLong))
+      case other => fail(s"expected ListV, got $other")
+
   // ── Value translation: v1 → v2 ─────────────────────────────────────────
 
   test("v1ToV2: UnitV"):

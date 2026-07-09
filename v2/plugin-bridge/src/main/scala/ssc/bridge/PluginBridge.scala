@@ -287,6 +287,8 @@ object PluginBridge:
       Vector("status", "headers", "callback"))
     V2PluginRegistry.registerFieldNames("Request",
       Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
+    V2PluginRegistry.registerFieldNames("KV", Vector("key", "value"))
+    V2PluginRegistry.registerFieldNames("Rate", Vector("elements", "perMillis"))
     // Override OIDC client prims BEFORE building namespace objects so the namespace
     // ForeignV picks up the overridden versions (buildNamespaceObjects reads from registry).
     overrideOidcClientStubs()
@@ -3044,12 +3046,21 @@ object PluginBridge:
     // Cons/Nil list chain → v1 ListV
     case V2Value.DataV("Nil", _) =>
       scalascript.interpreter.Value.ListV(Nil)
-    case cons @ V2Value.DataV("Cons", _) =>
-      def toList(v: V2Value): List[V1Value] = v match
-        case V2Value.DataV("Nil", _)           => Nil
-        case V2Value.DataV("Cons", Seq(h, t))  => v2ToV1(h) :: toList(t)
-        case _                                 => List(v2ToV1(v))
-      scalascript.interpreter.Value.ListV(toList(cons))
+    case cons @ V2Value.DataV("Cons", Seq(_, _)) =>
+      val items = scala.collection.mutable.ListBuffer.empty[V1Value]
+      var cur: V2Value = cons
+      var done = false
+      while !done do
+        cur match
+          case V2Value.DataV("Nil", _) =>
+            done = true
+          case V2Value.DataV("Cons", Seq(h, t)) =>
+            items += v2ToV1(h)
+            cur = t
+          case other =>
+            items += v2ToV1(other)
+            done = true
+      scalascript.interpreter.Value.ListV(items.toList)
     // Option variants
     case V2Value.DataV("None", _) =>
       scalascript.interpreter.Value.OptionV(null)
@@ -3200,6 +3211,13 @@ object PluginBridge:
             Done(rawToV2(s.apply().asInstanceOf[Any]))))
           case "set" => Some(V2Value.ClosV(Runtime.emptyEnv, 1, env =>
             { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToRaw(env.last)); Done(V2Value.UnitV) }))
+          case "bind" => Some(V2Value.ClosV(Runtime.emptyEnv, 1, env =>
+            V2PluginRegistry.lookupGlobal("ReactiveSignal.bind").collect { case c: V2Value.ClosV => c } match
+              case Some(bindFn) =>
+                Done(Runtime.run(bindFn.code, Runtime.extend(bindFn.env, Array(v1ToV2(orig), env.last))))
+              case None =>
+                sys.error("ReactiveSignal.bind is not registered")
+          ))
           case _ => None
       })
     case scalascript.interpreter.Value.Foreign(tag, h: AnyRef) =>

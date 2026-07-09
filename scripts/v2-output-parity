@@ -78,7 +78,7 @@ printf '%-38s %s\n' "-------" "------"
 # V1-side/better-output examples are known rows where v2 matches the documented
 # behavior and the rollback v1 runner truncates or aborts its own output.
 NONDET_RE='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack)\.ssc$'
-V1_SIDE_RE='^(effects|dsl-calc-parser)\.ssc$'
+V1_SIDE_RE='^(effects|dsl-calc-parser|distributed-streams|streams)\.ssc$'
 lane_skip=0; nondet_skip=0; v1side_skip=0; longrun_skip=0
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }

@@ -462,18 +462,21 @@ object StreamsIntrinsics:
         case _ => PluginError.raise("Source.runForeach(f)")
       }),
 
-      "runFold" -> PluginValue.nativeFn("Source.runFold", {
-        case List(z) => PluginValue.nativeFn("Source.runFold$1", {
-          case List(f) =>
-            var acc = z
-            var item = queue.take()
-            while item.isDefined do
-              acc = call(f, List(acc, item.get))
-              item = queue.take()
-            acc
-          case _ => PluginError.raise("Source.runFold(z)(f) — inner")
-        })
-        case _ => PluginError.raise("Source.runFold(z)(f) — outer")
+      "runFold" -> PluginValue.nativeFn("Source.runFold", { args =>
+        def fold(z: PluginValue, f: PluginValue): PluginValue =
+          var acc = z
+          var item = queue.take()
+          while item.isDefined do
+            acc = call(f, List(acc, item.get))
+            item = queue.take()
+          acc
+        args match
+          case List(z, f) => fold(z, f)
+          case List(z) => PluginValue.nativeFn("Source.runFold$1", {
+            case List(f) => fold(z, f)
+            case _       => PluginError.raise("Source.runFold(z)(f) — inner")
+          })
+          case _ => PluginError.raise("Source.runFold(z)(f) — outer")
       }),
 
       "runToList" -> PluginValue.nativeFn("Source.runToList", { _ =>
