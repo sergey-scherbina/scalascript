@@ -555,6 +555,19 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       **66/97 identical · 8 mismatch · 0 v2-error · 23 v1-only** `(26
       both-fail not-a-gap · 36 true-server · 0 long-running · 33 backend-lane ·
       3 nondet · 195 total)`.
+- [ ] **v2-mcp-oauth-secret-nondet-parity** — classify the remaining OAuth/MCP
+      generated-secret output family outside strict byte parity:
+      `mcp-server-protected.ssc` and `oauth-mcp-full-stack.ssc` print generated
+      client ids/secrets plus server startup/banner lines. Why: this is
+      generated-output noise, not a v2 runtime failure; the production gate
+      should keep semantic parser/stream-shape mismatches visible. How: add both
+      examples to `scripts/v2-output-parity`'s nondeterministic-output
+      classification with a comment; do not edit examples or runtime behavior.
+      Verify with targeted
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/mcp-server-protected.ssc examples/oauth-mcp-full-stack.ssc`,
+      affected `tests/conformance/run.sh --only 'mcp-*' --no-memo`, and full
+      `scripts/v2-output-parity --all`; update BUGS/SPRINT/CHANGELOG and the
+      parity baseline/spec with the new counts.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

@@ -12,6 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-mcp-oauth-secret-nondet-parity — `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production output-parity loop after
+  `v2-os-env-nondet-parity`.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/mcp-server-protected.ssc examples/oauth-mcp-full-stack.ssc`.
+- **Observed failure:** both examples print generated OAuth/MCP client ids and
+  secrets, so v1/v2 runs produce different credentials. They also include
+  server startup/banner lines that are not the semantic client/server contract.
+- **Impact:** this is generated-output noise in the strict byte-parity gate, not
+  a v2 production runtime failure. Keeping these rows as mismatches hides the
+  smaller set of semantic parser/stream-shape rows still needing investigation.
+- **Plan:** classify both OAuth/MCP generated-secret demos in
+  `scripts/v2-output-parity` as nondeterministic-output by design. Do not edit
+  examples or runtime behavior. Verify targeted parity, affected MCP
+  conformance, and full `scripts/v2-output-parity --all`; update
+  BUGS/SPRINT/CHANGELOG and the parity baseline/spec with new counts.
+
 ## v2-os-env-nondet-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
