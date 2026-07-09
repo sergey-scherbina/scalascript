@@ -938,6 +938,10 @@ object FrontendBridge:
             val fenceEnd = noFront.indexOf("\n```", codeStart)
             val code     = if fenceEnd < 0 then noFront.drop(codeStart) else noFront.slice(codeStart, fenceEnd)
             lang match
+              case _ if attrs.contains("no-run") =>
+                // ```scala no-run — illustrative pseudo-code fence (free
+                // variables, handler sketches): documented, never executed.
+                ()
               case "sql" | "transaction" =>
                 // @db=name attribute selects a named database from front-matter
                 val dbName = """@db=([A-Za-z0-9_-]+)""".r.findFirstMatchIn(attrs).map(_.group(1))

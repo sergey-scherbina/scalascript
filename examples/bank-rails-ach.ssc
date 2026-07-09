@@ -105,7 +105,7 @@ val debit = ach.initiateDirectDebit(InitiateDirectDebitRequest(
 ACH returns (R-codes) and Notifications of Change (C-codes) arrive asynchronously
 via webhook.
 
-```scala
+```scala no-run
 val receiver = ach.webhookReceiver
 
 // In your HTTP route handler:

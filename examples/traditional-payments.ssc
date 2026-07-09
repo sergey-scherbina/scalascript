@@ -170,7 +170,7 @@ route("POST", "/webhooks/stripe") { req =>
 ```scala
 stripe.submitDisputeEvidence(dispute.id, DisputeEvidence(
   customerCommunication = Some("Email thread: user confirmed delivery"),
-  receipt               = Some(s"Order #${orderId} paid 2026-05-20 for $49.99 USD"),
+  receipt               = Some(s"Order #${orderId} paid 2026-05-20 for $$49.99 USD"),
   shippingDocumentation = Some("UPS tracking 1Z... shipped 2026-05-21"),
   uncategorizedText     = Some("Product delivered and signed for on 2026-05-22"),
 ))
