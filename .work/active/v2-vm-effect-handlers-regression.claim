@@ -1,6 +1,6 @@
 feature/v2-vm-effect-handlers-regression 2026-07-09T09:32:36Z
 agent: codex
-heartbeat: 2026-07-09T09:32:52Z
+heartbeat: 2026-07-09T09:40:27Z
 status: in-progress
-done-so-far:
-next: write spec/fix note, reproduce minimal effects rows, inspect VM Op handler dispatch
+done-so-far: spec committed; VM Match fix plus ssc0/Mira regression tests committed; focused FrontendBridgeTest effect-handler filter passed
+next: rebase worktree on origin/main, run full v2 conformance plus litdoc, then update docs/bookkeeping
