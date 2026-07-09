@@ -103,6 +103,20 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       or "v2 Rust backend within 1.5x of v1 Rust backend"; those need same-shape
       timing around v2 `run-jvm` and the v2 Rust backend once the command path
       is integrated.
+- [ ] **v2-vm-production-jit-gate** — close the remaining Phase-3 v2 VM
+      production-performance gate with a real JIT/closed-form track rather than
+      more local FC patches. The 2026-07-09 hot-path triage fixed two concrete
+      misses (`recursion-fib` 68.5→5.94 ms by recognising bridge-generated
+      comparisons in `SelfRecLL`; `recursion-tco` 2.52→0.273 ms by compiling
+      arity-2 self-tail recursion to a local loop), but the same command still
+      leaves v2 outside 2x:
+      `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib
+      recursion-tco pattern-match-heavy` → `arith-loop` 42.2x,
+      `pattern-match-heavy` 682.7x, `recursion-fib` 5.0x, `recursion-tco` 10.1x
+      vs `ssc`. Scope: design/implement a v2 VM bytecode/JIT or explicit
+      closed-form optimizer for bridge-generated CoreIR hot loops; do not
+      reopen this as another broad hand-written `FastCode` sweep unless a
+      focused profile shows a non-JIT local fix can plausibly reach 2x.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

@@ -665,15 +665,38 @@ contract while removing trampoline/`Call` allocation overhead from
 `recursion-tco`.
 
 Behavior:
-- [ ] bridge-generated `def fib(n: Int): Int = if n <= 1 then n else ...`
+- [x] bridge-generated `def fib(n: Int): Int = if n <= 1 then n else ...`
       receives a `SelfRecLL`/`fcEntry` fast path.
-- [ ] bridge-generated `def sumTco(n: Int, acc: Int): Int = ...` receives a
+- [x] bridge-generated `def sumTco(n: Int, acc: Int): Int = ...` receives a
       constant-stack arity-2 self-tail loop fast path.
-- [ ] the raw v2 CoreIR `tco.coreir` and existing `recursion-fib` semantics stay
+- [x] the raw v2 CoreIR `tco.coreir` and existing `recursion-fib` semantics stay
       unchanged.
-- [ ] before/after numbers for the four-row production probe are recorded here;
+- [x] before/after numbers for the four-row production probe are recorded here;
       if the 2x gate remains red, this section states the remaining blocker
       explicitly instead of claiming production performance green.
+
+Results after the bounded fixes:
+
+```bash
+scripts/sbtc "installBin"
+./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
+```
+
+| Workload | `ssc` ms | `ssc-asm` ms | `v2` ms | `v2 / ssc` | `jvm` ms | `js` ms | `rust` ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `arith-loop` | 0.244 | 0.241 | 10.3 | 42.2x | 0.237 | 0.565 | 0.882 |
+| `pattern-match-heavy` | 0.052 | 0.052 | 35.5 | 682.7x | 0.046 | 0.046 | 1.37 |
+| `recursion-fib` | 1.19 | 1.18 | 5.94 | 5.0x | 1.25 | 4.31 | 1.94 |
+| `recursion-tco` | 0.027 | 0.027 | 0.273 | 10.1x | 0.024 | 0.118 | 0.025 |
+
+The bounded fix materially improved the recursive rows (`recursion-fib`
+68.5→5.94 ms, `recursion-tco` 2.52→0.273 ms), but the Phase-3 `v2 VM within
+2x of v1 interpreter` gate remains open. The remaining representative gaps are
+not narrow bridge-shape misses: `arith-loop` and `pattern-match-heavy` are still
+bounded by the closure-dispatch/object VM floor already described in the older
+T3.2b notes, while the `ssc`/JVM/Rust columns sit near optimizer/JIT floors for
+these small pure workloads. Closing the production performance checkbox needs a
+larger v2 VM JIT/closed-form track, not another local `FastCode` patch.
 
 ### T3.3 — v2 JVM backend quality
 
