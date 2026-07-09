@@ -12,6 +12,29 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-v1-side-mismatch-classification — `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production output-parity loop after
+  `v2-scala-fence-multiblock-parity`.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/effects.ssc examples/dsl-calc-parser.ssc`.
+- **Observed prior findings:** `effects.ssc` is a strict v1/v2 mismatch because
+  v2 prints the documented six-line example output while v1 stops after the
+  first three sections. `dsl-calc-parser.ssc` is a strict mismatch because v1
+  truncates parser round-trips to the first number, while v2 prints the full
+  parsed/pretty expression strings.
+- **Impact:** the production output-parity gate still reports these as v2
+  mismatches even though the durable notes identify them as v1-side or
+  better-output rows. That hides the smaller remaining stream-family surface
+  that likely needs real v2 work.
+- **Plan:** re-run the targeted rows in the real assembled harness. If the
+  prior findings still hold, classify them in `scripts/v2-output-parity` as
+  v1-side/better-output skips, add or refresh conformance coverage for the
+  documented v2 behavior where missing, then refresh targeted/full parity
+  baselines and docs. If either row reveals a real v2 defect, switch to a v2
+  bug fix with a faithful regression instead.
+- **Status:** open; claimed as `v2-v1-side-mismatch-classification`.
+
 ## v2-scala-fence-multiblock-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after

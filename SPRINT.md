@@ -9,6 +9,32 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-v1-side-mismatch-classification** — verify and classify the two
+      remaining full-parity mismatches that prior durable findings identify as
+      v1-side/better-output rows, not v2 production regressions:
+      `examples/effects.ssc` and `examples/dsl-calc-parser.ssc`. Claimed
+      2026-07-09 by codex in
+      `/Users/sergiy/work/my/scalascript-wt-v2-v1-side-mismatch-classification`.
+      Baseline after `v2-scala-fence-multiblock-parity`: full parity is
+      `68/95 identical · 4 mismatch · 0 v2-error · 23 v1-only` with remaining
+      mismatches `distributed-streams.ssc`, `dsl-calc-parser.ssc`,
+      `effects.ssc`, and `streams.ssc`. Prior notes say `effects.ssc` v2
+      prints all six documented lines while v1 stops after three, and
+      `dsl-calc-parser.ssc` v2 renders full round-trips while v1 truncates
+      every parser result to the first number. Work loop: run `scripts/sbtc
+      "installBin"`, then targeted real-harness parity for
+      `examples/effects.ssc examples/dsl-calc-parser.ssc`; if those findings
+      still hold, update `scripts/v2-output-parity` classification so these
+      rows are visible as v1-side/better-output skips rather than strict v2
+      mismatches, add/refresh focused conformance expected output for the v2
+      documented behavior where missing, and update `v2/output-parity-baseline.md`,
+      `specs/v2-full-compat.md`, `BUGS.md`, and `CHANGELOG.md`. If the repro
+      shows a real v2 semantic error, stop classification and fix the v2 cause
+      with a faithful regression instead. Done-when: affected conformance passes,
+      targeted parity reports the two rows classified or identical with no
+      v2-error, and full parity improves from four strict mismatches to the
+      remaining stream-family rows only.
+
 - [x] **v2-scala-fence-multiblock-parity** — DONE 2026-07-09 in `f57c74da8`: fixed the deterministic
       standard-`scala` fence parity gaps in the v2 production output gate.
       Claimed 2026-07-09 by codex in
