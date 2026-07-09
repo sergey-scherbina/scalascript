@@ -1,6 +1,6 @@
 feature/v2-vm-perf-hotpath-triage 2026-07-09T07:31:40Z
 agent: codex
-heartbeat: 2026-07-09T07:31:40Z
-status: not-started
-done-so-far:
-next: create worktree, read the queued SPRINT item and v2-full-compat performance baseline, then profile/triage the v2 VM hot path gap
+heartbeat: 2026-07-09T07:32:20Z
+status: in-progress
+done-so-far: worktree created at ../scalascript-wt-v2-vm-perf-hotpath-triage
+next: read SPRINT/spec baseline and v2 runtime hot paths, then reproduce the four-row perf gap
