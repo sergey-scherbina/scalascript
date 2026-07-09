@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 production parity baseline remains clean after JS/runtime fixes
+
+Refreshed the full v2 output-parity production gate after the JS flat-bundle
+runtime-collision fix and stream-family closures. `scripts/sbtc "installBin"`
+passed, and `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`
+exited 0 with `68/91 identical · 0 mismatch · 0 v2-error · 23 v1-only`
+across 195 examples. Conformance `litdoc` passed on INT/JS/JVM. No new BUGS
+entry was needed.
+
 ## 2026-07-09 — JS flat bundles rename runtime-colliding declarations
 
 Closed the remaining `jsgen-toplevel-name-vs-preamble` class. Flat JS bundle
