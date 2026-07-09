@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/fieldnames-batch-iso
-worktree: ../scalascript-wt-fnbatch
-started: 2026-07-09
-status: in-progress
-task: fieldnames-batch-isolation — V2PluginRegistry.fieldNames не в snapshot/restore и не чистится → cross-file registry pollution (маскировано last-wins). Добавить в snapshot/restore через side-var; проверить batch order-independence.
