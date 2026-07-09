@@ -60,6 +60,22 @@ class PluginBridgeTest extends AnyFunSuite:
     finally
       V2PluginRegistry.restore(snap)
 
+  test("snapshot/restore batch-isolates the fieldNames registry"):
+    // fieldNames was NEVER cleared/restored between batch files, so a case
+    // class registered by one file leaked into the next (masked by last-wins
+    // overwrite). Prove restore() drops post-snapshot registrations.
+    val snap = V2PluginRegistry.snapshot()
+    try
+      assert(V2PluginRegistry.lookupFieldNames("BatchIsoProbe").isEmpty)
+      V2PluginRegistry.registerFieldNames("BatchIsoProbe", Vector("a", "b", "c"))
+      assert(V2PluginRegistry.lookupFieldNames("BatchIsoProbe").contains(Vector("a", "b", "c")))
+      // start of the next file: restore() must undo file A's registration
+      V2PluginRegistry.restore(snap)
+      assert(V2PluginRegistry.lookupFieldNames("BatchIsoProbe").isEmpty,
+        "restore() must clear a fieldNames registration made after snapshot()")
+    finally
+      V2PluginRegistry.restore(snap)
+
   test("v2ToV1: registered Rate fields are named elements/perMillis for Streams plugins"):
     val snap = V2PluginRegistry.snapshot()
     try

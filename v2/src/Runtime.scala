@@ -1584,14 +1584,24 @@ object V2PluginRegistry:
    *  (databases, cells, namespaces) cannot leak into the next — batch PASS
    *  counts were ±2 order-dependent without this. */
   def snapshot(): (Map[String, Fn], Map[String, Value]) =
+    // fieldNames is batch-isolated via a side var (keeps the public tuple
+    // signature stable for existing callers): it was NEVER cleared or restored
+    // between batch files, so a `case class` registered by file A leaked into
+    // file B — harmless while a later same-tag registration overwrites it
+    // (last-wins), but a latent cross-file bug when file B never re-registers
+    // that tag. Snapshot captures the post-plugin-load shape (runtime types
+    // like Request); restore resets to it before each file.
+    fieldNamesSnap = fieldNames.toMap
     (handlers.toMap, globalValues.toMap)
   def restore(snap: (Map[String, Fn], Map[String, Value])): Unit =
     handlers.clear(); handlers ++= snap._1
     globalValues.clear(); globalValues ++= snap._2
+    fieldNames.clear(); fieldNames ++= fieldNamesSnap
 
   // ADT field-name registry: tag → ordered field names.
   // Populated by FrontendBridge so PluginBridge.v2ToV1 can produce named InstanceV fields.
   private val fieldNames = collection.mutable.HashMap[String, Vector[String]]()
+  private var fieldNamesSnap: Map[String, Vector[String]] = Map.empty
   def registerFieldNames(tag: String, names: Vector[String]): Unit = fieldNames(tag) = names
   def lookupFieldNames(tag: String): Option[Vector[String]] = fieldNames.get(tag)
 
