@@ -1273,8 +1273,14 @@ frontend accepted the file).
         Runtime dispatch (unhandled → free `Op`). Conformance 640/640. Added
         `BridgeCli run-ir` (loadAll + run native IR) to measure against the
         plugin runtime.
-  - [ ] **K62.7b** — the `Foo_method` uid-static case (`Dataset.of`, `Graph.vertices`,
-        given/typeclass object methods) — route through `__method__` too.
+  - [x] **K62.7b DONE** 2026-07-09: uid-static `Foo.method(args)` on an UNKNOWN
+        uppercase object → `IrPrim(__method__, [str method, Ctor(Foo,[]), args])`, so
+        the plugin runtime's `__fallback__.Foo.method` resolves it. User objects
+        (isKnownObject via a `collectObjects` pre-scan) keep static `Foo_method`.
+        Pure lowering, no runtime change. **End-to-end 33→38** (+5). Conformance 640/640.
+        Also A: `for (a,b) <- pairs` tuple-pattern binder. NOTE: `System.out` /
+        `_sel_get` FIELD access on uid still fails (blocked by the K62.7a `__method__`
+        VM-scrutinee bug — sibling-owned); takeWhile/dropWhile on strings = follow-up.
   - [ ] **K62.7c** — run native front → plugin-enabled runtime for real: wire the
         plugin registry into the `ssc`/`ssc1` launchers (or use `BridgeCli run-ir`),
         then re-measure end-to-end.
