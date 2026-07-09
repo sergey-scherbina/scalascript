@@ -1,0 +1,6 @@
+feature/v2-litdoc-js-jvm-backend-lanes 2026-07-09T04:57:32Z
+agent: codex
+heartbeat: 2026-07-09T04:57:32Z
+status: not-started
+done-so-far:
+next: create worktree, promote the BACKLOG follow-up into SPRINT, reproduce JS/JVM litdoc backend-lane failures
