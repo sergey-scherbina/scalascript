@@ -89,6 +89,27 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("""def delete(input: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input, headers, cancelToken)"""))
   }
 
+  test("Swing JVM route-derived path-param client emits callable input method") {
+    val src =
+      """---
+        |name: derived-swing
+        |frontend: swing
+        |---
+        |
+        |# Test
+        |
+        |```scalascript
+        |route("GET", "/api/items/:id") { req => Response.ok() }
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("""_TypedRouteClientEndpoint("Api", "getApiItemsById", "GET", "/api/items/:id", "String", "Any")"""))
+    assert(code.contains("""def getApiItemsById(input: String, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Any = _ssc_api_request[String, Any]("GET", "/api/items/:id", input, headers, cancelToken)"""))
+    assert(!code.contains("path param ':id' cannot be filled"))
+  }
+
   test("non-Swing JVM codegen keeps metadata only until HTTP transport lands") {
     val src =
       """---

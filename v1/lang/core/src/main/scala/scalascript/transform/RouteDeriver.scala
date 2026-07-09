@@ -181,14 +181,27 @@ object RouteDeriver:
     path:   String,
     types:  Option[(String, String)],
   ): ApiEndpointDecl =
-    val requestType  = types.map(_._1).getOrElse(if needsBody(method) then "Any" else "Unit")
+    val requestType  = types.map(_._1).getOrElse(defaultRequestType(method, path))
     val responseType = types.map(_._2).getOrElse("Any")
     ApiEndpointDecl(deriveName(method, path), method.toUpperCase, path, requestType, responseType)
+
+  private def defaultRequestType(method: String, path: String): String =
+    if needsBody(method) then "Any"
+    else
+      pathParamNames(path).size match
+        case 0 => "Unit"
+        case 1 => "String"
+        case _ => "Any"
 
   private def needsBody(method: String): Boolean =
     method.toUpperCase match
       case "POST" | "PUT" | "PATCH" => true
       case _                        => false
+
+  private def pathParamNames(path: String): List[String] =
+    path.split('/').toList.collect {
+      case seg if seg.startsWith(":") => seg.drop(1)
+    }
 
   // ── Name derivation ────────────────────────────────────────────────────────
 

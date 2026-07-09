@@ -252,6 +252,49 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("function _ssc_api_query(pathTemplate, input)"))
     assert(code.contains("const url = _ssc_api_path(pathTemplate, input) + (method === \"GET\" ? _ssc_api_query(pathTemplate, input) : \"\");"))
 
+  test("JS route-derived path-param client accepts input and fetches substituted path"):
+    assume(hasNode, "node not available")
+    val src =
+      """|---
+         |name: derived-path-client
+         |---
+         |
+         |# Test
+         |
+         |```scalascript @side=server
+         |route("GET", "/api/items/:id") { req => Response.text("server") }
+         |```
+         |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("""{client: "Api", name: "getApiItemsById", method: "GET", path: "/api/items/:id", requestType: "String", responseType: "Any"}"""))
+    assert(code.contains("""getApiItemsById(input, headers, cancelToken) { return _ssc_api_request("GET", "/api/items/:id", input, "String", "Any", headers, cancelToken); }"""))
+    assert(!code.contains("path param ':id' cannot be filled"))
+
+    val harness =
+      """
+        |let seen = "";
+        |globalThis.fetch = async function(url, init) {
+        |  seen = String(url) + ":" + String(init && init.method);
+        |  return {
+        |    ok: true,
+        |    status: 200,
+        |    headers: { get: function() { return "application/json"; } },
+        |    text: async function() { return JSON.stringify(seen); }
+        |  };
+        |};
+        |(async function() {
+        |  const value = await Api.getApiItemsById("42");
+        |  process.stdout.write(String(value));
+        |})().catch(function(e) {
+        |  process.stdout.write("ERR:" + (e && e.stack ? e.stack : e));
+        |  process.exitCode = 1;
+        |});
+        |""".stripMargin
+
+    assert(runJs(code + "\n" + harness) == "/api/items/42:GET")
+
   test("segmented JS output includes HTTP typed route clients before user code"):
     val segments = JsGen.generateSegmented(Parser.parse(source))
     val js = segments.collect { case JsGen.Segment.ScalaScriptJs(code) => code }.mkString("\n")

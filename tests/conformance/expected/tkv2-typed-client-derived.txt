@@ -1,0 +1,1 @@
+derived-typed-client:/api/items/42:GET

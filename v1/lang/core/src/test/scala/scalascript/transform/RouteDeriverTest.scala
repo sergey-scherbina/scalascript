@@ -41,6 +41,13 @@ class RouteDeriverTest extends AnyFunSuite:
     val mod = parse("""route("GET", "/api/users/:id") { req => Response.ok() }""")
     val ep  = mod.manifest.get.apiClients.head.endpoints.head
     assert(ep.name == "getApiUsersById")
+    assert(ep.requestType == "String")
+  }
+
+  test("non-body route with multiple path params derives Any request") {
+    val mod = parse("""route("GET", "/api/users/:userId/items/:itemId") { req => Response.ok() }""")
+    val ep  = mod.manifest.get.apiClients.head.endpoints.head
+    assert(ep.requestType == "Any")
   }
 
   test("collects multiple routes into single Api client") {
@@ -97,10 +104,10 @@ class RouteDeriverTest extends AnyFunSuite:
     assert(eps.forall(_.requestType == "Any"))
   }
 
-  test("DELETE derives body type Unit") {
+  test("DELETE path-param route derives callable request") {
     val mod = parse("""route("DELETE", "/api/items/:id") { req => Response.ok() }""")
     val ep  = mod.manifest.get.apiClients.head.endpoints.head
-    assert(ep.requestType == "Unit")
+    assert(ep.requestType == "String")
   }
 
   test("derives client even without front-matter manifest") {
@@ -148,6 +155,23 @@ class RouteDeriverTest extends AnyFunSuite:
     assert(eps.exists(e => e.method == "POST" && e.path == "/api/todos" && e.requestType == "Any"))
   }
 
+  test("front-matter routes: non-body path params derive callable request") {
+    val mod = Parser.parse(
+      """|---
+         |name: test
+         |routes:
+         |  - method: DELETE
+         |    path: /api/todos/:id
+         |    handler: deleteTodo
+         |---
+         |
+         |# Section
+         |""".stripMargin
+    )
+    val ep = mod.manifest.get.apiClients.head.endpoints.head
+    assert(ep.requestType == "String")
+  }
+
   test("front-matter routes: and inline route() deduplicated by method+path") {
     val mod = Parser.parse(
       """|---
@@ -173,12 +197,12 @@ class RouteDeriverTest extends AnyFunSuite:
 
   // ── New: mount() derivation ────────────────────────────────────────────────
 
-  test("derives from mount() GET call with Unit request") {
+  test("derives from mount() GET path-param call with String request") {
     val mod = parse("""mount("GET", "/hello/:name", "handlers/hello.ssc")""")
     val ep  = mod.manifest.get.apiClients.head.endpoints.head
     assert(ep.method == "GET")
     assert(ep.path == "/hello/:name")
-    assert(ep.requestType == "Unit")
+    assert(ep.requestType == "String")
   }
 
   test("derives from mount() POST call with Any request") {
@@ -206,9 +230,9 @@ class RouteDeriverTest extends AnyFunSuite:
          |```
          |""".stripMargin
     )
-    // Without baseDir, mount handler type is "Unit" (GET default, no file I/O)
+    // Without baseDir, the route path still makes the generated client callable.
     val ep0 = mod.manifest.get.apiClients.head.endpoints.head
-    assert(ep0.requestType == "Unit")
+    assert(ep0.requestType == "String")
 
     // With baseDir pointing to tmp, handler file is loaded → typed param extracted
     val enhanced = RouteDeriver.derive(mod, Some(tmp))

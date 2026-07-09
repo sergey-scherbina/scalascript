@@ -1,0 +1,33 @@
+---
+name: tkv2-typed-client-derived
+backends: [js]
+---
+
+# Toolkit v2 route-derived typed client path-param smoke
+
+This case pins the no-manual-`apiClients:` browser path. The server route is
+only metadata for this JS lane; the stubbed `fetch` verifies the derived client
+substitutes the single path parameter into the request URL.
+
+```scalascript @side=server
+route("GET", "/api/items/:id") { req =>
+  Response.text("server-only")
+}
+```
+
+```javascript
+globalThis.fetch = async function(url, init) {
+  const seen = String(url) + ":" + String(init && init.method);
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: function() { return "application/json"; } },
+    text: async function() { return JSON.stringify(seen); }
+  };
+};
+```
+
+```scalascript @side=client
+val seen = awaitClient(Api.getApiItemsById("42"))
+println("derived-typed-client:" + seen)
+```
