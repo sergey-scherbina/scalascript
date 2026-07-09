@@ -1,0 +1,6 @@
+feature/v2-parity-post-split-refresh 2026-07-09T02:12:46Z
+agent: codex
+heartbeat: 2026-07-09T02:12:46Z
+status: not-started
+done-so-far:
+next: create isolated worktree and queue the baseline-refresh plan in SPRINT.md before running parity
