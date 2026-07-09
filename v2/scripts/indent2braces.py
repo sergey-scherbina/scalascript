@@ -2,7 +2,7 @@
 """Convert Scala 3 indentation-style blocks to brace style for ssc1c.
 
 Handles:
-  while COND do       ->  while COND {
+  while COND do       ->  while (COND) {
   def f(): T =        ->  def f(): T = {   (when body is indented block)
   expr match          ->  expr match {     (when arms are indented)
   if COND then        ->  if (COND) {      (when body is indented block)
@@ -48,10 +48,13 @@ def convert(src):
 
         if opens_block:
             # Transform line to explicitly open a brace block
-            # while COND do  ->  while COND {
-            m = re.match(r'^(\s*while\s+.+?)\s+do\s*$', raw)
+            # while COND do  ->  while (COND) {
+            # ssc1-front accepts unparenthesized while conditions, but a
+            # following brace block can otherwise be parsed as an argument to
+            # the last condition atom: while i < 1000 { body }.
+            m = re.match(r'^(\s*)while\s+(.+?)\s+do\s*$', raw)
             if m:
-                out.append(m.group(1) + ' {')
+                out.append(f'{m.group(1)}while ({m.group(2)}) {{')
                 stack.append(indent)
                 i += 1
                 continue
