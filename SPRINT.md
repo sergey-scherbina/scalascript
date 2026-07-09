@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-vm-effect-handlers-regression** — fix the current v2 VM
+      conformance regression tracked in `BUGS.md`: algebraic/typed effect
+      handler rows on the VM lane return raw `Op(...)` values instead of being
+      handled, while JS/Rust lanes pass. Repro in the real harness:
+      `./v2/conformance/check.sh` after staging/building the v2 runtime; minimal
+      packaged-jar repro is `java -jar <v2-jar> run
+      examples/effects-state.ssc0` returning `Op("get", (), <closure>)`
+      instead of `Pair(2, 2)`. Current clean `origin/main` at `ab78c6cac`
+      reproduces `effects-state`, `effects-nondet`, `async-tasks`, and
+      `hm-eff-comp`, so this is independent of the arith-loop optimizer. Start
+      with a spec or focused BUGS fix note before code, inspect recent VM
+      `DataV("Op", ...)`/handler dispatch changes, add a regression test that
+      mirrors at least `effects-state` plus one typed-effect row, and close only
+      when the affected effect rows plus `./v2/conformance/check.sh` and
+      `tests/conformance/run.sh --only 'litdoc'` pass.
+
 - [ ] **v2-vm-pattern-match-heavy-fast-tier** — continue the v2 VM
       production-performance gate from `v2-vm-production-jit-gate`, focusing
       only on `bench/corpus/pattern-match-heavy.ssc`, now the largest remaining
@@ -34,8 +50,11 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       0.000018 ms while keeping the gate honest: `pattern-match-heavy` 19.1 ms,
       `recursion-fib` 6.34 ms, and `recursion-tco` 0.308 ms remain outside the
       2x target. Gates: focused `FrontendBridgeTest -- -z var`, `installBin`,
-      targeted and four-row bench probes, `./v2/conformance/check.sh`,
-      `tests/conformance/run.sh --only 'litdoc'`, and `git diff --check`.
+      targeted and four-row bench probes, `tests/conformance/run.sh --only
+      'litdoc'`, and `git diff --check`. Post-rebase `./v2/conformance/check.sh`
+      is red on the pre-existing VM effect-handler regression now tracked as
+      `v2-vm-effect-handlers-regression`; the same failures reproduce on clean
+      `origin/main` at `ab78c6cac`.
 
 - [x] **v2-backend-performance-harness** — DONE 2026-07-09 in
       `01d9abf32`/`677969e1a`: `scripts/bench v2-backends [workload]` and

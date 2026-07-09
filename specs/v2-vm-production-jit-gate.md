@@ -114,6 +114,12 @@ Gates run:
 - `scripts/sbtc "installBin"`
 - `./bench.sh --backend v2 --warmup-time 500 --reps 20 arith-loop`
 - `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy`
-- `./v2/conformance/check.sh`
 - `tests/conformance/run.sh --only 'litdoc'`
 - `git diff --check`
+
+Post-rebase caveat: `./v2/conformance/check.sh` is currently red on the VM
+effect-handler family (`effects-state`, `effects-nondet`, `async-tasks`,
+`hm-eff-comp`, and related typed-effect rows). A detached diagnostic worktree at
+clean `origin/main` `ab78c6cac` reproduces the same failures, so this is tracked
+separately as `BUGS.md` / SPRINT item `v2-vm-effect-handlers-regression` and is
+not caused by the arith-loop recognizer.

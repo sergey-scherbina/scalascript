@@ -12,7 +12,9 @@ loop used by `bench/corpus/arith-loop.ssc` in both normal `Code` and arity-0
 9.91 ms to 0.000018 ms. The overall Phase-3 VM performance gate remains open:
 `pattern-match-heavy`, `recursion-fib`, and `recursion-tco` still need focused
 follow-up slices. Gates: focused bridge test, `installBin`, four-row bench,
-v2 conformance, conformance `litdoc`, and `git diff --check`.
+conformance `litdoc`, and `git diff --check`. Full v2 conformance is currently
+red on a pre-existing VM effect-handler regression reproduced on clean
+`origin/main` and tracked as `v2-vm-effect-handlers-regression`.
 
 ## 2026-07-09 — v2 backend performance harness exposes source backend columns
 

@@ -12,6 +12,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-vm-effect-handlers-regression — `open` (2026-07-09)
+
+- **Found by:** codex, while verifying `v2-vm-production-jit-gate` after
+  rebasing on current `origin/main`.
+- **Repro:** in a worktree with a staged v2 runtime, run
+  `./v2/conformance/check.sh`. Minimal direct repro from a packaged v2 jar:
+  `java -jar <v2-jar> run examples/effects-state.ssc0` returns
+  `Op("get", (), <closure>)` instead of `Pair(2, 2)`.
+- **Observed failure:** current `origin/main` (checked in detached diagnostic
+  worktree at `ab78c6cac`) reproduces the same failures before the arith-loop
+  optimizer commits: `effects-state`, `effects-nondet`, `async-tasks`, and
+  `hm-eff-comp` all return unhandled `Op(...)` values on the VM lane while the
+  JS/Rust lanes in the same conformance script pass. The full run also reports
+  the same shape across effect rows such as `effrow`, `eff2`, `eff-traverse`,
+  `eff-handle`, `eff-userstate`, `eff-do`, `eff-decl`, `eff-rowann`,
+  `eff-typed`, `typed resume`, and `handleM`.
+- **Impact:** the v2 VM conformance gate is red for algebraic effects/typed
+  effect handlers, which is a production blocker independent of the current
+  scalar-loop performance slice.
+- **Notes:** this is not caused by the `v2-vm-production-jit-gate` arith-loop
+  recognizer: the same minimal failures reproduce on clean `origin/main` at
+  `ab78c6cac`, whose latest change is only a `.work/active/` claim.
+- **Status:** open. Queue item: `v2-vm-effect-handlers-regression`.
+
 ## v2-source-backend-bridge-bench-prims — `fixed` (2026-07-09)
 
 - **Found by:** codex, while implementing `v2-backend-performance-harness`.
