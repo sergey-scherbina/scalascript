@@ -1,6 +1,6 @@
 feature/v2-scala-fence-multiblock-parity 2026-07-09T03:18:07Z
 agent: codex
-heartbeat: 2026-07-09T03:24:28Z
+heartbeat: 2026-07-09T03:43:34Z
 status: in-progress
-done-so-far: SPRINT/BUGS plan pushed in e7638545f; repro details pushed in ef1351df8
-next: implement missing String.takeWhile dispatch and mixed runnable scala-fence extraction policy
+done-so-far: implementation pushed in f57c74da8; gates green; docs/bookkeeping in progress
+next: commit docs/bookkeeping, push to main, release claim, clean worktree
