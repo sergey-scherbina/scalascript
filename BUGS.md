@@ -12,6 +12,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-output-parity-temp-write-fail-fast — `open` (2026-07-09)
+
+- **Found by:** codex, while re-running the full v2 output-parity sweep during
+  `v2-v1-side-mismatch-classification`.
+- **Repro:** with a nearly full host disk, run
+  `PARITY_TIMEOUT=45 SSC="/Users/sergiy/work/my/scalascript/bin/ssc" scripts/v2-output-parity --all`.
+- **Observed failure:** once `target/v2-output-parity-tmp` cannot accept writes,
+  `run_one` logs `No space left on device` for the shared RC file but the script
+  keeps reading the previous RC value. Later rows are then misreported as
+  `both-fail`, and the final summary looks like a valid corpus result even
+  though the run is corrupted.
+- **Impact:** production parity baselines can be polluted by false counts when
+  the host has insufficient disk. This happened during the attempted
+  2026-07-09 full sweep; that full-sweep output must not be recorded as a
+  baseline.
+- **Plan:** make `scripts/v2-output-parity` fail fast when it cannot create or
+  write its temp/RC files, then keep the current targeted gates as the valid
+  verification if the host still cannot complete a full sweep.
+- **Status:** open; fixed inside the active
+  `v2-v1-side-mismatch-classification` slice before publishing the parity
+  classification.
+
 ## v2-v1-side-mismatch-classification — `open` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after

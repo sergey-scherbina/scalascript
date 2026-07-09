@@ -34,6 +34,11 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       targeted parity reports the two rows classified or identical with no
       v2-error, and full parity improves from four strict mismatches to the
       remaining stream-family rows only.
+      Additional 2026-07-09 gate-hardening found mid-slice: a full sweep on a
+      nearly full disk corrupted the summary because `scripts/v2-output-parity`
+      kept running after RC/tmp writes failed. Fix the script to fail fast on
+      temp/RC create or write errors before recording any new full baseline.
+      The corrupted full-sweep output from that run is not a valid baseline.
 
 - [x] **v2-scala-fence-multiblock-parity** — DONE 2026-07-09 in `f57c74da8`: fixed the deterministic
       standard-`scala` fence parity gaps in the v2 production output gate.
