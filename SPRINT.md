@@ -9,7 +9,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-source-backend-production-perf-sweep** - measurement-only
+- [x] **v2-source-backend-production-perf-sweep** - DONE 2026-07-09 in
+      `3d514f411`: measurement-first
       production gate slice for BACKLOG `v2-source-backend-production-perf-gates`
       after the JVM/Rust `recursion-fib` source-backend fixes landed. Plan:
       stage the current worktree CLI with `scripts/sbtc "installBin"`, run the
@@ -35,6 +36,25 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       slice is to inspect the generated v2-rust bench source and either land a
       benchmark-only `timeV2Rust` anti-fold extension or leave a precise
       follow-up target.
+      Fix/result: `BenchCmd.timeV2Rust` now also black-boxes the first simple
+      loop-carried `wrapping_add` update inside Long helpers with exactly one
+      self-call, blocking LLVM's tail-recursive closed-form fold while leaving
+      non-tail `fib` helpers untouched. Final public
+      `scripts/bench v2-backends recursion-tco`: `v2=0.279 ms`,
+      `v2-jvm=3.11 ms`, `v2-rust=0.721 ms`; short real v2-rust smoke:
+      `BENCH v2-rust 0.6620`. Regression check
+      `scripts/bench v2-backends recursion-fib`: `v2=5.80 ms`,
+      `v2-jvm=1.26 ms`, `v2-rust=1.46 ms`. Gates: `scripts/sbtc
+      "installBin"`; affected conformance
+      `tests/conformance/run.sh --only
+      'recursion,tail-recursion,mutual-recursion' --no-memo` (3/3 across
+      INT/JS/JVM); `scripts/bench v2-backends arith-loop`; `scripts/bench
+      v2-backends recursion-tco`; `scripts/bench v2-backends
+      pattern-match-heavy`; `scripts/bench v2-backends recursion-fib`;
+      `git diff --check`. Next recommended source-backend slice:
+      `v2-source-rust-pattern-match-heavy-perf` (`v2-rust=318.2 ms` on the
+      fresh sweep). Also note `v2-jvm recursion-tco=3.11 ms` remains a smaller
+      JVM source-backend gap.
 
 - [x] **v2-source-rust-recursion-fib-perf** - DONE 2026-07-09 in
       `3d975bda7`: narrow Phase-3 source-backend

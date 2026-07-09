@@ -130,6 +130,16 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `scripts/bench v2-backends recursion-fib` moved `v2-rust` from
       226.7 ms to 1.44 ms (`v2=6.03 ms`, `v2-jvm=1.25 ms`). The broader item
       remains open for other Rust/source workload-family rows.
+      Progress 2026-07-09: the `v2-source-backend-production-perf-sweep` slice
+      measured the remaining rows after the recursion-fib fixes. Fresh public
+      rows: `arith-loop` => `v2=0.000016 ms`, `v2-jvm=0.267 ms`,
+      `v2-rust=0.000025 ms`; `recursion-tco` initially exposed a false
+      `v2-rust=0.000000 ms` LLVM fold, fixed by benchmark-only tail-recursive
+      anti-folding, and now reports `v2=0.279 ms`, `v2-jvm=3.11 ms`,
+      `v2-rust=0.721 ms`; `pattern-match-heavy` remains the largest real Rust
+      source blocker at `v2=14.8 ms`, `v2-jvm=10.7 ms`, `v2-rust=318.2 ms`.
+      Next recommended slice: `v2-source-rust-pattern-match-heavy-perf`. Also
+      track `v2-jvm recursion-tco=3.11 ms` as a smaller JVM source-backend gap.
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
       three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from

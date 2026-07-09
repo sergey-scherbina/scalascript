@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-rust-recursion-tco-bench-fold — `open` (2026-07-09)
+## v2-rust-recursion-tco-bench-fold — `fixed` (2026-07-09)
 
 - **Found by:** codex during `v2-source-backend-production-perf-sweep`.
 - **Repro:** after `scripts/sbtc "installBin"` on current `origin/main`, run
@@ -27,10 +27,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** `v2-source-backend-production-perf-gates` cannot count the
   v2-rust `recursion-tco` row as closed until the harness emits an honest,
   nonzero measurement.
-- **Next:** inspect the generated v2-rust bench source for
-  `bench/corpus/recursion-tco.ssc` and extend the benchmark-only anti-fold
-  patch if the fix is local to `BenchCmd.timeV2Rust`; otherwise leave this as
-  the next claimed code slice.
+- **Root cause:** the existing v2-rust bench anti-folding made the zero-arg
+  `g_workload_long()` literal opaque, but LLVM still converted the
+  single-self-call tail-recursive Long helper into a closed-form result.
+- **Fix:** `3d514f411` extends the benchmark-only `BenchCmd.timeV2Rust` patch
+  to wrap the first simple loop-carried `wrapping_add` update inside Long
+  helpers that contain exactly one self-call. This blocks the tail-recursive
+  closed-form fold without penalizing non-tail `fib`, whose helper contains two
+  self-calls and is intentionally not patched this way.
+- **Verified:** short real smoke
+  `bin/ssc --backend v2-rust bench --machine --warmup-time 10 --reps 1 bench/corpus/recursion-tco.ssc`
+  reports `BENCH v2-rust 0.6620`; public
+  `scripts/bench v2-backends recursion-tco` reports `v2-rust=0.721 ms`; and
+  `scripts/bench v2-backends recursion-fib` remains stable at
+  `v2-rust=1.46 ms`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-rust-bench-zero-input-helper-fold — `fixed` (2026-07-09)
 

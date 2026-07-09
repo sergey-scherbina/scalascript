@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 source backend production rows remeasured after Rust recursion fixes
+
+The source-backend production gate now has fresh post-helper numbers for the
+remaining rows. `arith-loop` is no longer a Rust source hotspot
+(`v2-rust=0.000025ms`), `recursion-tco` now reports an honest nonzero Rust row
+after a benchmark-only tail-recursive anti-fold fix (`v2=0.279ms`,
+`v2-jvm=3.11ms`, `v2-rust=0.721ms`), and `pattern-match-heavy` remains the
+largest real Rust source blocker (`v2-rust=318.2ms`). `recursion-fib` regression
+check stayed stable at `v2-rust=1.46ms`. Gates: `installBin`, affected
+recursion conformance 3/3, the four public v2-backends bench rows, and
+`git diff --check`.
+
 ## 2026-07-09 — v2 Rust source backend specializes recursive Long globals
 
 The v2 Rust source backend now emits direct `i64` helpers for global lambdas
