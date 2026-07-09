@@ -31,6 +31,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
   execution bug, standard-Scala multi-section behavior, or a documented v1-side
   row; then fix v2 with focused conformance/regression coverage or classify the
   row explicitly.
+- **Reproduced 2026-07-09:** `distributed-streams.ssc` v1 reaches the word-count
+  block and then fails later on missing `String.toIntOption`; v2 fails earlier
+  inside DStreams `combinePerKey` with `NoSuchElementException: key not found:
+  key`. The likely bridge gap is that v2-created `KV(...)` reaches the v1
+  DStreams plugin as positional `_0`/`_1` fields instead of named
+  `key`/`value`. `streams.ssc` v1 fails in `stream { emit(...) }` with
+  `emit called outside a stream body`; v2 correctly emits the stream block and
+  then fails at `Source.runFold(z)(f) — outer`, likely because v2 invokes the
+  curried native method with both arguments in one call. The next code pass
+  should register v2 field names for `KV` and make stream/DStream `runFold`
+  accept both curried and flattened two-argument calls.
 - **Status:** open; queued in `SPRINT.md`.
 
 ## v2-output-parity-temp-write-fail-fast — `fixed` (2026-07-09)

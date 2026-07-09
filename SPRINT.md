@@ -29,6 +29,14 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       passes, targeted parity for both rows is either identical or explicitly
       classified with a durable BUGS/BACKLOG note, and the full parity baseline
       has no unexplained strict mismatch left.
+      Initial repro 2026-07-09: `distributed-streams.ssc` v2 fails in
+      `DStreamsIntrinsics.evalDag(_dag_combinePerKey)` because `KV` fields are
+      positional (`_0`/`_1`) rather than named (`key`/`value`) after v2→v1
+      conversion; register v2 field names for `KV`. `streams.ssc` v2 correctly
+      emits the stream block but then fails at `Source.runFold(z)(f) — outer`;
+      make stream/DStream `runFold` natives accept both curried and flattened
+      two-argument calls, then rerun the targeted examples to expose the next
+      row or close the slice.
 
 - [x] **v2-v1-side-mismatch-classification** — DONE 2026-07-09 in `18ee5ecfc`: verified and classified the two
       remaining full-parity mismatches that prior durable findings identify as
