@@ -1,6 +1,6 @@
 feature/v2-graph-neo4j-foreign-parity 2026-07-09T02:22:36Z
 agent: codex
-heartbeat: 2026-07-09T02:26:10Z
+heartbeat: 2026-07-09T02:35:25Z
 status: in-progress
-done-so-far: BUGS/SPRINT plan pushed in 23b2f5b15; worktree at /Users/sergiy/work/my/scalascript-wt-v2-graph-neo4j-foreign-parity
-next: reproduce graph-neo4j-storage mismatch in the real harness, add focused PluginBridge regression, then fix display conversion
+done-so-far: reproduced graph-neo4j-storage mismatch, fixed named plugin instance rendering for println/autoPrint locally, targeted parity green
+next: add affected conformance fixture, rerun gates, commit and push
