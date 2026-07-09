@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: report/v2-request-tag-collision
+worktree: ../scalascript-wt-v2-request-collision
+started: 2026-07-09
+status: in-progress
+task: diagnose+repro+report a fresh regression from d5f9ce486 (fieldnames-batch-isolation): a user case class literally named Request collides with the plugin-owned http Request field-name registration; .id (or any user field) on the user type resolves to Stub on v2. Found running busi tests/v2/requests.ssc (regressed from 61/61 to 60/61)
