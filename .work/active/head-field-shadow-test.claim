@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/head-field-shadow-test
-worktree: ../scalascript-wt-head-shadow
-started: 2026-07-09
-status: in-progress
-task: conformance repro + BUGS entry for v2 List.head dispatch poisoned by a case-class field named head at a non-zero index (busi hub boot blocker Op(Nil.trim))
