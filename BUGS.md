@@ -12,6 +12,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-serve-noop-minimalctx — `fixed` (2026-07-09)
+
+- **Found by:** busi (rozum 07-09 n=24): hub boots on --v2 (banner + pairing code)
+  but serve() never binds — no listener, curl 000.
+- **Root cause:** `serve(port)` on the v2 run lane resolves to the frontend-plugin
+  native, which calls `ctx.startServer`/`ctx.startTlsServer` — and the
+  NativeContext trait DEFAULTS are silent no-ops (IntrinsicImpl.scala:132-138).
+  The v2 bridge's MinimalCtx never overrode them, so every serve variant
+  "succeeded" without a socket. (serveAsync was unaffected — it has its own real
+  registerWebServer bridge.)
+- **Fix:** MinimalCtx overrides startServer/startTlsServer (BLOCKING on the
+  calling thread — v1 serve semantics, the program stays alive serving),
+  startServerAsync/startTlsServerAsync (daemon thread + bound latch), stopServer,
+  and registerHealthDefaults (/_health + /_ready on the bridge route registry,
+  mirroring ClusterRoutesRuntime).
+- **Verified:** busi hub on --v2: `lsof` shows the listener, `curl /` → 200 (busi
+  routes), `/_health` → {"status":"ok"}, `/_ready` → 200. Gates: corpus 148/14 =
+  main, conformance batch 123/37 = main, run.sh — all fails accounted
+  (case-classes[JS] pre-existing on main — the unowned f57c74da8-family report;
+  actors/async flakes pass idle; tls-smoke green).
+- **Ladder:** busi drives the full storefront+money loop on --v2 next.
 ## v2-vm-effect-handlers-regression — `open` (2026-07-09)
 
 - **Found by:** codex, while verifying `v2-vm-production-jit-gate` after
