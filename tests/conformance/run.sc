@@ -17,11 +17,13 @@ def repoRoot: os.Path =
     .find(p => os.exists(p / "build.sbt"))
     .getOrElse(os.pwd)
 
-// CLI: run.sc [dir] [--only glob[,glob...]] [--no-memo]
+// CLI: run.sc [dir] [--only glob[,glob...]] [--no-memo] [--warm-jvm|--cold-jvm]
 //   --only    run just the matching cases (comma-separated globs on the base
 //             name, e.g. --only 'json*,optics-*') — the fix->test loop then
 //             costs seconds instead of the full corpus (specs/conformance-perf.md F1).
 //   --no-memo disable the green-run memo cache (F2); also SSC_CONF_NO_MEMO=1.
+//   --warm-jvm opt into SSC_SCALACLI_SERVER=1 for run-jvm; default is serverless
+//             to avoid Bloop BSP/socket flakes in the production gate.
 val cliArgs = args.filterNot(_ == "--").toList
 val onlyGlobs: List[String] =
   cliArgs.sliding(2).collectFirst { case List("--only", v) => v }.toList
@@ -91,8 +93,21 @@ val memo: collection.mutable.Map[String, String] =
 def memoKey(name: String, src: String, expected: String): String =
   sha(src + "\u0000" + expected + "\u0000" + jarId)
 
+def outputWithFailureContext(stdout: String, stderr: String, exitCode: Int): String =
+  val out = stdout.stripTrailing()
+  val err = stderr.stripTrailing()
+  if exitCode == 0 then out
+  else
+    val parts = List(
+      Option(out).filter(_.nonEmpty),
+      Some(s"<exit:$exitCode>"),
+      Option(err).filter(_.nonEmpty)
+    ).flatten
+    parts.mkString("\n").stripTrailing()
+
 def run(cmd: os.proc): String =
-  cmd.call(stdin = "", stderr = os.Pipe, check = false).out.text().stripTrailing()
+  val res = cmd.call(stdin = "", stderr = os.Pipe, check = false)
+  outputWithFailureContext(res.out.text(), res.err.text(), res.exitCode)
 
 def check(label: String, got: String, expected: String): Boolean =
   if got == expected then
@@ -317,11 +332,12 @@ for test <- tests do
         true
       else
         val jsSource = jsEmitted.getOrElse(name, run(ssc("emit-js", test.toString)))
-        val jsOut = os.proc("node").call(
+        val jsRes = os.proc("node").call(
           stdin  = jsSource,
           stderr = os.Pipe,
           check  = false
-        ).out.text().stripTrailing()
+        )
+        val jsOut = outputWithFailureContext(jsRes.out.text(), jsRes.err.text(), jsRes.exitCode)
         check("JS ", jsOut, expected)
 
     // JVM via JvmGen + scala-cli compile+run
@@ -330,14 +346,20 @@ for test <- tests do
         println(s"  SKIP [JVM] (${skipReason("jvm")})")
         true
       else
-        // Warm bloop compiler by default (measured: 6-case slice 36s -> 15s
-        // combined with the batch lanes). --cold-jvm restores serverless.
+        // Serverless by default: the production gate must not depend on a
+        // long-lived Bloop BSP socket. --warm-jvm/SSC_CONF_WARM_JVM=1 (or the
+        // legacy SSC_SCALACLI_SERVER=1 env) opts into the faster warm lane.
+        val warmJvm =
+          !cliArgs.contains("--cold-jvm") &&
+          (cliArgs.contains("--warm-jvm") ||
+            sys.env.get("SSC_CONF_WARM_JVM").contains("1") ||
+            sys.env.get("SSC_SCALACLI_SERVER").contains("1"))
         val jvmEnv =
-          if cliArgs.contains("--cold-jvm") then Map.empty[String, String]
-          else Map("SSC_SCALACLI_SERVER" -> "1")
-        val jvmOut = os.proc(sscBin.toString, "run-jvm", test.toString)
+          if warmJvm then Map("SSC_SCALACLI_SERVER" -> "1")
+          else Map("SSC_SCALACLI_SERVER" -> "0")
+        val jvmRes = os.proc(sscBin.toString, "run-jvm", test.toString)
           .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
-          .out.text().stripTrailing()
+        val jvmOut = outputWithFailureContext(jvmRes.out.text(), jvmRes.err.text(), jvmRes.exitCode)
         check("JVM", jvmOut, expected)
 
     if intOk && jsOk && jvmOk then

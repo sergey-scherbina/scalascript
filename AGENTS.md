@@ -21,7 +21,8 @@ Every piece of work, always, in this order:
    4b. **Conformance before push**: run the affected slice —
    `tests/conformance/run.sh --only '<globs>'` (serverless wrapper — never spawns a bloop
    daemon; memoized green runs
-   skip; warm JVM lane is the default). It costs seconds now, so a push without
+   skip; JVM lane is serverless by default; use `--warm-jvm` only for local
+   speed probes). It costs seconds now, so a push without
    at least the affected-slice run is not acceptable. Full corpus stays for CI.
 5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
    (kills the worktree's build daemons too).
@@ -58,8 +59,9 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 - **Conformance loop**: `tests/conformance/run.sh --only 'glob*'` (the wrapper forces
   `--server=false` so no persistent bloop daemon is left behind — see bench.sh, bloop-serverless-scripts)
   runs just your cases; green runs are memoized (unchanged cases skip;
-  `--no-memo` to force). `SSC_SCALACLI_SERVER=1` keeps a warm compiler for the
-  JVM lane. RAM-bounded entrypoint: `scripts/conformance`.
+  `--no-memo` to force). The JVM lane is serverless by default; `--warm-jvm`
+  or `SSC_SCALACLI_SERVER=1` opts into a warm compiler for local speed probes.
+  RAM-bounded entrypoint: `scripts/conformance`.
 - Forked test JVMs default to `-Xmx2g` (override `SSC_TEST_XMX`); do NOT rely
   on `JDK_JAVA_OPTIONS` for test heaps.
 
