@@ -3021,3 +3021,65 @@ http/context.ssc `busiCfGet` (`hits.head.drop(n).trim` at module load). Repro:
 `bin/ssc --v2 tests/conformance/head-field-shadow.ssc` (expected file has the correct v1 output).
 Likely general: any builtin member name (head/tail/name/…) reused as a non-first case-class field.
 Found+minimized 2026-07-09 by busi (fable) while attempting the v2 hub conformance pass.
+
+## v2-db-url-scheme-not-jdbc — `databases:` front-matter parser only recognizes `jdbc:`-prefixed URLs
+
+**Status:** OPEN (v2 VM only; v1 lanes correct — guarded by
+tests/conformance/v2-db-url-scheme-not-jdbc.ssc)
+
+busi's `databases:` convention uses the `sqlite:` scheme (`sqlite::memory:`,
+`sqlite:./data.db`, `sqlite:${env:VAR}` — v1's own JsGenSqlBlockTest /
+WasmBackendSqlTest pin this as first-class, tested, alongside `jdbc:`). v2's
+ad hoc line-by-line parser (`FrontendBridge.parseDatabasesFromFrontmatter`,
+v2/frontend-bridge/.../FrontendBridge.scala ~line 129) only calls
+`PluginBridge.registerDb` when `rawUrl.startsWith("jdbc:")` — any other
+scheme is silently skipped (the `if` guard no-ops; nothing is logged). At
+runtime `Db.query`/`Db.execute` hits `MinimalCtx.dbConnect`, finds nothing
+registered, and crashes: "No database registered for '<name>' — add a
+databases: section to front-matter" — even though the front-matter IS
+present and correct. This is the busi hub-boot-adjacent `repo_sqlite_index`
+v2-sweep failure. Repro: `bin/ssc --v2
+tests/conformance/v2-db-url-scheme-not-jdbc.ssc`. Fix candidate: recognize
+`sqlite:` (and ideally any scheme, deferring validity to the JDBC driver)
+instead of hardcoding `jdbc:`.
+Found+minimized 2026-07-09 by busi (fable).
+
+## v2-native-result-unregistered-field — fieldAt crashes on a native result whose case class isn't imported
+
+**Status:** OPEN (v2 VM only; v1 lanes correct — guarded by
+tests/conformance/v2-native-result-unregistered-field.ssc)
+
+Calling a GLOBAL, extern-backed std function (e.g. `exec`, from
+std/process.ssc, bound by the os-plugin) WITHOUT importing its declared
+return type (`ProcessResult`), then accessing a field on the result
+(`r.exitCode`), crashes on v2 — even though the exact same code runs fine
+on v1. busi's `core/repo_git_mirror.ssc` does exactly this (calls `exec`
+bare, never imports `ProcessResult`; the plugin activates because the file
+separately imports OTHER externs from std/fs.ssc, e.g. `mkdirs`/`readFile`).
+
+v1's interpreter resolves `.exitCode` DYNAMICALLY by name against the
+native result's own field map — it never needs `ProcessResult`'s shape
+ahead of time. v2 compiles named field access to a static
+`fieldAt(recv, index, name)` using a GLOBAL, receiver-blind
+field-name→index registry built only from `case class` declarations
+TEXTUALLY PRESENT in the compiled unit (FrontendBridge's `fieldIndex`/
+`registerCaseClass`). Since `ProcessResult` is never imported here, its
+shape is unregistered — the v1→v2 bridge can't build a proper
+`DataV("ProcessResult", …)` for the native result and falls back to a raw
+representation. `fieldAt`'s runtime fallback then calls `asData` on that
+non-`DataV` value and crashes: "expected Data, got ProcessResult(...)".
+
+GENERAL gap, not process-specific: any native/extern function returning a
+case-class-shaped value whose class isn't ALSO imported in the same
+compile unit will hit this (the sibling of v2-head-field-dispatch-shadow —
+same "fieldIndex is global + receiver-blind, fieldAt trusts it
+unconditionally" root design, different receiver shape: plugin-native
+value instead of a builtin Cons). This is the busi `repo_git_mirror`
+v2-sweep failure. Repro: `bin/ssc --v2
+tests/conformance/v2-native-result-unregistered-field.ssc`. Fix candidate:
+`fieldAt`'s runtime fallback should route through the `__method__`
+structural/plugin dispatch (which already handles
+`ForeignV(NamedMethodObj)`) instead of unconditionally calling `asData`,
+OR the v1↔v2 bridge should tag native results by their declared name
+regardless of whether that case class was locally registered.
+Found+minimized 2026-07-09 by busi (fable).

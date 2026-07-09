@@ -1,0 +1,52 @@
+#!/usr/bin/env ssc
+---
+name: v2-native-result-unregistered-field
+description: v2 fieldAt crashes on a native (extern) function's case-class-shaped result whose class was never declared in this compile unit
+backends: [int]
+---
+
+# v2 field access crashes on a native result whose case class isn't imported
+
+Minimizes busi's `repo_git_mirror` v2-sweep failure. The pattern: call a
+GLOBAL, extern-backed std function (`exec`, from std/process.ssc, bound by
+the os-plugin) WITHOUT importing its declared return type (`ProcessResult`)
+— busi's `core/repo_git_mirror.ssc` does exactly this (calls `exec(...)`
+bare, never imports `ProcessResult`; the plugin bootstraps globally once
+ANY extern-backed std function is used elsewhere in the file — here,
+`exists` from std/fs.ssc, matching git_mirror's own `readFile`/`mkdirs`
+imports). Then dot into the result's fields (`r.exitCode`, `r.stdout`).
+
+v1's interpreter resolves `.exitCode` DYNAMICALLY by name against the
+native result's own field map — it never needs to know `ProcessResult`'s
+shape ahead of time, so this "just works" regardless of import.
+
+v2 compiles named field access to a STATIC `fieldAt(recv, index, name)`
+using a GLOBAL, receiver-blind field-name→index registry built only from
+`case class` declarations TEXTUALLY PRESENT in the compiled unit. Since
+`ProcessResult` is never imported here, its shape is unregistered — the
+v1→v2 bridge can't build a proper `DataV("ProcessResult", …)` for the
+native result and falls back to a raw/foreign representation. `fieldAt`'s
+runtime fallback then calls `asData` on that non-`DataV` value and crashes:
+`RuntimeException: expected Data, got ProcessResult(...)`.
+
+This is a GENERAL v2 gap, not process-specific: any native/extern function
+returning a case-class-shaped value whose class isn't ALSO imported in the
+same compile unit will hit this. Repro:
+`bin/ssc --v2 tests/conformance/v2-native-result-unregistered-field.ssc`
+(v1 lanes below pin the correct, passing behavior).
+
+Found 2026-07-09 minimizing busi's `repo_git_mirror` v2-sweep failure.
+
+[exists](std/fs.ssc)
+
+```scalascript
+case class MyStep(label: String, exitCode: Int, stdout: String)
+
+def run(label: String): MyStep =
+  val r = exec("echo", List(label), 0)
+  MyStep(label, r.exitCode, r.stdout)
+
+val s = run("hi")
+println(s.exitCode)
+println(s.stdout.trim())
+```

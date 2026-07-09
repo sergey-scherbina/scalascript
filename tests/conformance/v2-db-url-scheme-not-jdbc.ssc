@@ -1,0 +1,37 @@
+#!/usr/bin/env ssc
+---
+name: v2-db-url-scheme-not-jdbc
+description: v2 databases-frontmatter parser only recognizes url schemes literally prefixed "jdbc:"
+backends: [int]
+databases:
+  mydb:
+    url: "sqlite::memory:"
+---
+
+# v2 `databases:` front-matter parser drops non-`jdbc:` URL schemes
+
+busi's `databases:` convention is the `sqlite:` scheme (`sqlite::memory:`,
+`sqlite:./data.db`, `sqlite:${env:VAR}` — see v1's own
+JsGenSqlBlockTest/WasmBackendSqlTest, which pin this as the FIRST-CLASS,
+tested convention alongside `jdbc:`). v1's real front-matter handling
+resolves it fine on every backend.
+
+v2's ad hoc line-by-line parser (FrontendBridge.parseDatabasesFromFrontmatter)
+only calls `PluginBridge.registerDb` when `rawUrl.startsWith("jdbc:")` — any
+other scheme is silently skipped (no warning; the `if` guard is a no-op, not
+a caught failure). At runtime `Db.query`/`Db.execute` then hits
+`MinimalCtx.dbConnect`, finds nothing registered, and crashes:
+`RuntimeException: No database registered for 'mydb' — add a databases:
+section to front-matter` — even though the front-matter IS present and
+correct. Repro: `bin/ssc --v2 tests/conformance/v2-db-url-scheme-not-jdbc.ssc`
+(v1 lanes below pin the correct, passing behavior).
+
+Found 2026-07-09 minimizing busi's `repo_sqlite_index` v2-sweep failure
+(`url: "sqlite::memory:"` in tests/v2/repo_sqlite_index.ssc).
+
+```scalascript
+Db.execute("mydb", "create table t(x int)", [])
+Db.execute("mydb", "insert into t values (1)", [])
+val rows = Db.query("mydb", "select x from t", [])
+println(rows.length)
+```
