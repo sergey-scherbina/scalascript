@@ -508,7 +508,14 @@ def resolveMethodCall = (robj, method, rargs) =>
     match robj {
       case Pair(rtag, rname) =>
         if #seq(rtag, "uid") then
-          Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+          -- K62.7b: a user object (Math.square) → static Math_square; an unknown
+          -- uppercase object (Dataset.of, Graph.vertices) → __method__ dispatch,
+          -- resolved by the plugin runtime's __fallback__.<Name>.<method>.
+          (if isKnownObject(rname) then
+             Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+           else
+             Pair("prim", Pair("__method__",
+               Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
         else if #seq(rtag, "var") then
           if #seq(rname, "summon") then
             -- summon[TC].method → static dispatch via active ctx cell
@@ -2138,6 +2145,22 @@ def kc6Defs =
   Nil)))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
+-- K62.7b: pre-scan user `object` names so isKnownObject is reliable during lowering
+-- (a `Foo.method` on a KNOWN object → static Foo_method; on an UNKNOWN uppercase
+-- name like Dataset/Graph → __method__, resolved by the plugin runtime's
+-- __fallback__.Foo.method).
+def collectObjects = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            match data { case Pair(name, ss) => Cons(name, collectObjects(rest)) }
+          else collectObjects(rest)
+      }
+  }
+
 -- K62.6b: names of top-level `var` declarations (become global cells).
 def collectTopVars = (stmts) =>
   match stmts {
@@ -2172,7 +2195,7 @@ def lowerProg = (stmts) =>
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
   -- KC7b: reset known-objects registry (lower-case given instances)
-  let _ko = #cell.set(kc7bObjectsCell, Nil) in
+  let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
   -- Reset array/map/list variable registries
