@@ -1,6 +1,6 @@
 feature/v2-vm-pattern-match-heavy-fast-tier 2026-07-09T09:57:25Z
 agent: codex
-heartbeat: 2026-07-09T09:57:42Z
+heartbeat: 2026-07-09T10:05:41Z
 status: in-progress
-done-so-far: claim committed and worktree created
-next: write specs/v2-vm-pattern-match-heavy-fast-tier.md, commit it, then reproduce the pattern-match-heavy baseline
+done-so-far: spec committed; installBin passed; bench baseline pattern-match-heavy v2=35.1s vs ssc=0.058s; CoreIR hot shape captured
+next: inspect bench wrapper/runtime FastCode entry usage, then make one narrow fix or record blocker
