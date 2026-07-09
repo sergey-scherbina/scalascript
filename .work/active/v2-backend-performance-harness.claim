@@ -1,6 +1,6 @@
 feature/v2-backend-performance-harness 2026-07-09T08:08:03Z
 agent: codex
-heartbeat: 2026-07-09T08:15:43Z
+heartbeat: 2026-07-09T08:35:15Z
 status: in-progress
-done-so-far: planning/spec committed in 06608a596; CLI bench v2 source backend labels partially wired in worktree
-next: finish backend io.nanoTime support, bench wrapper/docs, then verify harness
+done-so-far: planning/spec committed in 06608a596; v2/v2-jvm/v2-rust bench labels wired in worktree; short baseline captured
+next: run final backend/parity/conformance gates, then commit docs/bookkeeping and push
