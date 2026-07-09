@@ -23,8 +23,10 @@ def isLower    = (c) => if #i.lt(c, 97) then false else #i.le(c, 122)
 def isUpper    = (c) => if #i.lt(c, 65) then false else #i.le(c, 90)
 def isAlpha    = (c) => if isLower(c) then true else isUpper(c)
 def isAlphaNum = (c) => if isAlpha(c) then true else if isDigit(c) then true else #i.eq(c, 95)
-def isWS       = (c) => if #i.eq(c, 32) then true else if #i.eq(c, 9) then true
-                        else if #i.eq(c, 10) then true else #i.eq(c, 13)
+-- K62.6c-indent: newline (10) / CR (13) are NO LONGER whitespace — the lexer emits
+-- an `NL <indent>` token at each line break so the layout pass can reconstruct
+-- brace-less indented blocks. Only space (32) / tab (9) are inline whitespace.
+def isWS       = (c) => if #i.eq(c, 32) then true else #i.eq(c, 9)
 
 def slen = (s) => #slen(s)
 def sget = (s, i) => #scodeAt(s, i)
@@ -79,6 +81,32 @@ def buildStr = (s, i, acc) =>
     else buildStr(s, #i.add(i, 1), scat(acc, #sfromCodes(Cons(c, Nil))))
 
 -- ── Lexer ─────────────────────────────────────────────────────────────────────
+-- K62.6c-indent: from `i` at a line start, count leading spaces/tabs → (indent, pos).
+def countIndent = (s, i, acc) =>
+  if #i.ge(i, slen(s)) then Pair(acc, i)
+  else let c = sget(s, i) in
+    if #i.eq(c, 32) then countIndent(s, #i.add(i, 1), #i.add(acc, 1))
+    else if #i.eq(c, 9) then countIndent(s, #i.add(i, 1), #i.add(acc, 1))
+    else Pair(acc, i)
+
+-- from `i` pointing AT a newline char, skip newline(s), blank lines and comment
+-- lines, and return (indent, pos) of the next real code token (or (0, EOF)).
+def skipToCode = (s, i) =>
+  let i1 = #i.add(i, 1) in
+  match countIndent(s, i1, 0) {
+    case Pair(ind, pos) =>
+      if #i.ge(pos, slen(s)) then Pair(0, pos)
+      else let c = sget(s, pos) in
+        if #i.eq(c, 10) then skipToCode(s, pos)
+        else if #i.eq(c, 13) then skipToCode(s, pos)
+        else if #i.eq(c, 47) then
+          if #i.eq(nget(s, #i.add(pos, 1)), 47) then
+            let e = scanEnd((c2) => if #i.eq(c2, 10) then false else true, s, #i.add(pos, 2)) in
+            if #i.ge(e, slen(s)) then Pair(0, e) else skipToCode(s, e)
+          else Pair(ind, pos)
+        else Pair(ind, pos)
+  }
+
 def skipWS = (s, i) =>
   if #i.ge(i, slen(s)) then i
   else let c = sget(s, i) in
@@ -95,7 +123,19 @@ def lexFrom = (s, i) =>
   if #i.ge(i2, slen(s)) then Cons(mkTok("EOF", ""), Nil)
   else let c = sget(s, i2) in
     let n = nget(s, #i.add(i2, 1)) in
-    if isAlpha(c) then
+    if #i.eq(c, 10) then
+      match skipToCode(s, i2) {
+        case Pair(ind, pos) =>
+          if #i.ge(pos, slen(s)) then Cons(mkTok("EOF", ""), Nil)
+          else Cons(mkTok("NL", ind), lexFrom(s, pos))
+      }
+    else if #i.eq(c, 13) then
+      match skipToCode(s, i2) {
+        case Pair(ind, pos) =>
+          if #i.ge(pos, slen(s)) then Cons(mkTok("EOF", ""), Nil)
+          else Cons(mkTok("NL", ind), lexFrom(s, pos))
+      }
+    else if isAlpha(c) then
       let e = scanEnd(isAlphaNum, s, #i.add(i2, 1)) in
       let w = #sslice(s, i2, e) in
       let kind = if isKw(w) then "kw" else if isUpper(c) then "uid" else "id" in
@@ -535,7 +575,7 @@ def parseBlock = (toks) =>
         pr(prV(r), skipKind(")", prT(r)))
       else parseExpr(ts3) in
       let cond = prV(rCond) in
-      let ts4 = prT(rCond) in
+      let ts4 = if kwIs("do", prT(rCond)) then advance(prT(rCond)) else prT(rCond) in  -- K62.6c: skip `do`
       let rBody = if kindIs("{", ts4) then parseBlock(advance(ts4))
                   else parseExpr(ts4) in
       go(prT(rBody), Cons(Pair("while", Pair(cond, prV(rBody))), acc))
@@ -1300,7 +1340,114 @@ def parseStmts = (toks) =>
       go(prT(r), Cons(prV(r), acc)) in
   go(toks, Nil)
 
-def parse = (src) => parseStmts(lex(src))
+-- ── K62.6c-indent: layout (offside → virtual braces) ─────────────────────────
+-- Convert NL <indent> tokens into virtual { ; } for brace-less indented blocks.
+-- A layout block ("L") opens after an opener token (= then else do yield) that is
+-- immediately followed by a newline; its statements sit at the block's indent.
+-- Explicit braces are tracked as "B" so dedent/close stay correctly nested. NLs
+-- outside any L block (top level, or directly inside a `{}`) are consumed — that
+-- preserves the pre-indent behaviour (newlines were whitespace).
+def isLayoutOpener = (t) =>
+  match t { case Pair(k, v) =>
+    if #seq(k, "=") then true
+    else if #seq(k, "kw") then
+      (if #seq(v, "then") then true else if #seq(v, "else") then true
+       else if #seq(v, "do") then true else if #seq(v, "yield") then true else false)
+    else false }
+
+-- close L blocks whose indent > v (stop at a B or a shallow-enough L)
+def dedentL = (v, stack) =>
+  match stack {
+    case Nil => Pair(Nil, Nil)
+    case Cons(top, srest) =>
+      match top { case Pair(tag, ind) =>
+        if #seq(tag, "L") then
+          (if #i.lt(v, ind) then
+             match dedentL(v, srest) { case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns) }
+           else Pair(Nil, stack))
+        else Pair(Nil, stack) } }
+
+-- on `}`: emit a virtual } for each open L above the nearest B, then pop the B.
+def closeToBrace = (stack) =>
+  match stack {
+    case Nil => Pair(Nil, Nil)
+    case Cons(top, srest) =>
+      match top { case Pair(tag, ind) =>
+        if #seq(tag, "B") then Pair(Nil, srest)
+        else match closeToBrace(srest) { case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns) } } }
+
+-- at EOF: close all still-open L blocks.
+def closeAllL = (stack) =>
+  match stack {
+    case Nil => Nil
+    case Cons(top, srest) =>
+      match top { case Pair(tag, ind) =>
+        if #seq(tag, "L") then Cons(mkTok("}", ""), closeAllL(srest)) else closeAllL(srest) } }
+
+-- after a dedent to stack `ns`, does `v` land at a same-level L (→ a `;`)?
+def sepAfter = (v, ns) =>
+  match ns {
+    case Nil => Nil
+    case Cons(nt, nsr) =>
+      match nt { case Pair(ntag, nind) =>
+        if #seq(ntag, "L") then (if #i.eq(v, nind) then Cons(mkTok(";", ""), Nil) else Nil)
+        else Nil } }
+
+-- a line that STARTS with one of these continues the previous expression rather
+-- than starting a new statement (Scala offside: else / infix op / . / :: / ->).
+def isCont = (ts) =>
+  match ts {
+    case Nil => false
+    case Cons(t, r) =>
+      match t { case Pair(k, v) =>
+        if #seq(k, "kw") then
+          (if #seq(v, "else") then true else if #seq(v, "match") then true
+           else if #seq(v, "yield") then true else false)
+        else if #seq(k, "op") then #i.gt(opPrec(v), 0)
+        else if #seq(k, ".") then true
+        else if #seq(k, "::") then true
+        else if #seq(k, "->") then true
+        else false } }
+
+-- a non-opener NL <v>: returns Pair(emittedTokens, newStack). `cont` = the next
+-- line is a continuation, so suppress the `;` (but still close dedented blocks).
+def nlStep = (v, stack, cont) =>
+  match stack {
+    case Nil => Pair(Nil, stack)
+    case Cons(top, srest) =>
+      match top { case Pair(tag, ind) =>
+        if #seq(tag, "B") then Pair(Nil, stack)
+        else if #i.gt(v, ind) then Pair(Nil, stack)
+        else if #i.eq(v, ind) then (if cont then Pair(Nil, stack) else Pair(Cons(mkTok(";", ""), Nil), stack))
+        else
+          match dedentL(v, stack) {
+            case Pair(closeToks, ns) => Pair(append(closeToks, (if cont then Nil else sepAfter(v, ns))), ns)
+          } } }
+
+def layout = (toks) =>
+  let rec go = (ts, stack, prevOpener) =>
+    match ts {
+      case Nil => Nil
+      case Cons(t, rest) =>
+        match t { case Pair(k, v) =>
+          if #seq(k, "EOF") then append(closeAllL(stack), Cons(t, Nil))
+          else if #seq(k, "NL") then
+            if prevOpener then
+              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false))
+            else
+              match nlStep(v, stack, isCont(rest)) {
+                case Pair(emitted, ns) => append(emitted, go(rest, ns, false))
+              }
+          else if #seq(k, "{") then
+            Cons(t, go(rest, Cons(Pair("B", 0), stack), false))
+          else if #seq(k, "}") then
+            match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false))) }
+          else Cons(t, go(rest, stack, isLayoutOpener(t)))
+        }
+    } in
+  go(toks, Nil, false)
+
+def parse = (src) => parseStmts(layout(lex(src)))
 
 -- ── Pretty-print ──────────────────────────────────────────────────────────────
 -- ssc0 does NOT support nested constructor patterns (case Cons(x, Nil) not allowed).
