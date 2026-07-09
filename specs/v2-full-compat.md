@@ -657,9 +657,18 @@ Long fast path recognise bridge-generated comparison conditions
 lowers Scala source comparisons this way, so today `fib(n)` misses the
 specialisation even though the arithmetic part is otherwise supported.
 
+Second bounded fix for the same slice: recognise bridge-generated arity-2
+self-tail-recursive Long functions shaped like
+`Lam(2, If(cond, baseValue, App(Global(self), nextN, nextAcc)))` and compile
+them to a local JVM `while` loop. This preserves the Core IR constant-stack TCO
+contract while removing trampoline/`Call` allocation overhead from
+`recursion-tco`.
+
 Behavior:
 - [ ] bridge-generated `def fib(n: Int): Int = if n <= 1 then n else ...`
       receives a `SelfRecLL`/`fcEntry` fast path.
+- [ ] bridge-generated `def sumTco(n: Int, acc: Int): Int = ...` receives a
+      constant-stack arity-2 self-tail loop fast path.
 - [ ] the raw v2 CoreIR `tco.coreir` and existing `recursion-fib` semantics stay
       unchanged.
 - [ ] before/after numbers for the four-row production probe are recorded here;
