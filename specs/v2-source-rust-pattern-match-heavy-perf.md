@@ -116,8 +116,76 @@ Fresh worktree baseline after `scripts/sbtc "installBin"` on 2026-07-09:
 
 ## Inspection
 
-Pending. Record the emitted v2 Rust shape and dominant overhead before code
-changes.
+2026-07-09 generated the CoreIR/Rust source for
+`bench/corpus/pattern-match-heavy.ssc` before code changes:
+
+```bash
+scripts/sbtc "v2FrontendBridge/runMain ssc.bridge.bridgeCli emit bench/corpus/pattern-match-heavy.ssc" > /tmp/v2-pattern-match-heavy.coreir.raw
+grep '^(program ' /tmp/v2-pattern-match-heavy.coreir.raw > /tmp/v2-pattern-match-heavy.coreir
+scala-cli run v2/backend/rust -q --server=false -- /tmp/v2-pattern-match-heavy.coreir > /tmp/v2-pattern-match-heavy.rs
+```
+
+The hot path is correct but fully boxed:
+
+- `area` is emitted as `V::Fn(Vec<V>) -> V`; each call matches
+  `V::Data(tag, fields)`, clones fields, and computes `Double` results through
+  generic `v_arith`.
+- `shapes` is emitted as a nested `V::Data("Cons", ...)` list of `Shape`
+  `V::Data` nodes.
+- `workload` uses an `i64` direct loop counter, but the accumulated `Double`
+  `total` remains a boxed `V::Cell(V::Float(0.0))`.
+- Every outer loop iteration calls generic `v_method("foreach", shapes, ...)`.
+  The list method traverses boxed `Cons` nodes and calls a freshly allocated
+  closure for each shape. That closure loads/stores `total` through `as_cell`
+  and calls generic `call_fn(g_area, ...)`.
+
+Representative generated Rust:
+
+```rust
+let g_area: V = V::Fn(Rc::new(move |_args: Vec<V>| { ... v_arith(...); }));
+let g_shapes: V = V::Data("Cons".to_string(), vec![ ... ]);
+let _l21: V = V::Cell(Rc::new(RefCell::new(V::Float(0.0f64))));
+let mut _l22: i64 = 0i64;
+while (_l22) < (100000i64) {
+    v_method(V::Str("foreach".to_string()), g_shapes.clone(), vec![{
+        V::Fn(Rc::new(move |_args: Vec<V>| {
+            let _v27 = v_arith(
+                V::Str("+".to_string()),
+                as_cell(_l21.clone()).borrow().clone(),
+                call_fn(g_area.clone(), vec![_a25.clone()])
+            );
+            *as_cell(_c26).borrow_mut() = _v27;
+            V::Unit
+        }))
+    }]);
+    _l22 = (_l22).wrapping_add(1i64);
+}
+```
+
+Dominant overhead hypothesis: `v2-rust=319.1 ms` is not a Rust compiler or
+bench-wrapper artifact; it is boxed dynamic dispatch in the source backend hot
+path. The narrow production fix should specialize the proven `Double`/ADT/list
+path while retaining the generic `V` fallback for first-class closures and
+other list/match shapes.
+
+Chosen implementation direction: add a scoped `f64` fast path analogous in
+spirit to the already-landed Long helper path, but limited to the CoreIR shapes
+needed here:
+
+- infer global lambdas whose bodies are provably Float-typed and emit direct
+  `<name>_float(V...) -> f64` helpers; `area(s: Shape): Double` remains allowed
+  to take boxed ADT arguments while returning unboxed `f64`;
+- lower Float-returning ADT `match` arms to direct Rust `match`/field
+  extraction and native `f64` arithmetic;
+- lower `cell.new/get/set` for Float locals to direct mutable `f64` slots when
+  the containing function is in the fast path;
+- for the measured `shapes.foreach(s => total = total + area(s))` shape, emit a
+  direct traversal over the boxed `Cons` list that calls the Float helper and
+  updates the direct `f64` accumulator, leaving generic `v_method("foreach")`
+  intact elsewhere.
+
+Rejected: a corpus-name or `pattern-match-heavy` special case. The fast path
+must be structural, guarded by CoreIR shape/type proof, and optional.
 
 ## Results
 

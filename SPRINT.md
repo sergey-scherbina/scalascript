@@ -31,6 +31,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       Fresh baseline 2026-07-09 after `scripts/sbtc "installBin"`:
       `scripts/bench v2-backends pattern-match-heavy` reports
       `v2=15.4 ms`, `v2-jvm=10.8 ms`, `v2-rust=319.1 ms`.
+      Inspection: emitted CoreIR/Rust confirms the hot path is fully boxed:
+      `area` is a generic `V::Fn(Vec<V>) -> V`; `shapes` is a boxed nested
+      `V::Data("Cons", ...)` list; `workload` has a direct `i64` loop counter
+      but a boxed `V::Cell(V::Float)` accumulator; each outer iteration calls
+      generic `v_method("foreach")`, allocates/calls a closure for each shape,
+      loads/stores the cell through `as_cell`, and computes every `Double`
+      through generic `v_arith`/`call_fn(g_area, ...)`. Implementation
+      direction: structural, optional v2-rust fast path for provably
+      Float-returning globals plus the boxed ADT/list `foreach` shape; do not
+      special-case the corpus name or replace the generic fallback.
 
 - [x] **v2-source-backend-production-perf-sweep** - DONE 2026-07-09 in
       `3d514f411`: measurement-first
