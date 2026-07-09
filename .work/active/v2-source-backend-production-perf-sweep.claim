@@ -1,6 +1,0 @@
-feature/v2-source-backend-production-perf-sweep 2026-07-09T22:28:02Z
-agent: codex
-heartbeat: 2026-07-09T22:28:02Z
-status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-source-backend-production-perf-sweep
-next: add SPRINT measurement slice, run current v2-backends rows, update production gate backlog
