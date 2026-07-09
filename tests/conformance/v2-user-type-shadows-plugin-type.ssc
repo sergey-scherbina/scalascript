@@ -1,0 +1,44 @@
+#!/usr/bin/env ssc
+---
+name: v2-user-type-shadows-plugin-type
+description: a user case class sharing a name with a plugin-owned runtime type (e.g. Request) has its fields shadowed by the plugin's field list on v2
+backends: [int]
+---
+
+# v2 fresh regression: user `case class Request` collides with the plugin-owned `Request` type
+
+Regression from `d5f9ce486` (fix(v2): batch-isolate the fieldNames
+registry via snapshot/restore — the fix for `v2-route-params-stub`).
+
+`V2PluginRegistry.fieldNames` is a single GLOBAL, tag-keyed map. Plugin
+load registers a baseline entry for the runtime-owned `Request` tag (used
+by `std/http.ssc`'s `Request`, so `req.params`/`req.query`/etc resolve —
+see `v2-route-params-stub`, now fixed). `snapshot()` now captures that
+baseline and `restore()` resets `fieldNames` to it — but restore is (or a
+prior overwrite is) NOT scoped per-tag against USER case classes: any
+program that ALSO declares its OWN `case class Request(...)` (a completely
+unrelated type — this repro's has no `method`/`path`/`headers` at all)
+gets its field registration for tag "Request" clobbered by the plugin's
+http-Request field list. Field access then resolves by the WRONG
+(http-shaped) index/registry, `id` isn't in it, and the value comes back
+as `Stub` — silently, with no compile or import connection to
+`std/http.ssc` at all (this repro imports NOTHING).
+
+busi hit this via `src/v2/domain/requests.ssc`'s OWN
+`case class Request(id, partyId, kind, ...)` (an inbox-request domain
+type, unrelated to HTTP) — `.id` on it now returns `Stub` on `--v2`,
+regressing `tests/v2/requests.ssc` from passing to
+`RuntimeException: head on empty list`. v1 lanes below pin the correct
+behavior.
+
+Found 2026-07-09 by busi (fable), same afternoon `v2-route-params-stub`'s
+fix landed.
+
+```scalascript
+case class Request(id: String, kind: String)
+
+val items = List(Request("r1", "task"), Request("r2", "investor"))
+val hit = items.filter(r => r.id == "r1").head
+println(hit.id)
+println(hit.kind)
+```

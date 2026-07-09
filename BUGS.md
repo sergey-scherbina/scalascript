@@ -3199,3 +3199,51 @@ the real Request instance even carries path-match results in
 `effFields`/`fieldsArr` at all for the backend serving this test.
 Found+minimized 2026-07-09 by busi (fable) while running the full JDG
 money-loop simulator cycle.
+
+## v2-user-type-shadows-plugin-type — a user case class named "Request" (or any plugin-owned tag) has its fields clobbered on v2
+
+**Status:** OPEN, FRESH REGRESSION from `d5f9ce486` (the
+`v2-route-params-stub` fix) — v1 lanes correct, guarded by
+tests/conformance/v2-user-type-shadows-plugin-type.ssc
+
+`V2PluginRegistry.fieldNames` is a single GLOBAL, tag-keyed map shared by
+EVERY case class in a program (user-declared or plugin-owned) — this is
+the same root design (global, receiver-blind field-name registry) behind
+`v2-head-field-dispatch-shadow` and `v2-route-params-stub`. Plugin load
+registers a baseline entry for the runtime-owned `Request` tag (the
+`std/http.ssc` `Request` type: method/path/headers/body/params/query/…,
+needed for `req.params` to resolve — see `v2-route-params-stub`, now
+fixed). `d5f9ce486` made `snapshot()` capture that baseline and `restore()`
+reset `fieldNames` back to it. Any program that ALSO declares its OWN
+`case class Request(...)` — a completely unrelated type, sharing nothing
+but the tag name — gets that registration silently clobbered: field access
+on the user's `Request` instances resolves against the HTTP-shaped field
+list instead of the user's own, the user's field name isn't found there,
+and the value comes back as `Stub`.
+
+Repro (self-contained, no `std/http.ssc` import at all):
+```
+case class Request(id: String, kind: String)
+val items = List(Request("r1", "task"), Request("r2", "investor"))
+val hit = items.filter(r => r.id == "r1").head   // → RuntimeException: head on empty list
+```
+`items.filter(r => r.id == "r1")` comes back EMPTY (both items' `.id`
+reads as `Stub`, so nothing matches `"r1"`), then `.head` on that empty
+list crashes. v1 is correct: `println` shows `r1` / `task`.
+
+busi hit this for real via `src/v2/domain/requests.ssc`'s OWN
+`case class Request(id, partyId, kind, subject, body, channel, …)` (an
+inbox-request domain type, nothing to do with HTTP) — this regressed
+`tests/v2/requests.ssc` from passing to `RuntimeException: head on empty
+list` the same afternoon the route-params fix landed (busi's full v2
+domain sweep went 61/61 → 60/61).
+
+Likely fix direction: `fieldNames` (and the runtime-baseline snapshot
+introduced by `d5f9ce486`) needs to key on something that disambiguates
+plugin-owned/builtin tags from user-declared ones (or restore() needs to
+only reset entries that WEREN'T re-registered by the user's own compile
+unit), not just the bare tag string "Request" — any user type name that
+happens to collide with a plugin-owned runtime tag (Request is a very
+natural, common domain name — busi is not the only likely victim) will hit
+this. Found+minimized 2026-07-09 by busi (fable), same day as the
+route-params-stub fix.
