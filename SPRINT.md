@@ -9,26 +9,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-prod-performance-gate-baseline** — measure and document the
-      production-v2 performance gate before any default-switch decision.
-      Context: `specs/v2-full-compat.md` still has open Phase-3 checkboxes for
-      v2 VM within 2x v1 interpreter, v2 JVM backend within 2x v1 JVM backend,
-      v2 Rust backend within 1.5x v1 Rust backend, and conformance score v2 >=
-      v1. Scope: do a bounded benchmark audit only, not speculative optimizer
-      work. Read `docs/benchmarks.md` and `scripts/bench help/list`, then run
-      the smallest representative commands through `scripts/bench` (not raw
-      sbt/JMH) for interpreter/cross-backend/compile lanes as needed to produce
-      before numbers. Record exact commands, ratios, host caveats, and which
-      checkboxes remain open in `specs/v2-full-compat.md`; queue concrete
-      follow-up fixes in BACKLOG/SPRINT if a ratio fails clearly. Done-when:
-      measurements are reproducible from docs, no sibling claim overlaps, a
-      real conformance slice passes before push, and no production switch
-      checkbox is marked green without a measured command/result.
-      Discovered blocker 2026-07-09: `scripts/bench wall` prints all `n/a`
-      because `tests/bench/run.sc` resolves data files under `$PWD/bench`
-      instead of `tests/bench`; track as BUGS
-      `scripts-bench-wall-all-na` and fix in this slice before using the wall
-      numbers.
+- [x] **v2-prod-performance-gate-baseline** — DONE 2026-07-09 in
+      `a4b7e6997`: recorded the first bounded production-v2 performance gate
+      baseline and left the Phase-3 performance checkboxes open honestly.
+      `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib
+      recursion-tco pattern-match-heavy` shows v2 VM at 37.5x-355.6x slower
+      than `ssc` on representative corpus rows, so the v2 VM 2x gate is red.
+      The current `jvm`/`rust` corpus columns are not the v2 separate-backend
+      gates; `v2-backend-performance-harness` is queued in BACKLOG. Also fixed
+      BUGS `scripts-bench-wall-all-na` in `966a530e6`; `scripts/bench wall`
+      now produces usable fib/sum/list-ops rows. Gates: `scripts/sbtc
+      "installBin"`; `scripts/bench list`; bounded `bench.sh` probe;
+      `scripts/bench wall`; `tests/conformance/run.sh --only 'litdoc'` passed
+      INT/JS/JVM.
 
 - [ ] **v2-vm-perf-hotpath-triage** — follow up on the 2026-07-09 production
       performance probe: v2 VM is 37.5x-355.6x slower than `ssc` on the

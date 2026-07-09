@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 production performance gate baseline recorded
+
+Recorded a bounded production-v2 performance probe in `specs/v2-full-compat.md`.
+The current v2 VM remains far outside the Phase-3 2x target on representative
+corpus rows (`37.5x` to `355.6x` slower than `ssc`), so the performance
+checkboxes stay open. Also fixed `scripts/bench wall` so it finds
+`tests/bench` data and uses `ssc run-jvm` for the JVM fallback; the wall harness
+now emits usable fib/sum/list-ops rows again. Gates: `installBin`, `bench.sh`
+bounded probe, `scripts/bench wall`, and conformance `litdoc` on INT/JS/JVM.
+
 ## 2026-07-09 — v2 source JVM backend supports mutual LetRec TCO
 
 `v2/backend/jvm/JvmBackend.scala` now emits a conservative local dispatcher
