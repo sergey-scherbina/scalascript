@@ -572,6 +572,37 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       (операнды арифметики, ресиверы методов, записи var, скрутини матчей).
       Гейты: корпус 149/13, конформанс 85/3.
 
+## p4-bc-perf — bytecode lane perf vs the now-fast VM (2026-07-09)
+
+The VM lane got ~10x faster recently (arith/JIT work): fib25x30 VM 22ms vs
+bytecode 107ms. Byte-lane is now 3-12x BEHIND on hot workloads. Sweep
+(VM vs --bytecode, self-timed drivers over bench/corpus):
+  string-concat 12.6x, list-fold 11.3x, pattern-match-heavy 10.2x,
+  recursion-fib 5.1x, recursion-tco 4.3x, nested-loop 3.1x;
+  at parity: hof-pipeline, map-ops, range-sum, string-split, typeclass-*;
+  byte-lane WINS: mutual-recursion 0.56x (bounce trampoline).
+ROOT: the VM has COMPILE-LEVEL fast paths (FastCode unboxed arith via
+tryFLC, inline-foreach-body via tryFCAppended) that the bytecode EMITTER
+lacks — it routes hot ops through the generic runtime dispatch.
+LANDED: foreachConsOp (61554b55c) — runtime foreach walks Cons directly
+(no unlist materialise + no discarded result accum); ~5%, the rest is
+per-element callClos + dispatch.
+NEGATIVE RESULT: specialized per-op arith methods (Emit.add/sub/…) made
+fib WORSE (107→146ms) — inline-lambda alloc; the JIT already handles the
+string-op switch. Dispatch is NOT the bottleneck; boxing + callClos are.
+- [ ] **p4-bc-foreach-inline** — emit an inline Cons-walk loop for
+      `__method__("foreach", recv, Lam(1, body))` in JvmByteGen (VM's
+      tryFCAppended analog): save orig env to a slot, per element
+      extend1(origEnv, elem)->slot0 + gen(body) inline + POP + advance to
+      fields(1). GUARD: only for EFFECT-FREE bodies (the VM inlines only
+      when tryFC succeeds, which declines effectful bodies) — else Op-
+      threading breaks. De Bruijn: elem at env tail = Local(0). Biggest
+      remaining foreach/loop win.
+- [ ] **p4-bc-unboxed-arith** — track provably-Int operands in the emitter
+      and emit unboxed JVM arith (iadd/if_icmple) with boxing only at
+      call/store boundaries (VM's tryFLC analog). Helps arith-loop/nested-
+      loop/range-sum where the VM near-JITs to 0ms.
+
 ## Phase 4 — perf baseline v2-VM (bench 2026-07-08, `./bench.sh --backend v2`)
 
 Полная таблица в истории бенчей; ключевые точки (ms/iter, v2 vs v1-interp+JIT):
