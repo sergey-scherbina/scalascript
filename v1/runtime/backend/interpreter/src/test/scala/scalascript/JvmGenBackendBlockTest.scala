@@ -59,6 +59,18 @@ class JvmGenBackendBlockTest extends AnyFunSuite:
     assert(!code.contains("""//> using sources"""),
       "module with no java blocks must not emit //> using sources")
 
+  test("no-arg mkString rewrite emits Scala parameterless call"):
+    val code = emit(
+      """|# Plain
+         |
+         |```scalascript
+         |println(List("a", "b").mkString())
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""List("a", "b").map(_show).mkString)"""), code)
+    assert(!code.contains(""".map(_show).mkString()"""), code)
+
   // ── java blocks — compiled as separate .java source files ──────────────
 
   test("java block: //> using sources directive is emitted"):

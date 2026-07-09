@@ -337,7 +337,9 @@ function _dispatch(obj, method, args) {
       case 'toUpperCase': return obj.toUpperCase();
       case 'toLowerCase': return obj.toLowerCase();
       case 'trim': return obj.trim();
-      case 'split': return obj.split(args[0]);
+      // Scala/JVM String.split takes a regex pattern; JS String.split treats a
+      // string separator literally, so route through RegExp for backend parity.
+      case 'split': return obj.split(new RegExp(args[0]));
       case 'replace': return obj.replaceAll(args[0], args[1]);
       // Scala String.matches = FULL-string regex match — anchor the pattern.
       case 'matches': return new RegExp('^(?:' + args[0] + ')$').test(obj);

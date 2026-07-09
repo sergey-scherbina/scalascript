@@ -3208,7 +3208,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   /** Route emitted code through `_show` for the cases where Scala 3's
    *  default Any.toString would print a whole-number Double as "4.0":
    *
-   *    - `expr.mkString(...)`  →  `expr.map(_show).mkString(...)`
+   *    - `expr.mkString` / `expr.mkString(...)`
+   *                         →  `expr.map(_show).mkString` / `expr.map(_show).mkString(...)`
    *    - `s"... $x ..."`       →  `sx"... $x ..."`  (sx is defined in preamble)
    *
    *  `_show` is identity for non-Doubles, so other element types are
@@ -3218,6 +3219,9 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private def routeMkStringThroughShow(src: String): String =
     var out = src
     if out.contains(".mkString(") then
+      // Scala's no-arg Iterable.mkString is parameterless; `mkString()` parses
+      // as applying the returned String (`StringOps.apply`) and fails to compile.
+      out = out.replaceAll("""\.mkString\(\)""", ".map(_show).mkString")
       out = out.replaceAll("""\.mkString\(""", ".map(_show).mkString(")
     if out.contains("s\"") || out.contains("s\"\"\"") then
       // Negative lookbehind for `$` or word char so we don't rewrite the `s`

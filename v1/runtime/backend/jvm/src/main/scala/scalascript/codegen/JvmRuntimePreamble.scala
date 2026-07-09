@@ -15,15 +15,28 @@ object JvmRuntimePreamble:
        |  def println(v: Any): Unit = scala.Predef.println(_show(v))
        |  def print(v: Any): Unit   = scala.Predef.print(_show(v))""".stripMargin
 
+  /** Document helper emitted only when user code does not own `doc`. A user
+   *  top-level `val doc = ...` lives in the same generated Scala scope as the
+   *  preamble, so retaining both makes later `doc.nodes...` chains typecheck
+   *  against the helper function instead of the user value. */
+  private val docHelper: String =
+    """|def doc(args: Any*): _Doc = _Doc(args.toSeq)""".stripMargin
+
   /** Preamble source with user-name-aware pieces resolved. */
   def sourceFor(userTopNames: Set[String]): String =
     if sys.env.contains("SSC_DEBUG_PREAMBLE") then
       System.err.println(s"[preamble] userTopNames=${userTopNames.toList.sorted.mkString(",")}")
-    template.replace(
-      "@SSC_CONSOLE_SHADOW@",
-      if userTopNames.contains("Console") then
-        "// (Console shadow omitted — the module defines its own `Console`)"
-      else consoleShadow)
+    template
+      .replace(
+        "@SSC_CONSOLE_SHADOW@",
+        if userTopNames.contains("Console") then
+          "// (Console shadow omitted — the module defines its own `Console`)"
+        else consoleShadow)
+      .replace(
+        "@SSC_DOC_HELPER@",
+        if userTopNames.contains("doc") then
+          "// (doc helper omitted — the module defines its own `doc`)"
+        else docHelper)
 
   /** Full preamble (no user-name knowledge) — used by `genRuntime`, which
    *  emits into `package _ssc_runtime` where user names cannot collide.
@@ -299,7 +312,7 @@ object JvmRuntimePreamble:
        |  def apply(args: Any*): _Raw       = _renderTag(name, args, voidTag)
        |
        |case class _Doc(parts: Seq[Any])
-       |def doc(args: Any*): _Doc = _Doc(args.toSeq)
+       |@SSC_DOC_HELPER@
        |def render(args: Any*): Unit =
        |  def toStr(v: Any): String = v match
        |    case d: _Doc => d.parts.map(toStr).mkString("\n")

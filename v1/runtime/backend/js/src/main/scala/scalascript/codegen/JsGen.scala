@@ -272,6 +272,16 @@ object JsGen:
       if !JsRuntimeWebAuthn.endsWith("\n") then sb.append('\n')
     sb.toString
 
+  private val runtimeTopLevelDecl =
+    """(?m)^\s*(?:async\s+function|function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b""".r
+
+  /** Runtime declarations share the classic-script top-level scope with user
+   *  code after the CLI concatenates runtime + user JS. A user `val doc = ...`
+   *  must therefore emit under a generated name instead of redeclaring the
+   *  runtime `function doc(...)`. */
+  private[codegen] lazy val runtimeTopLevelNames: Set[String] =
+    runtimeTopLevelDecl.findAllMatchIn(generateRuntime(Capability.all)).map(_.group(1)).toSet
+
   /** Emit user code only — no runtime preamble.  In JS this is a synonym
    *  for [[generate]] today (`genModule` never prepended the preamble; the
    *  preamble was concatenated by the CLI's `buildScjsSource`).  The alias
@@ -384,6 +394,9 @@ class JsGen(
     private[codegen] val effectOps: mutable.Set[String] = mutable.Set.empty,
     private[codegen] val effectfulFuns: mutable.Set[String] = mutable.Set.empty,
     private[codegen] val multiShotEffects: mutable.Set[String] = mutable.Set.empty,
+    // Shared across parent + all child generators so generated replacements for
+    // runtime-colliding user top-level names stay unique in the final flat JS scope.
+    private[codegen] val usedTopLevelJsNames: mutable.Set[String] = mutable.Set.empty,
     // When Some(set), only top-level declarations whose name is in the set are emitted.
     // None means no filtering (tree-shaking disabled — emit everything).
     // Populated by TreeShaker.shake() and threaded from the companion object entry points.
@@ -395,6 +408,7 @@ class JsGen(
   private var tmpIdx = 0
   private var hasMain = false
   private var mainCalled = false
+  private val topLevelUserRenames = mutable.Map.empty[String, String]
   // Active parameter renames for JS reserved-word param names (e.g. `default` → `default_p`).
   private val paramRenames = mutable.Map.empty[String, String]
   // Set when the module uses runAsyncParallel; causes the user code sections to
@@ -862,9 +876,83 @@ class JsGen(
   private[codegen] val importedContentDocuments: scala.collection.mutable.Map[String, List[DocumentContent]] =
     scala.collection.mutable.Map.empty
 
+  private case class TopLevelName(name: String, renameableBinding: Boolean)
+
+  private def collectTopLevelNames(module: Module): List[TopLevelName] =
+    val names = mutable.ListBuffer.empty[TopLevelName]
+
+    def fromStats(stats: List[Stat]): Unit =
+      stats.foreach {
+        case d: Defn.Val =>
+          d.pats.foreach {
+            case Pat.Var(n) => names += TopLevelName(n.value, renameableBinding = true)
+            case _          => ()
+          }
+        case Defn.Var.After_4_7_2(_, pats, _, _) =>
+          pats.foreach {
+            case Pat.Var(n) => names += TopLevelName(n.value, renameableBinding = true)
+            case _          => ()
+          }
+        case d: Defn.Def    => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Object => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Class  => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Enum   => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Trait  => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Type   => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Given  => names += TopLevelName(d.name.value, renameableBinding = false)
+        case _              => ()
+      }
+
+    def fromNode(node: ScalaNode): Unit =
+      node.tree match
+        case Source(stats)     => fromStats(stats)
+        case Term.Block(stats) => fromStats(stats)
+        case s: Stat           => fromStats(List(s))
+        case _                 => ()
+
+    def walkSection(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach(fromNode)
+        case _ => ()
+      }
+      section.subsections.foreach(walkSection)
+
+    module.sections.foreach(walkSection)
+    names.toList
+
+  private def registerTopLevelUserRenames(module: Module): Unit =
+    val names = collectTopLevelNames(module)
+    val originalNames = names.map(_.name).toSet
+    names.foreach { entry =>
+      if !JsGen.runtimeTopLevelNames.contains(entry.name) then
+        usedTopLevelJsNames += entry.name
+    }
+    names.foreach { entry =>
+      if entry.renameableBinding && JsGen.runtimeTopLevelNames.contains(entry.name) &&
+          !topLevelUserRenames.contains(entry.name) then
+        topLevelUserRenames(entry.name) = freshTopLevelUserName(entry.name, originalNames)
+    }
+
+  private def freshTopLevelUserName(name: String, originalNames: Set[String]): String =
+    var suffix = 0
+    var candidate = s"${name}__ssc"
+    while JsGen.runtimeTopLevelNames.contains(candidate) ||
+        usedTopLevelJsNames.contains(candidate) ||
+        originalNames.contains(candidate) do
+      suffix += 1
+      candidate = s"${name}__ssc$suffix"
+    usedTopLevelJsNames += candidate
+    candidate
+
+  private def emittedName(name: String): String =
+    topLevelUserRenames.getOrElse(name, name)
+
   def genModule(module: Module): String =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    topLevelUserRenames.clear()
+    registerTopLevelUserRenames(module)
     caseClassFieldsByType = caseClassFieldsInModule(module)
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     caseClassTagMap       = caseClassTagsInModule(module)
@@ -1766,6 +1854,8 @@ class JsGen(
   def genModuleSegmented(module: Module): List[JsGen.Segment] =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    topLevelUserRenames.clear()
+    registerTopLevelUserRenames(module)
     caseClassFieldsByType = caseClassFieldsInModule(module)
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     caseClassTagMap       = caseClassTagsInModule(module)
@@ -2035,7 +2125,8 @@ class JsGen(
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childGen = new JsGen(Some(childDir), intrinsics = intrinsics, lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects)
+      val childGen = new JsGen(Some(childDir), intrinsics = intrinsics, lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects, usedTopLevelJsNames = usedTopLevelJsNames)
+      childGen.registerTopLevelUserRenames(childModule)
       childGen.importedFiles ++= importedFiles
       // Record the imported module's function / case-class param orders so that
       // (a) named-arg call sites later in THIS module (the importer) reorder, and
@@ -2283,7 +2374,7 @@ class JsGen(
           else if isTupleExpr(rhs) then tupleVars += n.value
           declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
             .foreach(e => listElemType(n.value) = e)
-          line(s"const ${n.value} = ${genExpr(rhs)};")
+          line(s"const ${emittedName(n.value)} = ${genExpr(rhs)};")
         case List(pat) =>
           // Tuple/pattern destructuring
           val patJs = genPatDestructure(pat)
@@ -2296,7 +2387,7 @@ class JsGen(
       else if isNumericExpr(rhs) then numericVars += n.value
       declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
         .foreach(e => listElemType(n.value) = e)
-      line(s"let ${n.value} = ${genExpr(rhs)};")
+      line(s"let ${emittedName(n.value)} = ${genExpr(rhs)};")
 
     // arch-ffi-p1 — @js("expr") / @jvm-only handling for extern defs.
     // @js("expr")     → emit a JS function with the inline expression body.
@@ -2320,7 +2411,7 @@ class JsGen(
       val params      = paramVals.map(_.name.value)
       val hasDefaults = paramVals.exists(_.default.isDefined)
       val fname       = d.name.value
-      val defRenames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
+      val defRenames  = paramRenameMap(params)
       // `using` params: explicit implicit parameter clauses `(using x: TC[T])`.
       // Emit guards to resolve them at runtime via _resolveGiven + _ssc_typeOf on a hint param.
       val nonUsingParams = d.paramClauseGroups.flatMap(_.paramClauses).filterNot { pc =>
@@ -2436,7 +2527,7 @@ class JsGen(
               !hasNonTailSelfCall(d.body, fname, tailPos = true) then
         // Formals are _p shadow-names so we can declare mutable let params inside.
         // safeJsParam guards against JS reserved words (e.g. `default` → `default_p`).
-        val renames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
+        val renames  = paramRenameMap(params)
         val formals  = params.map(p => s"_$p").mkString(", ")
         val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
         line(s"function $fname($formals) {")
@@ -2759,8 +2850,7 @@ class JsGen(
         // Reserved-word params are renamed in the signature (safeJsParam, e.g.
         // `default` → `default_p`); the body must see the same renames or its
         // references emit the bare reserved word (SyntaxError on Node).
-        val objDefRenames = allClauses.flatMap(_.values).map(_.name.value)
-          .collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
+        val objDefRenames = paramRenameMap(allClauses.flatMap(_.values).map(_.name.value))
         val bodyJsRaw = withParamRenames(objDefRenames) {
           dd.body match
             case Term.Block(bodyStats) =>
@@ -2926,6 +3016,12 @@ class JsGen(
   private def safeJsParam(name: String): String =
     if jsReservedWords.contains(name) then s"${name}_p" else name
 
+  private def paramRenameMap(params: Seq[String]): Map[String, String] =
+    params.collect {
+      case p if jsReservedWords.contains(p)      => p -> safeJsParam(p)
+      case p if topLevelUserRenames.contains(p)  => p -> p
+    }.toMap
+
   private def formalWithDefault(p: Term.Param): String =
     val n = safeJsParam(p.name.value)
     p.default match
@@ -2938,7 +3034,7 @@ class JsGen(
   private def genMutualTcoFun(d: Defn.Def, fname: String, params: List[String]): Unit =
     val implName = s"_${fname}_impl"
     val friends  = mutualGroups(fname) - fname
-    val renames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
+    val renames  = paramRenameMap(params)
     val formals  = params.map(p => s"_$p").mkString(", ")
     val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
     line(s"function $implName($formals) {")
@@ -3115,11 +3211,11 @@ class JsGen(
 
   private def genGenStatItem(s: Stat): String = s match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-      s"  const ${n.value} = ${genGenExpr(rhs)};"
+      s"  const ${emittedName(n.value)} = ${genGenExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-      s"  let ${n.value} = ${genGenExpr(rhs)};"
+      s"  let ${emittedName(n.value)} = ${genGenExpr(rhs)};"
     case Term.Assign(Term.Name(n), rhs) =>
-      s"  $n = ${genGenExpr(rhs)};"
+      s"  ${emittedName(n)} = ${genGenExpr(rhs)};"
     case t: Term.While =>
       val bodyStr = genGenStmt(t.body)
       s"  while (${genExpr(t.expr)}) {\n$bodyStr\n  }"
@@ -3362,11 +3458,11 @@ class JsGen(
       if isIntExpr(rhs) then intVars += n.value
       else if isNumericExpr(rhs) then numericVars += n.value
       else if isTupleExpr(rhs) then tupleVars += n.value
-      s"const ${n.value} = ${genExpr(rhs)};"
+      s"const ${emittedName(n.value)} = ${genExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       if isIntExpr(rhs) then intVars += n.value
       else if isNumericExpr(rhs) then numericVars += n.value
-      s"let ${n.value} = ${genExpr(rhs)};"
+      s"let ${emittedName(n.value)} = ${genExpr(rhs)};"
     case d: Defn.Def =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
       d.body match
@@ -4930,7 +5026,7 @@ class JsGen(
     case "print"   => "_print"
     case "Some"    => "_Some"
     case "None"    => "_None"
-    case other     => paramRenames.getOrElse(other, other)
+    case other     => paramRenames.getOrElse(other, emittedName(other))
 
   private def withParamRenames[A](renames: Map[String, String])(f: => A): A =
     paramRenames ++= renames

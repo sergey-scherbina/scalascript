@@ -29,6 +29,34 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(r.exit == 0, s"node run failed (${r.exit}):\n${r.err}")
     r.out
 
+  test("runtime-colliding top-level val is renamed in flat JS bundle"):
+    val source =
+      """# App
+        |
+        |```scalascript
+        |val doc = 41
+        |println(doc + 1)
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js =
+      JsGen.generateRuntime(Set(JsGen.Capability.Core)) + "\n" +
+        user + "\n" +
+        "if (typeof _output !== 'undefined' && _output.length) console.log(_output.join('\\n'));\n"
+
+    assert(user.contains("const doc__ssc = 41;"), user)
+    assert(!user.contains("const doc = 41;"), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "42")
+
+  test("JS String.split uses Scala-compatible regex patterns"):
+    val js =
+      JsGen.generateRuntime(Set(JsGen.Capability.Core)) + "\n" +
+        """const xs = _dispatch("buy a **new** dress", "split", ["\\*\\*"]);
+          |console.log(xs.join("|"));
+          |""".stripMargin
+    assert(runNode(js) == "buy a |new| dress")
+
   test("JsGen resolves bare std imports from project runtime tree"):
     val source =
       """# App
