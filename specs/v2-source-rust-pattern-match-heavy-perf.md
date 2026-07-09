@@ -108,6 +108,12 @@ scripts/bench v2-backends pattern-match-heavy
 Refresh this table in this worktree after `scripts/sbtc "installBin"` before
 making code changes.
 
+Fresh worktree baseline after `scripts/sbtc "installBin"` on 2026-07-09:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `pattern-match-heavy` | 15.4 | 10.8 | 319.1 |
+
 ## Inspection
 
 Pending. Record the emitted v2 Rust shape and dominant overhead before code

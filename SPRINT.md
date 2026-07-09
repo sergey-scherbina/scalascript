@@ -28,6 +28,9 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       durably, affected pattern/list/match conformance or backend parity gates
       are green, the final public bench row demonstrates the result, and
       `git diff --check` passes.
+      Fresh baseline 2026-07-09 after `scripts/sbtc "installBin"`:
+      `scripts/bench v2-backends pattern-match-heavy` reports
+      `v2=15.4 ms`, `v2-jvm=10.8 ms`, `v2-rust=319.1 ms`.
 
 - [x] **v2-source-backend-production-perf-sweep** - DONE 2026-07-09 in
       `3d514f411`: measurement-first
