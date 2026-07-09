@@ -642,6 +642,32 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `litdoc.ssc` eligible for the existing expected-file harness. Done-when:
       the direct litdoc A/B diff is empty and BUGS `v2-litdoc-inline-bold-parity`
       moves to `fixed`.
+- [ ] **v2-litdoc-js-jvm-backend-lanes** — promote the BACKLOG backend-lane
+      follow-up for `tests/conformance/litdoc.ssc` so the same fixture can run
+      across INT/JS/JVM instead of staying `backends: [int]`. Baseline from
+      BUGS/BACKLOG: raw JS fails with `jsgen-toplevel-name-vs-preamble` because
+      top-level `val doc = ...` collides with the JS preamble `doc` helper; JVM
+      codegen fails compiling the litdoc fence line shaped like
+      `doc.nodes.filter(...).map(...).map(_show).mkString()` with
+      `StringOps.apply` missing parameter. Work plan:
+      - [ ] Reproduce from a staged real CLI:
+            `scripts/sbtc "installBin"`, then
+            `bin/ssc emit-js tests/conformance/litdoc.ssc | node` and
+            `bin/ssc run-jvm tests/conformance/litdoc.ssc`.
+      - [ ] Fix the JS generator at the general preamble-collision boundary,
+            not by renaming the fixture. Rejected shortcut: fixture-only rename
+            (`val litDoc = ...`) would green this case while leaving the known
+            `jsgen-toplevel-name-vs-preamble` production class open.
+      - [ ] Fix the JVM generator/lowering for mapped-string `mkString()` so the
+            generated Scala compiles and prints the expected litdoc line.
+      - [ ] Remove the temporary `backends: [int]` restriction from
+            `tests/conformance/litdoc.ssc` and run
+            `tests/conformance/run.sh --only 'litdoc' --no-memo` with all
+            enabled lanes, plus focused sbt tests for the touched generator(s).
+      - [ ] Update `BUGS.md` entries
+            `jsgen-toplevel-name-vs-preamble` and
+            `jvmgen-litdoc-mapped-string-mkstring`, move the BACKLOG row to
+            landed, add CHANGELOG, and release the claim after push.
 - [x] **v2-parity-post-split-refresh** — DONE 2026-07-09: refreshed the
       production output-parity baseline after `v2-arith-unification`
       (`a2985d911`) and `v2-litdoc-inline-bold-parity` (`2b5a36660`). Gates:
