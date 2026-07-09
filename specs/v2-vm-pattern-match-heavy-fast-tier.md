@@ -30,17 +30,17 @@ Focused probes may use shorter runs while iterating:
 
 ## Behavior
 
-- [ ] Stage `bin/ssc` and reproduce the current `pattern-match-heavy` v2 VM
+- [x] Stage `bin/ssc` and reproduce the current `pattern-match-heavy` v2 VM
       baseline in this worktree, recording the exact command and numbers.
-- [ ] Emit or inspect the bridge-generated CoreIR for
+- [x] Emit or inspect the bridge-generated CoreIR for
       `bench/corpus/pattern-match-heavy.ssc` and identify the hot shape before
       changing runtime code.
-- [ ] Decide whether the shape admits one narrow VM/FastCode optimization in
+- [x] Decide whether the shape admits one narrow VM/FastCode optimization in
       this slice. If not, record the blocker with the exact missed shape and
       stop without speculative code.
-- [ ] If a fast path lands, add focused regression coverage for the recognized
+- [x] If a fast path lands, add focused regression coverage for the recognized
       shape and rerun the production benchmark row before/after.
-- [ ] Keep the production gate honest: do not mark the overall v2 VM 2x target
+- [x] Keep the production gate honest: do not mark the overall v2 VM 2x target
       green unless the measured four-row command justifies it.
 - [ ] Run affected tests, `installBin`, and
       `tests/conformance/run.sh --only 'litdoc'` before push. If `Runtime.scala`
@@ -91,4 +91,56 @@ that as the result and leave implementation to a larger slice.
 
 ## Results
 
-Pending implementation.
+Baseline in this worktree before runtime changes:
+
+```text
+scripts/sbtc "installBin"
+./bench.sh --warmup-time 500 --reps 20 pattern-match-heavy
+
+pattern-match-heavy: ssc 0.058, ssc-asm 0.058, v2 35.1, jvm 0.050, js 0.051, rust 1.44
+```
+
+Focused bridge/CoreIR inspection found that `area` and `workload` already get
+VM `fcEntry` fast entries. The hot CoreIR shape is a `while` over an `lcell`
+counter, a `shapes.foreach` inline lambda, `cell.set(total, total + area(s))`,
+and `area` as a 5-arm ADT `match` with compact arithmetic-only arm bodies.
+The narrow missed cost was per-dispatch compact arm env allocation
+(`Array(fs(0))` / `Array(fs(0), fs(1))`) inside the fast `Match` path.
+
+Implementation: `FastCode.tryFC(Match(...))` now reuses tiny scratch env arrays
+only for compact arms whose bodies pass a stricter arithmetic-only
+`armBodyScratchSafe` predicate. Arms that might capture env, call user/plugin
+code, or need outer locals keep the previous allocation path.
+
+Focused regression coverage:
+
+```text
+scripts/sbtc 'v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest'
+```
+
+Post-change measurement:
+
+```text
+bin/ssc --backend v2 bench --machine --warmup-time 100 --reps 3 bench/corpus/pattern-match-heavy.ssc
+BENCH v2 17.3
+
+./bench.sh --warmup-time 500 --reps 20 pattern-match-heavy
+pattern-match-heavy: ssc 0.059, ssc-asm 0.060, v2 16.4, jvm 0.052, js 0.053, rust 1.48
+```
+
+Post-rebase four-row production gate:
+
+```text
+./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
+
+arith-loop:          ssc 0.283, v2 0.000018
+pattern-match-heavy: ssc 0.059, v2 17.0
+recursion-fib:       ssc 1.29,  v2 6.61
+recursion-tco:       ssc 0.031, v2 0.275
+```
+
+This slice improves `pattern-match-heavy` v2 VM by about 2.1x on the full row
+(35.1 ms to 16-17 ms) without regressing `arith-loop`, but the overall v2 VM
+2x production target remains red. The next performance slice should target
+the remaining `foreach`/match boundary costs or move to the broader bytecode
+JIT/source-backend gate work; this spec does not claim the gate is green.
