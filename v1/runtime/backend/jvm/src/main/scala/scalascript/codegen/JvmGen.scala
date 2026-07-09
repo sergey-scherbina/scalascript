@@ -452,15 +452,22 @@ class JvmGen(
 
     // User-name-aware preamble: the `object Console` println-shadow is
     // omitted when the module defines its own `Console` (e.g. an effect).
-    sb.append(JvmRuntimePreamble.sourceFor(collectUserTopNames(blocks)))
-    sb.append(commonRuntime)
+    val userTopNames = collectUserTopNames(blocks)
+    val userShadowsHttpModel = !usesHttpServer &&
+      Set("Request", "Response", "StreamResponse").exists(userTopNames.contains)
+    sb.append(JvmRuntimePreamble.sourceFor(userTopNames))
+    sb.append(if userShadowsHttpModel then commonRuntimeWithoutHttpModel else commonRuntime)
     sb.append(generatorRuntime)
     sb.append(fsRuntime)
-    sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
+    sb.append(htmlDslTagBindings(userTopNames))
     // commonRuntime inlines Logger, whose effect-style static methods call
     // _perform. Keep the effect runtime available even for route-only modules
     // that do not otherwise use explicit effects.
-    sb.append(effectsRuntime)
+    if userShadowsHttpModel then
+      sb.append(nonServerHttpModelStubs)
+      sb.append(nonServerHttpModelRefs(effectsRuntime))
+    else
+      sb.append(effectsRuntime)
     // arch-meta-v2-p5 Track A (A1a/A1b/A1c) — `derives` synthesis on the JVM.
     // Strip every HANDLED `derives` clause (custom user typeclasses + the stdlib
     // structural four Eq/Show/Hash/Order) from the blocks up front so the emitted
@@ -486,7 +493,7 @@ class JvmGen(
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
     if usesHttpServer then sb.append(serveRuntime)
-    else sb.append(stubServeRuntime)
+    else sb.append(if userShadowsHttpModel then nonServerHttpModelRefs(stubServeRuntime) else stubServeRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
     if contentRuntimeEnabled                                                         then sb.append(emitContentRuntime(module.document, contentToolkitRuntimeEnabled))

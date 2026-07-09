@@ -232,6 +232,63 @@ private[codegen] trait JvmGenPreamble:
       "// Source of truth: runtime-server-common/src/main/scala/scalascript/server/*.scala\n"
     loggerRuntime + header + files.map(loadCommonSource).mkString("\n")
 
+  /** Non-server scripts still need shared utility sources (Logger, JWT,
+   *  Password, etc.) and the always-emitted effect runtime still references
+   *  route/HTTP types in dead cluster helper definitions.  Do not export the
+   *  public HTTP POJO names here: they collide with ordinary user case classes
+   *  such as `case class Request(...)` in `run-jvm`.
+   */
+  private[codegen] lazy val commonRuntimeWithoutHttpModel: String =
+    JvmGenRuntimeCache.memo("commonRuntimeWithoutHttpModel"):
+      val files = List(
+        "RestValidationError", "DerCodec", "WsFraming", "Metrics",
+        "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
+        "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
+        "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
+        "CorsHelpers", "BasicAuth", "StaticAssetServer", "WsHandshake",
+        "WsReassembler", "WsFrameDispatch", "WsRateLimiter"
+      )
+      val header =
+        "\n// ── runtime-server-common non-server subset (inlined from classpath resources) ──────────\n" +
+        "// Source of truth: runtime-server-common/src/main/scala/scalascript/server/*.scala\n"
+      loggerRuntime + header + files.map(loadCommonSource).mkString("\n")
+
+  private[codegen] val nonServerHttpModelStubs: String =
+    """|
+       |// ── private non-server HTTP model stubs for effect/cluster helpers ───────
+       |private case class _SscRuntimeRequest(
+       |    method:  String              = "",
+       |    path:    String              = "",
+       |    params:  Map[String, String] = Map.empty,
+       |    query:   Map[String, String] = Map.empty,
+       |    headers: Map[String, String] = Map.empty,
+       |    body:    String              = ""
+       |)
+       |private case class _SscRuntimeResponse(
+       |    status:  Int                 = 200,
+       |    headers: Map[String, String] = Map.empty,
+       |    body:    String              = "",
+       |    setSession: Option[Map[String, String]] = None
+       |):
+       |  def withSession(payload: Map[String, String]): _SscRuntimeResponse =
+       |    copy(setSession = Some(payload))
+       |  def clearSession(): _SscRuntimeResponse =
+       |    copy(setSession = Some(Map.empty))
+       |  def withHeader(name: String, value: String): _SscRuntimeResponse =
+       |    copy(headers = headers + (name -> value))
+       |private case class _SscRuntimeStreamResponse(
+       |    status:  Int,
+       |    headers: Map[String, String],
+       |    writer:  (String => Unit) => Any
+       |)
+       |""".stripMargin
+
+  private[codegen] def nonServerHttpModelRefs(src: String): String =
+    src
+      .replaceAll("\\bStreamResponse\\b", "_SscRuntimeStreamResponse")
+      .replaceAll("\\bResponse\\b", "_SscRuntimeResponse")
+      .replaceAll("\\bRequest\\b", "_SscRuntimeRequest")
+
   /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).
    *
    *  Phase 3 (Option A from `specs/runtime-server-strategic-plan.md`)
