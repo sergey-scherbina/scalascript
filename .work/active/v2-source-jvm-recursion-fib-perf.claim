@@ -1,6 +1,0 @@
-feature/v2-source-jvm-recursion-fib-perf 2026-07-09T20:45:28Z
-agent: codex
-heartbeat: 2026-07-09T21:27:27Z
-status: in-progress
-done-so-far: v2-jvm recursion-fib fix committed; origin-main bytecode non-tail recursion blocker reproduced and fixed locally
-next: installBin, rerun final gates on rebased branch, push to main, release claim
