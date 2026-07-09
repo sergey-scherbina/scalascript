@@ -2847,6 +2847,10 @@ object Prims:
     String.format(java.util.Locale.US, spec, arg)
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
+    // Stub breadcrumbs render as the bare tag in user-visible strings — the
+    // App-path flattens stub fields (line ~632) so most stubs arrive empty;
+    // un-flattened ones (methodOp propagation) must LOOK the same.
+    case DataV("Stub", _) => "Stub"
     case IntV(n)   => n.toString
     case BoolV(b)  => b.toString
     case FloatV(d) => Writer.floatStr(d)

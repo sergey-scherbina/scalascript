@@ -35,6 +35,10 @@ object Emit:
         case Done(v)        => v
         case Call(c, cargs) => Runtime.run(c.code, if cargs.isEmpty then c.env else Runtime.extend(c.env, cargs))
 
+  /** VM parity: Signal/ComputedSignal construct a mutable cell so .get/.set
+   *  work in place (the VM's Ctor compile special-cases these tags). */
+  def signalNew(init: Value): Value = Value.ForeignV(Array[Value](init))
+
   def ctor(tag: String, fields: Array[Value]): Value = Value.DataV(tag, fields.toVector)
 
   /** SAM for compiled lambda bodies (invokedynamic target from generated code). */
