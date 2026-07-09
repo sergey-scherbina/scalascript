@@ -1,6 +1,6 @@
 feature/v2-litdoc-js-jvm-backend-lanes 2026-07-09T04:57:32Z
 agent: codex
-heartbeat: 2026-07-09T05:08:34Z
+heartbeat: 2026-07-09T05:22:43Z
 status: in-progress
-done-so-far: worktree created, SPRINT plan committed, JS/JVM litdoc backend-lane failures reproduced
-next: inspect codegen preamble collision owners and patch JS/JVM backend lanes
+done-so-far: JS top-level runtime collision fixed; JVM doc preamble and mkString() fixes applied; direct JS/JVM litdoc outputs now match expected
+next: remove litdoc backend restriction, run conformance all lanes, add bug/bookkeeping updates, then push/release
