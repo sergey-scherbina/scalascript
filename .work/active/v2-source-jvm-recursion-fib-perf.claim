@@ -1,6 +1,6 @@
 feature/v2-source-jvm-recursion-fib-perf 2026-07-09T20:45:28Z
 agent: codex
-heartbeat: 2026-07-09T21:01:15Z
+heartbeat: 2026-07-09T21:15:59Z
 status: in-progress
-done-so-far: SPRINT/spec committed; baseline captured; generated v2-jvm source inspected
-next: implement direct-method calls for non-tail global lambdas in v2/backend/jvm/JvmBackend.scala
+done-so-far: Long-specialized v2-jvm source backend implemented locally; default recursion-fib v2-jvm improved 67.5ms -> 1.41ms; affected gates ran green except unrelated ssc1c bool fixture bug
+next: record bug/docs, commit code, rebase, rerun final gates, push, release claim
