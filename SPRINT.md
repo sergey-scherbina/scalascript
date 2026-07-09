@@ -32,6 +32,21 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `scripts/bench v2-backends recursion-fib`: `v2=5.93 ms`,
       `v2-jvm=1.42 ms`, `v2-rust=226.7 ms`. This confirms the Rust source
       recursion row is still a real backend gap on fresh `origin/main`.
+      Inspection 2026-07-09: the legacy `emit-rust` path already emits direct
+      recursive Rust, but the public v2-rust bench path uses
+      `BenchCmd.timeV2Rust` -> v2 wrapper -> CoreIR ->
+      `v2/backend/rust/RustBackend.scala`, where `fib`/`workload` were boxed as
+      `V::Fn(Rc<dyn Fn(Vec<V>) -> V>)` and recursive calls went through
+      `call_fn(..., vec![...])` plus generic `v_arith`/`as_int`. Local
+      production fix direction: infer Long-typed global lambdas, emit direct
+      `<name>_long` helpers for proven Long calls, and preserve generic
+      closures for first-class/non-Long uses. New gotcha: after that helper
+      shape, `rustc -O` can fold zero-input `g_workload_long() =
+      g_fib_long(30i64)` to a near-zero bench result; manual bench-only
+      `std::hint::black_box(30i64)` restored an honest smoke result
+      (`BENCH_MS: 1.44545`, `BENCH_SINK: 1385346600`). Track and fix in
+      `BUGS.md#v2-rust-bench-zero-input-helper-fold` by patching only the
+      v2-rust benchmark temp source, not public `emit-rust`.
 
 - [x] **v2-scripts-bench-mktemp-template** - DONE 2026-07-09 in `ed680a585`:
       small harness hygiene fix found

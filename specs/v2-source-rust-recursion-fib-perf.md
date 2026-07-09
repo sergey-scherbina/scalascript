@@ -48,7 +48,8 @@ def workload(): Int =
 
 - v2 JVM source backend performance.
 - v2 VM JIT/fast-tier performance.
-- Rust `arith-loop` anti-fold or harness fairness changes.
+- Unrelated Rust `arith-loop` anti-fold or corpus-wide harness fairness
+  changes.
 - Benchmark workload changes.
 - New language constructs, CLI flags, or artifact formats.
 - Broad Rust backend rewrites not needed for this measured recursion row.
@@ -68,6 +69,14 @@ the slow number is caused by Rust compilation/package startup, benchmark
 anti-folding, or another measurement artifact, record that finding and stop
 rather than landing speculative code.
 
+During implementation this slice exposed a narrower measurement issue after the
+direct helper shape was introduced: a zero-argument `workload()` helper such as
+`g_workload_long(): i64 = g_fib_long(30i64)` can be constant-folded by
+`rustc -O`. The fix belongs only in the v2-rust benchmark path
+(`BenchCmd.timeV2Rust`) before the temporary Rust file is written. Public
+`emit-rust` output must remain production-shaped and should not receive
+benchmark-only `black_box` calls.
+
 ## Decisions
 
 - **Scope one backend and one workload family first** - chosen because BACKLOG
@@ -83,6 +92,11 @@ rather than landing speculative code.
   backend quality only. The current global spec already requires target-
   independent semantics; no public syntax or semantic contract changes are
   intended.
+- **Keep anti-folding benchmark-only** - chosen because `std::hint::black_box`
+  is a measurement concern, not part of `.ssc` semantics or Rust production
+  codegen. Rejected: adding `#[inline(never)]` or `black_box` to public backend
+  output, because that would pessimize production artifacts and still does not
+  fully solve zero-input helper folding.
 
 ## Baseline
 
@@ -115,8 +129,55 @@ slower than the optimized JVM source row on the same public benchmark command.
 
 ## Inspection
 
-Pending. Record the emitted Rust recursion shape and dominant overhead
-hypothesis before code changes.
+Captured on 2026-07-09 from the v2-rust bench wrapper path. Legacy
+`bin/ssc emit-rust -o ... bench/corpus/recursion-fib.ssc` already emits direct
+Rust:
+
+```rust
+pub fn fib(n: i64) -> i64 {
+    if (n <= 1i64) { n } else { (fib((n - 1i64)) + fib((n - 2i64))) }
+}
+```
+
+The slow row is therefore not the legacy Rust emitter. The public
+`scripts/bench v2-backends recursion-fib` / `ssc --backend v2-rust bench`
+path instead builds a v2 wrapper, lowers it to CoreIR through
+`FrontendBridge`, and calls `v2/backend/rust/RustBackend.scala`. That generated
+source boxed both `fib` and `workload` as `V::Fn(Rc<dyn Fn(Vec<V>) -> V>)`;
+recursive calls went through `call_fn(g_fib.clone(), vec![...])`, and arithmetic
+went through generic `v_arith` / `as_int` helpers. Dominant overhead hypothesis:
+recursive `fib` pays closure allocation/clone, `Vec<V>` argument construction,
+boxing/unboxing, and generic arithmetic dispatch at every call.
+
+After adding direct Long-specialized helper generation locally, the emitted
+source has the desired production shape:
+
+```rust
+fn g_fib_long(p0_g_fib_long: i64) -> i64 {
+    if (p0_g_fib_long) <= (1i64) {
+        p0_g_fib_long
+    } else {
+        (g_fib_long((p0_g_fib_long).wrapping_sub(1i64)))
+            .wrapping_add(g_fib_long((p0_g_fib_long).wrapping_sub(2i64)))
+    }
+}
+
+fn g_workload_long() -> i64 {
+    g_fib_long(30i64)
+}
+```
+
+The generic `V::Fn` closures must still be emitted for first-class and non-Long
+uses. The direct helper is used only for statically proven `App(Global, args)`
+sites whose arguments and result are Long-typed.
+
+Benchmark gotcha: once the Rust source is this direct, LLVM can fold the
+zero-argument `g_workload_long()` helper chain to a constant in the bench
+binary. A manual bench-only patch to
+`g_fib_long(std::hint::black_box(30i64))` restored an honest smoke result
+(`BENCH_MS: 1.44545`, `BENCH_SINK: 1385346600`). This is tracked separately in
+`BUGS.md#v2-rust-bench-zero-input-helper-fold` and must be fixed in the
+benchmark harness before accepting final before/after numbers.
 
 ## Results
 

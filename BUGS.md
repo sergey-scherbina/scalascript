@@ -12,6 +12,33 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-rust-bench-zero-input-helper-fold — `open` (2026-07-09)
+
+- **Found by:** codex while implementing
+  `v2-source-rust-recursion-fib-perf`.
+- **Repro:** after changing the v2 Rust source backend to emit direct
+  Long-specialized helpers for `bench/corpus/recursion-fib.ssc`, run the real
+  v2-rust bench path:
+  `bin/ssc --backend v2-rust bench --machine --warmup-time 10 --reps 1 bench/corpus/recursion-fib.ssc`.
+  The generated Rust wrapper contains a zero-arg `g_workload_long()` helper
+  returning `g_fib_long(30i64)`.
+- **Observed failure:** `rustc -O` can constant-fold the whole zero-input
+  helper chain, producing a near-zero `BENCH_MS` value even though the
+  workload is recursive and should run at about the same order as the v2 JVM
+  direct helper lane.
+- **Expected:** the benchmark-only v2-rust path must keep production codegen
+  unchanged while making benchmark input opaque enough that LLVM cannot
+  precompute the measured helper chain.
+- **Manual confirmation:** patching the generated bench-only Rust source to
+  call `g_fib_long(std::hint::black_box(30i64))` makes the same smoke run
+  honest and fast (`BENCH_MS: 1.44545`, `BENCH_SINK: 1385346600`).
+- **Impact:** once the production backend stops paying generic closure/vector
+  dispatch, the public `scripts/bench v2-backends recursion-fib` row can become
+  falsely green unless the v2-rust bench harness adds its own anti-folding.
+- **Planned fix:** patch only `BenchCmd.timeV2Rust` before writing its
+  temporary `main.rs` to `rustc -O`; do not change public `emit-rust` output or
+  the corpus workload.
+
 ## v2-scripts-bench-mktemp-template — `fixed` (2026-07-09)
 
 - **Found by:** codex while verifying `v2-backend-check-ssc1c-wrapper-app-lit`.
