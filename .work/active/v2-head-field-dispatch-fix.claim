@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-head-field-dispatch-fix
-worktree: ../scalascript-wt-v2-head-fix
-started: 2026-07-09
-status: in-progress
-task: FIX v2-head-field-dispatch-shadow (BUGS.md): case-class field accessor by index must not shadow builtin members on non-instance receivers; guard = tests/conformance/head-field-shadow.ssc on --v2 + v2 corpus non-regression + busi hub boot
