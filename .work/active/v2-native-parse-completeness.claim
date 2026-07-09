@@ -1,0 +1,6 @@
+agent: claude-opus-4-8 (1M ctx)
+branch: feature/k62-parse-completeness-2
+worktree: ../scalascript-wt-k62-parse-completeness-2
+started: 2026-07-09
+status: in-progress
+task: K62.6c-rest — native ssc1 front parse-completeness (ssc1-front.ssc0 / ssc1-lower.ssc0 ONLY). Close remaining parse/semantic gaps: Map(k -> v) initial entries (currently dropped -> empty map), multi-generator for-comprehensions (flatMap), throw expr. NOT touching bridge (FrontendBridge/PluginBridge) or VM (Runtime.scala) — siblings active there (unmask-payments-bridge, v2-route-params-stub, methoddispatch). __method__ VM-scrutinee bug is theirs.
