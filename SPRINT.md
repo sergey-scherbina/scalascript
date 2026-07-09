@@ -540,19 +540,21 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       parity is now **66/98 identical · 9 mismatch · 0 v2-error · 23 v1-only**
       `(26 both-fail not-a-gap · 36 true-server · 0 long-running · 33
       backend-lane · 2 nondet · 195 total)`.
-- [ ] **v2-os-env-nondet-parity** — move the next false production mismatch
-      out of the strict byte-parity bucket without weakening the example:
-      `examples/os-env.ssc` prints host/platform data, so v1 placeholders and
-      v2 real values cannot be byte-stable across runners or machines. Why:
-      v2 is better here, not broken; the production gate should classify this
-      as nondeterministic-output by design instead of a v2 mismatch. How: add
-      `os-env.ssc` to `scripts/v2-output-parity`'s nondeterministic-output
-      classification with an explicit comment; do not edit `examples/os-env.ssc`
-      or std/os runtime behavior. Verify with targeted
-      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/os-env.ssc`,
-      a focused std/os test or documented no-conformance rationale, and full
-      `scripts/v2-output-parity --all`; update BUGS/SPRINT/CHANGELOG and the
-      parity baseline/spec with the new counts.
+- [x] **v2-os-env-nondet-parity** — DONE 2026-07-09 (`6e82f20b2`):
+      moved the next false production mismatch out of the strict byte-parity
+      bucket without weakening the example. Root cause: `examples/os-env.ssc`
+      prints host/platform data, so v1 placeholders and v2 real values cannot
+      be byte-stable across runners or machines; v2 is better here, not broken.
+      Fix: add `os-env.ssc` to `scripts/v2-output-parity`'s
+      nondeterministic-output classification with an explicit comment; leave
+      `examples/os-env.ssc` and std/os runtime behavior unchanged. Added
+      `tests/conformance/std-os.ssc` for deterministic std/os helper coverage.
+      Gates: `scripts/sbtc "installBin"` passed; targeted `os-env` parity now
+      reports nondet skip; `tests/conformance/run.sh --only 'std-os' --no-memo`
+      passed INT; full parity is now
+      **66/97 identical · 8 mismatch · 0 v2-error · 23 v1-only** `(26
+      both-fail not-a-gap · 36 true-server · 0 long-running · 33 backend-lane ·
+      3 nondet · 195 total)`.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

@@ -42,6 +42,28 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and next blockers
 
+os-env lane classification update (2026-07-09): after `6e82f20b2`,
+`os-env.ssc` is classified as nondeterministic-output because it prints
+host/worktree-specific platform, CWD, and environment values. The authoritative
+production gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-os-env-nondet-parity`:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 66/97 identical · 8 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 3 nondet · 195 total)
+```
+
+The example and std/os runtime behavior are unchanged; this only moves a
+host-dependent demo out of the strict byte-parity bucket. No deterministic
+v2-error row reappeared. The remaining full-gate mismatches are:
+`distributed-streams.ssc`, `dsl-calc-parser.ssc`, `effects.ssc`,
+`lang-split.ssc`, `mcp-server-protected.ssc`, `oauth-mcp-full-stack.ssc`,
+`scala-js-demo.ssc`, and `streams.ssc`. They are now secrets, parser/DSL, and
+stream-shape families.
+
 Async timing normalization update (2026-07-09): after `ea62f9d38`,
 `async-parallel-demo.ssc` no longer prints live wall-clock milliseconds. The
 authoritative production gate was re-run from

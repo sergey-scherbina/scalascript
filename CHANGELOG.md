@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: os-env parity classified as host-dependent
+
+`scripts/v2-output-parity` now treats `examples/os-env.ssc` as
+nondeterministic-output by design instead of a v2 mismatch, preserving the demo's
+real platform/CWD/env output. Added `tests/conformance/std-os.ssc` for
+deterministic std/os helper coverage. The production output-parity gate is now
+`66/97 identical · 8 mismatch · 0 v2-error · 23 v1-only` with 3 nondet skips
+across 195 examples. Gates: `installBin`, targeted `os-env` parity, conformance
+`std-os`, and full `scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: async parallel demo output stabilized
 
 `examples/async-parallel-demo.ssc` no longer prints live wall-clock milliseconds,

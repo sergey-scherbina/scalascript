@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-os-env-nondet-parity — `open` (2026-07-09)
+## v2-os-env-nondet-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-async-parallel-timing-parity`.
@@ -24,11 +24,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** this is not a v2 regression: v2 is doing the useful thing, and
   the example's output is host-dependent by design. Keeping it in the strict
   byte-parity mismatch bucket makes the production gate noisier.
-- **Plan:** classify `os-env.ssc` in `scripts/v2-output-parity` as
-  nondeterministic-output by design, alongside `sql-sqlite-file` and `uuid-v7`.
-  Do not change `examples/os-env.ssc` or runtime behavior. Verify with targeted
-  `os-env` parity, the nearest affected std/os test or conformance note, and
-  full `scripts/v2-output-parity --all`; update baseline/spec/SPRINT/CHANGELOG.
+- **Root cause:** the strict parity harness was treating a host-dependent demo
+  as a deterministic v1/v2 output comparison. The mismatch was useful as a
+  visibility signal, but not actionable as a v2 production blocker.
+- **Fix:** `6e82f20b2` classifies `os-env.ssc` as nondeterministic-output by
+  design in `scripts/v2-output-parity`, alongside `sql-sqlite-file` and
+  `uuid-v7`. The example and runtime behavior are unchanged. Added
+  `tests/conformance/std-os.ssc` to cover deterministic std/os helpers.
+- **Gates:** `scripts/sbtc "installBin"` passed;
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/os-env.ssc`
+  now reports nondeterministic-output skip; `tests/conformance/run.sh --only 'std-os' --no-memo`
+  passed INT; full parity is now
+  **66/97 identical · 8 mismatch · 0 v2-error · 23 v1-only** with 3 nondet
+  skips across 195 examples.
 
 ## v2-async-parallel-timing-parity — `fixed` (2026-07-09)
 
