@@ -654,6 +654,14 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
             `scripts/sbtc "installBin"`, then
             `bin/ssc emit-js tests/conformance/litdoc.ssc | node` and
             `bin/ssc run-jvm tests/conformance/litdoc.ssc`.
+            Baseline 2026-07-09 after `installBin`: JS fails at generated
+            `const doc = _call(parseDoc, md);` with
+            `SyntaxError: Identifier 'doc' has already been declared`; JVM
+            fails compiling
+            `doc.nodes.filter(...).map(...).map(_show).mkString()` with
+            `missing argument for parameter i of method apply in class StringOps`.
+            Current `tests/conformance/run.sh --only 'litdoc' --no-memo`
+            reports INT PASS and skips JS/JVM due to `backends: [int]`.
       - [ ] Fix the JS generator at the general preamble-collision boundary,
             not by renaming the fixture. Rejected shortcut: fixture-only rename
             (`val litDoc = ...`) would green this case while leaving the known
