@@ -441,7 +441,21 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       Done-when: `SPRINT.md` has no stale open switch/full-corpus duplicates,
       `CHANGELOG.md` names this queue cleanup, and a docs-only verification
       (`git diff --check`) passes.
-- [ ] **v2-arith-unification** — remove the remaining v2 arithmetic dispatch
+- [x] **v2-arith-unification** — DONE 2026-07-09 (`a2985d911`): removed the
+      remaining v2 arithmetic dispatch split. `resolve("__arith__")` is now a
+      thin delegate to `Prims.arithOp`, and `arithOp` owns the previous
+      table-only behavior (Decimal, actor-send, `:=`, list/tuple/string/numeric
+      cases, char-code comparisons, and unknown declaration fallback) without
+      recursively calling the table. Added CoreIR regressions where the op name
+      comes from a local binding, forcing the non-literal path. Gates:
+      `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
+      = 20/20; `scripts/sbtc "installBin"` passed;
+      `tests/conformance/run.sh --only 'litdoc,arithmetic' --no-memo` passed
+      `arithmetic` on INT/JS/JVM and skipped `litdoc` because no
+      `expected/litdoc.txt` exists. Direct litdoc A/B still has the separate
+      inline-bold mismatch tracked below as `v2-litdoc-inline-bold-parity`; the
+      arith/map data line agrees. Original plan:
+      remove the remaining v2 arithmetic dispatch
       split between literal-op `Prims.arithOp` fast paths and the non-literal
       `resolve("__arith__")` table. Why: BACKLOG/BUGS already caught a real
       busi litdoc failure where ANF demoted `__arith__(Lit("+"), map, pair)` to

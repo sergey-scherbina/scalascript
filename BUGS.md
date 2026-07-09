@@ -28,7 +28,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   still diverges.
 - **Status:** open; queued in SPRINT as `v2-litdoc-inline-bold-parity`.
 
-## v2-arith-dispatch-split — `open` (2026-07-09)
+## v2-arith-dispatch-split — `fixed` (2026-07-09)
 
 - **Found by:** codex, while promoting BACKLOG `v2-arith-unification` for v2
   production readiness.
@@ -49,7 +49,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Plan:** move table-only behavior into `Prims.arithOp`, make
   `resolve("__arith__")` delegate to `arithOp`, and add focused regressions for
   non-literal operator dispatch so this split cannot reappear.
-- **Status:** open; active claim `v2-arith-unification`.
+- **Root cause:** `resolve("__arith__")` carried a second, hand-maintained
+  arithmetic table. Literal-op fast paths went straight to `Prims.arithOp`, but
+  non-literal op names used the table and could miss richer semantics or preserve
+  table-only cases independently.
+- **Fix:** `a2985d911` makes `resolve("__arith__")` a thin delegate to
+  `Prims.arithOp` and moves the table-only Decimal, actor-send, `:=`, list/tuple,
+  string/numeric, char-code, and unknown-declaration fallback cases into
+  `arithOp`.
+- **Gates:** `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
+  passed 20/20; `scripts/sbtc "installBin"` passed;
+  `tests/conformance/run.sh --only 'litdoc,arithmetic' --no-memo` passed
+  `arithmetic` on INT/JS/JVM and skipped `litdoc` because no
+  `expected/litdoc.txt` exists. Direct litdoc real-harness A/B still has the
+  separate inline-bold mismatch tracked as `v2-litdoc-inline-bold-parity`; the
+  arith/map data line agrees.
 
 ## v2-cluster-stdlib-import-gap — `fixed` (2026-07-09)
 

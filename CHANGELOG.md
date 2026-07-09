@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: dynamic arithmetic dispatch unified
+
+`resolve("__arith__")` now delegates to `Prims.arithOp`, eliminating the
+literal-vs-non-literal operator semantics split. Focused CoreIR regressions cover
+non-literal Map+Tuple2, char-code comparisons, Decimal, actor-send, and fallback
+cases. Gates: FrontendBridgeTest 20/20, `installBin`, and affected conformance
+`litdoc,arithmetic` (`arithmetic` passed; `litdoc` has a separate inline-bold
+follow-up).
+
 ## 2026-07-09 — v2: production queue stale entries reconciled
 
 The remaining stale open SPRINT rows for the historical Phase-3 default switch
