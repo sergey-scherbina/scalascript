@@ -1,0 +1,19 @@
+---
+name: standard-scala-mixed-runnable
+runScalaFences: true
+---
+
+# Standard Scala Mixed Runnable
+
+```scala
+println("scala-before")
+```
+
+```scalascript
+println("scalascript-middle")
+```
+
+```scala
+println("scala-after")
+```
+

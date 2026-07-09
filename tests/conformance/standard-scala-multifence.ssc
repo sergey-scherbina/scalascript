@@ -1,0 +1,24 @@
+---
+name: standard-scala-multifence
+---
+
+# Standard Scala Multi-Fence
+
+```scala
+println("scala-block-1")
+```
+
+```scala
+println("scala-block-2")
+```
+
+```scala
+println("Circle(3)".takeWhile(_ != '('))
+println(f"${"x"}%-4s=${1.234}%.1f")
+
+val left = List(5)
+val right = List(2, 8)
+(left, right) match
+  case (ah :: at, bh :: _) if ah <= bh => println("left head " + ah)
+  case (_, bh :: bt) => println("right head " + bh)
+```

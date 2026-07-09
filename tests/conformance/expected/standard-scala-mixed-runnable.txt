@@ -1,0 +1,4 @@
+scala-before
+scalascript-middle
+scala-after
+

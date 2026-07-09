@@ -115,6 +115,46 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(capture(src) == "scala-block-ok")
   }
 
+  test("markdown standard scala multi-fence document runs all fences in order") {
+    val src =
+      """# Standard Scala blocks
+        |
+        |```scala
+        |println("scala-block-1")
+        |```
+        |
+        |```scala
+        |println("scala-block-2")
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "scala-block-1\nscala-block-2")
+  }
+
+  test("standard scala string takeWhile supports char predicates") {
+    val src =
+      """# Standard Scala string predicate
+        |
+        |```scala
+        |println("Circle(3)".takeWhile(_ != '('))
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "Circle")
+  }
+
+  test("standard scala f interpolator applies format specs") {
+    val src =
+      """# Standard Scala f interpolation
+        |
+        |```scala
+        |println(f"${"x"}%-4s=${1.234}%.1f")
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "x   =1.2")
+  }
+
   test("markdown ssc fence alias is runnable") {
     val src =
       """# ScalaScript alias block
@@ -141,6 +181,43 @@ class FrontendBridgeTest extends AnyFunSuite:
         |""".stripMargin
 
     assert(capture(src) == "real-code")
+  }
+
+  test("markdown scala fence runs in mixed document with explicit frontmatter opt-in") {
+    val src =
+      """---
+        |name: mixed-runnable
+        |runScalaFences: true
+        |---
+        |
+        |# Mixed runnable blocks
+        |
+        |```scala
+        |println("scala-before")
+        |```
+        |
+        |```scalascript
+        |println("scalascript-middle")
+        |```
+        |
+        |```scala
+        |println("scala-after")
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "scala-before\nscalascript-middle\nscala-after")
+  }
+
+  test("guarded constructor pattern falls through to later matching case") {
+    val src =
+      """val left = List(5)
+        |val right = List(2, 8)
+        |(left, right) match
+        |  case (ah :: at, bh :: _) if ah <= bh => println("left head " + ah)
+        |  case (_, bh :: bt) => println("right head " + bh)
+        |""".stripMargin
+
+    assert(capture(src) == "right head 2")
   }
 
   test("var and while loop") {

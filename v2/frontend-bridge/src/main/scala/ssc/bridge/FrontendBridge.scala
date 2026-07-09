@@ -802,6 +802,32 @@ object FrontendBridge:
         i += 1
     sb.toString
 
+  private def frontMatterValue(raw: String, keys: String*): Option[String] =
+    val noShebang = if raw.startsWith("#!/") then raw.dropWhile(_ != '\n').drop(1) else raw
+    if !noShebang.stripLeading().startsWith("---") then None
+    else
+      val start = noShebang.indexOf("---")
+      val end   = noShebang.indexOf("\n---", start + 3)
+      if end < 0 then None
+      else
+        val keySet = keys.toSet
+        noShebang.slice(start + 3, end).linesIterator.flatMap { line =>
+          val t = line.trim
+          val colon = t.indexOf(':')
+          if colon <= 0 then None
+          else
+            val key = t.take(colon).trim
+            if !keySet(key) then None
+            else
+              val rawValue = t.drop(colon + 1).takeWhile(_ != '#').trim
+              Some(rawValue.stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'"))
+        }.toSeq.headOption
+
+  private def truthyFrontMatterValue(value: String): Boolean =
+    value.trim.toLowerCase match
+      case "true" | "yes" | "on" | "1" | "runnable" => true
+      case _ => false
+
   def extractCode(raw: String, allFences: Boolean = false): String =
     val noShebang = if raw.startsWith("#!/") then raw.dropWhile(_ != '\n').drop(1) else raw
     val noFront =
@@ -816,12 +842,17 @@ object FrontendBridge:
     val hasScalaScriptFences = scalaScriptFenceRe.findFirstIn(noFront).isDefined
     val hasScalaFences       = scalaFenceRe.findFirstIn(noFront).isDefined
     val hasSqlFences         = noFront.contains("```sql") || noFront.contains("```transaction")
+    val explicitScalaFenceRun =
+      frontMatterValue(raw, "runScalaFences", "run-scala-fences").exists(truthyFrontMatterValue) ||
+        frontMatterValue(raw, "scalaFences", "scala-fences").exists(truthyFrontMatterValue)
+    val runnableScalaFences = hasScalaFences && (!hasScalaScriptFences || explicitScalaFenceRun)
     // Any runnable fence counts for the all-fences path. Standard `scala`
     // fences are executable when they are the document's runnable source
-    // (standard-Scala-only examples), but are kept illustrative in mixed
-    // ScalaScript docs unless SQL extraction already needs them.
+    // (standard-Scala-only examples), or when a mixed document explicitly opts
+    // into running them via front matter. They stay illustrative by default in
+    // mixed ScalaScript docs unless SQL extraction already needs them.
     val anyRunnableFence =
-      allFences && (hasScalaScriptFences || hasSqlFences || (hasScalaFences && !hasScalaScriptFences))
+      allFences && (hasScalaScriptFences || hasSqlFences || runnableScalaFences)
     // line-start anchored for the same string-literal reason as anyFence below
     val firstFence =
       if anyRunnableFence then 0
@@ -854,15 +885,16 @@ object FrontendBridge:
       // in later code resolves to that val (see sqlSectionIds in convertExpr).
       val dbUrl = """url:\s*"([^"]+)"""".r.findFirstMatchIn(raw).map(_.group(1)).getOrElse("")
       val blocks = collection.mutable.ListBuffer.empty[String]
-      // ```scala fences are runnable ONLY in sql-conformance docs (which have
-      // ```sql/```transaction fences) — elsewhere they are illustrative prose
-      // (running them cost 23 corpus files when enabled unconditionally).
+      // ```scala fences are runnable in sql-conformance docs (which have
+      // ```sql/```transaction fences), standard-Scala-only docs, and explicit
+      // mixed-runnable docs. Elsewhere they are illustrative prose (running
+      // them unconditionally cost 23 corpus files).
       // (?m)^ — fence opens must sit at LINE START: a ``` embedded inside a
       // string literal (markdown content in a val, busi model.ssc) matched
       // mid-line and desynced the whole fence walk — prose after the next real
       // close was parsed as code ("illegal unicode codepoint: 0xab" on «).
       val anyFence =
-        if hasSqlFences || (hasScalaFences && !hasScalaScriptFences) then
+        if hasSqlFences || runnableScalaFences then
           """(?m)^```(scalascript|ssc|scala|sql|transaction|yaml|yml)([^\n]*)\n""".r
         else
           """(?m)^```(scalascript|ssc|yaml|yml)([^\n]*)\n""".r
@@ -1243,6 +1275,14 @@ object FrontendBridge:
     CDef("LazyList", CT.Ctor("LazyList", Nil)),
   )
 
+  private val fFormatPrefixRe =
+    """%(?:[-#+ 0,(<]*)(?:\d+)?(?:\.\d+)?[a-zA-Z]""".r
+
+  private def splitFFormatPrefix(part: String): (String, String) =
+    fFormatPrefixRe.findPrefixMatchOf(part) match
+      case Some(m) => (m.matched, part.drop(m.end))
+      case None    => ("%s", part)
+
   // ── Block lowering ────────────────────────────────────────────────────────────
 
   def convertBlock(stats: List[Stat], scope: List[String], topLevel: Boolean = false): CT =
@@ -1597,21 +1637,33 @@ object FrontendBridge:
     case Term.For(enums, body) =>
       convertForDo(enums, body, scope)
 
-    // ── String interpolation s"... $x ..." (and all other interpolators) ────────
+    // ── String interpolation s"... $x ..." (and supported variants) ─────────────
     // Unknown interpolators (html"...", sql"...", etc.) are treated as s"..." (string concat).
     case Term.Interpolate(interpName, parts, args) =>
-      val strs = parts.map {
-        case Lit.String(s) => CT.Lit(Const.CStr(s))
-        case _             => CT.Lit(Const.CStr(""))
+      val partStrings = parts.map {
+        case Lit.String(s) => s
+        case _             => ""
       }
-      val vals = args.map { e =>
-        CT.Prim("__method__", List(CT.Lit(Const.CStr("toString")), convertExpr(e, scope)))
-      }
-      val concat = interleaveConcat(strs, vals)
-      // md"…" strips the leading/trailing blank lines and the common indent
-      // (v1 Interpreter.stripIndent) — treating it as plain s"…" left the raw
-      // indented block in the output (content.ssc parity).
-      if interpName.value == "md" then CT.Prim("__mdStrip__", List(concat)) else concat
+      if interpName.value == "f" then
+        val encoded = collection.mutable.ListBuffer.empty[CT]
+        encoded += CT.Lit(Const.CStr(partStrings.headOption.getOrElse("")))
+        args.zipWithIndex.foreach { case (arg, i) =>
+          val (spec, rest) = splitFFormatPrefix(partStrings.lift(i + 1).getOrElse(""))
+          encoded += CT.Lit(Const.CStr(spec))
+          encoded += convertExpr(arg, scope)
+          encoded += CT.Lit(Const.CStr(rest))
+        }
+        CT.Prim("__fInterpolate__", encoded.toList)
+      else
+        val strs = partStrings.map(s => CT.Lit(Const.CStr(s)))
+        val vals = args.map { e =>
+          CT.Prim("__method__", List(CT.Lit(Const.CStr("toString")), convertExpr(e, scope)))
+        }
+        val concat = interleaveConcat(strs, vals)
+        // md"..." strips the leading/trailing blank lines and the common indent
+        // (v1 Interpreter.stripIndent) — treating it as plain s"..." left the raw
+        // indented block in the output (content.ssc parity).
+        if interpName.value == "md" then CT.Prim("__mdStrip__", List(concat)) else concat
 
     // ── Unknown — emit stub that errors at runtime ────────────────────────────
     case other =>
@@ -2035,7 +2087,7 @@ object FrontendBridge:
     val hasNestedOrDup  = hasLitArms || needsGeneralChain(cases)
     val sc = "_sc_" :: scope
 
-    if hasNestedOrDup || (!hasCtorArms && cases.exists(_.cond.nonEmpty)) then
+    if hasNestedOrDup || cases.exists(_.cond.nonEmpty) then
       // General if-chain: each case becomes a condition (flat, using nested fieldAt) + bindings + body
       val scrutRef = CT.Local(0)
       def caseChain(cs: List[Case]): CT = cs match
@@ -2048,8 +2100,9 @@ object FrontendBridge:
           val bindRhs = binds.zipWithIndex.map { case ((expr, _), k) => shiftLocals(expr, k) }
           val bindNms = binds.map(_._2)
           val bodyScope = bindNms.reverse ++ sc
+          val failInBodyScope = if binds.isEmpty then failCT else shiftLocals(failCT, binds.length)
           val bodyExpr  = c.cond match
-            case Some(g) => CT.If(convertExpr(g, bodyScope), convertExpr(c.body, bodyScope), failCT)
+            case Some(g) => CT.If(convertExpr(g, bodyScope), convertExpr(c.body, bodyScope), failInBodyScope)
             case None    => convertExpr(c.body, bodyScope)
           val withBinds = if binds.isEmpty then bodyExpr else CT.Let(bindRhs, bodyExpr)
           conds.foldRight(withBinds) { (k, t) => CT.If(k, t, failCT) }
@@ -2164,13 +2217,41 @@ object FrontendBridge:
     }.unzip
     (tagCond :: subConds.flatten, subBinds.flatten)
 
-  /** Shift all Local indices by `amount` in a pure expression (no binders). */
-  private def shiftLocals(expr: CT, amount: Int): CT =
+  /** Shift free Local indices by `amount` when reusing a continuation under
+   *  extra bindings (for example guard-false fall-through inside pattern Lets). */
+  private def shiftLocals(expr: CT, amount: Int, cutoff: Int = 0): CT =
     if amount == 0 then expr
     else expr match
-      case CT.Local(k)       => CT.Local(k + amount)
-      case CT.Prim(op, args) => CT.Prim(op, args.map(a => shiftLocals(a, amount)))
-      case other             => other  // Lit, Global — no locals
+      case CT.Local(k) =>
+        if k >= cutoff then CT.Local(k + amount) else expr
+      case CT.Lam(arity, body) =>
+        CT.Lam(arity, shiftLocals(body, amount, cutoff + arity))
+      case CT.App(fn, args) =>
+        CT.App(shiftLocals(fn, amount, cutoff), args.map(a => shiftLocals(a, amount, cutoff)))
+      case CT.Let(rhs, body) =>
+        CT.Let(rhs.map(r => shiftLocals(r, amount, cutoff)), shiftLocals(body, amount, cutoff + rhs.length))
+      case CT.LetRec(lams, body) =>
+        val recCutoff = cutoff + lams.length
+        val shiftedLams = lams.map {
+          case CT.Lam(arity, body) => CT.Lam(arity, shiftLocals(body, amount, recCutoff + arity))
+          case other               => shiftLocals(other, amount, recCutoff)
+        }
+        CT.LetRec(shiftedLams, shiftLocals(body, amount, recCutoff))
+      case CT.If(c, t, e) =>
+        CT.If(shiftLocals(c, amount, cutoff), shiftLocals(t, amount, cutoff), shiftLocals(e, amount, cutoff))
+      case CT.Ctor(tag, fields) =>
+        CT.Ctor(tag, fields.map(f => shiftLocals(f, amount, cutoff)))
+      case CT.Match(scrut, arms, default) =>
+        val shiftedArms = arms.map(a => Arm(a.tag, a.arity, shiftLocals(a.body, amount, cutoff + a.arity)))
+        CT.Match(shiftLocals(scrut, amount, cutoff), shiftedArms, default.map(d => shiftLocals(d, amount, cutoff)))
+      case CT.Prim(op, args) =>
+        CT.Prim(op, args.map(a => shiftLocals(a, amount, cutoff)))
+      case CT.While(cond, body) =>
+        CT.While(shiftLocals(cond, amount, cutoff), shiftLocals(body, amount, cutoff))
+      case CT.Seq(terms) =>
+        CT.Seq(terms.map(t => shiftLocals(t, amount, cutoff)))
+      case other =>
+        other  // Lit, Global — no locals
 
   /** Produce an optional condition term for a literal pattern match. */
   private def matchCond(pat: Pat, scrutRef: CT, scope: List[String]): Option[CT] = pat match

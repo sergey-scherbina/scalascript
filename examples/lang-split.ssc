@@ -3,6 +3,7 @@
 name: lang-split
 version: 1.0.0
 description: Demonstrates the distinction between `scala` and `scalascript` code blocks.
+runScalaFences: true
 ---
 
 # Language Block Types

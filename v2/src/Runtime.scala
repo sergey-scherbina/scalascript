@@ -1358,6 +1358,17 @@ object Prims:
     case "sslice"    => a => StrV(str(a, 0).substring(int(a, 1).toInt, int(a, 2).toInt))
     case "scodeAt"   => a => IntV(str(a, 0).charAt(int(a, 1).toInt).toLong)
     case "sfromCodes"=> a => StrV(unlist(a(0)).map(v => asInt(v).toChar).mkString)
+    case "__fInterpolate__" => a =>
+      if a.isEmpty then StrV("")
+      else
+        val sb = new StringBuilder(str(a, 0))
+        var i = 1
+        while i + 2 < a.length do
+          val spec = str(a, i)
+          sb.append(formatValue(spec, a(i + 1)))
+          sb.append(str(a, i + 2))
+          i += 3
+        StrV(sb.toString)
     case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
     case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
@@ -1642,6 +1653,8 @@ object Prims:
           val m = java.util.regex.Pattern.compile(pat).matcher(s)
           if m.lookingAt() then DataV("Some", Array[Value](StrV(m.group()))) else DataV("None", Array.empty[Value])
         case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "takeWhile",   List(fn: ClosV))  => StrV(s.takeWhile(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+        case (StrV(s), "dropWhile",   List(fn: ClosV))  => StrV(s.dropWhile(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
         case (StrV(s), "forall",      List(fn: ClosV))  => BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "exists",      List(fn: ClosV))  => BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         // ── scala.math object ──────────────────────────────────────────────────────
@@ -2504,6 +2517,26 @@ object Prims:
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
+  private def formatValue(spec: String, v: Value): String =
+    val conv = spec.reverse.find(_.isLetter).getOrElse('s').toLower
+    val arg: AnyRef = conv match
+      case 'd' | 'o' | 'x' =>
+        v match
+          case IntV(n)   => java.lang.Long.valueOf(n)
+          case BigV(n)   => n.bigInteger
+          case FloatV(d) => java.lang.Long.valueOf(d.toLong)
+          case other     => java.lang.Long.valueOf(asInt(other))
+      case 'f' | 'e' | 'g' | 'a' =>
+        v match
+          case FloatV(d) => java.lang.Double.valueOf(d)
+          case IntV(n)   => java.lang.Double.valueOf(n.toDouble)
+          case BigV(n)   => java.lang.Double.valueOf(n.toDouble)
+          case other     => java.lang.Double.valueOf(asInt(other).toDouble)
+      case 'b' =>
+        java.lang.Boolean.valueOf(v == BoolV(true))
+      case _ =>
+        anyStr(v)
+    String.format(java.util.Locale.US, spec, arg)
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
     case IntV(n)   => n.toString
