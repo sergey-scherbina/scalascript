@@ -1010,7 +1010,23 @@ def parseOneStmt = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
   let v = tokVal(t) in
-  if #seq(k, "[") then
+  if #seq(k, "@") then
+    -- annotation(s): @Name / @Name("args") before a def/class/val — no runtime
+    -- effect in the native path, so skip them and parse the annotated statement.
+    let rec skipAnn = (ts) =>
+      let ts1 = advance(ts) in
+      let ts2 = if kindIs("id", ts1) then advance(ts1)
+                else if kindIs("uid", ts1) then advance(ts1) else ts1 in
+      let ts3 = if kindIs("(", ts2) then
+                  let rec skipP = (t2) =>
+                    if kindIs(")", t2) then advance(t2)
+                    else if kindIs("EOF", t2) then t2
+                    else skipP(advance(t2)) in
+                  skipP(advance(ts2))
+                else ts2 in
+      if kindIs("@", ts3) then skipAnn(ts3) else ts3 in
+    parseOneStmt(skipAnn(toks))
+  else if #seq(k, "[") then
     -- Markdown-link import  [a, b, c](path)  — the imported names resolve via
     -- the plugin registry / globals, so the declaration is a parse-only no-op.
     let rec skipTo = (ts, closer) =>
