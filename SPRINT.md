@@ -28,6 +28,10 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       recursion conformance is green, backend parity gates covering Rust stay
       green, `scripts/bench v2-backends recursion-fib` demonstrates the result,
       and `git diff --check` passes.
+      Baseline 2026-07-09 after `scripts/sbtc "installBin"` with default
+      `scripts/bench v2-backends recursion-fib`: `v2=5.93 ms`,
+      `v2-jvm=1.42 ms`, `v2-rust=226.7 ms`. This confirms the Rust source
+      recursion row is still a real backend gap on fresh `origin/main`.
 
 - [x] **v2-scripts-bench-mktemp-template** - DONE 2026-07-09 in `ed680a585`:
       small harness hygiene fix found

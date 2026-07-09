@@ -86,12 +86,32 @@ rather than landing speculative code.
 
 ## Baseline
 
-Pending. Fill after:
+Captured on 2026-07-09 from this worktree after staging the CLI:
 
 ```bash
 scripts/sbtc "installBin"
 scripts/bench v2-backends recursion-fib
 ```
+
+Default harness settings:
+
+```text
+Corpus:   recursion-fib
+Backends: v2, v2-jvm, v2-rust
+Warmup:   2000ms (time-based)
+Reps:     100
+ssc:      /Users/sergiy/work/my/scalascript-wt-v2-source-rust-recursion-fib-perf/bin/ssc
+```
+
+Result:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-fib` | 5.93 | 1.42 | 226.7 |
+
+This confirms the Rust source-backend row is still a real production gap on
+fresh `origin/main`: roughly 38x slower than the v2 VM row and roughly 160x
+slower than the optimized JVM source row on the same public benchmark command.
 
 ## Inspection
 
