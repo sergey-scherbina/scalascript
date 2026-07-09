@@ -457,6 +457,33 @@ def buildListExpr = (args) =>
       Pair("ctorap", Pair("Cons", Cons(h, Cons(buildListExpr(rest), Nil))))
   }
 
+-- K62.6c: build a Map from (resolved) `k -> v` / (k, v) entries. `map.put` MUTATES
+-- and returns Unit, so use an IIFE: (fn __m => { map.put(__m,k,v); …; __m })(map.new).
+def buildMapExpr = (args) =>
+  let rec puts = (as) =>
+    match as {
+      case Nil => Cons(Pair("expr", Pair("var", "__m")), Nil)
+      case Cons(a, rest) =>
+        match a {
+          case Pair(atag, adata) =>
+            let kv = if #seq(atag, "inf") then
+                       match adata { case Pair(op, pair) => pair }
+                     else if #seq(atag, "tup") then
+                       match adata { case Cons(k0, r0) =>
+                         match r0 { case Cons(v0, r1) => Pair(k0, v0) } }
+                     else Pair(a, a) in
+            match kv {
+              case Pair(k, v) =>
+                Cons(Pair("expr", Pair("prim", Pair("map.put",
+                       Cons(Pair("var", "__m"), Cons(k, Cons(v, Nil)))))),
+                     puts(rest))
+            }
+        }
+    } in
+  Pair("app", Pair(
+    Pair("lam", Pair(Cons("__m", Nil), Pair("block", puts(args)))),
+    Cons(Pair("prim", Pair("map.new", Nil)), Nil)))
+
 -- Resolve a method call obj.method(rargs) — obj and rargs already resolved
 def resolveMethodCall = (robj, method, rargs) =>
   if #seq(method, "charAt") then
@@ -620,7 +647,7 @@ def resolveE = (expr) =>
                   else if #seq(fdata, "Vector") then
                     Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
                   else if #seq(fdata, "Map") then
-                    Pair("prim", Pair("map.new", Nil))
+                    buildMapExpr(rargs)
                   else Pair("app", Pair(fn, rargs))
                 else if #seq(ftag, "sel") then
                   match fdata {
@@ -1100,7 +1127,9 @@ def selFlatMapDef =
         Cons(IrArm("None", 0, IrCtor("None", Nil)),
         Cons(IrArm("Right", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
         Cons(IrArm("Left", 1, IrCtor("Left", Cons(IrLocal(0), Nil))),
-        Nil)))), None)))
+        Nil)))),
+        -- K62.6c: List (Cons/Nil) flatMap → concatMap via _list_flatMap(obj, f)
+        Some(IrApp(IrGlobal("_list_flatMap"), Cons(IrLocal(1), Cons(IrLocal(0), Nil)))))))
 
 -- _sel_fold(either, fa, fb) — Either.fold; IrLam(3): fb=local0, fa=local1, either=local2
 -- Left arm (1 field): v=local0, fb=local1, fa=local2 → fa(v)
