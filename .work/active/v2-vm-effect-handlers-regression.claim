@@ -1,0 +1,6 @@
+feature/v2-vm-effect-handlers-regression 2026-07-09T09:32:36Z
+agent: codex
+heartbeat: 2026-07-09T09:32:36Z
+status: not-started
+done-so-far:
+next: create worktree, write spec/fix note, reproduce minimal effects rows
