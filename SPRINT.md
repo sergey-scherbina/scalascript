@@ -724,6 +724,19 @@ string-op switch. Dispatch is NOT the bottleneck; boxing + callClos are.
       and emit unboxed JVM arith (iadd/if_icmple) with boxing only at
       call/store boundaries (VM's tryFLC analog). Helps arith-loop/nested-
       loop/range-sum where the VM near-JITs to 0ms.
+      Plan 2026-07-09: first record a bytecode-vs-VM baseline for a narrow
+      integer-loop family (`arith-loop`, `nested-loop`, `range-sum`, and a fib
+      row if the wrapper exposes it), using `scripts/bench` commands where
+      available and documenting any required project wrapper fallback before
+      running it. Then inspect the v2 bytecode emitter's current arithmetic,
+      comparison, local-slot, and closure-call lowering; add the smallest typed
+      proof that recognizes bridge-lowered Int/Long loop operands without
+      changing generic `__arith__` semantics. Rejected upfront: resurrecting the
+      previous specialized per-op runtime methods, because they made fib worse
+      (107ms -> 146ms) and did not address boxing/callClos. Done when an
+      A/B baseline shows either a clear win or a documented negative result,
+      focused emitter tests pin correctness, affected conformance passes,
+      `git diff --check` is clean, and SPRINT/CHANGELOG record the outcome.
 
 ## Phase 4 — perf baseline v2-VM (bench 2026-07-08, `./bench.sh --backend v2`)
 
