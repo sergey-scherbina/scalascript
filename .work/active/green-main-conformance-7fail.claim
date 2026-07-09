@@ -1,6 +1,6 @@
-feature/green-main-conformance-7fail 2026-07-09T20:20:28Z
+feature/green-main-conformance-7fail 2026-07-09T20:29:33Z
 agent: codex
-heartbeat: 2026-07-09T20:20:28Z
+heartbeat: 2026-07-09T20:29:33Z
 status: in-progress
-done-so-far: dataset-shape, JS shadowing, renamed-import JS, and Scala.js serverless fixes are committed locally; focused fenceless/standard-scala slice is green
-next: rerun full conformance after Scala.js serverless fix, update docs, push, release claim
+done-so-far: dataset-shape, JS shadowing, renamed-import JS, Scala.js serverless, and conformance JVM serverless-default fixes are committed locally; affected slices are green
+next: rerun full serverless conformance, update docs, push, release claim
