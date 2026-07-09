@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: async parallel demo output stabilized
+
+`examples/async-parallel-demo.ssc` no longer prints live wall-clock milliseconds,
+so v1/v2 output parity compares the deterministic result lines instead of host
+timing noise. The production output-parity gate is now
+`66/98 identical · 9 mismatch · 0 v2-error · 23 v1-only` across 195 examples.
+Gates: `installBin`, conformance `async-parallel`, targeted async parity, and
+full `scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: graph plugin edge display parity fixed
 
 Bridged v1 plugin instances with named fields now render through v1 `Value.show`

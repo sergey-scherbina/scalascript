@@ -527,21 +527,19 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       **65/98 identical · 10 mismatch · 0 v2-error · 23 v1-only** `(26
       both-fail not-a-gap · 36 true-server · 0 long-running · 33 backend-lane ·
       2 nondet · 195 total)`.
-- [ ] **v2-async-parallel-timing-parity** — normalize the next small
-      production mismatch: `examples/async-parallel-demo.ssc` differs only
-      because stdout includes measured wall-clock milliseconds (`took ~Nms`).
-      Why: this is a false byte-for-byte parity failure; both lanes compute the
-      same `List(50, 50, 50)`, and the example prose already says output is
-      deterministic for code that does not depend on timing. How: reproduce with
-      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/async-parallel-demo.ssc`
-      after `scripts/sbtc "installBin"`; edit only the example stdout to print
-      deterministic result/status lines while keeping timing expectations in
-      prose/comments; do not change runtime semantics or the parity harness.
-      Verify with `scripts/sbtc "installBin"`,
-      `tests/conformance/run.sh --only 'async-parallel' --no-memo`, targeted
-      async parity, and full `scripts/v2-output-parity --all`; if the full count
-      changes, update `BUGS.md`, `SPRINT.md`, `CHANGELOG.md`,
-      `v2/output-parity-baseline.md`, and `specs/v2-full-compat.md`.
+- [x] **v2-async-parallel-timing-parity** — DONE 2026-07-09 (`ea62f9d38`):
+      normalized the next small production mismatch. Root cause:
+      `examples/async-parallel-demo.ssc` printed live wall-clock milliseconds
+      (`took ~Nms`), so v1/v2 byte-for-byte parity mismatched even though both
+      lanes computed the same `List(50, 50, 50)`. Fix: keep deterministic result
+      lines in stdout and leave timing expectations in prose/comments; no
+      runtime semantics or parity harness changes. Gates:
+      `scripts/sbtc "installBin"` passed;
+      `tests/conformance/run.sh --only 'async-parallel' --no-memo` passed
+      INT/JS/JVM; targeted `async-parallel-demo.ssc` parity passed 1/1; full
+      parity is now **66/98 identical · 9 mismatch · 0 v2-error · 23 v1-only**
+      `(26 both-fail not-a-gap · 36 true-server · 0 long-running · 33
+      backend-lane · 2 nondet · 195 total)`.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

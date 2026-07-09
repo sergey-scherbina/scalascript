@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-async-parallel-timing-parity — `open` (2026-07-09)
+## v2-async-parallel-timing-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-graph-neo4j-foreign-parity`.
@@ -25,11 +25,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** default v2 production gate has a false output mismatch. The
   example itself says output stays byte-identical for code that does not depend
   on timing, but its stdout currently depends on timing.
-- **Plan:** normalize `examples/async-parallel-demo.ssc` stdout to deterministic
-  result lines while keeping timing guidance in prose/comments. Do not change
-  runtime semantics. Verify with `installBin`, affected async conformance, the
-  targeted parity command above, and full `scripts/v2-output-parity --all`; if
-  the count changes, update the v2 parity baseline/spec/SPRINT/CHANGELOG.
+- **Root cause:** the example itself was nondeterministic: it printed live
+  elapsed milliseconds for the sequential and parallel handlers. v1/v2 semantic
+  results matched, but byte-for-byte stdout parity could not.
+- **Fix:** `ea62f9d38` keeps the result lines and timing guidance, but removes
+  live elapsed milliseconds from stdout. No runtime semantics changed.
+- **Gates:** `scripts/sbtc "installBin"` passed;
+  `tests/conformance/run.sh --only 'async-parallel' --no-memo` passed INT/JS/JVM;
+  targeted `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/async-parallel-demo.ssc`
+  passed 1/1; full parity is now
+  **66/98 identical · 9 mismatch · 0 v2-error · 23 v1-only** across 195
+  examples.
 
 ## v2-graph-neo4j-foreign-parity — `fixed` (2026-07-09)
 

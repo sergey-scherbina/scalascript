@@ -42,6 +42,26 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and next blockers
 
+Async timing normalization update (2026-07-09): after `ea62f9d38`,
+`async-parallel-demo.ssc` no longer prints live wall-clock milliseconds. The
+authoritative production gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-async-parallel-timing-parity`:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 66/98 identical · 9 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 2 nondet · 195 total)
+```
+
+`async-parallel-demo.ssc` is now output-identical, and no deterministic
+v2-error row reappeared. The remaining full-gate mismatches are:
+`distributed-streams.ssc`, `dsl-calc-parser.ssc`, `effects.ssc`,
+`lang-split.ssc`, `mcp-server-protected.ssc`, `oauth-mcp-full-stack.ssc`,
+`os-env.ssc`, `scala-js-demo.ssc`, and `streams.ssc`. They are now secrets,
+OS placeholder, parser/DSL, and stream-shape families.
+
 Graph display update (2026-07-09): after `c39afa9ba`, bridged v1 plugin
 instances with named fields render through v1 `Value.show` instead of leaking
 as `<foreign>` on the v2 print/auto-print paths. The authoritative production
