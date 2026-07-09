@@ -162,6 +162,7 @@ def lexFrom = (s, i) =>
       else Cons(mkTok("op", "-"), lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 60) then
       if #i.eq(n, 61) then Cons(mkTok("op", "<="), lexFrom(s, #i.add(i2, 2)))
+      else if #i.eq(n, 45) then Cons(mkTok("<-", ""), lexFrom(s, #i.add(i2, 2)))       -- K62.6c: for-generator arrow
       else if #i.eq(n, 62) then Cons(mkTok("op", "<>"), lexFrom(s, #i.add(i2, 2)))
       else if #i.eq(n, 60) then Cons(mkTok("op", "<<"), lexFrom(s, #i.add(i2, 2)))  -- K62.6c: shift-left
       else Cons(mkTok("op", "<"), lexFrom(s, #i.add(i2, 1)))
@@ -343,6 +344,32 @@ def partsToExpr = (parts) =>
 
 def buildSInterp = (raw) => partsToExpr(interpParts(raw))
 
+-- K62.6c: for-comprehension (single generator + optional guard) desugared to
+-- map / foreach / filter. `for x <- xs [if g] yield e` → xs[.filter(x=>g)].map(x=>e);
+-- `for x <- xs [if g] do e` (or braceless body) → …foreach(x=>e).
+def parseFor = (toks) =>
+  let ts0 = if kindIs("(", toks) then advance(toks)
+            else if kindIs("{", toks) then advance(toks) else toks in
+  let name = tokVal(peek(ts0)) in
+  let ts1 = skipKind("<-", advance(ts0)) in
+  let rGen = parseExpr(ts1) in
+  let ts3 = prT(rGen) in
+  let rGuard = if kwIs("if", ts3) then
+                 let rg = parseExpr(advance(ts3)) in
+                 pr(mkApp(mkSel(prV(rGen), "filter"), Cons(mkLam(Cons(name, Nil), prV(rg)), Nil)), prT(rg))
+               else pr(prV(rGen), ts3) in
+  let genE = prV(rGuard) in
+  let ts4 = prT(rGuard) in
+  let ts5 = if kindIs(")", ts4) then advance(ts4)
+            else if kindIs("}", ts4) then advance(ts4) else ts4 in
+  if kwIs("yield", ts5) then
+    let rB = parseExpr(advance(ts5)) in
+    pr(mkApp(mkSel(genE, "map"), Cons(mkLam(Cons(name, Nil), prV(rB)), Nil)), prT(rB))
+  else
+    let ts6 = if kwIs("do", ts5) then advance(ts5) else ts5 in
+    let rB = parseExpr(ts6) in
+    pr(mkApp(mkSel(genE, "foreach"), Cons(mkLam(Cons(name, Nil), prV(rB)), Nil)), prT(rB))
+
 -- ── Expression parser ─────────────────────────────────────────────────────────
 -- parseAtom: handles literals, variables, parenthesized, if, prefix
 def parseAtom = (toks) =>
@@ -372,6 +399,7 @@ def parseAtom = (toks) =>
     if #seq(v, "true")  then pr(mkBool("true"),  advance(toks))
     else if #seq(v, "false") then pr(mkBool("false"), advance(toks))
     else if #seq(v, "if")    then parseIfExpr(advance(toks))
+    else if #seq(v, "for")   then parseFor(advance(toks))
     else if #seq(v, "match") then parseMatchExpr(advance(toks))
     else if #seq(v, "return") then
       let r = parseExpr(advance(toks)) in
