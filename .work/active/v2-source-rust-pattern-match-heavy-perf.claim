@@ -1,6 +1,6 @@
-feature/v2-source-rust-pattern-match-heavy-perf 2026-07-09T22:40:07Z
+feature/v2-source-rust-pattern-match-heavy-perf 2026-07-09T22:46:40Z
 agent: codex
-heartbeat: 2026-07-09T22:40:07Z
+heartbeat: 2026-07-09T22:46:40Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-source-rust-pattern-match-heavy-perf
-next: write SPRINT/spec, baseline and inspect v2-rust pattern-match-heavy source
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-source-rust-pattern-match-heavy-perf; SPRINT/spec committed; baseline recorded as pattern-match-heavy v2=15.4 ms, v2-jvm=10.8 ms, v2-rust=319.1 ms; generated Rust inspected
+next: persist source inspection findings, then implement a scoped v2-rust fast path for the boxed Float/ADT hot path
