@@ -1,6 +1,0 @@
-feature/bug-ledger-scjvm-cache-duplicate-close 2026-07-09T05:45:58Z
-agent: codex
-heartbeat: 2026-07-09T05:46:14Z
-status: in-progress
-done-so-far: worktree created at ../scalascript-wt-bug-ledger-scjvm-cache-duplicate-close
-next: close duplicate scjvm cache BUGS entry and record ledger cleanup
