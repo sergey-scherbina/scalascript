@@ -4309,7 +4309,16 @@ small residuals above are blocked by real browser/device/external inputs. See BA
 - WIP (чужая ветка): control-center-live (wip/control-center-live).
 - СЕРВЕР/SPA (биндит порт; в батче парс-артефакт конкатенации фенсов): datatable-static-spa.
 - КОНФИГ примера: pg-listen-notify (нужна databases: секция во front-matter).
-- БРИДЖ-БАГ (диагностирован 07-09, mcp-tool-hints): mcp-search-server — НЕ native-фикс.
+- БРИДЖ-СЛАЙС (углублён 07-09, v2-finish-all): mcp-search-server — ЧАСТИЧНО: общий
+  named-arg→UnitV баг ПОЧИНЕН (6ef926e16 — named args к методам теперь позиционные значения,
+  не теряются). ОСТАЁТСЯ: curried-native-в-block-DSL. `srv.tool(4args)(handler)` внутри
+  `mcpServer{srv=>…}` конвертится путём, который НЕ проходит через convertApply (apply-dbg
+  не сработал, mcp-dbg — да → тело block-DSL идёт спец-обработчиком convertBlock/иным,
+  минуя curried-арм 1963). Нужно: найти путь конверсии тела block-DSL и применить two-step
+  для curried-нативов (tool/toolWithSchema/resource/prompt) + native принять trailing
+  hint-args в 1-м клозе. Спекулятивные правки (native hint case, curried seed) откачены —
+  не работали, т.к. корень в необследованном пути конверсии.
+- БРИДЖ-БАГ (старая формулировка, см. выше): mcp-search-server — НЕ native-фикс.
   Дамп аргументов показал ДВА бридж-бага: (1) named-args к методам opaque-инстанса
   (`srv.tool(..., readOnlyHint = true)`) конвертируются как `cell.set(@name, n)` → UnitV
   (механизм receive(timeout=n) из FrontendBridge ~2669 протекает на общий method-call
