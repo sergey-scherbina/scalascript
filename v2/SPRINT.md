@@ -1157,3 +1157,59 @@ Conformance clean (also fixed 3 pre-existing harness bugs: kc5-type-error, kc9-s
 
 **Done-when:** `cd v2 && ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/stdin`
 outputs "Hello, World!"; `./conformance/check.sh` exits 0.
+
+---
+
+## K62 — scalameta-free frontend parity (measured 2026-07-09)
+
+Goal: bring the **native** (scalameta-free) `.ssc` frontend tower
+(`mira-md` → `ssc1-front` → `ssc1-check` → `ssc1-lower`) to parity with the v1
+scalameta parser, so scalameta can eventually be dropped from `v1/lang/core` and
+the `v2FrontendBridge` seam retired. Spec: `specs/62-scalameta-free-frontend-parity.md`.
+
+**Baseline (measured, native parse+lower over the real 195-file `examples/*.ssc`
+corpus):** 186/195 = 95.4% PASS after the fence-tag fix + `-Xss16m`. The parser is
+NOT the hard part — scalameta is only parser+typer, and the native parser already
+covers 95% of the corpus surface. Full method + numbers in the spec.
+
+Reproduce the measurement:
+`scala-cli --power package v2/src --assembly -f -o /tmp/ssc.jar`, then loop
+`java -Xss16m -jar /tmp/ssc.jar run bin/ssc1-run.ssc0 <examples/*.ssc>` (exit 0 ⇔
+frontend accepted the file).
+
+- [x] **K62.0 — fence-tag policy fix DONE** 2026-07-09. `bin/ssc1-run.ssc0`:
+      broadened the block filter from `#seq(lang,"scalascript")` to also accept
+      `scala` (both are executable ScalaScript in v1 — `Lang.isParseable`).
+      Moved 32 corpus files from FAIL→PASS. `ssc0` note: `#or` is not a primitive;
+      use a nested `if` to build the boolean.
+
+- [ ] **K62.1 — Gap 1: assignment in non-final block position (`Pair/2`).**
+      6 files (`rozum-agent{,-pool,-schema-derived}`, `ws-chat`, `dsl-yaml-like`,
+      `mcp-search-server`). `ssc1-lower.ssc0`'s block-sequence fold has no arm for
+      an `Assign` node mid-sequence. Minimal repro:
+      ``var c = 0; foo("x") { y => c = c + 1; bar(y) }``.
+      How: add the `Assign`-in-sequence arm to the statement-sequence lowering in
+      `ssc1-lower.ssc0` (assignment as last expr already works — generalize to
+      non-final). Verify: the 6 files parse+lower (exit 0).
+
+- [ ] **K62.2 — Gap 2: empty-tail statement sequence (`Nil/0`).**
+      2 files (`dsl-mini-language`, `webauthn-demo`). Related sequence-fold defect —
+      a `Nil` tail reaches `lowerE`. Not minimized to a one-liner; repro = the full
+      files. Likely the same fold as K62.1 — fix together. Verify: both exit 0.
+
+- [ ] **K62.3 — compile-recursion robustness.** Large programs
+      (`control-center-live`, `auth-full`, `x402-cardano-scalus`) StackOverflow in
+      `Compiler.compile`/`FastCode` at the default JVM stack. Either make the
+      lowering/compile loops in `Runtime.scala` iterative, or add `-Xss16m` to the
+      `v2/ssc*` launchers. Verify: they run at the default stack.
+      Target after K62.1–3: **194/195** (all but `deploy.ssc`, which is correctly
+      non-code).
+
+- [ ] **K62.4 — measure axis 2 (native type-checker).** Run `ssc1-check` over the
+      corpus (the `ssc1-run` path skips it), classify type-check gaps the same way,
+      size the work. This is the next unknown after parse+lower closes.
+
+**Non-goals (this milestone):** axis 3 — runtime/stdlib/plugin/effect semantic
+parity on the native VM (route/serve/agentTool/… intrinsics). That is the bulk of
+"v2 without v1" but is scalameta-independent and tracked under the K3 stdlib
+tracks. See spec §"Honest scope — three independent axes".

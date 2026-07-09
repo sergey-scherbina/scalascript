@@ -12,7 +12,7 @@ appropriate compiler pipeline.
 | Fence tag               | Pipeline                                     | Status          |
 |-------------------------|----------------------------------------------|-----------------|
 | `scalascript` / `ssc`   | v1.0-compat frontend → Core IR → VM/JS/Rust  | planned (KC1–8) |
-| `scala`                 | Standard Scala 3 (passthrough / JVM only)    | deferred        |
+| `scala`                 | Same as `scalascript` — executable ScalaScript surface (v1 `Lang.isParseable` parses `scala` == `scalascript`; most of the corpus tags its code `scala`). The "standard Scala 3 passthrough" idea below was never realized. | frontend accepts it (K62.0) |
 | `mira`                  | Mira (formerly ssct-hm): HM-typed FP language → Core IR → VM/JS/Rust | done (K5–K53) |
 | `ssc0`                  | Raw ssc₀ seed language → Core IR → VM        | done (K0)       |
 | `rust`                  | Rust source — passthrough into Cargo crate   | done (K4)       |

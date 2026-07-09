@@ -101,6 +101,23 @@ KC5 type checker → KC6 intrinsics → KC7 OOP lowering → KC8 given/using.
 - [ ] **KC7** — OOP lowering: class/trait/object → records + vtable dicts.
 - [ ] **KC8** — given/using → dict passing (same mechanism as Mira type classes).
 
+## K62 — scalameta-free frontend parity
+
+Measured 2026-07-09. Bring the native (scalameta-free) frontend to parity so
+scalameta can be dropped from `v1/lang/core` and the `v2FrontendBridge` seam
+retired. Spec: `specs/62-scalameta-free-frontend-parity.md`; tasks in `SPRINT.md`.
+
+Baseline: the native `mira-md`→`ssc1-front`→`ssc1-lower` path already parses+lowers
+**186/195 (95.4%)** of the real `examples/*.ssc` corpus. Remaining surface gap =
+2 statement-sequence lowering bugs in `ssc1-lower.ssc0` (8 files). The parser is
+not the hard part; the bulk of "v2 without v1" is runtime/stdlib parity (axis 3),
+which is scalameta-independent.
+
+- [x] **K62.0** — fence-tag policy fix (accept ` ```scala `): +32 files.
+- [ ] **K62.1/2** — close the 2 lowering gaps (`Assign` mid-block; empty-tail seq).
+- [ ] **K62.3** — compile-recursion robustness (StackOverflow on large programs).
+- [ ] **K62.4** — measure native type-checker (`ssc1-check`) coverage (axis 2).
+
 ## Invariants across all milestones
 
 - The kernel (the `ssc` binary) stays minimal and untyped: no type checker, no surface
