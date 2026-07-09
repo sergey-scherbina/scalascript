@@ -1,6 +1,6 @@
 feature/unmask-markup-bridge 2026-07-09T12:40:12Z
 agent: codex
-heartbeat: 2026-07-09T12:45:17Z
+heartbeat: 2026-07-09T12:56:22Z
 status: in-progress
-done-so-far: claim/worktree created; baseline captured: v2 xslt-transform exits 0 with empty stdout after installBin, v1 rejects xml interpolator
-next: commit specs/unmask-markup-bridge.md + SPRINT plan before code, then bridge xml/MarkupCodec/PureMarkupCodec/SerializeOpts in v2
+done-so-far: spec/planning committed on feature branch; implemented first markup bridge pass; focused markup FrontendBridgeTest is green
+next: run full bridge tests and real xslt-transform example, then rebase on origin/main and finish verification/bookkeeping
