@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/unmask-batch-1
-worktree: ../scalascript-wt-unmask
-started: 2026-07-09
-status: in-progress
-task: unmask-batch-1 — пять разоблачённых фикций: remote-def parse, splice-in-scala-fence prepass, webhookRequest/runFold/MarkupCodec бриджи; тайм-бокс, честный скоуп
