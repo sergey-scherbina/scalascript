@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## scripts-bench-wall-all-na — `open` (2026-07-09)
+## scripts-bench-wall-all-na — `fixed` (2026-07-09)
 
 - **Found by:** codex, while measuring `v2-prod-performance-gate-baseline`.
 - **Repro:** after staging `bin/ssc`, run `scripts/bench wall` from the repo
@@ -23,13 +23,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** the mandated `scripts/bench wall` entrypoint cannot produce
   useful cross-language wall-clock numbers, so production performance notes
   would have to rely on `bench.sh` only.
-- **Likely root cause:** `tests/bench/run.sc` sets `dir = os.pwd / "bench"`,
-  so when launched by `scripts/bench wall` from repo root it looks for
-  `/repo/bench/fib.ssc` instead of `/repo/tests/bench/fib.ssc`.
-- **Plan:** make `tests/bench/run.sc` resolve its benchmark data directory
-  from either repo root (`tests/bench`) or direct script-directory execution,
-  then re-run `scripts/bench wall`.
-- **Status:** open.
+- **Root cause:** two stale assumptions in `tests/bench/run.sc`: it set
+  `dir = os.pwd / "bench"`, so `scripts/bench wall` from repo root looked for
+  `/repo/bench/fib.ssc` instead of `/repo/tests/bench/fib.ssc`; and its
+  missing-`sscc` fallback used the obsolete `ssc compile <file>` command.
+- **Fix:** `a76322f04` resolves the data directory from either repo root or
+  direct script-directory execution, and changes the JVM fallback to
+  `ssc run-jvm <file>`.
+- **Gates:** `scripts/bench wall` now reports usable rows:
+  `fib 50/2/0/0/2`, `sum 51/4/1/0/2`, and
+  `list-ops 110/n/a/33/73/2` for `ssc-int/ssc-js/ssc-jvm/scala-cli/node`.
+  The remaining `list-ops` JS `n/a` is an unsupported-row caveat, not the
+  all-`n/a` runner failure.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## jvm-artifact-cache-codegen-invalidation — `fixed` (2026-07-09)
 
