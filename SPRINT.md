@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-read-gigs-handle-leak-minimize** - reproduce and minimize the real
+      busi hub `read_gigs` v2 failure tracked in
+      `BUGS.md#v2-read-gigs-handle-leak`. The isolated dispatcher-shaped repro
+      did not fail, so the first production slice is to run the real harness if
+      a busi checkout/config is available, then reduce the trigger enough to
+      land either a focused conformance/e2e fixture or a narrow compiler/runtime
+      fix. Repro target from BUGS: boot busi's hub on `--v2`, call MCP
+      `tools/call` for `read_gigs`, and observe `HTTP 500` with
+      `if: condition not Bool: Op("GigSource.fetch", (), <closure>)`; v1 and
+      `tests/v2/gigs.ssc` are not sufficient oracles because the small isolated
+      pattern already passes. Approach: inspect the real `src/v2/http/mcp.ssc`
+      / `src/v2/domain/gigs.ssc` call graph and import scale, create a local
+      reduced `.ssc` fixture in this repo once the trigger is understood, then
+      fix the responsible v2 handle/effect/bridge path without broadening into
+      unrelated MCP tools. Done when BUGS records the actual root cause, the
+      failing shape is pinned by a real harness or reduced regression, affected
+      conformance/e2e plus `git diff --check` pass, and the claim is released.
+
 - [x] **v2-jvm-user-request-shadow** - DONE 2026-07-09 in `d5538d66a`:
       the JVM codegen no longer leaks public HTTP runtime `Request`/`Response`
       case-class names into non-server user modules that define the same
