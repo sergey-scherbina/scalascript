@@ -231,6 +231,93 @@ object SelfRecLL:
         case other => go(other)
       goTail(body).map { f => self = f; f }  // tie the recursion knot
 
+// ── SelfTailRecLL2: arity-2 self-tail-recursive Long loop ───────────────────
+// Bridge-generated accumulator recursion, e.g.
+// `sumTco(n, acc) = if n <= 0 then acc else sumTco(n - 1, acc + n)`, can keep
+// Core IR's constant-stack TCO contract while avoiding the generic trampoline.
+object SelfTailRecLL2:
+  import Term.*, Const.*
+  type LL2 = (Long, Long) => Long
+
+  private sealed trait Tail
+  private final case class Ret(f: LL2) extends Tail
+  private final case class Recur(a0: LL2, a1: LL2) extends Tail
+  private final case class Branch(c: (Long, Long) => Boolean, th: Tail, el: Tail) extends Tail
+
+  def compile(body: Term, selfName: String, arity: Int): Option[LL2] =
+    if arity != 2 then None
+    else
+      def goB(t: Term): Option[(Long, Long) => Boolean] = t match
+        case Lit(CBool(b)) => val v = b; Some((_, _) => v)
+        case If(c, th, el) => for fc <- goB(c); ft <- goB(th); fe <- goB(el) yield (a: Long, b: Long) => if fc(a, b) then ft(a, b) else fe(a, b)
+        case Prim("not", List(a)) => goB(a).map(fa => (x: Long, y: Long) => !fa(x, y))
+        case Prim("i.le", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) <= fb(x, y)
+        case Prim("i.lt", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) <  fb(x, y)
+        case Prim("i.ge", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) >= fb(x, y)
+        case Prim("i.gt", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) >  fb(x, y)
+        case Prim("i.eq", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) == fb(x, y)
+        case Prim("__arith__", List(Lit(CStr(op)), a, b))
+            if op == "<" || op == "<=" || op == ">" || op == ">=" || op == "==" || op == "!=" =>
+          for fa <- go(a); fb <- go(b) yield
+            op match
+              case "<"  => (x: Long, y: Long) => fa(x, y) <  fb(x, y)
+              case "<=" => (x: Long, y: Long) => fa(x, y) <= fb(x, y)
+              case ">"  => (x: Long, y: Long) => fa(x, y) >  fb(x, y)
+              case ">=" => (x: Long, y: Long) => fa(x, y) >= fb(x, y)
+              case "==" => (x: Long, y: Long) => fa(x, y) == fb(x, y)
+              case _    => (x: Long, y: Long) => fa(x, y) != fb(x, y)
+        case _ => None
+
+      def go(t: Term): Option[LL2] = t match
+        case Lit(CInt(k)) => val v = k; Some((_, _) => v)
+        case Local(1)     => Some((a, _) => a)
+        case Local(0)     => Some((_, b) => b)
+        case Prim("i.add", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) + fb(x, y)
+        case Prim("i.sub", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) - fb(x, y)
+        case Prim("i.mul", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) * fb(x, y)
+        case Prim("i.div", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) / fb(x, y)
+        case Prim("i.mod", List(a, b)) => for fa <- go(a); fb <- go(b) yield (x: Long, y: Long) => fa(x, y) % fb(x, y)
+        case Prim("__arith__", List(Lit(CStr(op)), a, b)) if op.length == 1 && "+-*/%".contains(op) =>
+          for fa <- go(a); fb <- go(b) yield
+            op match
+              case "+" => (x: Long, y: Long) => fa(x, y) + fb(x, y)
+              case "-" => (x: Long, y: Long) => fa(x, y) - fb(x, y)
+              case "*" => (x: Long, y: Long) => fa(x, y) * fb(x, y)
+              case "/" => (x: Long, y: Long) => fa(x, y) / fb(x, y)
+              case _   => (x: Long, y: Long) => fa(x, y) % fb(x, y)
+        case If(c, th, el) => for fc <- goB(c); ft <- go(th); fe <- go(el) yield (x: Long, y: Long) => if fc(x, y) then ft(x, y) else fe(x, y)
+        case _ => None
+
+      def tail(t: Term): Option[Tail] = t match
+        case If(c, th, el) => for fc <- goB(c); ft <- tail(th); fe <- tail(el) yield Branch(fc, ft, fe)
+        case App(Global(g), List(a0, a1)) if g == selfName =>
+          for fa0 <- go(a0); fa1 <- go(a1) yield Recur(fa0, fa1)
+        case other => go(other).map(Ret.apply)
+
+      tail(body).map { root => (a0: Long, a1: Long) =>
+        var a = a0
+        var b = a1
+        var result = 0L
+        var done = false
+        while !done do
+          var cur = root
+          var jumped = false
+          while !done && !jumped do
+            cur match
+              case Ret(f) =>
+                result = f(a, b)
+                done = true
+              case Recur(fa, fb) =>
+                val na = fa(a, b)
+                val nb = fb(a, b)
+                a = na
+                b = nb
+                jumped = true
+              case Branch(c, th, el) =>
+                cur = if c(a, b) then th else el
+        result
+      }
+
 object Compiler:
   import Value.*, Term.*
 
@@ -259,7 +346,28 @@ object Compiler:
               case lc: LongCellV => IntV(ll(lc.v))
               case _             => Runtime.run(bodyCode, env))
             cv
-          case None => ClosV(Array.empty[Value], ar, bodyCode)
+          case None =>
+            SelfTailRecLL2.compile(b, d.name, ar) match
+              case Some(ll2) =>
+                val code: Code = (env: Env) =>
+                  if env.length < 2 then bodyCode(env)
+                  else (env(env.length - 2), env(env.length - 1)) match
+                    case (IntV(a),       IntV(b))       => Done(IntV(ll2(a, b)))
+                    case (lc: LongCellV, IntV(b))       => Done(IntV(ll2(lc.v, b)))
+                    case (IntV(a),       lc: LongCellV) => Done(IntV(ll2(a, lc.v)))
+                    case (la: LongCellV, lb: LongCellV) => Done(IntV(ll2(la.v, lb.v)))
+                    case _                              => bodyCode(env)
+                val cv = ClosV(Array.empty[Value], ar, code)
+                cv.fcEntry = Some((env: Env) =>
+                  if env.length < 2 then Runtime.run(bodyCode, env)
+                  else (env(env.length - 2), env(env.length - 1)) match
+                    case (IntV(a),       IntV(b))       => IntV(ll2(a, b))
+                    case (lc: LongCellV, IntV(b))       => IntV(ll2(lc.v, b))
+                    case (IntV(a),       lc: LongCellV) => IntV(ll2(a, lc.v))
+                    case (la: LongCellV, lb: LongCellV) => IntV(ll2(la.v, lb.v))
+                    case _                              => Runtime.run(bodyCode, env))
+                cv
+              case None => ClosV(Array.empty[Value], ar, bodyCode)
         globals(d.name) = closV
         if closV.fcEntry.isEmpty then
           closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global

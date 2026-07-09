@@ -114,6 +114,25 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(Runtime.run(workload.code, workload.env) == Value.IntV(832040))
   }
 
+  test("bridge self-tail recursion compiles to arity-2 Long loop fast entry") {
+    ensureBridgeRuntime()
+    val src =
+      """def sumTco(n: Int, acc: Int): Int =
+        |  if n <= 0 then acc
+        |  else sumTco(n - 1, acc + n)
+        |
+        |def workload(): Int = sumTco(100000, 0)
+        |""".stripMargin
+
+    val prog = FrontendBridge.convertSource(src)
+    val (_, globals) = Compiler.compileWithGlobals(prog)
+    val sumTco = globals("sumTco").asInstanceOf[Value.ClosV]
+    val workload = globals("workload").asInstanceOf[Value.ClosV]
+
+    assert(sumTco.fcEntry.isDefined)
+    assert(Runtime.run(workload.code, workload.env) == Value.IntV(5000050000L))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
