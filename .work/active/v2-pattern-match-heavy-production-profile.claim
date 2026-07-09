@@ -1,6 +1,6 @@
-feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:37:19Z
+feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:48:08Z
 agent: codex
-heartbeat: 2026-07-09T23:37:19Z
+heartbeat: 2026-07-09T23:48:08Z
 status: in-progress
-done-so-far: worktree created; spec committed on feature branch; installBin passed before recapture
-next: run pattern-match-heavy bench rows, emit CoreIR/source profile, then decide one conservative fix or record no-code gate result
+done-so-far: baseline/CoreIR captured; static float foreach VM fix + fallback test committed on feature branch
+next: rebase, installBin, run focused tests/conformance and final pattern-match-heavy bench rows
