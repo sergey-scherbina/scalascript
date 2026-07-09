@@ -1093,26 +1093,38 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       (43/43), affected module compiles, `tests/conformance/run.sh --only 'tkv2-keyed-for'
       --no-memo`, and `bin/ssc emit-spa --frontend custom examples/frontend/keyed-for-demo/keyed-for-demo.ssc`.
       Note: same-key item value changes intentionally do not re-render in this slice.
-- [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
-      missing entirely; the server verifier exists on JVM + JS. Option shapes match `webauthnStore*`.
+- [x] **tkv2-webauthn** ✓ DONE 2026-07-09 — browser `navigator.credentials.create/get`
+      actions (register/assert) for the production `emit-spa --frontend custom` path.
+      Feature `e61a89b4c`, docs `6801d977c`: `std/ui/webauthn.ssc` exports
+      `webauthnRegister` / `webauthnAssert` EventHandlers, `signals.mjs` runs the
+      begin -> browser credential -> complete ceremony with base64url payloads and
+      caller headers, off-browser fallbacks report a clear unavailable error, and
+      the adjacent `std/auth.ssc` WebAuthn declaration drift is fixed.
       Active plan 2026-07-09 (`feature/tkv2-webauthn` / codex):
       - [x] Spec first in `specs/tkv2-webauthn.md`, then commit/push it before implementation.
-      - [ ] Add UI-facing WebAuthn EventHandler externs in `std/ui/webauthn.ssc`, not to core:
+      - [x] Add UI-facing WebAuthn EventHandler externs in `std/ui/webauthn.ssc`, not to core:
             `webauthnRegister(beginUrl, completeUrl, rpName, result, error, headers, timeoutMs,
             userVerification)` and `webauthnAssert(beginUrl, completeUrl, result, error, headers,
             timeoutMs, userVerification)`.
-      - [ ] Implement the browser/custom runtime in `signals.mjs`: POST begin JSON, call
+      - [x] Implement the browser/custom runtime in `signals.mjs`: POST begin JSON, call
             `navigator.credentials.create/get`, base64url-encode browser ArrayBuffers, POST complete JSON,
             write response text into `result`, and write user-visible failures into `error`.
-      - [ ] Keep Node/interpreter behavior deterministic: off-browser handler creation is allowed, but
+      - [x] Keep Node/interpreter behavior deterministic: off-browser handler creation is allowed, but
             invoking it reports a clear "WebAuthn unavailable" error instead of silently succeeding.
-      - [ ] Fix the adjacent std-auth WebAuthn declaration drift recorded in `BUGS.md`
+      - [x] Fix the adjacent std-auth WebAuthn declaration drift recorded in `BUGS.md`
             (`std-auth-webauthn-signature-drift`): declarations must match the existing JVM/JS runtime
             implementations and examples.
-      - [ ] Add focused runtime tests with stubbed `navigator.credentials` and `fetch`, plus a conformance
+      - [x] Add focused runtime tests with stubbed `navigator.credentials` and `fetch`, plus a conformance
             API smoke case. Gate before push with targeted Scala tests, affected compiles,
             `tests/conformance/run.sh --only 'tkv2-webauthn,webauthn-server-verify' --no-memo`, and an
             `emit-spa --frontend custom` smoke of the new example.
+      Gates: affected compiles green; `backendInterpreter/testOnly
+      scalascript.JsRuntimeWebAuthnClientTest scalascript.JsGenStdImportTest` green (43 tests);
+      conformance `tkv2-webauthn,webauthn-server-verify` green (2/2, INT+JS pass);
+      `bin/ssc emit-spa --frontend custom examples/frontend/webauthn-toolkit-demo/webauthn-toolkit-demo.ssc`
+      emitted the expected WebAuthn browser runtime markers. Gotcha recorded in
+      `specs/tkv2-webauthn.md`: stale local `bin/ssc` required `scripts/sbtc "installBin"`
+      before real-harness conformance.
 - [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =
       existing in-process transport (fullstack spec phases 0–5).
 - [x] **tkv2-theme-css-vars** ✓ DONE 2026-07-07 (taken out of order — small) — `cssVariables(t: Theme)`

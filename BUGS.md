@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## std-auth-webauthn-signature-drift — `open` (2026-07-09)
+## std-auth-webauthn-signature-drift — `fixed` (2026-07-09)
 
 - **Found by:** codex, during `tkv2-webauthn` spec/implementation prep.
 - **Repro:** compare `v1/runtime/std/auth.ssc` declarations with the existing
@@ -33,6 +33,16 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Fix direction:** update `std/auth.ssc` declarations to the runtime-backed
   arities/return shapes without changing the verifier semantics, then keep
   `webauthn-server-verify` green on INT+JS.
+- **Root cause:** `std/auth.ssc` lagged behind the already-shipped JVM/JS
+  WebAuthn verifier/store implementations; examples and runtime code had moved
+  to user-scoped credential lookup, boolean sign-count updates, and verifier
+  inputs split into browser response fields.
+- **Fixed in:** `e61a89b4c` (`feat: add tkv2 webauthn browser actions`).
+- **Gates:** `scripts/sbtc "backendJs/compile; frontendPlugin/compile; backendInterpreter/compile"`;
+  `scripts/sbtc "backendInterpreter/testOnly scalascript.JsRuntimeWebAuthnClientTest scalascript.JsGenStdImportTest"` (43 tests);
+  `tests/conformance/run.sh --only 'tkv2-webauthn,webauthn-server-verify' --no-memo`
+  (2/2 cases, INT+JS pass); `emit-spa --frontend custom` smoke for
+  `examples/frontend/webauthn-toolkit-demo/webauthn-toolkit-demo.ssc`.
 - **Done-when:** the declaration file, examples, runtime intrinsics, and
   conformance call shapes agree; fixed SHA and gates are recorded here.
 

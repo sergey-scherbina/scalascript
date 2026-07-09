@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — tkv2: WebAuthn browser passkey actions
+
+`std/ui/webauthn.ssc` now provides `webauthnRegister` and `webauthnAssert`
+EventHandlers for passkey buttons on the production `emit-spa --frontend custom`
+path. The JS runtime POSTs begin options, calls `navigator.credentials.create/get`,
+POSTs verifier-shaped base64url complete payloads, preserves caller headers, and
+reports deterministic off-browser errors. The adjacent `std/auth.ssc` WebAuthn
+declaration drift was fixed. Gates: affected compiles, `JsRuntimeWebAuthnClientTest`
+and `JsGenStdImportTest` 43/43, conformance `tkv2-webauthn,webauthn-server-verify`,
+and `examples/frontend/webauthn-toolkit-demo` emit-spa smoke.
+
 ## 2026-07-09 — tkv2: keyed browser list reconciliation
 
 `std/ui` now has `forKeyed(items, key)(render)` for the production
