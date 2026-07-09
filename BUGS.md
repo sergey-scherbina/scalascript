@@ -12,6 +12,26 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-bytecode-param-long-nontail-self-loop — `open` (2026-07-09)
+
+- **Found by:** codex while rerunning final gates for
+  `v2-source-jvm-recursion-fib-perf` after rebasing onto `origin/main`.
+- **Repro:** on fresh `origin/main` `8ec03cfbf`, run
+  `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z recursive"`.
+- **Observed failure:** `v2 bytecode self-recursive int arithmetic keeps VM result`
+  returns `IntV(1)` instead of `IntV(832040)` for:
+  `def fib(n: Int): Int = if n <= 1 then n else fib(n - 1) + fib(n - 2); fib(30)`.
+- **Expected:** the bytecode lane returns the same `IntV(832040)` as the v2 VM.
+- **Root-cause hypothesis:** `JvmByteGen.emitParamLong` emits every self-call in a
+  Long-specialized helper as a parameter-rebinding loop jump. That is valid only
+  for tail self-calls. Non-tail recursive calls inside expressions such as
+  `fib(n - 1) + fib(n - 2)` must call the Long helper recursively and leave a
+  value on the operand stack.
+- **Impact:** the current v2 bytecode recursive-Int fast path is semantically
+  wrong for non-tail recursion; this blocks using the focused recursive bridge
+  gate as a production signal.
+- **Status:** open.
+
 ## v2-money-decimal-regression — money amounts became Int (Decimal shadowed by payments Money companion)
 
 **Status:** FIXED 2026-07-09 — busi's v2 domain sweep dropped 61/61 → 25/61 after

@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-bytecode-param-long-nontail-self-loop** - urgent regression found
+      while closing `v2-source-jvm-recursion-fib-perf`: fresh `origin/main`
+      `8ec03cfbf` fails
+      `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z recursive"`
+      because `runBytecode` returns `IntV(1)` instead of `IntV(832040)` for
+      non-tail `fib(30)`. Hypothesis: `v2/backend-jvm-bytecode/JvmByteGen.scala`
+      emits every self-call in a Long-specialized helper as a parameter-rebinding
+      loop jump, but that is only valid in tail position. Plan: thread a tail
+      flag through `emitParamLong`; keep loop rebinding for tail self-calls, emit
+      a recursive `invokestatic <helper>(J...)J` for non-tail self-calls, and
+      preserve the existing deep tail-recursive loop behavior. Done when the
+      focused recursive bridge test passes, affected recursion conformance stays
+      green, the v2 JVM source `recursion-fib` benchmark remains improved, and
+      `git diff --check` passes. Tracked in
+      `BUGS.md#v2-bytecode-param-long-nontail-self-loop`.
+
 - [x] **v2-source-jvm-recursion-fib-perf** - DONE 2026-07-09: narrow Phase-3 source-backend
       performance slice for the v2 JVM source backend on
       `bench/corpus/recursion-fib.ssc`. Context: BACKLOG
@@ -4679,4 +4695,3 @@ doesn't de-fold for it), not a real bc weakness. Landed this session: foreach-in
 pure-Seq-inline (78c459fc4, the systemic one), unboxed self-tail params + overflow
 FIX (c22cb2a39). The last also fixed a latent CORRECTNESS bug: deep tail recursion
 stack-overflowed on the bc lane. Bytecode-perf slice DONE.
-
