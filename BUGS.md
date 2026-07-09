@@ -3360,3 +3360,53 @@ large real file (busi did this successfully before for
 but hub.ssc's own internal complexity — not just its import graph — may
 need a different bisection approach, e.g. commenting out route
 registrations in blocks).
+
+## v2-read-gigs-handle-leak — GigSource.fetch handle{} effect leaks unhandled inside busi's real hub.ssc/mcp.ssc (isolated minimization did NOT reproduce)
+
+**Status:** OPEN — real, confirmed on a live busi hub; NOT reduced to a
+minimal standalone repro (flagging honestly, like v2-req-form-stub-in-hub
+before it, which turned out to be v2-req-form-type-collision — a busi
+Request-vs-Request tag collision at scale)
+
+Found completing a full live JDG money-loop pass on `--v2` (busi's first
+successful end-to-end run of find-work→contract→track→invoice→get-paid
+against real simulators through a live hub, after `v2-option-exists` and
+`v2-req-form-type-collision` were fixed). Every MCP tool worked EXCEPT
+`read_gigs`:
+
+```
+POST /mcp {"method":"tools/call","params":{"name":"read_gigs","arguments":{}}}
+→ HTTP 500; hub log: Error: if: condition not Bool: Op("GigSource.fetch", (), <closure>)
+```
+
+busi's own domain test `tests/v2/gigs.ssc` (isolated, part of the 61/61
+v2 sweep) exercises the SAME `handle { body() } { case
+GigSource.fetch(resume) => resume(simGigs()) }` pattern
+(`src/v2/domain/gigs.ssc`, `runSimGigSource`) successfully — so the
+`handle{}` construct itself works in isolation. The tool is invoked from
+`src/v2/http/mcp.ssc`'s `runTool` dispatcher:
+`case "read_gigs" => runSimGigSource(() => gigsJsonStr(scoutGigs()))`
+— something about calling this handle{}-wrapping function FROM a generic
+`runTool(name, args)` dispatch (rather than as a top-level call, as
+`tests/v2/gigs.ssc` does) drops the handler, letting the raw
+`GigSource.fetch` Op reach an `if` condition somewhere downstream
+un-lifted. The `(condition not Bool)` phrasing suggests the Op itself
+ends up being tested as a boolean, not that `scoutGigs()`'s result is
+malformed — a clue for whoever bisects this.
+
+Workaround used to complete the money-loop pass: busi's tool set also
+exposes `open_opportunity` as a direct entry point (bypassing
+`read_gigs`/`take_gig`), which worked correctly and let the rest of the
+pipeline (send_proposal → win_opportunity → sign_contract → log_work →
+invoice_from_work [real KSeF send] → bank_reconcile [real match+pay] →
+file_tax [real UPO]) complete successfully end to end.
+
+Minimization attempt (did NOT reproduce): a `handle{}`-wrapping function
+called from inside a `runTool(name, args)`-shaped dispatcher (an
+`if name == "x" then wrapper(() => effectfulCall())` chain) — works fine
+on both v1 and v2 in isolation. The trigger is something else about
+hub.ssc/mcp.ssc's actual scale (imports, prior effect regions already
+active from other routes/middleware, or the specific
+`{"content":[...],"isError":false}` JSON-wrapping around the tool result)
+that a small dispatcher didn't capture. Found 2026-07-09 by busi (fable),
+same session as `v2-req-form-type-collision`.
