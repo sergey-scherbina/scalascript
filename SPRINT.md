@@ -26,6 +26,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       unrelated MCP tools. Done when BUGS records the actual root cause, the
       failing shape is pinned by a real harness or reduced regression, affected
       conformance/e2e plus `git diff --check` pass, and the claim is released.
+      Update 2026-07-09: current ScalaScript `origin/main` now fails earlier
+      than the original live-hub-only symptom. With this worktree's staged CLI,
+      `cd /Users/sergiy/work/my/busi &&
+      /Users/sergiy/work/my/scalascript-wt-v2-read-gigs-handle-leak-minimize/bin/ssc --v2 tests/v2/gigs.ssc`
+      throws `arity: 1 expected, 3 given` at `ssc.Runtime.run`, while busi's
+      pinned ScalaScript submodule still passes the same test via
+      `SSC_LANE_FLAG=--v2 scripts/ssc tests/v2/gigs.ssc`. First reduce and fix
+      this isolated arity regression on current ScalaScript, then re-check the
+      real hub `/mcp tools/call read_gigs` leak if the isolated test is green.
 
 - [x] **v2-jvm-user-request-shadow** - DONE 2026-07-09 in `d5538d66a`:
       the JVM codegen no longer leaks public HTTP runtime `Request`/`Response`

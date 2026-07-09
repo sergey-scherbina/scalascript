@@ -3477,6 +3477,20 @@ un-lifted. The `(condition not Bool)` phrasing suggests the Op itself
 ends up being tested as a boolean, not that `scoutGigs()`'s result is
 malformed — a clue for whoever bisects this.
 
+2026-07-09 update while claiming `v2-read-gigs-handle-leak-minimize`:
+current ScalaScript `origin/main` has a newer/stronger regression before the
+original live-hub-only symptom can be minimized. With this worktree's staged
+CLI, `cd /Users/sergiy/work/my/busi &&
+/Users/sergiy/work/my/scalascript-wt-v2-read-gigs-handle-leak-minimize/bin/ssc
+--v2 tests/v2/gigs.ssc` fails during v2 compilation with
+`java.lang.RuntimeException: arity: 1 expected, 3 given` at
+`ssc.Runtime.run(Runtime.scala:144)`. The same busi test still passes with
+busi's pinned ScalaScript submodule via
+`SSC_LANE_FLAG=--v2 scripts/ssc tests/v2/gigs.ssc`. Treat this arity regression
+as the first blocker in this bug: fix/pin the isolated `tests/v2/gigs.ssc`
+shape on current ScalaScript first, then return to the original live hub
+`/mcp tools/call read_gigs` handle leak if it still reproduces.
+
 Workaround used to complete the money-loop pass: busi's tool set also
 exposes `open_opportunity` as a direct entry point (bypassing
 `read_gigs`/`take_gig`), which worked correctly and let the rest of the
