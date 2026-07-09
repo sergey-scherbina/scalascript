@@ -475,6 +475,18 @@ private object Mcp:
             PluginValue.unit
           case _ => PluginError.raise("srv.tool(name, desc)(handler)")
         })
+      // name + desc + trailing tool-annotation hints (readOnlyHint /
+      // idempotentHint / destructiveHint / openWorldHint = Bool), then the
+      // curried (handler) step. Hints are MCP metadata — accepted so the
+      // two-clause protocol fires. (Surfacing them in advertised annotations
+      // is a follow-up.)
+      case Str(name) :: Str(desc) :: hints if hints.nonEmpty && hints.forall { case Bool(_) => true; case _ => false } =>
+        PluginValue.nativeFn(s"McpServer.tool.$name", {
+          case List(handler) =>
+            registerTool(builder, name, Some(desc), ujson.Obj("type" -> "object"), handler, ctx)
+            PluginValue.unit
+          case _ => PluginError.raise("srv.tool(name, desc, hints...)(handler)")
+        })
       case _ => PluginError.raise("srv.tool(name[, desc])(handler)")
     })
     // v1.17.x — typed tool: takes an explicit JSON Schema for inputs.

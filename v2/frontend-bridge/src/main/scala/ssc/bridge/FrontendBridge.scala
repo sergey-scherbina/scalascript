@@ -234,6 +234,13 @@ object FrontendBridge:
    *  two-step protocol — the curried-merge conversion must NOT collapse
    *  `srv.tool(a, b) { h }` into one call. */
   private val curriedExternMethods = collection.mutable.HashSet[String]()
+  /** Known curried PLUGIN-NATIVE methods provided as INSTANCE FIELDS (mcpServer's
+   *  `srv`), not `extern def m(a)(b)` in an imported .ssc — the two-clause
+   *  scanner never sees them, and the run path never calls resetState (only
+   *  tests do), so a set seed wouldn't survive. Their natives return the
+   *  second-step fn from the first application, so the call MUST stay two-step
+   *  (merging feeds all args at once → the native's usage error). */
+  private val knownCurriedNatives = Set("tool", "toolWithSchema", "resource", "prompt")
   /** Declared effect names (`effect Foo:` / `multi effect Foo:`): ops on these
    *  receivers emit the __effect__ prim so FastCode's long fast-tier declines
    *  the containing tree — an un-handled Op must reach the lifting dispatch,
@@ -2031,11 +2038,23 @@ object FrontendBridge:
       // Curried method application: qual.method(a)(b) — merge into one __method__ call
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name(mname)), innerClause) if !isCtorName(mname) =>
         val q     = convertExpr(qual, scope)
-        val inner = innerClause.values.toList.map(e => convertExpr(e, scope))
-        if curriedExternMethods.contains(mname) then
-          // extern `def m(a…)(b…)`: the native returns the SECOND-step fn from
-          // the first application — keep the two-step (merging fed all args at
-          // once and the native raised its usage error: srv.tool of std/mcp).
+        // named args in the FIRST clause of a KNOWN curried native (mcp tool
+        // hints) are keyword values, not @cell assignments — pass positionally.
+        // Scoped to knownCurriedNatives so ordinary curried calls (handleError,
+        // etc.) keep their exact arg conversion.
+        val stripKw = knownCurriedNatives.contains(mname)
+        val inner = innerClause.values.toList.map { e =>
+          val eConv = e match
+            case Term.Assign(Term.Name(kw), rhs)
+                if stripKw && kw != "timeout" && !scope.contains(s"@$kw") && !scope.contains(s"@@$kw") => rhs
+            case _ => e
+          convertExpr(eConv, scope)
+        }
+        if curriedExternMethods.contains(mname) || knownCurriedNatives.contains(mname) then
+          // extern `def m(a…)(b…)` OR a known curried plugin-native: the native
+          // returns the SECOND-step fn from the first application — keep the
+          // two-step (merging fed all args at once and the native raised its
+          // usage error: srv.tool of std/mcp).
           CT.App(CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: inner), args)
         else
           CT.Prim("__method__", CT.Lit(Const.CStr(mname)) :: q :: (inner ++ args))
