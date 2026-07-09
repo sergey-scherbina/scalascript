@@ -515,6 +515,20 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       (а) `remote def f(...)` — мягкий модификатор, scala.meta не парсит → текст-препасс
       `remote def X` → def X + регистрация; (б) std/remote.ssc (99 строк, 22 def/extern)
       должен конвертироваться бриджем; (в) remote-plugin нативы → V2PluginRegistry.
+      Active plan 2026-07-09: committed spec first in `specs/unmask-remote-def.md`,
+      then implement the smallest v2 in-process registry slice. Repro baseline:
+      `bin/ssc run --v2 examples/remote-registry-rpc.ssc` exits 1 at
+      `<input>:91: error: '}' expected but 'def' found` on `remote def`.
+      Implementation path: `FrontendBridge` rewrites simple `remote def` before
+      scala.meta, collects manifest/`@remote`/sugar metadata, and prepends entry
+      `remote.registerHandler` calls that pass the actual handler closure;
+      `PluginBridge` stores handler metadata+closure and registers `remoteFunction`,
+      `remoteCall`, `remoteTryCall`, and `remoteHandlers` globals. Out of scope
+      for this slice: HTTP fallback routes, `Remote.http`, `Remote.stub`, trait
+      stubs, async lowering, WebSocket/internal-wire. Done when focused bridge
+      tests pass, `installBin` passes, the example exits 0 with `echo:hello`,
+      `HELLO`, `local:hello`, `echo:typed`, and handler listing lines, plus
+      affected conformance and `git diff --check`.
 - [ ] **unmask-markup-bridge** — xslt-transform: `xml"""..."""` ИНТЕРПОЛЯТОР (кастомный,
       бриджу неизвестен) + MarkupCodec.default→NMO(transform) + PureMarkupCodec.serialize +
       SerializeOpts named-ctor + Either→Right/Left DataV; build: v2PluginBridge += markupCore.
