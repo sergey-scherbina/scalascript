@@ -1,6 +1,0 @@
-feature/v2-os-env-nondet-parity 2026-07-09T02:58:04Z
-agent: codex
-heartbeat: 2026-07-09T02:59:47Z
-status: in-progress
-done-so-far: SPRINT/BUGS plan pushed in 22f066f04; worktree at /Users/sergiy/work/my/scalascript-wt-v2-os-env-nondet-parity
-next: classify os-env as nondeterministic-output in parity harness, run targeted/full parity
