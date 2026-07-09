@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 bridge supports markup/XSLT example
+
+`examples/xslt-transform.ssc` now runs on the v2 VM instead of exiting with
+empty output. The v2 bridge lowers `xml` interpolation through XML-escaping
+helpers, registers JvmMarkupCodec-backed `MarkupCodec`/`PureMarkupCodec`
+method objects, supports `SerializeOpts` named/default construction, passes
+`Map[String,String]` XSLT params, and exposes `TransformError.message` through
+`Left(TransformError(...))`. JS/Rust/WASM XSLT support and full fenced
+` ```xml ``` ` section binding remain out of scope for this slice. Gates:
+full `FrontendBridgeTest` 39/39, `installBin`, real `bin/ssc run --v2
+examples/xslt-transform.ssc`, conformance `v2-*,content*` 7/7, full
+`./v2/conformance/check.sh`, and `git diff --check`.
+
 ## 2026-07-09 — v2 bridge supports in-process remote registry
 
 `examples/remote-registry-rpc.ssc` now runs on the v2 VM: `remote def` is

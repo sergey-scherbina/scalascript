@@ -539,22 +539,21 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       tests pass, `installBin` passes, the example exits 0 with `echo:hello`,
       `HELLO`, `local:hello`, `echo:typed`, and handler listing lines, plus
       affected conformance and `git diff --check`.
-- [ ] **unmask-markup-bridge** — xslt-transform production bridge. Spec:
-      `specs/unmask-markup-bridge.md`. Baseline after `scripts/sbtc "installBin"`:
-      `bin/ssc run --v2 examples/xslt-transform.ssc` exits 0 with empty stdout;
-      `bin/ssc run --v1 examples/xslt-transform.ssc` exits 1 with
-      `Unknown interpolator 'xml'`, so the v2 oracle is the documented
-      README/user-guide behavior, not stale v1 output. Implement the minimal JVM
-      v2 surface: add `markupCore` to `v2PluginBridge`, lower `xml"""..."""`
-      in `FrontendBridge` to a bridge call, and register markup globals/method
-      objects in `PluginBridge` (`MarkupCodec.default.transform`,
-      `PureMarkupCodec.serialize`, `SerializeOpts` named/default ctor,
-      `TransformError.message`, `Either` Right/Left DataV, and
-      `Map[String,String]` params). Done when focused bridge tests pass,
-      `installBin` passes, `bin/ssc run --v2 examples/xslt-transform.ssc`
-      prints the four documented sections with `catalog`, `report`, `EUR`, and
-      expected error handling, affected conformance is run, and
-      `git diff --check` is clean.
+- [x] **unmask-markup-bridge** — CLOSED 2026-07-09 in `b668359f9`:
+      v2 now runs the documented `examples/xslt-transform.ssc` production
+      example honestly. The bridge adds the minimal JVM markup/XSLT surface:
+      `xml"""..."""` lowers through XML-escaping bridge helpers, `MarkupCodec`
+      / `PureMarkupCodec` expose parse/serialize/transform method objects,
+      `SerializeOpts` named/default construction works, XSLT params accept
+      `Map[String,String]`, and transform failures return readable
+      `Left(TransformError(message))`. Gates: full `FrontendBridgeTest` 39/39,
+      `installBin`, real `bin/ssc run --v2 examples/xslt-transform.ssc`
+      prints identity `<catalog>`, rename `<report>/<item>`, HTML `EUR`, and
+      expected stylesheet error handling; affected conformance
+      `tests/conformance/run.sh --only 'v2-*,content*' --no-memo` 7/7; full
+      `./v2/conformance/check.sh`; and `git diff --check`. Note: the standard
+      conformance INT lane still runs `--v1`, so the direct XSLT oracle is the
+      assembled `--v2` example plus the focused bridge regression.
 - [ ] **unmask-payments-bridge** — traditional-payments/pix/fednow: PaymentProvider SPI →
       NMO-фабрики (stripe/pix/fednow providers), rc уже 0, Op'ы в выводе на ОБОИХ лейнах
       (паритет-с-бородавками — фикс поднимет оба).

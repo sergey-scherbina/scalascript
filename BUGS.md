@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-xslt-transform-empty-output — `open` (2026-07-09)
+## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production unmasking loop.
 - **Repro:** from a clean worktree, stage the CLI with
@@ -26,13 +26,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
   substitution, and malformed-stylesheet error handling.
 - **Impact:** a documented example in `README.md` and `docs/user-guide.md`
   silently does nothing on the v2 production lane.
-- **Likely root cause:** v2 does not yet bridge the markup-core surface used by
-  the example: `xml"""..."""`, `MarkupCodec.default.transform`,
-  `PureMarkupCodec.serialize`, `SerializeOpts(...)`, `TransformError.message`,
-  and `Either` Right/Left shapes.
-- **Plan:** active SPRINT item `unmask-markup-bridge`, spec
-  `specs/unmask-markup-bridge.md`.
-- **Status:** open.
+- **Root cause:** the v2 bridge did not register the markup-core surface used by
+  the example. `FrontendBridge` treated `xml"""..."""` like generic string
+  interpolation, and `PluginBridge` had no `MarkupCodec`, `PureMarkupCodec`,
+  `SerializeOpts`, `TransformError.message`, or `Right`/`Left` result bridge for
+  XSLT calls.
+- **Fix:** `b668359f9` adds the v2 markup/XSLT bridge: `v2PluginBridge` depends
+  on `markupCore`/`backendInterpreter`, `FrontendBridge` pre-registers
+  `SerializeOpts`/`TransformError` and lowers `xml` interpolation through
+  XML-escaping bridge helpers, and `PluginBridge` registers JvmMarkupCodec-backed
+  method objects for parse/serialize/transform plus a markup `Show` renderer.
+- **Verified:** `scripts/sbtc 'v2FrontendBridge/testOnly
+  ssc.bridge.FrontendBridgeTest'` (39/39); `scripts/sbtc 'installBin'`;
+  `bin/ssc run --v2 examples/xslt-transform.ssc` prints identity `<catalog>`,
+  rename `<report>/<item>`, HTML `EUR`, and expected stylesheet error handling;
+  `tests/conformance/run.sh --only 'v2-*,content*' --no-memo` (7/7);
+  full `./v2/conformance/check.sh`; `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-serve-noop-minimalctx — `fixed` (2026-07-09)
 
