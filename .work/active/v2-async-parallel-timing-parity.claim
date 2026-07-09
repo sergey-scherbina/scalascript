@@ -1,6 +1,6 @@
 feature/v2-async-parallel-timing-parity 2026-07-09T02:46:08Z
 agent: codex
-heartbeat: 2026-07-09T02:46:08Z
-status: not-started
-done-so-far:
-next: create worktree, write SPRINT/BUGS plan, reproduce async-parallel-demo timing mismatch
+heartbeat: 2026-07-09T02:46:45Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-async-parallel-timing-parity
+next: write SPRINT/BUGS plan, reproduce async-parallel-demo timing mismatch, then fix or classify deterministically
