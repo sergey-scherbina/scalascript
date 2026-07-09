@@ -1,0 +1,10 @@
+kinds: front,heading,quote,prose,heading,item,item,fence
+front: id=demo,monthly=39
+h1: 1:Title here|2:Offers
+items: first :: blurb one :: 40 / second :: blurb two :: 60
+fence: scalascript#2:on order:;  receive job
+data: price=40
+inline: P(buy a )B(new)P( dress)
+resilient: nodes=2 kinds=heading,fence
+reparse: incKinds=front,heading,quote,prose,heading,item,item,fence equalsFull=true
+reparse-data: 55

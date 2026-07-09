@@ -1361,7 +1361,7 @@ object Prims:
     case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
     case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
-    case "str.split" => a => { val parts = str(a, 0).split(java.util.regex.Pattern.quote(str(a, 1)), -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
+    case "str.split" => a => { val parts = str(a, 0).split(str(a, 1), -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
     case "str.trim"  => a => StrV(str(a, 0).trim)
     case "str.lines" => a => { val parts = str(a, 0).split("\n", -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
     // Bytes
@@ -1598,7 +1598,7 @@ object Prims:
         case (StrV(s), "toLowerCase", Nil)   => StrV(s.toLowerCase)
         case (StrV(s), "reverse", Nil)       => StrV(s.reverse)
         case (StrV(s), "split", List(StrV(d))) => {
-          val parts = s.split(java.util.regex.Pattern.quote(d), -1)
+          val parts = s.split(d, -1)
           val nilV: Value = DataV("Nil", IndexedSeq.empty)
           parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
         }
@@ -2428,7 +2428,7 @@ object Prims:
     case "scmp"     => Some { case (StrV(a),  StrV(b))    => IntV(a.compareTo(b).toLong); case _ => sys.error("scmp: not Str") }
     case "sindexOf" => Some { case (StrV(a),  StrV(b))    => IntV(a.indexOf(b).toLong); case _ => sys.error("sindexOf: not Str") }
     case "str.split"=> Some { case (StrV(a),  StrV(b))    =>
-                                val parts = a.split(java.util.regex.Pattern.quote(b), -1)
+                                val parts = a.split(b, -1)
                                 val nilV: Value = DataV("Nil", IndexedSeq.empty)
                                 parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
                               case _ => sys.error("str.split: not Str") }

@@ -1,6 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: litdoc
+backends: [int]
 ---
 
 # std/litdoc — resilient literate-document parser
