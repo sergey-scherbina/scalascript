@@ -9,6 +9,26 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-source-jvm-recursion-fib-perf** - narrow Phase-3 source-backend
+      performance slice for the v2 JVM source backend on
+      `bench/corpus/recursion-fib.ssc`. Context: BACKLOG
+      `v2-source-backend-production-perf-gates` says the separate-backend
+      harness is now honest, `v2-jvm` is already excellent on `arith-loop`, but
+      the bounded baseline still reports `recursion-fib` at `v2-jvm=104.5 ms`
+      versus the v2 VM at `5.92 ms`. Spec:
+      `specs/v2-source-jvm-recursion-fib-perf.md`. Plan: commit this
+      SPRINT/spec slice before code, stage the worktree CLI with
+      `scripts/sbtc "installBin"`, capture a fresh before number with
+      `scripts/bench v2-backends recursion-fib`, inspect the emitted v2 JVM
+      Scala source for the recursive `fib` shape, then land one conservative
+      backend/codegen optimization only if it preserves semantics and improves
+      the measured row. Rejected scope: do not mix in Rust backend work, v2 VM
+      JIT work, benchmark workload changes, or broad source-backend rewrites.
+      Done when before/after numbers are recorded in the spec/SPRINT, affected
+      conformance for recursion-shaped programs is green, `scripts/bench
+      v2-backends recursion-fib` demonstrates the result, and `git diff --check`
+      passes.
+
 - [x] **green-main-conformance-7fail** — DONE 2026-07-09 in `bd85a5f95`,
       `bf0402b12`, `76b9432ef`, `7f4cb82d7`, and `1291ed03b`: restored the default top-level
       conformance gate after fresh `--no-memo` repro confirmed 7 deterministic
