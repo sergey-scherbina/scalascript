@@ -124,6 +124,12 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       helpers: default `scripts/bench v2-backends recursion-fib` moved
       `v2-jvm` from 67.5 ms to 1.37 ms. The broader item remains open for Rust
       source performance and other workload-family rows.
+      Progress 2026-07-09: the `v2-source-rust-recursion-fib-perf` slice closes
+      the Rust source `recursion-fib` row with Long-specialized recursive global
+      helpers plus benchmark-only v2-rust anti-folding:
+      `scripts/bench v2-backends recursion-fib` moved `v2-rust` from
+      226.7 ms to 1.44 ms (`v2=6.03 ms`, `v2-jvm=1.25 ms`). The broader item
+      remains open for other Rust/source workload-family rows.
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
       three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from

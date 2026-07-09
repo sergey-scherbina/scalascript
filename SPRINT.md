@@ -9,7 +9,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-source-rust-recursion-fib-perf** - narrow Phase-3 source-backend
+- [x] **v2-source-rust-recursion-fib-perf** - DONE 2026-07-09 in
+      `3d975bda7`: narrow Phase-3 source-backend
       performance slice for the v2 Rust source backend on
       `bench/corpus/recursion-fib.ssc`. Context: BACKLOG
       `v2-source-backend-production-perf-gates` says the separate-backend
@@ -47,6 +48,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       (`BENCH_MS: 1.44545`, `BENCH_SINK: 1385346600`). Track and fix in
       `BUGS.md#v2-rust-bench-zero-input-helper-fold` by patching only the
       v2-rust benchmark temp source, not public `emit-rust`.
+      Final result: `RustBackend.scala` now infers global lambdas whose bodies
+      are provably Long-typed, emits direct `<name>_long(i64...) -> i64`
+      helpers, and routes only statically proven `App(Global, args)` Long calls
+      through those helpers; generic `V::Fn` closures are preserved for
+      first-class/non-Long use. `BenchCmd.timeV2Rust` applies a benchmark-only
+      `std::hint::black_box` patch to zero-arg Long helpers before `rustc -O`,
+      keeping public `emit-rust` output production-shaped while preventing
+      zero-input helper folding. Final default
+      `scripts/bench v2-backends recursion-fib`: `v2=6.03 ms`,
+      `v2-jvm=1.25 ms`, `v2-rust=1.44 ms`; short real v2-rust smoke:
+      `bin/ssc --backend v2-rust bench --machine --warmup-time 10 --reps 1
+      bench/corpus/recursion-fib.ssc` -> `BENCH v2-rust 1.56`. Gates:
+      `scala-cli compile --server=false v2/backend/rust`;
+      `scripts/sbtc "installBin"`; backend parity `bool`, `mutual-recursion`,
+      `tco`, `letrec`; affected conformance
+      `tests/conformance/run.sh --only
+      'recursion,tail-recursion,mutual-recursion' --no-memo` (3/3 across
+      INT/JS/JVM); final bench; and `git diff --check`.
 
 - [x] **v2-scripts-bench-mktemp-template** - DONE 2026-07-09 in `ed680a585`:
       small harness hygiene fix found

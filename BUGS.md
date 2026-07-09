@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-rust-bench-zero-input-helper-fold — `open` (2026-07-09)
+## v2-rust-bench-zero-input-helper-fold — `fixed` (2026-07-09)
 
 - **Found by:** codex while implementing
   `v2-source-rust-recursion-fib-perf`.
@@ -35,9 +35,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** once the production backend stops paying generic closure/vector
   dispatch, the public `scripts/bench v2-backends recursion-fib` row can become
   falsely green unless the v2-rust bench harness adds its own anti-folding.
-- **Planned fix:** patch only `BenchCmd.timeV2Rust` before writing its
-  temporary `main.rs` to `rustc -O`; do not change public `emit-rust` output or
-  the corpus workload.
+- **Fix:** `3d975bda7` patches only `BenchCmd.timeV2Rust` before writing its
+  temporary `main.rs` to `rustc -O`. Zero-argument Long helpers have their first
+  integer literal wrapped with `std::hint::black_box(...)`, while public
+  `emit-rust` output and the corpus workload remain unchanged.
+- **Verified:** `bin/ssc --backend v2-rust bench --machine --warmup-time 10
+  --reps 1 bench/corpus/recursion-fib.ssc` reports `BENCH v2-rust 1.56`
+  instead of near-zero; final `scripts/bench v2-backends recursion-fib` reports
+  `v2-rust=1.44 ms`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-scripts-bench-mktemp-template — `fixed` (2026-07-09)
 

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 Rust source backend specializes recursive Long globals
+
+The v2 Rust source backend now emits direct `i64` helpers for global lambdas
+whose bodies are provably Long-typed, while preserving generic `V::Fn` closures
+for first-class and non-Long uses. The v2-rust bench path also applies a
+benchmark-only `std::hint::black_box` patch to zero-arg Long helpers so LLVM
+cannot fold `workload()` to a constant in the temporary bench binary. Default
+`scripts/bench v2-backends recursion-fib` moved `v2-rust` from 226.7ms to
+1.44ms (`v2=6.03ms`, `v2-jvm=1.25ms`). Gates: Rust backend compile,
+`installBin`, backend parity `bool`/`mutual-recursion`/`tco`/`letrec`,
+affected recursion conformance 3/3, final bench row, and `git diff --check`.
+
 ## 2026-07-09 — v2 bench temp jars are parallel-safe
 
 `v2/scripts/bench.sh` now uses a macOS-safe suffix-free `mktemp` template for

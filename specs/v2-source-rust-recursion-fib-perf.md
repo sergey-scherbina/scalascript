@@ -30,17 +30,17 @@ def workload(): Int =
 
 ## Behavior
 
-- [ ] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
+- [x] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
       using `scripts/bench v2-backends recursion-fib`.
-- [ ] The emitted v2 Rust source for `recursion-fib` is inspected before code
+- [x] The emitted v2 Rust source for `recursion-fib` is inspected before code
       changes and the dominant overhead hypothesis is recorded here.
-- [ ] Any implementation lands one conservative v2 Rust source-backend
+- [x] Any implementation lands one conservative v2 Rust source-backend
       optimization for the recursive function-call shape, preserving existing
       `.ssc` semantics and output.
-- [ ] Before/after numbers from the same benchmark command are recorded here;
+- [x] Before/after numbers from the same benchmark command are recorded here;
       the broader source-backend production gate remains open unless all
       remaining Rust/source rows are also proven green.
-- [ ] Affected semantic/conformance gates for recursion-shaped programs pass,
+- [x] Affected semantic/conformance gates for recursion-shaped programs pass,
       backend parity gates covering Rust stay green, and `git diff --check`
       passes.
 
@@ -181,5 +181,48 @@ benchmark harness before accepting final before/after numbers.
 
 ## Results
 
-Pending. Fill after implementation and verification with exact commits,
-before/after numbers, rejected alternatives, and gates.
+Implemented in `3d975bda7` on 2026-07-09.
+
+`RustBackend.scala` now performs an optimistic fixed-point over top-level
+global lambdas and emits a direct Rust `i64` helper for each lambda whose body
+is provably Long-typed. Calls use those helpers only when the callee is a
+known global and every argument is also statically Long-typed. The existing
+generic `V::Fn(Rc<dyn Fn(Vec<V>) -> V>)` closure remains emitted and populated,
+so first-class function values and non-Long calls keep the previous semantics.
+
+`BenchCmd.timeV2Rust` now patches only its temporary benchmark Rust source:
+zero-argument Long helpers have their first integer literal wrapped with
+`std::hint::black_box(...)` before the file is passed to `rustc -O`. This is a
+measurement-only guard against LLVM precomputing a zero-input helper chain; it
+does not affect public `emit-rust` output or production artifacts.
+
+Final benchmark:
+
+```bash
+scripts/bench v2-backends recursion-fib
+```
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-fib` baseline | 5.93 | 1.42 | 226.7 |
+| `recursion-fib` final | 6.03 | 1.25 | 1.44 |
+
+Focused v2-rust smoke, proving the anti-folded benchmark is not near-zero:
+
+```bash
+bin/ssc --backend v2-rust bench --machine --warmup-time 10 --reps 1 bench/corpus/recursion-fib.ssc
+# BENCH v2-rust 1.56
+```
+
+Verification:
+
+- `scala-cli compile --server=false v2/backend/rust`
+- `scripts/sbtc "installBin"`
+- `v2/backend/check.sh bool`
+- `v2/backend/check.sh mutual-recursion`
+- `v2/backend/check.sh tco`
+- `v2/backend/check.sh letrec`
+- `tests/conformance/run.sh --only 'recursion,tail-recursion,mutual-recursion' --no-memo`
+  (3/3 across INT/JS/JVM)
+- `scripts/bench v2-backends recursion-fib`
+- `git diff --check`
