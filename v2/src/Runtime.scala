@@ -1828,6 +1828,15 @@ object Prims:
         mm.getOrElse(StrV(fieldName),
           mm.collectFirst { case (StrV(k), v) if k.equalsIgnoreCase(fieldName) => v }
             .getOrElse(sys.error(s"fieldAt: no column '$fieldName' in row ${mm.keys.map(anyStr).mkString("[", ",", "]")}")))
+      // Native/plugin result whose case class was NOT imported in this unit:
+      // the global field registry has no entry, so route the NAMED access
+      // through __method__ structural/plugin dispatch (handles ForeignV/
+      // NamedMethodObj by field name) instead of blindly calling asData.
+      // (BUGS.md v2-native-result-unregistered-field.) Positional-only form
+      // (no name) still falls back to asData for genuine data values.
+      case recv if a.length >= 3 =>
+        val name = a(2) match { case StrV(s) => s; case other => Show.show(other) }
+        methodOp(name, recv, Nil)
       case _ => asData(a(0))._2(int(a, 1).toInt)
     case "__isTag__" => a => a(0) match
       case DataV(t, fs) => BoolV(t == str(a, 1) && fs.length == int(a, 2).toInt)
