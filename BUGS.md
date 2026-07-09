@@ -3446,10 +3446,10 @@ registrations in blocks).
 
 ## v2-read-gigs-handle-leak — GigSource.fetch handle{} effect leaks unhandled inside busi's real hub.ssc/mcp.ssc (isolated minimization did NOT reproduce)
 
-**Status:** OPEN — real, confirmed on a live busi hub; NOT reduced to a
-minimal standalone repro (flagging honestly, like v2-req-form-stub-in-hub
-before it, which turned out to be v2-req-form-type-collision — a busi
-Request-vs-Request tag collision at scale)
+**Status:** FIXED 2026-07-09 in `dd42da430` and `615ed5f8f`; awaiting
+reporter confirmation on busi's next pinned ScalaScript update. The original
+live hub failure was reduced to a multi-import field-dispatch shadow, and the
+fix was verified against the real busi hub.
 
 Found completing a full live JDG money-loop pass on `--v2` (busi's first
 successful end-to-end run of find-work→contract→track→invoice→get-paid
@@ -3505,6 +3505,24 @@ lifts over `Op("GigSource.fetch", ...)`. Self-contained repro: define
 run `runSimGigSource(() => gigsText(scoutGigs()))`; current v2 prints `abc`
 and then fails with
 `if: condition not Bool: Op("GigSource.fetch", (), <closure>)`.
+
+2026-07-09 fix: first, payments' one-field `Currency(code)` bridge metadata
+shadowed std/money's three-field `Currency(code, scale, symbol)` constructor,
+so current ScalaScript failed busi's isolated `tests/v2/gigs.ssc` with
+`arity: 1 expected, 3 given`; `dd42da430` keeps `Currency.apply` compatible
+with both arities and returns full std/money-compatible values. Second,
+`615ed5f8f` keeps common zero-arg collection/string members such as
+`List.head` on the dynamic `__method__` dispatch path even when a case class
+also has a same-named field; same-named data fields still resolve at runtime
+through the tag/arity-aware field lookup.
+
+Verification: focused `FrontendBridgeTest` for Currency and `List.head`,
+`installBin`, reduced `RepoRef.head` + effectful `List.head` repro, busi
+`tests/v2/gigs.ssc`, real busi hub `/api/gigs`, real busi hub
+`/mcp tools/list`, real busi hub `/mcp tools/call read_gigs`, affected
+conformance `tests/conformance/run.sh --only 'head-field-*,money-multisection'
+--no-memo`, full `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest`,
+and the three payments/bank-rails v2 examples all passed.
 
 Workaround used to complete the money-loop pass: busi's tool set also
 exposes `open_opportunity` as a direct entry point (bypassing

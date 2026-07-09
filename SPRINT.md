@@ -9,7 +9,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-read-gigs-handle-leak-minimize** - reproduce and minimize the real
+- [x] **v2-read-gigs-handle-leak-minimize** - DONE 2026-07-09 in
+      `dd42da430` and `615ed5f8f`: fixed both production blockers behind
+      busi's v2 `read_gigs` failure. Payments' `Currency` companion remains
+      constructor-compatible with std/money's `Currency(code, scale, symbol)`,
+      and v2 no longer lowers common dynamic zero-arg members such as
+      `List.head` to eager `fieldAt` just because an imported case class also
+      has a `head` field. The new multi-import conformance
+      `head-field-effect-shadow` pins the real leak shape. Gates: focused
+      Currency/List.head bridge tests, `installBin`, reduced repros, busi
+      `tests/v2/gigs.ssc`, live busi hub `/api/gigs` and `/mcp read_gigs`,
+      affected conformance `head-field-*,money-multisection`, full
+      `FrontendBridgeTest`, payments/bank-rails examples, and
+      `git diff --check`.
+      Original scope: reproduce and minimize the real
       busi hub `read_gigs` v2 failure tracked in
       `BUGS.md#v2-read-gigs-handle-leak`. The isolated dispatcher-shaped repro
       did not fail, so the first production slice is to run the real harness if

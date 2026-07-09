@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 busi read_gigs works through the real hub
+
+The live busi `read_gigs` MCP failure was reduced and fixed in v2. A payments
+bridge `Currency` metadata collision first broke busi's isolated gigs test with
+`arity: 1 expected, 3 given`; `Currency.apply` now accepts both the payments
+one-field and std/money three-field constructor shapes. The remaining live hub
+leak came from importing `RepoRef(name, head)`: the global field registry
+lowered `List.head` to eager `fieldAt`, bypassing effect lifting and letting
+`GigSource.fetch` reach a downstream `if`. Common dynamic zero-arg members such
+as `head` now stay on the dynamic method path, while data fields still resolve
+through tag/arity-aware lookup. Gates included focused bridge tests,
+`installBin`, busi `tests/v2/gigs.ssc`, live busi `/api/gigs` and
+`/mcp tools/call read_gigs`, conformance `head-field-*,money-multisection`,
+full `FrontendBridgeTest`, payment examples, and `git diff --check`.
+
 ## 2026-07-09 — JVM codegen avoids Request/Response name collisions in non-server scripts
 
 `ssc run-jvm tests/conformance/user-request-shadow.ssc` failed at scalac time
