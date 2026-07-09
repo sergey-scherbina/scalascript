@@ -12,6 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-os-env-nondet-parity — `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production output-parity loop after
+  `v2-async-parallel-timing-parity`.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/os-env.ssc`.
+- **Observed failure:** v1 prints unresolved native placeholders for platform
+  values (`<native:platform>`, `<native:cwd>`, `<native:sep>`), while v2 prints
+  real host values such as `JVM`, the current worktree path, and `/`.
+- **Impact:** this is not a v2 regression: v2 is doing the useful thing, and
+  the example's output is host-dependent by design. Keeping it in the strict
+  byte-parity mismatch bucket makes the production gate noisier.
+- **Plan:** classify `os-env.ssc` in `scripts/v2-output-parity` as
+  nondeterministic-output by design, alongside `sql-sqlite-file` and `uuid-v7`.
+  Do not change `examples/os-env.ssc` or runtime behavior. Verify with targeted
+  `os-env` parity, the nearest affected std/os test or conformance note, and
+  full `scripts/v2-output-parity --all`; update baseline/spec/SPRINT/CHANGELOG.
+
 ## v2-async-parallel-timing-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
