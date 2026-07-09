@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/bc-foreach-inline
+worktree: ../scalascript-wt-fei
+started: 2026-07-09
+status: in-progress
+task: p4-bc-foreach-inline — эмиттер инлайнит Cons-walk для __method__("foreach", recv, Lam(1,body)) с телом лямбды inline (аналог VM tryFCAppended), гард на эффект-свободные тела. Цель: закрыть list-fold ~11x разрыв. Guard: корпус 154/8, конформанс 93/2, effect-тесты.
