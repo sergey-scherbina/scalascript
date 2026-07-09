@@ -22,6 +22,7 @@ exercise the same shapes end-to-end through `jsdom` when available.
 | `toolkit-demo` *(no `.ssc`; built via `Tk` facade)* | Frontend Toolkit — Stack / Heading / Text / Card / TextField / Checkbox / Button / Spinner / Badge / Alert / theme tokens | [`ToolkitDemo.scala`](../../frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala) |
 | [`swing-hello/`](swing-hello/) | Minimal JDK-only Swing desktop window; the frontend SPI `swing` backend is currently a skeleton | [`swing-hello.ssc`](swing-hello/swing-hello.ssc) |
 | [`typed-client-distributed/`](typed-client-distributed/) | Same `.ssc` source as JVM backend on one machine and browser/Electron client on another, using generated `apiClients:` HTTP methods | [`typed-client-distributed.ssc`](typed-client-distributed/typed-client-distributed.ssc) |
+| [`keyed-for-demo/`](keyed-for-demo/) | `std/ui` toolkit-v2 keyed list reconciliation through `forKeyed(items, key)(render)` on the custom browser runtime | [`keyed-for-demo.ssc`](keyed-for-demo/keyed-for-demo.ssc) |
 
 ## Compile
 

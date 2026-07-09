@@ -3317,7 +3317,7 @@ Import selectively from each `std/ui` sub-module:
 [vstack, hstack, divider, spacer](std/ui/layout.ssc)
 [heading, text](std/ui/typography.ssc)
 [textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
-[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
+[showWhen, signalText_, fragment_, forKeyed, rawText](std/ui/reactive.ssc)
 [badge, spinner, signalPre](std/ui/display.ssc)
 [card, cardWithHeader, modal](std/ui/containers.ssc)
 [tableCol, tableRow, table, sortableTable, fcol, rowDelete, rowPost, rowLink, rowEdit, dataTable](std/ui/data.ssc)
@@ -3495,6 +3495,7 @@ vstack(gap = 12)(
 | `showWhen(signal, whenTrue, whenFalse)` | Conditional render; `signal` must be `Signal[Boolean]` |
 | `signalText_(signal)` | Inline reactive text node; re-renders when signal changes |
 | `fragment_(children*)` | Group children without a wrapper `<div>` |
+| `forKeyed(items, key)(render)` | Keyed browser list; surviving row DOM nodes move by stable string keys on the `emit-spa --frontend custom` runtime |
 | `rawText(text: String)` | Literal text inline (no element, no binding) |
 
 ```scalascript
@@ -3502,6 +3503,9 @@ showWhen(submitted,
   hstack(gap = 4)(rawText("Welcome, "), signalText_(name), rawText("!")),
   text("Please fill out the form above.")
 )
+
+forKeyed(rows, (id: String) => id)((id: String) =>
+  hstack(gap = 8)(text(id), signalButton(selected, id, "Select")))
 ```
 
 #### Display
@@ -3731,8 +3735,8 @@ runtime inlined; the output makes **no external requests** (no CDN scripts,
 no fonts — audited; the OAuth endpoint constants visible in the bundle are
 inert `jwt-auth` runtime strings, only used if OAuth is called). The
 `react`/`vue`/`solid` emit-spa flavors load their framework from a CDN and
-stay demo-grade. All toolkit-v2 primitives (components, offline storage,
-forms) are verified on this path (see `specs/ssc-toolkit-v2.md`).
+stay demo-grade. Toolkit-v2 primitives (components, offline storage, forms,
+keyed lists) are verified on this path (see `specs/ssc-toolkit-v2.md`).
 
 ---
 

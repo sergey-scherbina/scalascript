@@ -110,8 +110,9 @@ pack" (a widget-version label). All UI work lands on the v1 runtime.
   and offline sync/queue helpers.
 - **WebAuthn**: full server verifier (JVM + a JS port of the *server* side).
   The browser `navigator.credentials.create/get` side does not exist.
-- **Keyed list diffing**: not implemented — `View.ForSignal` wipes and
-  rebuilds the container on every change (custom + solid emitters alike).
+- **Keyed list diffing**: landed for the production JsGen/custom browser path
+  as `forKeyed(items, key)(render)`; the older `View.ForSignal` API keeps its
+  wipe/rebuild semantics.
 - **Forms at .ssc level**: a boolean `required` HTML attr; nothing else.
 - Full-stack in-process transport: phases 0–5 complete (JVM); typed route
   clients exist on the JVM path only.
@@ -221,8 +222,9 @@ Consequences:
 - **WebAuthn**: `extern def webauthnRegister(...)`/`webauthnAssert(...)`
   wrapping `navigator.credentials` with the same option shapes the server
   `webauthnStore*` already speaks.
-- **Keyed diffing**: `forKeyed(items, key)(render)` — browser runtime
-  reconciles by key; instance-scoped component signals (4.1) survive moves.
+- **Keyed diffing**: `forKeyed(items, key)(render)` — landed on the
+  JsGen/custom browser runtime; it reconciles by key so instance-scoped
+  component signals (4.1) survive moves.
 - **Theme-as-ssc**: `theme.ssc` already models tokens; add a
   `cssVariables(theme)` emitter so an app (busi) can feed one theme object to
   both the toolkit and any legacy CSS through `var(--…)`.
@@ -253,9 +255,8 @@ Ordered so busi's migration pilot (SPA shell + home screen) unblocks earliest:
    replaced by it as the consumer proof.
 6. **tkv2-busi-home-conformance** — the reduced busi home screen as a
    standing corpus case (uses 1–4).
-7. **tkv2-keyed-for** (P1-7) — `forKeyed(items, key)(render)`: keyed
-   reconciliation in the JsGen/custom runtime (today `ForSignal` wipes and
-   rebuilds); component-signal lifecycle on move.
+7. **tkv2-keyed-for** (P1-7) — landed: `forKeyed(items, key)(render)` keyed
+   reconciliation in the JsGen/custom runtime; `ForSignal` remains unchanged.
 8. **tkv2-webauthn** (P1-6) — browser `navigator.credentials.create/get`
    externs (the server verifier already exists on both JVM and JS).
 9. **tkv2-typed-client** (P1-5) — route-derived `.ssc` client, browser

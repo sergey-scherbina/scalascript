@@ -26,16 +26,17 @@ row DOM nodes by stable keys while preserving the existing non-keyed
 - The initial implementation targets the production `emit-spa` custom runtime.
   The old Scala `frontend-core` `View.ForSignal` path keeps its wipe/rebuild
   behavior; this slice does not retrofit that separate API.
+- Runnable example: `examples/frontend/keyed-for-demo/keyed-for-demo.ssc`.
 
 ## Behavior
 
-- [ ] Initial render produces the same visible row order as the input list.
-- [ ] Updating the list with the same keys in a different order reorders DOM
+- [x] Initial render produces the same visible row order as the input list.
+- [x] Updating the list with the same keys in a different order reorders DOM
       nodes instead of recreating them, so per-row DOM identity survives moves.
-- [ ] Removing a key removes that row from the container.
-- [ ] Inserting a new key creates exactly one new row at the requested position.
-- [ ] Event handlers inside a keyed row still work after reorder/insert/remove.
-- [ ] Existing `View.ForSignal` and non-keyed toolkit list rendering continue
+- [x] Removing a key removes that row from the container.
+- [x] Inserting a new key creates exactly one new row at the requested position.
+- [x] Event handlers inside a keyed row still work after reorder/insert/remove.
+- [x] Existing `View.ForSignal` and non-keyed toolkit list rendering continue
       to wipe/rebuild as before.
 
 ## Out of Scope
@@ -100,4 +101,13 @@ event handlers work after insertions.
 
 ## Results
 
-Fill after verification with exact commands and outcomes.
+- `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest scalascript.JsRuntimeKeyedForTest"`:
+  43 tests passed. Covers public `std/ui` import/lower path plus JS runtime
+  reorder/remove/insert DOM identity and inserted-row event binding.
+- `scripts/sbtc "backendJs/compile; backendJvm/compile; frontendPlugin/compile; backendInterpreter/compile"`:
+  passed.
+- `tests/conformance/run.sh --only 'tkv2-keyed-for' --no-memo`: INT and JS
+  passed; JVM skipped by the case front matter.
+- `bin/ssc emit-spa --frontend custom examples/frontend/keyed-for-demo/keyed-for-demo.ssc > /tmp/keyed-for-demo.html`:
+  passed; generated bundle contains `_ssc_ui_forKeyedView` and
+  `data-ssc-forkeyed` runtime markers.
