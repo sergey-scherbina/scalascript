@@ -554,9 +554,31 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       `./v2/conformance/check.sh`; and `git diff --check`. Note: the standard
       conformance INT lane still runs `--v1`, so the direct XSLT oracle is the
       assembled `--v2` example plus the focused bridge regression.
-- [ ] **unmask-payments-bridge** — traditional-payments/pix/fednow: PaymentProvider SPI →
-      NMO-фабрики (stripe/pix/fednow providers), rc уже 0, Op'ы в выводе на ОБОИХ лейнах
-      (паритет-с-бородавками — фикс поднимет оба).
+- [ ] **unmask-payments-bridge** - traditional-payments/pix/fednow: bridge the v2
+      standard-Scala payment examples so they execute honestly instead of leaking
+      `Op(...)` or `Stub` values. Spec: `specs/unmask-payments-bridge.md`. Bug:
+      `BUGS.md#v2-payments-bankrails-op-stub-leaks`.
+      Baseline after `scripts/sbtc "installBin"` on 2026-07-09:
+      `bin/ssc run --v2 examples/traditional-payments.ssc` exits 0 but prints
+      `Op("PaymentProvider.named", "stripe", <closure>)`; `bank-rails-pix.ssc`
+      exits 0 but prints `Transfer initiated: Stub, status: Stub`,
+      `Transfer status: Stub`, and an unhandled `PixQrCode.buildStatic` `Op`;
+      `bank-rails-fednow.ssc` exits 0 but prints
+      `FedNow transfer Stub submitted - status: Stub` and `Op("Instant.now", ...)`.
+      Rollback `--v1` is not an oracle for this slice: these examples currently
+      fail earlier on missing `PaymentProvider` / `PixConfig` / `FedNowConfig`.
+      Implementation approach: add the existing payments/bank-rails modules to
+      `v2PluginBridge`; register deterministic no-network method objects for
+      `PaymentProvider.named("stripe")`, `PixProvider(...)`, and
+      `FedNowProvider(...)`; bridge `Money`, `Currency`, enum/object companions,
+      provider result ADTs, `PixQrCode` pure QR generation, and the small
+      `Instant`/`Thread` surface needed by the FedNow poll example. Rejected:
+      invoking real Stripe/Pix/FedNow adapters from examples, because production
+      v2 smoke tests must not depend on live credentials or networks.
+      Done when focused bridge tests pass, `installBin` passes, the three examples
+      exit 0 without `Op(` or `Stub` in stdout, affected conformance/parity gates
+      have been run, `git diff --check` is clean, and BUGS/SPRINT/CHANGELOG are
+      updated in a separate bookkeeping commit.
 - [x] **unmask-splice-in-scala-fence** — CLOSED: не сплайсы, а НЕВАЛИДНЫЙ Scala в примере
       (голый $ перед цифрой в s-строке — v1 терпел, scala.meta нет); пример исправлен $$49.99.
       ОСТАЁТСЯ (переименовано): **unmask-payments-bridge** — rc=0, но PaymentProvider-Op'ы

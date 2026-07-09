@@ -30,6 +30,38 @@ Corpus 152/10 → 154/8 (`datatable-static-spa` now green; no regressions — th
 whole corpus still resolves its multi-line std-imports). Pinned by
 tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 
+## v2-payments-bankrails-op-stub-leaks - `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production unmasking loop after standard
+  `scala` fences became runnable.
+- **Repro:** from a clean worktree, stage the CLI with
+  `scripts/sbtc "installBin"`, then run:
+  `bin/ssc run --v2 examples/traditional-payments.ssc`,
+  `bin/ssc run --v2 examples/bank-rails-pix.ssc`, and
+  `bin/ssc run --v2 examples/bank-rails-fednow.ssc`.
+- **Observed failure:** all three commands exit 0, but the payment/bank-rails
+  bridge surface is not actually handled. `traditional-payments.ssc` prints
+  `Op("PaymentProvider.named", "stripe", <closure>)`; `bank-rails-pix.ssc`
+  prints `Transfer initiated: Stub, status: Stub`, `Transfer status: Stub`,
+  and an unhandled `PixQrCode.buildStatic` operation; `bank-rails-fednow.ssc`
+  prints `FedNow transfer Stub submitted - status: Stub` and an
+  `Op("Instant.now", ...)` leak.
+- **Expected:** documented payment examples that are runnable on v2 should
+  execute through deterministic bridge objects and print concrete provider,
+  transfer, QR, and poll results, without `Op(` or `Stub` in stdout.
+- **Impact:** the production v2 lane reports success while user-facing payment
+  examples expose unresolved plugin-boundary values in output.
+- **Notes:** `--v1` is not a valid oracle for this bug: the rollback lane fails
+  earlier on undefined `PaymentProvider`, `PixConfig`, and `FedNowConfig`.
+  The v2 oracle is the documented example behavior plus the explicit absence of
+  unresolved `Op`/`Stub` output.
+- **Root cause:** pending. Current hypothesis: `FrontendBridge` treats several
+  payment/bank-rails companion/factory names as ordinary constructors, and
+  `PluginBridge` does not register payment provider, bank-rails provider,
+  Pix QR, or time/poll method objects.
+- **Fix:** pending in `feature/unmask-payments-bridge`.
+- **Status:** open.
+
 ## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production unmasking loop.
