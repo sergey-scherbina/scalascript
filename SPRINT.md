@@ -9,7 +9,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-jvm-user-request-shadow** - fix the JVM conformance lane for
+- [x] **v2-jvm-user-request-shadow** - DONE 2026-07-09 in `d5538d66a`:
+      the JVM codegen no longer leaks public HTTP runtime `Request`/`Response`
+      case-class names into non-server user modules that define the same
+      top-level names. HTTP/server modules keep the existing `commonRuntime +
+      serveRuntime` path; collision-prone non-server scripts use a reduced
+      common runtime plus private `_SscRuntime*` request/response stubs for
+      actor/HTTP-effect fallback references. Bumped the JVM artifact codegen
+      version so stale `.scjvm` artifacts regenerate. Gates:
+      `FrontendBridgeTest` 42/42, `installBin`, direct `bin/ssc run-jvm
+      tests/conformance/user-request-shadow.ssc` prints `7/9/7/42`, affected
+      conformance `money-multisection,v2-*,user-request-shadow` 7/7, and full
+      `./v2/conformance/check.sh`; `git diff --check`.
+      Original scope:
+      fix the JVM conformance lane for
       `tests/conformance/user-request-shadow.ssc`, where a non-HTTP user
       `case class Request(alpha, beta)` conflicts with the always-inlined
       HTTP runtime `case class Request(method, path, ...)` in `run-jvm`.
@@ -572,7 +585,7 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       `./v2/conformance/check.sh`; and `git diff --check`. Note: the standard
       conformance INT lane still runs `--v1`, so the direct XSLT oracle is the
       assembled `--v2` example plus the focused bridge regression.
-- [x] **unmask-payments-bridge** - CLOSED 2026-07-09 in `a13bbc04a`/`89e73d308`:
+- [x] **unmask-payments-bridge** - CLOSED 2026-07-09 in `d255f18f8`/`69aad3c3f`:
       v2 now runs the documented `traditional-payments`, Pix, and FedNow
       examples honestly instead of leaking `Op(...)` or `Stub` values. The
       bridge adds deterministic no-network payment/bank-rails provider method

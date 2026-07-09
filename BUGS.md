@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-jvm-user-request-shadow — `open` (2026-07-09)
+## v2-jvm-user-request-shadow — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the final `unmask-payments-bridge` affected
   conformance gate after the sibling `user-request-collision` fix landed.
@@ -29,11 +29,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
   and `run-jvm` must behave like INT/JS for field access and `copy`.
 - **Impact:** `origin/main` has a conformance regression in the JVM lane; the
   v2 production gate cannot be considered green until this lane passes.
-- **Plan:** keep HTTP/server modules on the existing `commonRuntime +
-  serveRuntime` path, but for non-HTTP scripts with user `Request`/`Response`
-  collisions avoid exporting the HTTP POJO names into the user's top-level
-  namespace. The minimal fix is a collision-safe non-server JVM preamble with
-  private runtime-only request/response names for actor/HTTP-effect stubs.
+- **Root cause:** non-server JVM codegen always inlined the HTTP runtime model
+  (`Request`, `Response`, `StreamResponse`) even when the script did not use an
+  HTTP server. That leaked public runtime case-class names into ordinary user
+  modules, so a user top-level `Request` collided at scalac time.
+- **Fix:** `d5538d66a` keeps HTTP/server modules on the existing `commonRuntime
+  + serveRuntime` path, but switches non-server scripts that define
+  `Request`/`Response`/`StreamResponse` to a collision-safe JVM preamble. Actor
+  and HTTP-effect stubs use private `_SscRuntime*` names there, and the JVM
+  artifact codegen version was bumped so stale `.scjvm` artifacts regenerate.
+- **Verified:** `scripts/sbtc 'v2FrontendBridge/testOnly
+  ssc.bridge.FrontendBridgeTest'` (42/42); `scripts/sbtc 'installBin'`; direct
+  `bin/ssc run-jvm tests/conformance/user-request-shadow.ssc` prints
+  `7`, `9`, `7`, `42`; `tests/conformance/run.sh --only
+  'money-multisection,v2-*,user-request-shadow' --no-memo` (7/7); full
+  `./v2/conformance/check.sh`; `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-multiline-list-literal-desugar — `fixed` (2026-07-09)
 
@@ -85,13 +96,13 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   needed by the examples. Several illustrative server/webhook/negative-path
   snippets were also still marked runnable even though they depend on route,
   webhook, platform, or disconnected example state.
-- **Fix:** `a13bbc04a` adds the v2 payments bridge surface: `v2PluginBridge`
+- **Fix:** `d255f18f8` adds the v2 payments bridge surface: `v2PluginBridge`
   depends on the existing payments/Pix/FedNow modules; `FrontendBridge`
   pre-registers payment/bank-rails field names and method-object/factory names;
   `PluginBridge` registers deterministic no-network Stripe/Pix/FedNow provider
   method objects, `Money`/`Currency`, pure `PixQrCode` generation, and
   `Instant`/`Thread` helpers; the v2 runtime handles basic `Money` arithmetic.
-  `89e73d308` marks non-self-contained payment snippets `scala no-run` and
+  `69aad3c3f` marks non-self-contained payment snippets `scala no-run` and
   keeps the runnable money section on supported bridge behavior.
 - **Verified:** `scripts/sbtc 'v2FrontendBridge/testOnly
   ssc.bridge.FrontendBridgeTest'` (42/42); `scripts/sbtc 'installBin'`; direct

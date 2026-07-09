@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — JVM codegen avoids Request/Response name collisions in non-server scripts
+
+`ssc run-jvm tests/conformance/user-request-shadow.ssc` failed at scalac time
+when user code defined a top-level `Request` case class: the non-server JVM
+preamble still inlined the HTTP runtime model with its own public `Request`.
+Non-server scripts that collide with `Request`/`Response`/`StreamResponse` now
+use a reduced runtime preamble plus private `_SscRuntime*` stubs, while
+HTTP/server modules keep the existing public model. Gates: `FrontendBridgeTest`
+42/42, `installBin`, direct `run-jvm` repro (`7/9/7/42`), conformance
+`money-multisection,v2-*,user-request-shadow` 7/7, and full
+`./v2/conformance/check.sh`; `git diff --check`.
+
 ## 2026-07-09 — v2 resolves same-named case classes by receiver arity
 
 A file importing two different types with the SAME name (e.g. `std/http.ssc`
