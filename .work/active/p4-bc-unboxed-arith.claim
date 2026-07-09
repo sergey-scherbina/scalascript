@@ -1,0 +1,6 @@
+feature/p4-bc-unboxed-arith 2026-07-09T18:26:57Z
+agent: codex
+heartbeat: 2026-07-09T18:26:57Z
+status: not-started
+done-so-far:
+next: enrich SPRINT plan in a worktree, then baseline bytecode integer hot loops
