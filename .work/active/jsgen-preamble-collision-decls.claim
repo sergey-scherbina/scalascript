@@ -1,6 +1,6 @@
 feature/jsgen-preamble-collision-decls 2026-07-09T05:48:59Z
 agent: codex
-heartbeat: 2026-07-09T05:49:12Z
+heartbeat: 2026-07-09T05:53:28Z
 status: in-progress
-done-so-far: worktree created at ../scalascript-wt-jsgen-preamble-collision-decls
-next: write SPRINT plan for JS preamble collision declaration audit, then inspect JsGen and tests
+done-so-far: SPRINT plan committed; resumed after context compaction and re-read AGENTS/skills
+next: inspect JsGen declaration/reference naming, then add regression tests and fix remaining collisions
