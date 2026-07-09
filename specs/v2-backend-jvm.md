@@ -112,9 +112,9 @@ methods to avoid Array allocation on the common path.
 # Compile generator
 scala-cli compile v2/backend/jvm/
 
-# Compile a program to IR and run through backend
-echo '(program (defs ...) (entry ...))' | scala-cli run v2/backend/jvm/ -- /dev/stdin > /tmp/out.scala
-scalac /tmp/out.scala -d /tmp/out_cls && scala -cp /tmp/out_cls v2main
+# Emit Scala source from Core IR and run it
+scala-cli run v2/backend/jvm/ < v2/conformance/fact.coreir > /tmp/out.scala
+scala-cli run /tmp/out.scala
 ```
 
 Test programs:
@@ -126,12 +126,28 @@ Test programs:
 
 Mutual-TCO behavior checks:
 
-- [ ] A deep two-function even/odd `LetRec` that would overflow recursive
+- [x] A deep two-function even/odd `LetRec` that would overflow recursive
       closure calls compiles through `v2/backend/jvm` and runs with constant
       JVM stack.
-- [ ] Existing shallow `letrec.coreir` output stays unchanged.
-- [ ] Non-tail or arity-mismatched mutual groups keep the closure-var fallback
+- [x] Existing shallow `letrec.coreir` output stays unchanged.
+- [x] Non-tail or arity-mismatched mutual groups keep the closure-var fallback
       instead of emitting `_TcoJump`.
+
+## Results
+
+2026-07-09:
+
+- `scala-cli compile v2/backend/jvm/` passed.
+- Standalone source-JVM generated-source runs passed for
+  `v2/conformance/mutual-tco.coreir` and existing
+  `v2/conformance/letrec.coreir` (`true` for both). The generated deep mutual
+  fixture contains `_mutual_` dispatcher code and `_TcoJump` bounces.
+- A temporary non-tail mutual-recursive Core IR program returned `true` and did
+  not emit `_mutual_`, confirming the closure-var fallback for unsafe groups.
+- `./v2/conformance/check.sh` passed, including
+  `run-ir mutual-tco.coreir => true`.
+- `scripts/sbtc "installBin"` passed.
+- `tests/conformance/run.sh --only 'litdoc'` passed INT/JS/JVM.
 
 ## Correctness invariants
 
