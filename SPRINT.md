@@ -9,6 +9,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-bytecode-production-gate-sweep** - route/profile-backed slice for
+      the remaining v2 production-performance gate. Context: BACKLOG
+      `v2-vm-production-jit-gate` says local VM hand paths closed
+      `arith-loop` and reduced `pattern-match-heavy`, but the four-row
+      production probe remains red (`pattern-match-heavy`, `recursion-fib`,
+      `recursion-tco`). It also says the next slice should be profile-backed
+      and likely move toward broader bytecode-JIT/source-backend gate work
+      rather than speculative new `FastCode` cases. Spec:
+      `specs/v2-bytecode-production-gate-sweep.md`. Plan: commit this
+      SPRINT/spec slice before any measurement, stage the CLI with
+      `scripts/sbtc "installBin"`, run `scripts/bench v2-bytecode` for
+      `arith-loop`, `recursion-fib`, `recursion-tco`, and
+      `pattern-match-heavy`, compare those rows with current v2 VM/source rows,
+      then either record that the bytecode lane is the production route to wire
+      next or land at most one conservative bytecode/runtime fix for a measured
+      narrow blocker. Rejected scope: do not add another VM `FastCode`
+      recognizer without a fresh profile, do not change workload semantics, and
+      do not reopen the already-closed JVM/Rust source-backend performance
+      gate. Done when the measurements and route decision are recorded
+      durably, any implementation is covered by affected bytecode/frontend and
+      conformance gates, final bench rows demonstrate the result, and
+      `git diff --check` passes.
+
 - [x] **v2-source-jvm-recursion-tco-perf** - DONE 2026-07-09 in
       `1e7598394`: narrow Phase-3
       source-backend performance slice for the v2 JVM source backend on
