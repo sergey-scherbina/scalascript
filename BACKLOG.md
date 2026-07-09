@@ -111,19 +111,21 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `recursion-fib` 221.2 ms, `recursion-tco` 12.1 ms). Scope the next
       slice to one backend/workload family at a time, using
       `scripts/bench v2-backends <workload>` as the before/after command.
-- [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09: the
-      first narrow production-JIT slice recognized the exact bridge-lowered
-      local Long-cell summation loop from `bench/corpus/arith-loop.ssc`, moving
-      the v2 VM row from 9.91 ms to 0.000018 ms under
-      `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib
-      recursion-tco pattern-match-heavy`. The overall Phase-3 v2 VM
-      production-performance gate remains open because the same after-run still
-      leaves `pattern-match-heavy` at 19.1 ms, `recursion-fib` at 6.34 ms, and
-      `recursion-tco` at 0.308 ms, all outside the 2x target versus `ssc`.
-      Next SPRINT slice: `v2-vm-pattern-match-heavy-fast-tier`, focused on the
-      largest remaining row. Keep closing this as one workload-family slice at
-      a time; do not reopen it as a broad hand-written `FastCode` sweep unless
-      a focused profile shows the local fix can plausibly reach the 2x gate.
+- [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
+      two narrow VM slices have shipped. The first recognized the exact
+      bridge-lowered local Long-cell summation loop from
+      `bench/corpus/arith-loop.ssc`, moving the v2 VM row from 9.91 ms to
+      0.000018 ms. The second (`v2-vm-pattern-match-heavy-fast-tier`) reused
+      scratch env arrays for compact arithmetic-only `Match` fast arms,
+      moving `pattern-match-heavy` from 35.1 ms to 16.4-17.0 ms. The overall
+      Phase-3 v2 VM production-performance gate remains open: the latest
+      bounded four-row probe still shows `pattern-match-heavy` at 17.0 ms
+      vs `ssc` 0.059 ms, `recursion-fib` at 6.61 ms vs 1.29 ms, and
+      `recursion-tco` at 0.275 ms vs 0.031 ms. Keep closing this as one
+      workload-family slice at a time; the next VM slice should either target
+      the remaining `foreach`/match boundary costs with a profile-backed local
+      fix, or explicitly move to broader bytecode-JIT/source-backend gate work
+      instead of adding speculative hand-written `FastCode` cases.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 VM pattern-match-heavy fast match arms
+
+`FastCode.tryFC(Match(...))` now reuses scratch env arrays for compact
+arithmetic-only match arms, guarded by a stricter `armBodyScratchSafe`
+predicate so env-capturing or user/plugin-call arms keep the old allocation
+path. This targets `bench/corpus/pattern-match-heavy.ssc`'s `area` dispatcher:
+the v2 VM row improved from 35.1 ms to 16.4-17.0 ms. The overall v2 VM 2x
+performance gate remains open. Gates: focused bridge test, `installBin`, two
+full `./v2/conformance/check.sh` runs, conformance `litdoc`, and
+`git diff --check`.
+
 ## 2026-07-09 — v2 VM effect handlers match free-monad Op values again
 
 The v2 VM no longer lifts every `DataV("Op", ...)` out of `match`

@@ -21,20 +21,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `./v2/conformance/check.sh`, `installBin`, and
       `tests/conformance/run.sh --only 'litdoc'` passed.
 
-- [ ] **v2-vm-pattern-match-heavy-fast-tier** — continue the v2 VM
-      production-performance gate from `v2-vm-production-jit-gate`, focusing
-      only on `bench/corpus/pattern-match-heavy.ssc`, now the largest remaining
-      measured VM gap. Start by staging `bin/ssc`, reproducing the bounded
-      row with `./bench.sh --warmup-time 500 --reps 20 pattern-match-heavy`,
-      and emitting bridge CoreIR for the workload. Inspect whether the hot
-      shape is a pure pattern-match dispatcher, bridge-lowered foreach/HOF
-      loop, tuple/list allocation churn, or another narrow CoreIR form that can
-      be recognized safely. Implement at most one conservative v2 VM fast path
-      or record a blocker with the exact shape and next design. Do not broaden
-      into full bytecode-codegen JIT Phase C in this slice. Done-when: a
-      `specs/v2-vm-pattern-match-heavy-fast-tier.md` spec is committed before
-      code, before/after numbers are recorded, affected tests pass, and
-      `tests/conformance/run.sh --only 'litdoc'` passes.
+- [x] **v2-vm-pattern-match-heavy-fast-tier** — DONE 2026-07-09 in
+      `3698d9e96`: `FastCode.tryFC(Match(...))` now reuses tiny scratch
+      env arrays for compact arithmetic-only match arms proven safe by
+      `armBodyScratchSafe`, avoiding per-dispatch `Array(fs...)` allocation
+      in the `pattern-match-heavy` `area` dispatcher. The focused bridge test
+      asserts that `area` and `workload` expose `fcEntry` and compute the
+      expected Double result. Benchmarks: full `pattern-match-heavy` v2 row
+      improved from 35.1 ms to 16.4-17.0 ms; the four-row production gate
+      remains red (`pattern-match-heavy` 17.0 ms vs `ssc` 0.059 ms,
+      `recursion-fib` 6.61 ms vs 1.29 ms, `recursion-tco` 0.275 ms vs
+      0.031 ms). Gates: focused `FrontendBridgeTest`, `installBin`,
+      two full `./v2/conformance/check.sh` runs after the runtime change,
+      `tests/conformance/run.sh --only 'litdoc'`, and `git diff --check`.
 
 - [x] **v2-vm-production-jit-gate** — DONE 2026-07-09: landed the first
       narrow v2 VM production-JIT slice by recognizing the exact
