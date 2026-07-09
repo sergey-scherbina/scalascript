@@ -12,6 +12,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## std-auth-webauthn-signature-drift — `open` (2026-07-09)
+
+- **Found by:** codex, during `tkv2-webauthn` spec/implementation prep.
+- **Repro:** compare `v1/runtime/std/auth.ssc` declarations with the existing
+  implementations in `v1/runtime/std/auth-plugin/.../AuthIntrinsics.scala` and
+  `v1/runtime/backend/js/.../JsRuntimeWebAuthn.scala`, or run the existing
+  `tests/conformance/webauthn-server-verify.ssc` / `examples/webauthn-demo.ssc`
+  call shapes. The implementations and shipped examples use:
+  `webauthnStoreFind(userId, credentialId)`,
+  `webauthnUpdateSignCount(userId, credentialId, newSignCount)`,
+  `webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64, expectedOrigin)`,
+  and `webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64,
+  signatureB64, credentialIdB64, expectedOrigin)`.
+- **Observed failure:** the public std declarations still document older/wrong
+  arities and return types for those four WebAuthn helpers, so new user code
+  can be guided into calls the runtime does not implement.
+- **Impact:** WebAuthn is production-sensitive; browser-client helpers would be
+  confusing if the adjacent server verifier declarations stay stale.
+- **Fix direction:** update `std/auth.ssc` declarations to the runtime-backed
+  arities/return shapes without changing the verifier semantics, then keep
+  `webauthn-server-verify` green on INT+JS.
+- **Done-when:** the declaration file, examples, runtime intrinsics, and
+  conformance call shapes agree; fixed SHA and gates are recorded here.
+
 ## v2-case-class-instance-methods-stub — `fixed` (2026-07-08)
 
 - **Found by:** codex, during `p3-connectnode-node-sim` verification.

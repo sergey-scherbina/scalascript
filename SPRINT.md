@@ -1095,6 +1095,24 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       Note: same-key item value changes intentionally do not re-render in this slice.
 - [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
       missing entirely; the server verifier exists on JVM + JS. Option shapes match `webauthnStore*`.
+      Active plan 2026-07-09 (`feature/tkv2-webauthn` / codex):
+      - [ ] Spec first in `specs/tkv2-webauthn.md`, then commit/push it before implementation.
+      - [ ] Add UI-facing WebAuthn EventHandler externs in `std/ui/webauthn.ssc`, not to core:
+            `webauthnRegister(beginUrl, completeUrl, rpName, result, error, headers, timeoutMs,
+            userVerification)` and `webauthnAssert(beginUrl, completeUrl, result, error, headers,
+            timeoutMs, userVerification)`.
+      - [ ] Implement the browser/custom runtime in `signals.mjs`: POST begin JSON, call
+            `navigator.credentials.create/get`, base64url-encode browser ArrayBuffers, POST complete JSON,
+            write response text into `result`, and write user-visible failures into `error`.
+      - [ ] Keep Node/interpreter behavior deterministic: off-browser handler creation is allowed, but
+            invoking it reports a clear "WebAuthn unavailable" error instead of silently succeeding.
+      - [ ] Fix the adjacent std-auth WebAuthn declaration drift recorded in `BUGS.md`
+            (`std-auth-webauthn-signature-drift`): declarations must match the existing JVM/JS runtime
+            implementations and examples.
+      - [ ] Add focused runtime tests with stubbed `navigator.credentials` and `fetch`, plus a conformance
+            API smoke case. Gate before push with targeted Scala tests, affected compiles,
+            `tests/conformance/run.sh --only 'tkv2-webauthn,webauthn-server-verify' --no-memo`, and an
+            `emit-spa --frontend custom` smoke of the new example.
 - [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =
       existing in-process transport (fullstack spec phases 0–5).
 - [x] **tkv2-theme-css-vars** ✓ DONE 2026-07-07 (taken out of order — small) — `cssVariables(t: Theme)`
