@@ -472,7 +472,7 @@ object JvmByteGen:
   private def longParamSlot(deBruijn: Int, arity: Int): Int =
     (arity - 1 - deBruijn) * 2
 
-  private def emitParamLong(t: Term, mv: MethodVisitor, selfName: String, arity: Int, longName: String, startL: Label): Unit =
+  private def emitParamLong(t: Term, mv: MethodVisitor, selfName: String, arity: Int, longName: String, startL: Label, tail: Boolean): Unit =
     t match
       case Term.Lit(Const.CInt(n)) =>
         mv.visitLdcInsn(n)
@@ -480,29 +480,33 @@ object JvmByteGen:
         mv.visitVarInsn(Opcodes.LLOAD, longParamSlot(i, arity))
       case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
           if op.length == 1 && "+-*/%".contains(op) =>
-        emitParamLong(a, mv, selfName, arity, longName, startL)
-        emitParamLong(b, mv, selfName, arity, longName, startL)
+        emitParamLong(a, mv, selfName, arity, longName, startL, tail = false)
+        emitParamLong(b, mv, selfName, arity, longName, startL, tail = false)
         mv.visitInsn(longArithOpcode(op))
       case Term.If(c, a, b) =>
         val elseL = new Label()
         val endL = new Label()
         emitParamLongCondFalse(c, mv, selfName, arity, longName, startL, elseL)
-        emitParamLong(a, mv, selfName, arity, longName, startL)
+        emitParamLong(a, mv, selfName, arity, longName, startL, tail)
         mv.visitJumpInsn(Opcodes.GOTO, endL)
         mv.visitLabel(elseL)
-        emitParamLong(b, mv, selfName, arity, longName, startL)
+        emitParamLong(b, mv, selfName, arity, longName, startL, tail)
         mv.visitLabel(endL)
       case Term.App(Term.Global(name), args) if name == selfName && args.length == arity =>
-        // SELF-TAIL as a LOOP: push all new arg values (they read the CURRENT
-        // param slots, so no clobber), then store them back into the param
-        // slots and GOTO the method start. args(k) is param position k → slot
-        // longParamSlot(arity-1-k, arity) == 2*k; store top-of-stack first.
-        args.foreach(emitParamLong(_, mv, selfName, arity, longName, startL))
-        (arity - 1 to 0 by -1).foreach { k =>
-          mv.visitVarInsn(Opcodes.LSTORE, k * 2)
-        }
-        mv.visitJumpInsn(Opcodes.GOTO, startL)
-        mv.visitLdcInsn(0L) // unreachable value for the verifier's LRETURN stack shape
+        if tail then
+          // SELF-TAIL as a LOOP: push all new arg values (they read the CURRENT
+          // param slots, so no clobber), then store them back into the param
+          // slots and GOTO the method start. args(k) is param position k → slot
+          // longParamSlot(arity-1-k, arity) == 2*k; store top-of-stack first.
+          args.foreach(arg => emitParamLong(arg, mv, selfName, arity, longName, startL, tail = false))
+          (arity - 1 to 0 by -1).foreach { k =>
+            mv.visitVarInsn(Opcodes.LSTORE, k * 2)
+          }
+          mv.visitJumpInsn(Opcodes.GOTO, startL)
+          mv.visitLdcInsn(0L) // unreachable value for the verifier's LRETURN stack shape
+        else
+          args.foreach(arg => emitParamLong(arg, mv, selfName, arity, longName, startL, tail = false))
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, longName, "(" + ("J" * arity) + ")J", false)
       case other =>
         throw new Unsupported(s"param-long:${other.getClass.getSimpleName}")
 
@@ -517,8 +521,8 @@ object JvmByteGen:
   ): Unit =
     t match
       case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) if isLongCmp(op) =>
-        emitParamLong(a, mv, selfName, arity, longName, startL)
-        emitParamLong(b, mv, selfName, arity, longName, startL)
+        emitParamLong(a, mv, selfName, arity, longName, startL, tail = false)
+        emitParamLong(b, mv, selfName, arity, longName, startL, tail = false)
         mv.visitInsn(Opcodes.LCMP)
         val jump = op match
           case "<"  => Opcodes.IFGE
@@ -536,12 +540,12 @@ object JvmByteGen:
     val mv = g.cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
     // A self-tail call jumps HERE with the param slots rebound — a constant-
-    // stack loop over the unboxed Long params (NOT a recursive invokestatic,
-    // which stack-overflowed on deep tail recursion). Non-tail self-calls
-    // can't reach the $long method (the body is Long-pure by canParamLong).
+    // stack loop over the unboxed Long params. Non-tail self-calls use a real
+    // recursive invokestatic so expressions such as fib(n - 1) + fib(n - 2)
+    // still leave a value on the operand stack.
     val startL = new Label()
     mv.visitLabel(startL)
-    emitParamLong(body, mv, selfName, arity, name, startL)
+    emitParamLong(body, mv, selfName, arity, name, startL, tail = true)
     mv.visitInsn(Opcodes.LRETURN)
     mv.visitMaxs(0, 0)
     mv.visitEnd()
