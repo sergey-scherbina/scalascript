@@ -3213,8 +3213,15 @@ money-loop simulator cycle.
 
 ## v2-user-type-shadows-plugin-type — a user case class named "Request" (or any plugin-owned tag) has its fields clobbered on v2
 
-**Status:** OPEN, FRESH REGRESSION from `d5f9ce486` (the
-`v2-route-params-stub` fix) — v1 lanes correct, guarded by
+**Status:** FIXED 2026-07-09 (8feeda99f) — the conditional-Request-lock +
+snapshot/restore revert. Verified: the conformance repro passes (r1/task),
+AND the "any plugin-owned tag" generalization did NOT hold empirically —
+only `Request` was in `FrontendBridge.runtimeShapedTypes`, so ONLY it was
+lockable/clobbered; user case classes named KV/Rate/Response/etc. always
+went through registerCaseClass normally and already won (verified KV→7,
+Rate→x in a batch). d5f9ce486 (snapshot/restore) was reverted; the real
+root was the GLOBAL "Request" reservation, now conditional on the exact
+std/http.ssc lib shape. v1 lanes correct, guarded by
 tests/conformance/v2-user-type-shadows-plugin-type.ssc
 
 `V2PluginRegistry.fieldNames` is a single GLOBAL, tag-keyed map shared by
