@@ -12,6 +12,34 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-scala-fence-multiblock-parity — `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production output-parity loop after
+  `v2-mcp-oauth-secret-nondet-parity`.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/scala-js-demo.ssc examples/lang-split.ssc`.
+- **Observed failure:** `examples/scala-js-demo.ssc` is a standard-Scala-only
+  document with three `scala` fences; v1 prints all collection, ADT, and
+  recursive-sort lines, while v2 only matches the first collection line(s).
+  `examples/lang-split.ssc` explicitly documents that `scala` and
+  `scalascript` blocks may coexist, but v2 omits the standard `scala` block
+  output (`Distance`, `Evens`, `Primes`) and only runs the ScalaScript block.
+- **Impact:** default v2 no longer silently drops all standard `scala` documents
+  after `v2-standard-scala-fences-skipped`, but the production parity gate still
+  has deterministic user-visible gaps for multi-fence and intentional mixed
+  `scala`/`scalascript` runnable documents.
+- **Initial hypothesis:** `FrontendBridge.extractCode(..., allFences = true)`
+  has two remaining policy/shape gaps: standard `scala` fences are included only
+  for standard-Scala-only documents, which is too strict for examples that
+  explicitly mark both languages runnable; and multi-block Scala source may still
+  expose top-level conversion or auto-print ordering differences.
+- **Plan:** add focused extraction/runtime regressions for an all-`scala`
+  multi-fence document and an intentional mixed runnable document; adjust the
+  extractor policy narrowly so documented runnable `scala` fences are included
+  without re-enabling arbitrary illustrative snippets in mixed ScalaScript docs;
+  then run targeted parity plus affected conformance before pushing.
+- **Status:** open; claimed as `v2-scala-fence-multiblock-parity`.
+
 ## v2-mcp-oauth-secret-nondet-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after

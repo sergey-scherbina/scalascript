@@ -9,6 +9,36 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-scala-fence-multiblock-parity** — fix the remaining deterministic
+      standard-`scala` fence parity gaps in the v2 production output gate.
+      Claimed 2026-07-09 by codex in
+      `/Users/sergiy/work/my/scalascript-wt-v2-scala-fence-multiblock-parity`.
+      Repro after staging the CLI:
+      `scripts/sbtc "installBin"` then
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/scala-js-demo.ssc examples/lang-split.ssc`.
+      Baseline from the preceding gate: full parity is
+      `66/95 identical · 6 mismatch · 0 v2-error · 23 v1-only` with 5 nondet
+      skips; remaining deterministic mismatches include `scala-js-demo.ssc` and
+      `lang-split.ssc`. What to fix: (1) `scala-js-demo.ssc` is a
+      standard-Scala-only document with multiple `scala` fences and v2 must run
+      the whole document in order, not a truncated subset; (2)
+      `lang-split.ssc` explicitly documents that `scala` and `scalascript`
+      blocks may coexist in a shared interpreter/JVM environment, so v2 should
+      include those standard `scala` fences too. Current likely owner:
+      `v2/frontend-bridge/src/main/scala/ssc/bridge/FrontendBridge.scala`
+      `extractCode` around runnable-fence policy and top-level statement
+      conversion. Preserve the existing guard from
+      `v2-standard-scala-fences-skipped`: do not run arbitrary illustrative
+      `scala` snippets in mixed ScalaScript docs unless the document declares or
+      otherwise clearly intends mixed runnable language blocks. Add focused
+      tests in `FrontendBridgeTest` and conformance coverage for the all-Scala
+      multi-fence shape and the intentional mixed-runnable shape. Done-when:
+      focused v2 frontend tests pass, `tests/conformance/run.sh --only
+      'standard-scala-*' --no-memo` (or the exact new affected globs) passes,
+      targeted parity for `examples/scala-js-demo.ssc examples/lang-split.ssc`
+      matches or has a newly filed/classified non-fence mismatch, and the full
+      parity baseline/docs are updated with the new counts.
+
 - [x] **v2-busi-testsweep-gaps** — DONE 2026-07-08: **61/61 busi tests green on --v2** (was 47/61).
       Seven root causes, one BUGS.md entry each (batch `v2-busi-testsweep-gaps`): shared top-level
       var cells; tryFBc string-equality optimism (`if p == period` always true — 5 tests); HOF
