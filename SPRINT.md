@@ -9,6 +9,21 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-prod-post-jsgen-parity-rebaseline** — refresh the v2 production
+      output-parity baseline after the 2026-07-09 JS flat-bundle and stream
+      fixes, without touching the sibling-owned `v2-head-field-dispatch-fix`
+      work. Why: the queue has no free v2 blocker besides that active claim, so
+      the highest-value autonomous step is to establish the next concrete
+      blocker list from the real gate. How: in this worktree, run
+      `scripts/sbtc "installBin"` so `bin/ssc` matches HEAD, then run
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`.
+      Record the exact summary counts and any non-zero `mismatch`/`v2-error`
+      rows. If a real new blocker appears, create/update `BUGS.md` with repro
+      and queue a focused SPRINT item; if the gate is clean except expected
+      skip buckets, mark this item done with the baseline. Do not triage or
+      modify the active `v2-head-field-dispatch-fix` claim/worktree. Done when
+      SPRINT/CHANGELOG capture the fresh baseline and the claim is released.
+
 - [x] **jsgen-preamble-collision-decls** — DONE 2026-07-09 in `854a87f1b`:
       closed the remaining actionable `jsgen-toplevel-name-vs-preamble` bug
       class for flat JS bundles. JsGen now applies the derived runtime
