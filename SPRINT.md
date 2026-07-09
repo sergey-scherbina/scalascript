@@ -423,6 +423,15 @@ rollback path. This workstream does **not** try to green every unrelated repo-wi
 test first; it fixes repo-wide gates only when they block the v2 production gate.
 Coordinate with existing Phase-3/p3 items below instead of duplicating their fixes.
 
+- [ ] **v2-prod-queue-hygiene** — reconcile stale v2 production queue entries that
+      still appear open after `v2-prod-default-switch`, `v2-output-parity-harness`,
+      and `v2-parity-current-errors` landed. How: mark the old Phase-3 switch
+      container as landed/superseded by `v2-prod-default-switch`, mark the struck
+      `v2-output-parity-full-corpus` duplicate as reconciled by the shipped
+      harness/current gate, and add a changelog note. No source behavior changes.
+      Done-when: `SPRINT.md` has no stale open switch/full-corpus duplicates,
+      `CHANGELOG.md` names this queue cleanup, and a docs-only verification
+      (`git diff --check`) passes.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:
