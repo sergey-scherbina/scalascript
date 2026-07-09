@@ -123,7 +123,7 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       Progress 2026-07-09: the `v2-source-jvm-recursion-fib-perf` slice closes
       the JVM source `recursion-fib` row with Long-specialized recursive global
       helpers: default `scripts/bench v2-backends recursion-fib` moved
-      `v2-jvm` from 67.5 ms to 1.41 ms. The broader item remains open for Rust
+      `v2-jvm` from 67.5 ms to 1.37 ms. The broader item remains open for Rust
       source performance and other workload-family rows.
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
       three narrow VM slices have shipped. The first recognized the exact

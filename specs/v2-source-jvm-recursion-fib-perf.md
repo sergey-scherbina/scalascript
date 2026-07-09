@@ -183,7 +183,7 @@ scripts/bench v2-backends recursion-fib
 | Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
 | --- | ---: | ---: | ---: |
 | `recursion-fib` baseline | 12.9 | 67.5 | 240.2 |
-| `recursion-fib` after Long specialization | 6.02 | 1.41 | 249.2 |
+| `recursion-fib` after Long specialization | 6.99 | 1.37 | 235.5 |
 
 The slice closes the JVM source-backend gap for this workload family only. It
 does not close the broader `v2-source-backend-production-perf-gates` backlog
@@ -198,6 +198,7 @@ v2/backend/check.sh tco
 v2/backend/check.sh letrec
 tests/conformance/run.sh --only 'recursion,tail-recursion,mutual-recursion' --no-memo
 scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z recursive"
+scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z self-tail"
 scripts/bench v2-backends recursion-fib
 git diff --check
 ```

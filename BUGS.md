@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-bytecode-param-long-nontail-self-loop — `open` (2026-07-09)
+## v2-bytecode-param-long-nontail-self-loop — `fixed` (2026-07-09)
 
 - **Found by:** codex while rerunning final gates for
   `v2-source-jvm-recursion-fib-perf` after rebasing onto `origin/main`.
@@ -30,7 +30,12 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** the current v2 bytecode recursive-Int fast path is semantically
   wrong for non-tail recursion; this blocks using the focused recursive bridge
   gate as a production signal.
-- **Status:** open.
+- **Fix:** `41e2fe1ed` threads tail-position information through
+  `JvmByteGen.emitParamLong`: tail self-calls keep the parameter-rebinding loop,
+  while non-tail self-calls emit recursive `invokestatic <helper>(J...)J`.
+- **Verified:** focused recursive bridge test 3/3, self-tail bridge test 1/1,
+  affected recursion conformance 3/3, and `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-money-decimal-regression — money amounts became Int (Decimal shadowed by payments Money companion)
 

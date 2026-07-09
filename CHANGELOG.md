@@ -4,13 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 bytecode non-tail recursive Int calls keep values
+
+The bytecode backend's Long-specialized self-recursive helper now distinguishes
+tail and non-tail self-calls. Tail calls still use the constant-stack
+parameter-rebinding loop; non-tail calls such as `fib(n - 1) + fib(n - 2)` now
+emit a real recursive Long-helper call so the expression leaves a value on the
+operand stack. This fixes the fresh `origin/main` regression where bytecode
+`fib(30)` returned `1` instead of `832040`. Gates: focused recursive bridge test
+3/3, self-tail bridge test 1/1, affected recursion conformance 3/3, final
+`scripts/bench v2-backends recursion-fib`, and `git diff --check`.
+
 ## 2026-07-09 — v2 JVM source backend specializes recursive Long globals
 
 The JVM source backend now emits direct `Long` helpers for global lambdas whose
 bodies are provably `Long`-typed, while keeping closure lazy vals for first-class
 function values and preserving the existing tail-recursive direct path.
 `scripts/bench v2-backends recursion-fib` moved the JVM source row from
-67.5ms to 1.41ms on the default harness (`v2=6.02ms`, `v2-rust=249.2ms` in the
+67.5ms to 1.37ms on the default harness (`v2=6.99ms`, `v2-rust=235.5ms` in the
 after run). Gates: JVM backend compile, backend `tco`/`letrec`, affected
 recursion conformance, focused recursive bridge tests, final bench row, and
 `git diff --check`. An unrelated ssc1c/backend-check bug in the generated

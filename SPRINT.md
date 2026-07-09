@@ -9,7 +9,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-bytecode-param-long-nontail-self-loop** - urgent regression found
+- [x] **v2-bytecode-param-long-nontail-self-loop** - DONE 2026-07-09 in
+      `41e2fe1ed`: urgent regression found
       while closing `v2-source-jvm-recursion-fib-perf`: fresh `origin/main`
       `8ec03cfbf` fails
       `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z recursive"`
@@ -24,6 +25,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       green, the v2 JVM source `recursion-fib` benchmark remains improved, and
       `git diff --check` passes. Tracked in
       `BUGS.md#v2-bytecode-param-long-nontail-self-loop`.
+      Fix: `emitParamLong` now knows whether it is emitting a tail position.
+      Tail self-calls keep the constant-stack parameter-rebinding loop; non-tail
+      self-calls emit a recursive Long-helper `invokestatic`, preserving values
+      for expressions like `fib(n - 1) + fib(n - 2)`. Gates: focused recursive
+      bridge test 3/3, self-tail bridge test 1/1, affected recursion
+      conformance 3/3, final v2-backends `recursion-fib` benchmark, and
+      `git diff --check`.
 
 - [x] **v2-source-jvm-recursion-fib-perf** - DONE 2026-07-09: narrow Phase-3 source-backend
       performance slice for the v2 JVM source backend on
@@ -59,9 +67,9 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       bodies are provably Long-typed, emit `<name>_long(Long...): Long`, and
       route proven-Long recursive calls through those helpers while preserving
       closure lazy vals and the existing `@tailrec` direct path. Final default
-      `scripts/bench v2-backends recursion-fib`: `v2=6.02 ms`,
-      `v2-jvm=1.41 ms`, `v2-rust=249.2 ms`, closing this JVM source-backend row
-      from 67.5 ms to 1.41 ms without changing public semantics. Gates:
+      `scripts/bench v2-backends recursion-fib`: `v2=6.99 ms`,
+      `v2-jvm=1.37 ms`, `v2-rust=235.5 ms`, closing this JVM source-backend row
+      from 67.5 ms to 1.37 ms without changing public semantics. Gates:
       `scala-cli compile --server=false v2/backend/jvm`;
       `v2/backend/check.sh tco`; `v2/backend/check.sh letrec`;
       `tests/conformance/run.sh --only 'recursion,tail-recursion,mutual-recursion' --no-memo`;
