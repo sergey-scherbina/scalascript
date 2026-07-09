@@ -7118,12 +7118,13 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
  *  one backend.  Warmup + timing are embedded inside a generated wrapper
  *  script so compilation and process-startup costs are excluded.
  *
- *  The backend is selected with the global `--backend <ssc|jvm|js>` flag
+ *  The backend is selected with the global `--backend <ssc|jvm|js|v2|v2-jvm|v2-rust>` flag
  *  (default: ssc), shared with other ssc commands.
  *
  *  Options:
  *  {{{
- *    --backend <ssc|jvm|js>      (global flag) backend to use (default: ssc)
+ *    --backend <ssc|jvm|js|v2|v2-jvm|v2-rust>
+ *                                 (global flag) backend to use (default: ssc)
  *    --warmup N                  warmup iterations (default 5)
  *    --warmup-time N             warmup for N milliseconds (time-based; overrides --warmup)
  *    --reps N                    measured iterations (default 20)
@@ -7140,7 +7141,7 @@ final class BenchCmd extends CliCommand:
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--backend <ssc|jvm|js>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
+      System.err.println("Usage: ssc bench [--backend <ssc|jvm|js|v2|v2-jvm|v2-rust>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
       System.exit(1)
 
     // --backend is a global flag (GlobalFlags), consumed before we see args.
@@ -7167,7 +7168,7 @@ final class BenchCmd extends CliCommand:
 
     // "interp" accepted as a backward-compatible alias for "ssc".
     if backend == "interp" then backend = "ssc"
-    val validBackends = Set("ssc", "jvm", "js", "v2")
+    val validBackends = Set("ssc", "jvm", "js", "v2", "v2-jvm", "v2-rust")
     if !validBackends(backend) then
       System.err.println(s"bench: unknown backend '$backend', valid: ${validBackends.mkString(", ")}")
       System.exit(1)
@@ -7475,7 +7476,10 @@ final class BenchCmd extends CliCommand:
     // interp's unboxed-Long fast-path (the local becomes a boxed `Value`),
     // so it must be done by source signature change (`workload(seed: Long): T`
     // with a runtime-varying seed) — tracked as `bench-honest-workload-seed`.
-    val wrapper      = generateWrapper(userCode, warmup, reps, warmupTimeMs, backend)
+    val wrapperTargetBackend = backend match
+      case "v2-jvm" | "v2-rust" => "v2"
+      case other    => other
+    val wrapper      = generateWrapper(userCode, warmup, reps, warmupTimeMs, wrapperTargetBackend)
 
     // Run interpreter in-process: parse wrapper, capture stdout, parse BENCH_MS.
     def timeInterp(): Option[Double] =
@@ -7508,6 +7512,101 @@ final class BenchCmd extends CliCommand:
           System.err.println(s"[timeV2] ${e.getClass.getSimpleName}: ${e.getMessage}")
           e.getStackTrace.take(6).foreach(f => System.err.println(s"[timeV2]   at $f"))
       parseBenchMs(outBuf.toString("UTF-8"))
+
+    def v2CoreIr(): Option[String] =
+      try
+        RunV2.loadPluginJars()
+        _root_.ssc.bridge.PluginBridge.loadAll()
+        val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
+        Some(_root_.ssc.Writer.program(prog))
+      catch case e: Throwable =>
+        if System.getenv("SSC_BENCH_DEBUG") != null then
+          System.err.println(s"[v2CoreIr] ${e.getClass.getSimpleName}: ${e.getMessage}")
+          e.getStackTrace.take(6).foreach(f => System.err.println(s"[v2CoreIr]   at $f"))
+        None
+
+    def runV2SourceGenerator(backendDir: os.Path, ir: String): Option[String] =
+      try
+        val tmpIr = os.temp(ir, suffix = ".coreir", deleteOnExit = true)
+        val generated = os.proc("scala-cli", "run", backendDir.toString, "-q", "--server=false", "--", tmpIr.toString)
+          .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+        if generated.exitCode != 0 then
+          if System.getenv("SSC_BENCH_DEBUG") != null then
+            System.err.println(generated.err.text())
+          None
+        else Some(generated.out.text())
+      catch case e: Throwable =>
+        if System.getenv("SSC_BENCH_DEBUG") != null then
+          System.err.println(s"[runV2SourceGenerator] ${e.getClass.getSimpleName}: ${e.getMessage}")
+        None
+
+    def timeV2Jvm(): Option[Double] =
+      if !JvmBytecode.scalaCliAvailable then None
+      else
+        findRepoRoot(path).flatMap { root =>
+          val src = for
+            ir <- v2CoreIr()
+            generated <- runV2SourceGenerator(root / "v2" / "backend" / "jvm", ir)
+          yield generated
+          src.flatMap { generated =>
+            try
+              val tmpSc = os.temp(generated, suffix = ".scala", deleteOnExit = true)
+              val run = os.proc("scala-cli",
+                                "--java-opt", "-XX:CompileThreshold=100",
+                                "--java-opt", "-XX:-BackgroundCompilation",
+                                "--server=false",
+                                tmpSc.toString)
+                .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+              if run.exitCode != 0 then
+                if System.getenv("SSC_BENCH_DEBUG") != null then
+                  System.err.println(run.err.text())
+                None
+              else parseBenchMs(run.out.text())
+            catch case e: Throwable =>
+              if System.getenv("SSC_BENCH_DEBUG") != null then
+                System.err.println(s"[timeV2Jvm] ${e.getClass.getSimpleName}: ${e.getMessage}")
+              None
+          }
+        }
+
+    def rustcAvailable: Boolean =
+      scala.util.Try(os.proc("rustc", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0)
+        .getOrElse(false)
+
+    def timeV2Rust(): Option[Double] =
+      if !rustcAvailable || !JvmBytecode.scalaCliAvailable then None
+      else
+        findRepoRoot(path).flatMap { root =>
+          val src = for
+            ir <- v2CoreIr()
+            generated <- runV2SourceGenerator(root / "v2" / "backend" / "rust", ir)
+          yield generated
+          src.flatMap { generated =>
+            try
+              val tmpDir = os.temp.dir(prefix = "ssc-bench-v2-rust-", deleteOnExit = true)
+              val rs     = tmpDir / "main.rs"
+              val bin    = tmpDir / "bench-bin"
+              os.write.over(rs, generated)
+              val build = os.proc("rustc", "-O", rs.toString, "-o", bin.toString)
+                .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+              if build.exitCode != 0 then
+                if System.getenv("SSC_BENCH_DEBUG") != null then
+                  System.err.println(build.err.text())
+                None
+              else
+                val run = os.proc(bin.toString)
+                  .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+                if run.exitCode != 0 then
+                  if System.getenv("SSC_BENCH_DEBUG") != null then
+                    System.err.println(run.err.text())
+                  None
+                else parseBenchMs(run.out.text())
+            catch case e: Throwable =>
+              if System.getenv("SSC_BENCH_DEBUG") != null then
+                System.err.println(s"[timeV2Rust] ${e.getClass.getSimpleName}: ${e.getMessage}")
+              None
+          }
+        }
 
     // Fuse `(lo to hi).map(f).filter(g).foldLeft(z)(h)` → manual while loop.
     // HotSpot can JIT the chained-Vector form well, but it still allocates
@@ -7578,6 +7677,8 @@ final class BenchCmd extends CliCommand:
     backend match
       case "jvm" if !JvmBytecode.scalaCliAvailable =>
         System.err.println("bench: scala-cli not found — cannot run jvm backend"); System.exit(1)
+      case "v2-jvm" if !JvmBytecode.scalaCliAvailable =>
+        System.err.println("bench: scala-cli not found — cannot run v2-jvm backend"); System.exit(1)
       case "js" if !scala.util.Try {
         os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
       }.getOrElse(false) =>
@@ -7597,6 +7698,8 @@ final class BenchCmd extends CliCommand:
       case "jvm"    => timeJvm()
       case "js"     => timeJs()
       case "v2"     => timeV2()
+      case "v2-jvm" => timeV2Jvm()
+      case "v2-rust"=> timeV2Rust()
       case _        => timeInterp()
 
     if machine then

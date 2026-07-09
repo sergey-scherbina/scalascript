@@ -36,6 +36,13 @@ object RustBackend:
 
     sb ++= "fn ssc_run() {\n"
 
+    val generatedRawNames = p.defs.map(_.name).toSet
+    val allRefs = p.defs.foldLeft(freeGlobals(p.entry)) { (acc, d) => acc | freeGlobals(d.body) }
+    if allRefs("print") && !generatedRawNames("print") then
+      sb ++= "    let g_print: V = V::Fn(Rc::new(move |args: Vec<V>| { for a in args { v_print(a); } V::Unit }));\n"
+    if allRefs("println") && !generatedRawNames("println") then
+      sb ++= "    let g_println: V = V::Fn(Rc::new(move |args: Vec<V>| { for a in args { v_print(a); } println!(); V::Unit }));\n"
+
     // Phase 1: forward-ref cells for all Lam defs (declared before any closure)
     for d <- p.defs do d.body match
       case Lam(_, _) =>
@@ -586,7 +593,11 @@ ${pad}    }));\n"""
       // __unary__ with literal op string (FrontendBridge-generated): dispatch to v_unary
       case "__unary__" => s"v_unary(${a0}, ${a1})"
       // __method__: dispatch to v_method runtime helper
-      case "__method__" => s"v_method(${a0}, ${a1})"
+      case "__method__" =>
+        val rest = a.drop(2).mkString(", ")
+        if rest.isEmpty then s"v_method(${a0}, ${a1}, vec![])"
+        else s"v_method(${a0}, ${a1}, vec![$rest])"
+      case "__autoPrint__" => s"{ ${a0}; V::Unit }"
       // Integer arithmetic
       case "i.add"  => s"v_iadd($a0, $a1)"
       case "i.sub"  => s"v_isub($a0, $a1)"
@@ -669,6 +680,10 @@ ${pad}    }));\n"""
       case "map.del"  => s"{ as_map($a0).borrow_mut().remove(&VKey::from(&$a1)); V::Unit }"
       case "map.keys" => s"v_map_keys($a0)"
       case "map.size" => s"V::Int(as_map($a0).borrow().len() as i64)"
+      // FrontendBridge top-level bookkeeping: standalone source backends do not
+      // need a dynamic global registry, because generated Rust variables already
+      // hold the lowered values.
+      case "global.reg" => "V::Unit"
       // Array
       case "arr.new"   => "V::Arr(Rc::new(RefCell::new(vec![])))"
       case "arr.len"   => s"V::Int(as_arr($a0).borrow().len() as i64)"
@@ -694,6 +709,7 @@ ${pad}    }));\n"""
       case "io.print"    => s"{ v_print($a0); V::Unit }"
       case "io.println"  => s"{ v_println($a0); V::Unit }"
       case "io.eprint"   => s"{ eprint!(\"{{}}\", show(&$a0)); V::Unit }"
+      case "io.nanoTime" => "V::Int(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect(\"nanoTime\").as_nanos() as i64)"
       case "io.args"     => "v_io_args()"
       case "io.readFile" => s"V::Bytes(std::fs::read(as_str($a0)).expect(\"readFile\"))"
       case "io.writeFile"=> s"{ std::fs::write(as_str($a0), &as_bytes($a1)).expect(\"writeFile\"); V::Unit }"
@@ -951,9 +967,18 @@ fn v_arith(op: V, a: V, b: V) -> V {
     }
 }
 
-fn v_method(name: V, recv: V) -> V {
+fn v_method(name: V, recv: V, args: Vec<V>) -> V {
     let m: &str = match &name { V::Str(s) => s.as_str(), _ => panic!("v_method: name must be Str") };
     match m {
+        "nanoTime" => match recv {
+            V::Data(ref tag, _) if tag == "System" => {
+                V::Int(std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("nanoTime")
+                    .as_nanos() as i64)
+            },
+            other => panic!("v_method.nanoTime: expected System, got {:?}", other),
+        },
         "toInt"    => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, V::Str(s) => s.parse::<i64>().unwrap_or(0), _ => 0 }),
         "toLong"   => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, _ => 0 }),
         "toFloat"  => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64, V::Str(s) => s.parse::<f64>().unwrap_or(0.0), _ => 0.0 }),
@@ -969,6 +994,27 @@ fn v_method(name: V, recv: V) -> V {
         "not"      => V::Bool(!as_bool(recv)),
         "unary_-"  => match recv { V::Int(n) => V::Int(-n), V::Float(f) => V::Float(-f), v => v },
         "unary_!"  => V::Bool(!as_bool(recv)),
+        "foreach"  => {
+            let f = args.into_iter().next().expect("foreach function");
+            let mut cur = recv;
+            loop {
+                match cur {
+                    V::Data(ref tag, ref fields) if tag == "Cons" => {
+                        call_fn(f.clone(), vec![fields[0].clone()]);
+                        cur = fields[1].clone();
+                    },
+                    V::Data(ref tag, _) if tag == "Nil" => break,
+                    V::Arr(arr) => {
+                        for item in arr.borrow().iter().cloned() {
+                            call_fn(f.clone(), vec![item]);
+                        }
+                        break;
+                    },
+                    other => panic!("foreach: expected list/array, got {:?}", other),
+                }
+            }
+            V::Unit
+        },
         _          => panic!("v_method: unknown method '{}'", m),
     }
 }

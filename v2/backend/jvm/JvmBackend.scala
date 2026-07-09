@@ -331,10 +331,47 @@ object R:
     case s: String => ps.print(s)
     case _ => ps.print(_show(v))
 
+  private def _isSystem(v: V): Boolean = v match
+    case ("System", _: Array[V]) => true
+    case _                       => false
+
+  private def _foreach(v: V, fn: V): Unit =
+    v match
+      case ("Nil", _: Array[V]) => ()
+      case ("Cons", _: Array[V]) =>
+        var cur = v
+        var go = true
+        while go do cur match
+          case ("Cons", fs: Array[V]) =>
+            _call1(fn, fs(0))
+            cur = fs(1)
+          case ("Nil", _: Array[V]) => go = false
+          case other => throw new RuntimeException(s"foreach: expected list, got ${_show(other)}")
+      case buf: mutable.ArrayBuffer[?] =>
+        buf.asInstanceOf[mutable.ArrayBuffer[V]].foreach(a => _call1(fn, a))
+      case other => throw new RuntimeException(s"foreach: expected list/array, got ${_show(other)}")
+
+  private def _method(name: String, recv: V, args: Array[V]): V = name match
+    case "nanoTime" if args.isEmpty && _isSystem(recv) => System.nanoTime()
+    case "toDouble" if args.isEmpty => recv match
+      case d: Double => d
+      case n: Long   => n.toDouble
+      case s: String => s.toDoubleOption.getOrElse(0.0d)
+      case _         => 0.0d
+    case "toLong" | "toInt" if args.isEmpty => recv match
+      case n: Long   => n
+      case d: Double => d.toLong
+      case s: String => s.toLongOption.getOrElse(0L)
+      case _         => 0L
+    case "toString" if args.isEmpty => _show(recv)
+    case "foreach" if args.length == 1 => _foreach(recv, args(0)); ()
+    case _ => throw new RuntimeException(s"__method__: no dispatch for .$name on ${_show(recv)}")
+
   // argv set before v2main is called (set via R.argv = args)
   var argv: List[String] = Nil
 
   def prim1(op: String, a0: V): V = op match
+    case "__autoPrint__" => ()
     case "i.neg"    => a0 match { case d: Double => -d; case v => -_asLong(v) }
     case "i.not"    => ~_asLong(a0)
     case "not"      => !_asBool(a0)
@@ -444,6 +481,8 @@ object R:
     case "io.writeFile" => java.nio.file.Files.write(java.nio.file.Path.of(_asStr(a0)), _asBytes(a1).toArray); ()
     case "io.env"   => sys.env.get(_asStr(a0)).map(_Some(_)).getOrElse(_None)
     case "io.readFile" => java.nio.file.Files.readAllBytes(java.nio.file.Path.of(_asStr(a0))).toVector
+    case "global.reg" => ()
+    case "__method__" => _method(_asStr(a0), a1, Array.empty[V])
     case _ => throw new RuntimeException(s"unknown prim2: $op")
 
   // Bridge-generated arithmetic: prim3("__arith__", op, left, right)
@@ -481,6 +520,7 @@ object R:
 
   def prim3(op: String, a0: V, a1: V, a2: V): V = op match
     case "__arith__" => _arith(a0, a1, a2)
+    case "__method__" => _method(_asStr(a0), a1, Array[V](a2))
     case "sslice"   => _asStr(a0).substring(_asLong(a1).toInt, _asLong(a2).toInt)
     case "map.put"  => _asMap(a0).update(a1, a2); ()
     case "arr.set"  => _asArr(a0)(_asLong(a1).toInt) = a2; ()
@@ -489,6 +529,8 @@ object R:
 
   def primN(op: String, args: Array[V]): V = op match
     case "io.args"  => _strList(argv)
+    case "io.nanoTime" => System.nanoTime()
+    case "__method__" if args.length >= 2 => _method(_asStr(args(0)), args(1), args.drop(2))
     case "map.new"  => mutable.HashMap[V, V]()
     case "arr.new"  => mutable.ArrayBuffer[V]()
     case "sfromCodes" => String(_unlist(args(0)).map(v => _asLong(v).toChar).toArray)
@@ -1075,9 +1117,17 @@ object R:
         sb.append(s"  lazy val $sname: V = $body_s\n")
 
     // Generate stubs for Global names referenced but not defined (e.g. _err from type errors)
-    val definedNames = p.defs.map(d => safeName(d.name)).toSet
+    val definedRawNames = p.defs.map(_.name).toSet
+    val definedNames = definedRawNames.map(safeName)
     val allRefs = p.defs.foldLeft(collectGlobals(p.entry)) { (acc, d) => acc | collectGlobals(d.body) }
-    val undefinedRefs = allRefs.map(safeName).diff(definedNames)
+    val bridgeGlobals = Map[String, String](
+      "println" -> s"""  lazy val ${safeName("println")}: V = ((args: Array[V]) => { args.foreach(a => R.prim1("io.print", a)); Console.out.println(); () }): V\n""",
+      "print"   -> s"""  lazy val ${safeName("print")}: V = ((args: Array[V]) => { args.foreach(a => R.prim1("io.print", a)); () }): V\n"""
+    )
+    for (raw, code) <- bridgeGlobals.toSeq.sortBy(_._1)
+        if allRefs(raw) && !definedRawNames(raw) do
+      sb.append(code)
+    val undefinedRefs = allRefs.diff(bridgeGlobals.keySet).map(safeName).diff(definedNames)
     for name <- undefinedRefs.toSeq.sorted do
       sb.append(s"""  lazy val $name: V = throw new RuntimeException("unbound global: $name")\n""")
 

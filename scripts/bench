@@ -43,6 +43,9 @@ Commands:
   wall            Wall-clock cross-language run (tests/bench/run.sc):
                   ssc-interp / ssc-jvm / ssc-js / scala-direct / node-direct.
                   Use this for cold-JVM, fresh-process numbers.
+  v2-backends [pat]
+                  Corpus wall-clock through v2 VM, v2 JVM source backend,
+                  and v2 Rust source backend (bench/run.sc --v2-backends).
 
   list            List all available @Benchmark methods.
   help            This message.
@@ -135,6 +138,18 @@ case "$cmd" in
       exit 1
     fi
     scala-cli --server=false tests/bench/run.sc   # serverless: no lingering bloop daemon
+    ;;
+
+  v2-backends)
+    if ! command -v scala-cli >/dev/null 2>&1; then
+      echo "scripts/bench v2-backends: scala-cli not found; install it or skip" >&2
+      exit 1
+    fi
+    if [[ "$pat" == ".*" ]]; then
+      ./bench.sh --v2-backends
+    else
+      ./bench.sh --v2-backends "$pat"
+    fi
     ;;
 
   list)
