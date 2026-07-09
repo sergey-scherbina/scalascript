@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-prod-performance-gate-baseline** — measure and document the
+      production-v2 performance gate before any default-switch decision.
+      Context: `specs/v2-full-compat.md` still has open Phase-3 checkboxes for
+      v2 VM within 2x v1 interpreter, v2 JVM backend within 2x v1 JVM backend,
+      v2 Rust backend within 1.5x v1 Rust backend, and conformance score v2 >=
+      v1. Scope: do a bounded benchmark audit only, not speculative optimizer
+      work. Read `docs/benchmarks.md` and `scripts/bench help/list`, then run
+      the smallest representative commands through `scripts/bench` (not raw
+      sbt/JMH) for interpreter/cross-backend/compile lanes as needed to produce
+      before numbers. Record exact commands, ratios, host caveats, and which
+      checkboxes remain open in `specs/v2-full-compat.md`; queue concrete
+      follow-up fixes in BACKLOG/SPRINT if a ratio fails clearly. Done-when:
+      measurements are reproducible from docs, no sibling claim overlaps, a
+      real conformance slice passes before push, and no production switch
+      checkbox is marked green without a measured command/result.
+
 - [x] **v2-jvm-source-mutual-tco** — DONE 2026-07-09 in `7f58b1516`:
       resolved the BACKLOG `v2-jvm-tco-manual` gap for the v2 source JVM
       backend by adding a conservative local dispatcher loop for eligible
