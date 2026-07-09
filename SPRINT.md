@@ -9,6 +9,25 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-source-jvm-recursion-tco-perf** - narrow Phase-3
+      source-backend performance slice for the v2 JVM source backend on
+      `bench/corpus/recursion-tco.ssc`. Context: BACKLOG
+      `v2-source-backend-production-perf-gates` says Rust source rows are now
+      closed in the four-row sweep, and the remaining recommended
+      source-backend slice is `v2-jvm recursion-tco` (`3.20 ms` in the latest
+      regression row). Spec: `specs/v2-source-jvm-recursion-tco-perf.md`.
+      Plan: commit this SPRINT/spec slice before code, stage the worktree CLI
+      with `scripts/sbtc "installBin"`, recapture a fresh baseline with
+      `scripts/bench v2-backends recursion-tco`, inspect the emitted v2 JVM
+      source for the accumulator-style self-tail-recursive shape, then land one
+      conservative JVM source-backend optimization only if source inspection
+      confirms a real backend gap rather than a harness artifact. Rejected
+      scope: do not mix in v2 VM/JIT work, Rust source work, benchmark workload
+      changes, or broad JVM backend rewrites. Done when before/after numbers
+      and source inspection are recorded durably, affected recursion/TCO
+      conformance or backend parity gates are green, the final public bench row
+      demonstrates the result, and `git diff --check` passes.
+
 - [x] **v2-source-rust-pattern-match-heavy-perf** - DONE 2026-07-09 in
       `a7f37b620`: narrow Phase-3
       source-backend performance slice for the v2 Rust source backend on
