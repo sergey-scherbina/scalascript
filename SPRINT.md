@@ -1084,16 +1084,15 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       expands; Record appears on valid form). GOTCHA found+fixed in form.ssc: a computed thunk
       invoked from ANOTHER module's context doesn't resolve this module's globals (load-order/
       global-resolution trap) — bind module functions to local vals before closing over them.
-- [ ] **tkv2-keyed-for** — `forKeyed(items, key)(render)`: keyed reconciliation in the JsGen/custom
-      runtime (today `View.ForSignal` wipes + rebuilds the container); component signals survive moves.
-      DESIGN NOTES (2026-07-07 survey): the emit-spa renderer (signals.mjs `_ssc_ui_renderBody`) is
-      HTML-STRING based (walk → join) with a post-injection bind pass (`_ssc_ui_mount`: querySelectorAll
-      over data-ssc-* attrs + closure-local _sub/_sv bridge). Keyed-for needs: a `_ForKeyed` node
-      (container `data-ssc-forkeyed`, children `data-ssc-key`), reconcile-on-items-change (reuse DOM
-      node by key = state survives; append order = moves; remove missing), and a REFACTOR of
-      `_ssc_ui_mount` to late-bind dynamically inserted subtrees (its _sub/_sv are closure-local
-      today). Item-value changes with same key deliberately do NOT re-render — inner state flows
-      through per-item signals (component model). This is a focused-session slice.
+- [x] **tkv2-keyed-for** ✓ DONE 2026-07-09 — `forKeyed(items, key)(render)` landed for the
+      JsGen/custom browser runtime (`ea79e003a`; docs `8b9c47e25`, `f129df583`): std/ui node
+      + primitive, `_ForKeyed` render marker, scoped `_ssc_ui_mount` binder for dynamically
+      inserted rows, keyed reconcile by direct child `data-ssc-key`, JVM/interpreter static
+      fallback, conformance case, and `examples/frontend/keyed-for-demo`. Gates:
+      `backendInterpreter/testOnly scalascript.JsGenStdImportTest scalascript.JsRuntimeKeyedForTest`
+      (43/43), affected module compiles, `tests/conformance/run.sh --only 'tkv2-keyed-for'
+      --no-memo`, and `bin/ssc emit-spa --frontend custom examples/frontend/keyed-for-demo/keyed-for-demo.ssc`.
+      Note: same-key item value changes intentionally do not re-render in this slice.
 - [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
       missing entirely; the server verifier exists on JVM + JS. Option shapes match `webauthnStore*`.
 - [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =

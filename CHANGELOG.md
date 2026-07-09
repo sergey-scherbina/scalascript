@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — tkv2: keyed browser list reconciliation
+
+`std/ui` now has `forKeyed(items, key)(render)` for the production
+`emit-spa --frontend custom` path. The JS runtime renders keyed row wrappers,
+moves surviving DOM nodes on reorder, removes missing keys, late-binds newly
+inserted row subtrees, and keeps existing `View.ForSignal` semantics unchanged.
+Gates: `JsGenStdImportTest` + `JsRuntimeKeyedForTest` 43/43, affected module
+compiles, conformance `tkv2-keyed-for`, and `examples/frontend/keyed-for-demo`.
+
 ## 2026-07-08 — queue: stale p3 Spark/effects blockers reclassified
 
 The remaining open p3 Spark/effects queue items now point at the newer
