@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/fenceless-pin
-worktree: ../scalascript-wt-fenceless
-started: 2026-07-09
-status: in-progress
-task: fenceless-pin — bare .ssc уже работает (extractCode fallback); добавить stderr note при no-op документе без runnable-фенсов (RunV2 путь), закрепить bare-code тестом в V2ConformanceTest, обновить память
