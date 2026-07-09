@@ -1,6 +1,6 @@
-feature/p4-bc-unboxed-arith 2026-07-09T18:26:57Z
+feature/p4-bc-unboxed-arith 2026-07-09T18:27:20Z
 agent: codex
-heartbeat: 2026-07-09T18:26:57Z
-status: not-started
-done-so-far:
-next: enrich SPRINT plan in a worktree, then baseline bytecode integer hot loops
+heartbeat: 2026-07-09T18:27:20Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-p4-bc-unboxed-arith
+next: enrich SPRINT plan, measure baseline, inspect v2 bytecode emitter arith paths
