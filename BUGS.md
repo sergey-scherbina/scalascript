@@ -3303,8 +3303,23 @@ close for v2 parity given how common the pattern is.
 
 ## v2-req-form-stub-in-hub — req.form(name) returns Stub inside busi's real hub.ssc (isolated minimization did NOT reproduce)
 
-**Status:** OPEN — real, confirmed via direct instrumentation of a live hub;
-NOT yet reduced to a minimal standalone repro (flagging the gap honestly)
+**Status:** FIXED 2026-07-09 (renamed root cause: **v2-req-form-type-collision**).
+MINIMIZED: the hub imports TWO different `Request` types — `std/http.ssc`
+`Request` (http, 14-field runtime layout with form/params) AND
+`../domain/requests.ssc` `Request` (a business request: id/partyId/kind/…).
+v2's field registry is keyed by tag NAME → the last-registered layout (the
+domain `Request`) wins, so http `req.form`/`req.params` resolved against a
+layout with no such field → `Stub`. (busi couldn't minimize it because a
+single-Request fixture has no collision.) v1 tolerates it via fully-dynamic
+by-name field lookup on the value. Fix: **arity-matched field resolution** — a
+secondary `(tag, arity)` index in `V2PluginRegistry`; field access (both the
+bare and field-with-args paths: `__method__`/`__methodOrExt__`/methodOp
+fallback/`fieldAt` 3-arg/`.copy`) and `v1ToV2`/`v2ToV1` DataV building now
+resolve against the layout whose arity == the receiver's field count. Fixes
+BOTH collision directions. Verified: busi hub `POST /pair` correct code now
+sets the auth cookie; corpus 154/8; gated by
+tests/e2e/req-type-collision-v2-smoke.sh. Reported by busi (fable), minimized
++ fixed by lucky-perch.
 
 busi's live hub (`src/v2/http/hub.ssc`), booted on `--v2`, has its
 `POST /pair` route (`req.form.getOrElse("code", "") == pairCode`) always

@@ -3398,7 +3398,9 @@ object PluginBridge:
     case V2Value.DataV(tag, fields) =>
       // Use named fields from the bridge's field registry when available;
       // fall back to positional _0/_1/… so plugins can still use positional access.
-      val knownNames: Option[Vector[String]] = V2PluginRegistry.lookupFieldNames(tag)
+      // Arity-matched so a same-named collision (http vs domain `Request`) names
+      // the right layout for this value (v2-req-form-type-collision).
+      val knownNames: Option[Vector[String]] = V2PluginRegistry.lookupFieldNames(tag, fields.length)
       val fieldMap: Map[String, V1Value] = knownNames match
         case Some(names) if names.length == fields.length =>
           // Named field map (both named and positional keys for compatibility)
@@ -3482,8 +3484,13 @@ object PluginBridge:
       else
         // If the tag has registered field names (from case class in imported .ssc lib),
         // build DataV in declaration order so fieldAt(obj, i) works correctly.
-        V2PluginRegistry.lookupFieldNames(tag) match
-          case Some(orderedNames) if effFields.nonEmpty =>
+        // Arity-matched: two case classes can share a tag NAME (std/http.ssc
+        // `Request` vs a domain `Request`) — order by the layout whose arity ==
+        // this instance's field count, not the last-registered one, else the http
+        // Request comes out with the domain layout and drops form/params
+        // (v2-req-form-type-collision).
+        V2PluginRegistry.lookupFieldNames(tag, effFields.size) match
+          case Some(orderedNames) if effFields.nonEmpty && orderedNames.length == effFields.size =>
             val orderedVals = orderedNames.map(n =>
               effFields.get(n).map(v1ToV2).getOrElse(V2Value.UnitV))
             V2Value.DataV(tag, orderedVals.toVector)

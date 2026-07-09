@@ -1,0 +1,6 @@
+agent: claude-opus-4-8 (lucky-perch)
+branch: feature/v2-req-form-type-collision
+worktree: ../scalascript-wt-v2-req-form-type-collision
+started: 2026-07-09
+status: in-progress
+task: FIX busi v2-req-form-stub-in-hub (renamed v2-req-form-type-collision). Root: hub imports two `Request` types (std/http.ssc + ../domain/requests.ssc); v2 field registry keyed by tag name → last wins → http req.form/req.params resolve against domain layout → Stub. Fix: arity-matched (tag,arity) field resolution across field-access paths + v1ToV2/v2ToV1. Gate tests/e2e/req-type-collision-v2-smoke.sh.

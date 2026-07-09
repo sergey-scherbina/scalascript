@@ -1,0 +1,22 @@
+---
+name: req-type-collision-smoke-fixture
+---
+[route, serve, Response, Request](std/http.ssc)
+
+```scalascript
+// A DOMAIN `Request` collides on the NAME with the http `Request` (different
+// shape/arity). v1 tolerates this via dynamic by-name field lookup; v2 must
+// resolve each field access against the layout matching the receiver's arity
+// (v2-req-form-type-collision). This is exactly busi's hub: http `Request`
+// (routes) + domain `Request` (../domain/requests.ssc) in one file.
+case class Request(id: String, kind: String)
+val demo = Request("r1", "task")
+
+// http Request field access WITH an arg (req.params("x")) must still resolve,
+// AND the domain Request's own fields (demo.id/demo.kind) must resolve.
+route("GET", "/mid/:x/tail") { req =>
+  Response(200, Map(), "mid=" + req.params("x") + " id=" + demo.id + " kind=" + demo.kind)
+}
+route("GET", "/end/:x") { req => Response(200, Map(), "end=" + req.params("x")) }
+serve(8834)
+```

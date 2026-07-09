@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 resolves same-named case classes by receiver arity
+
+A file importing two different types with the SAME name (e.g. `std/http.ssc`
+`Request` and a domain `Request`) broke field access on one of them on v2: the
+field registry is keyed by tag name, so the last-registered layout won and the
+other type's fields (http `req.form`/`req.params`) resolved to `Stub`. This hit
+busi's real hub `POST /pair` (`req.form.getOrElse("code",...)`). v2 now keeps a
+`(tag, arity)` index and resolves each field access against the layout whose
+arity matches the receiver — fixing both collision directions. v1 already
+tolerated this via dynamic by-name lookup. Gate:
+`tests/e2e/req-type-collision-v2-smoke.sh`.
+
 ## 2026-07-09 — v2 Option.exists/forall/contains/nonEmpty implemented
 
 The v2 VM had most `Option` methods but not `exists`/`forall`/`contains`/

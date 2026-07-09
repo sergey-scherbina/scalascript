@@ -1592,8 +1592,20 @@ object V2PluginRegistry:
   // ADT field-name registry: tag → ordered field names.
   // Populated by FrontendBridge so PluginBridge.v2ToV1 can produce named InstanceV fields.
   private val fieldNames = collection.mutable.HashMap[String, Vector[String]]()
-  def registerFieldNames(tag: String, names: Vector[String]): Unit = fieldNames(tag) = names
+  // Secondary index keyed by (tag, arity): two DIFFERENT case classes can share a
+  // tag NAME (e.g. std/http.ssc `Request` vs a domain `Request`) — the plain
+  // fieldNames map is last-registered-wins, which breaks field-name resolution for
+  // the loser. Field ACCESS resolves against the layout whose arity matches the
+  // receiver's actual field count (v2-req-form-type-collision).
+  private val fieldNamesByArity = collection.mutable.HashMap[(String, Int), Vector[String]]()
+  def registerFieldNames(tag: String, names: Vector[String]): Unit =
+    fieldNames(tag) = names
+    fieldNamesByArity((tag, names.length)) = names
   def lookupFieldNames(tag: String): Option[Vector[String]] = fieldNames.get(tag)
+  /** Field names for `tag` whose arity matches the receiver (disambiguates two
+   *  same-named case classes); falls back to the last-registered layout. */
+  def lookupFieldNames(tag: String, arity: Int): Option[Vector[String]] =
+    fieldNamesByArity.get((tag, arity)).orElse(fieldNames.get(tag))
 
 // ── Effect context — ThreadLocal stack for BlockForm effect runners ────────────
 // PluginBridge installs one V2EffectHandler per active runXxx block.
@@ -1773,7 +1785,7 @@ object Prims:
               case DataV("Op", IndexedSeq(StrV(lbl), _, _)) if lbl.endsWith("." + mname) =>
                 pluginOrExt()
               case handled          => handled
-          V2PluginRegistry.lookupFieldNames(tag) match
+          V2PluginRegistry.lookupFieldNames(tag, fields.length) match
             case Some(fnames) =>
               val i = fnames.indexOf(mname)
               if i >= 0 && i < fields.length then
@@ -1828,7 +1840,10 @@ object Prims:
       // falls back to full dynamic dispatch (builtin members stay builtin).
       case DataV(tag, fields) if a.length >= 3 =>
         val name = a(2) match { case StrV(s) => s; case other => Show.show(other) }
-        V2PluginRegistry.lookupFieldNames(tag) match
+        // arity-matched layout: two case classes can share a tag NAME (http vs
+        // domain `Request`) — resolve against the one whose arity == the
+        // receiver's field count (v2-req-form-type-collision).
+        V2PluginRegistry.lookupFieldNames(tag, fields.length) match
           case Some(names) =>
             val j = names.indexOf(name)
             if j >= 0 && j < fields.length then fields(j)
@@ -1957,7 +1972,7 @@ object Prims:
         // ACTUAL tag's registered field names drive the rebuild (the convert-time
         // path only fires when the class is unambiguous).
         case (DataV(tag, fields), "copy", pairs) if pairs.length % 2 == 0 =>
-          V2PluginRegistry.lookupFieldNames(tag) match
+          V2PluginRegistry.lookupFieldNames(tag, fields.length) match
             case Some(names) =>
               val overrides = pairs.grouped(2).collect {
                 case List(StrV(n), v) => n -> v
@@ -2535,7 +2550,11 @@ object Prims:
                   // case class): return the field, or call it when args are given.
                   // Only then fall back to the batch Stub — carrying WHICH method
                   // missed (Stub(Tag.method)) so downstream errors self-describe.
-                  V2PluginRegistry.lookupFieldNames(tag) match
+                  // Arity-matched: two case classes can share a tag NAME (http vs
+                  // domain `Request`) — resolve against the layout whose arity ==
+                  // the receiver's field count (v2-req-form-type-collision: this is
+                  // the field-WITH-ARGS path, e.g. `req.params("x")`).
+                  V2PluginRegistry.lookupFieldNames(tag, fields.length) match
                     case Some(fnames) =>
                       val i = fnames.indexOf(name)
                       if i >= 0 && i < fields.length then
