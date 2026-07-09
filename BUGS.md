@@ -12,7 +12,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-litdoc-inline-bold-parity — `open` (2026-07-09)
+## jvmgen-litdoc-mapped-string-mkstring — `open` (2026-07-09)
+
+- **Found by:** codex, while enabling `tests/conformance/litdoc.ssc` expected
+  output during `v2-litdoc-inline-bold-parity`.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc run-jvm tests/conformance/litdoc.ssc`.
+- **Observed failure:** generated Scala fails to compile around the litdoc fence
+  line with `missing argument for parameter i of method apply in class StringOps`
+  for a generated expression shaped like
+  `doc.nodes.filter(...).map(...).map(_show).mkString()`.
+- **Impact:** backend-lane only. The default v2 VM path (`bin/ssc run --v2`) is
+  the production gate for this slice and now matches v1; `litdoc.ssc` is marked
+  `backends: [int]` until the JVM generator issue is fixed.
+- **Status:** open; queued in BACKLOG as `v2-litdoc-js-jvm-backend-lanes`.
+
+## v2-litdoc-inline-bold-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, while verifying `v2-arith-unification` against the
   litdoc real harness.
@@ -26,7 +41,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
   document. It is not caused by the arith dispatch split fixed in
   `v2-arith-unification`; the map/data line now agrees, but inline bold parsing
   still diverges.
-- **Status:** open; queued in SPRINT as `v2-litdoc-inline-bold-parity`.
+- **Root cause:** v1 string `.split` uses Java/Scala regex semantics
+  (`s.split(sep, -1)`), but v2 quoted the delimiter with
+  `Pattern.quote(...)` in the primitive, string-method, and FastCode
+  `str.split` paths. The litdoc delimiter `"\\*\\*"` therefore became a literal
+  backslash-star pattern under v2 and never split the bold marker.
+- **Fix:** `2b5a36660` restores regex semantics in all three v2 split paths and
+  adds `tests/conformance/expected/litdoc.txt`. The fixture is marked
+  `backends: [int]` because JS/JVM have separate backend-lane blockers tracked
+  in `jsgen-toplevel-name-vs-preamble` and
+  `jvmgen-litdoc-mapped-string-mkstring`.
+- **Gates:** `scripts/sbtc "installBin"` passed;
+  `tests/conformance/run.sh --only 'litdoc' --no-memo` passed INT and skipped
+  JS/JVM by `backends: [int]`; direct
+  `bin/ssc run --v1 tests/conformance/litdoc.ssc` vs
+  `bin/ssc run --v2 tests/conformance/litdoc.ssc` diff is empty.
 
 ## v2-arith-dispatch-split — `fixed` (2026-07-09)
 
@@ -1870,6 +1899,12 @@ same launcher; every fail was a real engine gap). One entry per cause:
   avoid this unrelated known bug (`mcpArgs`), while the general name-mangling
   fix remains open here. Fixture workaround landed in `2e1f2c287`; the broad
   top-level user-binding rename is still open.
+- **Additional repro (2026-07-09):** after enabling an expected file for
+  `tests/conformance/litdoc.ssc`, `bin/ssc emit-js tests/conformance/litdoc.ssc
+  | node` fails with `SyntaxError: Identifier 'doc' has already been declared`
+  because the fixture has top-level `val doc = parseDoc(md)`, colliding with the
+  JS preamble surface. `litdoc.ssc` is therefore marked `backends: [int]` until
+  the general name-mangling fix lands.
 - **Workaround (documented in the lf-1 spec):** name the top-level binding something the preamble doesn't define (e.g. `lfScope`). Low frequency.
 - **Fix sketch (deferred):** a robust fix needs the set of names the (capability-gated) preamble declares; emit a colliding top-level user binding under a renamed identifier (propagating references) or as a shadow. There is a curated `preambleConsts = Set("Console","attr","scope")` in JsGen used today only for *object* declarations (via `Object.assign`); it would need to cover `val`/`def`/`enum` and the full preamble surface. Left as a documented limitation pending the dedicated effort.
 

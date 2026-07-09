@@ -470,7 +470,19 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
       plus affected conformance `tests/conformance/run.sh --only 'litdoc,arithmetic' --no-memo`
       after `installBin`.
-- [ ] **v2-litdoc-inline-bold-parity** — follow-up found during
+- [x] **v2-litdoc-inline-bold-parity** — DONE 2026-07-09 (`2b5a36660`):
+      restored v2 regex semantics for `String.split`/`str.split` and added
+      `tests/conformance/expected/litdoc.txt`. Root cause: v2 quoted the split
+      delimiter with `Pattern.quote`, while v1 treats `.split(sep)` as regex;
+      litdoc's `"\\*\\*"` delimiter therefore never split bold markers on v2.
+      `litdoc.ssc` is now an INT conformance case; JS/JVM are backend-lane
+      follow-ups (`jsgen-toplevel-name-vs-preamble` for `val doc` collision and
+      `jvmgen-litdoc-mapped-string-mkstring` for mapped-string `mkString()`).
+      Gates: `scripts/sbtc "installBin"` passed;
+      `tests/conformance/run.sh --only 'litdoc' --no-memo` passed INT and
+      skipped JS/JVM by `backends: [int]`; direct `bin/ssc run --v1/--v2`
+      `tests/conformance/litdoc.ssc` diff is empty. Original:
+      follow-up found during
       `v2-arith-unification` verification. After `installBin`, direct real-harness
       A/B for `tests/conformance/litdoc.ssc` still differs only on inline bold
       rendering: v1 prints `inline: P(buy a )B(new)P( dress)`, v2 prints

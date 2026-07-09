@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: string split regex semantics restored
+
+v2 `String.split` / `str.split` now follows v1 regex semantics instead of
+quoting the delimiter as a literal. This fixes litdoc inline bold parsing under
+`ssc run --v2`; `tests/conformance/litdoc.ssc` now has an INT expected-file
+regression. Gates: `installBin`, conformance `litdoc`, and direct v1/v2 litdoc
+diff.
+
 ## 2026-07-09 — v2: dynamic arithmetic dispatch unified
 
 `resolve("__arith__")` now delegates to `Prims.arithOp`, eliminating the

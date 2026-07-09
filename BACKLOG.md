@@ -90,6 +90,14 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       instead of `echo`. NOTE: already documented in Phase 2d SPRINT entry. This is a testing-harness
       gotcha, not a backend bug. Low priority since the `check.sh` conformance harness uses direct
       redirects.
+- [ ] **v2-litdoc-js-jvm-backend-lanes** (2026-07-09) — backend-lane follow-up
+      exposed while enabling `tests/conformance/litdoc.ssc` as an INT conformance
+      case. JS raw emit fails with the known `jsgen-toplevel-name-vs-preamble`
+      class (`val doc` collides with the JS preamble `doc` surface). JVM codegen
+      fails compiling a mapped string `mkString()` expression in the litdoc fence
+      output line (`StringOps.apply` missing parameter). These are not default
+      v2 VM production blockers; `litdoc.ssc` is marked `backends: [int]` until
+      the backend-lane fixes land.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 
