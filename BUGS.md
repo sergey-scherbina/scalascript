@@ -38,8 +38,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `tests/conformance/run.sh --only
   'arithmetic,recursion,tail-recursion,mutual-recursion' --no-memo` reports
   4 passed, 0 failed; focused `FrontendBridgeTest -- -z "v2 bytecode"` reports
-  2/2. Start the fix loop by running the failing lanes directly with
-  `bin/ssc run-js` / `bin/ssc run-jvm` to capture stderr/root cause.
+  2/2. Direct repro notes 2026-07-09: `direct-control-flow` JS throws
+  `RangeError: Maximum call stack size exceeded` in `iterateWhileMOption`;
+  the three effect JS rows throw `ReferenceError: query__ssc is not defined`;
+  `case-classes` and `sealed-traits` JS run but produce `NaN` for numeric fields
+  and wrong enum ordinals; `dataset-shape` JVM fails at scalac with
+  `_Dataset.mkString must be called with () argument` from generated
+  `xs.map(_show).mkString`.
+- **Progress 2026-07-09:** fixed `dataset-shape` JVM by making the generated
+  `_Dataset.mkString` no-arg overload parameterless to match Scala collections,
+  and bumping the JVM `.scjvm` codegen cache key so stale artifacts regenerate.
+  Verified direct `bin/ssc run-jvm tests/conformance/dataset-shape.ssc`,
+  `tests/conformance/run.sh --only 'dataset-shape' --no-memo` (1/1), and the
+  original eight-row repro now reports 2 passed, 6 failed (`dataset-shape` and
+  `fenceless-bare-code` pass).
 - **Status:** open.
 
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)

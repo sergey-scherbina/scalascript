@@ -27,6 +27,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       bytecode perf work. Done when the focused repro is green and full
       `tests/conformance/run.sh --no-memo` has no deterministic failures beyond
       documented pending/skips.
+      Progress 2026-07-09: `dataset-shape` JVM is fixed by parameterless
+      `_Dataset.mkString` plus JVM `.scjvm` codegen cache key bump; direct
+      `run-jvm`, focused `dataset-shape` conformance, and the eight-row repro
+      confirm it is green. Remaining failures: `case-classes` JS,
+      `direct-control-flow` JS, `effect-imported-handler` JS,
+      `effect-transitive-handler` JS, `js-applyunary-effect-cps` JS, and
+      `sealed-traits` JS.
 
 - [x] **v2-read-gigs-handle-leak-minimize** - DONE 2026-07-09 in
       `dd42da430` and `615ed5f8f`: fixed both production blockers behind

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — JVM dataset conformance regenerates stale mkString artifacts
+
+`dataset-shape` now passes the JVM conformance lane again. The JVM backend's
+`_show` routing rewrites `.mkString()` to `.map(_show).mkString`; `_Dataset`
+now exposes its no-arg `mkString` as a parameterless method like Scala
+collections, and the JVM `.scjvm` codegen cache key was bumped so old generated
+Scala with `def mkString()` is treated as stale. Gates: `core/compile`,
+`backendJvm/compile`, `installBin`, direct `bin/ssc run-jvm
+tests/conformance/dataset-shape.ssc`, focused conformance `dataset-shape` 1/1,
+and the original eight-row blocker repro now narrows to 6 remaining JS failures.
+
 ## 2026-07-09 — v2 bytecode unboxes hot integer arithmetic and recursion
 
 The `scripts/bench` wrapper now has a `v2-bytecode` corpus lane, and the JVM
