@@ -917,6 +917,13 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, "<")  then IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "++") then IrPrim("sconcat", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "->")  then IrCtor("Pair", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "&")  then IrPrim("i.and", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "|")  then IrPrim("i.or",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "^")  then IrPrim("i.xor", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "<<")  then IrPrim("i.shl",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, ">>")  then IrPrim("i.shr",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, ">>>") then IrPrim("i.ushr", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "&&") then IrIf(lv, rv, IrLit(IrBool(false)))
                 else if #seq(op, "||") then IrIf(lv, IrLit(IrBool(true)), rv)
                 else if #seq(op, "!=") then
@@ -937,6 +944,7 @@ def lowerE = (scope, rawExpr) =>
             let sv = lowerE(scope, sub) in
             if #seq(op, "-") then IrPrim("i.sub", Cons(IrLit(IrInt(0)), Cons(sv, Nil)))
             else if #seq(op, "!") then IrIf(sv, IrLit(IrBool(false)), IrLit(IrBool(true)))
+            else if #seq(op, "~") then IrPrim("i.not", Cons(sv, Nil))
             else sv
         }
       else if #seq(tag, "app") then
