@@ -12,6 +12,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-xslt-transform-empty-output — `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production unmasking loop.
+- **Repro:** from a clean worktree, stage the CLI with
+  `scripts/sbtc "installBin"`, then run
+  `bin/ssc run --v2 examples/xslt-transform.ssc`.
+- **Observed failure:** the command exits 0 with empty stdout. The same staged
+  CLI with `--v1` exits 1 on `Unknown interpolator 'xml'`, so v1 is not a valid
+  output oracle for this example.
+- **Expected:** v2 should execute the documented JVM/interpreter markup example:
+  identity transform, element rename, HTML transform with `EUR` parameter
+  substitution, and malformed-stylesheet error handling.
+- **Impact:** a documented example in `README.md` and `docs/user-guide.md`
+  silently does nothing on the v2 production lane.
+- **Likely root cause:** v2 does not yet bridge the markup-core surface used by
+  the example: `xml"""..."""`, `MarkupCodec.default.transform`,
+  `PureMarkupCodec.serialize`, `SerializeOpts(...)`, `TransformError.message`,
+  and `Either` Right/Left shapes.
+- **Plan:** active SPRINT item `unmask-markup-bridge`, spec
+  `specs/unmask-markup-bridge.md`.
+- **Status:** open.
+
 ## v2-serve-noop-minimalctx — `fixed` (2026-07-09)
 
 - **Found by:** busi (rozum 07-09 n=24): hub boots on --v2 (banner + pairing code)

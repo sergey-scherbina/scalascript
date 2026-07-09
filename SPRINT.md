@@ -539,9 +539,22 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       tests pass, `installBin` passes, the example exits 0 with `echo:hello`,
       `HELLO`, `local:hello`, `echo:typed`, and handler listing lines, plus
       affected conformance and `git diff --check`.
-- [ ] **unmask-markup-bridge** — xslt-transform: `xml"""..."""` ИНТЕРПОЛЯТОР (кастомный,
-      бриджу неизвестен) + MarkupCodec.default→NMO(transform) + PureMarkupCodec.serialize +
-      SerializeOpts named-ctor + Either→Right/Left DataV; build: v2PluginBridge += markupCore.
+- [ ] **unmask-markup-bridge** — xslt-transform production bridge. Spec:
+      `specs/unmask-markup-bridge.md`. Baseline after `scripts/sbtc "installBin"`:
+      `bin/ssc run --v2 examples/xslt-transform.ssc` exits 0 with empty stdout;
+      `bin/ssc run --v1 examples/xslt-transform.ssc` exits 1 with
+      `Unknown interpolator 'xml'`, so the v2 oracle is the documented
+      README/user-guide behavior, not stale v1 output. Implement the minimal JVM
+      v2 surface: add `markupCore` to `v2PluginBridge`, lower `xml"""..."""`
+      in `FrontendBridge` to a bridge call, and register markup globals/method
+      objects in `PluginBridge` (`MarkupCodec.default.transform`,
+      `PureMarkupCodec.serialize`, `SerializeOpts` named/default ctor,
+      `TransformError.message`, `Either` Right/Left DataV, and
+      `Map[String,String]` params). Done when focused bridge tests pass,
+      `installBin` passes, `bin/ssc run --v2 examples/xslt-transform.ssc`
+      prints the four documented sections with `catalog`, `report`, `EUR`, and
+      expected error handling, affected conformance is run, and
+      `git diff --check` is clean.
 - [ ] **unmask-payments-bridge** — traditional-payments/pix/fednow: PaymentProvider SPI →
       NMO-фабрики (stripe/pix/fednow providers), rc уже 0, Op'ы в выводе на ОБОИХ лейнах
       (паритет-с-бородавками — фикс поднимет оба).
@@ -552,8 +565,9 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
 - [x] **unmask-webhook-global** — CLOSED: webhookRequest — свободная переменная ПСЕВДОКОДА;
       введён атрибут ```scala no-run для иллюстративных фенсов, фенс размечен.
 - [x] **unmask-streams-runfold** — CLOSED: зелёный после match-scrutinee Op-lift (bbd05ab1d).
-- [ ] **unmask-markup-codec** — xslt-transform: MarkupCodec (markup-core std) не бриджится;
-      после match-scrutinee Op-lift (bbd05ab1d) пример rc=0 но пустой — нужен мост плагина.
+- [x] **unmask-markup-codec** — DUPLICATE 2026-07-09: merged into the active
+      `unmask-markup-bridge` slice above. Same baseline: xslt-transform rc=0
+      with empty stdout because the markup std surface is not bridged in v2.
 - [x] **kernel: match-scrutinee Op-lift** — DONE bbd05ab1d: Op в скрутини матча лифтится
       (хендлер сперва, резюмированное значение матчится) — семья лифтов ПОЛНАЯ
       (операнды арифметики, ресиверы методов, записи var, скрутини матчей).
