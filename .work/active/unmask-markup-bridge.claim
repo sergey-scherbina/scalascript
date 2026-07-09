@@ -1,6 +1,6 @@
 feature/unmask-markup-bridge 2026-07-09T12:40:12Z
 agent: codex
-heartbeat: 2026-07-09T12:56:22Z
+heartbeat: 2026-07-09T13:01:05Z
 status: in-progress
-done-so-far: spec/planning committed on feature branch; implemented first markup bridge pass; focused markup FrontendBridgeTest is green
-next: run full bridge tests and real xslt-transform example, then rebase on origin/main and finish verification/bookkeeping
+done-so-far: spec/planning committed on feature branch; markup bridge implemented; focused/full FrontendBridgeTest, installBin, and real xslt-transform example are green before final rebase
+next: add affected conformance fixture, commit implementation, rebase on origin/main, rerun gates, then bookkeeping/release
