@@ -1459,6 +1459,22 @@ object Prims:
       case other => other
     case "fieldAt" => a => a(0) match
       case DataV("Stub", _) => DataV("Stub", Vector.empty)  // stub: field access on Stub returns stub
+      // 3-arg form fieldAt(recv, idx, name) on a data value: the index was
+      // baked by the bridge from the GLOBAL field-name registry WITHOUT knowing
+      // the receiver's type — a case class `Ref(name, head)` made `hits.head`
+      // on a LIST read Cons.fields(1) (= the tail; Nil for a 1-element list,
+      // surfacing as Op("Nil.trim") — the busi hub-boot blocker,
+      // BUGS.md v2-head-field-dispatch-shadow). Resolve by the RECEIVER's own
+      // registered field names; a tag without that field (Cons/Nil/Some/…)
+      // falls back to full dynamic dispatch (builtin members stay builtin).
+      case DataV(tag, fields) if a.length >= 3 =>
+        val name = a(2) match { case StrV(s) => s; case other => Show.show(other) }
+        V2PluginRegistry.lookupFieldNames(tag) match
+          case Some(names) =>
+            val j = names.indexOf(name)
+            if j >= 0 && j < fields.length then fields(j)
+            else methodOp(name, a(0), Nil)
+          case None => methodOp(name, a(0), Nil)
       case DataV(_, fields) =>
         val i = int(a, 1).toInt
         if i < fields.length then fields(i) else DataV("Stub", Vector.empty)  // graceful OOB
@@ -1717,6 +1733,23 @@ object Prims:
           BoolV(ab.nonEmpty)
         case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "toList", Nil) =>
           listOf(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList)
+        // Array/Map HOFs — same effect-aware traversal as the list HOFs (a real
+        // ArrayBuffer flows out of Array.fill since v2-array-companion-list;
+        // busi hub folds over such tables at module load).
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "foldLeft", List(z, fn: Value.ClosV)) =>
+          foldThreadOp(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList, z,
+            (acc, x) => callClos(fn, Array(acc, x)))
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "map", List(fn: Value.ClosV)) =>
+          mapThreadOp(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList,
+            x => callClos(fn, Array(x)),
+            rs => ForeignV(collection.mutable.ArrayBuffer.from(rs)))
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "foreach", List(fn: Value.ClosV)) =>
+          mapThreadOp(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList,
+            x => callClos(fn, Array(x)), _ => UnitV)
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "foldLeft", List(z, fn: Value.ClosV)) =>
+          foldThreadOp(m.asInstanceOf[collection.mutable.Map[Value, Value]].toList
+              .map((k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))), z,
+            (acc, x) => callClos(fn, Array(acc, x)))
         case (DataV("Nil", _), "length", Nil) | (DataV("Nil", _), "size", Nil) =>
           IntV(unlist(recv).length.toLong)
         case (DataV("Cons", _), "length", Nil) | (DataV("Cons", _), "size", Nil) =>
@@ -2147,44 +2180,16 @@ object Prims:
     Set("<", "<=", ">", ">=", "==", "!=")
 
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
-    // EXPRESSION-position effects: an un-handled Op OPERAND lifts over the
-    // arithmetic — `acc + Bump.tick().toLong` runs the handler first, then
-    // the op applies to the resumed value (mirrors the __method__ lift).
-    case (DataV("Op", IndexedSeq(lb, arg, k)), _) =>
-      val kc = k.asInstanceOf[ClosV]
-      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
-        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
-        Done(arithOp(op, resumed, r))
-      })
-      DataV("Op", Vector(lb, arg, k2))
-    case (_, DataV("Op", IndexedSeq(rb, arg, k))) =>
-      val kc = k.asInstanceOf[ClosV]
-      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
-        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
-        Done(arithOp(op, l, resumed))
-      })
-      DataV("Op", Vector(rb, arg, k2))
     case _ if op == "->" =>
       DataV("Tuple2", collection.immutable.ArraySeq(l, r))
-    // Set-as-list element removal: v2 sets are distinct lists (`.toSet`), so
-    // `pending - partId` (std/mapreduce collect loops) = filterNot. Without
-    // this the op fell through to the plugin stub and returned Unit, which
-    // then blew up on the next `pending.isEmpty`.
-    case (DataV("Cons" | "Nil", _), _) if op == "-" =>
-      listOf(unlistPub(l).filterNot(_ == r))
-    // Map + (k -> v): copy-on-write over the mutable-HashMap map repr so the
-    // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
-    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
-      val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
-      nm(k) = v
-      ForeignV(nm)
-    // Char semantics: bridge char literals are Int codepoints, while chars
-    // extracted from strings (charAt/forall) are 1-char strings — comparisons
-    // between the two compare codepoints (c >= 'a' in parser predicates).
-    case (StrV(s), IntV(n)) if s.length == 1 && charComparisonOps.contains(op) =>
-      arithOp(op, IntV(s.charAt(0).toLong), IntV(n))
-    case (IntV(n), StrV(s)) if s.length == 1 && charComparisonOps.contains(op) =>
-      arithOp(op, IntV(n), IntV(s.charAt(0).toLong))
+    // HOT PATH ORDER: `->` first (one string compare — Int->Int pairs are legal
+    // map keys and must not hit the numeric error arms), then the numeric and
+    // Str+Str pairs — a2985d911's unification put the exotic guards (char
+    // comparisons with a Set lookup, Cons-minus, Map+pair, Op-lifting) in front
+    // of them and pattern-match-heavy went 23.6 -> 348 ms/iter (15x): every
+    // float mul in the loop waded through ~10 failed guarded patterns. None of
+    // the moved-up cases overlap the exotic ones (an Op operand is a DataV and
+    // matches no numeric/Str pair), so semantics are unchanged.
     case (IntV(x), IntV(y)) => op match
       case "+"  => IntV(x + y);  case "-"  => IntV(x - y);  case "*"  => IntV(x * y)
       case "/"  => IntV(x / y);  case "%"  => IntV(x % y)
@@ -2224,6 +2229,50 @@ object Prims:
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
       case _ => sys.error(s"__arith__: unknown op $op for String")
+    // EXPRESSION-position effects: an un-handled Op OPERAND lifts over the
+    // arithmetic — `acc + Bump.tick().toLong` runs the handler first, then
+    // the op applies to the resumed value (mirrors the __method__ lift).
+    case (DataV("Op", IndexedSeq(lb, arg, k)), _) =>
+      val kc = k.asInstanceOf[ClosV]
+      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(arithOp(op, resumed, r))
+      })
+      DataV("Op", Vector(lb, arg, k2))
+    case (_, DataV("Op", IndexedSeq(rb, arg, k))) =>
+      val kc = k.asInstanceOf[ClosV]
+      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(arithOp(op, l, resumed))
+      })
+      DataV("Op", Vector(rb, arg, k2))
+    // Everything else (char comparisons, list/tuple/Map/BigDecimal/actor cases,
+    // generic fallback) lives in arithRest: keeping THIS method small keeps it
+    // JIT-compilable and inlinable into hot loops — the a2985d911 unification
+    // merged the whole dispatch table in here and the method blew past the
+    // JIT size limits (pattern-match-heavy 23.6 -> 348 ms/iter).
+    case _ => arithRest(op, l, r)
+
+  private def arithRest(op: String, l: Value, r: Value): Value = (l, r) match
+    // Set-as-list element removal: v2 sets are distinct lists (`.toSet`), so
+    // `pending - partId` (std/mapreduce collect loops) = filterNot. Without
+    // this the op fell through to the plugin stub and returned Unit, which
+    // then blew up on the next `pending.isEmpty`.
+    case (DataV("Cons" | "Nil", _), _) if op == "-" =>
+      listOf(unlistPub(l).filterNot(_ == r))
+    // Map + (k -> v): copy-on-write over the mutable-HashMap map repr so the
+    // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
+    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+      val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
+      nm(k) = v
+      ForeignV(nm)
+    // Char semantics: bridge char literals are Int codepoints, while chars
+    // extracted from strings (charAt/forall) are 1-char strings — comparisons
+    // between the two compare codepoints (c >= 'a' in parser predicates).
+    case (StrV(s), IntV(n)) if s.length == 1 && charComparisonOps.contains(op) =>
+      arithOp(op, IntV(s.charAt(0).toLong), IntV(n))
+    case (IntV(n), StrV(s)) if s.length == 1 && charComparisonOps.contains(op) =>
+      arithOp(op, IntV(n), IntV(s.charAt(0).toLong))
     case (StrV(x), IntV(y)) => op match
       case "*"        => StrV(x * y.toInt)
       case "+" | "++" => StrV(x + y.toString)
