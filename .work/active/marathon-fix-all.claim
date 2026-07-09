@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/marathon-fixes
-worktree: ../scalascript-wt-marathon
-started: 2026-07-09
-status: in-progress
-task: marathon — до победного: (1) p4-bc-ambient-effects (7 bc-error, один корень), (2) mismatch-хвост свипа (fednow/effects/sql-browser×2/http-sql), (3) unmask-мосты (remote/MarkupCodec/payments), (4) type-lambda parse. Инкрементальные коммиты в main.
