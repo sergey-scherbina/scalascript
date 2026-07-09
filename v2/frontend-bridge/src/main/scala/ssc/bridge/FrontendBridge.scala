@@ -609,6 +609,16 @@ object FrontendBridge:
             else
               sb.append(c); i += 1
         case '[' =>
+          // Type-lambda `[A] =>> ...`: the bracket is a TYPE-param clause, not
+          // a list literal — leave it for scala.meta (v2 erases the alias).
+          val closeIdx = code.indexOf(']', i)
+          val isTypeLambda = closeIdx > 0 && {
+            var k = closeIdx + 1
+            while k < code.length && (code.charAt(k) == ' ' || code.charAt(k) == '\t') do k += 1
+            k + 2 < code.length && code.substring(k, k + 3) == "=>>"
+          }
+          if isTypeLambda then { sb.append('['); i += 1 }
+          else {
           // Check if in expression position
           val prevNonWs = (i - 1 to 0 by -1).find(j => !code.charAt(j).isWhitespace).map(code.charAt).getOrElse('\n')
           val prevToken: String = {
@@ -636,6 +646,7 @@ object FrontendBridge:
           else
             sb.append('[');    stack.push(false)
           i += 1
+          }
         case ']' =>
           if !stack.isEmpty && stack.pop() then sb.append(')')
           else sb.append(']')
