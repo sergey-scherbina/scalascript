@@ -701,7 +701,7 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
             `jsgen-toplevel-name-vs-preamble` and
             `jvmgen-litdoc-mapped-string-mkstring`, move the BACKLOG row to
             landed, add CHANGELOG, and release the claim after push.
-- [ ] **jvm-artifact-cache-codegen-invalidation** — fix the `run-jvm`
+- [x] **jvm-artifact-cache-codegen-invalidation** — DONE 2026-07-09: fixed the `run-jvm`
       artifact cache so generated `.scjvm` files are invalidated by compiler /
       JVM codegen version as well as `.ssc` source bytes. Repro discovered
       during `v2-litdoc-js-jvm-backend-lanes`: after a JVM codegen fix,
@@ -711,7 +711,14 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       was removed. BUGS: `jvm-artifact-cache-codegen-invalidation`. Done when a
       generated artifact records/compares a compiler-codegen cache key, with a
       focused CLI regression proving unchanged source + changed key forces
-      regeneration.
+      regeneration. Implementation: `322ee868f` added the artifact
+      `codegenVersion` key + stale check; `14aa2819d` added a
+      `run-jvm` CLI regression that rewrites an otherwise source-fresh artifact
+      with an old key and verifies regeneration. Gates:
+      `core/testOnly scalascript.artifact.ModuleGraphTest` (15/15),
+      `cli/assembly; cli/testOnly scalascript.cli.JvmIncrementalCliTest`
+      (5/5), `scripts/sbtc "installBin"`, and
+      `tests/conformance/run.sh --only 'litdoc' --no-memo` (INT/JS/JVM PASS).
 - [x] **v2-parity-post-split-refresh** — DONE 2026-07-09: refreshed the
       production output-parity baseline after `v2-arith-unification`
       (`a2985d911`) and `v2-litdoc-inline-bold-parity` (`2b5a36660`). Gates:

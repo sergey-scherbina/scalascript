@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## jvm-artifact-cache-codegen-invalidation — `open` (2026-07-09)
+## jvm-artifact-cache-codegen-invalidation — `fixed` (2026-07-09)
 
 - **Found by:** codex, while fixing `v2-litdoc-js-jvm-backend-lanes`.
 - **Repro:** generate a `.scjvm` artifact for a fixture, change JVM codegen
@@ -27,7 +27,16 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** after upgrading compiler/codegen/runtime bits, a user can keep
   running stale JVM generated source for unchanged `.ssc` files. This can hide
   fixes or preserve old failures in production verification.
-- **Status:** open; queued in SPRINT as `jvm-artifact-cache-codegen-invalidation`.
+- **Root cause:** `.scjvm` freshness only compared the `.ssc` source SHA, so
+  source-fresh artifacts survived JVM backend/runtime codegen changes.
+- **Fix:** `322ee868f` added `codegenVersion` to `ModuleJvmArtifact`, writes
+  the current JVM codegen cache key, and makes `ModuleGraph.isJvmStale`
+  invalidate legacy/old-key artifacts. `14aa2819d` adds a CLI regression that
+  proves `run-jvm` regenerates a source-fresh `.scjvm` with an old key.
+- **Gates:** `core/testOnly scalascript.artifact.ModuleGraphTest`;
+  `cli/assembly; cli/testOnly scalascript.cli.JvmIncrementalCliTest`;
+  `scripts/sbtc "installBin"`; `tests/conformance/run.sh --only 'litdoc' --no-memo`.
+- **Status:** fixed; waiting for reporter/human confirmation before `done`.
 
 ## v2-stream-family-output-parity — `fixed` (2026-07-09)
 

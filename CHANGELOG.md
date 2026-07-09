@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — JVM artifact cache invalidates old codegen output
+
+`.scjvm` artifacts now carry a JVM codegen cache key and `run-jvm` regenerates
+otherwise source-fresh artifacts when that key is legacy or old. Added a CLI
+regression for stale-key `run-jvm` regeneration. Gates: `ModuleGraphTest`,
+`JvmIncrementalCliTest`, `installBin`, and conformance `litdoc` on INT/JS/JVM.
+
 ## 2026-07-09 — litdoc conformance enabled on JS/JVM backend lanes
 
 `tests/conformance/litdoc.ssc` now runs and passes on INT, JS, and JVM. The
