@@ -1,6 +1,6 @@
 feature/v2-vm-production-jit-gate 2026-07-09T08:45:22Z
 agent: codex
-heartbeat: 2026-07-09T08:57:36Z
+heartbeat: {TS}
 status: in-progress
-done-so-far: spec committed in worktree; arith-loop exact Long-cell closed-form candidate implemented; local bench moved v2 arith-loop 9.91 ms to 0.000018 ms
-next: run affected tests/conformance, record results, commit/push sub-slice
+done-so-far: code and docs commits prepared; rebase on origin/main succeeded; verifying after rebase
+next: rerun focused tests, installBin, bench smoke, v2 conformance, litdoc; then push and release
