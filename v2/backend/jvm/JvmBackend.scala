@@ -814,16 +814,16 @@ object R:
               else if n == 2 then s"_call2($fn_s, $args_s)"
               else if n == 3 then s"_call3($fn_s, $args_s)"
               else s"_call($fn_s, Array($args_s))"
-          case Global(name) if directDefs.contains(name) =>
-            val sn = safeName(name)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
-            s"${sn}_direct($args_s)"
           case Global(name)
                if longGlobalDefs.get(name).contains(args.length) &&
                   args.forall(a => isLongTyped(a, scope, longVars)) =>
             val sn = safeName(name)
             val args_s = args.map(a => genTermAsLong(a, scope, directDefs, directLocals, longVars)).mkString(", ")
             s"${sn}_long($args_s): V"
+          case Global(name) if directDefs.contains(name) =>
+            val sn = safeName(name)
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
+            s"${sn}_direct($args_s)"
           case Local(i) if directLocals.contains(i) =>
             val (dname, _) = directLocals(i)
             val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
@@ -1173,6 +1173,9 @@ object R:
             if longGlobalDefs.contains(d.name) && n > 0 then
               val paramDecls = params.map(p => s"$p: Long").mkString(", ")
               val body_s = genTermAsLong(body, bodyScope, directGlobalDefs, Map.empty, params.toSet)
+              if tailRecGlobalDefs.contains(d.name) then
+                sb.append(s"  import scala.annotation.tailrec\n")
+                sb.append(s"  @tailrec\n")
               sb.append(s"  def ${sname}_long($paramDecls): Long = $body_s\n")
             if tailRecGlobalDefs.contains(d.name) && n > 0 then
               // @tailrec def + lazy val wrapper
@@ -1180,8 +1183,14 @@ object R:
               val body_s = genTerm(body, bodyScope, directGlobalDefs, Map.empty)
               sb.append(s"  import scala.annotation.tailrec\n")
               sb.append(s"  @tailrec def ${sname}_direct($paramDecls): V = $body_s\n")
-              val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_aw$ld($k)" }.mkString(", ")
-              sb.append(s"  lazy val $sname: V = ((_aw$ld: Array[V]) => ${sname}_direct($wrapArgs)): V\n")
+              val wrap =
+                if longGlobalDefs.contains(d.name) then
+                  val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_asLong(_aw$ld($k))" }.mkString(", ")
+                  s"${sname}_long($wrapArgs)"
+                else
+                  val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_aw$ld($k)" }.mkString(", ")
+                  s"${sname}_direct($wrapArgs)"
+              sb.append(s"  lazy val $sname: V = ((_aw$ld: Array[V]) => $wrap): V\n")
             else if n == 0 then
               val body_s = genTerm(body, List.empty, directGlobalDefs, Map.empty)
               sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V\n")
