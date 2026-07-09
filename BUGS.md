@@ -27,7 +27,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `dir = os.pwd / "bench"`, so `scripts/bench wall` from repo root looked for
   `/repo/bench/fib.ssc` instead of `/repo/tests/bench/fib.ssc`; and its
   missing-`sscc` fallback used the obsolete `ssc compile <file>` command.
-- **Fix:** `a76322f04` resolves the data directory from either repo root or
+- **Fix:** `966a530e6` resolves the data directory from either repo root or
   direct script-directory execution, and changes the JVM fallback to
   `ssc run-jvm <file>`.
 - **Gates:** `scripts/bench wall` now reports usable rows:

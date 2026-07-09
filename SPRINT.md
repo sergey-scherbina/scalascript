@@ -30,6 +30,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `scripts-bench-wall-all-na` and fix in this slice before using the wall
       numbers.
 
+- [ ] **v2-vm-perf-hotpath-triage** — follow up on the 2026-07-09 production
+      performance probe: v2 VM is 37.5x-355.6x slower than `ssc` on the
+      representative corpus rows `arith-loop`, `pattern-match-heavy`,
+      `recursion-fib`, and `recursion-tco`
+      (`./bench.sh --warmup-time 500 --reps 20 ...`). Scope: do not broaden
+      into backend JVM/Rust harness work. Reproduce the four-row baseline,
+      profile/inspect the v2 VM hot paths (`v2/src/Runtime.scala`, especially
+      arithmetic loops, app/call dispatch, pattern match, and TCO), then land
+      one bounded improvement or write the architecture note that explains why
+      the 2x Phase-3 gate requires a larger VM/JIT track. Done-when:
+      before/after numbers use the exact command, any fix has focused tests and
+      conformance, and `specs/v2-full-compat.md` records the new ratio or the
+      explicit blocker.
+
 - [x] **v2-jvm-source-mutual-tco** — DONE 2026-07-09 in `7f58b1516`:
       resolved the BACKLOG `v2-jvm-tco-manual` gap for the v2 source JVM
       backend by adding a conservative local dispatcher loop for eligible

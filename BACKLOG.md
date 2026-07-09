@@ -96,6 +96,13 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       JS `String.split` uses regex semantics, JVM omits the `doc` helper when
       user code owns top-level `doc`, and JVM no-arg `.mkString()` rewrites to
       parameterless Scala `.mkString`.
+- [ ] **v2-backend-performance-harness** — add a production corpus performance
+      harness for v2 separate-compilation JVM/Rust backends. The current
+      `bench.sh` `jvm`/`rust` columns are useful backend columns but do not
+      prove the Phase-3 checkboxes "v2 JVM backend within 2x of v1 JVM backend"
+      or "v2 Rust backend within 1.5x of v1 Rust backend"; those need same-shape
+      timing around v2 `run-jvm` and the v2 Rust backend once the command path
+      is integrated.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

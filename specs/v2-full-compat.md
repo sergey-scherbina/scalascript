@@ -583,6 +583,48 @@ Run identical programs through both pipelines on the same machine.
 Produce a table: `program | v1 interp ms | v2 VM ms | v2 JVM ms | v1 JVM ms`.
 Identify the largest gaps.
 
+#### 2026-07-09 bounded production probe
+
+Commands:
+
+```bash
+scripts/sbtc "installBin"
+./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
+```
+
+`./bench.sh` is the corpus harness that exposes the current `v2` backend column.
+This was a bounded probe, not a full corpus performance certification:
+
+| Workload | `ssc` ms | `v2` ms | `v2 / ssc` | `jvm` ms | `rust` ms |
+|---|---:|---:|---:|---:|---:|
+| `arith-loop` | 0.252 | 9.46 | 37.5x | 0.248 | 0.849 |
+| `pattern-match-heavy` | 0.054 | 19.2 | 355.6x | 0.046 | 1.37 |
+| `recursion-fib` | 1.15 | 66.7 | 58.0x | 1.30 | 1.78 |
+| `recursion-tco` | 0.028 | 2.35 | 83.9x | 0.024 | 0.025 |
+
+Decision: the `v2 VM performance within 2x of v1 interpreter` Phase-3
+checkbox remains open. This small representative set already fails the target
+by a wide margin, so no default-switch performance green can be claimed from
+the current runtime.
+
+The `jvm` and `rust` columns above are the existing corpus backend columns; do
+not use them to close the separate v2 JVM/Rust backend checkboxes. Those gates
+need a harness that times v2 separate-compilation `run-jvm` and the v2 Rust
+backend on the same corpus shape.
+
+`scripts/bench wall` was also run because AGENTS routes benchmark work through
+`scripts/bench`. It initially returned all `n/a`; `966a530e6` fixed
+`tests/bench/run.sc` path resolution and the stale JVM fallback. Re-run result:
+
+| Workload | `ssc-int` ms | `ssc-js` ms | `ssc-jvm` ms | `scala-cli` ms | `node` ms |
+|---|---:|---:|---:|---:|---:|
+| `fib` | 50 | 2 | 0 | 0 | 2 |
+| `sum` | 51 | 4 | 1 | 0 | 2 |
+| `list-ops` | 110 | n/a | 33 | 73 | 2 |
+
+This wall harness is useful again, but it is not the source of truth for the v2
+VM production-performance gate because it does not expose a `v2` column.
+
 ### T3.2 — v2 VM hot paths
 
 Already done: IrWhile, LongCellV, FastCode.
