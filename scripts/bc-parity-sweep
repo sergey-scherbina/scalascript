@@ -1,0 +1,24 @@
+#!/bin/bash
+# output-parity: run (v2-VM) vs run --bytecode, corpus-wide
+cd /Users/sergiy/work/my/scalascript-wt-marathon
+SKIP_RE='serve\(|listen|WebServer|websocket|\btui\b'
+NONDET_RE='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo)\.ssc$'
+ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0
+mlist=""; elist=""; vlist=""
+for f in examples/*.ssc; do
+  b=$(basename "$f")
+  if grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then skipped=$((skipped+1)); continue; fi
+  if head -15 "$f" | grep -qE '^backend:[[:space:]]*(jvm|spark|js|rust|wasm)'; then skipped=$((skipped+1)); continue; fi
+  if echo "$b" | grep -qE "$NONDET_RE"; then skipped=$((skipped+1)); continue; fi
+  vm_out=$(timeout 45 bin/ssc run "$f" 2>/dev/null); vm_rc=$?
+  bc_out=$(timeout 45 bin/ssc run --bytecode "$f" 2>/dev/null); bc_rc=$?
+  if [ $vm_rc -ne 0 ] && [ $bc_rc -ne 0 ]; then bothfail=$((bothfail+1))
+  elif [ $bc_rc -ne 0 ]; then bcerr=$((bcerr+1)); elist="$elist $b"
+  elif [ $vm_rc -ne 0 ]; then vmerr=$((vmerr+1)); vlist="$vlist $b"
+  elif [ "$vm_out" == "$bc_out" ]; then ident=$((ident+1))
+  else mismatch=$((mismatch+1)); mlist="$mlist $b"; fi
+done
+echo "=== identical: $ident  mismatch: $mismatch  bc-error: $bcerr  vm-only-error: $vmerr  both-fail: $bothfail  skipped: $skipped"
+echo "MISMATCH:$mlist"
+echo "BC-ERROR:$elist"
+echo "VM-ONLY:$vlist"
