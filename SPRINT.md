@@ -564,8 +564,12 @@ AUDIT: v2 владеет полным путём .ssc → CoreIR (ssc1c, self-ho
       top-level дефов). tco(1M) = константный стек ✓; fib 152ms (1.75× быстрее VM) ✓; регрессий
       нет. COVERAGE+CLI GREEN 2026-07-08 (5aad7f5d8): compile-свип 194/195, НОЛЬ Unsupported;
       **`ssc run --bytecode` доступен пользователям** (e2e: hello, tco 1M, fib 122ms против
-      266 VM / 378 v1). ОСТАЛОСЬ: mutual-tail trampoline; output-parity свип корпуса под
-      --bytecode перед разговором о дефолте; в letrec-телах self-tail отключён.
+      266 VM / 378 v1). OP-THREADING GREEN 2026-07-09: Seq → цепочка per-statement методов + Emit.seqThread
+      (зеркало seqThreadOp); свип identical 83→90, both-fail 28→18; fib 108ms держится.
+      ОСТАЛОСЬ ДЛЯ ЛЕЙНА: **p4-bc-ambient-effects** — 7 bc-error с одним корнем: ambient
+      эффект-провайдеры (opAnf/provider-механика: bureau, x402×2, pix, derived-route,
+      traditional-payments, xslt) — «unbound global: global» из opAnf-пути требует разбора;
+      mismatch-хвост (fednow/effects/sql-browser×2/http-sql); в letrec-телах self-tail отключён.
       MILESTONE 1 GREEN 2026-07-08: модуль v2JvmBytecode
       (v2/backend-jvm-bytecode, ASM 9.7 + v2Core), шимы ssc.Emit (prim0..N/app/ctor/global/
       литералы — эмиссия = push-args + invokestatic), эмиттер девяти структурных форм entry
