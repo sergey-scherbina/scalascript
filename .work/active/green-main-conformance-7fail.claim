@@ -1,6 +1,6 @@
-feature/green-main-conformance-7fail 2026-07-09T19:39:32Z
+feature/green-main-conformance-7fail 2026-07-09T19:59:46Z
 agent: codex
-heartbeat: 2026-07-09T19:39:32Z
+heartbeat: 2026-07-09T19:59:46Z
 status: in-progress
-done-so-far: dataset-shape JVM and JS local-shadowing bugs fixed and pushed; eight-row repro is 5/8
-next: fix remaining JS effect rows: effect-imported-handler, effect-transitive-handler, js-applyunary-effect-cps
+done-so-far: dataset-shape, JS shadowing, and renamed-import JS bugs fixed locally; post-rebase full conformance now fails strings on JVM after native String.takeWhile/dropWhile landed
+next: reproduce and fix strings JVM regression, then rerun full conformance and push
