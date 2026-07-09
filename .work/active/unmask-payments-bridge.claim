@@ -1,6 +1,6 @@
 feature/unmask-payments-bridge 2026-07-09T13:47:08Z
 agent: codex
-heartbeat: 2026-07-09T15:33:39Z
+heartbeat: 2026-07-09T15:51:36Z
 status: in-progress
-done-so-far: latest pre-rebase gates are green on branch HEAD: FrontendBridgeTest 42/42, installBin, direct payments examples no Op/Stub, affected conformance 4/4, full ./v2/conformance/check.sh
-next: rebase over native-underscore/request-collision commits, resolve overlaps, rerun gates on merged HEAD, then push release/bookkeeping commit
+done-so-far: post-native-underscore/request-collision gates are green on branch HEAD: FrontendBridgeTest 42/42, installBin, direct payments examples no Op/Stub, affected conformance 5/5, full ./v2/conformance/check.sh
+next: rebase over user-request-collision fix, rerun bridge/affected/full gates on merged HEAD, then push release/bookkeeping commit
