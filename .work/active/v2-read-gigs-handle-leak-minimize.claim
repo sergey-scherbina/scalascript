@@ -1,6 +1,0 @@
-feature/v2-read-gigs-handle-leak-minimize 2026-07-09T17:28:49Z
-agent: codex
-heartbeat: 2026-07-09T18:14:28Z
-status: in-progress
-done-so-far: Currency/std-money constructor fix committed; live hub leak minimized to field-registry shadow where RepoRef.head makes List.head lower to fieldAt
-next: implement FrontendBridge dynamic-member guard for List.head, add regression, verify busi hub /mcp read_gigs
