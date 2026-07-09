@@ -1,0 +1,6 @@
+feature/v2-litdoc-inline-bold-parity 2026-07-09T02:02:15Z
+agent: codex
+heartbeat: 2026-07-09T02:02:15Z
+status: not-started
+done-so-far:
+next: reproduce litdoc inline bold v1-v2 diff in worktree
