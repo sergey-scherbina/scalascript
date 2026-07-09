@@ -4346,7 +4346,11 @@ small residuals above are blocked by real browser/device/external inputs. See BA
 - WIP (чужая ветка): control-center-live (wip/control-center-live).
 - СЕРВЕР/SPA (биндит порт; в батче парс-артефакт конкатенации фенсов): datatable-static-spa.
 - КОНФИГ примера: pg-listen-notify (нужна databases: секция во front-matter).
-- БРИДЖ-СЛАЙС (углублён 07-09, v2-finish-all): mcp-search-server — ЧАСТИЧНО: общий
+- [x] **mcp-search-server** — FIXED 07-09 (15030a16c): curried-native-в-block-DSL.
+  knownCurriedNatives {tool/toolWithSchema/resource/prompt} держит two-step (run-путь
+  не зовёт resetState — seed бы не выжил); first-clause hints позиционно; native принимает
+  name+desc+Bool-hints. Корпус 153/9. Исходный анализ ниже (для истории):
+- (история) БРИДЖ-СЛАЙС (углублён 07-09, v2-finish-all): mcp-search-server — ЧАСТИЧНО: общий
   named-arg→UnitV баг ПОЧИНЕН (6ef926e16 — named args к методам теперь позиционные значения,
   не теряются). ОСТАЁТСЯ: curried-native-в-block-DSL. `srv.tool(4args)(handler)` внутри
   `mcpServer{srv=>…}` конвертится путём, который НЕ проходит через convertApply (apply-dbg
