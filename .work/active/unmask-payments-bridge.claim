@@ -1,6 +1,6 @@
 feature/unmask-payments-bridge 2026-07-09T13:47:08Z
 agent: codex
-heartbeat: 2026-07-09T14:24:23Z
+heartbeat: 2026-07-09T14:33:28Z
 status: in-progress
-done-so-far: spec/planning commit 79650b7db; implementation commit c9ddaba20 compiles and focused payments bridge tests pass after rebase
-next: mark illustrative payments snippets no-run, re-run examples and affected v2 gates, then finalize docs/bookkeeping
+done-so-far: spec/planning commit 45f101c96; implementation commit ed3883cb9; examples commit 3d22ed2d7; FrontendBridgeTest 42/42, direct examples clean, affected conformance 4/4
+next: run full v2 conformance, diff checks, spec/BUGS/SPRINT verification, then push and release
