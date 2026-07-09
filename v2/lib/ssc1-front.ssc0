@@ -344,6 +344,53 @@ def partsToExpr = (parts) =>
 
 def buildSInterp = (raw) => partsToExpr(interpParts(raw))
 
+-- K62.6c: underscore-placeholder support. An argument expression that CONTAINS a
+-- `_` (ph) but isn't a bare `_` becomes `x => <expr with ph→x>` — e.g.
+-- filter(_ % 2 == 0) → filter(x => x % 2 == 0). Bare f(_) is left as-is (rarer).
+def exprHasPh = (e) =>
+  match e {
+    case Pair(t, d) =>
+      if #seq(t, "ph") then true
+      else if #seq(t, "inf") then
+        match d { case Pair(op, lr) => match lr { case Pair(l, r) =>
+          if exprHasPh(l) then true else exprHasPh(r) } }
+      else if #seq(t, "pre") then match d { case Pair(op, s) => exprHasPh(s) }
+      else if #seq(t, "app") then
+        match d { case Pair(f, args) =>
+          if exprHasPh(f) then true else phInArgs(args) }
+      else if #seq(t, "sel") then match d { case Pair(o, fld) => exprHasPh(o) }
+      else false
+  }
+def phInArgs = (args) =>
+  match args { case Nil => false case Cons(a, r) => if exprHasPh(a) then true else phInArgs(r) }
+
+def replacePh = (e, vn) =>
+  match e {
+    case Pair(t, d) =>
+      if #seq(t, "ph") then Pair("var", vn)
+      else if #seq(t, "inf") then
+        match d { case Pair(op, lr) => match lr { case Pair(l, r) =>
+          Pair("inf", Pair(op, Pair(replacePh(l, vn), replacePh(r, vn)))) } }
+      else if #seq(t, "pre") then
+        match d { case Pair(op, s) => Pair("pre", Pair(op, replacePh(s, vn))) }
+      else if #seq(t, "app") then
+        match d { case Pair(f, args) => Pair("app", Pair(replacePh(f, vn), replacePhArgs(args, vn))) }
+      else if #seq(t, "sel") then
+        match d { case Pair(o, fld) => Pair("sel", Pair(replacePh(o, vn), fld)) }
+      else e
+  }
+def replacePhArgs = (args, vn) =>
+  match args { case Nil => Nil case Cons(a, r) => Cons(replacePh(a, vn), replacePhArgs(r, vn)) }
+
+-- wrap an argument expression in x => … if it holds a placeholder (but isn't a bare _)
+def wrapPhArg = (e) =>
+  match e {
+    case Pair(t, d) =>
+      if #seq(t, "ph") then e
+      else if exprHasPh(e) then Pair("lam", Pair(Cons("__u", Nil), replacePh(e, "__u")))
+      else e
+  }
+
 -- K62.6c: for-comprehension (single generator + optional guard) desugared to
 -- map / foreach / filter. `for x <- xs [if g] yield e` → xs[.filter(x=>g)].map(x=>e);
 -- `for x <- xs [if g] do e` (or braceless body) → …foreach(x=>e).
@@ -401,6 +448,7 @@ def parseAtom = (toks) =>
       let ts2 = advance(toks) in
       if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
       else pr(mkVar(v), ts2)
+    else if #seq(v, "_") then pr(Pair("ph", ""), advance(toks))   -- K62.6c: underscore placeholder
     else pr(mkVar(v), advance(toks))
   else if #seq(k, "uid") then pr(mkUVar(v), advance(toks))
   else if #seq(k, "kw") then
@@ -588,7 +636,7 @@ def buildPostfix = (e, toks) =>
     else
       let rec moreArgs = (ts, acc) =>
         let r = parseExpr(ts) in
-        let acc2 = Cons(prV(r), acc) in
+        let acc2 = Cons(wrapPhArg(prV(r)), acc) in   -- K62.6c: filter(_ % 2 == 0) → filter(x => …)
         let ts2 = prT(r) in
         if kindIs(",", ts2) then moreArgs(advance(ts2), acc2)
         else pr(reverse(acc2), ts2) in
