@@ -510,6 +510,22 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `scripts/sbtc "installBin"`, run the full parity gate, and record exact
       counts plus the remaining mismatch list in `v2/output-parity-baseline.md`,
       `specs/v2-full-compat.md`, this SPRINT item, and `CHANGELOG.md`.
+- [ ] **v2-graph-neo4j-foreign-parity** — fix the next narrow production
+      mismatch from the post-split baseline: `examples/graph-neo4j-storage.ssc`
+      prints `StoredEdge(...)` on v1 but `<foreign>` on v2. Why: this is a
+      deterministic default-lane output mismatch and likely a contained
+      plugin-value display conversion gap, not a broad parser/stream/timing
+      family. How: reproduce with
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/graph-neo4j-storage.ssc`
+      after `scripts/sbtc "installBin"`; add a focused `PluginBridgeTest`
+      regression for a v1 `InstanceV` with named fields converted to
+      `ForeignV(NamedMethodObj)`; fix the bridged print/auto-print path so it
+      renders the underlying v1 instance with v1 `Value.show` while preserving
+      named-field access. Verify with
+      `scripts/sbtc "v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest"`,
+      `scripts/sbtc "installBin"`, affected graph conformance/parity, and
+      update `BUGS.md`, `SPRINT.md`, `CHANGELOG.md`, and the parity baseline if
+      the full count changes.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

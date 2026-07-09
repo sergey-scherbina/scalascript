@@ -12,6 +12,32 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-graph-neo4j-foreign-parity — `open` (2026-07-09)
+
+- **Found by:** codex, during the post-split production output-parity refresh.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/graph-neo4j-storage.ssc`
+  or directly compare `bin/ssc run --v1 examples/graph-neo4j-storage.ssc`
+  against `bin/ssc run --v2 examples/graph-neo4j-storage.ssc`.
+- **Observed failure:** v1 prints
+  `StoredEdge(knows, carol, bob-knows-carol, bob, Knows(bob, carol, 2021))`
+  while v2 prints `<foreign>`.
+- **Impact:** default v2 output-parity mismatch in the production gate. The
+  graph plugin's edge write result is usable enough to run, but direct display
+  of a plugin-created instance leaks the v2 opaque foreign renderer.
+- **Initial hypothesis:** `Graph.putEdge` returns
+  `PluginValue.instance("StoredEdge", ...)`, i.e. a v1 `InstanceV` with named
+  fields. `PluginBridge.v1ToV2` keeps named-field instances as
+  `ForeignV(NamedMethodObj)` to preserve field access when v2 has no registered
+  field order, but the bridged print path `v1Show` falls through to
+  `Show.show` for that foreign wrapper, producing `<foreign>` instead of the
+  underlying v1 `Value.show`.
+- **Plan:** reproduce in the real harness, add a focused PluginBridge regression
+  for a named-field v1 `InstanceV` wrapped as `NamedMethodObj`, then make the
+  bridged print/auto-print path render the underlying v1 value while preserving
+  field access. Verify with the focused test, `installBin`, affected graph
+  conformance/parity, and a targeted `graph-neo4j-storage.ssc` parity run.
+
 ## jvmgen-litdoc-mapped-string-mkstring — `open` (2026-07-09)
 
 - **Found by:** codex, while enabling `tests/conformance/litdoc.ssc` expected
