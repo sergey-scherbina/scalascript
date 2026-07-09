@@ -1,6 +1,6 @@
 feature/v2-vm-foreach-match-boundary 2026-07-09T10:53:23Z
 agent: codex
-heartbeat: 2026-07-09T10:59:34Z
+heartbeat: 2026-07-09T11:08:30Z
 status: in-progress
-done-so-far: claim/worktree created; SPRINT entry and spec committed in worktree; baseline row reproduced
-next: rebase worktree over K62.1-3, inspect foreach/match boundary, then implement only if the predicate is safe
+done-so-far: foreach no-materialized-env fast path implemented; focused FrontendBridgeTest green; pattern-match-heavy full row improved to v2 14.6 ms
+next: rerun installBin/bench after safety patch, then full v2 conformance and litdoc gate
