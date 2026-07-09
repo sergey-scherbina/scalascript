@@ -64,6 +64,7 @@ object FrontendBridge:
     opAnfNeeded = true
     sharedTopVars.clear()
     PluginBridge.clearDbs()
+    PluginBridge.clearRemoteHandlers()
     fieldRegistry.clear()
     // Mirror is a built-in type with known fields at fixed indices.
     fieldRegistry("Mirror") = Vector("label", "elemLabels", "elemTypes")
@@ -98,7 +99,18 @@ object FrontendBridge:
     curriedVarargDefs.clear()
     zeroArgDefs.clear()
     parenlessUserDefs.clear()
+    pendingRemoteHandlers = Vector.empty
     curryFirstClauseDefaults.clear()
+
+  private final case class RemoteHandlerSpec(
+      name:         String,
+      function:     String,
+      path:         Option[String],
+      requestType:  Option[String],
+      responseType: Option[String]
+  )
+
+  private var pendingRemoteHandlers: Vector[RemoteHandlerSpec] = Vector.empty
 
   /** Parse `databases:` YAML block from front-matter and register JDBC connections.
    *  Format:
@@ -138,6 +150,30 @@ object FrontendBridge:
           }
         currentDb = None
     }
+
+  private def collectRemoteHandlersFromSource(src: String): Vector[RemoteHandlerSpec] =
+    val parsed = scala.util.Try(scalascript.parser.Parser.parse(src)).toOption
+    val raw = parsed.toVector
+      .flatMap(_.manifest.toVector)
+      .flatMap(_.remoteHandlers)
+      .map(h => RemoteHandlerSpec(h.name, h.function, h.path, h.requestType, h.responseType))
+    val seen = collection.mutable.HashSet[String]()
+    raw.filter(h => seen.add(h.name))
+
+  private val remoteDefPat = """^(\s*)remote\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""".r
+
+  private def preprocessRemoteDefs(code: String): String =
+    if !code.contains("remote def") then return code
+    code.linesWithSeparators.map { line =>
+      val (body, sep) =
+        if line.endsWith("\r\n") then (line.dropRight(2), "\r\n")
+        else if line.endsWith("\n") then (line.dropRight(1), "\n")
+        else if line.endsWith("\r") then (line.dropRight(1), "\r")
+        else (line, "")
+      body match
+        case remoteDefPat(indent, name, tail) => s"${indent}def $name$tail$sep"
+        case _                                => line
+    }.mkString
 
   /** Extension method name registry: method name → receiver param name. */
   private val extensionMethods = collection.mutable.HashSet[String]()
@@ -476,6 +512,8 @@ object FrontendBridge:
     curriedVarargDefs.clear()
     zeroArgDefs.clear()
     parenlessUserDefs.clear()
+    PluginBridge.clearRemoteHandlers()
+    pendingRemoteHandlers = Vector.empty
     curryFirstClauseDefaults.clear()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
     defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
@@ -507,6 +545,7 @@ object FrontendBridge:
       Some(CT.Lit(Const.CStr("")))        // maskableIcon
     )
     parseDatabasesFromFrontmatter(src)
+    pendingRemoteHandlers = collectRemoteHandlersFromSource(src)
     val merged = resolveImportsCode(src, fileDir)
     // Op-arg lifting is only NEEDED by programs where a raw effect Op can
     // materialize: typed `handle` programs / `effect` declarations (context-based
@@ -517,7 +556,7 @@ object FrontendBridge:
     // only re-enable the pass — a perf tax, never a semantics change.
     opAnfNeeded = merged.contains("effect ") || merged.contains("handle")
     convertStats(parseStats(desugarListLiterals(
-      stripExternDecls(preprocessAtAnnotations(merged)))))
+      stripExternDecls(preprocessAtAnnotations(preprocessRemoteDefs(merged))))))
 
   /** Strip ScalaScript-specific `extern` declarations that scalameta cannot parse.
    *  Handles extern def/val (single or multi-line via open parens) and
@@ -1281,9 +1320,26 @@ object FrontendBridge:
       if userDefNames.contains("main") then List(Term.Apply.After_4_6_0(Term.Name("main"), Term.ArgClause(Nil)))
       else Nil
     val entryStmts = entryB.result() ++ mainCall
-    val entry =
+    def optStr(value: Option[String]): CT =
+      value match
+        case Some(s) => CT.Ctor("Some", List(CT.Lit(Const.CStr(s))))
+        case None    => CT.Ctor("None", Nil)
+    def remoteRegistration(h: RemoteHandlerSpec): CT =
+      CT.Prim("remote.registerHandler", List(
+        CT.Lit(Const.CStr(h.name)),
+        CT.Lit(Const.CStr(h.function)),
+        CT.Global(h.function),
+        optStr(h.path),
+        optStr(h.requestType),
+        optStr(h.responseType)
+      ))
+    val baseEntry =
       if entryStmts.nonEmpty then convertBlock(entryStmts, Nil, topLevel = true)
       else CT.Lit(Const.CUnit)
+    val remoteRegs = pendingRemoteHandlers.toList.map(remoteRegistration)
+    val entry =
+      if remoteRegs.nonEmpty then CT.Seq(remoteRegs :+ baseEntry)
+      else baseEntry
     // Op-argument lifting (bridged lane only — see OpAnf): arguments that may
     // evaluate to an unresolved effect Op are Let-bound so the kernel's
     // Let-threading defers the consumer into the Op's continuation. Gated:

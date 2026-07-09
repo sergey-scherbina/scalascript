@@ -1752,7 +1752,20 @@ object Prims:
             case Some(fn: ClosV)              => callClos(fn, margs.toArray)
             case Some(v) if margs.isEmpty     => v
             case _                            => callExt()
+        case ForeignV(m: collection.immutable.Map[?, ?])
+            if m.keysIterator.forall(_.isInstanceOf[String]) &&
+               m.asInstanceOf[collection.immutable.Map[String, Value]].contains(mname) =>
+          val mm = m.asInstanceOf[collection.immutable.Map[String, Value]]
+          mm(mname) match
+            case fn: ClosV if margs.isEmpty && fn.arity > 0 => fn
+            case fn: ClosV                  => callClos(fn, margs.toArray)
+            case v if margs.isEmpty         => v
+            case _                          => callExt()
         case DataV(tag, fields) =>
+          def methodOrPluginOrExt(): Value =
+            methodOp(mname, recv, margs) match
+              case DataV("Stub", _) => pluginOrExt()
+              case handled          => handled
           V2PluginRegistry.lookupFieldNames(tag) match
             case Some(fnames) =>
               val i = fnames.indexOf(mname)
@@ -1768,8 +1781,8 @@ object Prims:
                   case ForeignV(m: collection.mutable.Map[?, ?]) =>
                     m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
                   case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
-              else pluginOrExt()
-            case None => pluginOrExt()
+              else methodOrPluginOrExt()
+            case None => methodOrPluginOrExt()
         case _ => pluginOrExt()
     case "__arithExt__" => a =>
       // __arithExt__(opName, l, r, extensionClosure): numeric operands use the
@@ -1822,7 +1835,13 @@ object Prims:
       // case-class decoding happens) — an index is meaningless there, so the
       // emitter also passes the FIELD NAME and we resolve by key,
       // case-insensitively.
-      case ForeignV(m: collection.Map[?, ?]) if a.length >= 3 =>
+      case ForeignV(m: collection.Map[?, ?]) if a.length >= 3
+          && m.keysIterator.forall(_.isInstanceOf[String]) =>
+        val mm = m.asInstanceOf[collection.Map[String, Value]]
+        val fieldName = a(2) match { case StrV(s) => s; case other => Show.show(other) }
+        mm.getOrElse(fieldName, sys.error(s"fieldAt: no field '$fieldName' in method-object"))
+      case ForeignV(m: collection.Map[?, ?]) if a.length >= 3
+          && m.keysIterator.forall(_.isInstanceOf[Value]) =>
         val mm = m.asInstanceOf[collection.Map[Value, Value]]
         val fieldName = a(2) match { case StrV(s) => s; case other => Show.show(other) }
         mm.getOrElse(StrV(fieldName),

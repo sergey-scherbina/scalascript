@@ -69,6 +69,63 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(run("\"hello\"") == Value.StrV("hello"))
   }
 
+  test("v2 remote registry supports manifest annotation and remote def") {
+    val src =
+      """|---
+         |remoteHandlers:
+         |  demo.echo:
+         |    function: echo
+         |    path: /rpc/echo
+         |    request: String
+         |    response: String
+         |---
+         |
+         |# Remote
+         |
+         |[Remote, RemoteFunction, RemoteCallError](../runtime/std/remote.ssc)
+         |
+         |```scala
+         |def echo(value: String): String =
+         |  "echo:" + value
+         |
+         |@remote(name = "demo.upper", path = "/rpc/upper")
+         |def upper(value: String): String =
+         |  value.toUpperCase
+         |
+         |remote def localEcho(value: String): String =
+         |  "local:" + value
+         |
+         |val echoFn = Remote.function[String, String]("demo.echo")
+         |println(echoFn.call("hello"))
+         |println(Remote.function[String, String]("demo.upper").call("hello"))
+         |println(Remote.function[String, String]("localEcho").call("hello"))
+         |
+         |echoFn.tryCall("typed") match
+         |  case Right(value) => println(value)
+         |  case Left(error)  => println("remote error: " + error.toString)
+         |
+         |Remote.handlers().foreach { info =>
+         |  println(info.name + " -> " + info.function)
+         |}
+         |```
+         |""".stripMargin
+
+    assert(capture(src) ==
+      """echo:hello
+        |HELLO
+        |local:hello
+        |echo:typed
+        |demo.echo -> echo
+        |demo.upper -> upper
+        |localEcho -> localEcho""".stripMargin)
+  }
+
+  test("v2 remoteTryCall returns HandlerNotFound data for missing handlers") {
+    assert(run("""remoteTryCall[String, String]("missing.op", "hello")""") ==
+      Value.DataV("Left", Vector(
+        Value.DataV("HandlerNotFound", Vector(Value.StrV("missing.op"))))))
+  }
+
   test("arithmetic") {
     assert(run("1 + 2 * 3") == Value.IntV(7))
   }

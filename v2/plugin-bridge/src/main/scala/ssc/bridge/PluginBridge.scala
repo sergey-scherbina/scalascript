@@ -1,6 +1,6 @@
 package ssc.bridge
 
-import scalascript.backend.spi.{Backend, BlockContext, BlockForm, EffectHandler, IntrinsicImpl, NativeImpl, NativeContext, SpiValue}
+import scalascript.backend.spi.{Backend, BlockContext, BlockForm, EffectHandler, IntrinsicImpl, NativeImpl, NativeContext, RemoteHandlerInfo, SpiValue}
 import scalascript.interpreter.{DataValue, Value as V1Value}
 import scalascript.interpreter.DataValue.*
 import ssc.{Done, Runtime, Show, Value as V2Value, V2EffectContext, V2PluginRegistry}
@@ -29,6 +29,9 @@ object PluginBridge:
   // connections here before running so `Db.query`/`Db.execute` work under v2.
   private val dbRegistry = new java.util.concurrent.ConcurrentHashMap[String, java.sql.Connection]()
 
+  private final case class V2RemoteHandler(info: RemoteHandlerInfo, handler: V2Value)
+  private val remoteRegistry = new java.util.concurrent.ConcurrentHashMap[String, V2RemoteHandler]()
+
   /** Register an in-process JDBC connection by name (called by FrontendBridge
    *  when it processes `databases:` YAML frontmatter). */
   /** Normalize a databases: url to a JDBC url. busi/v1 accept the bare
@@ -49,6 +52,9 @@ object PluginBridge:
 
   /** Clear all registered DB connections (call between batch runs). */
   def clearDbs(): Unit = dbRegistry.clear()
+
+  /** Clear per-program in-process remote handlers (called by FrontendBridge). */
+  def clearRemoteHandlers(): Unit = remoteRegistry.clear()
 
   private def routeHandlerToV1(handler: Any): V1Value = handler match
     case v: V1Value  => v
@@ -343,6 +349,7 @@ object PluginBridge:
       Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
     V2PluginRegistry.registerFieldNames("KV", Vector("key", "value"))
     V2PluginRegistry.registerFieldNames("Rate", Vector("elements", "perMillis"))
+    registerRemoteRegistry()
     // Override OIDC client prims BEFORE building namespace objects so the namespace
     // ForeignV picks up the overridden versions (buildNamespaceObjects reads from registry).
     overrideOidcClientStubs()
@@ -367,6 +374,133 @@ object PluginBridge:
     registerActors()
 
     count
+
+  private def registerRemoteRegistry(): Unit =
+    import V2Value.*
+
+    V2PluginRegistry.registerFieldNames("RemoteFunction", Vector("name"))
+    V2PluginRegistry.registerFieldNames("RemoteHandlerInfo",
+      Vector("name", "function", "path", "requestType", "responseType", "transports"))
+    V2PluginRegistry.registerFieldNames("HandlerNotFound", Vector("name"))
+    V2PluginRegistry.registerFieldNames("RemoteFailed", Vector("code", "message"))
+
+    def optionString(v: V2Value): Option[String] = v match
+      case DataV("Some", IndexedSeq(StrV(s))) => Some(s)
+      case DataV("None", _)                   => None
+      case UnitV                              => None
+      case StrV(s) if s.nonEmpty              => Some(s)
+      case _                                  => None
+
+    def listOf(values: Iterable[V2Value]): V2Value =
+      values.toList.foldRight[V2Value](DataV("Nil", Vector.empty)) { (x, acc) =>
+        DataV("Cons", Vector(x, acc))
+      }
+
+    def optionValue(value: Option[String]): V2Value =
+      value.map(s => DataV("Some", Vector(StrV(s))): V2Value).getOrElse(DataV("None", Vector.empty))
+
+    def handlerInfoValue(info: RemoteHandlerInfo): V2Value =
+      DataV("RemoteHandlerInfo", Vector(
+        StrV(info.name),
+        StrV(info.function),
+        optionValue(info.path),
+        optionValue(info.requestType),
+        optionValue(info.responseType),
+        listOf(info.transports.toList.sorted.map(StrV(_)))
+      ))
+
+    def handlerNotFound(name: String): V2Value =
+      DataV("HandlerNotFound", Vector(StrV(name)))
+
+    def remoteFailed(message: String): V2Value =
+      DataV("RemoteFailed", Vector(StrV("handler_failed"), StrV(message)))
+
+    def remoteErrorMessage(error: V2Value): String = error match
+      case DataV("HandlerNotFound", IndexedSeq(StrV(name))) => s"remote handler not found: $name"
+      case DataV("RemoteFailed", IndexedSeq(StrV(code), StrV(message))) =>
+        s"remote handler failed ($code): $message"
+      case other => Show.show(other)
+
+    def remoteFunctionName(value: V2Value): Option[String] = value match
+      case DataV("RemoteFunction", IndexedSeq(StrV(name))) => Some(name)
+      case _                                               => None
+
+    def remoteMethodCall(args: List[V2Value]): Option[(String, V2Value)] = args match
+      case List(remoteFn, payload) =>
+        remoteFunctionName(remoteFn).map(_ -> payload)
+      case List(StrV(_), remoteFn, payload) =>
+        remoteFunctionName(remoteFn).map(_ -> payload)
+      case _ => None
+
+    def registerHandler(args: List[V2Value]): V2Value = args match
+      case List(StrV(name), StrV(function), handler, pathV, requestV, responseV) =>
+        val path = optionString(pathV)
+        val transports =
+          if path.isDefined then Set("in-process", "http-json")
+          else Set("in-process")
+        val info = RemoteHandlerInfo(
+          name = name,
+          function = function,
+          path = path,
+          requestType = optionString(requestV),
+          responseType = optionString(responseV),
+          transports = transports
+        )
+        remoteRegistry.put(name, V2RemoteHandler(info, handler))
+        UnitV
+      case _ => sys.error("remote.registerHandler(name, function, handler, path, request, response)")
+
+    def invoke(name: String, payload: V2Value): Either[V2Value, V2Value] =
+      Option(remoteRegistry.get(name)) match
+        case None => Left(handlerNotFound(name))
+        case Some(entry) =>
+          try Right(callClosure(entry.handler, List(payload)))
+          catch case e: Throwable =>
+            Left(remoteFailed(Option(e.getMessage).getOrElse(e.getClass.getName)))
+
+    def remoteCallValue(name: String, payload: V2Value): V2Value =
+      invoke(name, payload) match
+        case Right(value) => value
+        case Left(error)  => sys.error(remoteErrorMessage(error))
+
+    def remoteTryCallValue(name: String, payload: V2Value): V2Value =
+      invoke(name, payload) match
+        case Right(value) => DataV("Right", Vector(value))
+        case Left(error)  => DataV("Left", Vector(error))
+
+    V2PluginRegistry.register("remote.registerHandler", registerHandler)
+    V2PluginRegistry.registerGlobal("remote.registerHandler", ClosV(Runtime.emptyEnv, -1, env =>
+      Done(registerHandler(env.toList))))
+
+    V2PluginRegistry.register("__method__.call", {
+      case args => remoteMethodCall(args) match
+        case Some((name, payload)) => remoteCallValue(name, payload)
+        case None                  => DataV("Stub", Vector.empty)
+    })
+
+    V2PluginRegistry.register("__method__.tryCall", {
+      case args => remoteMethodCall(args) match
+        case Some((name, payload)) => remoteTryCallValue(name, payload)
+        case None                  => DataV("Stub", Vector.empty)
+    })
+
+    V2PluginRegistry.registerGlobal("remoteFunction", ClosV(Runtime.emptyEnv, 1, env => env.toList match
+      case List(StrV(name)) => Done(DataV("RemoteFunction", Vector(StrV(name))))
+      case _                => sys.error("remoteFunction[A, B](name: String)")
+    ))
+    V2PluginRegistry.registerGlobal("remoteCall", ClosV(Runtime.emptyEnv, 2, env => env.toList match
+      case List(StrV(name), payload) => Done(remoteCallValue(name, payload))
+      case _ => sys.error("remoteCall[A, B](name: String, value: A)")
+    ))
+    V2PluginRegistry.registerGlobal("remoteTryCall", ClosV(Runtime.emptyEnv, 2, env => env.toList match
+      case List(StrV(name), payload) => Done(remoteTryCallValue(name, payload))
+      case _ => sys.error("remoteTryCall[A, B](name: String, value: A)")
+    ))
+    V2PluginRegistry.registerGlobal("remoteHandlers", ClosV(Runtime.emptyEnv, 0, _ =>
+      Done(listOf(remoteRegistry.values().toArray.toList
+        .collect { case entry: V2RemoteHandler => entry.info }
+        .sortBy(_.name)
+        .map(handlerInfoValue)))))
 
   /** Override oauth.client.discoverAs/exchangeAuthorizationCode BEFORE buildNamespaceObjects()
    *  so the namespace ForeignV picks up the batch-mode stubs.
