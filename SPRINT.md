@@ -9,6 +9,26 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-source-rust-pattern-match-heavy-perf** - narrow Phase-3
+      source-backend performance slice for the v2 Rust source backend on
+      `bench/corpus/pattern-match-heavy.ssc`. Context: BACKLOG
+      `v2-source-backend-production-perf-gates` says the fresh post-recursion
+      sweep reports `pattern-match-heavy` as the largest real Rust source
+      blocker: `scripts/bench v2-backends pattern-match-heavy` =>
+      `v2=14.8 ms`, `v2-jvm=10.7 ms`, `v2-rust=318.2 ms`. Spec:
+      `specs/v2-source-rust-pattern-match-heavy-perf.md`. Plan: commit this
+      SPRINT/spec slice before code, stage the current worktree CLI with
+      `scripts/sbtc "installBin"`, recapture a fresh baseline with the same
+      public bench command, inspect the emitted v2 Rust source for the
+      sealed-ADT/list-foreach/match shape, then land one conservative Rust
+      source-backend optimization only if it preserves semantics and improves
+      the measured row. Rejected scope: do not mix in v2 VM/JIT work, JVM
+      source TCO work, corpus workload changes, or broad Rust backend rewrites.
+      Done when before/after numbers and the inspection hypothesis are recorded
+      durably, affected pattern/list/match conformance or backend parity gates
+      are green, the final public bench row demonstrates the result, and
+      `git diff --check` passes.
+
 - [x] **v2-source-backend-production-perf-sweep** - DONE 2026-07-09 in
       `3d514f411`: measurement-first
       production gate slice for BACKLOG `v2-source-backend-production-perf-gates`
