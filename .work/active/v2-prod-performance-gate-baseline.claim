@@ -1,0 +1,6 @@
+feature/v2-prod-performance-gate-baseline 2026-07-09T07:14:20Z
+agent: codex
+heartbeat: 2026-07-09T07:14:20Z
+status: not-started
+done-so-far:
+next: create worktree, queue SPRINT plan, measure v2 production performance gate with scripts/bench, and update specs/backlog with results
