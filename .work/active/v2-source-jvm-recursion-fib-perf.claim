@@ -1,6 +1,6 @@
 feature/v2-source-jvm-recursion-fib-perf 2026-07-09T20:45:28Z
 agent: codex
-heartbeat: 2026-07-09T20:51:23Z
+heartbeat: 2026-07-09T21:01:15Z
 status: in-progress
-done-so-far: worktree created; SPRINT/spec committed on feature branch as 58fd3dc0c
-next: stage CLI, capture v2-backends recursion-fib baseline, inspect emitted v2-jvm source
+done-so-far: SPRINT/spec committed; baseline captured; generated v2-jvm source inspected
+next: implement direct-method calls for non-tail global lambdas in v2/backend/jvm/JvmBackend.scala
