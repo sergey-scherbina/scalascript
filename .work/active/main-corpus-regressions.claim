@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/main-corpus-regr
-worktree: ../scalascript-wt-regr
-started: 2026-07-09
-status: in-progress
-task: main-corpus-regressions — вернуть гейт 153/9: 6 корпус + 2 конформанс регрессий со вчера (fence-run/autoprint семья, stash-verified не мои): bank-rails-ach, graphql-client, remote-registry-rpc, traditional-payments, streams, xslt-transform, mcp-search-server(?) + 2 conformance (graph-edge-display, tkv2-typed-client-derived — возможно чужой домен, проверю)
