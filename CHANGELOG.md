@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 HTTP route path params (`req.params(:name)`) resolve correctly
+
+On `--v2`, `req.params("id")` for a `:name` route segment silently returned
+`Stub` instead of the matched value (breaking any handler that looks up by ID).
+`params`/`query` (and `bearerToken`/`jwtClaims`/`basicAuth`) are runtime-injected
+into the Request value and absent from std/http.ssc's `Request` case class;
+`registerCaseClass` was clobbering the bridge's 14-field runtime layout with the
+9-field declaration, so those fields were dropped. `Request` is now locked to a
+single-source-of-truth runtime layout (`PluginBridge.requestFieldNames`) that the
+case-class declaration can't override. Gate: `tests/e2e/route-params-v2-smoke.sh`.
+
 ## 2026-07-09 — v2 multi-line list literals no longer crash the parser
 
 `bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`

@@ -3136,8 +3136,20 @@ Found+minimized 2026-07-09 by busi (fable).
 
 ## v2-route-params-stub — req.params(name) always returns Stub on v2
 
-**Status:** OPEN (v2 VM only; v1 correct — guarded by
-tests/e2e/route-params-v2-smoke.sh)
+**Status:** FIXED 2026-07-09 — `req.params`/`req.query` (and `bearerToken`/
+`jwtClaims`/`basicAuth`) are runtime-INJECTED by the server
+(`InterpreterHttpHandler.liftRequest`) and are NOT in std/http.ssc's `Request`
+case class. `FrontendBridge.registerCaseClass` was overwriting BOTH the field
+registry and `V2PluginRegistry` with the 9-field case-class layout, so
+`v1ToV2` dropped `params`/`query` from the Request `DataV` entirely and
+`req.params` fell through to a stubbed dispatch. Fix: a single source of truth
+`PluginBridge.requestFieldNames` (the runtime layout) that FrontendBridge locks
+into its registry (`runtimeShapedTypes`), which `registerCaseClass` no longer
+overrides. `req.params(:name)` now returns the real segment on --v2 for mid and
+trailing positions; other Request fields (method/path/headers/query) verified
+unchanged. Corpus 154/8 (no regression). Gate flipped green:
+tests/e2e/route-params-v2-smoke.sh now fails on regression. Fixed by
+lucky-perch; reported+repro'd by busi.
 
 Any HTTP route registered with a `:name` dynamic path segment
 (`route("GET", "/foo/:id/bar")`) works fine on v1: `req.params("id")`

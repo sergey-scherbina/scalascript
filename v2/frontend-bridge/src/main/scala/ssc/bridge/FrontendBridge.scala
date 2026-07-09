@@ -46,8 +46,18 @@ object FrontendBridge:
       val i = fields.indexOf(name); if i >= 0 then Some(i) else None
     }
 
+  /** Runtime-shaped built-in types whose real value layout differs from their
+   *  `.ssc` case-class declaration (extra runtime-injected fields). Their field
+   *  layout is locked to the runtime layout (registerBuiltInBridgeTypes); the
+   *  case-class declaration must NOT override it. See PluginBridge.requestFieldNames. */
+  private val runtimeShapedTypes = Set("Request")
+
   /** Register a case class definition and its fields. */
   private def registerCaseClass(name: String, params: List[Term.Param]): Unit =
+    // `Request`'s runtime value carries runtime-injected params/query/… that the
+    // std/http.ssc case class omits — keep the locked runtime layout, don't let
+    // the 9-field declaration clobber it (v2-route-params-stub).
+    if runtimeShapedTypes(name) then return
     val names = params.map(_.name.value).toVector
     fieldRegistry(name) = names
     ssc.V2PluginRegistry.registerFieldNames(name, names)  // shared with PluginBridge.v2ToV1
@@ -384,6 +394,12 @@ object FrontendBridge:
     ssc.V2PluginRegistry.registerFieldNames("SerializeOpts", serializeOptsFields)
     ssc.V2PluginRegistry.registerFieldNames("TransformError", Vector("message"))
     methodObjectNames ++= Set("MarkupCodec", "PureMarkupCodec", "SerializeOpts")
+    // http `Request` carries runtime-injected params/query/… absent from its
+    // std/http.ssc case class. Lock BOTH registries to the runtime layout so
+    // `req.params(:name)` resolves the right slot instead of a Stub
+    // (v2-route-params-stub). registerCaseClass skips runtimeShapedTypes.
+    fieldRegistry("Request") = PluginBridge.requestFieldNames
+    ssc.V2PluginRegistry.registerFieldNames("Request", PluginBridge.requestFieldNames)
 
   /** First pass: scan all stats and collect case class / enum / extension definitions. */
   private def registerTypes(stats: List[Stat]): Unit = stats.foreach {

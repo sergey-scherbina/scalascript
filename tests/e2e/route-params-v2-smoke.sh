@@ -56,7 +56,7 @@ esac
 
 case "$V2" in
   *"mid=hello"*"end=hello"*)
-    echo "route-params-v2-smoke: --v2 now resolves path params correctly — bug FIXED, tighten this script to fail on regression" ;;
+    echo "route-params-v2-smoke PASS: --v2 binds :name segments (mid + trailing)" ;;
   *)
-    echo "route-params-v2-smoke: reproduced — --v2 does not bind :name segments correctly" ;;
+    echo "route-params-v2-smoke FAIL: --v2 does not bind :name segments (got: $V2)"; exit 1 ;;
 esac

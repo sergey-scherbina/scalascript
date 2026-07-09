@@ -25,6 +25,18 @@ final case class BridgeThrow(value: ssc.Value) extends RuntimeException:
 
 object PluginBridge:
 
+  /** Field layout of the http `Request` VALUE the server hands a route handler
+   *  (InterpreterHttpHandler.liftRequest). `params`/`query`/`bearerToken`/
+   *  `jwtClaims`/`basicAuth` are runtime-INJECTED and are NOT in std/http.ssc's
+   *  `Request` case class — so the v1→v2 DataV builder (v1ToV2) and
+   *  FrontendBridge's field-access lowering must BOTH use THIS order, or
+   *  `req.params(:name)` reads the wrong slot / a Stub (v2-route-params-stub).
+   *  Single source of truth: FrontendBridge locks `Request` to this and
+   *  registerCaseClass must not override it with the 9-field case class. */
+  val requestFieldNames: Vector[String] =
+    Vector("method", "path", "body", "headers", "params", "query", "json",
+           "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth")
+
   // ── DB connection registry for `databases:` frontmatter ─────────────────
   // Programs with `databases: default: url: jdbc:h2:...` frontmatter register
   // connections here before running so `Db.query`/`Db.execute` work under v2.
@@ -347,8 +359,7 @@ object PluginBridge:
       Vector("status", "headers", "body"))
     V2PluginRegistry.registerFieldNames("StreamResponse",
       Vector("status", "headers", "callback"))
-    V2PluginRegistry.registerFieldNames("Request",
-      Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
+    V2PluginRegistry.registerFieldNames("Request", requestFieldNames)
     V2PluginRegistry.registerFieldNames("KV", Vector("key", "value"))
     V2PluginRegistry.registerFieldNames("Rate", Vector("elements", "perMillis"))
     registerMarkupBridge()
