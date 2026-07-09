@@ -1,6 +1,6 @@
-feature/green-main-conformance-7fail 2026-07-09T19:09:45Z
+feature/green-main-conformance-7fail 2026-07-09T19:20:52Z
 agent: codex
-heartbeat: 2026-07-09T19:09:45Z
+heartbeat: 2026-07-09T19:20:52Z
 status: in-progress
-done-so-far: worktree created
-next: reproduce failing conformance lanes directly, capture stderr, and pick the first narrow fix
+done-so-far: dataset-shape JVM failure fixed and pushed; eight-row repro narrowed from 7 to 6 failures
+next: fix the next narrow JS conformance class (case-class numeric/enum or missing effect import symbol)
