@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-stream-family-output-parity — `open` (2026-07-09)
+## v2-stream-family-output-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, in the valid full production parity sweep after
   `v2-v1-side-mismatch-classification`.
@@ -42,7 +42,40 @@ commit SHA until the reporter confirms, then they can be trimmed.
   curried native method with both arguments in one call. The next code pass
   should register v2 field names for `KV` and make stream/DStream `runFold`
   accept both curried and flattened two-argument calls.
-- **Status:** open; queued in `SPRINT.md`.
+- **Progress 2026-07-09:** after registering `KV` fields, accepting flattened
+  `runFold`, and making v2→v1 list conversion iterative for large Cons/Nil
+  chains, both examples advance further. `distributed-streams.ssc` now prints
+  sections 1-4 and fails in section 5 with `__method__: no dispatch for .value
+  on 10`, meaning DStreams stateful callbacks receive the raw input value where
+  the example expects a per-key `KV(key, value)` shape. `streams.ssc` now prints
+  sections 1-7 through `Buffer and timing` and fails at
+  `Source.throttle: rate elements must be > 0`, meaning v2 invokes
+  `Source.throttle(rate, per)` as flattened two-arg native call while the plugin
+  currently expects the old curried shape. Next code pass: normalize DStreams
+  stateful callback input and accept flattened rate arguments in stream timing
+  natives.
+- **Root cause:** the remaining strict mismatch bucket mixed real v2 plugin
+  bridge gaps with rollback-v1 short-output rows. v2 needed named `KV`/`Rate`
+  fields at the v2↔v1 plugin boundary, iterative Cons/Nil conversion for large
+  stream ranges, flattened curried-call compatibility for stream/DStream
+  natives, DStreams tuple/option result shapes that v2 pattern matching can
+  consume, and a signal `.bind` method on bridged v1 `ReactiveSignal` values.
+- **Fix:** `d1d0bc1fd` fixes those bridge/runtime gaps and classifies
+  `distributed-streams.ssc` and `streams.ssc` as v1-side/better-output rows in
+  `scripts/v2-output-parity`, because v2 now runs both documented examples to
+  completion while rollback v1 stops early.
+- **Gates:** `git diff --check`; `streamsPlugin/testOnly
+  scalascript.compiler.plugin.streams.StreamsPluginInterpreterTest` 83/83;
+  `dstreamsPlugin/testOnly
+  scalascript.compiler.plugin.dstreams.DStreamsPluginInterpreterTest` 66/66;
+  `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` 26/26;
+  `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest` 29/29;
+  `tests/conformance/run.sh --only 'signals' --no-memo` passed INT/JS/JVM;
+  direct `bin/ssc run --v2` for both stream examples exits 0; targeted parity
+  reports `2 v1-side`; full parity is
+  `68/91 identical · 0 mismatch · 0 v2-error · 23 v1-only` with `4 v1-side`
+  skips across 195 examples.
+- **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-output-parity-temp-write-fail-fast — `fixed` (2026-07-09)
 

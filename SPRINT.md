@@ -9,7 +9,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-stream-family-output-parity** — fix the last two strict production
+- [x] **v2-stream-family-output-parity** — DONE 2026-07-09 in `d1d0bc1fd`: fixed the last two strict production
       output mismatches in the default v2 gate: `examples/distributed-streams.ssc`
       and `examples/streams.ssc`. Baseline after
       `v2-v1-side-mismatch-classification`: full parity is
@@ -37,6 +37,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       make stream/DStream `runFold` natives accept both curried and flattened
       two-argument calls, then rerun the targeted examples to expose the next
       row or close the slice.
+      Progress 2026-07-09: after the first code pass, `distributed-streams.ssc`
+      reaches section 5 and fails with `__method__: no dispatch for .value on
+      10` inside `statefulMap`; the DStreams plugin is now invoking the stateful
+      callback with a raw value where the example expects a keyed `KV` input.
+      `streams.ssc` reaches section 7 and fails at `Source.throttle: rate
+      elements must be > 0`; stream timing natives need the same flattened
+      two-arg compatibility as `runFold`. Continue in this slice by normalizing
+      the DStreams stateful callback shape and accepting flattened
+      `throttle/debounce/sample` rate args, then rerun direct v2 and targeted
+      parity.
+      Outcome: v2 now runs both examples to completion. The bridge registers
+      `KV`/`Rate` field names, converts large v2 Cons/Nil lists iteratively,
+      accepts flattened curried stream/DStream native calls, exposes signal
+      `.bind`, and returns DStreams tuple/option shapes that v2 callbacks can
+      pattern-match. `scripts/v2-output-parity` now classifies
+      `distributed-streams.ssc` and `streams.ssc` as v1-side/better-output rows
+      because rollback v1 stops early while v2 prints the documented flow.
+      Gates: `git diff --check`; streams plugin 83/83; DStreams plugin 66/66;
+      PluginBridge 26/26; FrontendBridge 29/29; conformance `signals`
+      INT/JS/JVM; direct `--v2` runs for both examples; targeted parity
+      `2 v1-side`; full parity
+      `68/91 identical · 0 mismatch · 0 v2-error · 23 v1-only` with
+      `4 v1-side` skips across 195 examples.
 
 - [x] **v2-v1-side-mismatch-classification** — DONE 2026-07-09 in `18ee5ecfc`: verified and classified the two
       remaining full-parity mismatches that prior durable findings identify as

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: stream-family parity blockers closed
+
+v2 now runs `examples/distributed-streams.ssc` and `examples/streams.ssc` to
+completion. The slice fixed v2↔v1 plugin bridge shapes for stream-family
+externs (`KV`/`Rate` field names, large Cons/Nil conversion, flattened curried
+natives, DStreams tuple/option outputs, and `ReactiveSignal.bind`). The
+production output-parity gate now has no unexplained strict mismatch:
+`68/91 identical · 0 mismatch · 0 v2-error · 23 v1-only` with 4 v1-side skips
+across 195 examples. Gates: streams plugin 83/83, DStreams plugin 66/66,
+PluginBridge 26/26, FrontendBridge 29/29, conformance `signals`, direct v2
+stream examples, targeted stream parity, and full `scripts/v2-output-parity
+--all`.
+
 ## 2026-07-09 — v2: v1-side parity rows classified
 
 `scripts/v2-output-parity` now classifies `examples/effects.ssc` and

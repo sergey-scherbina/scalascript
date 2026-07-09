@@ -9,23 +9,23 @@ This is the REAL "does v2 replace v1?" gate: each example is run on v1
 (`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
 than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-09, after v1-side mismatch classification
+## Latest full corpus re-measure — 2026-07-09, after stream-family parity fixes
 
 Measured from
-`/Users/sergiy/work/my/scalascript-wt-v2-v1-side-mismatch-classification`
-with the current parity script and the already staged runner from shared main
-(this slice changes the gate script only; runtime code is unchanged):
+`/Users/sergiy/work/my/scalascript-wt-v2-stream-family-output-parity`
+after staging the worktree runner:
 
 ```bash
-PARITY_TIMEOUT=45 SSC="/Users/sergiy/work/my/scalascript/bin/ssc" scripts/v2-output-parity --all
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
 ```
 
 Current result:
 
 | | count |
 |---|---|
-| ✅ output-identical | **68 / 93 = 73%** |
-| ❌ mismatch | 2 |
+| ✅ output-identical | **68 / 91 = 75%** |
+| ❌ mismatch | 0 |
 | ⚠️ v2-error (v1 works, v2 empty) | 0 |
 | v1-only (v2 works, v1 empty) | 23 |
 | both-fail (not a v2 gap) | 26 |
@@ -33,7 +33,7 @@ Current result:
 | long-running skipped | 0 |
 | backend-lane skipped | 33 |
 | nondeterministic-output skipped | 5 |
-| v1-side/better-output skipped | 2 |
+| v1-side/better-output skipped | 4 |
 | total examples seen | 195 |
 
 V1-side mismatch classification notes:
@@ -44,15 +44,20 @@ V1-side mismatch classification notes:
 - `dsl-calc-parser.ssc` is now classified as v1-side/better-output: v2 prints
   the full parser round-trip strings, while v1 truncates each result to the
   first number.
+- `distributed-streams.ssc` is now classified as v1-side/better-output: v2 runs
+  all 12 documented stream sections to completion, while rollback v1 stops in
+  the ETL section on missing `String.toIntOption`.
+- `streams.ssc` is now classified as v1-side/better-output: v2 runs all 8
+  documented stream sections to completion, while rollback v1 stops in the
+  `stream { emit(...) }` section.
 - `scripts/v2-output-parity` now fails fast if it cannot create/write its
   temp/RC files. A corrupted no-space run earlier on 2026-07-09 is explicitly
   not a valid baseline.
 - No deterministic v2-error row reappeared; the parity command still exits
-  nonzero because 2 known output mismatches remain.
-- Remaining mismatches in the full default-lane gate:
-  `distributed-streams.ssc` and `streams.ssc`.
-- The remaining rows are stream/section output-shape family gaps and are the
-  next production-parity slice.
+  zero because no unexplained strict mismatch remains.
+- Remaining non-identical rows are now explicitly scoped buckets:
+  v1-side/better-output, nondeterministic-output, true-server, backend-lane,
+  v1-only, or both-fail not-a-gap.
 
 ## Previous full corpus re-measure — 2026-07-09, after standard Scala fence/runtime-shape fixes
 
