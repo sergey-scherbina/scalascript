@@ -1,6 +1,0 @@
-feature/v2-scala-fence-multiblock-parity 2026-07-09T03:18:07Z
-agent: codex
-heartbeat: 2026-07-09T03:43:34Z
-status: in-progress
-done-so-far: implementation pushed in f57c74da8; gates green; docs/bookkeeping in progress
-next: commit docs/bookkeeping, push to main, release claim, clean worktree
