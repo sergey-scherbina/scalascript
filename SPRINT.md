@@ -1127,6 +1127,27 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       before real-harness conformance.
 - [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =
       existing in-process transport (fullstack spec phases 0–5).
+      Active plan 2026-07-09 (`feature/tkv2-typed-client` / codex):
+      - [x] Claim/worktree created; stale `bin/ssc` gotcha re-confirmed and fixed locally with
+            `scripts/sbtc "installBin"` before CLI smoke.
+      - [ ] Spec first in `specs/tkv2-typed-client.md` and bug ledger entry
+            `route-deriver-path-param-unit-client` in `BUGS.md`, then commit/push before code.
+      - [ ] Fix `RouteDeriver.makeEndpoint`: no explicit `apiClients:` and no typed handler evidence
+            should derive `String` for one non-body path parameter, `Any` for multiple non-body path
+            parameters, `Unit` only when no body and no path params; body methods stay `Any`.
+      - [ ] Add/adjust tests: `RouteDeriverTest` for route/mount/routes path-param defaults;
+            `JsGenTypedRouteClientTest` Node harness proving derived `Api.get...("42")` fetches
+            `/api/.../42`; `JvmGenTypedRouteClientTest` proving Swing/JVM emits callable derived
+            methods over in-process transport.
+      - [ ] Add a JS-only conformance smoke `tkv2-typed-client-derived` with stubbed `fetch` and
+            `awaitClient(Api.get...("42"))`; update `examples/derived-route-clients.ssc` so the
+            no-manual-`apiClients:` example is actually browser-callable.
+      - [ ] Docs/bookkeeping: update `specs/typed-route-clients.md`, `specs/ssc-toolkit-v2.md`,
+            README/user-guide/example index as needed, then mark BUGS/SPRINT/CHANGELOG done.
+      Done-when: targeted core/codegen tests pass, affected compiles pass, conformance
+      `tests/conformance/run.sh --only 'tkv2-typed-client-derived' --no-memo` passes, and
+      `bin/ssc emit-spa --frontend custom --server-url http://server.example:49155 <example>`
+      contains a derived `Api` client whose path-param method accepts an input argument.
 - [x] **tkv2-theme-css-vars** ✓ DONE 2026-07-07 (taken out of order — small) — `cssVariables(t: Theme)`
       in theme.ssc: the theme as `:root { --ssc-* }` custom properties; one ssc value drives toolkit
       AND hand-kept CSS. Conformance `tkv2-theme-css-vars` INT==JS.

@@ -12,6 +12,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## route-deriver-path-param-unit-client — `open` (2026-07-09)
+
+- **Found by:** codex, during `tkv2-typed-client` prep.
+- **Repro:** with no explicit `apiClients:` front matter, derive a client from
+  `route("GET", "/api/todos/:id") { ... }` or
+  `route("DELETE", "/api/todos/:id") { ... }`, then inspect
+  `bin/ssc emit-js examples/derived-route-clients.ssc`. Current output warns
+  `path param ':id' cannot be filled — request type is Unit` and emits methods
+  such as `getApiTodosById(headers, cancelToken)`, so a browser client cannot
+  pass the id.
+- **Observed failure:** route-derived non-body endpoints with path parameters
+  are not callable as typed browser clients; the generated method shape treats
+  the first user argument as headers instead of the path value.
+- **Impact:** toolkit-v2's no-manual-`apiClients:` route-derived browser client
+  path is not production-safe for common detail/delete routes.
+- **Fix direction:** have `RouteDeriver` use `String` for one path parameter
+  and `Any` for multiple path parameters when no typed handler evidence exists;
+  keep explicit `apiClients:` behavior unchanged.
+- **Done-when:** RouteDeriver, JS codegen, JVM/Swing codegen, a JS-only
+  conformance smoke, docs/example, and affected tests agree; fixed SHA and
+  gates are recorded here.
+
 ## std-auth-webauthn-signature-drift — `fixed` (2026-07-09)
 
 - **Found by:** codex, during `tkv2-webauthn` spec/implementation prep.
