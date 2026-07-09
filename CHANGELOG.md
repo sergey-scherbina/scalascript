@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — litdoc conformance enabled on JS/JVM backend lanes
+
+`tests/conformance/litdoc.ssc` now runs and passes on INT, JS, and JVM. The
+slice fixed JS flat-runtime top-level collisions for user `val`/`var` bindings,
+JS regex semantics for `String.split`, JVM preamble omission for user-owned
+`doc`, and JVM no-arg `mkString()` emission. Gates: backend JS/JVM compile,
+`installBin`, direct JS/JVM litdoc runs, conformance `litdoc`, and focused
+JsGen/JvmGen regression tests.
+
 ## 2026-07-09 — v2: busi hub boots on --v2 (head-field shadow + foreign HOFs) + arith JIT-size fix
 
 The busi hub-boot blocker (BUGS.md v2-head-field-dispatch-shadow, root-caused and guarded by a

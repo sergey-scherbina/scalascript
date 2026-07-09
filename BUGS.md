@@ -12,6 +12,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jvm-artifact-cache-codegen-invalidation — `open` (2026-07-09)
+
+- **Found by:** codex, while fixing `v2-litdoc-js-jvm-backend-lanes`.
+- **Repro:** generate a `.scjvm` artifact for a fixture, change JVM codegen
+  without changing the `.ssc` source bytes, run
+  `bin/ssc run-jvm tests/conformance/litdoc.ssc`.
+- **Observed failure:** `run-jvm` reused
+  `tests/conformance/.ssc-artifacts/litdoc.scjvm` because the artifact cache is
+  invalidated only by the source SHA. `bin/ssc emit-scala
+  tests/conformance/litdoc.ssc` showed the fixed generated Scala, but
+  `bin/ssc run-jvm tests/conformance/litdoc.ssc` still compiled the stale
+  `.scjvm` until that one generated file was removed.
+- **Impact:** after upgrading compiler/codegen/runtime bits, a user can keep
+  running stale JVM generated source for unchanged `.ssc` files. This can hide
+  fixes or preserve old failures in production verification.
+- **Status:** open; queued in SPRINT as `jvm-artifact-cache-codegen-invalidation`.
+
 ## v2-stream-family-output-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, in the valid full production parity sweep after
@@ -310,7 +327,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   **65/98 identical · 10 mismatch · 0 v2-error · 23 v1-only** across 195
   examples.
 
-## jvmgen-litdoc-mapped-string-mkstring — `open` (2026-07-09)
+## jvmgen-litdoc-mapped-string-mkstring — `fixed` (2026-07-09)
 
 - **Found by:** codex, while enabling `tests/conformance/litdoc.ssc` expected
   output during `v2-litdoc-inline-bold-parity`.
@@ -323,7 +340,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** backend-lane only. The default v2 VM path (`bin/ssc run --v2`) is
   the production gate for this slice and now matches v1; `litdoc.ssc` is marked
   `backends: [int]` until the JVM generator issue is fixed.
-- **Status:** open; queued in BACKLOG as `v2-litdoc-js-jvm-backend-lanes`.
+- **Root cause:** two backend-lane issues stacked on the same litdoc line. The
+  generated JVM preamble always emitted `def doc(args: Any*)`, so a user
+  top-level `val doc = parseDoc(md)` lived in the same generated Scala scope as
+  the helper. After that was fixed, the remaining `StringOps.apply` error came
+  from rewriting no-arg `.mkString()` to `.map(_show).mkString()`: Scala's
+  no-arg `Iterable.mkString` is parameterless, so `mkString()` applies the
+  returned `String` as a function.
+- **Fix:** `782f07438` omits the JVM `doc` helper when user code owns top-level
+  `doc`, rewrites no-arg `.mkString()` to `.map(_show).mkString`, and enables
+  `tests/conformance/litdoc.ssc` across all backend lanes.
+- **Gates:** `scripts/sbtc "backendJs/compile; backendJvm/compile; installBin"`;
+  direct `bin/ssc run-jvm tests/conformance/litdoc.ssc`;
+  `tests/conformance/run.sh --only 'litdoc' --no-memo`; focused
+  `backendInterpreter/testOnly scalascript.JvmGenBackendBlockTest`.
+- **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-litdoc-inline-bold-parity — `fixed` (2026-07-09)
 
@@ -2203,6 +2234,13 @@ same launcher; every fail was a real engine gap). One entry per cause:
   because the fixture has top-level `val doc = parseDoc(md)`, colliding with the
   JS preamble surface. `litdoc.ssc` is therefore marked `backends: [int]` until
   the general name-mangling fix lands.
+- **Fixed subset (2026-07-09, `782f07438`):** JS generation now derives the
+  runtime top-level declaration set and renames colliding user top-level
+  `val`/`var` bindings plus normal references. This fixes the litdoc `val doc`
+  repro and is guarded by `JsGenStdImportTest` plus
+  `tests/conformance/run.sh --only 'litdoc' --no-memo`. The broader entry stays
+  `open` until non-`val`/`var` top-level declaration forms are audited or
+  deliberately scoped out.
 - **Workaround (documented in the lf-1 spec):** name the top-level binding something the preamble doesn't define (e.g. `lfScope`). Low frequency.
 - **Fix sketch (deferred):** a robust fix needs the set of names the (capability-gated) preamble declares; emit a colliding top-level user binding under a renamed identifier (propagating references) or as a shadow. There is a curated `preambleConsts = Set("Console","attr","scope")` in JsGen used today only for *object* declarations (via `Object.assign`); it would need to cover `val`/`def`/`enum` and the full preamble surface. Left as a documented limitation pending the dedicated effort.
 

@@ -642,7 +642,20 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `litdoc.ssc` eligible for the existing expected-file harness. Done-when:
       the direct litdoc A/B diff is empty and BUGS `v2-litdoc-inline-bold-parity`
       moves to `fixed`.
-- [ ] **v2-litdoc-js-jvm-backend-lanes** — promote the BACKLOG backend-lane
+- [x] **v2-litdoc-js-jvm-backend-lanes** — DONE 2026-07-09 (`782f07438`):
+      `tests/conformance/litdoc.ssc` now runs across INT/JS/JVM. Fixes:
+      JS top-level runtime-name collision for user `val`/`var` bindings
+      (`val doc` → generated safe name), JS `String.split` now uses regex
+      semantics to match Scala/JVM, JVM omits the `doc` helper when the module
+      owns top-level `doc`, and JVM no-arg `.mkString()` rewrites to Scala's
+      parameterless `.mkString`. Gates: `scripts/sbtc "backendJs/compile;
+      backendJvm/compile; installBin"`; direct `bin/ssc emit-js
+      tests/conformance/litdoc.ssc | node`; direct `bin/ssc run-jvm
+      tests/conformance/litdoc.ssc` after removing the stale generated
+      `.scjvm`; `tests/conformance/run.sh --only 'litdoc' --no-memo`; and
+      `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest
+      scalascript.JvmGenBackendBlockTest"` (52/52). Original plan: promote the
+      BACKLOG backend-lane
       follow-up for `tests/conformance/litdoc.ssc` so the same fixture can run
       across INT/JS/JVM instead of staying `backends: [int]`. Baseline from
       BUGS/BACKLOG: raw JS fails with `jsgen-toplevel-name-vs-preamble` because
@@ -650,7 +663,7 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       codegen fails compiling the litdoc fence line shaped like
       `doc.nodes.filter(...).map(...).map(_show).mkString()` with
       `StringOps.apply` missing parameter. Work plan:
-      - [ ] Reproduce from a staged real CLI:
+      - [x] Reproduce from a staged real CLI:
             `scripts/sbtc "installBin"`, then
             `bin/ssc emit-js tests/conformance/litdoc.ssc | node` and
             `bin/ssc run-jvm tests/conformance/litdoc.ssc`.
@@ -662,7 +675,7 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
             `missing argument for parameter i of method apply in class StringOps`.
             Current `tests/conformance/run.sh --only 'litdoc' --no-memo`
             reports INT PASS and skips JS/JVM due to `backends: [int]`.
-      - [ ] Fix the JS generator at the general preamble-collision boundary,
+      - [x] Fix the JS generator at the general preamble-collision boundary,
             not by renaming the fixture. Rejected shortcut: fixture-only rename
             (`val litDoc = ...`) would green this case while leaving the known
             `jsgen-toplevel-name-vs-preamble` production class open.
@@ -671,7 +684,7 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
             normal name references. This slice intentionally targets top-level
             collision repros; expand lexical shadow tracking only if focused
             tests expose a local-shadow regression.
-      - [ ] Fix the JVM generator/lowering for mapped-string `mkString()` so the
+      - [x] Fix the JVM generator/lowering for mapped-string `mkString()` so the
             generated Scala compiles and prints the expected litdoc line.
             Investigation update: `emit-scala` also emits `def doc(args: Any*)`
             from `JvmRuntimePreamble`, then `val doc = parseDoc(md)`. The
@@ -680,14 +693,25 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
             first fix JVM by omitting the `doc` helper when the module owns the
             top-level `doc` name; revisit `routeMkStringThroughShow` only if the
             direct JVM repro still fails afterward.
-      - [ ] Remove the temporary `backends: [int]` restriction from
+      - [x] Remove the temporary `backends: [int]` restriction from
             `tests/conformance/litdoc.ssc` and run
             `tests/conformance/run.sh --only 'litdoc' --no-memo` with all
             enabled lanes, plus focused sbt tests for the touched generator(s).
-      - [ ] Update `BUGS.md` entries
+      - [x] Update `BUGS.md` entries
             `jsgen-toplevel-name-vs-preamble` and
             `jvmgen-litdoc-mapped-string-mkstring`, move the BACKLOG row to
             landed, add CHANGELOG, and release the claim after push.
+- [ ] **jvm-artifact-cache-codegen-invalidation** — fix the `run-jvm`
+      artifact cache so generated `.scjvm` files are invalidated by compiler /
+      JVM codegen version as well as `.ssc` source bytes. Repro discovered
+      during `v2-litdoc-js-jvm-backend-lanes`: after a JVM codegen fix,
+      `bin/ssc emit-scala tests/conformance/litdoc.ssc` showed fresh output but
+      `bin/ssc run-jvm tests/conformance/litdoc.ssc` still compiled
+      `tests/conformance/.ssc-artifacts/litdoc.scjvm` until that generated file
+      was removed. BUGS: `jvm-artifact-cache-codegen-invalidation`. Done when a
+      generated artifact records/compares a compiler-codegen cache key, with a
+      focused CLI regression proving unchanged source + changed key forces
+      regeneration.
 - [x] **v2-parity-post-split-refresh** — DONE 2026-07-09: refreshed the
       production output-parity baseline after `v2-arith-unification`
       (`a2985d911`) and `v2-litdoc-inline-bold-parity` (`2b5a36660`). Gates:
