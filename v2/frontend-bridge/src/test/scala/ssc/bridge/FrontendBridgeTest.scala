@@ -17,6 +17,15 @@ class FrontendBridgeTest extends AnyFunSuite:
     val prog = FrontendBridge.convertSource(src)
     Runtime.run(Compiler.compile(prog), Array.empty[Value])
 
+  def runCore(entry: Term): Value =
+    ensureBridgeRuntime()
+    Runtime.run(Compiler.compile(Program(Nil, entry)), Array.empty[Value])
+
+  def dynamicArith(op: String, lhs: Term, rhs: Term): Term =
+    Term.Let(
+      List(Term.Lit(Const.CStr(op))),
+      Term.Prim("__arith__", List(Term.Local(0), lhs, rhs)))
+
   def runStr(src: String): String =
     run(src) match
       case Value.StrV(s) => s
@@ -39,6 +48,43 @@ class FrontendBridgeTest extends AnyFunSuite:
 
   test("arithmetic") {
     assert(run("1 + 2 * 3") == Value.IntV(7))
+  }
+
+  test("non-literal __arith__ map plus tuple uses arithOp semantics") {
+    val pair = Term.Prim("__arith__", List(
+      Term.Lit(Const.CStr("->")),
+      Term.Lit(Const.CStr("id")),
+      Term.Lit(Const.CStr("demo"))))
+    val out = runCore(dynamicArith("+", Term.Prim("__mk_map__", Nil), pair))
+
+    val map = out.asInstanceOf[Value.ForeignV].h
+      .asInstanceOf[collection.mutable.Map[Value, Value]]
+    assert(map(Value.StrV("id")) == Value.StrV("demo"))
+  }
+
+  test("non-literal __arith__ char comparisons use codepoint semantics") {
+    val arith = Prims.resolve("__arith__")
+
+    assert(arith(List(Value.StrV(">"), Value.StrV("b"), Value.IntV('a'.toLong))) ==
+      Value.BoolV(true))
+    assert(arith(List(Value.StrV("<="), Value.IntV('a'.toLong), Value.StrV("b"))) ==
+      Value.BoolV(true))
+  }
+
+  test("non-literal __arith__ preserves table-only fallback cases") {
+    val arith = Prims.resolve("__arith__")
+
+    val dec = arith(List(
+      Value.StrV("+"),
+      Value.ForeignV(new java.math.BigDecimal("1.25")),
+      Value.IntV(2)))
+    assert(dec.asInstanceOf[Value.ForeignV].h
+      .asInstanceOf[java.math.BigDecimal].toPlainString == "3.25")
+
+    assert(arith(List(Value.StrV("!"), Value.DataV("ActorRef", Vector(Value.IntV(1))), Value.StrV("msg"))) ==
+      Value.UnitV)
+    assert(arith(List(Value.StrV("Logger"), Value.StrV("effect"), Value.UnitV)) ==
+      Value.UnitV)
   }
 
   test("val binding") {

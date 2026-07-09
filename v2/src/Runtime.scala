@@ -1520,140 +1520,10 @@ object Prims:
       ForeignV(m)
     // ── Dynamic dispatch primitives (for FrontendBridge — no static type info) ────
     // __arith__(op, lhs, rhs): type-dispatched arithmetic/comparison/string concat.
-    // Covers the cases that ssc1c maps to typed i.*/f.* ops.
-    case "__arith__" => a =>
-      val op = str(a, 0)
-      if op == "->" then DataV("Tuple2", collection.immutable.ArraySeq(a(1), a(2)))
-      else (a(1), a(2)) match
-        case (IntV(x), IntV(y)) => op match
-          case "+"   => IntV(x + y);   case "-"   => IntV(x - y);   case "*"  => IntV(x * y)
-          case "/"   => IntV(x / y);   case "%"   => IntV(x % y)
-          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
-          case "<"   => BoolV(x < y);  case "<=" => BoolV(x <= y)
-          case ">"   => BoolV(x > y);  case ">=" => BoolV(x >= y)
-          case "&"   => IntV(x & y);   case "|"   => IntV(x | y);   case "^"  => IntV(x ^ y)
-          case "<<"  => IntV(x << y.toInt); case ">>" => IntV(x >> y.toInt); case ">>>" => IntV(x >>> y.toInt)
-          case "++"  => StrV(x.toString + y.toString)
-          case "to"    => { val nilV: Value = DataV("Nil", IndexedSeq.empty); (x to y).foldRight(nilV)((i, acc) => DataV("Cons", collection.immutable.ArraySeq(IntV(i), acc))) }
-          case "until" => { val nilV: Value = DataV("Nil", IndexedSeq.empty); (x until y).foldRight(nilV)((i, acc) => DataV("Cons", collection.immutable.ArraySeq(IntV(i), acc))) }
-          case _     => sys.error(s"__arith__: unknown op $op for Int")
-        case (FloatV(x), FloatV(y)) => op match
-          case "+"  => FloatV(x + y); case "-"  => FloatV(x - y); case "*"  => FloatV(x * y)
-          case "/"  => FloatV(x / y); case "%"  => FloatV(x % y)
-          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
-          case "<"  => BoolV(x < y);  case "<=" => BoolV(x <= y)
-          case ">"  => BoolV(x > y);  case ">=" => BoolV(x >= y)
-          case "++" => StrV(x.toString + y.toString)
-          case _    => sys.error(s"__arith__: unknown op $op for Float")
-        case (IntV(x), FloatV(y)) => op match  // widening
-          case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
-          case "/" => FloatV(x / y); case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
-          case "<" => BoolV(x < y); case "<=" => BoolV(x <= y); case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
-          case _ => sys.error(s"__arith__: unknown op $op for Int+Float")
-        case (FloatV(x), IntV(y)) => op match
-          case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
-          case "/" => FloatV(x / y); case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
-          case "<" => BoolV(x < y); case "<=" => BoolV(x <= y); case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
-          case _ => sys.error(s"__arith__: unknown op $op for Float+Int")
-        case (StrV(x), StrV(y)) => op match
-          case "++" | "+" => StrV(x + y)
-          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
-          case "<" => BoolV(x < y); case "<=" => BoolV(x <= y)
-          case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
-          case _    => sys.error(s"__arith__: unknown op $op for String")
-        case (StrV(x), IntV(y)) => op match
-          case "*"        => StrV(x * y.toInt)
-          case "+" | "++" => StrV(x + y.toString)
-          case "==" => BoolV(false); case "!=" => BoolV(true)
-          case _   => sys.error(s"__arith__: unknown op $op for String+Int (l=\"$x\", r=$y)")
-        case (IntV(x), StrV(y)) => op match
-          case "+" | "++" => StrV(x.toString + y)
-          case "==" => BoolV(false); case "!=" => BoolV(true)
-          case _   => sys.error(s"__arith__: unknown op $op for Int+String")
-        // Float↔String concat renders via floatStr (v1 collapses whole doubles:
-        // "" + 1.0 is "1", not "1.0" — raw toString broke output parity).
-        case (FloatV(x), StrV(y)) => op match
-          case "+" | "++" => StrV(Writer.floatStr(x) + y)
-          case "==" => BoolV(false); case "!=" => BoolV(true)
-          case _   => sys.error(s"__arith__: unknown op $op for Float+String")
-        case (StrV(x), FloatV(y)) => op match
-          case "+" | "++" => StrV(x + Writer.floatStr(y))
-          case "==" => BoolV(false); case "!=" => BoolV(true)
-          case _   => sys.error(s"__arith__: unknown op $op for String+Float")
-        case (BoolV(x), BoolV(y)) => op match
-          case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
-          case _    => sys.error(s"__arith__: op $op not valid for Bool")
-        case (lv, rv) if isList(lv) && op == "++" => listOf(unlist(lv) ++ unlist(rv))
-        // Tuple concatenation: (a,b) ++ (c,d) = (a,b,c,d)
-        case (DataV(lt, lf), DataV(rt, rf))
-            if op == "++" && lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
-          val combined = lf ++ rf
-          DataV(s"Tuple${combined.length}", combined)
-        case (ForeignV(x: java.math.BigDecimal), ForeignV(y: java.math.BigDecimal)) =>
-          import java.math.RoundingMode.HALF_UP
-          op match
-            case "+"  => ForeignV(x.add(y))
-            case "-"  => ForeignV(x.subtract(y))
-            case "*"  => ForeignV(x.multiply(y))
-            case "/"  => ForeignV(x.divide(y, x.scale().max(y.scale()).max(10), HALF_UP))
-            case "%"  => ForeignV(x.remainder(y))
-            case "==" => BoolV(x.compareTo(y) == 0); case "!=" => BoolV(x.compareTo(y) != 0)
-            case "<"  => BoolV(x.compareTo(y) < 0); case "<=" => BoolV(x.compareTo(y) <= 0)
-            case ">"  => BoolV(x.compareTo(y) > 0); case ">=" => BoolV(x.compareTo(y) >= 0)
-            case "++" | "+"  => StrV(x.toPlainString + y.toPlainString)
-            case _    => sys.error(s"__arith__: op $op not valid for Decimal")
-        case (ForeignV(x: java.math.BigDecimal), IntV(y)) =>
-          import java.math.RoundingMode.HALF_UP
-          val ybd = java.math.BigDecimal.valueOf(y)
-          op match
-            case "+"  => ForeignV(x.add(ybd)); case "-" => ForeignV(x.subtract(ybd))
-            case "*"  => ForeignV(x.multiply(ybd)); case "/" => ForeignV(x.divide(ybd, x.scale().max(10), HALF_UP))
-            case "==" => BoolV(x.compareTo(ybd) == 0); case "!=" => BoolV(x.compareTo(ybd) != 0)
-            case "<"  => BoolV(x.compareTo(ybd) < 0); case "<=" => BoolV(x.compareTo(ybd) <= 0)
-            case ">"  => BoolV(x.compareTo(ybd) > 0); case ">=" => BoolV(x.compareTo(ybd) >= 0)
-            case _    => sys.error(s"__arith__: op $op not valid for Decimal+Int")
-        case (IntV(x), ForeignV(y: java.math.BigDecimal)) =>
-          import java.math.RoundingMode.HALF_UP
-          val xbd = java.math.BigDecimal.valueOf(x)
-          op match
-            case "+"  => ForeignV(xbd.add(y)); case "-" => ForeignV(xbd.subtract(y))
-            case "*"  => ForeignV(xbd.multiply(y)); case "/" => ForeignV(xbd.divide(y, y.scale().max(10), HALF_UP))
-            case "==" => BoolV(xbd.compareTo(y) == 0); case "!=" => BoolV(xbd.compareTo(y) != 0)
-            case "<"  => BoolV(xbd.compareTo(y) < 0); case "<=" => BoolV(xbd.compareTo(y) <= 0)
-            case ">"  => BoolV(xbd.compareTo(y) > 0); case ">=" => BoolV(xbd.compareTo(y) >= 0)
-            case _    => sys.error(s"__arith__: op $op not valid for Int+Decimal")
-        case (lv, rv) => op match
-          case "==" => BoolV(lv == rv); case "!=" => BoolV(lv != rv)
-          // Map + (k -> v): same copy-on-write as Prims.arithOp — this table
-          // arith serves non-literal op names; without the case, attrs + pair
-          // string-concatenated (busi litdoc).
-          case "+" => (lv, rv) match
-            case (ForeignV(m0: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k2, v2))) =>
-              val nm = collection.mutable.HashMap.from(m0.asInstanceOf[collection.mutable.Map[Value, Value]])
-              nm(k2) = v2
-              ForeignV(nm)
-            case _ => if isList(lv) then listOf(unlist(lv) ++ unlist(rv)) else StrV(anyStr(lv) + anyStr(rv))
-          case "++" => if isList(lv) then listOf(unlist(lv) ++ unlist(rv)) else StrV(anyStr(lv) + anyStr(rv))
-          case ":+" if isList(lv) => listOf(unlist(lv) :+ rv)
-          case "->" => DataV("Tuple2", collection.immutable.ArraySeq(lv, rv))  // k -> v pair
-          case "!"  =>
-            // Actor send: actorRef ! msg
-            V2PluginRegistry.lookup("actor.send") match
-              case Some(sendFn) => sendFn(List(lv, rv))
-              case None => UnitV  // actor runtime not loaded
-          case ":=" =>
-            // HTML attr-key assignment: attrKey := value → DataV("Attr", [name, value])
-            lv match
-              case ForeignV(obj: NamedMethodObj) =>
-                obj.getField(":=") match
-                  case Some(fn: ClosV) => Runtime.run(fn.code, Runtime.extend(fn.env, Array(rv)))
-                  case Some(v) => v
-                  case None    => UnitV
-              case _ => UnitV
-          case _    =>
-            // Unknown operator with non-numeric types: treat as a declaration-style statement
-            // (e.g. `effect Logger:` compiles to __arith__("Logger", effectClosure, ()) in v2)
-            UnitV
+    // Keep this as a thin wrapper: the literal-op fast paths call `arithOp`
+    // directly, so duplicating cases here makes literal and non-literal ops
+    // diverge when ANF or other rewrites change the shape of the op argument.
+    case "__arith__" => a => arithOp(str(a, 0), a(1), a(2))
     // __unary__(op, val): type-dispatched unary operators
     case "__unary__" => a =>
       val op = str(a, 0)
@@ -2260,6 +2130,9 @@ object Prims:
   def runClos1(k: ClosV, arg: Value): Value =
     Runtime.run(k.code, Runtime.extend(k.env, Array(arg)))
 
+  private val charComparisonOps: Set[String] =
+    Set("<", "<=", ">", ">=", "==", "!=")
+
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
     // EXPRESSION-position effects: an un-handled Op OPERAND lifts over the
     // arithmetic — `acc + Bump.tick().toLong` runs the handler first, then
@@ -2278,6 +2151,8 @@ object Prims:
         Done(arithOp(op, l, resumed))
       })
       DataV("Op", Vector(rb, arg, k2))
+    case _ if op == "->" =>
+      DataV("Tuple2", collection.immutable.ArraySeq(l, r))
     // Set-as-list element removal: v2 sets are distinct lists (`.toSet`), so
     // `pending - partId` (std/mapreduce collect loops) = filterNot. Without
     // this the op fell through to the plugin stub and returned Unit, which
@@ -2293,19 +2168,10 @@ object Prims:
     // Char semantics: bridge char literals are Int codepoints, while chars
     // extracted from strings (charAt/forall) are 1-char strings — comparisons
     // between the two compare codepoints (c >= 'a' in parser predicates).
-    case (StrV(s), IntV(n)) if s.length == 1 && Set("<", "<=", ">", ">=", "==", "!=").contains(op) =>
+    case (StrV(s), IntV(n)) if s.length == 1 && charComparisonOps.contains(op) =>
       arithOp(op, IntV(s.charAt(0).toLong), IntV(n))
-    case (IntV(n), StrV(s)) if s.length == 1 && Set("<", "<=", ">", ">=", "==", "!=").contains(op) =>
+    case (IntV(n), StrV(s)) if s.length == 1 && charComparisonOps.contains(op) =>
       arithOp(op, IntV(n), IntV(s.charAt(0).toLong))
-    // Free-monad lifting (see methodOp): x + y where x or y is an effect Op
-    case (DataV("Op", IndexedSeq(lb, a, k)), _) =>
-      val k2 = ClosV(Array[Value](k), 1, env2 =>
-        Done(arithOp(op, runClos1(env2(0).asInstanceOf[ClosV], env2.last), r)))
-      DataV("Op", Vector(lb, a, k2))
-    case (_, DataV("Op", IndexedSeq(lb, a, k))) =>
-      val k2 = ClosV(Array[Value](k), 1, env2 =>
-        Done(arithOp(op, l, runClos1(env2(0).asInstanceOf[ClosV], env2.last))))
-      DataV("Op", Vector(lb, a, k2))
     case (IntV(x), IntV(y)) => op match
       case "+"  => IntV(x + y);  case "-"  => IntV(x - y);  case "*"  => IntV(x * y)
       case "/"  => IntV(x / y);  case "%"  => IntV(x % y)
@@ -2313,34 +2179,126 @@ object Prims:
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
       case "&"  => IntV(x & y);  case "|"  => IntV(x | y);  case "^"  => IntV(x ^ y)
       case "<<" => IntV(x << y.toInt); case ">>" => IntV(x >> y.toInt); case ">>>" => IntV(x >>> y.toInt)
-      case _ => resolve("__arith__")(List(StrV(op), l, r))
+      case "++" => StrV(x.toString + y.toString)
+      case "to" =>
+        val nilV: Value = DataV("Nil", IndexedSeq.empty)
+        (x to y).foldRight(nilV)((i, acc) => DataV("Cons", collection.immutable.ArraySeq(IntV(i), acc)))
+      case "until" =>
+        val nilV: Value = DataV("Nil", IndexedSeq.empty)
+        (x until y).foldRight(nilV)((i, acc) => DataV("Cons", collection.immutable.ArraySeq(IntV(i), acc)))
+      case _ => sys.error(s"__arith__: unknown op $op for Int")
     case (FloatV(x), FloatV(y)) => op match
       case "+"  => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
       case "/"  => FloatV(x / y); case "%" => FloatV(x % y)
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
-      case _ => resolve("__arith__")(List(StrV(op), l, r))
+      case "++" => StrV(x.toString + y.toString)
+      case _ => sys.error(s"__arith__: unknown op $op for Float")
     case (IntV(x), FloatV(y)) => op match
       case "+"  => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
       case "/"  => FloatV(x / y)
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
-      case _ => resolve("__arith__")(List(StrV(op), l, r))
+      case _ => sys.error(s"__arith__: unknown op $op for Int+Float")
     case (FloatV(x), IntV(y)) => op match
       case "+"  => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y)
       case "/"  => FloatV(x / y)
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
-      case _ => resolve("__arith__")(List(StrV(op), l, r))
+      case _ => sys.error(s"__arith__: unknown op $op for Float+Int")
     case (StrV(x), StrV(y)) => op match
       case "++" | "+" => StrV(x + y)
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
-      case _ => resolve("__arith__")(List(StrV(op), l, r))
+      case _ => sys.error(s"__arith__: unknown op $op for String")
+    case (StrV(x), IntV(y)) => op match
+      case "*"        => StrV(x * y.toInt)
+      case "+" | "++" => StrV(x + y.toString)
+      case "==" => BoolV(false); case "!=" => BoolV(true)
+      case _   => sys.error(s"__arith__: unknown op $op for String+Int (l=\"$x\", r=$y)")
+    case (IntV(x), StrV(y)) => op match
+      case "+" | "++" => StrV(x.toString + y)
+      case "==" => BoolV(false); case "!=" => BoolV(true)
+      case _   => sys.error(s"__arith__: unknown op $op for Int+String")
+    // Float↔String concat renders via floatStr (v1 collapses whole doubles:
+    // "" + 1.0 is "1", not "1.0" — raw toString broke output parity).
+    case (FloatV(x), StrV(y)) => op match
+      case "+" | "++" => StrV(Writer.floatStr(x) + y)
+      case "==" => BoolV(false); case "!=" => BoolV(true)
+      case _   => sys.error(s"__arith__: unknown op $op for Float+String")
+    case (StrV(x), FloatV(y)) => op match
+      case "+" | "++" => StrV(x + Writer.floatStr(y))
+      case "==" => BoolV(false); case "!=" => BoolV(true)
+      case _   => sys.error(s"__arith__: unknown op $op for String+Float")
+    case (BoolV(x), BoolV(y)) => op match
+      case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+      case _    => sys.error(s"__arith__: op $op not valid for Bool")
     // List :+ and ++ — bridge compiles infix ops as __arith__, but list ops live here too
     case (lv, rv) if op == ":+" && isList(lv) => listOf(unlist(lv) :+ rv)
-    case (lv, rv) if op == "++" && isList(lv) => listOf(unlist(lv) ++ unlist(rv))
-    case _ => resolve("__arith__")(List(StrV(op), l, r))
+    case (lv, rv) if (op == "++" || op == "+") && isList(lv) => listOf(unlist(lv) ++ unlist(rv))
+    // Tuple concatenation: (a,b) ++ (c,d) = (a,b,c,d)
+    case (DataV(lt, lf), DataV(rt, rf))
+        if op == "++" && lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
+      val combined = lf ++ rf
+      DataV(s"Tuple${combined.length}", combined)
+    case (ForeignV(x: java.math.BigDecimal), ForeignV(y: java.math.BigDecimal)) =>
+      import java.math.RoundingMode.HALF_UP
+      op match
+        case "+"  => ForeignV(x.add(y))
+        case "-"  => ForeignV(x.subtract(y))
+        case "*"  => ForeignV(x.multiply(y))
+        case "/"  => ForeignV(x.divide(y, x.scale().max(y.scale()).max(10), HALF_UP))
+        case "%"  => ForeignV(x.remainder(y))
+        case "==" => BoolV(x.compareTo(y) == 0); case "!=" => BoolV(x.compareTo(y) != 0)
+        case "<"  => BoolV(x.compareTo(y) < 0); case "<=" => BoolV(x.compareTo(y) <= 0)
+        case ">"  => BoolV(x.compareTo(y) > 0); case ">=" => BoolV(x.compareTo(y) >= 0)
+        case "++" => StrV(x.toPlainString + y.toPlainString)
+        case _    => sys.error(s"__arith__: op $op not valid for Decimal")
+    case (ForeignV(x: java.math.BigDecimal), IntV(y)) =>
+      import java.math.RoundingMode.HALF_UP
+      val ybd = java.math.BigDecimal.valueOf(y)
+      op match
+        case "+"  => ForeignV(x.add(ybd)); case "-" => ForeignV(x.subtract(ybd))
+        case "*"  => ForeignV(x.multiply(ybd)); case "/" => ForeignV(x.divide(ybd, x.scale().max(10), HALF_UP))
+        case "==" => BoolV(x.compareTo(ybd) == 0); case "!=" => BoolV(x.compareTo(ybd) != 0)
+        case "<"  => BoolV(x.compareTo(ybd) < 0); case "<=" => BoolV(x.compareTo(ybd) <= 0)
+        case ">"  => BoolV(x.compareTo(ybd) > 0); case ">=" => BoolV(x.compareTo(ybd) >= 0)
+        case _    => sys.error(s"__arith__: op $op not valid for Decimal+Int")
+    case (IntV(x), ForeignV(y: java.math.BigDecimal)) =>
+      import java.math.RoundingMode.HALF_UP
+      val xbd = java.math.BigDecimal.valueOf(x)
+      op match
+        case "+"  => ForeignV(xbd.add(y)); case "-" => ForeignV(xbd.subtract(y))
+        case "*"  => ForeignV(xbd.multiply(y)); case "/" => ForeignV(xbd.divide(y, y.scale().max(10), HALF_UP))
+        case "==" => BoolV(xbd.compareTo(y) == 0); case "!=" => BoolV(xbd.compareTo(y) != 0)
+        case "<"  => BoolV(xbd.compareTo(y) < 0); case "<=" => BoolV(xbd.compareTo(y) <= 0)
+        case ">"  => BoolV(xbd.compareTo(y) > 0); case ">=" => BoolV(xbd.compareTo(y) >= 0)
+        case _    => sys.error(s"__arith__: op $op not valid for Int+Decimal")
+    case (lv, rv) => op match
+      case "==" => BoolV(lv == rv)
+      case "!=" => BoolV(lv != rv)
+      case "+"  => StrV(anyStr(lv) + anyStr(rv))
+      case "++" => StrV(anyStr(lv) + anyStr(rv))
+      case "!"  =>
+        // Actor send: actorRef ! msg. If the actor runtime is not installed,
+        // old table dispatch treated the send as a no-op.
+        V2PluginRegistry.lookup("actor.send") match
+          case Some(sendFn) => sendFn(List(lv, rv))
+          case None         => UnitV
+      case ":=" =>
+        // HTML attr-key assignment: attrKey := value → DataV("Attr", [name, value])
+        lv match
+          case ForeignV(obj: NamedMethodObj) =>
+            obj.getField(":=") match
+              case Some(fn: ClosV) => Runtime.run(fn.code, Runtime.extend(fn.env, Array(rv)))
+              case Some(v)         => v
+              case None            => UnitV
+          case _ => UnitV
+      case _ =>
+        // Unknown operator with non-numeric types: treat as a declaration-style
+        // statement (e.g. `effect Logger:` compiles to
+        // __arith__("Logger", effectClosure, ()) in v2).
+        UnitV
 
   /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
   def methodOp(name: String, recv: Value, args: List[Value]): Value =
