@@ -1,6 +1,6 @@
-feature/v2-stream-family-output-parity 2026-07-09T04:18:21Z
+feature/v2-stream-family-output-parity 2026-07-09T04:18:36Z
 agent: codex
-heartbeat: 2026-07-09T04:18:21Z
-status: not-started
-done-so-far:
-next: create worktree and reproduce stream-family parity rows
+heartbeat: 2026-07-09T04:18:36Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-stream-family-output-parity
+next: reproduce distributed-streams and streams parity rows in the real harness
