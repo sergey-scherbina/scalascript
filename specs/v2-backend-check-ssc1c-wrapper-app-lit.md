@@ -28,15 +28,15 @@ def main(): Unit = { println(workload()); () }
 
 ## Behavior
 
-- [ ] The failing `bool-predicate` and `mutual-recursion` backend-check rows are
+- [x] The failing `bool-predicate` and `mutual-recursion` backend-check rows are
       reproduced from the real `v2/backend/check.sh` path.
-- [ ] The invalid `(app (lit (int 1000)) (lam 0 ...))` CoreIR shape is traced to
+- [x] The invalid `(app (lit (int 1000)) (lam 0 ...))` CoreIR shape is traced to
       a concrete ssc1c or harness lowering cause.
-- [ ] The fix preserves the existing corpus sources and does not special-case
+- [x] The fix preserves the existing corpus sources and does not special-case
       JVM/JS/Rust source generators.
-- [ ] `v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion`
+- [x] `v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion`
       pass end-to-end through the VM oracle and all source backends.
-- [ ] Existing backend fixtures (`tco`, `letrec`) and affected conformance still
+- [x] Existing backend fixtures (`tco`, `letrec`) and affected conformance still
       pass, along with `git diff --check`.
 
 ## Out of Scope
@@ -77,5 +77,25 @@ unambiguous `.ssc1` program while keeping the workload semantics unchanged.
 
 ## Results
 
-Pending. Fill this section after reproduction, implementation, and verification
-with the exact root cause, fix location, commands, and observed outputs.
+Implemented in `043039b61`. Root cause: `v2/backend/check.sh` extracts a
+`scalascript` fence from the benchmark corpus and pipes it through
+`v2/scripts/indent2braces.py` before compiling with ssc1c. The converter emitted
+`while i < 1000 { ... }` for `while i < 1000 do`. `v2/lib/ssc1-front.ssc0`
+expects `while (cond) body`, so the unparenthesized condition parsed greedily and
+made the following block an argument to the literal `1000`, producing CoreIR of
+the form `(app (lit (int 1000)) (lam 0 ...))`.
+
+The fix parenthesizes converted while conditions, producing
+`while (i < 1000) { ... }`. This keeps the existing corpus sources and all
+source generators unchanged.
+
+Verified:
+
+- `v2/backend/check.sh bool` — green, 1 fixture x JVM/JS/Rust.
+- `v2/backend/check.sh mutual-recursion` — green, 1 fixture x JVM/JS/Rust.
+- `v2/backend/check.sh tco` — green, 2 fixtures x JVM/JS/Rust.
+- `v2/backend/check.sh letrec` — green, 1 fixture x JVM/JS/Rust.
+- `scripts/sbtc "installBin"` — completed before the final conformance rerun.
+- `tests/conformance/run.sh --only 'mutual-recursion,variables' --no-memo` —
+  2 passed, 0 failed across INT/JS/JVM.
+- `git diff --check`.

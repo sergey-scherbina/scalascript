@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-scripts-bench-mktemp-template — `open` (2026-07-09)
+## v2-scripts-bench-mktemp-template — `fixed` (2026-07-09)
 
 - **Found by:** codex while verifying `v2-backend-check-ssc1c-wrapper-app-lit`.
 - **Repro:** run two `v2/scripts/bench.sh` instances concurrently, for example
@@ -23,7 +23,13 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Expected:** each bench process gets a unique temporary jar path.
 - **Impact:** parallel agents or local parallel probes can spuriously fail while
   checking v2 corpus rows; the semantic benchmark itself is not at fault.
-- **Status:** open.
+- **Fix:** `ed680a585` changes `v2/scripts/bench.sh` to use the suffix-free
+  `mktemp /tmp/v2-bench-XXXXXX` template so macOS substitutes the trailing Xs
+  and concurrent processes get distinct temporary jar paths.
+- **Verified:** short `bool-predicate` and `mutual-recursion` bench probes
+  completed concurrently with unique temp jars (`/tmp/v2-bench-JUGk7f` and
+  `/tmp/v2-bench-qu9Sqy`), followed by `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-bytecode-param-long-nontail-self-loop — `fixed` (2026-07-09)
 
@@ -66,7 +72,7 @@ for that compile unit while payments-only files still use the companion. busi sw
 restored to 61/61; corpus 154/8 (payments examples still green). Reported by busi
 (fable, n=105); fixed by lucky-perch. Pin: tests/conformance/v2-user-type-shadows-function-ctor.ssc.
 
-## v2-backend-check-ssc1c-wrapper-app-lit — `open` (2026-07-09)
+## v2-backend-check-ssc1c-wrapper-app-lit — `fixed` (2026-07-09)
 
 - **Found by:** codex while verifying the `v2-source-jvm-recursion-fib-perf`
   source-backend slice.
@@ -94,7 +100,20 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
   another ssc1c precedence/lowering issue around the synthetic main wrapper or
   the `until`/loop desugaring in the corpus fixture. Track/fix as its own
   ssc1c/backend-check task rather than folding it into JVM source codegen work.
-- **Status:** open.
+- **Root cause:** `v2/scripts/indent2braces.py` converted `while i < 1000 do`
+  to `while i < 1000 { ... }`. `v2/lib/ssc1-front.ssc0` expects
+  `while (cond) body`; without parentheses, the condition parser consumed the
+  following block as an argument to literal `1000`, producing the invalid
+  app-lit CoreIR.
+- **Fix:** `043039b61` parenthesizes converted while conditions, e.g.
+  `while (i < 1000) { ... }`, preserving the corpus workloads and all source
+  generators.
+- **Verified:** `v2/backend/check.sh bool`, `v2/backend/check.sh
+  mutual-recursion`, `v2/backend/check.sh tco`, `v2/backend/check.sh letrec`,
+  `scripts/sbtc "installBin"`, affected conformance
+  `tests/conformance/run.sh --only 'mutual-recursion,variables' --no-memo`
+  (2/2 across INT/JS/JVM), and `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## green-main-conformance-7fail — `fixed` (2026-07-09)
 

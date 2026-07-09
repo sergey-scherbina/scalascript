@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 bench temp jars are parallel-safe
+
+`v2/scripts/bench.sh` now uses a macOS-safe suffix-free `mktemp` template for
+the temporary bench jar. Parallel short probes for `bool-predicate` and
+`mutual-recursion` now receive distinct `/tmp/v2-bench-*` paths instead of
+colliding on the literal `/tmp/v2-bench-XXXXXX.jar`.
+
+## 2026-07-09 — v2 backend-check bool and mutual-recursion rows restored
+
+`v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion` again
+compile through ssc1c, run the VM oracle, and verify JVM/JS/Rust source backend
+parity. The invalid `(app (lit (int 1000)) ...)` CoreIR came from
+`indent2braces.py` emitting unparenthesized `while i < 1000 { ... }`; converted
+while conditions are now parenthesized. Gates: backend `bool`,
+`mutual-recursion`, `tco`, `letrec`, affected conformance
+`mutual-recursion,variables` 2/2 across INT/JS/JVM, and `git diff --check`.
+
 ## 2026-07-09 — v2 bytecode non-tail recursive Int calls keep values
 
 The bytecode backend's Long-specialized self-recursive helper now distinguishes

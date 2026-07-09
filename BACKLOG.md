@@ -90,15 +90,14 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       instead of `echo`. NOTE: already documented in Phase 2d SPRINT entry. This is a testing-harness
       gotcha, not a backend bug. Low priority since the `check.sh` conformance harness uses direct
       redirects.
-- [ ] **v2-backend-check-ssc1c-wrapper-app-lit** (2026-07-09) —
-      `v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion`
-      currently fail before source generation because the ssc1c-generated
-      wrapper CoreIR contains an invalid application shape like
-      `(app (lit (int 1000)) (lam 0 ...))`; `run-ir` aborts with
-      `app: not a function: 1000`. Impact: those two ssc1c regression rows
-      cannot be used as source-backend parity gates until the lowering/wrapper
-      bug is fixed. Details and repro live in
-      `BUGS.md#v2-backend-check-ssc1c-wrapper-app-lit`.
+- **v2-backend-check-ssc1c-wrapper-app-lit** (2026-07-09) — ✓ Landed
+      (2026-07-09, `043039b61`): `v2/backend/check.sh bool` and
+      `v2/backend/check.sh mutual-recursion` are restored as source-backend
+      parity gates. Root cause: `indent2braces.py` converted
+      `while i < 1000 do` to unparenthesized `while i < 1000 { ... }`, while
+      ssc1c expects `while (cond) body`, producing app-lit CoreIR. The converter
+      now emits parenthesized while conditions; backend `bool`, `mutual-recursion`,
+      `tco`, `letrec`, and affected conformance are green.
 - [x] **v2-litdoc-js-jvm-backend-lanes** ✓ Landed 2026-07-09 (`782f07438`) —
       `tests/conformance/litdoc.ssc` now runs across INT/JS/JVM. Landed fixes:
       JS runtime-colliding top-level user `val`/`var` bindings are renamed,
