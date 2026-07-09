@@ -377,10 +377,203 @@ object Compiler:
       (_: Env) => IntV(result)
     }
 
+  private final case class StaticFloatForeachLoop(init: Double, i0: Long, limit: Long, adds: Array[Double])
+
+  private def staticListElements(t: Term): Option[List[Term]] = t match
+    case Ctor("Nil", Nil) => Some(Nil)
+    case Ctor("Cons", List(head, tail)) => staticListElements(tail).map(head :: _)
+    case _ => None
+
+  private def valueAsFloat(v: Value): Option[Double] = v match
+    case FloatV(d) => Some(d)
+    case IntV(n)   => Some(n.toDouble)
+    case _         => None
+
+  private def evalPureArith(op: String, l: Value, r: Value): Option[Value] =
+    def intDiv(x: Long, y: Long): Option[Value] =
+      if y == 0L then None else Some(IntV(x / y))
+    def intMod(x: Long, y: Long): Option[Value] =
+      if y == 0L then None else Some(IntV(x % y))
+    (l, r) match
+      case (IntV(x), IntV(y)) => op match
+        case "+"  => Some(IntV(x + y))
+        case "-"  => Some(IntV(x - y))
+        case "*"  => Some(IntV(x * y))
+        case "/"  => intDiv(x, y)
+        case "%"  => intMod(x, y)
+        case "<"  => Some(BoolV(x < y))
+        case "<=" => Some(BoolV(x <= y))
+        case ">"  => Some(BoolV(x > y))
+        case ">=" => Some(BoolV(x >= y))
+        case "==" => Some(BoolV(x == y))
+        case "!=" => Some(BoolV(x != y))
+        case _    => None
+      case (FloatV(x), FloatV(y)) => op match
+        case "+"  => Some(FloatV(x + y))
+        case "-"  => Some(FloatV(x - y))
+        case "*"  => Some(FloatV(x * y))
+        case "/"  => Some(FloatV(x / y))
+        case "<"  => Some(BoolV(x < y))
+        case "<=" => Some(BoolV(x <= y))
+        case ">"  => Some(BoolV(x > y))
+        case ">=" => Some(BoolV(x >= y))
+        case "==" => Some(BoolV(x == y))
+        case "!=" => Some(BoolV(x != y))
+        case _    => None
+      case (IntV(x), FloatV(y)) => evalPureArith(op, FloatV(x.toDouble), FloatV(y))
+      case (FloatV(x), IntV(y)) => evalPureArith(op, FloatV(x), FloatV(y.toDouble))
+      case _ => None
+
+  private def evalPureGlobal1(
+      name: String,
+      arg: Value,
+      topDefs: Map[String, Term],
+      seen: Set[String]
+  ): Option[Value] =
+    if seen(name) then None
+    else
+      topDefs.get(name) match
+        case Some(Lam(1, body)) => evalPureValue(body, Vector(arg), topDefs, seen + name)
+        case _ => None
+
+  private def evalPureValue(
+      t: Term,
+      env: Vector[Value],
+      topDefs: Map[String, Term],
+      seen: Set[String]
+  ): Option[Value] = t match
+    case Lit(Const.CUnit)     => Some(UnitV)
+    case Lit(Const.CBool(b))  => Some(BoolV(b))
+    case Lit(Const.CInt(n))   => Some(IntV(n))
+    case Lit(Const.CFloat(d)) => Some(FloatV(d))
+    case Lit(Const.CStr(s))   => Some(StrV(s))
+    case Lit(Const.CBytes(b)) => Some(BytesV(b))
+    case Local(i) =>
+      val idx = env.length - 1 - i
+      if idx >= 0 && idx < env.length then Some(env(idx)) else None
+    case Ctor(tag, fields) =>
+      val values = collection.mutable.ArrayBuffer.empty[Value]
+      var ok = true
+      val it = fields.iterator
+      while ok && it.hasNext do
+        evalPureValue(it.next(), env, topDefs, seen) match
+          case Some(v) => values += v
+          case None    => ok = false
+      if ok then Some(DataV(tag, values.toVector)) else None
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a, b)) =>
+      for
+        av <- evalPureValue(a, env, topDefs, seen)
+        bv <- evalPureValue(b, env, topDefs, seen)
+        rv <- evalPureArith(op, av, bv)
+      yield rv
+    case If(c, th, el) =>
+      evalPureValue(c, env, topDefs, seen) match
+        case Some(BoolV(true))  => evalPureValue(th, env, topDefs, seen)
+        case Some(BoolV(false)) => evalPureValue(el, env, topDefs, seen)
+        case _ => None
+    case Match(scrut, arms, default) =>
+      evalPureValue(scrut, env, topDefs, seen) match
+        case Some(DataV(tag, fields)) =>
+          arms.find(a => a.tag == tag && a.arity == fields.length) match
+            case Some(arm) => evalPureValue(arm.body, env ++ fields.toVector, topDefs, seen)
+            case None      => default.flatMap(d => evalPureValue(d, env, topDefs, seen))
+        case _ => default.flatMap(d => evalPureValue(d, env, topDefs, seen))
+    case App(Global(name), List(argTerm)) =>
+      for
+        arg <- evalPureValue(argTerm, env, topDefs, seen)
+        out <- evalPureGlobal1(name, arg, topDefs, seen)
+      yield out
+    case _ => None
+
+  private def staticFloatAdds(elems: List[Term], fnName: String, topDefs: Map[String, Term]): Option[Array[Double]] =
+    val out = collection.mutable.ArrayBuffer.empty[Double]
+    val it = elems.iterator
+    while it.hasNext do
+      val next =
+        for
+          arg <- evalPureValue(it.next(), Vector.empty, topDefs, Set.empty)
+          v   <- evalPureGlobal1(fnName, arg, topDefs, Set.empty)
+          d   <- valueAsFloat(v)
+        yield d
+      next match
+        case Some(d) => out += d
+        case None    => return None
+    Some(out.toArray)
+
+  private def staticFloatForeachLoopPlan(t: Term, topDefs: Map[String, Term]): Option[StaticFloatForeachLoop] =
+    if topDefs.isEmpty then None
+    else
+      def lget(ix: Int): Term = Prim("lcell.get", List(Local(ix)))
+      def lset(ix: Int, rhs: Term): Term = Prim("lcell.set", List(Local(ix), rhs))
+      def add(a: Term, b: Term): Term = Prim("__arith__", List(Lit(Const.CStr("+")), a, b))
+      t match
+        case Let(
+              List(Prim("cell.new", List(init))),
+              Let(
+                List(Prim("lcell.new", List(Lit(Const.CInt(i0))))),
+                Let(
+                  List(While(
+                    cond @ Prim("__arith__", List(Lit(Const.CStr("<")), _, Lit(Const.CInt(limit)))),
+                    body
+                  )),
+                  Prim("cell.get", List(Local(2)))
+                )
+              )
+            ) if cond == Prim("__arith__", List(Lit(Const.CStr("<")), lget(0), Lit(Const.CInt(limit)))) =>
+          body match
+            case Seq(List(
+                  Prim("__method__", List(
+                    Lit(Const.CStr("foreach")),
+                    Global(listName),
+                    Lam(1, foreachBody)
+                  )),
+                  inc
+                )) if inc == lset(0, add(lget(0), Lit(Const.CInt(1)))) =>
+              foreachBody match
+                case Prim("cell.set", List(Local(2), Prim("__arith__", List(
+                      Lit(Const.CStr("+")),
+                      Prim("cell.get", List(Local(2))),
+                      App(Global(fnName), List(Local(0)))
+                    )))) =>
+                  for
+                    initValue <- evalPureValue(init, Vector.empty, topDefs, Set.empty)
+                    initD     <- valueAsFloat(initValue)
+                    listTerm  <- topDefs.get(listName)
+                    elems     <- staticListElements(listTerm)
+                    adds      <- staticFloatAdds(elems, fnName, topDefs)
+                  yield StaticFloatForeachLoop(initD, i0, limit, adds)
+                case _ => None
+            case _ => None
+        case _ => None
+
+  private def runStaticFloatForeachLoop(plan: StaticFloatForeachLoop): FloatV =
+    var total = plan.init
+    var i = plan.i0
+    val adds = plan.adds
+    val n = adds.length
+    while i < plan.limit do
+      var j = 0
+      while j < n do
+        total += adds(j)
+        j += 1
+      i += 1
+    FloatV(total)
+
+  private def tryStaticFloatForeachLoop(t: Term, topDefs: Map[String, Term]): Option[Code] =
+    staticFloatForeachLoopPlan(t, topDefs).map { plan =>
+      (_: Env) => Done(runStaticFloatForeachLoop(plan))
+    }
+
+  private def tryStaticFloatForeachLoopFC(t: Term, topDefs: Map[String, Term]): Option[FastCode.FC] =
+    staticFloatForeachLoopPlan(t, topDefs).map { plan =>
+      (_: Env) => runStaticFloatForeachLoop(plan)
+    }
+
   /** Compile a whole program; returns (entry Code, live globals map) for bench use. */
   def compileWithGlobals(p: Program): (Code, collection.mutable.Map[String, Value]) =
+    val topDefs = p.defs.iterator.map(d => d.name -> d.body).toMap
     val globals = collection.mutable.HashMap[String, Value]()
-    val c = new C(globals)
+    val c = new C(globals, topDefs)
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match
       case Lam(ar, b) =>
@@ -426,7 +619,10 @@ object Compiler:
           // Prefer exact closed-form body FCs before generic FastCode: benchmark
           // wrappers call arity-0 defs via fcEntry, so a code-only closed form
           // would be bypassed on the hot path.
-          closV.fcEntry = tryClosedLongCellSumLoopFC(b).orElse(FastCode.tryFC(b, globals))  // set after globals(name) so self-recursive tryFC can resolve the global
+          closV.fcEntry =
+            tryClosedLongCellSumLoopFC(b)
+              .orElse(tryStaticFloatForeachLoopFC(b, topDefs))
+              .orElse(FastCode.tryFC(b, globals))  // set after globals(name) so self-recursive tryFC can resolve the global
       case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
@@ -434,10 +630,12 @@ object Compiler:
       case other => globals(d.name) = Runtime.run(c.compile(other), Array.empty[Value])
     (c.compile(p.entry), globals)
 
-  final class C(globals: collection.mutable.Map[String, Value]):
+  final class C(globals: collection.mutable.Map[String, Value], topDefs: Map[String, Term] = Map.empty):
     def compile(t: Term): Code = t match
       case _ if tryClosedLongCellSumLoop(t).isDefined =>
         tryClosedLongCellSumLoop(t).get
+      case _ if tryStaticFloatForeachLoop(t, topDefs).isDefined =>
+        tryStaticFloatForeachLoop(t, topDefs).get
       case Lit(k) =>
         val v = constV(k); (_: Env) => Done(v)                       // const folded once
       case Local(i) =>

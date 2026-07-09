@@ -471,6 +471,51 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(math.abs(result - 1914159.0) < 0.00001)
   }
 
+  test("v2 VM static float foreach loop keeps impure global function on fallback") {
+    import Const.*, Term.*
+
+    def add(a: Term, b: Term): Term = Prim("__arith__", List(Lit(CStr("+")), a, b))
+    def lget(t: Term): Term = Prim("lcell.get", List(t))
+    def lset(t: Term, rhs: Term): Term = Prim("lcell.set", List(t, rhs))
+    def cget(i: Int): Term = Prim("cell.get", List(Local(i)))
+    def cset(i: Int, rhs: Term): Term = Prim("cell.set", List(Local(i), rhs))
+
+    val shapes =
+      Ctor("Cons", List(Ctor("S", Nil), Ctor("Nil", Nil)))
+    val area =
+      Lam(1, Seq(List(
+        lset(Global("counter"), add(lget(Global("counter")), Lit(CInt(1)))),
+        Lit(CFloat(1.0)))))
+    val foreachBody =
+      cset(2, add(cget(2), App(Global("area"), List(Local(0)))))
+    val loopBody =
+      Seq(List(
+        Prim("__method__", List(Lit(CStr("foreach")), Global("shapes"), Lam(1, foreachBody))),
+        lset(Local(0), add(lget(Local(0)), Lit(CInt(1))))))
+    val workload =
+      Lam(0,
+        Let(List(Prim("cell.new", List(Lit(CFloat(0.0))))),
+          Let(List(Prim("lcell.new", List(Lit(CInt(0))))),
+            Let(List(While(
+              Prim("__arith__", List(Lit(CStr("<")), lget(Local(0)), Lit(CInt(3)))),
+              loopBody)),
+              cget(2)))))
+
+    val prog = Program(
+      List(
+        Def("counter", Prim("lcell.new", List(Lit(CInt(0))))),
+        Def("area", area),
+        Def("shapes", shapes),
+        Def("workload", workload)),
+      Lit(CUnit))
+
+    val (_, globals) = Compiler.compileWithGlobals(prog)
+    val workloadClos = globals("workload").asInstanceOf[Value.ClosV]
+
+    assert(Runtime.run(workloadClos.code, workloadClos.env) == Value.FloatV(3.0))
+    assert(globals("counter").asInstanceOf[Value.LongCellV].v == 3L)
+  }
+
   test("v2 VM foreach fast path keeps escaping lambda env fresh") {
     import Const.*, Term.*
 
