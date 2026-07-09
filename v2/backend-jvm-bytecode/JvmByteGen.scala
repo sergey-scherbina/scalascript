@@ -63,10 +63,17 @@ object JvmByteGen:
     val g = new Gen(cw)
 
     // pre-register def methods FIRST so entry and def bodies alike can call
-    // them directly (invokestatic) — names issued once, no re-issuing
-    p.defs.foreach { d =>
+    // them directly (invokestatic) — names issued once, no re-issuing.
+    // Shadowed defs (same name repeated): the LAST one wins (VM registration
+    // order semantics) and only IT gets a method — emitting both would
+    // produce a duplicate method name.
+    val lastDefs = p.defs.zipWithIndex
+      .collect { case (d, i) if d.body.isInstanceOf[Term.Lam] => (d.name, i) }
+      .groupBy(_._1).view.mapValues(_.map(_._2).max).toMap
+    p.defs.zipWithIndex.foreach { (d, i) =>
       d.body match
-        case Term.Lam(ar, _) => g.defMethods(d.name) = (g.freshLam(), ar)
+        case Term.Lam(ar, _) if lastDefs.get(d.name).contains(i) =>
+          g.defMethods(d.name) = (g.freshLam(), ar)
         case _ => ()
     }
 
@@ -77,9 +84,9 @@ object JvmByteGen:
     // VM-compiled version in Emit.globalsRef; value defs stay VM-compiled)
     val installMv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "install", "()V", null, null)
     installMv.visitCode()
-    p.defs.foreach { d =>
+    p.defs.zipWithIndex.foreach { (d, i) =>
       d.body match
-        case Term.Lam(ar, body) =>
+        case Term.Lam(ar, body) if lastDefs.get(d.name).contains(i) =>
           val (m, _) = g.defMethods(d.name)
           g.pending.enqueue(Pending(m, body, selfGlobal = d.name, selfArity = ar))
           installMv.visitLdcInsn(d.name)
@@ -179,6 +186,8 @@ object JvmByteGen:
         emitLamFnRef(ctx, m)
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
+      case Term.Seq(Nil) =>
+        call0(mv, "unitV")
       case Term.Seq(ts) =>
         ts.zipWithIndex.foreach { (s, i) =>
           val last = i == ts.length - 1
@@ -266,10 +275,19 @@ object JvmByteGen:
         mv.visitInsn(Opcodes.ACONST_NULL)
         mv.visitTypeInsn(Opcodes.CHECKCAST, VAL)
       case Term.App(Term.Global(gname), args) if ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
-        // direct call to a compiled top-level def: invokestatic, no lookup
         val (m, _) = ctx.g.defMethods(gname)
-        genArray(args, ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false)
+        if tail then
+          // MUTUAL-TAIL: return a Bounce instead of invoking — the caller's
+          // consumer unrolls it in a loop, so mutual recursion runs at
+          // constant stack. (Self-tail is handled by the GOTO arm above.)
+          emitLamFnRef(ctx, m)
+          genArray(args, ctx)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "bounce", s"(L$LAMFN;[L$VAL;)L$VAL;", false)
+        else
+          // direct call to a compiled top-level def: invokestatic + unroll
+          genArray(args, ctx)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "unroll", s"(L$VAL;)L$VAL;", false)
       case Term.App(f, args) =>
         gen(f, ctx); genArray(args, ctx); callApp(mv)
       case Term.Ctor(tag, fields) =>
@@ -368,4 +386,4 @@ object JvmByteGen:
   def runProgram(bytes: Array[Byte]): Value =
     val cls = new GenLoader(getClass.getClassLoader).define("ssc.gen.Entry", bytes)
     cls.getMethod("install").invoke(null)
-    cls.getMethod("entry").invoke(null).asInstanceOf[Value]
+    ssc.Emit.unroll(cls.getMethod("entry").invoke(null).asInstanceOf[Value])

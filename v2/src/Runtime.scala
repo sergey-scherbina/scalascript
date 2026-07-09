@@ -540,7 +540,7 @@ object Compiler:
                 if op == "__arith__" then a0 match
                   case Lit(Const.CStr(fixedOp)) =>
                     val ac1 = compile(a1); val ac2 = compile(a2)
-                    (env: Env) => Done(Prims.arithOp(fixedOp, Runtime.value(ac1, env), Runtime.value(ac2, env)))
+                    (env: Env) => Done(Prims.arithFast(fixedOp, Runtime.value(ac1, env), Runtime.value(ac2, env)))
                   case _ =>
                     val fn = Prims.resolve(op); val acs = args.map(compile)
                     (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
@@ -745,7 +745,7 @@ object FastCode:
   def tryFCValue(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
       tryFCValue(a0, globals).flatMap { fc0 => tryFCValue(a1, globals).map { fc1 =>
-        (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+        (env: Env) => Prims.arithFast(op, fc0(env), fc1(env)): Value
       } }
     case _ => tryFC(t, globals)
 
@@ -828,7 +828,7 @@ object FastCode:
           case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
             resolveArg(a0).flatMap { fc0 =>
               resolveArg(a1).map { fc1 =>
-                (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+                (env: Env) => Prims.arithFast(op, fc0(env), fc1(env)): Value
               }
             }
           case _ => tryFCValue(body, globals)
@@ -851,7 +851,7 @@ object FastCode:
       flcOpt orElse
         // Non-numeric ops (++, string concat, etc.) — fall through to general dispatch
         tryFC(a0, globals).flatMap { fc0 => tryFC(a1, globals).map { fc1 =>
-          (env: Env) => Prims.arithOp(op, fc0(env), fc1(env)): Value
+          (env: Env) => Prims.arithFast(op, fc0(env), fc1(env)): Value
         } }
     // __method__("foreach", list, lambda) fast path: traverse Cons/Nil list without
     // materialising a Vector (avoids unlist() O(n) alloc per call).
@@ -1550,7 +1550,10 @@ object Prims:
     // Keep this as a thin wrapper: the literal-op fast paths call `arithOp`
     // directly, so duplicating cases here makes literal and non-literal ops
     // diverge when ANF or other rewrites change the shape of the op argument.
-    case "__arith__" => a => arithOp(str(a, 0), a(1), a(2))
+    // Typed fast lambda at the resolve seam: the common numeric cases inline
+    // here (small, monomorphic, JIT-friendly); everything else defers to the
+    // big unified arithOp. Deleting this in a2985d911 cost 25x on fib.
+    case "__arith__" => a => arithFast(str(a, 0), a(1), a(2))
     // __unary__(op, val): type-dispatched unary operators
     case "__unary__" => a =>
       val op = str(a, 0)
@@ -2179,6 +2182,38 @@ object Prims:
   private val charComparisonOps: Set[String] =
     Set("<", "<=", ">", ">=", "==", "!=")
 
+  /** COMPACT numeric arith for hot seams (FastCode per-op lambdas, the
+   *  bytecode lane's Emit.arith, resolve "__arith__"). Small enough for the
+   *  JIT to inline into compiled loops — the unified arithOp below is a
+   *  megamethod that stopped inlining after a2985d911 (fib 226ms -> 6.9s).
+   *  Handles ONLY the common numeric pairs/ops; everything else defers. */
+  def arithFast(op: String, l: Value, r: Value): Value =
+    if op == "->" then DataV("Tuple2", collection.immutable.ArraySeq(l, r))
+    else arithFastTyped(op, l, r)
+  private def arithFastTyped(op: String, l: Value, r: Value): Value = l match
+    case IntV(x) => r match
+      case IntV(y) => op match
+        case "+"  => IntV(x + y);  case "-"  => IntV(x - y);  case "*"  => IntV(x * y)
+        case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y)
+        case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
+        case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
+        case "/"  => IntV(x / y);  case "%"  => IntV(x % y)
+        case _    => arithOp(op, l, r)
+      case FloatV(y) => op match
+        case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y); case "/" => FloatV(x / y)
+        case _   => arithOp(op, l, r)
+      case _ => arithOp(op, l, r)
+    case FloatV(x) => r match
+      case FloatV(y) => op match
+        case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y); case "/" => FloatV(x / y)
+        case "<" => BoolV(x < y);  case "<=" => BoolV(x <= y); case ">" => BoolV(x > y); case ">=" => BoolV(x >= y)
+        case _   => arithOp(op, l, r)
+      case IntV(y) => op match
+        case "+" => FloatV(x + y); case "-" => FloatV(x - y); case "*" => FloatV(x * y); case "/" => FloatV(x / y)
+        case _   => arithOp(op, l, r)
+      case _ => arithOp(op, l, r)
+    case _ => arithOp(op, l, r)
+
   def arithOp(op: String, l: Value, r: Value): Value = (l, r) match
     case _ if op == "->" =>
       DataV("Tuple2", collection.immutable.ArraySeq(l, r))
@@ -2224,6 +2259,38 @@ object Prims:
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case "<"  => BoolV(x < y); case "<=" => BoolV(x <= y); case ">"  => BoolV(x > y); case ">=" => BoolV(x >= y)
       case _ => sys.error(s"__arith__: unknown op $op for Float+Int")
+    // EXPRESSION-position effects: an un-handled Op OPERAND lifts over the
+    // arithmetic — `acc + Bump.tick().toLong` runs the handler first, then
+    // the op applies to the resumed value (mirrors the __method__ lift).
+    case (DataV("Op", IndexedSeq(lb, arg, k)), _) =>
+      val kc = k.asInstanceOf[ClosV]
+      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(arithOp(op, resumed, r))
+      })
+      DataV("Op", Vector(lb, arg, k2))
+    case (_, DataV("Op", IndexedSeq(rb, arg, k))) =>
+      val kc = k.asInstanceOf[ClosV]
+      val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(arithOp(op, l, resumed))
+      })
+      DataV("Op", Vector(rb, arg, k2))
+    case (DataV("Cons" | "Nil", _), _) if op == "-" =>
+      listOf(unlistPub(l).filterNot(_ == r))
+    // Map + (k -> v): copy-on-write over the mutable-HashMap map repr so the
+    // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
+    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+      val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
+      nm(k) = v
+      ForeignV(nm)
+    // Char semantics: bridge char literals are Int codepoints, while chars
+    // extracted from strings (charAt/forall) are 1-char strings — comparisons
+    // between the two compare codepoints (c >= 'a' in parser predicates).
+    case (StrV(s), IntV(n)) if s.length == 1 && charComparisonOps.contains(op) =>
+      arithOp(op, IntV(s.charAt(0).toLong), IntV(n))
+    case (IntV(n), StrV(s)) if s.length == 1 && charComparisonOps.contains(op) =>
+      arithOp(op, IntV(n), IntV(s.charAt(0).toLong))
     case (StrV(x), StrV(y)) => op match
       case "++" | "+" => StrV(x + y)
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)

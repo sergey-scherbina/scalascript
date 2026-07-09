@@ -25,7 +25,7 @@ object RunV2:
    *  (doc-only examples must stay runnable no-ops) — but silently doing
    *  nothing is a debugging trap, so say it out loud on the run path. */
   private def warnIfDocOnly(file: String): Unit =
-    if _root_.ssc.bridge.FrontendBridge.lastExtractDocOnly then
+    if _root_.ssc.bridge.FrontendBridge.lastTopDocOnly then
       System.err.println(
         s"note: $file contains no runnable code (markdown document without ```scalascript fences); nothing to run")
 
@@ -45,7 +45,11 @@ object RunV2:
       val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
       _root_.ssc.Emit.globalsRef = globals
       val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
-      _root_.ssc.bytecode.JvmByteGen.runProgram(bytes) match
+      val res =
+        try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
+        catch case e: java.lang.reflect.InvocationTargetException =>
+          throw Option(e.getCause).getOrElse(e)   // surface the real failure
+      res match
         case _root_.ssc.Value.UnitV => ()
         case other                  => println(_root_.ssc.Show.show(other))
 

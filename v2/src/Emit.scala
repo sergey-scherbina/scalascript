@@ -12,7 +12,7 @@ object Emit:
   private def fn(op: String) = fnCache.computeIfAbsent(op, o => Prims.resolve(o))
 
   /** Direct arithmetic — no resolve, no List, no StrV boxing of the op. */
-  def arith(op: String, a: Value, b: Value): Value = Prims.arithOp(op, a, b)
+  def arith(op: String, a: Value, b: Value): Value = Prims.arithFast(op, a, b)
 
   def prim0(op: String): Value = fn(op)(Nil)
   def prim1(op: String, a: Value): Value = fn(op)(a :: Nil)
@@ -44,7 +44,7 @@ object Emit:
    *  VM (Runtime.run / callClos) is by construction — the ClosV's code just
    *  forwards to the compiled static method. */
   def clos(arity: Int, fn: LamFn, captured: Array[Value]): Value =
-    Value.ClosV(captured, arity, env => Done(fn.call(env)))
+    Value.ClosV(captured, arity, env => Done(unroll(fn.call(env))))
 
   /** LetRec: create the closures, extend env, tie the cyclic frame (VM semantics). */
   def letrec(arities: Array[Int], fns: Array[LamFn], env: Array[Value]): Array[Value] =
@@ -60,6 +60,20 @@ object Emit:
       cs(i).asInstanceOf[Value.ClosV].env = envP
       i += 1
     envP
+
+  /** Mutual-tail trampoline: a TAIL call to another compiled def RETURNS a
+   *  Bounce instead of invoking (constant stack); every consumer of a compiled
+   *  method's result unrolls bounces in a loop. Wrapped in ForeignV so the
+   *  kernel Value ADT stays untouched; Bounce is private to the lane, so no
+   *  user value can collide with it. */
+  final class Bounce(val fn: LamFn, val args: Array[Value])
+  def bounce(fn: LamFn, args: Array[Value]): Value = Value.ForeignV(new Bounce(fn, args))
+  def unroll(v0: Value): Value =
+    var v = v0
+    while v.isInstanceOf[Value.ForeignV] && v.asInstanceOf[Value.ForeignV].h.isInstanceOf[Bounce] do
+      val b = v.asInstanceOf[Value.ForeignV].h.asInstanceOf[Bounce]
+      v = b.fn.call(b.args)
+    v
 
   /** Self-tail-call frame rebind: the frame is envP ++ args with envP fixed —
    *  clone and overwrite the arg suffix (the array may be aliased by captured

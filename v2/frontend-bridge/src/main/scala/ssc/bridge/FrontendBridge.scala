@@ -202,6 +202,9 @@ object FrontendBridge:
    *  source is a fence-less markdown document (doc-only). Run paths use it
    *  to print a note instead of a silent no-op. */
   @volatile var lastExtractDocOnly: Boolean = false
+  /** Doc-only verdict of the TOP-LEVEL file of the last convertSource (import
+   *  extractions must not clobber it — the note is about the user's file). */
+  @volatile var lastTopDocOnly: Boolean = false
 
   /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
   private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
@@ -714,7 +717,9 @@ object FrontendBridge:
     // v1 semantics: ALL scalascript fences of the entry file run in document
     // order (first-fence-only silently dropped every later section — the T4.4
     // output-equality suite exposed it on multi-section conformance files).
+    lastExtractDocOnly = false
     val mainCode = extractCode(src, allFences = true)
+    lastTopDocOnly = lastExtractDocOnly
     if prelude.isEmpty then mainCode else s"$prelude\n$mainCode"
 
   /** Resolve a std-import path like `std/dsl/ast.ssc` to an absolute file.
