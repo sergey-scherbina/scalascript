@@ -23,8 +23,11 @@ object RustBackend:
   // Rust names of global Lam defs — used in genLam/genLetRec to choose
   // cell-based vs direct access for forward-ref safety.
   private var topLamDefNames: Set[String] = Set.empty
+  private var longGlobalDefs: Map[String, Int] = Map.empty
 
   def generate(p: Program): String =
+    _cnt = 0
+    longGlobalDefs = Map.empty
     val sb = new StringBuilder
     sb ++= RUNTIME_HEADER
     sb ++= "\n"
@@ -34,6 +37,28 @@ object RustBackend:
       case Def(n, Lam(_, _)) => rustDefName(n)
     }.toSet
 
+    val lamDefs = p.defs.collect { case d @ Def(_, Lam(_, _)) => d }
+    val globalLambdaArities: Map[String, Int] = lamDefs.collect {
+      case Def(n, Lam(arity, _)) => n -> arity
+    }.toMap
+
+    def inferLongGlobalDefs(): Map[String, Int] =
+      var current = globalLambdaArities
+      var changed = true
+      while changed do
+        longGlobalDefs = current
+        val next = lamDefs.flatMap {
+          case Def(n, Lam(arity, body)) =>
+            val params = (0 until arity).map(k => s"p${k}_long").toList
+            if isLongTyped(body, params, params.toSet) then Some(n -> arity) else None
+          case _ => None
+        }.toMap
+        changed = next != current
+        current = next
+      current
+
+    longGlobalDefs = inferLongGlobalDefs()
+
     sb ++= "fn ssc_run() {\n"
 
     val generatedRawNames = p.defs.map(_.name).toSet
@@ -42,6 +67,18 @@ object RustBackend:
       sb ++= "    let g_print: V = V::Fn(Rc::new(move |args: Vec<V>| { for a in args { v_print(a); } V::Unit }));\n"
     if allRefs("println") && !generatedRawNames("println") then
       sb ++= "    let g_println: V = V::Fn(Rc::new(move |args: Vec<V>| { for a in args { v_print(a); } println!(); V::Unit }));\n"
+
+    for d <- lamDefs do
+      d.body match
+        case Lam(arity, body) if longGlobalDefs.get(d.name).contains(arity) =>
+          val n = rustDefName(d.name)
+          val params = (0 until arity).map(k => s"p${k}_${n}_long")
+          val paramDecls = params.map(p => s"$p: i64").mkString(", ")
+          val bodyExpr = genIntExpr(body, params.toList, 2, params.toSet)
+          sb ++= s"    fn ${n}_long($paramDecls) -> i64 {\n"
+          sb ++= s"        $bodyExpr\n"
+          sb ++= s"    }\n"
+        case _ => ()
 
     // Phase 1: forward-ref cells for all Lam defs (declared before any closure)
     for d <- p.defs do d.body match
@@ -200,12 +237,19 @@ object RustBackend:
 
       // ── Application ──────────────────────────────────────────────────────
       case App(fn, args) =>
-        val fnExpr = genExpr(fn, ctx, indent, longVars)
-        if args.isEmpty then
-          s"call_fn($fnExpr, vec![])"
-        else
-          val argExprs = args.map(a => genExpr(a, ctx, indent, longVars)).mkString(", ")
-          s"call_fn($fnExpr, vec![$argExprs])"
+        fn match
+          case Global(name)
+              if longGlobalDefs.get(name).contains(args.length) &&
+                 args.forall(isLongTyped(_, ctx, longVars)) =>
+            val argExprs = args.map(a => genIntExpr(a, ctx, indent, longVars)).mkString(", ")
+            s"V::Int(${rustDefName(name)}_long($argExprs))"
+          case _ =>
+            val fnExpr = genExpr(fn, ctx, indent, longVars)
+            if args.isEmpty then
+              s"call_fn($fnExpr, vec![])"
+            else
+              val argExprs = args.map(a => genExpr(a, ctx, indent, longVars)).mkString(", ")
+              s"call_fn($fnExpr, vec![$argExprs])"
 
       // ── Let ──────────────────────────────────────────────────────────────
       case Let(rhs, body) =>
@@ -294,6 +338,42 @@ object RustBackend:
     case Prim("i.add", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_add(${genIntExpr(b,ctx,indent,longVars)})"
     case Prim("i.sub", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_sub(${genIntExpr(b,ctx,indent,longVars)})"
     case Prim("i.mul", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}).wrapping_mul(${genIntExpr(b,ctx,indent,longVars)})"
+    case App(Global(name), args)
+         if longGlobalDefs.get(name).contains(args.length) &&
+            args.forall(isLongTyped(_, ctx, longVars)) =>
+      val argExprs = args.map(a => genIntExpr(a, ctx, indent, longVars)).mkString(", ")
+      s"${rustDefName(name)}_long($argExprs)"
+    case If(c, th, el)
+         if isBoolTyped(c, ctx, longVars) &&
+            isLongTyped(th, ctx, longVars) &&
+            isLongTyped(el, ctx, longVars) =>
+      val pad = "    " * indent
+      val cExpr = genBoolExpr(c, ctx, indent, longVars)
+      val tExpr = genIntExpr(th, ctx, indent + 1, longVars)
+      val eExpr = genIntExpr(el, ctx, indent + 1, longVars)
+      s"if $cExpr {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
+    case Prim("__arith__", List(Lit(CStr(op)), a, b))
+         if longArithOps.contains(op) &&
+            isLongTyped(a, ctx, longVars) &&
+            isLongTyped(b, ctx, longVars) =>
+      val l = genIntExpr(a, ctx, indent, longVars)
+      val r = genIntExpr(b, ctx, indent, longVars)
+      op match
+        case "+"   => s"($l).wrapping_add($r)"
+        case "-"   => s"($l).wrapping_sub($r)"
+        case "*"   => s"($l).wrapping_mul($r)"
+        case "/"   => s"($l) / ($r)"
+        case "%"   => s"($l) % ($r)"
+        case "&"   => s"($l) & ($r)"
+        case "|"   => s"($l) | ($r)"
+        case "^"   => s"($l) ^ ($r)"
+        case "<<"  => s"($l) << ($r)"
+        case ">>"  => s"($l) >> ($r)"
+        case ">>>" => s"(($l as u64) >> ($r as u64)) as i64"
+        case _     => s"as_int(${genExpr(t, ctx, indent, longVars)})"
+    case Prim("__method__", List(Lit(CStr(method)), recv))
+         if (method == "toLong" || method == "toInt") && isLongTyped(recv, ctx, longVars) =>
+      genIntExpr(recv, ctx, indent, longVars)
     case _ => s"as_int(${genExpr(t, ctx, indent, longVars)})"
 
   // Try to emit a raw bool expression without boxing.
@@ -303,6 +383,29 @@ object RustBackend:
     case Prim("i.gt", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) > (${genIntExpr(b,ctx,indent,longVars)})"
     case Prim("i.ge", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) >= (${genIntExpr(b,ctx,indent,longVars)})"
     case Prim("i.eq", List(a, b)) => s"(${genIntExpr(a,ctx,indent,longVars)}) == (${genIntExpr(b,ctx,indent,longVars)})"
+    case If(c, th, el)
+         if isBoolTyped(c, ctx, longVars) &&
+            isBoolTyped(th, ctx, longVars) &&
+            isBoolTyped(el, ctx, longVars) =>
+      val pad = "    " * indent
+      val cExpr = genBoolExpr(c, ctx, indent, longVars)
+      val tExpr = genBoolExpr(th, ctx, indent + 1, longVars)
+      val eExpr = genBoolExpr(el, ctx, indent + 1, longVars)
+      s"if $cExpr {\n${pad}    $tExpr\n${pad}} else {\n${pad}    $eExpr\n${pad}}"
+    case Prim("__arith__", List(Lit(CStr(op)), a, b))
+         if longCmpOps.contains(op) &&
+            isLongTyped(a, ctx, longVars) &&
+            isLongTyped(b, ctx, longVars) =>
+      val l = genIntExpr(a, ctx, indent, longVars)
+      val r = genIntExpr(b, ctx, indent, longVars)
+      op match
+        case "==" => s"($l) == ($r)"
+        case "!=" => s"($l) != ($r)"
+        case "<"  => s"($l) < ($r)"
+        case "<=" => s"($l) <= ($r)"
+        case ">"  => s"($l) > ($r)"
+        case ">=" => s"($l) >= ($r)"
+        case _    => s"as_bool(${genExpr(t, ctx, indent, longVars)})"
     case Prim("not", List(a))      => s"!(${genBoolExpr(a, ctx, indent, longVars)})"
     case _ => s"as_bool(${genExpr(t, ctx, indent, longVars)})"
 
@@ -329,6 +432,40 @@ object RustBackend:
       // Default: emit as expression statement (the ; discards the V value)
       case _ =>
         s"${pad}${genExpr(t, ctx, indent, longVars)};"
+
+  private val longArithOps: Set[String] = Set("+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>")
+  private val longCmpOps: Set[String] = Set("==", "!=", "<", "<=", ">", ">=")
+
+  private def isLongTyped(t: Term, ctx: List[String], longVars: Set[String]): Boolean = t match
+    case Lit(CInt(_)) => true
+    case Local(i) =>
+      val nm = localName(ctx, i)
+      longVars.contains(nm)
+    case Prim("lcell.get", List(Local(i))) =>
+      val nm = localName(ctx, i)
+      longVars.contains(nm)
+    case App(Global(name), args) if longGlobalDefs.get(name).contains(args.length) =>
+      args.forall(isLongTyped(_, ctx, longVars))
+    case If(c, th, el) =>
+      isBoolTyped(c, ctx, longVars) &&
+      isLongTyped(th, ctx, longVars) &&
+      isLongTyped(el, ctx, longVars)
+    case Prim("__arith__", List(Lit(CStr(op)), l, r)) =>
+      longArithOps.contains(op) && isLongTyped(l, ctx, longVars) && isLongTyped(r, ctx, longVars)
+    case Prim("__method__", List(Lit(CStr(method)), recv)) if method == "toLong" || method == "toInt" =>
+      isLongTyped(recv, ctx, longVars)
+    case _ => false
+
+  private def isBoolTyped(t: Term, ctx: List[String], longVars: Set[String]): Boolean = t match
+    case Lit(CBool(_)) => true
+    case If(c, th, el) =>
+      isBoolTyped(c, ctx, longVars) &&
+      isBoolTyped(th, ctx, longVars) &&
+      isBoolTyped(el, ctx, longVars)
+    case Prim("__arith__", List(Lit(CStr(op)), l, r)) =>
+      longCmpOps.contains(op) && isLongTyped(l, ctx, longVars) && isLongTyped(r, ctx, longVars)
+    case Prim("not", List(a)) => isBoolTyped(a, ctx, longVars)
+    case _ => false
 
   // ── Lambda generation ─────────────────────────────────────────────────────
   // genLam uses per-lambda unique tag for capture names so that:

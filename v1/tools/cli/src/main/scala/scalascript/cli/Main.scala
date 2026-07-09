@@ -7599,6 +7599,44 @@ final class BenchCmd extends CliCommand:
       scala.util.Try(os.proc("rustc", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0)
         .getOrElse(false)
 
+    def patchV2RustBenchAntiFold(src: String): String =
+      val zeroArgLongFnRe = """\bfn\s+[A-Za-z_]\w*_long\s*\(\s*\)\s*->\s*i64\s*\{""".r
+      val firstIntLitRe   = """\b\d+(?:i(?:8|16|32|64))?\b""".r
+      val starts = zeroArgLongFnRe.findAllMatchIn(src).map(_.start).toList
+      if starts.isEmpty then src
+      else
+        def bodyOf(fnStart: Int): Option[(Int, Int)] =
+          val ob = src.indexOf('{', fnStart)
+          if ob < 0 then None
+          else
+            var depth = 1
+            var k = ob + 1
+            while k < src.length && depth > 0 do
+              src.charAt(k) match
+                case '{' => depth += 1
+                case '}' => depth -= 1
+                case _   => ()
+              k += 1
+            if depth == 0 then Some((ob + 1, k - 1)) else None
+
+        def patchBody(body: String): String =
+          if body.contains("std::hint::black_box(") then body
+          else
+            firstIntLitRe.findFirstMatchIn(body) match
+              case Some(m) =>
+                body.substring(0, m.start) +
+                  "std::hint::black_box(" + m.matched + ")" +
+                  body.substring(m.end)
+              case None => body
+
+        var out = src
+        for fnStart <- starts.sortBy(-_) do
+          bodyOf(fnStart) match
+            case Some((bs, be)) =>
+              out = out.substring(0, bs) + patchBody(out.substring(bs, be)) + out.substring(be)
+            case None => ()
+        out
+
     def timeV2Rust(): Option[Double] =
       if !rustcAvailable || !JvmBytecode.scalaCliAvailable then None
       else
@@ -7612,7 +7650,7 @@ final class BenchCmd extends CliCommand:
               val tmpDir = os.temp.dir(prefix = "ssc-bench-v2-rust-", deleteOnExit = true)
               val rs     = tmpDir / "main.rs"
               val bin    = tmpDir / "bench-bin"
-              os.write.over(rs, generated)
+              os.write.over(rs, patchV2RustBenchAntiFold(generated))
               val build = os.proc("rustc", "-O", rs.toString, "-o", bin.toString)
                 .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
               if build.exitCode != 0 then
