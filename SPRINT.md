@@ -666,8 +666,20 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
             not by renaming the fixture. Rejected shortcut: fixture-only rename
             (`val litDoc = ...`) would green this case while leaving the known
             `jsgen-toplevel-name-vs-preamble` production class open.
+            Implementation direction: reserve JS runtime top-level names and
+            rename colliding user top-level `val`/`var` bindings plus their
+            normal name references. This slice intentionally targets top-level
+            collision repros; expand lexical shadow tracking only if focused
+            tests expose a local-shadow regression.
       - [ ] Fix the JVM generator/lowering for mapped-string `mkString()` so the
             generated Scala compiles and prints the expected litdoc line.
+            Investigation update: `emit-scala` also emits `def doc(args: Any*)`
+            from `JvmRuntimePreamble`, then `val doc = parseDoc(md)`. The
+            observed `StringOps.apply` compile error is likely the same
+            preamble/user-name collision surfaced later in type inference, so
+            first fix JVM by omitting the `doc` helper when the module owns the
+            top-level `doc` name; revisit `routeMkStringThroughShow` only if the
+            direct JVM repro still fails afterward.
       - [ ] Remove the temporary `backends: [int]` restriction from
             `tests/conformance/litdoc.ssc` and run
             `tests/conformance/run.sh --only 'litdoc' --no-memo` with all
