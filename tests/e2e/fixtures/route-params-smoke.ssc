@@ -1,0 +1,11 @@
+---
+name: route-params-smoke-fixture
+---
+
+[route, serve, Response, Request](std/http.ssc)
+
+```scalascript
+route("GET", "/mid/:x/tail") { req => Response(200, Map(), "mid=" + req.params("x")) }
+route("GET", "/end/:x") { req => Response(200, Map(), "end=" + req.params("x")) }
+serve(8797)
+```

@@ -3115,3 +3115,57 @@ structural/plugin dispatch (which already handles
 OR the v1↔v2 bridge should tag native results by their declared name
 regardless of whether that case class was locally registered.
 Found+minimized 2026-07-09 by busi (fable).
+
+## v2-route-params-stub — req.params(name) always returns Stub on v2
+
+**Status:** OPEN (v2 VM only; v1 correct — guarded by
+tests/e2e/route-params-v2-smoke.sh)
+
+Any HTTP route registered with a `:name` dynamic path segment
+(`route("GET", "/foo/:id/bar")`) works fine on v1: `req.params("id")`
+resolves to the real matched segment. On v2, `req.params("id")` (and any
+other `:name`) silently returns `DataV("Stub", ...)` instead — no crash, no
+warning, just a wrong value flowing into business logic. Position doesn't
+matter: a MID-position segment (`/mid/:x/tail`) and a TRAILING one
+(`/end/:x`) both reproduce identically. Repro:
+`tests/e2e/route-params-v2-smoke.sh` (fixture:
+tests/e2e/fixtures/route-params-smoke.ssc) — prints `--v1: mid=hello |
+end=hello` (correct) vs `--v2: mid=Stub | end=Stub` (broken).
+
+Found 2026-07-09 running busi's full JDG money-loop simulator cycle
+(`make v2-sims`). This is why 2 of busi's 3 KSeF checks and its tax
+e-Deklaracje check fail on --v2 — every one of those routes reads
+`req.params("ref")` to look up an object by ID
+(`/api/online/Invoice/Get/:ref`, `/e-deklaracje/status/:ref`,
+`/e-deklaracje/upo/:ref`) and gets "Stub" instead, so the lookup misses and
+the handler falls through to a 404-shaped "no such X" response — easy to
+misdiagnose as an application bug rather than a routing one. NOTE: busi's
+bank simulator (PSD2/AIS) ALSO hits this (its `:id`-authorisations route
+prints `id=[Stub]` too, confirmed by instrumenting it directly) but its
+Makefile check (`v2-bank-pis-check`) happens to still report OK because
+`payViaBank`'s client code reads `transactionStatus` straight off the
+`/authorisations` POST response body (which the sim hardcodes to `"ACSC"`
+regardless of whether the id matched) and never calls the separate
+`/status` GET that would have exposed the same bug — a test-coverage gap,
+not evidence the bug is narrower than it is.
+
+Likely mechanism (not fully traced to a single line — flagging for whoever
+picks this up): `PluginBridge.scala`'s `v1ToV2` conversion of a v1
+`Request` `InstanceV` has two diverging paths — a positional
+`fieldsArr != null` fast path that trusts the v1 instance's own field
+order directly, and a named `effFields` + `V2PluginRegistry.lookupFieldNames`
+path that reorders by a hardcoded 14-name list (registered at
+PluginBridge.scala ~line 349: `method, path, body, headers, params, query,
+json, form, files, session, cookies, bearerToken, jwtClaims, basicAuth`).
+That hardcoded order does NOT match std/http.ssc's own declared 9-field
+`Request` case class (`method, path, headers, body, form, files, cookies,
+session, json` — no `params`/`query`/etc at all), so whichever v1 HTTP
+server backend actually constructs the runtime `Request` instance for a
+matched route (three different backend implementations exist under
+v1/runtime/http-server: JdkServerBackend / RestRuntime / ProxyRuntime) may
+not be populating (or ordering) a `params` slot the way either the ssc
+declaration or the hardcoded bridge list expects — worth checking whether
+the real Request instance even carries path-match results in
+`effFields`/`fieldsArr` at all for the backend serving this test.
+Found+minimized 2026-07-09 by busi (fable) while running the full JDG
+money-loop simulator cycle.
