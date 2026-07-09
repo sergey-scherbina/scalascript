@@ -146,6 +146,17 @@ object Emit:
   def isCons(v: Value): Boolean = v match { case Value.DataV("Cons", _) => true; case _ => false }
   def consHead(v: Value): Value = v.asInstanceOf[Value.DataV].fields(0)
   def consTail(v: Value): Value = v.asInstanceOf[Value.DataV].fields(1)
+  /** Direct `.length`/`.size` for the bytecode lane's hot path — a typed match
+   *  instead of the generic __method__ dispatch (prim2 -> resolve -> big
+   *  match). Falls back to methodOp for exotic receivers. */
+  def len(v: Value, name: String): Value = v match
+    case Value.StrV(s) => Value.IntV(s.length.toLong)
+    case Value.DataV("Cons", _) | Value.DataV("Nil", _) =>
+      var n = 0L; var cur = v
+      while cur.isInstanceOf[Value.DataV] && cur.asInstanceOf[Value.DataV].tag == "Cons" do
+        n += 1; cur = cur.asInstanceOf[Value.DataV].fields(1)
+      Value.IntV(n)
+    case _ => Prims.methodOp(name, v, Nil)  // preserve length/size for exotic receivers
   def dataArity(v: Value): Int = v match { case Value.DataV(_, fs) => fs.length; case _ => -1 }
   def dataFields(v: Value): Array[Value] = v match { case Value.DataV(_, fs) => fs.toArray; case _ => Array.empty }
   def matchFail(tag: String, ar: Int): Value = sys.error(s"match: no arm for $tag/$ar")

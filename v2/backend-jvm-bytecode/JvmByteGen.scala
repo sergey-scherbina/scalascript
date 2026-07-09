@@ -446,6 +446,11 @@ object JvmByteGen:
       // callClos, no generic __method__ dispatch per element (VM tryFCAppended
       // analog). Effectful bodies fall through to the runtime foreachConsOp
       // path (which threads Ops); the guard keeps effect semantics correct.
+      // Direct .length/.size (no generic __method__ dispatch per call).
+      case Term.Prim("__method__", Term.Lit(Const.CStr(lop @ ("length" | "size"))) :: recv :: Nil) =>
+        gen(recv, ctx)
+        mv.visitLdcInsn(lop)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "len", s"(L$VAL;Ljava/lang/String;)L$VAL;", false)
       case Term.Prim("__method__", Term.Lit(Const.CStr("foreach")) :: recv :: Term.Lam(1, body) :: Nil)
           if pureNoEffect(body, ctx.g.pureDefs) =>
         gen(recv, ctx)
