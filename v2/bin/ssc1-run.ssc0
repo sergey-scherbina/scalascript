@@ -12,7 +12,8 @@ def joinScalaScript = (blocks) =>
       case Cons(b, rest) =>
         match b {
           case Pair(lang, src) =>
-            if #seq(lang, "scalascript") then
+            let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
+            if isCode then
               let sep = if #i.eq(slen(acc), 0) then "" else "\n\n" in
               go(rest, #sconcat(acc, #sconcat(sep, src)))
             else
