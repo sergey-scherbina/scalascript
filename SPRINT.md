@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-vm-foreach-match-boundary** — continue the open
+      `v2-vm-production-jit-gate` after `v2-vm-pattern-match-heavy-fast-tier`.
+      The last slice proved `area`/`workload` already have `fcEntry` and
+      removed compact match-arm env allocation, but the v2 VM
+      `pattern-match-heavy` row is still ~17.0 ms vs `ssc` 0.059 ms. This
+      slice must start by staging `bin/ssc`, reproducing the current row, and
+      inspecting/profiling the remaining hot boundary in the bridge-generated
+      shape: `while` -> `shapes.foreach` inline lambda -> `cell.set(total,
+      total + area(s))` -> ADT `match`. Implement at most one conservative
+      local VM/FastCode optimization only if the remaining shape is proven
+      safe; otherwise record the exact blocker and stop. Done-when:
+      `specs/v2-vm-foreach-match-boundary.md` is committed before code,
+      before/after numbers are recorded, the four-row gate remains honestly
+      red/green according to measured data, and affected tests plus
+      `tests/conformance/run.sh --only 'litdoc'` pass.
+
 - [x] **v2-vm-effect-handlers-regression** — DONE 2026-07-09 in
       `b6f88744c`: fixed the v2 VM effect-handler regression by guarding the
       `Match`-scrutinee `DataV("Op", ...)` lift with `Runtime.isAutoThreadOp`.
