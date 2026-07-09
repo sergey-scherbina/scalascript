@@ -21,7 +21,7 @@ REPS="${BENCH_REPS:-100}"
 PATTERN="${1:-}"
 
 # ── build JAR ────────────────────────────────────────────────────────────────
-JAR="$(mktemp /tmp/v2-bench-XXXXXX.jar)"
+JAR="$(mktemp /tmp/v2-bench-XXXXXX)"
 trap 'rm -f "$JAR"' EXIT
 echo "building v2 jar..." >&2
 scala-cli --power package "$V2_DIR/src" -o "$JAR" -f --assembly --server=false -q \
