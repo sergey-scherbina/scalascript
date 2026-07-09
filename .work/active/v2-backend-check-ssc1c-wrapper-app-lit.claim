@@ -1,6 +1,0 @@
-feature/v2-backend-check-ssc1c-wrapper-app-lit 2026-07-09T21:34:58Z
-agent: codex
-heartbeat: 2026-07-09T21:44:57Z
-status: in-progress
-done-so-far: spec/code commits done; bool/mutual/tco/letrec backend checks green; installBin completed after conformance CLI miss
-next: rerun affected conformance, finalize docs/bookkeeping, push branch to main and release claim
