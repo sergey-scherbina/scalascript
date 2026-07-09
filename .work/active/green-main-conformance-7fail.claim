@@ -1,6 +1,6 @@
-feature/green-main-conformance-7fail 2026-07-09T19:09:26Z
+feature/green-main-conformance-7fail 2026-07-09T19:09:45Z
 agent: codex
-heartbeat: 2026-07-09T19:09:26Z
-status: not-started
-done-so-far:
-next: reproduce failing conformance lanes directly and classify first root cause
+heartbeat: 2026-07-09T19:09:45Z
+status: in-progress
+done-so-far: worktree created
+next: reproduce failing conformance lanes directly, capture stderr, and pick the first narrow fix
