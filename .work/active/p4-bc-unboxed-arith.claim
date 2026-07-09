@@ -1,6 +1,6 @@
-feature/p4-bc-unboxed-arith 2026-07-09T18:27:20Z
+feature/p4-bc-unboxed-arith 2026-07-09T18:35:10Z
 agent: codex
-heartbeat: 2026-07-09T18:27:20Z
+heartbeat: 2026-07-09T18:35:10Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-p4-bc-unboxed-arith
-next: enrich SPRINT plan, measure baseline, inspect v2 bytecode emitter arith paths
+done-so-far: worktree created; SPRINT plan committed; v2-bytecode bench harness added locally; baseline recorded locally (arith-loop 43.6ms bytecode vs 0.000018ms VM, fib 31.9ms vs 5.76ms)
+next: inspect bytecode emitter IR for arith-loop/fib and implement narrow unboxed arithmetic lowering
