@@ -39,7 +39,7 @@ intent match
 
 ## 2. Charge with SCA / 3DS2 (two-hop flow)
 
-```scala
+```scala no-run
 // Step 1 — server creates intent, frontend receives SCAChallenge
 route("POST", "/payment/start") { req =>
   val intentReq = CreateIntentRequest(
@@ -69,7 +69,7 @@ route("GET", "/payment/confirm") { req =>
 
 ## 3. Apple Pay completion (closes v1.38 `chargeApplePay` placeholder)
 
-```scala
+```scala no-run
 route("POST", "/payment/apple/process") { req =>
   val token     = req.body[ApplePayToken]
   val decrypted = ApplePay.decryptToken(token, config.getString("apple-pay.cert-pem"), config.getString("apple-pay.key-pem"))
@@ -114,7 +114,7 @@ println(s"Upgraded to ${upgraded.planId.value}, status: ${upgraded.status}")
 
 ## 6. Full and partial refund
 
-```scala
+```scala no-run
 // Full refund
 val fullRefund = stripe.refund(RefundRequest(intentId, reason = RefundReason.RequestedByCustomer))
 println(s"Refund: ${fullRefund.id.value}, status: ${fullRefund.status}")
@@ -147,7 +147,7 @@ val intent = stripe.createIntent(CreateIntentRequest(
 
 ## 8. Webhook handler (stripe.webhookReceiver)
 
-```scala
+```scala no-run
 route("POST", "/webhooks/stripe") { req =>
   val secret   = config.getString("stripe.webhook-secret")
   val wReq     = WebhookRequest(headers = req.headers, rawBody = req.rawBody)
@@ -167,7 +167,7 @@ route("POST", "/webhooks/stripe") { req =>
 
 ## 9. Dispute evidence submission
 
-```scala
+```scala no-run
 stripe.submitDisputeEvidence(dispute.id, DisputeEvidence(
   customerCommunication = Some("Email thread: user confirmed delivery"),
   receipt               = Some(s"Order #${orderId} paid 2026-05-20 for $$49.99 USD"),
@@ -211,13 +211,15 @@ val subtotal = Money(BigDecimal("49.99"), Currency.USD)
 val taxRate  = BigDecimal("0.20")                           // 20% VAT
 val tax      = subtotal * taxRate                           // HALF_EVEN banker's rounding
 val total    = subtotal + tax                               // $59.99
-println(s"Subtotal: $subtotal, Tax: $tax, Total: $total")  // $49.99 USD, $10.00 USD, $59.99 USD
+println(s"Subtotal: ${subtotal.format}, Tax: ${tax.format}, Total: ${total.format}")  // $49.99 USD, $10.00 USD, $59.99 USD
 
 // Allocate $1.00 across 3 seats — no lost penny
 val perSeat  = Money.allocate(Money(100L, Currency.USD), List(BigDecimal(1), BigDecimal(1), BigDecimal(1)))
 println(perSeat.map(_.toDecimal))                          // [0.34, 0.33, 0.33]
+```
 
 // Currency mismatch throws at runtime (not compile time — FxProvider is v1.54+)
+```scala no-run
 try
   Money(100L, Currency.USD) + Money(100L, Currency.EUR)
 catch

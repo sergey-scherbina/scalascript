@@ -79,7 +79,7 @@ println(s"Final status: $finalStatus")
 
 Register a webhook endpoint to receive FedNow event notifications:
 
-```scala
+```scala no-run
 import scalascript.payments.webhook.{WebhookRequest, WebhookReceiver}
 
 // Route: POST /webhooks/fednow
@@ -100,7 +100,7 @@ def handleFedNowWebhook(req: WebhookRequest) =
 
 ## FedNow limits
 
-```scala
+```scala no-run
 // Attempting to exceed $500,000 USD throws FedNowLimitExceeded
 val bigTransfer = scala.util.Try(provider.initiateTransfer(InitiateTransferRequest(
   rail           = RailKind.FEDNOW,

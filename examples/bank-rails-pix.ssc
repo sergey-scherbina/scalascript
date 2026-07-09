@@ -101,7 +101,7 @@ println(s"CRC suffix: ${dynamicQr.takeRight(8)}")  // 6304XXXX
 
 ## Handling Pix Webhooks
 
-```scala
+```scala no-run
 import scalascript.payments.pix.PixWebhookReceiver
 import scalascript.payments.bankrails.BankRailsEvent
 import scalascript.payments.webhook.{WebhookRequest, WebhookResponse}
@@ -126,7 +126,7 @@ def handlePixWebhook(headers: Map[String, String], body: String): WebhookRespons
 
 ## Pix Automático (Recurring / cobv)
 
-```scala
+```scala no-run
 // Pix Automático: scheduled debit with recurring consent
 val directDebitReq = InitiateDirectDebitRequest(
   rail            = RailKind.PIX,
