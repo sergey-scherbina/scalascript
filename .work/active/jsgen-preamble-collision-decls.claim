@@ -1,6 +1,6 @@
 feature/jsgen-preamble-collision-decls 2026-07-09T05:48:59Z
 agent: codex
-heartbeat: 2026-07-09T05:53:28Z
+heartbeat: 2026-07-09T06:06:10Z
 status: in-progress
-done-so-far: SPRINT plan committed; resumed after context compaction and re-read AGENTS/skills
-next: inspect JsGen declaration/reference naming, then add regression tests and fix remaining collisions
+done-so-far: JsGen declaration/call-site rename fix implemented; JsGenStdImportTest passes 49/49
+next: rebuild bin/ssc with installBin, rerun affected conformance, then commit code if green
