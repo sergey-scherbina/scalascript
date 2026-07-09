@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/bc-unboxed-arith
+worktree: ../scalascript-wt-uba
+started: 2026-07-09
+status: in-progress
+task: p4-bc-unboxed-arith — unboxed Long codegen для циклов (arith-loop/nested-loop/range-sum): держать provably-Long loop-vars примитивами в JVM-слотах, boxing только на границах. VM tryFLC аналог. Guard 154/8, 94/2.
