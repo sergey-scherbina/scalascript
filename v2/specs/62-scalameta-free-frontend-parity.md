@@ -71,44 +71,49 @@ Two cheap, non-surface issues accounted for 34 of the original 43 "failures":
    lowering/compile loops in `Runtime.scala` iterative (or set a bigger default
    `-Xss` in the launchers). Robustness, not a surface gap.
 
-## The genuine remaining surface gap — 8 files, 2 lowering bugs
+## The two surface bugs — ROOT-CAUSED and FIXED (2026-07-09) → 194/195
 
-All 8 files **parse** fine; `ssc1-lower.ssc0` has no arm for a node the parser
-produced. Both are statement-sequence lowering edge cases in one 86 KB ssc0 file.
+Both `Pair/2` and `Nil/0` were mis-diagnosed at first as "statement-sequence
+lowering edge cases". Bisected to minimal repros, they were unrelated and both
+upstream of where the crash surfaced. After the fixes, native parse+lower reaches
+**194/195** (all but `deploy.ssc`), zero regressions across the corpus.
 
-### Gap 1 — `Pair/2`: assignment as a non-final statement in a block (6 files)
+### Bug 1 — `Pair/2`: `buildPostfix` never consumed a trailing `{ block }` (6 files) ✅ FIXED
 
-Files: `rozum-agent.ssc`, `rozum-agent-pool.ssc`,
-`rozum-agent-schema-derived.ssc`, `ws-chat.ssc`, `dsl-yaml-like.ssc`,
-`mcp-search-server.ssc`.
+Files: `rozum-agent{,-pool,-schema-derived}`, `ws-chat`, `dsl-yaml-like`,
+`mcp-search-server` — all use top-level `route(...) { req => ... }` / `foo { x => ... }`.
 
-Minimal repro (bisected from `ws-chat.ssc`):
+Root cause: `buildPostfix` (`ssc1-front.ssc0`) handled `.field`, `(args)`,
+`[types]`, `match`, but **not** a trailing `{ … }` block argument. So
+`route("POST","/x") { req => … }` at expression/statement-head position parsed as
+*two* things — the call `route("POST","/x")` and a **separate standalone block**
+`{ req => … }` — instead of `route(...)(lambda)`. Inside that mis-attached block,
+`id = expr` (e.g. `calls = calls + 1`) was then parsed as `idx_assign` (`a(i) = rhs`),
+whose lowering does `match ldata { case Pair(arrFn, idxArgs) => … }` on a bare
+variable → `no arm for Pair/2`. The "OK" siblings (`foo { y => bar(y) }`) were also
+silently mis-parsed — the call was dropped — they just didn't crash.
 
-```scala
-var c = 0
-foo("x") { y =>
-  c = c + 1     // assignment in NON-final position of a multi-statement block
-  bar(y)
-}
-```
+Minimal repro: `var c = 0` ⏎ `foo { y => c = c + 1 }`.
 
-- `{ y => c = c + 1 }` (assignment as the block's **last** expr) → OK.
-- `{ y => val z = y; bar(z) }` (val binding, non-final) → OK.
-- `{ y => bar(y); baz(y) }` (expr statements, non-final) → OK.
-- Assignment (`Assign` node) in **non-final** position → `no arm for Pair/2`.
+Fix: add a trailing-`{` arm to `buildPostfix` that consumes the block via the
+**lambda-aware** `parseBlockArg` (strips a `param =>` header) and applies it:
+`e { body } → e(body)`. This is the same block-arg handling `parseBlock`'s `go`
+loop already did inside braces; it was just missing at the top level.
 
-Root cause: the block-sequence lowering in `ssc1-lower.ssc0` folds statements but
-has no arm for an `Assign` node in the middle of a sequence.
+### Bug 2 — `Nil/0`: single-arg `String.substring(from)` (2 files) ✅ FIXED
 
-### Gap 2 — `Nil/0`: an empty-tail statement-sequence edge case (2 files)
+Files: `dsl-mini-language`, `webauthn-demo`.
 
-Files: `dsl-mini-language.ssc`, `webauthn-demo.ssc`.
+Root cause: `resolveMethodCall` (`ssc1-lower.ssc0`) resolved `.substring` with
+`match rargs { case Cons(frm, r0) => match r0 { case Cons(too, r1) => sslice(...) } }`
+— **only** the two-arg `substring(from, to)` form. Single-arg `s.substring(from)`
+gives `r0 = Nil`, and the inner match has no `Nil` arm → `no arm for Nil/0`.
+(The tuple/`var`/`while` context in the corpus files was a red herring; the atomic
+repro is just `val s = "abc"` ⏎ `s.substring(1)`.)
 
-A related sequence-folding defect: a specific combination of top-level definitions
-followed by a trailing statement sequence yields an empty tail (`Nil`) reaching
-`lowerE`, which has no arm for it. Not yet reduced to a one-liner — repro is the
-full `webauthn-demo.ssc` / `dsl-mini-language.ssc`. Likely the same
-`ssc1-lower.ssc0` sequence-fold as Gap 1; fix them together.
+Fix: add the `Nil` arm — Scala's `substring(from) == substring(from, length)`, so
+emit `sslice(robj, frm, slen(robj))`. Verified semantically: `"hello".substring(2)`
+→ `"llo"`.
 
 ### Correctly out of scope (1 file)
 
@@ -122,7 +127,7 @@ only the first is a *parser* problem:
 
 | Axis | Native artifact | Measured coverage | Cost |
 |---|---|---|---|
-| **1. Parse + lower** (surface syntax) | `ssc1-front` + `ssc1-lower` | **186/195**, gap = 2 bugs | **small** — close 2 lowering arms + fence policy |
+| **1. Parse + lower** (surface syntax) | `ssc1-front` + `ssc1-lower` | **194/195** ✅ (only non-code `deploy.ssc` left) | **DONE** — 2 bugs fixed 2026-07-09 |
 | **2. Type-check** | `ssc1-check` (425-line HM subset) | **unmeasured** — the run path skips it | medium — measure, then close |
 | **3. Runtime / stdlib / plugin / effect semantics** | `Runtime.scala` + native stdlib | not this metric | **large, but scalameta-independent** |
 
@@ -134,17 +139,19 @@ whether the parser is scalameta or hand-written.
 
 ## Path to scalameta-free
 
-1. **Close the parse+lower gap** (this milestone, small): fence policy (done) +
-   Gap 1/Gap 2 lowering arms + compile-recursion robustness. Then re-run: target
-   **194/195** (all but `deploy.ssc`).
+1. **Close the parse+lower gap** ✅ DONE (2026-07-09): fence policy + the two
+   surface bugs above → **194/195**. Compile-recursion robustness (`-J-Xss` in the
+   launchers) is the last polish item here.
 2. **Measure axis 2**: run `ssc1-check` over the corpus, classify type-check gaps
-   the same way, size the work.
+   the same way, size the work. ← next.
 3. **Grow axis 3** on the native VM (independent, already ongoing via the K3
-   stdlib tracks).
+   stdlib tracks). Measure native end-to-end *run* coverage to turn this from an
+   unknown into a categorized backlog.
 4. Only when native parse+typecheck close the corpus does scalameta become an
    **optional, frontend-only** dependency — then delete it from `v1/lang/core` and
    drop the `v2FrontendBridge` seam. Kernel + 4 backends are already free of it.
 
-**Bottom line for planning:** "give up scalameta" is a *frontend-parity* milestone
-that is ~95% done at the parse level and gated mostly by axis 3 (stdlib/runtime),
-**not** a compiler rewrite. The scary-sounding dependency is the cheap part.
+**Bottom line for planning:** "give up scalameta" is a *frontend-parity* milestone.
+The parse level is now done (194/195); it is gated mostly by axis 3
+(stdlib/runtime), **not** a compiler rewrite. The scary-sounding dependency is the
+cheap part.

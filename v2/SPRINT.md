@@ -1183,27 +1183,29 @@ frontend accepted the file).
       Moved 32 corpus files from FAIL→PASS. `ssc0` note: `#or` is not a primitive;
       use a nested `if` to build the boolean.
 
-- [ ] **K62.1 — Gap 1: assignment in non-final block position (`Pair/2`).**
-      6 files (`rozum-agent{,-pool,-schema-derived}`, `ws-chat`, `dsl-yaml-like`,
-      `mcp-search-server`). `ssc1-lower.ssc0`'s block-sequence fold has no arm for
-      an `Assign` node mid-sequence. Minimal repro:
-      ``var c = 0; foo("x") { y => c = c + 1; bar(y) }``.
-      How: add the `Assign`-in-sequence arm to the statement-sequence lowering in
-      `ssc1-lower.ssc0` (assignment as last expr already works — generalize to
-      non-final). Verify: the 6 files parse+lower (exit 0).
+- [x] **K62.1 — `Pair/2` DONE** 2026-07-09. Root cause was NOT "assign mid-block"
+      (that already works). `buildPostfix` (`ssc1-front.ssc0`) never consumed a
+      trailing `{ block }` arg, so top-level `route(...) { req => … }` parsed as a
+      bare call + a *separate* standalone block; inside it, `id = expr` became
+      `idx_assign` whose lowering does `match ldata { case Pair(arrFn, idxArgs) }`
+      on a bare var → `no arm for Pair/2`. Fix: add a trailing-`{` arm to
+      `buildPostfix` that consumes the block via lambda-aware `parseBlockArg`
+      (`e { body } → e(body)`). All 6 files pass; conformance 640/640 green.
 
-- [ ] **K62.2 — Gap 2: empty-tail statement sequence (`Nil/0`).**
-      2 files (`dsl-mini-language`, `webauthn-demo`). Related sequence-fold defect —
-      a `Nil` tail reaches `lowerE`. Not minimized to a one-liner; repro = the full
-      files. Likely the same fold as K62.1 — fix together. Verify: both exit 0.
+- [x] **K62.2 — `Nil/0` DONE** 2026-07-09. Root cause was single-arg
+      `String.substring(from)`. `resolveMethodCall` matched only two-arg substring
+      (`match r0 { case Cons(too, r1) => … }`), no `Nil` arm → `no arm for Nil/0`.
+      (The tuple/`var`/`while` context was a red herring; atomic repro:
+      ``val s="abc"`` ⏎ ``s.substring(1)``.) Fix: add the `Nil` arm —
+      `substring(from) == substring(from, length)` → `sslice(s, frm, slen(s))`.
+      Verified `"hello".substring(2)` → `"llo"`. Both files pass.
 
-- [ ] **K62.3 — compile-recursion robustness.** Large programs
-      (`control-center-live`, `auth-full`, `x402-cardano-scalus`) StackOverflow in
-      `Compiler.compile`/`FastCode` at the default JVM stack. Either make the
-      lowering/compile loops in `Runtime.scala` iterative, or add `-Xss16m` to the
-      `v2/ssc*` launchers. Verify: they run at the default stack.
-      Target after K62.1–3: **194/195** (all but `deploy.ssc`, which is correctly
-      non-code).
+- [x] **K62.3 — compile-recursion robustness DONE** 2026-07-09. Added `-J-Xss512m`
+      to the `v2/ssc` and `v2/ssc1` launchers (matching the existing `ssc0c` /
+      `sscx` convention) so the VM's deep `Compiler.compile`/`FastCode` recursion on
+      large programs (`control-center-live`, `auth-full`, `x402-cardano-scalus`)
+      no longer StackOverflows. **Parse+lower now 194/195** — only `deploy.ssc`
+      (sh-only, no code) remains, correctly out of scope.
 
 - [ ] **K62.4 — measure axis 2 (native type-checker).** Run `ssc1-check` over the
       corpus (the `ssc1-run` path skips it), classify type-check gaps the same way,
