@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 production readiness docs synced to clean default-lane gate
+
+`v2/output-parity-baseline.md` and `specs/v2-full-compat.md` now state the
+current default-lane production gate after the post-JS/runtime rebaseline:
+`68/91 identical · 0 mismatch · 0 v2-error · 23 v1-only`. The Phase-3
+checklist now distinguishes the clean default-lane switch criteria from
+remaining performance/backend/server/provider-lane work.
+
 ## 2026-07-09 — v2 production parity baseline remains clean after JS/runtime fixes
 
 Refreshed the full v2 output-parity production gate after the JS flat-bundle

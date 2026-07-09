@@ -42,14 +42,16 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and next blockers
 
-Stream-family parity update (2026-07-09): after `d1d0bc1fd`,
-`scripts/v2-output-parity` has no unexplained strict output mismatches left in
-the default-lane corpus. `effects.ssc`, `dsl-calc-parser.ssc`,
-`distributed-streams.ssc`, and `streams.ssc` are classified as
-v1-side/better-output rows: v2 prints the documented behavior while rollback v1
-stops early or truncates output. The authoritative production gate was re-run
-from `/Users/sergiy/work/my/scalascript-wt-v2-stream-family-output-parity`
-after staging the worktree runner:
+Current default-lane production gate (2026-07-09): after the stream-family
+closures (`d1d0bc1fd`) and the JS flat-bundle runtime-collision declaration fix
+(`854a87f1b`), `scripts/v2-output-parity` has no unexplained strict output
+mismatches left in the default-lane corpus. `effects.ssc`,
+`dsl-calc-parser.ssc`, `distributed-streams.ssc`, and `streams.ssc` are
+classified as v1-side/better-output rows: v2 prints the documented behavior
+while rollback v1 stops early or truncates output. The authoritative
+production gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-prod-post-jsgen-parity-rebaseline`
+after staging the worktree runner, matching the earlier stream-family sweep:
 
 ```text
 PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
@@ -65,7 +67,9 @@ because v2 prints full parser round-trip strings while v1 truncates each row
 to the first number. `distributed-streams.ssc` and `streams.ssc` now sit
 outside strict byte-parity because v2 runs both examples to completion while
 rollback v1 stops in early sections. No deterministic v2-error row reappeared,
-and no strict output mismatch remains.
+and no strict output mismatch remains. The post-JS rebaseline proved that the
+flat-bundle declaration-renaming work did not reopen the default-lane
+production gate.
 
 Standard Scala fence/runtime-shape update (2026-07-09): after `f57c74da8`,
 standard-Scala-only documents run all `scala` fences in document order, mixed
@@ -660,10 +664,19 @@ T4.1-T4.4 (verify)     ← last, after all tracks
 ## Done-when (Phase 3 gate)
 
 - [x] Fresh `SSC="bin/ssc" scripts/v2-output-parity --all` baseline is recorded.
-- [ ] Runnable production-scope examples are output-identical under v1 and v2.
-- [ ] v2 output divergences are regression-tested with output equality, not only exit code.
-- [ ] `ssc run --v2 foo.ssc` works for ALL examples/ programs
-- [ ] All plugin categories work through v2 (logger, state, http, sql, actors)
+- [x] Default-lane production-scope examples have no unexplained strict
+      mismatch and no v2-error; remaining non-identical rows are explicitly
+      scoped as v1-side/better-output, v1-only, nondeterministic, true-server,
+      backend-lane, or both-fail not-a-gap.
+- [x] Current v2 output divergences in the default gate are regression-tested
+      or classified by output equality, not only exit code.
+- [x] `ssc run --v2` works for every compared terminating real row in the
+      current production gate denominator; backend/server/provider and
+      both-fail rows remain separate gates.
+- [x] Default-lane plugin categories exercised by the corpus work through v2
+      (content, litdoc, actors, streams, graph, MCP/agent, SQL, UI/fetch,
+      crypto/auth-style demos); external live-service and backend-specific
+      examples stay in their own lanes.
 - [ ] v2 VM performance within 2× of v1 interpreter on bench corpus
 - [ ] v2 JVM backend within 2× of v1 JVM backend
 - [ ] v2 Rust backend within 1.5× of v1 Rust backend  

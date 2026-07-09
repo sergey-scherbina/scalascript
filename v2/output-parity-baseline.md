@@ -9,11 +9,14 @@ This is the REAL "does v2 replace v1?" gate: each example is run on v1
 (`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
 than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-09, after stream-family parity fixes
+## Latest full corpus re-measure — 2026-07-09, after stream-family fixes and post-JS rebaseline
 
-Measured from
-`/Users/sergiy/work/my/scalascript-wt-v2-stream-family-output-parity`
-after staging the worktree runner:
+Initially measured from
+`/Users/sergiy/work/my/scalascript-wt-v2-stream-family-output-parity`,
+then revalidated unchanged from
+`/Users/sergiy/work/my/scalascript-wt-v2-prod-post-jsgen-parity-rebaseline`
+after the JS flat-bundle runtime-collision declaration fix. In both cases the
+worktree runner was staged first:
 
 ```bash
 scripts/sbtc "installBin"
@@ -55,6 +58,9 @@ V1-side mismatch classification notes:
   not a valid baseline.
 - No deterministic v2-error row reappeared; the parity command still exits
   zero because no unexplained strict mismatch remains.
+- The post-JS/runtime rebaseline produced the same clean counts, so the JS
+  flat-bundle runtime-collision fix did not reopen any production output-parity
+  gap.
 - Remaining non-identical rows are now explicitly scoped buckets:
   v1-side/better-output, nondeterministic-output, true-server, backend-lane,
   v1-only, or both-fail not-a-gap.
