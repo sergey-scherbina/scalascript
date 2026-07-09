@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/user-type-shadows
-worktree: ../scalascript-wt-shadows
-started: 2026-07-09
-status: in-progress
-task: v2-user-type-shadows-plugin-type — verify my 8feeda99f closes the Request repro; test general case (user case class named KV/Rate/Response/Mirror/etc); generalize conditional lock if non-Request plugin tags still clobber. Guarded by tests/conformance/v2-user-type-shadows-plugin-type.ssc
