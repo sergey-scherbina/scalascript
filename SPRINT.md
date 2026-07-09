@@ -33,6 +33,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `v2-jvm=67.5 ms`, `v2-rust=240.2 ms`. This confirms the JVM source
       recursion row is still a real source-backend gap on the current worktree,
       not only a stale bounded-probe number.
+      Inspection 2026-07-09: raw `recursion-fib` CoreIR has top-level
+      `fib (lam 1 ...)`, but generated Scala emits only `lazy val fib: V =
+      ((_a) => ...)` and recursive calls as `_call1(fib, ...)`. Direct methods
+      are currently limited to safe tail-recursive globals, so ordinary
+      recursion pays closure/`Array[V]` dispatch on every call. First fix:
+      emit plain direct methods for global lambdas, while preserving lazy-val
+      wrappers for first-class function values.
 
 - [x] **green-main-conformance-7fail** — DONE 2026-07-09 in `bd85a5f95`,
       `bf0402b12`, `76b9432ef`, `7f4cb82d7`, and `1291ed03b`: restored the default top-level

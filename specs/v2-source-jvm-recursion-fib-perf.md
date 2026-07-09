@@ -30,9 +30,9 @@ def workload(): Int =
 
 ## Behavior
 
-- [ ] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
+- [x] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
       using `scripts/bench v2-backends recursion-fib`.
-- [ ] The emitted v2 JVM source for `recursion-fib` is inspected before code
+- [x] The emitted v2 JVM source for `recursion-fib` is inspected before code
       changes and the dominant overhead hypothesis is recorded here.
 - [ ] The implementation lands one conservative v2 JVM source-backend
       optimization for recursive function-call shape, preserving the existing
@@ -110,6 +110,45 @@ Result:
 This is better than the older short bounded `v2-jvm=104.5 ms` probe, but it
 still leaves `v2-jvm` roughly 5.2x slower than the current v2 VM row for this
 single workload and remains a real source-backend production gap.
+
+## Inspection
+
+The raw corpus CoreIR emitted by:
+
+```bash
+scripts/sbtc "v2FrontendBridge/runMain ssc.bridge.bridgeCli emit bench/corpus/recursion-fib.ssc"
+```
+
+contains the expected non-tail-recursive global lambda:
+
+```text
+(def fib (lam 1
+  (if (prim __arith__ (lit (str "<=")) (local 0) (lit (int 1)))
+      (local 0)
+      (prim __arith__ (lit (str "+"))
+        (app (global fib) ...)
+        (app (global fib) ...)))))
+```
+
+The current v2 JVM source generator turns that into only a closure-valued global:
+
+```scala
+lazy val fib: V =
+  ((_a5: Array[V]) => {
+    val p0_5: V = _a5(0)
+    if R.prim3("__arith__", "<=": V, p0_5, 1L: V).asInstanceOf[Boolean] then p0_5
+    else R.prim3("__arith__", "+": V,
+      _call1(fib, R.prim3("__arith__", "-": V, p0_5, 1L: V)),
+      _call1(fib, R.prim3("__arith__", "-": V, p0_5, 2L: V)))
+  }): V
+```
+
+Dominant-overhead hypothesis: direct calls are currently emitted only for
+safe tail-recursive globals. Ordinary recursive globals like `fib` therefore
+pay closure cast plus `Array[V]` allocation through `_call1(fib, ...)` for every
+recursive call. The first conservative fix should emit plain direct local
+methods for global lambdas even when they are not tail-recursive, keeping the
+existing lazy-val closure wrapper for first-class function values.
 
 ## Results
 
