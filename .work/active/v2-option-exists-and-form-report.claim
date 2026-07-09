@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: report/v2-option-exists-and-form
-worktree: ../scalascript-wt-v2-option-form
-started: 2026-07-09
-status: in-progress
-task: diagnose+repro+report (not fix) 2 v2-only bugs found driving busi live hub auth on --v2: (1) Option.exists totally unimplemented (None.exists -> unhandled Op; Some.exists -> Stub); (2) req.form always returns Stub (like req.params before the route-params-stub fix, but form was not covered by that fix)
