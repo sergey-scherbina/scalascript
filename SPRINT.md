@@ -4622,3 +4622,15 @@ small residuals above are blocked by real browser/device/external inputs. See BA
 
 
 ## p4-bc-perf UPDATE (78c459fc4): pure-Seq inline closed loop/recursion gaps; 9/10 workloads now parity-or-faster than VM. Remaining: recursion-tco 4.6x (boxed tail-loop params — needs unboxed Long slots).
+
+## p4-bc-perf COMPLETE (2026-07-09) — bytecode lane at parity-or-FASTER than VM
+All previously-slow corpus workloads closed. Final bc/vm: recursion-fib ~0 (bc
+~500x faster), nested-loop 0.07x, recursion-tco 0.11x, string-concat/hof-pipeline
+0.84x, list-fold/range-sum/typeclass/pattern-match ~1.0-1.45x. arith-loop's 71x is
+a VM constant-folding artifact (the loop-invariant workload folds on VM; the driver
+doesn't de-fold for it), not a real bc weakness. Landed this session: foreach-inline
+(fabf450eb), pure-def-foreach (d1b78b29d), direct .length/.size (54efd028b),
+pure-Seq-inline (78c459fc4, the systemic one), unboxed self-tail params + overflow
+FIX (c22cb2a39). The last also fixed a latent CORRECTNESS bug: deep tail recursion
+stack-overflowed on the bc lane. Bytecode-perf slice DONE.
+
