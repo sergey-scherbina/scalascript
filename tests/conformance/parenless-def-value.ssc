@@ -1,0 +1,5 @@
+def mkAdd: Int => Int = x => x + 1
+def useIt(f: Int => Int): Int = f(10)
+val direct = mkAdd(5)
+println(useIt(mkAdd))
+println(direct)

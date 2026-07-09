@@ -97,6 +97,7 @@ object FrontendBridge:
     varargDefs.clear()
     curriedVarargDefs.clear()
     zeroArgDefs.clear()
+    parenlessUserDefs.clear()
     curryFirstClauseDefaults.clear()
 
   /** Parse `databases:` YAML block from front-matter and register JDBC connections.
@@ -270,6 +271,11 @@ object FrontendBridge:
   /** Zero-arg extern/def registry: `extern def foo: T` or `def foo: T = body` with no params.
    *  These are auto-called at the use site (like Scala's no-parens defs). */
   private val zeroArgDefs = collection.mutable.HashSet[String]()
+  /** USER paren-less defs `def foo: T = body` only — they compile to Lam(0)
+   *  so a bare reference must EVALUATE (0-arg call). Kept SEPARATE from the
+   *  extern 0-arg set (zeroArgDefs): externs resolve to plugin VALUES, not
+   *  thunks, and must NOT be auto-called (os-env's `def platform` = "JVM").*/
+  private val parenlessUserDefs = collection.mutable.HashSet[String]()
 
   /** Multi-clause curried def first-clause defaults: for `def f(a: T = d)(args*)`, maps "f" →
    *  List of default CT for each first-clause param. Used to auto-inject defaults when calling
@@ -466,6 +472,7 @@ object FrontendBridge:
     varargDefs.clear()
     curriedVarargDefs.clear()
     zeroArgDefs.clear()
+    parenlessUserDefs.clear()
     curryFirstClauseDefaults.clear()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
     defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
@@ -1153,6 +1160,7 @@ object FrontendBridge:
         // Excludes `def foo(): T` (has one empty clause) which needs explicit `()`.
         if allClauses.isEmpty then
           zeroArgDefs += d.name.value
+          parenlessUserDefs += d.name.value
         val lam =
           if allClauses.length <= 1 then
             if params.isEmpty then CT.Lam(0, body) else CT.Lam(params.length, body)
@@ -1717,6 +1725,13 @@ object FrontendBridge:
         CT.Prim("cell.get", List(CT.Global(s"@$name")))
       else if isCtorName(name) && !methodObjectNames.contains(name) then
         CT.Ctor(name, Nil)  // e.g. Nil, None, True, case objects
+      else if parenlessUserDefs.contains(name) then
+        // paren-less def `def foo: T = body` compiles to Lam(0, body): a bare
+        // reference EVALUATES it (Scala getter semantics), so emit a 0-arg
+        // call. `foo(x)` then becomes App(App(Global(foo),Nil), x) — evaluate
+        // then apply. Without this, `foo` passed by name is the 0-arity closure
+        // itself and a later apply hits "arity: 0 expected, N given".
+        CT.App(CT.Global(name), Nil)
       else CT.Global(name)
 
   /** __effect__ for ops on DECLARED effect receivers (Bump.tick()): same
