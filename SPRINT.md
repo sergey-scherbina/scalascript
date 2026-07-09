@@ -1096,7 +1096,7 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
 - [ ] **tkv2-webauthn** — browser `navigator.credentials.create/get` externs (register/assert) —
       missing entirely; the server verifier exists on JVM + JS. Option shapes match `webauthnStore*`.
       Active plan 2026-07-09 (`feature/tkv2-webauthn` / codex):
-      - [ ] Spec first in `specs/tkv2-webauthn.md`, then commit/push it before implementation.
+      - [x] Spec first in `specs/tkv2-webauthn.md`, then commit/push it before implementation.
       - [ ] Add UI-facing WebAuthn EventHandler externs in `std/ui/webauthn.ssc`, not to core:
             `webauthnRegister(beginUrl, completeUrl, rpName, result, error, headers, timeoutMs,
             userVerification)` and `webauthnAssert(beginUrl, completeUrl, result, error, headers,
