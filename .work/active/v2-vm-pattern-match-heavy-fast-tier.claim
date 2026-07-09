@@ -1,6 +1,6 @@
 feature/v2-vm-pattern-match-heavy-fast-tier 2026-07-09T09:57:25Z
 agent: codex
-heartbeat: 2026-07-09T10:32:28Z
+heartbeat: 2026-07-09T10:49:18Z
 status: in-progress
-done-so-far: focused bridge suite, installBin, four-row bench, and full ./v2/conformance/check.sh passed; pattern-match-heavy v2 now ~17ms
+done-so-far: final-base focused bridge suite, installBin, and repeated full ./v2/conformance/check.sh passed; pattern-match-heavy v2 now ~17ms
 next: run tests/conformance litdoc, diff check, update docs/bookkeeping, push, release claim, cleanup
