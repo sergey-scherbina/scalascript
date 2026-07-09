@@ -1,0 +1,6 @@
+feature/v2-prod-readiness-doc-sync 2026-07-09T06:27:27Z
+agent: codex
+heartbeat: 2026-07-09T06:27:27Z
+status: not-started
+done-so-far:
+next: create worktree, queue SPRINT plan, sync v2 readiness docs to the clean production gate
