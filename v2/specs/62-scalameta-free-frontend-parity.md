@@ -120,22 +120,64 @@ emit `sslice(robj, frm, slen(robj))`. Verified semantically: `"hello".substring(
 `deploy.ssc` — contains only ` ```sh ` fences (a deploy manifest), no executable
 ScalaScript. The "no scalascript blocks found" result is correct.
 
-## Honest scope — three independent axes
+## Honest scope — three independent axes (all measured 2026-07-09)
 
-Dropping scalameta means the native tower must reach parity on **all three**, but
-only the first is a *parser* problem:
+Dropping scalameta means the native tower must reach parity on **all three**. Only
+the first is a *parser* problem; the third is the bulk.
 
-| Axis | Native artifact | Measured coverage | Cost |
+| Axis | Native artifact | Measured coverage | Status |
 |---|---|---|---|
-| **1. Parse + lower** (surface syntax) | `ssc1-front` + `ssc1-lower` | **194/195** ✅ (only non-code `deploy.ssc` left) | **DONE** — 2 bugs fixed 2026-07-09 |
-| **2. Type-check** | `ssc1-check` (425-line HM subset) | **unmeasured** — the run path skips it | medium — measure, then close |
-| **3. Runtime / stdlib / plugin / effect semantics** | `Runtime.scala` + native stdlib | not this metric | **large, but scalameta-independent** |
+| **1. Parse + lower** (produces IR) | `ssc1-front` + `ssc1-lower` | **194/195** lower to IR; but **~40** of those carry a silent parse-completeness gap (see K62.5) | axis-1 *lowering* DONE; ~40 parse-completeness gaps remain |
+| **2. Type-check** | `ssc1-check` (425-line HM subset) | **162/195** pass; **32 false-positive rejections** | measured; off the critical path (run skips it) |
+| **3. Runtime / stdlib / plugin / effect** | `Runtime.scala` + native stdlib | **3/195** run end-to-end; ~150 need missing intrinsics | **the bulk — a standing program** |
 
-Axis 3 is the bulk. Parse+lower emitting IR does **not** mean a program *runs*:
-`rozum-agent` needs `route`/`serveAsync`/`agentTool`/`jObj`; `ws-chat` needs
-`onWebSocket`/`serve`; the compat path inherits all of these from the whole v1
-ecosystem. Re-growing that on the native VM is real work — but it is orthogonal to
-whether the parser is scalameta or hand-written.
+### K62.4 — native type-checker (`ssc1-check`) coverage: 162/195, 32 false positives
+
+Harness: `bin/ssc1-check-run.ssc0` (fence-extract → `parse` → `ssc1TypeCheck`).
+The checker is Dyn-lenient in most places (it does *not* reject `val x: Int =
+"hello"`), yet **too strict on a few operators**, producing 32 false-positive
+rejections of programs that run fine on v1 / the v2 bridge:
+
+| Category | Files | Example message |
+|---|---|---|
+| `++` / `+` string-concat unification | 11 | `cannot unify function with non-function` |
+| `/` `%` `*` "requires Int left operand" (Float args) | 8 | `/ requires Int left operand` |
+| `String`/`Int`/`Bool` unify | 9 | `cannot unify String with non-String` |
+| if-branch / comparison type | 4 | `if branches must have the same type` |
+
+These are false positives — the type-checker rejects valid programs. It is **not**
+on the critical path to scalameta-free (the `ssc1-run` execution path skips it
+entirely), so it does not block dropping scalameta; it is a quality gate to close
+before making `ssc1-check` mandatory.
+
+### K62.5 — native end-to-end run (`ssc1-run` → `run-ir`): 3/195
+
+Harness: parse+lower → execute on the native VM (12 s timeout). Result: **3 run to
+completion, 191 error, 1 non-code.** The errors split cleanly:
+
+- **Class A — hidden parse-completeness gaps (~40 files).** Surface as `unbound
+  global: _err` / bare-keyword globals (`import`, `var`, `for`, `_`, `inline`).
+  Root causes (instrumented `parseAtom`): **bitwise operators** (`& | ^ ~ << >>`
+  — VM has `i.and`/`i.or`/`i.xor`, shifts/NOT missing), **`@` annotations**
+  (`@main`/`@model`), **`$`**, **char literals in some positions**, **Markdown-link
+  imports inside code**. These produce runnable-but-dangling IR, which is why
+  axis-1's "194/195 lowers" over-counts. Fixing them is bounded frontend work but
+  **low marginal value for run coverage** — those same files also need Class B.
+- **Class B — missing stdlib / plugin / effect intrinsics (~150 files).** The real
+  axis-3 bulk. Distinct missing symbols include: `route`/`serve`/`serveAsync`/
+  `_sel_authServer` (http), `Dataset_*`/`spark`/`SparkSchemaCodec` (dataset/spark),
+  `runActors`/`runAsync`/`onEvent`/`signal` (actors/async/effects), `Graph_*`/
+  `Sparql_select`/`Db_query`/`IndexedDb_store` (graph/db/storage), `mcpConnect`/
+  `agentTool` (mcp/agents), `verifyEd25519`/`totp`/`uuidV7` (crypto), `Parser_regex`,
+  `Widget`/`vstack` (ui), … — dozens of families, each an `extern def` the v1
+  ecosystem supplies and the native VM does not yet.
+
+**Conclusion:** the parser is *not* the obstacle to dropping scalameta. Axis 1 is
+done for lowering (and its ~40 completeness gaps are secondary — those files also
+need Class B). The gate is **axis 3: re-growing the v1 stdlib/plugin/effect runtime
+on the native VM** — a large, multi-session program (tracked under the K3 stdlib
+tracks), now fully measured and categorized. It is entirely independent of whether
+the parser is scalameta or hand-written.
 
 ## Path to scalameta-free
 

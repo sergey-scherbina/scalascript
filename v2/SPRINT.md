@@ -1207,11 +1207,39 @@ frontend accepted the file).
       no longer StackOverflows. **Parse+lower now 194/195** — only `deploy.ssc`
       (sh-only, no code) remains, correctly out of scope.
 
-- [ ] **K62.4 — measure axis 2 (native type-checker).** Run `ssc1-check` over the
-      corpus (the `ssc1-run` path skips it), classify type-check gaps the same way,
-      size the work. This is the next unknown after parse+lower closes.
+- [x] **K62.4 — axis 2 (native type-checker) MEASURED** 2026-07-09.
+      `bin/ssc1-check-run.ssc0` over the corpus: **162/195 pass, 32 false-positive
+      rejections** in ~4 operator-inference categories (`++`/`+` concat ×11; Float
+      `/`/`%`/`*` ×8; String/Int/Bool unify ×9; if-branch ×4). The checker is
+      Dyn-lenient elsewhere (doesn't reject `val x: Int = "hello"`). **Off the
+      critical path** — `ssc1-run` skips type-check — so it doesn't block dropping
+      scalameta; it's a quality gate to close before making `ssc1-check` mandatory.
 
-**Non-goals (this milestone):** axis 3 — runtime/stdlib/plugin/effect semantic
-parity on the native VM (route/serve/agentTool/… intrinsics). That is the bulk of
-"v2 without v1" but is scalameta-independent and tracked under the K3 stdlib
-tracks. See spec §"Honest scope — three independent axes".
+- [x] **K62.5 — axis 3 (native end-to-end run) MEASURED** 2026-07-09.
+      `ssc1-run` → `run-ir` over the corpus: **3/195 run to completion.** Errors split:
+      **Class A (~40 files)** — hidden parse-completeness gaps surfacing as
+      `unbound global: _err`/bare-keyword. Roots (instrumented `parseAtom`): bitwise
+      ops (`& | ^ ~ << >>`), `@` annotations, `$`, char literals, Markdown-link
+      imports. **Class B (~150 files)** — missing stdlib/plugin/effect intrinsics
+      (http `route`/`authServer`, `Dataset_*`/`spark`, `runActors`/`runAsync`/
+      `signal`, `Graph_*`/`Db_query`/`IndexedDb_store`, `mcpConnect`/`agentTool`,
+      crypto `verifyEd25519`/`totp`/`uuidV7`, …). Full breakdown in spec 62.
+
+### K62 remaining (concrete, prioritized — the real path to scalameta-free)
+
+- [ ] **K62.6 — parse-completeness (Class A, ~40 files).** Bounded frontend work in
+      `ssc1-front.ssc0`: bitwise operators (wire `& | ^` to existing VM `i.and/i.or/
+      i.xor`; add `~`/`<<`/`>>` prims), skip/handle `@` annotations, `$`, char
+      literals in operator position, Markdown-link imports inside code. LOW marginal
+      value for *run* coverage (these files also need K62.7) but needed for true
+      parse parity. Instrument `parseAtom`'s `_err` fallback to drive it.
+- [ ] **K62.7 — stdlib/plugin/effect intrinsics (Class B, the bulk).** Re-grow the
+      v1 stdlib on the native VM, by family (http, dataset/spark, actors/async,
+      graph/db/storage, mcp/agents, crypto, ui). This is the K3 stdlib program; it,
+      not scalameta, is what gates "v2 without v1". Multi-session.
+- [ ] **K62.8 — (optional) close type-check false positives (K62.4).** Only needed
+      if `ssc1-check` becomes mandatory.
+
+**Bottom line:** axis-1 lowering is DONE (194/195); the parser is not the obstacle.
+Dropping scalameta is gated by axis-3 stdlib parity (K62.7), a large standing
+program — now fully measured and categorized. See spec 62 "Honest scope".
