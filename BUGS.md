@@ -12,6 +12,25 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-async-parallel-timing-parity — `open` (2026-07-09)
+
+- **Found by:** codex, during the v2 production output-parity loop after
+  `v2-graph-neo4j-foreign-parity`.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/async-parallel-demo.ssc`.
+- **Observed failure:** v1 and v2 both compute `List(50, 50, 50)` for the
+  `runAsync`/`runAsyncParallel` examples, but the example prints measured
+  wall-clock milliseconds (`took ~Nms`), so byte-for-byte parity mismatches even
+  when semantics agree.
+- **Impact:** default v2 production gate has a false output mismatch. The
+  example itself says output stays byte-identical for code that does not depend
+  on timing, but its stdout currently depends on timing.
+- **Plan:** normalize `examples/async-parallel-demo.ssc` stdout to deterministic
+  result lines while keeping timing guidance in prose/comments. Do not change
+  runtime semantics. Verify with `installBin`, affected async conformance, the
+  targeted parity command above, and full `scripts/v2-output-parity --all`; if
+  the count changes, update the v2 parity baseline/spec/SPRINT/CHANGELOG.
+
 ## v2-graph-neo4j-foreign-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the post-split production output-parity refresh.
