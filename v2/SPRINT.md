@@ -1233,13 +1233,26 @@ frontend accepted the file).
       literals in operator position, Markdown-link imports inside code. LOW marginal
       value for *run* coverage (these files also need K62.7) but needed for true
       parse parity. Instrument `parseAtom`'s `_err` fallback to drive it.
-- [ ] **K62.7 — stdlib/plugin/effect intrinsics (Class B, the bulk).** Re-grow the
-      v1 stdlib on the native VM, by family (http, dataset/spark, actors/async,
-      graph/db/storage, mcp/agents, crypto, ui). This is the K3 stdlib program; it,
-      not scalameta, is what gates "v2 without v1". Multi-session.
+- **K62.7 — dispatch alignment (Class B). SUPERSEDES the old "re-grow stdlib"
+      framing** — see K62.5b: the v1 stdlib ALREADY exists in the v2 runtime
+      (`V2PluginRegistry`, loaded by `PluginBridge.loadAll()`; the bridge path uses
+      it, busi 61/61). Native failures were a name/dispatch mismatch, not missing
+      intrinsics. My bare-VM 3/195 measurement had an empty registry — artifact.
+  - [x] **K62.7a DONE** 2026-07-09: `ssc1-lower` generic `_sel_<method>` fallback →
+        `IrPrim("__method__", [str name, recv, args])`, matching FrontendBridge +
+        Runtime dispatch (unhandled → free `Op`). Conformance 640/640. Added
+        `BridgeCli run-ir` (loadAll + run native IR) to measure against the
+        plugin runtime.
+  - [ ] **K62.7b** — the `Foo_method` uid-static case (`Dataset.of`, `Graph.vertices`,
+        given/typeclass object methods) — route through `__method__` too.
+  - [ ] **K62.7c** — run native front → plugin-enabled runtime for real: wire the
+        plugin registry into the `ssc`/`ssc1` launchers (or use `BridgeCli run-ir`),
+        then re-measure end-to-end.
 - [ ] **K62.8 — (optional) close type-check false positives (K62.4).** Only needed
       if `ssc1-check` becomes mandatory.
 
-**Bottom line:** axis-1 lowering is DONE (194/195); the parser is not the obstacle.
-Dropping scalameta is gated by axis-3 stdlib parity (K62.7), a large standing
-program — now fully measured and categorized. See spec 62 "Honest scope".
+**Bottom line (revised, K62.5b):** dropping scalameta is NOT a stdlib rewrite — the
+stdlib already exists in the v2 runtime and the bridge uses it. It reduces to two
+bounded, scalameta-independent frontend/lowering jobs: **K62.6 parse-completeness**
+(~40 `_err` files) and **K62.7 dispatch alignment** (started). They compound per
+file, so end-to-end pass-count lags until both close. See spec 62.
