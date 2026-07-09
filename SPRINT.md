@@ -456,6 +456,18 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
       plus affected conformance `tests/conformance/run.sh --only 'litdoc,arithmetic' --no-memo`
       after `installBin`.
+- [ ] **v2-litdoc-inline-bold-parity** — follow-up found during
+      `v2-arith-unification` verification. After `installBin`, direct real-harness
+      A/B for `tests/conformance/litdoc.ssc` still differs only on inline bold
+      rendering: v1 prints `inline: P(buy a )B(new)P( dress)`, v2 prints
+      `inline: P(buy a **new** dress)`. This is not the arith/map divergence:
+      the `data: price=40` line agrees after the arith unification. How:
+      inspect `runtime/std/litdoc.ssc` plus v2 bridge lowering for `inlinesOf`
+      pattern/method calls, reproduce with the direct `bin/ssc run --v1/--v2`
+      diff, then add a focused expected conformance case or make
+      `litdoc.ssc` eligible for the existing expected-file harness. Done-when:
+      the direct litdoc A/B diff is empty and BUGS `v2-litdoc-inline-bold-parity`
+      moves to `fixed`.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

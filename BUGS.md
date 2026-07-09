@@ -12,6 +12,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-litdoc-inline-bold-parity — `open` (2026-07-09)
+
+- **Found by:** codex, while verifying `v2-arith-unification` against the
+  litdoc real harness.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `bin/ssc run --v1 tests/conformance/litdoc.ssc` and
+  `bin/ssc run --v2 tests/conformance/litdoc.ssc`, then diff stdout.
+- **Observed failure:** all litdoc lines match except inline emphasis rendering:
+  v1 prints `inline: P(buy a )B(new)P( dress)`, while v2 prints
+  `inline: P(buy a **new** dress)`.
+- **Impact:** this is an output-parity mismatch in a non-example conformance
+  document. It is not caused by the arith dispatch split fixed in
+  `v2-arith-unification`; the map/data line now agrees, but inline bold parsing
+  still diverges.
+- **Status:** open; queued in SPRINT as `v2-litdoc-inline-bold-parity`.
+
 ## v2-arith-dispatch-split — `open` (2026-07-09)
 
 - **Found by:** codex, while promoting BACKLOG `v2-arith-unification` for v2
