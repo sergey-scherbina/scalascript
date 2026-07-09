@@ -1,0 +1,6 @@
+feature/tkv2-typed-client 2026-07-09T00:45:21Z
+agent: codex
+heartbeat: 2026-07-09T00:45:21Z
+status: not-started
+done-so-far:
+next: create worktree, expand SPRINT plan/spec, then implement route-derived browser typed client
