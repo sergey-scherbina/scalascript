@@ -2776,6 +2776,32 @@ object Prims:
         if op == "++" && lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
       val combined = lf ++ rf
       DataV(s"Tuple${combined.length}", combined)
+    // Payment bridge Money values are plain DataV so payment examples can use
+    // ordinary arithmetic without linking v2-core to the payments modules.
+    case (DataV("Money", IndexedSeq(IntV(x), cx)), DataV("Money", IndexedSeq(IntV(y), cy))) =>
+      def sameCurrency: Boolean = cx == cy
+      op match
+        case "+" if sameCurrency => DataV("Money", Vector(IntV(x + y), cx))
+        case "-" if sameCurrency => DataV("Money", Vector(IntV(x - y), cx))
+        case "==" => BoolV(x == y && sameCurrency)
+        case "!=" => BoolV(x != y || !sameCurrency)
+        case "<" if sameCurrency  => BoolV(x < y)
+        case "<=" if sameCurrency => BoolV(x <= y)
+        case ">" if sameCurrency  => BoolV(x > y)
+        case ">=" if sameCurrency => BoolV(x >= y)
+        case "+" | "-" | "<" | "<=" | ">" | ">=" => DataV("CurrencyMismatch", Vector(cx, cy))
+        case _ => sys.error(s"__arith__: op $op not valid for Money+Money")
+    case (DataV("Money", IndexedSeq(IntV(x), c)), ForeignV(y: java.math.BigDecimal)) =>
+      import java.math.RoundingMode.HALF_EVEN
+      op match
+        case "*" => DataV("Money", Vector(IntV(new java.math.BigDecimal(x).multiply(y).setScale(0, HALF_EVEN).longValueExact()), c))
+        case "/" => DataV("Money", Vector(IntV(new java.math.BigDecimal(x).divide(y, 0, HALF_EVEN).longValueExact()), c))
+        case _   => sys.error(s"__arith__: op $op not valid for Money+Decimal")
+    case (DataV("Money", IndexedSeq(IntV(x), c)), IntV(y)) =>
+      op match
+        case "*" => DataV("Money", Vector(IntV(x * y), c))
+        case "/" => DataV("Money", Vector(IntV(x / y), c))
+        case _   => sys.error(s"__arith__: op $op not valid for Money+Int")
     case (ForeignV(x: java.math.BigDecimal), ForeignV(y: java.math.BigDecimal)) =>
       import java.math.RoundingMode.HALF_UP
       op match

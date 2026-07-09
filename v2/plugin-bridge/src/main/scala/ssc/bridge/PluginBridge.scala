@@ -4,6 +4,8 @@ import scalascript.backend.spi.{Backend, BlockContext, BlockForm, EffectHandler,
 import scalascript.interpreter.{DataValue, Value as V1Value}
 import scalascript.interpreter.DataValue.*
 import scalascript.markup.{Dialect, JvmMarkupCodec, Markup, MarkupCodec, PureMarkupCodec, SerializeOpts, TransformError, XmlEscape}
+import scalascript.payments.money.{Currency as PayCurrency, Money as PayMoney}
+import scalascript.payments.pix.PixQrCode
 import ssc.{Done, Runtime, Show, Value as V2Value, V2EffectContext, V2PluginRegistry}
 
 /** Loads v1 Backend plugins from the classpath and registers:
@@ -363,6 +365,7 @@ object PluginBridge:
     V2PluginRegistry.registerFieldNames("KV", Vector("key", "value"))
     V2PluginRegistry.registerFieldNames("Rate", Vector("elements", "perMillis"))
     registerMarkupBridge()
+    registerPaymentsBridge()
     registerRemoteRegistry()
     // Override OIDC client prims BEFORE building namespace objects so the namespace
     // ForeignV picks up the overridden versions (buildNamespaceObjects reads from registry).
@@ -630,6 +633,414 @@ object PluginBridge:
       "default" -> ForeignV(SerializeOpts.default),
       "pretty" -> ForeignV(SerializeOpts.pretty)
     ))
+
+  private def registerPaymentsBridge(): Unit =
+    import V2Value.*
+
+    def reg(tag: String, fields: String*): Unit =
+      V2PluginRegistry.registerFieldNames(tag, fields.toVector)
+
+    reg("Currency", "code")
+    reg("Money", "minorUnits", "currency")
+    Seq("IntentId", "CustomerId", "VaultId", "PlanId", "SubscriptionId", "RefundId",
+      "DisputeId", "ChargeId", "MandateId", "TransferId", "RejectCode", "ReturnCode")
+      .foreach(reg(_, "value"))
+    reg("PaymentCapabilities", "supportsSubscriptions", "supportsSCA", "supports3DS2",
+      "supportsACH", "supportsSEPA", "supportsApplePay", "supportsGooglePay",
+      "supportsRefunds", "supportsPartialRefunds", "supportsDisputes",
+      "supportsConnectedAccounts", "supportsMultiCurrency", "supportsMandates")
+    reg("SCAChallenge", "provider", "redirectUrl", "returnUrl", "fingerprint")
+    reg("Charge", "id", "intentId", "amount", "paid", "receiptUrl", "balanceTransactionId")
+    reg("Card", "token")
+    reg("ApplePayCard", "token")
+    reg("GooglePayCard", "token")
+    reg("Wallet", "provider", "externalId")
+    reg("SavedMethod", "vaultId")
+    reg("Fingerprint", "value")
+    reg("RequiresPaymentMethod", "id", "amount", "metadata")
+    reg("RequiresConfirmation", "id", "amount", "method")
+    reg("RequiresAction", "id", "amount", "action")
+    reg("Processing", "id", "amount")
+    reg("Succeeded", "id", "amount", "charge")
+    reg("Canceled", "id", "reason")
+    reg("Failed", "id", "error", "retryable")
+    reg("CreateIntentRequest", "amount", "method", "confirm", "customer", "captureMethod",
+      "setupFutureUsage", "offSession", "mandateId", "scaExemptions", "metadata",
+      "description", "returnUrl")
+    reg("CreateCustomerRequest", "email", "name", "metadata")
+    reg("Customer", "id", "email", "name", "metadata")
+    reg("StoredMethod", "vaultId", "last4", "brand", "expMonth", "expYear", "funding",
+      "isDefault", "networkToken", "mandateId")
+    reg("Daily", "count"); reg("Weekly", "count"); reg("Monthly", "count"); reg("Yearly", "count")
+    reg("CreatePlanRequest", "amount", "interval", "trialPeriodDays", "metadata")
+    reg("Plan", "id", "amount", "interval", "trialPeriodDays", "metadata")
+    reg("SubscribeOpts", "trialPeriodDays", "defaultMethod", "metadata")
+    reg("Subscription", "id", "customerId", "planId", "status", "currentPeriodEnd",
+      "cancelAtPeriodEnd", "trialEnd")
+    reg("RefundRequest", "intentId", "amount", "reason")
+    reg("Refund", "id", "intentId", "amount", "reason", "status")
+    reg("DisputeEvidence", "customerCommunication", "receipt", "shippingDocumentation",
+      "uncategorizedText", "serviceDocumentation")
+    reg("Dispute", "id", "intentId", "amount", "reason", "status", "dueDate", "evidence")
+    reg("BankAccount", "iban", "accountNumber", "routingNumber", "bankCode", "pixKey",
+      "holderName", "countryCode", "bic", "sortCode", "upiVpa", "zenginBankCode",
+      "zenginBranchCode", "paynowProxy", "payid", "bsbNumber", "transitNumber",
+      "institutionNumber", "email", "phone", "clabe")
+    reg("InitiateTransferRequest", "rail", "amount", "sender", "recipient", "reference",
+      "idempotencyKey", "sameDay", "scheduledDate", "metadata", "chargeBearer", "uetr")
+    reg("BankTransfer", "id", "rail", "amount", "sender", "recipient", "reference",
+      "status", "createdAt", "settledAt", "returnedAt", "metadata", "uetr", "gpiTrail",
+      "chargeBearer")
+    reg("InitiateDirectDebitRequest", "rail", "amount", "mandateId", "creditorAccount",
+      "debtorAccount", "creditorName", "reference", "idempotencyKey", "sameDay",
+      "scheduledDate", "metadata")
+    reg("StaticConfig", "pixKey", "merchantName", "merchantCity", "amount", "txid")
+    reg("DynamicConfig", "cobvUrl", "merchantName", "merchantCity", "amount", "txid")
+    reg("PixConfig", "pixApiUrl", "pixClientId", "pixClientSecret", "pixPixKey",
+      "pixCertPath", "pixKeyPath")
+    reg("FedNowConfig", "fednowApiUrl", "fednowCertPath", "fednowKeyPath",
+      "fednowRoutingNumber", "fednowParticipantId")
+    reg("FedNowLimitExceeded", "amount", "limit")
+
+    val none: V2Value = DataV("None", Vector.empty)
+    def some(v: V2Value): V2Value = DataV("Some", Vector(v))
+    def listOf(xs: Iterable[V2Value]): V2Value =
+      xs.toList.foldRight(DataV("Nil", Vector.empty): V2Value)((x, acc) => DataV("Cons", Vector(x, acc)))
+    def unlist(v: V2Value): List[V2Value] =
+      val b = List.newBuilder[V2Value]
+      var cur = v
+      var go = true
+      while go do cur match
+        case DataV("Cons", IndexedSeq(h, t)) => b += h; cur = t
+        case DataV("Nil", _)                 => go = false
+        case ForeignV(xs: collection.mutable.ArrayBuffer[?]) =>
+          b ++= xs.asInstanceOf[collection.mutable.ArrayBuffer[V2Value]]
+          go = false
+        case _ => go = false
+      b.result()
+    def emptyMap: V2Value =
+      ForeignV(collection.mutable.LinkedHashMap.empty[V2Value, V2Value].asInstanceOf[AnyRef])
+    def fn(arity: Int = -1)(body: List[V2Value] => V2Value): V2Value =
+      ClosV(Runtime.emptyEnv, arity, env => Done(body(env.toList)))
+    def methodObject(show: String, underlying0: AnyRef = null)(fields: (String, V2Value)*): V2Value =
+      val fieldMap = collection.immutable.Map.from(fields)
+      ForeignV(new ssc.Value.NamedMethodObj {
+        def getField(n: String): Option[ssc.Value] = fieldMap.get(n).orElse {
+          if n == "_show" then Some(StrV(show)) else None
+        }
+        def underlying: AnyRef = if underlying0 == null then this else underlying0
+        override def toString: String = show
+      })
+    def str(v: V2Value): String = v match
+      case StrV(s) => s
+      case IntV(n) => n.toString
+      case DataV(tag, _) if tag.forall(c => c.isUpper || c == '_') => tag
+      case DataV("Currency", IndexedSeq(StrV(code))) => code
+      case other => Show.show(other).stripPrefix("\"").stripSuffix("\"")
+    def bool(v: V2Value): Boolean = v match
+      case BoolV(b) => b
+      case _        => false
+    def int(v: V2Value): Long = v match
+      case IntV(n) => n
+      case FloatV(d) => d.toLong
+      case ForeignV(bd: java.math.BigDecimal) => bd.longValue()
+      case StrV(s) => s.toLongOption.getOrElse(0L)
+      case _ => 0L
+    def decimal(v: V2Value): BigDecimal = v match
+      case IntV(n) => BigDecimal(n)
+      case FloatV(d) => BigDecimal(d)
+      case StrV(s) => BigDecimal(s)
+      case ForeignV(bd: java.math.BigDecimal) => BigDecimal(bd)
+      case DataV("Money", _) =>
+        val (minor, code) = moneyParts(v)
+        BigDecimal(minor).bigDecimal.scaleByPowerOfTen(-PayCurrency.minorUnitsPower(PayCurrency(code)))
+      case _ => BigDecimal(0)
+    def field(v: V2Value, name: String, fallbackIdx: Int): V2Value = v match
+      case DataV(tag, fs) =>
+        V2PluginRegistry.lookupFieldNames(tag)
+          .flatMap(names => Option(names.indexOf(name)).filter(_ >= 0).flatMap(i => fs.lift(i)))
+          .orElse(fs.lift(fallbackIdx))
+          .getOrElse(UnitV)
+      case ForeignV(nmo: ssc.Value.NamedMethodObj) =>
+        nmo.getField(name).getOrElse(UnitV)
+      case _ => UnitV
+    def opt(v: V2Value): Option[V2Value] = v match
+      case DataV("Some", IndexedSeq(x)) => Some(x)
+      case DataV("None", _) | UnitV     => None
+      case other                        => Some(other)
+    def currencyCode(v: V2Value): String = v match
+      case DataV("Currency", IndexedSeq(StrV(code))) => code
+      case DataV(tag, _) if tag.length == 3 && tag.forall(_.isUpper) => tag
+      case StrV(code) => code
+      case _ => "USD"
+    def currencyV(code: String): V2Value =
+      DataV("Currency", Vector(StrV(code.toUpperCase(java.util.Locale.ROOT))))
+    def moneyV(minor: Long, currency: String): V2Value =
+      DataV("Money", Vector(IntV(minor), currencyV(currency)))
+    def moneyParts(v: V2Value): (Long, String) = v match
+      case DataV("Money", fs) if fs.length >= 2 => int(fs(0)) -> currencyCode(fs(1))
+      case ForeignV(m: PayMoney) => m.minorUnits -> m.currency.toString
+      case _ => int(v) -> "USD"
+    def payMoney(v: V2Value): PayMoney =
+      val (minor, code) = moneyParts(v)
+      PayMoney(minor, PayCurrency(code))
+    def idV(tag: String, value: String): V2Value = DataV(tag, Vector(StrV(value)))
+    def idString(v: V2Value): String = v match
+      case DataV(_, IndexedSeq(StrV(s))) => s
+      case StrV(s) => s
+      case other => str(other)
+    def nowString: V2Value = StrV(java.time.Instant.now().toString)
+
+    def instantV(i: java.time.Instant): V2Value =
+      methodObject(i.toString, i)(
+        "plusSeconds" -> fn(1) {
+          case List(IntV(seconds)) => instantV(i.plusSeconds(seconds))
+          case _ => instantV(i)
+        },
+        "isAfter" -> fn(1) {
+          case List(ForeignV(nmo: ssc.Value.NamedMethodObj)) if nmo.underlying.isInstanceOf[java.time.Instant] =>
+            BoolV(i.isAfter(nmo.underlying.asInstanceOf[java.time.Instant]))
+          case _ => BoolV(false)
+        },
+        "toString" -> fn(0)(_ => StrV(i.toString))
+      )
+
+    def capabilitiesV: V2Value =
+      DataV("PaymentCapabilities", Vector(
+        BoolV(true), BoolV(true), BoolV(true), BoolV(true), BoolV(true),
+        BoolV(true), BoolV(true), BoolV(true), BoolV(true), BoolV(true),
+        BoolV(false), BoolV(true), BoolV(true)))
+    def chargeV(id: String, intent: V2Value, amount: V2Value): V2Value =
+      DataV("Charge", Vector(idV("ChargeId", id), intent, amount, BoolV(true),
+        some(StrV(s"https://payments.example.test/receipts/$id")), none))
+    def succeededIntent(id: String, amount: V2Value): V2Value =
+      val intentId = idV("IntentId", id)
+      DataV("Succeeded", Vector(intentId, amount, chargeV(s"ch_$id", intentId, amount)))
+
+    def paymentProvider(providerId: String): V2Value =
+      var seq = 0
+      def next(prefix: String): String =
+        seq += 1
+        s"${providerId}_demo_${prefix}_$seq"
+      methodObject(s"PaymentProvider($providerId)")(
+        "id" -> StrV(providerId),
+        "displayName" -> StrV(providerId.capitalize + " deterministic test provider"),
+        "spiVersion" -> StrV("v2-bridge"),
+        "capabilities" -> capabilitiesV,
+        "mode" -> DataV("Test", Vector.empty),
+        "createIntent" -> fn(1) {
+          case List(req) =>
+            val amount = field(req, "amount", 0)
+            val capture = field(req, "captureMethod", 4)
+            val id = next("pi")
+            capture match
+              case DataV("Manual", _) => DataV("Processing", Vector(idV("IntentId", id), amount))
+              case _                  => succeededIntent(id, amount)
+          case _ => sys.error("createIntent(req)")
+        },
+        "confirmIntent" -> fn(2) {
+          case List(id, _) => succeededIntent(idString(id), moneyV(0L, "USD"))
+          case _ => sys.error("confirmIntent(id, method)")
+        },
+        "captureIntent" -> fn(-1) {
+          case id :: amountOpt :: Nil => succeededIntent(idString(id), opt(amountOpt).getOrElse(moneyV(0L, "USD")))
+          case id :: Nil              => succeededIntent(idString(id), moneyV(0L, "USD"))
+          case _ => sys.error("captureIntent(id, amount?)")
+        },
+        "voidIntent" -> fn(1)(_ => UnitV),
+        "createPlan" -> fn(1) {
+          case List(req) =>
+            DataV("Plan", Vector(idV("PlanId", next("plan")), field(req, "amount", 0),
+              field(req, "interval", 1), field(req, "trialPeriodDays", 2), field(req, "metadata", 3)))
+          case _ => sys.error("createPlan(req)")
+        },
+        "createCustomer" -> fn(1) {
+          case List(req) =>
+            DataV("Customer", Vector(idV("CustomerId", next("cus")), field(req, "email", 0),
+              field(req, "name", 1), field(req, "metadata", 2)))
+          case _ => sys.error("createCustomer(req)")
+        },
+        "attachMethod" -> fn(2) {
+          case List(_, _) =>
+            DataV("StoredMethod", Vector(idV("VaultId", next("vault")), StrV("4242"), StrV("visa"),
+              StrV("12"), StrV("2030"), StrV("credit"), BoolV(true), none, none))
+          case _ => sys.error("attachMethod(customerId, method)")
+        },
+        "detachMethod" -> fn(1)(_ => UnitV),
+        "listMethods" -> fn(1)(_ => listOf(Nil)),
+        "subscribe" -> fn(3) {
+          case List(customerId, planId, opts) =>
+            val trial = field(opts, "trialPeriodDays", 0)
+            val status = if opt(trial).isDefined then DataV("Trialing", Vector.empty) else DataV("Active", Vector.empty)
+            DataV("Subscription", Vector(idV("SubscriptionId", next("sub")), customerId, planId,
+              status, StrV("2026-08-01T00:00:00Z"), BoolV(false),
+              opt(trial).map(_ => StrV("2026-07-23T00:00:00Z")).fold(none)(some)))
+          case _ => sys.error("subscribe(customerId, planId, opts)")
+        },
+        "changeSubscription" -> fn(3) {
+          case List(subId, planId, _) =>
+            DataV("Subscription", Vector(subId, idV("CustomerId", "cus_demo"), planId,
+              DataV("Active", Vector.empty), StrV("2026-08-01T00:00:00Z"), BoolV(false), none))
+          case _ => sys.error("changeSubscription(id, planId, mode)")
+        },
+        "cancelSubscription" -> fn(-1) {
+          case subId :: _ =>
+            DataV("Subscription", Vector(subId, idV("CustomerId", "cus_demo"), idV("PlanId", "plan_demo"),
+              DataV("Canceled", Vector.empty), StrV("2026-08-01T00:00:00Z"), BoolV(true), none))
+          case _ => sys.error("cancelSubscription(id, atPeriodEnd?)")
+        },
+        "refund" -> fn(1) {
+          case List(req) =>
+            DataV("Refund", Vector(idV("RefundId", next("re")), field(req, "intentId", 0),
+              opt(field(req, "amount", 1)).getOrElse(moneyV(0L, "USD")), field(req, "reason", 2),
+              DataV("Succeeded", Vector.empty)))
+          case _ => sys.error("refund(req)")
+        },
+        "submitDisputeEvidence" -> fn(2) {
+          case List(disputeId, evidence) =>
+            DataV("Dispute", Vector(disputeId, idV("IntentId", "pi_disputed"), moneyV(0L, "USD"),
+              DataV("General", Vector.empty), DataV("UnderReview", Vector.empty),
+              StrV("2026-08-01T00:00:00Z"), some(evidence)))
+          case _ => sys.error("submitDisputeEvidence(disputeId, evidence)")
+        },
+        "webhookReceiver" -> methodObject("WebhookReceiver")(
+          "handle" -> fn(-1)(_ => UnitV)
+        )
+      )
+
+    def bankTransfer(id: String, rail: V2Value, amount: V2Value, sender: V2Value,
+        recipient: V2Value, ref: String, status: V2Value): V2Value =
+      DataV("BankTransfer", Vector(idV("TransferId", id), rail, amount, sender, recipient,
+        StrV(ref), status, nowString, if status == DataV("Settled", Vector.empty) then some(nowString) else none,
+        none, emptyMap, none, DataV("Nil", Vector.empty), none))
+
+    def bankProvider(providerId: String, rail: V2Value): V2Value =
+      methodObject(s"BankRailsProvider($providerId)")(
+        "id" -> StrV(providerId),
+        "displayName" -> StrV(providerId.capitalize + " deterministic bank-rails provider"),
+        "spiVersion" -> StrV("v2-bridge"),
+        "supportedRails" -> listOf(List(rail)),
+        "initiateTransfer" -> fn(1) {
+          case List(req) =>
+            val amount = field(req, "amount", 1)
+            if providerId == "fednow" && moneyParts(amount)._1 > 50_000_000L then
+              throw BridgeThrow(DataV("FedNowLimitExceeded", Vector(amount, moneyV(50_000_000L, "USD"))))
+            bankTransfer(
+              s"${providerId}_${idString(field(req, "idempotencyKey", 5)).replaceAll("[^A-Za-z0-9]", "").take(32)}",
+              field(req, "rail", 0), amount, field(req, "sender", 2), field(req, "recipient", 3),
+              str(field(req, "reference", 4)), DataV("Pending", Vector.empty))
+          case _ => sys.error("initiateTransfer(req)")
+        },
+        "getTransfer" -> fn(1) {
+          case List(id) =>
+            val dummy = DataV("BankAccount", Vector.fill(5)(none) ++ Vector(StrV("Bridge"), StrV(if providerId == "pix" then "BR" else "US")) ++ Vector.fill(13)(none))
+            bankTransfer(idString(id), rail, moneyV(0L, if providerId == "pix" then "BRL" else "USD"),
+              dummy, dummy, "", DataV("Settled", Vector.empty))
+          case _ => sys.error("getTransfer(id)")
+        },
+        "cancelTransfer" -> fn(1)(_ => UnitV),
+        "initiateDirectDebit" -> fn(1) {
+          case List(req) =>
+            bankTransfer(s"${providerId}_dd_${idString(field(req, "idempotencyKey", 7))}", rail,
+              field(req, "amount", 1), field(req, "debtorAccount", 4), field(req, "creditorAccount", 3),
+              str(field(req, "reference", 6)), DataV("Pending", Vector.empty))
+          case _ => sys.error("initiateDirectDebit(req)")
+        },
+        "getDirectDebit" -> fn(1) {
+          case List(id) =>
+            val dummy = DataV("BankAccount", Vector.fill(5)(none) ++ Vector(StrV("Bridge"), StrV("BR")) ++ Vector.fill(13)(none))
+            bankTransfer(idString(id), rail, moneyV(0L, "BRL"), dummy, dummy, "", DataV("Settled", Vector.empty))
+          case _ => sys.error("getDirectDebit(id)")
+        },
+        "webhookReceiver" -> methodObject("WebhookReceiver")("handle" -> fn(-1)(_ => UnitV))
+      )
+
+    def pixStaticConfig(v: V2Value): PixQrCode.StaticConfig =
+      PixQrCode.StaticConfig(
+        pixKey = str(field(v, "pixKey", 0)),
+        merchantName = str(field(v, "merchantName", 1)),
+        merchantCity = str(field(v, "merchantCity", 2)),
+        amount = opt(field(v, "amount", 3)).map(payMoney),
+        txid = str(field(v, "txid", 4))
+      )
+    def pixDynamicConfig(v: V2Value): PixQrCode.DynamicConfig =
+      PixQrCode.DynamicConfig(
+        cobvUrl = str(field(v, "cobvUrl", 0)),
+        merchantName = str(field(v, "merchantName", 1)),
+        merchantCity = str(field(v, "merchantCity", 2)),
+        amount = opt(field(v, "amount", 3)).map(payMoney),
+        txid = str(field(v, "txid", 4))
+      )
+
+    V2PluginRegistry.registerGlobal("Currency", methodObject("Currency")(
+      "apply" -> fn(1) { case List(v) => currencyV(str(v)); case _ => currencyV("USD") },
+      "USD" -> currencyV("USD"), "EUR" -> currencyV("EUR"), "GBP" -> currencyV("GBP"),
+      "CHF" -> currencyV("CHF"), "AUD" -> currencyV("AUD"), "CAD" -> currencyV("CAD"),
+      "JPY" -> currencyV("JPY"), "BRL" -> currencyV("BRL"),
+      "minorUnitsPower" -> fn(1) { case List(v) => IntV(PayCurrency.minorUnitsPower(PayCurrency(currencyCode(v))).toLong); case _ => IntV(2) },
+      "isFiat" -> fn(1) { case List(v) => BoolV(PayCurrency.isFiat(PayCurrency(currencyCode(v)))); case _ => BoolV(false) },
+      "isCrypto" -> fn(1) { case List(v) => BoolV(PayCurrency.isCrypto(PayCurrency(currencyCode(v)))); case _ => BoolV(false) }
+    ))
+    V2PluginRegistry.registerGlobal("Money", methodObject("Money")(
+      "apply" -> fn(-1) {
+        case List(IntV(minor), c) => moneyV(minor, currencyCode(c))
+        case List(amount, c) =>
+          val code = currencyCode(c)
+          val m = PayMoney(decimal(amount), PayCurrency(code))
+          moneyV(m.minorUnits, code)
+        case _ => moneyV(0L, "USD")
+      },
+      "zero" -> fn(1) { case List(c) => moneyV(0L, currencyCode(c)); case _ => moneyV(0L, "USD") },
+      "allocate" -> fn(2) {
+        case List(total, ratios) =>
+          val (minor, code) = moneyParts(total)
+          val allocated = PayMoney.allocate(PayMoney(minor, PayCurrency(code)), unlist(ratios).map(decimal))
+          listOf(allocated.map(m => moneyV(m.minorUnits, code)))
+        case _ => listOf(Nil)
+      }
+    ))
+    V2PluginRegistry.registerGlobal("PaymentProvider", methodObject("PaymentProvider")(
+      "named" -> fn(1) { case List(StrV(id)) => paymentProvider(id); case _ => paymentProvider("stripe") }
+    ))
+    V2PluginRegistry.registerGlobal("StripeProvider", fn(-1)(_ => paymentProvider("stripe")))
+    V2PluginRegistry.registerGlobal("PixProvider", fn(1)(_ => bankProvider("pix", DataV("PIX", Vector.empty))))
+    V2PluginRegistry.registerGlobal("FedNowProvider", fn(1)(_ => bankProvider("fednow", DataV("FEDNOW", Vector.empty))))
+    V2PluginRegistry.registerGlobal("FedNowConfig", methodObject("FedNowConfig")(
+      "fromEnv" -> DataV("FedNowConfig", Vector(StrV("https://fednow.example.test"),
+        StrV(""), StrV(""), StrV("021000021"), StrV("DEMO"))),
+      "apply" -> fn(-1) { args => DataV("FedNowConfig", args.padTo(5, StrV("")).take(5).toVector) }
+    ))
+    V2PluginRegistry.registerGlobal("PixQrCode", methodObject("PixQrCode")(
+      "StaticConfig" -> fn(-1) { args => DataV("StaticConfig", args.padTo(5, none).toVector) },
+      "DynamicConfig" -> fn(-1) { args => DataV("DynamicConfig", args.padTo(5, none).toVector) },
+      "buildStatic" -> fn(1) { case List(cfg) => StrV(PixQrCode.buildStatic(pixStaticConfig(cfg))); case _ => StrV("") },
+      "buildDynamic" -> fn(1) { case List(cfg) => StrV(PixQrCode.buildDynamic(pixDynamicConfig(cfg))); case _ => StrV("") },
+      "formatAmount" -> fn(1) { case List(m) => StrV(PixQrCode.formatAmount(payMoney(m))); case _ => StrV("0.00") }
+    ))
+    V2PluginRegistry.registerGlobal("Instant", methodObject("Instant")(
+      "now" -> fn(0)(_ => instantV(java.time.Instant.now()))
+    ))
+    V2PluginRegistry.registerGlobal("Thread", methodObject("Thread")(
+      "sleep" -> fn(1) { case List(IntV(ms)) => Thread.sleep(ms); UnitV; case _ => UnitV }
+    ))
+    V2PluginRegistry.register("__method__.toDecimal", args => args.lift(1) match
+      case Some(m @ DataV("Money", _)) =>
+        val (minor, code) = moneyParts(m)
+        ForeignV(BigDecimal(minor).bigDecimal.scaleByPowerOfTen(-PayCurrency.minorUnitsPower(PayCurrency(code))))
+      case _ => DataV("Stub", Vector.empty)
+    )
+    V2PluginRegistry.register("__method__.format", args => args.lift(1) match
+      case Some(m @ DataV("Money", _)) =>
+        val (minor, code) = moneyParts(m)
+        StrV(PayMoney(minor, PayCurrency(code)).format(java.util.Locale.US))
+      case _ => DataV("Stub", Vector.empty)
+    )
+    V2PluginRegistry.register("__method__.getMessage", args => args.lift(1) match
+      case Some(DataV("FedNowLimitExceeded", fs)) if fs.length >= 2 =>
+        StrV(s"FedNow transfer amount ${Show.show(fs(0))} exceeds limit ${Show.show(fs(1))}")
+      case Some(DataV("CurrencyMismatch", _)) => StrV("Cannot operate on amounts in different currencies")
+      case _ => DataV("Stub", Vector.empty)
+    )
 
   /** Override oauth.client.discoverAs/exchangeAuthorizationCode BEFORE buildNamespaceObjects()
    *  so the namespace ForeignV picks up the batch-mode stubs.

@@ -161,6 +161,112 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(out.contains("ERR:"))
   }
 
+  test("v2 payments bridge supports deterministic provider and money surface") {
+    val src =
+      """# Payments
+        |
+        |```scala
+        |val stripe = PaymentProvider.named("stripe")
+        |val intent = stripe.createIntent(CreateIntentRequest(
+        |  amount = Money(4999L, Currency.USD),
+        |  method = Some(PaymentMethod.Card("pm_card_visa")),
+        |  confirm = true,
+        |))
+        |intent match
+        |  case PaymentIntent.Succeeded(_, _, charge) =>
+        |    println("paid:" + charge.id.value + ":" + charge.receiptUrl)
+        |  case _ =>
+        |    println("unexpected")
+        |
+        |val subtotal = Money(BigDecimal("49.99"), Currency.USD)
+        |val tax = subtotal * BigDecimal("0.20")
+        |val total = subtotal + tax
+        |println(total.toDecimal)
+        |println(Money.allocate(Money(100L, Currency.USD), List(BigDecimal(1), BigDecimal(1), BigDecimal(1))).map(_.toDecimal))
+        |```
+        |""".stripMargin
+
+    val out = capture(src)
+    assert(out.contains("paid:ch_stripe_demo_pi_1"))
+    assert(out.contains("59.99"))
+    assert(out.contains("List(0.34, 0.33, 0.33)"))
+    assert(!out.contains("Op("))
+    assert(!out.contains("Stub"))
+  }
+
+  test("v2 payments bridge supports Pix provider and QR code surface") {
+    val src =
+      """# Pix
+        |
+        |```scala
+        |val pixConfig = PixConfig(
+        |  pixApiUrl = "https://pix.example.test",
+        |  pixClientId = "client",
+        |  pixClientSecret = "secret",
+        |  pixPixKey = "merchant@example.com",
+        |)
+        |val pix = PixProvider(pixConfig)
+        |val recipient = BankAccount(pixKey = Some("payer@example.com"), holderName = "Maria", countryCode = "BR")
+        |val sender = BankAccount(pixKey = Some(pixConfig.pixPixKey), holderName = "Loja", countryCode = "BR")
+        |val transfer = pix.initiateTransfer(InitiateTransferRequest(
+        |  rail = RailKind.PIX,
+        |  amount = Money(5000L, Currency("BRL")),
+        |  sender = sender,
+        |  recipient = recipient,
+        |  reference = "Pedido #12345",
+        |  idempotencyKey = "order12345attempt1",
+        |))
+        |println("pix:" + transfer.id.value + ":" + transfer.status)
+        |println("settled:" + pix.getTransfer(transfer.id).status)
+        |val qr = PixQrCode.buildStatic(PixQrCode.StaticConfig(
+        |  pixKey = "loja@empresa.com.br",
+        |  merchantName = "Loja Exemplo",
+        |  merchantCity = "Sao Paulo",
+        |  amount = Some(Money(2999L, Currency("BRL"))),
+        |))
+        |println(qr.take(12) + ":" + qr.takeRight(8))
+        |```
+        |""".stripMargin
+
+    val out = capture(src)
+    assert(out.contains("pix:pix_order12345attempt1:Pending"))
+    assert(out.contains("settled:Settled"))
+    assert(out.contains("000201"))
+    assert(out.contains("6304"))
+    assert(!out.contains("Op("))
+    assert(!out.contains("Stub"))
+  }
+
+  test("v2 payments bridge supports FedNow provider and Instant helpers") {
+    val src =
+      """# FedNow
+        |
+        |```scala
+        |val provider = FedNowProvider(FedNowConfig.fromEnv)
+        |val transfer = provider.initiateTransfer(InitiateTransferRequest(
+        |  rail = RailKind.FEDNOW,
+        |  amount = Money(150000L, Currency("USD")),
+        |  sender = BankAccount(accountNumber = Some("123"), routingNumber = Some("021000021"), holderName = "Acme", countryCode = "US"),
+        |  recipient = BankAccount(accountNumber = Some("987"), bankCode = Some("026009593"), holderName = "Bob", countryCode = "US"),
+        |  reference = "INV-1",
+        |  idempotencyKey = "fednow-transfer-order-1",
+        |))
+        |val deadline = Instant.now().plusSeconds(60)
+        |println("fednow:" + transfer.id.value + ":" + transfer.status)
+        |println("after:" + Instant.now().isAfter(deadline))
+        |Thread.sleep(1)
+        |println("final:" + provider.getTransfer(transfer.id).status)
+        |```
+        |""".stripMargin
+
+    val out = capture(src)
+    assert(out.contains("fednow:fednow_fednowtransferorder1:Pending"))
+    assert(out.contains("after:false"))
+    assert(out.contains("final:Settled"))
+    assert(!out.contains("Op("))
+    assert(!out.contains("Stub"))
+  }
+
   test("arithmetic") {
     assert(run("1 + 2 * 3") == Value.IntV(7))
   }

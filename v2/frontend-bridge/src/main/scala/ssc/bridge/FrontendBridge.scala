@@ -390,6 +390,23 @@ object FrontendBridge:
     }
 
   private def registerBuiltInBridgeTypes(): Unit =
+    def registerRecord(
+      name: String,
+      fields: Vector[String],
+      defaultsByField: Map[String, CT] = Map.empty,
+      types: Vector[String] = Vector.empty
+    ): Unit =
+      fieldRegistry(name) = fields
+      fieldTypeRegistry(name) =
+        if types.nonEmpty then types else Vector.fill(fields.length)("Any")
+      if defaultsByField.nonEmpty then
+        defaultParams(name) = fields.map(f => defaultsByField.get(f))
+      ssc.V2PluginRegistry.registerFieldNames(name, fields)
+
+    val none: CT = CT.Ctor("None", Nil)
+    val nil: CT = CT.Ctor("Nil", Nil)
+    val emptyMap: CT = CT.Prim("__mk_map__", Nil)
+
     val serializeOptsFields = Vector("pretty", "indent", "omitXmlDecl")
     fieldRegistry("SerializeOpts") = serializeOptsFields
     fieldTypeRegistry("SerializeOpts") = Vector("Boolean", "String", "Boolean")
@@ -400,13 +417,122 @@ object FrontendBridge:
     )
     ssc.V2PluginRegistry.registerFieldNames("SerializeOpts", serializeOptsFields)
     ssc.V2PluginRegistry.registerFieldNames("TransformError", Vector("message"))
-    methodObjectNames ++= Set("MarkupCodec", "PureMarkupCodec", "SerializeOpts")
     // http `Request` carries runtime-injected params/query/… absent from its
     // std/http.ssc case class. Lock BOTH registries to the runtime layout so
     // `req.params(:name)` resolves the right slot instead of a Stub
     // (v2-route-params-stub). registerCaseClass skips runtimeShapedTypes.
     fieldRegistry("Request") = PluginBridge.requestFieldNames
     ssc.V2PluginRegistry.registerFieldNames("Request", PluginBridge.requestFieldNames)
+    registerRecord("Currency", Vector("code"), types = Vector("String"))
+    registerRecord("Money", Vector("minorUnits", "currency"), types = Vector("Long", "Currency"))
+    Seq("IntentId", "CustomerId", "VaultId", "PlanId", "SubscriptionId", "RefundId",
+      "DisputeId", "ChargeId", "MandateId", "TransferId", "RejectCode", "ReturnCode")
+      .foreach(n => registerRecord(n, Vector("value"), types = Vector("String")))
+    registerRecord("PaymentCapabilities", Vector(
+      "supportsSubscriptions", "supportsSCA", "supports3DS2", "supportsACH",
+      "supportsSEPA", "supportsApplePay", "supportsGooglePay", "supportsRefunds",
+      "supportsPartialRefunds", "supportsDisputes", "supportsConnectedAccounts",
+      "supportsMultiCurrency", "supportsMandates"),
+      defaultsByField = Vector(
+        "supportsSubscriptions", "supportsSCA", "supports3DS2", "supportsACH",
+        "supportsSEPA", "supportsApplePay", "supportsGooglePay", "supportsRefunds",
+        "supportsPartialRefunds", "supportsDisputes", "supportsConnectedAccounts",
+        "supportsMultiCurrency", "supportsMandates").map(_ -> CT.Lit(Const.CBool(false))).toMap)
+    registerRecord("SCAChallenge", Vector("provider", "redirectUrl", "returnUrl", "fingerprint"))
+    registerRecord("Charge", Vector("id", "intentId", "amount", "paid", "receiptUrl", "balanceTransactionId"),
+      defaultsByField = Map("receiptUrl" -> none, "balanceTransactionId" -> none))
+    registerRecord("Card", Vector("token"))
+    registerRecord("ApplePayCard", Vector("token"))
+    registerRecord("GooglePayCard", Vector("token"))
+    registerRecord("BankAccount", Vector("accountId"))
+    registerRecord("Wallet", Vector("provider", "externalId"))
+    registerRecord("SavedMethod", Vector("vaultId"))
+    registerRecord("Fingerprint", Vector("value"))
+    registerRecord("RequiresPaymentMethod", Vector("id", "amount", "metadata"),
+      defaultsByField = Map("metadata" -> emptyMap))
+    registerRecord("RequiresConfirmation", Vector("id", "amount", "method"))
+    registerRecord("RequiresAction", Vector("id", "amount", "action"))
+    registerRecord("Processing", Vector("id", "amount"))
+    registerRecord("Succeeded", Vector("id", "amount", "charge"))
+    registerRecord("Canceled", Vector("id", "reason"))
+    registerRecord("Failed", Vector("id", "error", "retryable"))
+    registerRecord("CreateIntentRequest", Vector(
+      "amount", "method", "confirm", "customer", "captureMethod", "setupFutureUsage",
+      "offSession", "mandateId", "scaExemptions", "metadata", "description", "returnUrl"),
+      defaultsByField = Map(
+        "method" -> none,
+        "confirm" -> CT.Lit(Const.CBool(false)),
+        "customer" -> none,
+        "captureMethod" -> CT.Ctor("Automatic", Nil),
+        "setupFutureUsage" -> none,
+        "offSession" -> CT.Lit(Const.CBool(false)),
+        "mandateId" -> none,
+        "scaExemptions" -> nil,
+        "metadata" -> emptyMap,
+        "description" -> none,
+        "returnUrl" -> none))
+    registerRecord("CreateCustomerRequest", Vector("email", "name", "metadata"),
+      defaultsByField = Map("name" -> none, "metadata" -> emptyMap))
+    registerRecord("Customer", Vector("id", "email", "name", "metadata"))
+    registerRecord("StoredMethod", Vector("vaultId", "last4", "brand", "expMonth", "expYear",
+      "funding", "isDefault", "networkToken", "mandateId"),
+      defaultsByField = Map("isDefault" -> CT.Lit(Const.CBool(false)), "networkToken" -> none, "mandateId" -> none))
+    registerRecord("Daily", Vector("count"), defaultsByField = Map("count" -> CT.Lit(Const.CInt(1))))
+    registerRecord("Weekly", Vector("count"), defaultsByField = Map("count" -> CT.Lit(Const.CInt(1))))
+    registerRecord("Monthly", Vector("count"), defaultsByField = Map("count" -> CT.Lit(Const.CInt(1))))
+    registerRecord("Yearly", Vector("count"), defaultsByField = Map("count" -> CT.Lit(Const.CInt(1))))
+    registerRecord("CreatePlanRequest", Vector("amount", "interval", "trialPeriodDays", "metadata"),
+      defaultsByField = Map("trialPeriodDays" -> none, "metadata" -> emptyMap))
+    registerRecord("Plan", Vector("id", "amount", "interval", "trialPeriodDays", "metadata"))
+    registerRecord("SubscribeOpts", Vector("trialPeriodDays", "defaultMethod", "metadata"),
+      defaultsByField = Map("trialPeriodDays" -> none, "defaultMethod" -> none, "metadata" -> emptyMap))
+    registerRecord("Subscription", Vector("id", "customerId", "planId", "status",
+      "currentPeriodEnd", "cancelAtPeriodEnd", "trialEnd"))
+    registerRecord("RefundRequest", Vector("intentId", "amount", "reason"),
+      defaultsByField = Map("amount" -> none, "reason" -> CT.Ctor("RequestedByCustomer", Nil)))
+    registerRecord("Refund", Vector("id", "intentId", "amount", "reason", "status"))
+    registerRecord("DisputeEvidence", Vector("customerCommunication", "receipt",
+      "shippingDocumentation", "uncategorizedText", "serviceDocumentation"),
+      defaultsByField = Map("customerCommunication" -> none, "receipt" -> none,
+        "shippingDocumentation" -> none, "uncategorizedText" -> none, "serviceDocumentation" -> none))
+    registerRecord("Dispute", Vector("id", "intentId", "amount", "reason", "status", "dueDate", "evidence"))
+    registerRecord("BankAccount", Vector(
+      "iban", "accountNumber", "routingNumber", "bankCode", "pixKey", "holderName",
+      "countryCode", "bic", "sortCode", "upiVpa", "zenginBankCode", "zenginBranchCode",
+      "paynowProxy", "payid", "bsbNumber", "transitNumber", "institutionNumber",
+      "email", "phone", "clabe"),
+      defaultsByField = Vector("iban", "accountNumber", "routingNumber", "bankCode", "pixKey",
+        "bic", "sortCode", "upiVpa", "zenginBankCode", "zenginBranchCode", "paynowProxy",
+        "payid", "bsbNumber", "transitNumber", "institutionNumber", "email", "phone", "clabe")
+        .map(_ -> none).toMap)
+    registerRecord("InitiateTransferRequest", Vector(
+      "rail", "amount", "sender", "recipient", "reference", "idempotencyKey",
+      "sameDay", "scheduledDate", "metadata", "chargeBearer", "uetr"),
+      defaultsByField = Map("sameDay" -> CT.Lit(Const.CBool(false)), "scheduledDate" -> none,
+        "metadata" -> emptyMap, "chargeBearer" -> CT.Ctor("SHA", Nil), "uetr" -> none))
+    registerRecord("BankTransfer", Vector("id", "rail", "amount", "sender", "recipient",
+      "reference", "status", "createdAt", "settledAt", "returnedAt", "metadata",
+      "uetr", "gpiTrail", "chargeBearer"),
+      defaultsByField = Map("settledAt" -> none, "returnedAt" -> none, "metadata" -> emptyMap,
+        "uetr" -> none, "gpiTrail" -> nil, "chargeBearer" -> none))
+    registerRecord("InitiateDirectDebitRequest", Vector("rail", "amount", "mandateId",
+      "creditorAccount", "debtorAccount", "creditorName", "reference", "idempotencyKey",
+      "sameDay", "scheduledDate", "metadata"),
+      defaultsByField = Map("sameDay" -> CT.Lit(Const.CBool(false)), "scheduledDate" -> none,
+        "metadata" -> emptyMap))
+    registerRecord("StaticConfig", Vector("pixKey", "merchantName", "merchantCity", "amount", "txid"),
+      defaultsByField = Map("amount" -> none, "txid" -> CT.Lit(Const.CStr("***"))))
+    registerRecord("DynamicConfig", Vector("cobvUrl", "merchantName", "merchantCity", "amount", "txid"),
+      defaultsByField = Map("amount" -> none))
+    registerRecord("PixConfig", Vector("pixApiUrl", "pixClientId", "pixClientSecret",
+      "pixPixKey", "pixCertPath", "pixKeyPath"),
+      defaultsByField = Map("pixCertPath" -> CT.Lit(Const.CStr("")), "pixKeyPath" -> CT.Lit(Const.CStr(""))))
+    registerRecord("FedNowConfig", Vector("fednowApiUrl", "fednowCertPath", "fednowKeyPath",
+      "fednowRoutingNumber", "fednowParticipantId"))
+    methodObjectNames ++= Set(
+      "MarkupCodec", "PureMarkupCodec", "SerializeOpts",
+      "PaymentProvider", "Money", "Currency", "PixQrCode", "FedNowConfig",
+      "Instant", "Thread")
 
   /** First pass: scan all stats and collect case class / enum / extension definitions. */
   private def registerTypes(stats: List[Stat]): Unit = stats.foreach {
@@ -1723,7 +1849,10 @@ object FrontendBridge:
       val qualIsTypeName = qual match
         case Term.Name(qn) => isCtorName(qn)
         case _             => false
-      if qualIsTypeName && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
+      val qualIsMethodObject = qual match
+        case Term.Name(qn) => methodObjectNames.contains(qn)
+        case _             => false
+      if qualIsTypeName && !qualIsMethodObject && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
         if extensionMethods.contains(name) then
@@ -2623,7 +2752,9 @@ object FrontendBridge:
   private val functionConstructors: Set[String] =
     Set("Decimal", "BigDecimal", "BigInt",
         "RuntimeException", "Exception", "IllegalArgumentException",
-        "IllegalStateException", "UnsupportedOperationException")
+        "IllegalStateException", "UnsupportedOperationException",
+        "Currency", "Money", "StripeProvider", "PixProvider", "FedNowProvider",
+        "FedNowConfig")
 
   private val impureMethodObjects: Set[String] =
     Set("Dataset", "DistributedDataset", "HandlerRegistry", "WorkerProtocol",
