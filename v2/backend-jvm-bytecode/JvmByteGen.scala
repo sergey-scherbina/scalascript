@@ -23,6 +23,8 @@ object JvmByteGen:
   private val EMIT  = "ssc/Emit"
   private val LAMFN = "ssc/Emit$LamFn"
   private val VAL   = "ssc/Value"
+  private val INTV  = "ssc/Value$IntV"
+  private val LCELL = "ssc/Value$LongCellV"
   private val OBJ   = "java/lang/Object"
   private val GEN   = "ssc/gen/Entry"
 
@@ -325,6 +327,91 @@ object JvmByteGen:
       new Handle(Opcodes.H_INVOKESTATIC, GEN, methodName, s"([L$VAL;)L$VAL;", false),
       AsmType.getType(s"([L$VAL;)L$VAL;"))
 
+  private def loadLocalValue(i: Int, ctx: Ctx): Unit =
+    val mv = ctx.mv
+    if i < ctx.slotDepth then
+      mv.visitVarInsn(Opcodes.ALOAD, ctx.slotFor(i))
+    else
+      loadEnv(ctx)
+      mv.visitInsn(Opcodes.DUP)
+      mv.visitInsn(Opcodes.ARRAYLENGTH)
+      mv.visitLdcInsn(1 + (i - ctx.slotDepth))
+      mv.visitInsn(Opcodes.ISUB)
+      mv.visitInsn(Opcodes.AALOAD)
+
+  private def longArithOpcode(op: String): Int = op match
+    case "+" => Opcodes.LADD
+    case "-" => Opcodes.LSUB
+    case "*" => Opcodes.LMUL
+    case "/" => Opcodes.LDIV
+    case "%" => Opcodes.LREM
+    case _   => throw new Unsupported(s"long-arith:$op")
+
+  private def isLongCmp(op: String): Boolean =
+    op == "<" || op == "<=" || op == ">" || op == ">=" || op == "==" || op == "!="
+
+  private def canLong(t: Term): Boolean = t match
+    case Term.Lit(Const.CInt(_)) => true
+    case Term.Prim("lcell.get", List(Term.Local(_))) => true
+    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+        if op.length == 1 && "+-*/%".contains(op) =>
+      canLong(a) && canLong(b)
+    case _ => false
+
+  private def genLong(t: Term, ctx: Ctx): Unit =
+    val mv = ctx.mv
+    t match
+      case Term.Lit(Const.CInt(n)) =>
+        mv.visitLdcInsn(n)
+      case Term.Prim("lcell.get", List(Term.Local(i))) =>
+        loadLocalValue(i, ctx)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, LCELL)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LCELL, "v", "()J", false)
+      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+          if op.length == 1 && "+-*/%".contains(op) && canLong(a) && canLong(b) =>
+        genLong(a, ctx)
+        genLong(b, ctx)
+        mv.visitInsn(longArithOpcode(op))
+      case other =>
+        throw new Unsupported(s"long:${other.getClass.getSimpleName}")
+
+  private def genLongCmpFalse(op: String, a: Term, b: Term, ctx: Ctx, falseLabel: Label): Boolean =
+    if !isLongCmp(op) || !canLong(a) || !canLong(b) then false
+    else
+      val mv = ctx.mv
+      genLong(a, ctx)
+      genLong(b, ctx)
+      mv.visitInsn(Opcodes.LCMP)
+      val jump = op match
+        case "<"  => Opcodes.IFGE
+        case "<=" => Opcodes.IFGT
+        case ">"  => Opcodes.IFLE
+        case ">=" => Opcodes.IFLT
+        case "==" => Opcodes.IFNE
+        case "!=" => Opcodes.IFEQ
+      mv.visitJumpInsn(jump, falseLabel)
+      true
+
+  private def genBoolBranchFalse(t: Term, ctx: Ctx, falseLabel: Label): Boolean = t match
+    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) =>
+      genLongCmpFalse(op, a, b, ctx, falseLabel)
+    case _ => false
+
+  private def genLongCmpValue(op: String, a: Term, b: Term, ctx: Ctx): Boolean =
+    if !isLongCmp(op) || !canLong(a) || !canLong(b) then false
+    else
+      val mv = ctx.mv
+      val falseL = new Label()
+      val endL = new Label()
+      genLongCmpFalse(op, a, b, ctx, falseL)
+      mv.visitInsn(Opcodes.ICONST_1)
+      mv.visitJumpInsn(Opcodes.GOTO, endL)
+      mv.visitLabel(falseL)
+      mv.visitInsn(Opcodes.ICONST_0)
+      mv.visitLabel(endL)
+      callZ(mv, "boolV")
+      true
+
   private def gen(t: Term, ctx: Ctx, tail: Boolean = false): Unit =
     val mv = ctx.mv
     t match
@@ -338,16 +425,7 @@ object JvmByteGen:
       case Term.Global(gname) =>
         mv.visitLdcInsn(gname); callStr(mv, "global")
       case Term.Local(i) =>
-        if i < ctx.slotDepth then
-          mv.visitVarInsn(Opcodes.ALOAD, ctx.slotFor(i))
-        else
-          // env[env.length - 1 - (i - slotDepth)]
-          loadEnv(ctx)
-          mv.visitInsn(Opcodes.DUP)
-          mv.visitInsn(Opcodes.ARRAYLENGTH)
-          mv.visitLdcInsn(1 + (i - ctx.slotDepth))
-          mv.visitInsn(Opcodes.ISUB)
-          mv.visitInsn(Opcodes.AALOAD)
+        loadLocalValue(i, ctx)
       case Term.Lam(ar, body) =>
         val m = ctx.g.freshLam()
         ctx.g.pending.enqueue(Pending(m, body))
@@ -371,9 +449,10 @@ object JvmByteGen:
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, chainNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.If(c, a, b) =>
-        gen(c, ctx); callVB(mv, "bool")
         val elseL = new Label(); val endL = new Label()
-        mv.visitJumpInsn(Opcodes.IFEQ, elseL)
+        if !genBoolBranchFalse(c, ctx, elseL) then
+          gen(c, ctx); callVB(mv, "bool")
+          mv.visitJumpInsn(Opcodes.IFEQ, elseL)
         gen(a, ctx, tail); mv.visitJumpInsn(Opcodes.GOTO, endL)
         mv.visitLabel(elseL); gen(b, ctx, tail); mv.visitLabel(endL)
       case Term.Let(rhs, body) if !rhs.exists(mayOp) =>
@@ -434,8 +513,9 @@ object JvmByteGen:
       case Term.While(cond, body) =>
         val startL = new Label(); val endL = new Label()
         mv.visitLabel(startL)
-        gen(cond, ctx); callVB(mv, "bool")
-        mv.visitJumpInsn(Opcodes.IFEQ, endL)
+        if !genBoolBranchFalse(cond, ctx, endL) then
+          gen(cond, ctx); callVB(mv, "bool")
+          mv.visitJumpInsn(Opcodes.IFEQ, endL)
         gen(body, ctx); mv.visitInsn(Opcodes.POP)
         mv.visitJumpInsn(Opcodes.GOTO, startL)
         mv.visitLabel(endL)
@@ -476,9 +556,23 @@ object JvmByteGen:
         mv.visitJumpInsn(Opcodes.GOTO, loopStart)
         mv.visitLabel(loopEnd)
         call0(mv, "unitV")
-      case Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
-        mv.visitLdcInsn(aop); gen(a, ctx); gen(b, ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "arith", s"(Ljava/lang/String;L$VAL;L$VAL;)L$VAL;", false)
+      case t @ Term.Prim("lcell.get", List(Term.Local(_))) if canLong(t) =>
+        genLong(t, ctx)
+        callJ(mv, "intV")
+      case Term.Prim("lcell.set", List(Term.Local(c), body)) if canLong(body) =>
+        loadLocalValue(c, ctx)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, LCELL)
+        genLong(body, ctx)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LCELL, "v_$eq", "(J)V", false)
+        call0(mv, "unitV")
+      case t @ Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
+        if genLongCmpValue(aop, a, b, ctx) then ()
+        else if canLong(t) then
+          genLong(t, ctx)
+          callJ(mv, "intV")
+        else
+          mv.visitLdcInsn(aop); gen(a, ctx); gen(b, ctx)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "arith", s"(Ljava/lang/String;L$VAL;L$VAL;)L$VAL;", false)
       case Term.Prim(op, args) =>
         args.length match
           case 0 => mv.visitLdcInsn(op); callP(mv, "prim0", 0)

@@ -21,6 +21,16 @@ class FrontendBridgeTest extends AnyFunSuite:
     ensureBridgeRuntime()
     Runtime.run(Compiler.compile(Program(Nil, entry)), Array.empty[Value])
 
+  def runBytecode(src: String): Value =
+    ensureBridgeRuntime()
+    val prog = FrontendBridge.convertSource(src)
+    val (_, globals) = Compiler.compileWithGlobals(prog)
+    Emit.globalsRef = globals
+    val bytes = bytecode.JvmByteGen.emitProgram(prog)
+    try bytecode.JvmByteGen.runProgram(bytes)
+    catch case e: java.lang.reflect.InvocationTargetException =>
+      throw Option(e.getCause).getOrElse(e)
+
   private lazy val repoRoot: java.io.File =
     Iterator.iterate(new java.io.File(".").getAbsoluteFile)(_.getParentFile)
       .takeWhile(f => f != null && f.getParentFile != f)
@@ -485,6 +495,22 @@ class FrontendBridgeTest extends AnyFunSuite:
             App(Prim("cell.get", List(Local(1))), Nil)))))
 
     assert(runCore(entry) == Value.IntV(1))
+  }
+
+  test("v2 bytecode lcell arithmetic loop keeps VM result") {
+    val src =
+      """def workload(): Long =
+        |  var i = 0
+        |  var sum = 0L
+        |  while i < 1000 do
+        |    sum = sum + i
+        |    i = i + 1
+        |  sum
+        |
+        |workload()
+        |""".stripMargin
+
+    assert(runBytecode(src) == Value.IntV(499500))
   }
 
   test("if-else") {
