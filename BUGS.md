@@ -12,6 +12,36 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## green-main-conformance-7fail — `open` (2026-07-09)
+
+- **Found by:** codex, while closing the `p4-bc-unboxed-arith` bytecode perf
+  slice. The affected bytecode/arithmetic gate is green, but the broader default
+  conformance gate is not.
+- **Repro:** stage the CLI with `scripts/sbtc "installBin"`, then run
+  `tests/conformance/run.sh --only 'case-classes,dataset-shape,direct-control-flow,effect-imported-handler,effect-transitive-handler,fenceless-bare-code,js-applyunary-effect-cps,sealed-traits' --no-memo`.
+- **Observed failure:** the fresh targeted repro reports 1 passed, 7 failed out
+  of 8 tests. Failing rows: `case-classes` JS (`78.54` becomes `NaN`, and
+  expected ordinals `0, 1, 2, 1` become `7, 7, 7, 7`); `dataset-shape` JVM
+  missing all stdout; `direct-control-flow` JS missing all stdout;
+  `effect-imported-handler` JS missing stdout; `effect-transitive-handler` JS
+  missing stdout; `js-applyunary-effect-cps` JS missing stdout; `sealed-traits`
+  JS (`3.14` becomes `NaN`). `fenceless-bare-code` passed in the fresh
+  targeted `--no-memo` repro even though the earlier full non-`--no-memo` run
+  reported a JS missing-stdout failure.
+- **Expected:** every enabled lane in the focused repro passes, and a full
+  `tests/conformance/run.sh --no-memo` has no deterministic failures beyond
+  explicit pending/skips.
+- **Impact:** the default top-level conformance gate is red, so v2 production
+  readiness still has a deterministic blocker independent of bytecode
+  arithmetic performance.
+- **Notes:** the current bytecode slice's affected gate is green:
+  `tests/conformance/run.sh --only
+  'arithmetic,recursion,tail-recursion,mutual-recursion' --no-memo` reports
+  4 passed, 0 failed; focused `FrontendBridgeTest -- -z "v2 bytecode"` reports
+  2/2. Start the fix loop by running the failing lanes directly with
+  `bin/ssc run-js` / `bin/ssc run-jvm` to capture stderr/root cause.
+- **Status:** open.
+
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the final `unmask-payments-bridge` affected

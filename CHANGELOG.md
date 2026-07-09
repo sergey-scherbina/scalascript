@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 bytecode unboxes hot integer arithmetic and recursion
+
+The `scripts/bench` wrapper now has a `v2-bytecode` corpus lane, and the JVM
+bytecode backend has conservative unboxed `long` fast paths for bridge-lowered
+integer loops and guarded arity-1 self-recursive Int functions. Hot rows improve
+substantially without changing generic `__arith__` fallback semantics:
+`arith-loop` bytecode 43.6ms -> 6.80ms, `nested-loop` 52.2ms -> 7.60ms,
+`range-sum` remains at parity (0.413ms), and `recursion-fib` 31.9ms -> 1.27ms.
+Gates: focused bytecode bridge tests 2/2, `installBin`, affected conformance
+`arithmetic,recursion,tail-recursion,mutual-recursion` 4/4 with `--no-memo`,
+the four final `scripts/bench v2-bytecode` rows, and `git diff --check`. A
+separate default-conformance blocker found during broad gating is tracked as
+`green-main-conformance-7fail`.
+
 ## 2026-07-09 — v2 busi read_gigs works through the real hub
 
 The live busi `read_gigs` MCP failure was reduced and fixed in v2. A payments
