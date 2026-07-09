@@ -15,8 +15,16 @@
 //
 //   Usage: scala-cli bench/run.sc
 
-val dir  = os.pwd / "bench"
-val root = dir / os.up
+val cwd = os.pwd
+val repoBench = cwd / "tests" / "bench"
+val dir =
+  if os.exists(repoBench / "fib.ssc") then repoBench
+  else if os.exists(cwd / "fib.ssc") then cwd
+  else cwd / "bench"
+val root =
+  if os.exists(cwd / "build.sbt") then cwd
+  else if os.exists(cwd / os.up / os.up / "build.sbt") then cwd / os.up / os.up
+  else dir / os.up
 
 val nRuns = 5
 
@@ -35,7 +43,7 @@ def jsscProc(file: os.Path): os.proc =
 
 def ssccProc(file: os.Path): os.proc =
   if os.exists(ssccBin) then os.proc(ssccBin.toString, file.toString)
-  else os.proc(sscBin.toString, "compile", file.toString)
+  else os.proc(sscBin.toString, "run-jvm", file.toString)
 
 case class Target(label: String, run: os.Path => os.proc)
 
