@@ -34,16 +34,12 @@ val items = List(
 )
 
 // Single-threaded: ~150ms total
-val t0 = nanoTime()
 val r1 = runAsync { Async.parallel(items) }
-val t1 = nanoTime()
-println("runAsync         result=" + r1.toString + " took ~" + ((t1 - t0) / 1000000) + "ms")
+println("runAsync         result=" + r1.toString)
 
 // Real threads on the JVM: ~50ms total
-val t2 = nanoTime()
 val r2 = runAsyncParallel { Async.parallel(items) }
-val t3 = nanoTime()
-println("runAsyncParallel result=" + r2.toString + " took ~" + ((t3 - t2) / 1000000) + "ms")
+println("runAsyncParallel result=" + r2.toString)
 ```
 
 ## async + await fan-in
