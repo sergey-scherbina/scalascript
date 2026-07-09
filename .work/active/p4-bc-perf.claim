@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/p4-bc-perf
+worktree: ../scalascript-wt-bcperf
+started: 2026-07-09
+status: in-progress
+task: p4-bc-perf — прогнать bench-корпус на --bytecode vs VM (vs v1/JVM), найти перф-разрывы, спрофилировать JFR, закрыть крупнейшие. Byte-lane семантически полон (paritet). Guard: fib ~99ms, tco 1M.
