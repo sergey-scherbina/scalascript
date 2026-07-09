@@ -1,6 +1,0 @@
-agent: claude-opus-4-8 (1M ctx)
-branch: feature/k62-indentation
-worktree: ../scalascript-wt-k62-indentation
-started: 2026-07-09
-status: in-progress
-task: K62.6c-indent — significant indentation on the native ssc1 front (ssc1-front.ssc0 ONLY). Lexer emits newline+indent info; a layout pass converts brace-less indented blocks (def f() = <indent> stmts, if/while/for bodies) into virtual { ; } so the existing brace-based parser handles them. NOT touching bridge/VM. Gate on conformance 640/640 every step.
