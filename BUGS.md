@@ -3024,7 +3024,7 @@ Found+minimized 2026-07-09 by busi (fable) while attempting the v2 hub conforman
 
 ## v2-db-url-scheme-not-jdbc — `databases:` front-matter parser only recognizes `jdbc:`-prefixed URLs
 
-**Status:** OPEN (v2 VM only; v1 lanes correct — guarded by
+**Status:** FIXED 2026-07-09 (1e43ba347) — registerDb normalizes sqlite:/h2:/postgres(ql)/mysql to jdbc:; guarded by
 tests/conformance/v2-db-url-scheme-not-jdbc.ssc)
 
 busi's `databases:` convention uses the `sqlite:` scheme (`sqlite::memory:`,
@@ -3046,7 +3046,7 @@ Found+minimized 2026-07-09 by busi (fable).
 
 ## v2-native-result-unregistered-field — fieldAt crashes on a native result whose case class isn't imported
 
-**Status:** OPEN (v2 VM only; v1 lanes correct — guarded by
+**Status:** FIXED 2026-07-09 (793922d00) — fieldAt named 3-arg routes through methodOp/__method__ (handles ForeignV/NamedMethodObj); guarded by
 tests/conformance/v2-native-result-unregistered-field.ssc)
 
 Calling a GLOBAL, extern-backed std function (e.g. `exec`, from
