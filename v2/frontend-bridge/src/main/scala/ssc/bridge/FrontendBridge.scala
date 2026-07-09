@@ -1444,6 +1444,7 @@ object FrontendBridge:
     case Lit.Null()     => CT.Ctor("None", Nil)
 
     // ── Variables ─────────────────────────────────────────────────────────────
+    case Term.Name("???") => CT.App(CT.Global("???"), Nil)  // Predef.??? throws on reference
     case Term.Name(n)   => lookupVarFull(n, scope)
 
     // ── Block ─────────────────────────────────────────────────────────────────

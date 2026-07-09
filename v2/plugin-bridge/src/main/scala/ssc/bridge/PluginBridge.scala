@@ -1182,6 +1182,11 @@ object PluginBridge:
         if env.nonEmpty then Console.out.print(showForPrint(env(0)))
         Done(UnitV)
       }))
+      // Predef `???` — a value that throws NotImplementedError when forced
+      // (Scala semantics). It is a paren-less method, so the bridge references
+      // it bare; without this it surfaced as a confusing "unbound global: ???".
+      V2PluginRegistry.registerGlobal("???",
+        ClosV(Runtime.emptyEnv, 0, _ => throw new scala.NotImplementedError()))
     // Restricted quoted macro helpers for interpreter/run-path parity.
     // `MacroCodegen` intentionally leaves interpreter-only macro bodies alone;
     // `ssc run --v2` still has to execute the helper form that the v1 parser

@@ -1,0 +1,2 @@
+def choose(b: Boolean): Int = if b then 42 else ???
+println(choose(true))
