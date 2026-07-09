@@ -1,0 +1,8 @@
+val greeting = "bare"
+var total = 0
+var k = 0
+while k < 5 do
+  total = total + k
+  k = k + 1
+println(greeting + "-mode: " + total)
+println("fences: optional")

@@ -91,6 +91,7 @@ object FrontendBridge:
     hoistedValNames.clear()
     curriedExternMethods.clear()
     effectNames.clear()
+    lastExtractDocOnly = false
     globalVarNames.clear()
     defParamNames.clear()
     varargDefs.clear()
@@ -197,6 +198,10 @@ object FrontendBridge:
    *  the containing tree — an un-handled Op must reach the lifting dispatch,
    *  not an unboxing asInt seam. */
   private val effectNames = collection.mutable.HashSet[String]()
+  /** Set when the last extractCode returned an EMPTY program because the
+   *  source is a fence-less markdown document (doc-only). Run paths use it
+   *  to print a note instead of a silent no-op. */
+  @volatile var lastExtractDocOnly: Boolean = false
 
   /** (object, method) pairs whose method takes varargs — call sites wrap args in a list. */
   private val objMethodVarargs = collection.mutable.HashSet[(String, String)]()
@@ -868,7 +873,9 @@ object FrontendBridge:
     // Otherwise treat as raw Scala source (for test-style usage with no front matter).
     if firstFence < 0 then
       val trimmed = noFront.trim
-      if trimmed.startsWith("#") || trimmed.startsWith("[") || trimmed.isEmpty then ""
+      if trimmed.startsWith("#") || trimmed.startsWith("[") || trimmed.isEmpty then
+        lastExtractDocOnly = true
+        ""
       else trimmed
     else if !allFences then
       // Original behavior: only extract the first fence

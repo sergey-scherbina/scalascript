@@ -16,9 +16,18 @@ object RunV2:
       val f    = new java.io.File(file)
       val src  = scala.io.Source.fromFile(f).mkString
       val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
+      warnIfDocOnly(file)
       _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]) match
         case _root_.ssc.Value.UnitV => ()
         case other                  => println(_root_.ssc.Show.show(other))
+
+  /** A fence-less markdown document converts to an EMPTY program by design
+   *  (doc-only examples must stay runnable no-ops) — but silently doing
+   *  nothing is a debugging trap, so say it out loud on the run path. */
+  private def warnIfDocOnly(file: String): Unit =
+    if _root_.ssc.bridge.FrontendBridge.lastExtractDocOnly then
+      System.err.println(
+        s"note: $file contains no runnable code (markdown document without ```scalascript fences); nothing to run")
 
   /** `ssc run --bytecode` — the Phase-4 jvm lane: the same bridge pipeline,
    *  but the program compiles to JVM BYTECODE (ASM, in-process defineClass)
@@ -32,6 +41,7 @@ object RunV2:
       val f    = new java.io.File(file)
       val src  = scala.io.Source.fromFile(f).mkString
       val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
+      warnIfDocOnly(file)
       val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
       _root_.ssc.Emit.globalsRef = globals
       val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)

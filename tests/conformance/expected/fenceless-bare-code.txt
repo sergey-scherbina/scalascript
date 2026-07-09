@@ -1,0 +1,2 @@
+bare-mode: 10
+fences: optional
