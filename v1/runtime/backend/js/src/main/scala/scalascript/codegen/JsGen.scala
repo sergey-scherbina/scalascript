@@ -397,6 +397,11 @@ class JsGen(
     // Shared across parent + all child generators so generated replacements for
     // runtime-colliding user top-level names stay unique in the final flat JS scope.
     private[codegen] val usedTopLevelJsNames: mutable.Set[String] = mutable.Set.empty,
+    // Shared across parent + child generators: for each unqualified imported file,
+    // remember how its source-level top-level names were emitted after runtime
+    // collision renaming. Later import extraction can then bind the importer-local
+    // name to the actual child binding (`query__ssc = query__ssc1`, etc.).
+    private[codegen] val importedJsNames: mutable.Map[String, Map[String, String]] = mutable.Map.empty,
     // When Some(set), only top-level declarations whose name is in the set are emitted.
     // None means no filtering (tree-shaking disabled — emit everything).
     // Populated by TreeShaker.shake() and threaded from the companion object entry points.
@@ -2140,8 +2145,11 @@ class JsGen(
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childGen = new JsGen(Some(childDir), intrinsics = intrinsics, lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects, usedTopLevelJsNames = usedTopLevelJsNames)
+      val childGen = new JsGen(Some(childDir), intrinsics = intrinsics, lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects, usedTopLevelJsNames = usedTopLevelJsNames, importedJsNames = importedJsNames)
       childGen.registerTopLevelUserRenames(childModule)
+      importedJsNames(key) = collectTopLevelNames(childModule)
+        .map(entry => entry.name -> childGen.emittedName(entry.name))
+        .toMap
       childGen.importedFiles ++= importedFiles
       // Record the imported module's function / case-class param orders so that
       // (a) named-arg call sites later in THIS module (the importer) reorder, and
@@ -2210,12 +2218,15 @@ class JsGen(
         val fullName  = s"$pkgPrefix${b.name}"
         val localName = b.alias.getOrElse(b.name)
         val localJsName = emittedName(localName)
+        val targetJsName =
+          if childPkg.isEmpty then importedJsNames.get(key).flatMap(_.get(b.name)).getOrElse(b.name)
+          else fullName
         // If the child module declares an exports list and this name is absent,
         // skip — don't block a later import from the correct module.
         val notExported = childExports.nonEmpty && !childExports.contains(b.name)
-        if fullName != localName && !notExported && !declaredBindings.contains(localJsName) then
+        if targetJsName != localJsName && !notExported && !declaredBindings.contains(localJsName) then
           declaredBindings += localJsName
-          line(s"const $localJsName = $fullName;")
+          line(s"const $localJsName = $targetJsName;")
     }
 
   private[codegen] def resolveStdImportFromProjectTree(rawPath: String, base: os.Path): Option[os.Path] =
