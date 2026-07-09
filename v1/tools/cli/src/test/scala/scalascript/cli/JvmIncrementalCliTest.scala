@@ -1,6 +1,7 @@
 package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.artifact.JvmArtifactIO
 import upickle.default.read as upickleRead
 import ujson.Value as JsonValue
 
@@ -18,6 +19,8 @@ import ujson.Value as JsonValue
  *   3. `ssc build --incremental --backend jvm <dir>` twice in a row:
  *      the second run skips both modules (mtime unchanged on `.scjvm`).
  *      Touching one source regenerates only that module's `.scjvm`.
+ *   4. `ssc run-jvm <file.ssc>` invalidates a source-fresh `.scjvm`
+ *      when its JVM codegen cache key is old.
  *
  *  Tests spawn the actual `ssc` jar as a subprocess.  When the jar is missing
  *  the tests cancel with a diagnostic message (same pattern as
@@ -127,6 +130,44 @@ class JvmIncrementalCliTest extends AnyFunSuite:
       assert(sourceHash.nonEmpty, "expected non-empty sourceHash")
       assert(sourceHash.length == 64,
         s"expected SHA-256 hex digest (64 chars), got ${sourceHash.length}: $sourceHash")
+    finally os.remove.all(sandbox)
+
+  test("run-jvm regenerates a source-fresh .scjvm when the JVM codegen cache key is old"):
+    requireScalaCli()
+    val sandbox = os.temp.dir(prefix = "ssc-jvminc-")
+    try
+      val src = sandbox / "cache.ssc"
+      os.write(src,
+        """# Cache
+          |
+          |```scalascript
+          |println("cache-ok")
+          |```
+          |""".stripMargin)
+
+      val first = runSsc(sandbox, "run-jvm", "cache.ssc")
+      assert(first.exitCode == 0,
+        s"first run-jvm failed: exit=${first.exitCode}\nstdout=${first.out.text()}\nstderr=${first.err.text()}")
+
+      val scjvm = sandbox / ".ssc-artifacts" / "cache.scjvm"
+      assert(os.exists(scjvm), s"expected run-jvm to write $scjvm")
+      val original = JvmArtifactIO.readJvmFile(scjvm).fold(err => fail(err), identity)
+      assert(JvmArtifactIO.hasCurrentCodegenVersion(original),
+        s"initial run-jvm artifact should use current JVM codegen key, got '${original.codegenVersion}'")
+
+      val stale = original.copy(codegenVersion = "jvm-codegen-old")
+      JvmArtifactIO.writeJvmFile(stale, scjvm)
+      val staleOnDisk = JvmArtifactIO.readJvmFile(scjvm).fold(err => fail(err), identity)
+      assert(staleOnDisk.codegenVersion == "jvm-codegen-old",
+        "test setup failed to write a stale JVM codegen key")
+
+      val second = runSsc(sandbox, "run-jvm", "cache.ssc")
+      assert(second.exitCode == 0,
+        s"second run-jvm failed: exit=${second.exitCode}\nstdout=${second.out.text()}\nstderr=${second.err.text()}")
+
+      val regenerated = JvmArtifactIO.readJvmFile(scjvm).fold(err => fail(err), identity)
+      assert(JvmArtifactIO.hasCurrentCodegenVersion(regenerated),
+        s"run-jvm reused a source-fresh but old-codegen .scjvm; got '${regenerated.codegenVersion}'")
     finally os.remove.all(sandbox)
 
   // ── 2. compile-jvm a.ssc + b.ssc, then link --backend jvm -o out.jar ─────
