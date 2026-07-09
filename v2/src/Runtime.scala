@@ -485,6 +485,22 @@ object Compiler:
         val armMap = acs.map { case (t, ar, b) => (t, ar) -> b }.toMap
         val dc = default.map(compile)
         (env: Env) => Runtime.value(sc, env) match                   // scrutinee: non-tail
+          // EXPRESSION-position effects: an un-handled Op SCRUTINEE lifts over
+          // the match — run the handler first, then match the resumed value
+          // (same family as the arith/method/setter lifts).
+          case DataV("Op", IndexedSeq(l, a, k)) =>
+            val kc = k.asInstanceOf[ClosV]
+            val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
+              val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+              resumed match
+                case DataV(tag2, fs2) if armMap.contains((tag2, fs2.length)) =>
+                  val extEnv2 = Runtime.extend(env, fs2.toArray)
+                  armMap((tag2, fs2.length))(extEnv2)
+                case other => dc match
+                  case Some(d) => d(env)
+                  case None => Done(sys.error(s"match: no arm for ${Show.show(other)}"))
+            })
+            Done(DataV("Op", Vector(l, a, k2)))
           case DataV(tag, fs) =>
             armMap.get((tag, fs.length)) match
               case Some(body) =>
