@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/mcp-blockdsl
+worktree: ../scalascript-wt-blockdsl
+started: 2026-07-09
+status: in-progress
+task: mcp-blockdsl — найти путь конверсии тела mcpServer{srv=>} (обходит convertApply), применить two-step для curried-нативов tool/toolWithSchema/resource/prompt + native принять trailing hint-args; чинит mcp-search-server
