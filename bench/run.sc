@@ -11,6 +11,7 @@
  *   ./bench.sh --backend ssc               # single backend only
  *   ./bench.sh --backend ssc-asm           # ASM JIT backend only
  *   ./bench.sh --v2-backends                # v2 VM + v2 source backend columns
+ *   ./bench.sh --v2-bytecode                # v2 VM + v2 JVM bytecode lane
  *   ./bench.sh --warmup 10 --reps 50       # custom warmup / measured iterations
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
@@ -36,6 +37,7 @@ val baselineOut = Paths.get(s"$root/bench/BASELINE.md")
 
 val writeBaseline = args.contains("--baseline")
 val v2BackendMode = args.contains("--v2-backends")
+val v2BytecodeMode = args.contains("--v2-bytecode")
 
 // --backend <b>: limit to a single backend; default is all three.
 // Synthetic backend "interp-asm" runs ssc --backend interp with SSC_JIT_BACKEND=asm.
@@ -47,6 +49,7 @@ val backendFlag: Option[String] =
 val backends: Seq[String] = backendFlag match
   case Some(b)             => Seq(b)
   case None if v2BackendMode => Seq("v2", "v2-jvm", "v2-rust")
+  case None if v2BytecodeMode => Seq("v2", "v2-bytecode")
   case None                => Seq("ssc", "ssc-asm", "v2", "jvm", "js", "rust")
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)

@@ -18,6 +18,7 @@ full command list; `scripts/bench list` enumerates every available
 | Wall-clock all backends (ssc, ssc-asm, jvm, js) | `./bench.sh` |
 | Wall-clock ASM backend only | `./bench.sh --backend ssc-asm` |
 | Wall-clock v2 VM/source backends | `scripts/bench v2-backends [workload]` |
+| Wall-clock v2 VM/JVM-bytecode lane | `scripts/bench v2-bytecode [workload]` |
 | Compare interp vs JS vs JVM | `scripts/bench cross` |
 | Measure codegen time | `scripts/bench gen` |
 | Measure compile pipeline | `scripts/bench compile` |
@@ -56,6 +57,7 @@ are we from native?" checkpoints.
 | --- | --- | --- |
 | `bench/corpus/*.ssc` + `bench/run.sc` | Workload sweep through the `ssc` CLI; checked-in summaries land in `bench/BASELINE.md`. | `scripts/runtime-bench.sh --baseline` |
 | `bench/corpus/*.ssc` + `bench/run.sc --v2-backends` | Same corpus shape, limited to v2 VM, v2 JVM source backend, and v2 Rust source backend. Use this for Phase-3 separate-backend measurement baselines; unsupported rows remain `n/a`. | `scripts/bench v2-backends [workload]` or `./bench.sh --v2-backends ...` |
+| `bench/corpus/*.ssc` + `bench/run.sc --v2-bytecode` | Same corpus shape, limited to the v2 VM and the in-process v2 JVM bytecode lane. Use this for Phase-4 bytecode-lane A/B work. | `scripts/bench v2-bytecode [workload]` |
 | `tests/bench/{fib,sum,list-ops}.{ssc,scala,js}` | Cross-language wall-clock: same workload in ScalaScript / Scala-direct / Node. | `scripts/bench wall` (alias for `scala-cli tests/bench/run.sc`) |
 
 Use the wall-clock benches when you need cold-JVM, fresh-process numbers

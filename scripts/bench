@@ -46,6 +46,9 @@ Commands:
   v2-backends [pat]
                   Corpus wall-clock through v2 VM, v2 JVM source backend,
                   and v2 Rust source backend (bench/run.sc --v2-backends).
+  v2-bytecode [pat]
+                  Corpus wall-clock through v2 VM and the v2 JVM bytecode lane
+                  (bench/run.sc --v2-bytecode).
 
   list            List all available @Benchmark methods.
   help            This message.
@@ -58,6 +61,7 @@ Examples:
   scripts/bench off recursionFib        # same bench with optimizations off
   scripts/bench profile instanceFieldAccess
   scripts/bench cross arithLoop         # interp vs JS vs JVM, one workload
+  scripts/bench v2-bytecode arith-loop  # v2 VM vs v2 bytecode, one workload
 
 Env overrides:
   BENCH_WI=N   warmup iterations (default 3)
@@ -74,12 +78,16 @@ shift
 pat="${1:-.*}"
 
 # Sprint notes use CLI-friendly kebab names. JMH method names stay JVM-safe.
-case "$pat" in
-  option-chain) pat="optionChain" ;;
-  either-chain) pat="eitherChain" ;;
-  hof-pipeline) pat="hofPipeline" ;;
-  range-sum)    pat="rangeSum" ;;
-  typeclass-fold) pat="typeclassFold" ;;
+case "$cmd" in
+  interp|cross|gen|compile|asm|off|profile)
+    case "$pat" in
+      option-chain) pat="optionChain" ;;
+      either-chain) pat="eitherChain" ;;
+      hof-pipeline) pat="hofPipeline" ;;
+      range-sum)    pat="rangeSum" ;;
+      typeclass-fold) pat="typeclassFold" ;;
+    esac
+    ;;
 esac
 
 # Class-scoped JMH pattern. `.*Class.*pat.*` is permissive on both ends so
@@ -149,6 +157,18 @@ case "$cmd" in
       ./bench.sh --v2-backends
     else
       ./bench.sh --v2-backends "$pat"
+    fi
+    ;;
+
+  v2-bytecode)
+    if ! command -v scala-cli >/dev/null 2>&1; then
+      echo "scripts/bench v2-bytecode: scala-cli not found; install it or skip" >&2
+      exit 1
+    fi
+    if [[ "$pat" == ".*" ]]; then
+      ./bench.sh --v2-bytecode
+    else
+      ./bench.sh --v2-bytecode "$pat"
     fi
     ;;
 

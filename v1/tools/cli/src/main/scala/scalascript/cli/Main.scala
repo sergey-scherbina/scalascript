@@ -7141,7 +7141,7 @@ final class BenchCmd extends CliCommand:
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--backend <ssc|jvm|js|v2|v2-jvm|v2-rust>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
+      System.err.println("Usage: ssc bench [--backend <ssc|jvm|js|v2|v2-bytecode|v2-jvm|v2-rust>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
       System.exit(1)
 
     // --backend is a global flag (GlobalFlags), consumed before we see args.
@@ -7168,7 +7168,7 @@ final class BenchCmd extends CliCommand:
 
     // "interp" accepted as a backward-compatible alias for "ssc".
     if backend == "interp" then backend = "ssc"
-    val validBackends = Set("ssc", "jvm", "js", "v2", "v2-jvm", "v2-rust")
+    val validBackends = Set("ssc", "jvm", "js", "v2", "v2-bytecode", "v2-jvm", "v2-rust")
     if !validBackends(backend) then
       System.err.println(s"bench: unknown backend '$backend', valid: ${validBackends.mkString(", ")}")
       System.exit(1)
@@ -7525,6 +7525,32 @@ final class BenchCmd extends CliCommand:
           e.getStackTrace.take(6).foreach(f => System.err.println(s"[v2CoreIr]   at $f"))
         None
 
+    def timeV2Bytecode(): Option[Double] =
+      val outBuf = new java.io.ByteArrayOutputStream()
+      val outPs  = new java.io.PrintStream(outBuf, true, "UTF-8")
+      try
+        RunV2.loadPluginJars()
+        _root_.ssc.Runtime.argv = Nil
+        _root_.ssc.bridge.PluginBridge.loadAll()
+        Console.withOut(outPs) {
+          val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
+          val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
+          _root_.ssc.Emit.globalsRef = globals
+          val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
+          val res =
+            try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
+            catch case e: java.lang.reflect.InvocationTargetException =>
+              throw Option(e.getCause).getOrElse(e)
+          res match
+            case _root_.ssc.Value.UnitV => ()
+            case other                  => println(_root_.ssc.Show.show(other))
+        }
+      catch case e: Throwable =>
+        if System.getenv("SSC_BENCH_DEBUG") != null then
+          System.err.println(s"[timeV2Bytecode] ${e.getClass.getSimpleName}: ${e.getMessage}")
+          e.getStackTrace.take(6).foreach(f => System.err.println(s"[timeV2Bytecode]   at $f"))
+      parseBenchMs(outBuf.toString("UTF-8"))
+
     def runV2SourceGenerator(backendDir: os.Path, ir: String): Option[String] =
       try
         val tmpIr = os.temp(ir, suffix = ".coreir", deleteOnExit = true)
@@ -7698,6 +7724,7 @@ final class BenchCmd extends CliCommand:
       case "jvm"    => timeJvm()
       case "js"     => timeJs()
       case "v2"     => timeV2()
+      case "v2-bytecode" => timeV2Bytecode()
       case "v2-jvm" => timeV2Jvm()
       case "v2-rust"=> timeV2Rust()
       case _        => timeInterp()
