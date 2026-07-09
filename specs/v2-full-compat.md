@@ -633,6 +633,39 @@ Remaining candidates (investigate after T3.1 numbers):
 - String concat specialization
 - Collection construction (List, Vector) without intermediate boxing
 
+#### 2026-07-09 bounded hot-path triage slice
+
+The first reproduced post-baseline probe used the same command as T3.1:
+
+```bash
+scripts/sbtc "installBin"
+./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
+```
+
+Current local reproduction:
+
+| Workload | `ssc` ms | `ssc-asm` ms | `v2` ms | `v2 / ssc` | `jvm` ms | `js` ms | `rust` ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `arith-loop` | 0.250 | 0.243 | 9.54 | 38.2x | 0.246 | 0.587 | 0.901 |
+| `pattern-match-heavy` | 0.053 | 0.053 | 43.2 | 815.1x | 0.047 | 0.048 | 1.37 |
+| `recursion-fib` | 1.17 | 1.21 | 68.5 | 58.5x | 1.32 | 4.28 | 1.76 |
+| `recursion-tco` | 0.029 | 0.029 | 2.52 | 86.9x | 0.025 | 0.124 | 0.025 |
+
+Focused fix for this slice: make the existing `SelfRecLL` arity-1 recursive
+Long fast path recognise bridge-generated comparison conditions
+`Prim("__arith__", Lit(CStr("<|<=|>|>=|==|!=")), lhs, rhs)`. The bridge already
+lowers Scala source comparisons this way, so today `fib(n)` misses the
+specialisation even though the arithmetic part is otherwise supported.
+
+Behavior:
+- [ ] bridge-generated `def fib(n: Int): Int = if n <= 1 then n else ...`
+      receives a `SelfRecLL`/`fcEntry` fast path.
+- [ ] the raw v2 CoreIR `tco.coreir` and existing `recursion-fib` semantics stay
+      unchanged.
+- [ ] before/after numbers for the four-row production probe are recorded here;
+      if the 2x gate remains red, this section states the remaining blocker
+      explicitly instead of claiming production performance green.
+
 ### T3.3 — v2 JVM backend quality
 
 The generated Scala code uses `lazy val` + closures. Profile generated code vs
