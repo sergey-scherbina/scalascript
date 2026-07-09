@@ -1,6 +1,0 @@
-feature/tkv2-webauthn 2026-07-09T00:15:26Z
-agent: codex
-heartbeat: 2026-07-09T00:35:52Z
-status: in-progress
-done-so-far: std/ui WebAuthn implementation and focused gates green locally
-next: document feature, commit/push code+docs, update BUGS/SPRINT/CHANGELOG, release claim
