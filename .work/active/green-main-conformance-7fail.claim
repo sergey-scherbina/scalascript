@@ -1,6 +1,6 @@
-feature/green-main-conformance-7fail 2026-07-09T19:59:46Z
+feature/green-main-conformance-7fail 2026-07-09T20:20:28Z
 agent: codex
-heartbeat: 2026-07-09T19:59:46Z
+heartbeat: 2026-07-09T20:20:28Z
 status: in-progress
-done-so-far: dataset-shape, JS shadowing, and renamed-import JS bugs fixed locally; post-rebase full conformance now fails strings on JVM after native String.takeWhile/dropWhile landed
-next: reproduce and fix strings JVM regression, then rerun full conformance and push
+done-so-far: dataset-shape, JS shadowing, renamed-import JS, and Scala.js serverless fixes are committed locally; focused fenceless/standard-scala slice is green
+next: rerun full conformance after Scala.js serverless fix, update docs, push, release claim
