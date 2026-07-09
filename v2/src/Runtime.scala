@@ -1765,6 +1765,13 @@ object Prims:
           def methodOrPluginOrExt(): Value =
             methodOp(mname, recv, margs) match
               case DataV("Stub", _) => pluginOrExt()
+              // A method-not-found result surfaces as the auto-thread Op
+              // `Op("<tag>.<mname>", …)` — NOT a resolved value. Treat it like
+              // a Stub and fall to the user extension (else `None.handleError`
+              // et al. leaked the raw Op instead of dispatching the typeclass
+              // extension — regressed by the remote-registry method-first path).
+              case DataV("Op", IndexedSeq(StrV(lbl), _, _)) if lbl.endsWith("." + mname) =>
+                pluginOrExt()
               case handled          => handled
           V2PluginRegistry.lookupFieldNames(tag) match
             case Some(fnames) =>
