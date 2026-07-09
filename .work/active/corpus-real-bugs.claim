@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/corpus-real-bugs
-worktree: ../scalascript-wt-realbugs
-started: 2026-07-09
-status: in-progress
-task: corpus-real-bugs — дешёвые реальные баги из 11 фейлов: ??? unbound (x402-cardano-scalus), dsl-mini-language arity, datatable-static-spa parse, mcp-search-server curried tool; средовые (distributed×2/pg/x402-cardano) и wip (control-center) — не мои
