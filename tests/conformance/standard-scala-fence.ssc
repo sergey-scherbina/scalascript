@@ -1,0 +1,5 @@
+# Standard Scala fence
+
+```scala
+println("standard-scala-fence-ok")
+```

@@ -811,11 +811,17 @@ object FrontendBridge:
         if after >= 0 then noShebang.drop(after + 4) else noShebang
       else noShebang
     val fence = "```scalascript\n"
-    // Any runnable fence counts for the all-fences path: sql conformance files
-    // have ONLY ```scala + ```sql fences (no ```scalascript at all).
+    val scalaScriptFenceRe = """(?m)^```(scalascript|ssc)([^\n]*)\n""".r
+    val scalaFenceRe       = """(?m)^```scala([^\n]*)\n""".r
+    val hasScalaScriptFences = scalaScriptFenceRe.findFirstIn(noFront).isDefined
+    val hasScalaFences       = scalaFenceRe.findFirstIn(noFront).isDefined
+    val hasSqlFences         = noFront.contains("```sql") || noFront.contains("```transaction")
+    // Any runnable fence counts for the all-fences path. Standard `scala`
+    // fences are executable when they are the document's runnable source
+    // (standard-Scala-only examples), but are kept illustrative in mixed
+    // ScalaScript docs unless SQL extraction already needs them.
     val anyRunnableFence =
-      allFences && (noFront.contains(fence)
-        || noFront.contains("```sql") || noFront.contains("```transaction"))
+      allFences && (hasScalaScriptFences || hasSqlFences || (hasScalaFences && !hasScalaScriptFences))
     // line-start anchored for the same string-literal reason as anyFence below
     val firstFence =
       if anyRunnableFence then 0
@@ -851,14 +857,15 @@ object FrontendBridge:
       // ```scala fences are runnable ONLY in sql-conformance docs (which have
       // ```sql/```transaction fences) — elsewhere they are illustrative prose
       // (running them cost 23 corpus files when enabled unconditionally).
-      val hasSqlFences = noFront.contains("```sql") || noFront.contains("```transaction")
       // (?m)^ — fence opens must sit at LINE START: a ``` embedded inside a
       // string literal (markdown content in a val, busi model.ssc) matched
       // mid-line and desynced the whole fence walk — prose after the next real
       // close was parsed as code ("illegal unicode codepoint: 0xab" on «).
       val anyFence =
-        if hasSqlFences then """(?m)^```(scalascript|scala|sql|transaction|yaml|yml)([^\n]*)\n""".r
-        else """(?m)^```(scalascript|yaml|yml)([^\n]*)\n""".r
+        if hasSqlFences || (hasScalaFences && !hasScalaScriptFences) then
+          """(?m)^```(scalascript|ssc|scala|sql|transaction|yaml|yml)([^\n]*)\n""".r
+        else
+          """(?m)^```(scalascript|ssc|yaml|yml)([^\n]*)\n""".r
       var sqlBlockIdx = 0
       var pos = 0
       var lastHeading = "S0"

@@ -5,7 +5,15 @@ import ssc.*
 
 class FrontendBridgeTest extends AnyFunSuite:
 
+  private var bridgeRuntimeLoaded = false
+
+  private def ensureBridgeRuntime(): Unit =
+    if !bridgeRuntimeLoaded then
+      PluginBridge.loadAll()
+      bridgeRuntimeLoaded = true
+
   def run(src: String): Value =
+    ensureBridgeRuntime()
     val prog = FrontendBridge.convertSource(src)
     Runtime.run(Compiler.compile(prog), Array.empty[Value])
 
@@ -47,6 +55,46 @@ class FrontendBridgeTest extends AnyFunSuite:
 
   test("println output") {
     assert(capture("println(\"Hello, World!\")") == "Hello, World!")
+  }
+
+  test("markdown standard scala fence is runnable when it is the document source") {
+    val src =
+      """# Standard Scala block
+        |
+        |```scala
+        |println("scala-block-ok")
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "scala-block-ok")
+  }
+
+  test("markdown ssc fence alias is runnable") {
+    val src =
+      """# ScalaScript alias block
+        |
+        |```ssc
+        |println("ssc-block-ok")
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "ssc-block-ok")
+  }
+
+  test("markdown scala fence stays illustrative in mixed scalascript document") {
+    val src =
+      """# Mixed blocks
+        |
+        |```scalascript
+        |println("real-code")
+        |```
+        |
+        |```scala
+        |println("illustrative-code")
+        |```
+        |""".stripMargin
+
+    assert(capture(src) == "real-code")
   }
 
   test("var and while loop") {

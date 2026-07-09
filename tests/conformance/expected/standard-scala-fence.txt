@@ -1,0 +1,1 @@
+standard-scala-fence-ok
