@@ -42,7 +42,7 @@ Focused probes may use shorter runs while iterating:
       shape and rerun the production benchmark row before/after.
 - [x] Keep the production gate honest: do not mark the overall v2 VM 2x target
       green unless the measured four-row command justifies it.
-- [ ] Run affected tests, `installBin`, and
+- [x] Run affected tests, `installBin`, and
       `tests/conformance/run.sh --only 'litdoc'` before push. If `Runtime.scala`
       generic FastCode/match/foreach behavior changes, also run
       `./v2/conformance/check.sh`.
@@ -144,3 +144,17 @@ This slice improves `pattern-match-heavy` v2 VM by about 2.1x on the full row
 2x production target remains red. The next performance slice should target
 the remaining `foreach`/match boundary costs or move to the broader bytecode
 JIT/source-backend gate work; this spec does not claim the gate is green.
+
+Final verification on the rebased worktree:
+
+```text
+scripts/sbtc 'v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest'
+scripts/sbtc 'installBin'
+./v2/conformance/check.sh
+tests/conformance/run.sh --only 'litdoc'
+git diff --check
+```
+
+`./v2/conformance/check.sh` was run twice after the runtime change: once after
+the first post-change rebase, and again after the later `FrontendBridge.scala`
+type-lambda rebase. Both full runs passed.
