@@ -58,6 +58,7 @@ object ScalaJsBackend:
       val result = os.proc(
         "scala-cli", "--power", "package",
         "--js",
+        "--server=false",
         "--force",
         "-o", out.toString,
         tmp
@@ -88,6 +89,7 @@ object ScalaJsBackend:
       val result = os.proc(
         "scala-cli", "--power", "package",
         "--js",
+        "--server=false",
         "--force",
         "-o", out.toString,
         tmp
@@ -116,7 +118,7 @@ object ScalaJsBackend:
     if src.isBlank then return
     val tmp = os.temp(src, suffix = ".sc", deleteOnExit = true)
     try
-      val result = os.proc("scala-cli", "--power", "run", "--js", tmp)
+      val result = os.proc("scala-cli", "--power", "run", "--js", "--server=false", tmp)
         .call(
           stdout = os.Inherit,
           stderr = os.Inherit,
