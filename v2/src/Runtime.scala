@@ -761,6 +761,7 @@ object FastCode:
   type FC  = Env => Value         // fast: returns Value directly (no Done wrapping)
   type FLC = Env => Long          // fast long: returns unboxed Long (avoids IntV boxing)
   type FBc = Env => Boolean       // fast bool: avoids BoolV boxing for conditions
+  type FCA = (Env, Value) => Value // fast with one synthetic appended Local(0)
 
   // Explicit Seq FC class — all Seq FCs share ONE class, so the `fb(env)` call site
   // in the fast While loop stays monomorphic regardless of Seq length.
@@ -800,6 +801,109 @@ object FastCode:
     case If(c, th, el) =>
       armBodyScratchSafe(c, arity) && armBodyScratchSafe(th, arity) && armBodyScratchSafe(el, arity)
     case _ => false
+
+  /** Compile a Lam(1) body against a virtual env = appendOne(baseEnv, appended),
+   *  without materialising that env.  Local(0) reads the appended value; Local(k>0)
+   *  reads baseEnv's Local(k-1).  Complex binders are intentionally rejected so a
+   *  synthetic env can never be captured by a nested closure. */
+  private def tryFCAppended(t: Term, globals: collection.mutable.Map[String, Value]): Option[FCA] = t match
+    case Lit(k) =>
+      val v = Compiler.constV(k); Some((_, _) => v)
+    case Local(0) =>
+      Some((_, appended) => appended)
+    case Local(i) if i > 0 =>
+      val n = i; Some((env, _) => env(env.length - n))
+    case Global(g) =>
+      val gn = g
+      globals.get(gn) match
+        case Some(v) => Some((_, _) => v)
+        case None    => Some((_, _) => globals.getOrElse(gn, V2PluginRegistry.lookupGlobal(gn).getOrElse(
+          if gn.startsWith("@") then { val cell = ForeignV(Array[Value](UnitV)); globals(gn) = cell; cell }
+          else sys.error(s"unbound global: $gn"))))
+    case Prim("cell.get", List(arg)) =>
+      tryFCAppended(arg, globals).map { fca => (env, appended) =>
+        fca(env, appended).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]](0)
+      }
+    case Prim("lcell.get", List(arg)) =>
+      tryFCAppended(arg, globals).map { fca => (env, appended) =>
+        IntV(fca(env, appended).asInstanceOf[LongCellV].v)
+      }
+    case Prim("cell.set", List(Local(c), body)) if c > 0 =>
+      tryFCAppended(body, globals).map { fcb =>
+        val cn = c
+        (env, appended) =>
+          val cell = env(env.length - cn).asInstanceOf[ForeignV].h.asInstanceOf[Array[Value]]
+          cell(0) = fcb(env, appended)
+          UnitV
+      }
+    case Prim("lcell.set", List(Local(c), body)) if c > 0 =>
+      tryFCAppended(body, globals).map { fcb =>
+        val cn = c
+        (env, appended) =>
+          env(env.length - cn).asInstanceOf[LongCellV].v = fcb(env, appended) match
+            case IntV(x) => x
+            case v       => sys.error(s"expected Int, got ${Show.show(v)}")
+          UnitV
+      }
+    case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
+      tryFCAppended(a0, globals).flatMap { fc0 =>
+        tryFCAppended(a1, globals).map { fc1 =>
+          (env, appended) => Prims.arithFast(op, fc0(env, appended), fc1(env, appended)): Value
+        }
+      }
+    case App(Global(g), appArgs) =>
+      val argOpts = appArgs.map(tryFCAppended(_, globals))
+      if argOpts.forall(_.isDefined) then
+        val fca = argOpts.map(_.get).toArray
+        val gn  = g
+        globals.get(gn).collect { case closV: ClosV if closV.fcEntry.isDefined && closV.env.isEmpty =>
+          val bodyFC = closV.fcEntry.get
+          val sharedArgEnv = new Array[Value](fca.length)
+          (env: Env, appended: Value) =>
+            var i = 0
+            while i < fca.length do { sharedArgEnv(i) = fca(i)(env, appended); i += 1 }
+            bodyFC(sharedArgEnv)
+        }.orElse(Some((env: Env, appended: Value) =>
+          globals.getOrElse(gn, V2PluginRegistry.lookupGlobal(gn).getOrElse(sys.error(s"tryFCAppended App: unbound: $gn"))) match
+            case closV: ClosV =>
+              val argEnv =
+                if closV.env.isEmpty then
+                  val a = new Array[Value](fca.length)
+                  var i = 0; while i < fca.length do { a(i) = fca(i)(env, appended); i += 1 }
+                  a
+                else
+                  val a = new Array[Value](fca.length)
+                  var i = 0; while i < fca.length do { a(i) = fca(i)(env, appended); i += 1 }
+                  Runtime.extend(closV.env, a)
+              closV.fcEntry match
+                case Some(bodyFC) => bodyFC(argEnv)
+                case None         => Runtime.run(closV.code, argEnv)
+            case _ => sys.error("tryFCAppended App: not a function")
+        ))
+      else None
+    case Prim(op, List(a0)) =>
+      Prims.resolve1(op).flatMap { fn1 =>
+        tryFCAppended(a0, globals).map { fc0 => (env, appended) => fn1(fc0(env, appended)) }
+      }
+    case Prim(op, List(a0, a1)) =>
+      Prims.resolve2(op).flatMap { fn2 =>
+        tryFCAppended(a0, globals).flatMap { fc0 =>
+          tryFCAppended(a1, globals).map { fc1 =>
+            (env, appended) => fn2(fc0(env, appended), fc1(env, appended))
+          }
+        }
+      }
+    case Prim(op, List(a0, a1, a2)) =>
+      Prims.resolve3(op).flatMap { fn3 =>
+        tryFCAppended(a0, globals).flatMap { fc0 =>
+          tryFCAppended(a1, globals).flatMap { fc1 =>
+            tryFCAppended(a2, globals).map { fc2 =>
+              (env, appended) => fn3(fc0(env, appended), fc1(env, appended), fc2(env, appended))
+            }
+          }
+        }
+      }
+    case _ => None
 
   /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
@@ -1068,7 +1172,15 @@ object FastCode:
         // fcb receives extended env with the list element appended.
         val inlinePath: Option[FC] = lambdaArg match
           case Lam(1, lambdaBody) =>
-            tryFC(lambdaBody, globals).map { fcb =>
+            tryFCAppended(lambdaBody, globals).map { fcb =>
+              (env: Env) =>
+                var cur = fcr(env)
+                while cur.isInstanceOf[DataV] && cur.asInstanceOf[DataV].tag == "Cons" do
+                  val cons = cur.asInstanceOf[DataV]
+                  fcb(env, cons.fields(0))
+                  cur = cons.fields(1)
+                UnitV
+            }.orElse(tryFC(lambdaBody, globals).map { fcb =>
               (env: Env) =>
                 var cur = fcr(env)
                 while cur.isInstanceOf[DataV] && cur.asInstanceOf[DataV].tag == "Cons" do
@@ -1076,7 +1188,7 @@ object FastCode:
                   fcb(Runtime.appendOne(env, cons.fields(0)))
                   cur = cons.fields(1)
                 UnitV
-            }
+            })
           case _ => None
         inlinePath orElse
           // ClosV path for Global-referenced lambdas

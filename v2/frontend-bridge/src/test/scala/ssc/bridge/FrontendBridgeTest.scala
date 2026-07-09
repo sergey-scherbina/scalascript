@@ -184,6 +184,32 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(math.abs(result - 1914159.0) < 0.00001)
   }
 
+  test("v2 VM foreach fast path keeps escaping lambda env fresh") {
+    import Const.*, Term.*
+
+    val list =
+      Ctor("Cons", List(
+        Lit(CInt(1)),
+        Ctor("Cons", List(Lit(CInt(2)), Ctor("Nil", Nil)))))
+    val entry =
+      Let(List(Prim("cell.new", List(Lit(CUnit)))),
+        Let(List(Prim("lcell.new", List(Lit(CInt(0))))),
+          Seq(List(
+            Prim("__method__", List(
+              Lit(CStr("foreach")),
+              list,
+              Lam(1,
+                If(
+                  Prim("__arith__", List(Lit(CStr("==")), Prim("lcell.get", List(Local(1))), Lit(CInt(0)))),
+                  Seq(List(
+                    Prim("cell.set", List(Local(2), Lam(0, Local(0)))),
+                    Prim("lcell.set", List(Local(1), Lit(CInt(1)))))),
+                  Lit(CUnit))))),
+            App(Prim("cell.get", List(Local(1))), Nil)))))
+
+    assert(runCore(entry) == Value.IntV(1))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
