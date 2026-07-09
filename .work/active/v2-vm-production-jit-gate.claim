@@ -1,6 +1,6 @@
 feature/v2-vm-production-jit-gate 2026-07-09T08:45:22Z
 agent: codex
-heartbeat: 2026-07-09T08:45:22Z
-status: not-started
-done-so-far:
-next: create worktree, promote BACKLOG item into SPRINT, write a focused production JIT-gate spec, then implement the smallest measured slice
+heartbeat: 2026-07-09T08:45:52Z
+status: in-progress
+done-so-far: claim published; worktree created at /Users/sergiy/work/my/scalascript-wt-v2-vm-production-jit-gate
+next: promote BACKLOG item into SPRINT and write focused production JIT-gate spec before code
