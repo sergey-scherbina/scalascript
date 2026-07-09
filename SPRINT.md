@@ -4309,6 +4309,13 @@ small residuals above are blocked by real browser/device/external inputs. See BA
 - WIP (чужая ветка): control-center-live (wip/control-center-live).
 - СЕРВЕР/SPA (биндит порт; в батче парс-артефакт конкатенации фенсов): datatable-static-spa.
 - КОНФИГ примера: pg-listen-notify (нужна databases: секция во front-matter).
-- ПЛАГИН-ФИЧА: mcp-search-server (mcp tool native не принимает readOnlyHint/idempotentHint
-  named-args в первом клозе), graphql-client (graphql-плагин не бриджен + SpaceX API отдаёт HTML).
+- БРИДЖ-БАГ (диагностирован 07-09, mcp-tool-hints): mcp-search-server — НЕ native-фикс.
+  Дамп аргументов показал ДВА бридж-бага: (1) named-args к методам opaque-инстанса
+  (`srv.tool(..., readOnlyHint = true)`) конвертируются как `cell.set(@name, n)` → UnitV
+  (механизм receive(timeout=n) из FrontendBridge ~2669 протекает на общий method-call
+  named-arg путь) — значения ИМЁННЫХ аргументов ТЕРЯЮТСЯ; (2) curried `(handler)` схлопывается
+  в тот же плоский список (5 аргументов вместо two-step). native толерантным делать НЕЛЬЗЯ —
+  спрячет оба бага (tool-аннотации потеряются). Слайс = починить method-call named-arg
+  конверсию в бридже (не путать с @timeout-cell механизмом). graphql-client: graphql-плагин
+  не бриджен + SpaceX API отдаёт HTML (частично среда).
 - ПОЛНЫЙ СЛАЙС (scoped выше): remote-registry-rpc (unmask-remote-def, 3 слоя).
