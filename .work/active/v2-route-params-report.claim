@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: report/v2-route-params
-worktree: ../scalascript-wt-v2-route-params
-started: 2026-07-09
-status: in-progress
-task: diagnose+repro+report (not fix) a v2-only bug found running busi full simulator cycle: req.params(name) on a route with a :name path segment always returns Stub on v2, regardless of segment position; v1 correct
