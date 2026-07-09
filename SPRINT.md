@@ -737,6 +737,13 @@ string-op switch. Dispatch is NOT the bottleneck; boxing + callClos are.
       A/B baseline shows either a clear win or a documented negative result,
       focused emitter tests pin correctness, affected conformance passes,
       `git diff --check` is clean, and SPRINT/CHANGELOG record the outcome.
+      Baseline 2026-07-09 after adding `scripts/bench v2-bytecode`:
+      `scripts/bench v2-bytecode arith-loop` => v2 0.000018 ms,
+      v2-bytecode 43.6 ms; `nested-loop` => v2 17.7 ms, v2-bytecode
+      52.2 ms; `range-sum` => v2 0.401 ms, v2-bytecode 0.424 ms
+      (already near parity); `recursion-fib` => v2 5.76 ms, v2-bytecode
+      31.9 ms. First optimization target: `arith-loop`/`recursion-fib`,
+      not `range-sum`.
 
 ## Phase 4 — perf baseline v2-VM (bench 2026-07-08, `./bench.sh --backend v2`)
 
