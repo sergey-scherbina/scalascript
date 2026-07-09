@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/p4-bc-perf2
+worktree: ../scalascript-wt-bcp2
+started: 2026-07-09
+status: in-progress
+task: p4-bc-perf2 — продолжение байткод-перфа: профилировать pattern-match-heavy (10x) + string-concat (12x), найти корни, закрыть крупнейший. Guard 154/8, 94/2.
