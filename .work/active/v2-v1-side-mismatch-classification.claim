@@ -1,0 +1,6 @@
+feature/v2-v1-side-mismatch-classification 2026-07-09T03:50:33Z
+agent: codex
+heartbeat: 2026-07-09T03:50:33Z
+status: not-started
+done-so-far:
+next: write SPRINT/BUGS plan and verify effects/dsl-calc-parser parity rows
