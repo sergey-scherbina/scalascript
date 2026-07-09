@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 JVM source backend specializes recursive Long globals
+
+The JVM source backend now emits direct `Long` helpers for global lambdas whose
+bodies are provably `Long`-typed, while keeping closure lazy vals for first-class
+function values and preserving the existing tail-recursive direct path.
+`scripts/bench v2-backends recursion-fib` moved the JVM source row from
+67.5ms to 1.41ms on the default harness (`v2=6.02ms`, `v2-rust=249.2ms` in the
+after run). Gates: JVM backend compile, backend `tco`/`letrec`, affected
+recursion conformance, focused recursive bridge tests, final bench row, and
+`git diff --check`. An unrelated ssc1c/backend-check bug in the generated
+`bool`/`mutual-recursion` rows is tracked separately in `BUGS.md`.
+
 ## 2026-07-09 — Default conformance gate restored
 
 The deterministic top-level conformance blocker found after the v2 bytecode

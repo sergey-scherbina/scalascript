@@ -28,6 +28,36 @@ for that compile unit while payments-only files still use the companion. busi sw
 restored to 61/61; corpus 154/8 (payments examples still green). Reported by busi
 (fable, n=105); fixed by lucky-perch. Pin: tests/conformance/v2-user-type-shadows-function-ctor.ssc.
 
+## v2-backend-check-ssc1c-wrapper-app-lit — `open` (2026-07-09)
+
+- **Found by:** codex while verifying the `v2-source-jvm-recursion-fib-perf`
+  source-backend slice.
+- **Repro:** from a current ScalaScript worktree, run
+  `v2/backend/check.sh bool` or `v2/backend/check.sh mutual-recursion`.
+- **Observed failure:** both backend-check fixture rows fail before any JVM/JS/Rust
+  source generator runs:
+  `FAIL bool-predicate: run-ir failed` and
+  `FAIL mutual-recursion: run-ir failed`.
+- **Detailed bool repro:** generate the backend-check `bool-predicate` ssc1c
+  wrapper (`def main(): Unit = { println(workload(42L)); () }`) and run the
+  resulting CoreIR through `run-ir`. The emitted IR contains
+  `(app (lit (int 1000)) (lam 0 ...))` inside the workload loop condition, and
+  `run-ir` aborts with `java.lang.RuntimeException: app: not a function: 1000`.
+- **Expected:** the ssc1c wrapper fixtures for `bool-predicate` and
+  `mutual-recursion` should produce valid CoreIR so `v2/backend/check.sh bool`
+  and `v2/backend/check.sh mutual-recursion` can be used as source-backend
+  parity gates again.
+- **Impact:** source-backend work touching `v2/backend/*` cannot currently use
+  those two generated ssc1c rows as acceptance gates. CoreIR-only backend
+  fixtures such as `tco` and `letrec` remain usable and green for the current
+  JVM source-backend recursion slice.
+- **Notes:** this is independent of `v2/backend/jvm/JvmBackend.scala`; the
+  failure happens in the VM `run-ir` oracle before source generation. It may be
+  another ssc1c precedence/lowering issue around the synthetic main wrapper or
+  the `until`/loop desugaring in the corpus fixture. Track/fix as its own
+  ssc1c/backend-check task rather than folding it into JVM source codegen work.
+- **Status:** open.
+
 ## green-main-conformance-7fail — `fixed` (2026-07-09)
 
 - **Found by:** codex, while closing the `p4-bc-unboxed-arith` bytecode perf

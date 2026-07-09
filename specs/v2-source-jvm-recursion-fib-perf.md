@@ -34,13 +34,13 @@ def workload(): Int =
       using `scripts/bench v2-backends recursion-fib`.
 - [x] The emitted v2 JVM source for `recursion-fib` is inspected before code
       changes and the dominant overhead hypothesis is recorded here.
-- [ ] The implementation lands one conservative v2 JVM source-backend
+- [x] The implementation lands one conservative v2 JVM source-backend
       optimization for recursive function-call shape, preserving the existing
       `.ssc` semantics and output.
-- [ ] Before/after numbers from the same benchmark command are recorded here;
+- [x] Before/after numbers from the same benchmark command are recorded here;
       the broader source-backend production gate is claimed only if the measured
       threshold justifies it.
-- [ ] Affected semantic/conformance gates for recursion-shaped programs pass,
+- [x] Affected semantic/conformance gates for recursion-shaped programs pass,
       along with `git diff --check`.
 
 ## Out of Scope
@@ -146,11 +146,65 @@ lazy val fib: V =
 Dominant-overhead hypothesis: direct calls are currently emitted only for
 safe tail-recursive globals. Ordinary recursive globals like `fib` therefore
 pay closure cast plus `Array[V]` allocation through `_call1(fib, ...)` for every
-recursive call. The first conservative fix should emit plain direct local
-methods for global lambdas even when they are not tail-recursive, keeping the
-existing lazy-val closure wrapper for first-class function values.
+recursive call. The first attempted fix emitted plain direct local methods for
+global lambdas even when they are not tail-recursive, keeping the existing
+lazy-val closure wrapper for first-class function values; the measured result
+below rejected that shape in favor of a narrower Long-specialized lowering.
 
 ## Results
 
-Pending. Fill this section after the baseline, implementation, and verification
-steps with the exact commands and observed numbers.
+Implementation: `v2/backend/jvm/JvmBackend.scala` now infers global lambda
+definitions whose bodies are provably `Long`-typed under `Long` parameters,
+emits `<name>_long(Long...): Long` helper methods for those definitions, and
+routes proven-Long global calls through those helpers. The existing closure
+lazy vals remain available for first-class function values, and the existing
+`@tailrec` direct-method path for safe tail-recursive globals is preserved.
+
+Rejected attempt: broad plain direct methods for all global lambdas removed the
+closure dispatch but worsened the default benchmark to `v2-jvm=89.6 ms` on
+`scripts/bench v2-backends recursion-fib`, so that lowering was not retained.
+
+The retained Long-specialized lowering emits `recursion-fib` as:
+
+```scala
+def fib_long(p0_5: Long): Long =
+  if p0_5 <= 1L then p0_5 else fib_long(p0_5 - 1L) + fib_long(p0_5 - 2L)
+
+lazy val fib: V =
+  ((_a5: Array[V]) => fib_long(_asLong(_a5(0)))): V
+```
+
+Final default benchmark from the same public command:
+
+```bash
+scripts/bench v2-backends recursion-fib
+```
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-fib` baseline | 12.9 | 67.5 | 240.2 |
+| `recursion-fib` after Long specialization | 6.02 | 1.41 | 249.2 |
+
+The slice closes the JVM source-backend gap for this workload family only. It
+does not close the broader `v2-source-backend-production-perf-gates` backlog
+item because the Rust source backend and other workload rows still need
+separate measured slices.
+
+Verification run before landing:
+
+```bash
+scala-cli compile --server=false v2/backend/jvm
+v2/backend/check.sh tco
+v2/backend/check.sh letrec
+tests/conformance/run.sh --only 'recursion,tail-recursion,mutual-recursion' --no-memo
+scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z recursive"
+scripts/bench v2-backends recursion-fib
+git diff --check
+```
+
+`v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion` are not
+used as acceptance gates for this source-backend slice because they currently
+fail before source generation: the ssc1c-generated CoreIR contains an invalid
+`(app (lit (int 1000)) (lam 0 ...))` shape and `run-ir` aborts with
+`app: not a function: 1000`. That independent harness/source lowering bug is
+tracked in `BUGS.md` as `v2-backend-check-ssc1c-wrapper-app-lit`.

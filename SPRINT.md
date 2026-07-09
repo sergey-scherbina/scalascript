@@ -9,7 +9,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-source-jvm-recursion-fib-perf** - narrow Phase-3 source-backend
+- [x] **v2-source-jvm-recursion-fib-perf** - DONE 2026-07-09: narrow Phase-3 source-backend
       performance slice for the v2 JVM source backend on
       `bench/corpus/recursion-fib.ssc`. Context: BACKLOG
       `v2-source-backend-production-perf-gates` says the separate-backend
@@ -37,9 +37,23 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `fib (lam 1 ...)`, but generated Scala emits only `lazy val fib: V =
       ((_a) => ...)` and recursive calls as `_call1(fib, ...)`. Direct methods
       are currently limited to safe tail-recursive globals, so ordinary
-      recursion pays closure/`Array[V]` dispatch on every call. First fix:
-      emit plain direct methods for global lambdas, while preserving lazy-val
-      wrappers for first-class function values.
+      recursion pays closure/`Array[V]` dispatch on every call. Rejected fix:
+      broad plain direct methods for global lambdas worsened the same default
+      benchmark to `v2-jvm=89.6 ms`. Landed fix: infer global lambdas whose
+      bodies are provably Long-typed, emit `<name>_long(Long...): Long`, and
+      route proven-Long recursive calls through those helpers while preserving
+      closure lazy vals and the existing `@tailrec` direct path. Final default
+      `scripts/bench v2-backends recursion-fib`: `v2=6.02 ms`,
+      `v2-jvm=1.41 ms`, `v2-rust=249.2 ms`, closing this JVM source-backend row
+      from 67.5 ms to 1.41 ms without changing public semantics. Gates:
+      `scala-cli compile --server=false v2/backend/jvm`;
+      `v2/backend/check.sh tco`; `v2/backend/check.sh letrec`;
+      `tests/conformance/run.sh --only 'recursion,tail-recursion,mutual-recursion' --no-memo`;
+      `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z recursive"`;
+      `scripts/bench v2-backends recursion-fib`; `git diff --check`. Note:
+      `v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion`
+      currently fail before source generation due to an unrelated ssc1c wrapper
+      IR bug now tracked as `BUGS.md#v2-backend-check-ssc1c-wrapper-app-lit`.
 
 - [x] **green-main-conformance-7fail** — DONE 2026-07-09 in `bd85a5f95`,
       `bf0402b12`, `76b9432ef`, `7f4cb82d7`, and `1291ed03b`: restored the default top-level

@@ -90,6 +90,15 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       instead of `echo`. NOTE: already documented in Phase 2d SPRINT entry. This is a testing-harness
       gotcha, not a backend bug. Low priority since the `check.sh` conformance harness uses direct
       redirects.
+- [ ] **v2-backend-check-ssc1c-wrapper-app-lit** (2026-07-09) —
+      `v2/backend/check.sh bool` and `v2/backend/check.sh mutual-recursion`
+      currently fail before source generation because the ssc1c-generated
+      wrapper CoreIR contains an invalid application shape like
+      `(app (lit (int 1000)) (lam 0 ...))`; `run-ir` aborts with
+      `app: not a function: 1000`. Impact: those two ssc1c regression rows
+      cannot be used as source-backend parity gates until the lowering/wrapper
+      bug is fixed. Details and repro live in
+      `BUGS.md#v2-backend-check-ssc1c-wrapper-app-lit`.
 - [x] **v2-litdoc-js-jvm-backend-lanes** ✓ Landed 2026-07-09 (`782f07438`) —
       `tests/conformance/litdoc.ssc` now runs across INT/JS/JVM. Landed fixes:
       JS runtime-colliding top-level user `val`/`var` bindings are renamed,
@@ -111,6 +120,11 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `recursion-fib` 221.2 ms, `recursion-tco` 12.1 ms). Scope the next
       slice to one backend/workload family at a time, using
       `scripts/bench v2-backends <workload>` as the before/after command.
+      Progress 2026-07-09: the `v2-source-jvm-recursion-fib-perf` slice closes
+      the JVM source `recursion-fib` row with Long-specialized recursive global
+      helpers: default `scripts/bench v2-backends recursion-fib` moved
+      `v2-jvm` from 67.5 ms to 1.41 ms. The broader item remains open for Rust
+      source performance and other workload-family rows.
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
       three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from
