@@ -1,8 +1,33 @@
 # 62 — Scalameta-free frontend parity
 
-> Status: **measured** (2026-07-09). Scope estimate for dropping scalameta from
-> ScalaScript 2. Answers the question: *"Can v2 give up scalameta, and how far
-> are we?"*
+> Status: **in progress** (2026-07-09). Scope estimate + active work on dropping
+> scalameta from ScalaScript 2.
+
+## Progress log — native end-to-end run via the PLUGIN runtime (`BridgeCli run-ir`)
+
+Measured as: native `ssc1` lower → plugin-enabled v2 runtime, OK+TIMEOUT / 195
+(TIMEOUT = a server that started). Each slice keeps conformance at 640/640.
+
+| After | OK+TIMEOUT | Slice |
+|---|---|---|
+| baseline (bare kernel VM) | 3 | measurement artifact — empty registry (K62.5b) |
+| + K62.7a | (measured later) | method-call dispatch → `__method__` |
+| + K62.6 | 10 | skip Markdown-link imports `[…](path)` + `import a.b` |
+| + K62.6b | 12 | top-level `var` + assignment (global cells) |
+| + K62.6d | 14 | skip `@Name(...)` annotations |
+
+Remaining top blockers (measured): parse-completeness `_err` (~20 — bitwise/`$`/
+char/indented brace-less def bodies), **uid-static dispatch** `Dataset_of`/`Graph_*`
+(K62.7b — harder: needs method-object *registration*, see below), `_sel_get`/
+`_sel_env` field access (extend K62.7a to `resolveField`), named-args
+(`authServer: missing 'issuer'`).
+
+**K62.7b is not a pure lowering change.** `Dataset.of(x)` in the bridge dispatches
+via `__method__("of", <Dataset method-object>, x)` → `__fallback__.Dataset.of`. The
+bridge knows `Dataset` is a method-object because it parsed the `object Dataset {…}`
+in the std import; the native path skips imports and the registry does **not**
+register `Dataset` as a resolvable global. So closing it needs the receiver object
+registered/synthesised, not just an emit change — more than K62.7a.
 
 ## TL;DR
 

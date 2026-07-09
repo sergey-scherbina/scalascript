@@ -1227,12 +1227,19 @@ frontend accepted the file).
 
 ### K62 remaining (concrete, prioritized — the real path to scalameta-free)
 
-- [ ] **K62.6 — parse-completeness (Class A, ~40 files).** Bounded frontend work in
-      `ssc1-front.ssc0`: bitwise operators (wire `& | ^` to existing VM `i.and/i.or/
-      i.xor`; add `~`/`<<`/`>>` prims), skip/handle `@` annotations, `$`, char
-      literals in operator position, Markdown-link imports inside code. LOW marginal
-      value for *run* coverage (these files also need K62.7) but needed for true
-      parse parity. Instrument `parseAtom`'s `_err` fallback to drive it.
+- **K62.6 — parse-completeness (Class A).** Bounded frontend work in `ssc1-front.ssc0`.
+      Native end-to-end (plugin runtime) 3 → 14 across these slices; conformance stays 640/640.
+  - [x] **K62.6 DONE** 2026-07-09: skip Markdown-link imports `[a,b](path)` (23 files)
+        + Scala `import a.b.{x,y}` (both were keyword/`_err` leaks).
+  - [x] **K62.6b DONE** 2026-07-09: top-level `var` + assignment (global cells via
+        `topVarsCell`; init in doc order; refs/assigns from def bodies resolve).
+  - [x] **K62.6d DONE** 2026-07-09: skip `@Name` / `@Name("args")` annotations.
+  - [ ] **K62.6c** — remaining `_err` roots (~20 files): bitwise `& | ^ ~ << >>`
+        (VM has `i.and/i.or/i.xor`; add `~`/shift prims), `$`, char literals in
+        operator position, and **indented brace-less multi-statement def bodies**
+        whose first stmt is an assignment (a pre-existing block-detection gap).
+        Also: `_sel_get`/`_sel_env` field access → extend K62.7a's `__method__`
+        routing to `resolveField`.
 - **K62.7 — dispatch alignment (Class B). SUPERSEDES the old "re-grow stdlib"
       framing** — see K62.5b: the v1 stdlib ALREADY exists in the v2 runtime
       (`V2PluginRegistry`, loaded by `PluginBridge.loadAll()`; the bridge path uses
