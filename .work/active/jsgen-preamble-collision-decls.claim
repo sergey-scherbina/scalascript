@@ -1,0 +1,6 @@
+feature/jsgen-preamble-collision-decls 2026-07-09T05:48:59Z
+agent: codex
+heartbeat: 2026-07-09T05:48:59Z
+status: not-started
+done-so-far:
+next: write SPRINT plan for JS preamble collision declaration audit, then inspect JsGen and tests
