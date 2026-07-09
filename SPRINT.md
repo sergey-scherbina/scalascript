@@ -495,8 +495,16 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
 пять примеров, что «проходили» НИКОГДА не исполняясь (ноль строк вывода до коммита),
 теперь показывают реальные дыры v2. Гейт-база честная: 149/13 (было фиктивное 153/9).
 
-- [ ] **unmask-remote-def** — remote-registry-rpc: `remote def f(...)` синтаксис не
-      парсится бриджем (`}` expected but `def`); нужен convert-арм для remote-модификатора.
+- [ ] **unmask-remote-def** — remote-registry-rpc: три слоя (поверхность уточнена 07-09):
+      (а) `remote def f(...)` — мягкий модификатор, scala.meta не парсит → текст-препасс
+      `remote def X` → def X + регистрация; (б) std/remote.ssc (99 строк, 22 def/extern)
+      должен конвертироваться бриджем; (в) remote-plugin нативы → V2PluginRegistry.
+- [ ] **unmask-markup-bridge** — xslt-transform: `xml"""..."""` ИНТЕРПОЛЯТОР (кастомный,
+      бриджу неизвестен) + MarkupCodec.default→NMO(transform) + PureMarkupCodec.serialize +
+      SerializeOpts named-ctor + Either→Right/Left DataV; build: v2PluginBridge += markupCore.
+- [ ] **unmask-payments-bridge** — traditional-payments/pix/fednow: PaymentProvider SPI →
+      NMO-фабрики (stripe/pix/fednow providers), rc уже 0, Op'ы в выводе на ОБОИХ лейнах
+      (паритет-с-бородавками — фикс поднимет оба).
 - [x] **unmask-splice-in-scala-fence** — CLOSED: не сплайсы, а НЕВАЛИДНЫЙ Scala в примере
       (голый $ перед цифрой в s-строке — v1 терпел, scala.meta нет); пример исправлен $$49.99.
       ОСТАЁТСЯ (переименовано): **unmask-payments-bridge** — rc=0, но PaymentProvider-Op'ы
