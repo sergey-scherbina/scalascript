@@ -1,0 +1,45 @@
+-- ssc1-check-run: type-check a full .ssc Markdown file with the native ssc1-check.
+-- Measurement harness for K62.4 (axis 2). Mirrors ssc1-run's fence extraction,
+-- then runs ssc1TypeCheck instead of lowering. Prints "OK" or "TYPEERR: <msg>".
+import "../lib/mira-md.ssc0"
+import "../lib/ssc1-lower.ssc0"
+import "../lib/ssc1-check.ssc0"
+
+def joinScalaScript = (blocks) =>
+  let rec go = (bs, acc) =>
+    match bs {
+      case Nil => acc
+      case Cons(b, rest) =>
+        match b {
+          case Pair(lang, src) =>
+            let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
+            if isCode then
+              let sep = if #i.eq(slen(acc), 0) then "" else "\n\n" in
+              go(rest, #sconcat(acc, #sconcat(sep, src)))
+            else
+              go(rest, acc)
+        }
+    } in
+  go(blocks, "")
+
+def main = () =>
+  match #io.args() {
+    case Cons(path, rest) =>
+      let fileStr = #utf8->str(#io.readFile(path)) in
+      let blocks = extractFences(fileStr) in
+      let src = joinScalaScript(blocks) in
+      if #i.eq(slen(src), 0) then
+        let z = #io.eprint("no scalascript blocks\n") in
+        #io.exit(2)
+      else
+        let stmts = parse(src) in
+        match ssc1TypeCheck(stmts) {
+          case Err(msg) =>
+            let z = #io.print(#sconcat("TYPEERR: ", msg)) in
+            #io.exit(1)
+          case Ok(u) => #io.print("OK")
+        }
+    case Nil =>
+      let z = #io.eprint("usage: ssc1-check-run <file.ssc>\n") in
+      #io.exit(2)
+  }
