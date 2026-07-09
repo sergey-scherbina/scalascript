@@ -9,20 +9,17 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-prod-readiness-doc-sync** — sync the durable v2 production-readiness
-      docs after the clean post-JS/runtime-fix parity rebaseline. Why: the
-      decisive default-lane gate is now clean (`68/91 identical · 0 mismatch ·
-      0 v2-error · 23 v1-only`), but `v2/output-parity-baseline.md` and
-      `specs/v2-full-compat.md` still frame the latest baseline primarily as the
-      stream-family slice. Keep the docs clear that the same clean gate was
-      revalidated after the JS flat-bundle runtime-collision fix and that
-      remaining non-identical rows are scoped buckets, not current default-v2
-      blockers. How: update the latest baseline heading/source notes in
-      `v2/output-parity-baseline.md`, update the current-baseline/checklist
-      language in `specs/v2-full-compat.md` without touching historical
-      measurements, and add a `CHANGELOG.md` entry. Do not modify code or the
-      sibling-owned `v2-head-field-dispatch-fix` claim/worktree. Done when
-      `git diff --check`, a real conformance slice, and docs review are green.
+- [x] **v2-prod-readiness-doc-sync** — DONE 2026-07-09 in `745bf2de6`:
+      synced the durable v2 production-readiness docs after the clean
+      post-JS/runtime-fix parity rebaseline. `v2/output-parity-baseline.md`
+      now names the post-JS revalidation worktree, and
+      `specs/v2-full-compat.md` now distinguishes the clean default-lane
+      switch criteria from remaining perf/backend/server/provider-lane work.
+      Gates: `git diff --check HEAD~1..HEAD`; `scripts/sbtc "installBin"`;
+      `tests/conformance/run.sh --only 'litdoc'` passed INT/JS/JVM. Gotcha:
+      the first `litdoc` run in the fresh worktree failed with `<missing>`
+      outputs because `bin/ssc` had not been staged yet; after `installBin`,
+      the same conformance slice passed.
 
 - [x] **v2-prod-post-jsgen-parity-rebaseline** — DONE 2026-07-09 in
       `feature/v2-prod-post-jsgen-parity-rebaseline`: refreshed the v2
