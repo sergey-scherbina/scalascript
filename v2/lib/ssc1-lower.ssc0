@@ -1792,6 +1792,31 @@ def hasZeroArgMain = (stmts) =>
 -- T5.7: tail-recursive (accumulator, built high→low so no reverse); the old
 -- Cons(i, go(i+1)) shape was NON-tail and stack-overflowed on (1 to 10000).
 -- go = IrLam(2): acc=local0, i=local1; then go=local2, hi=local3, lo=local4
+-- K62.6c: String.takeWhile/dropWhile(p) — scan chars while p(code) holds.
+-- IrLam(2): p=local0, s=local1. LetRec scan(i): local0=i local1=scan local2=p local3=s.
+-- scan(i) = if i < slen(s) then (if p(s[i]) then scan(i+1) else i) else i.
+-- takeWhile → sslice(s, 0, scan(0)); dropWhile → sslice(s, scan(0), slen(s)).
+def scanWhileLam =
+  IrLam(1,
+    IrIf(IrPrim("i.lt", Cons(IrLocal(0), Cons(IrPrim("slen", Cons(IrLocal(3), Nil)), Nil))),
+      IrIf(IrApp(IrLocal(2), Cons(IrPrim("scodeAt", Cons(IrLocal(3), Cons(IrLocal(0), Nil))), Nil)),
+        IrApp(IrLocal(1), Cons(IrPrim("i.add", Cons(IrLocal(0), Cons(IrLit(IrInt(1)), Nil))), Nil)),
+        IrLocal(0)),
+      IrLocal(0)))
+def selTakeWhileDef =
+  IrDef("_sel_takeWhile",
+    IrLam(2,
+      IrLetRec(Cons(scanWhileLam, Nil),
+        IrPrim("sslice", Cons(IrLocal(2), Cons(IrLit(IrInt(0)),
+          Cons(IrApp(IrLocal(0), Cons(IrLit(IrInt(0)), Nil)), Nil)))))))
+def selDropWhileDef =
+  IrDef("_sel_dropWhile",
+    IrLam(2,
+      IrLetRec(Cons(scanWhileLam, Nil),
+        IrPrim("sslice", Cons(IrLocal(2),
+          Cons(IrApp(IrLocal(0), Cons(IrLit(IrInt(0)), Nil)),
+          Cons(IrPrim("slen", Cons(IrLocal(2), Nil)), Nil)))))))
+
 def selUntilDef =
   IrDef("_sel_until",
     IrLam(2,
@@ -2124,6 +2149,8 @@ def kc6Defs =
   Cons(selSplitDef,
   Cons(selTrimDef,
   Cons(selMkStringDef,
+  Cons(selTakeWhileDef,
+  Cons(selDropWhileDef,
   Cons(selUntilDef,
   Cons(selToDef,
   Cons(benchOpaqueDef,
@@ -2142,7 +2169,7 @@ def kc6Defs =
   Cons(selLengthDef,
   Cons(listConcatDef,
   Cons(listFlatMapDef,
-  Nil)))))))))))))))))))))))))))))))))))))))
+  Nil)))))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 -- K62.7b: pre-scan user `object` names so isKnownObject is reliable during lowering
