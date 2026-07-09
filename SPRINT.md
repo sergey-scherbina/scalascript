@@ -9,6 +9,17 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-scripts-bench-mktemp-template** - small harness hygiene fix found
+      while verifying `v2-backend-check-ssc1c-wrapper-app-lit`: parallel
+      `v2/scripts/bench.sh` runs can collide on the literal path
+      `/tmp/v2-bench-XXXXXX.jar` because macOS `mktemp` does not substitute
+      Xs in the middle of a suffix-bearing template. Plan: use a suffix-free
+      mktemp path for the temporary bench jar, keep the trap cleanup, and verify
+      two affected bench rows can run concurrently. Done when both short
+      `bool-predicate` and `mutual-recursion` bench probes complete in parallel
+      and `git diff --check` passes. Tracked in
+      `BUGS.md#v2-scripts-bench-mktemp-template`.
+
 - [ ] **v2-backend-check-ssc1c-wrapper-app-lit** - restore the generated
       ssc1c regression rows in `v2/backend/check.sh` so `bool` and
       `mutual-recursion` can again serve as source-backend parity gates.

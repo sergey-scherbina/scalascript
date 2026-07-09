@@ -12,6 +12,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-scripts-bench-mktemp-template — `open` (2026-07-09)
+
+- **Found by:** codex while verifying `v2-backend-check-ssc1c-wrapper-app-lit`.
+- **Repro:** run two `v2/scripts/bench.sh` instances concurrently, for example
+  `BENCH_WARMUP=1 BENCH_REPS=3 ./scripts/bench.sh bool-predicate` and
+  `BENCH_WARMUP=1 BENCH_REPS=3 ./scripts/bench.sh mutual-recursion` from `v2/`.
+- **Observed failure:** one process can fail immediately with
+  `mktemp: mkstemp failed on /tmp/v2-bench-XXXXXX.jar: File exists`.
+- **Expected:** each bench process gets a unique temporary jar path.
+- **Impact:** parallel agents or local parallel probes can spuriously fail while
+  checking v2 corpus rows; the semantic benchmark itself is not at fault.
+- **Status:** open.
+
 ## v2-bytecode-param-long-nontail-self-loop — `fixed` (2026-07-09)
 
 - **Found by:** codex while rerunning final gates for
