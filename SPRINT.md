@@ -423,7 +423,16 @@ rollback path. This workstream does **not** try to green every unrelated repo-wi
 test first; it fixes repo-wide gates only when they block the v2 production gate.
 Coordinate with existing Phase-3/p3 items below instead of duplicating their fixes.
 
-- [ ] **v2-prod-queue-hygiene** — reconcile stale v2 production queue entries that
+- [x] **v2-prod-queue-hygiene** — DONE 2026-07-09: reconciled stale v2
+      production queue entries that still appeared open after
+      `v2-prod-default-switch`, `v2-output-parity-harness`, and
+      `v2-parity-current-errors` landed. The old Phase-3 switch container now
+      points at the shipped default-switch commits, and the struck
+      `v2-output-parity-full-corpus` duplicate now points at the shipped harness
+      plus current full gate (`64/98 identical · 11 mismatch · 0 v2-error ·
+      23 v1-only`). No source behavior changed; verification: `git diff --check`.
+      Original plan:
+      reconcile stale v2 production queue entries that
       still appear open after `v2-prod-default-switch`, `v2-output-parity-harness`,
       and `v2-parity-current-errors` landed. How: mark the old Phase-3 switch
       container as landed/superseded by `v2-prod-default-switch`, mark the struck
@@ -1733,7 +1742,14 @@ Three phases — execute in order, each phase gated by the previous:
       • Rust: 29/31 bench corpus PASS. 2 failures = known ssc1c IR bugs (bool-predicate/@count global, mutual-recursion) — both also fail the v2 VM. See BACKLOG: v2-ssc1c-globals-bug.
       • sbt v2Core/compile: SUCCESS (5 sources, 4 s).
       GOTCHA: macOS `echo` processes `\n` as a real newline (unlike Linux). Use `program > file` (redirect) or `printf '%s\n' "$var"` when writing backend output to files. The generated Scala/Rust code contains literal `\n` in preamble strings; `echo "$VAR"` corrupts them silently.
-- [ ] **Phase 3: switch** — CLI default → v2; `ssc --v1` escape hatch retained.
+- [x] **Phase 3: switch** — RECONCILED 2026-07-09: the actual CLI default switch
+      landed in `v2-prod-default-switch` (`719943f40`, `d2ba78c0a`,
+      `89a38f1e3`) and the stale duplicate queue row `p4-default-flip` was
+      closed on 2026-07-08. Plain `ssc run <file>` defaults to v2; `ssc run
+      --v1 <file>` remains the rollback path; `ssc run --v2 <file>` remains the
+      explicit force flag. Historical planning notes below are kept for context.
+      Original:
+      CLI default → v2; `ssc --v1` escape hatch retained.
       - [x] **`ssc run --v2` flag** DONE 2026-07-05 (`RunV2.scala`, `feature/v2-cli-run-flag`): additive
         preview flag routing a source through the v1 frontend → FrontendBridge → v2 VM (default runner
         unchanged). `ssc run --v2 examples/hello.ssc` == v1 output. Makes v1-vs-v2 output parity checkable
@@ -2073,7 +2089,14 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
       Done-when: the board no longer advertises stale old parity blockers and
       the current production gate is either green-by-scope or has a concrete
       bug/fix commit for the first newly exposed blocker.
-- [ ] **~~v2-output-parity-full-corpus~~ (superseded)** — extend `scripts/v2-output-parity` to the full 193
+- [x] **~~v2-output-parity-full-corpus~~ (superseded)** — RECONCILED 2026-07-09:
+      the full-corpus harness shipped earlier as `v2-output-parity-harness` and
+      the current production gate was refreshed by `v2-parity-current-errors`.
+      Latest recorded gate after `installBin`: `64/98 identical · 11 mismatch ·
+      0 v2-error · 23 v1-only` across 195 examples; see
+      `v2/output-parity-baseline.md` and `specs/v2-full-compat.md`.
+      Original:
+      extend `scripts/v2-output-parity` to the full 193
       examples with server/actor timeout handling for the authoritative "N/193 output-identical" number
       (current sample: 28/52 terminating). Does NOT touch PluginBridge.
 - [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —

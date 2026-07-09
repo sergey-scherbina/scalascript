@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: production queue stale entries reconciled
+
+The remaining stale open SPRINT rows for the historical Phase-3 default switch
+and the superseded full-corpus parity harness were closed. The queue now points
+at the shipped `v2-prod-default-switch`, `v2-output-parity-harness`, and current
+`v2-parity-current-errors` gate instead of advertising duplicate work.
+
 ## 2026-07-09 — v2: current parity gate has zero v2-error rows again
 
 The production output-parity gate was refreshed after toolkit-v2 work and the
