@@ -1,6 +1,6 @@
 feature/v2-scala-fence-multiblock-parity 2026-07-09T03:18:07Z
 agent: codex
-heartbeat: 2026-07-09T03:18:07Z
-status: not-started
-done-so-far:
-next: create worktree, write SPRINT/BUGS plan, reproduce scala-js-demo/lang-split standard-scala fence parity gaps
+heartbeat: 2026-07-09T03:18:48Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-scala-fence-multiblock-parity
+next: write SPRINT/BUGS plan, reproduce scala-js-demo/lang-split standard-scala fence parity gaps
