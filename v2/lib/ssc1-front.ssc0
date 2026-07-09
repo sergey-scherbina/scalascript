@@ -434,31 +434,58 @@ def wrapPhArg = (e) =>
 -- K62.6c: for-comprehension (single generator + optional guard) desugared to
 -- map / foreach / filter. `for x <- xs [if g] yield e` → xs[.filter(x=>g)].map(x=>e);
 -- `for x <- xs [if g] do e` (or braceless body) → …foreach(x=>e).
+-- K62.6c: a generator binder is either `name` or a tuple `(a, b, …)`. For a tuple
+-- the lambda takes `__fp` and binds each name via `val a = __fp._1; …` before the
+-- body (native tuppat surfaces only the first name, so bind explicitly by _N).
+def bindTupleNames = (names, i) =>
+  match names {
+    case Nil => Nil
+    case Cons(nm, rest) =>
+      Cons(Pair("val", Pair(nm, mkSel(Pair("var", "__fp"), #sconcat("_", #i->str(i))))),
+           bindTupleNames(rest, #i.add(i, 1)))
+  }
+def mkBinderLam = (names, isTuple, body) =>
+  if isTuple then
+    mkLam(Cons("__fp", Nil),
+      Pair("block", append(bindTupleNames(names, 1), Cons(Pair("expr", body), Nil))))
+  else mkLam(names, body)
+
 def parseForFrom = (toks) =>
-  let name = tokVal(peek(toks)) in
-  let ts1 = skipKind("<-", advance(toks)) in
+  let name0 = tokVal(peek(toks)) in
+  let tsAfter = advance(toks) in
+  let rBinder = if kindIs(",", tsAfter) then
+                  let rec more = (ts, acc) =>
+                    let nm = tokVal(peek(ts)) in
+                    let ts2 = advance(ts) in
+                    if kindIs(",", ts2) then more(advance(ts2), Cons(nm, acc))
+                    else pr(reverse(Cons(nm, acc)), ts2) in
+                  let rm = more(advance(tsAfter), Cons(name0, Nil)) in
+                  pr(Pair(true, prV(rm)), skipKind(")", prT(rm)))
+                else pr(Pair(false, Cons(name0, Nil)), tsAfter) in
+  let isTuple = match prV(rBinder) { case Pair(it, ns) => it } in
+  let names = match prV(rBinder) { case Pair(it, ns) => ns } in
+  let ts1 = skipKind("<-", prT(rBinder)) in
   let rGen = parseExpr(ts1) in
   let ts3 = prT(rGen) in
   let rGuard = if kwIs("if", ts3) then
                  let rg = parseExpr(advance(ts3)) in
-                 pr(mkApp(mkSel(prV(rGen), "filter"), Cons(mkLam(Cons(name, Nil), prV(rg)), Nil)), prT(rg))
+                 pr(mkApp(mkSel(prV(rGen), "filter"), Cons(mkBinderLam(names, isTuple, prV(rg)), Nil)), prT(rg))
                else pr(prV(rGen), ts3) in
   let genE = prV(rGuard) in
   let ts4 = prT(rGuard) in
   if kindIs(";", ts4) then
-    -- another generator → flatMap(name => <rest>)
     let rRest = parseForFrom(advance(ts4)) in
-    pr(mkApp(mkSel(genE, "flatMap"), Cons(mkLam(Cons(name, Nil), prV(rRest)), Nil)), prT(rRest))
+    pr(mkApp(mkSel(genE, "flatMap"), Cons(mkBinderLam(names, isTuple, prV(rRest)), Nil)), prT(rRest))
   else
     let ts5 = if kindIs(")", ts4) then advance(ts4)
               else if kindIs("}", ts4) then advance(ts4) else ts4 in
     if kwIs("yield", ts5) then
       let rB = parseExpr(advance(ts5)) in
-      pr(mkApp(mkSel(genE, "map"), Cons(mkLam(Cons(name, Nil), prV(rB)), Nil)), prT(rB))
+      pr(mkApp(mkSel(genE, "map"), Cons(mkBinderLam(names, isTuple, prV(rB)), Nil)), prT(rB))
     else
       let ts6 = if kwIs("do", ts5) then advance(ts5) else ts5 in
       let rB = parseExpr(ts6) in
-      pr(mkApp(mkSel(genE, "foreach"), Cons(mkLam(Cons(name, Nil), prV(rB)), Nil)), prT(rB))
+      pr(mkApp(mkSel(genE, "foreach"), Cons(mkBinderLam(names, isTuple, prV(rB)), Nil)), prT(rB))
 
 def parseFor = (toks) =>
   let ts0 = if kindIs("(", toks) then advance(toks)
