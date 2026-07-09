@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: OAuth MCP generated output classified
+
+`scripts/v2-output-parity` now treats the OAuth-protected MCP demos as
+nondeterministic-output by design because they print generated client
+ids/secrets and server startup banners. The production output-parity gate is now
+`66/95 identical · 6 mismatch · 0 v2-error · 23 v1-only` with 5 nondet skips
+across 195 examples. Gates: `installBin`, targeted OAuth/MCP parity,
+conformance `mcp-*`, and full `scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: os-env parity classified as host-dependent
 
 `scripts/v2-output-parity` now treats `examples/os-env.ssc` as

@@ -42,6 +42,28 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and next blockers
 
+OAuth/MCP generated-output classification update (2026-07-09): after
+`2142f8e0d`, the OAuth-protected MCP examples are classified as
+nondeterministic-output because they print generated client ids/secrets and
+server startup banners. The authoritative production gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-mcp-oauth-secret-nondet-parity`:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 66/95 identical · 6 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 5 nondet · 195 total)
+```
+
+The examples and runtime behavior are unchanged; this only moves generated
+OAuth/MCP startup output out of strict byte-parity. No deterministic v2-error
+row reappeared. The remaining full-gate mismatches are:
+`distributed-streams.ssc`, `dsl-calc-parser.ssc`, `effects.ssc`,
+`lang-split.ssc`, `scala-js-demo.ssc`, and `streams.ssc`. They are parser/DSL
+and stream/section output-shape families, plus the documented `effects.ssc`
+v1-side short-output row.
+
 os-env lane classification update (2026-07-09): after `6e82f20b2`,
 `os-env.ssc` is classified as nondeterministic-output because it prints
 host/worktree-specific platform, CWD, and environment values. The authoritative

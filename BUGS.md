@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-mcp-oauth-secret-nondet-parity — `open` (2026-07-09)
+## v2-mcp-oauth-secret-nondet-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-os-env-nondet-parity`.
@@ -24,11 +24,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Impact:** this is generated-output noise in the strict byte-parity gate, not
   a v2 production runtime failure. Keeping these rows as mismatches hides the
   smaller set of semantic parser/stream-shape rows still needing investigation.
-- **Plan:** classify both OAuth/MCP generated-secret demos in
-  `scripts/v2-output-parity` as nondeterministic-output by design. Do not edit
-  examples or runtime behavior. Verify targeted parity, affected MCP
-  conformance, and full `scripts/v2-output-parity --all`; update
-  BUGS/SPRINT/CHANGELOG and the parity baseline/spec with new counts.
+- **Root cause:** the strict parity harness was treating generated credentials
+  and server banners as deterministic stdout. Those examples are useful demos,
+  but their startup output cannot byte-match across independent v1/v2 runs.
+- **Fix:** `2142f8e0d` classifies `mcp-server-protected.ssc` and
+  `oauth-mcp-full-stack.ssc` as nondeterministic-output by design. The examples
+  and runtime behavior are unchanged.
+- **Gates:** `scripts/sbtc "installBin"` passed; targeted parity for the two
+  examples now reports nondeterministic-output skips;
+  `tests/conformance/run.sh --only 'mcp-*' --no-memo` passed enabled
+  `mcp-types` on INT/JS with the server/client cases skipped by requirements;
+  full parity is now **66/95 identical · 6 mismatch · 0 v2-error · 23 v1-only**
+  with 5 nondet skips across 195 examples.
 
 ## v2-os-env-nondet-parity — `fixed` (2026-07-09)
 

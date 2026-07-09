@@ -9,7 +9,45 @@ This is the REAL "does v2 replace v1?" gate: each example is run on v1
 (`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
 than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-09, after os-env lane classification
+## Latest full corpus re-measure — 2026-07-09, after OAuth/MCP generated-output classification
+
+Built/staged from
+`/Users/sergiy/work/my/scalascript-wt-v2-mcp-oauth-secret-nondet-parity` with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Current result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **66 / 95 = 69%** |
+| ❌ mismatch | 6 |
+| ⚠️ v2-error (v1 works, v2 empty) | 0 |
+| v1-only (v2 works, v1 empty) | 23 |
+| both-fail (not a v2 gap) | 26 |
+| true-server skipped | 36 |
+| long-running skipped | 0 |
+| backend-lane skipped | 33 |
+| nondeterministic-output skipped | 5 |
+| total examples seen | 195 |
+
+OAuth/MCP generated-output classification notes:
+
+- `mcp-server-protected.ssc` and `oauth-mcp-full-stack.ssc` are now excluded
+  from strict byte-parity because they print generated client ids/secrets and
+  server startup banners. The examples and runtime behavior are unchanged.
+- No deterministic v2-error row reappeared; the parity command still exits
+  nonzero because 6 known output mismatches remain.
+- Remaining mismatches in the full default-lane gate:
+  `distributed-streams.ssc`, `dsl-calc-parser.ssc`, `effects.ssc`,
+  `lang-split.ssc`, `scala-js-demo.ssc`, and `streams.ssc`.
+- The remaining rows are parser/DSL and stream/section output-shape families,
+  plus the documented `effects.ssc` v1-side short-output row.
+
+## Previous full corpus re-measure — 2026-07-09, after os-env lane classification
 
 Built/staged from
 `/Users/sergiy/work/my/scalascript-wt-v2-os-env-nondet-parity` with:
