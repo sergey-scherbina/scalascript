@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/fix-methoddispatch-reg
-worktree: ../scalascript-wt-mdreg
-started: 2026-07-09
-status: in-progress
-task: fix-methoddispatch-regression — 9f7895866 (remote-registry) регрессировал std-index/std-monaderror/typeclass-extension: methodOrPluginOrExt() в Runtime.scala течёт Op(None.handleError). Починить, сохранив remote-registry; coord с владельцем через комнату.
