@@ -227,6 +227,52 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(!out.contains("Stub"))
   }
 
+  test("v2 List.head keeps dynamic dispatch when a case class also has head field") {
+    val src =
+      """# Head Shadow
+        |
+        |```scala
+        |case class RepoRef(name: String, head: String)
+        |case class Gig(id: String, budget: Int, effortHours: Int)
+        |
+        |def scoreGig(g: Gig): Int =
+        |  if g.effortHours > 0 then g.budget / g.effortHours else g.budget
+        |
+        |def scoredGigs(gigs: List[Gig]): List[Gig] =
+        |  if gigs.isEmpty then List()
+        |  else
+        |    val best = gigs.foldLeft(gigs.head)((b, g) =>
+        |      if scoreGig(g) > scoreGig(b) then g else b)
+        |    List(best) ++ scoredGigs(gigs.filter(g => g.id != best.id))
+        |
+        |effect GigSource:
+        |  def fetch(): List[Gig]
+        |
+        |def simGigs(): List[Gig] =
+        |  List(Gig("slow", 100, 10), Gig("fast", 90, 3))
+        |
+        |def runSimGigSource[A](body: () => A): A =
+        |  handle { body() } {
+        |    case GigSource.fetch(resume) => resume(simGigs())
+        |  }
+        |
+        |def scoutGigs(): List[Gig] = scoredGigs(GigSource.fetch())
+        |def gigsText(gigs: List[Gig]): String =
+        |  gigs.map(g => g.id + ":" + scoreGig(g).toString).mkString(",")
+        |
+        |val ref = RepoRef("master", "abc")
+        |println(ref.head)
+        |println(runSimGigSource(() => gigsText(scoutGigs())))
+        |```
+        |""".stripMargin
+
+    val out = capture(src)
+    assert(out.contains("abc"))
+    assert(out.contains("fast:30,slow:10"))
+    assert(!out.contains("Op("))
+    assert(!out.contains("Stub"))
+  }
+
   test("v2 payments bridge supports Pix provider and QR code surface") {
     val src =
       """# Pix

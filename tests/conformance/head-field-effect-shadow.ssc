@@ -1,0 +1,46 @@
+#!/usr/bin/env ssc
+---
+name: head-field-effect-shadow
+---
+
+# Effectful List.head must survive an imported case-class field named `head`
+
+Regression for `BUGS.md#v2-read-gigs-handle-leak`: importing a module with a
+case-class field named `head` must not make `List.head` lower to eager
+`fieldAt` when the list receiver is an unresolved typed-effect `Op`.
+
+[mkRef](./lib/head-field-box.ssc)
+
+```scalascript
+case class Gig(id: String, budget: Int, effortHours: Int)
+
+def scoreGig(g: Gig): Int =
+  if g.effortHours > 0 then g.budget / g.effortHours else g.budget
+
+def scoredGigs(gigs: List[Gig]): List[Gig] =
+  if gigs.isEmpty then List()
+  else
+    val best = gigs.foldLeft(gigs.head)((b, g) =>
+      if scoreGig(g) > scoreGig(b) then g else b)
+    List(best) ++ scoredGigs(gigs.filter(g => g.id != best.id))
+
+effect GigSource:
+  def fetch(): List[Gig]
+
+def simGigs(): List[Gig] =
+  List(Gig("slow", 100, 10), Gig("fast", 90, 3))
+
+def runSimGigSource[A](body: () => A): A =
+  handle { body() } {
+    case GigSource.fetch(resume) => resume(simGigs())
+  }
+
+def scoutGigs(): List[Gig] = scoredGigs(GigSource.fetch())
+
+def gigsText(gigs: List[Gig]): String =
+  gigs.map(g => g.id + ":" + scoreGig(g).toString).mkString(",")
+
+val r = mkRef("main", "abc123")
+println(r.head)
+println(runSimGigSource(() => gigsText(scoutGigs())))
+```

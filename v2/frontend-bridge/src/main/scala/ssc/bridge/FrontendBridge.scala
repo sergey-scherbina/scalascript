@@ -26,6 +26,17 @@ object FrontendBridge:
    *  whichever case class was registered FIRST (import order) — deterministic. */
   private val fieldRegistry = collection.mutable.LinkedHashMap[String, Vector[String]]()
 
+  /** Dynamic zero-arg runtime members must not be lowered by the global field
+   *  registry without receiver type information. A case class field such as
+   *  `RepoRef.head` made every `List.head` compile to eager `fieldAt`, bypassing
+   *  method/effect lifting on effectful list receivers. Dynamic `__method__`
+   *  still resolves same-named fields tag-aware for data receivers. */
+  private val dynamicNoArgMemberNames: Set[String] = Set(
+    "head", "tail", "last", "init",
+    "isEmpty", "nonEmpty", "length", "size", "reverse",
+    "toString", "trim", "toLowerCase", "toUpperCase"
+  )
+
   /** Lookup field index for a class member field, if known — ONLY when the
    *  index is the SAME in every registered class containing the field. When
    *  two classes disagree (`transportError` = idx 1 in AgentStreamAttempt but
@@ -33,12 +44,14 @@ object FrontendBridge:
    *  the WRONG FIELD off the other class's values; ambiguous names now return
    *  None so the call site falls back to tag-aware `__method__` dispatch. */
   private def fieldIndex(name: String): Option[Int] =
-    val idxs = fieldRegistry.values.collect {
-      case fields if fields.contains(name) => fields.indexOf(name)
-    }.toList.distinct
-    idxs match
-      case List(one) => Some(one)
-      case _         => None
+    if dynamicNoArgMemberNames(name) then None
+    else
+      val idxs = fieldRegistry.values.collect {
+        case fields if fields.contains(name) => fields.indexOf(name)
+      }.toList.distinct
+      idxs match
+        case List(one) => Some(one)
+        case _         => None
 
   /** Lookup field index for a specific class's field. */
   private def fieldIndexOf(className: String, name: String): Option[Int] =
