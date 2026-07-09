@@ -12,7 +12,31 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-standard-scala-fences-skipped — `open` (2026-07-09)
+## v2-cluster-stdlib-import-gap — `open` (2026-07-09)
+
+- **Found by:** codex, after `cdd032f03` fixed standard `scala` fence
+  extraction during `v2-parity-current-errors`.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `bin/ssc run --v1 examples/cluster-capability.ssc` and
+  `bin/ssc run --v2 examples/cluster-capability.ssc`. v1 prints:
+  `demo-node`, `ws://seed:9100/_ssc-actors`, `sha256`, `64`; v2 now reaches
+  program execution but exits with `RuntimeException: unbound global: clusterOf`.
+- **Observed failure:** the standard-fence targeted parity slice after
+  `cdd032f03` reports `1/6 identical · 4 mismatch · 1 v2-error`; the remaining
+  v2-error is `cluster-capability.ssc`.
+- **Impact:** the cluster stdlib import/export path is not production-safe under
+  the v2 default runner; `clusterOf` is visible to v1 but unresolved in v2.
+- **Root-cause hypothesis:** distinct from fence extraction. Likely in
+  `FrontendBridge.resolveImportsCode` / imported stdlib source extraction, or
+  in lowering of the `runtime/std/cluster` definitions into v2 globals.
+- **Fix direction:** inspect `runtime/std/cluster/index.ssc` and the resolved
+  transitive imports, reproduce with the real `bin/ssc` harness, then add a
+  focused regression that mirrors the import-boundary shape before fixing.
+- **Done-when:** `examples/cluster-capability.ssc` matches under targeted
+  output parity; the full parity gate has no unclassified v2-error; the fix
+  commit and gates are recorded here.
+
+## v2-standard-scala-fences-skipped — `fixed` (2026-07-09)
 
 - **Found by:** codex, during `v2-parity-current-errors` full output-parity
   refresh.
@@ -36,18 +60,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `graph-storage`, `scala-js-demo`, and `streams`.
 - **Impact:** default v2 silently treats standard-Scala-only `.ssc` examples as
   empty programs, so `ssc run --v2` can exit 0 without running user code.
-- **Root-cause hypothesis:** `FrontendBridge.convertSource` uses
+- **Root cause:** `FrontendBridge.convertSource` uses
   `extractCode(..., allFences = true)`, whose non-SQL runnable-fence regex
   includes `scalascript` but excludes `scala`; `RunV2` does not use the
   `ModuleBridge.convert(Parser.parse(...))` path that walks all parseable
   `Content.CodeBlock`s.
-- **Fix direction:** teach the v2 source extraction path to include standard
+- **Fix:** `cdd032f03` teaches the v2 source extraction path to include standard
   `scala` fences when they are the runnable source for the document, without
   re-enabling illustrative Scala snippets in mixed ScalaScript docs that the
   existing comment warns about.
-- **Done-when:** a minimal `scala` fence and `examples/cluster-capability.ssc`
-  print under `--v2`; targeted bridge/CLI tests pin the behavior; the affected
-  parity slice is re-run; the full gate counts are recorded.
+- **Gates:** `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
+  (17/17); `tests/conformance/run.sh --only 'standard-scala-fence' --no-memo`
+  (INT/JS/JVM pass); `scripts/sbtc "installBin"`; minimal real harness
+  `bin/ssc run --v1/--v2 <standard-scala-fence>` prints `scala-block-ok` on both;
+  targeted six-example parity changed the failure mode to one remaining
+  `clusterOf` v2-error plus four non-empty mismatches, with `graph-storage.ssc`
+  now matching.
+- **Follow-up:** `cluster-capability.ssc` now exposes
+  `v2-cluster-stdlib-import-gap`; that is tracked as a separate bug.
 
 ## route-deriver-path-param-unit-client — `fixed` (2026-07-09)
 

@@ -2018,16 +2018,30 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
             the first narrow deterministic blocker with affected conformance.
             Finding: `v2-standard-scala-fences-skipped` filed; fix the standard
             Scala fence extraction first.
-      - [ ] Fix `FrontendBridge.extractCode` / source extraction so standard
+      - [x] Fix `FrontendBridge.extractCode` / source extraction so standard
             `scala` fences that are the document's runnable source are included
             in the v2 program, without re-enabling illustrative Scala snippets
-            in mixed ScalaScript docs.
-      - [ ] Add focused regression coverage: a minimal markdown `scala` fence
+            in mixed ScalaScript docs. Landed in `cdd032f03`.
+      - [x] Add focused regression coverage: a minimal markdown `scala` fence
             through `FrontendBridge.convertSource`, plus a real-harness CLI or
             parity check for `examples/cluster-capability.ssc`.
-      - [ ] Re-run targeted parity for the six affected standard-Scala-fence
-            examples; then re-run the full output-parity gate and record the new
-            counts in the baseline/spec.
+            Gates before push: `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest`
+            (17/17), `tests/conformance/run.sh --only 'standard-scala-fence' --no-memo`
+            (INT/JS/JVM pass), `scripts/sbtc "installBin"`, and a minimal
+            real-harness `bin/ssc run --v1/--v2` standard-`scala`-fence repro.
+      - [x] Re-run targeted parity for the six affected standard-Scala-fence
+            examples after `cdd032f03`. Result: `1/6 identical · 4 mismatch ·
+            1 v2-error`; `graph-storage.ssc` now matches, `cluster-capability.ssc`
+            reaches a distinct `unbound global: clusterOf` v2 error, and the
+            other four now produce non-empty v2 output mismatches instead of
+            silent empty programs.
+      - [ ] Fix the newly exposed `v2-cluster-stdlib-import-gap`
+            (`BUGS.md`): inspect `runtime/std/cluster/index.ssc` import/export
+            lowering, reproduce through `bin/ssc run --v2 examples/cluster-capability.ssc`,
+            add focused import-boundary regression coverage, and make the
+            targeted parity row match.
+      - [ ] Re-run the full output-parity gate and record the new counts in
+            `v2/output-parity-baseline.md` and `specs/v2-full-compat.md`.
       - [ ] Update `CHANGELOG.md` and release the claim/worktree.
       Done-when: the board no longer advertises stale old parity blockers and
       the current production gate is either green-by-scope or has a concrete
