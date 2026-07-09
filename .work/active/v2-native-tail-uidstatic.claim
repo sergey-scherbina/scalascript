@@ -1,6 +1,0 @@
-agent: claude-opus-4-8 (1M ctx)
-branch: feature/k62-tail-uidstatic
-worktree: ../scalascript-wt-k62-tail-uidstatic
-started: 2026-07-09
-status: in-progress
-task: K62.6c-tail (A) + K62.7b (B) — native ssc1-lower/front ONLY. A: parse-tail ($ , takeWhile/dropWhile desugars, for pattern-binders). B: uid-static dispatch — route `Foo.method(args)` (unknown uppercase object) through IrPrim(__method__, [str method, Ctor(Foo,[]), args]) so the plugin runtime's __fallback__.Foo.method resolves it. PURE lowering, NO runtime/registry change (sibling active on fieldNames registry/method-objects). Gate conformance 640/640.
