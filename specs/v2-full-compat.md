@@ -625,6 +625,33 @@ backend on the same corpus shape.
 This wall harness is useful again, but it is not the source of truth for the v2
 VM production-performance gate because it does not expose a `v2` column.
 
+#### 2026-07-09 separate-backend performance harness plan
+
+The Phase-3 backend-performance checkboxes need a same-shape harness for v2
+separate-compilation backend paths:
+
+- v2 JVM backend: time production `ssc run-jvm --v2` or the equivalent staged
+  v2 JVM command path on representative `.ssc` corpus rows.
+- v2 Rust backend: time the v2 Rust backend command path on the same rows where
+  Rust backend support exists.
+
+The existing `bench.sh` `jvm`/`rust` columns are useful comparison columns but
+must not be used to close those checkboxes until the harness names the exact v2
+backend command being timed. The first slice is intentionally measurement-only:
+wire the smallest reusable command, record bounded numbers, and leave backend
+code optimization to follow-up slices once the baseline is honest.
+
+Behavior:
+- [ ] a documented benchmark command exposes v2 VM, v2 JVM backend, and v2 Rust
+      backend timing columns or clearly reports unsupported rows as `n/a`.
+- [ ] the command runs at least `arith-loop`, `pattern-match-heavy`,
+      `recursion-fib`, and `recursion-tco` without returning all-`n/a` for the
+      v2 backend columns.
+- [ ] this spec records the command, machine-local bounded results, and which
+      Phase-3 checkboxes the numbers can and cannot close.
+- [ ] affected tests and at least `tests/conformance/run.sh --only 'litdoc'`
+      pass before the harness is pushed.
+
 ### T3.2 — v2 VM hot paths
 
 Already done: IrWhile, LongCellV, FastCode.

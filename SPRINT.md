@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-backend-performance-harness** — promote the BACKLOG Phase-3
+      separate-backend performance gate into a shippable measurement slice.
+      Current `bench.sh` `jvm`/`rust` columns are useful corpus backend columns,
+      but they do not prove the v2 separate-compilation checkboxes because they
+      are not timing the same command shape as production `ssc run-jvm --v2`
+      and the v2 Rust backend integration. Scope: inspect the existing corpus
+      benchmark harnesses (`bench.sh`, `tests/bench/run.sc`, `scripts/bench`,
+      and v2 backend check scripts), add the smallest reusable command/API that
+      times representative `.ssc` rows through v2 VM, v2 JVM source backend,
+      and v2 Rust backend when available, then record a bounded baseline in
+      `specs/v2-full-compat.md`. Do not optimize generated backend code in this
+      slice unless the harness itself cannot run without a small bug fix.
+      Done-when: `scripts/bench` or an adjacent documented wrapper exposes the
+      v2 backend timing command, the command produces non-`n/a` rows for at
+      least the four production probe workloads where backend support exists,
+      docs/specs explain which columns close which Phase-3 checkboxes, and
+      affected tests plus `tests/conformance/run.sh --only 'litdoc'` pass.
+
 - [x] **v2-prod-performance-gate-baseline** — DONE 2026-07-09 in
       `a4b7e6997`: recorded the first bounded production-v2 performance gate
       baseline and left the Phase-3 performance checkboxes open honestly.
