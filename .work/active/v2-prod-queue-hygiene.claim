@@ -1,0 +1,6 @@
+feature/v2-prod-queue-hygiene 2026-07-09T01:45:39Z
+agent: codex
+heartbeat: 2026-07-09T01:45:39Z
+status: not-started
+done-so-far:
+next: write SPRINT plan for stale v2 queue cleanup
