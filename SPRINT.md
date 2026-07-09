@@ -1998,19 +1998,36 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
       still list old V2-ERROR/mismatch clusters. This is a gate/docs slice
       unless the fresh run exposes a new deterministic v2 regression.
       Active plan 2026-07-09 (`feature/v2-parity-current-errors` / codex):
-      - [ ] Restage the CLI in this worktree with `scripts/sbtc "installBin"`
+      - [x] Restage the CLI in this worktree with `scripts/sbtc "installBin"`
             because `scripts/v2-output-parity` uses `bin/ssc`.
-      - [ ] Run `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`
+      - [x] Run `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`
             and record the exact counts in `v2/output-parity-baseline.md` and
             `specs/v2-full-compat.md`.
+            Fresh result before fixing: `62/93 identical · 7 mismatch ·
+            6 v2-error · 18 v1-only` (31 both-fail, 36 true-server,
+            33 backend-lane, 2 nondet, 195 total). The cleanup path is canceled:
+            all six v2-error rows are standard-`scala`-fence examples skipped
+            by v2 (`BUGS.md` `v2-standard-scala-fences-skipped`).
       - [ ] If the gate still has 0 v2-error and only the already-classified
             non-blocker mismatches, mark the stale broad SPRINT rows
             `real v2-only V2-ERROR gaps`, `17 mismatches`, and the superseded
             full-corpus duplicate as reconciled/superseded with the fresh
             counts.
-      - [ ] If a new v2-error or clear v2-regression mismatch appears, stop the
+      - [x] If a new v2-error or clear v2-regression mismatch appears, stop the
             cleanup path, file a `BUGS.md` entry with the exact repro, and fix
             the first narrow deterministic blocker with affected conformance.
+            Finding: `v2-standard-scala-fences-skipped` filed; fix the standard
+            Scala fence extraction first.
+      - [ ] Fix `FrontendBridge.extractCode` / source extraction so standard
+            `scala` fences that are the document's runnable source are included
+            in the v2 program, without re-enabling illustrative Scala snippets
+            in mixed ScalaScript docs.
+      - [ ] Add focused regression coverage: a minimal markdown `scala` fence
+            through `FrontendBridge.convertSource`, plus a real-harness CLI or
+            parity check for `examples/cluster-capability.ssc`.
+      - [ ] Re-run targeted parity for the six affected standard-Scala-fence
+            examples; then re-run the full output-parity gate and record the new
+            counts in the baseline/spec.
       - [ ] Update `CHANGELOG.md` and release the claim/worktree.
       Done-when: the board no longer advertises stale old parity blockers and
       the current production gate is either green-by-scope or has a concrete

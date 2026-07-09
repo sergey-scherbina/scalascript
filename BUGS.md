@@ -12,6 +12,43 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-standard-scala-fences-skipped — `open` (2026-07-09)
+
+- **Found by:** codex, during `v2-parity-current-errors` full output-parity
+  refresh.
+- **Repro:** after `scripts/sbtc "installBin"`, run:
+  `bin/ssc run --v1 examples/cluster-capability.ssc` and
+  `bin/ssc run --v2 examples/cluster-capability.ssc`. v1 prints:
+  `demo-node`, `ws://seed:9100/_ssc-actors`, `sha256`, `64`; v2 exits 0 with
+  empty stdout. A minimal repro is a document containing only:
+  ````markdown
+  ```scala
+  println("scala-block-ok")
+  ```
+  ````
+  which prints on v1 and is empty on v2, while the same fence tagged
+  `scalascript` prints on both.
+- **Observed failure:** the fresh production gate
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` reports
+  `62/93 identical · 7 mismatch · 6 v2-error · 18 v1-only`; the six v2-error
+  rows all use standard `scala` fenced blocks:
+  `cluster-capability`, `distributed-streams`, `graph-neo4j-storage`,
+  `graph-storage`, `scala-js-demo`, and `streams`.
+- **Impact:** default v2 silently treats standard-Scala-only `.ssc` examples as
+  empty programs, so `ssc run --v2` can exit 0 without running user code.
+- **Root-cause hypothesis:** `FrontendBridge.convertSource` uses
+  `extractCode(..., allFences = true)`, whose non-SQL runnable-fence regex
+  includes `scalascript` but excludes `scala`; `RunV2` does not use the
+  `ModuleBridge.convert(Parser.parse(...))` path that walks all parseable
+  `Content.CodeBlock`s.
+- **Fix direction:** teach the v2 source extraction path to include standard
+  `scala` fences when they are the runnable source for the document, without
+  re-enabling illustrative Scala snippets in mixed ScalaScript docs that the
+  existing comment warns about.
+- **Done-when:** a minimal `scala` fence and `examples/cluster-capability.ssc`
+  print under `--v2`; targeted bridge/CLI tests pin the behavior; the affected
+  parity slice is re-run; the full gate counts are recorded.
+
 ## route-deriver-path-param-unit-client — `fixed` (2026-07-09)
 
 - **Found by:** codex, during `tkv2-typed-client` prep.
