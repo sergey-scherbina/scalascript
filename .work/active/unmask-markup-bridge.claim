@@ -1,6 +1,0 @@
-feature/unmask-markup-bridge 2026-07-09T12:40:12Z
-agent: codex
-heartbeat: 2026-07-09T13:26:43Z
-status: in-progress
-done-so-far: implementation rebased on current origin/main; focused/full bridge tests, installBin, real xslt-transform, affected conformance, and full v2 conformance passed once before the latest rebase
-next: rerun final gates on rebased branch, then update spec/BUGS/SPRINT/CHANGELOG and push/release
