@@ -1,6 +1,6 @@
 feature/unmask-payments-bridge 2026-07-09T13:47:08Z
 agent: codex
-heartbeat: 2026-07-09T15:51:36Z
+heartbeat: 2026-07-09T16:04:23Z
 status: in-progress
-done-so-far: post-native-underscore/request-collision gates are green on branch HEAD: FrontendBridgeTest 42/42, installBin, direct payments examples no Op/Stub, affected conformance 5/5, full ./v2/conformance/check.sh
-next: rebase over user-request-collision fix, rerun bridge/affected/full gates on merged HEAD, then push release/bookkeeping commit
+done-so-far: payments bridge gates are green; discovered user-request-shadow JVM lane failure after sibling Request fix, added local fix bcfbc1da6; direct run-jvm prints 7/9/7/42 and affected conformance 6/6
+next: run full ./v2/conformance/check.sh, mark v2-jvm-user-request-shadow fixed in ledgers, rebase if needed, then push release/bookkeeping commit
