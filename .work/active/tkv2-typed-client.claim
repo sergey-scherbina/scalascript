@@ -1,6 +1,6 @@
 feature/tkv2-typed-client 2026-07-09T00:45:21Z
 agent: codex
-heartbeat: 2026-07-09T00:46:41Z
+heartbeat: 2026-07-09T00:52:44Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-tkv2-typed-client
-next: expand SPRINT plan/spec for typed browser clients, then implement and verify
+done-so-far: spec/SPRINT/BUGS plan pushed in 0e2ab445c
+next: implement RouteDeriver path-param defaults, tests, conformance, docs, bookkeeping
