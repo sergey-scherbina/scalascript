@@ -590,14 +590,14 @@ per-element callClos + dispatch.
 NEGATIVE RESULT: specialized per-op arith methods (Emit.add/sub/…) made
 fib WORSE (107→146ms) — inline-lambda alloc; the JIT already handles the
 string-op switch. Dispatch is NOT the bottleneck; boxing + callClos are.
-- [ ] **p4-bc-foreach-inline** — emit an inline Cons-walk loop for
-      `__method__("foreach", recv, Lam(1, body))` in JvmByteGen (VM's
-      tryFCAppended analog): save orig env to a slot, per element
-      extend1(origEnv, elem)->slot0 + gen(body) inline + POP + advance to
-      fields(1). GUARD: only for EFFECT-FREE bodies (the VM inlines only
-      when tryFC succeeds, which declines effectful bodies) — else Op-
-      threading breaks. De Bruijn: elem at env tail = Local(0). Biggest
-      remaining foreach/loop win.
+- [x] **p4-bc-foreach-inline** — DONE 2026-07-09 (fabf450eb): inline Cons-walk
+      for `foreach(Lam(1,body))` with EFFECT-FREE body — element PUSHED as a
+      fresh De Bruijn slot (cleaner than the env-array plan: body reads it as
+      Local(0) + captures via existing slot/env machinery), gen(body) inline,
+      POP, advance consTail. pureNoEffect guard → effectful bodies fall to
+      runtime foreachConsOp (Op-threading preserved). list-fold bc 786→113ms
+      (~7x); bc/vm 11.3x→1.55x. Captures verified (14/30 both lanes). Corpus
+      154/8, conformance 94/2.
 - [ ] **p4-bc-unboxed-arith** — track provably-Int operands in the emitter
       and emit unboxed JVM arith (iadd/if_icmple) with boxing only at
       call/store boundaries (VM's tryFLC analog). Helps arith-loop/nested-
