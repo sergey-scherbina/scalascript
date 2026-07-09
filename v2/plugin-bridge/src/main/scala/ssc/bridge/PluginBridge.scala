@@ -1117,11 +1117,14 @@ object PluginBridge:
         nmo.getField("_show") match
           case Some(V2Value.StrV(s)) => s
           case _ =>
-            // v1 facades (json wrapJson etc.): render the INNER value via the
-            // 0-arg `raw` field, the way v1 prints the wrapped value itself.
-            nmo.getField("raw") match
-              case Some(c: V2Value.ClosV) => v1Show(callClosure(c, Nil))
-              case _ => Show.show(v)
+            nmo.underlying match
+              case v1v: scalascript.interpreter.Value => scalascript.interpreter.Value.show(v1v)
+              case _ =>
+                // v1 facades (json wrapJson etc.): render the INNER value via the
+                // 0-arg `raw` field, the way v1 prints the wrapped value itself.
+                nmo.getField("raw") match
+                  case Some(c: V2Value.ClosV) => v1Show(callClosure(c, Nil))
+                  case _ => Show.show(v)
       case other => Show.show(other)
     def showForPrint(v: V2Value): String = v1Show(v)
     if V2PluginRegistry.lookupGlobal("println").isEmpty then

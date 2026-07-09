@@ -1,7 +1,7 @@
 package ssc.bridge
 
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Value as V2Value, V2PluginRegistry}
+import ssc.{Runtime, Show, Value as V2Value, V2PluginRegistry}
 import scalascript.interpreter.DataValue
 import scalascript.backend.spi.{
   NativeImpl, Backend, IntrinsicImpl, Capabilities, SpiVersionRange, SpiVersion, OutputKind
@@ -92,6 +92,48 @@ class PluginBridgeTest extends AnyFunSuite:
   test("v1ToV2: TupleV → DataV Tuple2"):
     val t = scalascript.interpreter.Value.TupleV(List(DataValue.IntV(1L), DataValue.StringV("a")))
     assert(PluginBridge.v1ToV2(t) == V2Value.DataV("Tuple2", Vector(V2Value.IntV(1L), V2Value.StrV("a"))))
+
+  test("v1ToV2: named InstanceV prints via v1 show while preserving field access"):
+    val inst = scalascript.interpreter.Value.InstanceV("StoredEdge", Map(
+      "label" -> DataValue.StringV("knows"),
+      "to"    -> DataValue.StringV("carol"),
+      "id"    -> DataValue.StringV("bob-knows-carol"),
+      "from"  -> DataValue.StringV("bob"),
+      "value" -> scalascript.interpreter.Value.InstanceV("Knows", Map(
+        "from"  -> DataValue.StringV("bob"),
+        "to"    -> DataValue.StringV("carol"),
+        "since" -> DataValue.IntV(2021L)
+      ))
+    ))
+    val expected = scalascript.interpreter.Value.show(inst)
+    assert(expected != "<foreign>")
+
+    val v2 = PluginBridge.v1ToV2(inst)
+    v2 match
+      case V2Value.ForeignV(nmo: V2Value.NamedMethodObj) =>
+        assert(nmo.getField("label").contains(V2Value.StrV("knows")))
+      case other => fail(s"expected named-method object, got $other")
+
+    val snap = V2PluginRegistry.snapshot()
+    val oldRenderer = Show.foreignRenderer
+    try
+      PluginBridge.loadAll()
+      val printlnFn = V2PluginRegistry.lookupGlobal("println").collect {
+        case c: V2Value.ClosV => c
+      }.getOrElse(fail("println should be registered"))
+      val baos = new java.io.ByteArrayOutputStream()
+      scala.Console.withOut(new java.io.PrintStream(baos)) {
+        Runtime.run(printlnFn.code, Runtime.extend(printlnFn.env, Array(v2)))
+      }
+      assert(baos.toString("UTF-8").trim == expected)
+      val autoPrintBaos = new java.io.ByteArrayOutputStream()
+      scala.Console.withOut(new java.io.PrintStream(autoPrintBaos)) {
+        ssc.Prims.resolve("__autoPrint__")(List(v2))
+      }
+      assert(autoPrintBaos.toString("UTF-8").trim == expected)
+    finally
+      V2PluginRegistry.restore(snap)
+      Show.foreignRenderer = oldRenderer
 
   // ── loadBackend: wire a stub backend through the registry ───────────────
 

@@ -1,0 +1,21 @@
+#!/usr/bin/env ssc
+---
+name: graph-edge-display
+backends: [int]
+graphs:
+  deps:
+    model: property
+    side: server
+    backend: in-memory
+---
+
+# Graph Edge Display
+
+```scalascript
+case class Module(id: String, path: String)
+case class Imports(from: String, to: String, reason: String)
+
+Graph.putVertex("deps", Module("A", "a.ssc"))
+Graph.putVertex("deps", Module("B", "b.ssc"))
+Graph.putEdge("deps", Imports("A", "B", "direct"))
+```

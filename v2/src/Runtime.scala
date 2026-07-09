@@ -2675,6 +2675,9 @@ object Show:
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
+    case ForeignV(nmo: NamedMethodObj) =>
+      val r = tryForeign(nmo.underlying)
+      if r == null then "<foreign>" else r
     case ForeignV(h)  =>
       val r = tryForeign(h)
       if r == null then "<foreign>" else r
