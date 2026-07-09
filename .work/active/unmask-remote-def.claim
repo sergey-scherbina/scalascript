@@ -1,0 +1,6 @@
+feature/unmask-remote-def 2026-07-09T11:30:07Z
+agent: codex
+heartbeat: 2026-07-09T11:30:07Z
+status: not-started
+done-so-far:
+next: write spec, reproduce remote-registry-rpc unmasked failure, then implement the smallest safe bridge/plugin slice
