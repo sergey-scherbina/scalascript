@@ -9,7 +9,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **bug-ledger-scjvm-cache-duplicate-close** — close the old
+- [x] **bug-ledger-scjvm-cache-duplicate-close** — DONE 2026-07-09: closed the old
       `scjvm-artifact-cache-ignores-compiler-version` BUGS entry as a duplicate
       of the landed `jvm-artifact-cache-codegen-invalidation` fix. Found after
       completing that slice: the current top BUGS entry is fixed, but the older

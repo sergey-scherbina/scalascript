@@ -4,6 +4,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — scjvm cache bug ledger duplicate closed
+
+Closed the older `scjvm-artifact-cache-ignores-compiler-version` BUGS entry as
+a duplicate of the landed JVM artifact cache invalidation fix. No code changes.
+
 ## 2026-07-09 — JVM artifact cache invalidates old codegen output
 
 `.scjvm` artifacts now carry a JVM codegen cache key and `run-jvm` regenerates

@@ -1930,7 +1930,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Repro:** `scripts/sbtc "cryptoNobleJs/test"` in a clean worktree with no
   `payments/crypto/noble-js/node_modules` previously failed before the fix.
 
-## scjvm-artifact-cache-ignores-compiler-version — `open` (2026-07-07)
+## scjvm-artifact-cache-ignores-compiler-version — `fixed` (2026-07-07)
 
 - **Found by:** claude (green-main takeover), while fixing jvmgen-block-call-empty-parens: after
   rebuilding `bin/ssc` with a codegen fix, `ssc run-jvm` kept producing byte-identical BROKEN output.
@@ -1939,9 +1939,16 @@ same launcher; every fail was a real engine gap). One entry per cause:
   fixes are invisible until the artifact is deleted by hand. Cost ~4 rebuild-and-scratch-head cycles.
 - **Repro:** run any `.ssc` via `run-jvm` (caches the emission), change JvmGen, `installBin`, run
   again — the old emission runs.
-- **Fix direction:** mix a compiler-build fingerprint (e.g. the backend-jvm jar's sha/mtime or a
-  build-stamped version string) into the staleness check.
+- **Fix:** duplicate of `jvm-artifact-cache-codegen-invalidation`, fixed by
+  `322ee868f` (`codegenVersion` on `.scjvm` artifacts +
+  `ModuleGraph.isJvmStale` key comparison) and guarded by `14aa2819d`
+  (`run-jvm` regenerates a source-fresh `.scjvm` whose codegen key is old).
+- **Gates:** see `jvm-artifact-cache-codegen-invalidation` above:
+  `ModuleGraphTest`, `JvmIncrementalCliTest`, `installBin`, and conformance
+  `litdoc` on INT/JS/JVM.
 - **Workaround:** `rm -rf <dir>/.ssc-artifacts` after rebuilding the binary.
+- **Status:** fixed; retained as a historical duplicate of the 2026-07-09
+  cache-invalidation fix.
 
 ## jvmgen-block-call-empty-parens — `fixed` (2026-07-07)
 
