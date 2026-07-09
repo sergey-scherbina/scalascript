@@ -9,6 +9,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-source-backend-production-perf-sweep** - measurement-only
+      production gate slice for BACKLOG `v2-source-backend-production-perf-gates`
+      after the JVM/Rust `recursion-fib` source-backend fixes landed. Plan:
+      stage the current worktree CLI with `scripts/sbtc "installBin"`, run the
+      current public rows with `scripts/bench v2-backends arith-loop
+      recursion-tco pattern-match-heavy`, and update BACKLOG/SPRINT/CHANGELOG
+      with the remaining source-backend blockers and the next recommended
+      one-slice target. This slice intentionally makes no compiler/backend code
+      changes unless measurement exposes a trivial harness/documentation
+      correction. Rejected scope: do not tune VM/JIT, do not optimize a Rust row
+      before measuring current post-helper numbers, and do not change corpus
+      workloads. Done when the fresh numbers are recorded durably, the claim is
+      released, and `git diff --check` passes.
+
 - [x] **v2-source-rust-recursion-fib-perf** - DONE 2026-07-09 in
       `3d975bda7`: narrow Phase-3 source-backend
       performance slice for the v2 Rust source backend on
