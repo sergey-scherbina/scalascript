@@ -1,6 +1,6 @@
 feature/unmask-remote-def 2026-07-09T11:30:07Z
 agent: codex
-heartbeat: 2026-07-09T11:57:09Z
+heartbeat: 2026-07-09T12:18:15Z
 status: in-progress
-done-so-far: claim/worktree created; spec committed locally as a56125e53; bridge/runtime implementation dirty and focused remote test currently exposes runtime dispatch crash
-next: debug __methodOrExt__/FastCode crash, make focused v2 remote registry test green, then commit/rebase
+done-so-far: spec and implementation commits rebased; focused remote tests, full FrontendBridgeTest, installBin, example smoke, distributed* conformance, and v2/conformance/check.sh all passed before new origin/main overlap landed
+next: rebase over latest v2 overlap, rerun focused gates, update spec/SPRINT/CHANGELOG, then push
