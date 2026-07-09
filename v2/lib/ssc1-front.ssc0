@@ -991,6 +991,21 @@ def skipToStmt = (ts) =>
     else skipToStmt(advance(ts))
   else skipToStmt(advance(ts))
 
+-- K62.6b: a top-level statement that is either an expression or a `name = expr`
+-- assignment (only a bare-identifier lhs is treated as assignment; anything else
+-- stays an expression statement).
+def parseExprOrAssign = (toks) =>
+  let re = parseExpr(toks) in
+  if kindIs("=", prT(re)) then
+    match prV(re) {
+      case Pair(ltag, ldata) =>
+        if #seq(ltag, "var") then
+          let rrhs = parseExpr(advance(prT(re))) in
+          pr(Pair("assign", Pair(ldata, prV(rrhs))), prT(rrhs))
+        else pr(mkSExpr(prV(re)), prT(re))
+    }
+  else pr(mkSExpr(prV(re)), prT(re))
+
 def parseOneStmt = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
@@ -1028,6 +1043,10 @@ def parseOneStmt = (toks) =>
       pr(Pair("sealed", ""), skipPath(advance(toks)))
     else if #seq(v, "def") then parseDef(advance(toks))
     else if #seq(v, "val") then parseVal(advance(toks))
+    else if #seq(v, "var") then
+      -- K62.6b: top-level mutable var (parseBlock handled var; parseOneStmt did not)
+      let r = parseVal(advance(toks)) in
+      match prV(r) { case Pair(vtag, vdata) => pr(Pair("var", vdata), prT(r)) }
     else if #seq(v, "case") then
       let ts2 = advance(toks) in
       if kwIs("class", ts2) then parseCaseClass(advance(ts2))
@@ -1128,8 +1147,8 @@ def parseOneStmt = (toks) =>
             pr(Pair("multi_effect", ename), ts4)
           else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
         else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
-      else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
-    else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+      else parseExprOrAssign(toks)
+    else parseExprOrAssign(toks)
 
 def skipSemis = (toks) =>
   if kindIs(";", toks) then skipSemis(advance(toks)) else toks

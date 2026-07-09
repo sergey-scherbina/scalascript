@@ -65,6 +65,14 @@ def isMapVar = (name) =>
     match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
   go(#cell.get(mapVarsCell))
 
+-- K62.6b: top-level mutable `var`s become global cells (visible to global defs,
+-- unlike block vars which live in the de Bruijn scope). A reference to such a name
+-- lowers to `cell.get(global name__cell)`; an assignment to `cell.set`.
+def isTopVar = (name) =>
+  let rec go = (xs) =>
+    match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
+  go(#cell.get(topVarsCell))
+
 -- Check if a resolved expression is Array/Vector construction
 def isArrayConstruction = (rb) =>
   match rb {
@@ -105,6 +113,7 @@ def kc5ActiveCtxCell = #cell.new(Nil)
 def kc7bObjectsCell = #cell.new(Nil)
 -- Array and Map variable name registries (for indexed read/write lowering)
 def arrVarsCell = #cell.new(Nil)
+def topVarsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
 -- List variable name registry (for .length dispatch to _sel_length vs slen)
 def listVarsCell = #cell.new(Nil)
@@ -871,7 +880,11 @@ def lowerE = (scope, rawExpr) =>
                 let cellRef = lookupVar(scope, cellName) in
                 match cellRef {
                   case IrLocal(ci) => IrPrim("cell.get", Cons(IrLocal(ci), Nil))
-                  case IrGlobal(ng) => IrGlobal(data)
+                  case IrGlobal(ng) =>
+                    -- K62.6b: a top-level `var` reference → cell.get(global name__cell)
+                    if isTopVar(data) then
+                      IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
+                    else IrGlobal(data)
                 }
             }
           case IrLocal(li) => IrLocal(li)
@@ -985,8 +998,16 @@ def lowerE = (scope, rawExpr) =>
               case Some(lcellRef) =>
                 IrPrim("lcell.set", Cons(lcellRef, Cons(lowerE(scope, expr), Nil)))
               case None =>
-                let cellRef = lookupVar(scope, #sconcat("@", name)) in
-                IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+                let cellName = #sconcat("@", name) in
+                match lookupVarOpt(scope, cellName) {
+                  case Some(cellRef) =>
+                    IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+                  case None =>
+                    -- K62.6b: assignment to a top-level var → cell.set(global name__cell)
+                    if isTopVar(name) then
+                      IrPrim("cell.set", Cons(IrGlobal(#sconcat(name, "__cell")), Cons(lowerE(scope, expr), Nil)))
+                    else IrPrim("cell.set", Cons(lookupVar(scope, cellName), Cons(lowerE(scope, expr), Nil)))
+                }
             }
         }
       else
@@ -1327,8 +1348,16 @@ def lowerBlock = (scope, stmts) =>
                     -- Long cell: use lcell.set (body evaluated as raw Long in FastCode path)
                     IrPrim("lcell.set", Cons(lcellRef, Cons(lowerE(scope, expr), Nil)))
                   case None =>
-                    let cellRef = lookupVar(scope, #sconcat("@", name)) in
-                    IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+                    let cellName = #sconcat("@", name) in
+                    match lookupVarOpt(scope, cellName) {
+                      case Some(cellRef) =>
+                        IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
+                      case None =>
+                        -- K62.6b: assignment to a top-level var → cell.set(global name__cell)
+                        if isTopVar(name) then
+                          IrPrim("cell.set", Cons(IrGlobal(#sconcat(name, "__cell")), Cons(lowerE(scope, expr), Nil)))
+                        else IrPrim("cell.set", Cons(lookupVar(scope, cellName), Cons(lowerE(scope, expr), Nil)))
+                    }
                 } in
                 match rest {
                   case Nil => setExpr
@@ -2072,6 +2101,35 @@ def kc6Defs =
   Nil)))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
+-- K62.6b: names of top-level `var` declarations (become global cells).
+def collectTopVars = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "var") then
+            match data { case Pair(name, init) => Cons(name, collectTopVars(rest)) }
+          else collectTopVars(rest)
+      }
+  }
+
+-- K62.6b: an empty global cell def per top-level var; the init runs in document
+-- order in the entry (as cell.set), so ordering matches source.
+def topVarCellDefs = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "var") then
+            match data { case Pair(name, init) =>
+              Cons(IrDef(#sconcat(name, "__cell"), IrPrim("cell.new", Cons(IrLit(IrUnit), Nil))),
+                   topVarCellDefs(rest)) }
+          else topVarCellDefs(rest)
+      }
+  }
+
 def lowerProg = (stmts) =>
   -- KC5: initialize given table and sig table from parsed stmts
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
@@ -2084,12 +2142,14 @@ def lowerProg = (stmts) =>
   let _av = #cell.set(arrVarsCell, Nil) in
   let _mv = #cell.set(mapVarsCell, Nil) in
   let _lv = #cell.set(listVarsCell, Nil) in
+  -- K62.6b: register top-level var names BEFORE lowering so references resolve to cells
+  let _tv = #cell.set(topVarsCell, collectTopVars(stmts)) in
   let defs =
     Cons(printlnDef,
     Cons(printDef,
     kc6Defs)) in
   let userDefs = lowerStmts(stmts) in
-  let allDefs = appendL(defs, userDefs) in
+  let allDefs = appendL(defs, appendL(topVarCellDefs(stmts), userDefs)) in
   -- T5.7: top-level expression statements ("expr") used to be silently dropped
   -- (~190/194 real .ssc files became no-ops). Collect them in document order into
   -- the entry: Seq(exprs..., main() if present). Defs are all registered before the
@@ -2102,6 +2162,18 @@ def lowerProg = (stmts) =>
           case Pair(stag, sdata) =>
             if #seq(stag, "expr") then
               Cons(lowerE(Nil, resolveE(sdata)), topExprs(rest1))
+            else if #seq(stag, "assign") then
+              -- K62.6b: top-level assignment → cell.set (lowerE's assign case handles isTopVar)
+              Cons(lowerE(Nil, s1), topExprs(rest1))
+            else if #seq(stag, "var") then
+              -- K62.6b: run the var's initializer in document order as cell.set(name__cell, init)
+              match sdata {
+                case Pair(vname, vinit) =>
+                  Cons(IrPrim("cell.set",
+                        Cons(IrGlobal(#sconcat(vname, "__cell")),
+                        Cons(lowerE(Nil, resolveE(vinit)), Nil))),
+                       topExprs(rest1))
+              }
             else topExprs(rest1)
         }
     } in
