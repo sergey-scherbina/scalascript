@@ -1,6 +1,0 @@
-feature/v2-parity-post-split-refresh 2026-07-09T02:12:46Z
-agent: codex
-heartbeat: 2026-07-09T02:15:02Z
-status: in-progress
-done-so-far: SPRINT plan pushed in f7b122834; worktree ready at /Users/sergiy/work/my/scalascript-wt-v2-parity-post-split-refresh
-next: run installBin and the full v2 output-parity gate, then record the refreshed baseline
