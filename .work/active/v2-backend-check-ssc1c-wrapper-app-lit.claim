@@ -1,0 +1,6 @@
+feature/v2-backend-check-ssc1c-wrapper-app-lit 2026-07-09T21:34:58Z
+agent: codex
+heartbeat: 2026-07-09T21:34:58Z
+status: not-started
+done-so-far:
+next: create worktree, promote BACKLOG item to SPRINT/spec, reproduce invalid ssc1c wrapper CoreIR
