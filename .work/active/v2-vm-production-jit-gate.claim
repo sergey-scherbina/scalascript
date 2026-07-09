@@ -1,6 +1,6 @@
 feature/v2-vm-production-jit-gate 2026-07-09T08:45:22Z
 agent: codex
-heartbeat: {TS}
+heartbeat: 2026-07-09T09:29:23Z
 status: in-progress
-done-so-far: code and docs commits prepared; rebase on origin/main succeeded; verifying after rebase
-next: rerun focused tests, installBin, bench smoke, v2 conformance, litdoc; then push and release
+done-so-far: arith-loop code/docs/bug-ledger commits ready; focused test, installBin, bench smoke passed; full v2 conformance red on pre-existing effect-handler bug reproduced on origin/main
+next: rerun installBin after latest rebase, litdoc conformance, diff check, push, release claim
