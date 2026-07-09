@@ -1,6 +1,6 @@
 feature/v2-parity-current-errors 2026-07-09T01:14:54Z
 agent: codex
-heartbeat: 2026-07-09T01:20:14Z
+heartbeat: 2026-07-09T01:34:32Z
 status: in-progress
-done-so-far: FrontendBridge scala-fence extraction fix is implemented locally; unit tests and targeted parity found one remaining clusterOf stdlib gap
-next: commit/push the narrow scala-fence fix, then investigate clusterOf as the next deterministic parity gap
+done-so-far: cdd032f03 fixed standard scala source fences; clusterOf stdlib gap now matches in targeted real harness locally
+next: run full output parity, record counts, commit/push cluster bridge fix plus docs, then release claim
