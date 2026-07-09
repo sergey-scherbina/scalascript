@@ -143,11 +143,12 @@ val JvmRuntimeDataset: String =
      |    collect().groupBy(identity).map { case (k, vs) => (k, vs.length.toLong) }
      |
      |  // Shape / conversion ops. partition returns Scala's (List[T], List[T])
-     |  // tuple. mkString has three overloads matching Scala's List.mkString.
-     |  // toMap / toSet / mkString use `()` so user code can call them with
-     |  // or without parentheses without colliding with String/Map.apply(i).
+     |  // tuple. mkString matches Scala's parameterless no-arg collection method,
+     |  // which is also what JvmGen's `_show` routing emits for `.mkString()`.
+     |  // toMap / toSet keep `()` because existing user code calls them that way;
+     |  // unlike mkString(), no codegen rewrite strips those empty parentheses.
      |  def partition(p: T => Boolean): (List[T], List[T]) = collect().partition(p)
-     |  def mkString(): String                                                = collect().mkString
+     |  def mkString: String                                                  = collect().mkString
      |  def mkString(sep: String): String                                     = collect().mkString(sep)
      |  def mkString(start: String, sep: String, end: String): String         = collect().mkString(start, sep, end)
      |  def toMap[K, V]()(using ev: T <:< (K, V)): Map[K, V]                  = collect().map(ev).toMap

@@ -25,7 +25,7 @@ object JvmArtifactIO:
    *  artifact ABI: old artifacts should remain readable, then be treated as
    *  stale by `ModuleGraph.isJvmStale`.
    */
-  val CurrentCodegenVersion: String = "jvm-codegen-2026-07-09-1"
+  val CurrentCodegenVersion: String = "jvm-codegen-2026-07-09-2"
 
   def hasCurrentCodegenVersion(art: ModuleJvmArtifact): Boolean =
     art.codegenVersion == CurrentCodegenVersion
