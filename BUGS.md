@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-scala-fence-multiblock-parity — `open` (2026-07-09)
+## v2-scala-fence-multiblock-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-mcp-oauth-secret-nondet-parity`.
@@ -41,12 +41,36 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `lang-split.ssc`, v2 exits 0 but only prints the ScalaScript block, confirming
   that intentional mixed runnable `scala` fences are still excluded by
   `extractCode`.
+- **Second repro pass 2026-07-09:** after `String.takeWhile` and mixed-fence
+  opt-in, `lang-split.ssc` matches. `scala-js-demo.ssc` then exposes two more
+  narrow v2 gaps in existing support code: `f"..."` interpolation is lowered as
+  raw string concatenation (`Circle%-12s area = ...%.2f`), and guarded
+  constructor-pattern arms abort the whole match on guard failure instead of
+  falling through to the next case (`mergeSort` needs the later
+  `case (_, bh :: bt)` arm).
 - **Plan:** add focused extraction/runtime regressions for an all-`scala`
   multi-fence document and an intentional mixed runnable document; adjust the
   extractor policy narrowly so documented runnable `scala` fences are included
   without re-enabling arbitrary illustrative snippets in mixed ScalaScript docs;
   then run targeted parity plus affected conformance before pushing.
-- **Status:** open; claimed as `v2-scala-fence-multiblock-parity`.
+- **Root cause:** the all-fences extraction path only ran standard `scala`
+  fences for standard-Scala-only documents, mixed runnable examples had no
+  explicit opt-in, and the follow-on `scala-js-demo.ssc` path exposed missing
+  standard-runtime/lowering shapes (`String.takeWhile`/`dropWhile`, `f"..."`
+  formatting, guarded constructor-pattern fall-through).
+- **Fix:** `f57c74da8` adds the mixed-fence opt-in
+  (`runScalaFences: true` / `run-scala-fences: true` or
+  `scalaFences: runnable` / `scala-fences: runnable`), executes standard
+  multi-fence documents in order, adds the runtime/lowering support, and adds
+  focused frontend + conformance regressions.
+- **Gates:** `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
+  passed 25/25; `scripts/sbtc "installBin"` passed;
+  `tests/conformance/run.sh --only 'standard-scala-*' --no-memo` passed 3/3
+  across INT/JS/JVM; targeted parity for `examples/scala-js-demo.ssc` and
+  `examples/lang-split.ssc` is 2/2 identical; full parity is now
+  **68/95 identical · 4 mismatch · 0 v2-error · 23 v1-only** with 5 nondet
+  skips across 195 examples.
+- **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-mcp-oauth-secret-nondet-parity — `fixed` (2026-07-09)
 

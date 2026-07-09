@@ -9,7 +9,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-scala-fence-multiblock-parity** — fix the remaining deterministic
+- [x] **v2-scala-fence-multiblock-parity** — DONE 2026-07-09 in `f57c74da8`: fixed the deterministic
       standard-`scala` fence parity gaps in the v2 production output gate.
       Claimed 2026-07-09 by codex in
       `/Users/sergiy/work/my/scalascript-wt-v2-scala-fence-multiblock-parity`.
@@ -44,6 +44,25 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       mixed `scala` fences. So this slice is now two narrow fixes:
       `Runtime.scala` string predicate method support plus `extractCode` policy
       for documented mixed runnable language-block examples.
+      Second repro pass: after those two fixes, `lang-split.ssc` matches and
+      `scala-js-demo.ssc` exposes two more narrow existing-support gaps:
+      `f"..."` formatting is currently treated like raw `s"..."` concatenation,
+      and guarded constructor-pattern arms use `__match_fail__` on guard false
+      instead of falling through to the next case. Add focused regressions for
+      both; they are required before `scala-js-demo.ssc` can match.
+      Outcome: `scala-js-demo.ssc` and `lang-split.ssc` are now output-identical.
+      v2 runs standard-Scala-only multi-fence documents in order; mixed
+      `scalascript`/`scala` documents keep standard `scala` fences illustrative
+      unless they opt in with `runScalaFences: true` (aliases:
+      `run-scala-fences: true`, `scalaFences: runnable`, or
+      `scala-fences: runnable`). Added `String.takeWhile`/`dropWhile`,
+      `f"..."` interpolation, and guarded constructor-pattern fall-through
+      support. Gates:
+      `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest` 25/25,
+      `installBin`, conformance `standard-scala-*` 3/3 on INT/JS/JVM, targeted
+      parity 2/2 identical, and full parity
+      `68/95 identical · 4 mismatch · 0 v2-error · 23 v1-only` with 5 nondet
+      skips across 195 examples.
 
 - [x] **v2-busi-testsweep-gaps** — DONE 2026-07-08: **61/61 busi tests green on --v2** (was 47/61).
       Seven root causes, one BUGS.md entry each (batch `v2-busi-testsweep-gaps`): shared top-level

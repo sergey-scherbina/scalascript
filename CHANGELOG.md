@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: standard Scala multi-fence parity fixed
+
+v2 now runs standard-Scala-only `scala` fences in document order and supports an
+explicit mixed-document opt-in (`runScalaFences: true` plus aliases) for
+runnable `scala` fences alongside `scalascript` fences. The slice also filled
+the standard runtime/lowering gaps exposed by `examples/scala-js-demo.ssc`:
+`String.takeWhile`/`dropWhile`, `f"..."` interpolation, and guarded
+constructor-pattern fall-through. The production output-parity gate is now
+`68/95 identical · 4 mismatch · 0 v2-error · 23 v1-only` with 5 nondet skips
+across 195 examples. Gates: FrontendBridgeTest 25/25, `installBin`,
+conformance `standard-scala-*`, targeted `scala-js-demo`/`lang-split` parity,
+and full `scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: OAuth MCP generated output classified
 
 `scripts/v2-output-parity` now treats the OAuth-protected MCP demos as
