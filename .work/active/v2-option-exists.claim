@@ -1,6 +1,0 @@
-agent: claude-opus-4-8 (lucky-perch)
-branch: feature/v2-option-exists
-worktree: ../scalascript-wt-v2-option-exists
-started: 2026-07-09
-status: in-progress
-task: FIX busi v2-option-exists — Option.exists/forall/contains/nonEmpty unhandled on v2 VM (None.exists→Op, Some.exists→Stub). Added the four arms to Runtime.scala Option dispatch (list-method idiom). Repro tests/conformance/v2-option-exists.ssc.
