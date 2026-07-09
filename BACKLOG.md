@@ -111,7 +111,8 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `recursion-fib` 221.2 ms, `recursion-tco` 12.1 ms). Scope the next
       slice to one backend/workload family at a time, using
       `scripts/bench v2-backends <workload>` as the before/after command.
-- [ ] **v2-vm-production-jit-gate** — close the remaining Phase-3 v2 VM
+- [ ] **v2-vm-production-jit-gate** — claimed/promoted to SPRINT on 2026-07-09;
+      close the remaining Phase-3 v2 VM
       production-performance gate with a real JIT/closed-form track rather than
       more local FC patches. The 2026-07-09 hot-path triage fixed two concrete
       misses (`recursion-fib` 68.5→5.94 ms by recognising bridge-generated

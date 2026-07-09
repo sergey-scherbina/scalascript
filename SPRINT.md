@@ -9,6 +9,21 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-vm-production-jit-gate** — claim the next production-v2 VM
+      performance slice from BACKLOG. Scope for this iteration is deliberately
+      narrow: stage `bin/ssc`, reproduce the current four-row production probe,
+      inspect the bridge-generated CoreIR for `bench/corpus/arith-loop.ssc`,
+      and implement only an exact-shape v2 VM fast path if the shape is safe
+      enough to recognize conservatively. Candidate: local Long-cell `while`
+      loop with `sum = sum + i; i = i + 1; sum` lowered through
+      `lcell.new`/`lcell.set`/`lcell.get`. Do not broaden into the bytecode
+      codegen JIT Phase C or `pattern-match-heavy` foreach rearchitecture in
+      this slice; record those as follow-ups if needed. Done-when:
+      `specs/v2-vm-production-jit-gate.md` behavior boxes are checked or an
+      honest blocker is recorded, affected tests pass, the bounded bench
+      before/after numbers are in the spec, and `tests/conformance/run.sh
+      --only 'litdoc'` passes.
+
 - [x] **v2-backend-performance-harness** — DONE 2026-07-09 in
       `01d9abf32`/`677969e1a`: `scripts/bench v2-backends [workload]` and
       `./bench.sh --v2-backends ...` now expose same-shape v2 VM, v2 JVM
