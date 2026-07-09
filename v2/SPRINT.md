@@ -1243,10 +1243,13 @@ frontend accepted the file).
         silently empty — `map.put` mutates+returns Unit, so built via IIFE), `new
         Foo(x)` == `Foo(x)`, multi-generator `for` (flatMap; + `_sel_flatMap`
         List/Cons default arm → `_list_flatMap`). End-to-end 18→22.
-  - [ ] **K62.6c-rest** — remaining `_err`/gaps: `_` underscore-placeholder
-        (`filter(_ % 2 == 0)` — needs tree-walk `_`→lambda-param), `$`,
-        **indented brace-less multi-statement def bodies** (block-detection gap: no
-        newline tokens). `throw` needs a VM error prim (VM-side, sibling territory).
+  - [x] **K62.6c-under DONE** 2026-07-09: underscore placeholder `filter(_ % 2 == 0)`
+        → `filter(x => x % 2 == 0)` (arg-level tree-walk `exprHasPh`/`replacePh`,
+        wrap compound-ph args in a lambda; bare `f(_)` left as-is). Closed the `_` class.
+  - [ ] **K62.6c-rest** (the hard tail): **indented brace-less multi-statement def
+        bodies** (block-detection gap — needs newline/indentation tokens, a lexer
+        change), `$`, missing methods (`takeWhile`/`dropWhile`/…). `throw` needs a VM
+        error prim (VM-side, sibling territory).
   - [ ] **K62.6e — field access `_sel_get`/`_sel_env` → `__method__`.** Tried (route
         `resolveField` fallback for non-case-fields through `__method__`, with a
         `caseFieldsCell` registry to keep case-class field projection). REVERTED:

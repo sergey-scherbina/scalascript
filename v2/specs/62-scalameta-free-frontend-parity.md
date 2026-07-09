@@ -18,11 +18,17 @@ Measured as: native `ssc1` lower → plugin-enabled v2 runtime, OK+TIMEOUT / 195
 | + K62.6c-ops | 18 | wildcard `import a.b.*`, cons `::`, pair `->`, char `'x'`, bitwise `& | ^ ~`, shifts `<< >> >>>` |
 | + K62.6c-for | 18 | `for x <- xs [if g] yield/do e` (single generator + guard) — parse gap closed; those files have other blockers so run-count is flat |
 | + K62.6c-map | 22 | `Map(k -> v, …)` initial entries (was silently empty), `new Foo(x)` == `Foo(x)`, multi-generator `for` (flatMap; + List.flatMap default arm) |
+| + K62.6c-under | 22 | underscore placeholder `filter(_ % 2 == 0)` → `filter(x => x % 2 == 0)` (arg-level tree-walk `ph`→lambda) — closed the `_` class; run-count flat (those files have other blockers) |
 
-Remaining after 22: `_err` (~14 — `_` underscore-placeholder [`filter(_ % 2 == 0)`],
-`$`, brace-less indented multi-stmt def bodies), uid-static `Dataset_of`/`Graph_*`
-(K62.7b, needs runtime object registration), `_sel_get`/`_sel_env` field access
-(blocked by the K62.7a `__method__` VM bug — sibling-owned), arity, `spark`.
+Remaining after 22 (all harder / cross-territory): brace-less indented multi-stmt
+def bodies (needs newline/indentation tracking — a lexer change), `$`, missing
+methods (`takeWhile`/`dropWhile`/…), uid-static `Dataset_of`/`Graph_*` (K62.7b,
+needs runtime object registration), `_sel_get`/`_sel_env` field access (blocked by
+the K62.7a `__method__` VM bug — sibling-owned), arity, `spark`.
+
+**Session arc:** end-to-end via plugin runtime **3 → 22**; the common Scala idioms
+(imports, `::`/`->`, char, bitwise, shifts, `for`, `Map`, `new`, multi-gen, `_`)
+are now closed on the native front. The tail is hard/cross-team.
 
 **Known latent bug (from K62.7a):** 3 files (`mcp-search-server`,
 `traditional-payments`, `x402-metamask`) now FRONTERR with `match: scrutinee not
