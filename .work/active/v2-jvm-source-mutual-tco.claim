@@ -1,6 +1,0 @@
-feature/v2-jvm-source-mutual-tco 2026-07-09T06:34:50Z
-agent: codex
-heartbeat: 2026-07-09T07:03:10Z
-status: in-progress
-done-so-far: implementation committed; standalone source-JVM checks and ./v2/conformance/check.sh passed in ../scalascript-wt-v2-jvm-source-mutual-tco
-next: rebase, run required top-level conformance slice, verify spec checkboxes/bookkeeping, then push and release
