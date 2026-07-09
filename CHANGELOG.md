@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — Default conformance gate restored
+
+The deterministic top-level conformance blocker found after the v2 bytecode
+slice is fixed. `dataset-shape` now regenerates stale JVM artifacts; JS codegen
+keeps local lambda/pattern binders ahead of top-level collision-safe names; and
+unqualified imports now alias the importer-local JS name to the child module's
+actual emitted JS name when runtime-collision renames diverge. Gates:
+`backendJs/compile; installBin`, the original eight-row repro 8/8, full
+`tests/conformance/run.sh --no-memo` 145 passed, 0 failed (+2 pending), and
+`git diff --check`.
+
 ## 2026-07-09 — JVM dataset conformance regenerates stale mkString artifacts
 
 `dataset-shape` now passes the JVM conformance lane again. The JVM backend's

@@ -9,7 +9,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **green-main-conformance-7fail** — restore the default top-level
+- [x] **green-main-conformance-7fail** — DONE 2026-07-09 in `bd85a5f95`,
+      `bf0402b12`, and `6a869266b`: restored the default top-level
       conformance gate after fresh `--no-memo` repro confirmed 7 deterministic
       failures on 2026-07-09. Repro from a clean staged CLI:
       `scripts/sbtc "installBin"` then
@@ -48,6 +49,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       eight-row repro is now 5/8 with only `effect-imported-handler`,
       `effect-transitive-handler`, and `js-applyunary-effect-cps` still failing
       on JS missing stdout.
+      Next effect JS slice 2026-07-09: direct generated-JS inspection shows
+      `query` is a runtime-colliding imported top-level name. The parent module
+      maps import references to `query__ssc`, while the imported child module
+      emits the actual def as `query__ssc1` because `query__ssc` was already
+      reserved by the parent. `genImport` currently skips alias emission when
+      the source and local names are both `query`; fix unqualified import
+      binding to alias the parent local JS name to the child emitted JS name.
+      Final gates: `backendJs/compile; installBin`, direct `emit-js | node`
+      for `case-classes`, `sealed-traits`, `effect-imported-handler`,
+      `effect-transitive-handler`, and `js-applyunary-effect-cps`, focused
+      conformance for the two JS slices, original eight-row repro 8/8, full
+      `tests/conformance/run.sh --no-memo` 145 passed, 0 failed (+2 pending),
+      and `git diff --check`.
 
 - [x] **v2-read-gigs-handle-leak-minimize** - DONE 2026-07-09 in
       `dd42da430` and `615ed5f8f`: fixed both production blockers behind

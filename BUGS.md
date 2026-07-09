@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## green-main-conformance-7fail — `open` (2026-07-09)
+## green-main-conformance-7fail — `fixed` (2026-07-09)
 
 - **Found by:** codex, while closing the `p4-bc-unboxed-arith` bytecode perf
   slice. The affected bytecode/arithmetic gate is green, but the broader default
@@ -67,7 +67,25 @@ commit SHA until the reporter confirms, then they can be trimmed.
   eight-row repro now reports 5 passed, 3 failed: only `effect-imported-handler`,
   `effect-transitive-handler`, and `js-applyunary-effect-cps` still fail in the
   JS lane with missing stdout.
-- **Status:** open.
+- **Progress 2026-07-09:** direct generated-JS inspection of the remaining
+  effect rows shows a cross-module JS import alias bug. The parent module maps
+  imported `query` references to `query__ssc` because `query` collides with the
+  JS runtime top level. The imported child module then emits the actual
+  unqualified `def query` as `query__ssc1` because `query__ssc` was already
+  reserved by the parent. Since `genImport` skips binding when source and local
+  names are both `query`, no `const query__ssc = query__ssc1` alias exists, so
+  effect calls throw `ReferenceError: query__ssc is not defined`.
+- **Fix:** `bd85a5f95` fixed stale JVM dataset artifacts, `bf0402b12` fixed
+  JS local-scope precedence for lambda/pattern binders, and `6a869266b` fixed
+  unqualified JS import aliases when parent and child top-level runtime
+  collision renames diverge.
+- **Verified:** `backendJs/compile; installBin`; direct `emit-js | node` for
+  `case-classes`, `sealed-traits`, `effect-imported-handler`,
+  `effect-transitive-handler`, and `js-applyunary-effect-cps`; focused
+  conformance for the two JS slices; original eight-row repro 8/8; full
+  `tests/conformance/run.sh --no-memo` reports 145 passed, 0 failed out of 145
+  tests (+2 pending); `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)
 
