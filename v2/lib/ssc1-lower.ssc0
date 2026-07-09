@@ -489,9 +489,9 @@ def resolveMethodCall = (robj, method, rargs) =>
             else if #seq(method, "getOrElse") then
               Pair("app", Pair(Pair("var", "_sel_mapGetOrElse"), Cons(robj, rargs)))
             else
-              Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+              Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
           else
-            Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+            Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
         else
           Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
     }

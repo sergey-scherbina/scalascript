@@ -40,6 +40,20 @@ import ssc.*
     val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
     println(Writer.program(prog))
 
+  // Run PRE-LOWERED Core IR (e.g. from the native scalameta-free ssc1 front)
+  // through the PLUGIN-ENABLED v2 runtime. Lets us measure how much of the
+  // native path actually runs once the stdlib/plugin registry is loaded —
+  // separating "native VM lacks the intrinsic" from "bare kernel had no
+  // registry loaded". See specs/62-scalameta-free-frontend-parity.md (K62.5).
+  case "run-ir" :: file :: rest =>
+    Runtime.argv = rest
+    PluginBridge.loadAll()
+    val prog = Reader.parseProgram(scala.io.Source.fromFile(file).mkString)
+    val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    v match
+      case Value.UnitV => ()
+      case other       => println(Show.show(other))
+
   case _ =>
     System.err.println(
       """bridge-cli — v1 .ssc → FrontendBridge → v2 VM
