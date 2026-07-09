@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/user-request-collision
+worktree: ../scalascript-wt-ureq
+started: 2026-07-09
+status: in-progress
+task: user-request-collision — (1) revert d5f9ce486 (мой snapshot/restore fieldNames — не чинил активный баг, реассертит built-in Request); (2) условный runtimeShapedTypes-лок: не резервировать Request если юнит сам объявляет case class Request (чинит user-Request в батче, не ломая route-params). Coord: трогаю фикс lucky-perch (5a598cbae).
