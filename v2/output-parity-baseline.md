@@ -9,6 +9,73 @@ This is the REAL "does v2 replace v1?" gate: each example is run on v1
 (`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
 than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
+## Latest full corpus re-measure — 2026-07-09, after current-error reconciliation
+
+Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-parity-current-errors`
+with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Current result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **64 / 98 = 65%** |
+| ❌ mismatch | 11 |
+| ⚠️ v2-error (v1 works, v2 empty) | 0 |
+| v1-only (v2 works, v1 empty) | 23 |
+| both-fail (not a v2 gap) | 26 |
+| true-server skipped | 36 |
+| long-running skipped | 0 |
+| backend-lane skipped | 33 |
+| nondeterministic-output skipped | 2 |
+| total examples seen | 195 |
+
+Closed in this slice:
+
+- **Standard `scala` fenced documents no longer silently disappear on v2** —
+  `cdd032f03` includes standard `scala` fences when they are the document's
+  runnable source, while keeping illustrative `scala` snippets out of mixed
+  ScalaScript docs. Minimal real-harness `--v1/--v2` standard-fence output now
+  matches, and conformance `standard-scala-fence` passes INT/JS/JVM.
+- **Cluster capability imports now run on v2** — `70969362f` registers the
+  actor-cluster globals (`SeedResolver`, `clusterOf`, `resolveSeeds`,
+  `codeIdentity`, `assertCodeIdentity`) in the v2 actor bridge and lets
+  `__methodOrExt__` dispatch plugin-owned methods before falling back to a
+  same-named case-class method global. `examples/cluster-capability.ssc` is now
+  output-identical.
+
+Targeted standard-fence slice after both fixes:
+
+```text
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity \
+  examples/cluster-capability.ssc examples/streams.ssc \
+  examples/graph-storage.ssc examples/scala-js-demo.ssc \
+  examples/distributed-streams.ssc examples/graph-neo4j-storage.ssc
+
+parity: 2/6 identical · 4 mismatch · 0 v2-error · 0 v1-only
+```
+
+Remaining mismatches in the full default-lane gate:
+`async-parallel-demo.ssc`, `distributed-streams.ssc`, `dsl-calc-parser.ssc`,
+`effects.ssc`, `graph-neo4j-storage.ssc`, `lang-split.ssc`,
+`mcp-server-protected.ssc`, `oauth-mcp-full-stack.ssc`, `os-env.ssc`,
+`scala-js-demo.ssc`, and `streams.ssc`. They are now ordinary mismatch/classify
+work, not v2-error blockers.
+
+Additional gate notes:
+
+- `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` passed 22/22.
+- `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest` passed 17/17.
+- `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest -- -z cluster`
+  passed the new cluster import-boundary regression.
+- Full `V2ConformanceTest` is not a clean gate right now because an unrelated
+  existing v2 gap, `tkv2-typed-client-derived`, fails with
+  `unbound global: awaitClient`; do not treat that as part of this slice.
+
 ## Latest full corpus re-measure — 2026-07-08, after default runner switch
 
 Built/staged from `/Users/sergiy/work/my/scalascript-wt-v2-prod-default-switch` with:

@@ -1972,12 +1972,22 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
     so a program with BOTH top-level defs (case-class/enum default params emit entry stmts) AND `def main()`
     never called main(). Now always appends the `main()` call after entry stmts (v1 semantics). default-params
     byte-identical v1==v2.
-- [ ] **real v2-only V2-ERROR gaps** (v1 works, v2 empty) beyond default-params: `content-form-submit`,
+- [x] **real v2-only V2-ERROR gaps** RECONCILED 2026-07-09 — stale 2026-07-06 list;
+  the current production gate after `cdd032f03` + `70969362f` has **0 v2-error**:
+  `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`
+  (26 both-fail, 36 true-server, 33 backend-lane, 2 nondet, 195 total).
+  Historical list was: `content-form-submit`,
   `content-live-rows`, `content-slot`, `ui-fetch-json` (FrontendBridge parser: `'=>' expected but '('`),
   `ui-remote-table`, `graph-codecs`, `typed-object-codec` (codec/derives), `object-store-jdbc`,
   `spark-schema-mapping` (Op-execution — sibling `corpus-tails`), `uuid-v7` (uuid native, non-det).
-- [ ] **17 mismatches** — SQL/Spark/content/rails `Stub`/`Op` (sibling corpus-tails), effects shape,
-  derives/mirror (`String|Int`→`Any|Any`), quoted macros (`TermSplicedMacroExprImpl`), `validate` language form.
+- [x] **17 mismatches** RECONCILED 2026-07-09 — stale 2026-07-06 bucket;
+  the current full gate has 11 mismatches, none currently classified as a new
+  v2-error blocker in this slice: `async-parallel-demo`, `distributed-streams`,
+  `dsl-calc-parser`, `effects`, `graph-neo4j-storage`, `lang-split`,
+  `mcp-server-protected`, `oauth-mcp-full-stack`, `os-env`, `scala-js-demo`,
+  `streams`. Historical bucket was: SQL/Spark/content/rails `Stub`/`Op`
+  (sibling corpus-tails), effects shape, derives/mirror (`String|Int`→`Any|Any`),
+  quoted macros (`TermSplicedMacroExprImpl`), `validate` language form.
 - Coordination: `PluginBridge` html-dsl/rest-validate is claude-sonnet-4-6 (`v2-conf-pure-gated`); Op-execution
   is `corpus-tails`. I own FrontendBridge entry/parser/derives + the harness.
 
@@ -1993,10 +2003,11 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
 - [x] **v2-output-parity-full-corpus** (Option C) DONE 2026-07-06 — `scripts/v2-output-parity --all` sweeps all 193
       examples (auto-skips 130 server/actor/dataset). **Authoritative: 30/63 = 48% output-identical** (22 mismatch,
       11 v2-error). See `v2/output-parity-baseline.md`. The real "does v2 replace v1?" number vs 96.4% exit-0.
-- [ ] **v2-parity-current-errors** — refresh the production output-parity gate
-      after the toolkit-v2 completion and reconcile stale SPRINT entries that
-      still list old V2-ERROR/mismatch clusters. This is a gate/docs slice
-      unless the fresh run exposes a new deterministic v2 regression.
+- [x] **v2-parity-current-errors** DONE 2026-07-09 — refreshed the production
+      output-parity gate after toolkit-v2 completion, fixed the two deterministic
+      v2-error layers exposed by the fresh sweep, and reconciled stale broad rows.
+      Current gate: `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`
+      (26 both-fail, 36 true-server, 33 backend-lane, 2 nondet, 195 total).
       Active plan 2026-07-09 (`feature/v2-parity-current-errors` / codex):
       - [x] Restage the CLI in this worktree with `scripts/sbtc "installBin"`
             because `scripts/v2-output-parity` uses `bin/ssc`.
@@ -2008,11 +2019,11 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
             33 backend-lane, 2 nondet, 195 total). The cleanup path is canceled:
             all six v2-error rows are standard-`scala`-fence examples skipped
             by v2 (`BUGS.md` `v2-standard-scala-fences-skipped`).
-      - [ ] If the gate still has 0 v2-error and only the already-classified
+      - [x] If the gate still has 0 v2-error and only the already-classified
             non-blocker mismatches, mark the stale broad SPRINT rows
             `real v2-only V2-ERROR gaps`, `17 mismatches`, and the superseded
             full-corpus duplicate as reconciled/superseded with the fresh
-            counts.
+            counts. Done above with the 2026-07-09 full gate counts.
       - [x] If a new v2-error or clear v2-regression mismatch appears, stop the
             cleanup path, file a `BUGS.md` entry with the exact repro, and fix
             the first narrow deterministic blocker with affected conformance.
@@ -2035,14 +2046,21 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
             reaches a distinct `unbound global: clusterOf` v2 error, and the
             other four now produce non-empty v2 output mismatches instead of
             silent empty programs.
-      - [ ] Fix the newly exposed `v2-cluster-stdlib-import-gap`
+      - [x] Fix the newly exposed `v2-cluster-stdlib-import-gap`
             (`BUGS.md`): inspect `runtime/std/cluster/index.ssc` import/export
             lowering, reproduce through `bin/ssc run --v2 examples/cluster-capability.ssc`,
             add focused import-boundary regression coverage, and make the
-            targeted parity row match.
-      - [ ] Re-run the full output-parity gate and record the new counts in
+            targeted parity row match. Landed in `70969362f`; the root cause was
+            missing v2 actor-cluster globals plus `__methodOrExt__` falling back
+            to the shadowing case-class method global before plugin method dispatch.
+      - [x] Re-run the full output-parity gate and record the new counts in
             `v2/output-parity-baseline.md` and `specs/v2-full-compat.md`.
-      - [ ] Update `CHANGELOG.md` and release the claim/worktree.
+            Result after `installBin`: `64/98 identical · 11 mismatch ·
+            0 v2-error · 23 v1-only` (26 both-fail, 36 true-server,
+            33 backend-lane, 2 nondet, 195 total).
+      - [x] Update `CHANGELOG.md` and release the claim/worktree.
+            CHANGELOG is updated in the bookkeeping commit; claim/worktree release
+            follows after this commit lands.
       Done-when: the board no longer advertises stale old parity blockers and
       the current production gate is either green-by-scope or has a concrete
       bug/fix commit for the first newly exposed blocker.

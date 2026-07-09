@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-cluster-stdlib-import-gap — `open` (2026-07-09)
+## v2-cluster-stdlib-import-gap — `fixed` (2026-07-09)
 
 - **Found by:** codex, after `cdd032f03` fixed standard `scala` fence
   extraction during `v2-parity-current-errors`.
@@ -26,15 +26,26 @@ commit SHA until the reporter confirms, then they can be trimmed.
   v2-error is `cluster-capability.ssc`.
 - **Impact:** the cluster stdlib import/export path is not production-safe under
   the v2 default runner; `clusterOf` is visible to v1 but unresolved in v2.
-- **Root-cause hypothesis:** distinct from fence extraction. Likely in
-  `FrontendBridge.resolveImportsCode` / imported stdlib source extraction, or
-  in lowering of the `runtime/std/cluster` definitions into v2 globals.
-- **Fix direction:** inspect `runtime/std/cluster/index.ssc` and the resolved
-  transitive imports, reproduce with the real `bin/ssc` harness, then add a
-  focused regression that mirrors the import-boundary shape before fixing.
-- **Done-when:** `examples/cluster-capability.ssc` matches under targeted
-  output parity; the full parity gate has no unclassified v2-error; the fix
-  commit and gates are recorded here.
+- **Root cause:** v2's actor compatibility bridge registered `runActors`,
+  `startNode`, and related actor globals, but not the cluster capability globals
+  that v1 installs through `ActorGlobals` (`clusterOf`, `resolveSeeds`,
+  `codeIdentity`, `assertCodeIdentity`, `SeedResolver`). After those globals were
+  added, the imported case-class method `ClusterCapability.resolveSeeds` exposed
+  a second shape bug: the generated case-class method global named `resolveSeeds`
+  shadowed the plugin extern/global of the same name and recursively treated a
+  `SeedResolver` as a `ClusterCapability`. `__methodOrExt__` now gives registered
+  plugin method dispatch a chance before falling back to the user extension
+  global when a DataV has no real field by that name.
+- **Fixed in:** `70969362f` (`fix(v2): bridge cluster capability globals`).
+- **Gates:** targeted v2 regression
+  `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest -- -z cluster`;
+  `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` (22/22);
+  `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest` (17/17);
+  `scripts/sbtc "installBin"`; real harness
+  `bin/ssc run --v1/--v2 examples/cluster-capability.ssc` (both print
+  `demo-node`, `ws://seed:9100/_ssc-actors`, `sha256`, `64`); targeted six-example
+  parity is now `2/6 identical · 4 mismatch · 0 v2-error`; full production gate is
+  `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`.
 
 ## v2-standard-scala-fences-skipped — `fixed` (2026-07-09)
 

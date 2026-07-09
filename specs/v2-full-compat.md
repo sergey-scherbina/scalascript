@@ -42,6 +42,37 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and first blocker
 
+Current-error reconciliation update (2026-07-09): after toolkit-v2 completion,
+the full production gate temporarily regressed to six v2-error rows because the
+fresh corpus now included standard-`scala`-fence examples that v2 source
+extraction skipped. Two fixes closed the deterministic v2-error stack:
+
+- `cdd032f03` includes standard `scala` fences when they are the document's
+  runnable source, while preserving the existing mixed-document rule that keeps
+  illustrative `scala` snippets out of the executable stream.
+- `70969362f` ports the actor-cluster capability globals into the v2 actor bridge
+  (`SeedResolver`, `clusterOf`, `resolveSeeds`, `codeIdentity`,
+  `assertCodeIdentity`) and fixes `__methodOrExt__` so a plugin-owned method
+  dispatch can win before a same-named case-class method global shadows the
+  extern. This makes `examples/cluster-capability.ssc` output-identical.
+
+The latest full gate is:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 2 nondet · 195 total)
+```
+
+The remaining full-gate mismatches are:
+`async-parallel-demo.ssc`, `distributed-streams.ssc`, `dsl-calc-parser.ssc`,
+`effects.ssc`, `graph-neo4j-storage.ssc`, `lang-split.ssc`,
+`mcp-server-protected.ssc`, `oauth-mcp-full-stack.ssc`, `os-env.ssc`,
+`scala-js-demo.ssc`, and `streams.ssc`. They are ordinary mismatch/classification
+work; this slice leaves the default-lane v2-error count at zero.
+
 2026-07-08 current baseline after the content bridge parity fix (`146779cb6`):
 
 ```text

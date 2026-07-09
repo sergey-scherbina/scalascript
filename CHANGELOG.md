@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: current parity gate has zero v2-error rows again
+
+The production output-parity gate was refreshed after toolkit-v2 work and the
+new deterministic v2-error stack was fixed. Standard `scala` fenced documents
+now execute under v2 instead of silently compiling to an empty program, and the
+v2 actor bridge now exposes cluster capability globals (`SeedResolver`,
+`clusterOf`, `resolveSeeds`, `codeIdentity`, `assertCodeIdentity`) with plugin
+method dispatch winning over same-named case-class method globals. Fresh full
+gate after `installBin`: `64/98 identical · 11 mismatch · 0 v2-error ·
+23 v1-only` across 195 examples. Gates: PluginBridge 22/22, FrontendBridge
+17/17, targeted cluster v2 regression, conformance `standard-scala-fence`,
+real `cluster-capability` v1/v2 run, targeted six-example parity, and full
+`scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — tkv2: route-derived typed clients handle path params
 
 When users omit manual `apiClients:`, `RouteDeriver` now gives non-body
