@@ -1,6 +1,0 @@
-feature/tkv2-keyed-for 2026-07-08T23:40:09Z
-agent: codex
-heartbeat: 2026-07-09T00:08:07Z
-status: in-progress
-done-so-far: worktree created; feature spec landed in d6b1232a0; production-path spec update landed in 5013c775d; implementation + tests in worktree; JsGenStdImportTest/JsRuntimeKeyedForTest and conformance tkv2-keyed-for passed
-next: rerun targeted tests after rebase, update spec/docs/boards, commit, push, release
