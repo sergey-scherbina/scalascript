@@ -29,17 +29,17 @@ def workload(): Int = sumTco(100000, 0)
 
 ## Behavior
 
-- [ ] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
+- [x] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
       using `scripts/bench v2-backends recursion-tco`.
-- [ ] The emitted v2 JVM source for the bench wrapper is inspected before code
+- [x] The emitted v2 JVM source for the bench wrapper is inspected before code
       changes and the dominant overhead hypothesis is recorded here.
-- [ ] Any implementation lands one conservative v2 JVM source-backend
+- [x] Any implementation lands one conservative v2 JVM source-backend
       optimization for the measured self-tail-recursive accumulator shape,
       preserving existing `.ssc` semantics and output.
-- [ ] Before/after numbers from the same benchmark command are recorded here;
+- [x] Before/after numbers from the same benchmark command are recorded here;
       the broader source-backend production gate remains open unless all
       remaining source rows are also proven green.
-- [ ] Affected semantic/conformance or backend parity gates pass, the final
+- [x] Affected semantic/conformance or backend parity gates pass, the final
       public bench row demonstrates the result, and `git diff --check` passes.
 
 ## Out of Scope
@@ -143,5 +143,53 @@ functions and generic fallback calls.
 
 ## Results
 
-Pending. Fill after implementation and verification with exact commits,
-before/after numbers, rejected alternatives, and gates.
+Implemented in `1e7598394` (`fix(v2-jvm): prefer long helpers for tail-rec
+globals`).
+
+What landed:
+
+- `JvmBackend.scala` now checks `longGlobalDefs` before boxed `directDefs` when
+  lowering `App(Global(...))`, so statically Long calls use the existing
+  `<name>_long` helper even when the function also has a boxed `@tailrec`
+  direct method.
+- Long-typed tail-recursive globals now annotate their Long helpers with
+  `@tailrec`, and their closure wrappers call the Long helper with `_asLong`
+  arguments. The boxed direct method remains available for non-Long tail-rec
+  fallback calls.
+
+Final target row:
+
+```bash
+scripts/bench v2-backends recursion-tco
+```
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-tco` baseline | 0.298 | 3.09 | 0.704 |
+| `recursion-tco` final | 0.253 | 0.027 | 0.658 |
+
+Source-backend regression/sweep rows in this worktree:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `arith-loop` | 0.000016 | 0.267 | 0.000026 |
+| `recursion-fib` | 11.0 | 1.71 | 1.53 |
+| `pattern-match-heavy` | 14.0 | 10.7 | 0.265 |
+
+Verification:
+
+- `scripts/sbtc "installBin"`
+- `scala-cli compile --server=false v2/backend/jvm`
+- `v2/backend/check.sh tco`
+- `v2/backend/check.sh letrec`
+- `tests/conformance/run.sh --only 'recursion,tail-recursion,mutual-recursion' --no-memo`
+  (3 passed, 0 failed)
+- `scripts/bench v2-backends recursion-tco`
+- `scripts/bench v2-backends recursion-fib`
+- `scripts/bench v2-backends arith-loop`
+- `scripts/bench v2-backends pattern-match-heavy`
+- `git diff --check`
+
+This closes the known Phase-3 JVM/Rust source-backend performance rows. The
+separate v2 VM production-performance gate remains open and is tracked by
+`v2-vm-production-jit-gate`.

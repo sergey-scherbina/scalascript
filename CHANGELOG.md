@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 JVM source backend uses Long helpers for tail-recursive globals
+
+The v2 JVM source backend now prefers proven Long helpers over boxed
+`@tailrec` direct methods when a global call's arguments are statically Long.
+Long tail-recursive helpers are annotated with `@tailrec`, and their closure
+wrappers call the Long helper via `_asLong` arguments. Public
+`scripts/bench v2-backends recursion-tco` moved `v2-jvm` from 3.09ms to
+0.027ms (`v2=0.253ms`, `v2-rust=0.658ms`). The closing source-backend sweep
+keeps `recursion-fib`, `arith-loop`, and `pattern-match-heavy` in the expected
+ranges, so the known JVM/Rust source-backend performance gate is closed; the
+separate v2 VM production-performance gate remains open. Gates: JVM backend
+compile, `installBin`, backend `tco`/`letrec`, affected recursion conformance
+3/3, final and regression/sweep bench rows, and `git diff --check`.
+
 ## 2026-07-09 — v2 Rust source backend specializes Float static-list reductions
 
 The v2 Rust source backend now emits optional `f64` helpers for provably

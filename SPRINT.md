@@ -9,7 +9,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-source-jvm-recursion-tco-perf** - narrow Phase-3
+- [x] **v2-source-jvm-recursion-tco-perf** - DONE 2026-07-09 in
+      `1e7598394`: narrow Phase-3
       source-backend performance slice for the v2 JVM source backend on
       `bench/corpus/recursion-tco.ssc`. Context: BACKLOG
       `v2-source-backend-production-perf-gates` says Rust source rows are now
@@ -39,6 +40,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       an available Long helper. Implementation direction: prefer the Long
       helper for statically Long global calls, keeping boxed direct tailrec as
       fallback for non-Long calls.
+      Result: `JvmBackend.scala` now prioritizes proven Long global calls over
+      boxed direct tail-recursive methods, annotates Long tail-recursive helpers
+      with `@tailrec`, and makes the closure wrapper for Long+tailrec globals
+      call the Long helper via `_asLong` arguments. Final
+      `scripts/bench v2-backends recursion-tco`: `v2=0.253 ms`,
+      `v2-jvm=0.027 ms`, `v2-rust=0.658 ms` (baseline `v2-jvm=3.09 ms`).
+      Regression/sweep rows: `recursion-fib` => `v2=11.0 ms`,
+      `v2-jvm=1.71 ms`, `v2-rust=1.53 ms`; `arith-loop` =>
+      `v2=0.000016 ms`, `v2-jvm=0.267 ms`, `v2-rust=0.000026 ms`;
+      `pattern-match-heavy` => `v2=14.0 ms`, `v2-jvm=10.7 ms`,
+      `v2-rust=0.265 ms`. Gates: `scripts/sbtc "installBin"`;
+      `scala-cli compile --server=false v2/backend/jvm`; backend checks `tco`
+      and `letrec`; affected conformance
+      `tests/conformance/run.sh --only
+      'recursion,tail-recursion,mutual-recursion' --no-memo` (3 passed, 0
+      failed); final and regression/sweep bench rows; and `git diff --check`.
+      This closes the known JVM/Rust source-backend performance gate; the
+      separate v2 VM production-performance gate remains open.
 
 - [x] **v2-source-rust-pattern-match-heavy-perf** - DONE 2026-07-09 in
       `a7f37b620`: narrow Phase-3

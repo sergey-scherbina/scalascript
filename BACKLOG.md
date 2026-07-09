@@ -110,7 +110,8 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       VM, v2 JVM source backend, and v2 Rust source backend. The harness closed
       the measurement gap only; it did not close the Phase-3 backend performance
       thresholds.
-- [ ] **v2-source-backend-production-perf-gates** — use the new
+- [x] **v2-source-backend-production-perf-gates** — ✓ Landed (2026-07-09,
+      `1e7598394` closing slice): use the new
       `scripts/bench v2-backends` baseline to close the Phase-3 v2 JVM/Rust
       source backend performance gates. Current bounded local numbers are
       mixed: `v2-jvm` is excellent on `arith-loop` but slow on
@@ -149,6 +150,18 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       remaining recommended source-backend slice is
       `v2-source-jvm-recursion-tco-perf` (`v2-jvm=3.20 ms` in the regression
       row from this slice).
+      Progress 2026-07-09: the `v2-source-jvm-recursion-tco-perf` slice closes
+      the remaining JVM source `recursion-tco` row by prioritizing proven Long
+      helpers over boxed direct tail-recursive methods:
+      `scripts/bench v2-backends recursion-tco` moved `v2-jvm` from 3.09 ms to
+      0.027 ms (`v2=0.253 ms`, `v2-rust=0.658 ms`). Fresh sweep/regression rows
+      in the closing worktree: `arith-loop` => `v2=0.000016 ms`,
+      `v2-jvm=0.267 ms`, `v2-rust=0.000026 ms`; `recursion-fib` =>
+      `v2=11.0 ms`, `v2-jvm=1.71 ms`, `v2-rust=1.53 ms`;
+      `pattern-match-heavy` => `v2=14.0 ms`, `v2-jvm=10.7 ms`,
+      `v2-rust=0.265 ms`. Known JVM/Rust source-backend performance rows are
+      closed; continue production-performance work under the separate
+      `v2-vm-production-jit-gate`.
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
       three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from
