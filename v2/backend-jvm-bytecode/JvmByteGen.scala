@@ -550,6 +550,17 @@ object JvmByteGen:
         call0(mv, "unitV")
       case Term.Seq(ts) if ts.length == 1 =>
         gen(ts.head, ctx, tail)
+      case Term.Seq(ts) if !ts.exists(mayOp) =>
+        // PURE sequence (no statement can yield an Op): emit statements INLINE
+        // in this method — no chain methods and, critically, no per-iteration
+        // emitCapture env materialisation. This is the hot path for while-loop
+        // bodies (`sum = sum + i; i = i + 1`), which the effect-threading chain
+        // below made ~Nx slower (an env array alloc + 2 invokestatic each iter).
+        ts.zipWithIndex.foreach { (s, i) =>
+          val last = i == ts.length - 1
+          gen(s, ctx, tail && last)
+          if !last then mv.visitInsn(Opcodes.POP)
+        }
       case Term.Seq(ts) =>
         // STATEMENT-POSITION EFFECT THREADING (VM seqThreadOp mirror): the
         // sequence compiles as a chain of per-statement methods over a
