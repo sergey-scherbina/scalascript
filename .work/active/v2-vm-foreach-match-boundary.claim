@@ -1,6 +1,6 @@
 feature/v2-vm-foreach-match-boundary 2026-07-09T10:53:23Z
 agent: codex
-heartbeat: 2026-07-09T10:53:47Z
+heartbeat: 2026-07-09T10:55:34Z
 status: in-progress
-done-so-far: claim committed and worktree created
-next: add SPRINT entry and specs/v2-vm-foreach-match-boundary.md before implementation
+done-so-far: claim/worktree created; SPRINT entry and spec committed in worktree
+next: rebase worktree, stage bin/ssc, reproduce current pattern-match-heavy row and inspect remaining hot boundary
