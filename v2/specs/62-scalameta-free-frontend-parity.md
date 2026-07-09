@@ -163,37 +163,71 @@ completion, 191 error, 1 non-code.** The errors split cleanly:
   imports inside code**. These produce runnable-but-dangling IR, which is why
   axis-1's "194/195 lowers" over-counts. Fixing them is bounded frontend work but
   **low marginal value for run coverage** — those same files also need Class B.
-- **Class B — missing stdlib / plugin / effect intrinsics (~150 files).** The real
-  axis-3 bulk. Distinct missing symbols include: `route`/`serve`/`serveAsync`/
-  `_sel_authServer` (http), `Dataset_*`/`spark`/`SparkSchemaCodec` (dataset/spark),
-  `runActors`/`runAsync`/`onEvent`/`signal` (actors/async/effects), `Graph_*`/
-  `Sparql_select`/`Db_query`/`IndexedDb_store` (graph/db/storage), `mcpConnect`/
-  `agentTool` (mcp/agents), `verifyEd25519`/`totp`/`uuidV7` (crypto), `Parser_regex`,
-  `Widget`/`vstack` (ui), … — dozens of families, each an `extern def` the v1
-  ecosystem supplies and the native VM does not yet.
+- **Class B — unresolved intrinsic/method symbols (~150 files).** `Dataset_*`,
+  `_sel_authServer`/`_sel_get`, `Graph_*`, `Db_query`, `spark`, `signal`, etc.
 
-**Conclusion:** the parser is *not* the obstacle to dropping scalameta. Axis 1 is
-done for lowering (and its ~40 completeness gaps are secondary — those files also
-need Class B). The gate is **axis 3: re-growing the v1 stdlib/plugin/effect runtime
-on the native VM** — a large, multi-session program (tracked under the K3 stdlib
-tracks), now fully measured and categorized. It is entirely independent of whether
-the parser is scalameta or hand-written.
+### K62.5b — CORRECTION: the bare-kernel 3/195 was a measurement artifact
 
-## Path to scalameta-free
+The 3/195 above ran native IR on the **bare `v2/src` kernel VM**, where
+`V2PluginRegistry` is **empty** — so every stdlib symbol is "unbound global". That
+is not the real gap. The v2 runtime resolves `IrGlobal(name)` as
+`globals.getOrElse(name, V2PluginRegistry.lookupGlobal(name))`, and `PluginBridge.
+loadAll()` populates that registry with the **entire v1 plugin/effect stdlib**
+(http, sql, crypto, mcp, actors, spark, …). The scalameta bridge path (`busi
+61/61`) runs on exactly this registry.
 
-1. **Close the parse+lower gap** ✅ DONE (2026-07-09): fence policy + the two
-   surface bugs above → **194/195**. Compile-recursion robustness (`-J-Xss` in the
-   launchers) is the last polish item here.
-2. **Measure axis 2**: run `ssc1-check` over the corpus, classify type-check gaps
-   the same way, size the work. ← next.
-3. **Grow axis 3** on the native VM (independent, already ongoing via the K3
-   stdlib tracks). Measure native end-to-end *run* coverage to turn this from an
-   unknown into a categorized backlog.
-4. Only when native parse+typecheck close the corpus does scalameta become an
-   **optional, frontend-only** dependency — then delete it from `v1/lang/core` and
-   drop the `v2FrontendBridge` seam. Kernel + 4 backends are already free of it.
+Added a `run-ir` mode to `BridgeCli` (`loadAll()` + run native IR) and re-measured
+against the **plugin-enabled** runtime. Findings:
 
-**Bottom line for planning:** "give up scalameta" is a *frontend-parity* milestone.
-The parse level is now done (194/195); it is gated mostly by axis 3
-(stdlib/runtime), **not** a compiler rewrite. The scary-sounding dependency is the
-cheap part.
+- The intrinsics **exist and resolve** — e.g. `spark`, `serve`, `args` are live
+  globals; `spark-schema-mapping.ssc` runs through the v1 bridge and dispatches
+  `SparkSchemaCodec.schema` as an effect `Op`. Class B is **not** "missing stdlib".
+- Native failures are a **name/dispatch mismatch**, not absence: `ssc1-lower`
+  emits `_sel_method` globals and `Foo_method`/`Dataset_of` for method/typeclass
+  calls, whereas the runtime dispatches method calls through
+  `IrPrim("__method__", [str name, recv, …args])` (→ `V2PluginRegistry.lookup(
+  "__method__.name")`, with unhandled ones becoming free `Op`s). Aligning the
+  native method-call lowering to emit `__method__` (K62.7a) makes those calls
+  resolve — verified: after the change, `_sel_authServer`/`_sel_get` files stop
+  failing there and advance to the *next* blocker (their Class A `_err`).
+
+**Conclusion (revised):** the parser is not the obstacle, and neither is the
+stdlib — it already exists in the v2 runtime and the bridge already uses it.
+Dropping scalameta reduces to **two bounded lowering/frontend jobs**, both
+independent of scalameta:
+
+1. **Parse-completeness (Class A, ~40 files)** — bitwise/`@`/`$`/char/link-imports
+   in `ssc1-front`.
+2. **Dispatch alignment (Class B)** — route native method/typeclass/`Foo.method`
+   lowering through the runtime's existing `__method__`/`Op` mechanism instead of
+   `_sel_`/`Foo_method` globals (K62.7a started this for the generic method case).
+
+The two **compound per file** (a file needs all its blockers cleared before it
+runs end-to-end), so end-to-end pass-count lags until both are closed — but the
+work is bounded frontend/lowering, **not** a stdlib rewrite. This is a much smaller
+program than the earlier "re-grow the stdlib" estimate.
+
+## Path to scalameta-free (revised after K62.5b)
+
+1. **Parse+lower to IR** ✅ DONE (2026-07-09): fence policy + 2 surface bugs +
+   launcher stack → **194/195**.
+2. **Dispatch alignment (K62.7)** — route native method/typeclass/object-method
+   lowering through the runtime's `__method__`/`Op` mechanism. Started (K62.7a:
+   generic `_sel_` method fallback → `__method__`). Remaining: the `Foo_method`
+   uid-static case (`Dataset.of`, `Graph.vertices`, given/typeclass methods).
+3. **Parse-completeness (K62.6)** — bitwise/`@`/`$`/char/link-imports in
+   `ssc1-front` (the ~40 Class-A `_err` files).
+4. Run native front → **plugin-enabled** runtime (`BridgeCli run-ir`, or wire the
+   plugin registry into the `ssc`/`ssc1` launchers) and re-measure end-to-end.
+5. **(Optional) axis 2** — close the 32 type-check false positives, only if
+   `ssc1-check` becomes mandatory.
+6. When native front + plugin runtime close the corpus, scalameta becomes an
+   **optional, frontend-only** dependency — delete it from `v1/lang/core` and drop
+   the `v2FrontendBridge` seam. Kernel + 4 backends are already free of it.
+
+**Bottom line for planning:** "give up scalameta" is **not** a stdlib rewrite. The
+stdlib already exists in the v2 runtime and the bridge already uses it (busi
+61/61). What remains is two bounded frontend/lowering jobs — parse-completeness and
+dispatch alignment — plus running the native front against the plugin-enabled
+runtime. The scary-sounding dependency (scalameta) *and* the scary-sounding bulk
+(the stdlib) are both cheaper than they first appear.
