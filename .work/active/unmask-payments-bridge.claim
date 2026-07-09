@@ -1,6 +1,6 @@
 feature/unmask-payments-bridge 2026-07-09T13:47:08Z
 agent: codex
-heartbeat: 2026-07-09T13:51:08Z
+heartbeat: 2026-07-09T13:59:13Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-unmask-payments-bridge
-next: capture payments baseline, expand SPRINT/spec, then implement the v2 payment-provider bridge
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-unmask-payments-bridge; baseline captured for traditional-payments, bank-rails-pix, and bank-rails-fednow
+next: persist SPRINT/spec/BUGS plan, then implement deterministic v2 payment/bank-rails bridge
