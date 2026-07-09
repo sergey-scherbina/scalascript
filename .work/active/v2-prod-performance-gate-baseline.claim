@@ -1,6 +1,6 @@
 feature/v2-prod-performance-gate-baseline 2026-07-09T07:14:20Z
 agent: codex
-heartbeat: 2026-07-09T07:15:05Z
+heartbeat: 2026-07-09T07:20:30Z
 status: in-progress
-done-so-far: worktree created at ../scalascript-wt-v2-prod-performance-gate-baseline
-next: queue SPRINT plan, read benchmark docs/wrappers, run bounded scripts/bench baseline, then update v2-full-compat results
+done-so-far: SPRINT plan committed; installBin passed; bounded corpus probe shows v2 VM perf gate red; scripts/bench wall runner fixed and re-run
+next: document exact performance results, queue v2 VM perf follow-up, run conformance slice, then push/release
