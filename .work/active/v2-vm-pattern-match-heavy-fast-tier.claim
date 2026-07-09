@@ -1,6 +1,6 @@
 feature/v2-vm-pattern-match-heavy-fast-tier 2026-07-09T09:57:25Z
 agent: codex
-heartbeat: 2026-07-09T10:15:40Z
+heartbeat: 2026-07-09T10:32:28Z
 status: in-progress
-done-so-far: spec and runtime patch committed in worktree; compact Match scratch env reuse improves pattern-match-heavy v2 full row 35.1ms -> 16.4ms
-next: run post-rebase installBin, four-row bench, v2 conformance, litdoc; then docs/bookkeeping and push
+done-so-far: focused bridge suite, installBin, four-row bench, and full ./v2/conformance/check.sh passed; pattern-match-heavy v2 now ~17ms
+next: run tests/conformance litdoc, diff check, update docs/bookkeeping, push, release claim, cleanup
