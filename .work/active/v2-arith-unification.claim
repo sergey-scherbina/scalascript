@@ -1,6 +1,6 @@
 feature/v2-arith-unification 2026-07-09T01:49:14Z
 agent: codex
-heartbeat: 2026-07-09T01:52:09Z
+heartbeat: 2026-07-09T02:00:23Z
 status: in-progress
-done-so-far: SPRINT/BACKLOG/BUGS plan pushed in 3a5f4647f
-next: add non-literal __arith__ regressions, then unify Runtime arith dispatch
+done-so-far: code fix pushed in a2985d911; targeted tests and affected conformance run
+next: update BUGS/SPRINT/BACKLOG/CHANGELOG bookkeeping and release claim
