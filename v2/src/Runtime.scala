@@ -194,6 +194,16 @@ object SelfRecLL:
         case Prim("i.ge", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) >= fb(n)
         case Prim("i.gt", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) >  fb(n)
         case Prim("i.eq", List(a, b)) => for fa <- go(a); fb <- go(b) yield (n: Long) => fa(n) == fb(n)
+        case Prim("__arith__", List(Lit(CStr(op)), a, b))
+            if op == "<" || op == "<=" || op == ">" || op == ">=" || op == "==" || op == "!=" =>
+          for fa <- go(a); fb <- go(b) yield
+            op match
+              case "<"  => (n: Long) => fa(n) <  fb(n)
+              case "<=" => (n: Long) => fa(n) <= fb(n)
+              case ">"  => (n: Long) => fa(n) >  fb(n)
+              case ">=" => (n: Long) => fa(n) >= fb(n)
+              case "==" => (n: Long) => fa(n) == fb(n)
+              case _    => (n: Long) => fa(n) != fb(n)
         case _ => None
       def go(t: Term): Option[LL] = t match
         case Lit(CInt(k)) => val v = k; Some(_ => v)

@@ -95,6 +95,25 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(run("def double(x: Int) = x * 2\ndouble(21)") == Value.IntV(42))
   }
 
+  test("bridge recursive int comparisons enable SelfRecLL fast entry") {
+    ensureBridgeRuntime()
+    val src =
+      """def fib(n: Int): Int =
+        |  if n <= 1 then n
+        |  else fib(n - 1) + fib(n - 2)
+        |
+        |def workload(): Int = fib(30)
+        |""".stripMargin
+
+    val prog = FrontendBridge.convertSource(src)
+    val (_, globals) = Compiler.compileWithGlobals(prog)
+    val fib = globals("fib").asInstanceOf[Value.ClosV]
+    val workload = globals("workload").asInstanceOf[Value.ClosV]
+
+    assert(fib.fcEntry.isDefined)
+    assert(Runtime.run(workload.code, workload.env) == Value.IntV(832040))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
