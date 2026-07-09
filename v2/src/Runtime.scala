@@ -546,7 +546,7 @@ object Compiler:
           // EXPRESSION-position effects: an un-handled Op SCRUTINEE lifts over
           // the match — run the handler first, then match the resumed value
           // (same family as the arith/method/setter lifts).
-          case DataV("Op", IndexedSeq(l, a, k)) =>
+          case opv @ DataV("Op", IndexedSeq(l, a, k)) if Runtime.isAutoThreadOp(opv) =>
             val kc = k.asInstanceOf[ClosV]
             val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
               val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))

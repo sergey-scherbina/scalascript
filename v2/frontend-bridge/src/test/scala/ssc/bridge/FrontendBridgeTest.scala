@@ -21,6 +21,29 @@ class FrontendBridgeTest extends AnyFunSuite:
     ensureBridgeRuntime()
     Runtime.run(Compiler.compile(Program(Nil, entry)), Array.empty[Value])
 
+  private lazy val repoRoot: java.io.File =
+    Iterator.iterate(new java.io.File(".").getAbsoluteFile)(_.getParentFile)
+      .takeWhile(f => f != null && f.getParentFile != f)
+      .find(f => new java.io.File(f, "build.sbt").exists())
+      .getOrElse(new java.io.File(".").getAbsoluteFile)
+
+  private def repoFile(path: String): java.io.File =
+    new java.io.File(repoRoot, path)
+
+  private def runSsc0File(path: String, args: List[String] = Nil): Value =
+    ensureBridgeRuntime()
+    val savedArgv = Runtime.argv
+    Runtime.argv = args
+    try
+      val prog = Lower.module(Loader.load(repoFile(path).getPath))
+      Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    finally Runtime.argv = savedArgv
+
+  private def captureSsc0File(path: String, args: List[String] = Nil): String =
+    val out = new java.io.ByteArrayOutputStream
+    Console.withOut(out)(runSsc0File(path, args))
+    out.toString("UTF-8").stripTrailing()
+
   def dynamicArith(op: String, lhs: Term, rhs: Term): Term =
     Term.Let(
       List(Term.Lit(Const.CStr(op))),
@@ -85,6 +108,20 @@ class FrontendBridgeTest extends AnyFunSuite:
       Value.UnitV)
     assert(arith(List(Value.StrV("Logger"), Value.StrV("effect"), Value.UnitV)) ==
       Value.UnitV)
+  }
+
+  test("v2 VM effect handlers match free-monad Op values from ssc0") {
+    assert(runSsc0File("v2/examples/effects-state.ssc0") ==
+      Value.DataV("Pair", Vector(Value.IntV(2), Value.IntV(2))))
+  }
+
+  test("v2 VM effect handlers match typed-effect CoreIR emitted by Mira") {
+    val coreIr = captureSsc0File(
+      "v2/bin/mirac.ssc0",
+      List(repoFile("v2/examples/hm-eff-comp.hm").getPath))
+    val prog = Reader.parseProgram(coreIr)
+
+    assert(Runtime.run(Compiler.compile(prog), Array.empty[Value]) == Value.IntV(41))
   }
 
   test("val binding") {
