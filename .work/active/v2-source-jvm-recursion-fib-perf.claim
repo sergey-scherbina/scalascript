@@ -1,0 +1,6 @@
+feature/v2-source-jvm-recursion-fib-perf 2026-07-09T20:44:37Z
+agent: codex
+heartbeat: 2026-07-09T20:44:37Z
+status: not-started
+done-so-far:
+next: create worktree, write SPRINT plan/spec for the v2-jvm recursion-fib source-backend performance slice
