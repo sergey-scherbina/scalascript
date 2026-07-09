@@ -1,0 +1,6 @@
+feature/v2-jvm-source-mutual-tco 2026-07-09T06:34:50Z
+agent: codex
+heartbeat: 2026-07-09T06:34:50Z
+status: not-started
+done-so-far:
+next: create worktree, queue SPRINT plan, write spec, implement bounded source-JVM mutual TCO or document supersession
