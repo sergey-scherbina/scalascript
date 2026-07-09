@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-jvm-user-request-shadow** - fix the JVM conformance lane for
+      `tests/conformance/user-request-shadow.ssc`, where a non-HTTP user
+      `case class Request(alpha, beta)` conflicts with the always-inlined
+      HTTP runtime `case class Request(method, path, ...)` in `run-jvm`.
+      Repro after `scripts/sbtc "installBin"`:
+      `bin/ssc run-jvm tests/conformance/user-request-shadow.ssc` fails with
+      `Request is already defined`, and
+      `tests/conformance/run.sh --only 'user-request-shadow' --no-memo`
+      passes INT/JS but fails JVM with missing stdout. Approach: keep
+      HTTP/server modules on the existing public `Request`/`Response` runtime
+      path, but make the non-server JVM preamble collision-safe by avoiding
+      public HTTP POJO names when user top-level names contain
+      `Request`/`Response`/`StreamResponse`; actor/HTTP-effect stubs can use
+      private `_SscRuntime*` names. Done when the direct `run-jvm` repro prints
+      `7/9/7/42`, affected conformance for
+      `money-multisection,v2-*,user-request-shadow` is green, full
+      `./v2/conformance/check.sh` is green, and `git diff --check` passes.
+
 - [x] **v2-vm-foreach-match-boundary** — DONE 2026-07-09 in
       `58fd143b8`: `FastCode.tryFC` now has a no-materialized-env lane for
       inline `foreach` `Lam(1, body)` shapes whose supported body can be

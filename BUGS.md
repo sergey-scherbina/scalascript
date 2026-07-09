@@ -12,6 +12,29 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-jvm-user-request-shadow — `open` (2026-07-09)
+
+- **Found by:** codex, during the final `unmask-payments-bridge` affected
+  conformance gate after the sibling `user-request-collision` fix landed.
+- **Repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc run-jvm tests/conformance/user-request-shadow.ssc` or
+  `tests/conformance/run.sh --only 'user-request-shadow' --no-memo`.
+- **Observed failure:** INT and JS lanes print `7`, `9`, `7`, `42`, but the JVM
+  lane produces no stdout because scala-cli compilation fails. The generated
+  Scala source contains both the always-inlined HTTP runtime
+  `case class Request(method, path, ...)` and the user's
+  `case class Request(alpha: Int, beta: Int)`, so scalac reports
+  `Request is already defined`.
+- **Expected:** non-HTTP user code may define a top-level `Request` case class,
+  and `run-jvm` must behave like INT/JS for field access and `copy`.
+- **Impact:** `origin/main` has a conformance regression in the JVM lane; the
+  v2 production gate cannot be considered green until this lane passes.
+- **Plan:** keep HTTP/server modules on the existing `commonRuntime +
+  serveRuntime` path, but for non-HTTP scripts with user `Request`/`Response`
+  collisions avoid exporting the HTTP POJO names into the user's top-level
+  namespace. The minimal fix is a collision-safe non-server JVM preamble with
+  private runtime-only request/response names for actor/HTTP-effect stubs.
+
 ## v2-multiline-list-literal-desugar — `fixed` (2026-07-09)
 
 `bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`
