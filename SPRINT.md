@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-backend-check-ssc1c-wrapper-app-lit** - restore the generated
+      ssc1c regression rows in `v2/backend/check.sh` so `bool` and
+      `mutual-recursion` can again serve as source-backend parity gates.
+      Context: BACKLOG/BUGS item `v2-backend-check-ssc1c-wrapper-app-lit`.
+      Repro on current `origin/main`: `v2/backend/check.sh bool` and
+      `v2/backend/check.sh mutual-recursion` fail before source generation with
+      `run-ir failed`; the bool generated CoreIR contains
+      `(app (lit (int 1000)) (lam 0 ...))`, and the VM aborts with
+      `app: not a function: 1000`. Spec:
+      `specs/v2-backend-check-ssc1c-wrapper-app-lit.md`. Plan: reproduce the
+      exact temporary `.ssc1` wrapper that `check.sh` builds, reduce whether the
+      invalid application comes from wrapper parsing, `until`/loop lowering, or
+      ssc1c precedence around block/while syntax, then fix the responsible
+      ssc1c/harness path without changing corpus workloads or source-generator
+      semantics. Done when `v2/backend/check.sh bool`,
+      `v2/backend/check.sh mutual-recursion`, existing backend `tco`/`letrec`,
+      affected conformance, and `git diff --check` pass.
+
 - [x] **v2-bytecode-param-long-nontail-self-loop** - DONE 2026-07-09 in
       `41e2fe1ed`: urgent regression found
       while closing `v2-source-jvm-recursion-fib-perf`: fresh `origin/main`
