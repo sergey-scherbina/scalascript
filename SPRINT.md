@@ -30,6 +30,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       Fresh baseline 2026-07-09 after `scripts/sbtc "installBin"`:
       `scripts/bench v2-backends recursion-tco` reports `v2=0.298 ms`,
       `v2-jvm=3.09 ms`, `v2-rust=0.704 ms`.
+      Inspection: generated JVM source already emits both
+      `sumTco_long(Long, Long): Long` and boxed `@tailrec
+      sumTco_direct(V, V): V`, but `workload` calls
+      `sumTco_direct(100000L: V, 0L: V)` because global application lowering
+      checks `directDefs` before `longGlobalDefs`. The measured overhead is
+      therefore boxed `R.prim3("__arith__", ...)` inside the TCO loop despite
+      an available Long helper. Implementation direction: prefer the Long
+      helper for statically Long global calls, keeping boxed direct tailrec as
+      fallback for non-Long calls.
 
 - [x] **v2-source-rust-pattern-match-heavy-perf** - DONE 2026-07-09 in
       `a7f37b620`: narrow Phase-3

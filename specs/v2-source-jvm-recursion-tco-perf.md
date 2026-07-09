@@ -103,8 +103,43 @@ Fresh worktree baseline after `scripts/sbtc "installBin"` on 2026-07-09:
 
 ## Inspection
 
-Pending. Record the emitted v2 JVM source shape and dominant overhead before
-code changes.
+2026-07-09 generated the CoreIR and v2 JVM source for
+`bench/corpus/recursion-tco.ssc` before code changes:
+
+```bash
+scripts/sbtc "v2FrontendBridge/runMain ssc.bridge.bridgeCli emit bench/corpus/recursion-tco.ssc" > /tmp/v2-recursion-tco.coreir.raw
+grep '^(program ' /tmp/v2-recursion-tco.coreir.raw > /tmp/v2-recursion-tco.coreir
+scala-cli run v2/backend/jvm -q --server=false < /tmp/v2-recursion-tco.coreir > /tmp/v2-recursion-tco.scala
+```
+
+The generated source already contains both helper families:
+
+```scala
+def sumTco_long(p0_5: Long, p1_5: Long): Long =
+  if p0_5 <= 0L then p1_5 else sumTco_long(p0_5 - 1L, p1_5 + p0_5)
+
+@tailrec def sumTco_direct(p0_5: V, p1_5: V): V =
+  if R.prim3("__arith__", "<=": V, p0_5, 0L: V).asInstanceOf[Boolean] then p1_5
+  else sumTco_direct(
+    R.prim3("__arith__", "-": V, p0_5, 1L: V),
+    R.prim3("__arith__", "+": V, p1_5, p0_5))
+
+lazy val workload: V =
+  ((_a6: Array[V]) => { val _u6 = _a6; sumTco_direct(100000L: V, 0L: V) }): V
+```
+
+Dominant overhead hypothesis: the backend already proves `sumTco` is Long-
+typed, but global application lowering checks `directDefs` before
+`longGlobalDefs`. Because `sumTco` is also safe tail-recursive,
+`workload()` calls the boxed `sumTco_direct(V,V): V` path instead of
+`sumTco_long(Long,Long): Long`. That keeps every loop-carried comparison,
+subtraction, and addition on `R.prim3("__arith__", ...)` despite the available
+Long helper.
+
+Implementation direction: prefer the Long helper whenever a global call's
+arguments are statically Long, even if that global also has a boxed
+`@tailrec` direct method. Keep the boxed direct method for non-Long tail-rec
+functions and generic fallback calls.
 
 ## Results
 
