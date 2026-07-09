@@ -1,0 +1,6 @@
+feature/v2-arith-unification 2026-07-09T01:49:14Z
+agent: codex
+heartbeat: 2026-07-09T01:49:14Z
+status: not-started
+done-so-far:
+next: create SPRINT/BUGS plan for arith dispatch unification
