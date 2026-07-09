@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/bc-unboxed-tail
-worktree: ../scalascript-wt-utp
-started: 2026-07-09
-status: in-progress
-task: p4-bc-unboxed-tailparams — recursion-tco 4.6x: unboxed Long slots для provably-Long self-tail params. Консервативный гард (весь body Long-pure), box только на return. Тщательное тестирование (clobbering, edge cases). Fallback на boxed self-tail если не Long-pure. Guard 154/8, 95/2.
