@@ -893,13 +893,22 @@ class JsGen(
             case Pat.Var(n) => names += TopLevelName(n.value, renameableBinding = true)
             case _          => ()
           }
-        case d: Defn.Def    => names += TopLevelName(d.name.value, renameableBinding = false)
-        case d: Defn.Object => names += TopLevelName(d.name.value, renameableBinding = false)
-        case d: Defn.Class  => names += TopLevelName(d.name.value, renameableBinding = false)
-        case d: Defn.Enum   => names += TopLevelName(d.name.value, renameableBinding = false)
-        case d: Defn.Trait  => names += TopLevelName(d.name.value, renameableBinding = false)
-        case d: Defn.Type   => names += TopLevelName(d.name.value, renameableBinding = false)
-        case d: Defn.Given  => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Def    => names += TopLevelName(d.name.value, renameableBinding = true)
+        case d: Defn.Object => names += TopLevelName(d.name.value, renameableBinding = true)
+        case d: Defn.Class  => names += TopLevelName(d.name.value, renameableBinding = true)
+        case d: Defn.Enum =>
+          names += TopLevelName(d.name.value, renameableBinding = true)
+          d.templ.body.stats.foreach {
+            case ec: Defn.EnumCase =>
+              names += TopLevelName(ec.name.value, renameableBinding = true)
+            case rec: Defn.RepeatedEnumCase =>
+              rec.cases.foreach(nm => names += TopLevelName(nm.value, renameableBinding = true))
+            case _ => ()
+          }
+        case d: Defn.Given if d.name.value.nonEmpty =>
+          names += TopLevelName(d.name.value, renameableBinding = true)
+        case d: Defn.Trait => names += TopLevelName(d.name.value, renameableBinding = false)
+        case d: Defn.Type  => names += TopLevelName(d.name.value, renameableBinding = false)
         case _              => ()
       }
 
@@ -914,6 +923,12 @@ class JsGen(
       section.content.foreach {
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
           cb.tree.foreach(fromNode)
+        case imp: Content.Import =>
+          imp.bindings.foreach { b =>
+            val localName = b.alias.getOrElse(b.name)
+            if !declaredBindings.contains(localName) then
+              names += TopLevelName(localName, renameableBinding = true)
+          }
         case _ => ()
       }
       section.subsections.foreach(walkSection)
@@ -2186,19 +2201,21 @@ class JsGen(
           (imp.path.endsWith("std/ui/content.ssc") && contentToolkitIntrinsicNames(b.name))
       if bindsContentRuntimeFn then
         b.alias.foreach { localName =>
-          if !declaredBindings.contains(localName) then
-            declaredBindings += localName
-            line(s"const $localName = ${b.name};")
+          val localJsName = emittedName(localName)
+          if !declaredBindings.contains(localJsName) then
+            declaredBindings += localJsName
+            line(s"const $localJsName = ${b.name};")
         }
       else
         val fullName  = s"$pkgPrefix${b.name}"
         val localName = b.alias.getOrElse(b.name)
+        val localJsName = emittedName(localName)
         // If the child module declares an exports list and this name is absent,
         // skip — don't block a later import from the correct module.
         val notExported = childExports.nonEmpty && !childExports.contains(b.name)
-        if fullName != localName && !notExported && !declaredBindings.contains(localName) then
-          declaredBindings += localName
-          line(s"const $localName = $fullName;")
+        if fullName != localName && !notExported && !declaredBindings.contains(localJsName) then
+          declaredBindings += localJsName
+          line(s"const $localJsName = $fullName;")
     }
 
   private[codegen] def resolveStdImportFromProjectTree(rawPath: String, base: os.Path): Option[os.Path] =
@@ -2281,7 +2298,7 @@ class JsGen(
         case stat =>
           stat match
             case d: Defn.Object if topLevel =>
-              val name = d.name.value
+              val name = emittedName(d.name.value)
               if topLevelConsts.contains(name) then
                 emitMergeHelper()
                 line(s"_ssc_mergeDeep($name, ${genObjectAsExpr(d, name)});")
@@ -2395,22 +2412,25 @@ class JsGen(
     // no annotation   → skip (intrinsic table handles it at call sites).
     case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+      val sourceName = d.name.value
+      val jsName = emittedName(sourceName)
       extractAnnotationArg(d.mods, "js") match
         case Some(jsExpr) =>
           val body     = substituteJsArgs(jsExpr, params)
           val paramsStr = params.mkString(", ")
-          line(s"function ${d.name.value}($paramsStr) { return $body; }")
+          line(s"function $jsName($paramsStr) { return $body; }")
         case None =>
           if extractAnnotationArg(d.mods, "jvm").isDefined then
             // @jvm-only: provide a stub that throws at runtime instead of a silent undefined
             val paramsStr = params.mkString(", ")
-            line(s"function ${d.name.value}($paramsStr) { throw new Error('${d.name.value} is @jvm-only and cannot be called from the JS backend.'); }")
+            line(s"function $jsName($paramsStr) { throw new Error('$sourceName is @jvm-only and cannot be called from the JS backend.'); }")
 
     case d: Defn.Def =>
       val paramVals   = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       val params      = paramVals.map(_.name.value)
       val hasDefaults = paramVals.exists(_.default.isDefined)
-      val fname       = d.name.value
+      val sourceName  = d.name.value
+      val fname       = emittedName(sourceName)
       val defRenames  = paramRenameMap(params)
       // `using` params: explicit implicit parameter clauses `(using x: TC[T])`.
       // Emit guards to resolve them at runtime via _resolveGiven + _ssc_typeOf on a hint param.
@@ -2479,9 +2499,9 @@ class JsGen(
         if baseParamsStr.isEmpty then cbParamsStr
         else if cbParamsStr.isEmpty then baseParamsStr
         else s"$baseParamsStr, $cbParamsStr"
-      if fname == "main" && params.isEmpty then hasMain = true
+      if sourceName == "main" && params.isEmpty then hasMain = true
       // Effectful function: body emitted in CPS form, returns Free value.
-      if isEffectfulFun(fname) then
+      if isEffectfulFun(sourceName) then
         d.body match
           case Term.Block(stats) =>
             line(s"function $fname($paramsStr) { return ${genCpsBlockAsIife(stats)}; }")
@@ -2514,17 +2534,17 @@ class JsGen(
       // Defaults disable the TCO/mutual-TCO shadowing path since the _p shadow
       // names would shadow the original parameter names referenced in default
       // expressions; defaults are uncommon in tight recursive loops anyway.
-      else if mutualGroups.contains(fname) && params.nonEmpty && !hasDefaults &&
+      else if mutualGroups.contains(sourceName) && params.nonEmpty && !hasDefaults &&
               !containsAwaitClient(d.body) then
-        genMutualTcoFun(d, fname, params)
+        genMutualTcoFun(d, sourceName, fname, params)
       // Self-TCO: emit a while-loop trampoline when the function calls itself and all
       // self-calls are in tail position. The anywhereContainsSelfCall guard is required
       // because hasNonTailSelfCall returns false for non-recursive functions too (zero
       // non-tail self-calls), which would incorrectly wrap every function in while(true).
       else if params.nonEmpty && fname.nonEmpty && !hasDefaults &&
               !containsAwaitClient(d.body) &&
-              anywhereContainsSelfCall(d.body, fname) &&
-              !hasNonTailSelfCall(d.body, fname, tailPos = true) then
+              anywhereContainsSelfCall(d.body, sourceName) &&
+              !hasNonTailSelfCall(d.body, sourceName, tailPos = true) then
         // Formals are _p shadow-names so we can declare mutable let params inside.
         // safeJsParam guards against JS reserved words (e.g. `default` → `default_p`).
         val renames  = paramRenameMap(params)
@@ -2535,7 +2555,7 @@ class JsGen(
         line(s"$letDecls;")
         line("while(true) {")
         indent += 1
-        withParamRenames(renames)(genTcoBody(d.body, fname, params))
+        withParamRenames(renames)(genTcoBody(d.body, sourceName, params))
         indent -= 1
         line("}")
         indent -= 1
@@ -2587,11 +2607,12 @@ class JsGen(
       val paramVals = d.ctor.paramClauses.flatMap(_.values)
       val params = paramVals.map(_.name.value)
       val typeName = d.name.value
+      val ctorName = emittedName(typeName)
       val paramsStr = paramListWithDefaults(paramVals)
       val fields   = params.map(p => s"$p: $p").mkString(", ")
       val tagField = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
-      line(s"function $typeName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }")
-      line(jsTypedJsonRegisterProduct(typeName, params, typeName))
+      line(s"function $ctorName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }")
+      line(jsTypedJsonRegisterProduct(typeName, params, ctorName))
       // Compile zero-param body methods (e.g. override def toString) as typed extension registrations.
       val destructure = if params.isEmpty then "" else s"const {${params.mkString(", ")}} = _self; "
       d.templ.body.stats.foreach {
@@ -2604,43 +2625,39 @@ class JsGen(
       }
 
     case d: Defn.Object =>
-      val objName = d.name.value
-      // If the name is already declared in the preamble (e.g. `Console`), merge via
-      // Object.assign rather than re-declaring with `const` (which is a SyntaxError).
-      val preambleConsts = Set("Console", "attr", "scope")
-      if preambleConsts.contains(objName) then
-        line(s"Object.assign($objName, ${genObjectAsExpr(d, objName)});")
-      else
-        line(s"const $objName = ${genObjectAsExpr(d, objName)};")
+      val objName = emittedName(d.name.value)
+      line(s"const $objName = ${genObjectAsExpr(d, objName)};")
 
     case d: Defn.Enum =>
-      val enumName = d.name.value
-      val allCases = scala.collection.mutable.ListBuffer.empty[String]
+      val enumName = emittedName(d.name.value)
+      val allCases = scala.collection.mutable.ListBuffer.empty[(String, String)]
       val nullary  = scala.collection.mutable.ListBuffer.empty[String]
-      def emitNullary(caseName: String): Unit =
+      def emitNullary(sourceCaseName: String): Unit =
+        val caseName = emittedName(sourceCaseName)
         // Skip a duplicate global `const` when another enum already emitted this
         // parameterless case name (tags are global-by-name → structurally identical).
         if !declaredEnumCases.contains(caseName) then
           declaredEnumCases += caseName
-          val tagField = caseClassTagMap.get(caseName).map(t => s", _tag: $t").getOrElse("")
-          line(s"const $caseName = {_type: '$caseName'${tagField}};")
-          line(jsTypedJsonRegisterProduct(caseName, Nil, None))
-        allCases += caseName; nullary += caseName
+          val tagField = caseClassTagMap.get(sourceCaseName).map(t => s", _tag: $t").getOrElse("")
+          line(s"const $caseName = {_type: '$sourceCaseName'${tagField}};")
+          line(jsTypedJsonRegisterProduct(sourceCaseName, Nil, None))
+        allCases += sourceCaseName -> caseName; nullary += caseName
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
-          val caseName = ec.name.value
+          val sourceCaseName = ec.name.value
+          val caseName = emittedName(sourceCaseName)
           val paramVals = ec.ctor.paramClauses.flatMap(_.values)
           val params = paramVals.map(_.name.value)
-          if params.isEmpty then emitNullary(caseName)
+          if params.isEmpty then emitNullary(sourceCaseName)
           else
             if !declaredEnumCases.contains(caseName) then
               declaredEnumCases += caseName
               val paramsStr = paramListWithDefaults(paramVals)
               val fields    = params.map(p => s"$p: $p").mkString(", ")
-              val tagField  = caseClassTagMap.get(caseName).map(t => s"_tag: $t, ").getOrElse("")
-              line(s"function $caseName($paramsStr) { return {_type: '$caseName', ${tagField}$fields}; }")
-              line(jsTypedJsonRegisterProduct(caseName, params, caseName))
-            allCases += caseName
+              val tagField  = caseClassTagMap.get(sourceCaseName).map(t => s"_tag: $t, ").getOrElse("")
+              line(s"function $caseName($paramsStr) { return {_type: '$sourceCaseName', ${tagField}$fields}; }")
+              line(jsTypedJsonRegisterProduct(sourceCaseName, params, caseName))
+            allCases += sourceCaseName -> caseName
         // `case A, B` (comma-separated parameterless cases) → RepeatedEnumCase.
         case rec: Defn.RepeatedEnumCase =>
           rec.cases.foreach(nm => emitNullary(nm.value))
@@ -2648,7 +2665,7 @@ class JsGen(
       }
       // Companion: qualified `EnumName.Case` refs + `EnumName.values` (the
       // parameterless cases, in declaration order).
-      val members = allCases.map(c => s"$c: $c").mkString(", ")
+      val members = allCases.map((sourceCaseName, caseName) => s"$sourceCaseName: $caseName").mkString(", ")
       val sep     = if members.isEmpty then "" else ", "
       line(s"const $enumName = { $members${sep}values: [${nullary.mkString(", ")}] };")
 
@@ -2697,10 +2714,11 @@ class JsGen(
             tc :: tcParentMap.getOrElse(tc, Nil).flatMap(allTcKeys)
           val allKeys = allTcKeys(primaryTc).map(tc => s"${tc}_${typeArg}").distinct
           if explicitName.nonEmpty then
-            line(s"const $explicitName = $obj;")
+            val explicitJsName = emittedName(explicitName)
+            line(s"const $explicitJsName = $obj;")
             // Register under primary alias + all parent typeclass keys
-            line(s"const ${primaryTc}_${typeArg} = $explicitName;")
-            allKeys.foreach { key => line(s"""_ssc_givens["$key"] = $explicitName;""") }
+            line(s"const ${primaryTc}_${typeArg} = $explicitJsName;")
+            allKeys.foreach { key => line(s"""_ssc_givens["$key"] = $explicitJsName;""") }
           else
             val primaryKey = s"${primaryTc}_${typeArg}"
             line(s"const $primaryKey = $obj;")
@@ -3031,9 +3049,9 @@ class JsGen(
   // ─── Mutual TCO helpers ──────────────────────────────────────────
 
   // Emits _fname_impl (while-loop + _tailCall for mutual calls) and the public wrapper.
-  private def genMutualTcoFun(d: Defn.Def, fname: String, params: List[String]): Unit =
-    val implName = s"_${fname}_impl"
-    val friends  = mutualGroups(fname) - fname
+  private def genMutualTcoFun(d: Defn.Def, sourceName: String, jsName: String, params: List[String]): Unit =
+    val implName = s"_${jsName}_impl"
+    val friends  = mutualGroups(sourceName) - sourceName
     val renames  = paramRenameMap(params)
     val formals  = params.map(p => s"_$p").mkString(", ")
     val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
@@ -3042,14 +3060,14 @@ class JsGen(
     line(s"$letDecls;")
     line("while(true) {")
     indent += 1
-    withParamRenames(renames)(genMutualTcoBody(d.body, fname, params, friends))
+    withParamRenames(renames)(genMutualTcoBody(d.body, sourceName, params, friends))
     indent -= 1
     line("}")
     indent -= 1
     line("}")
     // Public wrapper that starts the trampoline
     val wrapArgs = params.map(p => s"_$p").mkString(", ")
-    line(s"function $fname($formals) { return _trampoline($implName, $wrapArgs); }")
+    line(s"function $jsName($formals) { return _trampoline($implName, $wrapArgs); }")
 
   // Like genTcoBody but mutual tail calls return _tailCall thunks.
   private def genMutualTcoBody(term: Term, fname: String, params: List[String], friends: Set[String]): Unit =
@@ -3064,7 +3082,7 @@ class JsGen(
         line("continue;")
       case Term.Apply.After_4_6_0(Term.Name(n), argClause) if friends.contains(n) =>
         val newArgs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
-        line(s"return _tailCall(_${n}_impl, ${newArgs.mkString(", ")});")
+        line(s"return _tailCall(_${emittedName(n)}_impl, ${newArgs.mkString(", ")});")
       case t: Term.If =>
         line(s"if (${genExpr(t.cond)}) {")
         indent += 1; genMutualTcoBody(t.thenp, fname, params, friends); indent -= 1
@@ -4684,7 +4702,7 @@ class JsGen(
     app.fun match
       case Term.Name(n) if zeroParamFns(n) && app.argClause.values.nonEmpty =>
         val argsJs = app.argClause.values.map(genExpr).mkString(", ")
-        return s"_call($n(), $argsJs)"
+        return s"_call(${mapName(n)}(), $argsJs)"
       case _ => ()
 
     // .copy(field = value, ...) — spread the receiver, override named fields.
@@ -4845,19 +4863,19 @@ class JsGen(
       // Safe because funcParamOrder only contains `def f(...)` declarations;
       // Array/Map values are vals, never in funcParamOrder.
       case Term.Name(n) if funcParamOrder.contains(n) =>
-        runIfEffectful(n, s"$n(${argVals.mkString(", ")})")
+        runIfEffectful(n, s"${mapName(n)}(${argVals.mkString(", ")})")
 
       // Known zero-param user-defined function — direct call, no _call wrapper.
       // Covers both def f(): T (one empty param clause) and def f: T (no clause).
       case Term.Name(n) if (emptyParamFns(n) || zeroParamFns(n)) && argVals.isEmpty =>
-        runIfEffectful(n, s"$n()")
+        runIfEffectful(n, s"${mapName(n)}()")
 
       // js-collection-perf: indexed read on a known numeric-seq val (Vector/Array/List/Seq, tracked
       // in listElemType) → direct `v[idx]` (the JS backing is a real array), skipping the megamorphic
       // `_call`. isIntExpr/isNumericExpr also type `v(idx)` numeric so surrounding arithmetic and a
       // trailing `.toLong`/`.toInt` emit native ops.
       case Term.Name(v) if listElemType.contains(v) && argVals.lengthCompare(1) == 0 =>
-        s"$v[${argVals.head}]"
+        s"${mapName(v)}[${argVals.head}]"
 
       // Regular function call or constructor — wrap in `_call` so a
       // bare Array / Map reference (`xs(i)` / `m(k)`) is dispatched as

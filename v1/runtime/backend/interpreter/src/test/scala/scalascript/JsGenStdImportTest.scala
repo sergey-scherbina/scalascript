@@ -29,6 +29,11 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(r.exit == 0, s"node run failed (${r.exit}):\n${r.err}")
     r.out
 
+  private def coreBundle(user: String): String =
+    JsGen.generateRuntime(Set(JsGen.Capability.Core)) + "\n" +
+      user + "\n" +
+      "if (typeof _output !== 'undefined' && _output.length) console.log(_output.join('\\n'));\n"
+
   test("runtime-colliding top-level val is renamed in flat JS bundle"):
     val source =
       """# App
@@ -46,6 +51,99 @@ class JsGenStdImportTest extends AnyFunSuite:
 
     assert(user.contains("const doc__ssc = 41;"), user)
     assert(!user.contains("const doc = 41;"), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "42")
+
+  test("runtime-colliding top-level def is renamed in flat JS bundle"):
+    val source =
+      """# App
+        |
+        |```scalascript
+        |def doc(): Int = 41
+        |println(doc() + 1)
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js = coreBundle(user)
+
+    assert(user.contains("function doc__ssc("), user)
+    assert(!user.contains("function doc("), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "42")
+
+  test("runtime-colliding top-level object is renamed in flat JS bundle"):
+    val source =
+      """# App
+        |
+        |```scalascript
+        |object scope {
+        |  val value = 41
+        |}
+        |println(scope.value + 1)
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js = coreBundle(user)
+
+    assert(user.contains("const scope__ssc ="), user)
+    assert(!user.contains("const scope ="), user)
+    assert(!user.contains("Object.assign(scope"), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "42")
+
+  test("runtime-colliding top-level case class is renamed in flat JS bundle"):
+    val source =
+      """# App
+        |
+        |```scalascript
+        |case class Signal(value: Int)
+        |val s = Signal(41)
+        |println(s.value + 1)
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js = coreBundle(user)
+
+    assert(user.contains("function Signal__ssc("), user)
+    assert(!user.contains("function Signal("), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "42")
+
+  test("runtime-colliding top-level enum case is renamed in flat JS bundle"):
+    val source =
+      """# App
+        |
+        |```scalascript
+        |enum Status {
+        |  case doc
+        |}
+        |println(Status.doc._type)
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js = coreBundle(user)
+
+    assert(user.contains("const doc__ssc = {_type: 'doc'"), user)
+    assert(user.contains("const Status = { doc: doc__ssc"), user)
+    assert(!user.contains("const doc ="), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "doc")
+
+  test("runtime-colliding top-level js extern def is renamed in flat JS bundle"):
+    val source =
+      """# App
+        |
+        |```scalascript
+        |@js("$0 + 1")
+        |extern def doc(x: Int): Int
+        |println(doc(41))
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js = coreBundle(user)
+
+    assert(user.contains("function doc__ssc("), user)
+    assert(!user.contains("function doc("), user)
     checkNodeSyntax(js)
     assert(runNode(js) == "42")
 
@@ -76,7 +174,7 @@ class JsGenStdImportTest extends AnyFunSuite:
 
     assert(js.contains("const std ="), "expected std namespace object from imported module")
     assert(js.contains("const signal = std.ui.primitives.signal"))
-    assert(js.contains("const serve = std.ui.primitives.serve"))
+    assert(js.contains("const serve__ssc = std.ui.primitives.serve"))
 
   test("browser patch overrides Node helpers without duplicate ES module declarations"):
     assert(!JsRuntimeBrowserPatch.contains("function _ssc_http_serve()"))
