@@ -1,0 +1,26 @@
+---
+name: tkv2-webauthn
+backends: [int, js]
+---
+
+# Toolkit v2 WebAuthn action API smoke.
+
+The real browser ceremony needs a user gesture and a real/stubbed
+`navigator.credentials`; unit coverage exercises that runtime path. This
+conformance case keeps the public `.ssc` API importable and constructible on the
+portable lanes.
+
+[signal](std/ui/primitives.ssc)
+[webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
+
+```scalascript
+val result = signal("waResult", "")
+val error  = signal("waError", "")
+
+val register = webauthnRegister("/webauthn/enrol/begin", "/webauthn/enrol/complete",
+  "ScalaScript demo", result, error)
+val assertPasskey = webauthnAssert("/webauthn/signin/begin", "/webauthn/signin/complete",
+  result, error)
+
+println("webauthn-actions:" + (result() == "") + ":" + (error() == ""))
+```

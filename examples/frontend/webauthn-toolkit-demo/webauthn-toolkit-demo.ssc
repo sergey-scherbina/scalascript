@@ -1,0 +1,119 @@
+#!/usr/bin/env ssc
+---
+name: webauthn-toolkit-demo
+version: 1.0.0
+description: Passkey enrol/sign-in buttons using std/ui WebAuthn actions.
+frontend: custom
+---
+
+# WebAuthn toolkit demo
+
+A browser passkey demo without inline JavaScript. Server routes issue
+challenges and verify responses with `std/auth.ssc`; UI buttons call the
+browser `navigator.credentials.create/get` APIs through
+`std/ui/webauthn.ssc`.
+
+Run:
+
+```bash
+bin/ssc examples/frontend/webauthn-toolkit-demo/webauthn-toolkit-demo.ssc
+# open http://localhost:8781/
+```
+
+[route, Response](std/http.ssc)
+[webauthnChallenge, webauthnStorePut, webauthnStoreGet, webauthnVerifyRegistration, webauthnVerifyAssertion](std/auth.ssc)
+[signal, serve](std/ui/primitives.ssc)
+[webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
+[vstack, hstack, divider](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[actionButton](std/ui/input.ssc)
+[signalText_](std/ui/reactive.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val USER_ID = "demo-user"
+val ORIGIN  = "http://localhost:8781"
+
+def jsonEscape(value: String): String =
+  value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+def jsonField(json: String, key: String): Option[String] =
+  val needle = "\"" + key + "\""
+  val ki = json.indexOf(needle)
+  if ki < 0 then None
+  else
+    val rest = json.substring(ki + needle.length).dropWhile(_ != '"')
+    if rest.isEmpty then None
+    else Some(rest.drop(1).takeWhile(_ != '"'))
+
+route("POST", "/webauthn/enrol/begin") { req =>
+  val ch = webauthnChallenge(USER_ID)
+  Response.text(
+    "{\"challenge\":\"" + jsonEscape(ch) + "\"," +
+    "\"userId\":\"" + jsonEscape(USER_ID) + "\"," +
+    "\"displayName\":\"Demo user\"}")
+}
+
+route("POST", "/webauthn/enrol/complete") { req =>
+  val cd  = jsonField(req.body, "clientDataJSON").getOrElse("")
+  val att = jsonField(req.body, "attestationObject").getOrElse("")
+  webauthnVerifyRegistration(cd, att, ORIGIN) match
+    case None => Response.status(400, "registration failed")
+    case Some(r) =>
+      webauthnStorePut(r("userId").toString, r("credentialId").toString,
+        r("publicKey").toString, r("signCount").toString.toInt)
+      Response.text("enrolled credential " + r("credentialId").toString)
+}
+
+route("POST", "/webauthn/signin/begin") { req =>
+  val ch = webauthnChallenge(USER_ID)
+  val allow = webauthnStoreGet(USER_ID)
+    .map(c => "\"" + jsonEscape(c("credentialId").toString) + "\"")
+    .mkString("[", ",", "]")
+  Response.text(
+    "{\"challenge\":\"" + jsonEscape(ch) + "\"," +
+    "\"allowCredentials\":" + allow + "}")
+}
+
+route("POST", "/webauthn/signin/complete") { req =>
+  val cd  = jsonField(req.body, "clientDataJSON").getOrElse("")
+  val ad  = jsonField(req.body, "authenticatorData").getOrElse("")
+  val sig = jsonField(req.body, "signature").getOrElse("")
+  val cid = jsonField(req.body, "credentialId").getOrElse("")
+  webauthnVerifyAssertion(cd, ad, sig, cid, ORIGIN) match
+    case None => Response.status(401, "signature mismatch")
+    case Some(a) => Response.text("signed in; signCount=" + a("signCount").toString)
+}
+
+val regResult = signal("waRegResult", "")
+val regError  = signal("waRegError", "")
+val sigResult = signal("waSigResult", "")
+val sigError  = signal("waSigError", "")
+
+val tree = vstack(gap = 14)(
+  heading(1, "WebAuthn passkeys"),
+  text("Use a platform authenticator or security key. Passkeys require localhost or HTTPS."),
+  divider(),
+  heading(2, "Enrol"),
+  actionButton(
+    webauthnRegister("/webauthn/enrol/begin", "/webauthn/enrol/complete",
+      "ScalaScript WebAuthn demo", regResult, regError),
+    "Enrol passkey"),
+  hstack(gap = 8)(text("Result:"), signalText_(regResult)),
+  hstack(gap = 8)(text("Error:"), signalText_(regError)),
+  divider(),
+  heading(2, "Sign in"),
+  actionButton(
+    webauthnAssert("/webauthn/signin/begin", "/webauthn/signin/complete",
+      sigResult, sigError),
+    "Sign in with passkey"),
+  hstack(gap = 8)(text("Result:"), signalText_(sigResult)),
+  hstack(gap = 8)(text("Error:"), signalText_(sigError))
+)
+
+println("WebAuthn toolkit demo - http://localhost:8781/")
+println("(open in a browser; passkeys need localhost-or-HTTPS and a real authenticator)")
+
+serve(lower(tree, defaultTheme), 8781)
+```

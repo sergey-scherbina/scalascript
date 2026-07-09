@@ -187,6 +187,172 @@ function _ssc_ui_persistedSignal(name, def) {
   return sig;
 }
 
+// ── std/ui/webauthn.ssc externs (tkv2-webauthn) ──────────────────────────
+// Browser: real navigator.credentials ceremony. Node/off-browser: handlers
+// are constructible, but click writes a clear unsupported error.
+function _ssc_wa_bytes(input) {
+  if (input == null) return new Uint8Array(0);
+  if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  if (Array.isArray(input)) return new Uint8Array(input);
+  return new Uint8Array(0);
+}
+function _ssc_wa_b64uEncode(input) {
+  const bytes = _ssc_wa_bytes(input);
+  let b64 = '';
+  if (typeof btoa === 'function') {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    b64 = btoa(bin);
+  } else if (typeof Buffer !== 'undefined') {
+    b64 = Buffer.from(bytes).toString('base64');
+  } else {
+    throw new Error('base64url encode is not available');
+  }
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+function _ssc_wa_b64uDecode(s) {
+  const raw = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = raw + '='.repeat((4 - (raw.length % 4)) % 4);
+  if (typeof atob === 'function') {
+    const bin = atob(padded);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(padded, 'base64'));
+  throw new Error('base64url decode is not available');
+}
+function _ssc_wa_utf8(s) {
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(String(s || ''));
+  const raw = unescape(encodeURIComponent(String(s || '')));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+function _ssc_wa_parseHeaders(raw) {
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(String(raw));
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : undefined;
+  } catch (_e) { return undefined; }
+}
+function _ssc_wa_headers(action, sv) {
+  if (action && action.headersId) return _ssc_wa_parseHeaders(sv && sv[String(action.headersId)]);
+  if (action && action.headers && typeof action.headers.get === 'function') return _ssc_wa_parseHeaders(action.headers.get());
+  return undefined;
+}
+function _ssc_wa_jsonHeaders(headers) {
+  const out = Object.assign({}, headers || {});
+  const hasCt = Object.keys(out).some(k => String(k).toLowerCase() === 'content-type');
+  if (!hasCt) out['Content-Type'] = 'application/json';
+  return out;
+}
+function _ssc_wa_allowCredentials(raw) {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch (_e) { value = []; }
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map(function(id) {
+    return { type: 'public-key', id: _ssc_wa_b64uDecode(id) };
+  });
+}
+function _ssc_wa_msg(e) {
+  if (!e) return 'WebAuthn failed';
+  return e.message ? String(e.message) : String(e);
+}
+function _ssc_wa_creds() {
+  const nav = (typeof navigator !== 'undefined') ? navigator : (globalThis && globalThis.navigator);
+  return nav && nav.credentials ? nav.credentials : null;
+}
+async function _ssc_wa_begin(url, headers) {
+  if (typeof fetch !== 'function') throw new Error('fetch is not available');
+  const r = await fetch(url, { method: 'POST', headers: headers || undefined });
+  const text = await r.text();
+  if (!r.ok) throw new Error('begin failed: ' + r.status + (text ? ' ' + text : ''));
+  try { return JSON.parse(text || '{}'); }
+  catch (_e) { throw new Error('begin response is not JSON'); }
+}
+async function _ssc_wa_complete(url, body, headers) {
+  if (typeof fetch !== 'function') throw new Error('fetch is not available');
+  const r = await fetch(url, { method: 'POST', headers: _ssc_wa_jsonHeaders(headers), body: JSON.stringify(body) });
+  const text = await r.text();
+  if (!r.ok) throw new Error('complete failed: ' + r.status + (text ? ' ' + text : ''));
+  return text == null ? '' : String(text);
+}
+function _ssc_wa_set(action, which, setFn, value) {
+  const sig = action && action[which];
+  const id = action && action[which + 'Id'];
+  if (id != null && id !== '' && typeof setFn === 'function') { setFn(String(id), value); return; }
+  if (sig && typeof sig.set === 'function') sig.set(value);
+}
+async function _ssc_ui_runWebAuthnAction(action, setFn, sv) {
+  try {
+    const kind = action && action.kind;
+    const creds = _ssc_wa_creds();
+    if (!creds || (kind === 'register' && typeof creds.create !== 'function') ||
+        (kind === 'assert' && typeof creds.get !== 'function')) {
+      throw new Error('WebAuthn is only available in a browser');
+    }
+    const headers = _ssc_wa_headers(action, sv);
+    _ssc_wa_set(action, 'error', setFn, '');
+    const options = await _ssc_wa_begin(action.beginUrl, headers);
+    const challenge = _ssc_wa_b64uDecode(options.challenge || '');
+    const timeout = action.timeoutMs == null ? 60000 : Number(action.timeoutMs);
+    const uv = action.userVerification || 'preferred';
+    let text = '';
+    if (kind === 'register') {
+      const userId = String(options.userId || '');
+      if (!options.challenge || !userId) throw new Error('begin response requires challenge and userId');
+      const cred = await creds.create({ publicKey: {
+        challenge,
+        rp: { name: String(options.rpName || action.rpName || 'ScalaScript') },
+        user: {
+          id: _ssc_wa_utf8(userId),
+          name: String(options.userName || userId),
+          displayName: String(options.displayName || options.userName || userId),
+        },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: { userVerification: uv },
+        attestation: 'none',
+        timeout,
+      }});
+      text = await _ssc_wa_complete(action.completeUrl, {
+        clientDataJSON: _ssc_wa_b64uEncode(cred && cred.response && cred.response.clientDataJSON),
+        attestationObject: _ssc_wa_b64uEncode(cred && cred.response && cred.response.attestationObject),
+      }, headers);
+    } else {
+      const assertion = await creds.get({ publicKey: {
+        challenge,
+        allowCredentials: _ssc_wa_allowCredentials(options.allowCredentials || []),
+        userVerification: uv,
+        timeout,
+      }});
+      text = await _ssc_wa_complete(action.completeUrl, {
+        clientDataJSON: _ssc_wa_b64uEncode(assertion && assertion.response && assertion.response.clientDataJSON),
+        authenticatorData: _ssc_wa_b64uEncode(assertion && assertion.response && assertion.response.authenticatorData),
+        signature: _ssc_wa_b64uEncode(assertion && assertion.response && assertion.response.signature),
+        credentialId: _ssc_wa_b64uEncode(assertion && assertion.rawId),
+      }, headers);
+    }
+    _ssc_wa_set(action, 'result', setFn, text);
+    _ssc_wa_set(action, 'error', setFn, '');
+  } catch (e) {
+    _ssc_wa_set(action, 'error', setFn, _ssc_wa_msg(e));
+  }
+}
+function _ssc_ui_webauthnRegister(beginUrl, completeUrl, rpName, result, error, headers, timeoutMs, userVerification) {
+  return { _type: '_WebAuthnRegister', kind: 'register', beginUrl, completeUrl, rpName, result, error,
+    headers: headers || null, timeoutMs: timeoutMs == null ? 60000 : timeoutMs, userVerification: userVerification || 'preferred' };
+}
+function _ssc_ui_webauthnAssert(beginUrl, completeUrl, result, error, headers, timeoutMs, userVerification) {
+  return { _type: '_WebAuthnAssert', kind: 'assert', beginUrl, completeUrl, result, error,
+    headers: headers || null, timeoutMs: timeoutMs == null ? 60000 : timeoutMs, userVerification: userVerification || 'preferred' };
+}
+
 function _ssc_ui_element(tag, attrs, events, children) {
   return { _type: '_Element', tag,
     attrs: (_isMap(attrs)) ? Object.fromEntries(attrs) : (attrs || {}),
@@ -365,6 +531,19 @@ function _ssc_ui_renderBody(view) {
               }).filter(function(x) { return x; });
               if (effs.length) aStr += ` data-ssc-fetch-onsuccess="${_esc(JSON.stringify(effs))}"`;
             }
+          } else if (h._type === '_WebAuthnRegister' || h._type === '_WebAuthnAssert') {
+            if (h.result) collectSig(h.result);
+            if (h.error) collectSig(h.error);
+            if (h.headers) collectSig(h.headers);
+            const rId = (h.result && h.result.id != null) ? String(h.result.id) : '';
+            const eId = (h.error && h.error.id != null) ? String(h.error.id) : '';
+            const hId = (h.headers && h.headers.id != null) ? String(h.headers.id) : '';
+            aStr += ` data-ssc-webauthn="${h.kind === 'assert' ? 'assert' : 'register'}"`;
+            aStr += ` data-ssc-webauthn-begin="${_esc(h.beginUrl || '')}" data-ssc-webauthn-complete="${_esc(h.completeUrl || '')}"`;
+            aStr += ` data-ssc-webauthn-rp="${_esc(h.rpName || '')}" data-ssc-webauthn-result="${_esc(rId)}" data-ssc-webauthn-error="${_esc(eId)}"`;
+            if (hId) aStr += ` data-ssc-webauthn-headers="${_esc(hId)}"`;
+            aStr += ` data-ssc-webauthn-timeout="${_esc(String(h.timeoutMs == null ? 60000 : h.timeoutMs))}"`;
+            aStr += ` data-ssc-webauthn-uv="${_esc(h.userVerification || 'preferred')}"`;
           }
         }
         const kids = (v.children || []).map(walk).join('');
@@ -574,6 +753,24 @@ function _ssc_ui_mount(sigs, keyedRoots) {
     if (el.setAttribute) el.setAttribute(attr, '1');
     return false;
   }
+  function _mountWebAuthn(scope) {
+    _qsa(scope, '[data-ssc-webauthn]').forEach(function(el) {
+      if (_bound(el, 'webauthn')) return;
+      el.addEventListener('click', function() {
+        _ssc_ui_runWebAuthnAction({
+          kind: el.getAttribute('data-ssc-webauthn') || 'register',
+          beginUrl: el.getAttribute('data-ssc-webauthn-begin') || '',
+          completeUrl: el.getAttribute('data-ssc-webauthn-complete') || '',
+          rpName: el.getAttribute('data-ssc-webauthn-rp') || '',
+          resultId: el.getAttribute('data-ssc-webauthn-result') || '',
+          errorId: el.getAttribute('data-ssc-webauthn-error') || '',
+          headersId: el.getAttribute('data-ssc-webauthn-headers') || '',
+          timeoutMs: parseInt(el.getAttribute('data-ssc-webauthn-timeout') || '60000', 10) || 60000,
+          userVerification: el.getAttribute('data-ssc-webauthn-uv') || 'preferred',
+        }, _set, _sv);
+      });
+    });
+  }
   function _bindScope(scope, rowSigs, rowKeyed) {
     _mergeSigs(rowSigs);
     _qsa(scope, '[data-ssc-cond]').forEach(function(el) {
@@ -655,9 +852,10 @@ function _ssc_ui_mount(sigs, keyedRoots) {
             if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1);
             if (clear && bodyId) _set(bodyId, '');
             _ssc_ui_runOnSuccess(onSuccessRaw, ok, _set, _sv, text);
-          });
+        });
       });
     });
+    _mountWebAuthn(scope);
     _qsa(scope, '[data-ssc-fetch-get-url]').forEach(function(el) {
       if (_bound(el, 'fetch-get')) return;
       var sigId     = el.getAttribute('data-ssc-text');
@@ -819,6 +1017,7 @@ function _ssc_ui_mount(sigs, keyedRoots) {
         });
     });
   });
+  _mountWebAuthn(document);
   // DataTable — generalised fetch-backed table with columns + actions
   document.querySelectorAll('[data-ssc-datatable]').forEach(function(container) {
     var sigId      = container.getAttribute('data-ssc-datatable');

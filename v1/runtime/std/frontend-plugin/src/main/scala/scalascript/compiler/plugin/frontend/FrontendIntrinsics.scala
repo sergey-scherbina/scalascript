@@ -216,6 +216,32 @@ object FrontendIntrinsics:
         case _ => PluginError.raise("persistedSignal(name, default)")
     },
 
+    // ── WebAuthn browser actions (std/ui/webauthn.ssc) ───────────────────
+    // Off-browser fallback: construct an EventHandler so static rendering and
+    // interpreter tests can build the view tree. Invoking it reports a clear
+    // unavailable error instead of pretending a passkey ceremony happened.
+    QualifiedName("webauthnRegister") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case (_: String) :: (_: String) :: (_: String) ::
+             Foreign("ReactiveSignal", _: ReactiveSignal[?]) ::
+             Foreign("ReactiveSignal", err: ReactiveSignal[?]) :: _ =>
+          PluginValue.foreign("EventHandler", EventHandler.Simple(() =>
+            err.asInstanceOf[ReactiveSignal[String]].set("WebAuthn is only available in a browser")))
+        case _ => PluginError.raise(
+          "webauthnRegister(beginUrl, completeUrl, rpName, result, error[, headers, timeoutMs, userVerification])")
+    },
+
+    QualifiedName("webauthnAssert") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case (_: String) :: (_: String) ::
+             Foreign("ReactiveSignal", _: ReactiveSignal[?]) ::
+             Foreign("ReactiveSignal", err: ReactiveSignal[?]) :: _ =>
+          PluginValue.foreign("EventHandler", EventHandler.Simple(() =>
+            err.asInstanceOf[ReactiveSignal[String]].set("WebAuthn is only available in a browser")))
+        case _ => PluginError.raise(
+          "webauthnAssert(beginUrl, completeUrl, result, error[, headers, timeoutMs, userVerification])")
+    },
+
     // ── computedSignal(f: () => String): Signal[String] ───────────────────────
     // JVM: evaluates f() once for the static initial value.
     // JS emitter wires "__computed__N" to a computed() ref that re-runs f reactively.

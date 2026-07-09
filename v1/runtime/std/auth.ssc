@@ -88,11 +88,13 @@ extern def webauthnChallenge(userId: String): String
 extern def webauthnConsumeChallenge(userId: String): Option[String]
 extern def webauthnStorePut(userId: String, credentialId: String, publicKey: String, signCount: Int): Unit
 extern def webauthnStoreGet(userId: String): List[Any]
-extern def webauthnStoreFind(credentialId: String): Option[Any]
+extern def webauthnStoreFind(userId: String, credentialId: String): Option[Any]
 extern def webauthnStoreRemove(userId: String): Boolean
-extern def webauthnUpdateSignCount(credentialId: String, newCount: Int): Unit
-extern def webauthnVerifyRegistration(userId: String, challenge: String, responseJson: String): Any
-extern def webauthnVerifyAssertion(challenge: String, credentialJson: String, responseJson: String): Boolean
+extern def webauthnUpdateSignCount(userId: String, credentialId: String, newSignCount: Int): Boolean
+extern def webauthnVerifyRegistration(clientDataJSONb64: String, attestationObjectB64: String, expectedOrigin: String): Option[Any]
+extern def webauthnVerifyAssertion(clientDataJSONb64: String, authenticatorDataB64: String,
+                                   signatureB64: String, credentialIdB64: String,
+                                   expectedOrigin: String): Option[Any]
 
 // Simple OAuth 2.0 client helpers (provider-agnostic)
 extern def oauthAuthorizeUrl(provider: String, clientId: String, redirectUri: String, state: String): String

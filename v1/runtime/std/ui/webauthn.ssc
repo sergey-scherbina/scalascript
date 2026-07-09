@@ -1,0 +1,41 @@
+---
+name: ui-webauthn
+version: 1.0.0
+description: Browser passkey actions for std/ui - WebAuthn register/assert buttons over navigator.credentials.
+package: std.ui.webauthn
+exports:
+  - webauthnRegister
+  - webauthnAssert
+---
+
+# `std.ui.webauthn` - passkey browser actions
+
+Browser-side passkey helpers for toolkit v2. Each function returns an
+`EventHandler` suitable for `actionButton(...)`: on click it POSTs a begin
+endpoint, invokes `navigator.credentials.create` / `get`, POSTs the encoded
+browser response to a complete endpoint, then writes either the server response
+body or a concise error into signals.
+
+The server verifier stays in `std/auth.ssc` (`webauthnChallenge`,
+`webauthnVerifyRegistration`, `webauthnVerifyAssertion`, and store helpers).
+
+[Signal, EventHandler, emptyHeaders](primitives.ssc)
+
+```scalascript
+extern def webauthnRegister(beginUrl: String,
+                            completeUrl: String,
+                            rpName: String,
+                            result: Signal[String],
+                            error: Signal[String],
+                            headers: Signal[String] = emptyHeaders,
+                            timeoutMs: Int = 60000,
+                            userVerification: String = "preferred"): EventHandler
+
+extern def webauthnAssert(beginUrl: String,
+                          completeUrl: String,
+                          result: Signal[String],
+                          error: Signal[String],
+                          headers: Signal[String] = emptyHeaders,
+                          timeoutMs: Int = 60000,
+                          userVerification: String = "preferred"): EventHandler
+```
