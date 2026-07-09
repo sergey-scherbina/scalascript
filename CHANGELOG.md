@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — JS flat bundles rename runtime-colliding declarations
+
+Closed the remaining `jsgen-toplevel-name-vs-preamble` class. Flat JS bundle
+generation now renames runtime-colliding top-level `def`, extern stubs,
+objects, case classes, enum companions/cases, named givens, and import aliases
+using the same derived runtime-name set already used for `val`/`var`. Gates:
+`JsGenStdImportTest` 49/49, conformance `litdoc` INT/JS/JVM, and conformance
+`mcp-types` INT/JS.
+
 ## 2026-07-09 — scjvm cache bug ledger duplicate closed
 
 Closed the older `scjvm-artifact-cache-ignores-compiler-version` BUGS entry as

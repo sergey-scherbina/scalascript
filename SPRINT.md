@@ -9,10 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **jsgen-preamble-collision-decls** — close the remaining actionable
+- [x] **jsgen-preamble-collision-decls** — DONE 2026-07-09 in `854a87f1b`:
+      closed the remaining actionable `jsgen-toplevel-name-vs-preamble` bug
+      class for flat JS bundles. JsGen now applies the derived runtime
+      top-level rename map to non-`val`/`var` declarations too: `def`, `@js` /
+      `@jvm` extern stubs, `object`, case class constructors, enum
+      companions/cases, explicit named givens, and import aliases. Direct
+      function-call fast paths now call the emitted JS name while effect/TCO
+      analysis still uses the original source name. Object collisions now emit
+      a renamed binding instead of `Object.assign(scope, ...)` against a
+      runtime helper. Guards: `backendInterpreter/testOnly
+      scalascript.JsGenStdImportTest` (49/49), conformance `litdoc`
+      (INT/JS/JVM), and conformance `mcp-types` (INT/JS; JVM skipped by
+      fixture).
+      Original scope:
+      close the remaining actionable
       `jsgen-toplevel-name-vs-preamble` production bug class after
       `v2-litdoc-js-jvm-backend-lanes` fixed top-level `val`/`var` collisions.
-      BUGS entry still open because other top-level declaration forms were not
+      BUGS entry was still open because other top-level declaration forms were not
       audited. Scope: inspect `runtime/backend/js` generator naming/lowering for
       user top-level `def`, object/enum/class-like declarations, and std extern
       declarations that may collide with JS runtime/preamble globals such as

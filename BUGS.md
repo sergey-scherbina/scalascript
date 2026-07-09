@@ -2233,32 +2233,41 @@ same launcher; every fail was a real engine gap). One entry per cause:
   - `ksef.ssc` ✅ (syntax) — the duplicate global `const readFile` is gone: the std/fs file-ops (`readFile`/`writeFile`/`exists`/… 14 names) are extern decls whose real impl is the preamble (`JsRuntimeFs`), so they're seeded into `declaredBindings` and never re-emitted as a colliding top-level `const`. `node --check` now passes. This closes the std/fs subset of the `jsgen-toplevel-name-vs-preamble` (#5) class.
 - **New frontier exposed (next):** `ksef.ssc`/`inbox.ssc`/`repo*` now reach runtime and hit `ReferenceError: nowMillis is not defined` / `not callable: ()` — the `nowMillis` clock capability (`JsCapabilities`: `QualifiedName("nowMillis") -> RuntimeCall("Date.now")`) is wired on the JIT path but not emitted into the raw `emit-js` preamble; `auth.ssc` hits a similar crypto-capability gap. **This overlaps the active `core-min-clock-env-migrate` (Clock/Env→plugin) work and is left for that stream / a follow-up.** Standalone emit-js+node sweep: **85/113 conformance + 13/21 busi v2 domain files** pass; the rest are clock/crypto capability gaps + infra (actors/cluster/distributed/sql).
 
-## jsgen-toplevel-name-vs-preamble — `open` (2026-06-22)
+## jsgen-toplevel-name-vs-preamble — `fixed` (2026-06-22)
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #5 of 5 in `src/v2/specs/lf-1-browser-bundle.md`.
 - **Symptom:** a top-level user binding named exactly like a preamble helper (e.g. `val scope = …` vs the runtime's user-facing `function scope(scopeName)` for CSS scoping, SPEC §8.4) emits a colliding top-level `const scope = …` → `SyntaxError: Identifier 'scope' has already been declared` under `node --check`. Other preamble names (`doc`, `escape`, `assert`, `List`, `Decimal`, …) can collide the same way.
 - **Additional repro (2026-07-07):** `scripts/conformance -- --only mcp-types`
   passes INT but JS fails before printing anything because
   `tests/conformance/mcp-types.ssc` used `val args = ...`, colliding with the
-  JS preamble's `function args()` from `std/os`. The conformance fixture should
-  avoid this unrelated known bug (`mcpArgs`), while the general name-mangling
-  fix remains open here. Fixture workaround landed in `2e1f2c287`; the broad
-  top-level user-binding rename is still open.
+  JS preamble's `function args()` from `std/os`. The conformance fixture
+  workaround landed in `2e1f2c287` (`mcpArgs`); the broad top-level
+  name-mangling fix is now covered by this entry.
 - **Additional repro (2026-07-09):** after enabling an expected file for
   `tests/conformance/litdoc.ssc`, `bin/ssc emit-js tests/conformance/litdoc.ssc
-  | node` fails with `SyntaxError: Identifier 'doc' has already been declared`
+  | node` failed with `SyntaxError: Identifier 'doc' has already been declared`
   because the fixture has top-level `val doc = parseDoc(md)`, colliding with the
-  JS preamble surface. `litdoc.ssc` is therefore marked `backends: [int]` until
-  the general name-mangling fix lands.
+  JS preamble surface.
 - **Fixed subset (2026-07-09, `782f07438`):** JS generation now derives the
   runtime top-level declaration set and renames colliding user top-level
   `val`/`var` bindings plus normal references. This fixes the litdoc `val doc`
   repro and is guarded by `JsGenStdImportTest` plus
-  `tests/conformance/run.sh --only 'litdoc' --no-memo`. The broader entry stays
-  `open` until non-`val`/`var` top-level declaration forms are audited or
-  deliberately scoped out.
-- **Workaround (documented in the lf-1 spec):** name the top-level binding something the preamble doesn't define (e.g. `lfScope`). Low frequency.
-- **Fix sketch (deferred):** a robust fix needs the set of names the (capability-gated) preamble declares; emit a colliding top-level user binding under a renamed identifier (propagating references) or as a shadow. There is a curated `preambleConsts = Set("Console","attr","scope")` in JsGen used today only for *object* declarations (via `Object.assign`); it would need to cover `val`/`def`/`enum` and the full preamble surface. Left as a documented limitation pending the dedicated effort.
+  `tests/conformance/run.sh --only 'litdoc' --no-memo`. This left
+  non-`val`/`var` declaration forms for the follow-up fixed below.
+- **Fixed remainder (2026-07-09, `854a87f1b`):** top-level JS collision
+  handling now covers user/import bindings that actually emit flat-scope JS:
+  `def`, `@js`/`@jvm` extern stubs, `object`, case class constructors, enum
+  companions/cases, explicit named givens, and import aliases. Emission and
+  call sites share the same `emittedName` map; recursive/effect/TCO analysis
+  still keys off original source names. Object collisions now create a renamed
+  binding instead of mutating the runtime helper with `Object.assign(scope, ...)`.
+- **Root cause:** the first fix only renamed `val`/`var`; other declaration
+  emitters and several direct call-site fast paths still used the source name,
+  so a renamed `def doc` declaration would still call the runtime `doc(...)`.
+- **Guards:** `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest"`
+  (49/49), `tests/conformance/run.sh --only 'litdoc' --no-memo` (INT/JS/JVM),
+  and `tests/conformance/run.sh --only 'mcp-types' --no-memo` (INT/JS; JVM
+  intentionally skipped by fixture frontmatter).
 
 ## jsgen-fn-typed-field-autoinvoke — `fixed` (2026-06-22)
 
