@@ -217,6 +217,7 @@ import scala.collection.mutable
 
 type V = Any
 type Fn = Array[V] => V
+private final case class _TcoJump(fid: Int, args: Array[V])
 
 // ADT helper: (tag, fields) tuple
 private def _mkAdt(tag: String, fields: Array[V]): V = (tag, fields)
@@ -580,6 +581,67 @@ object R:
     val positions = localTailPositions(selfIdx, lamBody, true)
     positions.nonEmpty && positions.forall(identity)
 
+  private final case class GroupCall(offset: Int, argsLen: Int, isTail: Boolean)
+
+  private def localGroupCalls(startIdx: Int, size: Int, t: Term, isTail: Boolean): List[GroupCall] =
+    import Term.*
+    def inGroup(i: Int): Boolean = i >= startIdx && i < startIdx + size
+    t match
+      case App(Local(i), args) if inGroup(i) =>
+        GroupCall(i - startIdx, args.length, isTail) ::
+          args.flatMap(a => localGroupCalls(startIdx, size, a, false))
+      case App(fn, args) =>
+        localGroupCalls(startIdx, size, fn, false) ++ args.flatMap(a => localGroupCalls(startIdx, size, a, false))
+      case Local(_) | Global(_) | Lit(_) => Nil
+      case Lam(arity, body) => localGroupCalls(startIdx + arity, size, body, false)
+      case If(c, th, el) =>
+        localGroupCalls(startIdx, size, c, false) ++
+        localGroupCalls(startIdx, size, th, isTail) ++
+        localGroupCalls(startIdx, size, el, isTail)
+      case Let(rhs, body) =>
+        rhs.flatMap(r => localGroupCalls(startIdx, size, r, false)) ++
+        localGroupCalls(startIdx + rhs.length, size, body, isTail)
+      case LetRec(lams, body) =>
+        lams.flatMap {
+          case Lam(arity, lamBody) => localGroupCalls(startIdx + arity + lams.length, size, lamBody, false)
+          case other              => localGroupCalls(startIdx + lams.length, size, other, false)
+        } ++ localGroupCalls(startIdx + lams.length, size, body, isTail)
+      case Seq(ts) if ts.nonEmpty =>
+        ts.init.flatMap(t2 => localGroupCalls(startIdx, size, t2, false)) ++
+        localGroupCalls(startIdx, size, ts.last, isTail)
+      case Seq(_) => Nil
+      case Match(scrut, arms, default) =>
+        localGroupCalls(startIdx, size, scrut, false) ++
+        arms.flatMap(a => localGroupCalls(startIdx + a.arity, size, a.body, isTail)) ++
+        default.toList.flatMap(d => localGroupCalls(startIdx, size, d, isTail))
+      case Prim(_, args) => args.flatMap(a => localGroupCalls(startIdx, size, a, false))
+      case Ctor(_, fields) => fields.flatMap(f => localGroupCalls(startIdx, size, f, false))
+      case While(cond, body) =>
+        localGroupCalls(startIdx, size, cond, false) ++ localGroupCalls(startIdx, size, body, false)
+
+  private def isSafeMutualTailRecGroup(lams: List[Term]): Option[List[(Int, Term)]] =
+    if lams.length <= 1 then None
+    else
+      val infos = lams.map {
+        case Lam(arity, body) if arity > 0 => Some((arity, body))
+        case _ => None
+      }
+      if infos.exists(_.isEmpty) then None
+      else
+        val lamInfos = infos.flatten
+        val arities = lamInfos.map(_._1)
+        val calls = lamInfos.flatMap { case (arity, body) =>
+          localGroupCalls(arity, lams.length, body, true)
+        }
+        val ok = calls.nonEmpty && calls.forall { call =>
+          val targetFid = lams.length - 1 - call.offset
+          call.isTail && targetFid >= 0 && targetFid < arities.length && call.argsLen == arities(targetFid)
+        }
+        if ok then Some(lamInfos) else None
+
+  private def shiftLocalMap[A](m: Map[Int, A], by: Int): Map[Int, A] =
+    if by == 0 || m.isEmpty then m else m.map { case (k, v) => (k + by, v) }
+
   // ── Code generator: Term → Scala 3 expression string ─────────────────────────
 
   // Returns true if term is statically known to produce a Long (unboxed).
@@ -621,7 +683,9 @@ object R:
   def genTerm(t: Term, scope: List[String],
               directDefs: Map[String, Int] = Map.empty,
               directLocals: Map[Int, (String, Int)] = Map.empty,
-              longVars: Set[String] = Set.empty): String =
+              longVars: Set[String] = Set.empty,
+              tailLocalJumps: Map[Int, (Int, Int)] = Map.empty,
+              isTailPosition: Boolean = false): String =
     import Term.*
     t match
       case Lit(c)       => genConst(c)
@@ -649,17 +713,31 @@ object R:
       case App(fn, args) =>
         // Check for direct-callable global
         fn match
+          case Local(i) if isTailPosition && tailLocalJumps.contains(i) =>
+            val (fid, arity) = tailLocalJumps(i)
+            if args.length == arity then
+              val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
+              s"_TcoJump($fid, Array[V]($args_s))"
+            else
+              val fn_s = genTerm(fn, scope, directDefs, directLocals, longVars, tailLocalJumps, false)
+              val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
+              val n = args.length
+              if n == 0 then s"_call0($fn_s)"
+              else if n == 1 then s"_call1($fn_s, $args_s)"
+              else if n == 2 then s"_call2($fn_s, $args_s)"
+              else if n == 3 then s"_call3($fn_s, $args_s)"
+              else s"_call($fn_s, Array($args_s))"
           case Global(name) if directDefs.contains(name) =>
             val sn = safeName(name)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
             s"${sn}_direct($args_s)"
           case Local(i) if directLocals.contains(i) =>
             val (dname, _) = directLocals(i)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
             s"${dname}_direct($args_s)"
           case _ =>
-            val fn_s = genTerm(fn, scope, directDefs, directLocals, longVars)
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+            val fn_s = genTerm(fn, scope, directDefs, directLocals, longVars, tailLocalJumps, false)
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
             val n = args.length
             if n == 0 then s"_call0($fn_s)"
             else if n == 1 then s"_call1($fn_s, $args_s)"
@@ -684,7 +762,7 @@ object R:
               parts.append(s"var $name: Long = ${v}L; ")
               curLongs = curLongs + name
             case r =>
-              val rhs_s = genTerm(r, curScope, directDefs, curLocals, curLongs)
+              val rhs_s = genTerm(r, curScope, directDefs, curLocals, curLongs, tailLocalJumps, false)
               parts.append(s"val $name: V = $rhs_s; ")
           curScope = name :: curScope
           curLocals = curLocals.map { case (idx, v) => (idx + 1, v) }
@@ -692,8 +770,9 @@ object R:
         }
         // body scope: [l{n-1}_d, ..., l0_d] ++ outer (lnames.reverse = [l{n-1}, ..., l0])
         val bodyScope = lnames.reverse.toList ++ scope
-        val bodyLocals = directLocals.map { case (idx, v) => (idx + n, v) }
-        val body_s = genTerm(body, bodyScope, directDefs, bodyLocals, curLongs)
+        val bodyLocals = shiftLocalMap(directLocals, n)
+        val bodyJumps = shiftLocalMap(tailLocalJumps, n)
+        val body_s = genTerm(body, bodyScope, directDefs, bodyLocals, curLongs, bodyJumps, isTailPosition)
         s"{ ${parts.toString}$body_s }"
 
       case LetRec(lams, body) =>
@@ -735,48 +814,81 @@ object R:
             val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_aw$ld($k)" }.mkString(", ")
             sb.append(s"var $rn: V = ((_aw$ld: Array[V]) => ${rn}_direct($wrapArgs)): V; ")
             val bodyLocals = directLocals.map { case (k, v) => (k + 1, v) }
-            val body2_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars)
+            val bodyJumps = shiftLocalMap(tailLocalJumps, 1)
+            val body2_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars, bodyJumps, isTailPosition)
             s"{ ${sb.toString}$body2_s }"
 
           case None =>
-            // Standard LetRec: var bindings for mutual recursion
-            rnames.foreach { rn => sb.append(s"var $rn: V = null.asInstanceOf[V]; ") }
-            lams.zip(rnames).foreach { case (lam, rn) =>
-              lam match
-                case Lam(lamArity, lamBody) =>
+            isSafeMutualTailRecGroup(lams) match
+              case Some(lamInfos) =>
+                rnames.foreach { rn => sb.append(s"var $rn: V = null.asInstanceOf[V]; ") }
+                val dispatcher = s"_mutual_${d}"
+                sb.append(s"def $dispatcher(_fid0: Int, _args0: Array[V]): V = { ")
+                sb.append("var _fid = _fid0; var _args = _args0; var _res: V = null; var _done = false; ")
+                sb.append("while !_done do { val _out: V = _fid match { ")
+                lamInfos.zipWithIndex.foreach { case ((lamArity, lamBody), fid) =>
                   val ld = fresh()
                   val params = (0 until lamArity).map(k => s"p${k}_$ld")
                   val lamBodyScope = params.reverse.toList ++ letrecScope
-                  val innerLocals = directLocals.map { case (k, v) => (k + lamArity + n, v) }
-                  if lamArity == 0 then
-                    val body_s = genTerm(lamBody, letrecScope, directDefs, innerLocals, longVars)
-                    sb.append(s"$rn = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V; ")
-                  else
-                    val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
-                    val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals, longVars)
-                    sb.append(s"$rn = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V; ")
-                case _ => sys.error(s"letrec binding must be a Lam, got: $lam")
-            }
-            val bodyLocals = directLocals.map { case (k, v) => (k + n, v) }
-            val body_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars)
-            s"{ ${sb.toString}$body_s }"
+                  val innerLocals = shiftLocalMap(directLocals, lamArity + n)
+                  val jumpLocals = (0 until n).map { targetFid =>
+                    val localIdx = lamArity + (n - 1 - targetFid)
+                    localIdx -> (targetFid, lamInfos(targetFid)._1)
+                  }.toMap
+                  val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _args($k)" }.mkString("; ")
+                  val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals, longVars, jumpLocals, true)
+                  sb.append(s"case $fid => { $paramBinds; $body_s }; ")
+                }
+                sb.append("""case _ => throw new RuntimeException("bad mutual TCO function id") }; """)
+                sb.append("_out match { case _j: _TcoJump => _fid = _j.fid; _args = _j.args; case _v => _res = _v; _done = true } }; _res }; ")
+                rnames.zipWithIndex.foreach { case (rn, fid) =>
+                  sb.append(s"$rn = ((_a${d}_$fid: Array[V]) => $dispatcher($fid, _a${d}_$fid)): V; ")
+                }
+                val bodyLocals = shiftLocalMap(directLocals, n)
+                val bodyJumps = shiftLocalMap(tailLocalJumps, n)
+                val body_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars, bodyJumps, isTailPosition)
+                s"{ ${sb.toString}$body_s }"
+
+              case None =>
+                // Standard LetRec: var bindings for mutual recursion
+                rnames.foreach { rn => sb.append(s"var $rn: V = null.asInstanceOf[V]; ") }
+                lams.zip(rnames).foreach { case (lam, rn) =>
+                  lam match
+                    case Lam(lamArity, lamBody) =>
+                      val ld = fresh()
+                      val params = (0 until lamArity).map(k => s"p${k}_$ld")
+                      val lamBodyScope = params.reverse.toList ++ letrecScope
+                      val innerLocals = shiftLocalMap(directLocals, lamArity + n)
+                      if lamArity == 0 then
+                        val body_s = genTerm(lamBody, letrecScope, directDefs, innerLocals, longVars)
+                        sb.append(s"$rn = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V; ")
+                      else
+                        val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
+                        val body_s = genTerm(lamBody, lamBodyScope, directDefs, innerLocals, longVars)
+                        sb.append(s"$rn = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V; ")
+                    case _ => sys.error(s"letrec binding must be a Lam, got: $lam")
+                }
+                val bodyLocals = shiftLocalMap(directLocals, n)
+                val bodyJumps = shiftLocalMap(tailLocalJumps, n)
+                val body_s = genTerm(body, letrecScope, directDefs, bodyLocals, longVars, bodyJumps, isTailPosition)
+                s"{ ${sb.toString}$body_s }"
 
       case If(c, th, el) =>
-        val c_s  = genTerm(c,  scope, directDefs, directLocals, longVars)
-        val th_s = genTerm(th, scope, directDefs, directLocals, longVars)
-        val el_s = genTerm(el, scope, directDefs, directLocals, longVars)
+        val c_s  = genTerm(c,  scope, directDefs, directLocals, longVars, tailLocalJumps, false)
+        val th_s = genTerm(th, scope, directDefs, directLocals, longVars, tailLocalJumps, isTailPosition)
+        val el_s = genTerm(el, scope, directDefs, directLocals, longVars, tailLocalJumps, isTailPosition)
         s"(if ($c_s).asInstanceOf[Boolean] then $th_s else $el_s)"
 
       case Ctor(tag, fields) =>
         if fields.isEmpty then
           s"""("$tag", Array.empty[V])"""
         else
-          val fields_s = fields.map(f => genTerm(f, scope, directDefs, directLocals, longVars)).mkString(", ")
+          val fields_s = fields.map(f => genTerm(f, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
           s"""("$tag", Array[V]($fields_s))"""
 
       case Match(scrut, arms, default) =>
         val d = fresh()
-        val scrut_s = genTerm(scrut, scope, directDefs, directLocals, longVars)
+        val scrut_s = genTerm(scrut, scope, directDefs, directLocals, longVars, tailLocalJumps, false)
         val sb = new StringBuilder
         sb.append(s"{ val _sv$d: V = $scrut_s; ")
         sb.append(s"val _st$d: String = _adtTag(_sv$d); val _sf$d: Array[V] = _adtFields(_sv$d); ")
@@ -789,17 +901,18 @@ object R:
           val fnames = (0 until armN).map(k => s"f${k}_$ld")
           val armBodyScope = fnames.reverse.toList ++ scope
           val armLocals = directLocals.map { case (k, v) => (k + armN, v) }
+          val armJumps = shiftLocalMap(tailLocalJumps, armN)
           val fieldBinds = fnames.zipWithIndex.map { case (fn, k) =>
             s"val $fn: V = _sf$d($k)"
           }.mkString("; ")
-          val body_s = genTerm(arm.body, armBodyScope, directDefs, armLocals, longVars)
+          val body_s = genTerm(arm.body, armBodyScope, directDefs, armLocals, longVars, armJumps, isTailPosition)
           val guard = if armN > 0 then s""" && _sf$d.length == $armN""" else s""" && _sf$d.length == 0"""
           s"""if (_st$d == "${arm.tag}"$guard) { $fieldBinds; $body_s }"""
         }
         sb.append(conditions.mkString("\nelse "))
         default match
           case Some(d_term) =>
-            val def_s = genTerm(d_term, scope, directDefs, directLocals, longVars)
+            val def_s = genTerm(d_term, scope, directDefs, directLocals, longVars, tailLocalJumps, isTailPosition)
             sb.append(s"\nelse { $def_s }")
           case None =>
             sb.append(s"""\nelse throw new RuntimeException("match: no arm for " + _st$d)""")
@@ -816,7 +929,7 @@ object R:
             val varName = scope(i)
             val exprStr = if isLongTyped(expr, scope, longVars)
               then genTermAsLong(expr, scope, directDefs, directLocals, longVars)
-              else s"_asLong(${genTerm(expr, scope, directDefs, directLocals, longVars)})"
+              else s"_asLong(${genTerm(expr, scope, directDefs, directLocals, longVars, tailLocalJumps, false)})"
             s"$varName = $exprStr"
           case ("__arith__", List(Lit(Const.CStr(aop)), l, r))
                if isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars) =>
@@ -829,7 +942,7 @@ object R:
           case _ =>
             // Generic fallback
             val n = args.length
-            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+            val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
             if n == 0 then s"""R.primN("$op", Array.empty[V])"""
             else if n == 1 then s"""R.prim1("$op", $args_s)"""
             else if n == 2 then s"""R.prim2("$op", $args_s)"""
@@ -843,15 +956,17 @@ object R:
             Set("==", "!=", "<", "<=", ">", ">=").contains(op) &&
             isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars)
           case _ => false
-        val c_s = if isBoolExpr then genTerm(cond, scope, directDefs, directLocals, longVars)
-                  else s"(${genTerm(cond, scope, directDefs, directLocals, longVars)}).asInstanceOf[Boolean]"
-        val b_s = genTerm(body, scope, directDefs, directLocals, longVars)
+        val c_s = if isBoolExpr then genTerm(cond, scope, directDefs, directLocals, longVars, tailLocalJumps, false)
+                  else s"(${genTerm(cond, scope, directDefs, directLocals, longVars, tailLocalJumps, false)}).asInstanceOf[Boolean]"
+        val b_s = genTerm(body, scope, directDefs, directLocals, longVars, tailLocalJumps, false)
         s"{ while ($c_s) do { $b_s; () }; () }"
 
       case Seq(terms) =>
         if terms.isEmpty then "()"
         else
-          val parts = terms.map(t2 => genTerm(t2, scope, directDefs, directLocals, longVars))
+          val parts = terms.zipWithIndex.map { case (t2, idx) =>
+            genTerm(t2, scope, directDefs, directLocals, longVars, tailLocalJumps, isTailPosition && idx == terms.length - 1)
+          }
           s"{ ${parts.init.map(s => s"$s; ()").mkString("; ")}; ${parts.last} }"
 
   def genConst(c: Const): String = c match

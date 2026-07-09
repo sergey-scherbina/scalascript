@@ -1745,6 +1745,7 @@ chk run-ir conformance/fact.coreir   "120"
 chk run-ir conformance/map.coreir    "List(2, 4, 6)"
 chk run-ir conformance/letrec.coreir "true"
 chk run-ir conformance/tco.coreir    "500000500000"
+chk run-ir conformance/mutual-tco.coreir "true"
 
 echo "# argv: ssc run <file> ARGS... -> #io.args()"
 chkargv() { # want -- file args...
