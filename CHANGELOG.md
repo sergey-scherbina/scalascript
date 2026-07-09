@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 bridge supports in-process remote registry
+
+`examples/remote-registry-rpc.ssc` now runs on the v2 VM: `remote def` is
+rewritten before scala.meta parsing, manifest/`@remote`/sugar metadata registers
+in-process handler closures, and `Remote.function(...).call`, `tryCall`,
+`remoteTryCall`, and `Remote.handlers()` use the v2 `PluginBridge` registry.
+HTTP fallback, `Remote.http`, `Remote.stub`, and trait-shaped stubs remain out
+of scope for this slice. Gates: remote-focused bridge tests, full
+`FrontendBridgeTest`, `installBin`, the real v2 example smoke, conformance
+`distributed*`, full `./v2/conformance/check.sh` before the final unrelated
+native-front rebase, and final-tip `git diff --check`.
+
 ## 2026-07-09 — v2 VM foreach lambda avoids hot env materialization
 
 `FastCode.tryFC` now has a conservative no-materialized-env lane for inline

@@ -511,7 +511,17 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
 пять примеров, что «проходили» НИКОГДА не исполняясь (ноль строк вывода до коммита),
 теперь показывают реальные дыры v2. Гейт-база честная: 149/13 (было фиктивное 153/9).
 
-- [ ] **unmask-remote-def** — remote-registry-rpc: три слоя (поверхность уточнена 07-09):
+- [x] **unmask-remote-def** — CLOSED 2026-07-09: v2 now runs
+      `examples/remote-registry-rpc.ssc` honestly through the in-process remote
+      registry. `remote def` is rewritten before scala.meta, manifest/`@remote`/
+      sugar metadata registers handler closures, and `Remote.function(...).call`,
+      `tryCall`, `remoteTryCall`, and `Remote.handlers()` work on v2. Gates:
+      remote-focused bridge tests 2/2, full `FrontendBridgeTest` 38/38,
+      `installBin`, `bin/ssc run --v2 examples/remote-registry-rpc.ssc`,
+      `tests/conformance/run.sh --only 'distributed*'` 5/5, full
+      `./v2/conformance/check.sh` before the final unrelated native-front rebase,
+      and final-tip `git diff --check`.
+      Original scope — remote-registry-rpc: три слоя (поверхность уточнена 07-09):
       (а) `remote def f(...)` — мягкий модификатор, scala.meta не парсит → текст-препасс
       `remote def X` → def X + регистрация; (б) std/remote.ssc (99 строк, 22 def/extern)
       должен конвертироваться бриджем; (в) remote-plugin нативы → V2PluginRegistry.
