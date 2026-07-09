@@ -1,0 +1,6 @@
+feature/green-main-conformance-7fail 2026-07-09T19:09:26Z
+agent: codex
+heartbeat: 2026-07-09T19:09:26Z
+status: not-started
+done-so-far:
+next: reproduce failing conformance lanes directly and classify first root cause
