@@ -1,6 +1,0 @@
-feature/v2-prod-performance-gate-baseline 2026-07-09T07:14:20Z
-agent: codex
-heartbeat: 2026-07-09T07:20:30Z
-status: in-progress
-done-so-far: SPRINT plan committed; installBin passed; bounded corpus probe shows v2 VM perf gate red; scripts/bench wall runner fixed and re-run
-next: document exact performance results, queue v2 VM perf follow-up, run conformance slice, then push/release
