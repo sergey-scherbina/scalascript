@@ -1,6 +1,6 @@
-feature/green-main-conformance-7fail 2026-07-09T19:20:52Z
+feature/green-main-conformance-7fail 2026-07-09T19:39:32Z
 agent: codex
-heartbeat: 2026-07-09T19:20:52Z
+heartbeat: 2026-07-09T19:39:32Z
 status: in-progress
-done-so-far: dataset-shape JVM failure fixed and pushed; eight-row repro narrowed from 7 to 6 failures
-next: fix the next narrow JS conformance class (case-class numeric/enum or missing effect import symbol)
+done-so-far: dataset-shape JVM and JS local-shadowing bugs fixed and pushed; eight-row repro is 5/8
+next: fix remaining JS effect rows: effect-imported-handler, effect-transitive-handler, js-applyunary-effect-cps
