@@ -7600,10 +7600,11 @@ final class BenchCmd extends CliCommand:
         .getOrElse(false)
 
     def patchV2RustBenchAntiFold(src: String): String =
-      val zeroArgLongFnRe = """\bfn\s+[A-Za-z_]\w*_long\s*\(\s*\)\s*->\s*i64\s*\{""".r
+      val longFnRe        = """\bfn\s+([A-Za-z_]\w*_long)\s*\(([^)]*)\)\s*->\s*i64\s*\{""".r
       val firstIntLitRe   = """\b\d+(?:i(?:8|16|32|64))?\b""".r
-      val starts = zeroArgLongFnRe.findAllMatchIn(src).map(_.start).toList
-      if starts.isEmpty then src
+      val simpleAddUpdate = """\([A-Za-z_]\w*\)\.wrapping_add\([A-Za-z_]\w*\)""".r
+      val fns = longFnRe.findAllMatchIn(src).map(m => (m.start, m.group(1), m.group(2).trim)).toList
+      if fns.isEmpty then src
       else
         def bodyOf(fnStart: Int): Option[(Int, Int)] =
           val ob = src.indexOf('{', fnStart)
@@ -7619,7 +7620,7 @@ final class BenchCmd extends CliCommand:
               k += 1
             if depth == 0 then Some((ob + 1, k - 1)) else None
 
-        def patchBody(body: String): String =
+        def patchFirstLiteral(body: String): String =
           if body.contains("std::hint::black_box(") then body
           else
             firstIntLitRe.findFirstMatchIn(body) match
@@ -7629,11 +7630,29 @@ final class BenchCmd extends CliCommand:
                   body.substring(m.end)
               case None => body
 
+        def patchSingleSelfCallUpdate(name: String, body: String): String =
+          if body.contains("std::hint::black_box(") then body
+          else
+            val selfCallRe = ("\\b" + java.util.regex.Pattern.quote(name) + "\\s*\\(").r
+            val selfCalls = selfCallRe.findAllMatchIn(body).length
+            if selfCalls != 1 then body
+            else
+              simpleAddUpdate.findFirstMatchIn(body) match
+                case Some(m) =>
+                  body.substring(0, m.start) +
+                    "std::hint::black_box(" + m.matched + ")" +
+                    body.substring(m.end)
+                case None => body
+
         var out = src
-        for fnStart <- starts.sortBy(-_) do
+        for (fnStart, name, params) <- fns.sortBy { case (start, _, _) => -start } do
           bodyOf(fnStart) match
             case Some((bs, be)) =>
-              out = out.substring(0, bs) + patchBody(out.substring(bs, be)) + out.substring(be)
+              val body = out.substring(bs, be)
+              val patched =
+                if params.isEmpty then patchFirstLiteral(body)
+                else patchSingleSelfCallUpdate(name, body)
+              out = out.substring(0, bs) + patched + out.substring(be)
             case None => ()
         out
 
