@@ -1,0 +1,6 @@
+feature/v2-read-gigs-handle-leak-minimize 2026-07-09T17:28:09Z
+agent: codex
+heartbeat: 2026-07-09T17:28:09Z
+status: not-started
+done-so-far: claimed after unmask-payments-bridge landed; target is real-hub v2-read-gigs handle leak minimization/fix
+next: create worktree, write SPRINT plan, inspect BUGS repro and busi checkout availability
