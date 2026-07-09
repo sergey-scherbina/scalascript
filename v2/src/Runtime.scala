@@ -2170,7 +2170,7 @@ object Prims:
         case (ls, "foldRight", List(z, fn: Value.ClosV)) if isList(ls) =>
           foldThreadOp(unlist(ls).reverse, z, (acc, x) => callClos(fn, Array(x, acc)))
         case (ls, "foreach", List(fn: Value.ClosV)) if isList(ls) =>
-          mapThreadOp(unlist(ls), x => callClos(fn, Array(x)), _ => UnitV)
+          foreachConsOp(ls, x => callClos(fn, Array(x)))
         case (ls, "find", List(fn: Value.ClosV)) if isList(ls) =>
           unlist(ls).find(x => callClos(fn, Array(x)) == Value.BoolV(true)) match
             case Some(v) => some(v); case None => none
@@ -2830,6 +2830,25 @@ object Prims:
   // in lists are legitimate data) never routes through them.
   /** Apply `step` per element; on an Op result, defer the REST of the traversal
    *  into the op's continuation (letThreadOp protocol), else accumulate. */
+  /** Effect-aware foreach that walks the Cons/Nil chain DIRECTLY — no `unlist`
+   *  materialisation and no result accumulation (mapThreadOp rebuilds a list
+   *  that foreach immediately discards). An Op step-result defers the REST of
+   *  the traversal into the op's continuation. The bytecode lane routes every
+   *  `xs.foreach` through this runtime path (the VM has a compile-time fast
+   *  path), so the materialisation showed up as ~unlist/List.drop in JFR. */
+  def foreachConsOp(ls: Value, step: Value => Value): Value =
+    var cur = ls
+    while true do
+      cur match
+        case Value.DataV("Cons", fs) =>
+          step(fs(0)) match
+            case op @ Value.DataV("Op", _) =>
+              val tail = fs(1)
+              return Runtime.letThreadOp(op, _ => foreachConsOp(tail, step))
+            case _ => cur = fs(1)
+        case _ => return Value.UnitV
+    Value.UnitV
+
   def mapThreadOp(xs: List[Value], step: Value => Value, rebuild: List[Value] => Value): Value =
     def go(rest: List[Value], acc: List[Value]): Value = rest match
       case Nil => rebuild(acc.reverse)
