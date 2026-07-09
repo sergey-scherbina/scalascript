@@ -1,6 +1,0 @@
-feature/v2-vm-perf-hotpath-triage 2026-07-09T07:31:40Z
-agent: codex
-heartbeat: 2026-07-09T07:34:30Z
-status: in-progress
-done-so-far: reproduced four-row perf baseline and committed spec plan 06a0316a7 for bridge SelfRecLL comparison hot path
-next: implement the focused Runtime.scala SelfRecLL comparison fast path, then rerun v2 tests and the four-row benchmark
