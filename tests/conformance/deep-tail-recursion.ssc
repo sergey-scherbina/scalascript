@@ -1,0 +1,6 @@
+def countdown(n: Int): Int = if n <= 0 then 0 else countdown(n - 1)
+def sumTco(n: Int, acc: Int): Int = if n <= 0 then acc else sumTco(n - 1, acc + n)
+def gcd(a: Int, b: Int): Int = if b == 0 then a else gcd(b, a % b)
+println(countdown(500000))
+println(sumTco(100000, 0))
+println(gcd(48, 36))
