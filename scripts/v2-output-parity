@@ -61,7 +61,8 @@ printf '%-38s %s\n' "-------" "------"
 # Nondeterministic-output examples can never byte-match across two runs by DESIGN:
 #   sql-sqlite-file — persistent /tmp db, the count grows every run
 #   uuid-v7         — random UUIDs
-NONDET_RE='^(sql-sqlite-file|uuid-v7)\.ssc$'
+#   os-env          — host/worktree-specific platform, cwd, env values
+NONDET_RE='^(sql-sqlite-file|uuid-v7|os-env)\.ssc$'
 lane_skip=0; nondet_skip=0; longrun_skip=0
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }

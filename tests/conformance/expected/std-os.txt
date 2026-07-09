@@ -1,0 +1,4 @@
+fallback
+/usr/local/bin/ssc
+ssc
+.md
