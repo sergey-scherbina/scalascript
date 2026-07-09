@@ -62,6 +62,12 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       conformance for the two JS slices, original eight-row repro 8/8, full
       `tests/conformance/run.sh --no-memo` 145 passed, 0 failed (+2 pending),
       and `git diff --check`.
+      Runner hygiene slice 2026-07-09: after the Scala.js serverless fix,
+      full conformance exposed that the JVM lane's default warm Bloop mode can
+      turn many compile-backed rows into missing stdout after a BSP socket
+      failure. Make default conformance JVM execution serverless as well,
+      preserving `--warm-jvm`/`SSC_SCALACLI_SERVER=1` as opt-in, then rerun the
+      actor repro slice and the full corpus.
 
 - [x] **v2-read-gigs-handle-leak-minimize** - DONE 2026-07-09 in
       `dd42da430` and `615ed5f8f`: fixed both production blockers behind
