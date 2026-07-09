@@ -24,6 +24,11 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       measurements are reproducible from docs, no sibling claim overlaps, a
       real conformance slice passes before push, and no production switch
       checkbox is marked green without a measured command/result.
+      Discovered blocker 2026-07-09: `scripts/bench wall` prints all `n/a`
+      because `tests/bench/run.sc` resolves data files under `$PWD/bench`
+      instead of `tests/bench`; track as BUGS
+      `scripts-bench-wall-all-na` and fix in this slice before using the wall
+      numbers.
 
 - [x] **v2-jvm-source-mutual-tco** — DONE 2026-07-09 in `7f58b1516`:
       resolved the BACKLOG `v2-jvm-tco-manual` gap for the v2 source JVM

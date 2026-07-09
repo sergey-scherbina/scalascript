@@ -12,6 +12,25 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## scripts-bench-wall-all-na — `open` (2026-07-09)
+
+- **Found by:** codex, while measuring `v2-prod-performance-gate-baseline`.
+- **Repro:** after staging `bin/ssc`, run `scripts/bench wall` from the repo
+  root.
+- **Observed failure:** every cell prints `n/a` for `fib`, `sum`, and
+  `list-ops`, even though `tests/bench/{fib,sum,list-ops}.{ssc,scala,js}`
+  exist.
+- **Impact:** the mandated `scripts/bench wall` entrypoint cannot produce
+  useful cross-language wall-clock numbers, so production performance notes
+  would have to rely on `bench.sh` only.
+- **Likely root cause:** `tests/bench/run.sc` sets `dir = os.pwd / "bench"`,
+  so when launched by `scripts/bench wall` from repo root it looks for
+  `/repo/bench/fib.ssc` instead of `/repo/tests/bench/fib.ssc`.
+- **Plan:** make `tests/bench/run.sc` resolve its benchmark data directory
+  from either repo root (`tests/bench`) or direct script-directory execution,
+  then re-run `scripts/bench wall`.
+- **Status:** open.
+
 ## jvm-artifact-cache-codegen-invalidation — `fixed` (2026-07-09)
 
 - **Found by:** codex, while fixing `v2-litdoc-js-jvm-backend-lanes`.
