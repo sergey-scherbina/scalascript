@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 production route sweep measured JVM bytecode lane
+
+Measured `scripts/bench v2-bytecode` and `scripts/bench v2-backends` across
+`arith-loop`, `recursion-fib`, `recursion-tco`, and `pattern-match-heavy`.
+The existing bytecode lane is production-relevant for recursion
+(`recursion-fib=1.16ms`, `recursion-tco=0.028ms`) but is not a universal
+default (`pattern-match-heavy=19.3ms` vs VM 13.7ms and v2 Rust 0.266ms). No
+runtime code changed; the next production blocker is a measured
+`pattern-match-heavy` slice. Gates: `installBin`, bytecode frontend tests 2/2,
+direct `run --bytecode` smoke, affected conformance 1/1, all measured bench
+rows, and `git diff --check`.
+
 ## 2026-07-09 — v2 JVM source backend uses Long helpers for tail-recursive globals
 
 The v2 JVM source backend now prefers proven Long helpers over boxed

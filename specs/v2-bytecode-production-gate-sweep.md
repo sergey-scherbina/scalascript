@@ -28,20 +28,20 @@ generic VM/FastCode behavior changes.
 
 ## Behavior
 
-- [ ] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
+- [x] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
       for the remaining v2 VM production rows.
-- [ ] `scripts/bench v2-bytecode` is run for `arith-loop`,
+- [x] `scripts/bench v2-bytecode` is run for `arith-loop`,
       `recursion-fib`, `recursion-tco`, and `pattern-match-heavy`, and the
       numbers are recorded here alongside the current v2 VM rows.
-- [ ] If the bytecode lane is already fast and semantically green for a row,
+- [x] If the bytecode lane is already fast and semantically green for a row,
       document the exact production-route implication instead of adding another
       speculative `FastCode` recognizer.
-- [ ] If a bytecode/runtime gap is found, inspect the generated CoreIR or
+- [x] If a bytecode/runtime gap is found, inspect the generated CoreIR or
       bytecode-lane unsupported/profile signal and land at most one conservative
       implementation change for that measured gap.
-- [ ] The overall v2 production gate is only marked green if the measured rows
+- [x] The overall v2 production gate is only marked green if the measured rows
       justify it; otherwise this spec records the next precise blocker.
-- [ ] Affected tests/conformance, final bench rows, and `git diff --check`
+- [x] Affected tests/conformance, final bench rows, and `git diff --check`
       pass before pushing.
 
 ## Out of Scope
@@ -84,5 +84,75 @@ Measurement order:
 
 ## Results
 
-Pending. Fill after measurement and implementation with exact commit SHAs,
-before/after numbers, route decision, blockers, and gates.
+Measurement slice only; no runtime/backend code changed. The implementation
+decision is negative and intentional: the existing bytecode lane is useful for
+the recursion family, but it is not a universal production default because it is
+worse than the current VM on `pattern-match-heavy`.
+
+Staging:
+
+```bash
+scripts/sbtc "installBin"
+```
+
+`scripts/bench v2-bytecode` results:
+
+| Workload | v2 ms/iter | v2-bytecode ms/iter | Interpretation |
+| --- | ---: | ---: | --- |
+| `arith-loop` | 0.000015 | 0.609 | VM/Rust route already owns this row; bytecode is not the route. |
+| `recursion-fib` | 5.89 | 1.16 | Bytecode closes the recursion-fib route. |
+| `recursion-tco` | 0.258 | 0.028 | Bytecode closes the recursion-tco route. |
+| `pattern-match-heavy` | 13.7 | 19.3 | Bytecode does not help the remaining pattern blocker. |
+
+`scripts/bench v2-backends` results from the same worktree:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `arith-loop` | 0.000016 | 0.271 | 0.000028 |
+| `recursion-fib` | 6.22 | 1.25 | 1.44 |
+| `recursion-tco` | 0.259 | 0.027 | 0.687 |
+| `pattern-match-heavy` | 15.0 | 11.0 | 0.266 |
+
+Route decision:
+
+- The existing `ssc run --bytecode` / `ssc bench --backend v2-bytecode` lane is
+  production-relevant for recursive workloads and stays part of the production
+  route matrix.
+- It should not become the default v2 production route yet because
+  `pattern-match-heavy` is slower than the VM and much slower than the Rust
+  source lane.
+- The remaining precise blocker is the `pattern-match-heavy` family. The next
+  slice should inspect/profile that row specifically and avoid adding another
+  VM `FastCode` case unless the measured shape is explicit and the fallback is
+  conservative.
+
+Smoke:
+
+- `bin/ssc run --v2 tests/conformance/list-companion.ssc`
+- `bin/ssc run --bytecode tests/conformance/list-companion.ssc`
+
+Both printed the same four lines:
+
+```text
+0, 0, 0, 0
+0, 1, 4, 9, 16
+1, 2, 3, 4, 5
+0, 3, 6, 9
+```
+
+Final verification:
+
+- `scripts/sbtc "installBin"`
+- `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z bytecode"`
+  (2 passed, 0 failed)
+- `tests/conformance/run.sh --only 'list-companion' --no-memo` (1 passed,
+  0 failed across INT/JS/JVM)
+- `scripts/bench v2-bytecode arith-loop`
+- `scripts/bench v2-bytecode recursion-fib`
+- `scripts/bench v2-bytecode recursion-tco`
+- `scripts/bench v2-bytecode pattern-match-heavy`
+- `scripts/bench v2-backends arith-loop`
+- `scripts/bench v2-backends recursion-fib`
+- `scripts/bench v2-backends recursion-tco`
+- `scripts/bench v2-backends pattern-match-heavy`
+- `git diff --check`

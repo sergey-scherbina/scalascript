@@ -181,6 +181,18 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       next slice should be profile-backed and likely move toward broader
       bytecode-JIT/source-backend gate work rather than speculative new
       `FastCode` cases.
+      Progress 2026-07-09: `v2-bytecode-production-gate-sweep` measured the
+      existing JVM bytecode lane against the four representative rows. It is a
+      strong production route for recursion (`recursion-fib`: `v2=5.89 ms`,
+      `v2-bytecode=1.16 ms`; `recursion-tco`: `v2=0.258 ms`,
+      `v2-bytecode=0.028 ms`) but not a universal default
+      (`arith-loop`: `v2=0.000015 ms`, `v2-bytecode=0.609 ms`;
+      `pattern-match-heavy`: `v2=13.7 ms`, `v2-bytecode=19.3 ms`). Current
+      source-route comparison keeps `pattern-match-heavy` best on v2 Rust
+      (`v2-rust=0.266 ms`) while pure VM/bytecode remain far behind. Next
+      concrete blocker: a profile/inspection-backed `pattern-match-heavy`
+      production slice; avoid another speculative VM `FastCode` recognizer
+      without measured evidence.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

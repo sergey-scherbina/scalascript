@@ -108,6 +108,33 @@ production-performance gate remains red: `pattern-match-heavy`,
 `recursion-fib`, and `recursion-tco` are still outside the 2x target and need
 separate follow-up slices.
 
+Update 2026-07-09 (`v2-bytecode-production-gate-sweep`): the existing v2 JVM
+bytecode lane is a good production route for the recursion family but not for
+`pattern-match-heavy`. Fresh `scripts/bench v2-bytecode` rows after
+`scripts/sbtc "installBin"`:
+
+| Workload | v2 ms/iter | v2-bytecode ms/iter |
+| --- | ---: | ---: |
+| `arith-loop` | 0.000015 | 0.609 |
+| `recursion-fib` | 5.89 | 1.16 |
+| `recursion-tco` | 0.258 | 0.028 |
+| `pattern-match-heavy` | 13.7 | 19.3 |
+
+Current source-route comparison from `scripts/bench v2-backends` in the same
+worktree:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `arith-loop` | 0.000016 | 0.271 | 0.000028 |
+| `recursion-fib` | 6.22 | 1.25 | 1.44 |
+| `recursion-tco` | 0.259 | 0.027 | 0.687 |
+| `pattern-match-heavy` | 15.0 | 11.0 | 0.266 |
+
+Conclusion: no single current lane is the right default for all four rows. The
+next v2 production-performance slice should target the remaining
+`pattern-match-heavy` blocker with a fresh profile/inspection gate; do not add
+another speculative VM `FastCode` recognizer without that measured evidence.
+
 Gates run:
 
 - `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z var"`
