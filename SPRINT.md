@@ -1993,6 +1993,28 @@ prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parit
 - [x] **v2-output-parity-full-corpus** (Option C) DONE 2026-07-06 — `scripts/v2-output-parity --all` sweeps all 193
       examples (auto-skips 130 server/actor/dataset). **Authoritative: 30/63 = 48% output-identical** (22 mismatch,
       11 v2-error). See `v2/output-parity-baseline.md`. The real "does v2 replace v1?" number vs 96.4% exit-0.
+- [ ] **v2-parity-current-errors** — refresh the production output-parity gate
+      after the toolkit-v2 completion and reconcile stale SPRINT entries that
+      still list old V2-ERROR/mismatch clusters. This is a gate/docs slice
+      unless the fresh run exposes a new deterministic v2 regression.
+      Active plan 2026-07-09 (`feature/v2-parity-current-errors` / codex):
+      - [ ] Restage the CLI in this worktree with `scripts/sbtc "installBin"`
+            because `scripts/v2-output-parity` uses `bin/ssc`.
+      - [ ] Run `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`
+            and record the exact counts in `v2/output-parity-baseline.md` and
+            `specs/v2-full-compat.md`.
+      - [ ] If the gate still has 0 v2-error and only the already-classified
+            non-blocker mismatches, mark the stale broad SPRINT rows
+            `real v2-only V2-ERROR gaps`, `17 mismatches`, and the superseded
+            full-corpus duplicate as reconciled/superseded with the fresh
+            counts.
+      - [ ] If a new v2-error or clear v2-regression mismatch appears, stop the
+            cleanup path, file a `BUGS.md` entry with the exact repro, and fix
+            the first narrow deterministic blocker with affected conformance.
+      - [ ] Update `CHANGELOG.md` and release the claim/worktree.
+      Done-when: the board no longer advertises stale old parity blockers and
+      the current production gate is either green-by-scope or has a concrete
+      bug/fix commit for the first newly exposed blocker.
 - [ ] **~~v2-output-parity-full-corpus~~ (superseded)** — extend `scripts/v2-output-parity` to the full 193
       examples with server/actor timeout handling for the authoritative "N/193 output-identical" number
       (current sample: 28/52 terminating). Does NOT touch PluginBridge.
