@@ -1,6 +1,0 @@
-feature/unmask-remote-def 2026-07-09T11:30:07Z
-agent: codex
-heartbeat: 2026-07-09T12:35:29Z
-status: in-progress
-done-so-far: spec and implementation commits tested green; focused remote tests, full FrontendBridgeTest, installBin, example smoke, distributed* conformance, and v2/conformance/check.sh passed on prior tip
-next: rebase over latest named-arg/native-front changes, rerun remote/example gates, update spec/SPRINT/CHANGELOG, then push
