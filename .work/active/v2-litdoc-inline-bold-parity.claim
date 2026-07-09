@@ -1,6 +1,0 @@
-feature/v2-litdoc-inline-bold-parity 2026-07-09T02:02:15Z
-agent: codex
-heartbeat: 2026-07-09T02:02:47Z
-status: in-progress
-done-so-far: worktree created at scalascript-wt-v2-litdoc-inline-bold-parity
-next: reproduce and isolate litdoc inline bold lowering mismatch
