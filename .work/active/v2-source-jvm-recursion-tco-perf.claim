@@ -1,0 +1,6 @@
+feature/v2-source-jvm-recursion-tco-perf 2026-07-09T23:05:11Z
+agent: codex
+heartbeat: 2026-07-09T23:05:11Z
+status: not-started
+done-so-far:
+next: create worktree, then write SPRINT/spec and capture v2-jvm recursion-tco baseline
