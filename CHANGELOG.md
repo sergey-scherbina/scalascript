@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 VM hot-path triage improves recursion performance
+
+`v2/src/Runtime.scala` now catches bridge-generated Long comparisons in the
+`SelfRecLL` fast entry and compiles eligible arity-2 self-tail Long recursion
+to a local loop. The bounded production probe improved `recursion-fib` from
+68.5 ms to 5.94 ms and `recursion-tco` from 2.52 ms to 0.273 ms, but the
+Phase-3 2x v2 VM performance gate remains red: `arith-loop` 42.2x,
+`pattern-match-heavy` 682.7x, `recursion-fib` 5.0x, and `recursion-tco` 10.1x
+slower than `ssc` with `./bench.sh --warmup-time 500 --reps 20 arith-loop
+recursion-fib recursion-tco pattern-match-heavy`. The remaining production
+performance work is tracked as `v2-vm-production-jit-gate` in BACKLOG. Gates:
+focused `FrontendBridgeTest` filters, `installBin`, v2 conformance, affected
+conformance, and before/after bounded bench runs.
+
 ## 2026-07-09 — v2 production performance gate baseline recorded
 
 Recorded a bounded production-v2 performance probe in `specs/v2-full-compat.md`.

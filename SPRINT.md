@@ -23,19 +23,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `scripts/bench wall`; `tests/conformance/run.sh --only 'litdoc'` passed
       INT/JS/JVM.
 
-- [ ] **v2-vm-perf-hotpath-triage** — follow up on the 2026-07-09 production
-      performance probe: v2 VM is 37.5x-355.6x slower than `ssc` on the
-      representative corpus rows `arith-loop`, `pattern-match-heavy`,
-      `recursion-fib`, and `recursion-tco`
-      (`./bench.sh --warmup-time 500 --reps 20 ...`). Scope: do not broaden
-      into backend JVM/Rust harness work. Reproduce the four-row baseline,
-      profile/inspect the v2 VM hot paths (`v2/src/Runtime.scala`, especially
-      arithmetic loops, app/call dispatch, pattern match, and TCO), then land
-      one bounded improvement or write the architecture note that explains why
-      the 2x Phase-3 gate requires a larger VM/JIT track. Done-when:
-      before/after numbers use the exact command, any fix has focused tests and
-      conformance, and `specs/v2-full-compat.md` records the new ratio or the
-      explicit blocker.
+- [x] **v2-vm-perf-hotpath-triage** — DONE 2026-07-09: reproduced the
+      four-row production performance probe and landed two bounded v2 VM hot-path
+      fixes without widening into separate JVM/Rust backend harness work.
+      `SelfRecLL` now recognises bridge-generated Long comparisons, moving
+      `recursion-fib` from 68.5 ms to 5.94 ms (~11.5x faster). A conservative
+      arity-2 self-tail Long loop fast path moves `recursion-tco` from 2.52 ms
+      to 0.273 ms (~9.2x faster). The exact command was
+      `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib
+      recursion-tco pattern-match-heavy`. After the fixes the gate is still red:
+      `arith-loop` 42.2x, `pattern-match-heavy` 682.7x, `recursion-fib` 5.0x,
+      and `recursion-tco` 10.1x slower than `ssc`. Follow-up
+      `v2-vm-production-jit-gate` is in BACKLOG for the larger JIT/closed-form
+      production track. Gates: `scripts/sbtc "v2FrontendBridge/testOnly
+      ssc.bridge.FrontendBridgeTest -- -z SelfRecLL"`, `scripts/sbtc
+      "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z fast"`,
+      `scripts/sbtc "installBin"`, before/after bounded `bench.sh`,
+      `./v2/conformance/check.sh`, and `tests/conformance/run.sh --only
+      'recursion,tail-recursion,mutual-recursion,litdoc'` passed.
 
 - [x] **v2-jvm-source-mutual-tco** — DONE 2026-07-09 in `7f58b1516`:
       resolved the BACKLOG `v2-jvm-tco-manual` gap for the v2 source JVM
