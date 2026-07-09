@@ -1,6 +1,6 @@
 feature/unmask-payments-bridge 2026-07-09T13:47:08Z
 agent: codex
-heartbeat: 2026-07-09T14:56:44Z
+heartbeat: 2026-07-09T15:16:07Z
 status: in-progress
-done-so-far: rebased over route-param fix; implementation commit 54286995e and examples commit 6c1de4eb8 merged cleanly; FrontendBridgeTest 42/42, installBin, direct examples no-Op/no-Stub, affected conformance 4/4
-next: rerun full v2 conformance on merged HEAD, rebase over this heartbeat, then push release/bookkeeping commit
+done-so-far: branch is clean and rebased over K62.6c-map/fieldNames; payments bridge code/docs/bookkeeping are committed locally and ready for final gates
+next: rerun FrontendBridgeTest, installBin, direct payment examples, affected conformance, full v2 conformance; then rebase and push release commit
