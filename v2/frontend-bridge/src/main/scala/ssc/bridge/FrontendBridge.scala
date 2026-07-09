@@ -1767,7 +1767,19 @@ object FrontendBridge:
     // - Block(List(Function/AnonymousFunction)) = a lambda block like { x => expr } → keep as-is
     // - Any other Block = a statement block like { stmt; expr } → wrap in Lam(0) (by-name thunk)
     val args = rawArgs.map { e =>
-      val converted = convertExpr(wrapIfPH(e), scope)
+      // A named ARGUMENT `kw = v` (Term.Assign in call position) is a keyword
+      // arg, not an assignment statement. The only cell-backed keyword is
+      // `timeout` (receive(timeout=n) → @timeout cell, read by registerActors);
+      // every OTHER named arg was compiled to cell.set(@kw, v) → UnitV into a
+      // global nothing reads, silently DROPPING the value (mcp tool hints,
+      // etc.). Pass those positionally by value instead. (receive/@cell keeps
+      // its behavior: `timeout` and any @kw/@@kw already in scope.)
+      val eForConv = e match
+        case Term.Assign(Term.Name(kw), rhs)
+            if kw != "timeout" && !scope.contains(s"@$kw") && !scope.contains(s"@@$kw") =>
+          rhs
+        case _ => e
+      val converted = convertExpr(wrapIfPH(eForConv), scope)
       e match
         case Term.Block(List(_: Term.Function | _: Term.AnonymousFunction | _: Term.PartialFunction)) =>
           converted  // lambda block: { x => ... } or { case ... }
