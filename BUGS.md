@@ -3265,3 +3265,75 @@ happens to collide with a plugin-owned runtime tag (Request is a very
 natural, common domain name — busi is not the only likely victim) will hit
 this. Found+minimized 2026-07-09 by busi (fable), same day as the
 route-params-stub fix.
+
+## v2-option-exists — Option.exists is unimplemented on v2
+
+**Status:** OPEN — v1 correct, guarded by tests/conformance/v2-option-exists.ssc
+
+`Option.exists(pred)` is not dispatched at all on v2, for EITHER arm:
+`None.exists(pred)` raises an unhandled `Op("None.exists", <closure>, <closure>)`
+instead of returning `false`; `Some.exists(pred)` returns `Stub("Some.exists")`
+instead of evaluating `pred` and returning a `Boolean`. v1 is correct on both.
+
+Repro (self-contained):
+```
+val n: Option[Int] = None
+println(n.exists(x => x > 0))   // "false" on v1, unhandled Op on v2
+val s: Option[Int] = Some(5)
+println(s.exists(x => x > 0))   // "true" on v1, Stub on v2
+```
+
+Found 2026-07-09 by busi (fable) driving a live v2 hub through the full
+JDG money-loop simulator cycle: EVERY auth-gated route
+(`isPaired`/`isOwner`/operator role checks —
+`identity.exists(i => i.roles.contains(role))` on an `Option[Identity]`)
+crashes or misbehaves the moment it reaches a role check, because this is
+the idiomatic way busi (and presumably most v2 programs) writes an
+Option-guarded predicate. This is a foundational stdlib gap, not specific
+to HTTP or money-loop — it should be one of the highest-priority items to
+close for v2 parity given how common the pattern is.
+
+## v2-req-form-stub-in-hub — req.form(name) returns Stub inside busi's real hub.ssc (isolated minimization did NOT reproduce)
+
+**Status:** OPEN — real, confirmed via direct instrumentation of a live hub;
+NOT yet reduced to a minimal standalone repro (flagging the gap honestly)
+
+busi's live hub (`src/v2/http/hub.ssc`), booted on `--v2`, has its
+`POST /pair` route (`req.form.getOrElse("code", "") == pairCode`) always
+read `req.form.getOrElse("code", "")` as the literal string `"Stub"`,
+confirmed by temporarily instrumenting the route directly:
+`DEBUG-PAIR formCode=[Stub] pairCode=[019f47] rawBody=[code=019f47]` — the
+raw POST body IS received correctly (`code=019f47`), but `req.form`
+parsing/field-access yields `Stub` instead of the parsed map. v1 (same
+`busi.conf`, same route, same request) pairs successfully on the first
+try. Since `POST /pair` is the ONLY way into every cookie-gated flow, this
+alone blocks driving busi's live hub end to end on `--v2` (a live
+money-loop pass could only proceed via a break-glass device-token seeded
+directly into `tokens.txt` on disk, bypassing `/pair` entirely).
+
+Two independent minimization attempts did NOT reproduce this in isolation:
+1. A trivial `route("POST","/echo"){ req => ...req.form.getOrElse("code","<empty>") }`
+   fixture, alone — `req.form` parses correctly (`code=hello`).
+2. The same fixture PLUS a colocated `case class Subject(id, displayName,
+   form, data, from)` — deliberately colliding the FIELD NAME "form" with
+   `std/http.ssc`'s `Request.form` at a different index (2 vs the
+   Request's declared index 4), the same class of bug as
+   `v2-user-type-shadows-plugin-type`/`v2-head-field-dispatch-shadow` —
+   still parses correctly.
+
+So the trigger is something about `hub.ssc`'s actual scale/import graph
+(it is one of the largest files in busi, importing dozens of modules) that
+neither of those two isolation attempts captured — possibly import COUNT,
+a DIFFERENT specific field-name collision elsewhere in the graph, or
+route-registration-order sensitivity. Repro (needs a busi checkout):
+boot `SSC_LANE_FLAG=--v2 scripts/ssc src/v2/http/hub.ssc` with a
+`busi.conf` pointing at a scratch `dataDir`, read the printed pairing
+code (or `cat /code.txt`), `curl -X POST http://localhost:/pair
+-d "code="` — response is always "Неверный код" (v1: succeeds
+first try). Found 2026-07-09 by busi (fable), same session as
+`v2-option-exists`; flagging for whoever has better tooling to bisect a
+large real file (busi did this successfully before for
+`v2-head-field-dispatch-shadow` by copying+halving the failing module,
+but hub.ssc's own internal complexity — not just its import graph — may
+need a different bisection approach, e.g. commenting out route
+registrations in blocks).

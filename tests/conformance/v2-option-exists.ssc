@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: v2-option-exists
+description: Option.exists is unimplemented on v2 — None.exists raises an unhandled Op, Some.exists returns a Stub instead of a Boolean
+backends: [int]
+---
+
+# v2: `Option.exists` is entirely missing
+
+Found driving busi's live hub auth on `--v2` (`hasRole`/`isOwner`:
+`identity.exists(i => i.roles.contains(role))` on an `Option[Identity]`) —
+this is a fundamental, pervasive gap: `Option.exists` isn't dispatched at
+all, for EITHER arm.
+
+- `None.exists(pred)` → unhandled `Op("None.exists", <closure>, <closure>)`
+  surfaces to the top instead of returning `false`.
+- `Some.exists(pred)` → `Stub("Some.exists")` instead of evaluating `pred`
+  and returning a `Boolean`.
+
+v1 is correct on both (`false` / `true`). This blocks essentially any
+auth/role check written the idiomatic way
+(`identity.exists(predicate)` instead of a manual
+`match { case Some(x) => pred(x); case None => false }`), which is common
+throughout busi's domain code — not specific to money-loop or HTTP.
+
+Found 2026-07-09 by busi (fable) while driving a live v2 hub through the
+full JDG money-loop simulator cycle — every auth-gated route
+(`isPaired`/`isOwner`/operator checks) crashes or misbehaves the moment it
+reaches a role check on a `None` or `Some` identity.
+
+```scalascript
+val n: Option[Int] = None
+println(n.exists(x => x > 0))
+val s: Option[Int] = Some(5)
+println(s.exists(x => x > 0))
+```
