@@ -116,13 +116,15 @@ private[codegen] trait JsGenCpsCodegen:
     // Lambda — CPS body
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)
-      val bodyJs = body match
+      val bodyJs = withLocalBindings(params) { body match
         case Term.Block(stats) => genCpsBlockAsIife(stats)
         case expr              => genCpsExpr(expr)
-      if params.length == 1 then s"${params.head} => $bodyJs"
+      }
+      val jsParams = params.map(localBindingName)
+      if jsParams.length == 1 then s"${jsParams.head} => $bodyJs"
       else
-        val arity  = params.length
-        val joined = params.mkString(", ")
+        val arity  = jsParams.length
+        val joined = jsParams.mkString(", ")
         s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
 
     // Anonymous function with placeholders — body is CPS
@@ -607,22 +609,26 @@ private[codegen] trait JsGenCpsCodegen:
             case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
               // Last statement is a binding — block evaluates to undefined.
               // Still bind it so its effects (if any) run.
-              s"_bind(${genCpsExpr(rhs)}, ${n.value} => undefined)"
+              s"_bind(${genCpsExpr(rhs)}, ${localBindingName(n.value)} => undefined)"
             case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-              s"_bind(${genCpsExpr(rhs)}, ${n.value} => undefined)"
+              s"_bind(${genCpsExpr(rhs)}, ${localBindingName(n.value)} => undefined)"
             case stat =>
               s"(() => { ${genStatInline(stat)} return undefined; })()"
         case s :: rest =>
           s match
             case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-              s"_bind(${genCpsExpr(rhs)}, ${n.value} => ${build(rest)})"
+              val restJs = withLocalBindings(List(n.value))(build(rest))
+              s"_bind(${genCpsExpr(rhs)}, ${localBindingName(n.value)} => $restJs)"
             case Defn.Val(_, List(pat), _, rhs) =>
               val patJs = genPatDestructure(pat)
+              val patNames = patternNames(pat)
               val tmp = freshTmp()
-              s"_bind(${genCpsExpr(rhs)}, $tmp => { const $patJs = $tmp; return ${build(rest)}; })"
+              val restJs = withLocalBindings(patNames)(build(rest))
+              s"_bind(${genCpsExpr(rhs)}, $tmp => { const $patJs = $tmp; return $restJs; })"
             case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
               // For simplicity, treat var like val in CPS context.
-              s"_bind(${genCpsExpr(rhs)}, ${n.value} => ${build(rest)})"
+              val restJs = withLocalBindings(List(n.value))(build(rest))
+              s"_bind(${genCpsExpr(rhs)}, ${localBindingName(n.value)} => $restJs)"
             case d: Defn.Def =>
               // Function definition in block — emit as nested function declaration
               val fnJs = genCpsInlineFn(d)
@@ -637,19 +643,20 @@ private[codegen] trait JsGenCpsCodegen:
   /** Emit a function definition as an inline function value in CPS form. */
   private def genCpsInlineFn(d: Defn.Def): String =
     val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-    val paramsStr = params.mkString(", ")
+    val paramsStr = params.map(localBindingName).mkString(", ")
     d.body match
-      case Term.Block(stats) => s"(${paramsStr}) => ${genCpsBlockAsIife(stats)}"
-      case expr              => s"(${paramsStr}) => ${genCpsExpr(expr)}"
+      case Term.Block(stats) => s"(${paramsStr}) => ${withLocalBindings(params)(genCpsBlockAsIife(stats))}"
+      case expr              => s"(${paramsStr}) => ${withLocalBindings(params)(genCpsExpr(expr))}"
 
   /** CPS case generator — like genCase but the body is CPS. */
   private def genCpsCase(scrutVar: String, c: Case): String =
     val (cond, bindings) = genPattern(scrutVar, c.pat)
-    val bindingStmts = bindings.map { case (name, expr) => s"const $name = $expr;" }.mkString(" ")
-    val bodyJs = genCpsExpr(c.body)
+    val localNames = bindings.map(_._1)
+    val bindingStmts = localBindingStmts(bindings)
+    val bodyJs = withLocalBindings(localNames)(genCpsExpr(c.body))
     c.cond match
       case Some(guard) =>
-        val guardExpr = genExpr(guard)
+        val guardExpr = withLocalBindings(localNames)(genExpr(guard))
         val condStr = if cond == "true" then s"($guardExpr)" else s"($cond) && ($guardExpr)"
         s"if ($condStr) { $bindingStmts return $bodyJs; }"
       case None =>
@@ -658,19 +665,20 @@ private[codegen] trait JsGenCpsCodegen:
 
   private[codegen] def genCase(scrutVar: String, c: Case): String =
     val (cond, bindings) = genPattern(scrutVar, c.pat)
-    val bindingStmts = bindings.map { case (name, expr) => s"const $name = $expr;" }.mkString(" ")
-    val bodyJs = genExpr(c.body)
+    val localNames = bindings.map(_._1)
+    val bindingStmts = localBindingStmts(bindings)
+    val bodyJs = withLocalBindings(localNames)(genExpr(c.body))
 
     // Pattern guard: we need bindings set up before evaluating the guard.
     // We use a nested IIFE to set up bindings, evaluate guard, then run body.
     c.cond match
       case Some(guard) if bindings.nonEmpty =>
         // Put bindings and guard inside the if block
-        val guardExpr = genExpr(guard)
+        val guardExpr = withLocalBindings(localNames)(genExpr(guard))
         val patCond = if cond == "true" then "" else s"($cond) && "
         s"if (${patCond}(() => { $bindingStmts return $guardExpr; })()) { $bindingStmts return $bodyJs; }"
       case Some(guard) =>
-        val guardExpr = genExpr(guard)
+        val guardExpr = withLocalBindings(localNames)(genExpr(guard))
         val condStr = if cond == "true" then s"($guardExpr)" else s"($cond) && ($guardExpr)"
         s"if ($condStr) { return $bodyJs; }"
       case None =>
@@ -972,4 +980,3 @@ private[codegen] trait JsGenCpsCodegen:
       case _ => ()
     val bodyJs = genExpr(body)
     s"(async () => { ${stmts.mkString(" ")} $bodyJs; })()"
-

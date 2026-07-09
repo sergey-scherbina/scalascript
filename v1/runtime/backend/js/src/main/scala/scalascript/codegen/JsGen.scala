@@ -599,12 +599,12 @@ class JsGen(
   private def genClosureWithParamType(fn: Term, elem: String): String = fn match
     case Term.Function.After_4_6_0(pc, body) if pc.values.lengthCompare(1) == 0 =>
       val p = pc.values.head.name.value
-      val bodyJs = withParamTyped(p, elem) {
+      val bodyJs = withLocalBindings(List(p)) { withParamTyped(p, elem) {
         body match
           case Term.Block(stats) => genBlockAsIife(stats)
           case expr              => genExpr(expr)
-      }
-      s"$p => $bodyJs"
+      } }
+      s"${localBindingName(p)} => $bodyJs"
     case other => genExpr(other)
 
   /** Generate a two-param closure `(a, b) => …` with both params typed numeric
@@ -613,12 +613,12 @@ class JsGen(
     case Term.Function.After_4_6_0(pc, body) if pc.values.lengthCompare(2) == 0 =>
       val a = pc.values.head.name.value
       val b = pc.values(1).name.value
-      val bodyJs = withParamTyped(a, accElem) { withParamTyped(b, elem) {
+      val bodyJs = withLocalBindings(List(a, b)) { withParamTyped(a, accElem) { withParamTyped(b, elem) {
         body match
           case Term.Block(stats) => genBlockAsIife(stats)
           case expr              => genExpr(expr)
-      } }
-      s"($a, $b) => $bodyJs"
+      } } }
+      s"(${localBindingName(a)}, ${localBindingName(b)}) => $bodyJs"
     case other => genExpr(other)
   // js-codegen-opt-p2: loop-invariant constant tuple hoisting.
   // While-loop codegen sets this buffer; constant-tuple exprs append (name, frozenExpr)
@@ -2377,7 +2377,10 @@ class JsGen(
   private def genLazySumFused(pipe: (Term, Option[(String, Term)], Term)): String =
     val (startT, mapOpt, nT) = pipe
     val bodyJs = mapOpt match
-      case Some((p, body)) => s"const $p = __st + __k; __acc += (${withParamTyped(p, "Int")(genExpr(body))});"
+      case Some((p, body)) =>
+        val lp = localBindingName(p)
+        val bodyExpr = withLocalBindings(List(p)) { withParamTyped(p, "Int")(genExpr(body)) }
+        s"const $lp = __st + __k; __acc += ($bodyExpr);"
       case None            => "__acc += (__st + __k);"
     s"(() => { const __st = (${genExpr(startT)}); const __n = (${genExpr(nT)}); let __acc = 0; let __k = 0; " +
     s"while (__k < __n) { $bodyJs __k += 1; } return __acc; })()"
@@ -3040,6 +3043,22 @@ class JsGen(
       case p if topLevelUserRenames.contains(p)  => p -> p
     }.toMap
 
+  private[codegen] def localBindingName(name: String): String =
+    safeJsParam(name)
+
+  private[codegen] def localBindingRenames(names: Iterable[String]): Map[String, String] =
+    names.iterator
+      .filterNot(_ == "_")
+      .map(name => name -> localBindingName(name))
+      .filter { case (from, to) => from != to || topLevelUserRenames.contains(from) }
+      .toMap
+
+  private[codegen] def localBindingStmts(bindings: Iterable[(String, String)]): String =
+    bindings.map { case (name, expr) => s"const ${localBindingName(name)} = $expr;" }.mkString(" ")
+
+  private[codegen] def withLocalBindings[A](names: Iterable[String])(f: => A): A =
+    withParamRenames(localBindingRenames(names))(f)
+
   private def formalWithDefault(p: Term.Param): String =
     val n = safeJsParam(p.name.value)
     p.default match
@@ -3249,16 +3268,18 @@ class JsGen(
       val scrutExpr = genGenExpr(t.expr)
       val casesJs = t.casesBlock.cases.map { c =>
         val (cond0, bindings) = genPattern(scrutVar, c.pat)
+        val localNames = bindings.map(_._1)
         // jsgen-match-guard-bind: fold the case guard into the condition (bindings scoped in an IIFE).
         val cond = c.cond match
           case Some(g) =>
-            val binds = bindings.map { case (n, e) => s"const $n = $e;" }.mkString(" ")
-            val guardIife = s"(() => { $binds return (${genExpr(g)}); })()"
+            val binds = localBindingStmts(bindings)
+            val guardExpr = withLocalBindings(localNames)(genExpr(g))
+            val guardIife = s"(() => { $binds return ($guardExpr); })()"
             if cond0 == "true" then guardIife else s"($cond0) && $guardIife"
           case None => cond0
         val bindingJs = if bindings.isEmpty then ""
-          else bindings.map { case (n, e) => s"    const $n = $e;" }.mkString("\n") + "\n"
-        val bodyJs = genGenStmt(c.body)
+          else bindings.map { case (n, e) => s"    const ${localBindingName(n)} = $e;" }.mkString("\n") + "\n"
+        val bodyJs = withLocalBindings(localNames)(genGenStmt(c.body))
         val condStr = s"($cond) "
         s"  if $condStr{\n$bindingJs$bodyJs\n  }"
       }.mkString(" else ")
@@ -3294,13 +3315,15 @@ class JsGen(
     line(s"const $scrutVar = ${genExpr(t.expr)};")
     val arms = t.casesBlock.cases.map { c =>
       val (cond0, bindings) = genPattern(scrutVar, c.pat)
+      val localNames = bindings.map(_._1)
       // jsgen-match-guard-bind: fold a case GUARD (`case x if x < 0`) into the arm condition. The
       // guard references the pattern bindings, so scope them in an IIFE. Without this the guard was
       // dropped → a guarded `case x if …` looked like a catch-all mid-chain → malformed `} else if`.
       val cond = c.cond match
         case Some(g) =>
-          val binds = bindings.map { case (n, e) => s"const $n = $e;" }.mkString(" ")
-          val guardIife = s"(() => { $binds return (${genExpr(g)}); })()"
+          val binds = localBindingStmts(bindings)
+          val guardExpr = withLocalBindings(localNames)(genExpr(g))
+          val guardIife = s"(() => { $binds return ($guardExpr); })()"
           if cond0 == "true" then guardIife else s"($cond0) && $guardIife"
         case None => cond0
       (cond, bindings, c.body.asInstanceOf[Term])
@@ -3318,11 +3341,12 @@ class JsGen(
       indent += 1
       var hasDefault = false
       arms.foreach { (cond, bindings, body) =>
+        val localNames = bindings.map(_._1)
         val label = if cond == "true" then { hasDefault = true; "default:" } else s"case ${tagOf(cond).get}:"
         line(s"$label {")
         indent += 1
-        bindings.foreach { case (n, e) => line(s"const $n = $e;") }
-        bodyEmit(body)
+        bindings.foreach { case (n, e) => line(s"const ${localBindingName(n)} = $e;") }
+        withLocalBindings(localNames)(bodyEmit(body))
         line("break;")
         indent -= 1
         line("}")
@@ -3339,6 +3363,7 @@ class JsGen(
     else
       var lastWasWildcard = false
       arms.zipWithIndex.foreach { case ((cond, bindings, body), idx) =>
+        val localNames = bindings.map(_._1)
         if cond == "true" then
           lastWasWildcard = true
           if idx > 0 then { indent -= 1; line("} else {"); indent += 1 }
@@ -3349,8 +3374,8 @@ class JsGen(
           if idx > 0 then indent -= 1
           line(s"$kw ($cond) {")
           indent += 1
-        bindings.foreach { case (n, e) => line(s"const $n = $e;") }
-        bodyEmit(body)
+        bindings.foreach { case (n, e) => line(s"const ${localBindingName(n)} = $e;") }
+        withLocalBindings(localNames)(bodyEmit(body))
       }
       indent -= 1
       if lastWasWildcard then line("}")
@@ -3388,22 +3413,24 @@ class JsGen(
                 // must not itself be hoisted to the outer-loop preamble.
                 val savedBuf = loopHoistBuf
                 loopHoistBuf = null
-                val addendJs = genExpr(addend)
+                val addendJs = withLocalBindings(List(param))(genExpr(addend))
                 val qualJs   = genExpr(qual)
                 loopHoistBuf = savedBuf
                 val sVar = freshTmp(); val xs = freshTmp(); val ix = freshTmp()
+                val jsParam = localBindingName(param)
                 val sumExpr =
-                  s"(() => { let $sVar = 0; const $xs = $qualJs; if (Array.isArray($xs)) { for (let $ix = 0; $ix < $xs.length; $ix++) { const $param = $xs[$ix]; $sVar += $addendJs; } } else { _forEach($xs, ($param) => { $sVar += $addendJs; }); } return $sVar; })()"
+                  s"(() => { let $sVar = 0; const $xs = $qualJs; if (Array.isArray($xs)) { for (let $ix = 0; $ix < $xs.length; $ix++) { const $jsParam = $xs[$ix]; $sVar += $addendJs; } } else { _forEach($xs, ($jsParam) => { $sVar += $addendJs; }); } return $sVar; })()"
                 val sumName = freshHoistConst(sumExpr)
                 s"$accName = $accName + $sumName"
               case _ => null
           if hoisted != null then hoisted
           else
             val qualJs  = genExpr(qual)
-            val bodyStr = genWhileBodyInline(fnBody) // call once; reuse string in both branches
+            val bodyStr = withLocalBindings(List(param))(genWhileBodyInline(fnBody)) // call once; reuse string in both branches
             val xsVar   = freshTmp()
             val idxVar  = freshTmp()
-            s"const $xsVar = $qualJs; if (Array.isArray($xsVar)) { for (let $idxVar = 0; $idxVar < $xsVar.length; $idxVar++) { const $param = $xsVar[$idxVar]; $bodyStr; } } else { _forEach($xsVar, ($param) => { $bodyStr; }); }"
+            val jsParam = localBindingName(param)
+            s"const $xsVar = $qualJs; if (Array.isArray($xsVar)) { for (let $idxVar = 0; $idxVar < $xsVar.length; $idxVar++) { const $jsParam = $xsVar[$idxVar]; $bodyStr; } } else { _forEach($xsVar, ($jsParam) => { $bodyStr; }); }"
         case _ => genExpr(t)
     case _ => genExpr(t)
 
@@ -3500,6 +3527,14 @@ class JsGen(
     case Pat.Wildcard() => "_"
     case _ => "_"
 
+  private[codegen] def patternNames(pat: Pat): List[String] = pat match
+    case Pat.Var(n) => List(n.value)
+    case Pat.Tuple(pats) => pats.toList.flatMap(patternNames)
+    case Pat.Typed(inner, _) => patternNames(inner)
+    case Pat.Bind(lhs, rhs) => patternNames(lhs) ++ patternNames(rhs)
+    case Pat.Extract.After_4_6_0(_, argClause) => argClause.values.toList.flatMap(patternNames)
+    case _ => Nil
+
   private def isEffectOpDef(body: Term): Boolean =
     scalascript.transform.EffectAnalysis.isEffectOpDef(body)
 
@@ -3512,13 +3547,15 @@ class JsGen(
     val scrut = "__rcv_msg__"
     val chain = cases.map { c =>
       val (cond, bindings) = genPattern(scrut, c.pat)
-      val bindStmts = bindings.map { case (n, e) => s"const $n = $e;" }.mkString(" ")
-      val bodyCps   = genCpsExpr(c.body)
+      val localNames = bindings.map(_._1)
+      val bindStmts = localBindingStmts(bindings)
+      val bodyCps   = withLocalBindings(localNames)(genCpsExpr(c.body))
       val condFinal = c.cond match
         case Some(g) =>
           // The guard references the pattern bindings — scope them in an IIFE (they aren't yet
           // declared at the `if` condition). (jsgen-match-guard-bind.)
-          val guardIife = s"(() => { $bindStmts return (${genExpr(g)}); })()"
+          val guardExpr = withLocalBindings(localNames)(genExpr(g))
+          val guardIife = s"(() => { $bindStmts return ($guardExpr); })()"
           if cond == "true" then guardIife else s"($cond) && $guardIife"
         case None => if cond == "true" then "true" else s"($cond)"
       s"if ($condFinal) { $bindStmts return { matched: true, body: () => $bodyCps }; }"
@@ -3539,24 +3576,29 @@ class JsGen(
             case Pat.Wildcard() => "_"
             case _              => "_"
           }
-          val paramsStr = s"[${paramNames.mkString(", ")}]"
+          val paramsStr = s"[${paramNames.map(localBindingName).mkString(", ")}]"
           // Handler case bodies stay direct: they receive `resume` (a plain
           // function returning the value of the resumed branch) and compose it
           // with regular JS. Effects inside case bodies are uncommon and would
           // need their own handle.
           val bodyJs = c.body match
             case Term.Block(stats) =>
-              val stmts = stats.dropRight(1).map {
-                case t: Term => genExpr(t) + ";"
-                case s       => genStatInline(s)
-              }.mkString(" ")
-              val last = stats.lastOption.map {
-                case t: Term => s"return ${genExpr(t)};"
-                case _       => ""
-              }.getOrElse("")
+              val stmts = withLocalBindings(paramNames) {
+                stats.dropRight(1).map {
+                  case t: Term => genExpr(t) + ";"
+                  case s       => genStatInline(s)
+                }.mkString(" ")
+              }
+              val last = withLocalBindings(paramNames) {
+                stats.lastOption.map {
+                  case t: Term => s"return ${genExpr(t)};"
+                  case _       => ""
+                }.getOrElse("")
+              }
               s"($paramsStr) => { $stmts $last }"
             case expr =>
-              s"($paramsStr) => ${genExpr(expr)}"
+              val exprJs = withLocalBindings(paramNames)(genExpr(expr))
+              s"($paramsStr) => $exprJs"
           Some(s"'$eff.$op': $bodyJs")
         case _ => None
     }
@@ -3622,8 +3664,9 @@ class JsGen(
               case Pat.Var(n) => Some(n.value)
               case _          => None
           case _ => None
-        val decl   = binder.map(n => s"const $n = _rv; ").getOrElse("")
-        val retMap = s"(_rv) => { $decl${caseBodyStmts(c.body)} }"
+        val decl   = binder.map(n => s"const ${localBindingName(n)} = _rv; ").getOrElse("")
+        val retBody = withLocalBindings(binder.toList)(caseBodyStmts(c.body))
+        val retMap = s"(_rv) => { $decl$retBody }"
         s"_handleWithReturn($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}}, $retMap)"
 
   /** Stage 5+/A.5 — per-call-site intrinsic dispatch.  Returns the
@@ -3818,20 +3861,22 @@ class JsGen(
       // handler can catch it. Emit such a body via the CPS path so the lambda
       // returns the Free value for the handler / `_bind` to interpret. (Lambdas in
       // an already-CPS context go through genCpsExpr; this covers the non-CPS ones.)
-      val bodyJs =
+      val bodyJs = withLocalBindings(params) {
         if jsForTermPerforms(body) then body match
           case Term.Block(stats) => genCpsBlockAsIife(stats)
           case expr              => genCpsExpr(expr)
         else body match
           case Term.Block(stats) => genBlockAsIife(stats)
           case expr              => genExpr(expr)
-      if params.length == 1 then s"${params.head} => $bodyJs"
+      }
+      val jsParams = params.map(localBindingName)
+      if jsParams.length == 1 then s"${jsParams.head} => $bodyJs"
       else
         // Auto-tuple: when this lambda is passed somewhere that supplies a
         // single tuple-arg (e.g. `pairs.foreach((n, s) => ...)`, where the
         // callback receives one `[n, s]` array), destructure on entry.
-        val arity   = params.length
-        val joined  = params.mkString(", ")
+        val arity   = jsParams.length
+        val joined  = jsParams.mkString(", ")
         s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
 
     // Partial function { case ... => ... }
@@ -5046,9 +5091,16 @@ class JsGen(
     case "None"    => "_None"
     case other     => paramRenames.getOrElse(other, emittedName(other))
 
-  private def withParamRenames[A](renames: Map[String, String])(f: => A): A =
+  private[codegen] def withParamRenames[A](renames: Map[String, String])(f: => A): A =
+    val saved = renames.keysIterator.map(k => k -> paramRenames.get(k)).toMap
     paramRenames ++= renames
-    try f finally paramRenames --= renames.keys
+    try f
+    finally
+      renames.keysIterator.foreach { k =>
+        saved(k) match
+          case Some(v) => paramRenames(k) = v
+          case None    => paramRenames -= k
+      }
 
   /** Returns true if the term is provably a TUPLE (a JS array), so `t._N` can lower to a
    *  direct `t[N-1]` read. Conservative: a tuple literal, a tuple `++` concat of two
