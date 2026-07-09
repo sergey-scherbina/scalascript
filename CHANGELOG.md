@@ -35,6 +35,20 @@ into the Request value and absent from std/http.ssc's `Request` case class;
 single-source-of-truth runtime layout (`PluginBridge.requestFieldNames`) that the
 case-class declaration can't override. Gate: `tests/e2e/route-params-v2-smoke.sh`.
 
+## 2026-07-09 — v2 bridge supports payments and bank-rails examples
+
+`examples/traditional-payments.ssc`, `examples/bank-rails-pix.ssc`, and
+`examples/bank-rails-fednow.ssc` now run on the v2 VM without leaking unresolved
+`Op(...)` or `Stub` values. The bridge registers deterministic no-network
+Stripe/Pix/FedNow provider method objects, payment/bank-rails field metadata,
+`Money`/`Currency` helpers, pure Pix QR generation, and the small
+`Instant`/`Thread` surface used by the FedNow poll example. Server/webhook and
+negative-path snippets that need route/platform/disconnected state are marked
+`scala no-run`. Gates: `FrontendBridgeTest` 42/42, `installBin`, the three real
+`bin/ssc run --v2` examples with a no-`Op(`/no-`Stub` stdout guard, conformance
+`money-multisection,v2-*` 4/4, full `./v2/conformance/check.sh`, and
+`git diff --check`.
+
 ## 2026-07-09 — v2 multi-line list literals no longer crash the parser
 
 `bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`

@@ -554,7 +554,19 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
       `./v2/conformance/check.sh`; and `git diff --check`. Note: the standard
       conformance INT lane still runs `--v1`, so the direct XSLT oracle is the
       assembled `--v2` example plus the focused bridge regression.
-- [ ] **unmask-payments-bridge** - traditional-payments/pix/fednow: bridge the v2
+- [x] **unmask-payments-bridge** - CLOSED 2026-07-09 in `a13bbc04a`/`89e73d308`:
+      v2 now runs the documented `traditional-payments`, Pix, and FedNow
+      examples honestly instead of leaking `Op(...)` or `Stub` values. The
+      bridge adds deterministic no-network payment/bank-rails provider method
+      objects, payment record field metadata, `Money`/`Currency` helpers, pure
+      Pix QR generation, and the small `Instant`/`Thread` surface needed by the
+      FedNow poll snippet. Non-self-contained route/webhook/platform/negative
+      examples are explicitly `scala no-run`, and the runnable money section
+      prints formatted amounts. Gates: `FrontendBridgeTest` 42/42, `installBin`,
+      the three real `bin/ssc run --v2` examples with a no-`Op(`/no-`Stub`
+      stdout guard, affected conformance `money-multisection,v2-*` 4/4, full
+      `./v2/conformance/check.sh`, and `git diff --check`.
+      Original scope:
       standard-Scala payment examples so they execute honestly instead of leaking
       `Op(...)` or `Stub` values. Spec: `specs/unmask-payments-bridge.md`. Bug:
       `BUGS.md#v2-payments-bankrails-op-stub-leaks`.

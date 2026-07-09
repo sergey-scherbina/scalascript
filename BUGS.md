@@ -30,7 +30,7 @@ Corpus 152/10 → 154/8 (`datatable-static-spa` now green; no regressions — th
 whole corpus still resolves its multi-line std-imports). Pinned by
 tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 
-## v2-payments-bankrails-op-stub-leaks - `open` (2026-07-09)
+## v2-payments-bankrails-op-stub-leaks - `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production unmasking loop after standard
   `scala` fences became runnable.
@@ -55,12 +55,29 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   earlier on undefined `PaymentProvider`, `PixConfig`, and `FedNowConfig`.
   The v2 oracle is the documented example behavior plus the explicit absence of
   unresolved `Op`/`Stub` output.
-- **Root cause:** pending. Current hypothesis: `FrontendBridge` treats several
-  payment/bank-rails companion/factory names as ordinary constructors, and
-  `PluginBridge` does not register payment provider, bank-rails provider,
-  Pix QR, or time/poll method objects.
-- **Fix:** pending in `feature/unmask-payments-bridge`.
-- **Status:** open.
+- **Root cause:** `FrontendBridge` treated several payment/bank-rails
+  companion/factory names as ordinary constructors or unresolved method-object
+  selects, while `PluginBridge` did not register the payment provider,
+  bank-rails provider, Pix QR, Money/Currency, or small time/poll method objects
+  needed by the examples. Several illustrative server/webhook/negative-path
+  snippets were also still marked runnable even though they depend on route,
+  webhook, platform, or disconnected example state.
+- **Fix:** `a13bbc04a` adds the v2 payments bridge surface: `v2PluginBridge`
+  depends on the existing payments/Pix/FedNow modules; `FrontendBridge`
+  pre-registers payment/bank-rails field names and method-object/factory names;
+  `PluginBridge` registers deterministic no-network Stripe/Pix/FedNow provider
+  method objects, `Money`/`Currency`, pure `PixQrCode` generation, and
+  `Instant`/`Thread` helpers; the v2 runtime handles basic `Money` arithmetic.
+  `89e73d308` marks non-self-contained payment snippets `scala no-run` and
+  keeps the runnable money section on supported bridge behavior.
+- **Verified:** `scripts/sbtc 'v2FrontendBridge/testOnly
+  ssc.bridge.FrontendBridgeTest'` (42/42); `scripts/sbtc 'installBin'`; direct
+  `bin/ssc run --v2` for `examples/traditional-payments.ssc`,
+  `examples/bank-rails-pix.ssc`, and `examples/bank-rails-fednow.ssc` all exit
+  0 and a shell guard confirms stdout contains no `Op(` or `Stub`;
+  `tests/conformance/run.sh --only 'money-multisection,v2-*' --no-memo` (4/4);
+  full `./v2/conformance/check.sh`; `git diff --check`.
+- **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
 

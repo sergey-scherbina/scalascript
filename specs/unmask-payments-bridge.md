@@ -43,24 +43,24 @@ FedNow walkthrough.
 
 ## Behavior
 
-- [ ] `bin/ssc run --v2 examples/traditional-payments.ssc` exits 0 and does not
+- [x] `bin/ssc run --v2 examples/traditional-payments.ssc` exits 0 and does not
       print `Op(` or `Stub`.
-- [ ] The first traditional payment charge reaches
+- [x] The first traditional payment charge reaches
       `PaymentIntent.Succeeded` and prints a deterministic charge id.
-- [ ] The subscription/customer/store-method snippets in
+- [x] The subscription/customer/store-method snippets in
       `traditional-payments.ssc` print deterministic IDs and statuses when they
       are part of the runnable stream.
-- [ ] `bin/ssc run --v2 examples/bank-rails-pix.ssc` exits 0 and does not print
+- [x] `bin/ssc run --v2 examples/bank-rails-pix.ssc` exits 0 and does not print
       `Op(` or `Stub`.
-- [ ] The Pix transfer section prints a deterministic transfer id plus concrete
+- [x] The Pix transfer section prints a deterministic transfer id plus concrete
       pending/settled statuses.
-- [ ] `PixQrCode.buildStatic` and `buildDynamic` return real EMV payload strings
+- [x] `PixQrCode.buildStatic` and `buildDynamic` return real EMV payload strings
       through the existing Pix QR implementation.
-- [ ] `bin/ssc run --v2 examples/bank-rails-fednow.ssc` exits 0 and does not
+- [x] `bin/ssc run --v2 examples/bank-rails-fednow.ssc` exits 0 and does not
       print `Op(` or `Stub`.
-- [ ] The FedNow poll section can evaluate `Instant.now().plusSeconds(...)`,
+- [x] The FedNow poll section can evaluate `Instant.now().plusSeconds(...)`,
       `Instant#isAfter`, and `Thread.sleep(...)` without leaking operations.
-- [ ] Focused bridge tests cover payments, Pix, and FedNow so later bridge
+- [x] Focused bridge tests cover payments, Pix, and FedNow so later bridge
       changes cannot silently reintroduce `Op`/`Stub` output.
 
 ## Out of scope
@@ -154,4 +154,49 @@ bin/ssc run --v1 examples/bank-rails-fednow.ssc
 # rc=1, Undefined: FedNowConfig
 ```
 
-Implementation results will be filled in during the verify step.
+Implementation results after `scripts/sbtc "installBin"`:
+
+```text
+bin/ssc run --v2 examples/traditional-payments.ssc
+# rc=0
+# Paid - charge: ch_stripe_demo_pi_1, receipt: Some(...)
+# Subscribed: stripe_demo_sub_5, status: Trialing, ...
+# Upgraded to stripe_demo_plan_6, status: Active
+# Stored method: visa .... 4242, exp 12/2030
+# Captured: stripe_demo_pi_10
+# Subtotal: $49.99, Tax: $10.00, Total: $59.99
+# List(0.34, 0.33, 0.33)
+
+bin/ssc run --v2 examples/bank-rails-pix.ssc
+# rc=0
+# Transfer initiated: pix_order12345attempt1, status: Pending
+# Transfer status: Settled
+# Static QR payload (first 60 chars): 00020126410014br.gov.bcb.pix...
+# Dynamic QR payload length: 198
+# CRC suffix: 6304FDCB
+
+bin/ssc run --v2 examples/bank-rails-fednow.ssc
+# rc=0
+# FedNow transfer fednow_fednowtransferorder88attempt1 submitted - status: Pending
+# Final status: Settled
+```
+
+Verification:
+
+- `scripts/sbtc 'v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest'`
+  passed 42/42.
+- `scripts/sbtc 'installBin'` rebuilt the staged CLI.
+- The three direct `bin/ssc run --v2` example checks passed and a shell guard
+  confirmed none of their stdout contained `Op(` or `Stub`.
+- `tests/conformance/run.sh --only 'money-multisection,v2-*' --no-memo`
+  passed 4/4. The conformance corpus has no payments/Pix/FedNow fixture yet, so
+  this affected slice covers the nearby v2 bridge and Money surface.
+- `./v2/conformance/check.sh` passed.
+- `git diff --check` passed.
+
+Notes:
+
+- The SCA, Apple Pay, refund/dispute, webhook, Pix Automático, and FedNow limit
+  snippets remain in the examples as `scala no-run` because they depend on
+  route/webhook/platform state or negative paths outside this deterministic v2
+  smoke bridge.
