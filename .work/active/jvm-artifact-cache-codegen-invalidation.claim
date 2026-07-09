@@ -1,0 +1,6 @@
+feature/jvm-artifact-cache-codegen-invalidation 2026-07-09T05:32:31Z
+agent: codex
+heartbeat: 2026-07-09T05:32:31Z
+status: not-started
+done-so-far:
+next: create worktree, inspect .scjvm artifact metadata and cache invalidation path
