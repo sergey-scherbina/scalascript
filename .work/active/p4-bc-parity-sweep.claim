@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/p4-bc-parity
+worktree: ../scalascript-wt-bc-parity
+started: 2026-07-09
+status: in-progress
+task: p4-bc-parity-sweep — output-parity свип корпуса под run --bytecode против run (v2-VM); mutual-tail trampoline по живому сигналу свипа; отчёт с классами расхождений
