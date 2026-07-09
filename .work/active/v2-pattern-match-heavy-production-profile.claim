@@ -1,6 +1,6 @@
-feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:48:08Z
+feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:50:19Z
 agent: codex
-heartbeat: 2026-07-09T23:48:08Z
+heartbeat: 2026-07-09T23:50:19Z
 status: in-progress
-done-so-far: baseline/CoreIR captured; static float foreach VM fix + fallback test committed on feature branch
-next: rebase, installBin, run focused tests/conformance and final pattern-match-heavy bench rows
+done-so-far: VM static float foreach fix benches at pattern-match-heavy v2=0.266ms vs v2-rust=0.265ms
+next: run focused tests, v2 conformance check, affected conformance, then docs/bookkeeping
