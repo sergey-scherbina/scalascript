@@ -19,6 +19,14 @@
 set -u
 cd "$(dirname "$0")/.."
 
+die() {
+  printf 'v2-output-parity: %s\n' "$*" >&2
+  exit 2
+}
+
+export TMPDIR="${SSC_PARITY_TMPDIR:-$PWD/target/v2-output-parity-tmp}"
+mkdir -p "$TMPDIR" || die "cannot create temp dir: $TMPDIR"
+
 # Curated pure-language sample (no network/threads/frontend) if no files are given.
 DEFAULT=(examples/bitwise-operators.ssc examples/custom-derives-mirror.ssc examples/hello.ssc
          examples/graph-codecs.ssc examples/content-linked-namespaces.ssc examples/algebraic-effects.ssc)
@@ -36,18 +44,22 @@ SKIP_RE='serve\(|listen|WebServer|websocket|\btui\b'
 # Each run is bounded by $PARITY_TIMEOUT seconds so a server/actor example can't stall the sweep.
 # Exit code travels via a file: $(run_one …) runs in a subshell, and piping
 # through grep would clobber $? anyway. 124 = timeout (long-running program).
-RC_FILE="$(mktemp)"; trap 'rm -f "$RC_FILE"' EXIT
+RC_FILE="$(mktemp "$TMPDIR/v2-output-parity.rc.XXXXXX")" || die "cannot create rc file in $TMPDIR"
+trap 'rm -f "$RC_FILE"' EXIT
+write_rc() {
+  printf '%s\n' "$1" > "$RC_FILE" || die "cannot write parity rc file: $RC_FILE"
+}
 run_one() { # $1=file  $2=extra-flag(--v1 or --v2)
   local out rc
   if [ -n "${SSC:-}" ]; then
     # $SSC is a command (unquoted so "java -jar ssc.jar" word-splits).
     out=$(timeout "${PARITY_TIMEOUT:-45}" $SSC run $2 "$1" 2>/dev/null); rc=$?
-    echo "$rc" > "$RC_FILE"
+    write_rc "$rc"
     # normalize random server ports so real-server banners can byte-match
     printf '%s' "$out" | grep -vE '^NOTE: Picked up' | sed -E 's#localhost:[0-9]+#localhost:PORT#g'
   else
     out=$(timeout "${PARITY_TIMEOUT:-180}" sbt -Dsbt.color=false -batch "cli/runMain scalascript.cli.ssc run $2 $1" 2>/dev/null); rc=$?
-    echo "$rc" > "$RC_FILE"
+    write_rc "$rc"
     printf '%s' "$out" | grep -vE '^\[(info|success|warn|error)\]|^NOTE: Picked up|running scalascript\.cli'
   fi
 }
@@ -63,8 +75,11 @@ printf '%-38s %s\n' "-------" "------"
 #   uuid-v7         — random UUIDs
 #   os-env          — host/worktree-specific platform, cwd, env values
 #   mcp/oauth demos — generated OAuth client ids/secrets + server banners
+# V1-side/better-output examples are known rows where v2 matches the documented
+# behavior and the rollback v1 runner truncates or aborts its own output.
 NONDET_RE='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack)\.ssc$'
-lane_skip=0; nondet_skip=0; longrun_skip=0
+V1_SIDE_RE='^(effects|dsl-calc-parser)\.ssc$'
+lane_skip=0; nondet_skip=0; v1side_skip=0; longrun_skip=0
 for f in "${FILES[@]}"; do
   [ -f "$f" ] || { printf '%-38s %s\n' "$(basename "$f")" "MISSING"; continue; }
   if [ "${1:-}" = "--all" ] && grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then
@@ -76,7 +91,12 @@ for f in "${FILES[@]}"; do
   if basename "$f" | grep -qE "$NONDET_RE"; then
     printf '%-38s %s\n' "$(basename "$f")" "· skip (nondeterministic output by design)"; nondet_skip=$((nondet_skip+1)); continue
   fi
-  v1=$(run_one "$f" "--v1"); v1_rc=$(cat "$RC_FILE")
+  if basename "$f" | grep -qE "$V1_SIDE_RE"; then
+    printf '%-38s %s\n' "$(basename "$f")" "· skip (v1-side: v2 output is documented behavior)"; v1side_skip=$((v1side_skip+1)); continue
+  fi
+  v1=$(run_one "$f" "--v1"); run_status=$?
+  [ "$run_status" -eq 0 ] || exit "$run_status"
+  v1_rc=$(cat "$RC_FILE") || die "cannot read parity rc file: $RC_FILE"
   name=$(basename "$f")
   if [ "$v1_rc" = "124" ]; then
     # v1 didn't terminate within PARITY_TIMEOUT — long-running (actor loop /
@@ -88,10 +108,11 @@ for f in "${FILES[@]}"; do
   # (the localhost:PORT normalization keeps outputs comparable).
   v2f="$f"
   if grep -qE '^val port = [0-9]+' "$f"; then
-    v2f=$(mktemp -t sscparity).ssc
-    sed -E 's/^val port = ([0-9]+)/val port = \1 + 1/' "$f" > "$v2f"
+    v2f=$(mktemp "$TMPDIR/sscparity.XXXXXX.ssc") || die "cannot create temp source in $TMPDIR"
+    sed -E 's/^val port = ([0-9]+)/val port = \1 + 1/' "$f" > "$v2f" || die "cannot write temp source: $v2f"
   fi
-  v2=$(run_one "$v2f" "--v2")
+  v2=$(run_one "$v2f" "--v2"); run_status=$?
+  [ "$run_status" -eq 0 ] || exit "$run_status"
   [ "$v2f" != "$f" ] && rm -f "$v2f"
   # NB: "both empty" means the program fails/prints nothing on BOTH runners (e.g. needs a --plugin the
   # default `ssc run` doesn't load) — that is NOT a v2 gap, so it must not count as an identical match.
@@ -113,5 +134,5 @@ total=${#FILES[@]}
 real=$((match + mismatch + err + v1only))   # examples where at least one runner produced real output
 echo
 echo "parity: $match/$real identical · $mismatch mismatch · $err v2-error · $v1only v1-only"
-echo "        ($bothfail both-fail not-a-gap · $skip true-server · $longrun_skip long-running · $lane_skip backend-lane · $nondet_skip nondet · $total total)"
+echo "        ($bothfail both-fail not-a-gap · $skip true-server · $longrun_skip long-running · $lane_skip backend-lane · $nondet_skip nondet · $v1side_skip v1-side · $total total)"
 [ $((mismatch + err)) -eq 0 ]
