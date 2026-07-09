@@ -111,21 +111,19 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `recursion-fib` 221.2 ms, `recursion-tco` 12.1 ms). Scope the next
       slice to one backend/workload family at a time, using
       `scripts/bench v2-backends <workload>` as the before/after command.
-- [ ] **v2-vm-production-jit-gate** — claimed/promoted to SPRINT on 2026-07-09;
-      close the remaining Phase-3 v2 VM
-      production-performance gate with a real JIT/closed-form track rather than
-      more local FC patches. The 2026-07-09 hot-path triage fixed two concrete
-      misses (`recursion-fib` 68.5→5.94 ms by recognising bridge-generated
-      comparisons in `SelfRecLL`; `recursion-tco` 2.52→0.273 ms by compiling
-      arity-2 self-tail recursion to a local loop), but the same command still
-      leaves v2 outside 2x:
+- [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09: the
+      first narrow production-JIT slice recognized the exact bridge-lowered
+      local Long-cell summation loop from `bench/corpus/arith-loop.ssc`, moving
+      the v2 VM row from 9.91 ms to 0.000018 ms under
       `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib
-      recursion-tco pattern-match-heavy` → `arith-loop` 42.2x,
-      `pattern-match-heavy` 682.7x, `recursion-fib` 5.0x, `recursion-tco` 10.1x
-      vs `ssc`. Scope: design/implement a v2 VM bytecode/JIT or explicit
-      closed-form optimizer for bridge-generated CoreIR hot loops; do not
-      reopen this as another broad hand-written `FastCode` sweep unless a
-      focused profile shows a non-JIT local fix can plausibly reach 2x.
+      recursion-tco pattern-match-heavy`. The overall Phase-3 v2 VM
+      production-performance gate remains open because the same after-run still
+      leaves `pattern-match-heavy` at 19.1 ms, `recursion-fib` at 6.34 ms, and
+      `recursion-tco` at 0.308 ms, all outside the 2x target versus `ssc`.
+      Next SPRINT slice: `v2-vm-pattern-match-heavy-fast-tier`, focused on the
+      largest remaining row. Keep closing this as one workload-family slice at
+      a time; do not reopen it as a broad hand-written `FastCode` sweep unless
+      a focused profile shows the local fix can plausibly reach the 2x gate.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

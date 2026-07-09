@@ -9,20 +9,33 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-vm-production-jit-gate** — claim the next production-v2 VM
-      performance slice from BACKLOG. Scope for this iteration is deliberately
-      narrow: stage `bin/ssc`, reproduce the current four-row production probe,
-      inspect the bridge-generated CoreIR for `bench/corpus/arith-loop.ssc`,
-      and implement only an exact-shape v2 VM fast path if the shape is safe
-      enough to recognize conservatively. Candidate: local Long-cell `while`
-      loop with `sum = sum + i; i = i + 1; sum` lowered through
-      `lcell.new`/`lcell.set`/`lcell.get`. Do not broaden into the bytecode
-      codegen JIT Phase C or `pattern-match-heavy` foreach rearchitecture in
-      this slice; record those as follow-ups if needed. Done-when:
-      `specs/v2-vm-production-jit-gate.md` behavior boxes are checked or an
-      honest blocker is recorded, affected tests pass, the bounded bench
-      before/after numbers are in the spec, and `tests/conformance/run.sh
-      --only 'litdoc'` passes.
+- [ ] **v2-vm-pattern-match-heavy-fast-tier** — continue the v2 VM
+      production-performance gate from `v2-vm-production-jit-gate`, focusing
+      only on `bench/corpus/pattern-match-heavy.ssc`, now the largest remaining
+      measured VM gap. Start by staging `bin/ssc`, reproducing the bounded
+      row with `./bench.sh --warmup-time 500 --reps 20 pattern-match-heavy`,
+      and emitting bridge CoreIR for the workload. Inspect whether the hot
+      shape is a pure pattern-match dispatcher, bridge-lowered foreach/HOF
+      loop, tuple/list allocation churn, or another narrow CoreIR form that can
+      be recognized safely. Implement at most one conservative v2 VM fast path
+      or record a blocker with the exact shape and next design. Do not broaden
+      into full bytecode-codegen JIT Phase C in this slice. Done-when: a
+      `specs/v2-vm-pattern-match-heavy-fast-tier.md` spec is committed before
+      code, before/after numbers are recorded, affected tests pass, and
+      `tests/conformance/run.sh --only 'litdoc'` passes.
+
+- [x] **v2-vm-production-jit-gate** — DONE 2026-07-09: landed the first
+      narrow v2 VM production-JIT slice by recognizing the exact
+      bridge-lowered local Long-cell summation loop from
+      `bench/corpus/arith-loop.ssc` in both normal `Code` and arity-0
+      `fcEntry`. The bounded four-row command
+      `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib
+      recursion-tco pattern-match-heavy` moved `arith-loop` v2 from 9.91 ms to
+      0.000018 ms while keeping the gate honest: `pattern-match-heavy` 19.1 ms,
+      `recursion-fib` 6.34 ms, and `recursion-tco` 0.308 ms remain outside the
+      2x target. Gates: focused `FrontendBridgeTest -- -z var`, `installBin`,
+      targeted and four-row bench probes, `./v2/conformance/check.sh`,
+      `tests/conformance/run.sh --only 'litdoc'`, and `git diff --check`.
 
 - [x] **v2-backend-performance-harness** — DONE 2026-07-09 in
       `01d9abf32`/`677969e1a`: `scripts/bench v2-backends [workload]` and

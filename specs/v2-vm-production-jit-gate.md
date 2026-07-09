@@ -24,16 +24,16 @@ bin/ssc --backend v2 bench --warmup-time 100 --reps 3 bench/corpus/arith-loop.ss
 
 ## Behavior
 
-- [ ] Reproduce the current four-row v2 VM production-performance baseline in
+- [x] Reproduce the current four-row v2 VM production-performance baseline in
       this worktree after staging `bin/ssc`.
-- [ ] Identify the bridge-generated CoreIR shape for `bench/corpus/arith-loop.ssc`
+- [x] Identify the bridge-generated CoreIR shape for `bench/corpus/arith-loop.ssc`
       and document the exact recognizer scope before changing runtime code.
-- [ ] Land one narrow v2 VM fast path for the `arith-loop` Long-cell while shape
+- [x] Land one narrow v2 VM fast path for the `arith-loop` Long-cell while shape
       or record why that shape is not safe to optimize in this slice.
-- [ ] Verify that existing recursion fixes stay green and the production
+- [x] Verify that existing recursion fixes stay green and the production
       performance checklist remains honest: mark the 2x gate closed only if the
       measured numbers justify it.
-- [ ] Run affected unit/backend checks plus
+- [x] Run affected unit/backend checks plus
       `tests/conformance/run.sh --only 'litdoc'` before push.
 
 ## Out of scope
@@ -74,4 +74,46 @@ runtime mode.
 
 ## Results
 
-Pending implementation.
+Implemented a conservative exact-shape recognizer for the bridge-lowered local
+Long-cell summation loop. The recognizer is used both by normal `Code` and by
+arity-0 `fcEntry`, because `bench.sh` invokes the hot workload wrapper through
+`fcEntry`; a code-only recognizer left the benchmark on the old VM path.
+
+Baseline command:
+
+```bash
+./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
+```
+
+Before:
+
+| Workload | ssc | ssc-asm | v2 | jvm | js | rust |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arith-loop | 0.256 | 0.253 | 9.91 | 0.247 | 0.581 | 0.951 |
+| pattern-match-heavy | 0.053 | 0.053 | 27.8 | 0.046 | 0.049 | 1.37 |
+| recursion-fib | 1.18 | 1.16 | 5.75 | 1.26 | 4.29 | 1.81 |
+| recursion-tco | 0.028 | 0.029 | 0.258 | 0.025 | 0.120 | 0.025 |
+
+After:
+
+| Workload | ssc | ssc-asm | v2 | jvm | js | rust |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arith-loop | 0.279 | 0.275 | 0.000018 | 0.272 | 0.614 | 1.04 |
+| pattern-match-heavy | 0.067 | 0.064 | 19.1 | 0.058 | 0.061 | 1.66 |
+| recursion-fib | 1.30 | 1.29 | 6.34 | 1.39 | 4.86 | 1.96 |
+| recursion-tco | 0.034 | 0.033 | 0.308 | 0.027 | 0.138 | 0.028 |
+
+This closes only the `arith-loop` scalar-loop slice. The overall v2 VM
+production-performance gate remains red: `pattern-match-heavy`,
+`recursion-fib`, and `recursion-tco` are still outside the 2x target and need
+separate follow-up slices.
+
+Gates run:
+
+- `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z var"`
+- `scripts/sbtc "installBin"`
+- `./bench.sh --backend v2 --warmup-time 500 --reps 20 arith-loop`
+- `./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy`
+- `./v2/conformance/check.sh`
+- `tests/conformance/run.sh --only 'litdoc'`
+- `git diff --check`

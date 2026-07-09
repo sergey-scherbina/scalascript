@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 VM closed-form scalar loop for arith-loop
+
+The v2 VM now recognizes the exact bridge-lowered local Long-cell summation
+loop used by `bench/corpus/arith-loop.ssc` in both normal `Code` and arity-0
+`fcEntry`. The bounded production probe moved the v2 `arith-loop` row from
+9.91 ms to 0.000018 ms. The overall Phase-3 VM performance gate remains open:
+`pattern-match-heavy`, `recursion-fib`, and `recursion-tco` still need focused
+follow-up slices. Gates: focused bridge test, `installBin`, four-row bench,
+v2 conformance, conformance `litdoc`, and `git diff --check`.
+
 ## 2026-07-09 — v2 backend performance harness exposes source backend columns
 
 `scripts/bench v2-backends [workload]` and `./bench.sh --v2-backends ...` now
