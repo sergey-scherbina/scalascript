@@ -9,6 +9,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **bug-ledger-scjvm-cache-duplicate-close** — close the old
+      `scjvm-artifact-cache-ignores-compiler-version` BUGS entry as a duplicate
+      of the landed `jvm-artifact-cache-codegen-invalidation` fix. Found after
+      completing that slice: the current top BUGS entry is fixed, but the older
+      2026-07-07 cache-version report remains `open`, so a fresh agent would
+      think the same production blocker is still unresolved. Done when BUGS
+      points to commits `322ee868f`/`14aa2819d` and this SPRINT item is checked
+      off with no code changes.
+
 - [x] **v2-stream-family-output-parity** — DONE 2026-07-09 in `d1d0bc1fd`: fixed the last two strict production
       output mismatches in the default v2 gate: `examples/distributed-streams.ssc`
       and `examples/streams.ssc`. Baseline after
