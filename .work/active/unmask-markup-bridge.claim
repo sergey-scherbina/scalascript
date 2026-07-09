@@ -1,6 +1,6 @@
 feature/unmask-markup-bridge 2026-07-09T12:40:12Z
 agent: codex
 heartbeat: 2026-07-09T12:40:12Z
-status: not-started
-done-so-far:
+status: in-progress
+done-so-far: claim and worktree created
 next: write spec first, reproduce v2 xslt-transform failure, then bridge the minimal markup runtime/plugin surface
