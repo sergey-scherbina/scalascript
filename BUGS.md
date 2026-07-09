@@ -33,6 +33,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
   for standard-Scala-only documents, which is too strict for examples that
   explicitly mark both languages runnable; and multi-block Scala source may still
   expose top-level conversion or auto-print ordering differences.
+- **Reproduced 2026-07-09:** the two rows have different root causes. For
+  `scala-js-demo.ssc`, v2 extracts and starts the later standard `scala` fences
+  but exits after the first two lines with
+  `__method__: no dispatch for .takeWhile on "Circle(3)"`; adding the missing
+  string predicate method should expose the remaining ADT/sort output. For
+  `lang-split.ssc`, v2 exits 0 but only prints the ScalaScript block, confirming
+  that intentional mixed runnable `scala` fences are still excluded by
+  `extractCode`.
 - **Plan:** add focused extraction/runtime regressions for an all-`scala`
   multi-fence document and an intentional mixed runnable document; adjust the
   extractor policy narrowly so documented runnable `scala` fences are included

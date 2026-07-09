@@ -38,6 +38,12 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       targeted parity for `examples/scala-js-demo.ssc examples/lang-split.ssc`
       matches or has a newly filed/classified non-fence mismatch, and the full
       parity baseline/docs are updated with the new counts.
+      Reproduced 2026-07-09 after `installBin`: `scala-js-demo.ssc` v2 starts
+      correctly then crashes on missing `String.takeWhile` dispatch after
+      `Sum 1..10 = 55`; `lang-split.ssc` v2 exits 0 but skips the intentional
+      mixed `scala` fences. So this slice is now two narrow fixes:
+      `Runtime.scala` string predicate method support plus `extractCode` policy
+      for documented mixed runnable language-block examples.
 
 - [x] **v2-busi-testsweep-gaps** — DONE 2026-07-08: **61/61 busi tests green on --v2** (was 47/61).
       Seven root causes, one BUGS.md entry each (batch `v2-busi-testsweep-gaps`): shared top-level
