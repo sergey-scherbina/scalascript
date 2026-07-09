@@ -2808,9 +2808,33 @@ println(r)` → works.
   their phase23 diamond (was OOM at load) now loads + passes (30 checks), full regression
   green, ph-2 domain-module split unblocked (rozum seq-137). **Closed.**
 
+## v2-arith-split-jit-size — `fixed` (2026-07-09)
+
+- **Found by:** claude-fable-5 while gating the head-field fix: pattern-match-heavy
+  at ~354 ms/iter on clean origin/main vs 23.6 the evening before (15×). Bisected
+  to `a2985d911 fix(v2): unify dynamic arith dispatch`.
+- **Root cause:** the unification merged the whole `__arith__` dispatch table into
+  `Prims.arithOp` — semantically right (it closed the table/arithOp divergence),
+  but the merged method blew past the JVM JIT size limits, so EVERY arith op
+  (literal-name hot loops included) ran interpreted. Reordering patterns bought
+  only 350→300; splitting restored 26.
+- **Fix:** `arithOp` keeps only the hot head (`->`, Int/Float/mixed/Str×Str pairs,
+  Op-lifting) and delegates everything else to `private arithRest`. Bench:
+  pattern-match-heavy 26.0/26.1, arith-loop 9.56, nested 15.3, effect-multishot
+  5.12 — all at baseline. FrontendBridgeTest 25/25 (incl. the unification tests).
+
 ## v2-head-field-dispatch-shadow — a case-class field named `head` (non-zero index) breaks List.head
 
-**Status:** OPEN (v2 VM only; v1 lanes correct — guarded by tests/conformance/head-field-shadow.ssc)
+**Status:** FIXED 2026-07-09 (was OPEN; guarded by tests/conformance/head-field-shadow.ssc).
+**Fix:** the 3-arg `fieldAt(recv, idx, name)` now resolves by the RECEIVER's own
+registered field names (`lookupFieldNames(tag)` → index of `name`), falling back to
+full dynamic `methodOp` dispatch when the tag has no such field (Cons/Nil/Some/… —
+builtin members stay builtin). Also fixes the same-name-at-different-index case
+across classes. Companion: foldLeft/map/foreach for ForeignV(ArrayBuffer) and
+foldLeft for ForeignV(mutable.Map) (the hub folds over Array.fill tables at module
+load — the next boot blocker after head). **busi hub BOOTS on --v2**
+("listening on 0.0.0.0:8392"). instance-field bench A/B flat (the tag check rides
+the already-generic 3-arg path; the 2-arg match/tuple fast paths are untouched).
 
 Importing/loading ANY module that defines e.g. `case class Ref(name: String, head: String)` makes
 `xs.head` on a List resolve through the case-class FIELD accessor — by field INDEX — for other

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: busi hub boots on --v2 (head-field shadow + foreign HOFs) + arith JIT-size fix
+
+The busi hub-boot blocker (BUGS.md v2-head-field-dispatch-shadow, root-caused and guarded by a
+sibling): the bridge bakes fieldAt indexes from the GLOBAL field-name registry without receiver
+type info, so a case class `Ref(name, head)` made `hits.head` on a List read the Cons tail. The
+3-arg fieldAt now resolves by the receiver's OWN registered field names with dynamic-dispatch
+fallback (builtin members stay builtin; also fixes same-name-different-index across classes).
+Companion: foldLeft/map/foreach on ForeignV(ArrayBuffer) + foldLeft on mutable.Map (next boot
+blocker — the hub folds over Array.fill tables at load). busi hub: "listening on 0.0.0.0:8392" on
+--v2. Separately, bisected the overnight 15× pattern-match-heavy regression (354 vs 23.6 ms/iter)
+to the a2985d911 arith unification — the merged dispatch blew past JVM JIT size limits; arithOp is
+now a small hot head (numerics, ->, Op-lifting) delegating to arithRest. All benches back at
+baseline; FrontendBridgeTest 25/25.
 ## 2026-07-09 — v2: stream-family parity blockers closed
 
 v2 now runs `examples/distributed-streams.ssc` and `examples/streams.ssc` to
