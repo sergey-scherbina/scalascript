@@ -41,6 +41,8 @@ object JvmByteGen:
     /** Top-level Lam defs: name → (methodName, arity). Calls to these compile
      *  to DIRECT invokestatic — no global lookup, no ClosV, no Emit.app. */
     val defMethods = collection.mutable.HashMap.empty[String, (String, Int)]
+    /** Pending Seq chains: (per-statement method names, statements, tailLast). */
+    val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean)]
 
   /** Emitter context for ONE method body. */
   private final class Ctx(val mv: MethodVisitor, val g: Gen):
@@ -104,13 +106,45 @@ object JvmByteGen:
     installMv.visitInsn(Opcodes.RETURN)
     installMv.visitMaxs(0, 0); installMv.visitEnd()
 
-    // drain pending lam bodies (may enqueue more)
-    while g.pending.nonEmpty do
-      val pnd = g.pending.dequeue()
-      emitBody(g, pnd.name, pnd.body, paramIsEnv = true, selfGlobal = pnd.selfGlobal, selfArity = pnd.selfArity)
+    // drain pending lam bodies and seq chains (each may enqueue more)
+    while g.pending.nonEmpty || g.chains.nonEmpty do
+      while g.pending.nonEmpty do
+        val pnd = g.pending.dequeue()
+        emitBody(g, pnd.name, pnd.body, paramIsEnv = true, selfGlobal = pnd.selfGlobal, selfArity = pnd.selfArity)
+      while g.chains.nonEmpty do
+        val (names, ts, tailLast) = g.chains.dequeue()
+        emitChain(g, names, ts, tailLast)
 
     cw.visitEnd()
     cw.toByteArray
+
+  /** One method per Seq statement: value checked for an un-handled Op at the
+   *  boundary — fast path calls the next chain method directly. */
+  private def emitChain(g: Gen, names: Vector[String], ts: List[Term], tailLast: Boolean): Unit =
+    ts.zipWithIndex.foreach { (stmt, i) =>
+      val last = i == ts.length - 1
+      val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, names(i), s"([L$VAL;)L$VAL;", null, null)
+      mv.visitCode()
+      val ctx = new Ctx(mv, g)
+      gen(stmt, ctx, tail = tailLast && last)
+      if !last then
+        mv.visitInsn(Opcodes.DUP)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "isOp", s"(L$VAL;)Z", false)
+        val contL = new Label()
+        mv.visitJumpInsn(Opcodes.IFEQ, contL)
+        // op path: thread the rest of the chain as the continuation
+        emitLamFnRef(ctx, names(i + 1))
+        mv.visitVarInsn(Opcodes.ALOAD, 0)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "seqThread", s"(L$VAL;L$LAMFN;[L$VAL;)L$VAL;", false)
+        mv.visitInsn(Opcodes.ARETURN)
+        mv.visitLabel(contL)
+        mv.visitInsn(Opcodes.POP)
+        mv.visitVarInsn(Opcodes.ALOAD, 0)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, names(i + 1), s"([L$VAL;)L$VAL;", false)
+      mv.visitInsn(Opcodes.ARETURN)
+      mv.visitMaxs(0, 0)
+      mv.visitEnd()
+    }
 
   private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean,
                        selfGlobal: String | Null = null, selfArity: Int = -1): Unit =
@@ -188,12 +222,19 @@ object JvmByteGen:
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
       case Term.Seq(Nil) =>
         call0(mv, "unitV")
+      case Term.Seq(ts) if ts.length == 1 =>
+        gen(ts.head, ctx, tail)
       case Term.Seq(ts) =>
-        ts.zipWithIndex.foreach { (s, i) =>
-          val last = i == ts.length - 1
-          gen(s, ctx, tail && last)
-          if !last then mv.visitInsn(Opcodes.POP)
-        }
+        // STATEMENT-POSITION EFFECT THREADING (VM seqThreadOp mirror): the
+        // sequence compiles as a chain of per-statement methods over a
+        // MATERIALIZED frame (safe: vars are shared cell objects). At each
+        // boundary an isOp check either continues the chain directly (JIT
+        // inlines the static calls back) or re-emerges the Op with the rest
+        // of the chain as its continuation via Emit.seqThread.
+        val chainNames = ts.indices.map(_ => ctx.g.freshLam()).toVector
+        ctx.g.chains += ((chainNames, ts, tail))
+        emitCapture(ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, chainNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.If(c, a, b) =>
         gen(c, ctx); callVB(mv, "bool")
         val elseL = new Label(); val endL = new Label()

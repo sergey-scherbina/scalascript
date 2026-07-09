@@ -61,6 +61,27 @@ object Emit:
       i += 1
     envP
 
+  /** Statement-position effect threading (the bytecode mirror of the VM's
+   *  seqThreadOp): a non-last Seq statement evaluating to an un-handled Op
+   *  re-emerges as Op(l, a, x -> { k(x); rest(env) }) — the handler resumes
+   *  the original continuation first, then the REST of the sequence runs.
+   *  restFn is the compiled chain method for the remaining statements. */
+  def isOp(v: Value): Boolean = v match
+    case Value.DataV("Op", _) => true
+    case _ => false
+  def seqThread(op: Value, restFn: LamFn, env: Array[Value]): Value = op match
+    case Value.DataV("Op", fs) if fs.length == 3 =>
+      seqThreadK(fs(0), fs(1), fs(2), restFn, env)
+    case v => v
+  private def seqThreadK(l: Value, a: Value, k: Value, restFn: LamFn, env: Array[Value]): Value =
+    val kc = k.asInstanceOf[Value.ClosV]
+    Value.DataV("Op", Vector(l, a, Value.ClosV(Runtime.emptyEnv, 1, env2 => {
+      val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+      Done(resumed match
+        case op2 @ Value.DataV("Op", _) => seqThread(op2, restFn, env)
+        case _ => unroll(restFn.call(env)))
+    })))
+
   /** Mutual-tail trampoline: a TAIL call to another compiled def RETURNS a
    *  Bounce instead of invoking (constant stack); every consumer of a compiled
    *  method's result unrolls bounces in a loop. Wrapped in ForeignV so the
