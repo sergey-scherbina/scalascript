@@ -149,7 +149,16 @@ object Emit:
       case ro => globalsRef = scala.collection.mutable.HashMap.from(ro).addOne(name -> v)
   def global(name: String): Value =
     globalsRef.getOrElse(name,
-      V2PluginRegistry.lookupGlobal(name).getOrElse(sys.error(s"unbound global: $name")))
+      V2PluginRegistry.lookupGlobal(name).getOrElse {
+        // VM parity: @xxx cell globals AUTO-CREATE on first access (lazy
+        // UnitV init) — readers and writers then share the same cell object
+        // through the mutable globals map.
+        if name.startsWith("@") then
+          val cell = Value.ForeignV(Array[Value](Value.UnitV))
+          registerGlobal(name, cell)
+          cell
+        else sys.error(s"unbound global: $name")
+      })
   def strV(s: String): Value = Value.StrV(s)
   def intV(n: Long): Value = Value.IntV(n)
   def floatV(d: Double): Value = Value.FloatV(d)

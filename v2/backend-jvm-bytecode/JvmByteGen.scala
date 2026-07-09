@@ -88,7 +88,21 @@ object JvmByteGen:
     // VM-compiled version in Emit.globalsRef; value defs stay VM-compiled)
     val installMv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "install", "()V", null, null)
     installMv.visitCode()
+    // slot 0 = empty frame (value-def bodies may materialize chains)
+    installMv.visitInsn(Opcodes.ICONST_0)
+    installMv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
+    installMv.visitVarInsn(Opcodes.ASTORE, 0)
     p.defs.zipWithIndex.foreach { (d, i) =>
+      d.body match
+        case _: Term.Lam => ()
+        case valueBody =>
+          // VALUE defs (cells, constants — incl. import-merged @var cells)
+          // must be EVALUATED at startup: the VM runs CDefs in order; the
+          // bytecode lane does it here, in def order, before entry.
+          installMv.visitLdcInsn(d.name)
+          val vctx = new Ctx(installMv, g)
+          gen(valueBody, vctx)
+          installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "registerGlobal", s"(Ljava/lang/String;L$VAL;)V", false)
       d.body match
         case Term.Lam(ar, body) if lastDefs.get(d.name).contains(i) =>
           val (m, _) = g.defMethods(d.name)
@@ -122,6 +136,30 @@ object JvmByteGen:
 
     cw.visitEnd()
     cw.toByteArray
+
+  /** Cutoff-based De Bruijn shift (for the Match-scrutinee Let rewrite). */
+  private def shift(t: Term, amount: Int, cutoff: Int): Term = t match
+    case Term.Local(i) => if i >= cutoff then Term.Local(i + amount) else t
+    case Term.Lam(ar, b) => Term.Lam(ar, shift(b, amount, cutoff + ar))
+    case Term.App(f, args) => Term.App(shift(f, amount, cutoff), args.map(shift(_, amount, cutoff)))
+    case Term.Let(rhs, b) =>
+      val (shiftedRhs, _) = rhs.foldLeft((List.empty[Term], cutoff)) { case ((acc, c), r) =>
+        (acc :+ shift(r, amount, c), c + 1)
+      }
+      Term.Let(shiftedRhs, shift(b, amount, cutoff + rhs.length))
+    case Term.LetRec(lams, b) =>
+      val c2 = cutoff + lams.length
+      Term.LetRec(lams.map(shift(_, amount, c2)), shift(b, amount, c2))
+    case Term.If(c, a, b) => Term.If(shift(c, amount, cutoff), shift(a, amount, cutoff), shift(b, amount, cutoff))
+    case Term.Ctor(tag, fs) => Term.Ctor(tag, fs.map(shift(_, amount, cutoff)))
+    case Term.Match(s, arms, d) =>
+      Term.Match(shift(s, amount, cutoff),
+        arms.map(a => a.copy(body = shift(a.body, amount, cutoff + a.arity))),
+        d.map(shift(_, amount, cutoff)))
+    case Term.Prim(op, args) => Term.Prim(op, args.map(shift(_, amount, cutoff)))
+    case Term.Seq(ts) => Term.Seq(ts.map(shift(_, amount, cutoff)))
+    case Term.While(c, b) => Term.While(shift(c, amount, cutoff), shift(b, amount, cutoff))
+    case _ => t // Lit, Global
 
   /** Conservative may-produce-Op classifier (mirrors OpAnf.mayOp): only terms
    *  that can reach an App or a method/effect dispatch can yield an Op. */
@@ -401,6 +439,12 @@ object JvmByteGen:
         gen(f, ctx); genArray(args, ctx); callApp(mv)
       case Term.Ctor(tag, fields) =>
         mv.visitLdcInsn(tag); genArray(fields, ctx); callCtorArr(mv)
+      case Term.Match(scrut, arms, default) if mayOp(scrut) =>
+        // scrutinee may be an un-handled Op: rewrite to a Let binding so the
+        // let-chain threading defers it (arms/default shift under the binder)
+        val shiftedArms = arms.map(a => a.copy(body = shift(a.body, 1, a.arity)))
+        val shiftedDef  = default.map(d => shift(d, 1, 0))
+        gen(Term.Let(List(scrut), Term.Match(Term.Local(0), shiftedArms, shiftedDef)), ctx, tail)
       case Term.Match(scrut, arms, default) =>
         gen(scrut, ctx)
         val scrutSlot = ctx.nextSlot; ctx.nextSlot += 1
