@@ -1,0 +1,6 @@
+feature/v2-graph-neo4j-foreign-parity 2026-07-09T02:22:36Z
+agent: codex
+heartbeat: 2026-07-09T02:22:36Z
+status: not-started
+done-so-far:
+next: create isolated worktree, then record BUGS.md and SPRINT.md entries before reproducing the graph parity mismatch
