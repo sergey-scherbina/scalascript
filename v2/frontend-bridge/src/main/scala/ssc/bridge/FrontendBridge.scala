@@ -882,12 +882,24 @@ object FrontendBridge:
         if t.contains(".ssc)") || t.contains(".ssc0)") || t.matches("""\[[^\]]*\]\(pkg:[^)]+\)""") then
           i += 1 // single-line import: skip it
         else
-          i += 1 // multi-line: skip continuations until closing .ssc) line
+          // Multi-line import ONLY when a closing `](….ssc)` line actually follows
+          // and every line until then is an ident-list continuation. A bare `[`
+          // opening a multi-line list literal (or `[a, b,` …) that never closes
+          // with `.ssc)` is CODE — emit it and keep scanning, never swallow the
+          // rest of the fence (busi datatable-static-spa parse crash on --v2).
+          var j = i + 1
           var foundClose = false
-          while i < lines.length && !foundClose do
-            val t2 = lines(i).trim
-            i += 1
-            if t2.contains(".ssc)") || t2.contains(".ssc0)") then foundClose = true
+          var stillImport = true
+          while j < lines.length && !foundClose && stillImport do
+            val tj = lines(j).trim
+            if tj.contains(".ssc)") || tj.contains(".ssc0)") then foundClose = true
+            else if tj.isEmpty || !tj.matches("""[A-Za-z0-9_,\s]+""") then stillImport = false
+            else j += 1
+          if foundClose then
+            i = j + 1 // consume the whole multi-line import directive
+          else
+            if sb.nonEmpty then sb.append('\n')
+            sb.append(lines(i)); i += 1 // list-literal opener, not an import — keep as code
       else
         if sb.nonEmpty then sb.append('\n')
         sb.append(lines(i))

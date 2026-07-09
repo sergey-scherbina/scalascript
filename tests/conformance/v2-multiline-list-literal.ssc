@@ -1,0 +1,44 @@
+#!/usr/bin/env ssc
+---
+name: v2-multiline-list-literal
+description: v2 fence extractor swallowed a multi-line [ list literal as a phantom multi-line import
+backends: [int]
+---
+
+# v2 multi-line `[ … ]` list literal crashes the fence extractor
+
+A bare `[` opening a MULTI-LINE list literal (elements on the following
+lines) was misclassified by `FrontendBridge.filterImportLines` as the start
+of a multi-line import directive (`[A,\n B](path.ssc)`). Finding no closing
+`](….ssc)` line, it swallowed the entire rest of the fence — so the merged
+source ended mid-expression and scala.meta then failed with
+`illegal start of simple expression` on the NEXT `def`. Inline (`f([1, 2])`)
+and single-line-in-parens (`f(\n [1, 2]\n)`) both parsed; only the multi-line
+opener broke. v1 parses this fine on every backend.
+
+Fix: `filterImportLines` only consumes a multi-line import when a real
+`](….ssc)` close actually follows through ident-list continuations;
+otherwise the line is code and is kept.
+
+Found 2026-07-09 minimizing the `datatable-static-spa` corpus parse crash
+(its `staticDataTable(rows, [ … ], [ … ])` nested multi-line list literals).
+
+```scalascript
+def pick(xs: List[Int], ys: List[Int]): Int =
+  xs.length * 100 + ys.length
+
+val n = pick(
+  [
+    1,
+    2,
+    3
+  ],
+  [
+    9
+  ]
+)
+
+def afterList(): Int = 42
+
+println(n + afterList())
+```

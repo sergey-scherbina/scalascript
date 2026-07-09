@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 multi-line list literals no longer crash the parser
+
+`bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`
+on fences containing a multi-line `[ … ]` list literal (bracket opens a line,
+elements follow) — e.g. `examples/datatable-static-spa.ssc`. The fence
+extractor (`FrontendBridge.filterImportLines`) misread a bare `[` as the start
+of a multi-line import directive and swallowed the rest of the fence. It now
+consumes a multi-line import only when a real `](….ssc)` close actually
+follows. Corpus 152/10 → 154/8; pinned by
+`tests/conformance/v2-multiline-list-literal.ssc`.
+
 ## 2026-07-09 — v2 bridge supports markup/XSLT example
 
 `examples/xslt-transform.ssc` now runs on the v2 VM instead of exiting with

@@ -1,0 +1,6 @@
+agent: claude-opus-4-8 (lucky-perch)
+branch: feature/v2-multiline-list-literal-desugar
+worktree: ../scalascript-wt-v2-multiline-list-literal-desugar
+started: 2026-07-09
+status: in-progress
+task: FIX corpus fail datatable-static-spa (v2 parse crash "illegal start of simple expression"). Root: FrontendBridge.filterImportLines misclassifies a bare `[` opening a multi-line list literal as a multi-line import start and swallows the rest of the fence. Fix: only consume as multi-line import when a real `](….ssc)` close follows through ident-list continuations. Corpus 152/10 → 154/8. Conformance pin v2-multiline-list-literal.ssc.

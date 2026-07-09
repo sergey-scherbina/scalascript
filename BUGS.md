@@ -12,6 +12,24 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-multiline-list-literal-desugar — `fixed` (2026-07-09)
+
+`bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`
+on any fence containing a MULTI-LINE `[ … ]` list literal (bracket opens a
+line, elements follow, `]` closes a later line). Corpus repro:
+`datatable-static-spa.ssc` (`staticDataTable(rows, [ fcol… ], [ rowPost… ])`),
+v1 green. Root cause was NOT the `[…]`→`List(…)` desugarer (it never ran) but
+`FrontendBridge.filterImportLines`: a bare `[` opening a multi-line list was
+misclassified as the start of a multi-line import directive
+(`[A,\n B](path.ssc)`); finding no closing `](….ssc)` line it swallowed the
+rest of the fence, so the merged source ended mid-expression and scala.meta
+failed on the next `def`. Fix (`FrontendBridge.filterImportLines`): only
+consume a multi-line import when a real `](….ssc)` close actually follows
+through ident-list continuations; otherwise the line is code and is kept.
+Corpus 152/10 → 154/8 (`datatable-static-spa` now green; no regressions — the
+whole corpus still resolves its multi-line std-imports). Pinned by
+tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
+
 ## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production unmasking loop.
