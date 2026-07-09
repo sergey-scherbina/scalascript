@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/p4-bc-opthread
-worktree: ../scalascript-wt-opthread
-started: 2026-07-09
-status: in-progress
-task: p4-bc-op-threading — statement-position Op-трединг в JvmByteGen: Seq → цепочка per-statement методов + Emit.seqThread; цель = 5 bc-error свипа (bureau/x402x2/pix/derived-route); перф-гвард fib 99ms
