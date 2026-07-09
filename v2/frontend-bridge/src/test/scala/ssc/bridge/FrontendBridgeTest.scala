@@ -300,6 +300,17 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(run(src) == Value.IntV(10))
   }
 
+  test("var and while arithmetic sum loop") {
+    val src =
+      """var i = 3
+        |var s = 10
+        |while i < 8 do
+        |  s = s + i
+        |  i = i + 1
+        |s""".stripMargin
+    assert(run(src) == Value.IntV(35))
+  }
+
   test("recursive def") {
     val src =
       """def fib(n: Int): Int =

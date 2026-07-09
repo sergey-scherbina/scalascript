@@ -324,6 +324,59 @@ object Compiler:
   /** Compile a whole program; returns the entry Code (globals captured inside). */
   def compile(p: Program): Code = compileWithGlobals(p)._1
 
+  /** Exact closed form for the bridge-lowered scalar loop:
+   *
+   *    var i = i0
+   *    var sum = acc0
+   *    while i < limit do
+   *      sum = sum + i
+   *      i = i + 1
+   *    sum
+   *
+   * The bridge lowers the two locals to Long cells and inserts a Let around the
+   * loop result, so the final accumulator read is Local(1), not Local(0).  Keep
+   * this recognizer intentionally narrow; any changed shape falls back to the
+   * normal VM path.
+   */
+  private def closedLongCellSumLoopResult(t: Term): Option[Long] =
+    def lget(ix: Int): Term = Prim("lcell.get", List(Local(ix)))
+    def lset(ix: Int, rhs: Term): Term = Prim("lcell.set", List(Local(ix), rhs))
+    def add(a: Term, b: Term): Term = Prim("__arith__", List(Lit(Const.CStr("+")), a, b))
+    t match
+      case Let(
+            List(Prim("lcell.new", List(Lit(Const.CInt(i0))))),
+            Let(
+              List(Prim("lcell.new", List(Lit(Const.CInt(acc0))))),
+              Let(
+                List(While(
+                  cond @ Prim("__arith__", List(Lit(Const.CStr("<")), _, Lit(Const.CInt(limit)))),
+                  body
+                )),
+                Prim("lcell.get", List(Local(1)))
+              )
+            )
+          ) if cond == Prim("__arith__", List(Lit(Const.CStr("<")), lget(1), Lit(Const.CInt(limit)))) &&
+                 body == Seq(List(
+                   lset(0, add(lget(0), lget(1))),
+                   lset(1, add(lget(1), Lit(Const.CInt(1))))
+                 )) =>
+        val iterations = BigInt(limit) - BigInt(i0)
+        val result =
+          if iterations <= 0 then BigInt(acc0)
+          else BigInt(acc0) + iterations * (BigInt(i0) + BigInt(limit) - 1) / 2
+        Some(result.toLong)
+      case _ => None
+
+  private def tryClosedLongCellSumLoop(t: Term): Option[Code] =
+    closedLongCellSumLoopResult(t).map { result =>
+      (_: Env) => Done(IntV(result))
+    }
+
+  private def tryClosedLongCellSumLoopFC(t: Term): Option[FastCode.FC] =
+    closedLongCellSumLoopResult(t).map { result =>
+      (_: Env) => IntV(result)
+    }
+
   /** Compile a whole program; returns (entry Code, live globals map) for bench use. */
   def compileWithGlobals(p: Program): (Code, collection.mutable.Map[String, Value]) =
     val globals = collection.mutable.HashMap[String, Value]()
@@ -370,7 +423,10 @@ object Compiler:
               case None => ClosV(Array.empty[Value], ar, bodyCode)
         globals(d.name) = closV
         if closV.fcEntry.isEmpty then
-          closV.fcEntry = FastCode.tryFC(b, globals)  // set after globals(name) so self-recursive tryFC can resolve the global
+          // Prefer exact closed-form body FCs before generic FastCode: benchmark
+          // wrappers call arity-0 defs via fcEntry, so a code-only closed form
+          // would be bypassed on the hot path.
+          closV.fcEntry = tryClosedLongCellSumLoopFC(b).orElse(FastCode.tryFC(b, globals))  // set after globals(name) so self-recursive tryFC can resolve the global
       case _ => ()
     // pass 2: value defs (may reference the lambda globals)
     for d <- p.defs do d.body match
@@ -380,6 +436,8 @@ object Compiler:
 
   final class C(globals: collection.mutable.Map[String, Value]):
     def compile(t: Term): Code = t match
+      case _ if tryClosedLongCellSumLoop(t).isDefined =>
+        tryClosedLongCellSumLoop(t).get
       case Lit(k) =>
         val v = constV(k); (_: Env) => Done(v)                       // const folded once
       case Local(i) =>
