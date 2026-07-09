@@ -3,6 +3,7 @@ package ssc.bridge
 import scalascript.backend.spi.{Backend, BlockContext, BlockForm, EffectHandler, IntrinsicImpl, NativeImpl, NativeContext, RemoteHandlerInfo, SpiValue}
 import scalascript.interpreter.{DataValue, Value as V1Value}
 import scalascript.interpreter.DataValue.*
+import scalascript.markup.{Dialect, JvmMarkupCodec, Markup, MarkupCodec, PureMarkupCodec, SerializeOpts, TransformError, XmlEscape}
 import ssc.{Done, Runtime, Show, Value as V2Value, V2EffectContext, V2PluginRegistry}
 
 /** Loads v1 Backend plugins from the classpath and registers:
@@ -271,6 +272,7 @@ object PluginBridge:
     // v1's own show — println(doc) on the v2 side printed "<foreign>" otherwise.
     Show.foreignRenderer = {
       case v1v: scalascript.interpreter.Value => scalascript.interpreter.Value.show(v1v)
+      case doc: scalascript.markup.Markup.Doc => scalascript.markup.PureMarkupCodec.serialize(doc)
       case _                                  => null
     }
     registerSys()
@@ -349,6 +351,7 @@ object PluginBridge:
       Vector("method", "path", "body", "headers", "params", "query", "json", "form", "files", "session", "cookies", "bearerToken", "jwtClaims", "basicAuth"))
     V2PluginRegistry.registerFieldNames("KV", Vector("key", "value"))
     V2PluginRegistry.registerFieldNames("Rate", Vector("elements", "perMillis"))
+    registerMarkupBridge()
     registerRemoteRegistry()
     // Override OIDC client prims BEFORE building namespace objects so the namespace
     // ForeignV picks up the overridden versions (buildNamespaceObjects reads from registry).
@@ -501,6 +504,121 @@ object PluginBridge:
         .collect { case entry: V2RemoteHandler => entry.info }
         .sortBy(_.name)
         .map(handlerInfoValue)))))
+
+  private def registerMarkupBridge(): Unit =
+    import V2Value.*
+
+    MarkupCodec.setDefault(JvmMarkupCodec)
+    V2PluginRegistry.registerFieldNames("SerializeOpts", Vector("pretty", "indent", "omitXmlDecl"))
+    V2PluginRegistry.registerFieldNames("TransformError", Vector("message"))
+
+    def strValue(v: V2Value): String = v match
+      case StrV(s)   => s
+      case IntV(n)   => n.toString
+      case BoolV(b)  => b.toString
+      case FloatV(d) => d.toString
+      case other     => Show.show(other)
+
+    def xmlPart(v: V2Value): String = v match
+      case ForeignV(Markup.Raw(s)) => s
+      case ForeignV(doc: Markup.Doc) =>
+        MarkupCodec.default.serialize(doc, SerializeOpts(omitXmlDecl = true))
+      case ForeignV(elem: Markup.Element) =>
+        MarkupCodec.default.serialize(Markup.Doc(root = elem), SerializeOpts(omitXmlDecl = true))
+      case other => XmlEscape.escape(strValue(other))
+
+    def docValue(v: V2Value): Markup.Doc = v match
+      case ForeignV(doc: Markup.Doc) => doc
+      case ForeignV(V1Value.MarkupV(doc)) => doc
+      case other => sys.error(s"expected Markup.Doc, got ${Show.show(other)}")
+
+    def optsValue(v: V2Value): SerializeOpts = v match
+      case ForeignV(opts: SerializeOpts) => opts
+      case UnitV => SerializeOpts.default
+      case DataV("SerializeOpts", fields) =>
+        val d = SerializeOpts.default
+        val pretty = fields.lift(0).collect { case BoolV(b) => b }.getOrElse(d.pretty)
+        val indent = fields.lift(1).collect { case StrV(s) => s }.getOrElse(d.indent)
+        val omit   = fields.lift(2).collect { case BoolV(b) => b }.getOrElse(d.omitXmlDecl)
+        SerializeOpts(pretty = pretty, indent = indent, omitXmlDecl = omit)
+      case other => sys.error(s"expected SerializeOpts, got ${Show.show(other)}")
+
+    def paramsValue(v: V2Value): Map[String, String] = v match
+      case DataV("Nil", _) | UnitV => Map.empty
+      case ForeignV(m: collection.mutable.Map[?, ?]) =>
+        m.asInstanceOf[collection.mutable.Map[V2Value, V2Value]].iterator.map {
+          case (StrV(k), value) => k -> strValue(value)
+          case (key, _) => sys.error(s"XSLT params require String keys, got ${Show.show(key)}")
+        }.toMap
+      case ForeignV(m: collection.immutable.Map[?, ?]) if m.keysIterator.forall(_.isInstanceOf[V2Value]) =>
+        m.asInstanceOf[collection.immutable.Map[V2Value, V2Value]].iterator.map {
+          case (StrV(k), value) => k -> strValue(value)
+          case (key, _) => sys.error(s"XSLT params require String keys, got ${Show.show(key)}")
+        }.toMap
+      case other => sys.error(s"expected Map[String, String] params, got ${Show.show(other)}")
+
+    def parseXml(raw: String): V2Value =
+      JvmMarkupCodec.parse(raw, Dialect.Xml1_0) match
+        case Right(doc) => ForeignV(doc)
+        case Left(err)  => sys.error(err.getMessage)
+
+    def eitherDoc(result: Either[TransformError, Markup.Doc]): V2Value = result match
+      case Right(doc) => DataV("Right", Vector(ForeignV(doc)))
+      case Left(err)  => DataV("Left", Vector(DataV("TransformError", Vector(StrV(err.message)))))
+
+    def serializeWith(codec: MarkupCodec, args: List[V2Value]): V2Value = args match
+      case List(doc)       => StrV(codec.serialize(docValue(doc), SerializeOpts.default))
+      case List(doc, opts) => StrV(codec.serialize(docValue(doc), optsValue(opts)))
+      case _ => sys.error("serialize(doc, opts?)")
+
+    def transformWith(codec: MarkupCodec, args: List[V2Value]): V2Value = args match
+      case List(doc, StrV(xslt)) =>
+        eitherDoc(codec.transform(docValue(doc), xslt, Map.empty))
+      case List(doc, StrV(xslt), params) =>
+        eitherDoc(codec.transform(docValue(doc), xslt, paramsValue(params)))
+      case _ => sys.error("transform(doc, xslt, params?)")
+
+    def methodObject(fields: (String, V2Value)*): V2Value =
+      ForeignV(collection.immutable.Map.from(fields).asInstanceOf[AnyRef])
+
+    def codecObject(codec: MarkupCodec): V2Value =
+      methodObject(
+        "id" -> StrV(codec.id),
+        "parse" -> ClosV(Runtime.emptyEnv, -1, env => env.toList match
+          case List(StrV(src)) =>
+            Done(codec.parse(src, Dialect.Xml1_0) match
+              case Right(doc) => DataV("Right", Vector(ForeignV(doc)))
+              case Left(err)  => DataV("Left", Vector(DataV("ParseError", Vector(StrV(err.message), IntV(err.line), IntV(err.column)))))
+            )
+          case _ => sys.error("parse(src: String)")
+        ),
+        "serialize" -> ClosV(Runtime.emptyEnv, -1, env => Done(serializeWith(codec, env.toList))),
+        "transform" -> ClosV(Runtime.emptyEnv, -1, env => Done(transformWith(codec, env.toList)))
+      )
+
+    val defaultCodecObj = codecObject(JvmMarkupCodec)
+    V2PluginRegistry.registerGlobal("__xmlPart", ClosV(Runtime.emptyEnv, 1, env => env.toList match
+      case List(value) => Done(StrV(xmlPart(value)))
+      case _ => sys.error("xml interpolator: expected one splice argument")
+    ))
+    V2PluginRegistry.registerGlobal("xml", ClosV(Runtime.emptyEnv, 1, env => env.toList match
+      case List(StrV(raw)) => Done(parseXml(raw))
+      case _ => sys.error("xml interpolator: expected one String argument")
+    ))
+    V2PluginRegistry.registerGlobal("MarkupCodec", methodObject(
+      "default" -> defaultCodecObj,
+      "named" -> ClosV(Runtime.emptyEnv, 1, env => env.toList match
+        case List(StrV("pure")) => Done(codecObject(PureMarkupCodec))
+        case List(StrV("jvm")) | List(StrV("jvm-sax")) => Done(defaultCodecObj)
+        case List(StrV(other)) => sys.error(s"No MarkupCodec registered for id '$other'")
+        case _ => sys.error("MarkupCodec.named(id)")
+      )
+    ))
+    V2PluginRegistry.registerGlobal("PureMarkupCodec", codecObject(PureMarkupCodec))
+    V2PluginRegistry.registerGlobal("SerializeOpts", methodObject(
+      "default" -> ForeignV(SerializeOpts.default),
+      "pretty" -> ForeignV(SerializeOpts.pretty)
+    ))
 
   /** Override oauth.client.discoverAs/exchangeAuthorizationCode BEFORE buildNamespaceObjects()
    *  so the namespace ForeignV picks up the batch-mode stubs.

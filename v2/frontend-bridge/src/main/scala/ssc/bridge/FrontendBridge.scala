@@ -101,6 +101,7 @@ object FrontendBridge:
     parenlessUserDefs.clear()
     pendingRemoteHandlers = Vector.empty
     curryFirstClauseDefaults.clear()
+    registerBuiltInBridgeTypes()
 
   private final case class RemoteHandlerSpec(
       name:         String,
@@ -364,6 +365,19 @@ object FrontendBridge:
       else args ++ defs.drop(args.length).collect { case Some(e) => e }
     }
 
+  private def registerBuiltInBridgeTypes(): Unit =
+    val serializeOptsFields = Vector("pretty", "indent", "omitXmlDecl")
+    fieldRegistry("SerializeOpts") = serializeOptsFields
+    fieldTypeRegistry("SerializeOpts") = Vector("Boolean", "String", "Boolean")
+    defaultParams("SerializeOpts") = Vector(
+      Some(CT.Lit(Const.CBool(false))),
+      Some(CT.Lit(Const.CStr("  "))),
+      Some(CT.Lit(Const.CBool(false)))
+    )
+    ssc.V2PluginRegistry.registerFieldNames("SerializeOpts", serializeOptsFields)
+    ssc.V2PluginRegistry.registerFieldNames("TransformError", Vector("message"))
+    methodObjectNames ++= Set("MarkupCodec", "PureMarkupCodec", "SerializeOpts")
+
   /** First pass: scan all stats and collect case class / enum / extension definitions. */
   private def registerTypes(stats: List[Stat]): Unit = stats.foreach {
     // Pre-register def param NAMES here (first pass) so a named-arg call that
@@ -515,6 +529,7 @@ object FrontendBridge:
     PluginBridge.clearRemoteHandlers()
     pendingRemoteHandlers = Vector.empty
     curryFirstClauseDefaults.clear()
+    registerBuiltInBridgeTypes()
     // Pre-register param names for plugins that accept named args (openapi, etc.)
     defParamNames("openapi") = Vector("summary", "description", "tags", "deprecated", "security")
     defaultParams("openapi") = Vector(
@@ -1739,7 +1754,11 @@ object FrontendBridge:
         case Lit.String(s) => s
         case _             => ""
       }
-      if interpName.value == "f" then
+      if interpName.value == "xml" then
+        val strs = partStrings.map(s => CT.Lit(Const.CStr(s)))
+        val vals = args.map(e => CT.App(CT.Global("__xmlPart"), List(convertExpr(e, scope))))
+        CT.App(CT.Global("xml"), List(interleaveConcat(strs, vals)))
+      else if interpName.value == "f" then
         val encoded = collection.mutable.ListBuffer.empty[CT]
         encoded += CT.Lit(Const.CStr(partStrings.headOption.getOrElse("")))
         args.zipWithIndex.foreach { case (arg, i) =>

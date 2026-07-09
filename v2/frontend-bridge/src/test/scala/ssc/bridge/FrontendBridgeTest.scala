@@ -126,6 +126,41 @@ class FrontendBridgeTest extends AnyFunSuite:
         Value.DataV("HandlerNotFound", Vector(Value.StrV("missing.op"))))))
   }
 
+  test("v2 markup bridge supports xml transform serialize and errors") {
+    val src =
+      """# Markup
+        |
+        |```scala
+        |import scalascript.markup.*
+        |
+        |val source = xml"<catalog><book><title>Scala 3</title></book></catalog>"
+        |val dangerous = "<script>&"
+        |val escaped = xml"<msg>${dangerous}</msg>"
+        |val xslt = "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\"><xsl:param name=\"currency\">USD</xsl:param><xsl:template match=\"/\"><report><currency><xsl:value-of select=\"$currency\"/></currency><xsl:value-of select=\"catalog/book/title\"/></report></xsl:template></xsl:stylesheet>"
+        |
+        |println(PureMarkupCodec.serialize(escaped, SerializeOpts(omitXmlDecl = true)))
+        |
+        |MarkupCodec.default.transform(source, xslt, Map("currency" -> "EUR")) match
+        |  case Right(doc) =>
+        |    println(PureMarkupCodec.serialize(doc, SerializeOpts(omitXmlDecl = true, pretty = true)))
+        |  case Left(err) =>
+        |    println("ERR:" + err.message)
+        |
+        |MarkupCodec.default.transform(source, "<not-a-stylesheet/>") match
+        |  case Left(err) => println("ERR:" + err.message)
+        |  case Right(_)  => println("unexpected")
+        |```
+        |""".stripMargin
+
+    val out = capture(src)
+    assert(out.contains("<report>"))
+    assert(out.contains("<currency>EUR</currency>"))
+    assert(out.contains("Scala 3"))
+    assert(out.contains("<msg>&lt;script&gt;&amp;</msg>"))
+    assert(!out.contains("<?xml"))
+    assert(out.contains("ERR:"))
+  }
+
   test("arithmetic") {
     assert(run("1 + 2 * 3") == Value.IntV(7))
   }
