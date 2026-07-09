@@ -1234,12 +1234,22 @@ frontend accepted the file).
   - [x] **K62.6b DONE** 2026-07-09: top-level `var` + assignment (global cells via
         `topVarsCell`; init in doc order; refs/assigns from def bodies resolve).
   - [x] **K62.6d DONE** 2026-07-09: skip `@Name` / `@Name("args")` annotations.
-  - [ ] **K62.6c** — remaining `_err` roots (~20 files): bitwise `& | ^ ~ << >>`
-        (VM has `i.and/i.or/i.xor`; add `~`/shift prims), `$`, char literals in
-        operator position, and **indented brace-less multi-statement def bodies**
-        whose first stmt is an assignment (a pre-existing block-detection gap).
-        Also: `_sel_get`/`_sel_env` field access → extend K62.7a's `__method__`
-        routing to `resolveField`.
+  - [x] **K62.6c-ops DONE** 2026-07-09: wildcard `import a.b.*`, cons `::`, pair
+        `->`, char literal `'x'`/`'\n'`, bitwise `& | ^`, shifts `<< >> >>>`, prefix
+        `~` (VM had `i.and/or/xor/shl/shr/ushr/not`). End-to-end 14→18, `_err` 20→11.
+  - [x] **K62.6c-for DONE** 2026-07-09: `for x <- xs [if g] yield/do e` (single
+        generator + guard) → map/foreach/filter; lex `<-`.
+  - [ ] **K62.6c-rest** — remaining `_err`/gaps: `_` underscore (partial application),
+        `$`, `inline`, `throw`, **indented brace-less multi-statement def bodies**
+        (block-detection gap), `Map(k -> v)` initial entries (Map(args) drops args).
+  - [ ] **K62.6e — field access `_sel_get`/`_sel_env` → `__method__`.** Tried (route
+        `resolveField` fallback for non-case-fields through `__method__`, with a
+        `caseFieldsCell` registry to keep case-class field projection). REVERTED:
+        net −1 because it triggers the same latent bug as below. Re-land after fixing it.
+  - [ ] **K62.7a-fix — latent `match: scrutinee not Data: "__method__"`** (VM compile,
+        Runtime.scala:577). A `__method__`-dispatched call feeding a match scrutinee
+        FRONTERRs 3 files (`mcp-search-server`, `traditional-payments`, `x402-metamask`).
+        Blocks K62.6e too. Needs VM-side investigation, not a frontend fix.
 - **K62.7 — dispatch alignment (Class B). SUPERSEDES the old "re-grow stdlib"
       framing** — see K62.5b: the v1 stdlib ALREADY exists in the v2 runtime
       (`V2PluginRegistry`, loaded by `PluginBridge.loadAll()`; the bridge path uses

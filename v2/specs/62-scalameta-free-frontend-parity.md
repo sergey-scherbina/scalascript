@@ -15,6 +15,15 @@ Measured as: native `ssc1` lower → plugin-enabled v2 runtime, OK+TIMEOUT / 195
 | + K62.6 | 10 | skip Markdown-link imports `[…](path)` + `import a.b` |
 | + K62.6b | 12 | top-level `var` + assignment (global cells) |
 | + K62.6d | 14 | skip `@Name(...)` annotations |
+| + K62.6c-ops | 18 | wildcard `import a.b.*`, cons `::`, pair `->`, char `'x'`, bitwise `& | ^ ~`, shifts `<< >> >>>` |
+| + K62.6c-for | 18 | `for x <- xs [if g] yield/do e` (single generator + guard) — parse gap closed; those files have other blockers so run-count is flat |
+
+**Known latent bug (from K62.7a):** 3 files (`mcp-search-server`,
+`traditional-payments`, `x402-metamask`) now FRONTERR with `match: scrutinee not
+Data: "__method__"` — a `__method__`-dispatched call feeds a match scrutinee in a
+shape the VM compile mishandles. Not yet minimised. This also blocks extending the
+`__method__` routing to `resolveField` (field access), which was tried and reverted
+(net −1). Fixing this unblocks both.
 
 Remaining top blockers (measured): parse-completeness `_err` (~20 — bitwise/`$`/
 char/indented brace-less def bodies), **uid-static dispatch** `Dataset_of`/`Graph_*`
