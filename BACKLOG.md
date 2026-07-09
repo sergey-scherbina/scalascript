@@ -97,7 +97,7 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       user code owns top-level `doc`, and JVM no-arg `.mkString()` rewrites to
       parameterless Scala `.mkString`.
 - [x] **v2-backend-performance-harness** — ✓ Landed (2026-07-09) in
-      `605d90114`/`f991f736b`: `scripts/bench v2-backends [workload]` and
+      `01d9abf32`/`677969e1a`: `scripts/bench v2-backends [workload]` and
       `./bench.sh --v2-backends ...` now time the same corpus rows through v2
       VM, v2 JVM source backend, and v2 Rust source backend. The harness closed
       the measurement gap only; it did not close the Phase-3 backend performance

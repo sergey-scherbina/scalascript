@@ -30,7 +30,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   FrontendBridge standard global/method subset that the VM path already sees
   (`println`, `print`, `System.nanoTime`, `__autoPrint__`, `global.reg`, and the
   simple method calls used by the benchmark wrapper).
-- **Fix:** `605d90114` keeps the v2 benchmark wrapper portable and adds the
+- **Fix:** `01d9abf32` keeps the v2 benchmark wrapper portable and adds the
   minimal JVM/Rust generated-runtime bridge globals plus `__method__` dispatch
   needed by the harness.
 - **Gates:** `./v2/backend/check.sh tco`; `./v2/backend/check.sh bool`;

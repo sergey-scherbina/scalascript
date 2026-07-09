@@ -10,7 +10,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 ---
 
 - [x] **v2-backend-performance-harness** — DONE 2026-07-09 in
-      `605d90114`/`f991f736b`: `scripts/bench v2-backends [workload]` and
+      `01d9abf32`/`677969e1a`: `scripts/bench v2-backends [workload]` and
       `./bench.sh --v2-backends ...` now expose same-shape v2 VM, v2 JVM
       source backend, and v2 Rust source backend timing columns. The four-row
       bounded probe produces non-`n/a` rows for `arith-loop`,
