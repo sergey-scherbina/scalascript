@@ -1,6 +1,6 @@
-feature/v2-bytecode-production-gate-sweep 2026-07-09T23:20:03Z
+feature/v2-bytecode-production-gate-sweep 2026-07-09T23:20:26Z
 agent: codex
-heartbeat: 2026-07-09T23:20:03Z
-status: not-started
-done-so-far:
-next: create worktree, write SPRINT/spec slice, then measure v2-bytecode against the remaining v2 VM production rows
+heartbeat: 2026-07-09T23:20:26Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-bytecode-production-gate-sweep
+next: write SPRINT/spec slice, then measure v2-bytecode against the remaining v2 VM production rows
