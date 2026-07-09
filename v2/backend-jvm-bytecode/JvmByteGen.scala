@@ -161,6 +161,23 @@ object JvmByteGen:
     case Term.While(c, b) => Term.While(shift(c, amount, cutoff), shift(b, amount, cutoff))
     case _ => t // Lit, Global
 
+  /** Conservative EFFECT-FREE classifier for inline-foreach bodies: true only
+   *  when evaluating the term cannot produce an effect Op. Excludes App and the
+   *  effect/method dispatch prims (which can yield Ops); allows arith, var-cell
+   *  reads/writes, array ops, control flow, and leaves. Mirrors the intent of
+   *  the VM's tryFC declining effectful bodies. */
+  private def pureNoEffect(t: Term): Boolean = t match
+    case Term.Lit(_) | Term.Local(_) | Term.Global(_) => true
+    case Term.Prim(op, args) =>
+      val okOp = op == "__arith__" || op == "__isTag__" || op == "fieldAt" ||
+        op.startsWith("cell.") || op.startsWith("lcell.") ||
+        op == "arr.get" || op == "arr.set" || op == "unitV"
+      okOp && args.forall(pureNoEffect)
+    case Term.If(c, a, b) => pureNoEffect(c) && pureNoEffect(a) && pureNoEffect(b)
+    case Term.Seq(ts)     => ts.forall(pureNoEffect)
+    case Term.Let(rhs, b) => rhs.forall(pureNoEffect) && pureNoEffect(b)
+    case _ => false // App, __method__/__effect__/__methodOrExt__, Lam, LetRec, While, Match, Ctor — conservatively effectful
+
   /** Conservative may-produce-Op classifier (mirrors OpAnf.mayOp): only terms
    *  that can reach an App or a method/effect dispatch can yield an Op. */
   private def mayOp(t: Term): Boolean = t match
@@ -398,6 +415,37 @@ object JvmByteGen:
         gen(body, ctx); mv.visitInsn(Opcodes.POP)
         mv.visitJumpInsn(Opcodes.GOTO, startL)
         mv.visitLabel(endL)
+        call0(mv, "unitV")
+      // INLINE FOREACH: `xs.foreach(x => body)` over a Cons/Nil list with an
+      // EFFECT-FREE body compiles to a direct Cons-walk loop with the body
+      // inlined (element pushed as a fresh De Bruijn slot = Local(0)) — no
+      // callClos, no generic __method__ dispatch per element (VM tryFCAppended
+      // analog). Effectful bodies fall through to the runtime foreachConsOp
+      // path (which threads Ops); the guard keeps effect semantics correct.
+      case Term.Prim("__method__", Term.Lit(Const.CStr("foreach")) :: recv :: Term.Lam(1, body) :: Nil)
+          if pureNoEffect(body) =>
+        gen(recv, ctx)
+        val listSlot = ctx.nextSlot; ctx.nextSlot += 1
+        mv.visitVarInsn(Opcodes.ASTORE, listSlot)
+        val loopStart = new Label(); val loopEnd = new Label()
+        mv.visitLabel(loopStart)
+        mv.visitVarInsn(Opcodes.ALOAD, listSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "isCons", s"(L$VAL;)Z", false)
+        mv.visitJumpInsn(Opcodes.IFEQ, loopEnd)
+        // element = consHead(list) → fresh De Bruijn slot (body's Local(0))
+        mv.visitVarInsn(Opcodes.ALOAD, listSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "consHead", s"(L$VAL;)L$VAL;", false)
+        val elemSlot = ctx.push()
+        mv.visitVarInsn(Opcodes.ASTORE, elemSlot)
+        gen(body, ctx)
+        mv.visitInsn(Opcodes.POP)          // foreach discards the body result
+        ctx.pop(1)
+        // list = consTail(list); loop
+        mv.visitVarInsn(Opcodes.ALOAD, listSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "consTail", s"(L$VAL;)L$VAL;", false)
+        mv.visitVarInsn(Opcodes.ASTORE, listSlot)
+        mv.visitJumpInsn(Opcodes.GOTO, loopStart)
+        mv.visitLabel(loopEnd)
         call0(mv, "unitV")
       case Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
         mv.visitLdcInsn(aop); gen(a, ctx); gen(b, ctx)

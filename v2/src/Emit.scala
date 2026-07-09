@@ -141,6 +141,11 @@ object Emit:
     case _ => null
   def isData(v: Value): Boolean = v.isInstanceOf[Value.DataV]
   def dataTag(v: Value): String = v match { case Value.DataV(t, _) => t; case _ => "" }
+  // Cons-walk helpers for the bytecode lane's inline foreach (avoids
+  // dataFields array extraction + tag-string compare per element).
+  def isCons(v: Value): Boolean = v match { case Value.DataV("Cons", _) => true; case _ => false }
+  def consHead(v: Value): Value = v.asInstanceOf[Value.DataV].fields(0)
+  def consTail(v: Value): Value = v.asInstanceOf[Value.DataV].fields(1)
   def dataArity(v: Value): Int = v match { case Value.DataV(_, fs) => fs.length; case _ => -1 }
   def dataFields(v: Value): Array[Value] = v match { case Value.DataV(_, fs) => fs.toArray; case _ => Array.empty }
   def matchFail(tag: String, ar: Int): Value = sys.error(s"match: no arm for $tag/$ar")
