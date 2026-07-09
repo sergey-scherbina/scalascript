@@ -202,6 +202,7 @@ object CodeGen:
 
   // Mutable counter for fresh variable names (thread-local to the generator invocation).
   private var counter = 0
+  private var longGlobalDefs: Map[String, Int] = Map.empty
   private def fresh(): Int = { val n = counter; counter += 1; n }
 
   // Sanitize a Def name to a valid Scala identifier.
@@ -694,9 +695,24 @@ object R:
       case Lit(Const.CInt(_))  => true
       case Local(i) if i < scope.length && longVars.contains(scope(i)) => true
       case Prim("lcell.get", List(Local(i))) if i < scope.length && longVars.contains(scope(i)) => true
+      case App(Global(name), args) if longGlobalDefs.get(name).contains(args.length) =>
+        args.forall(a => isLongTyped(a, scope, longVars))
+      case If(c, th, el) =>
+        isBoolTyped(c, scope, longVars) &&
+        isLongTyped(th, scope, longVars) &&
+        isLongTyped(el, scope, longVars)
       case Prim("__arith__", List(Lit(Const.CStr(op)), l, r)) =>
         val isArith = Set("+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>").contains(op)
         isArith && isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars)
+      case _ => false
+
+  private def isBoolTyped(t: Term, scope: List[String], longVars: Set[String]): Boolean =
+    import Term.*
+    t match
+      case Lit(Const.CBool(_)) => true
+      case Prim("__arith__", List(Lit(Const.CStr(op)), l, r)) =>
+        val isCmp = Set("==", "!=", "<", "<=", ">", ">=").contains(op)
+        isCmp && isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars)
       case _ => false
 
   // Generate a Long-typed expression (assumes isLongTyped returned true, or falls back to _asLong).
@@ -708,6 +724,20 @@ object R:
       case Lit(Const.CInt(n))  => s"${n}L"
       case Local(i) if i < scope.length && longVars.contains(scope(i)) => scope(i)
       case Prim("lcell.get", List(Local(i))) if i < scope.length && longVars.contains(scope(i)) => scope(i)
+      case App(Global(name), args)
+           if longGlobalDefs.get(name).contains(args.length) &&
+              args.forall(a => isLongTyped(a, scope, longVars)) =>
+        val sn = safeName(name)
+        val args_s = args.map(a => genTermAsLong(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+        s"${sn}_long($args_s)"
+      case If(c, th, el)
+           if isBoolTyped(c, scope, longVars) &&
+              isLongTyped(th, scope, longVars) &&
+              isLongTyped(el, scope, longVars) =>
+        val c_s = genTermAsBool(c, scope, directDefs, directLocals, longVars)
+        val th_s = genTermAsLong(th, scope, directDefs, directLocals, longVars)
+        val el_s = genTermAsLong(el, scope, directDefs, directLocals, longVars)
+        s"(if $c_s then $th_s else $el_s)"
       case Prim("__arith__", List(Lit(Const.CStr(op)), l, r))
            if isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars) =>
         val l_s = genTermAsLong(l, scope, directDefs, directLocals, longVars)
@@ -715,6 +745,21 @@ object R:
         s"($l_s $op $r_s)"
       case _ =>
         s"_asLong(${genTerm(t, scope, directDefs, directLocals, longVars)})"
+
+  private def genTermAsBool(t: Term, scope: List[String],
+                             directDefs: Map[String, Int], directLocals: Map[Int, (String, Int)],
+                             longVars: Set[String]): String =
+    import Term.*
+    t match
+      case Lit(Const.CBool(b)) => b.toString
+      case Prim("__arith__", List(Lit(Const.CStr(op)), l, r))
+           if Set("==", "!=", "<", "<=", ">", ">=").contains(op) &&
+              isLongTyped(l, scope, longVars) && isLongTyped(r, scope, longVars) =>
+        val l_s = genTermAsLong(l, scope, directDefs, directLocals, longVars)
+        val r_s = genTermAsLong(r, scope, directDefs, directLocals, longVars)
+        s"($l_s $op $r_s)"
+      case _ =>
+        s"(${genTerm(t, scope, directDefs, directLocals, longVars)}).asInstanceOf[Boolean]"
 
   // scope(i) = name for Local(i); scope.head = Local(0) = innermost binder
   // directDefs: global names that have a `<name>_direct(...)` def — call them directly
@@ -773,6 +818,12 @@ object R:
             val sn = safeName(name)
             val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
             s"${sn}_direct($args_s)"
+          case Global(name)
+               if longGlobalDefs.get(name).contains(args.length) &&
+                  args.forall(a => isLongTyped(a, scope, longVars)) =>
+            val sn = safeName(name)
+            val args_s = args.map(a => genTermAsLong(a, scope, directDefs, directLocals, longVars)).mkString(", ")
+            s"${sn}_long($args_s): V"
           case Local(i) if directLocals.contains(i) =>
             val (dname, _) = directLocals(i)
             val args_s = args.map(a => genTerm(a, scope, directDefs, directLocals, longVars, tailLocalJumps, false)).mkString(", ")
@@ -1061,6 +1112,7 @@ object R:
   // Generate the full Scala 3 source file for a Program.
   def generate(p: Program): String =
     counter = 0  // reset per invocation
+    longGlobalDefs = Map.empty
     val sb = new StringBuilder
     sb.append("// v2 JVM backend — generated Scala 3 source\n")
     sb.append(preamble)
@@ -1070,21 +1122,45 @@ object R:
     val lamDefs = p.defs.filter { d => d.body match { case Term.Lam(_, _) => true; case _ => false } }
     val valDefs = p.defs.filter { d => d.body match { case Term.Lam(_, _) => false; case _ => true } }
 
-    // All lambda defs: generate as lazy vals holding closures, OR as @tailrec defs
-    // when the lam body is self-tail-recursive.
+    // All lambda defs stay available as lazy-val closures. Some lambdas also get
+    // direct methods: @tailrec methods for safe tail recursion and Long-specialized
+    // methods for proven-Long call chains such as recursive fib.
     // Bodies reference globals by name, which will be defined in this same scope.
     // Scala closures capture by reference (ObjectRef), so forward refs are OK as long as
     // all vals are set before any closure is called.
-    if lamDefs.nonEmpty || valDefs.nonEmpty then
-      // Pre-scan: determine which global lam defs are safe to @tailrec.
-      // directGlobalDefs: name -> arity for defs that get a <name>_direct def.
-      val directGlobalDefs: Map[String, Int] = lamDefs.flatMap { d =>
-        d.body match
-          case Term.Lam(n, body) if n > 0 && isSafeTailRecGlobal(d.name, body) =>
-            Some(d.name -> n)
-          case _ => None
-      }.toMap
+    val globalLambdaArities: Map[String, Int] = lamDefs.flatMap { d =>
+      d.body match
+        case Term.Lam(n, _) => Some(d.name -> n)
+        case _              => None
+    }.toMap
+    val tailRecGlobalDefs: Set[String] = lamDefs.flatMap { d =>
+      d.body match
+        case Term.Lam(n, body) if n > 0 && isSafeTailRecGlobal(d.name, body) =>
+          Some(d.name)
+        case _ => None
+    }.toSet
+    val directGlobalDefs: Map[String, Int] =
+      tailRecGlobalDefs.map(name => name -> globalLambdaArities(name)).toMap
 
+    def inferLongGlobalDefs(): Map[String, Int] =
+      var current = globalLambdaArities.filter(_._2 > 0)
+      var changed = true
+      while changed do
+        longGlobalDefs = current
+        val next = lamDefs.flatMap { d =>
+          d.body match
+            case Term.Lam(n, body) if n > 0 =>
+              val scope = (0 until n).map(k => s"p${k}_long").reverse.toList
+              if isLongTyped(body, scope, scope.toSet) then Some(d.name -> n) else None
+            case _ => None
+        }.toMap
+        changed = next != current
+        current = next
+      current
+
+    longGlobalDefs = inferLongGlobalDefs()
+
+    if lamDefs.nonEmpty || valDefs.nonEmpty then
       // Emit all global lam defs
       for d <- lamDefs do
         val sname = safeName(d.name)
@@ -1094,7 +1170,11 @@ object R:
             val params = (0 until n).map(k => s"p${k}_$ld")
             // Top-level lam bodies have empty outer scope (globals accessed by name)
             val bodyScope = params.reverse.toList
-            if directGlobalDefs.contains(d.name) && n > 0 then
+            if longGlobalDefs.contains(d.name) && n > 0 then
+              val paramDecls = params.map(p => s"$p: Long").mkString(", ")
+              val body_s = genTermAsLong(body, bodyScope, directGlobalDefs, Map.empty, params.toSet)
+              sb.append(s"  def ${sname}_long($paramDecls): Long = $body_s\n")
+            if tailRecGlobalDefs.contains(d.name) && n > 0 then
               // @tailrec def + lazy val wrapper
               val paramDecls = params.map(p => s"$p: V").mkString(", ")
               val body_s = genTerm(body, bodyScope, directGlobalDefs, Map.empty)
@@ -1106,9 +1186,13 @@ object R:
               val body_s = genTerm(body, List.empty, directGlobalDefs, Map.empty)
               sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { val _u$ld = _a$ld; $body_s }): V\n")
             else
-              val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
-              val body_s = genTerm(body, bodyScope, directGlobalDefs, Map.empty)
-              sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V\n")
+              if longGlobalDefs.contains(d.name) then
+                val wrapArgs = params.zipWithIndex.map { case (_, k) => s"_asLong(_a$ld($k))" }.mkString(", ")
+                sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => ${sname}_long($wrapArgs)): V\n")
+              else
+                val paramBinds = params.zipWithIndex.map { case (p, k) => s"val $p: V = _a$ld($k)" }.mkString("; ")
+                val body_s = genTerm(body, bodyScope, directGlobalDefs, Map.empty)
+                sb.append(s"  lazy val $sname: V = ((_a$ld: Array[V]) => { $paramBinds; $body_s }): V\n")
           case _ => () // shouldn't happen
 
       for d <- valDefs do
@@ -1133,13 +1217,7 @@ object R:
 
     // Entry: compute and print result if non-Unit (same as VM's `out` function).
     // Use Console.out.println directly to avoid shadowing by user-defined `println` global.
-    val directGlobalDefsForEntry = lamDefs.flatMap { d =>
-      d.body match
-        case Term.Lam(n, body) if n > 0 && isSafeTailRecGlobal(d.name, body) =>
-          Some(d.name -> n)
-        case _ => None
-    }.toMap
-    val entry_s = genTerm(p.entry, List.empty, directGlobalDefsForEntry, Map.empty)
+    val entry_s = genTerm(p.entry, List.empty, directGlobalDefs, Map.empty)
     sb.append(s"  val _entry: V = $entry_s\n")
     sb.append("  if !_entry.isInstanceOf[Unit] then Console.out.println(_show(_entry))\n")
     sb.toString
