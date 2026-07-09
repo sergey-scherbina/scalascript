@@ -64,6 +64,10 @@ object FrontendBridge:
    *  layout is locked to the runtime layout (registerBuiltInBridgeTypes); the
    *  case-class declaration must NOT override it. See PluginBridge.requestFieldNames. */
   private val runtimeShapedTypes = Set("Request")
+  /** Names for which the user DEFINED/imported a `case class` — these win over a
+   *  plugin `functionConstructors`/method-object global of the same name (e.g.
+   *  std/money.ssc `Money`/`Currency` vs the payments-bridge companions). */
+  private val userCaseClasses = collection.mutable.HashSet[String]()
   /** The std/http.ssc `case class Request` declared shape. Only THIS lib
    *  declaration is locked out (its runtime value carries extra injected
    *  params/query/… — v2-route-params-stub); a user's OWN `case class Request`
@@ -79,6 +83,16 @@ object FrontendBridge:
     // user's own Request (different fields) registers normally and overrides
     // the runtime layout for that compile unit.
     if runtimeShapedTypes(name) && names == httpLibRequestShape then return
+    // A user/imported `case class X` must win over a plugin GLOBAL of the same
+    // name — `X(args)` is a Ctor for THIS compile unit, not the plugin
+    // companion's `apply`/factory (functionConstructors). Without this,
+    // importing std/money.ssc's `case class Money(amount: Decimal, …)` /
+    // `case class Currency(…)` still routed `Money(d, cur)` to the payments-bridge
+    // `Money` companion, which coerces the amount to minor-units Long (busi's
+    // whole money layer: Decimal 3000.00 → Int 300000 →
+    // v2-money-decimal-regression, domain sweep 61/61→25/61).
+    methodObjectNames -= name
+    userCaseClasses += name
     fieldRegistry(name) = names
     ssc.V2PluginRegistry.registerFieldNames(name, names)  // shared with PluginBridge.v2ToV1
     val types = params.map(p => p.decltpe.map(_.syntax).getOrElse("Any")).toVector
@@ -109,6 +123,7 @@ object FrontendBridge:
     defaultParamTerms.clear()
     caseObjectNames.clear()
     methodObjectNames.clear()
+    userCaseClasses.clear()
     entryValNames.clear()
     defContextBounds.clear()
     givenByTcHead.clear()
@@ -2125,7 +2140,10 @@ object FrontendBridge:
       // Constructor application — positional args
       // Exception: known factory functions (Decimal, BigInt, etc.) are globals, not ctors.
       case Term.Name(name) if isCtorName(name) =>
-        if functionConstructors.contains(name) then CT.App(CT.Global(name), args)
+        // A user/imported case class of this name wins over a plugin
+        // functionConstructor companion (std/money.ssc Money/Currency vs the
+        // payments-bridge factories — v2-money-decimal-regression).
+        if functionConstructors.contains(name) && !userCaseClasses.contains(name) then CT.App(CT.Global(name), args)
         else buildWithDefaults(name, args, refs => CT.Ctor(name, refs))
                .getOrElse(CT.Ctor(name, fillDefaults(name, args)))
       // .copy(field = val, ...) — case class copy with named field overrides.

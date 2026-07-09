@@ -12,6 +12,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-money-decimal-regression — money amounts became Int (Decimal shadowed by payments Money companion)
+
+**Status:** FIXED 2026-07-09 — busi's v2 domain sweep dropped 61/61 → 25/61 after
+bumping past `d255f18f8` (feat(v2): bridge payments examples surface). That commit
+registered `Money`/`Currency` as `functionConstructors` and a global `Money`
+companion whose `apply(amount, currency)` coerces a `Decimal` amount to minor-units
+`Long`. This SHADOWED std/money.ssc's `case class Money(amount: Decimal, currency)`:
+`Money(Decimal("3000.00"), cur)` routed to the payments companion → `IntV(300000)`,
+so `amount.setScale(...)` downstream hit `no dispatch for .setScale on IntV(300000)`
+and money math was ×100 off (take_gig 15000000 vs 1500). Fix: `registerCaseClass`
+records `userCaseClasses`; the functionConstructor path (FrontendBridge) skips names
+the user DEFINED/imported as a `case class`, so their `X(args)` builds a plain Ctor
+for that compile unit while payments-only files still use the companion. busi sweep
+restored to 61/61; corpus 154/8 (payments examples still green). Reported by busi
+(fable, n=105); fixed by lucky-perch. Pin: tests/conformance/v2-user-type-shadows-function-ctor.ssc.
+
 ## green-main-conformance-7fail — `fixed` (2026-07-09)
 
 - **Found by:** codex, while closing the `p4-bc-unboxed-arith` bytecode perf

@@ -1,0 +1,24 @@
+#!/usr/bin/env ssc
+---
+name: v2-user-type-shadows-function-ctor
+description: a user case class named like a plugin functionConstructor (Money/Currency) must build as a plain Ctor, not route to the plugin companion
+backends: [int]
+---
+
+# User case class wins over a plugin functionConstructor of the same name
+
+The v2 payments bridge registers `Money`/`Currency` as `functionConstructors`
+(companion factories) — the `Money` companion coerces a Decimal amount to
+minor-units Long. A user who defines/imports their OWN `case class Money`
+(e.g. std/money.ssc `Money(amount: Decimal, …)`) must get a plain Ctor for
+THIS compile unit, not the payments companion — otherwise `Money(d, cur)`
+silently mangles the amount (busi: Decimal 3000.00 → Int 300000, domain sweep
+61/61 → 25/61). Fixed by `registerCaseClass` recording user case classes and
+guarding the functionConstructor path against them.
+
+```scalascript
+case class Money(amount: String, currency: String)
+val m = Money("3000.00", "PLN")
+println(m.amount)
+println(m.currency)
+```
