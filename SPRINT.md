@@ -4292,3 +4292,23 @@ small residuals above are blocked by real browser/device/external inputs. See BA
 - **agent P3b embedded transport** — blocked on rozum shipping the `rozum-embed` crate.
 - **WalletConnect project-ID** — blocked on an external decision.
 - **Hardware-wallet Vault (Ledger)**, **MPC Vault** — need real hardware / external SDKs; can't verify autonomously.
+
+## Corpus 152/10 — честная категоризация остатка (2026-07-09, corpus-real-bugs)
+
+Два ОБЩИХ бага починены и закреплены конформансом (d741736bf, 7ec8e3f74):
+- [x] **parenless-def-autoinvoke** — `def foo: T = body` (Lam(0)) при ссылке по имени
+      теперь вычисляется (App(Global,Nil)); externs (значения, не thunk) в отдельном
+      наборе. Чинит dsl-mini-language. Кейс parenless-def-value.
+- [x] **predef-???** — `???` бросает NotImplementedError вместо «unbound global»; ленивый
+      (не-взятая ветка не бросает). Кейс predef-notimplemented.
+
+Оставшиеся 10 — НЕ быстрые общие баги (каждый = среда/wip/плагин-слайс):
+- СРЕДА (не code-fixable): distributed-join (нет ./data/orders.csv), distributed-log-aggregation
+  (нет /var/log/app.log), x402-cardano (нет BLOCKFROST_KEY), x402-cardano-scalus (val=??? by design,
+  нужен реальный key vault + Scalus).
+- WIP (чужая ветка): control-center-live (wip/control-center-live).
+- СЕРВЕР/SPA (биндит порт; в батче парс-артефакт конкатенации фенсов): datatable-static-spa.
+- КОНФИГ примера: pg-listen-notify (нужна databases: секция во front-matter).
+- ПЛАГИН-ФИЧА: mcp-search-server (mcp tool native не принимает readOnlyHint/idempotentHint
+  named-args в первом клозе), graphql-client (graphql-плагин не бриджен + SpaceX API отдаёт HTML).
+- ПОЛНЫЙ СЛАЙС (scoped выше): remote-registry-rpc (unmask-remote-def, 3 слоя).
