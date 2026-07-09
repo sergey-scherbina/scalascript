@@ -1,6 +1,0 @@
-feature/v2-parity-current-errors 2026-07-09T01:14:54Z
-agent: codex
-heartbeat: 2026-07-09T01:34:32Z
-status: in-progress
-done-so-far: cdd032f03 fixed standard scala source fences; clusterOf stdlib gap now matches in targeted real harness locally
-next: run full output parity, record counts, commit/push cluster bridge fix plus docs, then release claim
