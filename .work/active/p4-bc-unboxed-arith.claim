@@ -1,6 +1,0 @@
-feature/p4-bc-unboxed-arith 2026-07-09T18:50:10Z
-agent: codex
-heartbeat: 2026-07-09T18:50:10Z
-status: in-progress
-done-so-far: lcell long arithmetic committed; self-recursive int long fast entry implemented locally; focused tests and installBin passed
-next: finish final v2-bytecode benches, commit fast entry, run conformance gate, push and release
