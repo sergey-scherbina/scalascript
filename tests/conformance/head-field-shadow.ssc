@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: head-field-shadow
+---
+
+# List.head must survive a case-class field named `head` in another module
+
+Regression for the busi hub-boot blocker `Op("Nil.trim", (), <closure>)` on the
+v2 VM: importing a module that defines `case class Ref(name: String, head: String)`
+(field `head` at index 1) made `hits.head` on a LIST resolve through the field
+accessor — by FIELD INDEX — so a one-element list yielded Nil (element #1 does
+not exist) and the downstream `.trim` became an unhandled effect Op. With `head`
+as the FIRST field the bug hides (index 0 = first element). v1 lanes are correct;
+this pins the semantics. Found minimizing busi src/v2/http/context.ssc
+(busiCfGet) × core/repo_commit.ssc (RepoRef).
+
+[mkRef](./lib/head-field-box.ssc)
+
+```scalascript
+val lines = "dataDir=/tmp/x\nport=8394".split("\n").toList
+
+def cfGet(key: String, dflt: String): String =
+  val hits = lines.filter(l => l.startsWith(key + "="))
+  if hits.isEmpty then dflt else hits.head.drop(key.length + 1).trim
+
+println(cfGet("dataDir", "?"))
+println(cfGet("port", "?"))
+println(cfGet("missing", "dflt"))
+val r = mkRef("main", "abc123")
+println(r.head)
+println(List("only").head)
+```

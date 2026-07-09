@@ -2763,3 +2763,17 @@ println(r)` → works.
 - **Confirmed:** busi bumped to `7470392e` + `installBin`, removed the `Any` workaround,
   their phase23 diamond (was OOM at load) now loads + passes (30 checks), full regression
   green, ph-2 domain-module split unblocked (rozum seq-137). **Closed.**
+
+## v2-head-field-dispatch-shadow — a case-class field named `head` (non-zero index) breaks List.head
+
+**Status:** OPEN (v2 VM only; v1 lanes correct — guarded by tests/conformance/head-field-shadow.ssc)
+
+Importing/loading ANY module that defines e.g. `case class Ref(name: String, head: String)` makes
+`xs.head` on a List resolve through the case-class FIELD accessor — by field INDEX — for other
+modules: a 1-element list yields Nil (element #1 missing), and a downstream `.trim` surfaces as an
+unhandled `Op("Nil.trim", (), <closure>)`. With `head` as the FIRST field (index 0) the bug hides.
+This is the busi hub-boot blocker: busi core/repo_commit.ssc `RepoRef(name, head)` ×
+http/context.ssc `busiCfGet` (`hits.head.drop(n).trim` at module load). Repro:
+`bin/ssc --v2 tests/conformance/head-field-shadow.ssc` (expected file has the correct v1 output).
+Likely general: any builtin member name (head/tail/name/…) reused as a non-first case-class field.
+Found+minimized 2026-07-09 by busi (fable) while attempting the v2 hub conformance pass.

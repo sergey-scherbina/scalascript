@@ -1,0 +1,5 @@
+/tmp/x
+8394
+dflt
+abc123
+only

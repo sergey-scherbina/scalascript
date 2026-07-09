@@ -1,0 +1,14 @@
+---
+name: head-field-box
+---
+
+# helper: a case class whose SECOND field is named `head`
+
+Mirrors busi's `RepoRef(name, head)` (core/repo_commit.ssc) — the shape that
+poisoned `List.head` dispatch on the v2 VM.
+
+```scalascript
+case class Ref(name: String, head: String)
+
+def mkRef(n: String, h: String): Ref = Ref(n, h)
+```
