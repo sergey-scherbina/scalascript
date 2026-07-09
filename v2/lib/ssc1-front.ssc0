@@ -297,7 +297,11 @@ def skipTypeAnnot = (toks) =>
 def parseParam = (toks) =>
   if #seq(tokKind(peek(toks)), "id") then
     let name = tokVal(peek(toks)) in
-    pr(name, skipTypeAnnot(advance(toks)))
+    let ts1 = skipTypeAnnot(advance(toks)) in
+    -- K62.6g: default value `param: T = expr` — consume the default expression so
+    -- the signature parses (parse-only; call-site default synthesis is separate).
+    let ts2 = if kindIs("=", ts1) then prT(parseExpr(advance(ts1))) else ts1 in
+    pr(name, ts2)
   else pr("_", toks)
 
 def parseParamList = (toks) =>
@@ -547,6 +551,21 @@ def parseAtom = (toks) =>
         let r2 = moreTup(advance(ts), Cons(e, Nil)) in
         pr(mkTup(prV(r2)), skipKind(")", prT(r2)))
       else pr(e, skipKind(")", ts))
+  else if #seq(k, "[") then
+    -- K62.6f: list literal [e1, e2, …, en]  →  List(e1, …, en) (ssc bracket sugar).
+    -- Only reached in expression position; statement-level [names](path) link-imports
+    -- are handled in parseOneStmt.
+    let toks2 = advance(toks) in
+    if kindIs("]", toks2) then pr(mkApp(mkUVar("List"), Nil), advance(toks2))
+    else
+      let rec moreEls = (ts, acc) =>
+        let r = parseExpr(ts) in
+        let acc2 = Cons(prV(r), acc) in
+        let ts2 = prT(r) in
+        if kindIs(",", ts2) then moreEls(advance(ts2), acc2)
+        else pr(reverse(acc2), ts2) in
+      let re = moreEls(toks2, Nil) in
+      pr(mkApp(mkUVar("List"), prV(re)), skipKind("]", prT(re)))
   else if #seq(k, "{") then parseBlock(advance(toks))
   else if #seq(k, "op") then
     if #seq(v, "-") then

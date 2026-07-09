@@ -280,3 +280,43 @@ stdlib already exists in the v2 runtime and the bridge already uses it (busi
 dispatch alignment — plus running the native front against the plugin-enabled
 runtime. The scary-sounding dependency (scalameta) *and* the scary-sounding bulk
 (the stdlib) are both cheaper than they first appear.
+
+---
+
+## K62.6e/6f/6g — 2026-07-09 session (field-access split, list-literals, default-params)
+
+End-to-end (bare-kernel `BridgeCli run-ir`) **38 → 40**; parse-completeness `_err`
+files **16 → 7**. Three landed changes, all in `ssc1-front`/`ssc1-lower` only,
+conformance green:
+
+1. **K62.6e — field-access `__method__` dispatch with `isCaseField` split.**
+   `resolveField`'s `_sel_<field>` fallback (an *unbound* global) now routes to the
+   VM's `__method__` dispatch, which resolves plugin fields and record field-index.
+   A generated case-class accessor still wins: `collectCaseFields` pre-scans every
+   `casecls` field name into `caseFieldsCell`, and `selOrMethod` keeps `_sel_<field>`
+   for those (the naive route-everything version regressed `kc7 case class Point` →
+   `Stub("Point.x")`). +2 e2e (`_sel_get`/`_sel_env`/`_sel_show`/… families).
+2. **K62.6f — list-literal `[a, b, c]` → `List(a, …)`.** `ssc bracket sugar in
+   expression position; `parseAtom` now emits `mkApp(List, elems)` (lowers to the
+   existing `Cons`/`Nil` chain). Statement-level `[names](path)` link-imports are
+   unaffected (handled earlier in `parseOneStmt`). Closed 9 `_err` files' parse.
+3. **K62.6g — default parameters `def f(x: T = expr)`.** `parseParam` consumes the
+   `= <default>` after the type annotation (parse-only; call-site default *synthesis*
+   remains a separate job, like the bridge's `buildWithDefaults`).
+
+**KEY FINDING — the run-count ceiling is no longer the native front.** With parse
++ field-dispatch closed, the corpus files that still fail are blocked on **unbridged
+v1 compiler plugins**, not on anything in `ssc1-front`/`ssc1-lower`:
+- `staticDataTable`, `contentToolkitSection`, … → v1 `content-plugin`
+  (`ContentIntrinsics.scala`) + `JvmRuntimeUiPrimitives`, not registered in the v2
+  plugin runtime.
+- `spark`, `Transport`, `System`, `localLoopbackCluster`, … → other unbridged
+  plugins.
+- `[names](std/…)` module-loading is *also* gated on this: those std modules are
+  mostly `extern def` declarations of the SAME plugin intrinsics.
+
+Moving the corpus further therefore needs **v2 plugin bridging** (the
+payments-bridge pattern), a separate lane from the frontend. Remaining pure-front
+items are small and semantically tricky (pattern guards `case P if g =>` need
+fall-through; typeclass `derives`/`TC[T].encode` needs derivation+summon) and are
+themselves downstream-blocked, so they do not move the e2e count on their own.

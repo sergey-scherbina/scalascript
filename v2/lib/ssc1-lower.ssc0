@@ -111,6 +111,10 @@ def kc5SigCell   = #cell.new(Nil)
 def kc5ActiveCtxCell = #cell.new(Nil)
 -- Set of object names (lowercase given instances) for static dispatch
 def kc7bObjectsCell = #cell.new(Nil)
+-- K62.6e: field names of all case classes — a field access whose name is here
+-- has a generated _sel_<field> accessor (index extractor); anything else routes
+-- to __method__ (plugin/record field resolution in the VM).
+def caseFieldsCell = #cell.new(Nil)
 -- Array and Map variable name registries (for indexed read/write lowering)
 def arrVarsCell = #cell.new(Nil)
 def topVarsCell = #cell.new(Nil)
@@ -228,6 +232,23 @@ def isKnownObject = (name) =>
       case Cons(h, t) => if #seq(h, name) then true else go(t)
     } in
   go(#cell.get(kc7bObjectsCell))
+
+def isCaseField = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(h, t) => if #seq(h, name) then true else go(t)
+    } in
+  go(#cell.get(caseFieldsCell))
+
+-- K62.6e: a known case field keeps its generated _sel_<field> accessor; every
+-- other field access routes to __method__ (VM resolves record field-index or
+-- plugin field — _sel_<field> was an unbound global otherwise).
+def selOrMethod = (field, robj) =>
+  if isCaseField(field) then
+    Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+  else
+    Pair("prim", Pair("__method__", Cons(Pair("str", field), Cons(robj, Nil))))
 
 -- Parse "Show[Int]" → Pair("Show","Int"); "String" → Pair("String","*")
 -- ASCII 91='[', 93=']'
@@ -583,7 +604,7 @@ def resolveField = (robj, field) =>
           if #seq(rname, "summon") then
             -- summon[TC].field → static dispatch via active ctx cell
             match firstActiveGiven(0) {
-              case None => Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+              case None => selOrMethod(field, robj)
               case Some(gname) =>
                 Pair("var", #sconcat(gname, #sconcat("_", field)))
             }
@@ -591,9 +612,9 @@ def resolveField = (robj, field) =>
             -- 0-param method accessed as a value; return the global directly
             Pair("var", #sconcat(rname, #sconcat("_", field)))
           else
-            Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+            selOrMethod(field, robj)
         else
-          Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+          selOrMethod(field, robj)
     }
 
 -- KC5-micro: detect string-producing expressions after resolve (for + upgrade)
@@ -2188,6 +2209,20 @@ def collectObjects = (stmts) =>
       }
   }
 
+-- K62.6e: gather every case-class field name (across all case classes) so
+-- resolveField can tell a generated-accessor field from a plugin/record field.
+def collectCaseFields = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "casecls") then
+            match data { case Pair(name, params) => append(params, collectCaseFields(rest)) }
+          else collectCaseFields(rest)
+      }
+  }
+
 -- K62.6b: names of top-level `var` declarations (become global cells).
 def collectTopVars = (stmts) =>
   match stmts {
@@ -2223,6 +2258,8 @@ def lowerProg = (stmts) =>
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
+  -- K62.6e: reset case-class field registry (generated _sel_ accessors)
+  let _cf = #cell.set(caseFieldsCell, collectCaseFields(stmts)) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
   -- Reset array/map/list variable registries
