@@ -494,19 +494,22 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `litdoc.ssc` eligible for the existing expected-file harness. Done-when:
       the direct litdoc A/B diff is empty and BUGS `v2-litdoc-inline-bold-parity`
       moves to `fixed`.
-- [ ] **v2-parity-post-split-refresh** — refresh the production output-parity
-      baseline after `v2-arith-unification` (`a2985d911`) and
-      `v2-litdoc-inline-bold-parity` (`2b5a36660`). Why: the current published
-      gate still predates the regex split semantic change and should be the
-      source of truth before the next mismatch fix is picked. How: from this
-      worktree, stage the runner with `scripts/sbtc "installBin"`, then run
-      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`. Record
-      the exact counts and remaining mismatch list in
-      `v2/output-parity-baseline.md`, `specs/v2-full-compat.md`, this SPRINT
-      item, and `CHANGELOG.md`. If a new deterministic v2-error appears, add a
-      `BUGS.md` entry plus a follow-up SPRINT item instead of silently folding it
-      into the baseline. Done-when: the refreshed docs name the command, counts,
-      skipped buckets, and next actionable mismatch family.
+- [x] **v2-parity-post-split-refresh** — DONE 2026-07-09: refreshed the
+      production output-parity baseline after `v2-arith-unification`
+      (`a2985d911`) and `v2-litdoc-inline-bold-parity` (`2b5a36660`). Gates:
+      `scripts/sbtc "installBin"` passed, then
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all` produced
+      **64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only** `(26
+      both-fail not-a-gap · 36 true-server · 0 long-running · 33 backend-lane ·
+      2 nondet · 195 total)`. Counts are unchanged from the current-error
+      reconciliation gate, and no deterministic v2-error row reappeared. The
+      next narrow production candidate is `graph-neo4j-storage.ssc`, where v1
+      prints `StoredEdge(...)` and v2 prints `<foreign>`. Original plan:
+      refresh the production output-parity baseline after `v2-arith-unification`
+      and `v2-litdoc-inline-bold-parity`; stage the runner with
+      `scripts/sbtc "installBin"`, run the full parity gate, and record exact
+      counts plus the remaining mismatch list in `v2/output-parity-baseline.md`,
+      `specs/v2-full-compat.md`, this SPRINT item, and `CHANGELOG.md`.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

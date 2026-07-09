@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: post-split parity baseline refreshed
+
+After dynamic arithmetic unification and regex `String.split` parity, the
+production output-parity gate remains stable at `64/98 identical · 11 mismatch ·
+0 v2-error · 23 v1-only` across 195 examples. The next narrow production
+candidate is `graph-neo4j-storage.ssc` (`StoredEdge(...)` vs `<foreign>`).
+Gates: `installBin` and full `scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: string split regex semantics restored
 
 v2 `String.split` / `str.split` now follows v1 regex semantics instead of

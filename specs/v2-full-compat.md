@@ -42,6 +42,26 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and first blocker
 
+Post-split refresh (2026-07-09): after `v2-arith-unification` (`a2985d911`)
+and regex `String.split` parity (`2b5a36660`), the authoritative production
+gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-parity-post-split-refresh`:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 2 nondet · 195 total)
+```
+
+Counts are unchanged from the current-error reconciliation gate, and no
+deterministic v2-error row reappeared. The next narrow production candidate is
+`graph-neo4j-storage.ssc` (`StoredEdge(...)` on v1 vs `<foreign>` on v2),
+because it appears to be a contained graph-plugin value conversion gap; the
+timing/secrets, OS placeholder, parser/DSL, and stream-shape rows are broader
+classification or semantic families.
+
 Current-error reconciliation update (2026-07-09): after toolkit-v2 completion,
 the full production gate temporarily regressed to six v2-error rows because the
 fresh corpus now included standard-`scala`-fence examples that v2 source
