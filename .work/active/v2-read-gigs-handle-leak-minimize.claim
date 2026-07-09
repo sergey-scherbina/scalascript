@@ -1,6 +1,6 @@
 feature/v2-read-gigs-handle-leak-minimize 2026-07-09T17:28:49Z
 agent: codex
-heartbeat: 2026-07-09T17:28:49Z
+heartbeat: 2026-07-09T17:45:44Z
 status: in-progress
-done-so-far: claim visible on origin/main; worktree created at ../scalascript-wt-v2-read-gigs-handle-leak-minimize
-next: write SPRINT plan for real-hub handle leak minimization/fix, then inspect repro and busi checkout
+done-so-far: current ScalaScript isolated busi tests/v2/gigs.ssc arity regression reproduced; Currency/std-money bridge fix committed locally and focused/busi/payment smokes are green
+next: rebase worktree on heartbeat, re-check live busi /mcp read_gigs, then finish BUGS/SPRINT/CHANGELOG and gates
