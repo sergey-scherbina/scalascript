@@ -1,6 +1,0 @@
-feature/tkv2-typed-client 2026-07-09T00:45:21Z
-agent: codex
-heartbeat: 2026-07-09T00:52:44Z
-status: in-progress
-done-so-far: spec/SPRINT/BUGS plan pushed in 0e2ab445c
-next: implement RouteDeriver path-param defaults, tests, conformance, docs, bookkeeping
