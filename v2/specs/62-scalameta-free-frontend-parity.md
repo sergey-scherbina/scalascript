@@ -19,6 +19,7 @@ Measured as: native `ssc1` lower → plugin-enabled v2 runtime, OK+TIMEOUT / 195
 | + K62.6c-for | 18 | `for x <- xs [if g] yield/do e` (single generator + guard) — parse gap closed; those files have other blockers so run-count is flat |
 | + K62.6c-map | 22 | `Map(k -> v, …)` initial entries (was silently empty), `new Foo(x)` == `Foo(x)`, multi-generator `for` (flatMap; + List.flatMap default arm) |
 | + K62.6c-under | 22 | underscore placeholder `filter(_ % 2 == 0)` → `filter(x => x % 2 == 0)` (arg-level tree-walk `ph`→lambda) — closed the `_` class; run-count flat (those files have other blockers) |
+| + K62.6c-indent | **33** | **significant indentation** — the lexer emits `NL <indent>` tokens; a layout pass turns brace-less indented blocks (`def f() = <indent> stmts`, `if/while/for` bodies) into virtual `{ ; }`, with continuation handling (`else`/infix/`.` on a new line). +11 files — indented def bodies are pervasive. |
 
 Remaining after 22 (all harder / cross-territory): brace-less indented multi-stmt
 def bodies (needs newline/indentation tracking — a lexer change), `$`, missing

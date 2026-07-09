@@ -1246,10 +1246,15 @@ frontend accepted the file).
   - [x] **K62.6c-under DONE** 2026-07-09: underscore placeholder `filter(_ % 2 == 0)`
         → `filter(x => x % 2 == 0)` (arg-level tree-walk `exprHasPh`/`replacePh`,
         wrap compound-ph args in a lambda; bare `f(_)` left as-is). Closed the `_` class.
-  - [ ] **K62.6c-rest** (the hard tail): **indented brace-less multi-statement def
-        bodies** (block-detection gap — needs newline/indentation tokens, a lexer
-        change), `$`, missing methods (`takeWhile`/`dropWhile`/…). `throw` needs a VM
-        error prim (VM-side, sibling territory).
+  - [x] **K62.6c-indent DONE** 2026-07-09: **significant indentation**. Lexer emits
+        `NL <indent>`; a layout pass (offside → virtual `{ ; }`) converts brace-less
+        indented blocks (`def f() = <indent> stmts`, `if/while/for` bodies), with
+        continuation handling (`else`/infix/`.` on a new line). Also: while-parser
+        skips `do`. **End-to-end 22→33** (+11). Conformance 640/640.
+  - [ ] **K62.6c-rest** (small tail): `$`, missing methods (`takeWhile`/`dropWhile`),
+        multi-generator `for` with pattern binders. `throw` needs a VM error prim.
+        Pre-existing (not indentation): match-in-def returns the wrong arm (`v2` block
+        value / match-dispatch bug — verify on `def f(x)=x match {...}`).
   - [ ] **K62.6e — field access `_sel_get`/`_sel_env` → `__method__`.** Tried (route
         `resolveField` fallback for non-case-fields through `__method__`, with a
         `caseFieldsCell` registry to keep case-class field projection). REVERTED:
