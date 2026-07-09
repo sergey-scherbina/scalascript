@@ -129,7 +129,10 @@ object FrontendBridge:
         currentDb = Some(t.dropRight(1))  // `mydb:` line
       else if currentDb.isDefined && t.startsWith("url:") then
         val rawUrl = t.drop(4).trim.stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'")
-        if rawUrl.startsWith("jdbc:") then
+        // Register ANY scheme — registerDb normalizes sqlite:/h2:/postgres:/
+        // mysql: to their jdbc: form (busi's databases: convention uses the
+        // bare-scheme urls, pinned first-class by v1 JsGen/Wasm SQL tests).
+        if rawUrl.nonEmpty then
           scala.util.Try(PluginBridge.registerDb(currentDb.get, rawUrl)).failed.foreach { e =>
             System.err.println(s"[v2] warn: could not register db '${currentDb.get}': ${e.getMessage}")
           }

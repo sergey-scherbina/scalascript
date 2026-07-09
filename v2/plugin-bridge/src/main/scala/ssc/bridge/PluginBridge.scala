@@ -31,8 +31,20 @@ object PluginBridge:
 
   /** Register an in-process JDBC connection by name (called by FrontendBridge
    *  when it processes `databases:` YAML frontmatter). */
+  /** Normalize a databases: url to a JDBC url. busi/v1 accept the bare
+   *  scheme (`sqlite::memory:`, `h2:mem:x`, `postgres://…`) as first-class;
+   *  JDBC wants a `jdbc:`-prefixed form. Already-jdbc urls pass through. */
+  private def toJdbcUrl(url: String): String =
+    if url.startsWith("jdbc:") then url
+    else if url.startsWith("sqlite:") then "jdbc:" + url
+    else if url.startsWith("h2:") then "jdbc:" + url
+    else if url.startsWith("postgres://") then "jdbc:postgresql://" + url.stripPrefix("postgres://")
+    else if url.startsWith("postgresql://") then "jdbc:postgresql://" + url.stripPrefix("postgresql://")
+    else if url.startsWith("mysql://") then "jdbc:mysql://" + url.stripPrefix("mysql://")
+    else url  // unknown scheme: let the driver decide (may still be a valid jdbc alias)
+
   def registerDb(name: String, url: String): Unit =
-    val conn = java.sql.DriverManager.getConnection(url)
+    val conn = java.sql.DriverManager.getConnection(toJdbcUrl(url))
     dbRegistry.put(name, conn)
 
   /** Clear all registered DB connections (call between batch runs). */
