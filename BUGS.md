@@ -3151,6 +3151,17 @@ unchanged. Corpus 154/8 (no regression). Gate flipped green:
 tests/e2e/route-params-v2-smoke.sh now fails on regression. Fixed by
 lucky-perch; reported+repro'd by busi.
 
+FOLLOW-UP FIXED 2026-07-09 (user-request-collision): the fix reserved
+"Request" GLOBALLY (FrontendBridge.runtimeShapedTypes), so a user's OWN
+`case class Request` resolved as the HTTP Request(14) and its fields read
+Stub in the batch/conformance path (standalone `ssc run` was fine). The
+lock is now CONDITIONAL — only the std/http.ssc lib Request shape (its
+exact 9 declared fields) is locked; a user Request with a different shape
+registers and wins. Guarded by tests/conformance/user-request-shadow.ssc.
+(Also reverted the parallel fieldNames snapshot/restore batch-isolation
+d5f9ce486 — it was orthogonal, did not fix an active bug, and re-asserted
+the built-in Request baseline.)
+
 Any HTTP route registered with a `:name` dynamic path segment
 (`route("GET", "/foo/:id/bar")`) works fine on v1: `req.params("id")`
 resolves to the real matched segment. On v2, `req.params("id")` (and any

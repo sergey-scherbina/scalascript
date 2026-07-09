@@ -1,0 +1,7 @@
+case class Request(alpha: Int, beta: Int)
+val r = Request(7, 9)
+println(r.alpha)
+println(r.beta)
+val r2 = r.copy(beta = 42)
+println(r2.alpha)
+println(r2.beta)

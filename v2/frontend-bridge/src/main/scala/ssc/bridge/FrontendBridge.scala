@@ -51,14 +51,21 @@ object FrontendBridge:
    *  layout is locked to the runtime layout (registerBuiltInBridgeTypes); the
    *  case-class declaration must NOT override it. See PluginBridge.requestFieldNames. */
   private val runtimeShapedTypes = Set("Request")
+  /** The std/http.ssc `case class Request` declared shape. Only THIS lib
+   *  declaration is locked out (its runtime value carries extra injected
+   *  params/query/… — v2-route-params-stub); a user's OWN `case class Request`
+   *  with a different shape must register and win, else it resolves as the HTTP
+   *  Request and its fields read Stub in the batch path (user-request-collision). */
+  private val httpLibRequestShape =
+    Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json")
 
   /** Register a case class definition and its fields. */
   private def registerCaseClass(name: String, params: List[Term.Param]): Unit =
-    // `Request`'s runtime value carries runtime-injected params/query/… that the
-    // std/http.ssc case class omits — keep the locked runtime layout, don't let
-    // the 9-field declaration clobber it (v2-route-params-stub).
-    if runtimeShapedTypes(name) then return
     val names = params.map(_.name.value).toVector
+    // Lock ONLY the std/http.ssc lib Request (its exact declared shape); a
+    // user's own Request (different fields) registers normally and overrides
+    // the runtime layout for that compile unit.
+    if runtimeShapedTypes(name) && names == httpLibRequestShape then return
     fieldRegistry(name) = names
     ssc.V2PluginRegistry.registerFieldNames(name, names)  // shared with PluginBridge.v2ToV1
     val types = params.map(p => p.decltpe.map(_.syntax).getOrElse("Any")).toVector
