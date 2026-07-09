@@ -1,0 +1,6 @@
+feature/unmask-payments-bridge 2026-07-09T13:47:08Z
+agent: codex
+heartbeat: 2026-07-09T13:47:08Z
+status: not-started
+done-so-far:
+next: create worktree, expand SPRINT/spec for payment provider bridge, then reproduce traditional-payments/pix/fednow v2 output
