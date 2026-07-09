@@ -2314,6 +2314,19 @@ object Prims:
         case (DataV("None", _), "toList", Nil) => listOf(Seq.empty)
         case (DataV("Some", Seq(v)), "fold", List(_, fn: Value.ClosV)) => callClos(fn, Array(v))
         case (DataV("None", _), "fold", List(default, _)) => default
+        // exists/forall/contains/nonEmpty — were unhandled (None.exists → Op,
+        // Some.exists → Stub); idiomatic `identity.exists(hasRole)` auth checks
+        // dispatch here now (busi v2-option-exists). Match the list-method idiom.
+        case (DataV("Some", Seq(v)), "exists", List(fn: Value.ClosV)) =>
+          BoolV(callClos(fn, Array(v)) == BoolV(true))
+        case (DataV("None", _), "exists", List(_)) => BoolV(false)
+        case (DataV("Some", Seq(v)), "forall", List(fn: Value.ClosV)) =>
+          BoolV(callClos(fn, Array(v)) == BoolV(true))
+        case (DataV("None", _), "forall", List(_)) => BoolV(true)
+        case (DataV("Some", Seq(v)), "contains", List(x)) => BoolV(v == x)
+        case (DataV("None", _), "contains", List(_)) => BoolV(false)
+        case (DataV("Some", _), "nonEmpty", Nil) => BoolV(true)
+        case (DataV("None", _), "nonEmpty", Nil) => BoolV(false)
         // ── Either methods ───────────────────────────────────────────────────────
         case (DataV("Bench", _), "opaque", List(v)) => v
         case (DataV("BenchObj", _), "opaque", List(v)) => v

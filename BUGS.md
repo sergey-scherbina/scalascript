@@ -3268,7 +3268,15 @@ route-params-stub fix.
 
 ## v2-option-exists — Option.exists is unimplemented on v2
 
-**Status:** OPEN — v1 correct, guarded by tests/conformance/v2-option-exists.ssc
+**Status:** FIXED 2026-07-09 — the v2 VM Option method dispatch
+(Runtime.scala) had map/flatMap/filter/foreach/fold/orElse/getOrElse but was
+missing `exists`/`forall`/`contains`/`nonEmpty`, so they fell through to
+Op/Stub. Added all four arms (same idiom as the list methods): `Some.exists`
+runs the predicate → Boolean, `None.exists` → false; `forall` mirror
+(None → true); `contains` by `==`; `nonEmpty`. Repro
+tests/conformance/v2-option-exists.ssc green (`false`/`true`); forall/contains/
+nonEmpty verified identical v1==v2; corpus 154/8 (no regression). Reported by
+busi (fable); fixed by lucky-perch.
 
 `Option.exists(pred)` is not dispatched at all on v2, for EITHER arm:
 `None.exists(pred)` raises an unhandled `Op("None.exists", <closure>, <closure>)`

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 Option.exists/forall/contains/nonEmpty implemented
+
+The v2 VM had most `Option` methods but not `exists`/`forall`/`contains`/
+`nonEmpty` — `None.exists(pred)` surfaced an unhandled `Op` and `Some.exists`
+returned a `Stub` instead of a `Boolean`, breaking idiomatic
+`identity.exists(hasRole)` auth checks. All four now dispatch (matching the
+list-method semantics). Gate: `tests/conformance/v2-option-exists.ssc`.
+
 ## 2026-07-09 — v2 HTTP route path params (`req.params(:name)`) resolve correctly
 
 On `--v2`, `req.params("id")` for a `:name` route segment silently returned
