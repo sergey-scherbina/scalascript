@@ -82,6 +82,35 @@ slice should record that finding and stop rather than landing speculative code.
   independent semantics and stack-safe recursion; no public syntax or semantic
   contract changes are intended.
 
+## Baseline
+
+Captured on 2026-07-09 from this worktree after staging the CLI:
+
+```bash
+scripts/sbtc "installBin"
+scripts/bench v2-backends recursion-fib
+```
+
+Default harness settings:
+
+```text
+Corpus:   recursion-fib
+Backends: v2, v2-jvm, v2-rust
+Warmup:   2000ms (time-based)
+Reps:     100
+ssc:      /Users/sergiy/work/my/scalascript-wt-v2-source-jvm-recursion-fib-perf/bin/ssc
+```
+
+Result:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-fib` | 12.9 | 67.5 | 240.2 |
+
+This is better than the older short bounded `v2-jvm=104.5 ms` probe, but it
+still leaves `v2-jvm` roughly 5.2x slower than the current v2 VM row for this
+single workload and remains a real source-backend production gap.
+
 ## Results
 
 Pending. Fill this section after the baseline, implementation, and verification

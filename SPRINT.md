@@ -28,6 +28,11 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       conformance for recursion-shaped programs is green, `scripts/bench
       v2-backends recursion-fib` demonstrates the result, and `git diff --check`
       passes.
+      Baseline 2026-07-09 after `scripts/sbtc "installBin"` with default
+      `scripts/bench v2-backends recursion-fib`: `v2=12.9 ms`,
+      `v2-jvm=67.5 ms`, `v2-rust=240.2 ms`. This confirms the JVM source
+      recursion row is still a real source-backend gap on the current worktree,
+      not only a stale bounded-probe number.
 
 - [x] **green-main-conformance-7fail** — DONE 2026-07-09 in `bd85a5f95`,
       `bf0402b12`, `76b9432ef`, `7f4cb82d7`, and `1291ed03b`: restored the default top-level
