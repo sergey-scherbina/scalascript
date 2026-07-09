@@ -1,6 +1,0 @@
-feature/jsgen-preamble-collision-decls 2026-07-09T05:48:59Z
-agent: codex
-heartbeat: 2026-07-09T06:06:10Z
-status: in-progress
-done-so-far: JsGen declaration/call-site rename fix implemented; JsGenStdImportTest passes 49/49
-next: rebuild bin/ssc with installBin, rerun affected conformance, then commit code if green
