@@ -786,6 +786,21 @@ object FastCode:
     case If(c, th, el)  => armBodyCompact(c, arity) && armBodyCompact(th, arity) && armBodyCompact(el, arity)
     case _              => false  // conservative: complex terms may reference outer locals
 
+  /** Stricter than armBodyCompact: true only for pure, arithmetic-ish arm bodies
+   *  whose compact env cannot be captured or handed to user/plugin code.  Those
+   *  arms may reuse a tiny scratch env in the Match FC instead of allocating
+   *  Array(fs...) on every dispatch. */
+  private def armBodyScratchSafe(t: Term, arity: Int): Boolean = t match
+    case Local(k) => k < arity
+    case Lit(_)   => true
+    case Prim("__arith__", args) => args.forall(armBodyScratchSafe(_, arity))
+    case Prim(op, args) if op.startsWith("i.") || op.startsWith("f.") =>
+      args.forall(armBodyScratchSafe(_, arity))
+    case Seq(terms) => terms.forall(armBodyScratchSafe(_, arity))
+    case If(c, th, el) =>
+      armBodyScratchSafe(c, arity) && armBodyScratchSafe(th, arity) && armBodyScratchSafe(el, arity)
+    case _ => false
+
   /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
   def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = t match
@@ -1257,6 +1272,15 @@ object FastCode:
           val armCompact = arms.zip(armFCOpts.map(_.get)).map { case (arm, (_, ar, _)) =>
             armBodyCompact(arm.body, ar)
           }.toArray
+          val armScratchSafe = arms.zip(armFCOpts.map(_.get)).map { case (arm, (_, ar, _)) =>
+            armBodyScratchSafe(arm.body, ar)
+          }.toArray
+          val scratch1 =
+            if (0 until nArms).exists(k => armCompact(k) && armScratchSafe(k) && armArs(k) == 1) then new Array[Value](1)
+            else null
+          val scratch2 =
+            if (0 until nArms).exists(k => armCompact(k) && armScratchSafe(k) && armArs(k) == 2) then new Array[Value](2)
+            else null
           Some((env: Env) =>
             fcScrut(env) match
               case DataV(tag, fs) =>
@@ -1264,7 +1288,18 @@ object FastCode:
                 if k < nArms then
                   val ar = armArs(k)
                   val extEnv =
-                    if armCompact(k) then ar match
+                    if armCompact(k) && armScratchSafe(k) then ar match
+                      case 0 => Runtime.emptyEnv
+                      case 1 =>
+                        val e = scratch1
+                        e(0) = fs(0)
+                        e
+                      case 2 =>
+                        val e = scratch2
+                        e(0) = fs(0); e(1) = fs(1)
+                        e
+                      case _ => fs.toArray
+                    else if armCompact(k) then ar match
                       case 0 => Runtime.emptyEnv
                       case 1 => Array(fs(0))
                       case 2 => Array(fs(0), fs(1))

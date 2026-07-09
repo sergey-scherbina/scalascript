@@ -170,6 +170,20 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(Runtime.run(workload.code, workload.env) == Value.IntV(5000050000L))
   }
 
+  test("bridge pattern-match-heavy workload exposes VM fast entries") {
+    ensureBridgeRuntime()
+    val src = scala.io.Source.fromFile(repoFile("bench/corpus/pattern-match-heavy.ssc")).mkString
+    val prog = FrontendBridge.convertSource(src, Some(repoFile("bench/corpus")))
+    val (_, globals) = Compiler.compileWithGlobals(prog)
+    val area = globals("area").asInstanceOf[Value.ClosV]
+    val workload = globals("workload").asInstanceOf[Value.ClosV]
+
+    assert(area.fcEntry.isDefined)
+    assert(workload.fcEntry.isDefined)
+    val result = workload.fcEntry.get(Runtime.emptyEnv).asInstanceOf[Value.FloatV].d
+    assert(math.abs(result - 1914159.0) < 0.00001)
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
