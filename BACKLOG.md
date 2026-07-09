@@ -112,20 +112,24 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       slice to one backend/workload family at a time, using
       `scripts/bench v2-backends <workload>` as the before/after command.
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
-      two narrow VM slices have shipped. The first recognized the exact
+      three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from
       `bench/corpus/arith-loop.ssc`, moving the v2 VM row from 9.91 ms to
       0.000018 ms. The second (`v2-vm-pattern-match-heavy-fast-tier`) reused
       scratch env arrays for compact arithmetic-only `Match` fast arms,
-      moving `pattern-match-heavy` from 35.1 ms to 16.4-17.0 ms. The overall
+      moving `pattern-match-heavy` from 35.1 ms to 16.4-17.0 ms. The third
+      (`v2-vm-foreach-match-boundary`) evaluates supported inline `foreach`
+      lambda bodies against a virtual appended element instead of allocating
+      `Runtime.appendOne(env, elem)` per list element, moving the single-row
+      `pattern-match-heavy` v2 result from 18.2 ms to 14.4 ms. The overall
       Phase-3 v2 VM production-performance gate remains open: the latest
-      bounded four-row probe still shows `pattern-match-heavy` at 17.0 ms
-      vs `ssc` 0.059 ms, `recursion-fib` at 6.61 ms vs 1.29 ms, and
-      `recursion-tco` at 0.275 ms vs 0.031 ms. Keep closing this as one
-      workload-family slice at a time; the next VM slice should either target
-      the remaining `foreach`/match boundary costs with a profile-backed local
-      fix, or explicitly move to broader bytecode-JIT/source-backend gate work
-      instead of adding speculative hand-written `FastCode` cases.
+      bounded four-row probe still shows `pattern-match-heavy` at 15.2 ms
+      vs `ssc` 0.058 ms, `recursion-fib` at 5.80 ms vs 1.18 ms, and
+      `recursion-tco` at 0.272 ms vs 0.031 ms. Keep closing this as one
+      workload-family slice at a time; after these local VM hand paths, the
+      next slice should be profile-backed and likely move toward broader
+      bytecode-JIT/source-backend gate work rather than speculative new
+      `FastCode` cases.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

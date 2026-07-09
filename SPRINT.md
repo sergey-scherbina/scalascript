@@ -9,21 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-vm-foreach-match-boundary** — continue the open
-      `v2-vm-production-jit-gate` after `v2-vm-pattern-match-heavy-fast-tier`.
-      The last slice proved `area`/`workload` already have `fcEntry` and
-      removed compact match-arm env allocation, but the v2 VM
-      `pattern-match-heavy` row is still ~17.0 ms vs `ssc` 0.059 ms. This
-      slice must start by staging `bin/ssc`, reproducing the current row, and
-      inspecting/profiling the remaining hot boundary in the bridge-generated
-      shape: `while` -> `shapes.foreach` inline lambda -> `cell.set(total,
-      total + area(s))` -> ADT `match`. Implement at most one conservative
-      local VM/FastCode optimization only if the remaining shape is proven
-      safe; otherwise record the exact blocker and stop. Done-when:
-      `specs/v2-vm-foreach-match-boundary.md` is committed before code,
-      before/after numbers are recorded, the four-row gate remains honestly
-      red/green according to measured data, and affected tests plus
-      `tests/conformance/run.sh --only 'litdoc'` pass.
+- [x] **v2-vm-foreach-match-boundary** — DONE 2026-07-09 in
+      `58fd143b8`: `FastCode.tryFC` now has a no-materialized-env lane for
+      inline `foreach` `Lam(1, body)` shapes whose supported body can be
+      evaluated against a virtual appended `Local(0)`. This removes the
+      per-element `Runtime.appendOne(env, elem)` allocation in the
+      bridge-generated `cell.set(total, total + area(s))` hot path, while
+      complex/capturing bodies fall back to the old path. Added a regression
+      that stores an escaping nested lambda from a `foreach` body and verifies
+      it still captures the first element, guarding against unsafe env reuse.
+      Benchmarks: `pattern-match-heavy` improved from baseline `v2 18.2 ms`
+      to `v2 14.4 ms` in the single-row command; the four-row probe still keeps
+      the v2 VM production gate red (`pattern-match-heavy` 15.2 ms vs `ssc`
+      0.058 ms, `recursion-fib` 5.80 ms vs 1.18 ms, `recursion-tco` 0.272 ms
+      vs 0.031 ms). Gates: focused `FrontendBridgeTest`, `installBin`,
+      four-row bench, full `./v2/conformance/check.sh`, conformance `litdoc`,
+      and `git diff --check`.
 
 - [x] **v2-vm-effect-handlers-regression** — DONE 2026-07-09 in
       `b6f88744c`: fixed the v2 VM effect-handler regression by guarding the

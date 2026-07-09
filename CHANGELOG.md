@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 VM foreach lambda avoids hot env materialization
+
+`FastCode.tryFC` now has a conservative no-materialized-env lane for inline
+`foreach` `Lam(1, body)` calls: supported bodies read the current element as a
+virtual appended `Local(0)` and shifted outer locals directly from the base env,
+so the `pattern-match-heavy` `cell.set(total, total + area(s))` loop no longer
+allocates `Runtime.appendOne(env, elem)` per list element. Complex or capturing
+bodies keep the old fallback; a focused regression stores an escaping nested
+lambda from a `foreach` body and verifies it still captures the first element.
+The single-row `pattern-match-heavy` v2 result improved from 18.2 ms to 14.4 ms,
+but the overall v2 VM production-performance gate remains red. Gates: focused
+bridge test, `installBin`, four-row bench, full `./v2/conformance/check.sh`,
+conformance `litdoc`, and `git diff --check`.
+
 ## 2026-07-09 — v2 VM pattern-match-heavy fast match arms
 
 `FastCode.tryFC(Match(...))` now reuses scratch env arrays for compact
