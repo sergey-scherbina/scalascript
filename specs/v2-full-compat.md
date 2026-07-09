@@ -42,6 +42,30 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and next blockers
 
+V1-side mismatch classification update (2026-07-09): after `18ee5ecfc`,
+`scripts/v2-output-parity` classifies `effects.ssc` and
+`dsl-calc-parser.ssc` as v1-side/better-output rows instead of strict v2
+production mismatches, and it fails fast if temp/RC writes fail so no-space
+runs cannot produce false corpus baselines. The authoritative production gate
+was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-v1-side-mismatch-classification`
+with the current parity script and the already staged shared-main runner:
+
+```text
+PARITY_TIMEOUT=45 SSC="/Users/sergiy/work/my/scalascript/bin/ssc" scripts/v2-output-parity --all
+parity: 68/93 identical · 2 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 5 nondet · 2 v1-side · 195 total)
+```
+
+`effects.ssc` now sits outside strict byte-parity because v2 prints the
+documented full output while the rollback v1 runner stops after the first
+three sections. `dsl-calc-parser.ssc` now sits outside strict byte-parity
+because v2 prints full parser round-trip strings while v1 truncates each row
+to the first number. No deterministic v2-error row reappeared. The remaining
+full-gate mismatches are now only `distributed-streams.ssc` and `streams.ssc`;
+they form the next stream/section output-shape parity slice.
+
 Standard Scala fence/runtime-shape update (2026-07-09): after `f57c74da8`,
 standard-Scala-only documents run all `scala` fences in document order, mixed
 `scalascript`/`scala` documents can opt into runnable standard fences with

@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: v1-side parity rows classified
+
+`scripts/v2-output-parity` now classifies `examples/effects.ssc` and
+`examples/dsl-calc-parser.ssc` as v1-side/better-output rows: v2 prints the
+documented behavior while the rollback v1 runner stops early or truncates the
+parser result. The parity harness also fails fast on temp/RC file creation or
+write failures, preventing no-space runs from producing false corpus baselines.
+The production output-parity gate is now
+`68/93 identical · 2 mismatch · 0 v2-error · 23 v1-only` with 5 nondet and
+2 v1-side skips across 195 examples; the only strict mismatches left are
+`distributed-streams.ssc` and `streams.ssc`. Gates: targeted v1-side parity,
+targeted `scala-js-demo`/`lang-split` freshness parity, artificial unwritable
+`SSC_PARITY_TMPDIR`, conformance `effects`, and full
+`scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: standard Scala multi-fence parity fixed
 
 v2 now runs standard-Scala-only `scala` fences in document order and supports an

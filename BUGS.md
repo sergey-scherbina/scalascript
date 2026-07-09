@@ -12,7 +12,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-output-parity-temp-write-fail-fast — `open` (2026-07-09)
+## v2-stream-family-output-parity — `open` (2026-07-09)
+
+- **Found by:** codex, in the valid full production parity sweep after
+  `v2-v1-side-mismatch-classification`.
+- **Repro:** with a staged runner, run
+  `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/distributed-streams.ssc examples/streams.ssc`.
+- **Observed failure:** `distributed-streams.ssc` is still a strict mismatch:
+  v1 prints the word-count block (`=== 2. Word count ===` plus sorted
+  `KV(...)` rows) and v2 omits that block. `streams.ssc` is also a strict
+  mismatch: after `=== 2. Stream block ===`, v1 stops at the header while v2
+  prints `1`, `4`, and `9`.
+- **Impact:** after moving known v1-side/better-output rows out of strict
+  byte-parity, these are the only remaining unexplained production output
+  mismatches in the default v2 gate.
+- **Plan:** claim `v2-stream-family-output-parity`; reproduce both rows in the
+  real assembled harness; determine whether each is a v2 stream/section
+  execution bug, standard-Scala multi-section behavior, or a documented v1-side
+  row; then fix v2 with focused conformance/regression coverage or classify the
+  row explicitly.
+- **Status:** open; queued in `SPRINT.md`.
+
+## v2-output-parity-temp-write-fail-fast — `fixed` (2026-07-09)
 
 - **Found by:** codex, while re-running the full v2 output-parity sweep during
   `v2-v1-side-mismatch-classification`.
@@ -27,14 +48,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
   the host has insufficient disk. This happened during the attempted
   2026-07-09 full sweep; that full-sweep output must not be recorded as a
   baseline.
-- **Plan:** make `scripts/v2-output-parity` fail fast when it cannot create or
-  write its temp/RC files, then keep the current targeted gates as the valid
-  verification if the host still cannot complete a full sweep.
-- **Status:** open; fixed inside the active
-  `v2-v1-side-mismatch-classification` slice before publishing the parity
-  classification.
+- **Root cause:** the parity harness wrote every backend exit code through one
+  shared RC file but did not check whether creating or writing that file
+  succeeded. When the filesystem filled, later rows reused stale RC state and
+  the summary looked valid.
+- **Fix:** `18ee5ecfc` moves parity temp files into a repo-local temp dir and
+  makes temp-dir creation, RC-file creation, RC writes, RC reads, and temporary
+  port-rewrite files fail fast with exit 2.
+- **Gates:** artificial unwritable `SSC_PARITY_TMPDIR` exits with `rc=2` and
+  `cannot create rc file`; the subsequent full parity sweep completed without
+  temp-write errors and produced
+  `68/93 identical · 2 mismatch · 0 v2-error · 23 v1-only`
+  with `2 v1-side` skips.
+- **Status:** fixed; awaiting any external confirmation before trimming.
 
-## v2-v1-side-mismatch-classification — `open` (2026-07-09)
+## v2-v1-side-mismatch-classification — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-scala-fence-multiblock-parity`.
@@ -49,13 +77,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
   mismatches even though the durable notes identify them as v1-side or
   better-output rows. That hides the smaller remaining stream-family surface
   that likely needs real v2 work.
-- **Plan:** re-run the targeted rows in the real assembled harness. If the
-  prior findings still hold, classify them in `scripts/v2-output-parity` as
-  v1-side/better-output skips, add or refresh conformance coverage for the
-  documented v2 behavior where missing, then refresh targeted/full parity
-  baselines and docs. If either row reveals a real v2 defect, switch to a v2
-  bug fix with a faithful regression instead.
-- **Status:** open; claimed as `v2-v1-side-mismatch-classification`.
+- **Root cause:** the strict byte-parity gate had no bucket for rows where the
+  rollback v1 runner is the bad side and v2 matches the documented behavior.
+  That made two known v1-side/better-output rows look like active v2
+  production regressions.
+- **Fix:** `18ee5ecfc` classifies `effects.ssc` and `dsl-calc-parser.ssc` as
+  v1-side/better-output skips in `scripts/v2-output-parity`. The example and
+  runtime behavior are unchanged.
+- **Gates:** targeted parity for `examples/effects.ssc` and
+  `examples/dsl-calc-parser.ssc` reports `2 v1-side` skips; targeted parity for
+  `examples/scala-js-demo.ssc` and `examples/lang-split.ssc` still reports
+  2/2 identical; `tests/conformance/run.sh --only 'effects' --no-memo` passed
+  INT/JS/JVM; full parity is now
+  **68/93 identical · 2 mismatch · 0 v2-error · 23 v1-only** with
+  `2 v1-side` skips across 195 examples.
+- **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-scala-fence-multiblock-parity — `fixed` (2026-07-09)
 
