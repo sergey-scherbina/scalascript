@@ -23,6 +23,7 @@ exercise the same shapes end-to-end through `jsdom` when available.
 | [`swing-hello/`](swing-hello/) | Minimal JDK-only Swing desktop window; the frontend SPI `swing` backend is currently a skeleton | [`swing-hello.ssc`](swing-hello/swing-hello.ssc) |
 | [`typed-client-distributed/`](typed-client-distributed/) | Same `.ssc` source as JVM backend on one machine and browser/Electron client on another, using generated `apiClients:` HTTP methods | [`typed-client-distributed.ssc`](typed-client-distributed/typed-client-distributed.ssc) |
 | [`keyed-for-demo/`](keyed-for-demo/) | `std/ui` toolkit-v2 keyed list reconciliation through `forKeyed(items, key)(render)` on the custom browser runtime | [`keyed-for-demo.ssc`](keyed-for-demo/keyed-for-demo.ssc) |
+| [`webauthn-toolkit-demo/`](webauthn-toolkit-demo/) | Full-stack passkey enrol/sign-in buttons using `std/auth.ssc` server verification and `std/ui/webauthn.ssc` browser actions | [`webauthn-toolkit-demo.ssc`](webauthn-toolkit-demo/webauthn-toolkit-demo.ssc) |
 
 ## Compile
 

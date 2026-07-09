@@ -3317,6 +3317,7 @@ Import selectively from each `std/ui` sub-module:
 [vstack, hstack, divider, spacer](std/ui/layout.ssc)
 [heading, text](std/ui/typography.ssc)
 [textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
+[webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
 [showWhen, signalText_, fragment_, forKeyed, rawText](std/ui/reactive.ssc)
 [badge, spinner, signalPre](std/ui/display.ssc)
 [card, cardWithHeader, modal](std/ui/containers.ssc)
@@ -3438,6 +3439,47 @@ the existing `fetchAction*`/`formBody` machinery. Current limits (see
 `specs/ssc-toolkit-v2.md`): errors show from the start (no touched-state
 yet), and there is no busy/error submit tri-state (needs an onFailure fetch
 effect). Runnable example: `examples/frontend/form-demo/form-demo.ssc`.
+
+#### Browser WebAuthn actions (`std/ui/webauthn.ssc`)
+
+`webauthnRegister` and `webauthnAssert` return `EventHandler` values for
+`actionButton(...)`. On click, the browser runtime POSTs a begin endpoint,
+calls `navigator.credentials.create` or `navigator.credentials.get`, POSTs the
+base64url-encoded response to a complete endpoint, then writes either the
+server response body to a result signal or a concise failure to an error signal.
+
+```scalascript
+[signal](std/ui/primitives.ssc)
+[actionButton](std/ui/input.ssc)
+[webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
+
+val result = signal("passkeyResult", "")
+val error  = signal("passkeyError", "")
+
+val enrol = webauthnRegister("/webauthn/enrol/begin",
+  "/webauthn/enrol/complete", "My app", result, error)
+
+val signin = webauthnAssert("/webauthn/signin/begin",
+  "/webauthn/signin/complete", result, error)
+
+actionButton(enrol, "Enrol passkey")
+actionButton(signin, "Sign in with passkey")
+```
+
+Registration begin routes return JSON with `challenge` and `userId` required;
+`userName`, `displayName`, and `rpName` are optional. Assertion begin routes
+return `challenge` plus `allowCredentials`, either as an array or as a
+JSON-encoded string array for compatibility with simple `Response.text(...)`
+examples. Complete routes receive the same verifier-shaped fields consumed by
+`std/auth.ssc`: registration posts `clientDataJSON` and `attestationObject`;
+assertion posts `clientDataJSON`, `authenticatorData`, `signature`, and
+`credentialId`.
+
+The passkey ceremony only works from a real browser user gesture on localhost
+or HTTPS. Interpreter/Node fallbacks still construct the handler for static
+rendering and tests, but invoking it writes `WebAuthn is only available in a
+browser` to the error signal. Runnable full-stack example:
+`examples/frontend/webauthn-toolkit-demo/webauthn-toolkit-demo.ssc`.
 
 ---
 

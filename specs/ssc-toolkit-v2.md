@@ -219,9 +219,10 @@ Consequences:
 - **Typed browser client**: generate a `.ssc` client module from `routes`
   declarations; browser transport = `fetch`, JVM transport = in-process (the
   existing Phase 3–4 machinery). One app codebase, two transports.
-- **WebAuthn**: `extern def webauthnRegister(...)`/`webauthnAssert(...)`
-  wrapping `navigator.credentials` with the same option shapes the server
-  `webauthnStore*` already speaks.
+- **WebAuthn**: landed 2026-07-09 as `std/ui/webauthn.ssc`
+  `webauthnRegister(...)` / `webauthnAssert(...)` EventHandlers on the
+  JsGen/custom browser runtime, wrapping `navigator.credentials.create/get`
+  with begin/complete route contracts that match the existing server verifier.
 - **Keyed diffing**: `forKeyed(items, key)(render)` — landed on the
   JsGen/custom browser runtime; it reconciles by key so instance-scoped
   component signals (4.1) survive moves.
@@ -231,9 +232,9 @@ Consequences:
 
 ## 5. Slice plan (SPRINT queue)
 
-**Status 2026-07-09:** slices 1–7 and 10 SHIPPED (components, offline, forms,
+**Status 2026-07-09:** slices 1–8 and 10 SHIPPED (components, offline, forms,
 spa-pipeline audit, pwa-adopt, busi-home integration case, keyed-for,
-theme-css-vars). Remaining: 8 webauthn, 9 typed-client. The busi
+webauthn, theme-css-vars). Remaining: 9 typed-client. The busi
 migration pilot (SPA shell + home screen in busi) is UNBLOCKED — the pilot's
 P0 toolkit surface exists and is browser-verified.
 
@@ -256,8 +257,9 @@ Ordered so busi's migration pilot (SPA shell + home screen) unblocks earliest:
    standing corpus case (uses 1–4).
 7. **tkv2-keyed-for** (P1-7) — landed: `forKeyed(items, key)(render)` keyed
    reconciliation in the JsGen/custom runtime; `ForSignal` remains unchanged.
-8. **tkv2-webauthn** (P1-6) — browser `navigator.credentials.create/get`
-   externs (the server verifier already exists on both JVM and JS).
+8. **tkv2-webauthn** (P1-6) — landed: browser
+   `navigator.credentials.create/get` actions through `std/ui/webauthn.ssc`,
+   plus server verifier declaration drift fixed in `std/auth.ssc`.
 9. **tkv2-typed-client** (P1-5) — route-derived `.ssc` client, browser
    transport.
 10. **tkv2-theme-css-vars** (P1-8) — `cssVariables(theme)`.

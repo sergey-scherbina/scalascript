@@ -89,24 +89,24 @@ unchanged.
 
 ## Behavior
 
-- [ ] `webauthnRegister` renders as an `EventHandler` and, when clicked in a
+- [x] `webauthnRegister` renders as an `EventHandler` and, when clicked in a
       browser, POSTs `beginUrl`, calls `navigator.credentials.create` with a
       decoded challenge, RP name, user identity, ES256 `pubKeyCredParams`,
       `"none"` attestation, timeout, and user-verification policy.
-- [ ] Registration encodes `clientDataJSON` and `attestationObject` as
+- [x] Registration encodes `clientDataJSON` and `attestationObject` as
       unpadded base64url strings and POSTs exactly those fields to
       `completeUrl`.
-- [ ] `webauthnAssert` POSTs `beginUrl`, calls `navigator.credentials.get` with
+- [x] `webauthnAssert` POSTs `beginUrl`, calls `navigator.credentials.get` with
       decoded challenge and decoded `allowCredentials`, then POSTs
       `clientDataJSON`, `authenticatorData`, `signature`, and `credentialId` to
       `completeUrl`.
-- [ ] Header handling matches existing fetch actions: `headers` is a
+- [x] Header handling matches existing fetch actions: `headers` is a
       `Signal[String]` containing a JSON object; complete POSTs force
       `Content-Type: application/json` while preserving caller headers.
-- [ ] Off-browser invocation does not pretend success. Node/interpreter fallback
+- [x] Off-browser invocation does not pretend success. Node/interpreter fallback
       handlers are constructible for tests and static rendering, but clicking
       them writes a clear WebAuthn-unavailable error.
-- [ ] Existing server verifier helpers remain green and their public
+- [x] Existing server verifier helpers remain green and their public
       declarations in `std/auth.ssc` match the implemented JVM/JS arities.
 
 ## Out of scope
@@ -153,5 +153,16 @@ code.
 
 ## Results
 
-Fill this after implementation verification with exact test commands, counts,
-and any runtime gotchas.
+Verified 2026-07-09 on `feature/tkv2-webauthn`:
+
+- `scripts/sbtc "backendJs/compile; frontendPlugin/compile; backendInterpreter/compile"` - passed.
+- `scripts/sbtc "backendInterpreter/testOnly scalascript.JsRuntimeWebAuthnClientTest scalascript.JsGenStdImportTest"` - passed, 43 tests.
+- `scripts/sbtc "installBin"` - refreshed the local assembled CLI after the
+  `std/auth.ssc` declaration fix.
+- `tests/conformance/run.sh --only 'tkv2-webauthn,webauthn-server-verify' --no-memo` - passed, 2/2 cases; both INT and JS lanes passed, JVM skipped by metadata.
+- `bin/ssc emit-spa --frontend custom examples/frontend/webauthn-toolkit-demo/webauthn-toolkit-demo.ssc > /tmp/webauthn-toolkit-demo.html` plus an `rg` smoke for `_ssc_ui_webauthnRegister`, `_ssc_ui_webauthnAssert`, `data-ssc-webauthn`, and `navigator.credentials` - emitted the expected browser runtime hooks.
+
+Gotcha: a stale local `bin/ssc` surfaced as
+`ClassNotFoundException: scalascript.cli.ssc` on the first conformance attempt.
+Run `scripts/sbtc "installBin"` before real-harness conformance when std
+declarations or CLI packaging may have moved.
