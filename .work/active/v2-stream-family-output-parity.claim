@@ -1,6 +1,0 @@
-feature/v2-stream-family-output-parity 2026-07-09T04:18:36Z
-agent: codex
-heartbeat: 2026-07-09T04:31:20Z
-status: in-progress
-done-so-far: first stream/dstream bridge fixes tested; new stateful/throttle blockers recorded
-next: patch stateful callback shape and flattened stream timing args, then rerun real examples
