@@ -995,8 +995,38 @@ def parseOneStmt = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
   let v = tokVal(t) in
-  if #seq(k, "kw") then
-    if #seq(v, "def") then parseDef(advance(toks))
+  if #seq(k, "[") then
+    -- Markdown-link import  [a, b, c](path)  — the imported names resolve via
+    -- the plugin registry / globals, so the declaration is a parse-only no-op.
+    let rec skipTo = (ts, closer) =>
+      if kindIs(closer, ts) then advance(ts)
+      else if kindIs("EOF", ts) then ts
+      else skipTo(advance(ts), closer) in
+    let ts1 = skipTo(advance(toks), "]") in
+    let ts2 = if kindIs("(", ts1) then skipTo(advance(ts1), ")") else ts1 in
+    pr(Pair("sealed", ""), ts2)
+  else if #seq(k, "kw") then
+    if #seq(v, "import") then
+      -- Scala-style `import a.b.c` / `import a.b.{x, y}` — names resolve via the
+      -- registry / globals; consume exactly the dotted path (+ optional {…} group).
+      let rec skipPath = (ts) =>
+        if kindIs("id", ts) then
+          let ts2 = advance(ts) in
+          if kindIs(".", ts2) then skipPath(advance(ts2))
+          else ts2
+        else if kindIs("uid", ts) then
+          let ts2 = advance(ts) in
+          if kindIs(".", ts2) then skipPath(advance(ts2))
+          else ts2
+        else if kindIs("{", ts) then
+          let rec skipGrp = (t2) =>
+            if kindIs("}", t2) then advance(t2)
+            else if kindIs("EOF", t2) then t2
+            else skipGrp(advance(t2)) in
+          skipGrp(advance(ts))
+        else ts in
+      pr(Pair("sealed", ""), skipPath(advance(toks)))
+    else if #seq(v, "def") then parseDef(advance(toks))
     else if #seq(v, "val") then parseVal(advance(toks))
     else if #seq(v, "case") then
       let ts2 = advance(toks) in
