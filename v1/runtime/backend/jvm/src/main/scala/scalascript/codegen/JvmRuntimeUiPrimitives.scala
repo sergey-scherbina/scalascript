@@ -42,6 +42,14 @@ object JvmRuntimeUiPrimitives:
        |        scalascript.frontend.View.Fragment(
        |          children.asInstanceOf[Seq[scalascript.frontend.View[?]]])
        |
+       |      def forKeyedView[A](items: Any, key: A => String, render: A => View): View =
+       |        val _sig = items.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
+       |        val _rows = _sig.apply() match
+       |          case xs: Iterable[?] => xs.toSeq.asInstanceOf[Seq[A]]
+       |          case _               => Seq.empty[A]
+       |        scalascript.frontend.View.Fragment(
+       |          _rows.map(render(_).asInstanceOf[scalascript.frontend.View[?]]))
+       |
        |      def setSignal(s: Any, v: Any): EventHandler =
        |        scalascript.frontend.EventHandler.SetSignalLiteral(
        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]], v)

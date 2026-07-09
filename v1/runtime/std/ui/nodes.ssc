@@ -15,6 +15,7 @@ exports:
   - ShowWhenNode
   - SignalTextNode
   - FragmentNode
+  - KeyedForNode
   - RawTextNode
   - TextFieldNode
   - CheckboxNode
@@ -68,6 +69,7 @@ case class SignalHeadingNode(level: Int, signal: Any)   extends TkNode
 case class ShowWhenNode(signal: Any, whenTrue: TkNode, whenFalse: TkNode) extends TkNode
 case class SignalTextNode(signal: Any)                  extends TkNode
 case class FragmentNode(children: List[TkNode])         extends TkNode
+case class KeyedForNode[A](items: Any, key: A => String, render: A => TkNode) extends TkNode
 case class RawTextNode(text: String)                    extends TkNode
 
 // ── Input ─────────────────────────────────────────────────────────────────

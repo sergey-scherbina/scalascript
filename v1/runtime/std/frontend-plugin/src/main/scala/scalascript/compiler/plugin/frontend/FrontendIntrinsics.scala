@@ -58,6 +58,8 @@ object FrontendIntrinsics:
           PluginValue.foreign("ReactiveSignal", new ReactiveSignal[Int](name, default.toInt))
         case List(name: String, default: Double)  =>
           PluginValue.foreign("ReactiveSignal", new ReactiveSignal[Double](name, default))
+        case List(name: String, Lst(items)) =>
+          PluginValue.foreign("ReactiveSignal", new ReactiveSignal[List[Any]](name, items))
         case _ => PluginError.raise("signal(name, default)")
     },
 
@@ -113,6 +115,25 @@ object FrontendIntrinsics:
         case List(childrenV) =>
           PluginValue.foreign("View", View.Fragment(uiDecodeViewList(childrenV)))
         case _ => PluginError.raise("fragment(children)")
+    },
+
+    // ── forKeyedView(items, key, render): View ─────────────────────────────
+    // Interpreter/JVM fallback: render the current signal list once. Dynamic
+    // keyed reconciliation is implemented in the JS emit-spa runtime where the
+    // original render callback remains available in the browser.
+    QualifiedName("forKeyedView") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(Foreign("ReactiveSignal", rs: ReactiveSignal[?]), Fn(_), Fn(renderFn)) =>
+          val rows = rs.apply() match
+            case xs: Iterable[?] => xs.toList
+            case _               => Nil
+          val views = rows.flatMap { item =>
+            ctx.invokeCallback(renderFn, List(item)) match
+              case Foreign("View", view: View[?]) => Some(view)
+              case _                              => None
+          }
+          PluginValue.foreign("View", View.Fragment(views))
+        case _ => PluginError.raise("forKeyedView(items, key, render)")
     },
 
     // ── setSignal[T](s: Signal[T], v: T): EventHandler ──────────────────────

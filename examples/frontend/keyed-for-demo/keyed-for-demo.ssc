@@ -1,0 +1,55 @@
+---
+name: keyed-for-demo
+version: 1.0.0
+description: Keyed list reconciliation demo for std/ui forKeyed — reorder, remove, and insert rows without recreating surviving row DOM nodes.
+frontend: custom
+---
+
+# keyed-for-demo — stable rows by key
+
+The row list is backed by a `Signal[List[String]]`. Use the buttons to reorder,
+remove, and insert rows; the production custom browser runtime moves surviving
+row DOM nodes by their stable string keys. Run `ssc run
+examples/frontend/keyed-for-demo/keyed-for-demo.ssc`, then open
+<http://localhost:8080>, or emit a self-contained file with
+`ssc emit-spa --frontend custom examples/frontend/keyed-for-demo/keyed-for-demo.ssc > keyed-for-demo.html`.
+
+[signal, serve](std/ui/primitives.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[signalButton](std/ui/input.ssc)
+[signalText_, forKeyed](std/ui/reactive.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val rows     = signal("keyedRows", ["alpha", "beta", "gamma"])
+val selected = signal("selectedRow", "none")
+
+// Delayed row callbacks on the interpreter fallback resolve captured locals
+// reliably; the production JS runtime uses the same source callback in-browser.
+val txt = text
+val rowStack = hstack
+val selectButton = signalButton
+
+def rowView(id: String): TkNode =
+  rowStack(gap = 8)(
+    txt(id),
+    selectButton(selected, id, "Select")
+  )
+
+val tree = vstack(gap = 16)(
+  heading(1, "Keyed list"),
+  text("Rows are keyed by id; reorder/insert/remove keeps surviving row nodes alive."),
+  hstack(gap = 8)(
+    signalButton(rows, ["gamma", "alpha", "delta", "beta"], "Reorder + insert"),
+    signalButton(rows, ["alpha", "delta"], "Remove beta/gamma"),
+    signalButton(rows, ["alpha", "beta", "gamma"], "Reset")
+  ),
+  hstack(gap = 8)(text("Selected:"), signalText_(selected)),
+  forKeyed(rows, (id: String) => id)((id: String) => rowView(id))
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```

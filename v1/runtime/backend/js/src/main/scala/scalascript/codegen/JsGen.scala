@@ -1190,7 +1190,7 @@ class JsGen(
       // names must appear here or import-only usage emits without signals.mjs.
       "validateField", "fieldError", "formErrors", "formValid", "formField",
       "submitGate", "ctxSignal", "ctxSeedSignal",
-      "textNode", "signalText", "showSignal", "fragment("
+      "textNode", "signalText", "showSignal", "fragment(", "forKeyed"
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||
                     allText.contains("computed(") || allText.contains("Computed(") ||

@@ -1,0 +1,27 @@
+---
+name: tkv2-keyed-for
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 — keyed list public API
+
+Slice `tkv2-keyed-for`: public toolkit `forKeyed(items, key)(render)` builds a
+`TkNode` and lowers through `forKeyedView` on the std/ui path.
+
+[signal](std/ui/primitives.ssc)
+[forKeyed](std/ui/reactive.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[text](std/ui/typography.ssc)
+
+```scalascript
+val rows = signal("rows", ["a", "b"])
+// Interpreter fallback invokes the row callback from the primitive context; a
+// captured local survives that delayed call, while an imported global may not.
+val mkText = text
+val tree = forKeyed(rows, (item: String) => item)((item: String) => mkText(item))
+val view = lower(tree, defaultTheme)
+
+println("keyed-for-built")
+```

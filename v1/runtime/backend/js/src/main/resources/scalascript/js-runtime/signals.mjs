@@ -197,6 +197,7 @@ function _ssc_ui_textNode(s) { return { _type: '_TextNode', s }; }
 function _ssc_ui_signalText(sig) { return { _type: '_SignalText', sig }; }
 function _ssc_ui_showSignal(cond, whenTrue, whenFalse) { return { _type: '_ShowSignal', cond, whenTrue, whenFalse }; }
 function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: children || [] }; }
+function _ssc_ui_forKeyedView(items, key, render) { return { _type: '_ForKeyed', items, key, render }; }
 function _ssc_ui_setSignal(s, v) { return { _type: '_SetSignal', s, v }; }
 function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
 function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
@@ -238,6 +239,35 @@ function _ssc_ui_truthy(v) {
   if (typeof v === 'string') return v.length > 0 && v.toLowerCase() !== 'false';
   return !!v;
 }
+function _ssc_ui_call1(fn, arg) {
+  if (typeof fn === 'function') return fn(arg);
+  if (fn && typeof fn.apply === 'function') return fn.apply(arg);
+  return undefined;
+}
+function _ssc_ui_keyFor(fn, item, idx) {
+  try {
+    const k = _ssc_ui_call1(fn, item);
+    return k == null ? String(idx) : String(k);
+  } catch (_e) {
+    return String(idx);
+  }
+}
+function _ssc_ui_renderKeyed(fn, item) {
+  try {
+    const v = _ssc_ui_call1(fn, item);
+    return v == null ? _ssc_ui_textNode('') : v;
+  } catch (_e) {
+    return _ssc_ui_textNode('');
+  }
+}
+function _ssc_ui_arrayValue(v) {
+  if (Array.isArray(v)) return v;
+  if (v && typeof v.get === 'function') {
+    const got = v.get();
+    return Array.isArray(got) ? got : [];
+  }
+  return [];
+}
 
 // Walk the View IR tree and produce a static HTML string + a Map of signal
 // ids to their current values.  Split from _ssc_ui_renderPage so that the
@@ -247,6 +277,7 @@ function _ssc_ui_renderBody(view) {
   const _esc  = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const _escT = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const sigs  = new Map(); // Signal id -> initial value (collected during walk)
+  const keyed = [];         // _ForKeyed views in render order; BrowserPatch passes this to mount.
   const voids = new Set(['br','hr','img','input','link','meta','area','base','col','embed','param','source','track','wbr']);
 
   function collectSig(s) {
@@ -370,6 +401,17 @@ function _ssc_ui_renderBody(view) {
         return `<span data-ssc-cond="${id}" style="display:contents"><span data-ssc-branch="true"${tStyle}>${tHtml}</span><span data-ssc-branch="false"${fStyle}>${fHtml}</span></span>`;
       }
       case '_Fragment':      return (v.children || []).map(walk).join('');
+      case '_ForKeyed': {
+        collectSig(v.items);
+        const seq = keyed.length;
+        keyed.push(v);
+        const rows = _ssc_ui_arrayValue(v.items).map(function(item, idx) {
+          const key = _ssc_ui_keyFor(v.key, item, idx);
+          return `<span data-ssc-key="${_esc(key)}" style="display:contents">${walk(_ssc_ui_renderKeyed(v.render, item))}</span>`;
+        }).join('');
+        const sigId = v.items && v.items.id != null ? ` data-ssc-forkeyed-sig="${_esc(String(v.items.id))}"` : '';
+        return `<span data-ssc-forkeyed="${seq}"${sigId} style="display:contents">${rows}</span>`;
+      }
       case '_DataTableView': {
         // The source may be a TableDataSource marker (static / signal rows) or a
         // legacy bare FetchUrlSignal (Remote, `._fetchGet`).
@@ -435,13 +477,13 @@ function _ssc_ui_renderBody(view) {
   }
 
   const body = walk(view);
-  return { body, sigs };
+  return { body, sigs, keyed };
 }
 
 // Set up DOM reactivity after _ssc_ui_renderBody has been injected into the
 // page.  Called directly from the BrowserPatch serve (no eval / no DOM script
 // injection) with the sigs Map returned by _ssc_ui_renderBody.
-function _ssc_ui_mount(sigs) {
+function _ssc_ui_mount(sigs, keyedRoots) {
   var _sv = {};
   sigs.forEach(function(v, id) { _sv[String(id)] = v; });
   // Seed reactive system with initial values so computedSignal reads are current
@@ -464,6 +506,16 @@ function _ssc_ui_mount(sigs) {
   function _notifyBridge(idStr, v) {
     _sv[idStr] = v;
     (_sb[idStr] || []).forEach(function(fn){ fn(v); });
+  }
+  function _mergeSigs(nextSigs) {
+    if (!nextSigs || !nextSigs.forEach) return;
+    nextSigs.forEach(function(v, id) {
+      var idStr = String(id);
+      if (!Object.prototype.hasOwnProperty.call(_sv, idStr)) _sv[idStr] = v;
+      var rs = _signals.get(id) || _signals.get(parseInt(idStr, 10));
+      if (rs && !rs._isComputed) rs.value = _sv[idStr];
+      if (rs && rs._isComputed) _sub(idStr, function(){});
+    });
   }
   function _syncBridgeSignals() {
     Object.keys(_sb).forEach(function(idStr) {
@@ -506,6 +558,156 @@ function _ssc_ui_mount(sigs) {
     if (urlSigId) _sub(urlSigId, function() { doGet(); });
     else doGet();
     if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
+  }
+  function _qsa(scope, selector) {
+    var root = scope || document;
+    var out = [];
+    if (root.matches && root.matches(selector)) out.push(root);
+    if (root.querySelectorAll) {
+      Array.prototype.forEach.call(root.querySelectorAll(selector), function(el) { out.push(el); });
+    }
+    return out;
+  }
+  function _bound(el, name) {
+    var attr = 'data-ssc-bound-' + name;
+    if (el.getAttribute && el.getAttribute(attr) === '1') return true;
+    if (el.setAttribute) el.setAttribute(attr, '1');
+    return false;
+  }
+  function _bindScope(scope, rowSigs, rowKeyed) {
+    _mergeSigs(rowSigs);
+    _qsa(scope, '[data-ssc-cond]').forEach(function(el) {
+      if (_bound(el, 'cond')) return;
+      var id = el.getAttribute('data-ssc-cond');
+      var tBranch = el.querySelector('[data-ssc-branch="true"]');
+      var fBranch = el.querySelector('[data-ssc-branch="false"]');
+      _sub(id, function(v) {
+        var show = _ssc_ui_truthy(v);
+        if (tBranch) tBranch.style.display = show ? 'contents' : 'none';
+        if (fBranch) fBranch.style.display = show ? 'none' : 'contents';
+      });
+    });
+    _qsa(scope, '[data-ssc-text]').forEach(function(el) {
+      if (_bound(el, 'text')) return;
+      var id = el.getAttribute('data-ssc-text');
+      _sub(id, function(v) { el.textContent = v == null ? '' : String(v); });
+    });
+    _qsa(scope, '[data-ssc-bind-attrs]').forEach(function(el) {
+      if (_bound(el, 'bind-attrs')) return;
+      var m; try { m = JSON.parse(el.getAttribute('data-ssc-bind-attrs')); } catch(_e) { m = null; }
+      if (!m) return;
+      Object.keys(m).forEach(function(attr) {
+        _sub(m[attr], function(v) { if (v == null) el.removeAttribute(attr); else el.setAttribute(attr, String(v)); });
+      });
+    });
+    _qsa(scope, '[data-ssc-toggle]').forEach(function(el) {
+      if (_bound(el, 'toggle')) return;
+      var id = el.getAttribute('data-ssc-toggle');
+      el.addEventListener('change', function() { _set(id, el.checked); });
+      _sub(id, function(v) { el.checked = !!v; });
+    });
+    _qsa(scope, '[data-ssc-set]').forEach(function(el) {
+      if (_bound(el, 'set')) return;
+      var id  = el.getAttribute('data-ssc-set');
+      var val = JSON.parse(el.getAttribute('data-ssc-set-val'));
+      el.addEventListener('click', function() { _set(id, val); });
+    });
+    _qsa(scope, '[data-ssc-inc]').forEach(function(el) {
+      if (_bound(el, 'inc')) return;
+      var id = el.getAttribute('data-ssc-inc');
+      el.addEventListener('click', function() { _set(id, ((_sv[id] || 0) | 0) + 1); });
+    });
+    _qsa(scope, '[data-ssc-change]').forEach(function(el) {
+      if (_bound(el, 'change')) return;
+      var id = el.getAttribute('data-ssc-change');
+      el.addEventListener('input', function() { _set(id, el.value); });
+      _sub(id, function(v) { el.value = v == null ? '' : String(v); });
+    });
+    _qsa(scope, '[data-ssc-fetch-url]').forEach(function(el) {
+      if (_bound(el, 'fetch-url')) return;
+      var method    = el.getAttribute('data-ssc-fetch-method') || 'POST';
+      var url       = el.getAttribute('data-ssc-fetch-url');
+      var bodyId    = el.getAttribute('data-ssc-fetch-body');
+      var tickId    = el.getAttribute('data-ssc-fetch-tick');
+      var headersId = el.getAttribute('data-ssc-fetch-headers');
+      var clear     = el.getAttribute('data-ssc-fetch-clear');
+      var intoId    = el.getAttribute('data-ssc-fetch-into');
+      var onSuccessRaw = el.getAttribute('data-ssc-fetch-onsuccess');
+      var bodyFieldsRaw = el.getAttribute('data-ssc-fetch-body-fields');
+      var urlSigId  = el.getAttribute('data-ssc-fetch-url-sig');
+      el.addEventListener('click', function() {
+        var theUrl = urlSigId ? String(_sv[urlSigId] == null ? '' : _sv[urlSigId]) : url;
+        var body = bodyFieldsRaw ? _ssc_ui_buildFormBody(bodyFieldsRaw, _sv)
+                 : (bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '');
+        var opts = {method: method, body: body};
+        if (headersId) {
+          var hs = _sv[headersId];
+          if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
+        }
+        var ok = true;
+        fetch(theUrl, opts)
+          .then(function(r) { ok = !!(r && r.ok); return r.text(); })
+          .then(function(text) {
+            if (intoId) {
+              if (!ok) return;
+              _set(intoId, text == null ? '' : String(text));
+            }
+            if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1);
+            if (clear && bodyId) _set(bodyId, '');
+            _ssc_ui_runOnSuccess(onSuccessRaw, ok, _set, _sv, text);
+          });
+      });
+    });
+    _qsa(scope, '[data-ssc-fetch-get-url]').forEach(function(el) {
+      if (_bound(el, 'fetch-get')) return;
+      var sigId     = el.getAttribute('data-ssc-text');
+      var url       = el.getAttribute('data-ssc-fetch-get-url');
+      var tickId    = el.getAttribute('data-ssc-fetch-get-tick');
+      var headersId = el.getAttribute('data-ssc-fetch-get-headers');
+      _mountFetchGet(sigId, url, tickId, headersId);
+    });
+    _mountKeyed(scope, rowKeyed || []);
+  }
+  function _mountKeyed(scope, keyedViews) {
+    (keyedViews || []).forEach(function(kv, seq) {
+      _qsa(scope, '[data-ssc-forkeyed="' + seq + '"]').forEach(function(container) {
+        if (_bound(container, 'forkeyed')) return;
+        var sig = kv && kv.items;
+        if (!sig || sig.id == null) return;
+        var sigId = String(sig.id);
+        function makeRow(item, idx, key) {
+          var rowView = _ssc_ui_renderKeyed(kv.render, item);
+          var out = _ssc_ui_renderBody(rowView);
+          var wrap = document.createElement('span');
+          wrap.setAttribute('data-ssc-key', key);
+          wrap.style.display = 'contents';
+          wrap.innerHTML = out.body;
+          _bindScope(wrap, out.sigs, out.keyed);
+          return wrap;
+        }
+        function reconcile(rawRows) {
+          var rows = _ssc_ui_arrayValue(rawRows);
+          var existing = Object.create(null);
+          Array.prototype.forEach.call(container.children || [], function(child) {
+            var k = child.getAttribute && child.getAttribute('data-ssc-key');
+            if (k != null) existing[k] = child;
+          });
+          var keep = Object.create(null);
+          rows.forEach(function(item, idx) {
+            var key = _ssc_ui_keyFor(kv.key, item, idx);
+            var node = existing[key];
+            if (!node) node = makeRow(item, idx, key);
+            keep[key] = true;
+            container.appendChild(node);
+          });
+          Array.prototype.slice.call(container.children || []).forEach(function(child) {
+            var k = child.getAttribute && child.getAttribute('data-ssc-key');
+            if (k != null && !keep[k]) child.remove();
+          });
+        }
+        _sub(sigId, reconcile);
+      });
+    });
   }
   _signals.forEach(function(s, rawId) {
     var sigId = String(rawId);
@@ -895,6 +1097,7 @@ function _ssc_ui_mount(sigs) {
     var headersId = el.getAttribute('data-ssc-fetch-get-headers');
     _mountFetchGet(sigId, url, tickId, headersId);
   });
+  _mountKeyed(document, keyedRoots || []);
 }
 
 // Backward-compat wrapper: walk the view and return { body, script } where

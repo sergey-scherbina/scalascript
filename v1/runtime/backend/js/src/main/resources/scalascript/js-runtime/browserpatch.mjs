@@ -144,7 +144,7 @@ globalThis.fetch = function(input, init) {
 _ssc_ui_serve = function(treeOrPort, portOrUndef, extraCssOrUndef) {
   if (typeof treeOrPort !== 'number') {
     const extraCss = extraCssOrUndef || '';
-    const { body, sigs } = _ssc_ui_renderBody(treeOrPort);
+    const { body, sigs, keyed } = _ssc_ui_renderBody(treeOrPort);
     const style = document.createElement('style');
     style.textContent = [
       '*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}',
@@ -168,7 +168,7 @@ _ssc_ui_serve = function(treeOrPort, portOrUndef, extraCssOrUndef) {
     wrapper.className = 'ssc-page';
     wrapper.innerHTML = body;
     app.appendChild(wrapper);
-    _ssc_ui_mount(sigs);
+    _ssc_ui_mount(sigs, keyed);
     return;
   }
   // Port-only serve: SPA router for apps that register routes via get()/post()

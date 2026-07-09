@@ -14,6 +14,7 @@ exports:
   - signalText
   - showSignal
   - fragment
+  - forKeyedView
   - setSignal
   - inputChange
   - toggleSignal
@@ -88,6 +89,7 @@ extern def textNode(s: String): View
 extern def signalText[T](s: Signal[T]): View
 extern def showSignal(cond: Signal[Boolean], whenTrue: View, whenFalse: View): View
 extern def fragment(children: List[View]): View
+extern def forKeyedView[A](items: Signal[List[A]], key: A => String, render: A => View): View
 
 // ── Event handler constructors ────────────────────────────────────────────
 // SetSignalLiteral — JS-translatable; use instead of a raw closure for

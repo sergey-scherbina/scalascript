@@ -468,6 +468,39 @@ class JsGenStdImportTest extends AnyFunSuite:
     // whole bundle parses as JS — proves no `Match failure` syntax / no undefined call sites
     checkNodeSyntax(js)
 
+  test("emit-spa std/ui forKeyed lowers to browser keyed marker"):
+    val source =
+      """# App
+        |
+        |[signal, serve](std/ui/primitives.ssc)
+        |[forKeyed](std/ui/reactive.ssc)
+        |[lower](std/ui/lower.ssc)
+        |[defaultTheme](std/ui/theme.ssc)
+        |[text](std/ui/typography.ssc)
+        |
+        |```scalascript
+        |val rows = signal("rows", ["a", "b"])
+        |val tree = forKeyed(rows, (item: String) => item)((item: String) => text(item))
+        |serve(lower(tree, defaultTheme))
+        |```
+        |""".stripMargin
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+    assert(runtime.contains("function _ssc_ui_forKeyedView("), "Signals runtime must expose forKeyedView")
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst out = _ssc_ui_renderBody(globalThis.__captured).body;\n" +
+      "if (out.indexOf('data-ssc-forkeyed=\"0\"') < 0) throw new Error('keyed container missing: ' + out);\n" +
+      "if (out.indexOf('data-ssc-key=\"a\"') < 0 || out.indexOf('data-ssc-key=\"b\"') < 0) throw new Error('keyed rows missing: ' + out);\n" +
+      "if (out.indexOf('data-ssc-key=\"a\"') > out.indexOf('data-ssc-key=\"b\"')) throw new Error('initial keyed order wrong: ' + out);\n" +
+      "console.log('for-keyed-std-ok');\n"
+    assert(runNode(script) == "for-keyed-std-ok")
+
   // Follow-up to Layer 2: a raw (un-lowered) DataTableNode placed directly in an
   // element()/container's children — a TkNode that reached the renderer because a
   // caller mixed it into an already-lowered View — used to vanish silently on JS

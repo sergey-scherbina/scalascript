@@ -7,12 +7,14 @@ exports:
   - showWhen
   - signalText_
   - fragment_
+  - forKeyed
   - rawText
 ---
 
 # `std.ui.reactive` — reactive constructors
 
-[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode](nodes.ssc)
+[Signal](primitives.ssc)
+[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode](nodes.ssc)
 
 ```scalascript
 def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
@@ -21,6 +23,9 @@ def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
 def signalText_(signal: Any): TkNode = SignalTextNode(signal)
 
 def fragment_(children: TkNode*): TkNode = FragmentNode(children.toList)
+
+def forKeyed[A](items: Signal[List[A]], key: A => String)(render: A => TkNode): TkNode =
+  KeyedForNode[A](items, key, render)
 
 def rawText(text: String): TkNode = RawTextNode(text)
 ```
