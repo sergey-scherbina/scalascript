@@ -89,6 +89,22 @@ object PluginBridge:
    *  PARSED DOCUMENT via featureGet(ContentDocument). */
   private val featureBag = new java.util.concurrent.ConcurrentHashMap[String, Any]()
 
+  @volatile private var currentCodeIdentity: V2Value =
+    codeIdentityFromSource("", None)
+
+  private def codeIdentityFromSource(raw: String, moduleName: Option[String]): V2Value =
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+      .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      .map(b => f"${b & 0xff}%02x")
+      .mkString
+    V2Value.DataV("CodeIdentity", Vector(
+      V2Value.StrV("sha256"),
+      V2Value.StrV(digest),
+      V2Value.StrV("ssc"),
+      moduleName.map(n => V2Value.DataV("Some", Vector(V2Value.StrV(n))))
+        .getOrElse(V2Value.DataV("None", Vector.empty))
+    ))
+
   /** Quoted-macro PRE-PASS: run v1's MacroCodegen.expand over the parsed
    *  module and splice each expanded code block's source back into the raw
    *  text (fence contents replaced pairwise, in document order). The bridge
@@ -135,9 +151,11 @@ object PluginBridge:
     featureBag.remove(docKey)
     featureBag.remove(importedKey)
     featureBag.remove(currentKey)
+    val parsed = scala.util.Try(scalascript.parser.Parser.parse(raw)).toOption
+    val moduleName = parsed.flatMap(_.manifest.flatMap(_.name).map(_.trim).filter(_.nonEmpty))
+    currentCodeIdentity = codeIdentityFromSource(raw, moduleName)
     try
-      val module = scalascript.parser.Parser.parse(raw)
-      module.document.foreach { doc =>
+      parsed.flatMap(_.document).foreach { doc =>
         featureBag.put(docKey, doc)
         currentExecutableSection(doc).foreach(section => featureBag.put(currentKey, section))
       }
@@ -2377,6 +2395,179 @@ object PluginBridge:
     // Register @timeout cell (used by receive(timeout = n) named-arg pattern)
     val timeoutCell = Array[V2Value](V2Value.IntV(-1))
     V2PluginRegistry.registerGlobal("@timeout", V2Value.ForeignV(timeoutCell.asInstanceOf[AnyRef]))
+    V2PluginRegistry.registerFieldNames("CodeIdentity", Vector("algorithm", "digest", "format", "module"))
+    V2PluginRegistry.registerFieldNames("SeedResolver", Vector("kind", "urls", "serviceName", "namespace", "port", "scheme"))
+    V2PluginRegistry.registerFieldNames("ClusterCapability", Vector("localNodeId", "peers", "authToken", "seedResolver", "codeIdentity"))
+    val nodeIds   = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+    val behaviors = new java.util.concurrent.ConcurrentHashMap[String, V2Value.ClosV]()
+
+    def v2List(items: Iterable[V2Value]): V2Value =
+      items.toList.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (x, acc) =>
+        V2Value.DataV("Cons", Vector(x, acc))
+      }
+
+    def strField(fields: IndexedSeq[V2Value], idx: Int, default: String): String =
+      fields.lift(idx) match
+        case Some(V2Value.StrV(s)) => s
+        case _                     => default
+
+    def intField(fields: IndexedSeq[V2Value], idx: Int, default: Long): Long =
+      fields.lift(idx) match
+        case Some(V2Value.IntV(n)) => n
+        case _                     => default
+
+    def listStrings(v: V2Value): List[String] =
+      val out = collection.mutable.ListBuffer.empty[String]
+      var cur = v
+      var done = false
+      while !done do cur match
+        case V2Value.DataV("Cons", IndexedSeq(V2Value.StrV(s), tail)) =>
+          out += s
+          cur = tail
+        case V2Value.DataV("Nil", _) =>
+          done = true
+        case _ =>
+          done = true
+      out.toList
+
+    def seedResolver(
+        kind: String,
+        urls: List[String],
+        serviceName: String = "",
+        namespace: String = "default",
+        port: Long = 9100L,
+        scheme: String = "ws"
+    ): V2Value =
+      V2Value.DataV("SeedResolver", Vector(
+        V2Value.StrV(kind),
+        v2List(urls.map(V2Value.StrV.apply)),
+        V2Value.StrV(serviceName),
+        V2Value.StrV(namespace),
+        V2Value.IntV(port),
+        V2Value.StrV(scheme)
+      ))
+
+    def defaultSeedResolver(): V2Value =
+      seedResolver("static", Nil)
+
+    def resolveSeedValue(seed: V2Value): V2Value =
+      seed match
+        case V2Value.DataV("SeedResolver", fields) =>
+          val kind = strField(fields, 0, "")
+          val urls = fields.lift(1).map(listStrings).getOrElse(Nil)
+          def actorUrl(addr: java.net.InetAddress, port: Long, scheme: String): String =
+            val host = addr.getHostAddress
+            val bracketed = if host.contains(":") && !host.startsWith("[") then s"[$host]" else host
+            s"$scheme://$bracketed:$port/_ssc-actors"
+          kind match
+            case "static" =>
+              v2List(urls.map(V2Value.StrV.apply))
+            case "dnsSrv" =>
+              val serviceName = strField(fields, 2, "")
+              val port = intField(fields, 4, 9100L)
+              val scheme = strField(fields, 5, "ws")
+              if serviceName.isEmpty then sys.error("resolveSeeds: dnsSrv serviceName is empty")
+              val resolved =
+                try java.net.InetAddress.getAllByName(serviceName).toList.map(actorUrl(_, port, scheme))
+                catch case e: java.net.UnknownHostException => sys.error(s"resolveSeeds: DNS lookup failed for $serviceName: ${e.getMessage}")
+              v2List(resolved.map(V2Value.StrV.apply))
+            case "k8sHeadlessService" =>
+              val serviceName = strField(fields, 2, "")
+              val namespace = strField(fields, 3, "default")
+              val host =
+                if namespace.isEmpty || namespace == "." then serviceName
+                else s"$serviceName.$namespace.svc"
+              val port = intField(fields, 4, 9100L)
+              val scheme = strField(fields, 5, "ws")
+              if serviceName.isEmpty then sys.error("resolveSeeds: k8sHeadlessService serviceName is empty")
+              val resolved =
+                try java.net.InetAddress.getAllByName(host).toList.map(actorUrl(_, port, scheme))
+                catch case e: java.net.UnknownHostException => sys.error(s"resolveSeeds: Kubernetes headless-service DNS lookup failed for $host: ${e.getMessage}")
+              v2List(resolved.map(V2Value.StrV.apply))
+            case "consulCatalog" =>
+              sys.error("resolveSeeds: consulCatalog resolver is declared but not implemented in the interpreter runtime yet")
+            case other =>
+              sys.error(s"resolveSeeds: unsupported seed resolver: $other")
+        case _ =>
+          sys.error("resolveSeeds(seedResolver)")
+
+    val localNodeId = new java.util.concurrent.atomic.AtomicReference[String]("local")
+    def currentPeers(): V2Value =
+      val peers = collection.mutable.ListBuffer.empty[V2Value]
+      val local = localNodeId.get()
+      val it = nodeIds.iterator()
+      while it.hasNext do
+        val id = it.next()
+        if id != local then peers += V2Value.StrV(id)
+      v2List(peers)
+
+    def clusterCapability(seed: V2Value): V2Value =
+      V2Value.DataV("ClusterCapability", Vector(
+        V2Value.StrV(localNodeId.get()),
+        currentPeers(),
+        V2Value.DataV("None", Vector.empty),
+        seed,
+        currentCodeIdentity
+      ))
+
+    def sameCodeIdentity(left: V2Value, right: V2Value): Boolean =
+      (left, right) match
+        case (V2Value.DataV("CodeIdentity", a), V2Value.DataV("CodeIdentity", b)) =>
+          a.lift(0) == b.lift(0) && a.lift(1) == b.lift(1) && a.lift(2) == b.lift(2)
+        case _ => false
+
+    V2PluginRegistry.registerGlobal("SeedResolver", V2Value.ForeignV(collection.immutable.Map[String, V2Value](
+      "staticList" -> V2Value.ClosV(Runtime.emptyEnv, 1, env => Done(seedResolver("static", listStrings(env.last)))),
+      "dnsSrv" -> V2Value.ClosV(Runtime.emptyEnv, -1, env => Done(seedResolver(
+        "dnsSrv",
+        Nil,
+        env.headOption.collect { case V2Value.StrV(s) => s }.getOrElse(""),
+        "default",
+        env.lift(1).collect { case V2Value.IntV(n) => n }.getOrElse(9100L),
+        env.lift(2).collect { case V2Value.StrV(s) => s }.getOrElse("ws")
+      ))),
+      "k8sHeadlessService" -> V2Value.ClosV(Runtime.emptyEnv, -1, env => Done(seedResolver(
+        "k8sHeadlessService",
+        Nil,
+        env.headOption.collect { case V2Value.StrV(s) => s }.getOrElse(""),
+        env.lift(1).collect { case V2Value.StrV(s) => s }.getOrElse("default"),
+        env.lift(2).collect { case V2Value.IntV(n) => n }.getOrElse(9100L),
+        env.lift(3).collect { case V2Value.StrV(s) => s }.getOrElse("ws")
+      ))),
+      "consulCatalog" -> V2Value.ClosV(Runtime.emptyEnv, -1, env => Done(seedResolver(
+        "consulCatalog",
+        env.lift(1).collect { case V2Value.StrV(s) => List(s) }.getOrElse(List("localhost:8500")),
+        env.headOption.collect { case V2Value.StrV(s) => s }.getOrElse("")
+      )))
+    ).asInstanceOf[AnyRef]))
+
+    V2PluginRegistry.registerGlobal("clusterOf", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
+      Done(clusterCapability(env.headOption.getOrElse(defaultSeedResolver())))
+    }))
+    V2PluginRegistry.registerGlobal("resolveSeeds", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      Done(resolveSeedValue(env.last))
+    }))
+    V2PluginRegistry.registerGlobal("codeIdentity", V2Value.ClosV(Runtime.emptyEnv, 0, _ => {
+      Done(currentCodeIdentity)
+    }))
+    V2PluginRegistry.registerGlobal("assertCodeIdentity", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
+      if sameCodeIdentity(env.last, currentCodeIdentity) then Done(V2Value.UnitV)
+      else sys.error("code identity mismatch")
+    }))
+    V2PluginRegistry.register("__method__.resolveSeeds", args =>
+      if args.length >= 2 then args(1) match
+        case V2Value.DataV("ClusterCapability", fields) =>
+          fields.lift(3).map(resolveSeedValue).getOrElse(V2Value.DataV("Nil", Vector.empty))
+        case seed @ V2Value.DataV("SeedResolver", _) =>
+          resolveSeedValue(seed)
+        case _ =>
+          V2Value.DataV("Stub", Vector(V2Value.StrV("resolveSeeds")))
+      else V2Value.DataV("Stub", Vector(V2Value.StrV("resolveSeeds")))
+    )
+    V2PluginRegistry.register("__method__.sameCodeAs", args =>
+      if args.length >= 3 then V2Value.BoolV(sameCodeIdentity(args(1), args(2)))
+      else V2Value.BoolV(false)
+    )
 
     // spawn { () => body } — starts a VirtualThread, returns ForeignV(mailbox)
     V2PluginRegistry.registerGlobal("spawn", V2Value.ClosV(Runtime.emptyEnv, 1, env => {
@@ -2440,10 +2631,13 @@ object PluginBridge:
     // The corpus examples run all "nodes" in ONE process; v1 uses HTTP loopback.
     // Here: startNode registers an id, registerBehavior a named closure, and
     // spawnRemote spawns the behavior as a LOCAL actor — same visible semantics.
-    val nodeIds   = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
-    val behaviors = new java.util.concurrent.ConcurrentHashMap[String, V2Value.ClosV]()
     V2PluginRegistry.registerGlobal("startNode", V2Value.ClosV(Runtime.emptyEnv, -1, env => {
-      env.headOption.foreach { case V2Value.StrV(id) => nodeIds.add(id); case _ => () }
+      env.headOption.foreach {
+        case V2Value.StrV(id) =>
+          nodeIds.add(id)
+          localNodeId.set(id)
+        case _ => ()
+      }
       Done(V2Value.UnitV)
     }))
     V2PluginRegistry.registerGlobal("connectNode", V2Value.ClosV(Runtime.emptyEnv, -1, env => {

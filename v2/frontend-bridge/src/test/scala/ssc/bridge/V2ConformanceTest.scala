@@ -130,6 +130,33 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     assert(capture(src, None) == "decoded:payload")
   }
 
+  test("v2 cluster stdlib import exposes actor capability globals") {
+    FrontendBridge.resetState()
+    val src =
+      """# Cluster capability import
+        |
+        |[ClusterCapability, SeedResolver, codeIdentity, clusterOf, assertCodeIdentity](../runtime/std/cluster/index.ssc)
+        |
+        |```scala
+        |runActors {
+        |  startNode("demo-node")
+        |  val seeds = SeedResolver.staticList(List("ws://seed:9100/_ssc-actors"))
+        |  val cluster = clusterOf(seeds)
+        |  val identity = codeIdentity()
+        |
+        |  println(cluster.localNodeId)
+        |  println(cluster.resolveSeeds().head)
+        |  println(identity.algorithm)
+        |  println(identity.digest.length)
+        |  assertCodeIdentity(identity)
+        |}
+        |```
+        |""".stripMargin
+
+    assert(capture(src, Some(new File(repoRoot, "examples"))) ==
+      "demo-node\nws://seed:9100/_ssc-actors\nsha256\n64")
+  }
+
   // Dynamically build one test per conformance file that has an expected file.
   locally:
     if !conformanceDir.exists() then

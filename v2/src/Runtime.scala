@@ -1388,12 +1388,20 @@ object Prims:
       val recv  = a(1)
       val ext   = a.last.asInstanceOf[ClosV]
       val margs = a.drop(2).dropRight(1)
+      def callExt(): Value = callClos(ext, (recv :: margs).toArray)
+      def pluginOrExt(): Value =
+        V2PluginRegistry.lookup(s"__method__.$mname") match
+          case Some(fn) =>
+            fn(a.dropRight(1)) match
+              case DataV("Stub", _) => callExt()
+              case handled          => handled
+          case None => callExt()
       recv match
         case ForeignV(obj: NamedMethodObj) if obj.getField(mname).isDefined =>
           obj.getField(mname) match
             case Some(fn: ClosV)              => callClos(fn, margs.toArray)
             case Some(v) if margs.isEmpty     => v
-            case _                            => callClos(ext, (recv :: margs).toArray)
+            case _                            => callExt()
         case DataV(tag, fields) =>
           V2PluginRegistry.lookupFieldNames(tag) match
             case Some(fnames) =>
@@ -1410,9 +1418,9 @@ object Prims:
                   case ForeignV(m: collection.mutable.Map[?, ?]) =>
                     m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
                   case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
-              else callClos(ext, (recv :: margs).toArray)
-            case None => callClos(ext, (recv :: margs).toArray)
-        case _ => callClos(ext, (recv :: margs).toArray)
+              else pluginOrExt()
+            case None => pluginOrExt()
+        case _ => pluginOrExt()
     case "__arithExt__" => a =>
       // __arithExt__(opName, l, r, extensionClosure): numeric operands use the
       // kernel arith table; anything else calls the user extension (parser `|`,
