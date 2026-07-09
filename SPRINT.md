@@ -9,21 +9,17 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-vm-effect-handlers-regression** — fix the current v2 VM
-      conformance regression tracked in `BUGS.md`: algebraic/typed effect
-      handler rows on the VM lane return raw `Op(...)` values instead of being
-      handled, while JS/Rust lanes pass. Repro in the real harness:
-      `./v2/conformance/check.sh` after staging/building the v2 runtime; minimal
-      packaged-jar repro is `java -jar <v2-jar> run
-      examples/effects-state.ssc0` returning `Op("get", (), <closure>)`
-      instead of `Pair(2, 2)`. Current clean `origin/main` at `ab78c6cac`
-      reproduces `effects-state`, `effects-nondet`, `async-tasks`, and
-      `hm-eff-comp`, so this is independent of the arith-loop optimizer. Start
-      with a spec or focused BUGS fix note before code, inspect recent VM
-      `DataV("Op", ...)`/handler dispatch changes, add a regression test that
-      mirrors at least `effects-state` plus one typed-effect row, and close only
-      when the affected effect rows plus `./v2/conformance/check.sh` and
-      `tests/conformance/run.sh --only 'litdoc'` pass.
+- [x] **v2-vm-effect-handlers-regression** — DONE 2026-07-09 in
+      `b6f88744c`: fixed the v2 VM effect-handler regression by guarding the
+      `Match`-scrutinee `DataV("Op", ...)` lift with `Runtime.isAutoThreadOp`.
+      Free-monad `Op` values from `lib/effects.ssc0` and Mira typed effects now
+      remain matchable by handlers, while dotted bridge/runtime auto-thread
+      operations keep their expression-position lift. Added focused
+      `FrontendBridgeTest` coverage for `examples/effects-state.ssc0` and
+      `examples/hm-eff-comp.hm` compiled through `bin/mirac.ssc0` to CoreIR.
+      Gates: focused `FrontendBridgeTest -- -z "effect handlers"`, full
+      `./v2/conformance/check.sh`, `installBin`, and
+      `tests/conformance/run.sh --only 'litdoc'` passed.
 
 - [ ] **v2-vm-pattern-match-heavy-fast-tier** — continue the v2 VM
       production-performance gate from `v2-vm-production-jit-gate`, focusing

@@ -33,7 +33,8 @@ commit SHA until the reporter confirms, then they can be trimmed.
   (case-classes[JS] pre-existing on main — the unowned f57c74da8-family report;
   actors/async flakes pass idle; tls-smoke green).
 - **Ladder:** busi drives the full storefront+money loop on --v2 next.
-## v2-vm-effect-handlers-regression — `open` (2026-07-09)
+
+## v2-vm-effect-handlers-regression — `fixed` (2026-07-09)
 
 - **Found by:** codex, while verifying `v2-vm-production-jit-gate` after
   rebasing on current `origin/main`.
@@ -55,7 +56,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Notes:** this is not caused by the `v2-vm-production-jit-gate` arith-loop
   recognizer: the same minimal failures reproduce on clean `origin/main` at
   `ab78c6cac`, whose latest change is only a `.work/active/` claim.
-- **Status:** open. Queue item: `v2-vm-effect-handlers-regression`.
+- **Root cause:** `Compiler.C.compile` lifted every `DataV("Op", ...)`
+  scrutinee over `Match` before ordinary ADT matching. That lift is only
+  correct for bridge/runtime auto-thread operations; pure free-monad handlers
+  need to match `Op("get", ...)`, `Op("choose", ...)`, and typed-effect
+  `Op("double", ...)` as data.
+- **Fix:** `b6f88744c` guards the `Match` lift with `Runtime.isAutoThreadOp`,
+  matching the existing `Let`/`Seq` behavior. Added focused
+  `FrontendBridgeTest` coverage for `examples/effects-state.ssc0` and
+  `examples/hm-eff-comp.hm` compiled through `bin/mirac.ssc0` to CoreIR.
+- **Gates:** focused
+  `scripts/sbtc 'v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z "effect handlers"'`;
+  full `./v2/conformance/check.sh`; `scripts/sbtc "installBin"`;
+  `tests/conformance/run.sh --only 'litdoc'` passed INT/JS/JVM.
+- **Status:** fixed; waiting for human/reporter confirmation before `done`.
 
 ## v2-source-backend-bridge-bench-prims — `fixed` (2026-07-09)
 

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 VM effect handlers match free-monad Op values again
+
+The v2 VM no longer lifts every `DataV("Op", ...)` out of `match`
+scrutinees. `Match` now auto-threads only bridge/runtime operations recognized
+by `Runtime.isAutoThreadOp`, so algebraic and typed effect handlers can match
+their own free-monad `Op` constructors normally. Added focused regression
+coverage for `effects-state.ssc0` and `hm-eff-comp.hm` via Mira-to-CoreIR.
+Gates: focused bridge test, full `./v2/conformance/check.sh`, `installBin`,
+and conformance `litdoc`.
+
 ## 2026-07-09 — v2 VM closed-form scalar loop for arith-loop
 
 The v2 VM now recognizes the exact bridge-lowered local Long-cell summation

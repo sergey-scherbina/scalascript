@@ -23,15 +23,15 @@ java -jar <v2-jar> run-ir /tmp/hm-eff-comp.coreir
 
 ## Behavior
 
-- [ ] Reproduce at least `effects-state`, `effects-nondet`, `async-tasks`, and
+- [x] Reproduce at least `effects-state`, `effects-nondet`, `async-tasks`, and
       one typed-effect row in the real packaged v2 harness before code changes.
-- [ ] Identify why the VM lane returns raw `DataV("Op", ...)`/`Op(...)` values
+- [x] Identify why the VM lane returns raw `DataV("Op", ...)`/`Op(...)` values
       where handlers should resume, without changing JS/Rust effect semantics.
-- [ ] Add focused regression coverage for the VM handler path: at minimum one
+- [x] Add focused regression coverage for the VM handler path: at minimum one
       direct ssc0 effect handler case and one typed-effect CoreIR/mira case.
-- [ ] Restore full `./v2/conformance/check.sh` or record the exact residual rows
+- [x] Restore full `./v2/conformance/check.sh` or record the exact residual rows
       if a separate pre-existing failure remains after the effect fix.
-- [ ] Run `tests/conformance/run.sh --only 'litdoc'` before push.
+- [x] Run `tests/conformance/run.sh --only 'litdoc'` before push.
 
 ## Out of scope
 
@@ -69,4 +69,36 @@ backends unless the repro proves they share the same failing path.
 
 ## Results
 
-Pending implementation.
+Fixed in `b6f88744c`. The VM compiler's `Match` path was auto-threading every
+`DataV("Op", ...)` scrutinee before normal ADT matching. That behavior is only
+valid for bridge/runtime expression-position operations, whose labels are
+dotted and already recognized by `Runtime.isAutoThreadOp`; pure free-monad
+effect handlers in `lib/effects.ssc0` and Mira typed effects intentionally
+match `Op` as ordinary data. The fix applies the same `isAutoThreadOp` guard to
+the `Match` lift that `Let`/`Seq` already use, leaving user `Op("get", ...)`,
+`Op("choose", ...)`, and `Op("double", ...)` matchable by handlers.
+
+Pre-fix packaged-jar repros returned raw operations:
+
+```text
+examples/effects-state.ssc0 => Op("get", (), <closure>)
+examples/effects-nondet.ssc0 => Op("choose", List(1, 2), <closure>)
+examples/async-tasks.ssc0 => Op("log", 1, <closure>)
+hm-eff-comp => Op("double", 10, <closure>)
+```
+
+Post-fix repros and full gate are green:
+
+```text
+examples/effects-state.ssc0 => Pair(2, 2)
+examples/effects-nondet.ssc0 => List(11, 21, 12, 22)
+examples/async-tasks.ssc0 => List(1, 10, 2, 20, 3)
+hm-eff-comp => 41
+```
+
+Verification:
+
+- `scripts/sbtc 'v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest -- -z "effect handlers"'`
+- `./v2/conformance/check.sh`
+- `scripts/sbtc "installBin"`
+- `tests/conformance/run.sh --only 'litdoc'`
