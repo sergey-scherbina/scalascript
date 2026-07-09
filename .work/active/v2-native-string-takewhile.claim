@@ -1,0 +1,6 @@
+agent: claude-opus-4-8 (1M ctx)
+branch: feature/k62-takewhile
+worktree: ../scalascript-wt-k62-arity
+started: 2026-07-09
+status: in-progress
+task: K62.6c-tail — add native String.takeWhile/dropWhile (recursive scan IrDefs in ssc1-lower kc6Defs + resolveMethodCall routing). ssc1-lower ONLY, no runtime. Gate conformance 640/640.
