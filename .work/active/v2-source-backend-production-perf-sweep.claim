@@ -1,0 +1,6 @@
+feature/v2-source-backend-production-perf-sweep 2026-07-09T22:28:02Z
+agent: codex
+heartbeat: 2026-07-09T22:28:02Z
+status: not-started
+done-so-far:
+next: create worktree, add SPRINT measurement slice, run current v2-backends rows, update production gate backlog
