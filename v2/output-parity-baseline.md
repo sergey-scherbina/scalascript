@@ -9,7 +9,49 @@ This is the REAL "does v2 replace v1?" gate: each example is run on v1
 (`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
 than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-09, after OAuth/MCP generated-output classification
+## Latest full corpus re-measure — 2026-07-09, after standard Scala fence/runtime-shape fixes
+
+Built/staged from
+`/Users/sergiy/work/my/scalascript-wt-v2-scala-fence-multiblock-parity` with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Current result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **68 / 95 = 72%** |
+| ❌ mismatch | 4 |
+| ⚠️ v2-error (v1 works, v2 empty) | 0 |
+| v1-only (v2 works, v1 empty) | 23 |
+| both-fail (not a v2 gap) | 26 |
+| true-server skipped | 36 |
+| long-running skipped | 0 |
+| backend-lane skipped | 33 |
+| nondeterministic-output skipped | 5 |
+| total examples seen | 195 |
+
+Standard Scala fence/runtime-shape fix notes:
+
+- `scala-js-demo.ssc` is now output-identical: v2 runs all standard `scala`
+  fences in document order, supports `String.takeWhile`/`dropWhile`,
+  lowers `f"..."` interpolation through Java-style formatting, and falls
+  through guarded constructor-pattern arms when a guard is false.
+- `lang-split.ssc` is now output-identical by declaring
+  `runScalaFences: true`; mixed `scalascript`/`scala` documents still keep
+  standard `scala` fences illustrative by default unless they opt in.
+- No deterministic v2-error row reappeared; the parity command still exits
+  nonzero because 4 known output mismatches remain.
+- Remaining mismatches in the full default-lane gate:
+  `distributed-streams.ssc`, `dsl-calc-parser.ssc`, `effects.ssc`, and
+  `streams.ssc`.
+- The remaining rows are parser/DSL and stream/section output-shape families,
+  plus the documented `effects.ssc` v1-side short-output row.
+
+## Previous full corpus re-measure — 2026-07-09, after OAuth/MCP generated-output classification
 
 Built/staged from
 `/Users/sergiy/work/my/scalascript-wt-v2-mcp-oauth-secret-nondet-parity` with:

@@ -2757,6 +2757,16 @@ bind-aware `sql`, and bind-aware `transaction`; list visible tags with:
 ssc --list-source-languages
 ```
 
+Standard `scala` fences are runnable when the file contains only standard Scala
+fences. In mixed `scalascript`/`scala` documents, standard `scala` fences are
+documentation examples by default, so snippets in prose do not execute
+accidentally. To run both languages in source order, opt in explicitly:
+
+```yaml
+runScalaFences: true
+# aliases: run-scala-fences: true, scalaFences: runnable, scala-fences: runnable
+```
+
 Custom fenced DSLs use the same ServiceLoader-based `SourceLanguage` SPI.
 
 The app, lib, plugin, dsl, web-app, and wasm-app templates are bundled into

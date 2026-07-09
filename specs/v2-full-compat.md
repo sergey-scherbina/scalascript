@@ -42,6 +42,29 @@ in `v2/output-parity-baseline.md` with exact counts for:
 
 ### Current baseline and next blockers
 
+Standard Scala fence/runtime-shape update (2026-07-09): after `f57c74da8`,
+standard-Scala-only documents run all `scala` fences in document order, mixed
+`scalascript`/`scala` documents can opt into runnable standard fences with
+`runScalaFences: true`, and the v2 standard-Scala support now covers the
+runtime/parser shapes exposed by `scala-js-demo.ssc` (`String.takeWhile` /
+`dropWhile`, `f"..."` interpolation, and guarded constructor-pattern
+fall-through). The authoritative production gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-scala-fence-multiblock-parity`:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 68/95 identical · 4 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 5 nondet · 195 total)
+```
+
+`scala-js-demo.ssc` and `lang-split.ssc` are now output-identical, and no
+deterministic v2-error row reappeared. The remaining full-gate mismatches are:
+`distributed-streams.ssc`, `dsl-calc-parser.ssc`, `effects.ssc`, and
+`streams.ssc`. They are parser/DSL and stream/section output-shape families,
+plus the documented `effects.ssc` v1-side short-output row.
+
 OAuth/MCP generated-output classification update (2026-07-09): after
 `2142f8e0d`, the OAuth-protected MCP examples are classified as
 nondeterministic-output because they print generated client ids/secrets and

@@ -112,6 +112,40 @@ properties:
     default:
       - ssc
 
+  runScalaFences:
+    oneOf:
+      - type: boolean
+      - type: string
+        enum: ["true", "false", "yes", "no", "on", "off", "1", "0", runnable, illustrative]
+    description: |
+      In mixed `scalascript`/`scala` documents, opt in to running standard
+      `scala` fences alongside `scalascript` fences in source order.
+      Standard-Scala-only documents run `scala` fences without this key.
+
+  run-scala-fences:
+    oneOf:
+      - type: boolean
+      - type: string
+        enum: ["true", "false", "yes", "no", "on", "off", "1", "0", runnable, illustrative]
+    description: Hyphenated alias for `runScalaFences`.
+
+  scalaFences:
+    oneOf:
+      - type: boolean
+      - type: string
+        enum: ["true", "false", "yes", "no", "on", "off", "1", "0", runnable, illustrative]
+    description: |
+      Alternative opt-in for mixed runnable standard `scala` fences. Use
+      `runnable` to execute them; omit the key or use `illustrative` to keep
+      mixed-document `scala` fences as documentation examples.
+
+  scala-fences:
+    oneOf:
+      - type: boolean
+      - type: string
+        enum: ["true", "false", "yes", "no", "on", "off", "1", "0", runnable, illustrative]
+    description: Hyphenated alias for `scalaFences`.
+
   transport:
     type: string
     description: |
@@ -344,7 +378,7 @@ properties:
           default: server
         backend:
           type: string
-          description: `in-memory` is implemented; TinkerGraph/RDF4J/remote adapters are planned.
+          description: "`in-memory` is implemented; TinkerGraph/RDF4J/remote adapters are planned."
           default: in-memory
         uri:
           type: string

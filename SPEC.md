@@ -149,8 +149,13 @@ processed by each backend.
 | `node.js` (alias `node`) | Executable JavaScript for Node target | Linked verbatim into the bundle emitted by the `node` backend, alongside the JS produced from `scalascript` / `scala` blocks. Cross-language interop is by name via `extern def` declarations resolving against `globalThis`. Not type-checked. Other backends reject `node.js` blocks with a `UnknownBlockLanguage` diagnostic. |
 | `sql` | SQL / JDBC | Parameterised SQL executed via JDBC.  Every `${expr}` becomes a single positional `?` bind parameter; string substitution is never performed.  Block evaluates to `Seq[Row]` (SELECT) or `Int` update count (DDL/DML).  JVM-only target; other backends emit `UnknownBlockLanguage`. |
 
-A `.ssc` document may freely mix `scala` and `scalascript` blocks.
-Definitions are visible across blocks within the same file.
+A `.ssc` document may contain both `scala` and `scalascript` blocks. When a
+document uses only standard `scala` fences, those fences are executable units and
+run in document order. In a mixed document, `scalascript` fences are the runnable
+default and `scala` fences are illustrative unless the YAML front-matter opts in
+with `runScalaFences: true`, `run-scala-fences: true`, or
+`scalaFences: runnable` / `scala-fences: runnable`. With that opt-in,
+definitions are visible across runnable blocks within the same file.
 Other tags (`json`, `yaml`, `text`, etc.) are treated as inert prose.
 
 **String blocks** (`html`, `css`, `javascript`) carry no semantics of

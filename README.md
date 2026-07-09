@@ -13,6 +13,12 @@ Scala 3 code blocks.
 | ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM · Rust (passthrough) |
 | ` ```rust` | Standard Rust — passthrough verbatim into the emitted Cargo crate | **Rust** |
 
+Standard `scala` fences run in document order when a file uses only standard
+Scala fences. In mixed `scalascript`/`scala` documents, standard `scala` fences
+are illustrative by default; add `runScalaFences: true` (or
+`run-scala-fences: true`) to YAML front-matter to run both languages together
+in source order.
+
 ````ssc
 ---
 name: hello

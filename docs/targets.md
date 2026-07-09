@@ -352,6 +352,12 @@ per-backend support for every block language currently in `Lang.scala`.
 | `node.js` / `node` | ❌ (`UnknownBlockLanguage`) | ❌ | ❌ | ✅ (linked into bundle) | ❌ | ❌ |
 | `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm + `package.json` — v1.27) | ✅ (JS shim via `SqlRuntimeJsEmit` — v1.27) | ✅ (Spark SQL) |
 
+Standard `scala` fences are executable when the document uses only standard
+Scala fences. In mixed `scalascript`/`scala` documents, they are treated as
+illustrative examples by default; set `runScalaFences: true` (or
+`scalaFences: runnable`) in YAML front-matter to run standard `scala` fences
+alongside `scalascript` fences in document order.
+
 When a backend doesn't claim a block language, `CapabilityCheck`
 emits a `Diagnostic.UnknownBlockLanguage(<lang>)` so the user gets a
 precise diagnostic at compile time instead of silently dropping the
