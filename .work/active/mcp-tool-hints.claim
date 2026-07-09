@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/mcp-tool-hints
+worktree: ../scalascript-wt-mcphints
+started: 2026-07-09
+status: in-progress
+task: mcp-tool-hints — mcp tool native принимает tool-annotation hint args (readOnlyHint/idempotentHint); чинит mcp-search-server; v1-плагин, аддитивный case
