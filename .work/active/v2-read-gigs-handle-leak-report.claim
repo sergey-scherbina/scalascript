@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: report/v2-read-gigs-handle-leak
+worktree: ../scalascript-wt-v2-gigs-handle
+started: 2026-07-09
+status: in-progress
+task: report (not fix, not minimized) a v2-only bug found completing the live busi hub JDG money-loop pass: MCP tool read_gigs (runSimGigSource wraps GigSource.fetch in handle{}) raises an unhandled Op inside real hub.ssc/mcp.ssc, though a minimal handle{}-through-a-dispatch-function repro did not reproduce it standalone
