@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: feature/v2-serve-binding
-worktree: ../scalascript-wt-v2-serve-binding
-started: 2026-07-09
-status: in-progress
-task: v2-serve-binding — busi rozum 07-09 n=24: hub boots on --v2 but serve() never binds the port (no listener, curl 000). Suspect: PluginBridge registers "serve" as a no-op stub while serveAsync is the real v1 web-server bridge. Repro: busi.conf + SSC_LANE_FLAG=--v2 scripts/ssc src/v2/http/hub.ssc, then lsof/curl.
