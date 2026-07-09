@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — tkv2: route-derived typed clients handle path params
+
+When users omit manual `apiClients:`, `RouteDeriver` now gives non-body
+path-param routes callable request types: one `:param` becomes `String`,
+multiple params become `Any`, and no-param endpoints remain `Unit`. Generated
+JS/browser clients and JVM/Swing clients now expose methods such as
+`Api.getApiItemsById("42")` for derived routes, while explicit `apiClients:`
+metadata and validation warnings stay unchanged. Gates: `RouteDeriverTest`
+16/16, typed route JS/JVM codegen tests 57/57, affected compiles, conformance
+`tkv2-typed-client-derived`, and `derived-route-clients` `emit-js`/`emit-spa`
+smokes after `installBin`.
+
 ## 2026-07-09 — tkv2: WebAuthn browser passkey actions
 
 `std/ui/webauthn.ssc` now provides `webauthnRegister` and `webauthnAssert`

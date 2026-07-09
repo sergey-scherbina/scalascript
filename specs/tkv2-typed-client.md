@@ -37,17 +37,17 @@ Derivation rules for endpoints without typed handler evidence:
 
 ## Behavior
 
-- [ ] `RouteDeriver` derives callable request types for non-body
+- [x] `RouteDeriver` derives callable request types for non-body
       `route(...)`, `mount(...)`, and front-matter `routes:` endpoints with
       path parameters instead of `Unit`.
-- [ ] JS/browser generated clients accept the derived input, fill the path
+- [x] JS/browser generated clients accept the derived input, fill the path
       parameter, call `fetch`, and decode the response through the existing
       typed JSON facade.
-- [ ] JVM/Swing generated clients see the same derived metadata and generate
+- [x] JVM/Swing generated clients see the same derived metadata and generate
       callable in-process methods for derived path-parameter endpoints.
-- [ ] Explicit `apiClients:` declarations and existing path-param validation
+- [x] Explicit `apiClients:` declarations and existing path-param validation
       warnings remain unchanged.
-- [ ] A runnable example documents no-manual-`apiClients:` browser usage, and
+- [x] A runnable example documents no-manual-`apiClients:` browser usage, and
       conformance includes a JS-only derived-client smoke.
 
 ## Out of scope
@@ -83,5 +83,26 @@ they want; JS path substitution stringifies the value. Multiple parameters use
 
 ## Results
 
-Fill after implementation verification with exact commands, test counts, and
-runtime gotchas.
+Implemented in `4656f9629` (`feat: derive typed clients for path params`).
+Verification:
+
+- `scripts/sbtc "core/testOnly scalascript.transform.RouteDeriverTest"` —
+  16/16 tests passed.
+- `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenTypedRouteClientTest scalascript.JvmGenTypedRouteClientTest"` —
+  57/57 tests passed.
+- `scripts/sbtc "core/compile; backendJs/compile; backendJvm/compile; backendInterpreter/compile"` —
+  affected compiles passed.
+- `scripts/sbtc "installBin"` — required before CLI/conformance because
+  `tests/conformance/run.sh` uses the installed `bin/ssc`/`bin/lib/ssc.jar`.
+- `tests/conformance/run.sh --only 'tkv2-typed-client-derived' --no-memo` —
+  1/1 case passed on JS.
+- `bin/ssc emit-js examples/derived-route-clients.ssc` emitted
+  `requestType: "String"` and callable `getApiTodosById(input, ...)` /
+  `deleteApiTodosById(input, ...)` methods with no path-param `Unit` warning.
+- `bin/ssc emit-spa --frontend custom --server-url http://server.example:49155 examples/derived-route-clients.ssc`
+  emitted `__sscBackendBaseUrl` and the callable derived `Api` client methods.
+
+Gotcha: a stale local `bin/ssc` reproduced the old `requestType = Unit` output
+after the Scala tests were already green. Any future RouteDeriver/codegen slice
+that verifies through `tests/conformance/run.sh` or `bin/ssc` must run
+`scripts/sbtc "installBin"` after the code change.

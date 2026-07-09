@@ -1125,24 +1125,38 @@ conformance cases (INT==JS) and runs the affected-slice conformance before push 
       emitted the expected WebAuthn browser runtime markers. Gotcha recorded in
       `specs/tkv2-webauthn.md`: stale local `bin/ssc` required `scripts/sbtc "installBin"`
       before real-harness conformance.
-- [ ] **tkv2-typed-client** — route-derived `.ssc` API client; browser transport = fetch, JVM =
+- [x] **tkv2-typed-client** — DONE 2026-07-09 (`4656f9629`): route-derived
+      `.ssc` API clients now produce callable path-param methods. `RouteDeriver`
+      defaults no-body/no-param endpoints to `Unit`, one no-body path param to
+      `String`, multiple no-body path params to `Any`, and body methods to
+      `Any`, while explicit `apiClients:` metadata and existing validation
+      warnings remain unchanged. Browser JS clients now accept the derived
+      input and substitute it into the `fetch` path; JVM/Swing sees the same
+      metadata and emits callable in-process methods. Gates: `RouteDeriverTest`
+      16/16; `JsGenTypedRouteClientTest` + `JvmGenTypedRouteClientTest` 57/57;
+      affected compiles; `installBin`; conformance `tkv2-typed-client-derived`
+      1/1 JS; `emit-js` and `emit-spa --frontend custom --server-url` smokes for
+      `examples/derived-route-clients.ssc`. Gotcha: CLI/conformance use
+      installed `bin/ssc`, so run `scripts/sbtc "installBin"` after
+      RouteDeriver/codegen changes.
+      Original: route-derived `.ssc` API client; browser transport = fetch, JVM =
       existing in-process transport (fullstack spec phases 0–5).
       Active plan 2026-07-09 (`feature/tkv2-typed-client` / codex):
       - [x] Claim/worktree created; stale `bin/ssc` gotcha re-confirmed and fixed locally with
             `scripts/sbtc "installBin"` before CLI smoke.
-      - [ ] Spec first in `specs/tkv2-typed-client.md` and bug ledger entry
+      - [x] Spec first in `specs/tkv2-typed-client.md` and bug ledger entry
             `route-deriver-path-param-unit-client` in `BUGS.md`, then commit/push before code.
-      - [ ] Fix `RouteDeriver.makeEndpoint`: no explicit `apiClients:` and no typed handler evidence
+      - [x] Fix `RouteDeriver.makeEndpoint`: no explicit `apiClients:` and no typed handler evidence
             should derive `String` for one non-body path parameter, `Any` for multiple non-body path
             parameters, `Unit` only when no body and no path params; body methods stay `Any`.
-      - [ ] Add/adjust tests: `RouteDeriverTest` for route/mount/routes path-param defaults;
+      - [x] Add/adjust tests: `RouteDeriverTest` for route/mount/routes path-param defaults;
             `JsGenTypedRouteClientTest` Node harness proving derived `Api.get...("42")` fetches
             `/api/.../42`; `JvmGenTypedRouteClientTest` proving Swing/JVM emits callable derived
             methods over in-process transport.
-      - [ ] Add a JS-only conformance smoke `tkv2-typed-client-derived` with stubbed `fetch` and
+      - [x] Add a JS-only conformance smoke `tkv2-typed-client-derived` with stubbed `fetch` and
             `awaitClient(Api.get...("42"))`; update `examples/derived-route-clients.ssc` so the
             no-manual-`apiClients:` example is actually browser-callable.
-      - [ ] Docs/bookkeeping: update `specs/typed-route-clients.md`, `specs/ssc-toolkit-v2.md`,
+      - [x] Docs/bookkeeping: update `specs/typed-route-clients.md`, `specs/ssc-toolkit-v2.md`,
             README/user-guide/example index as needed, then mark BUGS/SPRINT/CHANGELOG done.
       Done-when: targeted core/codegen tests pass, affected compiles pass, conformance
       `tests/conformance/run.sh --only 'tkv2-typed-client-derived' --no-memo` passes, and

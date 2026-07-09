@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## route-deriver-path-param-unit-client — `open` (2026-07-09)
+## route-deriver-path-param-unit-client — `fixed` (2026-07-09)
 
 - **Found by:** codex, during `tkv2-typed-client` prep.
 - **Repro:** with no explicit `apiClients:` front matter, derive a client from
@@ -30,6 +30,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Fix direction:** have `RouteDeriver` use `String` for one path parameter
   and `Any` for multiple path parameters when no typed handler evidence exists;
   keep explicit `apiClients:` behavior unchanged.
+- **Root cause:** `RouteDeriver.makeEndpoint` defaulted every non-body endpoint
+  without typed handler evidence to `requestType = Unit`, ignoring path params.
+  JS/JVM client codegen correctly treats `Unit` as a no-input method, so the
+  first user argument was interpreted as headers and the route id could never
+  fill `:id`.
+- **Fixed in:** `4656f9629` (`feat: derive typed clients for path params`).
+- **Gates:** `scripts/sbtc "core/testOnly scalascript.transform.RouteDeriverTest"`
+  (16/16); `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenTypedRouteClientTest scalascript.JvmGenTypedRouteClientTest"`
+  (57/57); `scripts/sbtc "core/compile; backendJs/compile; backendJvm/compile; backendInterpreter/compile"`;
+  `scripts/sbtc "installBin"`; `tests/conformance/run.sh --only 'tkv2-typed-client-derived' --no-memo`
+  (1/1 JS case); `emit-js` and `emit-spa --frontend custom --server-url`
+  smokes for `examples/derived-route-clients.ssc`.
 - **Done-when:** RouteDeriver, JS codegen, JVM/Swing codegen, a JS-only
   conformance smoke, docs/example, and affected tests agree; fixed SHA and
   gates are recorded here.

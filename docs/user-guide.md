@@ -1854,7 +1854,11 @@ JavaFX and Compose Desktop remain future adapters. See
 **Planned, partially implemented: typed route clients.** Front matter can
 declare typed client endpoint metadata with `apiClients:` / `api-clients:`; the
 parser stores method/path/request/response type names in the AST, and JVM
-codegen preserves them as metadata. In JVM/Swing mode, codegen now emits
+codegen preserves them as metadata. When no manual client metadata is present,
+ScalaScript derives an `Api` client from `route(...)`, `mount(...)`, and
+front-matter `routes:` declarations; a non-body route with one path parameter
+becomes a callable method such as `awaitClient(Api.getApiItemsById("42"))`.
+In JVM/Swing mode, codegen now emits
 callable client methods that encode request values, dispatch through the
 same generated `BackendTransport` used by Swing fetch helpers, and decode
 typed JSON responses. JS/browser codegen now emits Promise-returning HTTP

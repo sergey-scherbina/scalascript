@@ -1,9 +1,11 @@
 # Typed Route Clients
 
-Status: **partially implemented** — May 2026. Phases 1–7 landed: front-matter
-metadata, JVM/Swing in-process clients, JS HTTP clients (browser + Electron),
-shared codecs, path-param validation, auth/header injection + retry, and SSE
-streaming. WebSocket subscriptions and pagination remain planned.
+Status: **partially implemented** — updated 2026-07-09. The core generated
+client stack is landed: front-matter metadata, route-derived `Api` metadata,
+JVM/Swing in-process clients, JS HTTP clients (browser + Electron), shared
+codecs, path-param validation, auth/header injection + retry, SSE/WebSocket
+subscriptions, pagination helpers, and `awaitClient(...)`. Structured type
+evidence and structured diagnostics remain planned follow-ups.
 
 This document defines generated typed clients for ScalaScript backend routes.
 The first target is JVM/Swing in-process full-stack mode: frontend code should
@@ -368,6 +370,15 @@ For `mount()` handlers that are function literals with an explicit uppercase
 parameter type (`(input: GreetInput) => ...`), the parameter type is extracted
 as `requestType` instead of defaulting to `"Any"`.  Source parsed as a `Term`
 (not `Source`) so bare lambdas in `.ssc` handler files work without wrapping.
+
+Follow-up landed 2026-07-09: route-derived endpoints without typed handler
+evidence now choose callable request defaults for path-parameter routes:
+non-body routes with no path params keep `Unit`; one path param uses `String`;
+multiple path params use `Any` so generated JS/JVM methods accept an
+object-shaped request. Body methods (`POST`, `PUT`, `PATCH`) keep `Any`.
+Explicit `apiClients:` / `api-clients:` metadata still wins unchanged, including
+the existing warnings for manually declared `Unit` request types on path-param
+routes.
 
 Still planned for Phase 5: structured diagnostic API instead of stderr +
 comments for path-param validation warnings.

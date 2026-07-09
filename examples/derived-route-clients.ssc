@@ -15,7 +15,7 @@ ScalaScript derives `apiClients:` metadata automatically from three sources:
 2. `mount()` calls (with cross-file type analysis when run via `Parser.parseFile`)
 3. `routes:` entries in the front-matter
 
-```scalascript
+```scalascript @side=server
 [route, serve, Response, Request](std/http.ssc)
 // --- server side ---
 
@@ -34,13 +34,17 @@ route("DELETE", "/api/todos/:id") { req =>
 }
 ```
 
-```scalascript
+```scalascript @side=client
 // --- client side (derived client, no manual apiClients: needed) ---
-val client = Api()
 
 // POST /api/todos  → requestType = "Any" (body method)
-// GET  /api/todos/:id → requestType = "Unit" (no body)
-// All endpoints are accessible via the derived typed client
+// GET  /api/todos/:id → requestType = "String" (single path parameter)
+// DELETE /api/todos/:id → requestType = "String" (single path parameter)
+val created = awaitClient(Api.postApiTodos("new todo"))
+val todo    = awaitClient(Api.getApiTodosById("1"))
+awaitClient(Api.deleteApiTodosById("1"))
+println("created=" + created.toString)
+println("todo=" + todo.toString)
 ```
 
 ## mount() with cross-file typed handler

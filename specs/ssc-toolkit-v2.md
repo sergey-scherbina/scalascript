@@ -216,9 +216,11 @@ Consequences:
 
 ### 4.5 P1 sketches (own slices, specced when picked up)
 
-- **Typed browser client**: generate a `.ssc` client module from `routes`
-  declarations; browser transport = `fetch`, JVM transport = in-process (the
-  existing Phase 3–4 machinery). One app codebase, two transports.
+- **Typed browser client**: landed 2026-07-09 for the no-manual-`apiClients:`
+  route-derived path. `RouteDeriver` synthesizes `Api` from `route(...)`,
+  `mount(...)`, and front-matter `routes:` declarations; browser transport is
+  the existing generated `fetch` client and JVM/Swing uses the existing
+  in-process client methods.
 - **WebAuthn**: landed 2026-07-09 as `std/ui/webauthn.ssc`
   `webauthnRegister(...)` / `webauthnAssert(...)` EventHandlers on the
   JsGen/custom browser runtime, wrapping `navigator.credentials.create/get`
@@ -232,11 +234,11 @@ Consequences:
 
 ## 5. Slice plan (SPRINT queue)
 
-**Status 2026-07-09:** slices 1–8 and 10 SHIPPED (components, offline, forms,
+**Status 2026-07-09:** slices 1–10 SHIPPED (components, offline, forms,
 spa-pipeline audit, pwa-adopt, busi-home integration case, keyed-for,
-webauthn, theme-css-vars). Remaining: 9 typed-client. The busi
-migration pilot (SPA shell + home screen in busi) is UNBLOCKED — the pilot's
-P0 toolkit surface exists and is browser-verified.
+webauthn, typed-client, theme-css-vars). The busi migration pilot (SPA shell +
+home screen in busi) is UNBLOCKED — the pilot's P0 toolkit surface exists and
+the P1 route-client/passkey/list/theme helpers are browser-verified.
 
 Ordered so busi's migration pilot (SPA shell + home screen) unblocks earliest:
 
@@ -260,8 +262,9 @@ Ordered so busi's migration pilot (SPA shell + home screen) unblocks earliest:
 8. **tkv2-webauthn** (P1-6) — landed: browser
    `navigator.credentials.create/get` actions through `std/ui/webauthn.ssc`,
    plus server verifier declaration drift fixed in `std/auth.ssc`.
-9. **tkv2-typed-client** (P1-5) — route-derived `.ssc` client, browser
-   transport.
+9. **tkv2-typed-client** (P1-5) — landed: route-derived `.ssc` client metadata
+   for browser `fetch` and JVM/Swing in-process clients, including callable
+   non-body path-param endpoints.
 10. **tkv2-theme-css-vars** (P1-8) — `cssVariables(theme)`.
 
 P2 items (dev loop, tri-state helper, rawHtml, SPA i18n parity check) are
