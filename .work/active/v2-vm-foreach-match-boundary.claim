@@ -1,6 +1,6 @@
 feature/v2-vm-foreach-match-boundary 2026-07-09T10:53:23Z
 agent: codex
-heartbeat: 2026-07-09T11:08:30Z
+heartbeat: 2026-07-09T11:25:37Z
 status: in-progress
-done-so-far: foreach no-materialized-env fast path implemented; focused FrontendBridgeTest green; pattern-match-heavy full row improved to v2 14.6 ms
-next: rerun installBin/bench after safety patch, then full v2 conformance and litdoc gate
+done-so-far: foreach no-materialized-env fast path implemented; focused FrontendBridgeTest green; four-row bench recorded; full v2 conformance passed
+next: run litdoc conformance, diff-check, update spec/SPRINT/BACKLOG/CHANGELOG, push and release
