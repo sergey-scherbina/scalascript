@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: feature/v2-head-field-shadow-fix
+worktree: ../scalascript-wt-v2-head-field-shadow-fix
+started: 2026-07-09
+status: in-progress
+task: v2-head-field-shadow-fix — BUGS.md v2-head-field-dispatch-shadow: case-class field named head at non-zero index poisons List.head on v2 VM (bridge emits fieldAt by static field-name registry without knowing the receiver type). busi hub-boot blocker. Repro: bin/ssc --v2 tests/conformance/head-field-shadow.ssc; full: busi hub boot per rozum 2026-07-09 n=1.
