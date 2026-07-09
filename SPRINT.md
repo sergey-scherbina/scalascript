@@ -646,7 +646,12 @@ bytecode 107ms. Byte-lane is now 3-12x BEHIND on hot workloads. Sweep
   recursion-fib 5.1x, recursion-tco 4.3x, nested-loop 3.1x;
   at parity: hof-pipeline, map-ops, range-sum, string-split, typeclass-*;
   byte-lane WINS: mutual-recursion 0.56x (bounce trampoline).
-ROOT: the VM has COMPILE-LEVEL fast paths (FastCode unboxed arith via
+**UPDATE 2026-07-09 — all 3 big gaps CLOSED (near parity):**
+  list-fold 11.3x→1.55x (foreach-inline fabf450eb), pattern-match-heavy
+  10.2x→1.25x (pure-def foreach bodies inline, d1b78b29d), string-concat
+  11.5x→1.18x (direct .length/.size, 54efd028b). Remaining: p4-bc-unboxed-arith
+  (fib 5x, arith loops — the VM near-JITs these to ~0ms; needs unboxed codegen).
+      ROOT: the VM has COMPILE-LEVEL fast paths (FastCode unboxed arith via
 tryFLC, inline-foreach-body via tryFCAppended) that the bytecode EMITTER
 lacks — it routes hot ops through the generic runtime dispatch.
 LANDED: foreachConsOp (61554b55c) — runtime foreach walks Cons directly
