@@ -552,6 +552,13 @@ def buildPostfix = (e, toks) =>
         else skipBrackD(advance(ts), #i.sub(depth, 1))
       else skipBrackD(advance(ts), depth) in
     buildPostfix(e, skipBrackD(advance(toks), 1))
+  else if #seq(k, "{") then
+    -- trailing block argument: e { body }  →  e(body)  (T5.7 / KC-postfix)
+    -- lambda-aware: parseBlockArg strips a `param =>` header, so
+    --   route("POST","/x") { req => ... }  parses the body as a lambda, not a
+    --   bare block (which would misparse `id = expr` as idx_assign).
+    let rbArg = parseBlockArg(advance(toks)) in
+    buildPostfix(mkApp(e, Cons(prV(rbArg), Nil)), prT(rbArg))
   else if #seq(k, "kw") then
     if kwIs("match", toks) then
       let ts2 = skipKind("{", advance(toks)) in

@@ -461,6 +461,10 @@ def resolveMethodCall = (robj, method, rargs) =>
         match r0 {
           case Cons(too, r1) =>
             Pair("prim", Pair("sslice", Cons(robj, Cons(frm, Cons(too, Nil)))))
+          case Nil =>
+            -- single-arg substring(from) == substring(from, length) (Scala String)
+            let lenE = Pair("prim", Pair("slen", Cons(robj, Nil))) in
+            Pair("prim", Pair("sslice", Cons(robj, Cons(frm, Cons(lenE, Nil)))))
         }
     }
   else

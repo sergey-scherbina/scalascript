@@ -4,4 +4,6 @@
 # --server=false keeps it daemonless.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec command scala-cli run "$DIR/src" --server=false --quiet -- "$@"
+# -J-Xss512m: the VM's Compiler.compile / FastCode recurse deeply when lowering
+# large programs (control-center-live, auth-full, …); the default stack overflows.
+exec command scala-cli run "$DIR/src" --server=false --quiet -J-Xss512m -- "$@"
