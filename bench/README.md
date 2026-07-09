@@ -39,6 +39,7 @@ scripts/runtime-bench.sh --baseline                       # wall-clock corpus
 scripts/bench interp                                       # all interp JMH
 scripts/bench cross                                        # cross-backend JMH
 scripts/bench compile                                      # compiler JMH
+scripts/bench v2-backends arith-loop                       # v2 VM/source backend corpus slice
 sbt "interpreterBench/Jmh/run -rff $(pwd)/bench/jmh-results.json -rf json"
 sbt "compilerBench/Jmh/run -rff $(pwd)/bench/jmh-compiler-results.json -rf json"
 ```

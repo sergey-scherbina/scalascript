@@ -17,6 +17,7 @@ full command list; `scripts/bench list` enumerates every available
 | Run one bench with AsmJitBackend | `scripts/bench asm recursionFib` |
 | Wall-clock all backends (ssc, ssc-asm, jvm, js) | `./bench.sh` |
 | Wall-clock ASM backend only | `./bench.sh --backend ssc-asm` |
+| Wall-clock v2 VM/source backends | `scripts/bench v2-backends [workload]` |
 | Compare interp vs JS vs JVM | `scripts/bench cross` |
 | Measure codegen time | `scripts/bench gen` |
 | Measure compile pipeline | `scripts/bench compile` |
@@ -54,6 +55,7 @@ are we from native?" checkpoints.
 | Path | Purpose | How to run |
 | --- | --- | --- |
 | `bench/corpus/*.ssc` + `bench/run.sc` | Workload sweep through the `ssc` CLI; checked-in summaries land in `bench/BASELINE.md`. | `scripts/runtime-bench.sh --baseline` |
+| `bench/corpus/*.ssc` + `bench/run.sc --v2-backends` | Same corpus shape, limited to v2 VM, v2 JVM source backend, and v2 Rust source backend. Use this for Phase-3 separate-backend measurement baselines; unsupported rows remain `n/a`. | `scripts/bench v2-backends [workload]` or `./bench.sh --v2-backends ...` |
 | `tests/bench/{fib,sum,list-ops}.{ssc,scala,js}` | Cross-language wall-clock: same workload in ScalaScript / Scala-direct / Node. | `scripts/bench wall` (alias for `scala-cli tests/bench/run.sc`) |
 
 Use the wall-clock benches when you need cold-JVM, fresh-process numbers

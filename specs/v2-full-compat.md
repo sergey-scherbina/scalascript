@@ -642,15 +642,56 @@ wire the smallest reusable command, record bounded numbers, and leave backend
 code optimization to follow-up slices once the baseline is honest.
 
 Behavior:
-- [ ] a documented benchmark command exposes v2 VM, v2 JVM backend, and v2 Rust
+- [x] a documented benchmark command exposes v2 VM, v2 JVM backend, and v2 Rust
       backend timing columns or clearly reports unsupported rows as `n/a`.
-- [ ] the command runs at least `arith-loop`, `pattern-match-heavy`,
+- [x] the command runs at least `arith-loop`, `pattern-match-heavy`,
       `recursion-fib`, and `recursion-tco` without returning all-`n/a` for the
       v2 backend columns.
-- [ ] this spec records the command, machine-local bounded results, and which
+- [x] this spec records the command, machine-local bounded results, and which
       Phase-3 checkboxes the numbers can and cannot close.
-- [ ] affected tests and at least `tests/conformance/run.sh --only 'litdoc'`
-      pass before the harness is pushed.
+- [x] affected tests and at least `tests/conformance/run.sh --only 'litdoc'`
+      pass.
+
+Implemented harness command:
+
+```bash
+scripts/bench v2-backends [workload]
+./bench.sh --v2-backends --warmup-time 100 --reps 3 arith-loop recursion-fib recursion-tco pattern-match-heavy
+```
+
+Short local baseline from
+`/Users/sergiy/work/my/scalascript-wt-v2-backend-performance-harness`:
+
+| Workload | `v2` ms | `v2-jvm` ms | `v2-rust` ms |
+| --- | ---: | ---: | ---: |
+| `arith-loop` | 9.49 | 0.236 | 65.9 |
+| `pattern-match-heavy` | 28.4 | 10.8 | 304.2 |
+| `recursion-fib` | 5.92 | 104.5 | 221.2 |
+| `recursion-tco` | 0.248 | 1.28 | 12.1 |
+
+After staging the worktree CLI with `scripts/sbtc "installBin"`,
+`scripts/bench v2-backends arith-loop` also works with the default corpus
+settings (`warmup-time=2000`, `reps=100`) and reported `v2=9.68 ms`,
+`v2-jvm=0.265 ms`, `v2-rust=66.8 ms`.
+
+Decision: this slice closes the measurement gap only. The source-backend
+performance checkboxes stay open because the v2 JVM/Rust columns are first
+honest baselines, not within-threshold production results. The run also forced
+a small source-backend bridge fix: standalone v2 JVM/Rust generators now handle
+the FrontendBridge subset used by the benchmark wrapper (`global.reg`,
+`__autoPrint__`, `println`/`print`, `System.nanoTime`, simple conversions, and
+list/array `foreach`).
+
+Gates for this slice:
+
+- `git diff --check`
+- `./v2/backend/check.sh tco` (2 fixtures x 3 backends)
+- `./v2/backend/check.sh bool` (1 fixture x 3 backends)
+- `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`
+- `scripts/sbtc "cli/testOnly scalascript.cli.GlobalFlagsTest"`
+- `scripts/sbtc "installBin"`
+- `tests/conformance/run.sh --only 'litdoc'`
+- `scripts/bench v2-backends arith-loop`
 
 ### T3.2 — v2 VM hot paths
 

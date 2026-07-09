@@ -12,6 +12,35 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-source-backend-bridge-bench-prims — `fixed` (2026-07-09)
+
+- **Found by:** codex, while implementing `v2-backend-performance-harness`.
+- **Repro:** stage `bin/ssc`, then run
+  `bin/ssc --backend v2-jvm bench --warmup-time 100 --reps 3 bench/corpus/arith-loop.ssc`
+  and
+  `bin/ssc --backend v2-rust bench --warmup-time 100 --reps 3 bench/corpus/arith-loop.ssc`.
+- **Observed failure:** the v2 VM label reported `BENCH v2 ...`, but the v2 JVM
+  and v2 Rust source backend labels returned `n/a`. With `SSC_BENCH_DEBUG=1`, JVM
+  generated source failed on missing `global.reg`/bridge method support, and Rust
+  generated source failed on missing `g_println` plus missing bridge method support.
+- **Impact:** the Phase-3 backend performance harness cannot produce v2 source
+  backend timing columns, so `v2 JVM backend within 2x` and `v2 Rust backend
+  within 1.5x` cannot even be measured on the corpus shape.
+- **Root cause:** the standalone v2 source generators did not provide the small
+  FrontendBridge standard global/method subset that the VM path already sees
+  (`println`, `print`, `System.nanoTime`, `__autoPrint__`, `global.reg`, and the
+  simple method calls used by the benchmark wrapper).
+- **Fix:** `605d90114` keeps the v2 benchmark wrapper portable and adds the
+  minimal JVM/Rust generated-runtime bridge globals plus `__method__` dispatch
+  needed by the harness.
+- **Gates:** `./v2/backend/check.sh tco`; `./v2/backend/check.sh bool`;
+  `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`;
+  `scripts/sbtc "cli/testOnly scalascript.cli.GlobalFlagsTest"`;
+  `scripts/sbtc "installBin"`; `tests/conformance/run.sh --only 'litdoc'`;
+  `scripts/bench v2-backends arith-loop` reported non-`n/a` rows
+  (`v2=9.68 ms`, `v2-jvm=0.265 ms`, `v2-rust=66.8 ms`).
+- **Status:** fixed; waiting for human confirmation before `done`.
+
 ## scripts-bench-wall-all-na — `fixed` (2026-07-09)
 
 - **Found by:** codex, while measuring `v2-prod-performance-gate-baseline`.
