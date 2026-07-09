@@ -1,6 +1,0 @@
-feature/v2-source-rust-recursion-fib-perf 2026-07-09T21:52:07Z
-agent: codex
-heartbeat: 2026-07-09T22:13:13Z
-status: in-progress
-done-so-far: SPRINT/spec committed; baseline v2=5.93 v2-jvm=1.42 v2-rust=226.7; v2-rust source inspection found closure/Vec/v_arith recursive calls
-next: record anti-fold bench bug, patch v2-rust bench harness, then compile/parity/conformance/bench gates
