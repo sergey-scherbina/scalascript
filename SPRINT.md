@@ -454,11 +454,13 @@ cdd032f03 «run standard scala source fences» сделал исполняемы
 
 - [ ] **unmask-remote-def** — remote-registry-rpc: `remote def f(...)` синтаксис не
       парсится бриджем (`}` expected but `def`); нужен convert-арм для remote-модификатора.
-- [ ] **unmask-splice-in-scala-fence** — traditional-payments: сплайсы `$'...` в scala-фенсе
-      падают в макро-препассе; препасс должен пропускать неизвестные формы сплайсов.
-- [ ] **unmask-webhook-global** — bank-rails-ach: webhookRequest не бриджится в v2
-      (плагин payments/webhook — проверить registerGlobals покрытие).
-- [ ] **unmask-streams-runfold** — streams: Source.runFold не бриджится (streams-плагин).
+- [x] **unmask-splice-in-scala-fence** — CLOSED: не сплайсы, а НЕВАЛИДНЫЙ Scala в примере
+      (голый $ перед цифрой в s-строке — v1 терпел, scala.meta нет); пример исправлен $$49.99.
+      ОСТАЁТСЯ (переименовано): **unmask-payments-bridge** — rc=0, но PaymentProvider-Op'ы
+      текут в вывод: payments SPI не бриджен.
+- [x] **unmask-webhook-global** — CLOSED: webhookRequest — свободная переменная ПСЕВДОКОДА;
+      введён атрибут ```scala no-run для иллюстративных фенсов, фенс размечен.
+- [x] **unmask-streams-runfold** — CLOSED: зелёный после match-scrutinee Op-lift (bbd05ab1d).
 - [ ] **unmask-markup-codec** — xslt-transform: MarkupCodec (markup-core std) не бриджится;
       после match-scrutinee Op-lift (bbd05ab1d) пример rc=0 но пустой — нужен мост плагина.
 - [x] **kernel: match-scrutinee Op-lift** — DONE bbd05ab1d: Op в скрутини матча лифтится
