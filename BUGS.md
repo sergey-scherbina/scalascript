@@ -52,6 +52,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `tests/conformance/run.sh --only 'dataset-shape' --no-memo` (1/1), and the
   original eight-row repro now reports 2 passed, 6 failed (`dataset-shape` and
   `fenceless-bare-code` pass).
+- **Progress 2026-07-09:** direct generated-JS inspection narrowed
+  `case-classes` and `sealed-traits` to a JS lexical-shadowing bug. Pattern
+  binders and lambda params are declared with local names (`const r = ...`,
+  `p => ...`), but body references choose the top-level collision-safe names
+  (`r__ssc`, `p__ssc`) when the module also has top-level `r` / `p` values. That
+  makes circle radius arithmetic read a `Rect`/`Rectangle` object (`NaN`) and
+  `points.map(p => p.x + p.y)` read the top-level point (`7, 7, 7, 7`).
+- **Progress 2026-07-09:** fixed JS local-scope precedence for lambda,
+  pattern, generator/CPS match, receive, and handler binders. Direct
+  `emit-js | node` for `case-classes` prints `3/4/78.54/24/4/0, 1, 2, 1`;
+  `sealed-traits` prints `circle/rect/tri/3.14/12/12`; focused conformance
+  `case-classes,sealed-traits` reports 2 passed, 0 failed. The original
+  eight-row repro now reports 5 passed, 3 failed: only `effect-imported-handler`,
+  `effect-transitive-handler`, and `js-applyunary-effect-cps` still fail in the
+  JS lane with missing stdout.
 - **Status:** open.
 
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)
