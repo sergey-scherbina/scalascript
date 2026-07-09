@@ -640,7 +640,10 @@ object PluginBridge:
     def reg(tag: String, fields: String*): Unit =
       V2PluginRegistry.registerFieldNames(tag, fields.toVector)
 
+    // Register both bridge shorthand Currency("USD") and std/money's
+    // Currency(code, scale, symbol). Runtime field lookup is arity-aware.
     reg("Currency", "code")
+    reg("Currency", "code", "scale", "symbol")
     reg("Money", "minorUnits", "currency")
     Seq("IntentId", "CustomerId", "VaultId", "PlanId", "SubscriptionId", "RefundId",
       "DisputeId", "ChargeId", "MandateId", "TransferId", "RejectCode", "ReturnCode")
@@ -757,7 +760,7 @@ object PluginBridge:
       case _ => BigDecimal(0)
     def field(v: V2Value, name: String, fallbackIdx: Int): V2Value = v match
       case DataV(tag, fs) =>
-        V2PluginRegistry.lookupFieldNames(tag)
+        V2PluginRegistry.lookupFieldNames(tag, fs.length)
           .flatMap(names => Option(names.indexOf(name)).filter(_ >= 0).flatMap(i => fs.lift(i)))
           .orElse(fs.lift(fallbackIdx))
           .getOrElse(UnitV)
@@ -769,12 +772,23 @@ object PluginBridge:
       case DataV("None", _) | UnitV     => None
       case other                        => Some(other)
     def currencyCode(v: V2Value): String = v match
-      case DataV("Currency", IndexedSeq(StrV(code))) => code
+      case DataV("Currency", fs) => fs.headOption.collect { case StrV(code) => code }.getOrElse("USD")
       case DataV(tag, _) if tag.length == 3 && tag.forall(_.isUpper) => tag
       case StrV(code) => code
       case _ => "USD"
     def currencyV(code: String): V2Value =
-      DataV("Currency", Vector(StrV(code.toUpperCase(java.util.Locale.ROOT))))
+      val normalized = code.toUpperCase(java.util.Locale.ROOT)
+      val scale = PayCurrency.minorUnitsPower(PayCurrency(normalized)).toLong
+      val symbol = normalized match
+        case "USD" => "$"
+        case "EUR" => "€"
+        case "GBP" => "£"
+        case "UAH" => "₴"
+        case "PLN" => "zł"
+        case "JPY" => "¥"
+        case "BHD" => "BD"
+        case other => other
+      DataV("Currency", Vector(StrV(normalized), IntV(scale), StrV(symbol)))
     def moneyV(minor: Long, currency: String): V2Value =
       DataV("Money", Vector(IntV(minor), currencyV(currency)))
     def moneyParts(v: V2Value): (Long, String) = v match
@@ -973,7 +987,15 @@ object PluginBridge:
       )
 
     V2PluginRegistry.registerGlobal("Currency", methodObject("Currency")(
-      "apply" -> fn(1) { case List(v) => currencyV(str(v)); case _ => currencyV("USD") },
+      "apply" -> fn(-1) {
+        case List(v) => currencyV(str(v))
+        case List(code, scale, symbol) =>
+          DataV("Currency", Vector(
+            StrV(str(code).toUpperCase(java.util.Locale.ROOT)),
+            IntV(int(scale)),
+            StrV(str(symbol))))
+        case _ => currencyV("USD")
+      },
       "USD" -> currencyV("USD"), "EUR" -> currencyV("EUR"), "GBP" -> currencyV("GBP"),
       "CHF" -> currencyV("CHF"), "AUD" -> currencyV("AUD"), "CAD" -> currencyV("CAD"),
       "JPY" -> currencyV("JPY"), "BRL" -> currencyV("BRL"),

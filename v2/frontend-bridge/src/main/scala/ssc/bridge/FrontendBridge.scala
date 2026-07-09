@@ -423,7 +423,7 @@ object FrontendBridge:
     // (v2-route-params-stub). registerCaseClass skips runtimeShapedTypes.
     fieldRegistry("Request") = PluginBridge.requestFieldNames
     ssc.V2PluginRegistry.registerFieldNames("Request", PluginBridge.requestFieldNames)
-    registerRecord("Currency", Vector("code"), types = Vector("String"))
+    registerRecord("Currency", Vector("code", "scale", "symbol"), types = Vector("String", "Int", "String"))
     registerRecord("Money", Vector("minorUnits", "currency"), types = Vector("Long", "Currency"))
     Seq("IntentId", "CustomerId", "VaultId", "PlanId", "SubscriptionId", "RefundId",
       "DisputeId", "ChargeId", "MandateId", "TransferId", "RejectCode", "ReturnCode")

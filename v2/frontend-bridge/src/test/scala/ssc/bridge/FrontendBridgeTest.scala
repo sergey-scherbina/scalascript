@@ -61,6 +61,15 @@ class FrontendBridgeTest extends AnyFunSuite:
     Console.withOut(out)(run(src))
     out.toString.trim
 
+  def captureFromRepo(src: String): String =
+    ensureBridgeRuntime()
+    val out = new java.io.ByteArrayOutputStream
+    Console.withOut(out) {
+      val prog = FrontendBridge.convertSource(src, Some(repoRoot))
+      Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    }
+    out.toString.trim
+
   test("literal int") {
     assert(run("42") == Value.IntV(42))
   }
@@ -190,6 +199,30 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(out.contains("paid:ch_stripe_demo_pi_1"))
     assert(out.contains("59.99"))
     assert(out.contains("List(0.34, 0.33, 0.33)"))
+    assert(!out.contains("Op("))
+    assert(!out.contains("Stub"))
+  }
+
+  test("v2 Currency companion remains compatible with std money constructors") {
+    val src =
+      """# Money
+        |
+        |[currencyOf](runtime/std/money.ssc)
+        |
+        |```scala
+        |val usd = Currency("USD", 2, "$")
+        |println(usd.code + ":" + usd.scale + ":" + usd.symbol)
+        |val brl = Currency("BRL")
+        |println(brl.code + ":" + brl.scale + ":" + brl.symbol)
+        |println(Currency.USD.code + ":" + Currency.USD.scale + ":" + Currency.USD.symbol)
+        |println(currencyOf("PLN").symbol + ":" + currencyOf("PLN").scale)
+        |```
+        |""".stripMargin
+
+    val out = captureFromRepo(src)
+    assert(out.contains("USD:2:$"))
+    assert(out.contains("BRL:2:BRL"))
+    assert(out.contains("zł:2"))
     assert(!out.contains("Op("))
     assert(!out.contains("Stub"))
   }
