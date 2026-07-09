@@ -1,0 +1,6 @@
+feature/v2-stream-family-output-parity 2026-07-09T04:18:21Z
+agent: codex
+heartbeat: 2026-07-09T04:18:21Z
+status: not-started
+done-so-far:
+next: create worktree and reproduce stream-family parity rows
