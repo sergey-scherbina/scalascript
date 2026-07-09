@@ -1,6 +1,6 @@
 feature/tkv2-webauthn 2026-07-09T00:15:26Z
 agent: codex
-heartbeat: 2026-07-09T00:15:55Z
+heartbeat: 2026-07-09T00:24:19Z
 status: in-progress
-done-so-far: worktree created
-next: write and commit specs/tkv2-webauthn.md before implementation
+done-so-far: spec/plan pushed in 08aa82744
+next: implement std/ui WebAuthn actions, JS runtime shims, signature drift fix, tests, docs, conformance
