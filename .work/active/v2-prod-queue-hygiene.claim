@@ -1,6 +1,0 @@
-feature/v2-prod-queue-hygiene 2026-07-09T01:45:39Z
-agent: codex
-heartbeat: 2026-07-09T01:47:11Z
-status: in-progress
-done-so-far: SPRINT plan pushed in 6e3b2745b
-next: reconcile stale Phase-3 switch and full-corpus duplicate rows
