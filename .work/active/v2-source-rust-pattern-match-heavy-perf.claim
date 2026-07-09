@@ -1,6 +1,6 @@
 feature/v2-source-rust-pattern-match-heavy-perf 2026-07-09T22:40:07Z
 agent: codex
 heartbeat: 2026-07-09T22:40:07Z
-status: not-started
-done-so-far:
-next: create worktree, write SPRINT/spec, baseline and inspect v2-rust pattern-match-heavy source
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-source-rust-pattern-match-heavy-perf
+next: write SPRINT/spec, baseline and inspect v2-rust pattern-match-heavy source
