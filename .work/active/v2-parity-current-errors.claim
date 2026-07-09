@@ -1,6 +1,6 @@
-feature/v2-parity-current-errors 2026-07-09T01:07:04Z
+feature/v2-parity-current-errors 2026-07-09T01:08:15Z
 agent: codex
-heartbeat: 2026-07-09T01:07:04Z
+heartbeat: 2026-07-09T01:08:15Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-parity-current-errors
-next: write SPRINT/BUGS/spec plan for current v2 output-parity V2-ERROR audit before code
+done-so-far: SPRINT plan pushed in b88cb2ef7
+next: installBin, run full v2-output-parity, reconcile stale parity blockers or file/fix first new bug
