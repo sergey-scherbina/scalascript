@@ -12,6 +12,26 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-rust-recursion-tco-bench-fold — `open` (2026-07-09)
+
+- **Found by:** codex during `v2-source-backend-production-perf-sweep`.
+- **Repro:** after `scripts/sbtc "installBin"` on current `origin/main`, run
+  `scripts/bench v2-backends recursion-tco`.
+- **Observed failure:** the v2-rust row reports `0.000000 ms/iter` while the
+  same public command reports nonzero work for the other lanes
+  (`v2=0.301 ms`, `v2-jvm=3.18 ms`). This is below any plausible execution
+  floor and means `rustc -O` still constant-folds this benchmark shape.
+- **Expected:** the v2-rust benchmark path must defeat LLVM folding for
+  tail-recursive zero-input workload helpers before a `recursion-tco` source
+  backend row can be accepted as green.
+- **Impact:** `v2-source-backend-production-perf-gates` cannot count the
+  v2-rust `recursion-tco` row as closed until the harness emits an honest,
+  nonzero measurement.
+- **Next:** inspect the generated v2-rust bench source for
+  `bench/corpus/recursion-tco.ssc` and extend the benchmark-only anti-fold
+  patch if the fix is local to `BenchCmd.timeV2Rust`; otherwise leave this as
+  the next claimed code slice.
+
 ## v2-rust-bench-zero-input-helper-fold — `fixed` (2026-07-09)
 
 - **Found by:** codex while implementing

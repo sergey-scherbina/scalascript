@@ -22,6 +22,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       before measuring current post-helper numbers, and do not change corpus
       workloads. Done when the fresh numbers are recorded durably, the claim is
       released, and `git diff --check` passes.
+      Sweep result 2026-07-09 after `scripts/sbtc "installBin"`: `scripts/bench
+      v2-backends arith-loop` reports `v2=0.000016 ms`, `v2-jvm=0.267 ms`,
+      `v2-rust=0.000025 ms`; `scripts/bench v2-backends recursion-tco` reports
+      `v2=0.301 ms`, `v2-jvm=3.18 ms`, `v2-rust=0.000000 ms`; and
+      `scripts/bench v2-backends pattern-match-heavy` reports `v2=14.8 ms`,
+      `v2-jvm=10.7 ms`, `v2-rust=318.2 ms`. Interpretation:
+      `pattern-match-heavy` remains the largest real Rust source-backend
+      blocker, but `recursion-tco` first needs a benchmark-honesty fix because
+      `v2-rust=0.000000` is an LLVM fold artifact, not a production result.
+      Track as `BUGS.md#v2-rust-recursion-tco-bench-fold`; next step in this
+      slice is to inspect the generated v2-rust bench source and either land a
+      benchmark-only `timeV2Rust` anti-fold extension or leave a precise
+      follow-up target.
 
 - [x] **v2-source-rust-recursion-fib-perf** - DONE 2026-07-09 in
       `3d975bda7`: narrow Phase-3 source-backend
