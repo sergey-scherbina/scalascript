@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2: graph plugin edge display parity fixed
+
+Bridged v1 plugin instances with named fields now render through v1 `Value.show`
+instead of leaking as `<foreign>` when printed or auto-printed by v2. This fixes
+`examples/graph-neo4j-storage.ssc`; the production output-parity gate is now
+`65/98 identical · 10 mismatch · 0 v2-error · 23 v1-only` across 195 examples.
+Gates: PluginBridgeTest 23/23, `installBin`, conformance `graph-edge-display`,
+targeted graph parity, and full `scripts/v2-output-parity --all`.
+
 ## 2026-07-09 — v2: post-split parity baseline refreshed
 
 After dynamic arithmetic unification and regex `String.split` parity, the

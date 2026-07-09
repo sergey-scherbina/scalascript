@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## v2-graph-neo4j-foreign-parity — `open` (2026-07-09)
+## v2-graph-neo4j-foreign-parity — `fixed` (2026-07-09)
 
 - **Found by:** codex, during the post-split production output-parity refresh.
 - **Repro:** after `scripts/sbtc "installBin"`, run
@@ -32,11 +32,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
   field order, but the bridged print path `v1Show` falls through to
   `Show.show` for that foreign wrapper, producing `<foreign>` instead of the
   underlying v1 `Value.show`.
-- **Plan:** reproduce in the real harness, add a focused PluginBridge regression
-  for a named-field v1 `InstanceV` wrapped as `NamedMethodObj`, then make the
-  bridged print/auto-print path render the underlying v1 value while preserving
-  field access. Verify with the focused test, `installBin`, affected graph
-  conformance/parity, and a targeted `graph-neo4j-storage.ssc` parity run.
+- **Root cause:** the hypothesis was correct, with one extra display path:
+  registered `println` uses the bridged `v1Show`, but last-expression
+  `__autoPrint__` goes through the v2 core `Show.show`. Both paths treated
+  `ForeignV(NamedMethodObj)` as opaque even when `underlying` was a v1
+  interpreter `Value`, so plugin-created named instances printed as `<foreign>`.
+- **Fix:** `c39afa9ba` renders bridged named v1 values with v1
+  `Value.show` while preserving `NamedMethodObj` field access. The v2 core
+  `Show` now sends `NamedMethodObj.underlying` through the existing
+  `foreignRenderer` callback, so auto-print and ordinary print agree.
+- **Gates:** `scripts/sbtc "v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest"`
+  passed 23/23; `scripts/sbtc "installBin"` passed;
+  `tests/conformance/run.sh --only 'graph-edge-display' --no-memo` passed INT;
+  targeted `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/graph-neo4j-storage.ssc`
+  passed 1/1; full parity is now
+  **65/98 identical · 10 mismatch · 0 v2-error · 23 v1-only** across 195
+  examples.
 
 ## jvmgen-litdoc-mapped-string-mkstring — `open` (2026-07-09)
 

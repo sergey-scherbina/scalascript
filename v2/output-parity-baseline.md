@@ -9,7 +9,47 @@ This is the REAL "does v2 replace v1?" gate: each example is run on v1
 (`ssc run --v1`) AND v2 (`ssc run --v2`) and stdout is diffed. It is far stricter
 than `scripts/v2-compat-coverage` (exit-0), which reports 96.4%.
 
-## Latest full corpus re-measure — 2026-07-09, after arith/split follow-ups
+## Latest full corpus re-measure — 2026-07-09, after graph plugin display fix
+
+Built/staged from
+`/Users/sergiy/work/my/scalascript-wt-v2-graph-neo4j-foreign-parity` with:
+
+```bash
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+```
+
+Current result:
+
+| | count |
+|---|---|
+| ✅ output-identical | **65 / 98 = 66%** |
+| ❌ mismatch | 10 |
+| ⚠️ v2-error (v1 works, v2 empty) | 0 |
+| v1-only (v2 works, v1 empty) | 23 |
+| both-fail (not a v2 gap) | 26 |
+| true-server skipped | 36 |
+| long-running skipped | 0 |
+| backend-lane skipped | 33 |
+| nondeterministic-output skipped | 2 |
+| total examples seen | 195 |
+
+Graph display fix notes:
+
+- `graph-neo4j-storage.ssc` is now output-identical: v2 prints the same
+  `StoredEdge(...)` value as v1 instead of `<foreign>`.
+- No deterministic v2-error row reappeared; the parity command still exits
+  nonzero because 10 known output mismatches remain.
+- Remaining mismatches in the full default-lane gate:
+  `async-parallel-demo.ssc`, `distributed-streams.ssc`,
+  `dsl-calc-parser.ssc`, `effects.ssc`, `lang-split.ssc`,
+  `mcp-server-protected.ssc`, `oauth-mcp-full-stack.ssc`, `os-env.ssc`,
+  `scala-js-demo.ssc`, and `streams.ssc`.
+- The remaining rows are now timing/secrets, OS placeholder, parser/DSL, and
+  stream-shape families rather than the contained graph-plugin value display
+  gap fixed here.
+
+## Previous full corpus re-measure — 2026-07-09, after arith/split follow-ups
 
 Built/staged from
 `/Users/sergiy/work/my/scalascript-wt-v2-parity-post-split-refresh` with:

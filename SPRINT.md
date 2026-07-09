@@ -510,22 +510,23 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `scripts/sbtc "installBin"`, run the full parity gate, and record exact
       counts plus the remaining mismatch list in `v2/output-parity-baseline.md`,
       `specs/v2-full-compat.md`, this SPRINT item, and `CHANGELOG.md`.
-- [ ] **v2-graph-neo4j-foreign-parity** — fix the next narrow production
-      mismatch from the post-split baseline: `examples/graph-neo4j-storage.ssc`
-      prints `StoredEdge(...)` on v1 but `<foreign>` on v2. Why: this is a
-      deterministic default-lane output mismatch and likely a contained
-      plugin-value display conversion gap, not a broad parser/stream/timing
-      family. How: reproduce with
-      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity examples/graph-neo4j-storage.ssc`
-      after `scripts/sbtc "installBin"`; add a focused `PluginBridgeTest`
-      regression for a v1 `InstanceV` with named fields converted to
-      `ForeignV(NamedMethodObj)`; fix the bridged print/auto-print path so it
-      renders the underlying v1 instance with v1 `Value.show` while preserving
-      named-field access. Verify with
-      `scripts/sbtc "v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest"`,
-      `scripts/sbtc "installBin"`, affected graph conformance/parity, and
-      update `BUGS.md`, `SPRINT.md`, `CHANGELOG.md`, and the parity baseline if
-      the full count changes.
+- [x] **v2-graph-neo4j-foreign-parity** — DONE 2026-07-09 (`c39afa9ba`):
+      fixed the next narrow production mismatch from the post-split baseline.
+      Root cause: `Graph.putEdge` returns a v1 named `InstanceV` bridged as
+      `ForeignV(NamedMethodObj)` to preserve field access, but both the bridged
+      `println` path and v2 `__autoPrint__` treated that wrapper as opaque and
+      printed `<foreign>`. Fix: render named v1-backed method objects through
+      v1 `Value.show`, and make v2 core `Show` route `NamedMethodObj.underlying`
+      through the existing foreign renderer callback. Added
+      `tests/conformance/graph-edge-display.ssc` as an INT regression for the
+      last-expression auto-print path. Gates:
+      `scripts/sbtc "v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest"`
+      passed 23/23; `scripts/sbtc "installBin"` passed;
+      `tests/conformance/run.sh --only 'graph-edge-display' --no-memo` passed;
+      targeted `graph-neo4j-storage.ssc` parity passed 1/1; full parity is now
+      **65/98 identical · 10 mismatch · 0 v2-error · 23 v1-only** `(26
+      both-fail not-a-gap · 36 true-server · 0 long-running · 33 backend-lane ·
+      2 nondet · 195 total)`.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:

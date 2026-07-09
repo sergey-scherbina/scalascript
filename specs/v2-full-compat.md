@@ -40,11 +40,35 @@ in `v2/output-parity-baseline.md` with exact counts for:
 5. Switch the default only after all remaining non-parity cases are either fixed or
    intentionally scoped out with a documented lane-specific gate.
 
-### Current baseline and first blocker
+### Current baseline and next blockers
 
-Post-split refresh (2026-07-09): after `v2-arith-unification` (`a2985d911`)
-and regex `String.split` parity (`2b5a36660`), the authoritative production
+Graph display update (2026-07-09): after `c39afa9ba`, bridged v1 plugin
+instances with named fields render through v1 `Value.show` instead of leaking
+as `<foreign>` on the v2 print/auto-print paths. The authoritative production
 gate was re-run from
+`/Users/sergiy/work/my/scalascript-wt-v2-graph-neo4j-foreign-parity`:
+
+```text
+scripts/sbtc "installBin"
+PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all
+parity: 65/98 identical · 10 mismatch · 0 v2-error · 23 v1-only
+        (26 both-fail not-a-gap · 36 true-server · 0 long-running ·
+         33 backend-lane · 2 nondet · 195 total)
+```
+
+`graph-neo4j-storage.ssc` is now output-identical (`StoredEdge(...)` on both
+v1 and v2), and no deterministic v2-error row reappeared. The remaining
+full-gate mismatches are:
+`async-parallel-demo.ssc`, `distributed-streams.ssc`, `dsl-calc-parser.ssc`,
+`effects.ssc`, `lang-split.ssc`, `mcp-server-protected.ssc`,
+`oauth-mcp-full-stack.ssc`, `os-env.ssc`, `scala-js-demo.ssc`, and
+`streams.ssc`. They are now timing/secrets, OS placeholder, parser/DSL, and
+stream-shape families rather than the contained graph-plugin value display gap
+fixed in this slice.
+
+Previous post-split refresh (2026-07-09, before graph display fix): after
+`v2-arith-unification` (`a2985d911`) and regex `String.split` parity
+(`2b5a36660`), the authoritative production gate was re-run from
 `/Users/sergiy/work/my/scalascript-wt-v2-parity-post-split-refresh`:
 
 ```text
@@ -76,7 +100,7 @@ extraction skipped. Two fixes closed the deterministic v2-error stack:
   dispatch can win before a same-named case-class method global shadows the
   extern. This makes `examples/cluster-capability.ssc` output-identical.
 
-The latest full gate is:
+That reconciliation gate was:
 
 ```text
 scripts/sbtc "installBin"
@@ -86,7 +110,7 @@ parity: 64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only
          33 backend-lane · 2 nondet · 195 total)
 ```
 
-The remaining full-gate mismatches are:
+The remaining full-gate mismatches at that point were:
 `async-parallel-demo.ssc`, `distributed-streams.ssc`, `dsl-calc-parser.ssc`,
 `effects.ssc`, `graph-neo4j-storage.ssc`, `lang-split.ssc`,
 `mcp-server-protected.ssc`, `oauth-mcp-full-stack.ssc`, `os-env.ssc`,
