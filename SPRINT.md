@@ -4584,3 +4584,6 @@ small residuals above are blocked by real browser/device/external inputs. See BA
   конверсию в бридже (не путать с @timeout-cell механизмом). graphql-client: graphql-плагин
   не бриджен + SpaceX API отдаёт HTML (частично среда).
 - ПОЛНЫЙ СЛАЙС (scoped выше): remote-registry-rpc (unmask-remote-def, 3 слоя).
+
+
+## p4-bc-perf UPDATE (78c459fc4): pure-Seq inline closed loop/recursion gaps; 9/10 workloads now parity-or-faster than VM. Remaining: recursion-tco 4.6x (boxed tail-loop params — needs unboxed Long slots).
