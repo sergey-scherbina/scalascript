@@ -82,6 +82,25 @@ object Emit:
         case _ => unroll(restFn.call(env)))
     })))
 
+  /** Let-binding effect threading (VM letThreadOp mirror): an Op in a Let rhs
+   *  re-emerges with a continuation that BINDS the resumed value and runs the
+   *  rest of the let-chain. restFn receives env :+ boundValue. */
+  def extend1(env: Array[Value], v: Value): Array[Value] =
+    val n = new Array[Value](env.length + 1)
+    System.arraycopy(env, 0, n, 0, env.length)
+    n(env.length) = v
+    n
+  def letThread(op: Value, restFn: LamFn, env: Array[Value]): Value = op match
+    case Value.DataV("Op", fs) if fs.length == 3 =>
+      val kc = fs(2).asInstanceOf[Value.ClosV]
+      Value.DataV("Op", Vector(fs(0), fs(1), Value.ClosV(Runtime.emptyEnv, 1, env2 => {
+        val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
+        Done(resumed match
+          case op2 @ Value.DataV("Op", _) => letThread(op2, restFn, env)
+          case v => unroll(restFn.call(extend1(env, v))))
+      })))
+    case v => v
+
   /** Mutual-tail trampoline: a TAIL call to another compiled def RETURNS a
    *  Bounce instead of invoking (constant stack); every consumer of a compiled
    *  method's result unrolls bounces in a loop. Wrapped in ForeignV so the

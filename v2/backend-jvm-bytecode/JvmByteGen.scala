@@ -43,6 +43,8 @@ object JvmByteGen:
     val defMethods = collection.mutable.HashMap.empty[String, (String, Int)]
     /** Pending Seq chains: (per-statement method names, statements, tailLast). */
     val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean)]
+    /** Pending Let chains: (step names, body name, rhs terms, body, tail). */
+    val letChains = collection.mutable.Queue.empty[(Vector[String], String, List[Term], Term, Boolean)]
 
   /** Emitter context for ONE method body. */
   private final class Ctx(val mv: MethodVisitor, val g: Gen):
@@ -114,9 +116,63 @@ object JvmByteGen:
       while g.chains.nonEmpty do
         val (names, ts, tailLast) = g.chains.dequeue()
         emitChain(g, names, ts, tailLast)
+      while g.letChains.nonEmpty do
+        val (steps, bodyName, rhs, body, tl) = g.letChains.dequeue()
+        emitLetChain(g, steps, bodyName, rhs, body, tl)
 
     cw.visitEnd()
     cw.toByteArray
+
+  /** Conservative may-produce-Op classifier (mirrors OpAnf.mayOp): only terms
+   *  that can reach an App or a method/effect dispatch can yield an Op. */
+  private def mayOp(t: Term): Boolean = t match
+    case Term.App(_, _) => true
+    case Term.Prim(op, args) =>
+      op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
+        op == "__spliceUnwrap__" || args.exists(mayOp)
+    case Term.If(c, a, b)    => mayOp(c) || mayOp(a) || mayOp(b)
+    case Term.Seq(ts)        => ts.exists(mayOp)
+    case Term.Let(r, b)      => r.exists(mayOp) || mayOp(b)
+    case Term.Match(s, arms, d) => mayOp(s) || arms.exists(a => mayOp(a.body)) || d.exists(mayOp)
+    case Term.Ctor(_, fs)    => fs.exists(mayOp)
+    case _ => false // Lit, Local, Global, Lam, LetRec, While
+
+  /** Let chain: step i binds rhs_i (env has bindings 0..i-1 appended). */
+  private def emitLetChain(g: Gen, steps: Vector[String], bodyName: String,
+                           rhs: List[Term], body: Term, tl: Boolean): Unit =
+    rhs.zipWithIndex.foreach { (r, i) =>
+      val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, steps(i), s"([L$VAL;)L$VAL;", null, null)
+      mv.visitCode()
+      val ctx = new Ctx(mv, g)
+      gen(r, ctx)
+      val next = if i == rhs.length - 1 then bodyName else steps(i + 1)
+      mv.visitInsn(Opcodes.DUP)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "isOp", s"(L$VAL;)Z", false)
+      val contL = new Label()
+      mv.visitJumpInsn(Opcodes.IFEQ, contL)
+      emitLamFnRef(ctx, next)
+      mv.visitVarInsn(Opcodes.ALOAD, 0)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "letThread", s"(L$VAL;L$LAMFN;[L$VAL;)L$VAL;", false)
+      mv.visitInsn(Opcodes.ARETURN)
+      mv.visitLabel(contL)
+      // bind: env :+ value → next step
+      val vSlot = ctx.nextSlot; ctx.nextSlot += 1
+      mv.visitVarInsn(Opcodes.ASTORE, vSlot)
+      mv.visitVarInsn(Opcodes.ALOAD, 0)
+      mv.visitVarInsn(Opcodes.ALOAD, vSlot)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "extend1", s"([L$VAL;L$VAL;)[L$VAL;", false)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, next, s"([L$VAL;)L$VAL;", false)
+      mv.visitInsn(Opcodes.ARETURN)
+      mv.visitMaxs(0, 0)
+      mv.visitEnd()
+    }
+    val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, bodyName, s"([L$VAL;)L$VAL;", null, null)
+    mv.visitCode()
+    val ctx = new Ctx(mv, g)
+    gen(body, ctx, tail = tl)
+    mv.visitInsn(Opcodes.ARETURN)
+    mv.visitMaxs(0, 0)
+    mv.visitEnd()
 
   /** One method per Seq statement: value checked for an un-handled Op at the
    *  boundary — fast path calls the next chain method directly. */
@@ -241,7 +297,8 @@ object JvmByteGen:
         mv.visitJumpInsn(Opcodes.IFEQ, elseL)
         gen(a, ctx, tail); mv.visitJumpInsn(Opcodes.GOTO, endL)
         mv.visitLabel(elseL); gen(b, ctx, tail); mv.visitLabel(endL)
-      case Term.Let(rhs, body) =>
+      case Term.Let(rhs, body) if !rhs.exists(mayOp) =>
+        // pure rhs: slot fast path (no allocation, no boundary checks)
         rhs.foreach { r =>
           gen(r, ctx)
           val slot = ctx.push()
@@ -249,6 +306,17 @@ object JvmByteGen:
         }
         gen(body, ctx, tail)
         ctx.pop(rhs.length)
+      case Term.Let(rhs, body) =>
+        // LET-BINDING EFFECT THREADING (VM letThreadOp mirror): OpAnf binds
+        // may-Op arguments through Lets and RELIES on this deferral. Compile
+        // as a chain over a materialized frame: each step binds by EXTENDING
+        // the array (De Bruijn order preserved); an Op rhs re-emerges via
+        // Emit.letThread with the rest of the chain as its continuation.
+        val stepNames = rhs.indices.map(_ => ctx.g.freshLam()).toVector
+        val bodyName  = ctx.g.freshLam()
+        ctx.g.letChains += ((stepNames, bodyName, rhs, body, tail))
+        emitCapture(ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, stepNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.LetRec(lams, body) =>
         // materialize the current frame, then Emit.letrec(arities, fns, env)
         val entries = lams.map {
