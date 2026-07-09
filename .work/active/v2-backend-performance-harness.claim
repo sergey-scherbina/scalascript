@@ -1,6 +1,6 @@
 feature/v2-backend-performance-harness 2026-07-09T08:08:03Z
 agent: codex
-heartbeat: 2026-07-09T08:08:03Z
-status: not-started
-done-so-far: planning/spec committed in 06608a596
+heartbeat: 2026-07-09T08:08:24Z
+status: in-progress
+done-so-far: planning/spec committed in 06608a596; worktree ready
 next: inspect benchmark/backend command paths and implement the smallest v2 backend timing harness
