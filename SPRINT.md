@@ -35,6 +35,18 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `SSC_LANE_FLAG=--v2 scripts/ssc tests/v2/gigs.ssc`. First reduce and fix
       this isolated arity regression on current ScalaScript, then re-check the
       real hub `/mcp tools/call read_gigs` leak if the isolated test is green.
+      Update 2026-07-09 (root cause found): after the Currency arity fix, the
+      live hub and a smaller import repro still leaked `GigSource.fetch`.
+      The reducer found that importing `runRepoJournalFrom` pulls in
+      `case class RepoRef(name, head)`, which makes the global field registry
+      lower every `.head` to `fieldAt`. That turns `List.head` in
+      `scoredGigs` into eager field access, bypassing method/effect lifting and
+      letting `GigSource.fetch` reach `scoreGig`'s `if`. Self-contained repro:
+      define `RepoRef(name, head)`, then call
+      `runSimGigSource(() => gigsText(scoutGigs()))` where `scoredGigs` uses
+      `gigs.foldLeft(gigs.head)(...)`; current v2 prints `abc` for
+      `RepoRef.head` and then fails with
+      `if: condition not Bool: Op("GigSource.fetch", (), <closure>)`.
 
 - [x] **v2-jvm-user-request-shadow** - DONE 2026-07-09 in `d5538d66a`:
       the JVM codegen no longer leaks public HTTP runtime `Request`/`Response`

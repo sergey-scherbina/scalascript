@@ -3491,6 +3491,21 @@ as the first blocker in this bug: fix/pin the isolated `tests/v2/gigs.ssc`
 shape on current ScalaScript first, then return to the original live hub
 `/mcp tools/call read_gigs` handle leak if it still reproduces.
 
+2026-07-09 root cause after fixing the Currency arity blocker: this is the
+same field-dispatch shadow family as earlier `head` bugs, but the effectful
+list receiver made it look like a `handle{}` leak. Reduced shape:
+`std/json + requests.ssc + gigs.ssc` is green; adding
+`runRepoJournalFrom` from `repo_journal.ssc` is enough to fail. That import
+pulls in `case class RepoRef(name: String, head: String)`, after which
+FrontendBridge's global `fieldIndex("head")` lowers every `.head` to
+`fieldAt`. In `scoredGigs`, `gigs.foldLeft(gigs.head)(...)` then evaluates
+`List.head` as eager `fieldAt` instead of the dynamic `__method__` path that
+lifts over `Op("GigSource.fetch", ...)`. Self-contained repro: define
+`RepoRef(name, head)`, define the gigs effect/scorer, print `ref.head`, then
+run `runSimGigSource(() => gigsText(scoutGigs()))`; current v2 prints `abc`
+and then fails with
+`if: condition not Bool: Op("GigSource.fetch", (), <closure>)`.
+
 Workaround used to complete the money-loop pass: busi's tool set also
 exposes `open_opportunity` as a direct entry point (bypassing
 `read_gigs`/`take_gig`), which worked correctly and let the rest of the
