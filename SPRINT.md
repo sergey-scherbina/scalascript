@@ -9,23 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-backend-performance-harness** — promote the BACKLOG Phase-3
-      separate-backend performance gate into a shippable measurement slice.
-      Current `bench.sh` `jvm`/`rust` columns are useful corpus backend columns,
-      but they do not prove the v2 separate-compilation checkboxes because they
-      are not timing the same command shape as production `ssc run-jvm --v2`
-      and the v2 Rust backend integration. Scope: inspect the existing corpus
-      benchmark harnesses (`bench.sh`, `tests/bench/run.sc`, `scripts/bench`,
-      and v2 backend check scripts), add the smallest reusable command/API that
-      times representative `.ssc` rows through v2 VM, v2 JVM source backend,
-      and v2 Rust backend when available, then record a bounded baseline in
-      `specs/v2-full-compat.md`. Do not optimize generated backend code in this
-      slice unless the harness itself cannot run without a small bug fix.
-      Done-when: `scripts/bench` or an adjacent documented wrapper exposes the
-      v2 backend timing command, the command produces non-`n/a` rows for at
-      least the four production probe workloads where backend support exists,
-      docs/specs explain which columns close which Phase-3 checkboxes, and
-      affected tests plus `tests/conformance/run.sh --only 'litdoc'` pass.
+- [x] **v2-backend-performance-harness** — DONE 2026-07-09 in
+      `605d90114`/`f991f736b`: `scripts/bench v2-backends [workload]` and
+      `./bench.sh --v2-backends ...` now expose same-shape v2 VM, v2 JVM
+      source backend, and v2 Rust source backend timing columns. The four-row
+      bounded probe produces non-`n/a` rows for `arith-loop`,
+      `pattern-match-heavy`, `recursion-fib`, and `recursion-tco`; default
+      `scripts/bench v2-backends arith-loop` after `installBin` reported
+      `v2=9.68 ms`, `v2-jvm=0.265 ms`, `v2-rust=66.8 ms`. This closes the
+      measurement gap only: the Phase-3 backend performance thresholds stay
+      open and are tracked by `v2-source-backend-production-perf-gates` in
+      BACKLOG. Gates: `git diff --check`; `./v2/backend/check.sh tco`;
+      `./v2/backend/check.sh bool`; `scripts/sbtc "cli/testOnly
+      scalascript.cli.CommandRegistryTest"`; `scripts/sbtc "cli/testOnly
+      scalascript.cli.GlobalFlagsTest"`; `scripts/sbtc "installBin"`;
+      `tests/conformance/run.sh --only 'litdoc'`; `scripts/bench v2-backends
+      arith-loop`.
 
 - [x] **v2-prod-performance-gate-baseline** — DONE 2026-07-09 in
       `a4b7e6997`: recorded the first bounded production-v2 performance gate

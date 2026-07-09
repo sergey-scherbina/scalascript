@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 backend performance harness exposes source backend columns
+
+`scripts/bench v2-backends [workload]` and `./bench.sh --v2-backends ...` now
+time representative corpus rows through v2 VM, v2 JVM source backend, and v2
+Rust source backend. The first four-row baseline is recorded in
+`specs/v2-full-compat.md`; it closes the measurement gap only, so the Phase-3
+source backend performance thresholds remain open under
+`v2-source-backend-production-perf-gates`. Gates: backend parity `tco`/`bool`,
+CLI command tests, `installBin`, conformance `litdoc`, and
+`scripts/bench v2-backends arith-loop`.
+
 ## 2026-07-09 — v2 VM hot-path triage improves recursion performance
 
 `v2/src/Runtime.scala` now catches bridge-generated Long comparisons in the

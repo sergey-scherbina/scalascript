@@ -96,13 +96,21 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       JS `String.split` uses regex semantics, JVM omits the `doc` helper when
       user code owns top-level `doc`, and JVM no-arg `.mkString()` rewrites to
       parameterless Scala `.mkString`.
-- [ ] **v2-backend-performance-harness** — add a production corpus performance
-      harness for v2 separate-compilation JVM/Rust backends. The current
-      `bench.sh` `jvm`/`rust` columns are useful backend columns but do not
-      prove the Phase-3 checkboxes "v2 JVM backend within 2x of v1 JVM backend"
-      or "v2 Rust backend within 1.5x of v1 Rust backend"; those need same-shape
-      timing around v2 `run-jvm` and the v2 Rust backend once the command path
-      is integrated.
+- [x] **v2-backend-performance-harness** — ✓ Landed (2026-07-09) in
+      `605d90114`/`f991f736b`: `scripts/bench v2-backends [workload]` and
+      `./bench.sh --v2-backends ...` now time the same corpus rows through v2
+      VM, v2 JVM source backend, and v2 Rust source backend. The harness closed
+      the measurement gap only; it did not close the Phase-3 backend performance
+      thresholds.
+- [ ] **v2-source-backend-production-perf-gates** — use the new
+      `scripts/bench v2-backends` baseline to close the Phase-3 v2 JVM/Rust
+      source backend performance gates. Current bounded local numbers are
+      mixed: `v2-jvm` is excellent on `arith-loop` but slow on
+      `recursion-fib`, while `v2-rust` is slow on all four probe rows
+      (`arith-loop` 65.9 ms, `pattern-match-heavy` 304.2 ms,
+      `recursion-fib` 221.2 ms, `recursion-tco` 12.1 ms). Scope the next
+      slice to one backend/workload family at a time, using
+      `scripts/bench v2-backends <workload>` as the before/after command.
 - [ ] **v2-vm-production-jit-gate** — close the remaining Phase-3 v2 VM
       production-performance gate with a real JIT/closed-form track rather than
       more local FC patches. The 2026-07-09 hot-path triage fixed two concrete
