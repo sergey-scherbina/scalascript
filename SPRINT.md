@@ -494,6 +494,19 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       `litdoc.ssc` eligible for the existing expected-file harness. Done-when:
       the direct litdoc A/B diff is empty and BUGS `v2-litdoc-inline-bold-parity`
       moves to `fixed`.
+- [ ] **v2-parity-post-split-refresh** — refresh the production output-parity
+      baseline after `v2-arith-unification` (`a2985d911`) and
+      `v2-litdoc-inline-bold-parity` (`2b5a36660`). Why: the current published
+      gate still predates the regex split semantic change and should be the
+      source of truth before the next mismatch fix is picked. How: from this
+      worktree, stage the runner with `scripts/sbtc "installBin"`, then run
+      `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`. Record
+      the exact counts and remaining mismatch list in
+      `v2/output-parity-baseline.md`, `specs/v2-full-compat.md`, this SPRINT
+      item, and `CHANGELOG.md`. If a new deterministic v2-error appears, add a
+      `BUGS.md` entry plus a follow-up SPRINT item instead of silently folding it
+      into the baseline. Done-when: the refreshed docs name the command, counts,
+      skipped buckets, and next actionable mismatch family.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:
