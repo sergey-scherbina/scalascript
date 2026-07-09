@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 source JVM backend supports mutual LetRec TCO
+
+`v2/backend/jvm/JvmBackend.scala` now emits a conservative local dispatcher
+loop for eligible mutual-tail `LetRec` groups, so deep even/odd-style source
+JVM programs run without recursive closure stack growth. Added
+`v2/conformance/mutual-tco.coreir` and wired it into the v2 conformance script.
+Gates: `scala-cli compile v2/backend/jvm/`, standalone generated-source checks,
+`./v2/conformance/check.sh`, `scripts/sbtc "installBin"`, and conformance
+`litdoc` on INT/JS/JVM.
+
 ## 2026-07-09 — v2 production readiness docs synced to clean default-lane gate
 
 `v2/output-parity-baseline.md` and `specs/v2-full-compat.md` now state the

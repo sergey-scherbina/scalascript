@@ -336,7 +336,11 @@ last — after everything else.**
 > publication, browser/device harnesses, hardware, or a concrete demand signal), not an unclaimed
 > "just build it" queue.
 
-- [ ] **v2-jvm-tco-manual** — hand-rolled `while`-loop trampoline instead of `@tailrec` / `TailCalls` (lower overhead for very hot mutual-recursive functions in the v2 JVM backend).
+- [x] **v2-jvm-tco-manual** ✓ Landed (2026-07-09, `7f58b1516`) — source JVM
+      backend now emits a conservative local `while` dispatcher for eligible
+      mutual-tail `LetRec` groups; unsafe groups keep the closure-var fallback.
+      Deep even/odd `mutual-tco.coreir` runs stack-safe and the full
+      `./v2/conformance/check.sh` gate passed.
 
 ## Architecture Review follow-ups (2026-06-14)
 

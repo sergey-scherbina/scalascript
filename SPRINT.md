@@ -9,20 +9,18 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-jvm-source-mutual-tco** — implement or narrowly resolve the open
-      BACKLOG `v2-jvm-tco-manual` gap for the v2 source JVM backend. Context:
-      global `SPEC.md` §7.7 says JVM backend supports self and mutual TCO, while
-      `specs/v2-backend-jvm.md` still documents source `LetRec` mutual recursion
-      as closure-vars/no-trampoline. Current code already emits `@tailrec`
-      direct defs for global self recursion and single-lam letrec; multi-lam
-      `LetRec` still recurses through closures and can stack-overflow on deep
-      even/odd. Scope: update `specs/v2-backend-jvm.md` first with a bounded
-      mutual-tail SCC/trampoline design for source backend `v2/backend/jvm/JvmBackend.scala`;
-      then implement only if the design is small and testable. Verify with a
-      deep mutual `LetRec` CoreIR fixture through `scala-cli run v2/backend/jvm`
-      plus `scalac/scala`, existing v2 backend conformance checks, and a real
-      conformance slice before push. Do not touch `v2/backend-jvm-bytecode/**`,
-      p4 worktrees, or the sibling-owned `v2-head-field-dispatch-fix` work.
+- [x] **v2-jvm-source-mutual-tco** — DONE 2026-07-09 in `7f58b1516`:
+      resolved the BACKLOG `v2-jvm-tco-manual` gap for the v2 source JVM
+      backend by adding a conservative local dispatcher loop for eligible
+      multi-lam `LetRec` groups. Deep even/odd-style mutual recursion now
+      bounces through `_TcoJump(fid,args)` without consuming JVM stack; unsafe
+      non-tail or arity-mismatched groups stay on the existing closure-var
+      fallback. Spec verification in `0247da3da`. Gates:
+      `scala-cli compile v2/backend/jvm/`; standalone source-JVM generated
+      runs for `mutual-tco.coreir` and `letrec.coreir`; temporary non-tail
+      fallback check emitted no `_mutual_`; `./v2/conformance/check.sh` passed
+      including `run-ir mutual-tco.coreir => true`; `scripts/sbtc "installBin"`;
+      `tests/conformance/run.sh --only 'litdoc'` passed INT/JS/JVM.
 
 - [x] **v2-prod-readiness-doc-sync** — DONE 2026-07-09 in `745bf2de6`:
       synced the durable v2 production-readiness docs after the clean
