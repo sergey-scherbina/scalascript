@@ -1,6 +1,6 @@
-feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:33:04Z
+feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:33:25Z
 agent: codex
-heartbeat: 2026-07-09T23:33:04Z
-status: not-started
-done-so-far:
-next: create worktree, write specs/v2-pattern-match-heavy-production-profile.md, then recapture and inspect/profile pattern-match-heavy
+heartbeat: 2026-07-09T23:33:25Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-v2-pattern-match-heavy-production-profile
+next: write specs/v2-pattern-match-heavy-production-profile.md, then recapture and inspect/profile pattern-match-heavy
