@@ -12,6 +12,29 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-arith-dispatch-split — `open` (2026-07-09)
+
+- **Found by:** codex, while promoting BACKLOG `v2-arith-unification` for v2
+  production readiness.
+- **Related history:** `v2-arith-table-divergence` fixed the immediate busi
+  litdoc regression by keeping literal op names in place through `OpAnf` and by
+  patching Map+Tuple2 into the non-literal table. That entry intentionally left
+  full unification to BACKLOG.
+- **Repro shape:** construct CoreIR where `__arith__` receives the operator from
+  a local binding rather than a literal, e.g. `let op = "+" in __arith__(op,
+  attrs, ("id" -> "demo"))`. This forces `resolve("__arith__")` instead of the
+  literal-op `Prims.arithOp` fast path. The same operator/value pair should have
+  identical semantics regardless of whether `op` is a literal or a local.
+- **Impact:** production v2 has two arithmetic semantics tables. A future ANF,
+  bridge, or optimizer change can silently switch programs between the richer
+  `Prims.arithOp` path (Op lifting, Map+Tuple2, char-code comparisons,
+  Cons-minus) and the table path (historically weaker plus table-only Decimal,
+  actor-send, and declaration fallbacks).
+- **Plan:** move table-only behavior into `Prims.arithOp`, make
+  `resolve("__arith__")` delegate to `arithOp`, and add focused regressions for
+  non-literal operator dispatch so this split cannot reappear.
+- **Status:** open; active claim `v2-arith-unification`.
+
 ## v2-cluster-stdlib-import-gap — `fixed` (2026-07-09)
 
 - **Found by:** codex, after `cdd032f03` fixed standard `scala` fence

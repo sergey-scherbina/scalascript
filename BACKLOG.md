@@ -37,7 +37,8 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       v1 side: force parameterless natives in receiver position (or bind `args`
       as a value list like v2 now does).
 
-- [ ] **v2-arith-unification** (2026-07-08) — TWO diverged arith implementations:
+- **v2-arith-unification** (2026-07-08) — PROMOTED to SPRINT 2026-07-09
+      (`feature/v2-arith-unification`): TWO diverged arith implementations:
       `Prims.arithOp` (full: Op-lifting, Map+(k->v), char comparisons, Cons-minus) used
       when the op name is a LITERAL, vs the resolve-table `__arith__` entry (weaker,
       string-concat fallback) for non-literal names. The busi litdoc bug was exactly this

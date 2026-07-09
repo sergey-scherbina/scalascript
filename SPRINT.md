@@ -441,6 +441,21 @@ Coordinate with existing Phase-3/p3 items below instead of duplicating their fix
       Done-when: `SPRINT.md` has no stale open switch/full-corpus duplicates,
       `CHANGELOG.md` names this queue cleanup, and a docs-only verification
       (`git diff --check`) passes.
+- [ ] **v2-arith-unification** — remove the remaining v2 arithmetic dispatch
+      split between literal-op `Prims.arithOp` fast paths and the non-literal
+      `resolve("__arith__")` table. Why: BACKLOG/BUGS already caught a real
+      busi litdoc failure where ANF demoted `__arith__(Lit("+"), map, pair)` to
+      the weaker table path; patching one case fixed litdoc, but production v2
+      should not have two divergent semantic tables. How: add focused CoreIR
+      regressions that pass the op name through a local (forcing the non-literal
+      path) for Map+Tuple2, char-code comparisons, Decimal, Tuple++/list ops,
+      actor-send/unknown-declaration fallbacks as applicable; move table-only
+      behavior into `Prims.arithOp`; make `resolve("__arith__")` a thin delegate
+      to `arithOp`; remove `arithOp` fallbacks that call `resolve("__arith__")`
+      so the delegate cannot recurse. Verify with
+      `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest"`
+      plus affected conformance `tests/conformance/run.sh --only 'litdoc,arithmetic' --no-memo`
+      after `installBin`.
 - [x] **v2-prod-baseline-refresh** — DONE 2026-07-08: refreshed the authoritative
       full-corpus output-parity baseline from this worktree after `scripts/sbtc
       "installBin"`. Command:
