@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **jsgen-preamble-collision-decls** — close the remaining actionable
+      `jsgen-toplevel-name-vs-preamble` production bug class after
+      `v2-litdoc-js-jvm-backend-lanes` fixed top-level `val`/`var` collisions.
+      BUGS entry still open because other top-level declaration forms were not
+      audited. Scope: inspect `runtime/backend/js` generator naming/lowering for
+      user top-level `def`, object/enum/class-like declarations, and std extern
+      declarations that may collide with JS runtime/preamble globals such as
+      `scope`, `args`, `doc`, `List`, `assert`, and fs/clock helpers. Fix by
+      reusing the derived runtime top-level declaration set and applying one
+      consistent JS-safe rename map across declaration emission and references;
+      do not broaden into unrelated missing JS capability runtime hooks
+      (`nowMillis`, crypto) unless a focused collision test requires it. Add
+      focused regression tests next to `JsGenStdImportTest`, plus a CLI/raw
+      `emit-js | node --check` or conformance slice if an existing fixture can
+      exercise the fixed form. Done when the BUGS entry moves to `fixed` (or a
+      clearly-scoped residual follow-up remains for a different capability gap)
+      and affected JS tests/conformance pass.
+
 - [x] **bug-ledger-scjvm-cache-duplicate-close** — DONE 2026-07-09: closed the old
       `scjvm-artifact-cache-ignores-compiler-version` BUGS entry as a duplicate
       of the landed `jvm-artifact-cache-codegen-invalidation` fix. Found after
