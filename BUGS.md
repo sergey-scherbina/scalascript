@@ -75,16 +75,27 @@ commit SHA until the reporter confirms, then they can be trimmed.
   reserved by the parent. Since `genImport` skips binding when source and local
   names are both `query`, no `const query__ssc = query__ssc1` alias exists, so
   effect calls throw `ReferenceError: query__ssc is not defined`.
+- **Progress 2026-07-09:** after those semantic fixes, a post-rebase full
+  conformance run exposed an infrastructure flake: `strings`,
+  `fenceless-bare-code`, and early actor JVM lanes could report missing stdout
+  when Scala.js or JVM `scala-cli` paths reused a broken Bloop BSP socket. Direct
+  stderr showed `Scala.js compilation failed` with `InterruptedException` /
+  BSP socket timeout. `--cold-jvm` actor slices passed, proving the rows were
+  not semantic regressions.
 - **Fix:** `bd85a5f95` fixed stale JVM dataset artifacts, `bf0402b12` fixed
-  JS local-scope precedence for lambda/pattern binders, and `6a869266b` fixed
+  JS local-scope precedence for lambda/pattern binders, `76b9432ef` fixed
   unqualified JS import aliases when parent and child top-level runtime
-  collision renames diverge.
-- **Verified:** `backendJs/compile; installBin`; direct `emit-js | node` for
-  `case-classes`, `sealed-traits`, `effect-imported-handler`,
-  `effect-transitive-handler`, and `js-applyunary-effect-cps`; focused
-  conformance for the two JS slices; original eight-row repro 8/8; full
-  `tests/conformance/run.sh --no-memo` reports 145 passed, 0 failed out of 145
-  tests (+2 pending); `git diff --check`.
+  collision renames diverge, `7f4cb82d7` makes Scala.js standard-block
+  `scala-cli --js` package/run calls serverless, and `1291ed03b` makes the
+  conformance JVM lane serverless by default while keeping `--warm-jvm` as an
+  opt-in.
+- **Verified:** `backendJs/compile; installBin`; `backendScalajs/compile;
+  installBin`; direct `emit-js | node` for `case-classes`, `sealed-traits`,
+  `effect-imported-handler`, `effect-transitive-handler`, and
+  `js-applyunary-effect-cps`; focused conformance for the JS semantic slices;
+  original eight-row repro 8/8; actor Bloop repro slice 4/4; fenceless /
+  standard-Scala slice 4/4; full default `tests/conformance/run.sh --no-memo`
+  reports 145 passed, 0 failed out of 145 tests (+2 pending); `git diff --check`.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)

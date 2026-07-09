@@ -10,10 +10,13 @@ The deterministic top-level conformance blocker found after the v2 bytecode
 slice is fixed. `dataset-shape` now regenerates stale JVM artifacts; JS codegen
 keeps local lambda/pattern binders ahead of top-level collision-safe names; and
 unqualified imports now alias the importer-local JS name to the child module's
-actual emitted JS name when runtime-collision renames diverge. Gates:
-`backendJs/compile; installBin`, the original eight-row repro 8/8, full
-`tests/conformance/run.sh --no-memo` 145 passed, 0 failed (+2 pending), and
-`git diff --check`.
+actual emitted JS name when runtime-collision renames diverge. Scala.js
+standard-block compilation and the conformance JVM lane now run `scala-cli`
+serverless by default, so the production gate no longer depends on a Bloop BSP
+socket. Gates: `backendJs/compile; installBin`, `backendScalajs/compile;
+installBin`, the original eight-row repro 8/8, actor Bloop repro 4/4,
+fenceless/standard-Scala slice 4/4, full `tests/conformance/run.sh --no-memo`
+145 passed, 0 failed (+2 pending), and `git diff --check`.
 
 ## 2026-07-09 — JVM dataset conformance regenerates stale mkString artifacts
 

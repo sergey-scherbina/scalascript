@@ -10,7 +10,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 ---
 
 - [x] **green-main-conformance-7fail** — DONE 2026-07-09 in `bd85a5f95`,
-      `bf0402b12`, and `6a869266b`: restored the default top-level
+      `bf0402b12`, `76b9432ef`, `7f4cb82d7`, and `1291ed03b`: restored the default top-level
       conformance gate after fresh `--no-memo` repro confirmed 7 deterministic
       failures on 2026-07-09. Repro from a clean staged CLI:
       `scripts/sbtc "installBin"` then
@@ -56,18 +56,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       reserved by the parent. `genImport` currently skips alias emission when
       the source and local names are both `query`; fix unqualified import
       binding to alias the parent local JS name to the child emitted JS name.
-      Final gates: `backendJs/compile; installBin`, direct `emit-js | node`
+      Final gates: `backendJs/compile; installBin`, `backendScalajs/compile; installBin`, direct `emit-js | node`
       for `case-classes`, `sealed-traits`, `effect-imported-handler`,
       `effect-transitive-handler`, and `js-applyunary-effect-cps`, focused
       conformance for the two JS slices, original eight-row repro 8/8, full
       `tests/conformance/run.sh --no-memo` 145 passed, 0 failed (+2 pending),
       and `git diff --check`.
-      Runner hygiene slice 2026-07-09: after the Scala.js serverless fix,
-      full conformance exposed that the JVM lane's default warm Bloop mode can
-      turn many compile-backed rows into missing stdout after a BSP socket
-      failure. Make default conformance JVM execution serverless as well,
-      preserving `--warm-jvm`/`SSC_SCALACLI_SERVER=1` as opt-in, then rerun the
-      actor repro slice and the full corpus.
+      Runner hygiene 2026-07-09: `fenceless-bare-code` exposed a Scala.js
+      `scala-cli --js` Bloop startup failure, so Scala.js standard-block
+      package/run calls now pass `--server=false`. The default conformance JVM
+      lane is also serverless; `--warm-jvm`/`SSC_SCALACLI_SERVER=1` remains an
+      explicit local speed opt-in. Verified the actor warm-Bloop repro slice
+      4/4, the fenceless/standard-Scala slice 4/4, and the full default
+      `tests/conformance/run.sh --no-memo` corpus 145/0 (+2 pending).
 
 - [x] **v2-read-gigs-handle-leak-minimize** - DONE 2026-07-09 in
       `dd42da430` and `615ed5f8f`: fixed both production blockers behind
