@@ -1,0 +1,6 @@
+feature/v2-parity-current-errors 2026-07-09T01:06:45Z
+agent: codex
+heartbeat: 2026-07-09T01:06:45Z
+status: not-started
+done-so-far:
+next: plan current v2 output-parity V2-ERROR audit/fix slice in SPRINT and BUGS before code
