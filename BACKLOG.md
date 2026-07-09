@@ -140,6 +140,15 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       source blocker at `v2=14.8 ms`, `v2-jvm=10.7 ms`, `v2-rust=318.2 ms`.
       Next recommended slice: `v2-source-rust-pattern-match-heavy-perf`. Also
       track `v2-jvm recursion-tco=3.11 ms` as a smaller JVM source-backend gap.
+      Progress 2026-07-09: the `v2-source-rust-pattern-match-heavy-perf`
+      slice closes the Rust source `pattern-match-heavy` row with structural
+      Float helpers and a static top-level-list reduction path:
+      `scripts/bench v2-backends pattern-match-heavy` moved `v2-rust` from
+      319.1 ms to 0.278 ms (`v2=15.6 ms`, `v2-jvm=10.6 ms`). Rust source rows
+      are no longer the blocker in the four-row source-backend sweep. The
+      remaining recommended source-backend slice is
+      `v2-source-jvm-recursion-tco-perf` (`v2-jvm=3.20 ms` in the regression
+      row from this slice).
 - [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
       three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from

@@ -44,17 +44,17 @@ def workload(): Double =
 
 ## Behavior
 
-- [ ] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
+- [x] A fresh worktree baseline is captured after `scripts/sbtc "installBin"`
       using `scripts/bench v2-backends pattern-match-heavy`.
-- [ ] The emitted v2 Rust source for the bench wrapper is inspected before code
+- [x] The emitted v2 Rust source for the bench wrapper is inspected before code
       changes and the dominant overhead hypothesis is recorded here.
-- [ ] Any implementation lands one conservative v2 Rust source-backend
+- [x] Any implementation lands one conservative v2 Rust source-backend
       optimization for the measured pattern/list/match shape, preserving
       existing `.ssc` semantics and output.
-- [ ] Before/after numbers from the same benchmark command are recorded here;
+- [x] Before/after numbers from the same benchmark command are recorded here;
       the broader source-backend production gate remains open unless all
       remaining source rows are also proven green.
-- [ ] Affected semantic/conformance or backend parity gates pass, the final
+- [x] Affected semantic/conformance or backend parity gates pass, the final
       public bench row demonstrates the result, and `git diff --check` passes.
 
 ## Out of Scope
@@ -189,5 +189,62 @@ must be structural, guarded by CoreIR shape/type proof, and optional.
 
 ## Results
 
-Pending. Fill after implementation and verification with exact commits,
-before/after numbers, rejected alternatives, and gates.
+Implemented in `a7f37b620` (`fix(v2-rust): specialize float static-list
+reductions`).
+
+What landed:
+
+- The v2 Rust source backend now infers global lambdas whose bodies are
+  provably Float-typed and emits optional `<global>_float(...) -> f64` helpers.
+  Generic `V::Fn` closures remain emitted for first-class and non-Float uses.
+- Float helpers keep boxed `V` parameters so ADT/list values preserve existing
+  runtime representation, but lower Float-returning `match` arms, arithmetic,
+  and direct Float cells to native `f64`.
+- A structural static-list reduction path recognizes the measured shape
+  `topLevelList.foreach(item => total = total + floatFn(item))` inside a
+  Float helper. It precomputes the immutable list's per-item Float values once
+  per helper call, then runs the hot `while` body as native `f64` additions.
+- The optimization is guarded by CoreIR shape/type proof. It is not keyed to
+  the corpus filename or symbol names, and generic `v_method("foreach")` /
+  boxed `cell` / generic `match` fallback remains available elsewhere.
+
+Final public before/after:
+
+```bash
+scripts/bench v2-backends pattern-match-heavy
+```
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `pattern-match-heavy` baseline | 15.4 | 10.8 | 319.1 |
+| `pattern-match-heavy` final | 15.6 | 10.6 | 0.278 |
+
+Regression rows stayed in the expected range:
+
+```bash
+scripts/bench v2-backends recursion-fib
+scripts/bench v2-backends recursion-tco
+```
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-fib` | 8.45 | 1.38 | 1.44 |
+| `recursion-tco` | 0.302 | 3.20 | 0.668 |
+
+Verification:
+
+- `scripts/sbtc "installBin"`
+- `scala-cli compile --server=false v2/backend/rust`
+- `v2/backend/check.sh bool`
+- `v2/backend/check.sh tco`
+- `v2/backend/check.sh letrec`
+- `v2/backend/check.sh mutual-recursion`
+- `tests/conformance/run.sh --only 'pattern-matching,sealed-traits,list-companion,tagless-sealed-dispatch,v2-multiline-list-literal' --no-memo`
+  (5 passed, 0 failed)
+- `scripts/bench v2-backends pattern-match-heavy`
+- `scripts/bench v2-backends recursion-fib`
+- `scripts/bench v2-backends recursion-tco`
+- `git diff --check`
+
+The broader source-backend production gate remains open for the smaller JVM
+source `recursion-tco` gap (`v2-jvm=3.20 ms` in this slice's regression row).

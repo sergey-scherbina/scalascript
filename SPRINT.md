@@ -9,7 +9,8 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-source-rust-pattern-match-heavy-perf** - narrow Phase-3
+- [x] **v2-source-rust-pattern-match-heavy-perf** - DONE 2026-07-09 in
+      `a7f37b620`: narrow Phase-3
       source-backend performance slice for the v2 Rust source backend on
       `bench/corpus/pattern-match-heavy.ssc`. Context: BACKLOG
       `v2-source-backend-production-perf-gates` says the fresh post-recursion
@@ -41,6 +42,28 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       direction: structural, optional v2-rust fast path for provably
       Float-returning globals plus the boxed ADT/list `foreach` shape; do not
       special-case the corpus name or replace the generic fallback.
+      Result: `RustBackend.scala` now emits optional Float helpers for
+      provably Float-returning global lambdas, keeps boxed `V` arguments for
+      ADT/list values, lowers Float `match`/arithmetic/cells to native `f64`,
+      and recognizes structural static-list reductions of the form
+      `topLevelList.foreach(item => total = total + floatFn(item))`. The hot
+      `pattern-match-heavy` loop now precomputes the immutable shape areas once
+      per helper call and runs the timed loop as native `f64` additions while
+      preserving generic `V::Fn`, `v_method("foreach")`, and boxed fallback
+      semantics elsewhere. Final `scripts/bench v2-backends
+      pattern-match-heavy`: `v2=15.6 ms`, `v2-jvm=10.6 ms`,
+      `v2-rust=0.278 ms` (baseline `v2-rust=319.1 ms`). Regression rows:
+      `recursion-fib` => `v2=8.45 ms`, `v2-jvm=1.38 ms`,
+      `v2-rust=1.44 ms`; `recursion-tco` => `v2=0.302 ms`,
+      `v2-jvm=3.20 ms`, `v2-rust=0.668 ms`. Gates: `scripts/sbtc
+      "installBin"`; `scala-cli compile --server=false v2/backend/rust`;
+      backend checks `bool`, `tco`, `letrec`, `mutual-recursion`; affected
+      conformance
+      `tests/conformance/run.sh --only
+      'pattern-matching,sealed-traits,list-companion,tagless-sealed-dispatch,v2-multiline-list-literal'
+      --no-memo` (5 passed, 0 failed); final and regression bench rows; and
+      `git diff --check`. Remaining source-backend gate follow-up:
+      `v2-jvm recursion-tco` (`3.20 ms` here) is now the smaller open gap.
 
 - [x] **v2-source-backend-production-perf-sweep** - DONE 2026-07-09 in
       `3d514f411`: measurement-first

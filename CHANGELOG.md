@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-09 — v2 Rust source backend specializes Float static-list reductions
+
+The v2 Rust source backend now emits optional `f64` helpers for provably
+Float-returning global lambdas and a structural static-list reduction fast path
+for `topLevelList.foreach(item => total = total + floatFn(item))`. The generic
+boxed `V::Fn`/`v_method("foreach")` fallback remains in place. Public
+`scripts/bench v2-backends pattern-match-heavy` moved `v2-rust` from 319.1ms to
+0.278ms (`v2=15.6ms`, `v2-jvm=10.6ms`). Regression rows stayed stable:
+`recursion-fib v2-rust=1.44ms`, `recursion-tco v2-rust=0.668ms`. Gates: Rust
+backend compile, `installBin`, backend `bool`/`tco`/`letrec`/`mutual-recursion`,
+affected match/list conformance 5/5, final and regression bench rows, and
+`git diff --check`.
+
 ## 2026-07-09 — v2 source backend production rows remeasured after Rust recursion fixes
 
 The source-backend production gate now has fresh post-helper numbers for the
