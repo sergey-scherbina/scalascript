@@ -74,6 +74,48 @@ object PluginBridge:
           scalascript.interpreter.Computation.run(nfv.f(args.map(rawToV1)))
         case other =>
           throw new RuntimeException(s"invokeCallback: not callable: ${Option(other).fold("null")(_.getClass.getName)}")
+    // serve()/serve(port, tls(...)) on the v2 lane: the frontend-plugin's serve
+    // native calls ctx.startServer/startTlsServer — the NativeContext DEFAULTS
+    // are silent no-ops (IntrinsicImpl.scala), so the busi hub "booted" (banner
+    // printed) but never bound a listener (BUGS.md v2-serve-noop-minimalctx).
+    // Route through the same real v1 WebServer the serveAsync bridge uses;
+    // the sync variants BLOCK on the calling thread (v1 serve semantics — the
+    // program stays alive serving).
+    override def startServer(port: Int, dir: String): Unit =
+      scalascript.server.WebServer.start(port, dir, Console.out)
+    override def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
+      scalascript.server.WebServer.start(port, dir, Console.out, cert, key)
+    override def startServerAsync(port: Int, dir: String): Unit =
+      minimalStartAsync(port, dir, "", "")
+    override def startTlsServerAsync(port: Int, dir: String, cert: String, key: String): Unit =
+      minimalStartAsync(port, dir, cert, key)
+    override def stopServer(): Unit =
+      try scalascript.server.WebServer.stop() catch case _: Throwable => ()
+    // v1 serve() registers /_health + /_ready before binding
+    // (ClusterRoutesRuntime.registerHealthDefaults) — mirror it on the bridge
+    // registry so health probes see the same surface on the v2 lane.
+    override def registerHealthDefaults(): Unit =
+      import scalascript.interpreter.{Value as V1V, Computation}
+      def isRegistered(path: String): Boolean =
+        scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
+      val okResponse = V1V.InstanceV("Response", Map(
+        "status"  -> V1V.intV(200),
+        "headers" -> V1V.MapV(Map(V1V.StringV("Content-Type") -> V1V.StringV("application/json"))),
+        "body"    -> V1V.StringV("""{"status":"ok"}""")
+      ))
+      val handler = V1V.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
+      if !isRegistered("/_health") then scalascript.server.Routes.register("GET", "/_health", handler, routeInterp)
+      if !isRegistered("/_ready")  then scalascript.server.Routes.register("GET", "/_ready",  handler, routeInterp)
+    private def minimalStartAsync(port: Int, dir: String, cert: String, key: String): Unit =
+      val bound = new java.util.concurrent.CountDownLatch(1)
+      val th = new Thread(() => {
+        try scalascript.server.WebServer.start(port, dir, Console.out, cert, key, onBound = () => bound.countDown())
+        catch case e: Throwable =>
+          System.err.println(s"startServerAsync: ${e.getMessage}"); bound.countDown()
+      }, "ssc-v2-web-async")
+      th.setDaemon(true)
+      th.start()
+      bound.await(10, java.util.concurrent.TimeUnit.SECONDS)
     override def registerRoute(method: String, path: String, handler: Any): Unit =
       scalascript.server.Routes.register(method, path, routeHandlerToV1(handler), routeInterp)
     override def registerRouteWithOpenApi(
