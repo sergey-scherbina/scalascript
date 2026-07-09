@@ -45,6 +45,9 @@ object JvmByteGen:
     val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean)]
     /** Pending Let chains: (step names, body name, rhs terms, body, tail). */
     val letChains = collection.mutable.Queue.empty[(Vector[String], String, List[Term], Term, Boolean)]
+    /** Top-level def names whose body is provably effect-free (never yields an
+     *  Op) — App to these is safe inside an inline-foreach body. */
+    val pureDefs = collection.mutable.HashSet[String]()
 
   /** Emitter context for ONE method body. */
   private final class Ctx(val mv: MethodVisitor, val g: Gen):
@@ -122,6 +125,21 @@ object JvmByteGen:
     installMv.visitInsn(Opcodes.RETURN)
     installMv.visitMaxs(0, 0); installMv.visitEnd()
 
+    // Fixpoint: a top-level def is PURE if its Lam body is effect-free given the
+    // currently-known pure defs (allows mutual recursion among pure defs). Lets
+    // an inline-foreach body call pure defs — e.g. `shapes.foreach(s => total =
+    // total + area(s))` where `area` is a pure match+arith.
+    val lamBodies = p.defs.collect {
+      case d if d.body.isInstanceOf[Term.Lam] => d.name -> d.body.asInstanceOf[Term.Lam].body
+    }.toMap  // last-wins, mirrors runtime def shadowing
+    var pureChanged = true
+    while pureChanged do
+      pureChanged = false
+      lamBodies.foreach { (name, body) =>
+        if !g.pureDefs.contains(name) && pureNoEffect(body, g.pureDefs) then
+          g.pureDefs += name; pureChanged = true
+      }
+
     // drain pending lam bodies and seq chains (each may enqueue more)
     while g.pending.nonEmpty || g.chains.nonEmpty do
       while g.pending.nonEmpty do
@@ -166,17 +184,23 @@ object JvmByteGen:
    *  effect/method dispatch prims (which can yield Ops); allows arith, var-cell
    *  reads/writes, array ops, control flow, and leaves. Mirrors the intent of
    *  the VM's tryFC declining effectful bodies. */
-  private def pureNoEffect(t: Term): Boolean = t match
+  private def pureNoEffect(t: Term, pureDefs: collection.Set[String]): Boolean = t match
     case Term.Lit(_) | Term.Local(_) | Term.Global(_) => true
     case Term.Prim(op, args) =>
       val okOp = op == "__arith__" || op == "__isTag__" || op == "fieldAt" ||
         op.startsWith("cell.") || op.startsWith("lcell.") ||
         op == "arr.get" || op == "arr.set" || op == "unitV"
-      okOp && args.forall(pureNoEffect)
-    case Term.If(c, a, b) => pureNoEffect(c) && pureNoEffect(a) && pureNoEffect(b)
-    case Term.Seq(ts)     => ts.forall(pureNoEffect)
-    case Term.Let(rhs, b) => rhs.forall(pureNoEffect) && pureNoEffect(b)
-    case _ => false // App, __method__/__effect__/__methodOrExt__, Lam, LetRec, While, Match, Ctor — conservatively effectful
+      okOp && args.forall(pureNoEffect(_, pureDefs))
+    case Term.If(c, a, b) => pureNoEffect(c, pureDefs) && pureNoEffect(a, pureDefs) && pureNoEffect(b, pureDefs)
+    case Term.Seq(ts)     => ts.forall(pureNoEffect(_, pureDefs))
+    case Term.Let(rhs, b) => rhs.forall(pureNoEffect(_, pureDefs)) && pureNoEffect(b, pureDefs)
+    case Term.Ctor(_, fs) => fs.forall(pureNoEffect(_, pureDefs))
+    case Term.Match(s, arms, d) =>
+      pureNoEffect(s, pureDefs) && arms.forall(a => pureNoEffect(a.body, pureDefs)) && d.forall(pureNoEffect(_, pureDefs))
+    // App to a provably-pure top-level def is effect-free (e.g. `area(s)` in a
+    // foreach body); other calls stay conservatively effectful.
+    case Term.App(Term.Global(g), args) => pureDefs.contains(g) && args.forall(pureNoEffect(_, pureDefs))
+    case _ => false // other App, __method__/__effect__/__methodOrExt__, Lam, LetRec, While — conservatively effectful
 
   /** Conservative may-produce-Op classifier (mirrors OpAnf.mayOp): only terms
    *  that can reach an App or a method/effect dispatch can yield an Op. */
@@ -423,7 +447,7 @@ object JvmByteGen:
       // analog). Effectful bodies fall through to the runtime foreachConsOp
       // path (which threads Ops); the guard keeps effect semantics correct.
       case Term.Prim("__method__", Term.Lit(Const.CStr("foreach")) :: recv :: Term.Lam(1, body) :: Nil)
-          if pureNoEffect(body) =>
+          if pureNoEffect(body, ctx.g.pureDefs) =>
         gen(recv, ctx)
         val listSlot = ctx.nextSlot; ctx.nextSlot += 1
         mv.visitVarInsn(Opcodes.ASTORE, listSlot)
