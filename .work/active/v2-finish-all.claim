@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/v2-finish-all
+worktree: ../scalascript-wt-finish
+started: 2026-07-09
+status: in-progress
+task: v2-finish-all — доделать v2: (1) 3 VM-бага (native-result-unregistered-field, db-url-scheme-not-jdbc, fence-regex-midline), (2) bridge named-arg протокол (mcp), (3) graphql-мост, (4) remote 3-слоя если не взят, (5) средовые → graceful/документировать. Инкрементальные коммиты.
