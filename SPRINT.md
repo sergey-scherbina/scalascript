@@ -27,6 +27,9 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       and source inspection are recorded durably, affected recursion/TCO
       conformance or backend parity gates are green, the final public bench row
       demonstrates the result, and `git diff --check` passes.
+      Fresh baseline 2026-07-09 after `scripts/sbtc "installBin"`:
+      `scripts/bench v2-backends recursion-tco` reports `v2=0.298 ms`,
+      `v2-jvm=3.09 ms`, `v2-rust=0.704 ms`.
 
 - [x] **v2-source-rust-pattern-match-heavy-perf** - DONE 2026-07-09 in
       `a7f37b620`: narrow Phase-3

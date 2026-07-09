@@ -95,6 +95,12 @@ scripts/bench v2-backends recursion-tco
 Refresh this table in this worktree after `scripts/sbtc "installBin"` before
 making code changes.
 
+Fresh worktree baseline after `scripts/sbtc "installBin"` on 2026-07-09:
+
+| Workload | v2 ms/iter | v2-jvm ms/iter | v2-rust ms/iter |
+| --- | ---: | ---: | ---: |
+| `recursion-tco` | 0.298 | 3.09 | 0.704 |
+
 ## Inspection
 
 Pending. Record the emitted v2 JVM source shape and dominant overhead before
