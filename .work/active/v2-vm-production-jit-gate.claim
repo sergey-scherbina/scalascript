@@ -1,6 +1,6 @@
 feature/v2-vm-production-jit-gate 2026-07-09T08:45:22Z
 agent: codex
-heartbeat: 2026-07-09T08:45:52Z
+heartbeat: 2026-07-09T08:57:36Z
 status: in-progress
-done-so-far: claim published; worktree created at /Users/sergiy/work/my/scalascript-wt-v2-vm-production-jit-gate
-next: promote BACKLOG item into SPRINT and write focused production JIT-gate spec before code
+done-so-far: spec committed in worktree; arith-loop exact Long-cell closed-form candidate implemented; local bench moved v2 arith-loop 9.91 ms to 0.000018 ms
+next: run affected tests/conformance, record results, commit/push sub-slice
