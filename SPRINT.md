@@ -135,6 +135,19 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             104 staged runtime JARs, imported `std/ui/primitives` emitted the
             same escaped HTML bytes on native VM/ASM, both assembled gates
             PASS, and `v2-*` conformance 8/8.
+      - [ ] **Native State effect slice:** extend `NativePluginContext` with
+            host-owned `withEffect(effectTag)(handler)(body)` so push/pop and
+            exception cleanup remain kernel details. Add a core-free
+            `v2/runtime/std/state-effect-plugin` that registers `State` and
+            curried `runState(initial)(thunk)`, handles get/set/modify, invokes
+            modify callbacks only through `context.invoke`, and returns
+            `(finalState, bodyResult)`. Cover nested handler restoration and
+            cleanup in unit tests; add assembled native VM/ASM mutation smoke
+            plus ServiceLoader/static/runtime classpath gates. Keep Logger,
+            Random, Clock, Env, Retry, Cache, Async, and Stream runners as
+            explicit follow-ups without `BlockForm` fallback. Done when SPI and
+            provider tests, `installBin`, both e2e gates, and `v2-*`
+            conformance are green.
       - [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering
             repro in `BUGS.md`: a plugin-backed top-level `val` currently runs
             before preceding entry statements on native VM and ASM. Coordinate
