@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 helper shell pipes made byte-preserving
+
+Closed the macOS backend helper gotcha. `v2/backend/check.sh` was already safe
+because it writes generated backend sources via direct redirects; remaining
+helper paths now use `printf '%s\n'` instead of `echo "$..."` for source/IR
+text in `v2/scripts/bench.sh` and `v2/ssc1`. The same pass fixed v2 wrappers'
+stale Scala CLI stack option spelling by switching `v2/ssc`, `v2/ssc0c`, and
+`v2/ssc1` to `--java-opt=-Xss512m`. Gates: backend source smoke (`fact` x
+JVM/JS/Rust), bench and wrapper smokes, `installBin`, `litdoc` conformance 1/1,
+and `git diff --check`.
+
 ## 2026-07-10 — v2 production VM/JIT route-policy gate closed
 
 Closed the stale open `v2-vm-production-jit-gate` backlog row as a route-policy

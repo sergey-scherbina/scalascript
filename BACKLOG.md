@@ -98,13 +98,15 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       faster in node). Default stays exact BigInt — number mode is wrong for 64-bit
       wrap-around programs (bool-predicate 6≠243, demonstrated). A future typed-IR
       selective lowering could pick the mode per-value automatically.
-- [ ] **v2-jvm-backend-echo-macos** — On macOS, `echo "$var"` processes `\n` in strings as real
-      newlines, corrupting the JVM/Rust backend output when captured via shell `$(...)` and written
-      with `echo`. The generated preamble has `split("\n", -1)` which becomes `split("` + newline +
-      `", -1)` and breaks scalac. Fix: use direct redirect (`backend > file`) or `printf '%s\n'`
-      instead of `echo`. NOTE: already documented in Phase 2d SPRINT entry. This is a testing-harness
-      gotcha, not a backend bug. Low priority since the `check.sh` conformance harness uses direct
-      redirects.
+- **v2-jvm-backend-echo-macos** — ✓ Landed (2026-07-10, `a4f7662be`):
+      verified that `v2/backend/check.sh` already uses direct redirects for
+      generated JVM/JS/Rust sources, then fixed the remaining live helper
+      hazards by replacing source/IR `echo "$..."` pipes in `v2/scripts/bench.sh`
+      and `v2/ssc1` with `printf '%s\n'`. The same verification found and fixed
+      stale Scala CLI `-J-Xss512m` usage in `v2/ssc`, `v2/ssc0c`, and `v2/ssc1`
+      by switching to `--java-opt=-Xss512m`. Gates: backend source smoke
+      (`fact` x JVM/JS/Rust), wrapper smokes, `installBin`, `litdoc`
+      conformance 1/1, and `git diff --check`.
 - **v2-backend-check-ssc1c-wrapper-app-lit** (2026-07-09) — ✓ Landed
       (2026-07-09, `043039b61`): `v2/backend/check.sh bool` and
       `v2/backend/check.sh mutual-recursion` are restored as source-backend

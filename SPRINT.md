@@ -9,18 +9,23 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-jvm-backend-echo-macos** - VERIFY/FIX 2026-07-10:
-      investigate the BACKLOG macOS shell-capture gotcha where `echo "$var"`
-      can turn generated `split("\n", -1)` text into a real newline inside the
-      JVM/Rust backend source. First search scripts/docs/tests for unsafe
-      generated-code capture + `echo`; if any live harness path still writes
-      generated backend output via `echo`, replace it with direct redirect or
-      `printf '%s\n'` and add a regression/smoke matching that path. If current
-      production harnesses already use redirects/printf and no repro remains,
-      close the BACKLOG row as stale/verified, noting why no BUGS.md entry is
-      needed (testing-harness gotcha, not a live backend bug). Gates: real
-      source-backend harness smoke (`v2/backend/check.sh` focused row or
-      equivalent), affected conformance, and `git diff --check`.
+- [x] **v2-jvm-backend-echo-macos** - DONE 2026-07-10 in `a4f7662be`:
+      `v2/backend/check.sh` was already safe because it writes generated
+      JVM/JS/Rust sources through direct redirects, but live helper paths still
+      piped source/IR text through `echo "$..."`. Replaced those pipes in
+      `v2/scripts/bench.sh` and `v2/ssc1` with `printf '%s\n'`, and fixed the
+      same wrapper surface's stale Scala CLI stack option by changing
+      `v2/ssc`, `v2/ssc0c`, and `v2/ssc1` from `-J-Xss512m` to
+      `--java-opt=-Xss512m`. BUGS entries:
+      `v2-jvm-backend-echo-macos` and `v2-scala-cli-stack-option-wrappers`.
+      Gates: `bash -n` for all touched scripts, no remaining targeted unsafe
+      `echo "$src"/"$ir"/"$IR"` or `-J-Xss512m` matches, `v2/backend/check.sh
+      fact` (1 fixture x JVM/JS/Rust), `v2/scripts/bench.sh arith-loop`
+      (`13.5810 ms`, warmup/reps 1/1), `v2/ssc1
+      v2/examples/kc13-hello.ssc` (`Hello, World!`),
+      `v2/ssc0c v2/examples/fact.ssc0 | v2/ssc run-ir /dev/stdin` (`120`),
+      `scripts/sbtc "installBin"`, `tests/conformance/run.sh --only 'litdoc'
+      --no-memo` 1/1 across INT/JS/JVM, and `git diff --check`.
 
 - [x] **v2-vm-production-jit-gate** - DONE 2026-07-10
       (verification/reconcile): closed the stale open BACKLOG row as a

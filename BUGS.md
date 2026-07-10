@@ -2,7 +2,8 @@
 
 ## v2-jvm-backend-echo-macos — shell `echo "$text"` can corrupt generated/source text on macOS
 
-**Status:** open — fix in progress in `feature/v2-jvm-backend-echo-macos`.
+**Status:** fixed (2026-07-10, `a4f7662be`); waiting for external
+confirmation only if a macOS reporter rechecks the helper paths.
 
 - **Found by:** codex while working the BACKLOG
   `v2-jvm-backend-echo-macos` harness gotcha.
@@ -19,8 +20,28 @@
   or direct file redirects so backslash escapes stay byte-preserving.
 - **Root cause:** shell `echo` is not a byte-preserving serialization primitive
   for arbitrary generated/source text.
-- **Fix:** replace live text-to-stdin `echo "$..."` uses in `v2/scripts/bench.sh`
-  and `v2/ssc1` with `printf '%s\n'`.
+- **Fix:** replaced live text-to-stdin `echo "$..."` uses in
+  `v2/scripts/bench.sh` and `v2/ssc1` with `printf '%s\n'`.
+- **Verified:** `v2/backend/check.sh fact` (1 fixture x JVM/JS/Rust),
+  `v2/scripts/bench.sh arith-loop` (`13.5810 ms`, warmup/reps 1/1),
+  `v2/ssc1 v2/examples/kc13-hello.ssc` (`Hello, World!`),
+  `v2/ssc0c v2/examples/fact.ssc0 | v2/ssc run-ir /dev/stdin` (`120`),
+  `scripts/sbtc "installBin"`, `tests/conformance/run.sh --only 'litdoc'
+  --no-memo` (1/1 across INT/JS/JVM), and `git diff --check`.
+
+## v2-scala-cli-stack-option-wrappers — v2 shell wrappers used rejected `-J-Xss512m`
+
+**Status:** fixed (2026-07-10, `a4f7662be`).
+
+- **Found by:** codex while verifying `v2-jvm-backend-echo-macos`.
+- **Repro:** `v2/ssc1 v2/examples/kc13-hello.ssc` exited before running the
+  program with `Unrecognized argument: -J-Xss512m`.
+- **Root cause:** the v2 helper wrappers still used the old Scala CLI
+  `-J-Xss512m` spelling; current Scala CLI accepts the stack option through
+  `--java-opt=-Xss512m`.
+- **Fix:** updated `v2/ssc`, `v2/ssc0c`, and `v2/ssc1` to pass
+  `--java-opt=-Xss512m`.
+- **Verified:** same wrapper gates as `v2-jvm-backend-echo-macos` above.
 
 ## ssr-forsignal-duplicate-attrs - SSR `ForSignal` fallback duplicated static attrs
 
