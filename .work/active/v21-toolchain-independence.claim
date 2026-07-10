@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T12:17:36Z
+heartbeat: 2026-07-10T12:34:15Z
 status: in-progress
-done-so-far: TI-1/TI-2 complete; TI-3 staged compiler-free native frontend 0ccecb44d, docs 9ac444beb, bookkeeping 722aed3ba
-next: close native frontend/checker corpus parity without overlapping active sibling frontend work (TI-4)
+done-so-far: TI-1/TI-2/TI-3 complete; TI-4 checker parity slice 66b7c4ede, docs/bookkeeping b5d7f9617/2c0761ab6
+next: close TI-4 silent VM/ASM failure and prefix/parser gaps without overlapping active sibling frontend work
