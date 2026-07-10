@@ -1,5 +1,8 @@
 package ssc.plugin
 
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
+import java.util.Properties
 import ssc.{Emit, Runtime, Show, Value}
 
 /** Runtime entry contract for a persisted direct-ASM ScalaScript artifact.
@@ -14,7 +17,7 @@ object NativeArtifactRuntime:
       case rest         => rest
     Runtime.argv = args
     Emit.globalsRef = collection.mutable.HashMap.empty[String, Value]
-    NativePluginHost.loadAll()
+    NativePluginHost.loadAll(loadConfig())
 
   /** Same observable final-value contract as the standard native CLI lane. */
   def report(result: Value): Unit = result match
@@ -26,3 +29,33 @@ object NativeArtifactRuntime:
       val label = fields.headOption.collect { case Value.StrV(s) => s }.getOrElse("<unknown>")
       throw new RuntimeException(s"unresolved runtime dispatch: $label")
     case other => println(Show.show(other))
+
+  private def loadConfig(): NativeRuntimeConfig =
+    val resource = Option(getClass.getClassLoader.getResourceAsStream(
+      "META-INF/scalascript/artifact.properties"))
+    resource match
+      case None => NativeRuntimeConfig()
+      case Some(stream) =>
+        val props = new Properties()
+        val reader = new InputStreamReader(stream, StandardCharsets.UTF_8)
+        try props.load(reader)
+        finally reader.close()
+
+        val count = Option(props.getProperty("database.count"))
+          .flatMap(_.toIntOption).getOrElse(0)
+        val databases = (0 until count).map { index =>
+          def required(field: String): String =
+            Option(props.getProperty(s"database.$index.$field")).getOrElse {
+              throw new IllegalStateException(
+                s"artifact metadata is missing database.$index.$field")
+            }
+          def optional(field: String): Option[String] =
+            if required(s"$field.present").toBoolean then Some(required(field)) else None
+
+          required("name") -> NativeDatabaseConfig(
+            url = required("url"),
+            user = optional("user"),
+            password = optional("password"),
+            driver = optional("driver"))
+        }.toMap
+        NativeRuntimeConfig(databases)

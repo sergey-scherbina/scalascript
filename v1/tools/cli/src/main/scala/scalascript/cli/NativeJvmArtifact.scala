@@ -7,6 +7,7 @@ import java.security.MessageDigest
 import java.util.zip.{CRC32, ZipEntry, ZipFile, ZipOutputStream}
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
+import _root_.ssc.plugin.NativeRuntimeConfig
 
 /** Deterministic self-contained JAR writer for the native CoreIR→ASM lane. */
 private[cli] object NativeJvmArtifact:
@@ -40,19 +41,50 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-host-plugin_",
   )
 
+  private val SqlRuntimePrefixes = List(
+    "scalascript-v2-native-sql-plugin_",
+    "scalascript-backend-sql-runtime_",
+    "scalascript-backend-config-runtime_",
+    "scalascript-backend-typed-data-runtime_",
+    "scalascript-markup-core_",
+    "scalascript-yaml_",
+    "scalascript-wire-core_",
+    "HikariCP-",
+    "h2-",
+    "sqlite-jdbc-",
+    "postgresql-",
+    "checker-qual-",
+    "slf4j-api-1.",
+    "upack_3-",
+  )
+
+  private val RequiredSqlPrefixes = List(
+    "scalascript-v2-native-sql-plugin_",
+    "scalascript-backend-sql-runtime_",
+    "HikariCP-",
+    "h2-",
+    "sqlite-jdbc-",
+    "postgresql-",
+  )
+
   def write(
       program: _root_.ssc.Program,
+      config: NativeRuntimeConfig,
       sources: List[File],
       runtimeDir: File,
       output: File): Unit =
     if !runtimeDir.isDirectory then
       throw new IllegalStateException(s"staged standard runtime not found: ${runtimeDir.getPath}")
 
+    val selectedPrefixes = RuntimePrefixes ++
+      (if config.databases.nonEmpty then SqlRuntimePrefixes else Nil)
     val runtimeJars = Option(runtimeDir.listFiles()).toList.flatten
       .filter(f => f.isFile && f.getName.endsWith(".jar"))
-      .filter(f => RuntimePrefixes.exists(f.getName.startsWith))
+      .filter(f => selectedPrefixes.exists(f.getName.startsWith))
       .sortBy(_.getName)
-    RequiredPrefixes.foreach { prefix =>
+    val requiredPrefixes = RequiredPrefixes ++
+      (if config.databases.nonEmpty then RequiredSqlPrefixes else Nil)
+    requiredPrefixes.foreach { prefix =>
       if !runtimeJars.exists(_.getName.startsWith(prefix)) then
         throw new IllegalStateException(s"staged standard runtime is missing $prefix*.jar")
     }
@@ -82,7 +114,7 @@ private[cli] object NativeJvmArtifact:
                 .linesIterator.map(_.trim).filter(line => line.nonEmpty && !line.startsWith("#"))
               val target = services.getOrElseUpdate(name, mutable.TreeSet.empty[String])
               target ++= lines
-            else if !skipPackagingEntry(name) then
+            else if !skipPackagingEntry(name) && !skipRuntimeEntry(jar.getName, name) then
               add(name, zip.getInputStream(entry).readAllBytes(), jar.getName)
           }
       finally zip.close()
@@ -99,7 +131,7 @@ private[cli] object NativeJvmArtifact:
     add("META-INF/MANIFEST.MF", manifestBytes, "generated manifest")
     add(
       "META-INF/scalascript/artifact.properties",
-      metadataBytes(sources, runtimeJars.map(_.getName), providers),
+      metadataBytes(sources, runtimeJars.map(_.getName), providers, config),
       "generated metadata")
     add(EntryClass, _root_.ssc.bytecode.JvmByteGen.emitProgram(program), "generated CoreIR class")
 
@@ -130,6 +162,14 @@ private[cli] object NativeJvmArtifact:
     upper.matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)") ||
     upper.matches("META-INF/(LICENSE|NOTICE|DEPENDENCIES)(\\..*)?")
 
+  /** H2's optional CREATE ALIAS source compiler is the only driver surface
+   * that references javax.tools. Standard JDBC/DDL/DML does not load it, so a
+   * native artifact omits that isolated optional family and remains runnable
+   * on a JRE without java.compiler. */
+  private def skipRuntimeEntry(jarName: String, name: String): Boolean =
+    jarName.startsWith("h2-") && name.startsWith("org/h2/util/SourceCompiler") &&
+      name.endsWith(".class")
+
   private def manifestBytes: Array[Byte] =
     "Manifest-Version: 1.0\r\nMain-Class: ssc.gen.Entry\r\nMulti-Release: true\r\n\r\n"
       .getBytes(StandardCharsets.UTF_8)
@@ -137,21 +177,35 @@ private[cli] object NativeJvmArtifact:
   private def metadataBytes(
       sources: List[File],
       runtimeJars: List[String],
-      providers: List[String]): Array[Byte] =
+      providers: List[String],
+      config: NativeRuntimeConfig): Array[Byte] =
     val sourceRows = sources.map { file =>
       file.getName -> sha256(Files.readAllBytes(file.toPath))
     }.sortBy(identity)
+    val databaseRows = config.databases.toList.sortBy(_._1)
     val lines = List(
       "format=scalascript-jvm-2.1",
       "main=ssc.gen.Entry",
       s"source.count=${sourceRows.length}",
       s"runtime.jars=${escape(runtimeJars.sorted.mkString(","))}",
       s"providers=${escape(providers.sorted.mkString(","))}",
+      s"database.count=${databaseRows.length}",
     ) ++ sourceRows.zipWithIndex.flatMap { case ((name, digest), index) =>
       List(
         s"source.$index.name=${escape(name)}",
         s"source.$index.sha256=$digest",
       )
+    } ++ databaseRows.zipWithIndex.flatMap { case ((name, database), index) =>
+      def option(field: String, value: Option[String]): List[String] = List(
+        s"database.$index.$field.present=${value.isDefined}",
+        s"database.$index.$field=${escape(value.getOrElse(""))}",
+      )
+      List(
+        s"database.$index.name=${escape(name)}",
+        s"database.$index.url=${escape(database.url)}",
+      ) ++ option("user", database.user) ++
+        option("password", database.password) ++
+        option("driver", database.driver)
     }
     (lines.mkString("\n") + "\n").getBytes(StandardCharsets.UTF_8)
 
@@ -197,6 +251,7 @@ final class BuildJvmCmd extends CliCommand:
       val out = new File(output.get).getCanonicalFile
       NativeJvmArtifact.write(
         compilation.program,
+        compilation.config,
         compilation.sources,
         new File(installRoot, "bin/lib/jars"),
         out)

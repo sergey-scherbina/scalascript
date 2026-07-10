@@ -47,8 +47,27 @@ fi
 unzip -p "$sandbox/app-a.jar" META-INF/scalascript/artifact.properties \
   >"$sandbox/artifact.properties"
 grep -Fx 'format=scalascript-jvm-2.1' "$sandbox/artifact.properties" >/dev/null
+grep -Fx 'source.count=2' "$sandbox/artifact.properties" >/dev/null
 grep -F 'ssc.plugin.host.HostNativePlugin' "$sandbox/artifact.properties" >/dev/null
 grep -F 'ssc.plugin.crypto.CryptoNativePlugin' "$sandbox/artifact.properties" >/dev/null
+
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$FIXTURES/relative-main.ssc" -o "$sandbox/import.jar"
+[[ $(PATH="$clean_path" java -jar "$sandbox/import.jar") == '42' ]]
+
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$FIXTURES/sql-provider.ssc" -o "$sandbox/sql.jar"
+[[ $(PATH="$clean_path" java -jar "$sandbox/sql.jar") == $'1\n7\nAda\ntrue' ]]
+unzip -p "$sandbox/sql.jar" META-INF/scalascript/artifact.properties \
+  >"$sandbox/sql-artifact.properties"
+grep -Fx 'database.count=1' "$sandbox/sql-artifact.properties" >/dev/null
+grep -Fx 'database.0.name=default' "$sandbox/sql-artifact.properties" >/dev/null
+grep -F 'ssc.plugin.sql.SqlNativePlugin' "$sandbox/sql-artifact.properties" >/dev/null
+sql_deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class "$sandbox/sql.jar")
+if printf '%s\n' "$sql_deps" | grep -E 'javax[.]tools|jdk[.]compiler|java[.]compiler' >/dev/null; then
+  echo 'v21-build-jvm-smoke: SQL artifact retained an optional compiler edge' >&2
+  exit 1
+fi
 
 deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class "$sandbox/app-a.jar")
 if printf '%s\n' "$deps" | grep -E \
