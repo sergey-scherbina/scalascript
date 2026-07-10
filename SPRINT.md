@@ -735,6 +735,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         without overrides. Parity is 10 identical / 60 both-fail /
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
+                  - [ ] **TI-8.2c1a parity-success sentinel classification:**
+                        fix `scripts/v21-sentinel-taxonomy` so frontend
+                        `PRESENT` remains the readiness authority when VM and
+                        ASM happen to exit zero identically. Apply source
+                        server/backend/nondeterministic categories and reviewed
+                        tools overrides independent of `both-fail`; otherwise
+                        classify the row as `standard-gap`. Extend the synthetic
+                        smoke with both an identical standard sentinel and an
+                        identical reviewed-tools sentinel, then rerun the real
+                        74-row taxonomy and tighten measured limits. This blocks
+                        TI-8.2c2i closure; tracked in
+                        `BUGS.md#v21-sentinel-taxonomy-parity-success`.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
                         7 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and

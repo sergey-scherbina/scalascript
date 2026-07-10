@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v21-sentinel-taxonomy-parity-success — parser sentinel becomes unclassified when both lanes exit zero
+
+**Status:** open (2026-07-10); found by codex while verifying TI-8.2c2i.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `scripts/native-front-corpus --report target/v21-native-front-current.tsv`,
+  `scripts/bc-parity-sweep --report
+  target/v21-standard-bc-parity-current.tsv`, then
+  `scripts/v21-sentinel-taxonomy`. The fresh reports contain 74 frontend
+  sentinel rows, while parity classifies 63 documents `identical`; taxonomy
+  exits nonzero with ten `unclassified sentinel` / stale-override diagnostics,
+  including the six remaining standard DSL rows and four reviewed tools rows.
+- **Expected:** readiness classification is driven by the frontend sentinel
+  column. An identical VM/ASM exit does not erase `_err`; backend/server/source
+  categories and reviewed tools overrides still apply, and otherwise the row is
+  a standard syntax gap.
+- **Root cause:** `scripts/v21-sentinel-taxonomy` accepts a standard gap and
+  reviewed override only when the parity category is `both-fail`. Uncalled or
+  non-observable `_err` nodes can let both lanes exit zero identically, so parity
+  success and frontend completeness are independent axes.
+- **Done-when:** a synthetic regression covers an `identical` sentinel plus an
+  `identical` reviewed tools row, the real 74-row report classifies completely,
+  category ceilings shrink to the measured counts, and affected conformance is
+  green. Keep `fixed` until Sergiy confirms the release-gate behavior.
+
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
 
 **Status:** open (2026-07-10); reported by Sergiy in the Codex session.
