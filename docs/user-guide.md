@@ -290,6 +290,13 @@ Both v2 VM and direct-ASM runners treat a top-level missing-dispatch `Stub` or
 an unresolved dotted runtime-effect `Op` as a nonzero runtime failure. They are
 diagnostics, not printable successful program values.
 
+The native route also has its own core-free ServiceLoader plugin boundary. The
+process globals (`args`, `cwd`, `sep`, `platform`) and the first migrated crypto
+intrinsics (`sha256`, SHA/base64/HMAC/PBKDF2/random helpers) no longer load the
+v1 `PluginBridge`, interpreter values, or Scalameta classes. Other plugin
+families are still being migrated; a missing native provider fails explicitly.
+Use `--compat-frontend` for a tools-tier plugin that has not moved yet.
+
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
 emits v2 CoreIR JavaScript, and passes trailing args through Node's
