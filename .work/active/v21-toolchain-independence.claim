@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T13:37:11Z
+heartbeat: 2026-07-10T13:51:45Z
 status: in-progress
-done-so-far: TI-1/TI-2/TI-3; TI-4 checker/result/prefix; TI-5 native SPI/crypto/FS/OS plus core-free JSON 9798dfc5c
-next: migrate HTTP provider boundary, then SQL/UI; coordinate away from sibling VM/runtime coverage claim
+done-so-far: TI-1/TI-2/TI-3; TI-4 slices; TI-5 native SPI/crypto/FS/OS/JSON plus HTTP client/Response 69649de16
+next: add core-free HTTP server-host SPI and loopback smoke, then SQL/UI; avoid sibling VM/runtime files
