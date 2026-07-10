@@ -9,6 +9,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-jvm-backend-echo-macos** - VERIFY/FIX 2026-07-10:
+      investigate the BACKLOG macOS shell-capture gotcha where `echo "$var"`
+      can turn generated `split("\n", -1)` text into a real newline inside the
+      JVM/Rust backend source. First search scripts/docs/tests for unsafe
+      generated-code capture + `echo`; if any live harness path still writes
+      generated backend output via `echo`, replace it with direct redirect or
+      `printf '%s\n'` and add a regression/smoke matching that path. If current
+      production harnesses already use redirects/printf and no repro remains,
+      close the BACKLOG row as stale/verified, noting why no BUGS.md entry is
+      needed (testing-harness gotcha, not a live backend bug). Gates: real
+      source-backend harness smoke (`v2/backend/check.sh` focused row or
+      equivalent), affected conformance, and `git diff --check`.
+
 - [x] **v2-vm-production-jit-gate** - DONE 2026-07-10
       (verification/reconcile): closed the stale open BACKLOG row as a
       route-policy gate, not as an auto-router implementation. The shipped
