@@ -9,6 +9,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-four-row-route-policy-sweep** - rerun the bounded four-row v2
+      production route gate after the VM `pattern-match-heavy` fix. Context:
+      BACKLOG `v2-vm-production-jit-gate` now says `pattern-match-heavy` moved
+      to `v2=0.266 ms` and recommends a route-policy sweep before declaring
+      the production route closed. Spec: `specs/v2-four-row-route-policy-sweep.md`.
+      Plan: stage the CLI with `scripts/sbtc "installBin"`, measure
+      `arith-loop`, `recursion-fib`, `recursion-tco`, and
+      `pattern-match-heavy` through `scripts/bench v2-bytecode` and
+      `scripts/bench v2-backends`, compare the current VM/bytecode/JVM/Rust
+      rows, and record the production route policy. Land code only if the
+      measurement exposes a narrow route-wiring change that is globally safe;
+      otherwise this is a docs/decision slice. Done when rows, policy, gates,
+      and any next blocker are recorded durably.
+
 - [x] **v2-pattern-match-heavy-production-profile** - DONE 2026-07-10 in
       `eead9c4b8`: VM `pattern-match-heavy` now recognizes the strict
       static top-level list + pure one-arg Float global + Float-cell
