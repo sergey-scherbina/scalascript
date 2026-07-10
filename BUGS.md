@@ -96,45 +96,60 @@ before `done`.
   `tests/conformance/run.sh --only 'std-ui-i18n,tkv2-*' --no-memo` passes
   10/10; `git diff --check` passes.
 
+## v2-indent-conformance-demos-skipped — indent demo cases are skipped by conformance but fail directly
+
+**Status:** open (found 2026-07-10 by codex while fixing
+`v2-dsl-yaml-tuple-accessor`).
+
+- **Repro:** after `scripts/sbtc "installBin"`, direct runs still fail:
+  `bin/ssc run tests/conformance/indent-config-format.ssc` fails with
+  `__method__: no dispatch for ._1 on "host"`, and
+  `bin/ssc run tests/conformance/indent-block-statements.ssc` fails with
+  `__method__: no dispatch for ._1 on "x"`.
+- **Harness gap:** `tests/conformance/run.sh --only
+  'indent-config-format,indent-block-statements' --no-memo` reports both cases
+  as SKIP because they have no expected-output files, so the current affected
+  conformance gate does not catch the direct failure.
+- **Expected:** either make the demo expressions valid and add expected outputs
+  so conformance exercises them, or move/delete them if they are not meant to be
+  active tests.
+- **Notes:** likely separate from the YAML layout runtime fix; the first suspect
+  is expression shape around `~`/tuple destructuring in the demos. Queue as a
+  focused follow-up rather than expanding the already-green
+  `dsl-yaml-like` fix.
+
 ## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
 
-**Status:** OPEN — CORRECTED 2026-07-10: my earlier "v1 correct" was WRONG. This
-example is broken on BOTH lanes in different ways: `bin/ssc run --v1
-examples/dsl-yaml-like.ssc` fails `'withIndent' not found` / `Undefined: identifier`
-(the v1 interpreter can't resolve the std/parsing extension-methods + helper
-imports); v2 gets further (parses) but the LAYOUT/block parse produces a wrong
-structure. Deep-dived 2026-07-10: individual v2 pieces all work in isolation —
-IndentContext field access + .copy (currentLevel/stack correct), columnOf (col@N
-correct), basic .many(), and combinator CONSTRUCTION (~/~>/<~/.map all build
-PMapped/PSequence). But the FULL `.block` layout parse mis-structures: a nested
-mapping (`server:` → `host: localhost`) comes back as `YMap(List(YStr("host:
-localhost")))` — the nested block matched `scalarValue` instead of `yamlMapping`,
-so a YStr lands in the pairs list, and renderYaml's `val (k,v) = p.asInstanceOf[
-(Any,Any)]` then hits fieldAt(YStr,1) OOB. Root is in the block/PSameIndent/
-readCtx/localCtx context-threading during runLayout — NOT a single field-index
-slot. No clean reference behavior (v1 can't run it), and minimal repros hit
-import-resolution friction. NOT a bounded fix; needs a dedicated parser-context
-investigation. Corpus example dsl-yaml-like fails with
-`ArrayIndexOutOfBoundsException: Index 1 out of bounds for length 1` at
-Runtime.scala fieldAt 2-arg (`asData(v)._2(i)`). Instrumented: the receiver is a
-`YStr` (`case class YStr(v: String)`, 1 field) accessed at index 1 — i.e. a
-`._2` tuple-accessor (compiled to `fieldAt(recv, 1)`) is applied to a YStr.
+**Status:** fixed (2026-07-10, code fix `4def0c749`); waiting for human or
+external reporter confirmation before `done`.
 
-The example (examples/dsl-yaml-like.ssc) uses std/parsing combinators: `~` builds
-a `PSequence` whose runParser returns `ParseOk((a, b), …)` — a Tuple2 — and
-`~>`/`<~`/`.map(pair => (pair._1, pair._2))` read `pair._1`/`pair._2`. Somewhere a
-YStr reaches a `._2` where a Tuple2 is expected. Two candidate roots (member of
-the field-index-registry family — see project memory): (a) the bridge compiles
-`._N` to a POSITIONAL `fieldAt(recv, N-1)` that trusts a compile-time type it got
-wrong (should be tag-aware / fall to method dispatch when recv isn't a TupleN);
-(b) a parser ADT's field layout is mis-registered so `ParseOk(v, rest, pos)`
-destructuring binds `v` to the wrong field, flattening a tuple to a scalar.
-
-NOT a fresh regression: verified FAIL at 0f4edec73, its parent, AND ~120 commits
-back (7af1d869f) — it has never passed on v2. A long-standing v2 gap with
-parser-combinator-style code, not caused by any recent change. Repro:
-`bin/ssc run examples/dsl-yaml-like.ssc` (v1 renders the YAML correctly).
-Found while auditing the corpus-8 fails 2026-07-10 (claude).
+- **Found by:** claude/codex while auditing the corpus v2 failures.
+- **Repro before fix:** after `scripts/sbtc "installBin"`,
+  `bin/ssc run examples/dsl-yaml-like.ssc` and
+  `bin/ssc run --v2 examples/dsl-yaml-like.ssc` printed `Parsed successfully.`
+  and then crashed with `ArrayIndexOutOfBoundsException: Index 1 out of bounds
+  for length 1` at the v2 runtime `fieldAt` path. Instrumentation showed a
+  `YStr` receiver being accessed at tuple field index 1 (`._2`). The v1 lane was
+  not a clean reference: `bin/ssc run --v1 examples/dsl-yaml-like.ssc` failed
+  earlier with unresolved `withIndent` imports.
+- **Root cause:** three parser/layout issues compounded. First,
+  `Parser.withIndent(n)` lowered through the generic `PWithLocalContext` shape;
+  on v2 that captured the incoming context as the new current level, so
+  `withIndent(3)` behaved like `withIndent(IndentContext(...))`. Second,
+  `PSameIndent`/`block` checked the current column without consuming leading
+  indentation or guarding the first block item, letting nested mapping lines fall
+  through as scalars. Third, the YAML demo grammar wrapped an already parsed
+  nested `YMap` in another `YMap(List(...))` and required a newline at EOF.
+- **Fix:** added an explicit `PWithIndent` parser node handled directly by
+  `runLayout`, made layout indentation guards skip blank lines and consume the
+  required indentation before parsing each block item, and changed the YAML demo
+  to parse one nested value with `yamlValueRef.withIndent(level + 2)` plus
+  EOF-aware `eol`.
+- **Verified:** `scripts/sbtc "installBin"`; `tests/conformance/run.sh --only
+  'parsing-*' --no-memo` passed 3/3; new
+  `tests/e2e/dsl-yaml-like-v2-smoke.sh` passed and checked
+  `server.host = localhost`, `database.name = myapp`, and
+  `database.pool.max = 10`; `git diff --check` passed before the code commit.
 
 
 Durable ledger of bugs reported in the `scalascript` rozum room (or found locally).

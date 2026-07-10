@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 layout indentation parsing restored for YAML-style DSLs
+
+`std/parsing/layout.ssc` now preserves explicit `withIndent(n)` on v2, consumes
+same/deeper indentation before parsing block items, and skips blank layout lines.
+This restores `examples/dsl-yaml-like.ssc` on the v2 path and adds an e2e smoke
+that checks nested YAML-style fields such as `server.host` and
+`database.pool.max`. Gates: `installBin`, parser conformance 3/3, the new
+`dsl-yaml-like-v2-smoke` script, and `git diff --check`.
+
 ## 2026-07-10 — v2 helper shell pipes made byte-preserving
 
 Closed the macOS backend helper gotcha. `v2/backend/check.sh` was already safe

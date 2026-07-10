@@ -9,21 +9,41 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-dsl-yaml-tuple-accessor** - REPRO/FIX 2026-07-10:
-      work the open `BUGS.md` entry where `examples/dsl-yaml-like.ssc`
-      fails on v2 with `fieldAt(YStr, 1)` / tuple-accessor OOB after the
-      layout parser mis-structures a nested mapping. Current ledger notes that
-      v1 is not a clean reference (`withIndent` import-resolution failure), so
-      do not assume a v1-vs-v2 parity oracle. Plan: stage the CLI if needed,
-      reproduce through the real `bin/ssc`/v2 path, capture the smallest
-      parser-combinator shape that produces `YStr` where a `(key, value)` pair
-      is expected, then inspect the concrete root in layout context-threading
-      or tuple/field fallback. Land a conservative fix only if the failing
-      shape is explicit and covered; otherwise update `BUGS.md` with the exact
-      minimized blocker and leave it open/needs-info instead of speculative
-      churn. Gates: focused example or new conformance repro, affected
-      conformance slice, `scripts/sbtc "installBin"` when `bin/ssc` is used,
-      and `git diff --check`.
+- [ ] **v2-indent-conformance-demos-skipped** - REPRO/FIX 2026-07-10:
+      direct `bin/ssc run` still fails for
+      `tests/conformance/indent-config-format.ssc` (`__method__: no dispatch
+      for ._1 on "host"`) and
+      `tests/conformance/indent-block-statements.ssc` (`__method__: no dispatch
+      for ._1 on "x"`), but
+      `tests/conformance/run.sh --only
+      'indent-config-format,indent-block-statements' --no-memo` skips both
+      because there are no expected-output files. Plan: stage the CLI with
+      `scripts/sbtc "installBin"`, reproduce both direct failures, decide
+      whether the demo expressions need parser/layout fixes or just explicit
+      parentheses/grammar cleanup, then add expected outputs so the harness
+      stops silently skipping them. Gates: focused direct runs, the newly active
+      indent conformance slice, affected parser/layout conformance, and
+      `git diff --check`. Keep separate from `v2-dsl-yaml-tuple-accessor`: the
+      YAML example is green, and this follow-up is about skipped conformance
+      coverage plus the remaining direct demo failures.
+
+- [x] **v2-dsl-yaml-tuple-accessor** - DONE 2026-07-10 in `4def0c749`:
+      fixed the long-standing v2 crash in `examples/dsl-yaml-like.ssc` where
+      nested layout parsing produced a `YStr` where render expected a
+      `(key, value)` tuple and then hit `fieldAt(..., 1)`. Root cause was a
+      compound parser/layout issue: `withIndent(n)` used a generic local-context
+      wrapper that captured the incoming context on v2, `PSameIndent`/`block`
+      checked indentation without consuming it or guarding the first item, and
+      the demo grammar wrapped nested `YMap` values while rejecting EOF after
+      the last scalar. Added an explicit `PWithIndent` node in
+      `std/parsing/layout.ssc`, made same/deeper-indent guards skip blank lines
+      and consume indentation, guarded first/rest block items at the current
+      indent, updated the YAML demo grammar, and added
+      `tests/e2e/dsl-yaml-like-v2-smoke.sh`. Gates:
+      `scripts/sbtc "installBin"`, `tests/conformance/run.sh --only
+      'parsing-*' --no-memo` 3/3, `bash -n
+      tests/e2e/dsl-yaml-like-v2-smoke.sh &&
+      tests/e2e/dsl-yaml-like-v2-smoke.sh`, and `git diff --check`.
 
 - [x] **v2-jvm-backend-echo-macos** - DONE 2026-07-10 in `a4f7662be`:
       `v2/backend/check.sh` was already safe because it writes generated
