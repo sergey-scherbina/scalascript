@@ -1662,6 +1662,14 @@ frontend compiler. Framework SPA generation, `serve(view, port)`, keyed/fetch
 widgets, storage/WebAuthn, and native desktop/mobile rendering remain follow-up
 UI slices.
 
+The representative native effect provider implements curried
+`runState(initial) { body }` with `State.get`, `State.set`, and
+`State.modify`. Handler scope is host-owned and stack-safe: nested runners
+restore the outer state and exceptions pop their handler in `finally`. Logger,
+Random, Clock, Env, Retry, Cache, Async, and Stream still require their explicit
+native provider slices; the standard path does not load v1 `BlockForm` adapters
+for them.
+
 ### `sql` fenced blocks
 
 A ` ```sql ``` ` fenced block executes against the `default` database (or the one named in `@database` front-matter of the block).  Return value is the row count for DML, void for DDL:
