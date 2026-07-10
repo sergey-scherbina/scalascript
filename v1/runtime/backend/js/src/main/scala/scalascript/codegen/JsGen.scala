@@ -3686,9 +3686,14 @@ class JsGen(
    *  (Term.Name(fname), args) sites BEFORE the existing hardcoded
    *  pattern matches, so a registered intrinsic always wins. */
   private def dispatchIntrinsicJs(fname: String, argClause: Term.ArgClause): Option[String] =
-    // If the name has been shadowed by an explicit import binding (const fname = ...), skip
-    // the intrinsic so the local binding takes precedence.
-    if declaredBindings.contains(fname) then return None
+    // If the name has been shadowed by an explicit import/user binding, skip
+    // the intrinsic so the local binding takes precedence. Collision-renamed
+    // imports such as std.ui.primitives.serve bind as `serve__ssc`, so checking
+    // only `fname` would let the HTTP `serve` intrinsic steal the call.
+    if declaredBindings.contains(fname) ||
+        declaredBindings.contains(emittedName(fname)) ||
+        topLevelUserRenames.contains(fname)
+    then return None
     val qn = scalascript.ir.QualifiedName(fname)
     intrinsics.get(qn).map {
       case scalascript.backend.spi.RuntimeCall(target) =>

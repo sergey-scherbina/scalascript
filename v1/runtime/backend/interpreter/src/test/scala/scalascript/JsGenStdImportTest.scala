@@ -9,11 +9,30 @@ import java.nio.charset.StandardCharsets
 class JsGenStdImportTest extends AnyFunSuite:
 
   private def hasNode: Boolean = ProcTestUtil.commandOk("node")
+  private def hasJsdom: Boolean =
+    if !hasNode then false
+    else
+      val probe =
+        """const cp = require('child_process');
+          |const Module = require('module');
+          |try {
+          |  process.env.NODE_PATH = cp.execSync('npm root -g').toString().trim();
+          |  Module._initPaths();
+          |} catch (_) {}
+          |require('jsdom');
+          |""".stripMargin
+      ProcTestUtil.runCaptured(Seq("node", "-e", probe), secs = 30).exit == 0
 
   private def writeTempJs(prefix: String, js: String): java.io.File =
     val tmp = java.io.File.createTempFile(prefix, ".cjs")
     tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
+    tmp
+
+  private def writeTempText(prefix: String, suffix: String, text: String): java.io.File =
+    val tmp = java.io.File.createTempFile(prefix, suffix)
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, text.getBytes(StandardCharsets.UTF_8))
     tmp
 
   private def checkNodeSyntax(js: String): Unit =
@@ -626,6 +645,93 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (out.indexOf('data-ssc-key=\"a\"') > out.indexOf('data-ssc-key=\"b\"')) throw new Error('initial keyed order wrong: ' + out);\n" +
       "console.log('for-keyed-std-ok');\n"
     assert(runNode(script) == "for-keyed-std-ok")
+
+  test("emit-spa std/ui i18n demo live-switches locales in the custom browser runtime"):
+    assume(hasJsdom, "jsdom not available")
+    val source  = os.read(TestPaths.repoRoot / "examples" / "std-ui" / "i18n-demo.ssc")
+    val module  = Parser.parse(source)
+    val baseDir = TestPaths.repoRoot / "examples" / "std-ui"
+    val caps    = JsGen.detectCapabilities(module, Some(baseDir))
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val bundle  = JsGen.generateRuntime(caps) + "\n" + JsRuntimeBrowserPatch + "\n" + moduleJs
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+    assert(moduleJs.contains("const serve__ssc = std.ui.primitives.serve"), moduleJs)
+    assert(moduleJs.contains("{ const _auto = _call(serve__ssc,"), moduleJs)
+    assert(!moduleJs.contains("{ const _auto = serve("), moduleJs)
+
+    val bundleFile = writeTempText("ssc-i18n-spa-bundle-", ".js", bundle)
+    val driver =
+      """const fs = require('fs');
+        |const cp = require('child_process');
+        |const Module = require('module');
+        |try {
+        |  process.env.NODE_PATH = cp.execSync('npm root -g').toString().trim();
+        |  Module._initPaths();
+        |} catch (_) {}
+        |const { JSDOM, VirtualConsole } = require('jsdom');
+        |const bundle = fs.readFileSync(process.argv[2], 'utf8');
+        |const html = '<!doctype html><html><head></head><body><script>' +
+        |  bundle.replace(/<\/script/g, '<\\/script') +
+        |  '</script></body></html>';
+        |const logs = [];
+        |const vc = new VirtualConsole();
+        |vc.on('jsdomError', e => logs.push('jsdomError:' + e.message));
+        |vc.on('error', e => logs.push('error:' + e));
+        |const dom = new JSDOM(html, {
+        |  runScripts: 'dangerously',
+        |  resources: 'usable',
+        |  url: 'http://localhost/',
+        |  virtualConsole: vc
+        |});
+        |const window = dom.window;
+        |function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+        |function root() {
+        |  const el = window.document.querySelector('.ssc-page');
+        |  if (!el) throw new Error('missing .ssc-page; body=' + window.document.body.innerHTML.slice(0, 500) + '; logs=' + logs.join('\n'));
+        |  return el;
+        |}
+        |function text() { return root().textContent.replace(/\s+/g, ' ').trim(); }
+        |function click(label) {
+        |  const btn = [...root().querySelectorAll('button')].find(b => b.textContent.trim() === label);
+        |  if (!btn) throw new Error('missing button ' + label + '; app=' + text());
+        |  btn.click();
+        |}
+        |function assertContains(label, needle) {
+        |  const t = text();
+        |  if (!t.includes(needle)) throw new Error(label + ' missing ' + needle + '; app=' + t + '; logs=' + logs.join('\n'));
+        |}
+        |(async () => {
+        |  await delay(100);
+        |  assertContains('initial', 'Dashboard');
+        |  assertContains('initial', 'Welcome');
+        |  assertContains('initial', '5 files');
+        |  click('Русский');
+        |  await delay(50);
+        |  assertContains('ru', 'Панель');
+        |  assertContains('ru', 'Добро пожаловать');
+        |  assertContains('ru', '5 файлов');
+        |  click('Українська');
+        |  await delay(50);
+        |  assertContains('uk', 'Панель керування');
+        |  assertContains('uk', 'Ласкаво просимо');
+        |  assertContains('uk', '5 файлів');
+        |  click('Polski');
+        |  await delay(50);
+        |  assertContains('pl', 'Panel');
+        |  assertContains('pl', 'Witamy');
+        |  assertContains('pl', '5 plików');
+        |  click('English');
+        |  await delay(50);
+        |  assertContains('en-again', 'Dashboard');
+        |  assertContains('en-again', 'Welcome');
+        |  assertContains('en-again', '5 files');
+        |  console.log('i18n-spa-live-ok');
+        |})().catch(err => { console.error(err.stack || String(err)); process.exit(1); });
+        |""".stripMargin
+    val driverFile = writeTempJs("ssc-i18n-spa-driver-", driver)
+    val res = ProcTestUtil.runCaptured(Seq("node", driverFile.getAbsolutePath, bundleFile.getAbsolutePath), secs = 60)
+    assert(res.exit == 0, s"i18n SPA jsdom driver failed (${res.exit}):\nSTDOUT:\n${res.out}\nSTDERR:\n${res.err}")
+    assert(res.out == "i18n-spa-live-ok")
 
   // Follow-up to Layer 2: a raw (un-lowered) DataTableNode placed directly in an
   // element()/container's children — a TkNode that reached the renderer because a
