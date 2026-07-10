@@ -2061,12 +2061,18 @@ From lowest to highest:
 5. `^`
 6. `&`
 7. `==`, `!=`
-8. `<`, `>`, `<=`, `>=`
+8. `<`, `>`, `<=`, `>=`, and user-defined operators beginning with `<`
 9. `++`, `:+`
 10. `+`, `-`
 11. `*`, `/`, `%`
-12. Unary `+`, `-`, `!`, `~`
-13. Postfix operators (including `.!`)
+12. Other symbolic infix operators (for example parser combinators `~` and
+    `~>`)
+13. Unary `+`, `-`, `!`, `~`
+14. Postfix operators (including `.!`)
+
+User-defined symbolic infix precedence is selected by the operator's first
+character. In particular, `<~` uses the comparison tier while `~` and `~>` use
+the highest symbolic-infix tier below unary operators.
 
 ## Appendix C: Grammar Summary
 
