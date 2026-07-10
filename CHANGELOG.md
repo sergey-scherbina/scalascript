@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — ScalaScript 2.1 toolchain-independence contract frozen
+
+The release-wide spec now separates the standard native-front/CoreIR/VM/ASM
+runtime from optional compiler and compatibility tools. It requires the native
+checker before cutover, forbids transparent Scalameta/Scala CLI/scalac/javac
+fallbacks, gives direct ASM artifacts the unambiguous `build-jvm` command, and
+defines portable corpus, classpath, slim-filesystem, reproducibility, and
+JRE-module gates. Current frontend, plugin-boundary, packaging, and artifact gaps
+are recorded as measured baselines rather than implied backend readiness.
+
 ## 2026-07-10 — native scalameta-free front loads `[names](path.ssc)` std modules
 
 The native front (`ssc1-run`) used to treat markdown-link imports as a parse-only

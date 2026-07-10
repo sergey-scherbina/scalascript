@@ -19,13 +19,13 @@ repository from source without scalac is a separate future milestone. Feature
 spec: `specs/v2.1-toolchain-independence.md`. Active claim:
 `.work/active/v21-toolchain-independence.claim`.
 
-- [ ] **v21-ti-spec-and-contract** — write and commit the normative dependency
-      tiers, CLI/artifact contract, compatibility policy, explicit non-goals,
-      current baselines, and per-slice acceptance checks. Reconcile the old
-      `v2.1` Distributed Streams naming by calling this release-wide goal
-      "ScalaScript 2.1 toolchain independence" while leaving the DStream
-      feature versions intact. Done when the feature spec is committed before
-      code and the global spec points at the new production-path invariant.
+- [x] **v21-ti-spec-and-contract** — DONE 2026-07-10 in `625cb3339`:
+      specified the standard/tools dependency tiers, mandatory native checker,
+      migration flags, direct-ASM `build-jvm` contract, corpus classifications,
+      negative gates, audited baselines, decisions, and explicit non-goals in
+      `specs/v2.1-toolchain-independence.md`; `SPEC.md` now makes the compiler-free
+      JVM path normative while preserving DStream's feature-version labels.
+      Gate: `tests/conformance/run.sh --only 'v2-*'` 8/8.
 - [ ] **v21-ti-portable-baseline-gates** — replace the hard-coded
       `scripts/bc-parity-sweep` worktree path with repository-relative discovery,
       make its command/timeout behavior portable, and add a native-front corpus
