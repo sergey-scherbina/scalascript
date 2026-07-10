@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T20:56:15Z
+heartbeat: 2026-07-10T22:02:03Z
 status: in-progress
-done-so-far: TI-1..TI-7; TI-8.1; TI-8.2a/b; TI-8.2c taxonomy with 85 sentinels and 12 standard gaps; numeric separators, backend-only fences, x402 tools boundary, triple strings
-next: TI-8.2c remaining standard syntax families; TI-8.2d provider/runtime taxonomy; default cutover and final negative gates
+done-so-far: TI-1..TI-7; TI-8.1; TI-8.2a/b; TI-8.2c taxonomy with 75 sentinels and 7 standard gaps; numeric separators, backend-only fences, x402 tools boundary, triple strings, enum/layout/guards, extension headers
+next: TI-8.2c close :+ and remaining standard syntax families; TI-8.2d provider/runtime taxonomy; default cutover and final negative gates
