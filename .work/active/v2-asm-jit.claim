@@ -1,0 +1,8 @@
+feature/v2-asm-jit 2026-07-10
+agent: claude (lucky-perch)
+status: in-progress
+scope: JIT for the ssc v2 VM ASM lane (Sergiy-directed: "jit делай для ssc vm asm v2").
+  Target = v2/backend-jvm-bytecode/JvmByteGen.scala (JVM bytecode/ASM emitter) + v2/src/Emit.scala
+  (bytecode-lane helpers) + v2/backend/jvm/JvmBackend.scala. Find coverage gaps (what bails
+  to the VM) + perf opportunities; extend one at a time, gated by v2 conformance + bench.
+next: map JvmByteGen coverage/bails/test-path, pick first slice
