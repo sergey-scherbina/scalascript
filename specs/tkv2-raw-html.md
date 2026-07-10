@@ -31,15 +31,15 @@ user-controlled input before passing it. The implementation must not introduce
 
 ## Behavior
 
-- [ ] `rawText("<strong>safe</strong>")` still renders visible escaped text, not
+- [x] `rawText("<strong>safe</strong>")` still renders visible escaped text, not
       a nested `<strong>` element.
-- [ ] `rawHtml("<strong data-x=\"ok\">safe</strong>")` renders a nested
+- [x] `rawHtml("<strong data-x=\"ok\">safe</strong>")` renders a nested
       `<strong>` element in the custom emitted SPA path.
-- [ ] The raw HTML sentinel does not leak as a `data-ssc-raw-html` attribute in
+- [x] The raw HTML sentinel does not leak as a `data-ssc-raw-html` attribute in
       the emitted DOM/HTML output.
-- [ ] The interpreter/frontend static renderer path treats the same sentinel as
+- [x] The interpreter/frontend static renderer path treats the same sentinel as
       raw children for server-rendered UI output.
-- [ ] Affected toolkit-v2 conformance and `git diff --check` pass before push.
+- [x] Affected toolkit-v2 conformance and `git diff --check` pass before push.
 
 ## Out of Scope
 
@@ -76,6 +76,7 @@ Implementation points:
 - `runtime/std/ui/reactive.ssc`
 - `runtime/std/ui/lower.ssc`
 - `v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs`
+- `v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala`
 - `frontend/custom/src/main/scala/scalascript/frontend/custom/StaticJsEmitter.scala`
 - `frontend/toolkit/src/main/scala/scalascript/frontend/toolkit/Ssr.scala`
 - `tests/conformance/tkv2-raw-html.ssc`
@@ -95,5 +96,45 @@ Implementation points:
 
 ## Results
 
-Pending. Fill in repro, implementation SHA, exact verification commands, and
-any follow-up after the verify step.
+Implemented in `bb5342f08`.
+
+What landed:
+
+- `std.ui.nodes.RawHtmlNode` and public `std.ui.reactive.rawHtml(html: String): TkNode`.
+- `lower.ssc` lowers `RawHtmlNode` to a `span` with `display:contents` and
+  `data-ssc-raw-html`.
+- The JS browser runtime, custom static emitter, and toolkit SSR stringifier
+  skip the sentinel attribute and use its value as trusted children.
+- `JsGen.detectCapabilities` now includes the Signals/UI runtime when the entry
+  module imports any `std/ui/` module. The emitted-SPA smoke exposed this
+  existing static-toolkit gap: a static page with `rawText`/`rawHtml` but no
+  explicit `signal(...)` omitted `_ssc_ui_element` / `_ssc_ui_textNode`.
+- Added `tests/conformance/tkv2-raw-html.ssc` and
+  `examples/std-ui/raw-html-demo.ssc`.
+
+Verification:
+
+- `JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=1' scripts/sbtc
+  "frontendCustom/compile; frontendToolkit/compile"` passed.
+- `JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=1' scripts/sbtc
+  "backendJs/compile; cli/compile"` passed after the capability fix.
+- `JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=1' scripts/sbtc
+  "frontendToolkit/testOnly scalascript.frontend.toolkit.SsrTest"` passed
+  32/32, including the raw-HTML sentinel test.
+- `JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=1' scripts/sbtc "installBin"`
+  passed.
+- `JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=1'
+  tests/conformance/run.sh --only 'std-ui-i18n,tkv2-*' --no-memo` passed
+  11/11.
+- `JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=1' bin/ssc emit-spa --frontend
+  custom examples/std-ui/raw-html-demo.ssc > /tmp/tkv2-raw-html.html` emitted a
+  bundle containing `_ssc_ui_element` and `_ssc_ui_textNode`; jsdom over the
+  emitted HTML reported one `.ssc-page`, one nested
+  `<strong data-demo="raw-html">Trusted HTML</strong>`, escaped literal text
+  for `rawText`, zero `data-ssc-raw-html` DOM attributes, and zero runtime
+  errors.
+- `git diff --check` passed.
+
+Follow-up recorded in `SPRINT.md`: `ssr-forsignal-duplicate-attrs-check`
+tracks the pre-existing duplicated `writeAttrs(sb, attrs)` call in the
+`View.ForSignal(..., itemTemplate = None)` SSR fallback branch.

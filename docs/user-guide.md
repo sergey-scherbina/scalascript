@@ -3332,7 +3332,7 @@ Import selectively from each `std/ui` sub-module:
 [heading, text](std/ui/typography.ssc)
 [textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
 [webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
-[showWhen, signalText_, fragment_, forKeyed, rawText](std/ui/reactive.ssc)
+[showWhen, signalText_, fragment_, forKeyed, rawText, rawHtml](std/ui/reactive.ssc)
 [badge, spinner, signalPre](std/ui/display.ssc)
 [card, cardWithHeader, modal](std/ui/containers.ssc)
 [tableCol, tableRow, table, sortableTable, fcol, rowDelete, rowPost, rowLink, rowEdit, dataTable](std/ui/data.ssc)
@@ -3553,6 +3553,7 @@ vstack(gap = 12)(
 | `fragment_(children*)` | Group children without a wrapper `<div>` |
 | `forKeyed(items, key)(render)` | Keyed browser list; surviving row DOM nodes move by stable string keys on the `emit-spa --frontend custom` runtime |
 | `rawText(text: String)` | Literal text inline (no element, no binding) |
+| `rawHtml(html: String)` | Trusted raw markup escape hatch for missing widgets/pre-rendered fragments; caller must sanitise user-controlled input |
 
 ```scalascript
 showWhen(submitted,
@@ -3562,6 +3563,8 @@ showWhen(submitted,
 
 forKeyed(rows, (id: String) => id)((id: String) =>
   hstack(gap = 8)(text(id), signalButton(selected, id, "Select")))
+
+rawHtml("<strong data-source=\"trusted\">Trusted markup</strong>")
 ```
 
 #### Display

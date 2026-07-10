@@ -9,23 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **tkv2-raw-html** - verify and implement the toolkit-v2 raw markup
-      escape hatch without widening the frontend core IR. Context:
-      `specs/ssc-toolkit-v2.md` P2-11 says `rawHtml` / raw-JS escape hatch is
-      needed so a missing widget never blocks migration; the same spec notes
-      rawHtml may already be covered by `element`/`rawText`, so verify before
-      building. Finding: existing `rawText` is `RawTextNode` and `lower.ssc`
-      lowers it to `textNode(text)`, so it is escaped text, not markup. Spec:
-      `specs/tkv2-raw-html.md`. Plan: add `RawHtmlNode` and public
-      `rawHtml(html: String): TkNode`; lower it to an existing `element`
-      sentinel (`data-ssc-raw-html`, `display:contents`) so `frontend.core.View`
-      need not grow a new case; teach the custom JS runtime and static
-      frontend renderer/SSR to treat that sentinel as trusted raw children while
-      keeping `rawText` escaped. Explicit non-goal: no eval/raw-JS execution or
-      CSP bypass in this slice. Done when raw markup renders nested DOM in the
-      custom emitted SPA, `rawText` still escapes the same payload, affected
-      conformance and an emitted-SPA/jsdom smoke pass, docs/backlog are
-      updated, and `git diff --check` is clean.
+- [x] **tkv2-raw-html** - DONE 2026-07-10 in `bb5342f08`:
+      added `RawHtmlNode` and public `rawHtml(html: String): TkNode`, lowered
+      through a toolkit-owned `data-ssc-raw-html` sentinel so `frontend.core.View`
+      did not need a new case. The JS browser runtime, custom static emitter,
+      and toolkit SSR stringifier now skip the sentinel attribute and use its
+      value as trusted children; `rawText` still renders escaped text. The
+      emitted-SPA smoke also exposed and fixed a static `std/ui` capability gap:
+      modules importing `std/ui/*` now include the Signals/UI runtime even when
+      they have no explicit `signal(...)` call, so `_ssc_ui_element` and
+      `_ssc_ui_textNode` are present for static toolkit pages. Gates:
+      frontendCustom/frontendToolkit compile, backendJs/CLI compile,
+      `frontendToolkit/testOnly scalascript.frontend.toolkit.SsrTest` 32/32,
+      `installBin`, `tests/conformance/run.sh --only 'std-ui-i18n,tkv2-*'
+      --no-memo` 11/11, emitted `examples/std-ui/raw-html-demo.ssc` with jsdom
+      DOM assertions (nested strong=1, escaped literal text present, sentinel
+      attrs=0, runtime errors=0), and `git diff --check`.
 
 - [ ] **ssr-forsignal-duplicate-attrs-check** - verify and, if confirmed,
       fix the SSR fallback path for `View.ForSignal` without broad renderer

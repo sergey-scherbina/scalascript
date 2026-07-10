@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — toolkit v2 rawHtml escape hatch landed
+
+`std/ui/reactive.ssc` now exports `rawHtml(html: String): TkNode` for trusted
+raw markup, while `rawText` remains escaped text. The custom SPA runtime and
+SSR stringifier hide the `data-ssc-raw-html` sentinel and render its value as
+children. The emitted-SPA path also now includes the Signals/UI runtime for
+static `std/ui` imports that do not call `signal(...)`. Gates:
+frontendCustom/frontendToolkit compile, backendJs/CLI compile, `SsrTest` 32/32,
+affected conformance 11/11, emitted raw-html demo jsdom smoke, and
+`git diff --check`.
+
 ## 2026-07-10 — custom emitted SPA i18n live-switch parity restored
 
 The JS backend now lets collision-renamed imports/user bindings win before

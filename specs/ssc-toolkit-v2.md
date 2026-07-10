@@ -62,7 +62,7 @@ scale to busi:
 ### P2 — quality of life
 9. Fast dev loop (watch-rebuild-reload) for the web target.
 10. Loading/empty/error tri-state helper for every fetched view.
-11. `rawHtml` / raw-JS escape hatch so a missing widget never blocks migration.
+11. `rawHtml` trusted-markup escape hatch so a missing widget never blocks migration.
 12. i18n parity in the generated SPA (four locales, live switch — parity with
     the server pages' `std/ui/i18n`).
 
@@ -267,9 +267,10 @@ Ordered so busi's migration pilot (SPA shell + home screen) unblocks earliest:
    non-body path-param endpoints.
 10. **tkv2-theme-css-vars** (P1-8) — `cssVariables(theme)`.
 
-P2 items (dev loop, tri-state helper, rawHtml, SPA i18n parity check) are
-queued to BACKLOG; rawHtml may already be covered by `element`/`rawText` —
-verify before building.
+P2 items (dev loop, tri-state helper, SPA i18n parity check) are queued to
+BACKLOG. `rawHtml` landed 2026-07-10: `rawText` remains escaped text, while
+`rawHtml` lowers through a toolkit-owned `data-ssc-raw-html` sentinel that the
+custom SPA runtime and SSR stringifier treat as trusted children.
 
 ## 6. Non-goals
 
