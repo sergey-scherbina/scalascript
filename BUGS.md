@@ -33,8 +33,8 @@
 
 ## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
 
-**Status:** fixed (2026-07-10, `a0d45ad44`); waiting for busi's rebuilt
-real-browser confirmation before `done`.
+**Status:** done (2026-07-10, fix `a0d45ad44`, reporter confirmation in busi
+`77399254`).
 
 - **Found by:** codex while running busi Gate 1 canonical `/app` offline QA.
 - **Real-harness repro:** emit and serve busi `src/v2/clients/ssc/app.ssc`, load
@@ -62,6 +62,11 @@ real-browser confirmation before `done`.
   `FetchUrlSignalToTest` 1/1; assembled `emit-spa --frontend custom` contains
   the rejection boundary; focused `std-ui-jobpanel`, `tkv2-busi-home`, and
   `tkv2-offline` conformance passes 3/3 on INT and JS.
+- **Reporter confirmation:** busi rebuilt and published its canonical owner SPA
+  with this runtime, loaded an existing installed profile online, stopped the
+  hub, and reloaded cached `/app`. Last-good/local facts remained visible and
+  the browser console contained zero app-origin `Failed to fetch` entries; the
+  only remaining URL-less inspector-frame error was unrelated.
 
 ## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
 
