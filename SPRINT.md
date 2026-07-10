@@ -674,11 +674,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
             explicit tools-tier categories and source-located failures.
-            Current baseline 2026-07-10 after TI-8.2c2k:
+            Current baseline 2026-07-10 after TI-8.2c2l:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 70
+            frontend host errors/timeouts, 1 non-code document, 69
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            28 runtime successes, and 96 runtime errors (166 strict-fail rows).
+            28 runtime successes, and 97 runtime errors (166 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -716,19 +716,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 70 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 69 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `7aee8394e`):** join the native-front
+                        (`aa9b30f28`, refined through `1f50dcaa8`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 70 rows classify as 2 standard-gap / 26
+                        Result: all 69 rows classify as 1 standard-gap / 26
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
@@ -752,7 +752,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         taxonomy smoke and fresh conformance 9/9 pass. Tracked
                         in `BUGS.md#v21-sentinel-taxonomy-parity-success`.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        2 remaining deterministic rows by actual `_err` source
+                        1 remaining deterministic row by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
@@ -973,7 +973,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               96 errors, taxonomy 2/26/36/5/1, standard parity
                               10/60/125 with zero mismatch or one-sided row,
                               native-entry passes, and conformance is 9/9.
-                        - [ ] **TI-8.2c2l assignment expressions:** let the
+                        - [x] **TI-8.2c2l assignment expressions — DONE
+                              2026-07-10 (`6bdfb2ff4`, `1f50dcaa8`):** let the
                               expression parser consume a bare mutable-variable
                               `name = rhs` tail, preserving named call arguments
                               and `==`. Reuse the existing `assign` AST/lowering
@@ -986,7 +987,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               but its remaining sentinels are independently
                               caused by a parenthesized condition continuation
                               and tuple-cons pattern. Extension receiver/dispatch
-                              runtime semantics remain TI-8.2d work.
+                              runtime semantics remain TI-8.2d work. Result: the
+                              focused fixture prints `6`, `true`, `7` on both
+                              assembled lanes; named arguments and equality
+                              retain coverage. `extensions.ssc` is sentinel-
+                              clear/checker-OK and reaches its honest missing
+                              `.shout` dispatch. Corpus is 194/0/0/1 with 69
+                              sentinels, checker 194/0, runtime 28 OK / 97
+                              errors, taxonomy 1/26/36/5/1, and standard parity
+                              10/60/125 with zero mismatch or one-sided row.
+                              Native-entry passes and fresh conformance is 9/9.
                         - [ ] **TI-8.2c2m final mini-language shapes:** parse an
                               `if` condition whose leading parenthesized term is
                               followed by `&&`/ordinary infix continuation, and

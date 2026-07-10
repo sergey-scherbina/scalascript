@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native frontend parses assignment expressions
+
+The self-hosted expression parser now recognizes a single `=` after a bare
+variable and reuses the existing assignment AST/lowering, without changing
+named arguments or equality. A real fixture mutates locals inside `if ... then`
+and `for ... do` identically on native VM/direct ASM; `extensions.ssc` is
+sentinel-clear/checker-OK. The corpus has 69 sentinels and 1 standard gap;
+standard parity remains 10/60/125 with zero mismatch/one-sided, and fresh
+conformance is 9/9. Landed `6bdfb2ff4` and `1f50dcaa8`.
+
 ## 2026-07-10 — native matches support constructor pattern alternatives
 
 The self-hosted parser/lowerer now expands `case A(_) | B(_) => body` into
