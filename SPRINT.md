@@ -44,7 +44,9 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       `mira-md -> ssc1-front -> ssc1-lower` pipeline through a staged launcher
       that uses the prebuilt v2 kernel JAR, not `scala-cli run v2/src`. Bundle or
       stage the required `.ssc0` tower sources deterministically, preserve
-      relative/std module loading, argv, diagnostics, and multiple input files.
+      relative/std module loading, argv, diagnostics, and multiple input files;
+      close the prose self-import loop and `RunV2` plugin temp-tree leak found by
+      TI-2/TI-3 audits.
       Keep the current scalameta bridge as an explicit compatibility fallback
       during migration. Done when hello/imports/argv and representative std
       modules lower and run with scala-cli absent from PATH.

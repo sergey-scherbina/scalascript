@@ -1,5 +1,26 @@
 # Bug tracker
 
+## v2-run-plugin-temp-tree-leak — RunV2 leaves extracted plugin JAR trees
+
+**Status:** open (2026-07-10).
+
+- **Found by:** codex while designing the TI-3 in-process native entry after
+  fixing the analogous `SscpkgLoader` lifecycle bug.
+- **Real-harness repro:** run `bin/ssc run --v2 examples/hello.ssc` with an
+  isolated `java.io.tmpdir`; after process exit, an `ssc-v2-plugins*` directory
+  and its extracted JAR children remain.
+- **Expected:** the temporary URLClassLoader inputs live for the CLI process and
+  the complete extraction tree disappears at process exit.
+- **Root cause:** `RunV2.loadPluginJars` calls `tmp.deleteOnExit()` before
+  `extractIntrinsicsJars` writes child JARs, but never registers those children.
+  JVM shutdown cannot delete the non-empty root. This path is separate from
+  `SscpkgLoader`, so `784ac95d3` does not cover it.
+- **Fix direction:** register each extracted JAR after copying it, preserving
+  reverse-order file-before-root cleanup; extend the assembled temp-lifecycle
+  smoke to reject both `sscpkg-*` and `ssc-v2-plugins*` survivors.
+- **Owner/slice:** `v21-ti-native-front-production-entry` (`RunV2.runNative`
+  reuses this plugin loader).
+
 ## sscpkg-loader-temp-tree-leak — every CLI process leaves extracted plugin directories
 
 **Status:** fixed (2026-07-10, `784ac95d3`); waiting for human confirmation
