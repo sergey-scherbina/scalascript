@@ -309,7 +309,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       and v1 rollback may opt into the tools tier with a clear diagnostic.
       Done when standard hello/import/plugin/JAR flows pass after physically
       removing `lib/compiler/jars` and all scalameta-family JARs.
-      - [ ] **TI-7.1 standard launcher/layout:** add a small `StandardMain` that
+      - [x] **TI-7.1 standard launcher/layout — DONE 2026-07-10 (`c43d23e59`):** add a small `StandardMain` that
             owns plain/native VM, direct ASM, and `build-jvm` without importing
             v1 parser/AST/interpreter classes. Stage its thin JAR, native tower,
             and an explicit standard dependency allowlist under
@@ -318,6 +318,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classpath. Keep `bin/ssc` on the compatibility launcher until TI-8:
             TI-4 parity is still open, so an earlier default flip would make
             ordinary corpus/examples regress rather than form a green slice.
+            Result: `installBin` stages a 41-entry class-filtered standard CLI
+            JAR, 32 allowlisted dependency JARs, and 7 tower/100 std files.
+            Standard VM, ASM, SQL, linked `build-jvm`, execution-plan, forbidden
+            filename/reference scans, compatibility hello, artifact/native
+            e2e, and fresh conformance 8/8 are green.
       - [ ] **TI-7.2 explicit tools entry:** stage `bin/ssc-tools` over the
             compatibility/runtime/compiler layout. Route only explicit
             `run --v1`/`--compat-frontend` requests from the standard launcher;

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — ScalaScript 2.1 gains a physically slim standard launcher
+
+`bin/ssc-standard` now starts from a class-filtered native-only entry JAR, 32
+explicitly allowlisted runtime/provider dependencies, and its own staged
+self-hosted frontend tower. Its JAR names and entry references contain no
+Scalameta, v1 AST/frontend/interpreter, compatibility bridge, or compiler
+families. The compatibility `bin/ssc` remains unchanged until the TI-8 default
+cutover so physical separation lands without regressing open frontend parity.
+
 ## 2026-07-10 — managed UI GETs retain last-good data offline
 
 Generated custom SPAs now consume transport and response-body rejection from
