@@ -97,10 +97,13 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       server fallback. `a81d9d94f` added host-owned callback invocation, exact
       JDK routes, `Request`/`Response`, `serve[Async]`/`stop`, 4/4 HTTP tests,
       and an assembled self-calling server on VM/ASM. Advanced middleware/TLS/
-      SSE/upload/WebSocket hooks remain explicit failures. Next: migrate the
-      representative SQL boundary, then UI; return to advanced HTTP host hooks
-      before closing TI-5.
-      - [ ] **Native SQL slice:** add `NativeDatabaseConfig` to the core-free
+      SSE/upload/WebSocket hooks remain explicit failures. `2528ce3e9` and
+      `44fec39e1` added strict root database config plus named JDBC
+      `Db.query`/`Db.execute`: provider tests 2/2, installBin 103 runtime JARs,
+      assembled VM/ASM SQL output identical, both e2e gates PASS, and
+      conformance 8/8. Next: migrate UI; return to advanced HTTP and SQL
+      follow-ups before closing TI-5.
+      - [x] **Native SQL slice — DONE 2026-07-10 (`2528ce3e9`, `44fec39e1`):** add `NativeDatabaseConfig` to the core-free
             context; parse/strictly merge explicit-root `databases:` YAML in
             `RunNativeV2`; add `v2/runtime/std/sql-plugin` over the already
             standalone `backendSqlRuntime`; cover H2 DDL, parameterized writes,
@@ -110,6 +113,16 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             as explicit pending SQL follow-ups rather than compatibility
             fallbacks. Done when `v2NativePluginSpi/test`, native SQL provider
             tests, `installBin`, both e2e gates, and `v2-*` conformance are green.
+            Result: SPI 5/5, parser 4/4, SQL 2/2, 103 staged runtime JARs,
+            VM/ASM output `1/7/Ada/true`, both assembled e2e gates PASS,
+            `v2-*` conformance 8/8. The real harness exposed the separately
+            tracked eager-plugin-`val` ordering bug below.
+      - [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering
+            repro in `BUGS.md`: a plugin-backed top-level `val` currently runs
+            before preceding entry statements on native VM and ASM. Coordinate
+            with the active native-front claim before touching `ssc1-front` or
+            `ssc1-lower`; done when the SQL DDL/DML/`val rows = Db.query` shape
+            executes in source order on both backends.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a

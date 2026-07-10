@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — named JDBC moved onto the v2 native provider boundary
+
+Explicit-root `databases:` front-matter now reaches core-free providers through
+typed native runtime configuration. A standalone SQL provider reuses
+`backendSqlRuntime` for lazy named connections, parameterized H2 DDL/DML, and
+map-row `Db.query` reads; VM/direct-ASM, ServiceLoader, static/runtime classpath,
+and no-Scala-CLI gates pass without the compatibility bridge or Scalameta.
+
 ## 2026-07-10 — native v2 callbacks now drive a JDK HTTP server host
 
 `NativePluginContext.invoke` centralizes trampoline-safe provider callbacks.

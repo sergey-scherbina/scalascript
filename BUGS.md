@@ -1,5 +1,31 @@
 # Bug tracker
 
+## v21-native-front-eager-plugin-val — plugin-backed top-level `val` runs before earlier statements
+
+**Status:** open (2026-07-10); reproduced against `2528ce3e9`.
+
+- **Found by:** codex while adding the native SQL provider boundary.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run a native file
+  containing `Db.execute(CREATE)`, `Db.execute(INSERT)`, then
+  `val rows = Db.query(SELECT)` through both `bin/ssc run --native` and
+  `bin/ssc run --native --bytecode`. Both fail with H2 `Table "PEOPLE" not
+  found`; replacing the `val` with an inline query after the writes succeeds.
+- **Observed:** the native lowerer emits the plugin-backed `val` as eager global
+  initialization, so its SELECT runs before preceding entry statements. The
+  same ordering trap previously forced the native HTTP server fixture to inline
+  `httpGet` after `serveAsync`.
+- **Expected:** effectful/plugin-backed top-level values preserve source order;
+  an initializer may not run before preceding statements on either VM or ASM.
+- **Root-cause direction:** native `ssc1-front`/`ssc1-lower` entry/global
+  classification treats an unresolved plugin call as hoistable. Classify
+  dynamic/plugin calls as entry-dependent, or represent ordered initialization
+  explicitly in CoreIR.
+- **Owner/slice:** `v21-ti-native-front-parity`. The active native-front sibling
+  owns named/default-argument work; rebase and coordinate before editing the
+  shared self-hosted frontend files.
+- **Done-when:** an assembled VM/ASM regression keeps the `val rows = Db.query`
+  shape after DDL/DML and prints the row, with `v2-*` conformance green.
+
 ## v21-native-front-prefix-postfix-precedence — `!exists(path)` applies the call after prefix `!`
 
 **Status:** fixed (2026-07-10, `6e8464ea8`); waiting for human confirmation
