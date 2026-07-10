@@ -1654,7 +1654,13 @@ native SQL provider. Named H2/SQLite/PostgreSQL connections and programmatic
 `Db.query`/`Db.execute` use the shared JDBC runtime. Conflicting declarations of
 the same database name across explicit roots fail before a connection is opened.
 Native fenced `sql`/`transaction`, typed `Db.insert`/`Db.update`, and PostgreSQL
-LISTEN/NOTIFY remain compatibility-only until their follow-up slices land.
+LISTEN/NOTIFY remain compatibility-only until their follow-up slices land. The
+native UI provider also builds mutable/derived signals and basic
+text/signal/show/fragment/element views, and `emit(view, outDir)` writes a
+deterministic escaped UTF-8 `index.html` without loading `frontendCore` or a
+frontend compiler. Framework SPA generation, `serve(view, port)`, keyed/fetch
+widgets, storage/WebAuthn, and native desktop/mobile rendering remain follow-up
+UI slices.
 
 ### `sql` fenced blocks
 
