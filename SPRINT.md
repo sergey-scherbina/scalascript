@@ -70,11 +70,16 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
         `dcell.new/get/set` prims mirroring LongCell/lcell), JvmByteGen (`canDouble`/`genDouble`
         + `dcell.get/set` mirroring `canLong`/`genLong`/`lcell`, JvmByteGen:489/854), Emit.
         Bounded mirror of the whole lcell path but cross-cutting + correctness-critical.
-      · **HOF/first-class calls deopt to VM** (JvmByteGen:923 `Emit.app`→`Runtime.run`) — needs
-        the callee's arity/type at emit time. USE THE WIDE-JIT WORK: for `--v2` the v1 Typer
-        runs (C-1 `nodeTypes` map); thread callee types through FrontendBridge into CoreIR so a
-        first-class call to a known typed fn compiles to invokestatic/indy. Biggest + needs the
-        v2 typed-CoreIR plumbing (a v2 analog of wide-jit C-2/C-3).
+      · **HOF/first-class calls** — INVESTIGATED 2026-07-10: NOT a clean win. `Emit.app`
+        (Emit.scala:30) runs the closure's already-COMPILED code (`Runtime.run(c.code)`), not a
+        tree-walk — so a closure-value call is a lane-crossing, not a deopt; types would only
+        shave the arity-check (marginal). The valuable HOF cases (map/filter/foldLeft with Lam
+        literals) are method-inlines (foldLeft DONE; map/filter allocation-bound). AND the v2
+        CoreIR is STRUCTURALLY typed (`CInt`/`CFloat` + lcell/dcell) — so unlike v1's JIT the v2
+        ASM lane does NOT need the wide-jit external-type plumbing (dcell proved it: structural
+        via CFloat, no types). The one remaining structural HOF-adjacent win: inline a DIRECT
+        `App(Lam(n,body), args)` (immediately-applied lambda) to skip the closure alloc + Emit.app
+        — do only if the corpus shows it's common.
       · **widen `canParamLong`** (JvmByteGen:551) to `Let` (needs long-local-slot mgmt in
         `emitParamLong` — currently params only) / `Match` (needs switch dispatch). Int-only.
       · **map/filter inline** — REJECTED: immutable Cons forces prepend+reverse = 2n allocations
