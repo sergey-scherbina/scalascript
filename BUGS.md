@@ -2,7 +2,8 @@
 
 ## v2-run-plugin-temp-tree-leak — RunV2 leaves extracted plugin JAR trees
 
-**Status:** open (2026-07-10).
+**Status:** fixed (2026-07-10, `0ccecb44d`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex while designing the TI-3 in-process native entry after
   fixing the analogous `SscpkgLoader` lifecycle bug.
@@ -20,6 +21,13 @@
   smoke to reject both `sscpkg-*` and `ssc-v2-plugins*` survivors.
 - **Owner/slice:** `v21-ti-native-front-production-entry` (`RunV2.runNative`
   reuses this plugin loader).
+- **Fix:** `RunV2.loadPluginJars` now registers every extracted JAR with
+  `deleteOnExit()` after it is copied. Java therefore deletes the children
+  before the already-registered root at process shutdown.
+- **Verified:** assembled `tests/e2e/sscpkg-temp-cleanup-smoke.sh` and
+  `tests/e2e/v21-native-entry-smoke.sh` PASS with an isolated
+  `java.io.tmpdir`; the cleanup smoke rejects both `sscpkg-*` and
+  `ssc-v2-plugins*` survivors; affected `v2-*` conformance 8/8.
 
 ## sscpkg-loader-temp-tree-leak — every CLI process leaves extracted plugin directories
 
@@ -82,7 +90,8 @@ before `done`.
 
 ## v21-native-front-prose-self-import-loop — raw link scan follows prose links as module imports
 
-**Status:** open (2026-07-10).
+**Status:** fixed (2026-07-10, `0ccecb44d`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex during the TI-2 native-front corpus baseline at
   `7ba4d413b`.
@@ -104,6 +113,16 @@ before `done`.
   path segments before DFS/load-once comparison. Add this repro to the native
   corpus gate; do not merely special-case `button.ssc`.
 - **Owner/slice:** `v21-ti-native-front-production-entry` / frontend parity.
+- **Fix:** the native loader now recognizes only standalone Markdown import
+  links outside fenced code, normalizes `.`/`..` path segments lexically before
+  the shared DFS seen-set comparison, and runs the frontend tower on a dedicated
+  bounded-stack thread so a remaining frontend failure cannot consume the CLI
+  thread stack.
+- **Verified:** the multi-file relative-import fixture includes the former prose
+  self-link shape and completes with `42`; the real `components-demo.ssc` repro
+  now terminates with a bounded parser-sentinel diagnostic instead of `File name
+  too long` or `StackOverflowError`. Assembled native-entry smoke PASS and
+  affected `v2-*` conformance 8/8.
 
 ## v2-type-ascription-pattern-no-op — `case _: T =>` silently matched everything (type test dropped)
 

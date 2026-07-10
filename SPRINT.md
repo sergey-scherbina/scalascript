@@ -40,16 +40,15 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       trees without shortening their process lifetime. The assembled CLI leaves
       an isolated `java.io.tmpdir` free of `sscpkg-*` trees after `hello.ssc`.
       Gates: loader tests 12/12, cleanup e2e PASS, `v2-*` conformance 8/8.
-- [ ] **v21-ti-native-front-production-entry** — expose the self-hosted
-      `mira-md -> ssc1-front -> ssc1-lower` pipeline through a staged launcher
-      that uses the prebuilt v2 kernel JAR, not `scala-cli run v2/src`. Bundle or
-      stage the required `.ssc0` tower sources deterministically, preserve
-      relative/std module loading, argv, diagnostics, and multiple input files;
-      close the prose self-import loop and `RunV2` plugin temp-tree leak found by
-      TI-2/TI-3 audits.
-      Keep the current scalameta bridge as an explicit compatibility fallback
-      during migration. Done when hello/imports/argv and representative std
-      modules lower and run with scala-cli absent from PATH.
+- [x] **v21-ti-native-front-production-entry** — DONE 2026-07-10 in
+      `0ccecb44d`, documented in `9ac444beb`: `ssc run --native` and
+      `--native --bytecode` execute the staged self-hosted tower in-process on
+      the prebuilt v2 kernel, with normalized relative/std imports, multiple
+      roots, argv, plugin intrinsics, bounded sentinel diagnostics, and complete
+      plugin-temp cleanup. The explicit `--compat-frontend` bridge remains for
+      migration; plain `ssc run` is intentionally not flipped before TI-4.
+      Gates: native-entry and temp-cleanup assembled e2e PASS with scala-cli
+      absent from PATH; `v2-*` conformance 8/8.
 - [ ] **v21-ti-native-front-parity** — close the remaining native parser/lowerer
       blockers surfaced by the new corpus gate (layout/match openers, method
       fallback, named/default arguments, pattern guards/literal discrimination,

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — staged compiler-free native frontend entry landed
+
+The assembled CLI now exposes `ssc run --native` and direct-ASM
+`ssc run --native --bytecode` without spawning Scala CLI or a compiler. The
+installed native-front tower and std sources support normalized relative/std
+imports, multiple roots, argv, plugin intrinsics, bounded sentinel failures, and
+complete extracted-plugin cleanup; `--compat-frontend` keeps the Scalameta bridge
+explicit until frontend/checker parity permits the default-route cutover.
+
 ## 2026-07-10 — portable toolchain-independence corpus gates landed
 
 VM/ASM parity and the scalameta-free native frontend now have repository-relative,
