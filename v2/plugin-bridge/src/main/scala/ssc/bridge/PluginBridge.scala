@@ -3064,6 +3064,18 @@ object PluginBridge:
 
   private def deliverActorMessage(mb: ActorMailbox, msg: V2Value): Unit =
     if !mb.dead then
+      // Mark the target busy BEFORE enqueuing. `isQuiescent` treats a blocked
+      // actor as idle only while `blocked && queue.isEmpty`; a receiver's
+      // `queue.take()` empties the queue a few instructions before its
+      // `finally clearBlocked` runs, so a just-delivered message transiently
+      // reads as idle. Paired with a scheduled-timer `finishTimer` (which drops
+      // the quiescence count on delivery), `runActors` could declare quiescence
+      // and return — the JVM then exits, killing the actor's virtual thread —
+      // before the delivered message was processed. That silently dropped
+      // `sendAfter` messages under load (V2ActorCliTest). Clearing `blocked`
+      // here keeps the actor non-idle from delivery until it re-blocks (after
+      // handling the message) or dies.
+      mb.blocked = false
       mb.queue.put(msg)
       signalActor(mb)
 
