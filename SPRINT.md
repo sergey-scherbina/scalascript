@@ -9,6 +9,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **tkv2-dev-loop** - VERIFY/RECONCILE 2026-07-10:
+      determine whether the open BACKLOG P2 item is already satisfied by the
+      existing CLI dev loop before adding new implementation. Check the
+      production code path in `v1/tools/cli/src/main/scala/scalascript/cli/Main.scala`
+      for `ssc serve <file>.ssc` -> watch dispatch, web/server reload behavior,
+      `--frontend` coverage, and `watch-bench`; check docs in `README.md` and
+      `docs/user-guide.md`. Done when the real gates prove the behavior:
+      `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest scalascript.cli.WatchCycleBenchTest"`,
+      `scripts/sbtc "installBin"`, an affected conformance slice for toolkit-v2
+      examples if needed, and a direct `bin/ssc watch-bench --cycles 2 ...`
+      smoke. If the feature is present, close the BACKLOG row as landed/already
+      satisfied with exact evidence; if a gap is found, keep this SPRINT item
+      open with the missing behavior and implement the smallest focused fix.
+
 - [x] **tkv2-tri-state** - DONE 2026-07-10 in `10273703c`:
       added pure `.ssc` `std.ui.state` with `LoadState`, `loadState`,
       `stateName`, `errorText`, `triState`, and `triStateText` for
