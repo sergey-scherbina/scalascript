@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — toolkit v2 tri-state fetched-view helper landed
+
+`std/ui/state.ssc` now provides pure `.ssc` `LoadState`, `stateName`,
+`errorText`, `triState`, and `triStateText` helpers for loading/error/empty/ready
+views over existing signals. No new backend intrinsic or `TkNode` was needed.
+Added a conformance case, an example, and README/user-guide docs. Gates:
+`installBin`, `tkv2-tri-state` conformance 1/1, example smoke, and
+`git diff --check`.
+
 ## 2026-07-10 — SSR ForSignal fallback attr serialization covered
 
 Added a focused toolkit SSR regression for `View.ForSignal(...,
