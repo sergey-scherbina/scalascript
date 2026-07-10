@@ -55,7 +55,10 @@ jobs:
   conformance:
     name: Conformance Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30m was too tight — the suite (conformance run + examples on 3 backends +
+    # `ssc check` over every example) grew past it and was killed mid-run. 45m
+    # gives headroom for runner variance without masking a real hang.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -175,8 +178,13 @@ jobs:
             ${{ runner.os }}-classes-sbt-
             ${{ runner.os }}-classes-
 
+      # installBin stages bin/lib/compiler/jars — the Scala compiler jars that
+      # `compile-jvm --bytecode` / `link` load lazily via ssc.lib.path. The CLI
+      # subprocess smoke tests (EmitScalaFacadeCliTest, link-tier tests) walk up
+      # from the assembled jar to find them; without staging they fail with
+      # "CompilerLoader: ssc.lib.path is not set".
       - name: Compile and assemble ssc.jar
-        run: sbt compile cli/assembly
+        run: sbt compile cli/assembly installBin
 
       - name: Test via sbt
         timeout-minutes: 60
