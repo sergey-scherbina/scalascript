@@ -26,9 +26,18 @@ set -e
     --report "$tmp/bytecode.tsv" --strict
   "$ROOT/scripts/native-front-corpus" --only hello.ssc --timeout 20 \
     --report "$tmp/native.tsv" --strict
+  "$ROOT/scripts/bc-parity-sweep" --only distributed-word-count.ssc \
+    --report "$tmp/nondeterministic.tsv" --strict
+  "$ROOT/scripts/bc-parity-sweep" --only paginated-typed-client.ssc \
+    --report "$tmp/frontend-specific.tsv" --strict
+  "$ROOT/scripts/bc-parity-sweep" --only x402-metamask.ssc \
+    --report "$tmp/target-specific.tsv" --strict
 )
 
 grep -F $'hello.ssc\tidentical\t0\t0' "$tmp/bytecode.tsv" >/dev/null
 grep -F $'hello.ssc\tOK\tclear\tOK\tOK\t0\t0\t0' "$tmp/native.tsv" >/dev/null
+grep -F $'distributed-word-count.ssc\tskipped-nondeterministic' "$tmp/nondeterministic.tsv" >/dev/null
+grep -F $'paginated-typed-client.ssc\tskipped-backend' "$tmp/frontend-specific.tsv" >/dev/null
+grep -F $'x402-metamask.ssc\tskipped-backend' "$tmp/target-specific.tsv" >/dev/null
 
 echo 'v21 portable gates smoke: PASS'

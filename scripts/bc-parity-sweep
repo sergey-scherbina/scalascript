@@ -53,7 +53,7 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 printf 'file\tcategory\tvm_rc\tbytecode_rc\tdetail\n' > "$report"
 
 skip_re='serve\(|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
-nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo)\.ssc$'
+nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count)\.ssc$'
 ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; total=0
 mlist=''; elist=''; vlist=''
 
@@ -71,8 +71,8 @@ for f in "$ROOT"/examples/*.ssc; do
   if grep -qiE "$skip_re" "$f" 2>/dev/null; then
     skipped=$((skipped + 1)); record "$b" skipped-server - - 'server/tui source'; continue
   fi
-  if head -15 "$f" | grep -qE '^backend:[[:space:]]*(jvm|spark|js|rust|wasm)'; then
-    skipped=$((skipped + 1)); record "$b" skipped-backend - - 'backend-specific front matter'; continue
+  if head -25 "$f" | grep -qE '^(backend|target):[[:space:]]*(jvm|spark|js|node|rust|wasm)|^frontend:[[:space:]]*(react|solid|vue|electron|swing|javafx|swiftui)'; then
+    skipped=$((skipped + 1)); record "$b" skipped-backend - - 'target/backend/frontend-specific front matter'; continue
   fi
   if printf '%s\n' "$b" | grep -qE "$nondet_re"; then
     skipped=$((skipped + 1)); record "$b" skipped-nondeterministic - - 'declared nondeterministic output'; continue
