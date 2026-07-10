@@ -1,6 +1,0 @@
-feature/v2-native-defargs 2026-07-10T21:32:11Z
-agent: claude-code (opus)
-heartbeat: 2026-07-10T21:32:11Z
-status: in-progress
-done-so-far: Honest BridgeCli metric (RUN=42/194) revealed the #1 blocker: arity: N expected (17 content-*/datatable files) = call-site DEFAULT-PARAM synthesis. K62.6g parses def f(x=v) but DISCARDS the default (parseParam:421 consume-only) → calls with fewer args crash. Defaults are constants ([]/"") in the content-toolkit.
-next: FRONT — paramDefaultsCell: parseParam records Pair(name, dfltExpr) on default (return unchanged, zero ripple); parseDef clears before params, reads after, emits ("multi", [defNode, ("defreg", Pair(name, positionalDefaults))]) when non-empty; parseStmts flattens "multi". LOWER — defreg no-op + defDefaultsCell registry (collectDefDefaults); padDefaults(fn, rargs) at the resolveE app rargs binding: if fn var/uid name in registry & len(rargs)<arity, append resolveE(default) for missing trailing positions. Verify: contentRows(3 args)→4; content-* files past arity; conformance 640/640.
