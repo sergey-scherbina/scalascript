@@ -27,6 +27,15 @@ claim: `.work/active/v2-swift-swiftui-native.claim`.
       code. Done when the baseline command/output, ownership boundary, public
       CLI behavior, supported toolkit surface, and explicit non-goals are
       durable and `git diff --check` passes.
+      Baseline 2026-07-10: assembled build treats command-local `--v2` as a
+      directory, command-global `--v2` runs v2 against a file named `build`,
+      and `run --v2 --target macos` ignores the target through an earlier
+      `RunV2` return. The legacy build route also fails before Swift emission
+      with 27 generated-Scala errors (stale `.style(padding=...)`, unresolved
+      bare `View`/`EventHandler`, and a missing default-argument call). Swift
+      6.3.2 and Xcode 26.5 are installed, so the baseline is not a missing-tools
+      failure. Architecture review is active in the `scalascript` Rozum room
+      with the `busi`-side `claude-code` agent; this claim owns repo edits.
 - [ ] **v2-swift-backend-lowering** — add the production v2 Swift codegen route
       from checked v2 program/frontend data to deterministic Swift source. Reuse
       the established framework-neutral View IR and Swift package emitter where

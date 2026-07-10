@@ -6,20 +6,37 @@
 
 - **Reported symptom:** ScalaScript 2.0 has a problem with both the Swift backend
   and the SwiftUI toolkit for desktop and mobile applications.
-- **Real-harness repro:** to be pinned by the first SPRINT slice after
-  `scripts/sbtc "installBin"`; audit assembled `bin/ssc` for `--v2` combined
-  with `emit/build/run --target macos|desktop-macos|ios|mobile-ios`. The current
-  source inventory finds the SwiftUI emitter and packaging commands under the
-  legacy v1/JvmGen path, while `v2/` has no Swift generator implementation.
+- **Real-harness repro (assembled `bin/ssc`, 2026-07-10):** after
+  `scripts/sbtc "installBin"`, the local Apple toolchain was Swift 6.3.2 and
+  Xcode 26.5. `bin/ssc build --v2 --target macos
+  examples/frontend/ios-hello/ios-hello.ssc` exits 1 with `Error: --v2 is not
+  a directory` because `BuildCmd` does not parse a v2 lane flag. Putting the
+  flag before the command (`bin/ssc --v2 build ...`) dispatches `RunV2` on the
+  positional filename `build` and throws `FileNotFoundException`. `bin/ssc run
+  --v2 --target macos examples/frontend/ios-hello/ios-hello.ssc` exits 0 but
+  produces no native package: `RunCmd` returns through `RunV2.run` before it
+  computes or dispatches `targetSelection`, so the macOS target is ignored.
+- **Legacy native-path repro:** `bin/ssc build --target macos
+  examples/frontend/ios-hello/ios-hello.ssc --out
+  target/swift-legacy-repro` reaches `JvmGen` but fails the real generated
+  `.sc` compile with 27 errors. The first is `.style(padding = 8)` calling an
+  overload without `padding`; the generated `std.ui.primitives` block then
+  cannot resolve bare `View` and `EventHandler` in its imports/signatures and
+  exposes a missing-default-argument call to `_ssc_ui_emit_to_dir`. No Swift
+  package is written.
 - **Expected:** selecting v2 must compile the checked v2 program through an
   explicit Swift backend and the shared SwiftUI View toolkit, producing native
   macOS and iOS packages from the same `.ssc` source. It must not silently parse
   or lower through v1 and must not choose SwiftUI for a web-serving route.
-- **Root-cause direction:** inspect early target dispatch in
-  `v1/tools/cli/.../Main.scala`, unconditional `JvmGen.generate` use in
-  `SwiftUiCommands.scala`, the v2 frontend bridge, and the boundary between v2
-  checked CoreIR and `SwiftUIFrameworkBackend.emitNative`. Reuse the shared View
-  IR rather than cloning toolkit semantics into a backend-specific parser.
+- **Root-cause direction:** there are three independent boundaries to fix:
+  `BuildCmd` has no v2/native lane selection; `RunCmd` selects `RunV2` before
+  native target dispatch; and `buildSwiftUIPackage` unconditionally parses via
+  v1 `Parser` and executes `JvmGen.generate`. Even that compatibility route is
+  red because `JvmRuntimeUiPrimitives.source` is inserted into generated code
+  without a self-contained type/import contract and the checked-in iOS example
+  uses a stale style surface. The v2 tree has no Swift generator. Preserve one
+  shared View/toolkit IR rather than cloning toolkit semantics into a
+  backend-specific parser.
 - **Done-when:** an assembled real-harness regression proves v2 owns Swift
   generation, a common toolkit example emits/builds for macOS and iOS as far as
   the installed Apple toolchain permits, affected conformance is green, and the
