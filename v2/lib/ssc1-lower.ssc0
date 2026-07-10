@@ -1483,6 +1483,24 @@ def lowerCaseCls = (name, params) =>
     } in
   Cons(ctorDef, mkAcc(params, 0))
 
+-- K62.13: lower an `enum` decl into constructor defs. A nullary case is a VALUE
+-- (IrDef name = IrCtor name []) so a bare reference (`North`) → IrGlobal → the ctor
+-- value (correct for `case North =>` matches). A parametrized case reuses lowerCaseCls
+-- (ctor function + `_sel_<field>` accessors), identical to a case class.
+def lowerEnum = (name, cases) =>
+  match cases {
+    case Nil => Nil
+    case Cons(c, rest) =>
+      match c {
+        case Pair(cname, params) =>
+          let defs = match params {
+            case Nil => Cons(IrDef(cname, IrCtor(cname, Nil)), Nil)
+            case Cons(h, t) => lowerCaseCls(cname, params)
+          } in
+          append(defs, lowerEnum(name, rest))
+      }
+  }
+
 -- ── KC9: block expression lowering ──────────────────────────────────────────
 -- Blocks: { val x=e; def f(p)=b; sideEffect; result }
 -- val → IrLet; def → IrLetRec (with self-reference via letrec scope); expr → IrLet discard or result
@@ -1749,6 +1767,11 @@ def lowerStmtToList = (stmt) =>
       else if #seq(tag, "casecls") then
         match data {
           case Pair(name, params) => lowerCaseCls(name, params)
+        }
+      else if #seq(tag, "enum") then
+        -- K62.13: expand each enum case into ctor def(s)
+        match data {
+          case Pair(name, cases) => lowerEnum(name, cases)
         }
       else if #seq(tag, "object") then
         -- KC7b: object O { def f(x) = ... } → IrDef("O_f", IrLam(1, ...))
@@ -2343,6 +2366,20 @@ def collectObjects = (stmts) =>
 
 -- K62.6e: gather every case-class field name (across all case classes) so
 -- resolveField can tell a generated-accessor field from a plugin/record field.
+-- K62.13: enum cases contribute the same field metadata as case classes.
+def enumCaseFields = (cases) =>
+  match cases {
+    case Nil => Nil
+    case Cons(c, rest) =>
+      match c { case Pair(cname, params) => append(params, enumCaseFields(rest)) }
+  }
+def enumCaseOrder = (cases) =>
+  match cases {
+    case Nil => Nil
+    case Cons(c, rest) =>
+      match c { case Pair(cname, params) => Cons(Pair(cname, params), enumCaseOrder(rest)) }
+  }
+
 def collectCaseFields = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -2351,6 +2388,8 @@ def collectCaseFields = (stmts) =>
         case Pair(tag, data) =>
           if #seq(tag, "casecls") then
             match data { case Pair(name, params) => append(params, collectCaseFields(rest)) }
+          else if #seq(tag, "enum") then
+            match data { case Pair(ename, cases) => append(enumCaseFields(cases), collectCaseFields(rest)) }
           else collectCaseFields(rest)
       }
   }
@@ -2364,6 +2403,8 @@ def collectCaseClassOrder = (stmts) =>
         case Pair(tag, data) =>
           if #seq(tag, "casecls") then
             match data { case Pair(name, params) => Cons(Pair(name, params), collectCaseClassOrder(rest)) }
+          else if #seq(tag, "enum") then
+            match data { case Pair(ename, cases) => append(enumCaseOrder(cases), collectCaseClassOrder(rest)) }
           else collectCaseClassOrder(rest)
       }
   }

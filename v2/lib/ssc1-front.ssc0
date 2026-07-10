@@ -1338,6 +1338,27 @@ def skipToStmt = (ts) =>
     else skipToStmt(advance(ts))
   else skipToStmt(advance(ts))
 
+-- K62.13: skip an enum header (`extends S with T` / stray tokens) up to the body
+-- opener `:` (layout) or `{` (braced), or the first `case`, `;`, EOF.
+def skipEnumHead = (ts) =>
+  if kindIs(":", ts) then ts
+  else if kindIs("{", ts) then ts
+  else if kindIs(";", ts) then ts
+  else if kindIs("EOF", ts) then ts
+  else if kwIs("case", ts) then ts
+  else skipEnumHead(advance(ts))
+
+-- K62.13: from INSIDE a `{`-block (depth 1), skip to and past the matching `}`
+-- (used to consume any post-case methods in a braced enum body).
+def skipRestBrace = (ts) =>
+  let rec go = (t, depth) =>
+    if kindIs("EOF", t) then t
+    else if kindIs("{", t) then go(advance(t), #i.add(depth, 1))
+    else if kindIs("}", t) then
+      (if #i.le(depth, 1) then advance(t) else go(advance(t), #i.sub(depth, 1)))
+    else go(advance(t), depth) in
+  go(ts, 1)
+
 -- K62.6b: a top-level statement that is either an expression or a `name = expr`
 -- assignment (only a bare-identifier lhs is treated as assignment; anything else
 -- stays an expression statement).
@@ -1525,11 +1546,30 @@ def parseOneStmt = (toks) =>
         -- K62.8: `opaque type X = Y` — erased alias, skip to next stmt.
         pr(Pair("sealed", ""), skipToStmt(advance(toks)))
       else if #seq(v, "enum") then
-        -- K62.8: `enum E { case … }` / `enum E(p) : T { … }` — skip name + optional
-        -- params/bounds, then the body (braces or nothing) to the next stmt.
-        let ts1 = skipToBrace(advance(toks)) in
-        let ts2 = if kindIs("{", ts1) then skipBraceBlock(ts1) else skipToStmt(ts1) in
-        pr(Pair("sealed", ""), ts2)
+        -- K62.13: real enum parsing. `enum E[T](p) extends S:` (layout) or `{ … }` (braced),
+        -- then `case X` (nullary) / `case X(p1: T, …)` (parametrized) entries. Layout inserts
+        -- `;` between case lines. Emits ("enum", Pair(name, [Pair(caseName, params)…])); the
+        -- lower turns each case into a ctor (nullary = value, parametrized = case-class ctor).
+        let ts1 = advance(toks) in
+        let ename = tokVal(peek(ts1)) in
+        let ts2 = skipTypeParams(advance(ts1)) in
+        let ts3 = if kindIs("(", ts2) then prT(parseParamList(ts2)) else ts2 in
+        let ts4 = skipEnumHead(ts3) in
+        let brace = kindIs("{", ts4) in
+        let ts5 = if kindIs(":", ts4) then advance(ts4)
+                  else if brace then advance(ts4) else ts4 in
+        let rec goCases = (ts, acc) =>
+          let tsA = skipSemis(ts) in
+          if kwIs("case", tsA) then
+            let tsB = advance(tsA) in
+            let cname = tokVal(peek(tsB)) in
+            let tsC = advance(tsB) in
+            let rp = if kindIs("(", tsC) then parseParamList(tsC) else pr(Nil, tsC) in
+            goCases(prT(rp), Cons(Pair(cname, prV(rp)), acc))
+          else pr(reverse(acc), tsA) in
+        let rc = goCases(ts5, Nil) in
+        let ts6 = if brace then skipRestBrace(prT(rc)) else prT(rc) in
+        pr(Pair("enum", Pair(ename, prV(rc))), ts6)
       else parseExprOrAssign(toks)
     else parseExprOrAssign(toks)
 
@@ -1558,6 +1598,11 @@ def isLayoutOpener = (t) =>
     else if #seq(k, "kw") then
       (if #seq(v, "then") then true else if #seq(v, "else") then true
        else if #seq(v, "do") then true else if #seq(v, "yield") then true
+       -- K62.13: brace-less `x match` ⏎ <indented case arms> opens a layout block so the
+       -- arms close at dedent (a top-level `def f = e match` ⏎ arms no longer swallows the
+       -- following statements). Braced `match { … }` is unaffected (match is followed by `{`,
+       -- not NL, so no L block opens).
+       else if #seq(v, "match") then true
        else false)
     else false }
 
