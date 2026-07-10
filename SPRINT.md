@@ -674,11 +674,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
             explicit tools-tier categories and source-located failures.
-            Current baseline 2026-07-10 after TI-8.2c2j:
+            Current baseline 2026-07-10 after TI-8.2c2k:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 71
+            frontend host errors/timeouts, 1 non-code document, 70
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            28 runtime successes, and 95 runtime errors (166 strict-fail rows).
+            28 runtime successes, and 96 runtime errors (166 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -716,19 +716,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 71 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 70 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `23fca32a0`):** join the native-front
+                        (`aa9b30f28`, refined through `7aee8394e`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 71 rows classify as 3 standard-gap / 26
+                        Result: all 70 rows classify as 2 standard-gap / 26
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
@@ -752,7 +752,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         taxonomy smoke and fresh conformance 9/9 pass. Tracked
                         in `BUGS.md#v21-sentinel-taxonomy-parity-success`.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        3 remaining deterministic rows by actual `_err` source
+                        2 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
@@ -956,7 +956,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               standard parity 10/60/125 with zero mismatch or
                               one-sided row, native-entry passes, and fresh
                               conformance is 9/9.
-                        - [ ] **TI-8.2c2k pattern alternatives:** parse
+                        - [x] **TI-8.2c2k pattern alternatives — DONE
+                              2026-07-10 (`7aee8394e`):** parse
                               `case YMap(_) | YSeq(_) => body` as two ordered
                               constructor alternatives sharing one body, with
                               the same wildcard field arity and no duplicated
@@ -964,7 +965,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               ASM fixture, then rerun `dsl-yaml-like.ssc` and
                               the full readiness reports. This is separate from
                               symbolic operators because the remaining `_err`
-                              is inside the match-pattern grammar.
+                              is inside the match-pattern grammar. Result: the
+                              fixture prints `hit`, `hit`, `miss` on VM/ASM;
+                              `dsl-yaml-like.ssc` is sentinel-clear/checker-OK
+                              and reaches `Parser_regex`. Corpus is 194/0/0/1
+                              with 70 sentinels, checker 194/0, runtime 28 OK /
+                              96 errors, taxonomy 2/26/36/5/1, standard parity
+                              10/60/125 with zero mismatch or one-sided row,
+                              native-entry passes, and conformance is 9/9.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.

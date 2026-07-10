@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native matches support constructor pattern alternatives
+
+The self-hosted parser/lowerer now expands `case A(_) | B(_) => body` into
+ordered constructor alternatives over one evaluated scrutinee. A real fixture
+prints `hit/hit/miss` identically on native VM/direct ASM, and
+`dsl-yaml-like.ssc` is sentinel-clear/checker-OK. The corpus has 70 sentinels
+and 2 standard gaps; standard parity remains 10/60/125 with zero
+mismatch/one-sided, and fresh conformance is 9/9. Landed `7aee8394e`.
+
 ## 2026-07-10 — native frontend recognizes symbolic extension operators
 
 The self-hosted lexer/parser now consumes `~`, `~>`, and `<~` with
