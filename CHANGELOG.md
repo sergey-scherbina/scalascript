@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — layout closes multiline lambdas before call delimiters
+
+The self-hosted offside pass now tracks parentheses and brackets alongside
+braces, closing only virtual layout blocks nested inside a delimiter before its
+`)`/`]`. A multiline tuple-lambda fixture prints `11` identically on native VM
+and direct ASM; `std/money.allocate` and `content-linked-namespaces.ssc` are
+sentinel-clear/checker-OK. Six corpus rows lose sentinels: 78 remain, with 10
+standard gaps and 26 server rows; checker is 194/0 and runtime has 27 successes.
+Native-entry, taxonomy, zero-difference parity, and fresh 9/9 conformance pass.
+Landed `6440860f7`.
+
 ## 2026-07-10 — native frontend returns structural CoreIR and manifest config
 
 The self-hosted tower now returns `IrProg`, parsed Frontmatter YAML values, and
@@ -66,15 +77,15 @@ taxonomy smoke, parity, and affected conformance gates pass. Landed
 
 ## 2026-07-10 — every native parser sentinel has a release category
 
-The release join now classifies all 84 `_err` rows from the native-front and
-standard parity reports: 11 standard deterministic parser gaps, 31
+The release join now classifies all 78 `_err` rows from the native-front and
+standard parity reports: 10 standard deterministic parser gaps, 26
 server/integration documents, 36 backend-specific documents, 5 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
 entrypoints before execution; backend-only fenced documents are source-classified
 without overrides. VM/ASM parity is 10 identical, 60 honest both-fail, 125
-skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `ea805bf22`).
+skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `6440860f7`).
 
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 
