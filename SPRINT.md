@@ -930,16 +930,29 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               parser choice `|` remain explicit runtime work.
                               The structural CoreIR repro shows these operators
                               own the `_err` nodes in `dsl-calc-parser.ssc`,
-                              `dsl-json-parser.ssc`, `dsl-sql-recovery.ssc`, and
-                              `dsl-yaml-like.ssc`; assignment expressions are
-                              the separate remaining family. Add a real
+                              `dsl-json-parser.ssc`, and
+                              `dsl-sql-recovery.ssc`; they also clear the
+                              operator nodes in `dsl-yaml-like.ssc`, whose
+                              independent `YMap(_) | YSeq(_)` pattern
+                              alternative remains a separate family. Assignment
+                              expressions are another remaining family. Add a real
                               uncalled symbolic-def/operator fixture on native
                               VM/direct ASM, rerun all four documents plus the
                               full corpus/parity/taxonomy, native-entry, and
-                              fresh `v2-*` conformance. Done when all four rows
-                              are sentinel-clear/checker-OK and unresolved
-                              runtime semantics fail explicitly rather than
-                              silently becoming integer addition.
+                              fresh `v2-*` conformance. Done when the three
+                              operator-only rows are sentinel-clear/checker-OK,
+                              YAML has no symbolic-operator sentinel, and
+                              unresolved runtime semantics fail explicitly
+                              rather than silently becoming integer addition.
+                        - [ ] **TI-8.2c2k pattern alternatives:** parse
+                              `case YMap(_) | YSeq(_) => body` as two ordered
+                              constructor alternatives sharing one body, with
+                              the same wildcard field arity and no duplicated
+                              body evaluation. Add a focused native VM/direct-
+                              ASM fixture, then rerun `dsl-yaml-like.ssc` and
+                              the full readiness reports. This is separate from
+                              symbolic operators because the remaining `_err`
+                              is inside the match-pattern grammar.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
