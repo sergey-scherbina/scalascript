@@ -567,21 +567,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
             explicit tools-tier categories and source-located failures.
-            Baseline 2026-07-10: native-front covers all 195 rows with 192
-            frontend successes, 2 frontend host errors, 1 non-code document,
-            102 sentinel-bearing outputs, 190 checker successes, 4 type errors,
-            18 runtime successes, and 72 runtime errors (176 strict-fail rows).
-            Standard VM/ASM classification is 6 identical, 0 stdout mismatch,
-            98 both-fail, 88 skipped server/backend/nondeterministic, and 3
-            one-sided rows: `index.ssc`/`ui-fetch-json.ssc` fail only on VM and
-            `recursion.ssc` fails only on direct ASM. Reports:
+            Current baseline 2026-07-10 after the TI-8.2a fixes: native-front
+            covers all 195 rows with 192 frontend successes, 2 frontend host
+            errors, 1 non-code document, 92 sentinel-bearing outputs, 191
+            checker successes, 3 type errors, 23 runtime successes, and 77
+            runtime errors (171 strict-fail rows). Standard VM/ASM
+            classification is 11 identical, 0 stdout mismatch, 96 both-fail,
+            88 skipped server/backend/nondeterministic, and 0 one-sided rows.
+            Reports:
             `target/v21-native-front-current.tsv` and
             `target/v21-standard-bc-parity-current.tsv` from the named scripts.
-            - [ ] **TI-8.2a backend one-sided rows:** fix `index.ssc` semantic
-                  output/arity and direct-ASM stack-safe recursion now; defer
-                  `ui-fetch-json.ssc` until the active JSON cutover releases its
-                  owned surface. Add focused real-launcher regressions.
-                  Progress: `86a2de03a` closed `index.ssc` by teaching the
+            - [x] **TI-8.2a backend one-sided rows — DONE 2026-07-10
+                  (`86a2de03a`, `3153fb2db`, `d6b9ae9ce`):** `86a2de03a`
+                  closed `index.ssc` by teaching the
                   self-hosted lexer/parser to balance and parse complete
                   `${...}` expressions containing selector calls and nested
                   string literals. The exact two-line index output and a
@@ -593,17 +591,23 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   the complete 13-row `recursion.ssc` output is identical on
                   VM, in-memory ASM, and `build-jvm` at `-Xss256k`; focused
                   parity is 1/0/0/0 and all release/conformance gates are green.
-                  Only the now-released JSON/UI arity row remains in this slice.
+                  `d6b9ae9ce` then balanced parentheses inside skipped function
+                  types, made direct ASM enforce VM closure arity, and added
+                  core-free declarative UI fetch values. `ui-fetch-json.ssc`
+                  now prints the same two lines on both assembled lanes. Full
+                  parity is 11 identical / 0 mismatch / 0 one-sided / 96
+                  both-fail / 88 skipped; native-entry, standard, slim, JRE,
+                  artifact, JSON, provider, and affected conformance gates pass.
             - [ ] **TI-8.2b frontend host errors:** eliminate the
                   `dsl-mini-language.ssc` `Pair/2` matcher crash and reconcile
                   the missing `std/ui/table.ssc` example import. A failed row
                   must be a source diagnostic, never a host exception.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 102 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 92 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
-            - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 98
+            - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 96
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
                   report must not count both-fail as parity success.

@@ -4,13 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — standard VM and direct ASM have no one-sided corpus failures
+
+The self-hosted frontend now preserves multiline function-typed parameters,
+direct ASM enforces the VM's closure arity, and the core-free standard UI
+provider constructs declarative fetch signals/actions without compatibility
+fallback. Together with the braced-interpolation and local-recursion fixes,
+all three prior one-sided rows (`index.ssc`, `recursion.ssc`, and
+`ui-fetch-json.ssc`) are byte-identical. The 195-file standard sweep is now 11
+identical, 0 mismatch, 0 one-sided, 96 honest both-fail, and 88 explicitly
+skipped; the native frontend has 192 successes, 92 sentinels, and 2 tracked host
+errors. The current reproducible artifact is 24,777,543 bytes with SHA-256
+`ee47e75d07ea980d1075c55397e2a07b543dafe55014d03a49b30d5549c32392`.
+
 ## 2026-07-10 — direct ASM trampolines local self and mutual recursion
 
 Compiled `LetRec` groups now retain generated peer identity and return tail
 calls through a bounce whose frame preserves captured values plus the tied
 closure group. The full `recursion.ssc` example produces all 13 rows identically
 on VM, in-memory ASM, and deterministic `build-jvm` at `-Xss256k`. The current
-compiler-free artifact baseline is 24,769,060 bytes with SHA-256
+compiler-free artifact baseline at that slice was 24,769,060 bytes with SHA-256
 `c6791b629f03b1966a039eed3f482a3cb4ba8ba433abb7b9f8cbe1dfe416bfde`.
 
 ## 2026-07-10 — public standard JSON now uses the self-hosted codec
