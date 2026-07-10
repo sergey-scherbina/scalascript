@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — ScalaScript 2.1 standard tier survives physical tools deletion
+
+The release gate now copies an installed distribution, removes its full CLI,
+compatibility JAR/plugin/compiler trees, legacy frontend, `ssc`, and
+`ssc-tools`, and runs only the surviving `ssc-standard` files. VM, direct ASM,
+imports/argv, FS/OS, JSON, HTTP, SQL, UI, State, and deterministic `build-jvm`
+all pass with compiler commands hidden. The stable baseline is 33 JARs, 7,060
+classes, 31,454,827 bytes, and zero compiler/Scalameta/v1 forbidden references.
+
 ## 2026-07-10 — compatibility tooling gets an explicit tier launcher
 
 Full staging and self-install now create `ssc-tools` over the compatibility

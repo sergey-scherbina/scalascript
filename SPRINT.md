@@ -301,7 +301,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             `javap`/entry/`jdeps`/module scans find 0 forbidden references and
             neither module graph contains `java.compiler`/`jdk.compiler`.
             Fresh affected conformance remains 8/8.
-- [ ] **v21-ti-slim-distribution** — split the install layout into a standard
+- [x] **v21-ti-slim-distribution — DONE 2026-07-10 (`65773c2fe`):** split the install layout into a standard
       runtime tier and optional compatibility/compiler tools. The standard tier
       contains the native frontend, v2 runtime, ASM emitter, scalameta-free plugin
       runtime, and Scala runtime libraries, but excludes scalameta and
@@ -332,12 +332,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             create `ssc-tools`; direct v1 hello and explicit delegation through
             `ssc-standard run --v1` pass, unsupported `check` stays a bounded
             tier/remedy failure, standard smoke passes, and conformance is 8/8.
-      - [ ] **TI-7.3 physical deletion gate:** copy the staged distribution,
+      - [x] **TI-7.3 physical deletion gate — DONE 2026-07-10 (`65773c2fe`):** copy the staged distribution,
             delete compatibility runtime/plugin/compiler trees and every
             Scalameta/compiler-family JAR, then run default/native VM, direct
             ASM, import/argv/JSON/HTTP/SQL/UI/State, and `build-jvm`. Inspect the
             standard startup classpath with JAR/`jdeps` gates, record exact tier
             counts/sizes in stable TSV, wire CI, and update the spec/docs.
+            Result: after deleting the full CLI, compatibility JARs/plugins,
+            compiler, legacy frontend, `ssc`, and `ssc-tools`, the surviving
+            33-JAR / 7,060-class / 31,454,827-byte standard tier passes VM,
+            direct ASM, every representative TI-5 provider, and `build-jvm`.
+            Compiler commands are hidden, the tools tier is absent, and the
+            recursive static/runtime scans find 0 forbidden references.
 - [ ] **v21-ti-no-javac-cutover** — retire the default v1 `JavacJitBackend` from
       the standard tier instead of treating the old scala.meta-based
       `AsmJitBackend` as the new architecture. Keep v1 JITs only in the optional
