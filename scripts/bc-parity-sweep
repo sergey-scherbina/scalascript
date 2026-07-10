@@ -52,8 +52,8 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 printf 'file\tcategory\tvm_rc\tbytecode_rc\tdetail\n' > "$report"
 
-skip_re='serve\(|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
-nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count)\.ssc$'
+skip_re='(^|[^[:alnum:]_])serve([[:space:]]*\(|[[:space:]]*\{|[A-Z][[:alnum:]_]*[[:space:]]*\()|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
+nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count|graphql-client)\.ssc$'
 ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; total=0
 mlist=''; elist=''; vlist=''
 

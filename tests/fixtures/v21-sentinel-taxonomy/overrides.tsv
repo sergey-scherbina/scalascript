@@ -1,0 +1,11 @@
+file	category	reason
+agent-mcp-toolsource.ssc	backend	MCP Spawn client explicitly requires the JVM/JS backend
+quoted-macro-constfold.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
+quoted-macro-interpreter.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
+scala-js-demo.ssc	tools-backend	Scala fenced blocks require the explicit Scala.js/tools backend
+wasm-collections.ssc	tools-backend	WASM/Scala.js target document
+wasm-http.ssc	tools-backend	WASM/Scala.js target document
+wasm-matrix.ssc	tools-backend	WASM/Scala.js target document
+wasm-primes.ssc	tools-backend	WASM/Scala.js target document
+wasm-scalascript.ssc	tools-backend	WASM target document
+wasm-sorting.ssc	tools-backend	WASM/Scala.js target document
