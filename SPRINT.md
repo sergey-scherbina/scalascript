@@ -9,6 +9,54 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## ScalaScript 2.0 — Swift + SwiftUI native parity (2026-07-10)
+
+Goal: make the production v2 path generate and run native SwiftUI applications
+for both macOS desktop and iOS mobile instead of silently depending on the v1
+tree-walking/JvmGen frontend or selecting a native-only frontend in an
+incompatible route. Feature spec: `specs/v2-swift-swiftui-native.md`. Active
+claim: `.work/active/v2-swift-swiftui-native.claim`.
+
+- [ ] **v2-swift-swiftui-spec-repro** — audit the shipped `bin/ssc` CLI routing
+      for `--v2` plus `emit/build/run --target macos|ios`, reproduce the current
+      failure or v1 fallback through the assembled real harness, and specify the
+      v2 Swift backend/SwiftUI toolkit contract before implementation. Read
+      `SPEC.md`, `specs/jit-completeness.md`, `specs/native-platform.md`, and
+      `specs/swiftui.md`; preserve one source-level View contract across desktop
+      and mobile. Commit `specs/v2-swift-swiftui-native.md` separately before
+      code. Done when the baseline command/output, ownership boundary, public
+      CLI behavior, supported toolkit surface, and explicit non-goals are
+      durable and `git diff --check` passes.
+- [ ] **v2-swift-backend-lowering** — add the production v2 Swift codegen route
+      from checked v2 program/frontend data to deterministic Swift source. Reuse
+      the established framework-neutral View IR and Swift package emitter where
+      their contracts are still valid; do not re-run the legacy parser/JvmGen or
+      invent a second toolkit AST. Cover scalar/control-flow/value lowering and
+      source diagnostics required by the focused native examples. Done when a
+      regression proves `--v2` owns generation and emitted Swift parses/builds
+      with the installed Swift toolchain.
+- [ ] **v2-swiftui-toolkit-desktop-mobile** — connect the v2 Swift backend to the
+      SwiftUI toolkit for both macOS and iOS, including platform declarations,
+      application entry point, native controls, reactive signal/state updates,
+      event handlers, typed model/fetch state already promised by the existing
+      SwiftUI specs, and deterministic unsupported-feature diagnostics. Use the
+      same `.ssc` example for both target packages. Done when focused emitter
+      tests and `swiftc`/`swift build` or `xcodebuild`-available gates cover both
+      platforms without platform types in `.ssc`.
+- [ ] **v2-swift-swiftui-cli-packaging** — route `ssc emit/build/run --v2` and
+      front-matter v2 selection through the new native pipeline for
+      `macos|desktop-macos` and `ios|mobile-ios`, retaining current signing,
+      simulator/device, package, and publish adapters after generation. Reject
+      unavailable Xcode/SDK/tooling with bounded actionable diagnostics; never
+      silently fall back to v1. Add an end-to-end example and README/spec
+      references. Done when assembled macOS build/run and iOS package generation
+      gates pass as far as the local toolchain permits.
+- [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
+      `tests/conformance/run.sh --only '<focused globs>'`, verify every behavior
+      item in the feature spec, record actual test counts/toolchain limitations,
+      update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
+      commit to `origin/main`, release the claim, and remove the worktree.
+
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 
 Goal: make the standard JVM production path `.ssc -> native frontend -> CoreIR

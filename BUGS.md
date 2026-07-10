@@ -1,5 +1,31 @@
 # Bug tracker
 
+## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
+
+**Status:** open (2026-07-10); reported by Sergiy in the Codex session.
+
+- **Reported symptom:** ScalaScript 2.0 has a problem with both the Swift backend
+  and the SwiftUI toolkit for desktop and mobile applications.
+- **Real-harness repro:** to be pinned by the first SPRINT slice after
+  `scripts/sbtc "installBin"`; audit assembled `bin/ssc` for `--v2` combined
+  with `emit/build/run --target macos|desktop-macos|ios|mobile-ios`. The current
+  source inventory finds the SwiftUI emitter and packaging commands under the
+  legacy v1/JvmGen path, while `v2/` has no Swift generator implementation.
+- **Expected:** selecting v2 must compile the checked v2 program through an
+  explicit Swift backend and the shared SwiftUI View toolkit, producing native
+  macOS and iOS packages from the same `.ssc` source. It must not silently parse
+  or lower through v1 and must not choose SwiftUI for a web-serving route.
+- **Root-cause direction:** inspect early target dispatch in
+  `v1/tools/cli/.../Main.scala`, unconditional `JvmGen.generate` use in
+  `SwiftUiCommands.scala`, the v2 frontend bridge, and the boundary between v2
+  checked CoreIR and `SwiftUIFrameworkBackend.emitNative`. Reuse the shared View
+  IR rather than cloning toolkit semantics into a backend-specific parser.
+- **Done-when:** an assembled real-harness regression proves v2 owns Swift
+  generation, a common toolkit example emits/builds for macOS and iOS as far as
+  the installed Apple toolchain permits, affected conformance is green, and the
+  landed SHA plus actual root cause are recorded here. Keep `fixed` until Sergiy
+  confirms the original workflow.
+
 ## v21-standard-index-vm-asm-divergence — index example fails VM and succeeds with malformed ASM output
 
 **Status:** open (2026-07-10); found in the TI-8.2 standard corpus sweep.
