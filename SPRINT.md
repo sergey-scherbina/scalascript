@@ -649,6 +649,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
+                        Measured groups (overlap is intentional): extension and
+                        symbolic extension methods affect 8 documents; match
+                        guards affect 3; `throw`, triple-quoted strings, numeric
+                        separators/`L`, and generic/type-pattern residue affect
+                        one each. `x402-client.ssc` is a platform/compiler block
+                        in a `scalascript` fence and belongs to tools/backend by
+                        the platform-type prohibition, not to the standard parser.
+                        - [ ] **TI-8.2c2a numeric separators:** lex decimal
+                              separators before the existing `L`/`l` suffix,
+                              normalize the token payload, and prove `100_00L`
+                              byte-identical on native VM and direct ASM. Rerun
+                              `international-bank-rails.ssc` plus the full
+                              sentinel/parity taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
