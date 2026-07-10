@@ -839,6 +839,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               corpus has 76 sentinels, taxonomy 8/26/36/5/1,
                               parity remains 10/60/125 with no mismatch/one-sided;
                               native-entry and fresh conformance 9/9 pass.
+                        - [ ] **TI-8.2c2h extension declaration boundary:**
+                              consume `extension [T](receiver: Type)` as a
+                              declaration header and resume at its following
+                              `def` methods instead of emitting `_err` for type
+                              brackets/annotations. This slice is parse
+                              completeness only; receiver binding, dispatch, and
+                              symbolic extension operators remain explicit
+                              follow-ups. Prove an uncalled extension declaration
+                              on native VM/direct ASM, then rerun `script.ssc`,
+                              `dsl-ast-builder.ssc`, and taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
