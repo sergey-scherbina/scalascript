@@ -56,9 +56,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       entries that predate the classifier's migration snapshot. Classify every
       entry under the five normative ownership layers (including reflective
       plugin dependencies that `jdeps` cannot discover), keep unknown JARs a
-      hard failure, and prove strict-parser mode still isolates only the JSON
-      migration dependency. Done when the assembled closed-layout smoke and
-      synthetic forbidden-reference self-test pass without weakening the gate.
+      hard failure, and pin every strict-parser migration edge to its explicit
+      plugin owner. Current discovery: native JSON plus its `upack` dependency,
+      and SQL's optional `wire-core` dependency, are the three parser/codec
+      surfaces; seed and pure core remain clean. Done when the assembled
+      closed-layout smoke and synthetic forbidden-reference self-test pass
+      without weakening the gate.
 - [ ] **v21-shc-json-core** — implement the canonical strict/tolerant JSON
       scanner, target-independent ADT, total navigation, exact-decimal handling,
       and deterministic compact encoder in `.ssc` without `extern def` or host
@@ -69,6 +72,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       graph, and keep any accelerated codec only as an explicit optional plugin.
       Gate with runtime class-load/JAR scans plus existing json/http VM/ASM
       smokes; preserve the public strict/tolerant and total-accessor behavior.
+      This removes two of the three strict-parser migration surfaces; the
+      SQL-owned `wire-core` surface stays assigned to plugin/backend isolation.
 - [ ] **v21-shc-frontmatter-yaml-core** — implement the bounded Frontmatter YAML
       Profile in ScalaScript (block/flow maps/lists, scalars, comments, block
       strings; reject duplicate keys, anchors, tags, merge keys, and multi-doc)
