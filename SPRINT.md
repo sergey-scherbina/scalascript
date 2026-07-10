@@ -676,9 +676,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             explicit tools-tier categories and source-located failures.
             Current baseline 2026-07-10 after TI-8.2b and native K62.14/K62.15:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 76
+            frontend host errors/timeouts, 1 non-code document, 75
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            27 runtime successes, and 91 runtime errors (167 strict-fail rows).
+            27 runtime successes, and 92 runtime errors (167 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -716,7 +716,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 76 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 75 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
@@ -728,7 +728,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 76 rows classify as 8 standard-gap / 26
+                        Result: all 75 rows classify as 7 standard-gap / 26
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
@@ -736,7 +736,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        8 remaining deterministic rows by actual `_err` source
+                        7 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
@@ -850,7 +850,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               corpus has 76 sentinels, taxonomy 8/26/36/5/1,
                               parity remains 10/60/125 with no mismatch/one-sided;
                               native-entry and fresh conformance 9/9 pass.
-                        - [ ] **TI-8.2c2h extension declaration boundary:**
+                        - [x] **TI-8.2c2h extension declaration boundary — DONE
+                              2026-07-10 (`3ddbe8d1d`):**
                               consume `extension [T](receiver: Type)` as a
                               declaration header and resume at its following
                               `def` methods instead of emitting `_err` for type
@@ -859,7 +860,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               symbolic extension operators remain explicit
                               follow-ups. Prove an uncalled extension declaration
                               on native VM/direct ASM, then rerun `script.ssc`,
-                              `dsl-ast-builder.ssc`, and taxonomy.
+                              `dsl-ast-builder.ssc`, and taxonomy. Result: the
+                              focused fixture prints `extension-header-ok`
+                              identically on native VM/direct ASM; `script.ssc`
+                              is sentinel-clear/checker-OK and reaches its honest
+                              missing `.stars` dispatch. The independent `:+`
+                              operator remains the sentinel in
+                              `dsl-ast-builder.ssc`. Full native corpus is
+                              194/0/0/1 with 75 sentinels, checker 194/0,
+                              runtime 27 OK / 92 errors, taxonomy 7/26/36/5/1,
+                              and parity 10 identical / 60 both-fail / 125
+                              skipped with no mismatch or one-sided row.
+                              Native-entry and fresh conformance 9/9 pass.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.

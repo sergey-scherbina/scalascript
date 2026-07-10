@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native frontend accepts extension declaration headers
+
+The self-hosted parser now consumes `extension [T](receiver: Type)` as a
+declaration header and resumes at its following definitions without leaking
+type brackets or annotations into expression parsing. This slice deliberately
+does not claim receiver binding or extension dispatch semantics. A real
+uncalled declaration fixture is byte-identical on native VM/direct ASM;
+`script.ssc` is sentinel-clear/checker-OK and reaches its honest missing
+`.stars` dispatch. The corpus has 75 sentinels and 7 standard gaps; parity is
+10 identical, 60 honest both-fail, 125 skipped, and zero mismatch/one-sided.
+Native-entry, taxonomy, and fresh 9/9 conformance pass. Landed `3ddbe8d1d`.
+
 ## 2026-07-10 — flat constructor guards fall through on one scrutinee
 
 The self-hosted guard lowerer now scopes flat constructor fields in guard/body
