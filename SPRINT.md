@@ -807,6 +807,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomy 10/26/36/5/1; parity remains 10/60/125
                               with no mismatch/one-sided. Native-entry and fresh
                               conformance 9/9 pass.
+                        - [ ] **TI-8.2c2f ordered binder match guards:** parse
+                              `case x if cond => body` and guarded wildcards as
+                              explicit guarded patterns. Lower them against the
+                              once-evaluated scrutinee with ordered fall-through
+                              to later literal/constructor/default arms. Keep
+                              guarded constructor patterns for the next slice.
+                              Prove native VM/direct-ASM classification output,
+                              then rerun `data-types.ssc` and taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
