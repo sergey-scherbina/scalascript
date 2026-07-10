@@ -67,8 +67,8 @@ val yamlKey: Parser[Any] =
 val scalarValue: Parser[Any] =
   Parser.regex("[^\n]+").map(s => YStr(s.asInstanceOf[String].trim))
 
-// Optional trailing space + newline after a scalar.
-val eol: Parser[Any] = hspace <~ Parser.char('\n')
+// Optional trailing space + newline, or end-of-input, after a scalar.
+val eol: Parser[Any] = hspace <~ (Parser.char('\n') | Parser.regex("$"))
 
 // Blank lines.
 val blankLines: Parser[Any] = Parser.regex("([ \t]*\n)*")
@@ -98,8 +98,7 @@ val yamlPair: Parser[Any] =
       case _                 => 1
     // Try block value first (no inline scalar after the colon).
     val blockValue: Parser[Any] =
-      (Parser.char('\n') ~> blankLines ~> yamlValueRef.block.withIndent(level + 2))
-        .map(v => YMap(v.asInstanceOf[List[Any]]))
+      (Parser.char('\n') ~> blankLines ~> yamlValueRef.withIndent(level + 2))
     // Inline scalar: space + text on same line.
     val inlineValue: Parser[Any] =
       (hspace ~> scalarValue <~ eol)

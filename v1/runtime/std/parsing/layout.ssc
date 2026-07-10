@@ -72,27 +72,78 @@ case class PSameIndent(requiredCol: Int) extends Parser[Any]
 
 // Guard: succeed iff current column > `minCol`.
 case class PDeeperIndent(minCol: Int) extends Parser[Any]
+
+// Run an inner parser with a concrete indentation level. This avoids routing
+// withIndent through a closure-captured PWithLocalContext update.
+case class PWithIndent(inner: Any, level: Int) extends Parser[Any]
 ```
 
 The `runParser` function in `combinators.ssc` does not know about these
 nodes.  The layout interpreter defined below handles them directly.
 
 ```scalascript
+def isLayoutSpace(c: Any): Boolean =
+  c == ' ' || c == '\t'
+
+def isLayoutWhitespace(c: Any): Boolean =
+  c == ' ' || c == '\t' || c == '\n' || c == '\r'
+
+def indentPrefixOk(s: String, n: Int): Boolean =
+  if n == 0 then true
+  else if s.length < n then false
+  else if isLayoutSpace(s.charAt(0)) then indentPrefixOk(s.drop(1), n - 1)
+  else false
+
+def layoutTokenAtIndent(s: String): Boolean =
+  s.length > 0 && !isLayoutWhitespace(s.charAt(0))
+
+case class LayoutRest(remaining: String, pos: Position)
+
+def blankLineWidth(s: String, n: Int): Int =
+  if n < s.length && isLayoutSpace(s.charAt(n)) then blankLineWidth(s, n + 1)
+  else if n < s.length && s.charAt(n) == '\n' then n + 1
+  else -1
+
+def skipBlankLayoutLines(s: String, pos: Position): LayoutRest =
+  val width = blankLineWidth(s, 0)
+  if width >= 0 then skipBlankLayoutLines(s.drop(width), Position(pos.offset + width))
+  else LayoutRest(s, pos)
+
 // Layout-aware interpreter — wraps runParser adding PSameIndent /
 // PDeeperIndent dispatch and threading the full input for column
 // calculations.
 def runLayout(p: Any, fullInput: String, remaining: String, pos: Position, ctx: Any): Any =
   p match
     case PSameIndent(required) =>
-      val col = columnOf(fullInput, pos)
-      if col == required then ParseOk((), remaining, pos)
-      else ParseErr(ParseError(
-        "indentation error: expected column " + required + ", got " + col, pos))
+      val start = skipBlankLayoutLines(remaining, pos)
+      val col = columnOf(fullInput, start.pos)
+      val need = required - col
+      if col > required then ParseErr(ParseError(
+        "indentation error: expected column " + required + ", got " + col, start.pos))
+      else if !indentPrefixOk(start.remaining, need) then ParseErr(ParseError(
+        "indentation error: expected column " + required + ", got " + col, start.pos))
+      else
+        val rest = start.remaining.drop(need)
+        val pos2 = Position(start.pos.offset + need)
+        if layoutTokenAtIndent(rest) then ParseOk((), rest, pos2)
+        else ParseErr(ParseError(
+          "indentation error: expected token at column " + required, pos2))
     case PDeeperIndent(min) =>
-      val col = columnOf(fullInput, pos)
-      if col > min then ParseOk((), remaining, pos)
+      val start = skipBlankLayoutLines(remaining, pos)
+      val col = columnOf(fullInput, start.pos)
+      def countSpaces(s: String, n: Int): Int =
+        if s.length == 0 then n
+        else if isLayoutSpace(s.charAt(0)) then countSpaces(s.drop(1), n + 1)
+        else n
+      val consumed = countSpaces(start.remaining, 0)
+      val rest = start.remaining.drop(consumed)
+      val pos2 = Position(start.pos.offset + consumed)
+      val col2 = col + consumed
+      if col2 > min && layoutTokenAtIndent(rest) then ParseOk((), rest, pos2)
       else ParseErr(ParseError(
-        "indentation error: expected column > " + min + ", got " + col, pos))
+        "indentation error: expected column > " + min + ", got " + col2, pos2))
+    case PWithIndent(inner, level) =>
+      runLayout(inner, fullInput, remaining, pos, IndentContext(level, Nil))
     // Delegate all other nodes to the standard recursive-descent runner,
     // but re-route recursive calls back through runLayout so that context
     // nodes and column guards are always handled.
@@ -157,10 +208,7 @@ extension [A](p: Parser[A])
   //
   //   val body = itemParser.block.withIndent(2)
   def withIndent(n: Int): Parser[Any] =
-    p.localCtx {
-      case ic: IndentContext => ic.copy(currentLevel = n)
-      case _                 => IndentContext(n, Nil)
-    }
+    PWithIndent(p, n)
 
   // ── sameIndent ───────────────────────────────────────────────────────────
   // Guard: succeed (consuming nothing) iff the next character starts at the
@@ -200,18 +248,15 @@ extension [A](p: Parser[A])
       val baseLevel = ctx match
         case ic: IndentContext => ic.currentLevel
         case _                 => 1
+      val itemAtCurrentIndent: Parser[Any] =
+        Parser.readCtx {
+          case ic: IndentContext => PSameIndent(ic.currentLevel)
+          case _                 => PSameIndent(baseLevel)
+        }.flatMap(_ => p)
       // First item: read its column, set as block level, parse one.
       // Remaining items: each must start at the same column.
-      val firstItem: Parser[Any] = p.localCtx {
-        case ic: IndentContext => ic.copy(stack = ic.currentLevel :: ic.stack)
-        case _                 => IndentContext(baseLevel, Nil)
-      }
-      val restItem: Parser[Any] = Parser.readCtx { ctx2 =>
-        val level = ctx2 match
-          case ic: IndentContext => ic.currentLevel
-          case _                 => baseLevel
-        PSameIndent(level)
-      }.flatMap(_ => p)
+      val firstItem: Parser[Any] = itemAtCurrentIndent
+      val restItem: Parser[Any] = itemAtCurrentIndent
       firstItem.flatMap(first =>
         restItem.many().map(rest => first :: rest)
       )
