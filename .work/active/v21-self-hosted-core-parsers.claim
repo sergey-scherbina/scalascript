@@ -1,7 +1,7 @@
 feature/v21-self-hosted-core-parsers 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-10T16:53:56Z
+heartbeat: 2026-07-10T17:17:16Z
 status: in-progress
-done-so-far: spec landed in 711ee25ca; portable dependency gate landed through bcf763a87; permanent Scala 3 seed boundary is normative
-next: finish the pure self-hosted JSON scanner/renderer and its interpreter/direct-ASM conformance fixture
-scope: additive self-hosted parser spec and pure parser modules; avoid the live v21 TI-7 slim-distribution owner's files until rebase/coordination
+done-so-far: spec/dependency gate; TI-7 closed-layout reconciliation 43ad51273; pure JSON parser/renderer/navigation 1174d4569 + 9d4572cde
+next: cut public std.json and HTTP reuse over to the self-hosted codec while preserving source compatibility
+scope: std JSON pure modules/native JSON provider and focused tests; avoid the live TI-8 launcher/default-cutover files
