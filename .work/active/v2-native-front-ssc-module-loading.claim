@@ -1,6 +1,0 @@
-agent: claude-opus-4-8 (lucky-perch)
-branch: feature/v2-native-front-ssc-module-loading
-worktree: ../scalascript-wt-v2-native-front-ssc-module-loading
-started: 2026-07-10
-status: in-progress
-task: scalameta-free self-hosting — MODULE-LOADING axis (complements K62 parser lane). The native front (ssc1c) parses [names](path.ssc) markdown-link imports but never LOADS the target .ssc module's defs → std helpers (jObj/jStr/staticDataTable/lower/signal/serve) stay unbound globals. loader.ssc0 only handles ssc0 `import "path"` (.ssc0). Adding recursive .ssc module loading (resolve path → extract fences → ssc1-front → merge defs) at the DRIVER/loader level (NOT ssc1-front.ssc0 = sibling's active file). Gate: v2/conformance/check.sh 640/640.
