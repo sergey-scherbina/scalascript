@@ -42,16 +42,24 @@ def sscDir = (path) =>
 
 -- keep only def/val/var statements (a module is imported for its definitions;
 -- its top-level entry expressions are dropped)
+-- a module is imported for its DECLARATIONS (def/val/var + case class ctors,
+-- given instances, objects) — its top-level entry EXPRESSIONS are dropped.
+-- Keeping casecls/given/object matters: e.g. std/dsl/pretty.ssc's `case class
+-- DocLine` ctor was lost, so importers hit `unbound global: DocLine`.
+def sscIsDecl = (tag) =>
+  if #seq(tag, "def") then true
+  else if #seq(tag, "val") then true
+  else if #seq(tag, "var") then true
+  else if #seq(tag, "casecls") then true
+  else if #seq(tag, "given") then true
+  else if #seq(tag, "object") then true
+  else false
 def sscDefsOnly = (stmts) =>
   match stmts {
     case Nil => Nil
     case Cons(h, t) =>
       match h {
-        case Pair(tag, d) =>
-          if #seq(tag, "def") then Cons(h, sscDefsOnly(t))
-          else (if #seq(tag, "val") then Cons(h, sscDefsOnly(t))
-          else (if #seq(tag, "var") then Cons(h, sscDefsOnly(t))
-          else sscDefsOnly(t)))
+        case Pair(tag, d) => if sscIsDecl(tag) then Cons(h, sscDefsOnly(t)) else sscDefsOnly(t)
       }
   }
 
