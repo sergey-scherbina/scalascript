@@ -338,15 +338,21 @@ recorded in the artifact. Entries are lexically ordered with fixed ZIP metadata;
 two builds from identical sources and staged runtime inputs are byte-identical.
 The manifest names `ssc.gen.Entry`, while
 `META-INF/scalascript/artifact.properties` records source SHA-256 digests,
-Parsed database configuration is stored there as well and reconstructed before
+runtime inputs, provider classes, and parsed database configuration without
+timestamps or absolute paths. Database configuration is reconstructed before
 native provider installation, so a configured H2 program runs through
 `java -jar` without consulting the ScalaScript installation or loading a Java
 compiler.
 
+Generated methods carry ordinary JVM line tables and a JSR-45 `SSC` source map.
+Stack traces for primary-source code therefore name the original `.ssc` file
+and line, while debuggers can resolve secondary explicit roots and imported
+modules through the SMAP file table. Artifact metadata hashes the same linked
+source closure, including staged `std/...` imports. Debug names are reproducible
+display paths; absolute checkout paths are never embedded.
+
 This command is distinct from legacy `compile-jvm --bytecode`, which produces a
 `.scjvm` compatibility artifact through generated Scala and compiler tooling.
-`.ssc` SourceFile/line-table/SMAP propagation remains the next ScalaScript 2.1
-artifact slice.
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
