@@ -1,0 +1,19 @@
+# Native std.fs/std.os providers
+
+[writeFile, readFile, appendFile, exists, mkdirs, deleteFile](std/fs.ssc)
+[pathJoin, pathBasename, pathIsAbsolute, tempDir, envOrElse](std/os.ssc)
+
+```scalascript
+val dir = pathJoin(tempDir, "ssc-v21-native-fs")
+mkdirs(dir)
+val path = pathJoin(dir, "sample.txt")
+writeFile(path, "one")
+appendFile(path, "-two")
+println(readFile(path))
+println(pathBasename(path))
+println(pathIsAbsolute(path))
+println(envOrElse("SSC_V21_INTENTIONALLY_MISSING_9C10", "fallback"))
+println(exists(path))
+deleteFile(path)
+println(exists(path))
+```
