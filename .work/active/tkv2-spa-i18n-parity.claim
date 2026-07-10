@@ -1,0 +1,6 @@
+feature/tkv2-spa-i18n-parity 2026-07-10T00:32:51Z
+agent: codex
+heartbeat: 2026-07-10T00:32:51Z
+status: not-started
+done-so-far:
+next: create worktree, add SPRINT/spec plan, then verify generated SPA i18n live-switch parity
