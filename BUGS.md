@@ -2,7 +2,23 @@
 
 ## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
 
-**Status:** OPEN (v2 only; v1 correct). Corpus example dsl-yaml-like fails with
+**Status:** OPEN — CORRECTED 2026-07-10: my earlier "v1 correct" was WRONG. This
+example is broken on BOTH lanes in different ways: `bin/ssc run --v1
+examples/dsl-yaml-like.ssc` fails `'withIndent' not found` / `Undefined: identifier`
+(the v1 interpreter can't resolve the std/parsing extension-methods + helper
+imports); v2 gets further (parses) but the LAYOUT/block parse produces a wrong
+structure. Deep-dived 2026-07-10: individual v2 pieces all work in isolation —
+IndentContext field access + .copy (currentLevel/stack correct), columnOf (col@N
+correct), basic .many(), and combinator CONSTRUCTION (~/~>/<~/.map all build
+PMapped/PSequence). But the FULL `.block` layout parse mis-structures: a nested
+mapping (`server:` → `host: localhost`) comes back as `YMap(List(YStr("host:
+localhost")))` — the nested block matched `scalarValue` instead of `yamlMapping`,
+so a YStr lands in the pairs list, and renderYaml's `val (k,v) = p.asInstanceOf[
+(Any,Any)]` then hits fieldAt(YStr,1) OOB. Root is in the block/PSameIndent/
+readCtx/localCtx context-threading during runLayout — NOT a single field-index
+slot. No clean reference behavior (v1 can't run it), and minimal repros hit
+import-resolution friction. NOT a bounded fix; needs a dedicated parser-context
+investigation. Corpus example dsl-yaml-like fails with
 `ArrayIndexOutOfBoundsException: Index 1 out of bounds for length 1` at
 Runtime.scala fieldAt 2-arg (`asData(v)._2(i)`). Instrumented: the receiver is a
 `YStr` (`case class YStr(v: String)`, 1 field) accessed at index 1 — i.e. a
