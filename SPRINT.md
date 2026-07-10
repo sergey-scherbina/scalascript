@@ -28,12 +28,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
 `specs/v2.1-self-hosted-core.md`. Active claim:
 `.work/active/v21-self-hosted-core-parsers.claim`.
 
-- [ ] **v21-shc-spec-and-contract** — commit the permanent Scala 3 seed
+- [x] **v21-shc-spec-and-contract — DONE 2026-07-10 (`711ee25ca`):** committed the permanent Scala 3 seed
       exception, five-layer dependency model, JSON/Frontmatter-YAML/Markdown
       profiles, structural frontend result, plugin/backend ownership rules,
       behavior checks, and implementation order before code. Update `SPEC.md`
       without editing the live TI-7 owner's feature spec. Done when the new
-      feature spec is committed and `git diff --check` is clean.
+      feature spec is committed and `git diff --check` is clean. Result: the
+      five-layer boundary, format profiles, structural frontend ABI, dependency
+      rules, behavior gates, and all implementation slices are normative in
+      `specs/v2.1-self-hosted-core.md`; `SPEC.md` links the new release contract.
 - [ ] **v21-shc-dependency-gate** — inventory the actual standard runtime graph,
       classify every JAR/module as seed, pure core, backend plugin, feature
       plugin, or tools/test, and add a portable negative gate that rejects
