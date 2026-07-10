@@ -19,8 +19,14 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 `src/v2/specs/frontend-on-scalascript.md`.
 
-- [ ] **tkv2-dev-loop** — watch-rebuild-reload for the web target (sub-second; React-HMR-class
-      productivity is the bar, plain reload is acceptable).
+- **tkv2-dev-loop** — ✓ Already satisfied / verified (2026-07-10):
+      `ssc serve file.ssc` dispatches to `watch`; server-mode watch starts the
+      port once and headlessly reloads the route table on saves; `watch-bench`
+      measures the same reload path on a temp copy. Verification gates:
+      CLI focused tests 11/11 (watch-cycle p50 5ms / max 8ms), `installBin`,
+      real `bin/ssc watch-bench --cycles 2 --target-ms 1000 --require-target
+      examples/rest-api.ssc` server-mode smoke (warm 433ms, hot max 42ms),
+      and `tkv2-*` conformance 11/11.
 - **tkv2-tri-state** — ✓ Landed (2026-07-10, `10273703c`): loading/empty/error
       helper for fetched views (busi P2-10), scoped as pure `.ssc`
       `std.ui.state` helpers over existing signals.

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — toolkit v2 dev loop verified as already available
+
+Closed the open P2 `tkv2-dev-loop` backlog row after verifying the existing
+CLI path: `ssc serve file.ssc` aliases to `watch`, server sources hot-reload
+routes without rebinding the port, and `watch-bench` exercises the same reload
+path. Gates: CLI focused tests 11/11 (watch-cycle p50 5ms / max 8ms),
+`installBin`, real `watch-bench` server-mode smoke on `examples/rest-api.ssc`
+(warm 433ms, hot max 42ms), and `tkv2-*` conformance 11/11.
+
 ## 2026-07-10 — toolkit v2 tri-state fetched-view helper landed
 
 `std/ui/state.ssc` now provides pure `.ssc` `LoadState`, `stateName`,
