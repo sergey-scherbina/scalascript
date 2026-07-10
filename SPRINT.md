@@ -751,6 +751,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               parity remains 10/60/125 with no mismatch or
                               one-sided error. Native-entry passes and fresh
                               affected conformance is 9/9.
+                        - [ ] **TI-8.2c2d enum declaration boundary:** stop the
+                              layout enum-case scan before a following top-level
+                              `case class`; otherwise `class` is consumed as an
+                              enum case name and the generic class tail leaks two
+                              `_err` expressions. Prove an enum followed by
+                              `case class Box[A]` on native VM/direct ASM, then
+                              rerun `typed-data.ssc` and the full taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
