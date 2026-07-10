@@ -15,8 +15,19 @@ Goal: make the production v2 path generate and run native SwiftUI applications
 for both macOS desktop and iOS mobile instead of silently depending on the v1
 tree-walking/JvmGen frontend or selecting a native-only frontend in an
 incompatible route. Feature spec: `specs/v2-swift-swiftui-native.md`. Active
-claim: `.work/active/v2-swift-swiftui-native.claim`.
+claim: `.work/active/v2-swift-swiftui-native.claim`. Architecture and ownership
+are coordinated in the `scalascript` Rozum room; raise every new design question
+there before changing this plan.
 
+- [ ] **swiftui-legacy-real-harness** — compatibility-only sub-slice assigned
+      in Rozum to the busi-side `claude-code` agent under its own claim/worktree.
+      Make `JvmRuntimeUiPrimitives.source` self-contained in generated scripts,
+      fix genuine (not cascading) stale `ios-hello.ssc` surface errors, and add
+      an assembled real-`.ssc` macOS package-generation regression. Do not touch
+      v2 lowering/backend/CLI or the new SwiftUI runtime. Baseline: the assembled
+      legacy command fails with 27–29 errors headed by unresolved bare `View` /
+      `EventHandler`. Done when the same real fixture writes a parseable Swift
+      package and focused JvmGen/SwiftUI gates pass.
 - [ ] **v2-swift-swiftui-spec-repro** — audit the shipped `bin/ssc` CLI routing
       for `--v2` plus `emit/build/run --target macos|ios`, reproduce the current
       failure or v1 fallback through the assembled real harness, and specify the
@@ -34,34 +45,68 @@ claim: `.work/active/v2-swift-swiftui-native.claim`.
       with 27 generated-Scala errors (stale `.style(padding=...)`, unresolved
       bare `View`/`EventHandler`, and a missing default-argument call). Swift
       6.3.2 and Xcode 26.5 are installed, so the baseline is not a missing-tools
-      failure. Architecture review is active in the `scalascript` Rozum room
-      with the `busi`-side `claude-code` agent; this claim owns repo edits.
-- [ ] **v2-swift-backend-lowering** — add the production v2 Swift codegen route
-      from checked v2 program/frontend data to deterministic Swift source. Reuse
-      the established framework-neutral View IR and Swift package emitter where
-      their contracts are still valid; do not re-run the legacy parser/JvmGen or
-      invent a second toolkit AST. Cover scalar/control-flow/value lowering and
-      source diagnostics required by the focused native examples. Done when a
-      regression proves `--v2` owns generation and emitted Swift parses/builds
-      with the installed Swift toolchain.
-- [ ] **v2-swiftui-toolkit-desktop-mobile** — connect the v2 Swift backend to the
-      SwiftUI toolkit for both macOS and iOS, including platform declarations,
-      application entry point, native controls, reactive signal/state updates,
-      event handlers, typed model/fetch state already promised by the existing
-      SwiftUI specs, and deterministic unsupported-feature diagnostics. Use the
-      same `.ssc` example for both target packages. Done when focused emitter
-      tests and `swiftc`/`swift build` or `xcodebuild`-available gates cover both
-      platforms without platform types in `.ssc`.
-- [ ] **v2-swift-swiftui-cli-packaging** — route `ssc emit/build/run --v2` and
-      front-matter v2 selection through the new native pipeline for
-      `macos|desktop-macos` and `ios|mobile-ios`, retaining current signing,
-      simulator/device, package, and publish adapters after generation. Reject
-      unavailable Xcode/SDK/tooling with bounded actionable diagnostics; never
-      silently fall back to v1. Add an end-to-end example and README/spec
-      references. Done when assembled macOS build/run and iOS package generation
-      gates pass as far as the local toolchain permits.
+      failure. Rozum consensus: backend-first, then toolkit; generated `AppCore`
+      Swift Package module; canonical decimal text + portable `dec.*` prims;
+      shared explicit `Pure`/`Op` effect lowering; portable `NativeUi` ABI rather
+      than v1 `Foreign View`; dynamic SwiftUI gets its own design review. Commit
+      `specs/v2-swift-swiftui-native.md` + the normative `SPEC.md` backend entry
+      before implementation.
+- [ ] **v2-portable-decimal-money-effects** — introduce a target-independent
+      CoreIR lowering/runtime contract required by real Swift domain code:
+      canonical decimal text at the IR boundary, portable `dec.*` primitives,
+      ordinary `Money`/`Currency` constructors, and explicit `Pure`/`Op` effect
+      values/continuations preserving nested and multi-shot handler semantics.
+      Foundation `Decimal` may implement Swift arithmetic but must not leak into
+      CoreIR. Do not encode JVM `ForeignV` or `ThreadLocal` behavior. Verify the
+      lowering against VM parity and focused existing `money-*` / `effect-*`
+      fixtures before adding UI.
+- [ ] **v2-swift-core-backend** — add `v2/backend/swift` as a first-class
+      checked-CoreIR consumer parallel to JS/Rust. Emit deterministic `AppCore`
+      Swift sources/runtime for all structural terms, values, cells/maps,
+      closures, TCO, portable decimal/money, and lowered effects. Provide direct
+      generator tests plus `swift run` execution gates for CoreIR fact/TCO/map
+      and real `money-multisection` / `effect-transitive-handler`-class cases;
+      string assertions alone are not acceptance.
+- [ ] **v2-swift-cli-package** — add Rust-shaped developer commands
+      (`emit-swift`, `run-swift`) and route `build/run --target
+      macos|desktop-macos|ios|mobile-ios` to v2 by default. `--v1` is the only
+      compatibility escape; `--v2` is accepted as an explicit default and must
+      not become a filename. Reuse signing, simulator/device, package, and
+      publish orchestration after generation, but never call v1 `Parser`,
+      `JvmGen`, Scala CLI, or silently fall back. Pin bounded missing-tool
+      diagnostics and assembled routing tests.
+- [ ] **v2-swiftui-reactive-spec-review** — before UI implementation, extend
+      the feature spec in a separate spec-only commit and discuss it in Rozum.
+      Freeze the portable `NativeUi` data/closure ABI and the SwiftUI state
+      model (`ObservableObject`/bindings/identity/lifecycle). Prove on paper how
+      `forKeyed` preserves key identity and component-scoped signals across
+      insert/move/delete, rather than inheriting v1's one-shot static render.
+      Also specify fetch cancellation/main-actor updates, navigation links,
+      card/theme/style preservation, and cross-platform raw HTML rendering.
+- [ ] **v2-swiftui-portable-runtime** — make `std/ui` primitive lowering produce
+      portable `NativeUi` constructors, signal references, event descriptors,
+      and render closures that survive CoreIR→Swift. Implement the SwiftUI
+      recursive renderer/bindings for layout, text, input, toggle, button,
+      show/fragment, dynamic keyed lists, component state, fetch actions, and
+      deterministic unsupported diagnostics. Do not reuse v1 `View`,
+      `SwiftUIEmitter`, or interpreter-only plugin objects.
+- [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
+      vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
+      `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
+      route/display links, trusted `rawHtml`, forms, typed route/fetch state,
+      table/model nodes, accessibility, and offline status where platform
+      semantics exist. Use a reduced busi screen as the conformance fixture;
+      toy `Text`/`Button` output alone is insufficient.
+- [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
+      iOS packages with correct deployment declarations, resources, entry
+      point, and stable filenames. Gate macOS with real `swift build`/run and
+      iOS with available `xcodebuild` simulator compilation; keep signing,
+      device deploy, `.ipa`, notarization, DMG, TestFlight, and App Store
+      adapters working after the generator switch. Add the user-facing example
+      and README/spec command matrix.
 - [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
-      `tests/conformance/run.sh --only '<focused globs>'`, verify every behavior
+      `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
+      exact supported glob form), verify every behavior
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
