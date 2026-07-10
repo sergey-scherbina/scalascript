@@ -678,6 +678,16 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(error.getMessage == "arity: 1 expected, 2 given")
   }
 
+  test("v2 bytecode compiles BigInt and byte-vector literals (was hard Unsupported)") {
+    import Const.*, Term.*
+    val big = BigInt("123456789012345678901234567890")
+    assert(runBytecodeProgram(Program(Nil, Lit(CBig(big)))) == Value.BigV(big))
+    assert(runCore(Lit(CBig(big))) == Value.BigV(big)) // bytecode result matches the VM
+    val bytes = Vector[Byte](1, 2, 3, -128, 127, 0)
+    assert(runBytecodeProgram(Program(Nil, Lit(CBytes(bytes)))) == Value.BytesV(bytes))
+    assert(runCore(Lit(CBytes(bytes))) == Value.BytesV(bytes))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }

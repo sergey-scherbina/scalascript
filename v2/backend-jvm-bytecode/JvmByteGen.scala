@@ -677,7 +677,12 @@ object JvmByteGen:
         case Const.CInt(n)   => mv.visitLdcInsn(n); callJ(mv, "intV")
         case Const.CFloat(d) => mv.visitLdcInsn(d); callD(mv, "floatV")
         case Const.CStr(s)   => mv.visitLdcInsn(s); callStr(mv, "strV")
-        case other           => throw new Unsupported(s"lit:$other")
+        // BigInt / byte-vector literals: cannot `ldc` the object, so emit a
+        // decimal / base64 String and reconstruct via Emit (was a hard Unsupported).
+        case Const.CBig(n)   => mv.visitLdcInsn(n.toString); callStr(mv, "bigVStr")
+        case Const.CBytes(b) =>
+          mv.visitLdcInsn(java.util.Base64.getEncoder.encodeToString(b.toArray))
+          callStr(mv, "bytesVB64")
       case Term.Global(gname) =>
         mv.visitLdcInsn(gname); callStr(mv, "global")
       case Term.Local(i) =>

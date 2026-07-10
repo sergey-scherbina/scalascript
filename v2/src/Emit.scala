@@ -197,6 +197,12 @@ object Emit:
   def floatV(d: Double): Value = Value.FloatV(d)
   def boolV(b: Boolean): Value = Value.BoolV(b)
   def unitV: Value = Value.UnitV
+  // wide bytecode lane: BigInt / byte-vector literals — the emitter cannot `ldc` a
+  // BigInt or a Vector[Byte], so it emits a decimal / base64 String and reconstructs
+  // here (previously `Lit(CBig)`/`Lit(CBytes)` hard-failed the whole bytecode compile).
+  def bigVStr(s: String): Value = Value.BigV(BigInt(s))
+  def bytesVB64(s: String): Value =
+    Value.BytesV(java.util.Base64.getDecoder.decode(s).toVector)
   def bool(v: Value): Boolean = v match
     case Value.BoolV(b) => b
     case other          => sys.error(s"if: condition not Bool: ${Show.show(other)}")
