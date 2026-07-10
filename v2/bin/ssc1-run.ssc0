@@ -55,40 +55,97 @@ def sscDefsOnly = (stmts) =>
       }
   }
 
--- text-level scan of the raw source for `](X.ssc)` import targets
+-- Markdown import scan. Only a standalone link line outside fenced code is an
+-- import; prose/inline-code examples such as `` `[Button](./button.ssc)` `` are
+-- documentation and MUST NOT enter the module graph.
 def sscFindChar = (s, i, c) =>
   if #i.ge(i, #slen(s)) then i
   else (if #i.eq(#scodeAt(s, i), c) then i else sscFindChar(s, #i.add(i, 1), c))
 def sscEndsSsc = (s) =>
   let n = #slen(s) in
   if #i.lt(n, 4) then false else #seq(#sslice(s, #i.sub(n, 4), n), ".ssc")
-def sscScan = (s, i, acc) =>
-  if #i.ge(i, #slen(s)) then acc
-  else (if #i.eq(#scodeAt(s, i), 93) then
-          (if #i.lt(#i.add(i, 1), #slen(s)) then
-             (if #i.eq(#scodeAt(s, #i.add(i, 1)), 40) then
-                (let close = sscFindChar(s, #i.add(i, 2), 41) in
-                 let p = #sslice(s, #i.add(i, 2), close) in
-                 if sscEndsSsc(p) then sscScan(s, #i.add(close, 1), Cons(p, acc))
-                 else sscScan(s, #i.add(close, 1), acc))
-              else sscScan(s, #i.add(i, 1), acc))
-           else acc)
-        else sscScan(s, #i.add(i, 1), acc))
-def sscImports = (src) => sscScan(src, 0, Nil)
+def sscImportLine = (line) =>
+  let t = strip(line) in
+  if #i.lt(#slen(t), 8) then ""
+  else (if #i.eq(#scodeAt(t, 0), 91) then
+    let labelEnd = sscFindChar(t, 1, 93) in
+    if #i.ge(labelEnd, #slen(t)) then ""
+    else (if #i.ge(#i.add(labelEnd, 1), #slen(t)) then ""
+    else (if #i.eq(#scodeAt(t, #i.add(labelEnd, 1)), 40) then
+      let close = sscFindChar(t, #i.add(labelEnd, 2), 41) in
+      if #i.eq(close, #i.sub(#slen(t), 1)) then
+        let p = #sslice(t, #i.add(labelEnd, 2), close) in
+        if sscEndsSsc(p) then p else ""
+      else ""
+    else ""))
+  else "")
+def sscScanLines = (lines, inFence, acc) =>
+  match lines {
+    case Nil => acc
+    case Cons(line, rest) =>
+      if inFence then
+        if isClosingFence(line) then sscScanLines(rest, false, acc)
+        else sscScanLines(rest, true, acc)
+      else
+        let t = strip(line) in
+        if startsWith3bt(t) then sscScanLines(rest, true, acc)
+        else
+          let p = sscImportLine(t) in
+          if #seq(p, "") then sscScanLines(rest, false, acc)
+          else sscScanLines(rest, false, Cons(p, acc))
+  }
+def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), false, Nil))
 
 -- resolve an import target: `std/…` maps to the std root (SSC_STD env, else the
 -- in-tree v1/runtime); everything else is relative to the importing file.
 def sscStartsStd = (rel) =>
   if #i.lt(#slen(rel), 4) then false else #seq(#sslice(rel, 0, 4), "std/")
+def sscStdRootCell = #cell.new("")
+def sscSlash = (s) =>
+  if #i.eq(#slen(s), 0) then ""
+  else (if #i.eq(#scodeAt(s, #i.sub(#slen(s), 1)), 47) then s else #sconcat(s, "/"))
 def sscStdRoot = () =>
-  match #io.env("SSC_STD") {
-    case Some(e) => if #seq(e, "") then "v1/runtime/" else #sconcat(e, "/")
-    case None    => "v1/runtime/"
-  }
-def sscResolve = (dir, rel) =>
-  if sscStartsStd(rel) then #sconcat(sscStdRoot(), rel) else #sconcat(dir, rel)
+  let staged = #cell.get(sscStdRootCell) in
+  if #seq(staged, "") then
+    match #io.env("SSC_STD") {
+      case Some(e) => if #seq(e, "") then "v1/runtime/" else sscSlash(e)
+      case None    => "v1/runtime/"
+    }
+  else sscSlash(staged)
 
-def sscLoadMod = (path, seen) =>
+-- Lexical path normalization keeps DFS/load-once stable for `./` and `../`
+-- spellings without adding a platform filesystem primitive to the frozen kernel.
+def sscNormSegs = (segs, acc, absolute) =>
+  match segs {
+    case Nil => acc
+    case Cons(seg, rest) =>
+      if #seq(seg, "") then sscNormSegs(rest, acc, absolute)
+      else (if #seq(seg, ".") then sscNormSegs(rest, acc, absolute)
+      else (if #seq(seg, "..") then
+        match acc {
+          case Nil => if absolute then sscNormSegs(rest, Nil, absolute)
+                      else sscNormSegs(rest, Cons("..", Nil), absolute)
+          case Cons(h, t) => if #seq(h, "..") then sscNormSegs(rest, Cons("..", acc), absolute)
+                             else sscNormSegs(rest, t, absolute)
+        }
+      else sscNormSegs(rest, Cons(seg, acc), absolute)))
+  }
+def sscJoinSegs = (segs) =>
+  match segs {
+    case Nil => ""
+    case Cons(h, rest) =>
+      match rest { case Nil => h case _ => #sconcat(h, #sconcat("/", sscJoinSegs(rest))) }
+  }
+def sscNormalize = (path) =>
+  let absolute = if #i.eq(#slen(path), 0) then false else #i.eq(#scodeAt(path, 0), 47) in
+  let body = sscJoinSegs(reverse(sscNormSegs(#str.split(path, "/"), Nil, absolute))) in
+  if absolute then #sconcat("/", body) else body
+def sscResolve = (dir, rel) =>
+  if sscStartsStd(rel) then sscNormalize(#sconcat(sscStdRoot(), rel))
+  else sscNormalize(#sconcat(dir, rel))
+
+def sscLoadMod = (rawPath, seen) =>
+  let path = sscNormalize(rawPath) in
   if sscMem(seen, path) then Pair(Nil, seen)
   else
     let fileStr = #utf8->str(#io.readFile(path)) in
@@ -106,24 +163,53 @@ def sscLoadImps = (imps, dir, seen) =>
       }
   }
 
-def main = () =>
-  match #io.args() {
+-- Explicit command-line roots keep their entry expressions; imported modules
+-- contribute definitions only. The seen set is shared across all roots.
+def sscLoadRoot = (rawPath, seen) =>
+  let path = sscNormalize(rawPath) in
+  let bytes = #io.readFile(path) in
+  let fileStr = #utf8->str(bytes) in
+  let src = joinScalaScript(extractFences(fileStr)) in
+  if #i.eq(slen(src), 0) then
+    let z = #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) in
+    #io.exit(1)
+  else
+    let stmts = parse(src) in
+    match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, stmts), seen2)
+    }
+def sscLoadRoots = (paths, seen) =>
+  match paths {
+    case Nil => Pair(Nil, seen)
     case Cons(path, rest) =>
-      let bytes = #io.readFile(path) in
-      let fileStr = #utf8->str(bytes) in
-      let blocks = extractFences(fileStr) in
-      let src = joinScalaScript(blocks) in
-      if #i.eq(slen(src), 0) then
-        let z = #io.eprint("ssc1-run: no scalascript blocks found\n") in
-        #io.exit(1)
-      else
-        let stmts = parse(src) in
-        match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, Nil)) {
-          case Pair(impDefs, seen) =>
-            let allStmts = sscApp(impDefs, stmts) in
-            #io.print(#coreir.encode(lowerProg(allStmts)))
+      match sscLoadRoot(path, seen) {
+        case Pair(stmts, seen2) =>
+          match sscLoadRoots(rest, seen2) {
+            case Pair(more, seen3) => Pair(sscApp(stmts, more), seen3)
+          }
+      }
+  }
+
+def sscNativeArgs = (args) =>
+  match args {
+    case Cons(flag, rest) =>
+      if #seq(flag, "--std-root") then
+        match rest {
+          case Cons(root, paths) =>
+            let z = #cell.set(sscStdRootCell, sscNormalize(root)) in paths
+          case Nil => Nil
         }
+      else args
+    case Nil => Nil
+  }
+
+def main = () =>
+  match sscNativeArgs(#io.args()) {
+    case Cons(path, rest) =>
+      match sscLoadRoots(Cons(path, rest), Nil) {
+        case Pair(allStmts, seen) => #io.print(#coreir.encode(lowerProg(allStmts)))
+      }
     case Nil =>
-      let z = #io.eprint("usage: ssc1-run <file.ssc>\n") in
+      let z = #io.eprint("usage: ssc1-run [--std-root DIR] <file.ssc> [more.ssc ...]\n") in
       #io.exit(1)
   }

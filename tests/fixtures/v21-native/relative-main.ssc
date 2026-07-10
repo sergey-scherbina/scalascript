@@ -1,0 +1,7 @@
+# Relative import
+
+[answer](./relative-helper.ssc)
+
+```scalascript
+println(answer)
+```

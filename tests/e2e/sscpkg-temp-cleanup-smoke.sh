@@ -18,7 +18,8 @@ JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" SSC_NO_CDS=1 \
 
 grep -F 'Hello, World!' "$sandbox/stdout" >/dev/null
 
-leaked=$(find "$sandbox/java-tmp" -mindepth 1 -maxdepth 1 -name 'sscpkg-*' -print -quit)
+leaked=$(find "$sandbox/java-tmp" -mindepth 1 -maxdepth 1 \
+  \( -name 'sscpkg-*' -o -name 'ssc-v2-plugins*' \) -print -quit)
 if [[ -n "$leaked" ]]; then
   echo "sscpkg temp tree leaked after CLI exit: $leaked" >&2
   exit 1

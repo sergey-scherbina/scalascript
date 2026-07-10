@@ -1,0 +1,7 @@
+# Staged standard library and plugin intrinsic
+
+[sha256](std/crypto.ssc)
+
+```scalascript
+println(sha256("hello"))
+```

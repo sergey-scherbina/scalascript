@@ -1174,10 +1174,12 @@ lazy val cli = project
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
       val availableDir = libDir / "compiler" / "plugin-available"
+      val nativeFrontDir = libDir / "native-front"
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
       IO.delete(compilerDir); IO.createDirectory(compilerDir)
       IO.delete(plugDir);     IO.createDirectory(plugDir)
       IO.delete(availableDir); IO.createDirectory(availableDir)
+      IO.delete(nativeFrontDir); IO.createDirectory(nativeFrontDir)
       // Thin cli entry-point JAR (no scala3-compiler dep).
       val appJar = (Compile / packageBin).value
       IO.copyFile(appJar, libDir / "ssc.jar")
@@ -1247,6 +1249,35 @@ lazy val cli = project
       pdfGap.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       if (pdfGap.nonEmpty)
         log.info(s"bin/lib/jars/           +${pdfGap.size} pdf-plugin runtime dep(s): ${pdfGap.map(_.getName).mkString(", ")}")
+
+      // ScalaScript 2.1 native frontend: stage the self-hosted compiler tower
+      // and the .ssc standard-library sources it resolves. The installed
+      // `ssc run --native` executes these through the prebuilt v2Core JAR; it
+      // never invokes scala-cli/scalac at user runtime.
+      val nativeTowerFiles = Seq(
+        root / "v2" / "bin" / "ssc1-run.ssc0"       -> nativeFrontDir / "tower" / "bin" / "ssc1-run.ssc0",
+        root / "v2" / "bin" / "ssc1-check-run.ssc0" -> nativeFrontDir / "tower" / "bin" / "ssc1-check-run.ssc0",
+        root / "v2" / "lib" / "list.ssc0"           -> nativeFrontDir / "tower" / "lib" / "list.ssc0",
+        root / "v2" / "lib" / "mira-md.ssc0"        -> nativeFrontDir / "tower" / "lib" / "mira-md.ssc0",
+        root / "v2" / "lib" / "ssc1-front.ssc0"     -> nativeFrontDir / "tower" / "lib" / "ssc1-front.ssc0",
+        root / "v2" / "lib" / "ssc1-lower.ssc0"     -> nativeFrontDir / "tower" / "lib" / "ssc1-lower.ssc0",
+        root / "v2" / "lib" / "ssc1-check.ssc0"     -> nativeFrontDir / "tower" / "lib" / "ssc1-check.ssc0",
+      )
+      nativeTowerFiles.foreach { case (src, dest) =>
+        IO.createDirectory(dest.getParentFile)
+        IO.copyFile(src, dest)
+      }
+      val stdSourceRoot = root / "v1" / "runtime" / "std"
+      val stagedStdRoot = nativeFrontDir / "runtime" / "std"
+      val nativeStdFiles = (stdSourceRoot ** "*.ssc").get.filter(_.isFile)
+      nativeStdFiles.foreach { src =>
+        val rel = IO.relativize(stdSourceRoot, src).getOrElse(sys.error(s"cannot relativize native std source: $src"))
+        val dest = stagedStdRoot / rel
+        IO.createDirectory(dest.getParentFile)
+        IO.copyFile(src, dest)
+      }
+      log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size} std modules)")
+
       // Package and install standard-library plugins as .sscpkg archives.
       // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list
       // is explicit.  It must stay in sync with allPlugins (arch-build-registry-p1).

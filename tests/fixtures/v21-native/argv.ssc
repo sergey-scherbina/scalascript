@@ -1,0 +1,6 @@
+# Program arguments
+
+```scalascript
+println(args(0))
+println(args(1))
+```

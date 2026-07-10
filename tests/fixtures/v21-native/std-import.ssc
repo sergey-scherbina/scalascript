@@ -1,0 +1,7 @@
+# Staged standard library
+
+[env](std/os.ssc)
+
+```scalascript
+println("std-import-ok")
+```

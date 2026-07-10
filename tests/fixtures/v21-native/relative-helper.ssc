@@ -1,0 +1,7 @@
+# Relative helper
+
+This prose example is not an import: `` `[answer](./relative-helper.ssc)` ``.
+
+```scalascript
+val answer = 42
+```

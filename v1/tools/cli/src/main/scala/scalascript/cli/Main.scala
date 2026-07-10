@@ -1458,7 +1458,7 @@ final class RunCmd extends CliCommand:
   def name = "run"
   override def summary = "Execute .ssc via the v2 VM by default"
   override def category = "Run & develop"
-  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --v2  (force the ssc 2.0 VM via FrontendBridge; default for plain runs)", "       -- separates source files from program args for v2 VM runners")
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --native  (self-hosted frontend -> CoreIR -> v2 VM; no compiler process)", "       --compat-frontend / --v2  (Scalameta FrontendBridge during migration)", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --bytecode  (direct ASM execution; combines with --native)", "       -- separates source files from program args for v2 VM runners")
   def run(args: List[String]): Unit =
     if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -1482,6 +1482,8 @@ final class RunCmd extends CliCommand:
     var deviceIdFlag:      Option[String] = None   // --device-id <udid>
     var v1Flag:            Boolean        = false  // --v1 (rollback to the v1 tree-walking interpreter)
     var v2Flag:            Boolean        = false  // --v2 (force the ssc 2.0 VM via FrontendBridge)
+    var nativeFlag:        Boolean        = false  // --native (self-hosted frontend -> v2)
+    var compatFrontendFlag: Boolean       = false  // --compat-frontend (explicit Scalameta bridge)
     var bytecodeFlag:      Boolean        = false  // --bytecode (v2 lane compiled to JVM bytecode, Phase 4)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     val programArgs = scala.collection.mutable.ArrayBuffer.empty[String]
@@ -1512,6 +1514,8 @@ final class RunCmd extends CliCommand:
         case "--device"                    => deviceFlag   = true
         case "--v1"                        => v1Flag       = true
         case "--v2"                        => v2Flag       = true
+        case "--native"                    => nativeFlag   = true
+        case "--compat-frontend"           => compatFrontendFlag = true
         case "--bytecode"                  => bytecodeFlag = true
         case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
         case "--frontend"         if it.hasNext =>
@@ -1525,12 +1529,21 @@ final class RunCmd extends CliCommand:
     def rejectProgramArgs(mode: String): Unit =
       if programArgv.nonEmpty then
         System.err.println(s"run: program args after -- are supported only by v2 VM runners, not $mode")
-        System.err.println("Usage: ssc run [--v2|--bytecode] <file.ssc> -- [args...]")
+        System.err.println("Usage: ssc run [--native|--compat-frontend|--v2|--bytecode] <file.ssc> -- [args...]")
         System.exit(1)
 
-    if v1Flag && v2Flag then
-      System.err.println("run: --v1 and --v2 are mutually exclusive")
+    val frontendRoutes = List(v1Flag, nativeFlag, v2Flag || compatFrontendFlag).count(identity)
+    if frontendRoutes > 1 then
+      System.err.println("run: --v1, --native, and --compat-frontend/--v2 are mutually exclusive")
       System.exit(1)
+
+    if nativeFlag then
+      if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
+      try RunV2.runNative(fileArgs.toList, programArgv, bytecodeFlag)
+      catch case e: Exception =>
+        System.err.println(s"run --native: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
+        System.exit(1)
+      return
 
     // `--v2`: force the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime).
     // Plain default-lane runs reach the same path below unless `--v1` is set.
@@ -1539,7 +1552,7 @@ final class RunCmd extends CliCommand:
       RunV2.runBytecode(fileArgs.toList, programArgv)
       return
 
-    if v2Flag then
+    if v2Flag || compatFrontendFlag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
       RunV2.run(fileArgs.toList, programArgv)
       return
