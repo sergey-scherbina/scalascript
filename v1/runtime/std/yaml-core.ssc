@@ -1,0 +1,631 @@
+---
+name: std-yaml-core
+version: 2.1.0
+description: Bounded self-hosted Frontmatter YAML Profile parser.
+package: std.yaml.core
+exports:
+  - YamlNull
+  - YamlBool
+  - YamlInteger
+  - YamlDecimal
+  - YamlString
+  - YamlArray
+  - YamlObject
+  - YamlField
+  - YamlOk
+  - YamlErr
+  - yamlParse
+  - yamlRender
+  - yamlRenderResult
+  - yamlGet
+---
+
+# Self-hosted Frontmatter YAML Profile
+
+This is an explicit character and indentation scanner. It intentionally has no
+extern, regex, host YAML value, anchor graph, tag resolver, or merge behavior.
+
+```scalascript
+case class YamlNull()
+case class YamlBool(value: Boolean)
+case class YamlInteger(raw: String)
+case class YamlDecimal(raw: String)
+case class YamlString(value: String)
+case class YamlArray(items: List[Any])
+case class YamlObject(fields: List[Any])
+case class YamlField(key: String, value: Any)
+
+case class YamlOk(value: Any, next: Int)
+case class YamlErr(message: String, offset: Int, line: Int, column: Int)
+case class YamlLine(text: String, number: Int, offset: Int, indent: Int)
+case class YamlBlockOk(value: Any, remaining: List[Any])
+
+def yamlEqAt(left: String, right: String, index: Int): Boolean =
+  if left.length != right.length then false
+  else if index >= left.length then true
+  else if left.charAt(index) != right.charAt(index) then false
+  else yamlEqAt(left, right, index + 1)
+
+def yamlEq(left: String, right: String): Boolean =
+  yamlEqAt(left, right, 0)
+
+def yamlIsSpace(c: Int): Boolean = c == 32 || c == 9
+def yamlIsDigit(c: Int): Boolean = c >= 48 && c <= 57
+
+def yamlSkipSpace(text: String, from: Int): Int =
+  if from < text.length && yamlIsSpace(text.charAt(from)) then yamlSkipSpace(text, from + 1)
+  else from
+
+def yamlTrimEnd(text: String, end: Int): Int =
+  if end > 0 && yamlIsSpace(text.charAt(end - 1)) then yamlTrimEnd(text, end - 1)
+  else end
+
+def yamlTrim(text: String): String =
+  val from = yamlSkipSpace(text, 0)
+  val end = yamlTrimEnd(text, text.length)
+  text.substring(from, end)
+
+def yamlFindNewline(source: String, from: Int): Int =
+  if from >= source.length then from
+  else if source.charAt(from) == 10 || source.charAt(from) == 13 then from
+  else yamlFindNewline(source, from + 1)
+
+def yamlAfterNewline(source: String, end: Int): Int =
+  if end >= source.length then end
+  else if source.charAt(end) == 13 && end + 1 < source.length && source.charAt(end + 1) == 10 then end + 2
+  else end + 1
+
+def yamlCommentEnd(
+    text: String,
+    from: Int,
+    quote: Int,
+    escaped: Boolean
+): Int =
+  if from >= text.length then text.length
+  else
+    val c = text.charAt(from)
+    if escaped then yamlCommentEnd(text, from + 1, quote, false)
+    else if quote == 34 && c == 92 then yamlCommentEnd(text, from + 1, quote, true)
+    else if quote == 0 && (c == 34 || c == 39) then yamlCommentEnd(text, from + 1, c, false)
+    else if quote != 0 && c == quote then yamlCommentEnd(text, from + 1, 0, false)
+    else if quote == 0 && c == 35 then from
+    else yamlCommentEnd(text, from + 1, quote, false)
+
+def yamlIndent(text: String, from: Int): Int =
+  if from < text.length && text.charAt(from) == 32 then yamlIndent(text, from + 1)
+  else from
+
+def yamlBuildLines(
+    source: String,
+    from: Int,
+    number: Int,
+    reversed: List[Any]
+): Any =
+  if from >= source.length then YamlOk(reversed.reverse, from)
+  else
+    val end = yamlFindNewline(source, from)
+    val raw = source.substring(from, end)
+    val comment = yamlCommentEnd(raw, 0, 0, false)
+    val cleaned = raw.substring(0, yamlTrimEnd(raw, comment))
+    val indent = yamlIndent(cleaned, 0)
+    if indent < cleaned.length && cleaned.charAt(indent) == 9 then
+      YamlErr("tabs are not allowed in indentation", from + indent, number, indent + 1)
+    else
+      yamlBuildLines(
+        source,
+        yamlAfterNewline(source, end),
+        number + 1,
+        YamlLine(cleaned.substring(indent, cleaned.length), number, from + indent, indent) :: reversed
+      )
+
+def yamlBlank(line: Any): Boolean =
+  line match {
+    case YamlLine(text, _, _, _) => text.length == 0
+    case _ => true
+  }
+
+def yamlSkipBlank(lines: List[Any]): List[Any] =
+  lines match {
+    case Nil => Nil
+    case Cons(line, tail) => if yamlBlank(line) then yamlSkipBlank(tail) else lines
+  }
+
+def yamlError(line: Any, index: Int, message: String): Any =
+  line match {
+    case YamlLine(_, number, offset, indent) =>
+      YamlErr(message, offset + index, number, indent + index + 1)
+    case _ => YamlErr(message, index, 1, index + 1)
+  }
+
+def yamlFindColon(
+    text: String,
+    from: Int,
+    quote: Int,
+    depth: Int,
+    escaped: Boolean
+): Int =
+  if from >= text.length then -1
+  else
+    val c = text.charAt(from)
+    if escaped then yamlFindColon(text, from + 1, quote, depth, false)
+    else if quote == 34 && c == 92 then yamlFindColon(text, from + 1, quote, depth, true)
+    else if quote == 0 && (c == 34 || c == 39) then yamlFindColon(text, from + 1, c, depth, false)
+    else if quote != 0 && c == quote then yamlFindColon(text, from + 1, 0, depth, false)
+    else if quote == 0 && (c == 91 || c == 123) then yamlFindColon(text, from + 1, 0, depth + 1, false)
+    else if quote == 0 && (c == 93 || c == 125) then yamlFindColon(text, from + 1, 0, depth - 1, false)
+    else if quote == 0 && depth == 0 && c == 58 &&
+        (from + 1 == text.length || yamlIsSpace(text.charAt(from + 1))) then from
+    else yamlFindColon(text, from + 1, quote, depth, false)
+
+def yamlDecodeDouble(text: String, from: Int, end: Int, acc: String): Any =
+  if from >= end then YamlOk(acc, end)
+  else
+    val c = text.charAt(from)
+    if c != 92 then yamlDecodeDouble(text, from + 1, end, acc + text.substring(from, from + 1))
+    else if from + 1 >= end then YamlErr("incomplete quoted escape", from, 0, 0)
+    else
+      val escaped = text.charAt(from + 1)
+      if escaped == 34 then yamlDecodeDouble(text, from + 2, end, acc + "\"")
+      else if escaped == 92 then yamlDecodeDouble(text, from + 2, end, acc + "\\")
+      else if escaped == 110 then yamlDecodeDouble(text, from + 2, end, acc + "\n")
+      else if escaped == 116 then yamlDecodeDouble(text, from + 2, end, acc + "\t")
+      else if escaped == 114 then yamlDecodeDouble(text, from + 2, end, acc + "\r")
+      else YamlErr("unsupported quoted escape", from + 1, 0, 0)
+
+def yamlDecodeSingle(text: String, from: Int, end: Int, acc: String): String =
+  if from >= end then acc
+  else if from + 1 < end && text.charAt(from) == 39 && text.charAt(from + 1) == 39 then
+    yamlDecodeSingle(text, from + 2, end, acc + "'")
+  else yamlDecodeSingle(text, from + 1, end, acc + text.substring(from, from + 1))
+
+def yamlNumberKind(text: String, from: Int, dots: Int, exponents: Int): Int =
+  if from >= text.length then
+    if from == 0 then 0 else if dots == 0 && exponents == 0 then 1 else 2
+  else
+    val c = text.charAt(from)
+    if from == 0 && (c == 43 || c == 45) then yamlNumberKind(text, from + 1, dots, exponents)
+    else if yamlIsDigit(c) then yamlNumberKind(text, from + 1, dots, exponents)
+    else if c == 46 && dots == 0 && exponents == 0 then yamlNumberKind(text, from + 1, 1, exponents)
+    else if c == 101 || c == 69 then
+      if exponents == 0 then yamlNumberKind(text, from + 1, dots, 1) else 0
+    else if c == 43 || c == 45 then
+      if from > 0 then
+        val previous = text.charAt(from - 1)
+        if previous == 101 || previous == 69 then
+          yamlNumberKind(text, from + 1, dots, exponents)
+        else 0
+      else 0
+    else 0
+
+def yamlScalar(text0: String, line: Any): Any =
+  val text = yamlTrim(text0)
+  if text.length == 0 then YamlOk(YamlNull(), 0)
+  else if text.charAt(0) == 38 || text.charAt(0) == 42 || text.charAt(0) == 33 then
+    yamlError(line, 0, "anchors, aliases, and tags are not supported")
+  else if text.charAt(0) == 37 then yamlError(line, 0, "YAML directives are not supported")
+  else if yamlEq(text, "---") || yamlEq(text, "...") then
+    yamlError(line, 0, "multiple YAML documents are not supported")
+  else if text.charAt(0) == 34 then
+    if text.length < 2 || text.charAt(text.length - 1) != 34 then
+      yamlError(line, 0, "unterminated double-quoted scalar")
+    else
+      yamlDecodeDouble(text, 1, text.length - 1, "") match {
+        case YamlOk(value, _) => YamlOk(YamlString(value), text.length)
+        case YamlErr(message, offset, _, _) => yamlError(line, offset, message)
+        case _ => yamlError(line, 0, "invalid double-quoted scalar")
+      }
+  else if text.charAt(0) == 39 then
+    if text.length < 2 || text.charAt(text.length - 1) != 39 then
+      yamlError(line, 0, "unterminated single-quoted scalar")
+    else YamlOk(YamlString(yamlDecodeSingle(text, 1, text.length - 1, "")), text.length)
+  else if yamlEq(text, "null") || yamlEq(text, "Null") || yamlEq(text, "NULL") || yamlEq(text, "~") then
+    YamlOk(YamlNull(), text.length)
+  else if yamlEq(text, "true") || yamlEq(text, "True") || yamlEq(text, "TRUE") then
+    YamlOk(YamlBool(true), text.length)
+  else if yamlEq(text, "false") || yamlEq(text, "False") || yamlEq(text, "FALSE") then
+    YamlOk(YamlBool(false), text.length)
+  else
+    val kind = yamlNumberKind(text, 0, 0, 0)
+    if kind == 1 then YamlOk(YamlInteger(text), text.length)
+    else if kind == 2 then YamlOk(YamlDecimal(text), text.length)
+    else YamlOk(YamlString(text), text.length)
+
+def yamlFlowTokenEnd(
+    text: String,
+    from: Int,
+    quote: Int,
+    depth: Int,
+    escaped: Boolean
+): Int =
+  if from >= text.length then from
+  else
+    val c = text.charAt(from)
+    if escaped then yamlFlowTokenEnd(text, from + 1, quote, depth, false)
+    else if quote == 34 && c == 92 then yamlFlowTokenEnd(text, from + 1, quote, depth, true)
+    else if quote == 0 && (c == 34 || c == 39) then yamlFlowTokenEnd(text, from + 1, c, depth, false)
+    else if quote != 0 && c == quote then yamlFlowTokenEnd(text, from + 1, 0, depth, false)
+    else if quote == 0 && (c == 91 || c == 123) then yamlFlowTokenEnd(text, from + 1, 0, depth + 1, false)
+    else if quote == 0 && depth > 0 && (c == 93 || c == 125) then
+      yamlFlowTokenEnd(text, from + 1, 0, depth - 1, false)
+    else if quote == 0 && depth == 0 && (c == 44 || c == 93 || c == 125) then from
+    else yamlFlowTokenEnd(text, from + 1, quote, depth, false)
+
+def yamlFlowValue(text: String, from0: Int, line: Any): Any =
+  val from = yamlSkipSpace(text, from0)
+  if from >= text.length then yamlError(line, from, "expected flow value")
+  else if text.charAt(from) == 91 then yamlFlowArray(text, from + 1, line, Nil)
+  else if text.charAt(from) == 123 then yamlFlowObject(text, from + 1, line, Nil)
+  else
+    val end = yamlFlowTokenEnd(text, from, 0, 0, false)
+    yamlScalar(text.substring(from, end), line) match {
+      case YamlOk(value, _) => YamlOk(value, end)
+      case other => other
+    }
+
+def yamlFlowArray(text: String, from0: Int, line: Any, reversed: List[Any]): Any =
+  val from = yamlSkipSpace(text, from0)
+  if from >= text.length then yamlError(line, from, "unterminated flow sequence")
+  else if text.charAt(from) == 93 then YamlOk(YamlArray(reversed.reverse), from + 1)
+  else
+    yamlFlowValue(text, from, line) match {
+      case YamlErr(message, offset, lineNumber, column) => YamlErr(message, offset, lineNumber, column)
+      case YamlOk(value, next0) =>
+        val next = yamlSkipSpace(text, next0)
+        if next >= text.length then yamlError(line, next, "unterminated flow sequence")
+        else if text.charAt(next) == 93 then YamlOk(YamlArray((value :: reversed).reverse), next + 1)
+        else if text.charAt(next) == 44 then
+          val after = yamlSkipSpace(text, next + 1)
+          if after < text.length && text.charAt(after) == 93 then
+            yamlError(line, after, "trailing flow comma is not supported")
+          else yamlFlowArray(text, after, line, value :: reversed)
+        else yamlError(line, next, "expected comma or closing bracket")
+      case _ => yamlError(line, from, "invalid flow sequence")
+    }
+
+def yamlHasField(fields: List[Any], key: String): Boolean =
+  fields match {
+    case Nil => false
+    case Cons(field, tail) =>
+      field match {
+        case YamlField(existing, _) =>
+          if yamlEq(existing, key) then true else yamlHasField(tail, key)
+        case _ => yamlHasField(tail, key)
+      }
+  }
+
+def yamlKeyValue(value: Any, line: Any): Any =
+  value match {
+    case YamlString(text) => YamlOk(text, 0)
+    case YamlInteger(text) => YamlOk(text, 0)
+    case _ => yamlError(line, 0, "mapping key must be a string")
+  }
+
+def yamlKey(text0: String, line: Any): Any =
+  yamlScalar(text0, line) match {
+    case YamlOk(value, _) => yamlKeyValue(value, line)
+    case _ => yamlError(line, 0, "mapping key must be a string")
+  }
+
+def yamlFlowObject(text: String, from0: Int, line: Any, reversed: List[Any]): Any =
+  val from = yamlSkipSpace(text, from0)
+  if from >= text.length then yamlError(line, from, "unterminated flow mapping")
+  else if text.charAt(from) == 125 then YamlOk(YamlObject(reversed.reverse), from + 1)
+  else
+    val rest = text.substring(from, text.length)
+    val relativeColon = yamlFindColon(rest, 0, 0, 0, false)
+    if relativeColon < 0 then yamlError(line, from, "expected colon in flow mapping")
+    else
+      val colon = from + relativeColon
+      yamlKey(text.substring(from, colon), line) match {
+        case YamlOk(key, _) =>
+          if yamlEq(key, "<<") then yamlError(line, from, "merge keys are not supported")
+          else if yamlHasField(reversed, key) then yamlError(line, from, "duplicate mapping key")
+          else
+            yamlFlowValue(text, colon + 1, line) match {
+              case YamlOk(value, next0) =>
+                val next = yamlSkipSpace(text, next0)
+                val field = YamlField(key, value)
+                if next >= text.length then yamlError(line, next, "unterminated flow mapping")
+                else if text.charAt(next) == 125 then
+                  YamlOk(YamlObject((field :: reversed).reverse), next + 1)
+                else if text.charAt(next) == 44 then
+                  val after = yamlSkipSpace(text, next + 1)
+                  if after < text.length && text.charAt(after) == 125 then
+                    yamlError(line, after, "trailing flow comma is not supported")
+                  else yamlFlowObject(text, after, line, field :: reversed)
+                else yamlError(line, next, "expected comma or closing brace")
+              case other => other
+            }
+        case other => other
+      }
+
+def yamlInline(text: String, line: Any): Any =
+  val trimmed = yamlTrim(text)
+  if trimmed.length > 0 && (trimmed.charAt(0) == 91 || trimmed.charAt(0) == 123) then
+    yamlFlowValue(trimmed, 0, line) match {
+      case YamlOk(value, next0) =>
+        val next = yamlSkipSpace(trimmed, next0)
+        if next == trimmed.length then YamlOk(value, next)
+        else yamlError(line, next, "trailing input after flow value")
+      case other => other
+    }
+  else yamlScalar(trimmed, line)
+
+def yamlBlockScalar(
+    lines: List[Any],
+    parentIndent: Int,
+    folded: Boolean,
+    acc: String,
+    first: Boolean
+): Any =
+  lines match {
+    case Nil => YamlBlockOk(YamlString(acc), Nil)
+    case Cons(line, tail) =>
+      line match {
+        case YamlLine(text, _, _, indent) =>
+          if text.length > 0 && indent <= parentIndent then YamlBlockOk(YamlString(acc), lines)
+          else
+            val separator =
+              if first then ""
+              else if folded && text.length > 0 then " "
+              else "\n"
+            yamlBlockScalar(tail, parentIndent, folded, "" + acc + separator + text, false)
+        case _ => yamlBlockScalar(tail, parentIndent, folded, acc, first)
+      }
+  }
+
+def yamlChild(lines0: List[Any], parentIndent: Int, line: Any): Any =
+  val lines = yamlSkipBlank(lines0)
+  lines match {
+    case Nil => YamlOk(YamlNull(), 0)
+    case Cons(next, _) =>
+      next match {
+        case YamlLine(_, _, _, indent) =>
+          if indent <= parentIndent then YamlOk(YamlNull(), 0)
+          else yamlBlock(lines, indent)
+        case _ => yamlError(line, 0, "invalid nested block")
+      }
+  }
+
+def yamlMap(lines0: List[Any], indent: Int, reversed: List[Any]): Any =
+  val lines = yamlSkipBlank(lines0)
+  lines match {
+    case Nil => YamlBlockOk(YamlObject(reversed.reverse), Nil)
+    case Cons(line, tail) =>
+      line match {
+        case YamlLine(text, _, _, lineIndent) =>
+          if lineIndent < indent then YamlBlockOk(YamlObject(reversed.reverse), lines)
+          else if lineIndent > indent then yamlError(line, 0, "unexpected indentation")
+          else if yamlEq(text, "---") || yamlEq(text, "...") then
+            yamlError(line, 0, "multiple YAML documents are not supported")
+          else if text.length > 0 && text.charAt(0) == 37 then
+            yamlError(line, 0, "YAML directives are not supported")
+          else if text.length > 0 && text.charAt(0) == 45 &&
+              (text.length == 1 || yamlIsSpace(text.charAt(1))) then
+            if reversed.isEmpty then yamlSequence(lines, indent, Nil)
+            else yamlError(line, 0, "cannot mix mapping and sequence")
+          else
+            val colon = yamlFindColon(text, 0, 0, 0, false)
+            if colon < 0 then yamlError(line, 0, "expected mapping key and colon")
+            else
+              yamlKey(text.substring(0, colon), line) match {
+                case YamlOk(key, _) =>
+                  if yamlEq(key, "<<") then yamlError(line, 0, "merge keys are not supported")
+                  else if yamlHasField(reversed, key) then yamlError(line, 0, "duplicate mapping key")
+                  else
+                    val after = yamlTrim(text.substring(colon + 1, text.length))
+                    if after.length == 0 then
+                      yamlChild(tail, indent, line) match {
+                        case YamlBlockOk(value, remaining) =>
+                          yamlMap(remaining, indent, YamlField(key, value) :: reversed)
+                        case YamlOk(value, _) => yamlMap(tail, indent, YamlField(key, value) :: reversed)
+                        case other => other
+                      }
+                    else if yamlEq(after, "|") || yamlEq(after, ">") then
+                      yamlBlockScalar(tail, indent, yamlEq(after, ">"), "", true) match {
+                        case YamlBlockOk(value, remaining) =>
+                          yamlMap(remaining, indent, YamlField(key, value) :: reversed)
+                        case other => other
+                      }
+                    else
+                      yamlInline(after, line) match {
+                        case YamlOk(value, _) =>
+                          yamlMap(tail, indent, YamlField(key, value) :: reversed)
+                        case other => other
+                      }
+                case other => other
+              }
+        case _ => yamlError(line, 0, "invalid mapping line")
+      }
+  }
+
+def yamlLineNestedIndent(line: Any, parentIndent: Int): Int =
+  line match {
+    case YamlLine(_, _, _, indent) =>
+      if indent > parentIndent then indent else parentIndent + 2
+    case _ => parentIndent + 2
+  }
+
+def yamlNestedIndent(lines0: List[Any], parentIndent: Int): Int =
+  yamlSkipBlank(lines0) match {
+    case Cons(line, _) => yamlLineNestedIndent(line, parentIndent)
+    case _ => parentIndent + 2
+  }
+
+def yamlSequenceMapItem(
+    after: String,
+    line: Any,
+    tail: List[Any],
+    sequenceIndent: Int,
+    reversed: List[Any]
+): Any =
+  line match {
+    case YamlLine(_, number, offset, _) =>
+      val mapIndent = yamlNestedIndent(tail, sequenceIndent)
+      val synthetic = YamlLine(after, number, offset + 2, mapIndent)
+      yamlMap(synthetic :: tail, mapIndent, Nil) match {
+        case YamlBlockOk(value, remaining) =>
+          yamlSequence(remaining, sequenceIndent, value :: reversed)
+        case other => other
+      }
+    case _ => yamlError(line, 0, "invalid sequence mapping")
+  }
+
+def yamlSequence(lines0: List[Any], indent: Int, reversed: List[Any]): Any =
+  val lines = yamlSkipBlank(lines0)
+  lines match {
+    case Nil => YamlBlockOk(YamlArray(reversed.reverse), Nil)
+    case Cons(line, tail) =>
+      line match {
+        case YamlLine(text, _, _, lineIndent) =>
+          if lineIndent < indent then YamlBlockOk(YamlArray(reversed.reverse), lines)
+          else if lineIndent > indent then yamlError(line, 0, "unexpected indentation")
+          else if text.length == 0 || text.charAt(0) != 45 ||
+              (text.length > 1 && !yamlIsSpace(text.charAt(1))) then
+            YamlBlockOk(YamlArray(reversed.reverse), lines)
+          else
+            val after = yamlTrim(text.substring(1, text.length))
+            if after.length == 0 then
+              yamlChild(tail, indent, line) match {
+                case YamlBlockOk(value, remaining) => yamlSequence(remaining, indent, value :: reversed)
+                case YamlOk(value, _) => yamlSequence(tail, indent, value :: reversed)
+                case other => other
+              }
+            else if yamlEq(after, "|") || yamlEq(after, ">") then
+              yamlBlockScalar(tail, indent, yamlEq(after, ">"), "", true) match {
+                case YamlBlockOk(value, remaining) => yamlSequence(remaining, indent, value :: reversed)
+                case other => other
+              }
+            else if yamlFindColon(after, 0, 0, 0, false) >= 0 then
+              yamlSequenceMapItem(after, line, tail, indent, reversed)
+            else
+              yamlInline(after, line) match {
+                case YamlOk(value, _) => yamlSequence(tail, indent, value :: reversed)
+                case other => other
+              }
+        case _ => yamlError(line, 0, "invalid sequence line")
+      }
+  }
+
+def yamlBlock(lines0: List[Any], indent: Int): Any =
+  val lines = yamlSkipBlank(lines0)
+  lines match {
+    case Nil => YamlBlockOk(YamlNull(), Nil)
+    case Cons(line, tail) =>
+      line match {
+        case YamlLine(text, _, _, _) =>
+          if text.length > 0 && text.charAt(0) == 45 &&
+              (text.length == 1 || yamlIsSpace(text.charAt(1))) then
+            yamlSequence(lines, indent, Nil)
+          else if yamlFindColon(text, 0, 0, 0, false) >= 0 then yamlMap(lines, indent, Nil)
+          else
+            yamlInline(text, line) match {
+              case YamlOk(value, _) => YamlBlockOk(value, tail)
+              case other => other
+            }
+        case _ => yamlError(line, 0, "invalid block")
+      }
+  }
+
+def yamlParse(source: String): Any =
+  yamlBuildLines(source, 0, 1, Nil) match {
+    case YamlErr(message, offset, line, column) => YamlErr(message, offset, line, column)
+    case YamlOk(lines, _) =>
+      val nonBlank = yamlSkipBlank(lines)
+      nonBlank match {
+        case Nil => YamlOk(YamlNull(), source.length)
+        case Cons(first, _) =>
+          first match {
+            case YamlLine(_, _, _, indent) =>
+              yamlBlock(nonBlank, indent) match {
+                case YamlBlockOk(value, remaining0) =>
+                  yamlSkipBlank(remaining0) match {
+                    case Nil => YamlOk(value, source.length)
+                    case Cons(line, _) => yamlError(line, 0, "trailing YAML content")
+                  }
+                case other => other
+              }
+            case _ => YamlErr("invalid YAML input", 0, 1, 1)
+          }
+      }
+    case _ => YamlErr("invalid YAML input", 0, 1, 1)
+  }
+
+def yamlGetField(fields: List[Any], key: String): Any =
+  fields match {
+    case Nil => YamlNull()
+    case Cons(field, tail) =>
+      field match {
+        case YamlField(existing, value) =>
+          if yamlEq(existing, key) then value else yamlGetField(tail, key)
+        case _ => yamlGetField(tail, key)
+      }
+  }
+
+def yamlGet(value: Any, key: String): Any =
+  value match {
+    case YamlObject(fields) => yamlGetField(fields, key)
+    case _ => YamlNull()
+  }
+
+def yamlEscape(text: String, from: Int): String =
+  if from >= text.length then ""
+  else
+    val c = text.charAt(from)
+    val escaped =
+      if c == 34 then "\\\""
+      else if c == 92 then "\\\\"
+      else if c == 10 then "\\n"
+      else if c == 13 then "\\r"
+      else if c == 9 then "\\t"
+      else text.substring(from, from + 1)
+    "" + escaped + yamlEscape(text, from + 1)
+
+def yamlQuote(text: String): String = "\"" + yamlEscape(text, 0) + "\""
+
+def yamlRenderField(field: Any): String =
+  field match {
+    case YamlField(key, value) => yamlQuote(key) + ":" + yamlRender(value)
+    case _ => ""
+  }
+
+def yamlRenderItems(items: List[Any]): String =
+  items match {
+    case Nil => ""
+    case Cons(item, tail) =>
+      tail match {
+        case Nil => yamlRender(item)
+        case Cons(_, _) => yamlRender(item) + "," + yamlRenderItems(tail)
+      }
+  }
+
+def yamlRenderFields(fields: List[Any]): String =
+  fields match {
+    case Nil => ""
+    case Cons(field, tail) =>
+      tail match {
+        case Nil => yamlRenderField(field)
+        case Cons(_, _) => yamlRenderField(field) + "," + yamlRenderFields(tail)
+      }
+  }
+
+def yamlRender(value: Any): String =
+  value match {
+    case YamlNull() => "null"
+    case YamlBool(boolean) => if boolean then "true" else "false"
+    case YamlInteger(raw) => raw
+    case YamlDecimal(raw) => raw
+    case YamlString(text) => yamlQuote(text)
+    case YamlArray(items) => "[" + yamlRenderItems(items) + "]"
+    case YamlObject(fields) => "{" + yamlRenderFields(fields) + "}"
+    case _ => "null"
+  }
+
+def yamlRenderResult(result: Any): String =
+  result match {
+    case YamlOk(value, _) => yamlRender(value)
+    case YamlErr(message, _, line, column) =>
+      "ERR@" + line + ":" + column + ":" + message
+    case _ => "ERR@1:1:invalid parser result"
+  }
+```

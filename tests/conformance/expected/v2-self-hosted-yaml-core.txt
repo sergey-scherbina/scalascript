@@ -1,0 +1,17 @@
+null
+{"enabled":true,"retries":3,"ratio":1.25,"name":"plain"}
+{"database":{"url":"jdbc:h2:mem:test","user":"it's-me"}}
+{"targets":["jvm","js","wasm"]}
+{"services":[{"id":"a","url":"http://a"},{"id":"b","url":"http://b"}]}
+{"databases":{"main":{"url":"jdbc:h2:mem:test","user":"sa"}}}
+{"options":{"jvm":true,"retries":3},"targets":["jvm","js","wasm"]}
+{"color":"#fff","note":"hello"}
+{"literal":"line one\nline two","folded":"hello world"}
+ERR@2:1:duplicate mapping key
+ERR@1:1:anchors, aliases, and tags are not supported
+ERR@1:1:anchors, aliases, and tags are not supported
+ERR@1:1:anchors, aliases, and tags are not supported
+ERR@1:1:merge keys are not supported
+ERR@2:1:multiple YAML documents are not supported
+ERR@1:1:YAML directives are not supported
+ERR@1:4:trailing flow comma is not supported

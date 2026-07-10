@@ -1,0 +1,40 @@
+---
+name: v21-self-hosted-yaml-core
+version: 2.1.0
+backends: [v2]
+---
+
+# Self-hosted Frontmatter YAML Profile
+
+[yamlParse, yamlRenderResult](std/yaml-core.ssc)
+
+```scalascript
+val valid = List(
+  "null",
+  "enabled: true\nretries: 3\nratio: 1.25\nname: plain",
+  "database:\n  url: \"jdbc:h2:mem:test\"\n  user: 'it''s-me'",
+  "targets:\n  - jvm\n  - js\n  - wasm",
+  "services:\n  - id: a\n    url: http://a\n  - id: b\n    url: http://b",
+  "databases:\n  main:\n    url: jdbc:h2:mem:test\n    user: sa",
+  "options: {jvm: true, retries: 3}\ntargets: [jvm, js, wasm]",
+  "color: \"#fff\" # outside comment\nnote: hello # ignored",
+  "literal: |\n  line one\n  line two\nfolded: >\n  hello\n  world"
+)
+
+for source <- valid do
+  println(yamlRenderResult(yamlParse(source)))
+
+val invalid = List(
+  "a: 1\na: 2",
+  "base: &base value",
+  "copy: *base",
+  "typed: !secret value",
+  "<<: *base",
+  "a: 1\n---\nb: 2",
+  "%YAML 1.2\na: 1",
+  "items: [a,]"
+)
+
+for source <- invalid do
+  println(yamlRenderResult(yamlParse(source)))
+```
