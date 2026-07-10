@@ -456,6 +456,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   output/arity and direct-ASM stack-safe recursion now; defer
                   `ui-fetch-json.ssc` until the active JSON cutover releases its
                   owned surface. Add focused real-launcher regressions.
+                  Progress: `86a2de03a` closed `index.ssc` by teaching the
+                  self-hosted lexer/parser to balance and parse complete
+                  `${...}` expressions containing selector calls and nested
+                  string literals. The exact two-line index output and a
+                  focused `mkString` fixture are byte-identical on assembled
+                  VM/ASM; focused parity is 1/0/0/0 and affected conformance is
+                  8/8. Direct-ASM recursion and the JSON-owned UI row remain.
             - [ ] **TI-8.2b frontend host errors:** eliminate the
                   `dsl-mini-language.ssc` `Pair/2` matcher crash and reconcile
                   the missing `std/ui/table.ssc` example import. A failed row

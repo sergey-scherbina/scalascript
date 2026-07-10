@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native interpolation parses complete braced expressions
+
+The self-hosted frontend now balances `${...}`, nested braces, and quoted
+string literals before parsing the complete inner expression. Calls such as
+`${items.mkString(", ")}` no longer become malformed string fragments:
+`examples/index.ssc` and a focused fixture produce correct byte-identical output
+on the native VM and direct ASM while simple `$name` interpolation stays green.
+
 ## 2026-07-10 — standard runtime passes without Java compiler modules
 
 CI now derives a 13-module runtime set from every standard JAR and runs the
