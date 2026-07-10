@@ -702,6 +702,140 @@ function _ssc_ui_jsonValue(s) {
   return _jsonValueTotal(s);
 }
 
+// ── std.json self-hosted codec — host boundary (std/json.ssc + json-core.ssc) ─
+// The standard JSON codec is self-hosted: `json-core.ssc` owns the parser
+// (`jsonCoreParse*`) and renderer (`jsonCoreRender`), compiled from `.ssc` into
+// the emitted bundle.  These five `extern def`s are the only native seam — they
+// map ordinary runtime values to/from the portable `JsonCore*` ADT.  Mirror of
+// v2 `ssc.plugin.json.NativeJsonCodec` / v1 `V1JsonCore`; without them the
+// imported `std/json.ssc` module references undefined `_ssc_ui___jsonCore*` and
+// crashes at load (`not callable: ()`).
+//
+// Shapes JsGen emits, and this code must match exactly:
+//   • each `case class JsonCoreX(f, …)` → `{_type:'JsonCoreX', f:…, …}`
+//     (the constructors are module-local, so build/read plain object literals);
+//   • `.ssc` `List` → a JS array (`Nil` is `[]`, `x :: xs` is `[x, …xs]`);
+//   • a json-core code unit is a `_Char` (from `charAt`) OR a plain Int (from an
+//     escape / `\uXXXX`), so decode through `_charCodeOrNull`.
+
+// json-core UTF-16 code-unit list (mixed _Char / Int) → JS string.
+function _jsonCoreDecodeUnits(units) {
+  const arr = Array.isArray(units) ? units : [];
+  let s = '';
+  for (const u of arr) {
+    const code = _charCodeOrNull(u);
+    if (code === null || code < 0 || code > 0xFFFF)
+      throw new Error('invalid JsonCore string code unit');
+    s += String.fromCharCode(code);
+  }
+  return s;
+}
+
+// JS string → json-core `List[Int]` code-unit array.
+function _jsonCoreCodeUnits(text) {
+  const s = String(text);
+  const out = [];
+  for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
+  return out;
+}
+
+// json-core numeric token → tightest exact runtime value: integers stay
+// Number/BigInt, anything with a fraction/exponent becomes an exact Decimal
+// (lossless money), never a lossy Double.  Mirrors V1JsonCore.rawNumber.
+function _jsonCoreRawNumber(raw) {
+  if (!/[.eE]/.test(raw)) {
+    const n = Number(raw);
+    if (Number.isSafeInteger(n)) return n;
+    try { return BigInt(raw); } catch (e) { return n; }
+  }
+  try { return Decimal(raw); }
+  catch (e) { const n = Number(raw); return Number.isFinite(n) ? n : Decimal('0'); }
+}
+
+// `JsonCoreOk(value,_)` → value; `JsonCoreErr(message,offset)` → throw.
+function _jsonCoreUnwrapStrict(result) {
+  if (result && result._type === 'JsonCoreOk') return result.value;
+  if (result && result._type === 'JsonCoreErr')
+    throw new Error('invalid JSON at ' + result.offset + ': ' + result.message);
+  throw new Error('invalid self-hosted JSON parser result');
+}
+
+// `JsonCore*` ADT → ordinary runtime value (object → Map, array → array, exact
+// scalars) — the value model `_jsonValueTotal` / jsonParse already navigate.
+function _jsonCoreToRaw(core) {
+  if (core == null) return null;
+  switch (core._type) {
+    case 'JsonCoreNull':   return null;
+    case 'JsonCoreBool':   return core.value === true;
+    case 'JsonCoreNumber': return _jsonCoreRawNumber(core.numberText);
+    case 'JsonCoreString': return _jsonCoreDecodeUnits(core.codeUnits);
+    case 'JsonCoreArray':
+      return (Array.isArray(core.items) ? core.items : []).map(_jsonCoreToRaw);
+    case 'JsonCoreObject': {
+      const m = new Map();
+      for (const f of (Array.isArray(core.fields) ? core.fields : []))
+        if (f && f._type === 'JsonCoreField')
+          m.set(_jsonCoreDecodeUnits(f.key), _jsonCoreToRaw(f.value));
+      return m;
+    }
+    case 'JsonCoreOk':
+    case 'JsonCoreErr':
+      return _jsonCoreToRaw(_jsonCoreUnwrapStrict(core));
+    default:
+      return null;
+  }
+}
+
+// ordinary runtime value → `JsonCore*` ADT (input to the self-hosted renderer).
+function _jsonCoreToCore(value) {
+  if (value === null || value === undefined || value === _None ||
+      (value && value._type === '_None'))
+    return { _type: 'JsonCoreNull' };
+  if (value && value._type === 'JsonValue')            return _jsonCoreToCore(value._inner);
+  if (value && value._type === '_Some')                return _jsonCoreToCore(value.value);
+  if (value && typeof value._type === 'string' && value._type.indexOf('JsonCore') === 0)
+    return value;                                       // already an ADT node
+  if (value instanceof _Char) return { _type: 'JsonCoreString', codeUnits: [value.__c] };
+  if (typeof value === 'boolean') return { _type: 'JsonCoreBool', value: value };
+  if (typeof value === 'bigint')  return { _type: 'JsonCoreNumber', numberText: value.toString() };
+  if (value && value._type === '_Decimal')
+    return { _type: 'JsonCoreNumber', numberText: _decShow(value) };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('jsonStringify cannot encode NaN or Infinity');
+    return { _type: 'JsonCoreNumber', numberText: String(value) };
+  }
+  if (typeof value === 'string')
+    return { _type: 'JsonCoreString', codeUnits: _jsonCoreCodeUnits(value) };
+  if (Array.isArray(value))
+    return { _type: 'JsonCoreArray', items: value.map(_jsonCoreToCore) };
+  if (_isMap(value)) {
+    const fields = [];
+    for (const [k, v] of value)
+      fields.push({ _type: 'JsonCoreField',
+        key: _jsonCoreCodeUnits(typeof k === 'string' ? k : _show(k)),
+        value: _jsonCoreToCore(v) });
+    return { _type: 'JsonCoreObject', fields: fields };
+  }
+  if (value && typeof value === 'object' && typeof value._type === 'string') {
+    const fields = [];
+    for (const k of Object.keys(value)) {
+      if (k === '_type' || k === '_tag') continue;
+      fields.push({ _type: 'JsonCoreField', key: _jsonCoreCodeUnits(k),
+        value: _jsonCoreToCore(value[k]) });
+    }
+    return { _type: 'JsonCoreObject', fields: fields };
+  }
+  return { _type: 'JsonCoreString', codeUnits: _jsonCoreCodeUnits(_show(value)) };
+}
+
+// The five `extern def` boundary primitives (`_ssc_ui_` extern convention).
+// v1 renders JSON in-language, so the renderer closure is accepted and ignored.
+function _ssc_ui___jsonCoreInstallRenderer(render) { return undefined; }
+function _ssc_ui___jsonCoreWrap(core)         { return _jsonValueTotal(_jsonCoreToRaw(core)); }
+function _ssc_ui___jsonCoreWrapStrict(result) { return _jsonValueTotal(_jsonCoreToRaw(_jsonCoreUnwrapStrict(result))); }
+function _ssc_ui___jsonCoreRawStrict(result)  { return _jsonCoreToRaw(_jsonCoreUnwrapStrict(result)); }
+function _ssc_ui___jsonCoreEncodeValue(value) { return _jsonCoreToCore(value); }
+
 // Tier 5 #20 — typed request validation primitives.  Each `requireX`
 // throws a tagged Error which the serve() dispatch catches and turns
 // into a 400 Bad Request.  Lookup walks form → query (JSON body lives
