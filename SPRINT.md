@@ -197,18 +197,24 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             packaging omits H2's optional source-compiler classes, and `jdeps`
             finds no `javax.tools`/`java.compiler`/`jdk.compiler` edge. The
             artifact e2e, native SPI 7/7, and `v2-*` conformance 8/8 are green.
-      - [ ] **TI-6.3 source mapping:** carry root/statement/definition source
+      - [x] **TI-6.3 source mapping — DONE 2026-07-10 (`e4f16baaf`):** carry root/statement/definition source
             coordinates into `JvmByteGen`; emit SourceFile, LineNumberTable, and
             multi-file SMAP. A deliberate runtime failure must name the `.ssc`
             source and expected line rather than only `Entry.java`/unknown.
-            - [ ] **Import-closure identity correction
+            Result: core-free ASM owns the debug model; a JDK-only lexical
+            resolver/scanner maps explicit roots and transitive imports without
+            Scalameta or absolute paths; `javap` sees all three attributes and
+            `jsonParse` fails at `source-map-failure.ssc:4`. Metadata hashes the
+            same linked closure. The artifact/native-entry/plugin-boundary
+            gates pass, SPI is 7/7, CLI registry 8/8, and conformance 8/8.
+            - [x] **Import-closure identity correction
                   (`v21-build-jvm-import-source-identity-gap`):** mirror the
                   native loader's standalone Markdown-link DFS without v1
                   parser dependencies; retain explicit roots separately from
                   the complete linked source closure; hash/map imported
                   declarations and prove the relative helper appears in both
                   metadata and SMAP without breaking byte reproducibility.
-            - [ ] **Remove the VM compiler prepass from native direct ASM
+            - [x] **Remove the VM compiler prepass from native direct ASM
                   (`v21-native-bytecode-vm-prepass-state`):** seed a fresh
                   generated-global map and let `JvmByteGen.install()` own
                   definition initialization, matching persisted artifacts.

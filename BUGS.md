@@ -2,8 +2,8 @@
 
 ## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
 
-**Status:** open (2026-07-10); reproduced on current `origin/main` after native
-plugin-function dispatch `895898bfd`.
+**Status:** fixed (2026-07-10, `e4f16baaf`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex while running the TI-6.3 post-source-map regression gate.
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run `bin/ssc run
@@ -26,11 +26,18 @@ plugin-function dispatch `895898bfd`.
   contract.
 - **Done-when:** native VM, in-memory direct ASM, and `java -jar` hello/import/
   ordered-value fixtures all pass; `v2-*` conformance stays green.
+- **Fix:** the in-memory ASM lane now starts from an empty mutable generated
+  global map and lets the generated `install()` method evaluate/register every
+  lambda and value definition. The VM compiler is no longer invoked merely for
+  initialization side effects.
+- **Verified:** `tests/e2e/v21-native-entry-smoke.sh` PASS across VM/direct ASM,
+  `tests/e2e/v21-native-plugin-boundary-smoke.sh` PASS, artifact e2e PASS, and
+  affected conformance 8/8.
 
 ## v21-build-jvm-import-source-identity-gap — artifact metadata omits resolved imports
 
-**Status:** open (2026-07-10); found while verifying TI-6.3 source mapping
-against the linked-import artifact landed in TI-6.2 `147531fa7`.
+**Status:** fixed (2026-07-10, `e4f16baaf`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex during the direct-ASM artifact source-map review.
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run `bin/ssc
@@ -52,6 +59,13 @@ against the linked-import artifact landed in TI-6.2 `147531fa7`.
   `relative-main.ssc` and `relative-helper.ssc`, the helper hash changes when
   its source changes, two builds remain byte-identical, and the assembled
   artifact/conformance gates stay green.
+- **Fix:** a JDK-only standalone-link resolver mirrors the self-hosted loader's
+  DFS/postorder and retains stable display paths for explicit roots plus the
+  linked import closure. Artifact metadata hashes those units, and the lexical
+  fenced-source scanner assigns the same units to the SMAP file table.
+- **Verified:** relative-import metadata contains helper + root with the
+  helper's exact SHA-256; `javap -l -v` names both in SMAP; the runtime prints
+  `42`; two base builds remain byte-identical; artifact/conformance gates pass.
 
 ## v2-frontendbridge-sqlite-timeout — SQLite conformance exceeds the 15-second bridge-test limit
 

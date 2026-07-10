@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — direct ASM artifacts carry native `.ssc` diagnostics
+
+Generated entry/definition/helper methods now carry JVM `SourceFile`, line
+tables, and a multi-file JSR-45 `SSC` source map. The Scalameta-free source
+closure resolver hashes and maps transitive imports as well as explicit roots,
+never embeds checkout paths, and a real runtime failure reports its original
+`.ssc` line. In-memory direct ASM now shares the artifact `install()` global
+initialization contract instead of running a VM compiler prepass.
+
 ## 2026-07-10 — direct ASM artifacts link imports and runtime configuration
 
 `ssc build-jvm` now packages the resolved native module closure and serializes
