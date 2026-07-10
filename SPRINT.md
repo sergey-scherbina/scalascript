@@ -185,12 +185,18 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             `java -jar` passes with compiler commands absent, `jdeps`/entry
             forbidden-family gates pass, SPI tests 7/7, registry 8/8, native
             assembled gates PASS, and `v2-*` conformance is 8/8.
-      - [ ] **TI-6.2 link/config artifact metadata:** make imported modules and
+      - [x] **TI-6.2 link/config artifact metadata — DONE 2026-07-10 (`147531fa7`):** make imported modules and
             multiple roots one linked checked program; embed normalized source
             SHA-256 identities and parsed native database config in
             `META-INF/scalascript/artifact.properties`; reconstruct config
             before provider installation. Cover multi-file calls and H2 SQL in
-            `java -jar` without consulting the installation.
+            `java -jar` without consulting the installation. Result: the
+            relative-import artifact prints `42`; the configured H2 artifact
+            prints `1/7/Ada/true`; metadata records two base sources plus the
+            selected SQL provider/database; conditional SQL driver/runtime
+            packaging omits H2's optional source-compiler classes, and `jdeps`
+            finds no `javax.tools`/`java.compiler`/`jdk.compiler` edge. The
+            artifact e2e, native SPI 7/7, and `v2-*` conformance 8/8 are green.
       - [ ] **TI-6.3 source mapping:** carry root/statement/definition source
             coordinates into `JvmByteGen`; emit SourceFile, LineNumberTable, and
             multi-file SMAP. A deliberate runtime failure must name the `.ssc`

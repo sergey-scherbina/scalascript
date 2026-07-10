@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — direct ASM artifacts link imports and runtime configuration
+
+`ssc build-jvm` now packages the resolved native module closure and serializes
+database configuration into deterministic artifact metadata. Configured SQL
+JARs reconstruct the native provider environment before execution and run H2
+DDL/DML/query without the ScalaScript installation; their dependency graph
+retains the JDBC runtime while excluding H2's optional Java source compiler and
+therefore has no `java.compiler` edge.
+
 ## 2026-07-10 — direct ASM now builds deterministic executable JVM artifacts
 
 `ssc build-jvm` runs the self-hosted frontend and checker, emits an executable
