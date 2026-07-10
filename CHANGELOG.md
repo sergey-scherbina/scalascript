@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native scalameta-free front loads `[names](path.ssc)` std modules
+
+The native front (`ssc1-run`) used to treat markdown-link imports as a parse-only
+no-op, so ssc-defined std helpers (`jObj`/`jStr`/`lower`/`staticDataTable`) stayed
+unbound — the corpus ceiling for the scalameta-free path. `ssc1-run` now resolves
+those links (DFS + load-once): scans the raw source for `[names](path.ssc)`,
+resolves `std/` against `SSC_STD` (else in-tree `v1/runtime`), fence-extracts each
+target `.ssc`, keeps its definitions, and prepends them. Complements the K62 parser
+axis (the parser file is untouched). Verified end-to-end (`std/json.ssc` `jObj`/
+`jStr`/`jsonEscape` now defined); conformance 640/640; import-free files unchanged.
+
 ## 2026-07-10 — v2 production readiness bounded audit green
 
 After the layout/YAML fixes, a bounded v2 production audit found no new

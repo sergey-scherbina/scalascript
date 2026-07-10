@@ -1,6 +1,7 @@
 -- ssc1-run: end-to-end .ssc Markdown runner (KC13)
 -- Usage: ssc run bin/ssc1-run.ssc0 <file.ssc>
 -- Pipeline: extractFences → filter scalascript blocks → concat → lex/parse/lower → emit Core IR
+--           …plus [names](path.ssc) module loading (v2-native-front-ssc-module-loading).
 import "../lib/mira-md.ssc0"
 import "../lib/ssc1-lower.ssc0"
 
@@ -22,6 +23,89 @@ def joinScalaScript = (blocks) =>
     } in
   go(blocks, "")
 
+-- ── .ssc module loading (v2-native-front-ssc-module-loading) ─────────────────
+-- The parser treats `[names](path.ssc)` markdown-link imports as a parse-only
+-- no-op ("sealed"), assuming imported names are plugin globals. That holds for
+-- plugin natives but NOT for ssc-DEFINED std helpers (jObj / lower /
+-- staticDataTable in std/*.ssc), which stay unbound. Resolve them here: DFS +
+-- load-once, extract each target .ssc's fences the same way, keep its DEFS
+-- (dropping the module's own entry/prose), and prepend them to the program.
+
+def sscApp = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, sscApp(t, ys)) }
+def sscMem = (xs, x) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else sscMem(t, x) }
+def sscLastSlash = (s, i, best) =>
+  if #i.ge(i, #slen(s)) then best
+  else (if #i.eq(#scodeAt(s, i), 47) then sscLastSlash(s, #i.add(i, 1), i) else sscLastSlash(s, #i.add(i, 1), best))
+def sscDir = (path) =>
+  let j = sscLastSlash(path, 0, #i.sub(0, 1)) in
+  if #i.lt(j, 0) then "" else #sslice(path, 0, #i.add(j, 1))
+
+-- keep only def/val/var statements (a module is imported for its definitions;
+-- its top-level entry expressions are dropped)
+def sscDefsOnly = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(h, t) =>
+      match h {
+        case Pair(tag, d) =>
+          if #seq(tag, "def") then Cons(h, sscDefsOnly(t))
+          else (if #seq(tag, "val") then Cons(h, sscDefsOnly(t))
+          else (if #seq(tag, "var") then Cons(h, sscDefsOnly(t))
+          else sscDefsOnly(t)))
+      }
+  }
+
+-- text-level scan of the raw source for `](X.ssc)` import targets
+def sscFindChar = (s, i, c) =>
+  if #i.ge(i, #slen(s)) then i
+  else (if #i.eq(#scodeAt(s, i), c) then i else sscFindChar(s, #i.add(i, 1), c))
+def sscEndsSsc = (s) =>
+  let n = #slen(s) in
+  if #i.lt(n, 4) then false else #seq(#sslice(s, #i.sub(n, 4), n), ".ssc")
+def sscScan = (s, i, acc) =>
+  if #i.ge(i, #slen(s)) then acc
+  else (if #i.eq(#scodeAt(s, i), 93) then
+          (if #i.lt(#i.add(i, 1), #slen(s)) then
+             (if #i.eq(#scodeAt(s, #i.add(i, 1)), 40) then
+                (let close = sscFindChar(s, #i.add(i, 2), 41) in
+                 let p = #sslice(s, #i.add(i, 2), close) in
+                 if sscEndsSsc(p) then sscScan(s, #i.add(close, 1), Cons(p, acc))
+                 else sscScan(s, #i.add(close, 1), acc))
+              else sscScan(s, #i.add(i, 1), acc))
+           else acc)
+        else sscScan(s, #i.add(i, 1), acc))
+def sscImports = (src) => sscScan(src, 0, Nil)
+
+-- resolve an import target: `std/…` maps to the std root (SSC_STD env, else the
+-- in-tree v1/runtime); everything else is relative to the importing file.
+def sscStartsStd = (rel) =>
+  if #i.lt(#slen(rel), 4) then false else #seq(#sslice(rel, 0, 4), "std/")
+def sscStdRoot = () =>
+  match #io.env("SSC_STD") {
+    case Some(e) => if #seq(e, "") then "v1/runtime/" else #sconcat(e, "/")
+    case None    => "v1/runtime/"
+  }
+def sscResolve = (dir, rel) =>
+  if sscStartsStd(rel) then #sconcat(sscStdRoot(), rel) else #sconcat(dir, rel)
+
+def sscLoadMod = (path, seen) =>
+  if sscMem(seen, path) then Pair(Nil, seen)
+  else
+    let fileStr = #utf8->str(#io.readFile(path)) in
+    let modSrc = joinScalaScript(extractFences(fileStr)) in
+    let defs = sscDefsOnly(parse(modSrc)) in
+    match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs), seen2)
+    }
+def sscLoadImps = (imps, dir, seen) =>
+  match imps {
+    case Nil => Pair(Nil, seen)
+    case Cons(rel, rest) =>
+      match sscLoadMod(sscResolve(dir, rel), seen) {
+        case Pair(d1, seen2) => match sscLoadImps(rest, dir, seen2) { case Pair(d2, seen3) => Pair(sscApp(d1, d2), seen3) }
+      }
+  }
+
 def main = () =>
   match #io.args() {
     case Cons(path, rest) =>
@@ -34,7 +118,11 @@ def main = () =>
         #io.exit(1)
       else
         let stmts = parse(src) in
-        #io.print(#coreir.encode(lowerProg(stmts)))
+        match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, Nil)) {
+          case Pair(impDefs, seen) =>
+            let allStmts = sscApp(impDefs, stmts) in
+            #io.print(#coreir.encode(lowerProg(allStmts)))
+        }
     case Nil =>
       let z = #io.eprint("usage: ssc1-run <file.ssc>\n") in
       #io.exit(1)
