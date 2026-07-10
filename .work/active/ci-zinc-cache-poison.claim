@@ -1,6 +1,6 @@
 feature/ci-zinc-cache-poison 2026-07-10T15:32:19Z
 agent: claude-code (jolly-raven)
-heartbeat: 2026-07-10T15:32:19Z
-status: in-progress
+heartbeat: 2026-07-10T15:36:18Z
+status: pushed-awaiting-ci
 done-so-far: Root-caused the 200-run (16h) main CI red streak. NOT a source bug — a poisoned zinc cache. payments/crypto/spi is never recompiled on CI (restored as up-to-date via restore-keys prefix) but its cached classes lack CryptoBackend/HashAlgo/Ed25519Group, so bouncycastle/frost/blockchain-spi/config fail "not a member of scalascript.crypto". actions/cache@v4 re-saves the broken cache even on FAILED builds, so the poison self-perpetuates. Local 'sbt clean cli/compile' (all 5 failing modules) = GREEN, proving sources are fine.
-next: Fix .github/workflows/ci.yml — split classes cache into cache/restore + cache/save with if:success() (never cache a failed build) and bump key prefix to discard poisoned caches. Push to origin/main.
+next: watch CI run 29104226099 (376d65fe5) go green (cold full rebuild); then release claim
