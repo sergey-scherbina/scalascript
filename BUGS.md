@@ -2,7 +2,8 @@
 
 ## sscpkg-loader-temp-tree-leak — every CLI process leaves extracted plugin directories
 
-**Status:** open (2026-07-10).
+**Status:** fixed (2026-07-10, `784ac95d3`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex while running the TI-2 assembled-CLI corpus baselines; the
   host temp directory reached tens of thousands of `sscpkg-*-intrinsics*`
@@ -25,6 +26,14 @@
   empty after exit.
 - **Owner/slice:** urgent `v21-ti-sscpkg-temp-lifecycle`, before more corpus
   sweeps and the slim/plugin-runtime work.
+- **Fix:** after intrinsic/source extraction, `SscpkgLoader` walks the complete
+  temp tree and registers descendants parent-first. Java's reverse-order
+  shutdown hook therefore removes files, nested directories, and finally the
+  root while keeping every path alive for the process lifetime.
+- **Verified:** `core/testOnly scalascript.compiler.plugin.SscpkgLoaderTest`
+  12/12; assembled `tests/e2e/sscpkg-temp-cleanup-smoke.sh` PASS with an
+  isolated `java.io.tmpdir`; affected `v2-*` conformance 8/8; `git diff
+  --check`.
 
 ## v2-bytecode-x402-unhandled-op-success — bytecode lane exits 0 with unresolved `Wallets.metaMask` op
 

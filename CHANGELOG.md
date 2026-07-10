@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — packaged plugin temp trees cleaned at CLI exit
+
+`SscpkgLoader` no longer leaves one non-empty `sscpkg-*` extraction tree per
+plugin and CLI invocation. Extracted intrinsic JARs and source descendants are
+registered parent-first so JVM shutdown deletes them in safe reverse order. A
+real assembled-CLI smoke now runs with an isolated `java.io.tmpdir` and asserts
+that no packaged-plugin tree survives process exit.
+
 ## 2026-07-10 — ScalaScript 2.1 toolchain-independence contract frozen
 
 The release-wide spec now separates the standard native-front/CoreIR/VM/ASM

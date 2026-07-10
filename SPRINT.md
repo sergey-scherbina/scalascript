@@ -33,13 +33,12 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       partial `_err` IR as success. Baseline the current bridge->VM/ASM and
       native-front->VM results before changing routing. Done when both gates run
       from any worktree and produce machine-readable summaries.
-- [ ] **v21-ti-sscpkg-temp-lifecycle** — urgent bug found by the TI-2 real-harness
-      sweep: `SscpkgLoader` registers only empty temp roots for deletion, then
-      writes unregistered JAR/source descendants, so every CLI process leaks
-      `sscpkg-*` trees until plugin loading fails with `No space left on device`.
-      Register the complete extracted tree for process-exit cleanup and add an
-      assembled-CLI subprocess regression. Done when an isolated
-      `java.io.tmpdir` is empty after hello/plugin commands exit.
+- [x] **v21-ti-sscpkg-temp-lifecycle** — DONE 2026-07-10 in `784ac95d3`:
+      `SscpkgLoader` now registers every extracted descendant parent-first for
+      reverse-order JVM shutdown deletion, covering intrinsic JARs and source
+      trees without shortening their process lifetime. The assembled CLI leaves
+      an isolated `java.io.tmpdir` free of `sscpkg-*` trees after `hello.ssc`.
+      Gates: loader tests 12/12, cleanup e2e PASS, `v2-*` conformance 8/8.
 - [ ] **v21-ti-native-front-production-entry** — expose the self-hosted
       `mira-md -> ssc1-front -> ssc1-lower` pipeline through a staged launcher
       that uses the prebuilt v2 kernel JAR, not `scala-cli run v2/src`. Bundle or
