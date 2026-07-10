@@ -99,17 +99,26 @@ jobs:
       # all ~259 modules from scratch (the 90-min budget is mostly compilation).
       # Keyed by commit SHA so a push reuses the nearest previous build via
       # restore-keys and zinc recompiles only what changed.
-      - name: Cache compiled classes (zinc)
-        uses: actions/cache@v4
+      #
+      # RESTORE-ONLY here + save-only-on-success at the end of the job (see
+      # "Save compiled classes"). The old unified actions/cache@v4 re-saved the
+      # cache even when the build FAILED, so a single build that failed midway
+      # through compiling crypto-spi cached a partial/stale `classes` dir; zinc
+      # then marked crypto-spi up-to-date on every later run and skipped it,
+      # leaving dependents unable to resolve scalascript.crypto.* — a poison
+      # that self-perpetuated for 200+ red runs. Never caching a failed build
+      # breaks that loop; the `-v2-` prefix discards the already-poisoned caches.
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
         with:
           path: |
             **/target/scala-*/classes
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-classes-
+            ${{ runner.os }}-classes-v2-
 
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
@@ -123,6 +132,19 @@ jobs:
       - name: Type-check examples (ssc check)
         run: |
           ./bin/ssc check examples/*.ssc
+
+      # Save the classes/zinc cache ONLY when every step above succeeded, so a
+      # failed build can never poison later runs (the 200-run red streak cause).
+      - name: Save compiled classes (zinc)
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-${{ github.sha }}
 
   sbt:
     name: sbt — compile and test
@@ -164,19 +186,23 @@ jobs:
             ${{ runner.os }}-sbt-
 
       # Same classes+zinc cache as the conformance job: without it this job
-      # recompiles all ~259 modules from scratch every run.
-      - name: Cache compiled classes (zinc)
-        uses: actions/cache@v4
+      # recompiles all ~259 modules from scratch every run. Restore-only +
+      # save-on-success (see the end of this job) — a failed build must never
+      # re-save the cache, or a stale crypto-spi `classes` dir poisons every
+      # later run (zinc skips crypto-spi → dependents can't see
+      # scalascript.crypto.*). The `-v2-` prefix discards the poisoned caches.
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
         with:
           path: |
             **/target/scala-*/classes
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-sbt-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-sbt-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-classes-sbt-
-            ${{ runner.os }}-classes-
+            ${{ runner.os }}-classes-v2-sbt-
+            ${{ runner.os }}-classes-v2-
 
       # installBin stages bin/lib/compiler/jars — the Scala compiler jars that
       # `compile-jvm --bytecode` / `link` load lazily via ssc.lib.path. The CLI
@@ -189,3 +215,16 @@ jobs:
       - name: Test via sbt
         timeout-minutes: 60
         run: sbt test
+
+      # Save the classes/zinc cache ONLY when compile + assembly + tests all
+      # passed, so a failed build can never poison later runs.
+      - name: Save compiled classes (zinc)
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-sbt-${{ github.sha }}
