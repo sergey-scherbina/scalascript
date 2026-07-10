@@ -3787,6 +3787,13 @@ val todosJson = fetchUrlSignal("todos", "/api/todos", refresh)
 signalPre(todosJson)  // display raw JSON, or parse and render
 ```
 
+In the generated custom SPA, a transport or response-body rejection is treated
+as an unavailable refresh: the signal keeps its last-good value, no unhandled
+promise rejection escapes, and the next tick may fetch again. Fulfilled HTTP
+responses retain the existing text-binding semantics, including non-2xx
+responses. Use an explicit status/error model when the UI needs to distinguish
+those responses from successful application data.
+
 #### `seedSignal` — editable draft from fetched text
 
 ```scalascript

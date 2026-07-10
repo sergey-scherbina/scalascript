@@ -28,14 +28,14 @@ This specification tightens only the generated custom-SPA runtime contract:
 
 ## Behavior
 
-- [ ] A rejected initial managed GET produces no browser/Node unhandled promise
+- [x] A rejected initial managed GET produces no browser/Node unhandled promise
       rejection and preserves the signal's initial value.
-- [ ] After a rejected GET, a later tick-driven successful GET updates the same
+- [x] After a rejected GET, a later tick-driven successful GET updates the same
       signal with the response text.
-- [ ] `fetchUrlSignalTo` uses the same rejection semantics while retaining its
+- [x] `fetchUrlSignalTo` uses the same rejection semantics while retaining its
       URL-signal-driven refresh behavior.
-- [ ] Existing fulfilled-response and HTTP-status behavior is unchanged.
-- [ ] A real emitted custom SPA contains the managed rejection boundary; the
+- [x] Existing fulfilled-response and HTTP-status behavior is unchanged.
+- [x] A real emitted custom SPA contains the managed rejection boundary; the
       fix is not an application-specific patch to generated HTML.
 
 ## Out of scope
@@ -74,4 +74,12 @@ runtime resource used by real applications.
 
 ## Results
 
-Pending implementation and verification.
+Implemented in `7d0e4b416`. The real `JsRuntimeSignals` Node harness covers a
+rejected transport, a rejected response-body read, retained `"last good"`
+state, a subsequent successful tick, and a fulfilled 503 text response with
+zero process-level unhandled rejections. `FetchUrlSignalOfflineTest` plus the
+existing `FetchUrlSignalToTest` pass 2/2. `installBin` produced the assembled
+CLI; its custom-SPA emission for `examples/frontend/local-first/local-first.ssc`
+was 449,026 bytes and contained the managed rejection boundary. Focused
+conformance (`std-ui-jobpanel`, `tkv2-busi-home`, `tkv2-offline`) passed 3/3 on
+both INT and JS lanes.
