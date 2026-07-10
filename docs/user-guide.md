@@ -315,6 +315,23 @@ for a tools-tier plugin that has not moved yet.
 
 ### `build-jvm` — executable JAR directly from native CoreIR + ASM
 
+During the 2.1 migration, `bin/ssc-standard` exposes the physically slim tier
+before the default-launcher flip:
+
+```bash
+bin/ssc-standard run app.ssc
+bin/ssc-standard run --bytecode app.ssc
+bin/ssc-standard build-jvm app.ssc -o app.jar
+bin/ssc-standard info --execution-plan --bytecode
+```
+
+Its classpath is only `bin/lib/standard/ssc.jar` plus the explicit JAR allowlist
+under `bin/lib/standard/jars/`; its self-hosted tower and std sources live under
+`bin/lib/standard/native-front/`. The entry JAR itself is class-filtered, so it
+does not retain dormant compatibility command references. `bin/ssc` remains the
+compatibility launcher until the TI-8 default cutover; a standard request for a
+compiler-backed command fails with a tools-tier diagnostic.
+
 `ssc build-jvm` runs the self-hosted frontend and native checker, emits
 `ssc.gen.Entry` directly through ASM, and writes a deterministic self-contained
 JAR. It does not generate Scala/Java source and does not invoke Scala CLI,

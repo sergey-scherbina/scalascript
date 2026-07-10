@@ -68,8 +68,12 @@ cs install ssc --channel https://releases.scalascript.io/coursier.json
 # Pipe sops-decrypted secrets into a script (${sops:key} references in databases:)
 sops -d secrets.enc.yaml | ssc myapp.ssc
 
-# Default runner (v2 VM; no separate compilation step)
+# Compatibility/default launcher during the 2.1 migration
 bin/ssc examples/hello.ssc
+
+# Physically slim 2.1 standard tier: self-hosted frontend + v2 VM / direct ASM
+bin/ssc-standard run examples/hello.ssc
+bin/ssc-standard run --bytecode examples/hello.ssc
 
 # Roll back to the v1 tree-walking interpreter explicitly
 bin/ssc run --v1 examples/hello.ssc
@@ -87,7 +91,7 @@ bin/jssc examples/hello.ssc
 bin/sscc examples/hello.ssc
 
 # Build a deterministic self-contained JAR directly through native CoreIR + ASM
-bin/ssc build-jvm examples/hello.ssc -o hello.jar
+bin/ssc-standard build-jvm examples/hello.ssc -o hello.jar
 java -jar hello.jar
 
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
