@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/dsl-yaml-fix
-worktree: ../scalascript-wt-dyl
-started: 2026-07-10
-status: in-progress
-task: dsl-yaml-like-fix — corpus fail "Index 1 out of bounds for length 1" после парса; ранее забисекчено к markup/remote-registry commits; реальный ничей код-баг. Трейс + фикс.
