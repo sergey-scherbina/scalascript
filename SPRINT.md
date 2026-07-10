@@ -35,10 +35,24 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
 - **narrow unboxed self-tail** — `canParamLong` rejects `Match`/`Let`/`Seq` bodies (JvmByteGen:551);
   numeric recursion with a `Match` never unboxes. Widen the accepted body shapes.
 
+- [x] **v2asm-widen-big-bytes** — DONE 2026-07-10 (`cd66be413`). `Lit(CBig)`/`Lit(CBytes)`
+      hit a hard `Unsupported` that aborted the WHOLE bytecode compile → the ASM lane couldn't
+      run any program with a big-int/byte literal. Now emits a decimal/base64 String +
+      reconstructs via `Emit.bigVStr`/`bytesVB64` (== VM). Match now exhaustive over 7 `Const`.
+      Gate: new `FrontendBridgeTest` case + full `FrontendBridgeTest` 54/54 + v2 conf 8/8.
+      (Coverage widening — correctness-verified, load-independent; the corpus didn't hit it,
+      but any BigInt/bytes literal program can now use `--bytecode`.)
 - [ ] **v2asm-0-baseline** — record `scripts/bench v2-bytecode` A/B (VM vs bytecode) over the
-      corpus; identify workloads where bytecode > VM (deopt/box). Grounds the slice order.
-- [ ] **v2asm-1..N** — one perf slice per push, each A/B-proven (`scripts/bench v2-bytecode <pat>`)
-      + `FrontendBridgeTest` runBytecode correctness + affected v2 conformance. Order set by v2asm-0.
+      corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
+      BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
+      stuck on array-update. Retry when load is stable.
+- [ ] **v2asm-perf-1..N** (needs stable bench) — one perf slice per push, each A/B-proven
+      (`scripts/bench v2-bytecode <pat>`) + `FrontendBridgeTest` runBytecode + v2 conf. Ranked
+      candidates (from the JvmByteGen map): unboxed Double loop (needs a `dcell` double-loop-cell
+      analog to `lcell` — cross-cutting), foldLeft/map/filter inline (extend the foreach Cons-walk
+      at JvmByteGen:829), widen `canParamLong` to accept `Match`/`Let`/`Seq` self-tail bodies
+      (JvmByteGen:551), HOF/first-class calls deopt to VM (JvmByteGen:923 → use wide-jit types
+      to compile known-arity typed calls). Perf magnitude needs a stable bench to prove.
 
 ## ScalaScript 2.0 — Swift + SwiftUI native parity (2026-07-10)
 
