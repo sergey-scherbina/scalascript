@@ -74,12 +74,12 @@ runtime resource used by real applications.
 
 ## Results
 
-Implemented in `7d0e4b416`. The real `JsRuntimeSignals` Node harness covers a
-rejected transport, a rejected response-body read, retained `"last good"`
-state, a subsequent successful tick, and a fulfilled 503 text response with
-zero process-level unhandled rejections. `FetchUrlSignalOfflineTest` plus the
-existing `FetchUrlSignalToTest` pass 2/2. `installBin` produced the assembled
-CLI; its custom-SPA emission for `examples/frontend/local-first/local-first.ssc`
-was 449,026 bytes and contained the managed rejection boundary. Focused
-conformance (`std-ui-jobpanel`, `tkv2-busi-home`, `tkv2-offline`) passed 3/3 on
-both INT and JS lanes.
+The real `JsRuntimeSignals` Node harness covers a rejected transport, a
+rejected response-body read, retained `"last good"` state, a subsequent
+successful tick, and a fulfilled 503 text response with zero process-level
+unhandled rejections. `FetchUrlSignalOfflineTest` plus the existing
+`FetchUrlSignalToTest` pass 2/2. `installBin` produced the assembled CLI; its
+custom-SPA emission for `examples/frontend/local-first/local-first.ssc` was
+449,026 bytes and contained the managed rejection boundary. Focused conformance
+(`std-ui-jobpanel`, `tkv2-busi-home`, `tkv2-offline`) passed 3/3 on both INT and
+JS lanes.
