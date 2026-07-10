@@ -1,0 +1,6 @@
+feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
+agent: codex
+heartbeat: 2026-07-10T17:41:11Z
+status: not-started
+done-so-far: inventoried v2 and legacy SwiftUI surfaces; no v2 Swift generator found
+next: create worktree, record SPRINT/BUGS plan, reproduce the v2 macOS/iOS CLI gap
