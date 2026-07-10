@@ -58,6 +58,14 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       positives before cutover. Done when every `examples/*.ssc` row is either
       byte-identical, a bounded server/nondeterministic/backend lane, or a
       documented unsupported compatibility case with no silent `_err` success.
+      **Progress 2026-07-10:** checker inference slice `66b7c4ede` removed 10
+      false-positive corpus rejects (Float/mixed numeric arithmetic, String
+      repeat, substitution-aware concat) while a new assembled smoke keeps four
+      negative type families rejecting. Direct checker corpus is now 188 OK / 6
+      `TYPEERR` / 1 non-code; five rejects already carry parser sentinels and the
+      only sentinel-clear reject is the tracked `!exists(path)` prefix/postfix
+      AST bug. Next: land that frontend precedence fix after the sibling hex
+      lexer branch, then re-run the classified front/check/runtime sweep.
 - [ ] **v21-ti-plugin-runtime-boundary** — remove the standard native lane's
       dependency on the scalameta-coupled v1 `core`/`Value.FunV` graph. Introduce
       or finish a scalameta-free runtime value/SPI boundary for `NativeImpl`

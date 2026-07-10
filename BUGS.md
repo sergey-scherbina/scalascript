@@ -1,5 +1,29 @@
 # Bug tracker
 
+## v21-native-front-prefix-postfix-precedence — `!exists(path)` applies the call after prefix `!`
+
+**Status:** open (2026-07-10).
+
+- **Found by:** codex while classifying the final sentinel-clear native-checker
+  corpus rejection after `66b7c4ede`.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc run --native examples/fs-roundtrip.ssc`. The smaller source shape is
+  `println("Deleted: " + !exists(path))`.
+- **Observed:** the native frontend lowers the operand as
+  `app(if(global exists, false, true), global path)`; the checker consequently
+  rejects an attempted Bool-as-function application with `cannot unify Bool
+  with non-Bool`.
+- **Expected:** postfix application binds within the prefix operand:
+  `if(app(global exists, global path), false, true)`. The checker accepts the
+  valid source and the VM/ASM paths evaluate the negated call.
+- **Root cause direction:** `parsePrefix` parses only the atom/name after `!`,
+  while the enclosing postfix phase attaches `(path)` after constructing the
+  prefix node. Make postfix selection/application part of the prefix operand
+  without regressing unary minus or operator-section parsing.
+- **Owner/slice:** `v21-ti-native-front-parity`; rebase the active hex/frontend
+  sibling before editing `ssc1-front.ssc0`, then add an assembled native
+  regression with the exact call shape.
+
 ## v2-run-plugin-temp-tree-leak — RunV2 leaves extracted plugin JAR trees
 
 **Status:** fixed (2026-07-10, `0ccecb44d`); waiting for human confirmation

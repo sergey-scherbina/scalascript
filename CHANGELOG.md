@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native checker numeric/string false positives removed
+
+The self-hosted checker now infers Float literals and mixed numeric arithmetic,
+String repetition, and substitution-aware String concatenation. A staged
+assembled smoke covers valid combinations plus negative numeric, repetition,
+boolean, and condition cases. The direct 195-file checker result improved from
+178 to 188 OK; all six remaining rejects are traced to frontend parser gaps.
+
 ## 2026-07-10 — staged compiler-free native frontend entry landed
 
 The assembled CLI now exposes `ssc run --native` and direct-ASM
