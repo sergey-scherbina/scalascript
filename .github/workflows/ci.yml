@@ -124,6 +124,15 @@ jobs:
         run: bash install.sh --dev
 
       - name: Run conformance tests
+        # Warm JVM lane (specs/conformance-perf.md F3): reuse one Bloop build
+        # server across cases instead of a cold scalac start per case. The
+        # per-case cold compile is the dominant conformance cost; the INT/JS
+        # lanes already batch (F4) but the JVM lane did not. Correctness is
+        # unchanged (same `scala-cli run`, warm compiler). run.sc keeps the
+        # server tree bounded and kills it on shutdown. Revert this env to fall
+        # back to the serverless (cold, more robust) default.
+        env:
+          SSC_CONF_WARM_JVM: '1'
         run: scala-cli tests/conformance/run.sc
 
       - name: Run examples on all three backends
