@@ -2,7 +2,8 @@
 
 ## v21-native-front-prefix-postfix-precedence — `!exists(path)` applies the call after prefix `!`
 
-**Status:** open (2026-07-10).
+**Status:** fixed (2026-07-10, `6e8464ea8`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex while classifying the final sentinel-clear native-checker
   corpus rejection after `66b7c4ede`.
@@ -23,6 +24,13 @@
 - **Owner/slice:** `v21-ti-native-front-parity`; rebase the active hex/frontend
   sibling before editing `ssc1-front.ssc0`, then add an assembled native
   regression with the exact call shape.
+- **Fix:** each unary operator parses the operand atom and completes its postfix
+  selection/application chain before wrapping it in the prefix AST node. This
+  applies uniformly to `!`, unary `-`, and bitwise `~`.
+- **Verified:** the staged native-entry smoke exercises `!flag()`, `-one()`,
+  and `~one()` on both VM and direct ASM; the original `fs-roundtrip.ssc`
+  native checker result is now `OK`; checker smoke PASS and affected `v2-*`
+  conformance 8/8.
 
 ## v2-run-plugin-temp-tree-leak — RunV2 leaves extracted plugin JAR trees
 

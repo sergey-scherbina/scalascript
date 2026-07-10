@@ -62,10 +62,12 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       false-positive corpus rejects (Float/mixed numeric arithmetic, String
       repeat, substitution-aware concat) while a new assembled smoke keeps four
       negative type families rejecting. Direct checker corpus is now 188 OK / 6
-      `TYPEERR` / 1 non-code; five rejects already carry parser sentinels and the
-      only sentinel-clear reject is the tracked `!exists(path)` prefix/postfix
-      AST bug. Next: land that frontend precedence fix after the sibling hex
-      lexer branch, then re-run the classified front/check/runtime sweep.
+      `TYPEERR` / 1 non-code; `6e8464ea8` then fixed postfix binding inside
+      unary `!`/`-`/`~`, raising the checker result to 189 OK / 5 `TYPEERR` /
+      1 non-code. Every remaining checker reject is now a parser-sentinel row.
+      Next: re-run the classified front/check/runtime sweep after the current
+      native module-loader sibling lands, then close the remaining sentinel
+      categories.
       VM/ASM result parity slice `7192cd6e4` also closes the x402 silent-success
       bug: dotted unhandled `Op` and missing-dispatch `Stub` final values now
       fail nonzero through shared result validation; assembled VM/ASM/x402 smoke

@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native unary operators bind postfix calls correctly
+
+The self-hosted frontend now parses `!f()`, `-f()`, and `~f()` as unary
+operations over the call result instead of calling the unary result afterward.
+VM/ASM assembled regressions cover all three shapes; the last sentinel-clear
+native-checker corpus rejection is removed.
+
 ## 2026-07-10 — unresolved v2 runtime results now fail on VM and ASM
 
 All public v2 runners now share final-result validation. Missing-method `Stub`
