@@ -1,6 +1,6 @@
 feature/v2-vm-production-jit-gate 2026-07-10T02:11:16Z
 agent: codex
-heartbeat: 2026-07-10T02:11:16Z
-status: not-started
-done-so-far:
+heartbeat: 2026-07-10T02:12:20Z
+status: in-progress
+done-so-far: worktree created
 next: write SPRINT reconcile plan before edits
