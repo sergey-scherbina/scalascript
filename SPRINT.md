@@ -94,7 +94,12 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       `69649de16` added the core-free JDK HTTP client/streaming configuration,
       `Response`/JSON/cache values, 3/3 loopback/provider tests, identical
       assembled VM/ASM output, and an explicit negative diagnostic instead of a
-      server fallback. Next: add the HTTP server-host SPI, then migrate SQL/UI.
+      server fallback. `a81d9d94f` added host-owned callback invocation, exact
+      JDK routes, `Request`/`Response`, `serve[Async]`/`stop`, 4/4 HTTP tests,
+      and an assembled self-calling server on VM/ASM. Advanced middleware/TLS/
+      SSE/upload/WebSocket hooks remain explicit failures. Next: migrate the
+      representative SQL boundary, then UI; return to advanced HTTP host hooks
+      before closing TI-5.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a

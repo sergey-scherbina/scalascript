@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native v2 callbacks now drive a JDK HTTP server host
+
+`NativePluginContext.invoke` centralizes trampoline-safe provider callbacks.
+The HTTP provider uses it for exact method/path routes on JDK `HttpServer`, v2
+`Request` construction, handler closure invocation, `Response` output, and
+`serve`/`serveAsync`/`stop`. A self-calling `.ssc` server passes on VM and ASM;
+advanced server hooks remain bounded errors rather than bridge fallbacks.
+
 ## 2026-07-10 — native HTTP client and Response values moved off v1
 
 The standard native provider graph now owns JDK outbound HTTP, streaming line
