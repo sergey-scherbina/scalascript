@@ -15,6 +15,7 @@ ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null) || {
 jars_dir=${SSC_STANDARD_JARS:-}
 report=${V21_CORE_DEP_REPORT:-"${TMPDIR:-/tmp}/scalascript-v21-core-deps-$$.tsv"}
 strict_parsers=0
+require_closed_layout=0
 self_test=0
 
 usage() {
@@ -23,6 +24,9 @@ usage: scripts/v21-core-dependency-gate [options]
   --jars DIR          staged standard JAR directory
   --report PATH       write stable TSV report (default: temporary file)
   --strict-parsers    reject parser/codec dependencies in plugins too
+  --require-closed-layout
+                      reject every staged JAR outside the declared standard roots
+                      and their jdeps closure (automatic for */standard/jars)
   --self-test         prove the forbidden-reference detector rejects a fixture
 
 Default JAR lookup prefers bin/lib/standard/jars (the 2.1 slim layout), then
@@ -36,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --jars) jars_dir=$2; shift 2 ;;
     --report) report=$2; shift 2 ;;
     --strict-parsers) strict_parsers=1; shift ;;
+    --require-closed-layout) require_closed_layout=1; shift ;;
     --self-test) self_test=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "v21-core-dependency-gate: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -85,6 +90,9 @@ if [[ ! -d $jars_dir ]]; then
   echo 'run scripts/sbtc "installBin" first' >&2
   exit 2
 fi
+case "$jars_dir" in
+  */standard/jars) require_closed_layout=1 ;;
+esac
 
 jdeps_cmd=$(command -v jdeps || true)
 if [[ -z $jdeps_cmd ]]; then
@@ -115,13 +123,42 @@ declare -a root_specs=(
 
 mkdir -p "$(dirname -- "$report")"
 tmp_report=$(mktemp "${TMPDIR:-/tmp}/ssc-v21-core-deps.XXXXXX")
-trap 'rm -f "$tmp_report"' EXIT HUP INT TERM
+classified=$(mktemp "${TMPDIR:-/tmp}/ssc-v21-core-classified.XXXXXX")
+trap 'rm -f "$tmp_report" "$classified"' EXIT HUP INT TERM
 printf 'layer\troot\tdependency\tparser_codec_edge\tpolicy\n' >"$tmp_report"
+
+record_classified_jar() {
+  local jar_name=$1
+  local layer=$2
+  [[ $jar_name == *.jar ]] || return 0
+  if ! grep -F "${jar_name}"$'\t' "$classified" >/dev/null 2>&1; then
+    printf '%s\t%s\n' "$jar_name" "$layer" >>"$classified"
+  fi
+}
+
+dependency_layer() {
+  local jar_name=$1
+  local owner_layer=$2
+  case "$jar_name" in
+    scala-library-*.jar|scala3-library_*-*.jar|tasty-core_*-*.jar)
+      printf 'seed-runtime' ;;
+    scalascript-v2-core_*.jar)
+      printf 'seed' ;;
+    scalascript-v2-native-plugin-spi_*.jar)
+      printf 'pure-core' ;;
+    asm-*.jar|scalascript-v2-jvm-bytecode_*.jar)
+      printf 'backend-plugin' ;;
+    *)
+      printf '%s' "$owner_layer" ;;
+  esac
+}
 
 root_count=0
 edge_count=0
 plugin_parser_edges=0
 violations=0
+staged_jars=0
+outside_closure=0
 
 for spec in "${root_specs[@]}"; do
   layer=${spec%%|*}
@@ -137,6 +174,7 @@ for spec in "${root_specs[@]}"; do
   root_jar=${matches[0]}
   root_name=${root_jar##*/}
   root_count=$((root_count + 1))
+  record_classified_jar "$root_name" "$layer"
 
   verbose=$($jdeps_cmd --multi-release base --ignore-missing-deps -verbose:class \
     -cp "$jars_dir/*" "$root_jar")
@@ -168,6 +206,9 @@ for spec in "${root_specs[@]}"; do
     dependency=${line##* -> }
     dependency=${dependency%% *}
     dependency=${dependency##*/}
+    if [[ $dependency == *.jar ]]; then
+      record_classified_jar "$dependency" "$(dependency_layer "$dependency" "$layer")"
+    fi
     printf '%s\t%s\t%s\t%s\t%s\n' \
       "$layer" "$root_name" "$dependency" "$has_forbidden" "$policy" >>"$tmp_report"
     dependency_count=$((dependency_count + 1))
@@ -179,10 +220,34 @@ for spec in "${root_specs[@]}"; do
   fi
 done
 
+# The migration layout still co-locates tools/compat JARs with the standard v2
+# closure. Classify those explicitly in the report. Once TI-7 provides
+# bin/lib/standard/jars, any such extra is an error instead.
+shopt -s nullglob
+all_staged=("$jars_dir"/*.jar)
+shopt -u nullglob
+for staged in "${all_staged[@]}"; do
+  staged_jars=$((staged_jars + 1))
+  staged_name=${staged##*/}
+  if ! grep -F "${staged_name}"$'\t' "$classified" >/dev/null 2>&1; then
+    outside_closure=$((outside_closure + 1))
+    if [[ $require_closed_layout -eq 1 ]]; then
+      violations=$((violations + 1))
+      printf 'unclassified\t(staged-layout)\t%s\t-\tforbidden\n' "$staged_name" >>"$tmp_report"
+      echo "v21-core-dependency-gate: unclassified JAR in closed standard layout: $staged_name" >&2
+    else
+      printf 'tools/compat\t(migration-full-layout)\t%s\t-\toutside-standard-closure\n' \
+        "$staged_name" >>"$tmp_report"
+    fi
+  fi
+done
+
 mv "$tmp_report" "$report"
+rm -f "$classified"
 trap - EXIT HUP INT TERM
 
-echo "=== roots: $root_count  dependency-edges: $edge_count  migration-plugin-parser-roots: $plugin_parser_edges  violations: $violations"
+echo "=== roots: $root_count  dependency-edges: $edge_count  staged-jars: $staged_jars  outside-standard-closure: $outside_closure"
+echo "=== migration-plugin-parser-roots: $plugin_parser_edges  violations: $violations"
 echo "REPORT: $report"
 if [[ $violations -ne 0 ]]; then
   exit 1
