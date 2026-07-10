@@ -1,0 +1,8 @@
+---
+name: v21-native-list-append
+---
+
+```scalascript
+val xs = List(1, 2) :+ 3 :+ 4
+println(xs.mkString(","))
+```

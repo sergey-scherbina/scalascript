@@ -69,6 +69,7 @@ guard_expected=$'negative\nzero\nsmall\nlarge'
 constructor_guard_expected=$'enough\nlow\nmissing'
 [[ $(run_native "$FIXTURES/constructor-match-guard.ssc") == "$constructor_guard_expected" ]]
 [[ $(run_native "$FIXTURES/extension-declaration.ssc") == 'extension-header-ok' ]]
+[[ $(run_native "$FIXTURES/list-append.ssc") == '1,2,3,4' ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -85,6 +86,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/binder-match-guard.ssc") == "$guard_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/constructor-match-guard.ssc") == "$constructor_guard_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/extension-declaration.ssc") == 'extension-header-ok' ]]
+[[ $(run_native --bytecode "$FIXTURES/list-append.ssc") == '1,2,3,4' ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

@@ -340,6 +340,7 @@ def ssc1inferInf = (env, s, op, l, r) =>
   else if #seq(op, "&&") then ssc1inferBool(env, s, op, l, r)
   else if #seq(op, "||") then ssc1inferBool(env, s, op, l, r)
   else if #seq(op, "++") then ssc1inferConcat(env, s, l, r)
+  else if #seq(op, ":+") then ssc1inferAppend(env, s, l, r)
   else if #seq(op, "::") then ssc1inferCons(env, s, l, r)
   else TcOk(s, TyDyn)
 
@@ -508,6 +509,21 @@ def ssc1inferConcat = (env, s, l, r) =>
           else match ssc1chkUnify(s2, al, ar) {
             case Err(m) => TcErr(#sconcat("type mismatch in (++): ", m))
             case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, al))
+          }
+      }
+  }
+
+-- ":+" — immutable List append: List[A] :+ A -> List[A]
+def ssc1inferAppend = (env, s, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          match ssc1chkUnify(s2, tl, TyList(tr)) {
+            case Err(m) => TcErr(":+ left side must be a list of the appended type")
+            case Ok(s3) => TcOk(s3, TyList(ssc1chkAppTy(s3, tr)))
           }
       }
   }

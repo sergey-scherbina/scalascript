@@ -305,6 +305,7 @@ def lexFrom = (s, i) =>
       else Cons(mkTok("=", ""), lexFrom(s, #i.add(i2, 1)))                       -- =
     else if #i.eq(c, 58) then
       if #i.eq(n, 58) then Cons(mkTok("::", ""), lexFrom(s, #i.add(i2, 2)))     -- ::
+      else if #i.eq(n, 43) then Cons(mkTok("op", ":+"), lexFrom(s, #i.add(i2, 2))) -- :+
       else Cons(mkTok(":", ""), lexFrom(s, #i.add(i2, 1)))                       -- :
     else if #i.eq(c, 46) then
       if #i.eq(n, 46) then Cons(mkTok("op", ".."), lexFrom(s, #i.add(i2, 2)))   -- ..
@@ -921,7 +922,7 @@ def parsePostfix = (toks) =>
 def opPrec = (op) =>
   if #seq(op, "*") then 8 else if #seq(op, "/") then 8 else if #seq(op, "%") then 8
   else if #seq(op, "+") then 7 else if #seq(op, "-") then 7
-  else if #seq(op, "++") then 6
+  else if #seq(op, "++") then 6 else if #seq(op, ":+") then 6
   else if #seq(op, "==") then 5 else if #seq(op, "!=") then 5
   else if #seq(op, "<")  then 5 else if #seq(op, ">")  then 5
   else if #seq(op, "<=") then 5 else if #seq(op, ">=") then 5

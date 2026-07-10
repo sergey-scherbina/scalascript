@@ -1101,6 +1101,8 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, "==") then IrPrim("__eq__", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "<")  then IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "++") then IrPrim("sconcat", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, ":+") then
+                  IrPrim("__arith__", Cons(IrLit(IrStr(":+")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "->")  then IrCtor("Pair", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "&")  then IrPrim("i.and", Cons(lv, Cons(rv, Nil)))
