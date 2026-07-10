@@ -1,0 +1,72 @@
+---
+name: ui-state
+version: 1.0.0
+description: Loading/empty/error/ready view-state helpers for fetched toolkit views. Pure .ssc; no backend intrinsic.
+package: std.ui.state
+exports:
+  - LoadState
+  - loadState
+  - stateName
+  - errorText
+  - triState
+  - triStateText
+---
+
+# `std.ui.state` - loading/empty/error helpers
+
+Use this module when a fetched view already has loading, empty, and error
+signals and you want one consistent state switch. It is pure `.ssc` and
+composes existing `std/ui` primitives, so it works anywhere `TkNode` lowering
+works.
+
+[Signal, eqSignal, computedSignal](primitives.ssc)
+[TkNode](nodes.ssc)
+[showWhen, signalText_](reactive.ssc)
+[text](typography.ssc)
+
+```scalascript
+case class LoadState(loading: Any, empty: Any, error: Any)
+
+def loadState(loading: Any, empty: Any, error: Any): LoadState =
+  LoadState(loading, empty, error)
+
+// The priority is intentionally fixed: loading wins, then error, then empty,
+// then ready. This mirrors the nested view selector below and gives tests a
+// simple observable signal.
+def stateName(state: LoadState): Any = {
+  val loading = state.loading
+  val empty   = state.empty
+  val error   = state.error
+  computedSignal(() =>
+    if loading() then "loading"
+    else if error() != "" then "error"
+    else if empty() then "empty"
+    else "ready")
+}
+
+def errorText(state: LoadState, prefix: String = "Error: "): Any = {
+  val error = state.error
+  computedSignal(() => if error() == "" then "" else prefix + error())
+}
+
+def triState(state: LoadState,
+             loadingView: TkNode,
+             emptyView: TkNode,
+             errorView: TkNode,
+             readyView: TkNode): TkNode =
+  showWhen(state.loading, loadingView,
+    showWhen(eqSignal(state.error, ""),
+      showWhen(state.empty, emptyView, readyView),
+      errorView))
+
+def triStateText(state: LoadState,
+                 readyView: TkNode,
+                 loadingText: String = "Loading...",
+                 emptyText: String = "No data",
+                 errorPrefix: String = "Error: "): TkNode =
+  triState(state,
+    text(loadingText),
+    text(emptyText),
+    signalText_(errorText(state, errorPrefix)),
+    readyView)
+```

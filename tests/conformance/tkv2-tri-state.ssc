@@ -1,0 +1,42 @@
+---
+name: tkv2-tri-state
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - loading/empty/error state helper
+
+Slice `tkv2-tri-state`: `std.ui.state` provides a pure `.ssc` helper for
+fetched views that already track loading, empty, and error signals.
+
+[signal](std/ui/primitives.ssc)
+[loadState, stateName, errorText, triStateText](std/ui/state.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[text](std/ui/typography.ssc)
+
+```scalascript
+val loading = signal("triLoading", true)
+val empty   = signal("triEmpty", true)
+val error   = signal("triError", "network")
+val state   = loadState(loading, empty, error)
+val name    = stateName(state)
+
+// Priority: loading > error > empty > ready.
+println(name())
+loading.set(false)
+println(name())
+error.set("")
+println(name())
+empty.set(false)
+println(name())
+
+val msg = errorText(state, "error:")
+println(msg())
+error.set("offline")
+println(msg())
+
+val tree = triStateText(state, text("ready"), "loading", "empty", "error:")
+val view = lower(tree, defaultTheme)
+println("tri-state-built")
+```

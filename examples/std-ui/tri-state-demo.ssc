@@ -1,0 +1,30 @@
+---
+name: std-ui-tri-state-demo
+version: 1.0.0
+description: Toolkit v2 loading/empty/error helper demo.
+backends: [int, js]
+---
+
+# Toolkit v2 tri-state helper
+
+[signal](std/ui/primitives.ssc)
+[loadState, stateName, triStateText](std/ui/state.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[text](std/ui/typography.ssc)
+
+```scalascript
+val loading = signal("demoLoading", false)
+val empty   = signal("demoEmpty", false)
+val error   = signal("demoError", "")
+val state   = loadState(loading, empty, error)
+
+val page = triStateText(state,
+  text("Fetched content is ready"),
+  loadingText = "Loading invoices...",
+  emptyText = "No invoices yet",
+  errorPrefix = "Could not load invoices: ")
+
+val view = lower(page, defaultTheme)
+println("tri-state-demo:" + stateName(state)())
+```

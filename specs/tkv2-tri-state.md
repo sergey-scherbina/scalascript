@@ -16,6 +16,10 @@ Add `runtime/std/ui/state.ssc` with package `std.ui.state` and these exports:
 
 - `LoadState` - data holder for `loading`, `empty`, and `error` signals.
 - `loadState(loading, empty, error)` - constructor with explicit signal inputs.
+- `stateName(state)` - computed `Signal[String]` returning `loading`, `error`,
+  `empty`, or `ready` using the same priority as the view helper.
+- `errorText(state, prefix)` - computed `Signal[String]` for displaying the
+  current error with a prefix; `""` when there is no error.
 - `triState(state, loadingView, emptyView, errorView, readyView)` - generic
   view selector.
 - `triStateText(state, readyView, loadingText, emptyText, errorPrefix)` -
