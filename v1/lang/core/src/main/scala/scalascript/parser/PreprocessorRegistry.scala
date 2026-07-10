@@ -63,6 +63,15 @@ object PreprocessorRegistry:
       override def apply(s: String) = Parser.preprocessTrailingUnderscoreColon(s)
     })
     register(new Preprocessor {
+      // Rewrite `'{'` / `'}'` char literals to unicode escapes before any
+      // quote-aware pass (and scalameta), which otherwise reads `'{` as a
+      // macro-quote start. Must run early so the escaped form is what later
+      // passes see.
+      override val name     = "brace-char-literals"
+      override val priority = 6
+      override def apply(s: String) = Parser.preprocessBraceCharLiterals(s)
+    })
+    register(new Preprocessor {
       override val name     = "inline-imports"
       override val priority = 10
       override def apply(s: String) = Parser.preprocessInlineImports(s)

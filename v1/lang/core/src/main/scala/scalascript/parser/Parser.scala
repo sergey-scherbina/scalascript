@@ -2074,6 +2074,50 @@ object Parser:
         sb.append(c); i += 1
     sb.toString
 
+  /** scalameta's Scala3 tokenizer reads `'{` — the start of the char literal
+   *  `'{'` — as a macro-quote start (`'{ … }`), then mis-tracks braces so a
+   *  later `'}'` fails with "Macro quote must be followed by id, brace or
+   *  bracket".  This bites parser-combinator code that matches brace characters
+   *  (`Parser.char('{')` / `Parser.char('}')`, e.g. examples/dsl-json-parser).
+   *  Rewrite the brace char literals to the equivalent unicode escapes
+   *  (`'{'` / `'}'`) — the same `Char`, but not starting with `'{`.
+   *  String / char / comment contexts are skipped verbatim, so a `'{'` inside a
+   *  string is untouched; and a real quote `'{ … }` (no closing `'` after one
+   *  char) is never matched. */
+  private[parser] def preprocessBraceCharLiterals(code: String): String =
+    if !code.contains("'{'") && !code.contains("'}'") then return code
+    val n  = code.length
+    val sb = new StringBuilder(n + 8)
+    var i  = 0
+    while i < n do
+      val c = code.charAt(i)
+      if c == '/' && i + 1 < n && code.charAt(i + 1) == '*' then
+        val end = code.indexOf("*/", i + 2); val to = if end < 0 then n else end + 2
+        sb.append(code.substring(i, to)); i = to
+      else if c == '/' && i + 1 < n && code.charAt(i + 1) == '/' then
+        var j = i + 2; while j < n && code.charAt(j) != '\n' do j += 1
+        sb.append(code.substring(i, j)); i = j
+      else if c == '"' && i + 2 < n && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' then
+        val end = code.indexOf("\"\"\"", i + 3); val to = if end < 0 then n else end + 3
+        sb.append(code.substring(i, to)); i = to
+      else if c == '"' then
+        sb.append(c); var j = i + 1
+        while j < n && code.charAt(j) != '"' do
+          if code.charAt(j) == '\\' && j + 1 < n then
+            sb.append(code.charAt(j)); sb.append(code.charAt(j + 1)); j += 2
+          else
+            sb.append(code.charAt(j)); j += 1
+        if j < n then sb.append('"')
+        i = j + 1
+      else if c == '\'' && i + 2 < n && code.charAt(i + 2) == '\'' &&
+              (code.charAt(i + 1) == '{' || code.charAt(i + 1) == '}') then
+        sb.append(if code.charAt(i + 1) == '{' then "'\\u007B'" else "'\\u007D'"); i += 3
+      else if c == '\'' && i + 2 < n && code.charAt(i + 2) == '\'' then
+        sb.append(code.substring(i, i + 3)); i += 3   // other char literal — verbatim
+      else
+        sb.append(c); i += 1
+    sb.toString
+
   /** Identifier body char: letter, digit, or `_`.  Note we test the
    *  character BEFORE the trailing `_`, which means a one-character
    *  identifier `_` followed by `:` (i.e. `_:Foo`) is NOT rewritten —
