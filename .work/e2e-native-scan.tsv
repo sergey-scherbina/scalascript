@@ -1,0 +1,195 @@
+actors-pingpong	PARSE	_err
+actors-typed-remote-spawn	UNBOUND	runActors
+agent-mcp-server	PARSE	_err
+agent-mcp-toolsource	PARSE	_err
+algebraic-effects	PARSE	_err
+async-demo	UNBOUND	runAsync
+async-parallel-demo	UNBOUND	runAsync
+auth-demo	PARSE	_err
+auth-full	PARSE	_err
+bank-rails-ach	PARSE	_err
+bank-rails-fednow	PARSE	_err
+bank-rails-pix	PARSE	_err
+bank-rails-sepa	PARSE	_err
+bitwise-operators	RUNS	-
+bureau-demo	PARSE	_err
+cluster-capability	UNBOUND	runActors
+components-demo	PARSE	_err
+content-action-onsuccess	PARSE	_err
+content-data-source	PARSE	_err
+content-form-submit	PARSE	_err
+content-introspection	PARSE	_err
+content-linked-namespaces	PARSE	_err
+content-live-rows	PARSE	_err
+content-slot	PARSE	_err
+content-tables	PARSE	_err
+content-to-markdown	UNBOUND	contentSection
+content-toolkit-yaml-controls	PARSE	_err
+content	UNBOUND	md
+control-center-live	PARSE	_err
+crypto-demo	RUNS	-
+crypto-encrypt-demo	UNBOUND	aesGenKey
+crypto-verify-demo	UNBOUND	verifyEd25519
+custom-derives-mirror	PARSE	_err
+data-types	PARSE	_err
+dataset-parallel-sum	UNBOUND	_000
+dataset-stats	RUNERR	arity: 1 expected
+dataset-typed-mapping	STUB-OP	Op("Dataset.fromList"
+dataset-word-count	RUNERR	
+datatable-static-spa	PARSE	_err
+default-params	PARSE	_err
+deploy	RUNERR	
+derived-route-clients	RUNERR	
+direct-syntax-demo	PARSE	_err
+distributed-dataset-codec	RUNS	-
+distributed-dataset-typed-helpers	PARSE	_err
+distributed-dataset-wire-protocol	PARSE	_err
+distributed-dataset-wire-shuffle	PARSE	_err
+distributed-join	PARSE	_err
+distributed-log-aggregation	PARSE	_err
+distributed-streams	PARSE	_err
+distributed-word-count	PARSE	_err
+dsl-ast-builder	PARSE	_err
+dsl-calc-parser	PARSE	_err
+dsl-json-parser	PARSE	_err
+dsl-mini-language	PARSE	no arm for Pair/2
+dsl-sql-recovery	PARSE	_err
+dsl-yaml-like	PARSE	_err
+effects	UNBOUND	greet
+enums	RUNS	-
+extensions	PARSE	_err
+fetch-auth	PARSE	_err
+fs-roundtrip	RUNERR	
+functional	PARSE	no arm for Stub/0
+generators	UNBOUND	generator
+graph-codecs	RUNERR	arity: 1 expected
+graph-fullstack-rdf	RUNERR	
+graph-fullstack	PARSE	_err
+graph-janusgraph-gremlin	RUNERR	arity: 1 expected
+graph-neo4j-storage	PARSE	_err
+graph-rdf4j-http-storage	PARSE	_err
+graph-rdf4j-storage	PARSE	_err
+graph-storage-interpreter	STUB-OP	Op("Graph.neighbors"
+graph-storage	STUB-OP	Op("Graph.neighbors"
+graphql-client	PARSE	_err
+graphql-hello	PARSE	_err
+graphql-typed-resolvers	PARSE	_err
+health-defaults	TIMEOUT	server/hang
+hello	RUNS	-
+imports	PARSE	_err
+index	RUNERR	arity: 1 expected
+indexeddb-drafts	UNBOUND	awaitClient
+indexeddb-sync-client	UNBOUND	awaitClient
+international-bank-rails	PARSE	_err
+invoice-email	UNBOUND	htmlToPdfBase64
+invoice-pdf	UNBOUND	htmlToPdfBase64
+js-glue-component	UNBOUND	Widget
+lang-split	UNBOUND	math
+lenses	UNBOUND	Focus
+markdown-toolkit-links	PARSE	_err
+mcp-agent	UNBOUND	mcpServer
+mcp-client-discover	UNBOUND	mcpConnect
+mcp-filesystem-server	UNBOUND	mcpServer
+mcp-keyvalue-server	UNBOUND	mutable
+mcp-search-server	PARSE	_err
+mcp-server-protected	UNBOUND	oauth
+mcp-server-tools	UNBOUND	mcpServer
+middleware-demo	UNBOUND	req
+multi-link-imports	UNBOUND	minorUnits
+nfc-ndef	UNBOUND	nfcCapabilities
+node-fs-read	UNBOUND	readUtf8
+oauth-as-standalone	UNBOUND	oauth
+oauth-demo	PARSE	_err
+oauth-mcp-full-stack	UNBOUND	oauth
+oauth-rs-guard	UNBOUND	oauth
+oauth-rsa-jwks	UNBOUND	oauth
+object-store-jdbc	RUNERR	arity: 1 expected
+object-store-sync-routes	STUB-OP	Op("ObjectStore.get"
+oidc-idp	UNBOUND	oauth
+oidc-login-flow	PARSE	_err
+openapi-annotation	PARSE	_err
+os-env	RUNS	-
+paginated-typed-client	RUNS	-
+pdf-extract-demo	UNBOUND	htmlToPdfBase64
+pg-listen-notify	RUNERR	
+quoted-macro-constfold	PARSE	_err
+quoted-macro-interpreter	PARSE	_err
+recursion	RUNS	-
+remote-registry-rpc	UNBOUND	Remote_function
+rest-api-fm	PARSE	_err
+rest-api	PARSE	_err
+rest-jetty	PARSE	_err
+rozum-agent-pool	PARSE	_err
+rozum-agent-schema-derived	PARSE	_err
+rozum-agent-streaming	PARSE	_err
+rozum-agent	PARSE	_err
+rozum-meeting	PARSE	_err
+scala-js-demo	PARSE	_err
+script	PARSE	_err
+seed-signal	PARSE	_err
+signals-demo	UNBOUND	Signal
+spa-demo	PARSE	_err
+spark-catalog-hive	UNBOUND	_sqlBlock_0
+spark-collections-demo	UNBOUND	Seq
+spark-config-demo	RUNERR	
+spark-delta-demo	UNBOUND	System
+spark-encoder-demo	UNBOUND	spark
+spark-hive-demo	UNBOUND	_sqlBlock_0
+spark-lakehouse-delta	UNBOUND	System
+spark-lakehouse-hudi	UNBOUND	System
+spark-lakehouse-iceberg	PARSE	_err
+spark-mllib-model-save-load	UNBOUND	spark
+spark-mllib-pipeline	UNBOUND	spark
+spark-nested-demo	UNBOUND	spark
+spark-schema-mapping	UNBOUND	SparkSchemaCodec
+spark-shared-schema-reader	UNBOUND	java
+spark-sql-demo	UNBOUND	ActiveUsers
+spark-streaming-file-parquet	UNBOUND	StructType
+spark-streaming-kafka	UNBOUND	spark
+spark-streaming-rate-console	UNBOUND	spark
+spark-tuple-demo	UNBOUND	spark
+spark-udf-demo	UNBOUND	ActiveUsersNormalised
+sql-browser-duckdb	UNBOUND	Totals
+sql-browser-sqlite	UNBOUND	Active
+sql-h2-quickstart	UNBOUND	null
+sql-sqlite-file	UNBOUND	ReadBack
+sse-typed-client	RUNS	-
+ssr-page	PARSE	_err
+storage-demo	UNBOUND	runEphemeralStorage
+streams	PARSE	_err
+sync-todo	RUNERR	
+totp-shamir-demo	PARSE	_err
+traditional-payments	PARSE	_err
+typeclass	PARSE	_err
+typed-data	PARSE	_err
+typed-object-codec	PARSE	_err
+typed-sql-crud	RUNERR	
+ui-fetch-json	RUNERR	arity: 3 expected
+ui-remote-table	UNBOUND	fetchUrlSignal
+ui-typed-json	PARSE	_err
+uploads	PARSE	_err
+uuid-v7	PARSE	_err
+v2-http-sql-demo	PARSE	_err
+validation-demo	TIMEOUT	server/hang
+wallet-ledger-js	PARSE	_err
+wallet-mpc-fireblocks	PARSE	_err
+wasm-collections	PARSE	_err
+wasm-fibonacci	RUNS	-
+wasm-http	PARSE	_err
+wasm-matrix	PARSE	_err
+wasm-primes	PARSE	_err
+wasm-scalascript	PARSE	_err
+wasm-sorting	PARSE	_err
+wc-card	RUNS	-
+webauthn-demo	PARSE	_err
+word-count	RUNERR	
+ws-chat	PARSE	_err
+ws-recv-demo	PARSE	_err
+ws-typed-client	PARSE	_err
+x402-cardano-scalus	PARSE	_err
+x402-cardano	PARSE	_err
+x402-client	PARSE	_err
+x402-metamask	PARSE	_err
+x402-server	PARSE	_err
+xslt-transform	PARSE	_err
+yaml-parse	UNBOUND	parseYaml

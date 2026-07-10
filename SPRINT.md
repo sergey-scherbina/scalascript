@@ -1482,6 +1482,37 @@ on plugin-free files are my fixable set. Gate every fix with `v2/conformance/che
       Remaining native-front residue is now all K62 parser lane (enum multi-field variant
       construction, type-param case class `Node[A]`, `summon`, dsl-mini-language) + plugin
       globals (plugin-bridging axis).
+- [x] **nvm-4-real-e2e-map** — DONE 2026-07-10. Built the real e2e picture the bare-VM
+      nvm-scan couldn't: `bin/ssc run --native` (self-hosted front → CoreIR → v2 VM WITH
+      `PluginBridge.loadAll()`) over all 195 examples (`.work/e2e-native-scan.tsv`). Result:
+      **11 RUNS clean** (bitwise-operators, crypto-demo, distributed-dataset-codec, enums,
+      hello, os-env, paginated-typed-client, recursion, sse-typed-client, wasm-fibonacci,
+      wc-card); **101 PARSE** (`_err` — `--native` STRICTLY rejects any partial parse);
+      **61 UNBOUND**; **16 RUNERR**; **4 STUB-OP**; **2 TIMEOUT** (servers).
+      ROOT-CAUSED every non-parse bucket — ALL are K62's active parser+dispatch lane, none
+      cleanly/safely mine:
+      · **101 PARSE** → K62 parser (`ssc1-front`). The dominant gap (52%).
+      · **~40 UNBOUND plugin intrinsics** (aesGenKey, spark, oauth, mcp*, verifyEd25519,
+        parseYaml, htmlToPdfBase64, runActors/runAsync…) → DISPATCH ALIGNMENT: plugins
+        register these as Prim OP HANDLERS (`V2PluginRegistry.handlers`, keyed by op name);
+        the bridge lowers `aesGenKey(x)` to `Prim("aesGenKey",[x])` (resolves), but the
+        native front emits `App(Global("aesGenKey"),[x])` → `lookupGlobal` MISS → unbound.
+        Verified A/B: crypto-encrypt-demo works on `--v2`, unbound on `--native`. FIX BELONGS
+        in native-front lowering (K62.7 lane) — a blanket VM `Global→handler` fallback is
+        UNSAFE: the effectful ops in this cluster (serve/actors/async need the ANF/effect
+        machinery) would run silently wrong. So NOT a VM fix.
+      · **6 arity RUNERR** (dataset-stats, graph-codecs, graph-janusgraph-gremlin, index,
+        object-store-jdbc, ui-fetch-json) → `Runtime.scala:144` closure applied with wrong
+        arg count = a calling-convention mismatch in native method dispatch (K62.12's
+        just-landed `_sel_→__method__` area).
+      · **4 STUB-OP** (`Op("Dataset.fromList"/"Graph.neighbors"/"ObjectStore.get")`) →
+        unhandled uid-static plugin method dispatch (K62.7b lane).
+      · **~6 language-prim UNBOUND** (`null`, `Seq`, `System`, `math`, `java`, `mutable`) →
+        native front lacks these literals/ctors/objects (ssc1-front/lower — K62).
+      Handed the full prioritized map to K62 (rozum). My cleanly-separable + SAFE native-front
+      gaps (module-loading, named-args, hex, str.replace) are all closed; the remaining ~140
+      require K62's parser/dispatch expertise IN their actively-edited files — closing them
+      here would clash with K62.12/6e8464ea8 in-flight work, so handed off rather than raced.
 
 ## Разоблачённые exit-0 фикции (cdd032f03 unmask, диагнозы 2026-07-09)
 
