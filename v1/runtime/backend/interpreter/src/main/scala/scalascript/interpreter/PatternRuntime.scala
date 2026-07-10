@@ -885,7 +885,9 @@ private[interpreter] object PatternRuntime:
           case _                            => null
         val argPats = argClause.values.toArray
         val allSimple = argPats.forall(p => p.isInstanceOf[Pat.Var] || p.isInstanceOf[Pat.Wildcard])
-        if typeName != null && allSimple then
+        // `Cons` deconstructs a List (see matchPat); route it through the slow
+        // path so it reaches that logic instead of the InstanceV-only fast path.
+        if typeName != null && typeName != "Cons" && allSimple then
           // Precompute binding names (null = wildcard, skip binding)
           val bindNames: Array[String | Null] = argPats.map {
             case Pat.Var(nn) => nn.value
@@ -1002,7 +1004,9 @@ private[interpreter] object PatternRuntime:
           case _                            => null
         val argPats   = argClause.values.toArray
         val allSimple = argPats.forall(p => p.isInstanceOf[Pat.Var] || p.isInstanceOf[Pat.Wildcard])
-        if typeName == null || !allSimple then null
+        // `Cons` deconstructs a List (see matchPat); it is not value-fast-path
+        // capable here, so fall back to the monadic handler which reaches matchPat.
+        if typeName == null || typeName == "Cons" || !allSimple then null
         else
           val bindNames: Array[String | Null] = argPats.map {
             case Pat.Var(nn) => nn.value
@@ -1280,6 +1284,14 @@ private[interpreter] object PatternRuntime:
             matchPat(args.head, ov.inner, env, interp)
           case Value.NoneV if typeName == "None" && args.isEmpty =>
             env
+          // `Cons(head, tail)` deconstructs a non-empty List just like `head ::
+          // tail` — the self-hosted std code (e.g. json-core.ssc) uses the `Cons`
+          // extractor as the portable List cons cell (it is the list ADT on the
+          // JS/v2 backends). The `InstanceV("Cons")` case above still wins for a
+          // user ADT literally named `Cons`, so this is additive.
+          case Value.ListV(h :: t) if typeName == "Cons" && args.length == 2 =>
+            val e = matchPat(args.head, h, env, interp)
+            if e != null then matchPat(args.tail.head, Value.ListV(t), e.asInstanceOf[Env], interp) else null
           case _ => null
     // List cons pattern: `head :: tail` matches a non-empty ListV.
     case Pat.ExtractInfix.After_4_6_0(headPat, Term.Name("::"), tailClause) =>

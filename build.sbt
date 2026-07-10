@@ -913,7 +913,12 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("v1/runtime/backend/interpreter"))
-  .dependsOn(wireCore, backendSpi, markupCore, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
+  // jsonPlugin % Test: the std JSON codec is self-hosted (json.ssc + json-core.ssc);
+  // its `__jsonCore*` boundary intrinsics must be ServiceLoader-discoverable for
+  // interpreter tests that transitively import std/json.ssc (e.g. ThrowsTest via
+  // error-handling → http, which runs json.ssc's import-time renderer install).
+  // Acyclic because jsonPlugin no longer depends on testUtils (see its def).
+  .dependsOn(wireCore, backendSpi, markupCore, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(
@@ -3026,7 +3031,15 @@ lazy val micropaymentHydra = project
 
 lazy val jsonPlugin = project
   .in(file("v1/runtime/std/json-plugin"))
-  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  // NB: no `testUtils % Test` here (unlike the other std plugins). The std JSON
+  // codec is self-hosted, so std modules (http, error-handling, …) transitively
+  // import std/json.ssc, which needs jsonPlugin's `__jsonCore*` intrinsics at
+  // import time. That means `backendInterpreter` must have jsonPlugin on its TEST
+  // classpath — impossible if jsonPlugin depends (via testUtils) back on
+  // backendInterpreter. jsonPlugin's interpreter test lives in
+  // backendInterpreterPluginTests instead, keeping this module's compile closure
+  // backendInterpreter-free.
+  .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-json-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -3206,6 +3219,7 @@ lazy val backendInterpreterPluginTests = project
   .dependsOn(
     backendInterpreter % "compile->compile;test->test",
     backendInterpreterServer,
+    testUtils % Test,   // hosts jsonPlugin's relocated interpreter suite (TestInterpreter)
   )
   .dependsOn(allPlugins.map(spec => ClasspathDependency(spec.project, None)): _*)
   .settings(

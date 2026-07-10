@@ -69,6 +69,39 @@ object JsonIntrinsics:
         case _       => navJson(PluginValue.nullV)
     ),
 
+    // ── Self-hosted JSON core boundary (std/json.ssc) ─────────────────────────
+    // The standard JSON codec is self-hosted: json-core.ssc owns parsing and
+    // rendering (the `jsonCoreParse*` / `jsonCoreRender` interpreted functions),
+    // and these five primitives are the only native seam — they map ordinary
+    // runtime values to/from the portable `JsonCore*` ADT and (on v2) hold the
+    // renderer.  See v2 `ssc.plugin.json.NativeJsonCodec` for the reference
+    // semantics; `V1JsonCore` is the interpreter port on `PluginValue`.
+
+    // Accept and ignore the self-hosted renderer closure: v1 renders JSON
+    // in-language (json.ssc `jsonStringify` calls the interpreted `jsonCoreRender`
+    // directly), so — unlike v2 — no native provider ever calls back into it.
+    QualifiedName("__jsonCoreInstallRenderer") -> stableNative(_ => PluginValue.unit),
+
+    QualifiedName("__jsonCoreEncodeValue") -> stableNative {
+      case List(v) => V1JsonCore.toCore(v)
+      case _       => PluginError.raise("__jsonCoreEncodeValue(value)")
+    },
+
+    QualifiedName("__jsonCoreWrap") -> stableNative {
+      case List(core) => navJson(V1JsonCore.toRaw(core))
+      case _          => PluginError.raise("__jsonCoreWrap(value)")
+    },
+
+    QualifiedName("__jsonCoreWrapStrict") -> stableNative {
+      case List(result) => navJson(V1JsonCore.toRaw(V1JsonCore.unwrapStrict(result).unwrap))
+      case _            => PluginError.raise("__jsonCoreWrapStrict(result)")
+    },
+
+    QualifiedName("__jsonCoreRawStrict") -> stableNative {
+      case List(result) => V1JsonCore.toRaw(V1JsonCore.unwrapStrict(result).unwrap)
+      case _            => PluginError.raise("__jsonCoreRawStrict(result)")
+    },
+
   )
 
   /** A navigable, **total** JsonValue wrapper.  Unlike core `jsonFacade`, accessors

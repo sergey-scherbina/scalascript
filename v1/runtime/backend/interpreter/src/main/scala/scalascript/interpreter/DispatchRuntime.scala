@@ -1418,6 +1418,29 @@ private[interpreter] object DispatchRuntime:
       case "toUpper" | "toUpperCase" => Pure(Value.charV(c.toUpper))
       case "toLower" | "toLowerCase" => Pure(Value.charV(c.toLower))
       case "asDigit"        => Computation.pureIntV(c.asDigit.toLong)
+      // Char is numeric (Scala: `'a' - 32` is an Int). `+` with a String is
+      // concatenation, matching Scala's `Char.+(String)`.
+      case "+"  => args match
+        case List(Value.CharV(b))   => Computation.pureIntV(c.toInt + b.toInt)
+        case List(Value.IntV(n))    => Computation.pureIntV(c.toInt + n)
+        case List(Value.StringV(s)) => Pure(Value.StringV(c.toString + s))
+        case _                      => interp.located(s"No method '+' on Char")
+      case "-"  => args match
+        case List(Value.CharV(b)) => Computation.pureIntV(c.toInt - b.toInt)
+        case List(Value.IntV(n))  => Computation.pureIntV(c.toInt - n)
+        case _                    => interp.located(s"No method '-' on Char")
+      case "*"  => args match
+        case List(Value.CharV(b)) => Computation.pureIntV(c.toInt * b.toInt)
+        case List(Value.IntV(n))  => Computation.pureIntV(c.toInt * n)
+        case _                    => interp.located(s"No method '*' on Char")
+      case "/"  => args match
+        case List(Value.CharV(b)) => Computation.pureIntV(c.toInt / b.toInt)
+        case List(Value.IntV(n))  => Computation.pureIntV(c.toInt / n)
+        case _                    => interp.located(s"No method '/' on Char")
+      case "%"  => args match
+        case List(Value.CharV(b)) => Computation.pureIntV(c.toInt % b.toInt)
+        case List(Value.IntV(n))  => Computation.pureIntV(c.toInt % n)
+        case _                    => interp.located(s"No method '%' on Char")
       case "<"  => args match
         case List(Value.CharV(b)) => Computation.pureBool(c < b)
         case List(Value.IntV(n))  => Computation.pureBool(c.toInt < n.toInt)
@@ -3369,6 +3392,39 @@ private[interpreter] object DispatchRuntime:
           case ">=" => Computation.pureBool(a >= b.toDouble)
           case _    => null
         case _ => null
+      // Char compares numerically with Char and Int (Scala: `'a' == 97` is true).
+      // Mirrors the CharV block in `numericFastValue`; without it the general
+      // infix path (`infix2`) fell to structural `lhs == rhs`, so a `Char == Int`
+      // (as the self-hosted json-core scanner does: `source.charAt(i) == 91`)
+      // wrongly returned false.
+      case Value.CharV(a) => rhs match
+        case Value.CharV(b) => op match
+          case "+"  => Computation.pureIntV(a.toInt + b.toInt)
+          case "-"  => Computation.pureIntV(a.toInt - b.toInt)
+          case "*"  => Computation.pureIntV(a.toInt * b.toInt)
+          case "/"  => Computation.pureIntV(a.toInt / b.toInt)
+          case "%"  => Computation.pureIntV(a.toInt % b.toInt)
+          case "<"  => Computation.pureBool(a < b)
+          case ">"  => Computation.pureBool(a > b)
+          case "<=" => Computation.pureBool(a <= b)
+          case ">=" => Computation.pureBool(a >= b)
+          case "==" => Computation.pureBool(a == b)
+          case "!=" => Computation.pureBool(a != b)
+          case _    => null
+        case Value.IntV(b) => op match
+          case "+"  => Computation.pureIntV(a.toInt + b)
+          case "-"  => Computation.pureIntV(a.toInt - b)
+          case "*"  => Computation.pureIntV(a.toInt * b)
+          case "/"  => Computation.pureIntV(a.toInt / b)
+          case "%"  => Computation.pureIntV(a.toInt % b)
+          case "<"  => Computation.pureBool(a.toInt < b)
+          case ">"  => Computation.pureBool(a.toInt > b)
+          case "<=" => Computation.pureBool(a.toInt <= b)
+          case ">=" => Computation.pureBool(a.toInt >= b)
+          case "==" => Computation.pureBool(a.toInt == b)
+          case "!=" => Computation.pureBool(a.toInt != b)
+          case _    => null
+        case _ => null
       case _ => null
 
   /** Value-returning twin of `numericFast`: same operand/operator coverage, but
@@ -3427,6 +3483,11 @@ private[interpreter] object DispatchRuntime:
         case _ => null
       case Value.CharV(a) => rhs match
         case Value.CharV(b) => op match
+          case "+"  => Value.intV(a.toInt + b.toInt)
+          case "-"  => Value.intV(a.toInt - b.toInt)
+          case "*"  => Value.intV(a.toInt * b.toInt)
+          case "/"  => Value.intV(a.toInt / b.toInt)
+          case "%"  => Value.intV(a.toInt % b.toInt)
           case "<"  => Value.boolV(a < b)
           case ">"  => Value.boolV(a > b)
           case "<=" => Value.boolV(a <= b)
@@ -3435,6 +3496,11 @@ private[interpreter] object DispatchRuntime:
           case "!=" => Value.boolV(a != b)
           case _    => null
         case Value.IntV(b) => op match
+          case "+"  => Value.intV(a.toInt + b)
+          case "-"  => Value.intV(a.toInt - b)
+          case "*"  => Value.intV(a.toInt * b)
+          case "/"  => Value.intV(a.toInt / b)
+          case "%"  => Value.intV(a.toInt % b)
           case "<"  => Value.boolV(a.toInt < b)
           case ">"  => Value.boolV(a.toInt > b)
           case "<=" => Value.boolV(a.toInt <= b)
