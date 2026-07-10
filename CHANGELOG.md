@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — direct ASM now builds deterministic executable JVM artifacts
+
+`ssc build-jvm` runs the self-hosted frontend and checker, emits an executable
+`ssc.gen.Entry` class directly through ASM, and merges an explicit core-free
+runtime/provider allowlist into a self-contained JAR. Fixed ZIP metadata,
+lexical entry/service ordering, embedded source hashes, and conflict checks make
+repeated builds byte-identical; argv and crypto run through `java -jar` without
+Scala CLI, scalac, or javac.
+
 ## 2026-07-10 — native immutable values now initialize in document order
 
 Top-level immutable values and tuple bindings are cell-backed and initialized

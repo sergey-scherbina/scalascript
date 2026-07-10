@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v2-frontendbridge-sqlite-timeout — SQLite conformance exceeds the 15-second bridge-test limit
+
+**Status:** open (2026-07-10); reproduced twice against TI-6.1 `a8a86fffe`,
+whose artifact changes do not touch the compatibility FrontendBridge execution
+path.
+
+- **Found by:** codex while running the broad post-TI-6.1 regression suite.
+- **Real-harness repro:** `scripts/sbtc "v2FrontendBridge/test"`; all other 151
+  executed tests pass, but `v2-conformance: v2-db-url-scheme-not-jdbc` returns
+  `(timeout)` instead of `1` after the suite's 15-second `Await` bound.
+- **Expected:** `tests/conformance/v2-db-url-scheme-not-jdbc.ssc` opens its
+  `sqlite::memory:` database and prints `1` within the normal test bound.
+- **Root-cause direction:** inspect the compatibility bridge SQL runtime/test
+  classpath for SQLite driver availability and Hikari's default connection
+  timeout. The direct native TI-6 artifact path and its H2/provider gate are a
+  separate standard-tier lane.
+- **Done-when:** the single named test and full `v2FrontendBridge/test` pass in
+  isolation without increasing the timeout; add a focused regression if the
+  missing-driver/classpath hypothesis is confirmed.
+
 ## v21-native-front-eager-plugin-val — plugin-backed top-level `val` runs before earlier statements
 
 **Status:** fixed (2026-07-10, `5db137a20`); waiting for human confirmation

@@ -169,7 +169,7 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       without disambiguating its Scala-source->Scala-compiler implementation.
       Done when a native-front program builds and runs as a JAR without
       scala-cli/scalac/javac and repeated builds are byte-reproducible.
-      - [ ] **TI-6.1 executable deterministic JAR:** add a generated JVM
+      - [x] **TI-6.1 executable deterministic JAR — DONE 2026-07-10 (`a8a86fffe`):** add a generated JVM
             `main(String[])`, a core-free artifact runtime beside the native
             plugin host, and `BuildJvmCmd`. Merge `ssc.gen.Entry` plus an
             explicit standard-runtime/provider allowlist into a lexically
@@ -177,7 +177,14 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             and reject conflicting duplicate entries. Add unit + assembled
             hello/argv/crypto smokes with `PATH=/usr/bin:/bin`, two-build `cmp`,
             and forbidden-entry/reference checks. Push code/docs/bookkeeping as
-            separate commits before continuing.
+            separate commits before continuing. Result: native checker rejects
+            the negative fixture, `ssc.gen.Entry.main` + the core-free artifact
+            runtime execute argv and crypto through merged ServiceLoader
+            providers, two 26,291,502-byte JARs are byte-identical (SHA-256
+            `95590553b0174f3026a947fbb48f000a3cf878cf4e61c114d928c86a33b2d746`),
+            `java -jar` passes with compiler commands absent, `jdeps`/entry
+            forbidden-family gates pass, SPI tests 7/7, registry 8/8, native
+            assembled gates PASS, and `v2-*` conformance is 8/8.
       - [ ] **TI-6.2 link/config artifact metadata:** make imported modules and
             multiple roots one linked checked program; embed normalized source
             SHA-256 identities and parsed native database config in
@@ -213,6 +220,14 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       layout/docs, and dependency-size baseline. Done when all affected
       conformance slices are green and the standard 2.1 path cannot accidentally
       regress back to a compiler-backed route.
+- [ ] **v2-frontendbridge-sqlite-timeout:** investigate the twice-reproduced
+      compatibility-bridge failure recorded in `BUGS.md`. Run only
+      `v2-conformance: v2-db-url-scheme-not-jdbc`, verify whether sqlite-jdbc is
+      absent from `v2FrontendBridge / Test / fullClasspath` or Hikari waits on
+      driver resolution, then fix the actual classpath/runtime cause without
+      raising the 15-second limit. This does not block the native TI-6 artifact
+      lane; schedule after the release-critical toolchain slices unless another
+      compatibility owner claims it.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.
