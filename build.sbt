@@ -1391,7 +1391,56 @@ lazy val cli = project
       )
       val standardJars = runtimeJars.filter(j =>
         standardJarPrefixes.exists(j.getName.startsWith))
-      standardJars.foreach(j => IO.copyFile(j, standardRuntimeDir / j.getName))
+      // H2 ships an optional CREATE ALIAS source compiler in the same driver
+      // JAR. Its SourceCompiler family is unused by normal JDBC/DDL/DML but
+      // directly references javax.tools, which would pull java.compiler into
+      // the otherwise compiler-free standard tier. Keep the original H2 JAR
+      // in lib/jars for tools compatibility and deterministically filter only
+      // the standard-tier copy (the build-jvm artifact applies the same rule).
+      def stageStandardJar(source: File): Unit = {
+        val destination = standardRuntimeDir / source.getName
+        if (!source.getName.startsWith("h2-")) IO.copyFile(source, destination)
+        else {
+          val input = new java.util.zip.ZipFile(source)
+          val output = new java.util.zip.ZipOutputStream(
+            new java.io.BufferedOutputStream(new java.io.FileOutputStream(destination)))
+          var omitted = 0
+          try {
+            val names = scala.collection.mutable.ArrayBuffer.empty[String]
+            val entries = input.entries()
+            while (entries.hasMoreElements) {
+              val entry = entries.nextElement()
+              if (!entry.isDirectory) names += entry.getName
+            }
+            names.sorted.foreach { name =>
+              val omit = name.startsWith("org/h2/util/SourceCompiler") && name.endsWith(".class")
+              if (omit) omitted += 1
+              else {
+                val entry = new java.util.zip.ZipEntry(name)
+                entry.setTime(315532800000L) // 1980-01-01, deterministic DOS epoch
+                output.putNextEntry(entry)
+                val stream = input.getInputStream(input.getEntry(name))
+                try {
+                  val buffer = new Array[Byte](8192)
+                  var read = stream.read(buffer)
+                  while (read >= 0) {
+                    if (read > 0) output.write(buffer, 0, read)
+                    read = stream.read(buffer)
+                  }
+                } finally stream.close()
+                output.closeEntry()
+              }
+            }
+          } finally {
+            output.close()
+            input.close()
+          }
+          if (omitted == 0)
+            sys.error(s"standard H2 filter matched no SourceCompiler classes in ${source.getName}")
+          log.info(s"bin/lib/standard/jars/${source.getName}: omitted $omitted optional SourceCompiler classes")
+        }
+      }
+      standardJars.foreach(stageStandardJar)
       log.info(s"bin/lib/standard/jars/  (${standardJars.size} JARs)")
       // pdf-plugin pulls transitive third-party runtime deps (PDFBox, fontbox,
       // openhtmltopdf, commons-logging, …).  packagePlugin bundles into the

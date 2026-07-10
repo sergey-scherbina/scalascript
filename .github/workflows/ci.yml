@@ -227,6 +227,9 @@ jobs:
       - name: ScalaScript 2.1 physically slim standard distribution gate
         run: tests/e2e/v21-slim-distribution-gate.sh --report target/v21-slim-distribution.tsv
 
+      - name: ScalaScript 2.1 JRE-shaped no-javac module gate
+        run: tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
+
       - name: Test via sbt
         timeout-minutes: 60
         run: sbt test

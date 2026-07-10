@@ -55,9 +55,25 @@ if find "$slim" -type f -name '*.jar' -exec basename {} \; | grep -Ei "$forbidde
   exit 1
 fi
 
+# Merge every standard JAR into a scan-only archive so ServiceLoader providers
+# and driver classes are roots too. Starting jdeps only from ssc.jar misses
+# dynamically loaded dependency families (the TI-8 audit caught H2's optional
+# javax.tools SourceCompiler this way).
+scan_classes="$sandbox/scan-classes"
+mkdir -p "$scan_classes"
+jar_cmd=$(command -v jar)
+while IFS= read -r jar_file; do
+  (cd "$scan_classes" && "$jar_cmd" xf "$jar_file")
+done < <(find "$standard" -type f -name '*.jar' | LC_ALL=C sort)
+rm -f "$scan_classes/module-info.class" "$scan_classes/META-INF/MANIFEST.MF"
+find "$scan_classes/META-INF/versions" -name module-info.class -delete 2>/dev/null || true
+find "$scan_classes/META-INF" -type f \
+  \( -name '*.SF' -o -name '*.RSA' -o -name '*.DSA' -o -name '*.EC' \) \
+  -delete 2>/dev/null || true
+"$jar_cmd" --create --file "$sandbox/standard-scan.jar" --no-manifest \
+  -C "$scan_classes" .
 jdeps --multi-release base --ignore-missing-deps --recursive -verbose:class \
-  --class-path "$standard/jars/*" \
-  "$standard/ssc.jar" >"$sandbox/standard.jdeps"
+  "$sandbox/standard-scan.jar" >"$sandbox/standard.jdeps"
 forbidden_refs='scala[.]meta|scala[.]tools|dotty[.]tools|javax[.]tools|java[.]compiler|jdk[.]compiler|ssc[.]bridge|scalascript[.](ast|frontend|interpreter)'
 if grep -Ei "$forbidden_refs" "$sandbox/standard.jdeps" >/dev/null; then
   echo 'v21-slim-distribution-gate: forbidden standard-tier reference/module' >&2
