@@ -1,6 +1,0 @@
-agent: claude-opus-4-8 (lucky-perch)
-branch: feature/v2-money-decimal-regression
-worktree: ../scalascript-wt-v2-money-decimal-regression
-started: 2026-07-09
-status: in-progress
-task: FIX busi n=105 URGENT regression — v2 domain sweep 61/61→25/61. Root: payments bridge (d255f18f8) registered Money/Currency as functionConstructors + a global Money companion that coerces Decimal amount→minor-units Long, SHADOWING std/money.ssc's case class Money(amount:Decimal). Fix: registerCaseClass records userCaseClasses; the functionConstructor path (FrontendBridge ~2138) skips names the user defined as a case class. busi sweep back to 61/61; corpus 154/8 (payments examples still green). Conformance pin v2-user-type-shadows-function-ctor.ssc.
