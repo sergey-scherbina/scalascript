@@ -354,12 +354,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       stable rejection diagnostics. Native frontend/checker are sentinel-clear;
       VM and direct ASM match the checked fixture byte-for-byte, focused
       conformance is 1/1, and the core dependency gate remains green.
-- [ ] **v21-shc-structural-frontend-result** — make the self-hosted frontend
-      return checked CoreIR plus parsed manifest/runtime config structurally via
-      `ssc.Value`/a frozen seed ABI; retire `NativeFrontmatter` and `SimpleYaml`
-      from the standard path and avoid reparsing frontend-emitted textual
-      CoreIR. Verify malformed/conflicting database config fails before provider
-      installation and build-jvm metadata stays reproducible.
+- [x] **v21-shc-structural-frontend-result — DONE 2026-07-10 (`20d9db6db`, documented `b33f0b628`):** the self-hosted
+      tower now returns CoreIR, parsed manifests, and source identities as one
+      frozen `ssc.Value` ABI. The Scala seed structurally decodes `IrProg` and
+      YAML ADTs without `ssc.Reader`, `SimpleYaml`, or another text reparse;
+      `NativeFrontmatter` is deleted from source and standard packaging.
+      Duplicate/unsupported/missing/conflicting database configuration fails
+      before provider installation, VM/ASM SQL matches, deterministic
+      `build-jvm` remains green, unit tests pass 5/5, affected conformance 9/9,
+      and strict standard class-load sees none of the retired host parsers.
 - [ ] **v21-shc-markdown-profile** — complete the self-hosted ScalaScript
       Markdown Profile for headings/scopes, pure-link imports, prose, fences,
       lists, images, tables, metadata directives, and interpolation source;

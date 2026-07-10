@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native frontend returns structural CoreIR and manifest config
+
+The self-hosted tower now returns `IrProg`, parsed Frontmatter YAML values, and
+source identities through a frozen `ssc.Value` ABI. The Scala 3 seed only
+validates and maps those structures: it no longer reparses frontend CoreIR text
+or YAML. `NativeFrontmatter` is deleted, strict standard execution does not load
+`SimpleYaml`/`Parser`/`ssc.Reader`, and malformed or conflicting database config
+fails before plugin installation. VM/ASM SQL and deterministic `build-jvm`
+remain green. Landed `20d9db6db`.
+
 ## 2026-07-10 — enum parsing stops before a following case class
 
 The self-hosted layout enum scanner no longer consumes a following top-level
