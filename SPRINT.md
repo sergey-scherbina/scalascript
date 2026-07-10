@@ -169,6 +169,29 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       without disambiguating its Scala-source->Scala-compiler implementation.
       Done when a native-front program builds and runs as a JAR without
       scala-cli/scalac/javac and repeated builds are byte-reproducible.
+      - [ ] **TI-6.1 executable deterministic JAR:** add a generated JVM
+            `main(String[])`, a core-free artifact runtime beside the native
+            plugin host, and `BuildJvmCmd`. Merge `ssc.gen.Entry` plus an
+            explicit standard-runtime/provider allowlist into a lexically
+            ordered fixed-metadata fat JAR; merge the native ServiceLoader file
+            and reject conflicting duplicate entries. Add unit + assembled
+            hello/argv/crypto smokes with `PATH=/usr/bin:/bin`, two-build `cmp`,
+            and forbidden-entry/reference checks. Push code/docs/bookkeeping as
+            separate commits before continuing.
+      - [ ] **TI-6.2 link/config artifact metadata:** make imported modules and
+            multiple roots one linked checked program; embed normalized source
+            SHA-256 identities and parsed native database config in
+            `META-INF/scalascript/artifact.properties`; reconstruct config
+            before provider installation. Cover multi-file calls and H2 SQL in
+            `java -jar` without consulting the installation.
+      - [ ] **TI-6.3 source mapping:** carry root/statement/definition source
+            coordinates into `JvmByteGen`; emit SourceFile, LineNumberTable, and
+            multi-file SMAP. A deliberate runtime failure must name the `.ssc`
+            source and expected line rather than only `Entry.java`/unknown.
+      - [ ] **TI-6.4 artifact release gates:** build twice from clean temp dirs
+            and compare bytes; inspect JAR and `jdeps` for compiler, Scalameta,
+            bridge, v1 AST/interpreter, and `javax.tools`; run hello/import/argv/
+            plugin/SQL with compiler tools hidden, then check TI-6 in the spec.
 - [ ] **v21-ti-slim-distribution** — split the install layout into a standard
       runtime tier and optional compatibility/compiler tools. The standard tier
       contains the native frontend, v2 runtime, ASM emitter, scalameta-free plugin
