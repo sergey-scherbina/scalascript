@@ -1,6 +1,0 @@
-agent: claude-fable-5
-branch: report/v2-split-limit-overload
-worktree: ../scalascript-wt-v2-split-limit
-started: 2026-07-10
-status: in-progress
-task: diagnose+repro+report a v2-only bug that just crash-looped a real production instance of busi — String.split(delimiter, limit), the two-arg overload, is completely unimplemented on v2 ("no dispatch for .split"); the one-arg split(delimiter) works fine
