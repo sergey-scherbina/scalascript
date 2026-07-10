@@ -2,7 +2,7 @@
 name: conformance-indent-block-statements
 version: 1.0.0
 description: v1.20.2 conformance — block-structured syntax with indent-defined bodies (if/while/for)
-pending: v2-only layout parser smoke; tests/conformance has no v2 lane yet, covered by tests/e2e/indent-layout-v2-smoke.sh
+backends: [v2]
 ---
 
 # Block-statements parser — conformance test

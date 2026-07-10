@@ -6,7 +6,8 @@
 //   1. Runs via the JVM interpreter   (INT label)
 //   2. Transpiles to JS, runs via Node (JS  label)
 //   3. Generates Scala 3 source and compiles+runs via scala-cli (JVM label)
-// All three outputs are compared against the same expected/*.txt.
+//   4. Optionally runs via the v2 VM (V2 label) for cases with backends: [v2]
+// All enabled outputs are compared against the same expected/*.txt.
 // Usage: scala-cli conformance/run.sc [conformance-dir]
 //   conformance-dir defaults to the directory of this script
 
@@ -147,6 +148,16 @@ val backendFeatures: Map[String, Set[String]] = Map(
     "TailCallOptimization", "StringInterpolators", "ModuleImports",
     "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto",
     "McpServer", "McpClient", "Dataset", "HttpClient"
+  ),
+  // v2 is opt-in per case (`backends: [v2]`) so the historical corpus remains
+  // unchanged while v2-only regressions can live in the same expected-output
+  // harness instead of a separate shell smoke.
+  "v2" -> Set(
+    "AlgebraicEffects", "MutableState", "PatternMatching", "TypeClasses",
+    "ExtensionMethods", "DefaultParameters", "ForComprehensions", "WhileLoops",
+    "TailCallOptimization", "StringInterpolators", "ModuleImports",
+    "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto",
+    "Dataset", "HttpClient"
   )
 )
 
@@ -362,7 +373,19 @@ for test <- tests do
         val jvmOut = outputWithFailureContext(jvmRes.out.text(), jvmRes.err.text(), jvmRes.exitCode)
         check("JVM", jvmOut, expected)
 
-    if intOk && jsOk && jvmOk then
+    // v2 VM lane: opt-in only. Running it for every historical conformance
+    // case would change the suite contract and surface unrelated migration
+    // gaps; `backends: [v2]` cases explicitly ask for this lane.
+    val v2Ok =
+      if !backendsGate.exists(_.contains("v2")) then true
+      else if !backendSupports("v2") then
+        println(s"  SKIP [V2 ] (${skipReason("v2")})")
+        true
+      else
+        val v2Out = run(ssc("run", "--v2", test.toString))
+        check("V2 ", v2Out, expected)
+
+    if intOk && jsOk && jvmOk && v2Ok then
       passed += 1
       if !noMemo then memo(name) = memoKey(name, src, expected)
     else failed += 1

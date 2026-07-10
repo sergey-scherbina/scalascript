@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # v2-only regression for std/parsing/layout conformance demo files.
 #
-# tests/conformance/run.sh currently has INT/JS/JVM lanes but no v2 VM lane.
-# The .ssc files stay in conformance as pending documentation, while this smoke
-# pins the production v2 path that used to crash on tuple accessors after parser
-# operator-precedence grouped `~` under `<~`.
+# The .ssc files also run through the opt-in conformance v2 lane; this shell
+# smoke keeps a direct `bin/ssc run --v2` regression for the production path
+# that used to crash on tuple accessors after parser operator-precedence
+# grouped `~` under `<~`.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

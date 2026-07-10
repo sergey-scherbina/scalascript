@@ -2,7 +2,7 @@
 name: conformance-indent-config-format
 version: 1.0.0
 description: v1.20.2 conformance — multi-level config DSL with significant indentation
-pending: v2-only layout parser smoke; tests/conformance has no v2 lane yet, covered by tests/e2e/indent-layout-v2-smoke.sh
+backends: [v2]
 ---
 
 # Indentation-aware config parser — conformance test

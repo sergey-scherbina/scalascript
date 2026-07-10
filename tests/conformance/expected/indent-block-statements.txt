@@ -1,0 +1,15 @@
+test1: 3 statement(s)
+x = 10
+y = 20
+print x
+test2: 3 statement(s)
+x = 0
+if x == 0:
+  print zero
+  x = 1
+print done
+test3: 2 statement(s)
+while ready:
+  print tick
+for item in items:
+  print item
