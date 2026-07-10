@@ -28,7 +28,8 @@
 
 ## v21-standard-index-vm-asm-divergence — index example fails VM and succeeds with malformed ASM output
 
-**Status:** open (2026-07-10); found in the TI-8.2 standard corpus sweep.
+**Status:** fixed (2026-07-10, `86a2de03a`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex from `scripts/bc-parity-sweep --ssc bin/ssc-standard`.
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
@@ -45,6 +46,18 @@
 - **Done-when:** assembled VM/ASM output is byte-identical and semantically
   correct, the focused parity row is `identical`, and affected conformance is
   green.
+- **Root cause:** the self-hosted outer string scanner stopped at the quote in
+  `${nums.mkString(", ")}`. Its interpolation splitter only understood a bare
+  identifier and reclassified the remaining selector/call text as string
+  literals. VM then failed on malformed CoreIR while ASM stringified it into a
+  meaningless successful `)}`.
+- **Fix:** the lexer now balances braced interpolation bodies and nested quoted
+  strings, and the interpolation builder parses the complete inner expression
+  through the normal expression grammar.
+- **Verified:** `index.ssc` and a focused two-expression fixture print the exact
+  expected text byte-for-byte on assembled VM/direct ASM; standard parity is
+  1 identical/0 errors, native-entry and standard-tier smokes pass, KC12/KC13
+  simple interpolation remains green, and affected conformance is 8/8.
 
 ## v21-standard-direct-asm-recursion-stack — direct ASM lacks the VM recursion trampoline
 

@@ -888,6 +888,12 @@ def greet(name: String, prefix: String = "Hello"): String =
 val double = (x: Int) => x * 2
 val sum = (xs: List[Int]) => xs.foldLeft(0)(_ + _)
 
+// Braced interpolation accepts a complete expression. Quotes and nested
+// delimiters inside the expression belong to that expression, not the outer
+// string.
+val squares = List(1, 4, 9, 16, 25)
+println(s"Squares: ${squares.mkString(", ")}")
+
 // Higher-order
 def apply(f: Int => Int, x: Int): Int = f(x)
 apply(double, 21)    // 42

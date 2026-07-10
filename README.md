@@ -227,7 +227,7 @@ compiles them via Scala.js.
 | Real collection semantics | The interpreter models true Scala semantics — `Array` is mutable with reference identity (`a(i) = x`), `LazyList` is lazy (`#::` defers; infinite streams work), `Vector` is a distinct indexed type with O(log₃₂ n) access; constructors `Seq/Vector/Array/IndexedSeq/Iterable/LazyList(...)` + `.toSeq/.toVector/.toArray/.toList/.toLazyList` conversions |
 | Tuples | `val t = (1, "hello"); t._1` |
 | Bitwise operators | `a & b`, `a \| b`, `a ^ b`, `a << n`, `a >> n`, `a >>> n`, `~a` on `Int` |
-| String interpolation | `` s"Hello, $name" ``, `` md"..." `` (strips indent) |
+| String interpolation | `` s"Hello, $name" ``, `` s"${items.mkString(", ")}" `` (full expressions, including nested string literals), `` md"..." `` (strips indent) |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
 | Extension methods | `extension (n: Int) def squared: Int = n * n` |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]`, context bounds |

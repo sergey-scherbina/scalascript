@@ -606,10 +606,15 @@ All optics compose via `.andThen`.
 
 ```scalascript
 s"Hello, $name"                   // standard interpolation
+s"Items: ${items.mkString(", ")}" // complete braced expression; nested quotes are balanced
 md"# $title\n$body"               // markdown (strips indent)
 html"<p>Hello, $userInput</p>"    // HTML-escaped
 css".root { color: $color; }"     // CSS
 ```
+
+The expression inside `${...}` uses the ordinary ScalaScript expression
+grammar. Its nested parentheses, braces, and quoted strings are balanced before
+the outer interpolated string resumes.
 
 User-defined interpolators are extension methods on `StringContext`.
 
