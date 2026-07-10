@@ -1,0 +1,40 @@
+sealed trait Shape
+case class Circle(r: Int) extends Shape
+case class Square(s: Int) extends Shape
+
+enum Color:
+  case Red, Green
+  case Custom(hex: String)
+
+def kind(x: Any): String =
+  x match
+    case _: Circle => "circle"
+    case _: Square => "square"
+    case _ => "other"
+
+def isShape(x: Any): String =
+  x match
+    case _: Shape => "shape"
+    case _ => "not-shape"
+
+def bindTest(x: Any): String =
+  x match
+    case c: Circle => "circle-r-" + c.r.toString
+    case _ => "no"
+
+def colorName(x: Any): String =
+  x match
+    case _: Color => "is-color"
+    case _ => "not-color"
+
+def main(): Unit =
+  println(kind(Circle(3)))
+  println(kind(Square(4)))
+  println(kind(42))
+  println(isShape(Circle(3)))
+  println(isShape(Square(1)))
+  println(isShape("x"))
+  println(bindTest(Circle(7)))
+  println(colorName(Color.Red))
+  println(colorName(Color.Custom("#fff")))
+  println(colorName(99))

@@ -76,6 +76,48 @@ object FrontendBridge:
   private val httpLibRequestShape =
     Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json")
 
+  /** Parent type name → concrete case-class / enum-case tags that extend it.
+   *  A `case _: Parent =>` type-ascription pattern lowers to a tag test over
+   *  the parent's subtypes (a lone tag test only covers concrete leaf types). */
+  private val subtypesOf = collection.mutable.LinkedHashMap[String, collection.mutable.LinkedHashSet[String]]()
+  private def addSubtype(parent: String, child: String): Unit =
+    if parent.nonEmpty && parent.head.isUpper && parent != child then
+      subtypesOf.getOrElseUpdate(parent, collection.mutable.LinkedHashSet[String]()) += child
+
+  /** Concrete runtime DataV tags a type name matches, or None when the type is
+   *  untestable (unknown / type parameter / Any / scalar / non-DataV collection).
+   *  None PRESERVES the historical unconditional-wildcard behavior for
+   *  `case _: T =>`, so this only ever ADDS a discriminating test where the tag
+   *  set is fully known — never a false negative on an unrecognized type. */
+  private def typeTestTags(head: String): Option[List[String]] = head match
+    case "" | "Any" | "AnyRef" | "AnyVal" | "Matchable" | "Object" => None
+    case "Option"                                                  => Some(List("Some", "None"))
+    case "Either"                                                  => Some(List("Left", "Right"))
+    case t =>
+      val acc  = collection.mutable.LinkedHashSet[String]()
+      val seen = collection.mutable.HashSet[String]()
+      def walk(n: String): Unit =
+        if seen.add(n) then
+          subtypesOf.get(n) match
+            case Some(children) => children.foreach(walk)          // trait/enum parent → descend
+            case None           => if fieldRegistry.contains(n) then acc += n  // concrete leaf
+      walk(t)
+      if acc.nonEmpty then Some(acc.toList) else None
+
+  private def typeHeadOf(tpe: Type): String =
+    // Strip type args / whitespace, then take the last path segment
+    // (`scala.Option` → `Option`, `List[Int]` → `List`).
+    val s   = tpe.syntax.takeWhile(c => c != '[' && c != ' ' && c != '(')
+    val dot = s.lastIndexOf('.')
+    if dot >= 0 then s.substring(dot + 1) else s
+
+  /** Optional runtime type-test condition for a `case _: T =>` ascription. */
+  private def typeAscriptionCond(tpe: Type, scrutRef: CT): Option[CT] =
+    typeTestTags(typeHeadOf(tpe)).map { tags =>
+      tags.map(t => CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(t)), CT.Lit(Const.CInt(-1)))))
+        .reduceRight((a, b) => CT.If(a, CT.Lit(Const.CBool(true)), b))
+    }
+
   /** Register a case class definition and its fields. */
   private def registerCaseClass(name: String, params: List[Term.Param]): Unit =
     val names = params.map(_.name.value).toVector
@@ -590,6 +632,8 @@ object FrontendBridge:
     case d: Defn.Class if d.mods.exists(_.is[Mod.Case]) =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList
       registerCaseClass(d.name.value, params)
+      // Record `extends Parent` so `case _: Parent =>` can tag-test this subtype.
+      d.templ.inits.foreach { init => addSubtype(typeHeadOf(init.tpe), d.name.value) }
       d.templ.stats.collect { case m: Defn.Def => m }.foreach { m =>
         caseClassMethodNames += m.name.value
       }
@@ -610,6 +654,9 @@ object FrontendBridge:
         val parent = init.tpe.syntax.takeWhile(c => c != '[' && c != ' ')
         if parent.nonEmpty && parent.head.isUpper then tcParents(d.name.value) = parent
       }
+      // Sealed-hierarchy chain: `trait Child extends Parent` — so a `case _: Parent`
+      // test descends through intermediate traits to the concrete leaf tags.
+      d.templ.inits.foreach { init => addSubtype(typeHeadOf(init.tpe), d.name.value) }
     case d: Defn.Object =>
       if d.mods.exists(_.is[Mod.Case]) then caseObjectNames += d.name.value
       else if d.templ.stats.exists(_.isInstanceOf[Defn.Def]) then methodObjectNames += d.name.value
@@ -619,7 +666,17 @@ object FrontendBridge:
         case ec: Defn.EnumCase =>
           val params = ec.ctor.paramClauses.flatMap(_.values).toList
           registerCaseClass(ec.name.value, params)
+          addSubtype(name.value, ec.name.value)  // enum case is a subtype of the enum
           if params.isEmpty then caseNames += ec.name.value
+        // `case Red, Green` — comma-grouped zero-arg cases parse as ONE
+        // RepeatedEnumCase, not per-case EnumCase; register each so `case _: Enum`
+        // sees them as subtypes (they carry no fields → registerCaseClass(_, Nil)).
+        case rec: Defn.RepeatedEnumCase =>
+          rec.cases.foreach { c =>
+            registerCaseClass(c.value, Nil)
+            addSubtype(name.value, c.value)
+            caseNames += c.value
+          }
         case _ => ()
       }
       enumCaseNames(name.value) = caseNames.result()
@@ -2499,6 +2556,10 @@ object FrontendBridge:
         // (Local(-1) crashes in std/parsing's runParserAll delegate arm).
         case Pat.Var(Term.Name(n)) if !isCtorName(n) && n != "_" => true
         case Pat.Typed(Pat.Var(Term.Name(n)), _) if !isCtorName(n) && n != "_" => true
+        // `case _: T =>` with a TESTABLE type: the simple path drops the type and
+        // lowers it to an unconditional default (wrong when other arms follow /
+        // precede). Route to the general if-chain so flattenPattern emits the tag test.
+        case Pat.Typed(Pat.Wildcard(), tpe) if typeTestTags(typeHeadOf(tpe)).isDefined => true
         case Pat.Extract.After_4_6_0(ctor, ac) =>
           val key = s"${ctorPatName(ctor)}/${ac.values.length}"
           val dup = !seen.add(key)
@@ -2550,7 +2611,14 @@ object FrontendBridge:
       (List(CT.Prim("__isTag__", List(scrutRef, CT.Lit(Const.CStr(n)), CT.Lit(Const.CInt(0))))), Nil)
     case l: Lit =>
       (List(CT.Prim("__arith__", List(CT.Lit(Const.CStr("==")), scrutRef, convertExpr(l, scope)))), Nil)
-    case Pat.Typed(inner, _) => flattenPattern(inner, scrutRef, scope)
+    case Pat.Typed(inner, tpe) =>
+      // Type-ascription pattern `case _: T =>` / `case x: T =>`: emit a runtime
+      // tag test when T resolves to a known concrete tag set; otherwise (untestable
+      // type) fall through to the inner pattern's behavior (historical wildcard).
+      val (conds, binds) = flattenPattern(inner, scrutRef, scope)
+      typeAscriptionCond(tpe, scrutRef) match
+        case Some(tc) => (tc :: conds, binds)
+        case None     => (conds, binds)
     case Pat.ExtractInfix.After_4_6_0(h, Term.Name("::"), t) =>
       val head = h; val tail = t.values.headOption.getOrElse(Pat.Wildcard())
       flattenCtorPat("Cons", List(head, tail), scrutRef, scope)

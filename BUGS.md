@@ -1,5 +1,44 @@
 # Bug tracker
 
+## v2-type-ascription-pattern-no-op — `case _: T =>` silently matched everything (type test dropped)
+
+**Status:** fixed (2026-07-10); waiting for human confirmation before `done`.
+
+- **Found by:** claude, while root-causing why `case _: PSameIndent =>` never
+  fired in std/parsing's `runLayout` (surfaced during the dsl-yaml audit —
+  the ctor pattern `case PSameIndent(r) =>` matched but the type-ascription
+  `case _: PSameIndent =>` did not).
+- **Repro before fix** (`bin/ssc run`):
+  ```
+  case class A(x: Int) extends P
+  def check(p: Any) = p match { case _: A => "is-A"; case _ => "not-A" }
+  check(A(1))   // v1: is-A   v2 + --bytecode: not-A   (WRONG)
+  ```
+- **Root cause:** the frontend dropped the ascribed type in BOTH lowering paths.
+  `convertPat` mapped `Pat.Typed(Pat.Wildcard(), T)` → `(None, Nil)` (a plain
+  wildcard → the CT.Match *default* arm), and `flattenPattern`'s
+  `Pat.Typed(inner, _)` recursed into `inner` discarding the type. So
+  `case _: A => …; case _ => …` compiled to two default arms; the later `case _`
+  overwrote the first, and `_: A` never matched. Both v2 lanes (VM + bytecode)
+  shared the bug because it is purely in FrontendBridge; v1 was correct.
+- **Fix:** emit a runtime tag test for a type-ascription pattern when the type
+  resolves to a KNOWN concrete DataV tag set — a registered case class (single
+  tag), a sealed trait / enum (its transitive subtype tags, via a new
+  `subtypesOf` registry populated from `extends` clauses + enum cases incl.
+  `Defn.RepeatedEnumCase`), or `Option`/`Either`. Unknown / type-parameter /
+  `Any` / scalar / non-DataV-collection types return `None` and keep the
+  historical unconditional-wildcard behavior (conservative — the fix only ever
+  ADDS a discriminating test where the tag set is fully known, never a false
+  negative). `case _: T =>` now routes to the general if-chain (needsGeneralChain)
+  so `flattenPattern` can attach the test; the test is arity-independent via a
+  new `__isTag__` sentinel arity `-1` (avoids the Request injected-field landmine).
+- **Verified:** minimal + comprehensive (concrete class, sealed trait, enum incl.
+  comma-grouped zero-arg cases, `x: T` binding form, non-DataV negatives) all
+  correct on v1 / v2 / --bytecode. Gate: tests/conformance/v2-type-ascription-pattern.ssc.
+  V2ConformanceTest 102 pass / 2 pre-existing fail (graph-edge-display,
+  tkv2-typed-client-derived); corpus batch 155 PASS / 7 FAIL (all 7 environmental
+  — missing files/env/DB — no pattern-match regressions), up from 154/8.
+
 ## v2-jvm-backend-echo-macos — shell `echo "$text"` can corrupt generated/source text on macOS
 
 **Status:** fixed (2026-07-10, `a4f7662be`); waiting for external

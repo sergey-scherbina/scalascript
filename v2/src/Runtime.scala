@@ -2078,7 +2078,9 @@ object Prims:
         methodOp(name, recv, Nil)
       case _ => asData(a(0))._2(int(a, 1).toInt)
     case "__isTag__" => a => a(0) match
-      case DataV(t, fs) => BoolV(t == str(a, 1) && fs.length == int(a, 2).toInt)
+      // arity < 0 = "any arity" — used by type-ascription patterns (`case _: T =>`)
+      // where the test is on the tag alone, independent of field count.
+      case DataV(t, fs) => val ar = int(a, 2).toInt; BoolV(t == str(a, 1) && (ar < 0 || fs.length == ar))
       case _            => BoolV(false)
     // Map (Foreign, mutable; keys/values are Values)
     case "map.new"  => _ => ForeignV(collection.mutable.HashMap[Value, Value]())
