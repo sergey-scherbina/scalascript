@@ -1,9 +1,0 @@
-feature/v2-native-parser-slice 2026-07-10
-agent: claude (lucky-perch)
-status: in-progress
-scope: take ONE well-bounded ADDITIVE parser slice in ssc1-front to reduce the 101-file
-  PARSE _err count (user-directed option 2). Data-driven: instrument _err to histogram the
-  top failing construct across PARSE files, implement that ONE, revert instrumentation.
-  Additive + distinct region from K62's active pattern/dispatch (K62.10-12); announced K62
-  rozum /71/79/89 (no objection); will rebase around them + yield if they flag a clash.
-next: instrument _err, histogram 101 PARSE files, pick top construct
