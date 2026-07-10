@@ -36,6 +36,27 @@ class PaymentPlugin extends Backend:
     ExportedSymbol("PaymentConfig", "PaymentConfig", "def", "Any"),
     ExportedSymbol("DefaultSyncBackend", "DefaultSyncBackend", "def", "Any"),
     ExportedSymbol("basicRequest", "basicRequest", "def", "Any"),
+    // Payments library surface (scalascript.payments.* Scala modules — money, bank-rails, processors,
+    // bureau). Declared here so `ssc check` resolves the examples that use them; type positions are not
+    // scope-checked, so `def` (constructor/value-callable) suffices for both `Money(..)` and `: Money`.
+    ExportedSymbol("Money", "Money", "def", "Any"),
+    ExportedSymbol("BankAccount", "BankAccount", "def", "Any"),
+    ExportedSymbol("PaymentProvider", "PaymentProvider", "def", "Any"),
+    ExportedSymbol("PaymentRequirements", "PaymentRequirements", "def", "Any"),
+    ExportedSymbol("AchConfig", "AchConfig", "def", "Any"),
+    ExportedSymbol("AchProvider", "AchProvider", "def", "Any"),
+    ExportedSymbol("StripeProvider", "StripeProvider", "def", "Any"),
+    ExportedSymbol("SwiftProvider", "SwiftProvider", "def", "Any"),
+    ExportedSymbol("MockBureauProvider", "MockBureauProvider", "def", "Any"),
+    ExportedSymbol("FireblocksVault", "FireblocksVault", "def", "Any"),
+    ExportedSymbol("MandateId", "MandateId", "def", "Any"),
+    ExportedSymbol("InitiateTransferRequest", "InitiateTransferRequest", "def", "Any"),
+    ExportedSymbol("InitiateDirectDebitRequest", "InitiateDirectDebitRequest", "def", "Any"),
+    ExportedSymbol("TaxIdentifier", "TaxIdentifier", "def", "Any"),
+    ExportedSymbol("TaxDeclaration", "TaxDeclaration", "def", "Any"),
+    ExportedSymbol("BusinessEntity", "BusinessEntity", "def", "Any"),
+    ExportedSymbol("EmployeeRecord", "EmployeeRecord", "def", "Any"),
+    ExportedSymbol("ContributionParams", "ContributionParams", "def", "Any"),
   )
 
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =

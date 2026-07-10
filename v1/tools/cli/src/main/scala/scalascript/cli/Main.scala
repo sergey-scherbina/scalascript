@@ -5431,6 +5431,21 @@ private[cli] def pluginAvailableDirs: List[os.Path] =
  *  @param interfaces pre-loaded `.scim` interfaces (may be empty)
  *  @param pluginBuiltins extra built-in names from loaded backend plugins
  */
+// check-stdlib-interface-load: memoize extracted std-module interfaces across all files in one
+// `ssc check examples/*.ssc` run — a std module (e.g. std/crypto.ssc) is imported by many examples
+// and InterfaceExtractor.extract runs a full typeCheck per module.
+private val stdIfaceCache = collection.mutable.Map.empty[os.Path, scalascript.ir.ModuleInterface]
+
+// Intrinsic names from all bundled-but-opt-in plugins (pdf, extra crypto, totp, nfc, …). Computed
+// once per process (scanning every .sscpkg is not free) and unioned into the check's builtins so
+// `ssc check` resolves advanced-plugin intrinsic calls the same way it resolves essential ones.
+private var availIntrinsicsMemo: Option[Set[String]] = None
+private def availableIntrinsicNames(): Set[String] =
+  availIntrinsicsMemo.getOrElse {
+    val s = BackendRegistry.availableIntrinsicNames(pluginAvailableDirs)
+    availIntrinsicsMemo = Some(s); s
+  }
+
 private def checkOneFile(
   file: String,
   interfaces: Map[String, scalascript.ir.ModuleInterface],
@@ -5468,14 +5483,37 @@ private def checkOneFile(
       val pluginPrelude =
         BackendRegistry.inProcess.flatMap(_.preludeSymbols) ++
           BackendRegistry.availablePreludeSymbols(pluginAvailableDirs)
+      // check-stdlib-interface-load: resolve this file's imports to std `.ssc` modules and load their
+      // exported types + `extern def`s, so `ssc check` resolves names the module provides — e.g.
+      // `aesGcmEncrypt` (extern) from `import std.crypto.*`, `Money`/`BankAccount` (types) from a
+      // `[Money](std/money.ssc)` link import. The static analogue of the interpreter's native module
+      // loading. Memoized per resolved path (one std module is imported by many examples). Dotted
+      // `scalascript.payments.*` names have no `.ssc` file — they come from plugin preludeSymbols
+      // (availablePreludeSymbols) instead, so a failed resolve here is silently skipped.
+      val stdIfaces: Map[String, scalascript.ir.ModuleInterface] =
+        importPrefixesOf(module).iterator.flatMap { p =>
+          val candidate = if p.endsWith(".ssc") || p.contains('/') then p else p.replace('.', '/') + ".ssc"
+          try
+            val resolved = scalascript.imports.ImportResolver.resolve(candidate, path / os.up)
+            if os.exists(resolved) && resolved.ext == "ssc" then
+              val iface = stdIfaceCache.getOrElseUpdate(resolved, {
+                val bytes = os.read.bytes(resolved)
+                scalascript.artifact.InterfaceExtractor.extract(Parser.parse(new String(bytes, "UTF-8")), bytes)
+              })
+              Some(p -> iface)
+            else None
+          catch case _: Throwable => None
+        }.toMap
+      val effIfaces = interfaces ++ stdIfaces
+      val allBuiltins = pluginBuiltins ++ availableIntrinsicNames()
       val typed = CompileStats.time("typer") {
-        if interfaces.isEmpty then
-          Typer(Map.empty, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
+        if effIfaces.isEmpty then
+          Typer(Map.empty, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude)
             .typeCheck(module)
         else if strictNamespaces then
-          Typer(interfaces, strictNamespaces = true, preludeSymbols = pluginPrelude).typeCheck(module)
+          Typer(effIfaces, strictNamespaces = true, preludeSymbols = pluginPrelude).typeCheck(module)
         else
-          Typer(interfaces, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
+          Typer(effIfaces, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude)
             .typeCheck(module)
       }
       // declarative-ui Scope B.7 — warn on @ui=toolkit ids that reference no

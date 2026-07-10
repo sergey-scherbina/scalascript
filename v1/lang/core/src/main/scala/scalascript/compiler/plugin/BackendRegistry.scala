@@ -323,6 +323,28 @@ object BackendRegistry extends PluginRegistry:
       catch case _: Throwable => Nil
     }.distinct
 
+  /** `ssc check` helper: intrinsic key names from EVERY bundled-but-opt-in plugin under `availableDirs`.
+   *  Advanced plugins (pdf, extra crypto, totp, nfc, …) provide their operations as `intrinsics`, not
+   *  `preludeSymbols`; `ssc check` must know those names too so a static check of a known-good example
+   *  that calls them doesn't false-positive. Returns each key plus its leading segment (mirrors the
+   *  inProcess derivation at the check sites). Same throwaway-classloader scan, no import filter. */
+  def availableIntrinsicNames(availableDirs: List[os.Path]): Set[String] =
+    val alreadyLoaded = loadedPkgIds.toSet
+    val pkgs = availableDirs.filter(os.isDir).flatMap(d => os.list(d).filter(_.ext == "sscpkg")).distinct
+    pkgs.flatMap { pkg =>
+      try
+        val res = SscpkgLoader.load(pkg)
+        if alreadyLoaded.contains(res.manifest.id) then Nil
+        else
+          val urls   = res.intrinsicJars.map(_.toIO.toURI.toURL).toArray
+          val loader = new java.net.URLClassLoader(urls, classOf[Backend].getClassLoader)
+          ServiceLoader.load(classOf[Backend], loader).iterator.asScala.toList
+            .filter(_.getClass.getClassLoader == loader)
+            .flatMap(_.intrinsics.keys)
+            .flatMap(qn => qn.value :: qn.value.split('.').headOption.toList)
+      catch case _: Throwable => Nil
+    }.toSet
+
   private def registerDslHooks(backend: Backend): Unit =
     InterpolatorRegistry.registerFrom(backend)
     PreprocessorRegistry.registerFrom(backend)
