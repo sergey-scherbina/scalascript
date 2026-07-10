@@ -206,6 +206,25 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       recommended production slice: rerun the bounded four-row route gate and
       record which rows should default to VM, bytecode, JVM source, or Rust
       source before declaring the v2 production route policy closed.
+      Progress 2026-07-10: `v2-four-row-route-policy-sweep` closed the
+      representative public-route policy gate without code changes. Fresh
+      rows: bytecode wins recursion (`recursion-fib` `1.19 ms`,
+      `recursion-tco` `0.028 ms`) but regresses scalar/pattern rows
+      (`arith-loop` `0.595 ms`, `pattern-match-heavy` `19.4 ms`); JVM source
+      is the best TCO route (`0.027 ms`) but not pattern-heavy (`10.9 ms`);
+      Rust source ties VM on scalar/pattern rows (`arith-loop` `0.000026 ms`,
+      `pattern-match-heavy` `0.269 ms`) but not recursion. Global default
+      stays VM because no single non-VM route improves all four rows. The
+      production policy is explicit route selection by workload/deployment
+      family: bytecode/JVM source for recursion, VM/Rust source for
+      scalar/pattern-heavy. Pure-VM recursion remains a known non-default
+      performance gap only if a deployment forbids bytecode/source routes.
+- [ ] **v2-auto-route-selector** — can-wait follow-up after the manual route
+      policy: design and implement a conservative program-shape/profile-based
+      selector that can choose VM, bytecode, JVM source, or Rust source per
+      workload family. This is not a v2 production blocker while the public
+      route flags are available; do not pick it ahead of correctness or
+      packaging blockers.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

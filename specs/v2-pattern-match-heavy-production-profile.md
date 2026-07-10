@@ -93,7 +93,7 @@ Investigation order:
 
 ## Results
 
-Implementation commit: `eead9c4b8 fix(v2-vm): specialize static float foreach loops`.
+Implementation commit: `00a6ade8a fix(v2-vm): specialize static float foreach loops`.
 
 Fresh baseline after `scripts/sbtc "installBin"`:
 

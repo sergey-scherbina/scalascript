@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 production route policy recorded for four representative rows
+
+Reran the bounded route gate after the VM `pattern-match-heavy` fix. The global
+default stays VM because no single non-VM route improves all rows: bytecode/JVM
+source are the production recursion routes, while VM/Rust source cover
+scalar-loop and pattern-heavy rows. No code changed. Gates: `installBin`,
+`scripts/bench v2-bytecode` and `scripts/bench v2-backends` across all four
+rows, affected conformance 1/1, and `git diff --check`.
+
 ## 2026-07-10 — v2 VM pattern-match-heavy reaches Rust route speed
 
 The v2 VM now recognizes the strict static-list Float `foreach` accumulation
