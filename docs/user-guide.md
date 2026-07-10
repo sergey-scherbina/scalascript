@@ -305,7 +305,11 @@ supports exact-method/path `route`, `serve`, `serveAsync`, `stop`, v2 `Request`
 construction, and handler-closure invocation on both VM and direct ASM. Advanced
 middleware, TLS, uploads, SSE, streaming responses, and WebSockets remain
 bounded `native HTTP server unavailable` errors until their host sub-slices
-land; there is no compatibility fallback. Other plugin families are still being
+land; there is no compatibility fallback. Named JDBC connections from explicit
+root `databases:` front-matter plus `Db.query`/`Db.execute` now use the standalone
+SQL runtime through the same core-free provider boundary on VM and direct ASM.
+Typed writes, LISTEN/NOTIFY, and native lowering of fenced `sql`/`transaction`
+blocks remain separate migration slices. Other plugin families are still being
 migrated; a missing native provider fails explicitly. Use `--compat-frontend`
 for a tools-tier plugin that has not moved yet.
 
@@ -1643,6 +1647,14 @@ databases:
 Bundled drivers: **SQLite** (`jdbc:sqlite:`) and **H2** (`jdbc:h2:`).  Any other driver can be added as a `dep:` import or placed on the classpath.
 
 Connection strings support `${scheme:ref}` secret references (see §6.2).
+
+On `ssc run --native` and `ssc run --native --bytecode`, explicit root-module
+`databases:` maps are parsed without the v1 frontend and passed to the core-free
+native SQL provider. Named H2/SQLite/PostgreSQL connections and programmatic
+`Db.query`/`Db.execute` use the shared JDBC runtime. Conflicting declarations of
+the same database name across explicit roots fail before a connection is opened.
+Native fenced `sql`/`transaction`, typed `Db.insert`/`Db.update`, and PostgreSQL
+LISTEN/NOTIFY remain compatibility-only until their follow-up slices land.
 
 ### `sql` fenced blocks
 
