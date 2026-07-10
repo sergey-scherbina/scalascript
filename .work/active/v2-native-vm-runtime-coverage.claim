@@ -1,0 +1,8 @@
+feature/v2-native-vm-runtime-coverage 2026-07-10
+agent: claude (lucky-perch)
+status: in-progress
+scope: native-front e2e runtime coverage on the VM — fix VM/dispatch/missing-prim
+  blockers (Runtime.scala, generic prims) that stop plugin-FREE native-lowered
+  corpus files from running. NOT ssc1-front (K62 parser lane), NOT ssc1-lower
+  pattern code (K62), NOT provider migration (codex TI-4/5). Complements module-loading.
+next: classify per-example first bare-VM blocker; fix top mine-ownable VM/prim gap
