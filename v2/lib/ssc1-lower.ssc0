@@ -115,6 +115,10 @@ def kc7bObjectsCell = #cell.new(Nil)
 -- has a generated _sel_<field> accessor (index extractor); anything else routes
 -- to __method__ (plugin/record field resolution in the VM).
 def caseFieldsCell = #cell.new(Nil)
+-- named-args: per-class ordered field list [Pair(name, params)] so a construction
+-- `Foo(b = y, a = x)` can be reordered to declared field order. Separate from the
+-- flat caseFieldsCell above so it does not disturb the field-access routing.
+def caseFieldOrderCell = #cell.new(Nil)
 -- Array and Map variable name registries (for indexed read/write lowering)
 def arrVarsCell = #cell.new(Nil)
 def topVarsCell = #cell.new(Nil)
@@ -470,6 +474,53 @@ def injectGivens = (fn, args) =>
 def resolveArgs = (args) =>
   match args { case Nil => Nil case Cons(e, rest) => Cons(resolveE(e), resolveArgs(rest)) }
 
+-- ── named-argument support ───────────────────────────────────────────────────
+-- An `narg` node is Pair("narg", Pair(label, valueExpr)); it appears only inside a
+-- call's argument list. nargVal drops the label (best-effort positional lowering for
+-- calls we cannot reorder, e.g. plugin functions); reorderByFields maps named args to
+-- the declared field order of a known case class (the correct path).
+def nargVal = (a) =>
+  match a { case Pair(tag, d) => if #seq(tag, "narg") then (match d { case Pair(l, v) => v }) else a }
+def nargLabel = (a) =>
+  match a { case Pair(tag, d) => match d { case Pair(l, v) => l } }
+def hasNarg = (args) =>
+  match args { case Nil => false
+    case Cons(h, t) => match h { case Pair(tag, d) => if #seq(tag, "narg") then true else hasNarg(t) } }
+def allNargs = (args) =>
+  match args { case Nil => true
+    case Cons(h, t) => match h { case Pair(tag, d) => if #seq(tag, "narg") then allNargs(t) else false } }
+def stripNargs = (args) =>
+  match args { case Nil => Nil case Cons(h, t) => Cons(nargVal(h), stripNargs(t)) }
+def findNarg = (label, args) =>
+  match args {
+    case Nil => Pair("var", #sconcat("__missing_named_arg_", label))
+    case Cons(h, t) => if #seq(nargLabel(h), label) then nargVal(h) else findNarg(label, t)
+  }
+def reorderByFields = (fields, args) =>
+  match fields {
+    case Nil => Nil
+    case Cons(f, rest) => Cons(findNarg(f, args), reorderByFields(rest, args))
+  }
+def lookupFields = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => Nil
+      case Cons(h, t) => match h { case Pair(n, ps) => if #seq(n, name) then ps else go(t) }
+    } in
+  go(#cell.get(caseFieldOrderCell))
+-- Resolve a case-class construction's arg list: all-named → reorder to field order;
+-- otherwise (mixed, or unknown/plugin callee) strip labels keeping written order.
+def resolveCtorArgs = (name, rargs) =>
+  if hasNarg(rargs) then
+    if allNargs(rargs) then
+      let fs = lookupFields(name) in
+      match fs {
+        case Nil => stripNargs(rargs)
+        case Cons(h, t) => reorderByFields(fs, rargs)
+      }
+    else stripNargs(rargs)
+  else rargs
+
 -- Build a List literal as nested ctorap nodes
 def buildListExpr = (args) =>
   match args {
@@ -675,6 +726,8 @@ def resolveE = (expr) =>
         if #seq(data, "None") then Pair("ctorap", Pair("None", Nil))
         else if #seq(data, "Nil") then Pair("ctorap", Pair("Nil", Nil))
         else expr
+      else if #seq(tag, "narg") then
+        match data { case Pair(label, v) => Pair("narg", Pair(label, resolveE(v))) }
       else if #seq(tag, "app") then
         match data {
           case Pair(fn, args) =>
@@ -693,11 +746,11 @@ def resolveE = (expr) =>
                     Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
                   else if #seq(fdata, "Map") then
                     buildMapExpr(rargs)
-                  else Pair("app", Pair(fn, rargs))
+                  else Pair("app", Pair(fn, resolveCtorArgs(fdata, rargs)))
                 else if #seq(ftag, "sel") then
                   match fdata {
                     case Pair(obj, method) =>
-                      resolveMethodCall(resolveE(obj), method, rargs)
+                      resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
                   }
                 else if #seq(ftag, "app") then
                   -- detect handle(computExpr)(thunk) — strip the handler, lower just computExpr
@@ -739,13 +792,13 @@ def resolveE = (expr) =>
                                       }
                                     else resolvedCompute
                                 }
-                              case _ => Pair("app", Pair(resolveE(fn), rargs))
+                              case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
                             }
-                          case _ => Pair("app", Pair(resolveE(fn), rargs))
+                          case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
                         }
                     }
-                  else Pair("app", Pair(resolveE(fn), rargs))
-                else Pair("app", Pair(resolveE(fn), rargs))
+                  else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
             }
         }
       else if #seq(tag, "sel") then
@@ -2308,6 +2361,19 @@ def collectCaseFields = (stmts) =>
       }
   }
 
+-- named-args: per-class ordered field lists [Pair(name, params)] for constructor reorder.
+def collectCaseClassOrder = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "casecls") then
+            match data { case Pair(name, params) => Cons(Pair(name, params), collectCaseClassOrder(rest)) }
+          else collectCaseClassOrder(rest)
+      }
+  }
+
 -- K62.6b: names of top-level `var` declarations (become global cells).
 def collectTopVars = (stmts) =>
   match stmts {
@@ -2345,6 +2411,8 @@ def lowerProg = (stmts) =>
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
   -- K62.6e: reset case-class field registry (generated _sel_ accessors)
   let _cf = #cell.set(caseFieldsCell, collectCaseFields(stmts)) in
+  -- named-args: per-class ordered field lists (constructor reorder)
+  let _cfo = #cell.set(caseFieldOrderCell, collectCaseClassOrder(stmts)) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
   -- Reset array/map/list variable registries

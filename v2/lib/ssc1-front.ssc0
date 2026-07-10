@@ -286,6 +286,7 @@ def mkVar  = (n)        => Pair("var",  n)
 def mkUVar = (n)        => Pair("uid",  n)
 def mkSel  = (e, n)     => Pair("sel",  Pair(e, n))
 def mkApp  = (f, args)  => Pair("app",  Pair(f, args))
+def mkNArg = (label, e) => Pair("narg", Pair(label, e))
 def mkLam  = (ps, e)    => Pair("lam",  Pair(ps, e))
 def mkIf   = (c, t, el) => Pair("if",   Pair(c, Pair(t, el)))
 def mkInf  = (op, l, r) => Pair("inf",  Pair(op, Pair(l, r)))
@@ -771,8 +772,15 @@ def buildPostfix = (e, toks) =>
     if kindIs(")", toks2b) then buildPostfix(mergeWithE(Nil), advance(toks2b))
     else
       let rec moreArgs = (ts, acc) =>
-        let r = parseExpr(ts) in
-        let acc2 = Cons(wrapPhArg(prV(r)), acc) in   -- K62.6c: filter(_ % 2 == 0) → filter(x => …)
+        -- named argument `label = value`: `id` followed by a single `=` (lexer makes
+        -- `==` an `op` token and `=` its own `"="` kind, so this never eats a `==`).
+        -- Emit an `narg` node; the lowerer reorders by declared case-class field order.
+        let isNamed = if #seq(tokKind(peek(ts)), "id") then kindIs("=", advance(ts)) else false in
+        let vts = if isNamed then advance(advance(ts)) else ts in
+        let r = parseExpr(vts) in
+        let node = if isNamed then mkNArg(tokVal(peek(ts)), wrapPhArg(prV(r)))
+                   else wrapPhArg(prV(r)) in                 -- K62.6c: filter(_ % 2 == 0) → filter(x => …)
+        let acc2 = Cons(node, acc) in
         let ts2 = prT(r) in
         if kindIs(",", ts2) then moreArgs(advance(ts2), acc2)
         else pr(reverse(acc2), ts2) in
