@@ -1,6 +1,6 @@
 feature/v2-jvm-backend-echo-macos 2026-07-10T02:20:15Z
 agent: codex
-heartbeat: 2026-07-10T02:20:15Z
-status: not-started
-done-so-far:
+heartbeat: 2026-07-10T02:21:09Z
+status: in-progress
+done-so-far: worktree created
 next: write SPRINT verify/fix plan before edits
