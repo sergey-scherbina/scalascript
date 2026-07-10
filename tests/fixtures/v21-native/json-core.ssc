@@ -1,0 +1,44 @@
+---
+name: v21-self-hosted-json-core
+version: 2.1.0
+---
+
+# Self-hosted JSON core
+
+[JsonCoreErr, jsonCoreParseStrict, jsonCoreParseTolerant, jsonCoreRender, jsonCoreRenderResult, jsonCoreKind](std/json-core.ssc)
+
+```scalascript
+val valid = List(
+  "null",
+  "true",
+  "-12.3400e+2",
+  "\"line\\nquote: \\\" slash: \\\\\u0041\"",
+  "\"\\u0041\"",
+  "[1, 2, {\"ok\":true}]",
+  "{\"name\":\"Ada\",\"emoji\":\"\\uD83D\\uDE00\"}",
+  " \n{\"x\":0} \t"
+)
+
+for source <- valid do
+  println(jsonCoreRenderResult(jsonCoreParseStrict(source)))
+
+val invalid = List(
+  "01",
+  "1.",
+  "1e+",
+  "\"\\u12G4\"",
+  "\"\\uD800\"",
+  "\"\\uDE00\"",
+  "\"abc",
+  "[1,]",
+  "{\"a\":1,}",
+  "{\"a\" 1}",
+  "true false"
+)
+
+for source <- invalid do
+  println(jsonCoreRenderResult(jsonCoreParseStrict(source)))
+
+println(jsonCoreRender(jsonCoreParseTolerant("not-json")))
+println(jsonCoreKind(jsonCoreParseTolerant("[]")))
+```

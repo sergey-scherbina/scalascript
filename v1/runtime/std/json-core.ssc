@@ -1,0 +1,422 @@
+---
+name: std-json-core
+version: 2.1.0
+description: Canonical self-hosted JSON scanner and encoder with no extern or regex dependency.
+package: std.json.core
+exports:
+  - JsonCoreNull
+  - JsonCoreBool
+  - JsonCoreNumber
+  - JsonCoreString
+  - JsonCoreArray
+  - JsonCoreObject
+  - JsonCoreField
+  - JsonCoreOk
+  - JsonCoreErr
+  - jsonCoreParseStrict
+  - jsonCoreParseTolerant
+  - jsonCoreRender
+  - jsonCoreRenderResult
+  - jsonCoreKind
+---
+
+# Self-hosted JSON core
+
+This is the canonical parser kernel for `std.json`. It is deliberately written
+as an explicit character scanner: no `extern def`, platform regex, or native
+JSON value is involved. JSON strings are stored as UTF-16 code-unit lists until
+the public `std.json` cutover supplies the ordinary `String` view. Keeping code
+units in the parser product makes Unicode and surrogate handling portable and
+lossless without adding a host string-construction dependency.
+
+```scalascript
+case class JsonCoreNull()
+case class JsonCoreBool(value: Boolean)
+case class JsonCoreNumber(raw: String)
+case class JsonCoreString(codeUnits: List[Int])
+case class JsonCoreArray(items: List[Any])
+case class JsonCoreObject(fields: List[Any])
+case class JsonCoreField(key: List[Int], value: Any)
+
+case class JsonCoreOk(value: Any, next: Int)
+case class JsonCoreErr(message: String, offset: Int)
+
+def jsonCoreIsDigit(c: Int): Boolean = c >= 48 && c <= 57
+def jsonCoreIsNonZeroDigit(c: Int): Boolean = c >= 49 && c <= 57
+def jsonCoreIsHighSurrogate(c: Int): Boolean = c >= 55296 && c <= 56319
+def jsonCoreIsLowSurrogate(c: Int): Boolean = c >= 56320 && c <= 57343
+
+def jsonCoreSkipWhitespace(source: String, from: Int): Int =
+  if from >= source.length then from
+  else
+    val c = source.charAt(from)
+    if c == 32 || c == 9 || c == 10 || c == 13 then
+      jsonCoreSkipWhitespace(source, from + 1)
+    else from
+
+def jsonCoreHexDigit(c: Int): Int =
+  if c >= 48 && c <= 57 then c - 48
+  else if c >= 65 && c <= 70 then c - 55
+  else if c >= 97 && c <= 102 then c - 87
+  else -1
+
+def jsonCoreParseHex4(source: String, from: Int): Any =
+  if from + 4 > source.length then
+    JsonCoreErr("incomplete unicode escape", from)
+  else
+    val a = jsonCoreHexDigit(source.charAt(from))
+    val b = jsonCoreHexDigit(source.charAt(from + 1))
+    val c = jsonCoreHexDigit(source.charAt(from + 2))
+    val d = jsonCoreHexDigit(source.charAt(from + 3))
+    if a < 0 || b < 0 || c < 0 || d < 0 then
+      JsonCoreErr("invalid unicode escape", from)
+    else
+      JsonCoreOk(a * 4096 + b * 256 + c * 16 + d, from + 4)
+
+def jsonCoreContinueLowSurrogate(
+    source: String,
+    next: Int,
+    high: Int,
+    reversed: List[Int],
+    result: Any
+): Any =
+  result match {
+    case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
+    case JsonCoreOk(low, afterLow) =>
+      if !jsonCoreIsLowSurrogate(low) then
+        JsonCoreErr("invalid low surrogate", next + 2)
+      else
+        jsonCoreParseStringLoop(source, afterLow, low :: high :: reversed)
+    case _ => JsonCoreErr("invalid low surrogate", next + 2)
+  }
+
+def jsonCoreContinueUnicodeEscape(
+    source: String,
+    escapeOffset: Int,
+    reversed: List[Int],
+    result: Any
+): Any =
+  result match {
+    case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
+    case JsonCoreOk(unit, next) =>
+      if jsonCoreIsHighSurrogate(unit) then
+        if next + 6 > source.length || source.charAt(next) != 92 || source.charAt(next + 1) != 117 then
+          JsonCoreErr("high surrogate requires a low surrogate", escapeOffset)
+        else
+          jsonCoreContinueLowSurrogate(
+            source,
+            next,
+            unit,
+            reversed,
+            jsonCoreParseHex4(source, next + 2)
+          )
+      else if jsonCoreIsLowSurrogate(unit) then
+        JsonCoreErr("unexpected low surrogate", escapeOffset)
+      else
+        jsonCoreParseStringLoop(source, next, unit :: reversed)
+    case _ => JsonCoreErr("invalid unicode escape", escapeOffset + 2)
+  }
+
+def jsonCoreParseStringLoop(source: String, from: Int, reversed: List[Int]): Any =
+  if from >= source.length then
+    JsonCoreErr("unterminated string", from)
+  else
+    val c = source.charAt(from)
+    if c == 34 then
+      JsonCoreOk(JsonCoreString(reversed.reverse), from + 1)
+    else if c < 32 then
+      JsonCoreErr("unescaped control character", from)
+    else if c != 92 then
+      jsonCoreParseStringLoop(source, from + 1, c :: reversed)
+    else if from + 1 >= source.length then
+      JsonCoreErr("incomplete escape", from)
+    else
+      val escaped = source.charAt(from + 1)
+      if escaped == 34 || escaped == 47 || escaped == 92 then
+        jsonCoreParseStringLoop(source, from + 2, escaped :: reversed)
+      else if escaped == 98 then
+        jsonCoreParseStringLoop(source, from + 2, 8 :: reversed)
+      else if escaped == 102 then
+        jsonCoreParseStringLoop(source, from + 2, 12 :: reversed)
+      else if escaped == 110 then
+        jsonCoreParseStringLoop(source, from + 2, 10 :: reversed)
+      else if escaped == 114 then
+        jsonCoreParseStringLoop(source, from + 2, 13 :: reversed)
+      else if escaped == 116 then
+        jsonCoreParseStringLoop(source, from + 2, 9 :: reversed)
+      else if escaped == 117 then
+        jsonCoreContinueUnicodeEscape(
+          source,
+          from,
+          reversed,
+          jsonCoreParseHex4(source, from + 2)
+        )
+      else
+        JsonCoreErr("invalid escape", from + 1)
+
+def jsonCoreParseString(source: String, quoteOffset: Int): Any =
+  jsonCoreParseStringLoop(source, quoteOffset + 1, Nil)
+
+def jsonCoreScanDigits(source: String, from: Int): Int =
+  if from < source.length && jsonCoreIsDigit(source.charAt(from)) then
+    jsonCoreScanDigits(source, from + 1)
+  else from
+
+def jsonCoreParseNumber(source: String, from: Int): Any =
+  val signEnd = if source.charAt(from) == 45 then from + 1 else from
+  if signEnd >= source.length then
+    JsonCoreErr("expected digit after minus", signEnd)
+  else
+    val first = source.charAt(signEnd)
+    val integerEnd =
+      if first == 48 then signEnd + 1
+      else if jsonCoreIsNonZeroDigit(first) then jsonCoreScanDigits(source, signEnd + 1)
+      else signEnd
+    if integerEnd == signEnd then
+      JsonCoreErr("invalid number", signEnd)
+    else if first == 48 && integerEnd < source.length && jsonCoreIsDigit(source.charAt(integerEnd)) then
+      JsonCoreErr("leading zero in number", integerEnd)
+    else
+      val fractionEnd =
+        if integerEnd < source.length && source.charAt(integerEnd) == 46 then
+          val digitsEnd = jsonCoreScanDigits(source, integerEnd + 1)
+          if digitsEnd == integerEnd + 1 then -1 else digitsEnd
+        else integerEnd
+      if fractionEnd < 0 then
+        JsonCoreErr("fraction requires digits", integerEnd + 1)
+      else
+        val exponentStart =
+          if fractionEnd < source.length &&
+              (source.charAt(fractionEnd) == 101 || source.charAt(fractionEnd) == 69) then
+            val signStart = fractionEnd + 1
+            if signStart < source.length &&
+                (source.charAt(signStart) == 43 || source.charAt(signStart) == 45) then signStart + 1
+            else signStart
+          else -1
+        if exponentStart < 0 then
+          JsonCoreOk(JsonCoreNumber(source.substring(from, fractionEnd)), fractionEnd)
+        else
+          val exponentEnd = jsonCoreScanDigits(source, exponentStart)
+          if exponentEnd == exponentStart then
+            JsonCoreErr("exponent requires digits", exponentStart)
+          else
+            JsonCoreOk(JsonCoreNumber(source.substring(from, exponentEnd)), exponentEnd)
+
+def jsonCoreStartsAtLoop(source: String, from: Int, word: String, index: Int): Boolean =
+  if index >= word.length then true
+  else if source.charAt(from + index) != word.charAt(index) then false
+  else jsonCoreStartsAtLoop(source, from, word, index + 1)
+
+def jsonCoreStartsAt(source: String, from: Int, word: String): Boolean =
+  from + word.length <= source.length && jsonCoreStartsAtLoop(source, from, word, 0)
+
+def jsonCoreParseArrayItems(source: String, from: Int, reversed: List[Any]): Any =
+  val start = jsonCoreSkipWhitespace(source, from)
+  if start >= source.length then
+    JsonCoreErr("unterminated array", start)
+  else if source.charAt(start) == 93 then
+    JsonCoreOk(JsonCoreArray(reversed.reverse), start + 1)
+  else
+    jsonCoreParseValue(source, start) match {
+      case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
+      case JsonCoreOk(value, next) =>
+        val separator = jsonCoreSkipWhitespace(source, next)
+        if separator >= source.length then
+          JsonCoreErr("unterminated array", separator)
+        else if source.charAt(separator) == 44 then
+          val afterComma = jsonCoreSkipWhitespace(source, separator + 1)
+          if afterComma < source.length && source.charAt(afterComma) == 93 then
+            JsonCoreErr("expected value after comma", afterComma)
+          else
+            jsonCoreParseArrayItems(source, afterComma, value :: reversed)
+        else if source.charAt(separator) == 93 then
+          JsonCoreOk(JsonCoreArray((value :: reversed).reverse), separator + 1)
+        else
+          JsonCoreErr("expected comma or closing bracket", separator)
+      case _ => JsonCoreErr("invalid array value", start)
+    }
+
+def jsonCoreContinueObjectValue(
+    source: String,
+    key: List[Int],
+    reversed: List[Any],
+    result: Any
+): Any =
+  result match {
+    case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
+    case JsonCoreOk(value, next) =>
+      val separator = jsonCoreSkipWhitespace(source, next)
+      val field = JsonCoreField(key, value)
+      if separator >= source.length then
+        JsonCoreErr("unterminated object", separator)
+      else if source.charAt(separator) == 44 then
+        val afterComma = jsonCoreSkipWhitespace(source, separator + 1)
+        if afterComma < source.length && source.charAt(afterComma) == 125 then
+          JsonCoreErr("expected field after comma", afterComma)
+        else
+          jsonCoreParseObjectFields(source, afterComma, field :: reversed)
+      else if source.charAt(separator) == 125 then
+        JsonCoreOk(JsonCoreObject((field :: reversed).reverse), separator + 1)
+      else
+        JsonCoreErr("expected comma or closing brace", separator)
+    case _ => JsonCoreErr("invalid object value", 0)
+  }
+
+def jsonCoreContinueObjectKeyValue(
+    source: String,
+    reversed: List[Any],
+    keyValue: Any,
+    afterKey: Int
+): Any =
+  keyValue match {
+    case JsonCoreString(key) =>
+      val colon = jsonCoreSkipWhitespace(source, afterKey)
+      if colon >= source.length || source.charAt(colon) != 58 then
+        JsonCoreErr("expected colon after object key", colon)
+      else
+        jsonCoreContinueObjectValue(
+          source,
+          key,
+          reversed,
+          jsonCoreParseValue(source, jsonCoreSkipWhitespace(source, colon + 1))
+        )
+    case _ => JsonCoreErr("object key must be a string", afterKey)
+  }
+
+def jsonCoreContinueObjectKey(source: String, reversed: List[Any], result: Any): Any =
+  result match {
+    case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
+    case JsonCoreOk(keyValue, afterKey) =>
+      jsonCoreContinueObjectKeyValue(source, reversed, keyValue, afterKey)
+    case _ => JsonCoreErr("invalid object key", 0)
+  }
+
+def jsonCoreParseObjectFields(source: String, from: Int, reversed: List[Any]): Any =
+  val start = jsonCoreSkipWhitespace(source, from)
+  if start >= source.length then
+    JsonCoreErr("unterminated object", start)
+  else if source.charAt(start) == 125 then
+    JsonCoreOk(JsonCoreObject(reversed.reverse), start + 1)
+  else if source.charAt(start) != 34 then
+    JsonCoreErr("object key must be a string", start)
+  else
+    jsonCoreContinueObjectKey(source, reversed, jsonCoreParseString(source, start))
+
+def jsonCoreParseValue(source: String, from: Int): Any =
+  val start = jsonCoreSkipWhitespace(source, from)
+  if start >= source.length then JsonCoreErr("expected JSON value", start)
+  else
+    val c = source.charAt(start)
+    if c == 34 then jsonCoreParseString(source, start)
+    else if c == 91 then jsonCoreParseArrayItems(source, start + 1, Nil)
+    else if c == 123 then jsonCoreParseObjectFields(source, start + 1, Nil)
+    else if c == 45 || jsonCoreIsDigit(c) then jsonCoreParseNumber(source, start)
+    else if jsonCoreStartsAt(source, start, "true") then JsonCoreOk(JsonCoreBool(true), start + 4)
+    else if jsonCoreStartsAt(source, start, "false") then JsonCoreOk(JsonCoreBool(false), start + 5)
+    else if jsonCoreStartsAt(source, start, "null") then JsonCoreOk(JsonCoreNull(), start + 4)
+    else JsonCoreErr("unexpected token", start)
+
+def jsonCoreParseStrict(source: String): Any =
+  jsonCoreParseValue(source, 0) match {
+    case JsonCoreOk(value, next) =>
+      val end = jsonCoreSkipWhitespace(source, next)
+      if end == source.length then JsonCoreOk(value, end)
+      else JsonCoreErr("trailing input", end)
+    case error => error
+  }
+
+def jsonCoreParseTolerant(source: String): Any =
+  jsonCoreParseStrict(source) match {
+    case JsonCoreOk(value, _) => value
+    case _ => JsonCoreNull()
+  }
+
+val jsonCoreHexAlphabet = "0123456789ABCDEF"
+val jsonCorePrintableAscii = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+def jsonCoreHexChar(value: Int): String =
+  jsonCoreHexAlphabet.substring(value, value + 1)
+
+def jsonCoreUnicodeEscape(unit: Int): String =
+  "\\u" +
+    jsonCoreHexChar((unit / 4096) % 16) +
+    jsonCoreHexChar((unit / 256) % 16) +
+    jsonCoreHexChar((unit / 16) % 16) +
+    jsonCoreHexChar(unit % 16)
+
+def jsonCoreEscapeCode(unit: Int): String =
+  if unit == 34 then "\\\""
+  else if unit == 92 then "\\\\"
+  else if unit == 8 then "\\b"
+  else if unit == 12 then "\\f"
+  else if unit == 10 then "\\n"
+  else if unit == 13 then "\\r"
+  else if unit == 9 then "\\t"
+  else if unit >= 32 && unit <= 126 then
+    jsonCorePrintableAscii.substring(unit - 32, unit - 31)
+  else jsonCoreUnicodeEscape(unit)
+
+def jsonCoreRenderCodeUnits(codeUnits: List[Int]): String =
+  codeUnits match {
+    case Nil => ""
+    case Cons(unit, tail) => "" + jsonCoreEscapeCode(unit) + jsonCoreRenderCodeUnits(tail)
+  }
+
+def jsonCoreRenderString(codeUnits: List[Int]): String =
+  "\"" + jsonCoreRenderCodeUnits(codeUnits) + "\""
+
+def jsonCoreRenderField(field: Any): String =
+  field match {
+    case JsonCoreField(key, value) => jsonCoreRenderString(key) + ":" + jsonCoreRender(value)
+    case _ => ""
+  }
+
+def jsonCoreRenderItems(items: List[Any]): String =
+  items match {
+    case Nil => ""
+    case Cons(item, tail) =>
+      tail match {
+        case Nil => jsonCoreRender(item)
+        case Cons(_, _) => jsonCoreRender(item) + "," + jsonCoreRenderItems(tail)
+      }
+  }
+
+def jsonCoreRenderFields(fields: List[Any]): String =
+  fields match {
+    case Nil => ""
+    case Cons(field, tail) =>
+      tail match {
+        case Nil => jsonCoreRenderField(field)
+        case Cons(_, _) => jsonCoreRenderField(field) + "," + jsonCoreRenderFields(tail)
+      }
+  }
+
+def jsonCoreRender(value: Any): String =
+  value match {
+    case JsonCoreNull() => "null"
+    case JsonCoreBool(boolean) => if boolean then "true" else "false"
+    case JsonCoreNumber(raw) => raw
+    case JsonCoreString(codeUnits) => jsonCoreRenderString(codeUnits)
+    case JsonCoreArray(items) => "[" + jsonCoreRenderItems(items) + "]"
+    case JsonCoreObject(fields) => "{" + jsonCoreRenderFields(fields) + "}"
+    case _ => "null"
+  }
+
+def jsonCoreRenderResult(result: Any): String =
+  result match {
+    case JsonCoreOk(value, _) => jsonCoreRender(value)
+    case JsonCoreErr(message, offset) => "ERR@" + offset + ":" + message
+    case _ => "ERR@0:unknown parse result"
+  }
+
+def jsonCoreKind(value: Any): String =
+  value match {
+    case JsonCoreNull() => "null"
+    case JsonCoreBool(_) => "bool"
+    case JsonCoreNumber(_) => "number"
+    case JsonCoreString(_) => "string"
+    case JsonCoreArray(_) => "array"
+    case JsonCoreObject(_) => "object"
+    case _ => "unknown"
+  }
+```

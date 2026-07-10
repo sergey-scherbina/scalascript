@@ -1,0 +1,21 @@
+null
+true
+-12.3400e+2
+"line\nquote: \" slash: \\u0041"
+"A"
+[1,2,{"ok":true}]
+{"name":"Ada","emoji":"\uD83D\uDE00"}
+{"x":0}
+ERR@1:leading zero in number
+ERR@2:fraction requires digits
+ERR@3:exponent requires digits
+ERR@3:invalid unicode escape
+ERR@1:high surrogate requires a low surrogate
+ERR@1:unexpected low surrogate
+ERR@4:unterminated string
+ERR@3:expected value after comma
+ERR@7:expected field after comma
+ERR@5:expected colon after object key
+ERR@5:trailing input
+null
+array
