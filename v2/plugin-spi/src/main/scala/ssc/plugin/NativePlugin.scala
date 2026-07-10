@@ -2,6 +2,17 @@ package ssc.plugin
 
 import ssc.Value
 
+/** Core-free JDBC configuration passed from native root front-matter. */
+final case class NativeDatabaseConfig(
+    url: String,
+    user: Option[String] = None,
+    password: Option[String] = None,
+    driver: Option[String] = None)
+
+/** Immutable configuration visible to one native provider installation. */
+final case class NativeRuntimeConfig(
+    databases: Map[String, NativeDatabaseConfig] = Map.empty)
+
 /** Scalameta-free native intrinsic provider for the ScalaScript 2.1 runtime. */
 trait NativePlugin:
   def id: String
@@ -10,6 +21,7 @@ trait NativePlugin:
 /** The only standard-tier mutation surface exposed to native providers. */
 trait NativePluginContext:
   def argv: List[String]
+  def databases: Map[String, NativeDatabaseConfig]
   def invoke(fn: Value, args: List[Value]): Value
   def register(name: String)(fn: List[Value] => Value): Unit
   def registerGlobal(name: String, arity: Int)(fn: List[Value] => Value): Unit

@@ -6,10 +6,15 @@ import ssc.{Done, Runtime, V2PluginRegistry, Value}
 /** Deterministic ServiceLoader host for standard-tier native providers. */
 object NativePluginHost:
   def loadAll(): Int =
-    val loader = java.util.ServiceLoader.load(classOf[NativePlugin], Thread.currentThread().getContextClassLoader)
-    installProviders(loader.iterator().asScala.toList)
+    loadAll(NativeRuntimeConfig())
 
-  private[plugin] def installProviders(providers: List[NativePlugin]): Int =
+  def loadAll(config: NativeRuntimeConfig): Int =
+    val loader = java.util.ServiceLoader.load(classOf[NativePlugin], Thread.currentThread().getContextClassLoader)
+    installProviders(loader.iterator().asScala.toList, config)
+
+  private[plugin] def installProviders(
+      providers: List[NativePlugin],
+      config: NativeRuntimeConfig = NativeRuntimeConfig()): Int =
     val sorted = providers.sortBy(_.id)
     val duplicateIds = sorted.groupBy(_.id).collect { case (id, xs) if xs.size > 1 => id }.toList.sorted
     if duplicateIds.nonEmpty then
@@ -28,6 +33,7 @@ object NativePluginHost:
     sorted.foreach { provider =>
       val context = new NativePluginContext:
         def argv: List[String] = Runtime.argv
+        def databases: Map[String, NativeDatabaseConfig] = config.databases
 
         def invoke(fn: Value, args: List[Value]): Value = fn match
           case clos: Value.ClosV =>

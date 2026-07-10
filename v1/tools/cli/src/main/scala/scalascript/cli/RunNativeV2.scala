@@ -5,12 +5,14 @@ package scalascript.cli
 object RunNativeV2:
   def run(files: List[String], argv: List[String], bytecode: Boolean): Unit =
     val (runner, stdRoot) = nativeFrontLayout()
-    val sourceFiles = files.map { file =>
+    val canonicalFiles = files.map { file =>
       val f = new java.io.File(file).getCanonicalFile
       if !f.isFile then
         throw new java.io.FileNotFoundException(s"native frontend input not found: $file")
-      portablePath(f)
+      f
     }
+    val sourceFiles = canonicalFiles.map(portablePath)
+    val nativeConfig = NativeFrontmatter.fromFiles(canonicalFiles)
 
     val previousArgv = _root_.ssc.Runtime.argv
     try
@@ -21,7 +23,7 @@ object RunNativeV2:
           "native frontend rejected incomplete parse: emitted CoreIR contains parser sentinel _err")
 
       _root_.ssc.Runtime.argv = argv
-      _root_.ssc.plugin.NativePluginHost.loadAll()
+      _root_.ssc.plugin.NativePluginHost.loadAll(nativeConfig)
       val prog = _root_.ssc.Reader.parseProgram(ir)
       if bytecode then runBytecode(prog) else runVm(prog)
     finally _root_.ssc.Runtime.argv = previousArgv

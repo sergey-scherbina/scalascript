@@ -52,3 +52,20 @@ class NativePluginHostTest extends AnyFunSuite:
     NativePluginHost.installProviders(List(provider))
     assert(result == Value.StrV("ok"))
   }
+
+  test("providers see immutable native database configuration") {
+    var seen = Map.empty[String, NativeDatabaseConfig]
+    val provider = new NativePlugin:
+      def id: String = "db-config"
+      def install(context: NativePluginContext): Unit = seen = context.databases
+    val config = NativeRuntimeConfig(Map(
+      "default" -> NativeDatabaseConfig(
+        "jdbc:h2:mem:test",
+        user = Some("sa"),
+        password = Some(""),
+        driver = Some("org.h2.Driver"))))
+
+    NativePluginHost.installProviders(List(provider), config)
+
+    assert(seen == config.databases)
+  }
