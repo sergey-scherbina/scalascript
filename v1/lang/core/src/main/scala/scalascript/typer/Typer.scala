@@ -294,10 +294,14 @@ class Typer(
     val pluginBuiltins = List(
       // interpreter-core globals (no owning std plugin) — stay hardcoded.
       "Async", "Await", "Signal", "Future", "Storage",
-      // stdlib `.ssc` library modules (std.mapreduce / std.cluster — no compiled plugin) — stay
-      // hardcoded until stdlib auto-import covers them.
+      "Db", "KV", "ObjectStore", "State", "Events", "Sync", "InMemory", "IndexedDb",
+      "MarkupCodec", "awaitClient", "generator",
+      // stdlib `.ssc` library modules (std.mapreduce / std.cluster / std.crypto — no compiled
+      // plugin) — stay hardcoded until stdlib auto-import covers them.
       "HandlerRegistry", "Cluster", "ShuffleStage", "Stage",
-      "runDistributed", "runDistributedShuffle",
+      "runDistributed", "runDistributedShuffle", "localLoopbackCluster", "verifyEd25519",
+      // macro-expansion sentinel — appears in macro-expanded example bodies.
+      "__ssc_macro__",
       // MIGRATED to plugin `preludeSymbols` (core-min-advanced-optin): Source → streams-plugin,
       // setHttpServerBackend → ws-plugin (both essential); Wallets/X402Client/X402/CardanoFacilitator/
       // PaymentConfig/DefaultSyncBackend/basicRequest → payments-plugin (advanced, opt-in);
@@ -609,7 +613,7 @@ class Typer(
       val (declaredRet, declaredEffects) = parseDeclReturnType(d.decltpe)
       // `extern def` compiles to Defn.Def with body Term.Name("__extern__").
       // Treat as an opaque declaration: use declared return type, skip body check.
-      val isExternDef = d.body match { case Term.Name("__extern__") => true; case _ => false }
+      val isExternDef = d.body match { case Term.Name("__extern__") | Term.Name("__ssc_macro__") => true; case _ => false }
       // Allow self-recursion: bind the function name in bodyScope before
       // typing the body so `def fib(n) = fib(n-1)` resolves correctly.
       bodyScope.define(Symbol(d.name.value,

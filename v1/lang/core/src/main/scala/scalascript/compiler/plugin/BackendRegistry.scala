@@ -301,6 +301,28 @@ object BackendRegistry extends PluginRegistry:
       catch case _: Throwable => Nil
     }.distinct
 
+  /** `ssc check` helper: `preludeSymbols` from EVERY bundled-but-opt-in plugin under `availableDirs`,
+   *  regardless of whether the file imports its namespace. `ssc check` statically type-checks
+   *  known-good examples that legitimately use runtime plugin APIs (`oauth`, `oidc`, …), so it must
+   *  resolve any bundled plugin's declared names. The import-gated opt-in ([[importMatchedPreludeSymbols]])
+   *  is a RUNTIME concern (which plugins actually load); it must not turn a real usage into a
+   *  false "undefined name" during a static check. Same throwaway-classloader scan, no import filter. */
+  def availablePreludeSymbols(availableDirs: List[os.Path]): List[scalascript.ir.ExportedSymbol] =
+    val alreadyLoaded = loadedPkgIds.toSet
+    val pkgs = availableDirs.filter(os.isDir).flatMap(d => os.list(d).filter(_.ext == "sscpkg")).distinct
+    pkgs.flatMap { pkg =>
+      try
+        val res = SscpkgLoader.load(pkg)
+        if alreadyLoaded.contains(res.manifest.id) then Nil
+        else
+          val urls   = res.intrinsicJars.map(_.toIO.toURI.toURL).toArray
+          val loader = new java.net.URLClassLoader(urls, classOf[Backend].getClassLoader)
+          ServiceLoader.load(classOf[Backend], loader).iterator.asScala.toList
+            .filter(_.getClass.getClassLoader == loader)
+            .flatMap(_.preludeSymbols)
+      catch case _: Throwable => Nil
+    }.distinct
+
   private def registerDslHooks(backend: Backend): Unit =
     InterpolatorRegistry.registerFrom(backend)
     PreprocessorRegistry.registerFrom(backend)

@@ -5467,7 +5467,7 @@ private def checkOneFile(
       // file that clearly intends them (e.g. `import scalascript.x402.*`) without a manual `--plugin`.
       val pluginPrelude =
         BackendRegistry.inProcess.flatMap(_.preludeSymbols) ++
-          BackendRegistry.importMatchedPreludeSymbols(importPrefixesOf(module), pluginAvailableDirs)
+          BackendRegistry.availablePreludeSymbols(pluginAvailableDirs)
       val typed = CompileStats.time("typer") {
         if interfaces.isEmpty then
           Typer(Map.empty, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
@@ -6984,7 +6984,7 @@ final class CheckWithIfaceCmd extends CliCommand:
               .flatMap(_.intrinsics.keys).flatMap(qn => qn.value :: qn.value.split('.').headOption.toList).toSet
             // check-autoload-plugin-by-import: consistent with `ssc check` (above).
             val pluginPrelude  = BackendRegistry.inProcess.flatMap(_.preludeSymbols) ++
-              BackendRegistry.importMatchedPreludeSymbols(importPrefixesOf(module), pluginAvailableDirs)
+              BackendRegistry.availablePreludeSymbols(pluginAvailableDirs)
             val typed =
               if interfaces.isEmpty then
                 Typer(strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude).typeCheck(module)
