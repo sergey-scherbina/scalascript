@@ -1,7 +1,7 @@
 package ssc.plugin
 
 import scala.jdk.CollectionConverters.*
-import ssc.{Done, Runtime, V2PluginRegistry, Value}
+import ssc.{Done, Runtime, V2EffectContext, V2PluginRegistry, Value}
 
 /** Deterministic ServiceLoader host for standard-tier native providers. */
 object NativePluginHost:
@@ -47,6 +47,11 @@ object NativePluginHost:
               case Some(apply) => invoke(apply, args)
               case None => throw new IllegalArgumentException("native callback value is not callable")
           case _ => throw new IllegalArgumentException("native callback value is not callable")
+
+        def withEffect(effectTag: String)(handler: (String, List[Value]) => Value)(body: => Value): Value =
+          V2EffectContext.push(effectTag, handler)
+          try body
+          finally V2EffectContext.pop(effectTag)
 
         def register(name: String)(fn: List[Value] => Value): Unit =
           claim("intrinsic", name, provider.id)

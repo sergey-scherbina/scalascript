@@ -23,6 +23,7 @@ trait NativePluginContext:
   def argv: List[String]
   def databases: Map[String, NativeDatabaseConfig]
   def invoke(fn: Value, args: List[Value]): Value
+  def withEffect(effectTag: String)(handler: (String, List[Value]) => Value)(body: => Value): Value
   def register(name: String)(fn: List[Value] => Value): Unit
   def registerGlobal(name: String, arity: Int)(fn: List[Value] => Value): Unit
   def registerValue(name: String, value: Value): Unit

@@ -69,3 +69,30 @@ class NativePluginHostTest extends AnyFunSuite:
 
     assert(seen == config.databases)
   }
+
+  test("effect scope is nested and always restored") {
+    var observed = List.empty[Value]
+    val provider = new NativePlugin:
+      def id: String = "effect-scope"
+      def install(context: NativePluginContext): Unit =
+        val outer: (String, List[Value]) => Value = (_, _) => Value.IntV(1)
+        val inner: (String, List[Value]) => Value = (_, _) => Value.IntV(2)
+        context.withEffect("Test")(outer) {
+          observed :+= ssc.V2EffectContext.peek("Test").get("read", Nil)
+          context.withEffect("Test")(inner) {
+            observed :+= ssc.V2EffectContext.peek("Test").get("read", Nil)
+            Value.UnitV
+          }
+          observed :+= ssc.V2EffectContext.peek("Test").get("read", Nil)
+          Value.UnitV
+        }
+        intercept[RuntimeException] {
+          context.withEffect("Boom")(outer) { throw new RuntimeException("boom") }
+        }
+
+    NativePluginHost.installProviders(List(provider))
+
+    assert(observed == List(Value.IntV(1), Value.IntV(2), Value.IntV(1)))
+    assert(ssc.V2EffectContext.peek("Test").isEmpty)
+    assert(ssc.V2EffectContext.peek("Boom").isEmpty)
+  }
