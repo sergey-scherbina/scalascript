@@ -42,6 +42,61 @@
   the installed Apple toolchain permits, affected conformance is green, and the
   landed SHA plus actual root cause are recorded here. Keep `fixed` until Sergiy
   confirms the original workflow.
+- **Legacy native-path repro — FIXED (2026-07-10, `swiftui-legacy-real-harness`
+  sub-slice, busi-side `claude-code` agent).** `bin/ssc build --target macos
+  examples/frontend/ios-hello/ios-hello.ssc` now writes a real Swift package
+  and `swift build` links it — the first time any real parsed `.ssc` module
+  has compiled through this path (every prior SwiftUI test hand-builds a
+  Scala `View` literal, bypassing `Parser`/`JvmGen` entirely). Six distinct,
+  independently-verified bugs, not one:
+  1. `JvmGen.hoistSscImportsIntoObjectStd`'s hardcoded `ui.primitives.{...}`
+     import listed capitalized `Signal` (never a real member — extern-filtered
+     out of the JVM backend's `object primitives`; a separate top-level
+     `type Signal[A]` alias exists only in the swiftui-DSL preamble branch) and
+     was missing six real names (`seedSignal`, `forKeyedView`, `emptyHeaders`,
+     `fetchActionTo`, `fetchCaptureAction`, `rowEditAction`) that had silently
+     drifted out of sync.
+  2. `JvmGenPreamble`'s `frontendName == "swiftui"` branch never got the
+     `text(String)` shadow-fix (`beats extension (r: Response.type) def
+     text(body: Any)`) that the non-swiftui branch already had — the ONLY
+     branch reachable via `--target macos|ios` lacked it.
+  3. `JvmGenPreamble` re-declared `dataTableView` as a byte-for-byte duplicate
+     of `JvmRuntimeUiPrimitives.scala`'s version, ambiguous once the (always-
+     active for any frontend) hoisted import also brought it in; `dataTable`'s
+     wrapper needed a qualified call + loosened return type instead.
+     (`JvmRuntimeUiPrimitives.scala` itself needed NO change — its bare `View`/
+     `EventHandler` correctly resolve via plain sibling-member visibility once
+     the real `std/ui/primitives.ssc` module is genuinely merged in, which
+     requires the caller to actually import from it, e.g. the CLI's own
+     minimal test fixture never did.)
+  4. `std/ui/lower.ssc`'s intentional idempotent-passthrough catch-all
+     (`case alreadyLowered => alreadyLowered`, Layer 2 of
+     `specs/js-backend-ui-render-gaps.md`) type-checks fine for the
+     interpreter/JS backends (dynamically typed) but not JVM-generated Scala,
+     where the match's static scrutinee type is `TkNode`, not the declared
+     `View` return type — needs `.asInstanceOf[View]`.
+  5. `std/ui/lower.ssc`'s `KeyedForNode` case pinned its callback parameter to
+     an explicit `(item: Any)`, conflicting with `forKeyedView[A]`'s own
+     existential `A` inferred from the case's own type parameter; removing the
+     explicit annotation lets both infer consistently.
+  6. `SwiftUIEmitter.scala`'s `View.ShowSignal` case appended the `if` block's
+     closing brace unconditionally AND again at the start of a non-empty
+     `elseClause`, emitting invalid Swift (`}\n} else {`) for every
+     `showWhen`/dynamic-condition view — a real Swift syntax error, not a Scala
+     one, only caught by actually running `swift build` on the output.
+  New regression: `SwiftUiRealFixtureBuildTest` (`v1/tools/cli`), gated on
+  `assume(swiftAvailable)`, drives the real `examples/frontend/ios-hello/
+  ios-hello.ssc` fixture (rewritten off its stale `Signal`/`Column`/`Text`
+  aspirational DSL onto the real `std/ui` API busi's production app actually
+  uses) through `buildSwiftUIPackage(..., runSwiftBuild = true)` and asserts a
+  real `Ioshello` executable is produced — mirrors `RustGenCargoSmokeTest`'s
+  "actually run the toolchain, don't string-match" gate, which is exactly the
+  class of bug (5 of 6 above) a string-match-only suite would have missed.
+  118 `frontendSwiftUI` tests + 26 existing `SwiftUIBuildCliTest` cases +
+  4 `std/ui/lower.ssc`-touching conformance fixtures (`tkv2-keyed-for`,
+  `tkv2-raw-html`, `tkv2-textfield-reactive-label`, `tkv2-tri-state`, INT+JS)
+  all still green — no regression. The v2-native Swift backend itself remains
+  open, owned by the `v2-swift-swiftui-native` claim.
 
 ## v21-standard-index-vm-asm-divergence — index example fails VM and succeeds with malformed ASM output
 
