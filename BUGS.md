@@ -4009,3 +4009,43 @@ active from other routes/middleware, or the specific
 `{"content":[...],"isError":false}` JSON-wrapping around the tool result)
 that a small dispatcher didn't capture. Found 2026-07-09 by busi (fable),
 same session as `v2-req-form-type-collision`.
+
+## v2-string-split-limit-overload — String.split(delimiter, limit) unimplemented on v2 (CAUSED A REAL PRODUCTION OUTAGE)
+
+**Status:** OPEN — v1 correct, guarded by
+tests/conformance/v2-string-split-limit-overload.ssc. **Severity: this
+exact gap took down a real, live production service** (busi, 2026-07-10)
+within minutes of a routine v1→v2 default flip + deploy — not a test
+failure, an actual customer-facing outage (two systemd services
+crash-looped, restart counter 4+, both sites returning connection-refused
+until a live rollback).
+
+The one-arg overload (`s.split(delimiter)`) works correctly on v2. The
+TWO-arg overload (`s.split(delimiter, limit)` — delimiter + a limit,
+e.g. `-1` to keep trailing empty fields, the standard idiom for parsing
+TSV/CSV rows that may have a blank last column) is not dispatched at all:
+
+```
+val s = "a	b	c	"
+s.split("	")       // works on v2
+s.split("	", -1)   // RuntimeException: __method__: no dispatch for .split
+```
+
+busi's real trigger: `identity.ssc`'s `readTsv()` parses a real TSV
+sessions file via `line.split("	", -1)` at hub boot (loading the
+sessions store for WebAuthn/email-login identity resolution). This file
+only exists on an instance with real prior login history — every
+pre-flip verification (a full v1-vs-v2 A/B harness covering an entire
+money-loop end to end, a 30-route sweep over a seeded demo dataset, and a
+real-browser e2e suite) used a fresh data directory with no sessions
+file, so the two-arg `.split` call was never reached before the flip hit
+production. Repro: `bin/ssc --v2
+tests/conformance/v2-string-split-limit-overload.ssc` (v1 lanes below
+pin the correct, passing behavior).
+
+Found+minimized 2026-07-10 by busi (fable) immediately after diagnosing
+and rolling back the live incident. Given the severity (a working
+default-flip reached real production and broke it), this — and auditing
+for other unimplemented String/collection method overloads with the same
+shape (single-arg works, multi-arg silently missing) — should be
+high-priority for v2 parity work.

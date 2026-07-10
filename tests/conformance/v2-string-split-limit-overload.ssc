@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc
+---
+name: v2-string-split-limit-overload
+description: String.split(delimiter, limit) — the two-arg overload — is completely unimplemented on v2; the one-arg split(delimiter) works fine
+backends: [int]
+---
+
+# v2: `String.split(delimiter, limit)` (two-arg overload) is missing
+
+**This exact gap crash-looped a real production instance of busi**
+(2026-07-10) within minutes of a v1→v2 default flip reaching a live
+server via a normal deploy. `identity.ssc`'s `readTsv()` parses a
+real TSV sessions file via `line.split("\t", -1)` — the two-arg form,
+delimiter + limit (`-1` = "keep trailing empty fields", the standard
+idiom for TSV rows that may have a blank last column). On v2 this
+raises an unhandled `RuntimeException: __method__: no dispatch for
+.split` — no crash on `.split(delimiter)` alone (single arg), only on
+the two-arg overload.
+
+Every pre-flip verification (a full v1-vs-v2 A/B test suite covering
+the money-loop end to end, a 30-route sweep over a seeded demo dataset,
+and a real-browser e2e suite, all in busi's own repo) used a FRESH
+data directory with no sessions file — so this line was never reached.
+Only an instance with real prior login history has one, which is
+exactly what production had and no test environment did. Repro reduced
+to the single call below; v1 (INT) is correct, `--v2` raises the exact
+same error text seen in the production crash log.
+
+```scalascript
+val s = "02e175cf-9668-4a5c-bea2-604a1581ac5e\tsergey.scherbina@gmail.com\tSergiy\towner,admin,manager"
+val fields = s.split("\t", -1)
+println(fields.length)
+println(fields(1))
+```
