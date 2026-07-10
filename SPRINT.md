@@ -37,13 +37,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       five-layer boundary, format profiles, structural frontend ABI, dependency
       rules, behavior gates, and all implementation slices are normative in
       `specs/v2.1-self-hosted-core.md`; `SPEC.md` links the new release contract.
-- [ ] **v21-shc-dependency-gate** — inventory the actual standard runtime graph,
+- [x] **v21-shc-dependency-gate — DONE 2026-07-10 (`9f1e6e3aa`, `5f18deafb`):** inventory the actual standard runtime graph,
       classify every JAR/module as seed, pure core, backend plugin, feature
       plugin, or tools/test, and add a portable negative gate that rejects
       unclassified dependencies plus forbidden parser/codec families in the
       seed/core. Record the initial counts and exact command in the spec. Done
       when the gate passes from any worktree and fails on a synthetic forbidden
-      reference without changing the live TI-7 packaging files.
+      reference without changing the live TI-7 packaging files. Result: the
+      portable gate classifies 12 declared roots and their 52 jdeps edges;
+      current full staging has 106 JARs, with 17 in the standard closure and 89
+      explicitly outside it as tools/compat. Seed/pure-core violations are zero;
+      the only migration parser root is native JSON (ujson/upickle-core).
+      `--strict-parsers` rejects it for the future cutover, and a closed TI-7
+      `standard/jars` layout rejects every unclassified extra. Synthetic
+      constant-pool reject, e2e gate, and `v2-*` conformance 8/8 pass.
 - [ ] **v21-shc-json-core** — implement the canonical strict/tolerant JSON
       scanner, target-independent ADT, total navigation, exact-decimal handling,
       and deterministic compact encoder in `.ssc` without `extern def` or host
