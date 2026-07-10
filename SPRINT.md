@@ -201,6 +201,13 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             coordinates into `JvmByteGen`; emit SourceFile, LineNumberTable, and
             multi-file SMAP. A deliberate runtime failure must name the `.ssc`
             source and expected line rather than only `Entry.java`/unknown.
+            - [ ] **Import-closure identity correction
+                  (`v21-build-jvm-import-source-identity-gap`):** mirror the
+                  native loader's standalone Markdown-link DFS without v1
+                  parser dependencies; retain explicit roots separately from
+                  the complete linked source closure; hash/map imported
+                  declarations and prove the relative helper appears in both
+                  metadata and SMAP without breaking byte reproducibility.
       - [ ] **TI-6.4 artifact release gates:** build twice from clean temp dirs
             and compare bytes; inspect JAR and `jdeps` for compiler, Scalameta,
             bridge, v1 AST/interpreter, and `javax.tools`; run hello/import/argv/

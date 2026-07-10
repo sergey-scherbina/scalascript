@@ -1,5 +1,31 @@
 # Bug tracker
 
+## v21-build-jvm-import-source-identity-gap — artifact metadata omits resolved imports
+
+**Status:** open (2026-07-10); found while verifying TI-6.3 source mapping
+against the linked-import artifact landed in TI-6.2 `147531fa7`.
+
+- **Found by:** codex during the direct-ASM artifact source-map review.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run `bin/ssc
+  build-jvm tests/fixtures/v21-native/relative-main.ssc -o /tmp/import.jar`
+  and inspect `META-INF/scalascript/artifact.properties`. The program prints
+  `42`, proving `relative-helper.ssc` was linked, but `source.count=1` and only
+  the explicit root identity is recorded.
+- **Expected:** every source whose declarations contribute to the linked
+  checked `Program` has a deterministic name/hash identity; debug SMAP includes
+  the same closure while still guaranteeing that every explicit root appears.
+- **Root cause:** `RunNativeV2.compile` retained only canonical command-line
+  roots after the self-hosted loader resolved imports internally. The artifact
+  writer therefore had no import closure to hash or map.
+- **Fix direction:** mirror the native loader's standalone-link DFS in a small
+  JDK-only host resolver, preserve explicit-root order plus deterministic import
+  order, and pass separate `roots` and `sources` collections to artifact debug
+  and metadata generation. Do not load the v1 parser/Scalameta.
+- **Done-when:** the relative-import JAR metadata and SMAP name both
+  `relative-main.ssc` and `relative-helper.ssc`, the helper hash changes when
+  its source changes, two builds remain byte-identical, and the assembled
+  artifact/conformance gates stay green.
+
 ## v2-frontendbridge-sqlite-timeout — SQLite conformance exceeds the 15-second bridge-test limit
 
 **Status:** open (2026-07-10); reproduced twice against TI-6.1 `a8a86fffe`,
