@@ -1,0 +1,6 @@
+feature/v2-dsl-yaml-tuple-accessor 2026-07-10T02:38:04Z
+agent: codex
+heartbeat: 2026-07-10T02:38:04Z
+status: not-started
+done-so-far:
+next: create worktree, queue SPRINT repro/fix plan before code
