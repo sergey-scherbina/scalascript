@@ -773,6 +773,16 @@ object Compiler:
           case _ => dc match  // non-ADT scrutinee (String, Int, etc.) — fall to default
             case Some(d) => d(env)
             case None => sys.error(s"match: scrutinee not Data: ${Show.show(Runtime.value(sc, env))}")
+      // Plugin functions are registered as Prim op-handlers (V2PluginRegistry.handlers);
+      // the scalameta bridge lowers `f(x)` to Prim("f",[x]), but the self-hosted native
+      // front emits App(Global("f"),[x]) → lookupGlobal miss → "unbound global: f". Redirect
+      // to the IDENTICAL Prim path for names that are op-handlers and neither a user def nor
+      // a registered global value. Safe: same dispatch the bridge uses (0-mismatch corpus);
+      // effect runners (runAsync/serve/actors) are block-form, not handlers, so untouched.
+      case App(Global(g), args)
+          if !topDefs.contains(g) && !globals.contains(g)
+             && !V2PluginRegistry.hasGlobal(g) && V2PluginRegistry.lookup(g).isDefined =>
+        compile(Prim(g, args))
       case App(fn, args) =>
         // Global-call FC fast path: skip Done/run for the function lookup.
         // Uses tryFC for args (not tryFLC) so FloatV/StrV args pass through unchanged.
