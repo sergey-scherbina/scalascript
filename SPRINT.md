@@ -791,6 +791,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               corpus has 84 sentinels, taxonomy 11/31/36/5/1,
                               parity 10/60/125 with no mismatch/one-sided;
                               native-entry and fresh conformance 9/9 pass.
+                        - [ ] **TI-8.2c2e delimiter-aware lambda layout:** track
+                              `()` and `[]` alongside explicit braces in the
+                              layout stack. When their closer is reached, close
+                              only virtual layout blocks nested inside that
+                              delimiter before emitting the closer. Prove the
+                              exact `base.zipWithIndex.map((u, i) =>` multiline
+                              shape on native VM/direct ASM, then rerun
+                              `content-linked-namespaces.ssc` and taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
