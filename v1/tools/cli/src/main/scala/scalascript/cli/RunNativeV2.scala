@@ -36,8 +36,10 @@ object RunNativeV2:
       val ir = lowerNative(layout.runner, layout.stdRoot, sourceFiles)
       if ir.isEmpty then throw new RuntimeException("native frontend emitted no CoreIR")
       if ir.contains("(global _err)") then
+        val inputs = sourceFiles.mkString(", ")
         throw new RuntimeException(
-          "native frontend rejected incomplete parse: emitted CoreIR contains parser sentinel _err")
+          s"native frontend rejected incomplete parse in $inputs: " +
+            "emitted CoreIR contains parser sentinel _err")
 
       val prog = _root_.ssc.Reader.parseProgram(ir)
       NativeV2Compilation(prog, nativeConfig, canonicalFiles, sourceUnits, ir)

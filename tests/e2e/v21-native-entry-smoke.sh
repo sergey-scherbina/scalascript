@@ -110,6 +110,20 @@ if grep -E 'File name too long|StackOverflowError' "$sandbox/components.err" >/d
   exit 1
 fi
 
+for source in dsl-mini-language.ssc graph-fullstack-rdf.ssc; do
+  set +e
+  run_native "$ROOT/examples/$source" >"$sandbox/$source.out" 2>"$sandbox/$source.err"
+  source_rc=$?
+  set -e
+  [[ $source_rc -ne 0 ]]
+  grep -F "$source" "$sandbox/$source.err" >/dev/null
+  grep -F 'parser sentinel _err' "$sandbox/$source.err" >/dev/null
+  if grep -E 'match: no arm|NoSuchFileException|StackOverflowError' "$sandbox/$source.err" >/dev/null; then
+    echo "$source native frontend leaked a host exception" >&2
+    exit 1
+  fi
+done
+
 leaked=$(find "$sandbox/java-tmp" -mindepth 1 -maxdepth 1 \
   \( -name 'sscpkg-*' -o -name 'ssc-v2-plugins*' \) -print -quit)
 if [[ -n "$leaked" ]]; then
