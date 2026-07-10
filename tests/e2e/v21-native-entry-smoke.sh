@@ -50,15 +50,18 @@ http_response_expected=$'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/http-response-provider.ssc") == "$http_response_expected" ]]
+http_port=$((32000 + ($$ % 10000)))
+[[ $(run_native "$FIXTURES/http-server-provider.ssc" -- "$http_port") == $'203\npong:/ping' ]]
+[[ $(run_native --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((http_port + 1))") == $'203\npong:/ping' ]]
 [[ $(PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" SSC_NO_CDS=1 \
   "$ROOT/bin/ssc" run --compat-frontend "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 
 set +e
-run_native "$FIXTURES/http-server-unavailable.ssc" >"$sandbox/http-server.out" 2>"$sandbox/http-server.err"
+run_native "$FIXTURES/http-server-feature-unavailable.ssc" >"$sandbox/http-server.out" 2>"$sandbox/http-server.err"
 http_server_rc=$?
 set -e
 [[ $http_server_rc -ne 0 ]]
-grep -F 'native HTTP server unavailable: serve requires the standard server-host SPI' \
+grep -F 'native HTTP server unavailable: useGzip requires the standard server-host SPI' \
   "$sandbox/http-server.err" >/dev/null
 
 set +e

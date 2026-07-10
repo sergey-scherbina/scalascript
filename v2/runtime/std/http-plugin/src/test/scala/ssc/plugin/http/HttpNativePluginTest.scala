@@ -2,6 +2,9 @@ package ssc.plugin.http
 
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.net.URI
 import java.nio.charset.StandardCharsets.UTF_8
 import org.scalatest.funsuite.AnyFunSuite
 import ssc.{Prims, V2PluginRegistry, Value}
@@ -63,7 +66,29 @@ class HttpNativePluginTest extends AnyFunSuite:
 
   test("server operations fail explicitly instead of entering the compatibility bridge") {
     NativePluginHost.installProviders(List(HttpNativePlugin()))
-    val error = intercept[RuntimeException](call("serve", Value.IntV(8080)))
+    val error = intercept[RuntimeException](call("useGzip"))
     assert(error.getMessage ==
-      "native HTTP server unavailable: serve requires the standard server-host SPI")
+      "native HTTP server unavailable: useGzip requires the standard server-host SPI")
+  }
+
+  test("route, serveAsync, callback invocation, and stop run on the JDK server host") {
+    NativePluginHost.installProviders(List(HttpNativePlugin()))
+    val socket = ServerSocket(0)
+    val port = try socket.getLocalPort finally socket.close()
+    val handler = Value.ClosV(ssc.Runtime.emptyEnv, 1, env =>
+      val request = env.last.asInstanceOf[Value.DataV]
+      ssc.Done(Value.DataV("Response", Vector(
+        Value.IntV(203),
+        Value.ForeignV(collection.mutable.LinkedHashMap.empty[Value, Value]),
+        Value.StrV("pong:" + request.fields(1).asInstanceOf[Value.StrV].s)))))
+    val register = call("route", Value.StrV("GET"), Value.StrV("/ping")).asInstanceOf[Value.ClosV]
+    ssc.Runtime.run(register.code, Array(handler))
+    call("serveAsync", Value.IntV(port))
+    try
+      val response = HttpClient.newHttpClient().send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/ping")).GET().build(),
+        HttpResponse.BodyHandlers.ofString())
+      assert(response.statusCode() == 203)
+      assert(response.body() == "pong:/ping")
+    finally call("stop")
   }

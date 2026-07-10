@@ -29,6 +29,19 @@ object NativePluginHost:
       val context = new NativePluginContext:
         def argv: List[String] = Runtime.argv
 
+        def invoke(fn: Value, args: List[Value]): Value = fn match
+          case clos: Value.ClosV =>
+            if clos.arity >= 0 && clos.arity != args.length then
+              throw new IllegalArgumentException(
+                s"native callback arity: ${clos.arity} expected, ${args.length} given")
+            val env = if args.isEmpty then clos.env else Runtime.extend(clos.env, args.toArray)
+            Runtime.run(clos.code, env)
+          case Value.ForeignV(obj: Value.NamedMethodObj) =>
+            obj.getField("apply") match
+              case Some(apply) => invoke(apply, args)
+              case None => throw new IllegalArgumentException("native callback value is not callable")
+          case _ => throw new IllegalArgumentException("native callback value is not callable")
+
         def register(name: String)(fn: List[Value] => Value): Unit =
           claim("intrinsic", name, provider.id)
           V2PluginRegistry.register(name, fn)

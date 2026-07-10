@@ -38,3 +38,17 @@ class NativePluginHostTest extends AnyFunSuite:
     }
     assert(err.getMessage.contains("duplicate native plugin id(s): duplicate"))
   }
+
+  test("provider callbacks run through the host trampoline with bounded errors") {
+    var result: Value = Value.UnitV
+    val callback = Value.ClosV(ssc.Runtime.emptyEnv, 1, env => ssc.Done(env.last))
+    val provider = new NativePlugin:
+      def id: String = "callback"
+      def install(context: NativePluginContext): Unit =
+        result = context.invoke(callback, List(Value.StrV("ok")))
+        val error = intercept[IllegalArgumentException](context.invoke(Value.IntV(1), Nil))
+        assert(error.getMessage == "native callback value is not callable")
+
+    NativePluginHost.installProviders(List(provider))
+    assert(result == Value.StrV("ok"))
+  }

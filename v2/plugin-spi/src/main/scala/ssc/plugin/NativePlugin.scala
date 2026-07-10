@@ -10,6 +10,7 @@ trait NativePlugin:
 /** The only standard-tier mutation surface exposed to native providers. */
 trait NativePluginContext:
   def argv: List[String]
+  def invoke(fn: Value, args: List[Value]): Value
   def register(name: String)(fn: List[Value] => Value): Unit
   def registerGlobal(name: String, arity: Int)(fn: List[Value] => Value): Unit
   def registerValue(name: String, value: Value): Unit

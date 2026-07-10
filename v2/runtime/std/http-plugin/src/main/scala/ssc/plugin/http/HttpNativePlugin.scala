@@ -23,17 +23,14 @@ final class HttpNativePlugin extends NativePlugin:
   private def closure(arity: Int)(fn: List[Value] => Value): Value.ClosV =
     Value.ClosV(Runtime.emptyEnv, arity, env => Done(fn(env.toList)))
 
-  private def call(fn: Value, args: List[Value] = Nil): Value = fn match
-    case clos: Value.ClosV =>
-      Runtime.run(clos.code, if args.isEmpty then clos.env else Runtime.extend(clos.env, args.toArray))
-    case _ => throw new RuntimeException("HTTP callback must be a function")
-
   private def text(args: List[Value], index: Int, operation: String): String = args.lift(index) match
     case Some(Value.StrV(value)) => value
     case _ => throw new RuntimeException(s"$operation argument ${index + 1} must be String")
 
   private def integer(args: List[Value], index: Int, operation: String): Long = args.lift(index) match
     case Some(Value.IntV(value)) => value
+    case Some(Value.StrV(value)) => value.toLongOption.getOrElse(
+      throw new RuntimeException(s"$operation argument ${index + 1} must be Int"))
     case _ => throw new RuntimeException(s"$operation argument ${index + 1} must be Int")
 
   private def valueText(value: Value): String = value match
@@ -97,7 +94,9 @@ final class HttpNativePlugin extends NativePlugin:
       val retry = lastError != null || (lastResponse != null && lastResponse.nn.statusCode() >= 500)
       if retry && attempt < settings.maxAttempts.max(1) then Thread.sleep(settings.retryDelayMs.max(0L))
       else attempt = settings.maxAttempts.max(1)
-    if lastError != null then throw new RuntimeException(s"HTTP $method failed: ${lastError.nn.getMessage}", lastError)
+    if lastError != null then
+      val detail = Option(lastError.nn.getMessage).getOrElse(lastError.nn.getClass.getSimpleName)
+      throw new RuntimeException(s"HTTP $method failed: $detail", lastError)
     val result = lastResponse.nn
     val responseHeaders = result.headers().map().entrySet().iterator().asScala.flatMap { entry =>
       entry.getValue.asScala.headOption.map(entry.getKey -> _)
@@ -111,7 +110,7 @@ final class HttpNativePlugin extends NativePlugin:
     val requestHeaders = args.lift(headersIndex).map(headers).getOrElse(Map.empty)
     request(method, url, body, requestHeaders)
 
-  private def streamRequest(method: String, rawUrl: String, body: String, requestHeaders: Map[String, String], handler: Value): Value =
+  private def streamRequest(context: NativePluginContext, method: String, rawUrl: String, body: String, requestHeaders: Map[String, String], handler: Value): Value =
     val settings = clientSettings.get()
     val timeout = Duration.ofMillis(settings.timeoutMs.max(1L))
     val client = HttpClient.newBuilder().connectTimeout(timeout).build()
@@ -122,7 +121,7 @@ final class HttpNativePlugin extends NativePlugin:
       case "POST" => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
       case other => builder.method(other, HttpRequest.BodyPublishers.ofString(body)).build()
     val result = client.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
-    try result.body().forEach(line => call(handler, List(Value.StrV(line))))
+    try result.body().forEach(line => context.invoke(handler, List(Value.StrV(line))))
     finally result.body().close()
     val responseHeaders = result.headers().map().entrySet().iterator().asScala.flatMap { entry =>
       entry.getValue.asScala.headOption.map(entry.getKey -> _)
@@ -139,6 +138,8 @@ final class HttpNativePlugin extends NativePlugin:
   def install(context: NativePluginContext): Unit =
     context.registerFields("Response", Vector("status", "headers", "body"))
     context.registerFields("TlsContext", Vector("certPath", "keyPath"))
+    context.registerFields("Request", Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json"))
+    val serverHost = JdkNativeHttpServerHost(context)
 
     val httpGet: List[Value] => Value = args => requestArgs("GET", args, hasBody = false)
     val httpPost: List[Value] => Value = args => requestArgs("POST", args, hasBody = true)
@@ -157,7 +158,7 @@ final class HttpNativePlugin extends NativePlugin:
         case List(block) =>
           val previous = clientSettings.get()
           clientSettings.set(previous.copy(baseUrl = baseUrl))
-          try call(block)
+          try context.invoke(block, Nil)
           finally clientSettings.set(previous)
         case _ => throw new RuntimeException("httpClient(baseUrl)(block)")
       }
@@ -183,7 +184,7 @@ final class HttpNativePlugin extends NativePlugin:
       val url = text(args, 0, "httpGetStream")
       val requestHeaders = args.lift(1).map(headers).getOrElse(Map.empty)
       closure(1) {
-        case List(handler) => streamRequest("GET", url, "", requestHeaders, handler)
+        case List(handler) => streamRequest(context, "GET", url, "", requestHeaders, handler)
         case _ => throw new RuntimeException("httpGetStream(url[, headers])(handler)")
       }
     }
@@ -192,7 +193,7 @@ final class HttpNativePlugin extends NativePlugin:
       val body = text(args, 1, "httpPostStream")
       val requestHeaders = args.lift(2).map(headers).getOrElse(Map.empty)
       closure(1) {
-        case List(handler) => streamRequest("POST", url, body, requestHeaders, handler)
+        case List(handler) => streamRequest(context, "POST", url, body, requestHeaders, handler)
         case _ => throw new RuntimeException("httpPostStream(url, body[, headers])(handler)")
       }
     }
@@ -252,7 +253,29 @@ final class HttpNativePlugin extends NativePlugin:
     }
     native(context, "requestCookie")(_ => Value.StrV(""))
 
-    List("route", "serve", "serveAsync", "stop", "use", "cors", "useGzip",
+    native(context, "route") { args =>
+      val method = text(args, 0, "route")
+      val path = text(args, 1, "route")
+      args.lift(2) match
+        case Some(handler) => serverHost.register(method, path, handler); Value.UnitV
+        case None => closure(1) {
+          case List(handler) => serverHost.register(method, path, handler); Value.UnitV
+          case _ => throw new RuntimeException("route(method, path)(handler)")
+        }
+    }
+    native(context, "serveAsync") { args =>
+      if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      serverHost.serve(integer(args, 0, "serveAsync").toInt, asynchronous = true)
+      Value.UnitV
+    }
+    native(context, "serve") { args =>
+      if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      serverHost.serve(integer(args, 0, "serve").toInt, asynchronous = false)
+      Value.UnitV
+    }
+    native(context, "stop") { _ => serverHost.stop(); Value.UnitV }
+
+    List("use", "cors", "useGzip",
       "streamResponse", "sse", "maxBodySize", "uploadSpoolThreshold", "uploadDir",
       "wsConnect", "onWebSocket", "onWebSocketAuth", "mount").foreach { name =>
       native(context, name)(unsupported(name))

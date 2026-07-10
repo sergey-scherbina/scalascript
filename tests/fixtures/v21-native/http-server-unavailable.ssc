@@ -1,7 +1,0 @@
-# Native HTTP server boundary is explicit until the server-host SPI lands
-
-[serve](std/http.ssc)
-
-```scalascript
-serve(8080)
-```

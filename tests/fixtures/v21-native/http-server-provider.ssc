@@ -1,0 +1,12 @@
+# Native std.http JDK server host
+
+[route, serveAsync, stop, httpGet, Response](std/http.ssc)
+
+```scalascript
+val port = args(0)
+route("GET", "/ping") { req => Response.text("pong:" + req.path, 203) }
+serveAsync(port)
+println(httpGet("http://127.0.0.1:" + port + "/ping").status)
+println(httpGet("http://127.0.0.1:" + port + "/ping").body)
+stop()
+```
