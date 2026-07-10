@@ -1,6 +1,0 @@
-feature/tkv2-spa-i18n-parity 2026-07-10T00:32:51Z
-agent: codex
-heartbeat: 2026-07-10T00:45:13Z
-status: in-progress
-done-so-far: spec committed (5c9fddc6f); installBin passed; emitted custom SPA reproduced ReferenceError: serve is not defined; root cause is JS intrinsic dispatch stealing collision-renamed std.ui.primitives.serve import
-next: adjust focused jsdom regression assertion, rerun tests/manual emit-spa, record BUGS/spec/board, then push branch to main
