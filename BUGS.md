@@ -1,5 +1,29 @@
 # Bug tracker
 
+## v2-bytecode-x402-unhandled-op-success — bytecode lane exits 0 with unresolved `Wallets.metaMask` op
+
+**Status:** open (2026-07-10).
+
+- **Found by:** codex during the TI-2 VM/ASM corpus baseline at `7ba4d413b`.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, compare
+  `bin/ssc run examples/x402-metamask.ssc` with
+  `bin/ssc run --bytecode examples/x402-metamask.ssc` (the focused portable
+  repro is `scripts/bc-parity-sweep --only x402-metamask.ssc --strict`).
+- **Observed:** the VM exits 1 with source-located `Undefined: Wallets` at
+  `Wallets.metaMask(Network.Base)`. The bytecode lane exits 0 and prints
+  `Op("Wallets.metaMask", Base, <closure>)` as if the unresolved effect were a
+  successful program result.
+- **Expected:** VM and ASM agree. Until the wallet plugin/global is available,
+  both lanes must fail with a stable unresolved-symbol/effect diagnostic; once
+  it is available, both must execute it and produce the same observable output.
+- **Root cause direction:** the v2 bytecode route preserves an unhandled plugin
+  method fallback as a top-level `Op` value and the CLI treats that value as a
+  successful result, while the VM/default route rejects the undefined
+  `Wallets` global earlier. Inspect FrontendBridge method-object registration,
+  `PluginBridge` fallback dispatch, and bytecode top-level result handling.
+- **Owner/slice:** `v21-ti-native-front-parity` plus VM/ASM parity; add a
+  focused conformance row before closing.
+
 ## v21-native-front-prose-self-import-loop — raw link scan follows prose links as module imports
 
 **Status:** open (2026-07-10).
