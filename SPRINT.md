@@ -42,6 +42,15 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
       Gate: new `FrontendBridgeTest` case + full `FrontendBridgeTest` 54/54 + v2 conf 8/8.
       (Coverage widening — correctness-verified, load-independent; the corpus didn't hit it,
       but any BigInt/bytes literal program can now use `--bytecode`.)
+- [x] **v2asm-foldleft-inline** — DONE 2026-07-10 (`f748c8240`). `xs.foldLeft(z)(f)` deopted
+      to the VM (`__method__`→`methodOp`→`callClos`-per-element). Now compiles to a native
+      Cons-walk loop + accumulator slot (accumulating sibling of the foreach inline), inlining
+      the pure body — no per-element `callClos`/dispatch. De Bruijn matched to the VM's
+      `callClos(Array(acc,elem))` (env indexes from end → Local0=elem, Local1=acc; push acc
+      THEN elem). Gate: order-sensitive `FrontendBridgeTest` (bytecode==VM) + full 55/55 +
+      source `foldLeft --bytecode == --v2` (1234) + census 195/195 + v2 conf 8/8. Structural
+      win (native loop vs VM per-element); magnitude pending a stable-load bench. NEXT similar:
+      `map`/`filter` inline (build a Cons result), `foldRight` (reverse then fold).
 - [ ] **v2asm-0-baseline** — record `scripts/bench v2-bytecode` A/B (VM vs bytecode) over the
       corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
       BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
