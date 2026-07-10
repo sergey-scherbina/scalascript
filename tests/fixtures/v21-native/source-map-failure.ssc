@@ -1,0 +1,6 @@
+# Native JVM source mapping
+
+```scalascript
+def explode() = jsonParse("{")
+explode()
+```

@@ -35,9 +35,14 @@ object JvmByteGen:
     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
     false)
 
-  private final case class Pending(name: String, body: Term, selfGlobal: String | Null = null, selfArity: Int = -1)
+  private final case class Pending(
+      name: String,
+      body: Term,
+      selfGlobal: String | Null = null,
+      selfArity: Int = -1,
+      sourceLine: Option[Int] = None)
 
-  private final class Gen(val cw: ClassWriter):
+  private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug]):
     val pending = collection.mutable.Queue.empty[Pending]
     var lamIdx = 0
     def freshLam(): String = { lamIdx += 1; s"lam$$$lamIdx" }
@@ -45,9 +50,9 @@ object JvmByteGen:
      *  to DIRECT invokestatic — no global lookup, no ClosV, no Emit.app. */
     val defMethods = collection.mutable.HashMap.empty[String, (String, Int)]
     /** Pending Seq chains: (per-statement method names, statements, tailLast). */
-    val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean)]
+    val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean, Vector[Option[Int]])]
     /** Pending Let chains: (step names, body name, rhs terms, body, tail). */
-    val letChains = collection.mutable.Queue.empty[(Vector[String], String, List[Term], Term, Boolean)]
+    val letChains = collection.mutable.Queue.empty[(Vector[String], String, List[Term], Term, Boolean, Option[Int])]
     /** Top-level def names whose body is provably effect-free (never yields an
      *  Op) — App to these is safe inside an inline-foreach body. */
     val pureDefs = collection.mutable.HashSet[String]()
@@ -64,13 +69,21 @@ object JvmByteGen:
     var selfGlobal: String | Null = null
     var selfArity: Int = -1
     var startLabel: Label | Null = null
+    var sourceLine: Option[Int] = None
+    var statementLines: Vector[Option[Int]] = Vector.empty
     def saveSlots(): List[Int] = { val s = stack.toList; stack.clear(); s }
     def restoreSlots(s: List[Int]): Unit = { stack.clear(); stack ++= s }
 
-  def emitProgram(p: Program): Array[Byte] =
+  def emitProgram(p: Program): Array[Byte] = emitProgram(p, None)
+
+  def emitProgram(p: Program, sourceDebug: JvmSourceDebug): Array[Byte] =
+    emitProgram(p, Some(sourceDebug))
+
+  private def emitProgram(p: Program, sourceDebug: Option[JvmSourceDebug]): Array[Byte] =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, GEN, null, OBJ, null)
-    val g = new Gen(cw)
+    sourceDebug.foreach(debug => cw.visitSource(debug.sourceFile, debug.smap))
+    val g = new Gen(cw, sourceDebug)
 
     // pre-register def methods FIRST so entry and def bodies alike can call
     // them directly (invokestatic) — names issued once, no re-issuing.
@@ -88,7 +101,15 @@ object JvmByteGen:
     }
 
     // entry(): compiled entry term with an EMPTY frame
-    emitBody(g, "entry", p.entry, paramIsEnv = false)
+    val entryLines = sourceDebug.toVector.flatMap(debug => debug.entryLines.map(debug.outputLine))
+      .map(Some(_))
+    emitBody(
+      g,
+      "entry",
+      p.entry,
+      paramIsEnv = false,
+      sourceLine = entryLines.headOption.flatten,
+      statementLines = entryLines)
 
     // A persisted class is directly executable. Runtime/plugin initialization
     // stays in the core-free native artifact helper; generated code only owns
@@ -100,6 +121,7 @@ object JvmByteGen:
       null,
       null)
     mainMv.visitCode()
+    entryLines.headOption.flatten.foreach(line => markLine(mainMv, line))
     mainMv.visitVarInsn(Opcodes.ALOAD, 0)
     mainMv.visitMethodInsn(
       Opcodes.INVOKESTATIC,
@@ -137,12 +159,18 @@ object JvmByteGen:
           // bytecode lane does it here, in def order, before entry.
           installMv.visitLdcInsn(d.name)
           val vctx = new Ctx(installMv, g)
+          sourceLineFor(g, d.name).foreach(line => markLine(vctx, line))
           gen(valueBody, vctx)
           installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "registerGlobal", s"(Ljava/lang/String;L$VAL;)V", false)
       d.body match
         case Term.Lam(ar, body) if lastDefs.get(d.name).contains(i) =>
           val (m, _) = g.defMethods(d.name)
-          g.pending.enqueue(Pending(m, body, selfGlobal = d.name, selfArity = ar))
+          g.pending.enqueue(Pending(
+            m,
+            body,
+            selfGlobal = d.name,
+            selfArity = ar,
+            sourceLine = sourceLineFor(g, d.name)))
           installMv.visitLdcInsn(d.name)
           installMv.visitLdcInsn(ar)
           installMv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
@@ -177,13 +205,20 @@ object JvmByteGen:
     while g.pending.nonEmpty || g.chains.nonEmpty do
       while g.pending.nonEmpty do
         val pnd = g.pending.dequeue()
-        emitBody(g, pnd.name, pnd.body, paramIsEnv = true, selfGlobal = pnd.selfGlobal, selfArity = pnd.selfArity)
+        emitBody(
+          g,
+          pnd.name,
+          pnd.body,
+          paramIsEnv = true,
+          selfGlobal = pnd.selfGlobal,
+          selfArity = pnd.selfArity,
+          sourceLine = pnd.sourceLine)
       while g.chains.nonEmpty do
-        val (names, ts, tailLast) = g.chains.dequeue()
-        emitChain(g, names, ts, tailLast)
+        val (names, ts, tailLast, lines) = g.chains.dequeue()
+        emitChain(g, names, ts, tailLast, lines)
       while g.letChains.nonEmpty do
-        val (steps, bodyName, rhs, body, tl) = g.letChains.dequeue()
-        emitLetChain(g, steps, bodyName, rhs, body, tl)
+        val (steps, bodyName, rhs, body, tl, line) = g.letChains.dequeue()
+        emitLetChain(g, steps, bodyName, rhs, body, tl, line)
 
     cw.visitEnd()
     cw.toByteArray
@@ -250,12 +285,33 @@ object JvmByteGen:
     case _ => false // Lit, Local, Global, Lam, LetRec, While
 
   /** Let chain: step i binds rhs_i (env has bindings 0..i-1 appended). */
+  private def sourceLineFor(g: Gen, name: String): Option[Int] =
+    g.sourceDebug.flatMap(debug => debug.definitionLines.get(name).map(debug.outputLine))
+
+  private def markLine(mv: MethodVisitor, line: Int): Unit =
+    val label = new Label()
+    mv.visitLabel(label)
+    mv.visitLineNumber(line, label)
+
+  private def markLine(ctx: Ctx, line: Int): Unit =
+    markLine(ctx.mv, line)
+    ctx.sourceLine = Some(line)
+
+  private def consumeStatementLines(ctx: Ctx, count: Int): Vector[Option[Int]] =
+    val lines = ctx.statementLines
+    ctx.statementLines = Vector.empty
+    if lines.length == count then lines
+    else if lines.length > count then lines.takeRight(count)
+    else Vector.fill(count - lines.length)(ctx.sourceLine) ++ lines
+
   private def emitLetChain(g: Gen, steps: Vector[String], bodyName: String,
-                           rhs: List[Term], body: Term, tl: Boolean): Unit =
+                           rhs: List[Term], body: Term, tl: Boolean,
+                           sourceLine: Option[Int]): Unit =
     rhs.zipWithIndex.foreach { (r, i) =>
       val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, steps(i), s"([L$VAL;)L$VAL;", null, null)
       mv.visitCode()
       val ctx = new Ctx(mv, g)
+      sourceLine.foreach(line => markLine(ctx, line))
       gen(r, ctx)
       val next = if i == rhs.length - 1 then bodyName else steps(i + 1)
       mv.visitInsn(Opcodes.DUP)
@@ -281,6 +337,7 @@ object JvmByteGen:
     val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, bodyName, s"([L$VAL;)L$VAL;", null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
+    sourceLine.foreach(line => markLine(ctx, line))
     gen(body, ctx, tail = tl)
     mv.visitInsn(Opcodes.ARETURN)
     mv.visitMaxs(0, 0)
@@ -288,12 +345,18 @@ object JvmByteGen:
 
   /** One method per Seq statement: value checked for an un-handled Op at the
    *  boundary — fast path calls the next chain method directly. */
-  private def emitChain(g: Gen, names: Vector[String], ts: List[Term], tailLast: Boolean): Unit =
+  private def emitChain(
+      g: Gen,
+      names: Vector[String],
+      ts: List[Term],
+      tailLast: Boolean,
+      sourceLines: Vector[Option[Int]]): Unit =
     ts.zipWithIndex.foreach { (stmt, i) =>
       val last = i == ts.length - 1
       val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, names(i), s"([L$VAL;)L$VAL;", null, null)
       mv.visitCode()
       val ctx = new Ctx(mv, g)
+      sourceLines.lift(i).flatten.foreach(line => markLine(ctx, line))
       gen(stmt, ctx, tail = tailLast && last)
       if !last then
         mv.visitInsn(Opcodes.DUP)
@@ -315,13 +378,16 @@ object JvmByteGen:
     }
 
   private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean,
-                       selfGlobal: String | Null = null, selfArity: Int = -1): Unit =
+                       selfGlobal: String | Null = null, selfArity: Int = -1,
+                       sourceLine: Option[Int] = None,
+                       statementLines: Vector[Option[Int]] = Vector.empty): Unit =
     val desc = if paramIsEnv then s"([L$VAL;)L$VAL;" else s"()L$VAL;"
     val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
     ctx.selfGlobal = selfGlobal
     ctx.selfArity = selfArity
+    ctx.statementLines = statementLines
     if !paramIsEnv then
       // no env param: slot 0 hosts an empty frame for uniformity
       mv.visitInsn(Opcodes.ICONST_0)
@@ -331,7 +397,7 @@ object JvmByteGen:
       if paramIsEnv && selfGlobal != null && selfArity >= 1 &&
           canParamLong(body, selfGlobal.nn, selfArity) then
         val ln = s"${name}$$long"
-        emitParamLongMethod(g, ln, body, selfGlobal.nn, selfArity)
+        emitParamLongMethod(g, ln, body, selfGlobal.nn, selfArity, sourceLine)
         Some(ln)
       else None
     val genericStart = new Label()
@@ -356,6 +422,7 @@ object JvmByteGen:
     val startL = new Label()
     mv.visitLabel(startL)
     ctx.startLabel = startL
+    sourceLine.foreach(line => markLine(ctx, line))
     gen(body, ctx, tail = true)
     mv.visitInsn(Opcodes.ARETURN)
     mv.visitMaxs(0, 0)
@@ -566,7 +633,13 @@ object JvmByteGen:
       case other =>
         throw new Unsupported(s"param-long-cond:${other.getClass.getSimpleName}")
 
-  private def emitParamLongMethod(g: Gen, name: String, body: Term, selfName: String, arity: Int): Unit =
+  private def emitParamLongMethod(
+      g: Gen,
+      name: String,
+      body: Term,
+      selfName: String,
+      arity: Int,
+      sourceLine: Option[Int]): Unit =
     val desc = "(" + ("J" * arity) + ")J"
     val mv = g.cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
@@ -576,6 +649,7 @@ object JvmByteGen:
     // still leave a value on the operand stack.
     val startL = new Label()
     mv.visitLabel(startL)
+    sourceLine.foreach(line => markLine(mv, line))
     emitParamLong(body, mv, selfName, arity, name, startL, tail = true)
     mv.visitInsn(Opcodes.LRETURN)
     mv.visitMaxs(0, 0)
@@ -597,7 +671,7 @@ object JvmByteGen:
         loadLocalValue(i, ctx)
       case Term.Lam(ar, body) =>
         val m = ctx.g.freshLam()
-        ctx.g.pending.enqueue(Pending(m, body))
+        ctx.g.pending.enqueue(Pending(m, body, sourceLine = ctx.sourceLine))
         mv.visitLdcInsn(ar)
         emitLamFnRef(ctx, m)
         emitCapture(ctx)
@@ -605,6 +679,7 @@ object JvmByteGen:
       case Term.Seq(Nil) =>
         call0(mv, "unitV")
       case Term.Seq(ts) if ts.length == 1 =>
+        consumeStatementLines(ctx, 1).headOption.flatten.foreach(line => markLine(ctx, line))
         gen(ts.head, ctx, tail)
       case Term.Seq(ts) if !ts.exists(mayOp) =>
         // PURE sequence (no statement can yield an Op): emit statements INLINE
@@ -612,8 +687,10 @@ object JvmByteGen:
         // emitCapture env materialisation. This is the hot path for while-loop
         // bodies (`sum = sum + i; i = i + 1`), which the effect-threading chain
         // below made ~Nx slower (an env array alloc + 2 invokestatic each iter).
+        val lines = consumeStatementLines(ctx, ts.length)
         ts.zipWithIndex.foreach { (s, i) =>
           val last = i == ts.length - 1
+          lines.lift(i).flatten.foreach(line => markLine(ctx, line))
           gen(s, ctx, tail && last)
           if !last then mv.visitInsn(Opcodes.POP)
         }
@@ -625,7 +702,8 @@ object JvmByteGen:
         // inlines the static calls back) or re-emerges the Op with the rest
         // of the chain as its continuation via Emit.seqThread.
         val chainNames = ts.indices.map(_ => ctx.g.freshLam()).toVector
-        ctx.g.chains += ((chainNames, ts, tail))
+        val lines = consumeStatementLines(ctx, ts.length)
+        ctx.g.chains += ((chainNames, ts, tail, lines))
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, chainNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.If(c, a, b) =>
@@ -652,7 +730,7 @@ object JvmByteGen:
         // Emit.letThread with the rest of the chain as its continuation.
         val stepNames = rhs.indices.map(_ => ctx.g.freshLam()).toVector
         val bodyName  = ctx.g.freshLam()
-        ctx.g.letChains += ((stepNames, bodyName, rhs, body, tail))
+        ctx.g.letChains += ((stepNames, bodyName, rhs, body, tail, ctx.sourceLine))
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, stepNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.LetRec(lams, body) =>
@@ -660,7 +738,7 @@ object JvmByteGen:
         val entries = lams.map {
           case Term.Lam(ar, b) =>
             val m = ctx.g.freshLam()
-            ctx.g.pending.enqueue(Pending(m, b))
+            ctx.g.pending.enqueue(Pending(m, b, sourceLine = ctx.sourceLine))
             (ar, m)
           case other => throw new Unsupported("letrec:non-lam")
         }

@@ -22,6 +22,7 @@ object RunNativeV2:
     }
     val sourceFiles = canonicalFiles.map(portablePath)
     val nativeConfig = NativeFrontmatter.fromFiles(canonicalFiles)
+    val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot)
 
     val previousArgv = _root_.ssc.Runtime.argv
     try
@@ -39,7 +40,7 @@ object RunNativeV2:
           "native frontend rejected incomplete parse: emitted CoreIR contains parser sentinel _err")
 
       val prog = _root_.ssc.Reader.parseProgram(ir)
-      NativeV2Compilation(prog, nativeConfig, canonicalFiles, ir)
+      NativeV2Compilation(prog, nativeConfig, canonicalFiles, sourceUnits, ir)
     finally _root_.ssc.Runtime.argv = previousArgv
 
   /** Parser/lowerer recursion for real std-heavy documents needs more stack
@@ -93,8 +94,10 @@ object RunNativeV2:
       _root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   private def runBytecode(prog: _root_.ssc.Program): Unit =
-    val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
-    _root_.ssc.Emit.globalsRef = globals
+    // Generated install() owns both lambda and value-def initialization. A VM
+    // compileWithGlobals prepass is redundant and can take VM/plugin-specific
+    // dispatch branches before the ASM class has installed its own globals.
+    _root_.ssc.Emit.globalsRef = collection.mutable.HashMap.empty
     val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
     val result =
       try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
@@ -129,5 +132,6 @@ object RunNativeV2:
 private[cli] final case class NativeV2Compilation(
     program: _root_.ssc.Program,
     config: _root_.ssc.plugin.NativeRuntimeConfig,
-    sources: List[java.io.File],
+    roots: List[java.io.File],
+    sourceUnits: List[NativeSourceUnit],
     coreIr: String)

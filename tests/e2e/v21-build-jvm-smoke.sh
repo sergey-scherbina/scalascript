@@ -47,13 +47,46 @@ fi
 unzip -p "$sandbox/app-a.jar" META-INF/scalascript/artifact.properties \
   >"$sandbox/artifact.properties"
 grep -Fx 'format=scalascript-jvm-2.1' "$sandbox/artifact.properties" >/dev/null
-grep -Fx 'source.count=2' "$sandbox/artifact.properties" >/dev/null
+grep -Fx 'source.count=3' "$sandbox/artifact.properties" >/dev/null
+grep -F 'source.2.name=std/crypto.ssc' "$sandbox/artifact.properties" >/dev/null
 grep -F 'ssc.plugin.host.HostNativePlugin' "$sandbox/artifact.properties" >/dev/null
 grep -F 'ssc.plugin.crypto.CryptoNativePlugin' "$sandbox/artifact.properties" >/dev/null
+
+javap -classpath "$sandbox/app-a.jar" -l -v ssc.gen.Entry >"$sandbox/entry.javap"
+grep -F 'SourceFile: "argv.ssc"' "$sandbox/entry.javap" >/dev/null
+grep -F 'SourceDebugExtension' "$sandbox/entry.javap" >/dev/null
+grep -F 'argv.ssc' "$sandbox/entry.javap" >/dev/null
+grep -F 'std-crypto.ssc' "$sandbox/entry.javap" >/dev/null
+grep -F 'LineNumberTable:' "$sandbox/entry.javap" >/dev/null
+if grep -F "$ROOT" "$sandbox/entry.javap" "$sandbox/artifact.properties" >/dev/null; then
+  echo 'v21-build-jvm-smoke: artifact debug metadata contains an absolute checkout path' >&2
+  exit 1
+fi
+
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$FIXTURES/source-map-failure.ssc" -o "$sandbox/source-map-failure.jar"
+set +e
+PATH="$clean_path" java -jar "$sandbox/source-map-failure.jar" \
+  >"$sandbox/source-map-failure.out" 2>"$sandbox/source-map-failure.err"
+source_map_rc=$?
+set -e
+[[ $source_map_rc -ne 0 ]]
+grep -E 'ssc[.]gen[.]Entry[.].*\(source-map-failure[.]ssc:4\)' \
+  "$sandbox/source-map-failure.err" >/dev/null
 
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$FIXTURES/relative-main.ssc" -o "$sandbox/import.jar"
 [[ $(PATH="$clean_path" java -jar "$sandbox/import.jar") == '42' ]]
+unzip -p "$sandbox/import.jar" META-INF/scalascript/artifact.properties \
+  >"$sandbox/import-artifact.properties"
+grep -Fx 'source.count=2' "$sandbox/import-artifact.properties" >/dev/null
+grep -F 'source.0.name=relative-helper.ssc' "$sandbox/import-artifact.properties" >/dev/null
+grep -F 'source.1.name=relative-main.ssc' "$sandbox/import-artifact.properties" >/dev/null
+helper_sha=$(shasum -a 256 "$FIXTURES/relative-helper.ssc" | awk '{print $1}')
+grep -F "source.0.sha256=$helper_sha" "$sandbox/import-artifact.properties" >/dev/null
+javap -classpath "$sandbox/import.jar" -l -v ssc.gen.Entry >"$sandbox/import-entry.javap"
+grep -F 'relative-main.ssc' "$sandbox/import-entry.javap" >/dev/null
+grep -F 'relative-helper.ssc' "$sandbox/import-entry.javap" >/dev/null
 
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$FIXTURES/sql-provider.ssc" -o "$sandbox/sql.jar"

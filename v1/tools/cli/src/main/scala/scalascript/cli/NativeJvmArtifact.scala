@@ -70,7 +70,7 @@ private[cli] object NativeJvmArtifact:
   def write(
       program: _root_.ssc.Program,
       config: NativeRuntimeConfig,
-      sources: List[File],
+      sourceUnits: List[NativeSourceUnit],
       runtimeDir: File,
       output: File): Unit =
     if !runtimeDir.isDirectory then
@@ -131,9 +131,13 @@ private[cli] object NativeJvmArtifact:
     add("META-INF/MANIFEST.MF", manifestBytes, "generated manifest")
     add(
       "META-INF/scalascript/artifact.properties",
-      metadataBytes(sources, runtimeJars.map(_.getName), providers, config),
+      metadataBytes(sourceUnits, runtimeJars.map(_.getName), providers, config),
       "generated metadata")
-    add(EntryClass, _root_.ssc.bytecode.JvmByteGen.emitProgram(program), "generated CoreIR class")
+    val sourceDebug = NativeJvmSourceMap.build(program, sourceUnits)
+    add(
+      EntryClass,
+      _root_.ssc.bytecode.JvmByteGen.emitProgram(program, sourceDebug),
+      "generated CoreIR class")
 
     Option(output.getParentFile).foreach(parent => Files.createDirectories(parent.toPath))
     val out = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(output)))
@@ -175,12 +179,12 @@ private[cli] object NativeJvmArtifact:
       .getBytes(StandardCharsets.UTF_8)
 
   private def metadataBytes(
-      sources: List[File],
+      sourceUnits: List[NativeSourceUnit],
       runtimeJars: List[String],
       providers: List[String],
       config: NativeRuntimeConfig): Array[Byte] =
-    val sourceRows = sources.map { file =>
-      file.getName -> sha256(Files.readAllBytes(file.toPath))
+    val sourceRows = sourceUnits.map { unit =>
+      unit.displayPath -> sha256(Files.readAllBytes(unit.file.toPath))
     }.sortBy(identity)
     val databaseRows = config.databases.toList.sortBy(_._1)
     val lines = List(
@@ -252,7 +256,7 @@ final class BuildJvmCmd extends CliCommand:
       NativeJvmArtifact.write(
         compilation.program,
         compilation.config,
-        compilation.sources,
+        compilation.sourceUnits,
         new File(installRoot, "bin/lib/jars"),
         out)
       println(s"JVM artifact written to ${out.getPath}")
