@@ -177,7 +177,8 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `v2-rust=0.265 ms`. Known JVM/Rust source-backend performance rows are
       closed; continue production-performance work under the separate
       `v2-vm-production-jit-gate`.
-- [ ] **v2-vm-production-jit-gate** — partially landed on 2026-07-09:
+- **v2-vm-production-jit-gate** — ✓ Closed (2026-07-10) as route-policy gate;
+      implementation slices landed across 2026-07-09 and 2026-07-10:
       three narrow VM slices have shipped. The first recognized the exact
       bridge-lowered local Long-cell summation loop from
       `bench/corpus/arith-loop.ssc`, moving the v2 VM row from 9.91 ms to
@@ -234,6 +235,12 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       family: bytecode/JVM source for recursion, VM/Rust source for
       scalar/pattern-heavy. Pure-VM recursion remains a known non-default
       performance gap only if a deployment forbids bytecode/source routes.
+      Reconcile verification (2026-07-10): `scripts/sbtc "installBin"`,
+      `scripts/bench v2-backends pattern-match-heavy` (`v2=0.266 ms`,
+      `v2-jvm=10.4 ms`, `v2-rust=0.293 ms`), and
+      `tests/conformance/run.sh --only 'list-companion' --no-memo` 1/1
+      passed. `v2-auto-route-selector` remains a can-wait follow-up, not a
+      production blocker while explicit public route flags are available.
 - [ ] **v2-auto-route-selector** — can-wait follow-up after the manual route
       policy: design and implement a conservative program-shape/profile-based
       selector that can choose VM, bytecode, JVM source, or Rust source per

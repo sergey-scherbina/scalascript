@@ -9,19 +9,17 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-vm-production-jit-gate** - VERIFY/RECONCILE 2026-07-10:
-      close the stale open BACKLOG row only if the existing shipped slices
-      already prove the production route policy. Check
-      `specs/v2-vm-production-jit-gate.md`,
-      `specs/v2-pattern-match-heavy-production-profile.md`,
-      `specs/v2-four-row-route-policy-sweep.md`, and `CHANGELOG.md` for the
-      final route matrix: VM default, bytecode/JVM source for recursion, and
-      VM/Rust source for scalar/pattern-heavy rows. Do not add a new optimizer
-      or auto-router in this slice. Done when the BACKLOG row is either closed
-      as route-policy satisfied with evidence, or left open with a precise
-      remaining blocker; run at least `scripts/sbtc "installBin"`,
-      a focused `scripts/bench` route-policy sanity row, affected conformance,
-      and `git diff --check` before push.
+- [x] **v2-vm-production-jit-gate** - DONE 2026-07-10
+      (verification/reconcile): closed the stale open BACKLOG row as a
+      route-policy gate, not as an auto-router implementation. The shipped
+      specs now prove the policy: VM stays the global default; bytecode/JVM
+      source are the recursion routes; VM/Rust source cover scalar-loop and
+      pattern-heavy rows. Updated `specs/v2-vm-production-jit-gate.md` with
+      the final closure note. Gates: `scripts/sbtc "installBin"`,
+      `scripts/bench v2-backends pattern-match-heavy` (`v2=0.266 ms`,
+      `v2-jvm=10.4 ms`, `v2-rust=0.293 ms`),
+      `tests/conformance/run.sh --only 'list-companion' --no-memo` 1/1
+      across INT/JS/JVM, and `git diff --check`.
 
 - [x] **tkv2-dev-loop** - DONE 2026-07-10 (verification/reconcile):
       no new implementation was needed. `ssc serve <file>.ssc` already dispatches

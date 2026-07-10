@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 production VM/JIT route-policy gate closed
+
+Closed the stale open `v2-vm-production-jit-gate` backlog row as a route-policy
+gate. The documented production policy keeps VM as the global default, uses
+bytecode/JVM source for recursion-heavy deployments, and uses VM/Rust source
+for scalar-loop and pattern-heavy workloads. `v2-auto-route-selector` remains a
+can-wait follow-up, not a production blocker while explicit route flags exist.
+Gates: `installBin`, `scripts/bench v2-backends pattern-match-heavy`
+(`v2=0.266ms`, `v2-jvm=10.4ms`, `v2-rust=0.293ms`), `list-companion`
+conformance 1/1, and `git diff --check`.
+
 ## 2026-07-10 — toolkit v2 dev loop verified as already available
 
 Closed the open P2 `tkv2-dev-loop` backlog row after verifying the existing
