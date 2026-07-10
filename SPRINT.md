@@ -662,9 +662,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             explicit tools-tier categories and source-located failures.
             Current baseline 2026-07-10 after TI-8.2b and native K62.14/K62.15:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 85
+            frontend host errors/timeouts, 1 non-code document, 84
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            26 runtime successes, and 83 runtime errors (168 strict-fail rows).
+            26 runtime successes, and 84 runtime errors (168 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -702,19 +702,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 85 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 84 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `7a1802261`):** join the native-front
+                        (`aa9b30f28`, refined through `ea805bf22`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 85 rows classify as 12 standard-gap / 31
+                        Result: all 84 rows classify as 11 standard-gap / 31
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
@@ -722,18 +722,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        12 remaining deterministic rows by actual `_err` source
+                        11 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
                         Measured groups (overlap is intentional): extension and
                         symbolic extension methods affect 8 documents; match
-                        guards affect 3; generic/type-pattern residue and the multiline
+                        guards affect 3; the multiline
                         tuple-lambda closing boundary in `std/money.allocate`
                         affect one each. (`throw` is not the money sentinel.)
-                        Decimal separators/`L` and triple-quoted strings are
-                        closed; `x402-client.ssc` has moved to tools/backend
-                        under the platform-type prohibition.
+                        Decimal separators/`L`, triple-quoted strings, and the
+                        enum→generic-case-class boundary are closed;
+                        `x402-client.ssc` has moved to tools/backend under the
+                        platform-type prohibition.
                         - [x] **TI-8.2c2a numeric separators — DONE 2026-07-10
                               (`4bcf6a976`):** lex decimal
                               separators before the existing `L`/`l` suffix,
@@ -773,13 +774,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               parity remains 10/60/125 with no mismatch or
                               one-sided error. Native-entry passes and fresh
                               affected conformance is 9/9.
-                        - [ ] **TI-8.2c2d enum declaration boundary:** stop the
+                        - [x] **TI-8.2c2d enum declaration boundary — DONE
+                              2026-07-10 (`ea805bf22`):** stop the
                               layout enum-case scan before a following top-level
                               `case class`; otherwise `class` is consumed as an
                               enum case name and the generic class tail leaks two
                               `_err` expressions. Prove an enum followed by
                               `case class Box[A]` on native VM/direct ASM, then
                               rerun `typed-data.ssc` and the full taxonomy.
+                              Result: `Red`/`Box(7)` is byte-identical;
+                              `typed-data.ssc` is sentinel-clear/checker-OK and
+                              now reaches its default-argument runtime gap. Full
+                              corpus has 84 sentinels, taxonomy 11/31/36/5/1,
+                              parity 10/60/125 with no mismatch/one-sided;
+                              native-entry and fresh conformance 9/9 pass.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.

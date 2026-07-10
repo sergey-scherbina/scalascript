@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — enum parsing stops before a following case class
+
+The self-hosted layout enum scanner no longer consumes a following top-level
+`case class` as an enum case named `class`. A real enum→`Box[A]` fixture prints
+`Red` and `Box(7)` identically on native VM/direct ASM. `typed-data.ssc` is now
+sentinel-clear/checker-OK and reaches its honest default-argument runtime gap.
+The corpus has 84 sentinels and 11 standard parser gaps; native-entry, taxonomy,
+zero-difference parity, and fresh 9/9 conformance pass. Landed `ea805bf22`.
+
 ## 2026-07-10 — Frontmatter YAML core is self-hosted
 
 `runtime/std/yaml-core.ssc` now parses the bounded Frontmatter YAML Profile in
@@ -47,15 +56,15 @@ taxonomy smoke, parity, and affected conformance gates pass. Landed
 
 ## 2026-07-10 — every native parser sentinel has a release category
 
-The release join now classifies all 85 `_err` rows from the native-front and
-standard parity reports: 12 standard deterministic parser gaps, 31
+The release join now classifies all 84 `_err` rows from the native-front and
+standard parity reports: 11 standard deterministic parser gaps, 31
 server/integration documents, 36 backend-specific documents, 5 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
 entrypoints before execution; backend-only fenced documents are source-classified
 without overrides. VM/ASM parity is 10 identical, 60 honest both-fail, 125
-skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `7a1802261`).
+skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `ea805bf22`).
 
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 
