@@ -1,0 +1,22 @@
+# Native std.ui provider
+
+[signal, element, textNode, signalText, showSignal, emit](std/ui/primitives.ssc)
+[readFile](std/fs.ssc)
+[pathJoin](std/os.ssc)
+
+```scalascript
+val name = signal("name", "Grace")
+val visible = signal("visible", true)
+name.set("Ada")
+emit(
+  element("main", Map("id" -> "app", "class" -> "card"), Map(), List(
+    element("h1", Map(), Map(), List(textNode("Hi <native>"))),
+    signalText(name),
+    showSignal(visible,
+      element("span", Map(), Map(), List(textNode("shown"))),
+      textNode("hidden"))
+  )),
+  args(0)
+)
+println(readFile(pathJoin(args(0), "index.html")))
+```

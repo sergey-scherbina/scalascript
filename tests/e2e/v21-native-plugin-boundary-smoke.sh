@@ -14,7 +14,8 @@ fs=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-fs-plugin_*.jar' -pri
 json=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-json-plugin_*.jar' -print -quit)
 http=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-http-plugin_*.jar' -print -quit)
 sql=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-sql-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql"; do
+ui=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-ui-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -28,14 +29,15 @@ jar tf "$fs" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$json" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$http" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$sql" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$ui" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
-      'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
+      'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
     echo "forbidden standard-provider dependency in ${jar_file##*/}:" >&2
     printf '%s\n' "$deps" | grep -E \
-      'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|ssc\.bridge|dotty\.tools|javax\.tools' >&2
+      'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >&2
     exit 1
   fi
 done
@@ -47,7 +49,8 @@ if printf '%s\n' "$native_refs" | grep -E 'ssc/bridge/(PluginBridge|FrontendBrid
 fi
 
 classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-classload.XXXXXX")
-trap 'rm -f "$classlog"' EXIT HUP INT TERM
+ui_tmp=$(mktemp -d "${TMPDIR:-/tmp}/v21-native-ui.XXXXXX")
+trap 'rm -f "$classlog"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/std-crypto.ssc" >"$classlog" 2>&1
 grep -F '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' "$classlog" >/dev/null
@@ -63,6 +66,9 @@ grep -F 'public, max-age=60' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >>"$classlog" 2>&1
 grep -F 'Ada' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
+  "$ROOT/tests/fixtures/v21-native/ui-provider.ssc" -- "$ui_tmp" >>"$classlog" 2>&1
+grep -F 'Hi &lt;native&gt;' "$classlog" >/dev/null
 if grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' "$classlog" >/dev/null; then
   echo 'native crypto run loaded compatibility bridge/Scalameta classes' >&2
   grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' "$classlog" >&2
