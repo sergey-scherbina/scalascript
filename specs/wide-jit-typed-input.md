@@ -108,9 +108,40 @@ Static types are necessary but NOT sufficient for literally-all-cases:
 Call these out so a later agent doesn't expect wj-1..3 to reach 100% JIT coverage; they
 reach "all TYPED first-order code", which is the large majority and the right foundation.
 
-## Open decision for the user
+## Chosen strategy: (C) — typed tree end-to-end (Sergiy, 2026-07-10)
 
-**Strategy (B)-then-(A) vs jumping to (C).** (B)+(A) is incremental and low-risk but keeps
-the `source`→re-parse round-trip (a per-run cost, already paid today). (C) removes the
-round-trip and gives a clean typed tree but is a pipeline re-architecture. Recommend
-(B)+(A) unless the round-trip is proven to be a wall. Confirm before wj-1.
+Sergiy chose (C): thread a fully-typed tree end-to-end and kill the `source`→re-parse
+round-trip, giving the JIT a clean per-node type map instead of enriched string signatures.
+
+**Key enabler (found during the trace):** the original scalameta trees are NOT truly gone
+for in-process runs — `Normalize`'s own comment says *"scalameta trees are dropped — they're
+carried in `ast.Content.CodeBlock.tree` for in-process codegens … Backends that need the
+tree re-parse from the `source` field."* So the re-parse is a JSON-round-trip FALLBACK; for
+`ssc run` the tree is already in hand. (C) therefore = (1) have the Typer emit a
+`Term → SType` map keyed on those original trees, and (2) thread `(tree, typeMap)` to the
+interpreter/`VmCompiler` for in-process runs instead of re-parsing `source`. The JSON path
+keeps re-parse (no types across the wire, acceptable — cross-process codegen is not the JIT).
+
+### (C) phased plan — supersedes wj-1..3 above
+
+- **C-0 baseline** — as wj-0 (current JIT miss histogram, foreground).
+- **C-1 Typer per-node types** — LINCHPIN. Determine whether `Typer` already computes an
+  `SType` for each expression node internally (HM inference does; it just keeps only
+  `DefSummary`). If yes: expose a `Term → SType` side-map from `typeCheck`
+  (`typeCheckExpr`/`typeCheckBlock` already know each node's type). If no: bigger — the
+  typer must be extended to record per-node types. Gate: the map is produced + a unit test
+  asserts a few known node types; no behavior change yet.
+- **C-2 thread `(tree, typeMap)` to the interpreter** — for in-process runs, carry the
+  original scalameta `Term` + the C-1 type-map to `InterpreterBackend`/`Interpreter`
+  instead of `Denormalize`+re-parse. Keep re-parse as the JSON fallback. Gate: conformance
+  green (the interpreter runs the SAME tree it does today, just not re-parsed) — this is a
+  behavior-neutral plumbing change, verified by identical output.
+- **C-3 VmCompiler consumes the type-map** — `VmCompiler.compile(fn, …, typeMap)`: seed
+  `regType`/param types + the return type from the map instead of `TInt`/`decltpe`/runtime
+  hints. Gate: unknown-type miss counts drop; conformance green.
+- **C-4 wide compilation** — with per-node types, remove the type-unknown bails in
+  `compileExpr`/`compileInto` one class at a time (each A/B-provable via miss-count).
+- **C-gate** — quiet-machine bench A/B (hot paths not regressed; ideally `recursionFib`
+  variance gone). Deferred until load drops.
+
+Non-goals unchanged (closures/HOF, effects, Term.Function-as-value — separate programs).
