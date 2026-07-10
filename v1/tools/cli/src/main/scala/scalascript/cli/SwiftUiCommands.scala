@@ -52,10 +52,17 @@ private[cli] def swiftAppName(sscName: Option[String]): String =
 
 /** Return (udid, name) of the latest available iPhone simulator, or None. */
 private[cli] def pickIosSimulator(): Option[(String, String)] =
-  val result = os.proc("xcrun", "simctl", "list", "devices", "available", "--json")
-    .call(check = false, stderr = os.Pipe)
-  if result.exitCode != 0 then None
+  // `xcrun` is macOS-only; on Linux/headless CI the spawn itself throws
+  // IOException ("Cannot run program xcrun") — `check = false` suppresses only
+  // a NON-ZERO exit, not a missing executable. Treat an absent or failed xcrun
+  // as "no simulator available" (the documented None case).
+  val resultOpt = scala.util.Try(
+    os.proc("xcrun", "simctl", "list", "devices", "available", "--json")
+      .call(check = false, stderr = os.Pipe)
+  ).toOption
+  if !resultOpt.exists(_.exitCode == 0) then None
   else
+    val result = resultOpt.get
     scala.util.Try {
       val json   = ujson.read(result.out.text())
       val devMap = json.obj.get("devices").map(_.obj).getOrElse(
