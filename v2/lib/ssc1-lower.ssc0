@@ -1277,6 +1277,67 @@ def buildCtorArgs = (i, n, acc) =>
 -- armScope: revL(patVars) ++ letScope  (arity fields shift letScope by arity)
 -- vpat default: Cons(varName, outerScope)  (var = local0 = scrutinee)
 -- wpat default: lowerE(letScope, body)
+-- K62.10: nested constructor patterns. cpat fields are sub-pattern nodes
+-- (vpat/wpat/cpat/lpat). A field binds a local; a nested cpat field is matched by an
+-- inner IrMatch on that local. lpat (literal) sub-fields bind a fresh temp and are NOT
+-- checked (ssc0 IrMatch has no per-arm guards / same-tag arms; graceful — no crash).
+def npTemp = (i) => #sconcat("__np", #i->str(i))
+
+def fldBinder = (fld, idx) =>
+  match fld { case Pair(ftag, fdata) =>
+    if #seq(ftag, "vpat") then fdata
+    else if #seq(ftag, "wpat") then "_"
+    else npTemp(idx) }
+
+def fldBinders = (fields) =>
+  let rec go = (fs, idx) =>
+    match fs {
+      case Nil => Nil
+      case Cons(f, rest) => Cons(fldBinder(f, idx), go(rest, #i.add(idx, 1)))
+    } in
+  go(fields, 0)
+
+-- obligations Pair(localPos, cpat) for each NESTED field (field i at local n-1-i).
+def fldObligations = (fields, n) =>
+  let rec go = (fs, idx) =>
+    match fs {
+      case Nil => Nil
+      case Cons(f, rest) =>
+        match f { case Pair(ftag, fdata) =>
+          if #seq(ftag, "cpat") then
+            Cons(Pair(#i.sub(#i.sub(n, 1), idx), f), go(rest, #i.add(idx, 1)))
+          else go(rest, #i.add(idx, 1))
+        }
+    } in
+  go(fields, 0)
+
+def shiftObs = (obs, d) =>
+  match obs {
+    case Nil => Nil
+    case Cons(ob, rest) =>
+      match ob { case Pair(pos, sp) => Cons(Pair(#i.add(pos, d), sp), shiftObs(rest, d)) }
+  }
+
+-- Discharge nested-match obligations left-to-right (each inner match prepends its
+-- sub-binders to the scope and shifts the remaining obligations), then lower the body.
+def dischargeObs = (obs, scope, body) =>
+  match obs {
+    case Nil => lowerE(scope, body)
+    case Cons(ob, rest) =>
+      match ob { case Pair(pos, sp) =>
+        match sp { case Pair(sptag, spdata) =>
+          match spdata { case Pair(subctor, subs) =>
+            let m = lenL(subs) in
+            let innerScope = appendL(revL(fldBinders(subs)), scope) in
+            let subObs = fldObligations(subs, m) in
+            let restShifted = shiftObs(rest, m) in
+            IrMatch(IrLocal(pos),
+              Cons(IrArm(subctor, m, dischargeObs(appendL(subObs, restShifted), innerScope, body)), Nil),
+              None)
+          } }
+      }
+  }
+
 def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in
   let letScope = Cons("__scr__", scope) in
@@ -1290,9 +1351,10 @@ def lowerMatch = (scope, scrutinee, arms) =>
               case Pair(ptag, pdata) =>
                 if #seq(ptag, "cpat") then
                   match pdata {
-                    case Pair(ctorName, patVars) =>
-                      let armScope = appendL(revL(patVars), letScope) in
-                      let irArm = IrArm(ctorName, lenL(patVars), lowerE(armScope, body)) in
+                    case Pair(ctorName, fields) =>
+                      let armScope = appendL(revL(fldBinders(fields)), letScope) in
+                      let armBody = dischargeObs(fldObligations(fields, lenL(fields)), armScope, body) in
+                      let irArm = IrArm(ctorName, lenL(fields), armBody) in
                       procArms(rest, appendL(irAcc, Cons(irArm, Nil)), defAcc)
                   }
                 else if #seq(ptag, "vpat") then

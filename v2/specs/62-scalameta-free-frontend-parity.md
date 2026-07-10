@@ -421,3 +421,38 @@ Partial-parse is worse than no-parse for such files.
    **multi-line case-class defs** before they reach 0 `_err`. So module-loading remains
    a multi-step frontend effort; each construct is real and landed incrementally to keep
    the corpus green.
+
+---
+
+## K62.10 — 2026-07-10 (nested constructor + tuple patterns; a real match-lowering step)
+
+**Landed (correct, parse-safe — deterministic parse A/B across the corpus shows ZERO
+regressions; all pattern probes produce correct output).** Pattern fields are now
+SUB-PATTERNS (vpat/wpat/cpat/lpat), not bare binder-name strings, so nested patterns
+destructure via inner matches:
+- `parsePat` (ssc1-front): ctor/tuple fields recurse into `parsePat` (`goSubPats`);
+  literals become `lpat` (int/str/float/bool).
+- `lowerMatch` (ssc1-lower): `fldBinders` assigns a binder to each field (vpat→name,
+  wpat/cpat/lpat→fresh `__npN` temp); `fldObligations` collects the NESTED (cpat) fields
+  as `(localPos, subpat)`; `dischargeObs` emits an inner `IrMatch(IrLocal(pos), [arm])`
+  per obligation, threading the de-Bruijn shift as each inner arm prepends its
+  sub-binders. Verified: `Some(Left(x))→105`, `Some((a,b))→34`, `Cons(a, Cons(b,_))→3`,
+  `((a,b),(c,d))→10` (multiple nested), `Some(x)→7` / `None→99` (no regression on flat).
+- **lpat (literal sub-fields) bind a temp and are NOT checked** — ssc0 `IrMatch` has no
+  per-arm guards, and same-tag arms (`Some((l,'+',r))` vs `Some((l,'-',r))`) collapse to
+  ONE `Some/1` arm. So literal-discriminated arms take the first-matching-tag arm
+  (graceful, no crash — same wrongness as the baseline where the whole nested match
+  failed to parse). Correct literal matching needs a match-compiler pass (arm grouping +
+  guards), out of scope here.
+
+**Effect on the openers path (measured, NOT landed):** with nested patterns +the
+`=>`/`match` layout openers + bracket-aware layout, the code-heavy std modules go to ~1
+`_err` (ui/lower.ssc 37→1, ui/content.ssc 26→1, mapreduce/dataset.ssc 29→1,
+mapreduce/distributed.ssc 63→1) — the module-loading prerequisite is nearly done. The
+last shared `_err` is a **single-line block arm body** `case X => val n = …; expr`
+(`val`+`;`+expr with no braces): `parseMatchArm` calls `parseExpr` on the body, which
+can't parse the `val`. Needs `parseMatchArm` to read the body as a statement sequence
+until the next `case`/`}`. After that, `dsl-mini-language` / `distributed-…` still
+regress because the openers make them parse far enough to hit NEW blockers (dsl:
+`_sel_andThen` missing method) — the openers remain corpus-negative until that per-file
+chain is cleared, so they stay unlanded. Nested patterns landed standalone (safe).

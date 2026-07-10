@@ -1095,6 +1095,18 @@ def mkCaseCls = (n, ps)   => Pair("casecls", Pair(n, ps))
 
 -- parsePat: single flat pattern; returns (pat, remaining-toks)
 -- Supports: Ctor(v1,v2), lowercase-var, _ wildcard, kw-literal
+-- K62.10: pattern fields are now SUB-PATTERNS (vpat/wpat/cpat/lpat), not bare
+-- binder-name strings, so `Some(Foo(x))` / `Some((a, b))` destructure via nested
+-- matches (lowered in lowerMatch). goSubPats parses a comma list of sub-patterns.
+def goSubPats = (ts0) =>
+  let rec go = (ts, acc, cnt) =>
+    let rp = parsePat(ts) in
+    let tsA = skipTypeAnnot(prT(rp)) in
+    let cnt2 = #i.add(cnt, 1) in
+    if kindIs(",", tsA) then go(advance(tsA), Cons(prV(rp), acc), cnt2)
+    else pr(Pair(reverse(Cons(prV(rp), acc)), cnt2), tsA) in
+  go(ts0, Nil, 0)
+
 def parsePat = (toks) =>
   let t  = peek(toks) in
   let k  = tokKind(t) in
@@ -1105,48 +1117,28 @@ def parsePat = (toks) =>
       let ts3 = advance(ts2) in
       if kindIs(")", ts3) then pr(Pair("cpat", Pair(v, Nil)), advance(ts3))
       else
-        let rec goVars = (ts, acc) =>
-          let vt  = peek(ts) in
-          let vk  = tokKind(vt) in
-          let vv  = tokVal(vt) in
-          let nm  = if #seq(vk, "id") then vv else if #seq(vk, "uid") then vv else "_v" in
-          let ts2v = advance(ts) in
-          let ts3v = if kindIs("(", ts2v) then
-            let rec skipNest = (ts4) =>
-              if kindIs(")", ts4) then advance(ts4)
-              else if kindIs("EOF", ts4) then ts4
-              else skipNest(advance(ts4)) in
-            skipNest(advance(ts2v))
-          else ts2v in
-          let tsTyp = skipTypeAnnot(ts3v) in
-          if kindIs(",", tsTyp) then goVars(advance(tsTyp), Cons(nm, acc))
-          else pr(reverse(Cons(nm, acc)), tsTyp) in
-        let rVars = goVars(ts3, Nil) in
-        pr(Pair("cpat", Pair(v, prV(rVars))), skipKind(")", prT(rVars)))
+        let rSub = goSubPats(ts3) in
+        match prV(rSub) { case Pair(subs, n) =>
+          pr(Pair("cpat", Pair(v, subs)), skipKind(")", prT(rSub))) }
     else pr(Pair("cpat", Pair(v, Nil)), ts2)
   else if #seq(k, "id") then
     let ts2 = advance(toks) in
     if #seq(v, "_") then pr(Pair("wpat", ""), ts2)
     else pr(Pair("vpat", v), ts2)
   else if #seq(k, "kw") then
-    pr(Pair("cpat", Pair(v, Nil)), advance(toks))
+    if #seq(v, "true") then pr(Pair("lpat", Pair("bool", "true")), advance(toks))
+    else if #seq(v, "false") then pr(Pair("lpat", Pair("bool", "false")), advance(toks))
+    else pr(Pair("cpat", Pair(v, Nil)), advance(toks))
   else if #seq(k, "(") then
-    -- K62.9: tuple pattern (a, b, …) → cpat("Pair"/"TupleN", varnames). Binder names
-    -- only (ssc0 patterns are shallow — no nested ctor patterns).
-    let rec goVars = (ts, acc, cnt) =>
-      let vt = peek(ts) in
-      let vk = tokKind(vt) in
-      let nm = if #seq(vk, "id") then tokVal(vt) else if #seq(vk, "uid") then tokVal(vt) else "_" in
-      let ts2 = skipTypeAnnot(advance(ts)) in
-      let cnt2 = #i.add(cnt, 1) in
-      if kindIs(",", ts2) then goVars(advance(ts2), Cons(nm, acc), cnt2)
-      else pr(Pair(reverse(Cons(nm, acc)), cnt2), skipKind(")", ts2)) in
-    let r = goVars(advance(toks), Nil, 0) in
-    match prV(r) {
-      case Pair(vars, n) =>
+    let rSub = goSubPats(advance(toks)) in
+    match prV(rSub) {
+      case Pair(subs, n) =>
         let ctor = if #i.eq(n, 2) then "Pair" else #sconcat("Tuple", #i->str(n)) in
-        pr(Pair("cpat", Pair(ctor, vars)), prT(r))
+        pr(Pair("cpat", Pair(ctor, subs)), skipKind(")", prT(rSub)))
     }
+  else if #seq(k, "int") then pr(Pair("lpat", Pair("int", v)), advance(toks))
+  else if #seq(k, "str") then pr(Pair("lpat", Pair("str", v)), advance(toks))
+  else if #seq(k, "float") then pr(Pair("lpat", Pair("float", v)), advance(toks))
   else pr(Pair("wpat", ""), advance(toks))
 
 -- parseMatchArm: `case Pat => expr`  (keyword `case` already consumed)
