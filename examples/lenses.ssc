@@ -83,12 +83,12 @@ enum Shape:
 val circlePrism = Prism[Shape, Circle]
 
 val c: Shape = Circle(5)
-val r: Shape = Rect(3, 4)
+val rect: Shape = Rect(3, 4)
 
-println(circlePrism.getOption(c))                          // Some(Circle(5))
-println(circlePrism.getOption(r))                          // None
-println(circlePrism.modify(c, x => Circle(x.radius * 2)))  // Circle(10)
-println(circlePrism.modify(r, x => Circle(x.radius * 2)))  // Rect(3, 4)
+println(circlePrism.getOption(c))                             // Some(Circle(5))
+println(circlePrism.getOption(rect))                          // None
+println(circlePrism.modify(c, x => Circle(x.radius * 2)))     // Circle(10)
+println(circlePrism.modify(rect, x => Circle(x.radius * 2)))  // Rect(3, 4)
 ```
 
 ## Optionals — focus through `Option` fields
