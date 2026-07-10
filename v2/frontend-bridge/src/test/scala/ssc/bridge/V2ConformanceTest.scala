@@ -52,6 +52,11 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     // JS / browser-only
     "js-applyunary-effect-cps", "js-cps-intrinsic-rewrite", "js-crypto-extern-standalone",
     "sql-browser-basic", "node-basic", "dsl-multi-pass",
+    // tkv2-typed-client-derived is backends:[js]: its `@side=client` block calls
+    // `awaitClient(...)`, a JS-lane intrinsic, so the v2 VM (which this harness
+    // runs) reports "unbound global: awaitClient". The JS lane covers it
+    // (JsGenTypedRouteClientTest). Same rationale as the js-* cases above.
+    "tkv2-typed-client-derived",
     // UI / signals / content toolkit (requires frontend runtime)
     "content", "content-introspection", "content-linked-namespaces",
     "content-tables", "content-to-markdown",
@@ -70,7 +75,13 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     System.setOut(ps)
     try Console.withOut(ps) {
       val prog = FrontendBridge.convertSource(src, dir)
-      Runtime.run(Compiler.compile(prog), Array.empty[Value])
+      // Match `ssc run` (RunV2.run): print the program's final top-level value
+      // unless it is Unit. Without this, a case whose last statement is a
+      // non-Unit expression (e.g. graph-edge-display ending in Graph.putEdge →
+      // StoredEdge) produced no output here while `bin/ssc run` printed it.
+      Runtime.run(Compiler.compile(prog), Array.empty[Value]) match
+        case Value.UnitV => ()
+        case other       => println(Show.show(other))
     } finally
       System.setOut(saved)
       ps.flush()

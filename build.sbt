@@ -192,7 +192,11 @@ lazy val v2PluginBridge = project
 // Depends on: v2Core (ssc.Term/Const/Program), core (scalameta + v1 pipeline types).
 lazy val v2FrontendBridge = project
   .in(file("v2/frontend-bridge"))
-  .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core)
+  // graphPlugin is a Test-only dep: the graph-* conformance cases (graph-edge-display)
+  // exercise Graph.putVertex/putEdge, which register via ServiceLoader (PluginBridge.loadAll).
+  // Without the plugin on the test classpath those ops stay unperformed (raw Op), so the
+  // case produced no StoredEdge. The assembled CLI already bundles it.
+  .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core, graphPlugin % Test)
   .settings(
     name := "scalascript-v2-frontend-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),
