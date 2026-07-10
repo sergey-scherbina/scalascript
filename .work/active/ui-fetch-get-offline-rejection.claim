@@ -1,0 +1,6 @@
+feature/ui-fetch-get-offline-rejection 2026-07-10T16:31:15Z
+agent: codex
+heartbeat: 2026-07-10T16:31:15Z
+status: not-started
+done-so-far: reproduced in busi generated SPA: a rejected managed GET emits an unhandled browser promise rejection while offline
+next: create an isolated worktree, record the bug and resume-cold sprint plan, then commit the runtime behavior spec before implementation
