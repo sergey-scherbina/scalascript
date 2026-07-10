@@ -1,6 +1,6 @@
-feature/v2-pattern-match-heavy-production-profile 2026-07-09T23:50:19Z
+feature/v2-pattern-match-heavy-production-profile 2026-07-10T00:11:10Z
 agent: codex
-heartbeat: 2026-07-09T23:50:19Z
+heartbeat: 2026-07-10T00:11:10Z
 status: in-progress
-done-so-far: VM static float foreach fix benches at pattern-match-heavy v2=0.266ms vs v2-rust=0.265ms
-next: run focused tests, v2 conformance check, affected conformance, then docs/bookkeeping
+done-so-far: VM static float foreach fix benches at v2=0.266ms; focused tests and v2/conformance/check.sh passed
+next: run affected tests/conformance slice, then docs/bookkeeping and push
