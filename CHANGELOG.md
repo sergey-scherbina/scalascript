@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — TI-6 direct ASM artifact pipeline is release-gated
+
+CI now rebuilds native ASM applications from unrelated clean directories,
+compares the complete JAR bytes, runs hello/import/argv/crypto/SQL with compiler
+commands hidden, and rejects compiler, Scalameta, compatibility bridge, and v1
+frontend/runtime entries or references. The stable TSV baseline records a
+26,300,902-byte artifact with SHA-256 `1d078c3ffe330eae72a809f98794333c123d715bbf19012fbdc4f0c686715173`
+and module graphs without `java.compiler`/`jdk.compiler`.
+
 ## 2026-07-10 — direct ASM artifacts carry native `.ssc` diagnostics
 
 Generated entry/definition/helper methods now carry JVM `SourceFile`, line

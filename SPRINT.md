@@ -223,7 +223,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             conformance are green. Result: SPI 6/6, provider 2/2, 105 staged
             runtime JARs, nested-state output `17/20/2/101/101/2` identical on
             native VM/ASM, both e2e gates PASS, and conformance 8/8.
-- [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
+- [x] **v21-ti-asm-artifact-pipeline — DONE 2026-07-10 (TI-6 through `a8e6742fa`):** promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a
       stable CLI surface. Do not reuse the legacy `compile-jvm --bytecode` name
@@ -280,10 +280,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   generated-global map and let `JvmByteGen.install()` own
                   definition initialization, matching persisted artifacts.
                   Gate native VM + in-memory ASM hello/import/ordered values.
-      - [ ] **TI-6.4 artifact release gates:** build twice from clean temp dirs
+      - [x] **TI-6.4 artifact release gates — DONE 2026-07-10 (`a8e6742fa`):** build twice from clean temp dirs
             and compare bytes; inspect JAR and `jdeps` for compiler, Scalameta,
             bridge, v1 AST/interpreter, and `javax.tools`; run hello/import/argv/
             plugin/SQL with compiler tools hidden, then check TI-6 in the spec.
+            Result: CI runs a stable TSV-producing gate; two different clean
+            source/output roots produce the identical 26,300,902-byte JAR
+            (`1d078c3ffe330eae72a809f98794333c123d715bbf19012fbdc4f0c686715173`).
+            Hello/import/argv+crypto/SQL pass with all compiler commands hidden;
+            `javap`/entry/`jdeps`/module scans find 0 forbidden references and
+            neither module graph contains `java.compiler`/`jdk.compiler`.
+            Fresh affected conformance remains 8/8.
 - [ ] **v21-ti-slim-distribution** — split the install layout into a standard
       runtime tier and optional compatibility/compiler tools. The standard tier
       contains the native frontend, v2 runtime, ASM emitter, scalameta-free plugin
