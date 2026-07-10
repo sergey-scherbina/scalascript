@@ -2,6 +2,7 @@
 name: conformance-indent-block-statements
 version: 1.0.0
 description: v1.20.2 conformance — block-structured syntax with indent-defined bodies (if/while/for)
+pending: v2-only layout parser smoke; tests/conformance has no v2 lane yet, covered by tests/e2e/indent-layout-v2-smoke.sh
 ---
 
 # Block-statements parser — conformance test
@@ -55,7 +56,7 @@ val printStmt: Parser[Any] =
 
 // An assignment: "<ident> = <expr>"
 val assignStmt: Parser[Any] =
-  (identifier <~ hspace <~ Parser.char('=') <~ hspace ~ expr)
+  ((identifier <~ hspace <~ Parser.char('=') <~ hspace) ~ expr)
     .map(pair => AssignStmt(pair._1.asInstanceOf[String], pair._2.asInstanceOf[String]))
 
 // Forward-declared statement parser (recursive for nested blocks).
@@ -76,9 +77,10 @@ val ifStmt: Parser[Any] =
     val level = ctx match
       case ic: IndentContext => ic.currentLevel
       case _                 => 1
-    (Parser.string("if") ~> whitespace1 ~> expr <~ hspace <~ Parser.char(':') <~
-      Parser.char('\n') ~
-      bodyBlock(level))
+    val header =
+      Parser.string("if") ~> whitespace1 ~> expr <~ hspace <~
+        Parser.char(':') <~ Parser.char('\n')
+    (header ~ bodyBlock(level))
       .map(pair => IfStmt(pair._1.asInstanceOf[String], pair._2.asInstanceOf[List[Any]]))
   }
 
@@ -88,9 +90,10 @@ val whileStmt: Parser[Any] =
     val level = ctx match
       case ic: IndentContext => ic.currentLevel
       case _                 => 1
-    (Parser.string("while") ~> whitespace1 ~> expr <~ hspace <~ Parser.char(':') <~
-      Parser.char('\n') ~
-      bodyBlock(level))
+    val header =
+      Parser.string("while") ~> whitespace1 ~> expr <~ hspace <~
+        Parser.char(':') <~ Parser.char('\n')
+    (header ~ bodyBlock(level))
       .map(pair => WhileStmt(pair._1.asInstanceOf[String], pair._2.asInstanceOf[List[Any]]))
   }
 
@@ -100,11 +103,20 @@ val forStmt: Parser[Any] =
     val level = ctx match
       case ic: IndentContext => ic.currentLevel
       case _                 => 1
-    (Parser.string("for") ~> whitespace1 ~> identifier <~ whitespace1 <~
-      Parser.string("in") <~ whitespace1 ~ expr <~ hspace <~ Parser.char(':') <~
-      Parser.char('\n') ~
-      bodyBlock(level))
-      .map(pair => ForStmt(pair._1.asInstanceOf[String], pair._2.asInstanceOf[String], pair._3.asInstanceOf[List[Any]]))
+    val loopVar =
+      Parser.string("for") ~> whitespace1 ~> identifier <~ whitespace1 <~
+        Parser.string("in") <~ whitespace1
+    val loopExpr =
+      expr <~ hspace <~ Parser.char(':') <~ Parser.char('\n')
+    ((loopVar ~ loopExpr) ~ bodyBlock(level))
+      .map(pair =>
+        val head = pair._1.asInstanceOf[(Any, Any)]
+        ForStmt(
+          head._1.asInstanceOf[String],
+          head._2.asInstanceOf[String],
+          pair._2.asInstanceOf[List[Any]]
+        )
+      )
   }
 
 // Initialize stmtRef (mutual recursion).
@@ -147,6 +159,11 @@ if x == 0:
   print zero
   x = 1
 print done"""
+
+val prog3 = """while ready:
+  print tick
+for item in items:
+  print item"""
 ```
 
 ## Run tests
@@ -167,6 +184,14 @@ program.parseLayoutWith(prog2, IndentContext.at(1)) match
     stmts.asInstanceOf[List[Any]].foreach(s => showStmt(s, 0))
   case ParseErr(e) =>
     println("test2 FAIL: " + e.message)
+
+// Test 3 — while and for blocks
+program.parseLayoutWith(prog3, IndentContext.at(1)) match
+  case ParseOk(stmts, _, _) =>
+    println("test3: " + stmts.asInstanceOf[List[Any]].length + " statement(s)")
+    stmts.asInstanceOf[List[Any]].foreach(s => showStmt(s, 0))
+  case ParseErr(e) =>
+    println("test3 FAIL: " + e.message)
 ```
 
 ## Expected output
@@ -182,4 +207,9 @@ if x == 0:
   print zero
   x = 1
 print done
+test3: 2 statement(s)
+while ready:
+  print tick
+for item in items:
+  print item
 ```

@@ -2,6 +2,7 @@
 name: conformance-indent-config-format
 version: 1.0.0
 description: v1.20.2 conformance — multi-level config DSL with significant indentation
+pending: v2-only layout parser smoke; tests/conformance has no v2 lane yet, covered by tests/e2e/indent-layout-v2-smoke.sh
 ---
 
 # Indentation-aware config parser — conformance test
@@ -43,11 +44,13 @@ val bareValue: Parser[Any] = Parser.regex("[^\n]+").map(s => s.trim)
 
 // key = value  (single line)
 val configEntry: Parser[Any] =
-  (identifier <~ hspace <~ Parser.char('=') <~ hspace ~ bareValue)
+  ((identifier <~ hspace <~ Parser.char('=') <~ hspace) ~ bareValue)
     .map(pair => ConfigEntry(pair._1.asInstanceOf[String], pair._2.asInstanceOf[String]))
 
-// Skip blank lines and their newlines.
-val blankLines: Parser[Any] = Parser.regex("([ \t]*\n)*")
+// Skip blank lines and their newlines. Keep the repeated parser non-nullable:
+// a single nullable regex can match the empty string before consuming blanks.
+val blankLine: Parser[Any] = Parser.regex("[ \t]*\n")
+val blankLines: Parser[Any] = blankLine.many()
 
 // A section header: "[sectionName]" on its own line.
 val sectionHeader: Parser[Any] =
@@ -57,14 +60,13 @@ val sectionHeader: Parser[Any] =
 // A section: header followed by an indented block of entries.
 // Entries must all start at column 3 (2-space indent).
 val configSection: Parser[Any] =
-  (sectionHeader <~ Parser.regex("[ \t]*\n") ~
-    blankLines ~
+  ((sectionHeader <~ Parser.regex("[ \t]*\n") <~ blankLines) ~
     configEntry.block.withIndent(3))
     .map(pair => ConfigSection(pair._1.asInstanceOf[String], pair._2.asInstanceOf[List[Any]]))
 
 // Top-level: one or more sections or bare entries separated by blank lines.
 val configDoc: Parser[Any] =
-  (blankLines ~> (configSection | configEntry).many1() <~ blankLines)
+  (blankLines ~> ((configSection | configEntry) <~ blankLines).many1())
     .map(items => ConfigDoc(items.asInstanceOf[List[Any]]))
 ```
 
