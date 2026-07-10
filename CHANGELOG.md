@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — canonical JSON parsing is self-hosted in ScalaScript
+
+The new pure `std/json-core.ssc` character scanner owns strict and tolerant
+JSON parsing, portable values, exact decimal text, total navigation, Unicode
+and surrogate validation, and deterministic compact rendering without an
+external codec, host regex, or `extern`. Its focused corpus is byte-identical on
+the native VM and direct ASM. The closed dependency gate now also classifies all
+32 TI-7 standard JARs, including configuration-selected plugin dependencies,
+while keeping unknown additions a hard failure and pinning the three remaining
+parser/codec migration surfaces to named JSON/SQL plugins.
+
 ## 2026-07-10 — ScalaScript 2.1 standard tier survives physical tools deletion
 
 The release gate now copies an installed distribution, removes its full CLI,

@@ -51,7 +51,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       `--strict-parsers` rejects it for the future cutover, and a closed TI-7
       `standard/jars` layout rejects every unclassified extra. Synthetic
       constant-pool reject, e2e gate, and `v2-*` conformance 8/8 pass.
-- [ ] **v21-shc-gate-ti7-reconcile** — TI-7 has now landed its physical
+- [x] **v21-shc-gate-ti7-reconcile — DONE 2026-07-10 (`43ad51273`):** TI-7 has now landed its physical
       `bin/lib/standard/jars` layout with 32 JARs, exposing 15 closed-layout
       entries that predate the classifier's migration snapshot. Classify every
       entry under the five normative ownership layers (including reflective
@@ -61,12 +61,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       and SQL's optional `wire-core` dependency, are the three parser/codec
       surfaces; seed and pure core remain clean. Done when the assembled
       closed-layout smoke and synthetic forbidden-reference self-test pass
-      without weakening the gate.
-- [ ] **v21-shc-json-core** — implement the canonical strict/tolerant JSON
+      without weakening the gate. Result: 13 roots, 52 static edges, and 14
+      explicitly owned reflective/plugin JARs classify all 32 standard JARs;
+      closed-layout extras are zero. Normal and synthetic gates pass. Strict
+      mode fails only on the three recorded feature-plugin surfaces.
+- [x] **v21-shc-json-core — DONE 2026-07-10 (`1174d4569`, `9d4572cde`):** implement the canonical strict/tolerant JSON
       scanner, target-independent ADT, total navigation, exact-decimal handling,
       and deterministic compact encoder in `.ssc` without `extern def` or host
       regex. Add focused valid/invalid/Unicode/numeric conformance cases and run
-      them on native VM and direct ASM.
+      them on native VM and direct ASM. Result: `runtime/std/json-core.ssc` is an
+      explicit recursive character scanner with portable ADTs, exact numeric
+      text, total `get`/`at`/default accessors, strict/tolerant entry points, and
+      deterministic rendering. The assembled VM/direct-ASM smoke covers valid,
+      malformed, Unicode/surrogate, numeric, nesting, trailing-input, and total
+      navigation cases and passes byte-for-byte; JSON conformance is 3/3 and
+      `v2-*` conformance is 8/8.
 - [ ] **v21-shc-json-cutover** — switch `std.json` and HTTP JSON reuse to the
       self-hosted codec, remove ujson/upickle from the default standard JSON
       graph, and keep any accelerated codec only as an explicit optional plugin.
