@@ -872,6 +872,24 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               and parity 10 identical / 60 both-fail / 125
                               skipped with no mismatch or one-sided row.
                               Native-entry and fresh conformance 9/9 pass.
+                        - [ ] **TI-8.2c2i list append `:+`:** recognize `:+`
+                              as one infix token at additive precedence, infer
+                              `List[A] :+ A` as `List[A]`, and lower it through
+                              the portable `__arith__(":+", ...)` primitive
+                              already shared by VM/direct ASM. Do not add a
+                              Scala/JVM collection dependency or conflate it
+                              with extension-method dispatch. Touch only
+                              `v2/lib/ssc1-front.ssc0`,
+                              `v2/lib/ssc1-check.ssc0`, and
+                              `v2/lib/ssc1-lower.ssc0`; add a real assembled
+                              launcher fixture proving order and element-type
+                              preservation on both lanes. Then rerun
+                              `dsl-ast-builder.ssc`, the full native-front,
+                              parity, and sentinel taxonomy reports,
+                              native-entry, and fresh `v2-*` conformance. Done
+                              when the fixture is byte-identical, the DSL row
+                              has no `_err`, and category ceilings shrink
+                              without a new mismatch or one-sided row.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
