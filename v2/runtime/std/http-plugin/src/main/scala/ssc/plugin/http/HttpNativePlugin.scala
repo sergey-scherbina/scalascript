@@ -37,6 +37,7 @@ final class HttpNativePlugin extends NativePlugin:
     case Value.StrV(text) => text
     case Value.IntV(number) => number.toString
     case Value.FloatV(number) => number.toString
+    case Value.DecimalV(text) => text
     case Value.BoolV(boolean) => boolean.toString
     case Value.ForeignV(decimal: java.math.BigDecimal) => decimal.toPlainString
     case other => Show.show(other)

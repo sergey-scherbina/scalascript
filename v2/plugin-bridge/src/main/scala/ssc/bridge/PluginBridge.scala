@@ -746,6 +746,7 @@ object PluginBridge:
     def int(v: V2Value): Long = v match
       case IntV(n) => n
       case FloatV(d) => d.toLong
+      case d: DecimalV => ssc.PortableDecimal.toJava(d).longValue()
       case ForeignV(bd: java.math.BigDecimal) => bd.longValue()
       case StrV(s) => s.toLongOption.getOrElse(0L)
       case _ => 0L
@@ -753,6 +754,7 @@ object PluginBridge:
       case IntV(n) => BigDecimal(n)
       case FloatV(d) => BigDecimal(d)
       case StrV(s) => BigDecimal(s)
+      case d: DecimalV => BigDecimal(ssc.PortableDecimal.toJava(d))
       case ForeignV(bd: java.math.BigDecimal) => BigDecimal(bd)
       case DataV("Money", _) =>
         val (minor, code) = moneyParts(v)
@@ -1048,7 +1050,8 @@ object PluginBridge:
     V2PluginRegistry.register("__method__.toDecimal", args => args.lift(1) match
       case Some(m @ DataV("Money", _)) =>
         val (minor, code) = moneyParts(m)
-        ForeignV(BigDecimal(minor).bigDecimal.scaleByPowerOfTen(-PayCurrency.minorUnitsPower(PayCurrency(code))))
+        DecimalV(BigDecimal(minor).bigDecimal
+          .scaleByPowerOfTen(-PayCurrency.minorUnitsPower(PayCurrency(code))).toPlainString)
       case _ => DataV("Stub", Vector.empty)
     )
     V2PluginRegistry.register("__method__.format", args => args.lift(1) match
@@ -2154,7 +2157,8 @@ object PluginBridge:
         val v = System.getenv(key)
         Done(if v != null && v.nonEmpty then StrV(v) else default_)
       }))
-    // Decimal / BigDecimal — exact numeric type backed by java.math.BigDecimal
+    // Decimal / BigDecimal — portable exact values; the JVM host library stays
+    // behind ssc.PortableDecimal and never escapes as ForeignV.
     if V2PluginRegistry.lookupGlobal("Decimal").isEmpty then
       registerDecimalSupport()
     // BigInt factory: BigInt(n) / BigInt("123")
@@ -2375,91 +2379,18 @@ object PluginBridge:
     }))
 
   private def registerDecimalSupport(): Unit =
-    import java.math.{BigDecimal => JBD, RoundingMode => JRM, MathContext}
     import V2Value.*
-    def toBD(v: V2Value): JBD = v match
-      case StrV(s)           => new JBD(s.trim)
-      case IntV(n)           => JBD.valueOf(n)
-      case FloatV(d)         => JBD.valueOf(d)
-      case ForeignV(bd: JBD) => bd
-      case DataV("Decimal", fields) if fields.nonEmpty => toBD(fields.head)
-      case _                 => throw scalascript.interpreter.InterpretError(s"Decimal: not a number: $v")
-    def fromBD(bd: JBD): V2Value = ForeignV(bd)
-    def toRM(v: V2Value): JRM = v match
-      case DataV(name, _)    => try JRM.valueOf(name) catch case _: Throwable => JRM.HALF_UP
-      case ForeignV(rm: JRM) => rm
-      case _                 => JRM.HALF_UP
     val decimalCtor = ClosV(Runtime.emptyEnv, -1, env => env.toList match
-      case List(v: V2Value)    => Done(fromBD(toBD(v)))
-      case List(u: V2Value, s: V2Value) =>
-        val unscaled = u match { case IntV(n) => BigInt(n); case BigV(n) => n; case _ => BigInt(toBD(u).unscaledValue()) }
-        Done(fromBD(new JBD(unscaled.bigInteger, s match { case IntV(n) => n.toInt; case _ => 0 })))
-      case _ => Done(fromBD(JBD.ZERO))
+      case args => Done(ssc.PortableDecimal.construct(args))
     )
     V2PluginRegistry.registerGlobal("Decimal", decimalCtor)
     V2PluginRegistry.registerGlobal("BigDecimal", decimalCtor)
-    // RoundingMode object with fields
-    val rmMap: Map[String, V2Value] = Seq("UP","DOWN","CEILING","FLOOR","HALF_UP","HALF_DOWN","HALF_EVEN","UNNECESSARY")
-      .map(n => n -> ForeignV(JRM.valueOf(n))).toMap
+    // The companion object remains a bridge-owned named-field map, but the
+    // values that enter user code are portable data rather than host enums.
+    val rmMap: Map[String, V2Value] =
+      Seq("UP", "DOWN", "CEILING", "FLOOR", "HALF_UP", "HALF_DOWN", "HALF_EVEN", "UNNECESSARY")
+        .map(n => n -> DataV("RoundingMode", Vector(StrV(n)))).toMap
     V2PluginRegistry.registerGlobal("RoundingMode", ForeignV(rmMap.asInstanceOf[AnyRef]))
-    // Dispatch setScale/round/add/sub/mul/div/compareTo on ForeignV(JBD)
-    V2PluginRegistry.register("__method__.setScale", args => args(1) match
-      case ForeignV(bd: JBD) =>
-        val scale = args(2) match { case IntV(n) => n.toInt; case _ => 2 }
-        val rm    = if args.length >= 4 then toRM(args(3)) else JRM.HALF_UP
-        fromBD(bd.setScale(scale, rm))
-      case _ => sys.error(s"__method__: no dispatch for .setScale on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.round", args => args(1) match
-      case ForeignV(bd: JBD) =>
-        val scale = args(2) match { case IntV(n) => n.toInt; case FloatV(d) => d.toInt; case _ => 0 }
-        fromBD(bd.setScale(scale, JRM.HALF_UP))
-      case _ => sys.error(s"__method__: no dispatch for .round on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.toInt", args => args(1) match
-      case ForeignV(bd: JBD) => IntV(bd.longValueExact())
-      case _ => sys.error(s"__method__: no dispatch for .toInt on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.toLong", args => args(1) match
-      case ForeignV(bd: JBD) => IntV(bd.longValueExact())
-      case _ => sys.error(s"__method__: no dispatch for .toLong on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.toDouble", args => args(1) match
-      case ForeignV(bd: JBD) => FloatV(bd.doubleValue())
-      case _ => sys.error(s"__method__: no dispatch for .toDouble on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.scale", args => args(1) match
-      case ForeignV(bd: JBD) => IntV(bd.scale())
-      case _ => sys.error(s"__method__: no dispatch for .scale on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.unscaledValue", args => args(1) match
-      case ForeignV(bd: JBD) => BigV(BigInt(bd.unscaledValue()))
-      case _ => sys.error(s"__method__: no dispatch for .unscaledValue on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.compareTo", args => args(1) match
-      case ForeignV(x: JBD) => args(2) match
-        case ForeignV(y: JBD) => IntV(x.compareTo(y))
-        case IntV(n)          => IntV(x.compareTo(JBD.valueOf(n)))
-        case v                => IntV(x.compareTo(toBD(v)))
-      case _ => sys.error(s"__method__: no dispatch for .compareTo on ${args(1)}")
-    )
-    V2PluginRegistry.register("__method__.abs", args => args(1) match
-      case ForeignV(bd: JBD) => fromBD(bd.abs())
-      case _ => sys.error(s"__method__: no dispatch for .abs on ${args(1)}")
-    )
-    // Arithmetic on Decimal: __arith__ dispatches "+","-","*","/" etc.
-    V2PluginRegistry.register("decimal.add", args => fromBD(toBD(args(0)).add(toBD(args(1)))))
-    V2PluginRegistry.register("decimal.sub", args => fromBD(toBD(args(0)).subtract(toBD(args(1)))))
-    V2PluginRegistry.register("decimal.mul", args => fromBD(toBD(args(0)).multiply(toBD(args(1)))))
-    V2PluginRegistry.register("decimal.div", args => {
-      val (a, b) = (toBD(args(0)), toBD(args(1)))
-      fromBD(a.divide(b, a.scale().max(b.scale()).max(10), JRM.HALF_UP))
-    })
-    V2PluginRegistry.register("decimal.lt",  args => BoolV(toBD(args(0)).compareTo(toBD(args(1))) < 0))
-    V2PluginRegistry.register("decimal.le",  args => BoolV(toBD(args(0)).compareTo(toBD(args(1))) <= 0))
-    V2PluginRegistry.register("decimal.gt",  args => BoolV(toBD(args(0)).compareTo(toBD(args(1))) > 0))
-    V2PluginRegistry.register("decimal.ge",  args => BoolV(toBD(args(0)).compareTo(toBD(args(1))) >= 0))
-    V2PluginRegistry.register("decimal.eq",  args => BoolV(toBD(args(0)).compareTo(toBD(args(1))) == 0))
 
   /** Register dispatch for ComputedCell.get and Storage.get. */
   private def registerComputedCellDispatch(): Unit =
@@ -2911,7 +2842,7 @@ object PluginBridge:
           case t: V2Value.ClosV if t.arity == 0 => callClosure(t, Nil)
           case v => v
         val handler = env2.last  // new arg = handlerFn
-        Done(runEffectLoop(body, handler))
+        Done(ssc.PortableEffects.handle(body, handler))
       }))
     })
     V2PluginRegistry.registerGlobal("handle", handleClosure)
@@ -2942,37 +2873,6 @@ object PluginBridge:
         case _                                        => () // effect-declaration marker
       Done(V2Value.UnitV)
     }))
-
-  /** Run the Free-monad interpreter loop.
-   *  - Op("EffTag.opName", arg, k): call handler with DataV(opName, [args…, resumeFn])
-   *    (a multi-arg op arrives packed as __EffArgs__ — see Runtime's effect dispatch —
-   *    and is delivered unpacked so `case op(a, b, resume)` arms match)
-   *  - anything else:                call handler with DataV("Return", [v]) */
-  private def runEffectLoop(v: V2Value, handler: V2Value): V2Value = v match
-    case V2Value.DataV("Op", IndexedSeq(V2Value.StrV(label), arg, k)) =>
-      val opName = label.split("\\.").last  // "Logger.log" → "log"
-      // resumeFn captures k and handler; when called with r:
-      // extend([k, handler], [r]) = [k, handler, r] → Local(0)=r=env2.last, Local(1)=handler=env2(1), Local(2)=k=env2(0)
-      val resumeFn = V2Value.ClosV(Array(k.asInstanceOf[V2Value], handler), 1, env2 => {
-        val resumeArg = env2.last // Local(0) = new arg r
-        val kk        = env2(0)   // captured k (first in base env)
-        val h         = env2(1)   // captured handler (second in base env)
-        val next = callClosure(kk, List(resumeArg))
-        Done(runEffectLoop(next, h))
-      })
-      val margs = arg match
-        case V2Value.UnitV                       => List(resumeFn)
-        case V2Value.DataV("__EffArgs__", fs)    => fs.toList :+ resumeFn
-        case _                                   => List(arg, resumeFn)
-      callClosure(handler, List(V2Value.DataV(opName, margs.toVector)))
-    case _ =>
-      // Pure result — call handler with Return(v). A handler WITHOUT a Return
-      // clause passes the value through unchanged (v1 semantics: the return
-      // clause is optional).
-      try callClosure(handler, List(V2Value.DataV("Return", Vector(v))))
-      catch
-        case e: RuntimeException if e.getMessage != null
-            && e.getMessage.startsWith("match: no arm for Return") => v
 
   // ── Actor runtime — VirtualThread-per-actor model ───────────────────────────
 
@@ -3724,6 +3624,7 @@ object PluginBridge:
     case V2Value.FloatV(d)    => SpiValue.DoubleV(d)
     case V2Value.StrV(s)      => SpiValue.StrV(s)
     case V2Value.BigV(n)      => SpiValue.BigIntV(n)
+    case V2Value.DecimalV(s)  => SpiValue.DecimalV(BigDecimal(s))
     case V2Value.DataV(tag, fields) =>
       SpiValue.ListV(fields.toList.map(v2ToSpi)) // best effort: fields as list
     case _                    => SpiValue.Opaque(v)
@@ -3735,6 +3636,7 @@ object PluginBridge:
     case SpiValue.DoubleV(d)   => V2Value.FloatV(d)
     case SpiValue.StrV(s)      => V2Value.StrV(s)
     case SpiValue.BigIntV(n)   => V2Value.BigV(n)
+    case SpiValue.DecimalV(d)  => V2Value.DecimalV(d.bigDecimal.toPlainString)
     case SpiValue.ListV(items) =>
       items.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (x, acc) =>
         V2Value.DataV("Cons", Vector(spiToV2(x), acc))
@@ -3767,6 +3669,8 @@ object PluginBridge:
     case d: Double  => V2Value.FloatV(d)
     case f: Float   => V2Value.FloatV(f.toDouble)
     case b: Boolean => V2Value.BoolV(b)
+    case bd: java.math.BigDecimal => V2Value.DecimalV(bd.toPlainString)
+    case bd: BigDecimal => V2Value.DecimalV(bd.bigDecimal.toPlainString)
     case ()         => V2Value.UnitV
     case v1: V1Value => v1ToV2(v1)
     // v1 NativeFnV → variadic v2 ClosV (arity=-1, accepts any number of args)
@@ -3810,6 +3714,7 @@ object PluginBridge:
     case V2Value.FloatV(d)    => DataValue.DoubleV(d)
     case V2Value.StrV(s)      => DataValue.StringV(s)
     case V2Value.BigV(n)      => DataValue.BigIntV(n)
+    case V2Value.DecimalV(s)  => DataValue.DecimalV(BigDecimal(s))
     // Cons/Nil list chain → v1 ListV
     case V2Value.DataV("Nil", _) =>
       scalascript.interpreter.Value.ListV(Nil)
@@ -3916,7 +3821,7 @@ object PluginBridge:
     case DataValue.DoubleV(d)   => V2Value.FloatV(d)
     case DataValue.StringV(s)   => V2Value.StrV(s)
     case DataValue.BigIntV(n)   => V2Value.BigV(n)
-    case DataValue.DecimalV(d)  => V2Value.FloatV(d.toDouble)
+    case DataValue.DecimalV(d)  => V2Value.DecimalV(d.bigDecimal.toPlainString)
     case DataValue.CharV(c)     => V2Value.StrV(c.toString)
     case DataValue.NullV        => V2Value.DataV("None", Vector.empty) // closest v2 equivalent
     case scalascript.interpreter.Value.InstanceV(tag, _) =>

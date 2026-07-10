@@ -43,6 +43,7 @@ final class SqlNativePlugin extends NativePlugin:
     case Value.IntV(number) => number
     case Value.BigV(number) => number.bigInteger
     case Value.FloatV(number) => number
+    case Value.DecimalV(text) => new java.math.BigDecimal(text)
     case Value.StrV(text) => text
     case Value.BytesV(bytes) => bytes.toArray
     case Value.DataV("Some", Seq(inner)) => unwrap(inner)
@@ -58,7 +59,7 @@ final class SqlNativePlugin extends NativePlugin:
     case number: Int => Value.IntV(number.toLong)
     case number: Long => Value.IntV(number)
     case number: java.math.BigInteger => Value.BigV(BigInt(number))
-    case number: java.math.BigDecimal => Value.ForeignV(number)
+    case number: java.math.BigDecimal => Value.DecimalV(number.toPlainString)
     case number: Float => Value.FloatV(number.toDouble)
     case number: Double => Value.FloatV(number)
     case text: String => Value.StrV(text)

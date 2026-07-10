@@ -22,7 +22,7 @@ class JsonNativePluginTest extends AnyFunSuite:
       Value.StrV("name") -> Value.StrV("Ada"),
       Value.StrV("items") -> Value.DataV("Cons", Vector(Value.IntV(1),
         Value.DataV("Cons", Vector(Value.IntV(2), Value.DataV("Nil", Vector.empty))))),
-      Value.StrV("amount") -> Value.ForeignV(new java.math.BigDecimal("1000.0100")),
+      Value.StrV("amount") -> Value.DecimalV("1000.0100"),
       Value.StrV("on") -> Value.BoolV(true))
     val root = call("__jsonCoreWrap", NativeJsonCodec.toCore(Value.ForeignV(source)))
 
@@ -31,7 +31,7 @@ class JsonNativePluginTest extends AnyFunSuite:
     assert(method(method(items, "at", Value.IntV(1)), "asInt") == Value.IntV(2))
     assert(method(method(root, "get", Value.StrV("missing")), "isNull") == Value.BoolV(true))
     assert(method(method(root, "get", Value.StrV("amount")), "asDecimal") ==
-      Value.ForeignV(new java.math.BigDecimal("1000.0100")))
+      Value.DecimalV("1000.0100"))
     assert(method(method(root, "get", Value.StrV("on")), "asBool") == Value.BoolV(true))
     assert(method(root, "size") == Value.IntV(4))
     assert(method(root, "raw") == Value.StrV("SELF-HOSTED"))

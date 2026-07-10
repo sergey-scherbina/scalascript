@@ -91,6 +91,7 @@ final class UiNativePlugin extends NativePlugin:
     case Value.IntV(number) => number.toString
     case Value.BigV(number) => number.toString
     case Value.FloatV(number) => number.toString
+    case Value.DecimalV(text) => text
     case Value.BoolV(boolean) => boolean.toString
     case Value.UnitV => ""
     case Value.ForeignV(signal: NativeSignal) => scalar(signal.read())

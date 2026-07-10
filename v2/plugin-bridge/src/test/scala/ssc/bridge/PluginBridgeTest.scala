@@ -32,6 +32,10 @@ class PluginBridgeTest extends AnyFunSuite:
   test("v2ToV1: BigV → BigIntV"):
     assert(PluginBridge.v2ToV1(V2Value.BigV(BigInt(999))) == DataValue.BigIntV(BigInt(999)))
 
+  test("v2ToV1: portable DecimalV preserves exact scale"):
+    assert(PluginBridge.v2ToV1(V2Value.DecimalV("12.3400")) ==
+      DataValue.DecimalV(BigDecimal("12.3400")))
+
   test("v2ToV1: DataV → InstanceV with positional fields"):
     val v2 = V2Value.DataV("Pair", Vector(V2Value.IntV(1L), V2Value.StrV("x")))
     val v1 = PluginBridge.v2ToV1(v2)
@@ -111,6 +115,10 @@ class PluginBridgeTest extends AnyFunSuite:
 
   test("v1ToV2: BigIntV → BigV"):
     assert(PluginBridge.v1ToV2(DataValue.BigIntV(BigInt(42))) == V2Value.BigV(BigInt(42)))
+
+  test("v1ToV2: DecimalV stays exact instead of narrowing to FloatV"):
+    assert(PluginBridge.v1ToV2(DataValue.DecimalV(BigDecimal("12.3400"))) ==
+      V2Value.DecimalV("12.3400"))
 
   test("v1ToV2: CharV → StrV(single char)"):
     assert(PluginBridge.v1ToV2(DataValue.CharV('A')) == V2Value.StrV("A"))

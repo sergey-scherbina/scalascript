@@ -1,0 +1,22 @@
+#!/usr/bin/env ssc
+---
+name: money-portable-v2
+backends: [interpreter, v2]
+---
+
+# Portable Decimal / Money
+
+The v2 VM must keep Decimal as an exact target-neutral value while executing
+the real `std/money` helpers. The interpreter lane pins the established public
+semantics; later compiled backends join this same fixture.
+
+[money, plus, minorUnits, allocate, formatMoney](std/money.ssc)
+
+```scalascript
+println(formatMoney(plus(money("1.50", "USD"), money("2.25", "USD"))))
+println(Decimal("1.0") == Decimal("1.00"))
+println(Decimal("1.10") * Decimal("1.10"))
+println(Decimal("10").divide(Decimal("3"), 4, RoundingMode.HALF_UP))
+println(minorUnits(money("12.34", "USD")))
+println(allocate(money("0.05", "USD"), List(1, 1, 1)).map(formatMoney))
+```

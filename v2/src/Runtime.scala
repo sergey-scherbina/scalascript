@@ -32,6 +32,15 @@ object Value:
   final case class FloatV(d: Double)                  extends Value
   final case class StrV(s: String)                    extends Value
   final case class BytesV(b: Vector[Byte])            extends Value
+  final class DecimalV private[ssc] (val text: String) extends Value:
+    override def equals(other: Any): Boolean = other match
+      case that: DecimalV => PortableDecimal.numericEquals(text, that.text)
+      case _              => false
+    override def hashCode: Int = PortableDecimal.numericHash(text)
+    override def toString: String = s"DecimalV($text)"
+  object DecimalV:
+    def apply(text: String): DecimalV = new DecimalV(PortableDecimal.canonicalText(text))
+    def unapply(value: DecimalV): Some[String] = Some(value.text)
   final case class DataV(tag: String, fields: IndexedSeq[Value]) extends Value
   final class ClosV(var env: Env, val arity: Int, val code: Code) extends Value:  // var env: cyclic letrec frames
     // Direct-call fast entry: set by Compiler for simple defs whose body is tryFC-able.
@@ -1853,6 +1862,10 @@ object Prims:
   type Fn = List[Value] => Value
 
   def resolve(op: String): Fn = op match
+    case portable if PortableDecimal.primitiveNames.contains(portable) =>
+      args => PortableDecimal.eval(portable, args)
+    case portable if PortableEffects.primitiveNames.contains(portable) =>
+      args => PortableEffects.eval(portable, args)
     case "i.add" => a => numBin(a, _ + _, _ + _)
     case "i.sub" => a => numBin(a, _ - _, _ - _)
     case "i.mul" => a => numBin(a, _ * _, _ * _)
@@ -2333,12 +2346,34 @@ object Prims:
         case (BigV(n), "gcd",          List(BigV(m)))  => BigV(n.gcd(m))
         case (IntV(n), "toBigInt",     Nil)            => BigV(BigInt(n))
         case (IntV(n), "pow",          List(IntV(e)))  => BigV(BigInt(n).pow(e.toInt))
-        // ── BigDecimal/Decimal (ForeignV(java.math.BigDecimal)) toString etc. ──
-        case (ForeignV(bd: java.math.BigDecimal), "toString",   Nil)        => StrV(bd.toPlainString)
-        case (ForeignV(bd: java.math.BigDecimal), "toPlainString", Nil)     => StrV(bd.toPlainString)
-        case (ForeignV(bd: java.math.BigDecimal), "toBigInt",   Nil)        => BigV(BigInt(bd.toBigInteger))
-        case (ForeignV(bd: java.math.BigDecimal), "toBigInteger", Nil)      => BigV(BigInt(bd.toBigInteger))
-        case (ForeignV(bd: java.math.BigDecimal), "longValue",  Nil)        => IntV(bd.longValue())
+        // ── Portable exact Decimal methods — all delegate to dec.* ──────────
+        case (d: DecimalV, "toString" | "toPlainString", Nil) =>
+          PortableDecimal.eval("dec.to-string", List(d))
+        case (d: DecimalV, "toBigInt" | "toBigInteger", Nil) =>
+          PortableDecimal.eval("dec.to-bigint", List(d))
+        case (d: DecimalV, "toInt" | "toLong" | "longValue", Nil) =>
+          PortableDecimal.eval("dec.to-bigint", List(d)) match
+            case BigV(n) => IntV(n.toLong)
+            case _       => sys.error("decimal: invalid to-bigint result")
+        case (d: DecimalV, "toDouble", Nil) => FloatV(PortableDecimal.toJava(d).doubleValue())
+        case (d: DecimalV, "scale", Nil) => PortableDecimal.eval("dec.scale", List(d))
+        case (d: DecimalV, "unscaledValue", Nil) => PortableDecimal.eval("dec.unscaled", List(d))
+        case (d: DecimalV, "abs", Nil) => PortableDecimal.eval("dec.abs", List(d))
+        case (d: DecimalV, "negate", Nil) => PortableDecimal.eval("dec.negate", List(d))
+        case (d: DecimalV, "signum", Nil) => PortableDecimal.eval("dec.signum", List(d))
+        case (d: DecimalV, "pow", List(exponent)) => PortableDecimal.eval("dec.pow", List(d, exponent))
+        case (d: DecimalV, "compare" | "compareTo", List(other)) =>
+          PortableDecimal.eval("dec.compare", List(d, other))
+        case (d: DecimalV, "setScale", List(scale)) =>
+          PortableDecimal.eval("dec.set-scale", List(d, scale, DataV("RoundingMode", Vector(StrV("HALF_UP")))))
+        case (d: DecimalV, "setScale", List(scale, mode)) =>
+          PortableDecimal.eval("dec.set-scale", List(d, scale, mode))
+        case (d: DecimalV, "round", List(scale)) =>
+          PortableDecimal.eval("dec.set-scale", List(d, scale, DataV("RoundingMode", Vector(StrV("HALF_UP")))))
+        case (d: DecimalV, "divide", List(other, scale, mode)) =>
+          PortableDecimal.eval("dec.div", List(d, other, scale, mode))
+        case (IntV(n), "toDecimal", Nil) => PortableDecimal.construct(List(IntV(n)))
+        case (BigV(n), "toDecimal", Nil) => PortableDecimal.construct(List(BigV(n)))
         case (DataV("Nil", _), "isEmpty", Nil)  => BoolV(true)
         case (DataV("Cons", _), "isEmpty", Nil) => BoolV(false)
         case (DataV("Nil", _), "nonEmpty", Nil)  => BoolV(false)
@@ -2762,12 +2797,7 @@ object Prims:
                     // TupleN): the handler arm `case op(a, b, resume)` is op/3, so
                     // runEffectLoop must deliver the args unpacked — while a genuine
                     // single tuple argument stays one payload value (op/2).
-                    val argV = margs match
-                      case Nil       => UnitV
-                      case List(one) => one
-                      case many      => DataV("__EffArgs__", many.toVector)
-                    val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env(0)))
-                    DataV("Op", Vector(StrV(s"$effectTag.$name"), argV, identity))
+                    PortableEffects.perform(s"$effectTag.$name", margs)
                   }
                 case DataV("Stub", fs) =>
                   // A method ON a stub stays that stub — keep the ORIGINAL missed-method
@@ -2967,6 +2997,11 @@ object Prims:
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
       ForeignV(nm)
+    // Bridge arithmetic is dynamically typed and therefore reaches __arith__
+    // rather than the named big.* primitives. Keep both paths identical.
+    case (BigV(x), BigV(y)) => bigArith(op, x, y)
+    case (BigV(x), IntV(y)) => bigArith(op, x, BigInt(y))
+    case (IntV(x), BigV(y)) => bigArith(op, BigInt(x), y)
     // Char semantics: bridge char literals are Int codepoints, while chars
     // extracted from strings (charAt/forall) are 1-char strings — comparisons
     // between the two compare codepoints (c >= 'a' in parser predicates).
@@ -3019,50 +3054,19 @@ object Prims:
         case ">=" if sameCurrency => BoolV(x >= y)
         case "+" | "-" | "<" | "<=" | ">" | ">=" => DataV("CurrencyMismatch", Vector(cx, cy))
         case _ => sys.error(s"__arith__: op $op not valid for Money+Money")
-    case (DataV("Money", IndexedSeq(IntV(x), c)), ForeignV(y: java.math.BigDecimal)) =>
+    case (DataV("Money", IndexedSeq(IntV(x), c)), y: DecimalV) =>
       import java.math.RoundingMode.HALF_EVEN
       op match
-        case "*" => DataV("Money", Vector(IntV(new java.math.BigDecimal(x).multiply(y).setScale(0, HALF_EVEN).longValueExact()), c))
-        case "/" => DataV("Money", Vector(IntV(new java.math.BigDecimal(x).divide(y, 0, HALF_EVEN).longValueExact()), c))
+        case "*" => DataV("Money", Vector(IntV(new java.math.BigDecimal(x).multiply(PortableDecimal.toJava(y)).setScale(0, HALF_EVEN).longValueExact()), c))
+        case "/" => DataV("Money", Vector(IntV(new java.math.BigDecimal(x).divide(PortableDecimal.toJava(y), 0, HALF_EVEN).longValueExact()), c))
         case _   => sys.error(s"__arith__: op $op not valid for Money+Decimal")
     case (DataV("Money", IndexedSeq(IntV(x), c)), IntV(y)) =>
       op match
         case "*" => DataV("Money", Vector(IntV(x * y), c))
         case "/" => DataV("Money", Vector(IntV(x / y), c))
         case _   => sys.error(s"__arith__: op $op not valid for Money+Int")
-    case (ForeignV(x: java.math.BigDecimal), ForeignV(y: java.math.BigDecimal)) =>
-      import java.math.RoundingMode.HALF_UP
-      op match
-        case "+"  => ForeignV(x.add(y))
-        case "-"  => ForeignV(x.subtract(y))
-        case "*"  => ForeignV(x.multiply(y))
-        case "/"  => ForeignV(x.divide(y, x.scale().max(y.scale()).max(10), HALF_UP))
-        case "%"  => ForeignV(x.remainder(y))
-        case "==" => BoolV(x.compareTo(y) == 0); case "!=" => BoolV(x.compareTo(y) != 0)
-        case "<"  => BoolV(x.compareTo(y) < 0); case "<=" => BoolV(x.compareTo(y) <= 0)
-        case ">"  => BoolV(x.compareTo(y) > 0); case ">=" => BoolV(x.compareTo(y) >= 0)
-        case "++" => StrV(x.toPlainString + y.toPlainString)
-        case _    => sys.error(s"__arith__: op $op not valid for Decimal")
-    case (ForeignV(x: java.math.BigDecimal), IntV(y)) =>
-      import java.math.RoundingMode.HALF_UP
-      val ybd = java.math.BigDecimal.valueOf(y)
-      op match
-        case "+"  => ForeignV(x.add(ybd)); case "-" => ForeignV(x.subtract(ybd))
-        case "*"  => ForeignV(x.multiply(ybd)); case "/" => ForeignV(x.divide(ybd, x.scale().max(10), HALF_UP))
-        case "==" => BoolV(x.compareTo(ybd) == 0); case "!=" => BoolV(x.compareTo(ybd) != 0)
-        case "<"  => BoolV(x.compareTo(ybd) < 0); case "<=" => BoolV(x.compareTo(ybd) <= 0)
-        case ">"  => BoolV(x.compareTo(ybd) > 0); case ">=" => BoolV(x.compareTo(ybd) >= 0)
-        case _    => sys.error(s"__arith__: op $op not valid for Decimal+Int")
-    case (IntV(x), ForeignV(y: java.math.BigDecimal)) =>
-      import java.math.RoundingMode.HALF_UP
-      val xbd = java.math.BigDecimal.valueOf(x)
-      op match
-        case "+"  => ForeignV(xbd.add(y)); case "-" => ForeignV(xbd.subtract(y))
-        case "*"  => ForeignV(xbd.multiply(y)); case "/" => ForeignV(xbd.divide(y, y.scale().max(10), HALF_UP))
-        case "==" => BoolV(xbd.compareTo(y) == 0); case "!=" => BoolV(xbd.compareTo(y) != 0)
-        case "<"  => BoolV(xbd.compareTo(y) < 0); case "<=" => BoolV(xbd.compareTo(y) <= 0)
-        case ">"  => BoolV(xbd.compareTo(y) > 0); case ">=" => BoolV(xbd.compareTo(y) >= 0)
-        case _    => sys.error(s"__arith__: op $op not valid for Int+Decimal")
+    case (lv, rv) if PortableDecimal.involvesDecimal(lv, rv) =>
+      PortableDecimal.arith(op, lv, rv)
     case (lv, rv) => op match
       case "==" => BoolV(lv == rv)
       case "!=" => BoolV(lv != rv)
@@ -3088,6 +3092,25 @@ object Prims:
         // statement (e.g. `effect Logger:` compiles to
         // __arith__("Logger", effectClosure, ()) in v2).
         UnitV
+
+  private def bigArith(op: String, left: BigInt, right: BigInt): Value = op match
+    case "+" => BigV(left + right)
+    case "-" => BigV(left - right)
+    case "*" => BigV(left * right)
+    case "/" =>
+      if right == 0 then sys.error("bigint: division by zero")
+      BigV(left / right)
+    case "%" =>
+      if right == 0 then sys.error("bigint: division by zero")
+      BigV(left % right)
+    case "==" => BoolV(left == right)
+    case "!=" => BoolV(left != right)
+    case "<"  => BoolV(left < right)
+    case "<=" => BoolV(left <= right)
+    case ">"  => BoolV(left > right)
+    case ">=" => BoolV(left >= right)
+    case "++" => StrV(left.toString + right.toString)
+    case other => sys.error(s"__arith__: op $other not valid for BigInt")
 
   /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
   def methodOp(name: String, recv: Value, args: List[Value]): Value =
@@ -3341,7 +3364,7 @@ object Prims:
     case IntV(n)   => n.toString
     case BoolV(b)  => b.toString
     case FloatV(d) => Writer.floatStr(d)
-    case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
+    case DecimalV(text) => text
     // Lists render with anyStr ELEMENTS here — deferring to Show.show made
     // rows inside List(...) render as "<foreign>" (show has no Map case and
     // quotes strings, both breaking v1 output parity in interpolations).
@@ -3496,6 +3519,7 @@ object Show:
     case IntV(n)      => n.toString
     case BigV(n)      => n.toString
     case FloatV(d)    => Writer.floatStr(d)
+    case DecimalV(s)  => s
     case StrV(s)      => "\"" + s + "\""
     case BytesV(bs)   => bs.map(x => f"${x & 0xff}%02x").mkString("#", "", "")
     case DataV("Cons", _) | DataV("Nil", _) =>
@@ -3506,7 +3530,6 @@ object Show:
     case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case _: ClosV     => "<closure>"
-    case ForeignV(bd: java.math.BigDecimal) => bd.toPlainString
     case ForeignV(nmo: NamedMethodObj) =>
       val r = tryForeign(nmo.underlying)
       if r == null then "<foreign>" else r

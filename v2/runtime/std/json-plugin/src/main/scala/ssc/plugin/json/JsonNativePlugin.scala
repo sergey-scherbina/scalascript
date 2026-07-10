@@ -72,7 +72,7 @@ final class JsonNativePlugin extends NativePlugin:
       case "asBool" => Some(closure(0)(_ => Value.BoolV(NativeJsonCodec.boolValue(core).getOrElse(false))))
       case "asList" => Some(closure(0)(_ => list(NativeJsonCodec.arrayValues(core).map(boxed))))
       case "asDecimal" => Some(closure(0)(_ =>
-        Value.ForeignV(decimal.getOrElse(java.math.BigDecimal.ZERO))))
+        Value.DecimalV(decimal.getOrElse(java.math.BigDecimal.ZERO).toPlainString)))
       case "optString" => Some(closure(0)(_ => NativeJsonCodec.stringValue(core) match
         case Some(text) => Value.DataV("Some", Vector(Value.StrV(text)))
         case None => Value.DataV("None", Vector.empty)))
@@ -81,7 +81,7 @@ final class JsonNativePlugin extends NativePlugin:
           Value.DataV("Some", Vector(Value.IntV(value.longValue())))
         case _ => Value.DataV("None", Vector.empty)))
       case "optDecimal" => Some(closure(0)(_ => decimal match
-        case Some(value) => Value.DataV("Some", Vector(Value.ForeignV(value)))
+        case Some(value) => Value.DataV("Some", Vector(Value.DecimalV(value.toPlainString)))
         case None => Value.DataV("None", Vector.empty)))
       case "getOrElse" => Some(closure(2) { args =>
         val fallback = argText(args, 1).getOrElse("")

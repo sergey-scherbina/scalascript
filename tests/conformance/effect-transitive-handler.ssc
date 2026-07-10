@@ -1,6 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: effect-transitive-handler
+backends: [int, js, jvm, v2]
 ---
 
 # effect / reader / handler split across a 3-level import chain

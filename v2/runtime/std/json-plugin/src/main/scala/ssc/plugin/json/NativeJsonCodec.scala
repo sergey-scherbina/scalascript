@@ -42,6 +42,7 @@ private[plugin] object NativeJsonCodec:
     case Value.BoolV(boolean) => Value.DataV("JsonCoreBool", Vector(Value.BoolV(boolean)))
     case Value.IntV(number) => numberCore(number.toString)
     case Value.BigV(number) => numberCore(number.toString)
+    case Value.DecimalV(text) => numberCore(text)
     case Value.FloatV(number) =>
       if java.lang.Double.isFinite(number) then numberCore(java.lang.Double.toString(number))
       else throw new RuntimeException("jsonStringify cannot encode NaN or Infinity")
@@ -150,8 +151,8 @@ private[plugin] object NativeJsonCodec:
       try Value.IntV(raw.toLong)
       catch case _: NumberFormatException => Value.BigV(BigInt(raw))
     else
-      try Value.FloatV(raw.toDouble)
-      catch case _: NumberFormatException => Value.FloatV(0.0)
+      try Value.DecimalV(raw)
+      catch case _: RuntimeException => Value.DecimalV("0.0")
 
   private def list(values: IterableOnce[Value]): Value =
     values.iterator.toList.foldRight[Value](NilValue) { (value, rest) =>

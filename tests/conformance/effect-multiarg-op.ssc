@@ -1,6 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: effect-multiarg-op
+backends: [int, js, jvm, v2]
 ---
 
 # 2-arg effect op through an imported handler (busi Journal shape)

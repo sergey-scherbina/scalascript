@@ -1,6 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: effect-imported-handler
+backends: [int, js, jvm, v2]
 ---
 
 # effect performed in an imported module, run by an imported handler

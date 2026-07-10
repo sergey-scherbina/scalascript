@@ -393,15 +393,78 @@ class FrontendBridgeTest extends AnyFunSuite:
 
     val dec = arith(List(
       Value.StrV("+"),
-      Value.ForeignV(new java.math.BigDecimal("1.25")),
+      Value.DecimalV("1.25"),
       Value.IntV(2)))
-    assert(dec.asInstanceOf[Value.ForeignV].h
-      .asInstanceOf[java.math.BigDecimal].toPlainString == "3.25")
+    assert(dec == Value.DecimalV("3.25"))
 
     assert(arith(List(Value.StrV("!"), Value.DataV("ActorRef", Vector(Value.IntV(1))), Value.StrV("msg"))) ==
       Value.UnitV)
     assert(arith(List(Value.StrV("Logger"), Value.StrV("effect"), Value.UnitV)) ==
       Value.UnitV)
+  }
+
+  test("portable dec primitives preserve display scale and numeric identity") {
+    val parse = Prims.resolve("dec.parse")
+    val one = parse(List(Value.StrV("1.0")))
+    val oneHundredthScale = parse(List(Value.StrV("1.00")))
+    val product = Prims.resolve("dec.mul")(List(
+      parse(List(Value.StrV("1.10"))),
+      parse(List(Value.StrV("1.10")))))
+
+    assert(one == oneHundredthScale)
+    assert(one.hashCode == oneHundredthScale.hashCode)
+    assert(Map(one -> "same")(oneHundredthScale) == "same")
+    assert(Show.show(oneHundredthScale) == "1.00")
+    assert(product == Value.DecimalV("1.2100"))
+  }
+
+  test("bridge dynamic BigInt arithmetic matches named big primitives") {
+    val arith = Prims.resolve("__arith__")
+    val huge = BigInt("922337203685477580812345")
+
+    assert(arith(List(Value.StrV("+"), Value.BigV(huge), Value.IntV(5))) ==
+      Value.BigV(huge + 5))
+    assert(arith(List(Value.StrV("-"), Value.IntV(5), Value.BigV(huge))) ==
+      Value.BigV(BigInt(5) - huge))
+    assert(arith(List(Value.StrV("<"), Value.BigV(BigInt(1)), Value.BigV(BigInt(2)))) ==
+      Value.BoolV(true))
+    assert(arith(List(Value.StrV("=="), Value.BigV(BigInt(2)), Value.IntV(2))) ==
+      Value.BoolV(true))
+  }
+
+  test("v2 Decimal public surface contains no host ForeignV") {
+    val out = capture(
+      """val a = Decimal("1.50")
+        |val b = Decimal("2.25")
+        |println(a + b)
+        |println(Decimal("1.0") == Decimal("1.00"))
+        |println(Decimal("1.10") * Decimal("1.10"))
+        |println(Decimal("10").divide(Decimal("3"), 4, RoundingMode.HALF_UP))
+        |println(Decimal("12.340").scale)
+        |println(Decimal("9.99").toBigInt)
+        |""".stripMargin)
+
+    assert(out == "3.75\ntrue\n1.2100\n3.3333\n3\n9")
+    assert(run("Decimal(123, 2)").isInstanceOf[Value.DecimalV])
+    assert(PluginBridge.v1ToV2(
+      scalascript.interpreter.DataValue.DecimalV(BigDecimal("12.3400"))) ==
+      Value.DecimalV("12.3400"))
+  }
+
+  test("portable effect handler keeps reusable multi-shot continuations") {
+    val handler = Value.ClosV(Runtime.emptyEnv, 1, env => env.last match
+      case Value.DataV("pick", IndexedSeq(_, resume: Value.ClosV)) =>
+        val first = Prims.runClos1(resume, Value.IntV(1))
+        val second = Prims.runClos1(resume, Value.IntV(2))
+        Done(Value.DataV("Tuple2", Vector(first, second)))
+      case Value.DataV("Return", IndexedSeq(value)) => Done(value)
+      case other => throw new RuntimeException(s"unexpected effect event: ${Show.show(other)}")
+    )
+    val computation = Prims.resolve("effect.perform")(
+      List(Value.StrV("Choose.pick"), Value.StrV("choices")))
+
+    assert(Prims.resolve("effect.handle")(List(computation, handler)) ==
+      Value.DataV("Tuple2", Vector(Value.IntV(1), Value.IntV(2))))
   }
 
   test("v2 VM effect handlers match free-monad Op values from ssc0") {

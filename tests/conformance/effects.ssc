@@ -2,6 +2,7 @@
 ---
 name: effects
 description: Algebraic effects with handlers — Console and Choose
+backends: [int, js, jvm, v2]
 ---
 
 # Effects

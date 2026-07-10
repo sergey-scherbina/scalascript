@@ -7,8 +7,9 @@ import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.net.URI
 import java.nio.charset.StandardCharsets.UTF_8
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Prims, V2PluginRegistry, Value}
+import ssc.{Done, Prims, Runtime, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
+import ssc.plugin.json.JsonNativePlugin
 
 class HttpNativePluginTest extends AnyFunSuite:
   private def call(name: String, args: Value*): Value =
@@ -49,7 +50,10 @@ class HttpNativePluginTest extends AnyFunSuite:
   }
 
   test("Response builders reuse native JSON and cache helpers preserve fields") {
-    NativePluginHost.installProviders(List(HttpNativePlugin()))
+    NativePluginHost.installProviders(List(JsonNativePlugin(), HttpNativePlugin()))
+    val renderer = Value.ClosV(Runtime.emptyEnv, 1, _ =>
+      Done(Value.StrV("{\"n\":2,\"ok\":true}")))
+    call("__jsonCoreInstallRenderer", renderer)
     val values = collection.mutable.LinkedHashMap[Value, Value](
       Value.StrV("ok") -> Value.BoolV(true), Value.StrV("n") -> Value.IntV(2))
     val json = fields(call("Response.json", Value.ForeignV(values)))

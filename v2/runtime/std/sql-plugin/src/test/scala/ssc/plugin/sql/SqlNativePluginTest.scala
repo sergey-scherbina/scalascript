@@ -24,22 +24,23 @@ class SqlNativePluginTest extends AnyFunSuite:
 
     assert(call("Db.execute",
       Value.StrV("default"),
-      Value.StrV("CREATE TABLE people (id BIGINT PRIMARY KEY, name VARCHAR(80), active BOOLEAN)"),
+      Value.StrV("CREATE TABLE people (id BIGINT PRIMARY KEY, name VARCHAR(80), active BOOLEAN, amount DECIMAL(12,4))"),
       list()) == Value.IntV(0))
     assert(call("Db.execute",
       Value.StrV("default"),
-      Value.StrV("INSERT INTO people VALUES (?, ?, ?)"),
-      list(Value.IntV(7), Value.StrV("Ada"), Value.BoolV(true))) == Value.IntV(1))
+      Value.StrV("INSERT INTO people VALUES (?, ?, ?, ?)"),
+      list(Value.IntV(7), Value.StrV("Ada"), Value.BoolV(true), Value.DecimalV("1000.0100"))) == Value.IntV(1))
 
     val rows = call("Db.query",
       Value.StrV("default"),
-      Value.StrV("SELECT id, name, active FROM people WHERE id = ?"),
+      Value.StrV("SELECT id, name, active, amount FROM people WHERE id = ?"),
       list(Value.IntV(7)))
     val Value.DataV("Cons", Seq(Value.ForeignV(rawRow: collection.Map[?, ?]), Value.DataV("Nil", _))) = rows: @unchecked
     val row = rawRow.asInstanceOf[collection.Map[Value, Value]]
     assert(row(Value.StrV("ID")) == Value.IntV(7))
     assert(row(Value.StrV("NAME")) == Value.StrV("Ada"))
     assert(row(Value.StrV("ACTIVE")) == Value.BoolV(true))
+    assert(row(Value.StrV("AMOUNT")) == Value.DecimalV("1000.0100"))
 
   test("unknown named database reports configured names"):
     install("native-sql-unknown")
