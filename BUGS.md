@@ -90,7 +90,8 @@ before `done`.
 
 ## v2-bytecode-x402-unhandled-op-success — bytecode lane exits 0 with unresolved `Wallets.metaMask` op
 
-**Status:** open (2026-07-10).
+**Status:** fixed (2026-07-10, `7192cd6e4`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex during the TI-2 VM/ASM corpus baseline at `7ba4d413b`.
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, compare
@@ -111,6 +112,19 @@ before `done`.
   `PluginBridge` fallback dispatch, and bytecode top-level result handling.
 - **Owner/slice:** `v21-ti-native-front-parity` plus VM/ASM parity; add a
   focused conformance row before closing.
+- **Root cause:** all four public v2 execution routes independently treated any
+  non-Unit result as printable success. The bridge ASM path correctly preserved
+  the unresolved dotted plugin fallback as `DataV("Op", ...)`, but its CLI
+  result branch did not distinguish that diagnostic sentinel from ordinary
+  user values.
+- **Fix:** route bridge/native and VM/ASM final values through one result
+  validator. A dotted auto-thread `Op` now raises `unhandled runtime effect`;
+  the related missing-method `Stub` sentinel raises `unresolved runtime
+  dispatch`; undotted user free-monad `Op` data remains printable.
+- **Verified:** assembled `tests/e2e/v21-unhandled-effect-smoke.sh` rejects a
+  native missing dispatch on VM and ASM and the exact bridge-ASM
+  `Wallets.metaMask` repro; native-entry smoke PASS; CLI argv tests 2/2;
+  affected `v2-*` conformance 8/8.
 
 ## v21-native-front-prose-self-import-loop — raw link scan follows prose links as module imports
 

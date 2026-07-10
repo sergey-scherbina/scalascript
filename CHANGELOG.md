@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — unresolved v2 runtime results now fail on VM and ASM
+
+All public v2 runners now share final-result validation. Missing-method `Stub`
+sentinels and dotted unhandled runtime-effect `Op` values produce a nonzero
+diagnostic instead of printable success; the historical bytecode-only
+`Wallets.metaMask` false success is covered by an assembled regression.
+
 ## 2026-07-10 — native checker numeric/string false positives removed
 
 The self-hosted checker now infers Float literals and mixed numeric arithmetic,

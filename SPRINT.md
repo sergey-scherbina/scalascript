@@ -66,6 +66,10 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       only sentinel-clear reject is the tracked `!exists(path)` prefix/postfix
       AST bug. Next: land that frontend precedence fix after the sibling hex
       lexer branch, then re-run the classified front/check/runtime sweep.
+      VM/ASM result parity slice `7192cd6e4` also closes the x402 silent-success
+      bug: dotted unhandled `Op` and missing-dispatch `Stub` final values now
+      fail nonzero through shared result validation; assembled VM/ASM/x402 smoke
+      PASS. Undotted free-monad `Op` data remains a valid explicit result.
 - [ ] **v21-ti-plugin-runtime-boundary** — remove the standard native lane's
       dependency on the scalameta-coupled v1 `core`/`Value.FunV` graph. Introduce
       or finish a scalameta-free runtime value/SPI boundary for `NativeImpl`
