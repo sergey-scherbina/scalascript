@@ -50,6 +50,26 @@ class InterpreterBackend extends InteractiveBackend:
         1
     CompileResult.Executed(stdout = "", stderr = "", exit = exit)
 
+  /** wide-jit C-2: in-process run on the ORIGINAL `ast.Module` (whose
+   *  `Content.CodeBlock.tree` is already populated from the first parse),
+   *  skipping the `Normalize`→`Denormalize` round-trip and its source re-parse.
+   *  Same interpreter setup as `compile`; `SectionRuntime` consumes `cb.tree`
+   *  directly, so no re-parse occurs. Used by the CLI `run` fast-path for `"int"`
+   *  so a later phase can key a static-type map on the very trees the JIT compiles. */
+  def compileAstModule(astModule: scalascript.ast.Module, opts: BackendOptions): CompileResult =
+    val baseDir = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
+    val exit =
+      try
+        val interp = Interpreter(baseDir = baseDir)
+        opts.extra.get("frontendName")
+          .foreach(n => interp.injectGlobal("_ssc_frontend_name", Value.StringV(n)))
+        interp.run(astModule)
+        0
+      catch case t: Throwable =>
+        log.error(t.getMessage, t)
+        1
+    CompileResult.Executed(stdout = "", stderr = "", exit = exit)
+
   def openSession(opts: BackendOptions): Session =
     val baseDir = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
     new InterpreterSession(Interpreter(baseDir = baseDir, headless = false))

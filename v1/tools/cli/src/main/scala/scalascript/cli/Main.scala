@@ -276,16 +276,23 @@ private[cli] def compileViaBackend(
     // empty Failed so the caller exits non-zero without re-printing a raw
     // `Generic(...)` toString on top of it.
     return CompileResult.Failed(Nil)
-  val ir      = Normalize(module)
   val backend = resolveBackend(backendId)
-  val diags   = CapabilityCheck.validate(ir, backend.capabilities, backendId)
-  if diags.nonEmpty then CompileResult.Failed(diags)
-  else
-    val opts = BackendOptions(
-      baseDir = Some((file / os.up).toNIO),
-      extra   = extras
-    )
-    backend.compile(ir, opts)
+  val opts = BackendOptions(
+    baseDir = Some((file / os.up).toNIO),
+    extra   = extras
+  )
+  backend match
+    // wide-jit C-2: the tree-walking interpreter runs the ORIGINAL tree-bearing
+    // module directly, skipping the Normalize→Denormalize round-trip + source
+    // re-parse (SectionRuntime consumes `cb.tree`). Parse errors were already
+    // reported above; the interpreter imposes no capability restrictions.
+    case ib: scalascript.interpreter.InterpreterBackend =>
+      ib.compileAstModule(module, opts)
+    case _ =>
+      val ir    = Normalize(module)
+      val diags = CapabilityCheck.validate(ir, backend.capabilities, backendId)
+      if diags.nonEmpty then CompileResult.Failed(diags)
+      else backend.compile(ir, opts)
 
 private[cli] def compileJsSegments(path: os.Path, noTreeShake: Boolean = false): List[Segment] =
   // [E3] honor the `def view()` convention on the codegen path (client-mode SPA
