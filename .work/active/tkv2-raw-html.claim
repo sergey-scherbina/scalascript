@@ -1,6 +1,6 @@
 feature/tkv2-raw-html 2026-07-10T01:04:09Z
 agent: codex
-heartbeat: 2026-07-10T01:04:09Z
-status: not-started
-done-so-far:
-next: create worktree, add SPRINT/spec plan for rawHtml verification/fix before code
+heartbeat: 2026-07-10T01:04:35Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-tkv2-raw-html
+next: add SPRINT/spec plan, verify whether rawText already covers rawHtml, then implement only the missing safe raw-markup path
