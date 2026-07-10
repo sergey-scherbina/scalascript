@@ -603,6 +603,18 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(runBytecodeProgram(mutual) == Value.BoolV(false))
   }
 
+  test("v2 bytecode closure application enforces VM arity") {
+    import Const.*, Term.*
+    val wrongArity = Program(
+      Nil,
+      Let(
+        List(Lam(1, Local(0))),
+        App(Local(0), List(Lit(CInt(1)), Lit(CInt(2))))))
+
+    val error = intercept[RuntimeException](runBytecodeProgram(wrongArity))
+    assert(error.getMessage == "arity: 1 expected, 2 given")
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }

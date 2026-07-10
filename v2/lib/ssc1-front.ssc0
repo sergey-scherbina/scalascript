@@ -343,19 +343,24 @@ def skipKind = (k, toks) => if kindIs(k, toks) then advance(toks) else toks
 def skipKw   = (kw, toks) => if kwIs(kw, toks) then advance(toks) else toks
 
 -- Skip type annotation  ': Type'  (stop at '=' ')' ',' '{' 'EOF')
--- skipType: skip a type expression, respecting nested [...] brackets
--- Stops at = ) , { EOF at depth 0; continues through , inside [...]
+-- skipType: skip a type expression, respecting nested [...] and (...)
+-- delimiters. Function types such as `() => String` appear inside an outer
+-- parameter list; their inner `)` must not terminate that outer list.
+-- Stops at = ) , { EOF at depth 0; continues through nested delimiters.
 def skipTypeAt = (depth, toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
   if #seq(k, "EOF") then toks
   else if #seq(k, "[") then skipTypeAt(#i.add(depth, 1), advance(toks))
+  else if #seq(k, "(") then skipTypeAt(#i.add(depth, 1), advance(toks))
   else if #seq(k, "]") then
+    if #i.eq(depth, 0) then toks
+    else skipTypeAt(#i.sub(depth, 1), advance(toks))
+  else if #seq(k, ")") then
     if #i.eq(depth, 0) then toks
     else skipTypeAt(#i.sub(depth, 1), advance(toks))
   else if #i.gt(depth, 0) then skipTypeAt(depth, advance(toks))
   else if #seq(k, "=") then toks
-  else if #seq(k, ")") then toks
   else if #seq(k, ",") then toks
   else if #seq(k, "{") then toks
   else if #seq(k, "}") then toks

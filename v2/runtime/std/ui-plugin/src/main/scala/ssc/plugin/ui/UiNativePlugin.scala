@@ -47,6 +47,21 @@ final class UiNativePlugin extends NativePlugin:
     def write(value: Value): Unit =
       throw new RuntimeException(s"native derived signal '$id' is read-only")
 
+  /** Declarative browser-fetch signal for the standard JVM/static UI lane.
+   * Network execution belongs to the emitted browser runtime; the JVM value is
+   * still a real readable Signal so composed helpers can be checked and built
+   * without a compatibility fallback. */
+  private final class FetchSignal(
+      id: String,
+      val url: String,
+      val refresh: NativeSignal,
+      val headers: NativeSignal,
+      context: NativePluginContext)
+      extends NativeSignal(id, context):
+    def read(): Value = Value.StrV("")
+    def write(value: Value): Unit =
+      throw new RuntimeException(s"native fetch signal '$id' is read-only")
+
   private def signal(value: Value, operation: String): NativeSignal = value match
     case Value.ForeignV(signal: NativeSignal) => signal
     case _ => throw new RuntimeException(s"$operation argument 1 must be Signal")
@@ -122,6 +137,10 @@ final class UiNativePlugin extends NativePlugin:
     context.registerFields("NativeUiFragment", Vector("children"))
     context.registerFields("NativeUiElement", Vector("tag", "attrs", "events", "children"))
     context.registerFields("NativeUiEvent", Vector("kind", "signal", "value"))
+    context.registerFields("NativeUiFetchAction", Vector("method", "url", "body", "onSuccessTick", "headers"))
+
+    val emptyHeaders = Value.ForeignV(MutableSignal("__empty_headers__", Value.StrV(""), context))
+    context.registerValue("emptyHeaders", emptyHeaders)
 
     native(context, "signal") { args =>
       if args.length != 2 then throw new RuntimeException("signal(name, default)")
@@ -140,6 +159,33 @@ final class UiNativePlugin extends NativePlugin:
     native(context, "hashSignal") { args =>
       if args.nonEmpty then throw new RuntimeException("hashSignal()")
       Value.ForeignV(MutableSignal("__hash__", Value.StrV(""), context))
+    }
+
+    native(context, "fetchUrlSignal") { args =>
+      if args.length != 3 && args.length != 4 then
+        throw new RuntimeException("fetchUrlSignal(name, url, refreshTick[, headers])")
+      val refresh = signal(args(2), "fetchUrlSignal refreshTick")
+      val headers = signal(args.lift(3).getOrElse(emptyHeaders), "fetchUrlSignal headers")
+      Value.ForeignV(FetchSignal(
+        text(args, 0, "fetchUrlSignal"),
+        text(args, 1, "fetchUrlSignal"),
+        refresh,
+        headers,
+        context))
+    }
+    native(context, "fetchAction") { args =>
+      if args.length != 4 && args.length != 5 then
+        throw new RuntimeException("fetchAction(method, url, body, onSuccessTick[, headers])")
+      signal(args(2), "fetchAction body")
+      signal(args(3), "fetchAction onSuccessTick")
+      val headers = args.lift(4).getOrElse(emptyHeaders)
+      signal(headers, "fetchAction headers")
+      Value.DataV("NativeUiFetchAction", Vector(
+        Value.StrV(text(args, 0, "fetchAction")),
+        Value.StrV(text(args, 1, "fetchAction")),
+        args(2),
+        args(3),
+        headers))
     }
 
     native(context, "textNode") { args =>

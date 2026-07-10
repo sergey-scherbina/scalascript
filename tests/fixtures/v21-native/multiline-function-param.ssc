@@ -1,0 +1,13 @@
+---
+name: v21-native-multiline-function-param
+---
+
+# Multiline function-typed parameter
+
+```scalascript
+def surround(prefix: String, body: () => String,
+             suffix: String): String =
+  prefix ++ body() ++ suffix
+
+println(surround("[", () => "typed", "]"))
+```

@@ -46,6 +46,30 @@ class UiNativePluginTest extends AnyFunSuite:
     val equal = call("eqSignal", count, Value.IntV(3))
     assert(invoke(equal) == Value.BoolV(true))
 
+  test("fetch signal and action helpers remain declarative on the standard JVM lane"):
+    NativePluginHost.installProviders(List(UiNativePlugin()))
+    val tick = call("signal", Value.StrV("tick"), Value.IntV(0))
+    val headers = call("signal", Value.StrV("headers"), Value.StrV(""))
+    val fetched = call(
+      "fetchUrlSignal",
+      Value.StrV("summary"),
+      Value.StrV("/api/summary"),
+      tick,
+      headers)
+    assert(invoke(fetched) == Value.StrV(""))
+
+    val body = call("computedSignal", Value.ClosV(Runtime.emptyEnv, 0, _ =>
+      ssc.Done(Value.StrV("{\"ok\":true}"))))
+    val action = call(
+      "fetchAction",
+      Value.StrV("PUT"),
+      Value.StrV("/api/save"),
+      body,
+      tick,
+      headers)
+    assert(action == Value.DataV("NativeUiFetchAction", Vector(
+      Value.StrV("PUT"), Value.StrV("/api/save"), body, tick, headers)))
+
   test("static emit escapes and deterministically renders current signal values"):
     NativePluginHost.installProviders(List(UiNativePlugin()))
     val name = call("signal", Value.StrV("name"), Value.StrV("Grace"))

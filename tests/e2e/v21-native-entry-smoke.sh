@@ -56,11 +56,16 @@ state_expected=$'17\n20\n2\n101\n101\n2'
 [[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 interpolation_expected=$'Squares: 1, 4, 9, 16, 25\nWrapped: 1-4-9-16-25!'
 [[ $(run_native "$FIXTURES/interpolation-expression.ssc") == "$interpolation_expected" ]]
+[[ $(run_native "$FIXTURES/multiline-function-param.ssc") == '[typed]' ]]
+ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
+[[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 [[ $(run_native --bytecode "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$FIXTURES/interpolation-expression.ssc") == "$interpolation_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/multiline-function-param.ssc") == '[typed]' ]]
+[[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
