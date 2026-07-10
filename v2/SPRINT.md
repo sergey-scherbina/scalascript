@@ -1404,3 +1404,24 @@ net-negative ONLY because enum cases are skipped → `North` unbound). Slices:
       (100k-iter recursions w/ `==` base cases) 0.5s + correct; fast conformance 406/0 @164s
       (JVM-startup-dominated, no perf regression). String `<`/`<=`/`>=` (ordering) still use
       i.eq/i.lt — out of scope (rare; needs a string-compare prim).
+
+## K62.17 — call-site default-parameter synthesis — 2026-07-10
+
+The honest BridgeCli metric (RUN=42/194) flagged `arity: N expected, M given` (17 content-*/
+datatable files) as the #1 blocker: K62.6g PARSED `def f(x=v)` defaults but discarded them,
+so calling with omitted trailing args crashed. Fix (front + lower, zero ripple — a SHARED cell
+since ssc1-lower imports ssc1-front and both run in one ssc0 process):
+
+- [x] FRONT: `paramDefaultsCell` (per-param-list accumulator) + `funcDefaultsCell`
+      (funcName → positional defaults). parseParam records `Pair(name, dfltExpr)` on a default
+      (return unchanged, zero ripple). parseDef clears the accumulator before its params and
+      snapshots `Pair(name, positionalDflts)` into funcDefaultsCell after — nested defs clear
+      before the outer reads the body, so no interference.
+- [x] LOWER: `padDefaults(fn, rargs)` at the resolveE app binding — a var/uid call whose name
+      is registered and given < arity gets its omitted TRAILING defaults appended (resolveE'd).
+      Constants (`[]`/`""`) are the common toolkit case; scope-independent.
+- [x] Verified: synthetic `greet("Alice")`→"Hello, Alice!" (2 defaults), `greet("Bob","Hi")`,
+      `tally(List(1,2,3))`→0 all correct; content-data-source / content-slot / datatable-static-spa
+      PROGRESS PAST arity (→ next blockers `unbound null` / plugin module-context). Remaining:
+      content-introspection is CURRIED (`contentComponent(name)(render)`), a separate gap.
+      Conformance + stage1 pending.
