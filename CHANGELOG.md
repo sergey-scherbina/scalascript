@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native immutable values now initialize in document order
+
+Top-level immutable values and tuple bindings are cell-backed and initialized
+once from the native entry, so plugin calls cannot run before preceding effects.
+Scala-style newline inference also keeps a parenthesized statement after a block
+initializer inside its local scope. Faithful SQL and nested-State fixtures now
+match exactly on the v2 VM and direct ASM backends.
+
 ## 2026-07-10 — representative native plugin boundary completed with State
 
 `NativePluginContext.withEffect` keeps dynamic handler push/pop and exception

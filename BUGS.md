@@ -2,7 +2,8 @@
 
 ## v21-native-front-eager-plugin-val — plugin-backed top-level `val` runs before earlier statements
 
-**Status:** open (2026-07-10); reproduced against `2528ce3e9`.
+**Status:** fixed (2026-07-10, `5db137a20`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex while adding the native SQL provider boundary.
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run a native file
@@ -19,15 +20,25 @@
   as `unbound global: inside`; constructing the nested result inline succeeds.
 - **Expected:** effectful/plugin-backed top-level values preserve source order;
   an initializer may not run before preceding statements on either VM or ASM.
-- **Root-cause direction:** native `ssc1-front`/`ssc1-lower` entry/global
-  classification treats an unresolved plugin call as hoistable. Classify
-  dynamic/plugin calls as entry-dependent, or represent ordered initialization
-  explicitly in CoreIR.
+- **Root cause:** `ssc1-lower` emitted every top-level immutable `val` as an
+  eager `IrDef`, outside the document-ordered entry. Independently, the layout
+  pass discarded newlines directly inside explicit braces, so a line beginning
+  with `(` after a block-valued initializer was parsed as extra application
+  arguments and the local binder appeared as an unbound global.
+- **Fix:** top-level immutable values and tuple bindings now use entry-initialized
+  global cells, while Scala-style newline inference emits separators only when
+  the adjacent tokens can end/start statements. The assembled plugin-boundary
+  gate runs both faithful fixtures on VM and direct ASM and compares exact
+  output.
 - **Owner/slice:** `v21-ti-native-front-parity`. The active native-front sibling
   owns named/default-argument work; rebase and coordinate before editing the
   shared self-hosted frontend files.
 - **Done-when:** an assembled VM/ASM regression keeps the `val rows = Db.query`
   shape after DDL/DML and prints the row, with `v2-*` conformance green.
+- **Verification:** `tests/e2e/v21-native-plugin-boundary-smoke.sh` PASS;
+  `tests/e2e/v21-native-entry-smoke.sh` PASS; `tests/conformance/run.sh --only
+  'v2-*' --no-memo` 8/8; `scripts/native-front-corpus` completes all 195 rows
+  without frontend/checker timeout or crash.
 
 ## v21-native-front-prefix-postfix-precedence — `!exists(path)` applies the call after prefix `!`
 

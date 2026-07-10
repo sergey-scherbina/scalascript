@@ -72,13 +72,15 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       bug: dotted unhandled `Op` and missing-dispatch `Stub` final values now
       fail nonzero through shared result validation; assembled VM/ASM/x402 smoke
       PASS. Undotted free-monad `Op` data remains a valid explicit result.
-- [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering repro
-      in `BUGS.md`: a plugin-backed top-level `val` currently runs before
-      preceding entry statements on native VM and ASM; the nested-thunk variant
-      escapes local scope and becomes an unbound global. Coordinate with the
-      active native-front claim before touching `ssc1-front` or `ssc1-lower`;
-      done when the SQL DDL/DML/`val rows = Db.query` and nested `val inside =
-      runState(...)` shapes execute in source order on both backends.
+- [x] **v21-native-front-eager-plugin-val — DONE 2026-07-10 (`5db137a20`):**
+      Scala-style physical-newline separators prevent a parenthesized statement
+      after a block initializer from attaching as extra call arguments; all
+      top-level immutable values/tuple bindings now initialize once through
+      entry-ordered global cells. The exact SQL DDL/DML/`val rows = Db.query`
+      and nested `val inside = runState(...)` fixtures are byte-identical on
+      VM/ASM (`1/7/Ada/true`, `17/20/2/101/101/2`). Full native-front corpus:
+      195 rows, 192 front success, 190 checker success, no crash/timeout;
+      assembled entry/plugin gates PASS and `v2-*` conformance is 8/8.
 - [x] **v21-ti-plugin-runtime-boundary — DONE 2026-07-10 (`169fa2c28` through `250a52da1`):** remove the standard native lane's
       dependency on the scalameta-coupled v1 `core`/`Value.FunV` graph. Introduce
       or finish a scalameta-free runtime value/SPI boundary for `NativeImpl`
