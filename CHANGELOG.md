@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — representative native plugin boundary completed with State
+
+`NativePluginContext.withEffect` keeps dynamic handler push/pop and exception
+cleanup inside the v2 host. The core-free State provider implements nested
+`runState` plus get/set/modify callback semantics; together with native
+JSON/HTTP/SQL/UI it closes every representative TI-5 family on VM and direct
+ASM. Full advanced provider parity remains explicitly queued.
+
 ## 2026-07-10 — static UI moved onto core-free v2 native values
 
 The native provider graph now owns mutable/derived signals, callback updates,

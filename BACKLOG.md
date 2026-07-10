@@ -14,6 +14,24 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## ScalaScript 2.1 native provider parity follow-ups (2026-07-10)
+
+TI-5's representative Scalameta-free boundary is complete; these full-surface
+parity slices are intentionally non-blocking for the artifact/packaging cutover:
+
+- [ ] **v21-native-http-advanced** — native middleware/CORS/gzip, TLS,
+      streaming responses, SSE, uploads, WebSockets, and static UI serving;
+      replace each current bounded unavailable diagnostic with a tested host
+      hook, never a compatibility fallback.
+- [ ] **v21-native-sql-advanced** — typed `Db.insert/update`, PostgreSQL
+      LISTEN/NOTIFY, and native lowering of fenced `sql`/`transaction` blocks.
+- [ ] **v21-native-ui-advanced** — framework SPA generation, `serve(view)`,
+      keyed/fetch/data-table actions, storage/WebAuthn, and desktop/mobile
+      renderers without `frontendCore`.
+- [ ] **v21-native-effects-remaining** — Logger, Random, Clock, Env, Retry,
+      Cache, Async, and Stream providers over `NativePluginContext.withEffect`,
+      without v1 `BlockForm`/`SpiValue` adapters.
+
 ## ssc-toolkit-v2 P2 follow-ups (2026-07-07) — see `specs/ssc-toolkit-v2.md`
 
 Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi

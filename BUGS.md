@@ -13,7 +13,10 @@
 - **Observed:** the native lowerer emits the plugin-backed `val` as eager global
   initialization, so its SELECT runs before preceding entry statements. The
   same ordering trap previously forced the native HTTP server fixture to inline
-  `httpGet` after `serveAsync`.
+  `httpGet` after `serveAsync`. A second assembled repro in the native State
+  provider showed the scope variant: `val inside = runState(...)` inside an
+  outer `runState` thunk is hoisted out of the thunk and its following use fails
+  as `unbound global: inside`; constructing the nested result inline succeeds.
 - **Expected:** effectful/plugin-backed top-level values preserve source order;
   an initializer may not run before preceding statements on either VM or ASM.
 - **Root-cause direction:** native `ssc1-front`/`ssc1-lower` entry/global

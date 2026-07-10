@@ -72,7 +72,14 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       bug: dotted unhandled `Op` and missing-dispatch `Stub` final values now
       fail nonzero through shared result validation; assembled VM/ASM/x402 smoke
       PASS. Undotted free-monad `Op` data remains a valid explicit result.
-- [ ] **v21-ti-plugin-runtime-boundary** — remove the standard native lane's
+- [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering repro
+      in `BUGS.md`: a plugin-backed top-level `val` currently runs before
+      preceding entry statements on native VM and ASM; the nested-thunk variant
+      escapes local scope and becomes an unbound global. Coordinate with the
+      active native-front claim before touching `ssc1-front` or `ssc1-lower`;
+      done when the SQL DDL/DML/`val rows = Db.query` and nested `val inside =
+      runState(...)` shapes execute in source order on both backends.
+- [x] **v21-ti-plugin-runtime-boundary — DONE 2026-07-10 (`169fa2c28` through `b466fa954`):** remove the standard native lane's
       dependency on the scalameta-coupled v1 `core`/`Value.FunV` graph. Introduce
       or finish a scalameta-free runtime value/SPI boundary for `NativeImpl`
       plugins, move `run-ir` hosting out of `v2FrontendBridge`, and keep any v1
@@ -104,8 +111,11 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       conformance 8/8. `145505252` then added core-free signals/view values and
       deterministic static UI emission: provider tests 2/2, 104 runtime JARs,
       VM/ASM `index.html` bytes identical, both e2e gates PASS, and no
-      `frontendCore`/Scalameta edge. Next: migrate a representative effect
-      provider; return to advanced HTTP/SQL/UI follow-ups before closing TI-5.
+      `frontendCore`/Scalameta edge. `0fad7cbbb` and `b466fa954` finally added
+      host-scoped dynamic effects plus native State: SPI 6/6, provider 2/2, 105
+      runtime JARs, nested VM/ASM output identical, both e2e gates PASS, and
+      conformance 8/8. Every TI-5 representative family now runs without the
+      v1 bridge/Scalameta; advanced parity surfaces are queued in BACKLOG.
       - [x] **Native SQL slice — DONE 2026-07-10 (`2528ce3e9`, `44fec39e1`):** add `NativeDatabaseConfig` to the core-free
             context; parse/strictly merge explicit-root `databases:` YAML in
             `RunNativeV2`; add `v2/runtime/std/sql-plugin` over the already
@@ -135,7 +145,7 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             104 staged runtime JARs, imported `std/ui/primitives` emitted the
             same escaped HTML bytes on native VM/ASM, both assembled gates
             PASS, and `v2-*` conformance 8/8.
-      - [ ] **Native State effect slice:** extend `NativePluginContext` with
+      - [x] **Native State effect slice — DONE 2026-07-10 (`0fad7cbbb`, `b466fa954`):** extend `NativePluginContext` with
             host-owned `withEffect(effectTag)(handler)(body)` so push/pop and
             exception cleanup remain kernel details. Add a core-free
             `v2/runtime/std/state-effect-plugin` that registers `State` and
@@ -147,13 +157,9 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             Random, Clock, Env, Retry, Cache, Async, and Stream runners as
             explicit follow-ups without `BlockForm` fallback. Done when SPI and
             provider tests, `installBin`, both e2e gates, and `v2-*`
-            conformance are green.
-      - [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering
-            repro in `BUGS.md`: a plugin-backed top-level `val` currently runs
-            before preceding entry statements on native VM and ASM. Coordinate
-            with the active native-front claim before touching `ssc1-front` or
-            `ssc1-lower`; done when the SQL DDL/DML/`val rows = Db.query` shape
-            executes in source order on both backends.
+            conformance are green. Result: SPI 6/6, provider 2/2, 105 staged
+            runtime JARs, nested-state output `17/20/2/101/101/2` identical on
+            native VM/ASM, both e2e gates PASS, and conformance 8/8.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a
