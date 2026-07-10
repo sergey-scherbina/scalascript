@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native frontend recognizes symbolic extension operators
+
+The self-hosted lexer/parser now consumes `~`, `~>`, and `<~` with
+first-character precedence and accepts them as symbolic definition names.
+Unknown symbolic infix lowering calls an explicit global instead of silently
+falling back to integer addition. Three parser DSL examples lose their
+sentinels; SQL recovery runs, while calc/JSON reach honest missing-regex runtime
+boundaries. The corpus has 71 sentinels and 3 standard gaps; standard parity is
+10/60/125 with zero mismatch/one-sided, and fresh conformance is 9/9. Landed
+`23fca32a0`.
+
 ## 2026-07-10 — sentinel readiness no longer depends on backend exit status
 
 The release taxonomy now keeps the frontend `_err` sentinel authoritative when
