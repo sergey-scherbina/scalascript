@@ -1,0 +1,35 @@
+---
+name: std-ui-raw-html-demo
+version: 0.1.0
+description: "std/ui rawHtml demo - trusted raw markup beside escaped rawText."
+---
+
+# std/ui rawHtml demo
+
+Shows the difference between escaped `rawText` and trusted `rawHtml` in the
+toolkit v2 lowering path.
+
+[serve](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[rawText, rawHtml](std/ui/reactive.ssc)
+
+```scalascript
+val snippet = "<strong data-demo=\"raw-html\">Trusted HTML</strong>"
+
+val tree = vstack(12)(
+  heading(1, "rawHtml demo"),
+  text("The first line is escaped text; the second line is injected trusted markup."),
+  rawText(snippet),
+  rawHtml(snippet)
+)
+
+serve(lower(tree, defaultTheme), 8778)
+```

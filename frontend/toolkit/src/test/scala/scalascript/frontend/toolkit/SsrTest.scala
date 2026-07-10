@@ -79,6 +79,18 @@ class SsrTest extends AnyFunSuite with Matchers:
     sig.set("Bob")
     Ssr.renderToHtml(v) should include ("value=\"Bob\"")
 
+  test("raw HTML sentinel emits trusted children and hides the sentinel attribute"):
+    val v = View.Element("span",
+      Map("style" -> AttrValue.Str("display:contents"),
+          "data-ssc-raw-html" -> AttrValue.Str("<strong data-x=\"ok\">safe</strong>")),
+      Map.empty,
+      Seq(View.TextNode(() => "<em>ignored</em>")))
+    val out = Ssr.renderToHtml(v)
+    out shouldBe "<span style=\"display:contents\"><strong data-x=\"ok\">safe</strong></span>"
+    out should not include ("data-ssc-raw-html")
+    out should not include ("&lt;strong")
+    out should not include ("ignored")
+
   // ─── Event handlers ───────────────────────────────────────────
 
   test("Event handlers are not emitted in HTML output"):

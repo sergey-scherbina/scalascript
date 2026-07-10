@@ -1184,8 +1184,14 @@ class JsGen(
       s.content.collect {
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) => cb.source
       } ++ s.subsections.flatMap(collectSources)
+    def collectImports(s: Section): List[Content.Import] =
+      s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(collectImports)
     val sources = module.sections.flatMap(collectSources)
     val allText = sources.mkString("\n")
+    val hasStdUiImport = module.sections.flatMap(collectImports).exists { imp =>
+      val path = imp.path.replace('\\', '/')
+      path.startsWith("std/ui/") || path.contains("/std/ui/")
+    }
     // True iff the user declared their own `effect E:` block in this
     // module — `EffectAnalysis.analyze(builtins=…)` seeds `effectOps`
     // with the builtin names, so size alone is not a signal.  We use a
@@ -1299,11 +1305,12 @@ class JsGen(
       // names must appear here or import-only usage emits without signals.mjs.
       "validateField", "fieldError", "formErrors", "formValid", "formField",
       "submitGate", "ctxSignal", "ctxSeedSignal",
-      "textNode", "signalText", "showSignal", "fragment(", "forKeyed"
+      "textNode", "signalText", "showSignal", "fragment(", "forKeyed",
+      "rawText", "rawHtml", "vstack", "hstack", "heading(", "lower("
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||
                     allText.contains("computed(") || allText.contains("Computed(") ||
-                    hasUiHelpers
+                    hasUiHelpers || hasStdUiImport
     if hasSignals then caps += Signals
     // IndexedDb — client-side IndexedDB storage
     val hasIndexedDb = allText.contains("IndexedDb.")

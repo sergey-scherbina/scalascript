@@ -28,6 +28,8 @@ import scalascript.frontend.FetchJsonSignal
  *  is deterministic and diff-friendly. */
 private[custom] object StaticJsEmitter:
 
+  private val RawHtmlAttr = "data-ssc-raw-html"
+
   def emit(root: View[?], allComponents: List[ComponentDef]): String =
     val _ = allComponents  // reserved for the codegen-lowering pass when name-based ComponentInstance refs land
     val ctx = new Ctx
@@ -291,49 +293,55 @@ private[custom] object StaticJsEmitter:
     def compile(view: View[?]): String | Null = view match
       case View.Element(tag, attrs, events, children) =>
         val v = freshVar()
+        val rawHtml = rawHtmlAttr(attrs)
         statements += s"const $v = document.createElement(${jsString(tag)});"
         attrs.foreach { (k, av) =>
-          av match
-            case AttrValue.RefBinding(ref) =>
-              // A6 — bind the DOM ref AFTER createElement so the JS-side
-              // variable holds the live node.  Element key (`k`) is
-              // conventionally "ref" but we ignore it: the binding is
-              // the RefBinding itself, not the attr name.
-              registerRef(ref)
-              statements += s"${ref.id} = $v;"
-            case AttrValue.Bool(value) =>
-              // Boolean IDL attributes (disabled, checked, required, …) must use
-              // property assignment — setAttribute("disabled","false") leaves the
-              // attribute present so the browser keeps the element disabled.
-              // Hyphenated names (aria-*, data-*) can't be JS property identifiers.
-              if k.contains('-') then
-                statements += s"$v.setAttribute(${jsString(k)}, ${jsString(value.toString)});"
-              else
-                statements += s"$v.$k = $value;"
-            case AttrValue.Reactive(signal) =>
-              // Reactive attrs: set initial value as a property + subscribe so
-              // future __setSignal calls keep the DOM property in sync.
-              registerSignal(signal)
-              val sigJs = jsString(signal.id)
-              if k.contains('-') then
-                statements += s"$v.setAttribute(${jsString(k)}, String(__ssc_signals[$sigJs].value));"
-                statements += s"__ssc_signals[$sigJs].subs.add((nv) => { $v.setAttribute(${jsString(k)}, String(nv)); });"
-              else
-                statements += s"$v.$k = __ssc_signals[$sigJs].value;"
-                statements += s"__ssc_signals[$sigJs].subs.add((nv) => { $v.$k = nv; });"
-            case _ =>
-              attrValueJs(av) match
-                case Some(value) =>
-                  statements += s"$v.setAttribute(${jsString(k)}, $value);"
-                case None => () // Absent — skip
+          if k != RawHtmlAttr then
+            av match
+              case AttrValue.RefBinding(ref) =>
+                // A6 — bind the DOM ref AFTER createElement so the JS-side
+                // variable holds the live node.  Element key (`k`) is
+                // conventionally "ref" but we ignore it: the binding is
+                // the RefBinding itself, not the attr name.
+                registerRef(ref)
+                statements += s"${ref.id} = $v;"
+              case AttrValue.Bool(value) =>
+                // Boolean IDL attributes (disabled, checked, required, …) must use
+                // property assignment — setAttribute("disabled","false") leaves the
+                // attribute present so the browser keeps the element disabled.
+                // Hyphenated names (aria-*, data-*) can't be JS property identifiers.
+                if k.contains('-') then
+                  statements += s"$v.setAttribute(${jsString(k)}, ${jsString(value.toString)});"
+                else
+                  statements += s"$v.$k = $value;"
+              case AttrValue.Reactive(signal) =>
+                // Reactive attrs: set initial value as a property + subscribe so
+                // future __setSignal calls keep the DOM property in sync.
+                registerSignal(signal)
+                val sigJs = jsString(signal.id)
+                if k.contains('-') then
+                  statements += s"$v.setAttribute(${jsString(k)}, String(__ssc_signals[$sigJs].value));"
+                  statements += s"__ssc_signals[$sigJs].subs.add((nv) => { $v.setAttribute(${jsString(k)}, String(nv)); });"
+                else
+                  statements += s"$v.$k = __ssc_signals[$sigJs].value;"
+                  statements += s"__ssc_signals[$sigJs].subs.add((nv) => { $v.$k = nv; });"
+              case _ =>
+                attrValueJs(av) match
+                  case Some(value) =>
+                    statements += s"$v.setAttribute(${jsString(k)}, $value);"
+                  case None => () // Absent — skip
         }
         events.foreach { (eventName, handler) =>
           compileEventHandler(v, eventName, handler)
         }
-        children.foreach { child =>
-          val childVar = compile(child)
-          if childVar != null then statements += s"$v.appendChild($childVar);"
-        }
+        rawHtml match
+          case Some(html) =>
+            statements += s"$v.innerHTML = ${jsString(html)};"
+          case None =>
+            children.foreach { child =>
+              val childVar = compile(child)
+              if childVar != null then statements += s"$v.appendChild($childVar);"
+            }
         v
 
       case View.TextNode(thunk) =>
@@ -1088,6 +1096,9 @@ private[custom] object StaticJsEmitter:
       case AttrValue.Reactive(_)       => None  // handled as reactive subscription before attrValueJs is called
       case AttrValue.Absent            => None
       case AttrValue.RefBinding(_)     => None  // ref binding is wired imperatively in the Element case; no setAttribute
+
+    private def rawHtmlAttr(attrs: Map[String, AttrValue]): Option[String] =
+      attrs.get(RawHtmlAttr).collect { case AttrValue.Str(value) => value }
 
     private def formatNumber(d: Double): String =
       if d == d.toLong.toDouble then d.toLong.toString else d.toString

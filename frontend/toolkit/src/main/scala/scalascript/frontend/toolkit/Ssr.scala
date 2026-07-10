@@ -28,6 +28,8 @@ import scalascript.frontend.{View, AttrValue}
  *      the current signal state.  No subscriptions are set up. */
 object Ssr:
 
+  private val RawHtmlAttr = "data-ssc-raw-html"
+
   /** Render a `View` tree to an HTML string.  See [[Ssr]] for
    *  semantics + limitations. */
   def renderToHtml(view: View[?]): String =
@@ -77,13 +79,16 @@ object Ssr:
 
   private def write(sb: StringBuilder, v: View[?]): Unit = v match
     case View.Element(tag, attrs, _, children) =>
+      val rawHtml = rawHtmlAttr(attrs)
       sb.append('<').append(tag)
       writeAttrs(sb, attrs)
       if voidElements.contains(tag.toLowerCase) then
         sb.append(" />")
       else
         sb.append('>')
-        children.foreach(write(sb, _))
+        rawHtml match
+          case Some(html) => sb.append(html)
+          case None       => children.foreach(write(sb, _))
         sb.append("</").append(tag).append('>')
 
     case View.TextNode(thunk) =>
@@ -146,29 +151,33 @@ object Ssr:
 
   private def writeAttrs(sb: StringBuilder, attrs: Map[String, AttrValue]): Unit =
     attrs.foreach { case (key, value) =>
-      value match
-        case AttrValue.Str(s) =>
-          sb.append(' ').append(key).append("=\"").append(escapeAttr(s)).append('"')
-        case AttrValue.Num(n) =>
-          sb.append(' ').append(key).append("=\"").append(formatNum(n)).append('"')
-        case AttrValue.Bool(true) =>
-          // HTML boolean attrs render as bare name (`<input required>`).
-          sb.append(' ').append(key)
-        case AttrValue.Bool(false) =>
-          ()  // boolean false attr is omitted
-        case AttrValue.Dynamic(read) =>
-          val snap = safeRead(() => read().toString, "")
-          sb.append(' ').append(key).append("=\"").append(escapeAttr(snap)).append('"')
-        case AttrValue.Reactive(signal) =>
-          val snap = safeRead(() => signal().toString, "")
-          sb.append(' ').append(key).append("=\"").append(escapeAttr(snap)).append('"')
-        case AttrValue.Absent =>
-          ()
-        case AttrValue.RefBinding(_) =>
-          // Refs are wired by backends at mount time; SSR has no
-          // mount step, so we drop the binding.
-          ()
+      if key != RawHtmlAttr then
+        value match
+          case AttrValue.Str(s) =>
+            sb.append(' ').append(key).append("=\"").append(escapeAttr(s)).append('"')
+          case AttrValue.Num(n) =>
+            sb.append(' ').append(key).append("=\"").append(formatNum(n)).append('"')
+          case AttrValue.Bool(true) =>
+            // HTML boolean attrs render as bare name (`<input required>`).
+            sb.append(' ').append(key)
+          case AttrValue.Bool(false) =>
+            ()  // boolean false attr is omitted
+          case AttrValue.Dynamic(read) =>
+            val snap = safeRead(() => read().toString, "")
+            sb.append(' ').append(key).append("=\"").append(escapeAttr(snap)).append('"')
+          case AttrValue.Reactive(signal) =>
+            val snap = safeRead(() => signal().toString, "")
+            sb.append(' ').append(key).append("=\"").append(escapeAttr(snap)).append('"')
+          case AttrValue.Absent =>
+            ()
+          case AttrValue.RefBinding(_) =>
+            // Refs are wired by backends at mount time; SSR has no
+            // mount step, so we drop the binding.
+            ()
     }
+
+  private def rawHtmlAttr(attrs: Map[String, AttrValue]): Option[String] =
+    attrs.get(RawHtmlAttr).collect { case AttrValue.Str(value) => value }
 
   /** Walk a ForSignal item template, replacing every `View.ItemText`
    *  placeholder with a real text node carrying the current item's

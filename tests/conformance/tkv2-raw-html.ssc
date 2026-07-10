@@ -1,0 +1,24 @@
+---
+name: tkv2-raw-html
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - raw HTML escape hatch public API
+
+Slice `tkv2-raw-html`: `rawHtml` builds a trusted raw-markup `TkNode` while
+`rawText` remains escaped text. DOM serialization is covered by the emitted
+SPA/jsdom gate for this slice; this conformance file keeps the public API and
+lowering path live on both lanes.
+
+[rawText, rawHtml, fragment_](std/ui/reactive.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val escaped = rawText("<strong>escaped</strong>")
+val raw = rawHtml("<strong data-x=\"ok\">raw</strong>")
+val view = lower(fragment_(escaped, raw), defaultTheme)
+
+println("raw-html-built")
+```

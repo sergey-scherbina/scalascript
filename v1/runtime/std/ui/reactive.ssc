@@ -1,7 +1,7 @@
 ---
 name: ui-reactive
 version: 1.0.0
-description: Reactive widget constructors — showWhen, signalText, fragment, rawText. Return TkNode; lower with lower.ssc.
+description: Reactive widget constructors — showWhen, signalText, fragment, rawText, rawHtml. Return TkNode; lower with lower.ssc.
 package: std.ui.reactive
 exports:
   - showWhen
@@ -9,12 +9,13 @@ exports:
   - fragment_
   - forKeyed
   - rawText
+  - rawHtml
 ---
 
 # `std.ui.reactive` — reactive constructors
 
 [Signal](primitives.ssc)
-[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode](nodes.ssc)
+[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode](nodes.ssc)
 
 ```scalascript
 def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
@@ -28,4 +29,6 @@ def forKeyed[A](items: Signal[List[A]], key: A => String)(render: A => TkNode): 
   KeyedForNode[A](items, key, render)
 
 def rawText(text: String): TkNode = RawTextNode(text)
+
+def rawHtml(html: String): TkNode = RawHtmlNode(html)
 ```

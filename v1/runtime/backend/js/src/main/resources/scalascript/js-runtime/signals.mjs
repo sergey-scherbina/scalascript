@@ -473,9 +473,15 @@ function _ssc_ui_renderBody(view) {
         const tag    = v.tag || 'div';
         const attrs  = v.attrs  || {};
         const events = v.events || {};
+        const hasRawHtml = Object.prototype.hasOwnProperty.call(attrs, 'data-ssc-raw-html');
+        const rawAttr = attrs['data-ssc-raw-html'];
+        const rawIsSig = rawAttr && typeof rawAttr === 'object' && typeof rawAttr.get === 'function';
+        if (rawIsSig) collectSig(rawAttr);
+        const rawHtml = hasRawHtml ? String((rawIsSig ? rawAttr.get() : rawAttr) ?? '') : '';
         let   aStr   = '';
         let   _bAttrs = null;
         for (const [k, val] of Object.entries(attrs)) {
+          if (k === 'data-ssc-raw-html') continue;
           const _isSig = val && typeof val === 'object' && typeof val.get === 'function';
           const r = _isSig ? (collectSig(val), val.get()) : val;
           if (r !== undefined && r !== null && r !== false)
@@ -546,7 +552,7 @@ function _ssc_ui_renderBody(view) {
             aStr += ` data-ssc-webauthn-uv="${_esc(h.userVerification || 'preferred')}"`;
           }
         }
-        const kids = (v.children || []).map(walk).join('');
+        const kids = hasRawHtml ? rawHtml : (v.children || []).map(walk).join('');
         return voids.has(tag) ? `<${tag}${aStr}>` : `<${tag}${aStr}>${kids}</${tag}>`;
       }
       case '_TextNode':   return walk(v.s);
