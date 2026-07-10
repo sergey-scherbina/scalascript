@@ -57,6 +57,39 @@ claim: `.work/active/v2-swift-swiftui-native.claim`.
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
 
+## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
+
+**State after re-baselining: the perf/JIT area is MATURE, and reliable A/B is currently
+BLOCKED by machine load.** Findings (nothing landed — investigation only):
+
+- **Re-baselined `scripts/bench cross patternMatch|recursionFib|arithLoop`** (JMH, JDK21):
+  `interp_patternMatch` **122µs vs jvm 566µs** — interp is 4.6× FASTER than JVM. The June
+  spec's "203× patternMatch gap" (`vm-jit-next.md` Phase D) is CLOSED. `interp_arithLoop`
+  7.6µs vs jvm 521µs (faster, VM const-fold). `interp_recursionFib` 2667µs vs jvm 1940µs
+  (~1.4× off) BUT with ±4166µs error — noise-dominated, unusable.
+- **Blocker: measurement noise.** System load hit **29.8** (multi-agent contention) → JMH
+  error bars are ±100-200%. No reliable timing A/B possible until the machine is quiet.
+- **The multi-tier system already covers hot paths** (FastTier + bytecode-JIT + fast
+  tree-walk), so the hot benches are fast EVEN WHEN AsmJit bails. ⇒ adding AsmJit coverage
+  for residual misses has LOW timing payoff. bytecode lane is already parity-or-faster than
+  VM on all 10 corpus workloads (`project_bc_perf_landscape_0709`).
+- **JIT miss histogram** (from `specs/jit-completeness.md`, June): dominant miss is
+  `call: no compilable target (closures/HOF)` = 199 (HARD); tractable next = p7 `ret:
+  ref-typed return` (18) + `field: no meta for type 'String'` (39). NOTE: `SSC_JIT_STATS=1`
+  via `scripts/sbtc` DETACHES (thin client) — must run sbt FOREGROUND to capture the histogram.
+
+- [ ] **perf-recursionfib-regression** — POSSIBLE regression: June `interp_recursionFib`
+      1190µs (0.93× jvm, FASTER); now 2667µs±4166. The high variance suggests INCONSISTENT
+      JIT triggering (sometimes tree-walks slow, sometimes JITs fast). Needs a QUIET machine
+      + a self-timed driver (not JMH) to confirm — measure warm steady-state fib(N)-in-a-loop
+      via the ASSEMBLED jar (NOT `ssc run`, which disables JIT via classpath). If real, find
+      why fib stopped JIT-triggering reliably.
+- [ ] **perf-jit-p7-refreturn** — (coverage, count+conformance verifiable, load-immune):
+      RETREF/CALLREF opcodes so compiled functions can return ref types (String/instance),
+      unblocking the 18 `ret: ref-typed return` misses + cascading CALLREF misses. Marginal
+      timing payoff (tree-walk is fast) but advances documented JIT-completeness. Do only if
+      coverage-completeness is wanted over measurable speedup.
+
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 
 Goal: make the standard JVM production path `.ssc -> native frontend -> CoreIR
