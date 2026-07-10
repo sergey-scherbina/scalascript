@@ -1,7 +1,7 @@
-feature/v21-structural-frontend-result 2026-07-10T16:27:29Z
+feature/v21-self-hosted-markdown-profile 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-10T20:46:07Z
+heartbeat: 2026-07-10T21:11:12Z
 status: in-progress
-done-so-far: dependency gates; pure JSON core; public JSON/HTTP cutover ed945466d; pure Frontmatter YAML core 7a06d4a55 with VM/direct-ASM parity
-next: return parsed manifest/runtime config structurally from the self-hosted frontend and retire the standard host YAML reparse
-scope: NativeFrontmatter/SimpleYaml standard-path cutover plus frozen seed ABI and focused config fixtures; coordinate around live TI-8 launcher/default-cutover files
+done-so-far: dependency gates; pure JSON core; public JSON/HTTP cutover ed945466d; pure YAML core 7a06d4a55; structural frontend manifest/config cutover 20d9db6db
+next: complete the self-hosted ScalaScript Markdown Profile and remove CommonMark/Flexmark from the standard path
+scope: headings/scopes, pure-link imports, prose, fences, lists, images, tables, metadata directives, interpolation source; preserve compatibility libraries only in tools/tests
