@@ -5,7 +5,7 @@ import java.nio.file.{Files, Path, Paths}
 
 import org.scalatest.funsuite.AnyFunSuite
 
-import ssc.{Program, Reader, Term}
+import ssc.{Const, Program, Reader, Term}
 
 final class SwiftBackendTest extends AnyFunSuite:
   private val repoRoot =
@@ -49,6 +49,17 @@ final class SwiftBackendTest extends AnyFunSuite:
     cases.foreach { (name, expected) =>
       assert(runSwift(name, fixture(name)) == expected)
     }
+
+  test("real swift run keeps arbitrary precision BigInt arithmetic"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val left = BigInt("123456789012345678901234567890")
+    val right = BigInt("98765432109876543210")
+    val product = Term.Prim("big.mul", List(
+      Term.Lit(Const.CBig(left)),
+      Term.Lit(Const.CBig(right)),
+    ))
+    val roundTrip = Term.Prim("big.div", List(product, Term.Lit(Const.CBig(right))))
+    assert(runSwift("bigint", Program(Nil, roundTrip)) == left.toString)
 
   private def fixture(name: String): Program =
     val path = repoRoot.resolve(s"v2/conformance/$name.coreir")

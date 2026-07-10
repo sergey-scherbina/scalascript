@@ -24,6 +24,8 @@ object SwiftBackend:
     "i.add", "i.sub", "i.mul", "i.div", "i.mod", "i.neg",
     "i.and", "i.or", "i.xor", "i.not", "i.shl", "i.shr", "i.ushr",
     "i.eq", "i.lt", "i.le", "i.gt", "i.ge", "not",
+    "big.add", "big.sub", "big.mul", "big.div", "big.mod", "big.neg",
+    "big.eq", "big.lt", "big.le", "big.gt", "big.ge", "i->big", "big->str",
     "f.add", "f.sub", "f.mul", "f.div", "f.neg",
     "f.sqrt", "f.floor", "f.ceil", "f.round", "f.trunc",
     "f.eq", "f.lt", "f.le", "f.gt", "f.ge", "f.isNaN", "f.isInf",

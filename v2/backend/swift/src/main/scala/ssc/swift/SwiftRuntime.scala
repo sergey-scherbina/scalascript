@@ -4,6 +4,135 @@ private[swift] object SwiftRuntime:
   val source: String = """// Generated ScalaScript v2 CoreIR runtime.
 import Foundation
 
+struct SscBigInt: Equatable, Comparable, CustomStringConvertible {
+    private let sign: Int
+    private let digits: [UInt8] // base-10, most-significant first
+
+    init(_ raw: String) {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let negative = text.hasPrefix("-")
+        if negative || text.hasPrefix("+") { text.removeFirst() }
+        guard !text.isEmpty && text.allSatisfy({ $0.isNumber }) else { fatalError("invalid BigInt '\(raw)'") }
+        let magnitude = Array(text.utf8.drop(while: { $0 == 48 })).map { $0 - 48 }
+        self.digits = magnitude.isEmpty ? [0] : magnitude
+        self.sign = self.digits == [0] ? 0 : (negative ? -1 : 1)
+    }
+
+    private init(sign: Int, digits: [UInt8]) {
+        let trimmed = Array(digits.drop(while: { $0 == 0 }))
+        self.digits = trimmed.isEmpty ? [0] : trimmed
+        self.sign = self.digits == [0] ? 0 : (sign < 0 ? -1 : 1)
+    }
+
+    var description: String {
+        (sign < 0 ? "-" : "") + digits.map(String.init).joined()
+    }
+
+    static func < (lhs: SscBigInt, rhs: SscBigInt) -> Bool {
+        if lhs.sign != rhs.sign { return lhs.sign < rhs.sign }
+        if lhs.sign == 0 { return false }
+        let order = compareMagnitude(lhs.digits, rhs.digits)
+        return lhs.sign > 0 ? order < 0 : order > 0
+    }
+
+    static prefix func - (value: SscBigInt) -> SscBigInt {
+        SscBigInt(sign: -value.sign, digits: value.digits)
+    }
+
+    static func + (lhs: SscBigInt, rhs: SscBigInt) -> SscBigInt {
+        if lhs.sign == 0 { return rhs }
+        if rhs.sign == 0 { return lhs }
+        if lhs.sign == rhs.sign { return SscBigInt(sign: lhs.sign, digits: addMagnitude(lhs.digits, rhs.digits)) }
+        let order = compareMagnitude(lhs.digits, rhs.digits)
+        if order == 0 { return SscBigInt("0") }
+        if order > 0 { return SscBigInt(sign: lhs.sign, digits: subtractMagnitude(lhs.digits, rhs.digits)) }
+        return SscBigInt(sign: rhs.sign, digits: subtractMagnitude(rhs.digits, lhs.digits))
+    }
+
+    static func - (lhs: SscBigInt, rhs: SscBigInt) -> SscBigInt { lhs + (-rhs) }
+
+    static func * (lhs: SscBigInt, rhs: SscBigInt) -> SscBigInt {
+        if lhs.sign == 0 || rhs.sign == 0 { return SscBigInt("0") }
+        var out = Array(repeating: 0, count: lhs.digits.count + rhs.digits.count)
+        for (li, ld) in lhs.digits.reversed().enumerated() {
+            for (ri, rd) in rhs.digits.reversed().enumerated() {
+                out[out.count - 1 - li - ri] += Int(ld) * Int(rd)
+            }
+        }
+        for i in stride(from: out.count - 1, through: 1, by: -1) {
+            out[i - 1] += out[i] / 10
+            out[i] %= 10
+        }
+        return SscBigInt(sign: lhs.sign * rhs.sign, digits: out.map(UInt8.init))
+    }
+
+    static func / (lhs: SscBigInt, rhs: SscBigInt) -> SscBigInt { divMod(lhs, rhs).0 }
+    static func % (lhs: SscBigInt, rhs: SscBigInt) -> SscBigInt { divMod(lhs, rhs).1 }
+
+    private static func divMod(_ lhs: SscBigInt, _ rhs: SscBigInt) -> (SscBigInt, SscBigInt) {
+        if rhs.sign == 0 { fatalError("BigInt division by zero") }
+        if lhs.sign == 0 { return (SscBigInt("0"), SscBigInt("0")) }
+        let divisor = SscBigInt(sign: 1, digits: rhs.digits)
+        var remainder = SscBigInt("0")
+        var quotient: [UInt8] = []
+        for digit in lhs.digits {
+            remainder = SscBigInt(sign: 1, digits: remainder.digits + [digit])
+            var q: UInt8 = 0
+            if remainder >= divisor {
+                for candidate in stride(from: 9, through: 1, by: -1) {
+                    if divisor.multiplied(by: UInt8(candidate)) <= remainder { q = UInt8(candidate); break }
+                }
+                remainder = remainder - divisor.multiplied(by: q)
+            }
+            quotient.append(q)
+        }
+        return (
+            SscBigInt(sign: lhs.sign * rhs.sign, digits: quotient),
+            SscBigInt(sign: lhs.sign, digits: remainder.digits)
+        )
+    }
+
+    private func multiplied(by small: UInt8) -> SscBigInt {
+        if small == 0 || sign == 0 { return SscBigInt("0") }
+        var out = Array(repeating: UInt8(0), count: digits.count + 1)
+        var carry = 0
+        for i in digits.indices.reversed() {
+            let product = Int(digits[i]) * Int(small) + carry
+            out[i + 1] = UInt8(product % 10)
+            carry = product / 10
+        }
+        out[0] = UInt8(carry)
+        return SscBigInt(sign: sign, digits: out)
+    }
+
+    private static func compareMagnitude(_ lhs: [UInt8], _ rhs: [UInt8]) -> Int {
+        if lhs.count != rhs.count { return lhs.count < rhs.count ? -1 : 1 }
+        for (a, b) in zip(lhs, rhs) where a != b { return a < b ? -1 : 1 }
+        return 0
+    }
+
+    private static func addMagnitude(_ lhs: [UInt8], _ rhs: [UInt8]) -> [UInt8] {
+        var a = lhs.reversed().map(Int.init), b = rhs.reversed().map(Int.init)
+        let count = max(a.count, b.count); a += repeatElement(0, count: count - a.count); b += repeatElement(0, count: count - b.count)
+        var out: [UInt8] = [], carry = 0
+        for i in 0..<count { let sum = a[i] + b[i] + carry; out.append(UInt8(sum % 10)); carry = sum / 10 }
+        if carry > 0 { out.append(UInt8(carry)) }
+        return out.reversed()
+    }
+
+    private static func subtractMagnitude(_ lhs: [UInt8], _ rhs: [UInt8]) -> [UInt8] {
+        var a = lhs.reversed().map(Int.init), b = rhs.reversed().map(Int.init)
+        b += repeatElement(0, count: a.count - b.count)
+        var out: [UInt8] = [], borrow = 0
+        for i in a.indices {
+            var value = a[i] - b[i] - borrow
+            if value < 0 { value += 10; borrow = 1 } else { borrow = 0 }
+            out.append(UInt8(value))
+        }
+        return out.reversed()
+    }
+}
+
 enum SscConst {
     case unit
     case bool(Bool)
@@ -100,7 +229,7 @@ indirect enum SscValue {
     case unit
     case bool(Bool)
     case int(Int64)
-    case big(String)
+    case big(SscBigInt)
     case float(Double)
     case string(String)
     case bytes([UInt8])
@@ -267,7 +396,7 @@ private final class Machine {
         case .unit: return .unit
         case let .bool(value): return .bool(value)
         case let .int(value): return .int(value)
-        case let .big(value): return .big(canonicalInteger(value))
+        case let .big(value): return .big(SscBigInt(value))
         case let .float(value): return .float(value)
         case let .string(value): return .string(value)
         case let .bytes(value): return .bytes(value)
@@ -297,6 +426,19 @@ private final class Machine {
         case "i.gt": return .bool(int(args, 0) > int(args, 1))
         case "i.ge": return .bool(int(args, 0) >= int(args, 1))
         case "not": return .bool(!bool(args, 0))
+        case "big.add": return .big(big(args, 0) + big(args, 1))
+        case "big.sub": return .big(big(args, 0) - big(args, 1))
+        case "big.mul": return .big(big(args, 0) * big(args, 1))
+        case "big.div": return .big(big(args, 0) / big(args, 1))
+        case "big.mod": return .big(big(args, 0) % big(args, 1))
+        case "big.neg": return .big(-big(args, 0))
+        case "big.eq": return .bool(big(args, 0) == big(args, 1))
+        case "big.lt": return .bool(big(args, 0) < big(args, 1))
+        case "big.le": return .bool(big(args, 0) <= big(args, 1))
+        case "big.gt": return .bool(big(args, 0) > big(args, 1))
+        case "big.ge": return .bool(big(args, 0) >= big(args, 1))
+        case "i->big": return .big(SscBigInt(String(int(args, 0))))
+        case "big->str": return .string(big(args, 0).description)
         case "f.add": return .float(float(args, 0) + float(args, 1))
         case "f.sub": return .float(float(args, 0) - float(args, 1))
         case "f.mul": return .float(float(args, 0) * float(args, 1))
@@ -467,6 +609,10 @@ private func boolValue(_ value: SscValue) -> Bool {
 private func float(_ args: [SscValue], _ index: Int) -> Double {
     switch args[index] { case let .float(value): return value; case let .int(value): return Double(value); default: fatalError("expected Float") }
 }
+private func big(_ args: [SscValue], _ index: Int) -> SscBigInt {
+    guard case let .big(result) = args[index] else { fatalError("expected BigInt") }
+    return result
+}
 private func string(_ args: [SscValue], _ index: Int) -> String {
     guard case let .string(result) = args[index] else { fatalError("expected String") }
     return result
@@ -519,7 +665,7 @@ private func sscEqual(_ lhs: SscValue, _ rhs: SscValue) -> Bool {
     case (.unit, .unit): return true
     case let (.bool(a), .bool(b)): return a == b
     case let (.int(a), .int(b)): return a == b
-    case let (.big(a), .big(b)): return canonicalInteger(a) == canonicalInteger(b)
+    case let (.big(a), .big(b)): return a == b
     case let (.float(a), .float(b)): return a == b
     case let (.string(a), .string(b)): return a == b
     case let (.bytes(a), .bytes(b)): return a == b
@@ -552,7 +698,7 @@ private func sscShow(_ value: SscValue) -> String {
     case .unit: return "()"
     case let .bool(value): return String(value)
     case let .int(value): return String(value)
-    case let .big(value): return canonicalInteger(value)
+    case let .big(value): return value.description
     case let .float(value): return showFloat(value)
     case let .string(value): return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     case let .bytes(value): return "#" + value.map { String(format: "%02x", $0) }.joined()
