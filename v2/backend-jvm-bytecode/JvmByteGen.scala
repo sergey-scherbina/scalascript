@@ -856,6 +856,41 @@ object JvmByteGen:
         mv.visitJumpInsn(Opcodes.GOTO, loopStart)
         mv.visitLabel(loopEnd)
         call0(mv, "unitV")
+      // Inline foldLeft Cons-walk (the accumulating sibling of foreach). Shape:
+      // xs.foldLeft(z)(f) → __method__("foldLeft", recv, z, Lam(2, body)). The VM runs
+      // callClos(f, Array(acc, elem)) and Local(i) indexes the env from the end, so
+      // Local(0)=elem, Local(1)=acc — matched here by pushing acc THEN elem. Effectful
+      // bodies fall through to the generic __method__ path (VM), same as foreach.
+      case Term.Prim("__method__", Term.Lit(Const.CStr("foldLeft")) :: recv :: z :: Term.Lam(2, body) :: Nil)
+          if pureNoEffect(body, ctx.g.pureDefs) =>
+        gen(recv, ctx)
+        val listSlot = ctx.nextSlot; ctx.nextSlot += 1
+        mv.visitVarInsn(Opcodes.ASTORE, listSlot)
+        gen(z, ctx)                              // initial accumulator
+        val accSlot = ctx.nextSlot; ctx.nextSlot += 1
+        mv.visitVarInsn(Opcodes.ASTORE, accSlot)
+        val loopStart = new Label(); val loopEnd = new Label()
+        mv.visitLabel(loopStart)
+        mv.visitVarInsn(Opcodes.ALOAD, listSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "isCons", s"(L$VAL;)Z", false)
+        mv.visitJumpInsn(Opcodes.IFEQ, loopEnd)
+        // De Bruijn: push acc (→ Local(1)) then elem (→ Local(0)), matching callClos(Array(acc,elem))
+        mv.visitVarInsn(Opcodes.ALOAD, accSlot)
+        val accDb = ctx.push()
+        mv.visitVarInsn(Opcodes.ASTORE, accDb)
+        mv.visitVarInsn(Opcodes.ALOAD, listSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "consHead", s"(L$VAL;)L$VAL;", false)
+        val elemDb = ctx.push()
+        mv.visitVarInsn(Opcodes.ASTORE, elemDb)
+        gen(body, ctx)                           // new accumulator on stack
+        mv.visitVarInsn(Opcodes.ASTORE, accSlot) // acc = body(acc, elem)
+        ctx.pop(2)
+        mv.visitVarInsn(Opcodes.ALOAD, listSlot)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "consTail", s"(L$VAL;)L$VAL;", false)
+        mv.visitVarInsn(Opcodes.ASTORE, listSlot)
+        mv.visitJumpInsn(Opcodes.GOTO, loopStart)
+        mv.visitLabel(loopEnd)
+        mv.visitVarInsn(Opcodes.ALOAD, accSlot)  // result = accumulator
       case t @ Term.Prim("lcell.get", List(Term.Local(_))) if canLong(t) =>
         genLong(t, ctx)
         callJ(mv, "intV")

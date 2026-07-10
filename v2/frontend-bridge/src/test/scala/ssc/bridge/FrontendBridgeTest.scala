@@ -688,6 +688,23 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(runCore(Lit(CBytes(bytes))) == Value.BytesV(bytes))
   }
 
+  test("v2 bytecode inline foldLeft is order-correct and matches the VM") {
+    import Const.*, Term.*
+    def cons(h: Term, t: Term): Term = Ctor("Cons", List(h, t))
+    val xs = cons(Lit(CInt(1)), cons(Lit(CInt(2)), cons(Lit(CInt(3)), cons(Lit(CInt(4)), Ctor("Nil", Nil)))))
+    // f = (acc, elem) => acc*10 + elem ; Local(1)=acc, Local(0)=elem — order-sensitive:
+    // a swap would compute elem*10+acc and diverge.
+    val body = Prim("__arith__", List(Lit(CStr("+")),
+      Prim("__arith__", List(Lit(CStr("*")), Local(1), Lit(CInt(10)))), Local(0)))
+    val fold = Prim("__method__", List(Lit(CStr("foldLeft")), xs, Lit(CInt(0)), Lam(2, body)))
+    assert(runBytecodeProgram(Program(Nil, fold)) == Value.IntV(1234)) // inline fires (exact shape)
+    assert(runCore(fold) == Value.IntV(1234))                          // VM agrees
+    // empty-list fold returns the seed (loop body never runs)
+    val empty = Prim("__method__", List(Lit(CStr("foldLeft")), Ctor("Nil", Nil), Lit(CInt(7)), Lam(2, body)))
+    assert(runBytecodeProgram(Program(Nil, empty)) == Value.IntV(7))
+    assert(runCore(empty) == Value.IntV(7))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
