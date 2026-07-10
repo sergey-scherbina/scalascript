@@ -917,6 +917,29 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               standard parity 10/60/125 with no mismatch or
                               one-sided row, native-entry passes, and fresh
                               conformance is 9/9.
+                        - [ ] **TI-8.2c2j symbolic extension-operator syntax:**
+                              recognize `~`, `~>`, and `<~` as complete infix
+                              tokens with Scala-style first-character
+                              precedence; parse the same tokens as symbolic
+                              `def` names. Lower non-core symbolic infix forms
+                              to an explicit two-argument global call instead
+                              of the unsafe catch-all `i.add` fallback. This is
+                              syntax completeness only: receiver capture and
+                              runtime extension dispatch remain a subsequent
+                              slice, and ambiguous core/operator names such as
+                              parser choice `|` remain explicit runtime work.
+                              The structural CoreIR repro shows these operators
+                              own the `_err` nodes in `dsl-calc-parser.ssc`,
+                              `dsl-json-parser.ssc`, `dsl-sql-recovery.ssc`, and
+                              `dsl-yaml-like.ssc`; assignment expressions are
+                              the separate remaining family. Add a real
+                              uncalled symbolic-def/operator fixture on native
+                              VM/direct ASM, rerun all four documents plus the
+                              full corpus/parity/taxonomy, native-entry, and
+                              fresh `v2-*` conformance. Done when all four rows
+                              are sentinel-clear/checker-OK and unresolved
+                              runtime semantics fail explicitly rather than
+                              silently becoming integer addition.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
