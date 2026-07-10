@@ -19,6 +19,12 @@ function _tupleConcat(a, b) {
 }
 
 function _dispatch(obj, method, args) {
+  // `x.asInstanceOf[T]` is a compile-time cast — a no-op at runtime in JS (the
+  // type argument is erased). Handle it universally so codegen that leaves an
+  // `.asInstanceOf` on any value (e.g. un-lowered UI nodes) doesn't hit
+  // "Method not found". `isInstanceOf` can't be evaluated (type erased); leave
+  // it to fall through rather than guess a wrong boolean.
+  if (method === 'asInstanceOf') return obj;
   // Exact numerics (v1.64): Decimal (object), BigInt (native), and the
   // toBigInt/toDecimal conversions on plain Numbers.
   if (obj && obj._type === '_Decimal') {
