@@ -1,0 +1,6 @@
+feature/js-enum-treeshake 2026-07-10T16:26:13Z
+agent: claude-code (jolly-raven)
+heartbeat: 2026-07-10T16:26:13Z
+status: in-progress
+done-so-far: Root-caused examples-step CI red (unmasked after poison fix). TreeShaker.scala:103 registers only PARAMETRIZED enum-case names as reachability edges → bare nullary case ref (North) doesn't keep its enum → all-nullary enum pruned entirely → const North never emitted → node ReferenceError. Minimal repro confirmed (standalone enum Direction emits nothing; enum-shared-casename via qualified refs works).
+next: register ALL case names (nullary+parametrized+RepeatedEnumCase) in TreeShaker; rebuild; verify enums.ssc/data-types on node; then Red/toHex + 'r'-redeclare examples bugs. Part of ci-full-green (poison already fixed).
