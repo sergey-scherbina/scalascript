@@ -564,11 +564,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
             explicit tools-tier categories and source-located failures.
-            Current baseline 2026-07-10 after the TI-8.2a fixes: native-front
-            covers all 195 rows with 192 frontend successes, 2 frontend host
-            errors, 1 non-code document, 92 sentinel-bearing outputs, 191
-            checker successes, 3 type errors, 23 runtime successes, and 77
-            runtime errors (171 strict-fail rows). Standard VM/ASM
+            Current baseline 2026-07-10 after TI-8.2b and native K62.14/K62.15:
+            native-front covers all 195 rows with 194 frontend successes, 0
+            frontend host errors/timeouts, 1 non-code document, 93
+            sentinel-bearing outputs, 191 checker successes, 3 type errors,
+            22 runtime successes, and 79 runtime errors (172 strict-fail rows).
+            Standard VM/ASM
             classification is 11 identical, 0 stdout mismatch, 96 both-fail,
             88 skipped server/backend/nondeterministic, and 0 one-sided rows.
             Reports:
@@ -595,11 +596,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   parity is 11 identical / 0 mismatch / 0 one-sided / 96
                   both-fail / 88 skipped; native-entry, standard, slim, JRE,
                   artifact, JSON, provider, and affected conformance gates pass.
-            - [ ] **TI-8.2b frontend host errors:** eliminate the
-                  `dsl-mini-language.ssc` `Pair/2` matcher crash and reconcile
-                  the missing `std/ui/table.ssc` example import. A failed row
-                  must be a source diagnostic, never a host exception.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 92 sentinel rows
+            - [x] **TI-8.2b frontend host errors — DONE 2026-07-10
+                  (`d4513cb8a`, `ac441ef62`):** `=>` now opens a multiline
+                  offside block, 3+-element tuple patterns use the same
+                  right-nested `Pair` representation as expressions, and the
+                  RDF example uses `std/ui/data.ssc` instead of the deleted
+                  table module. Remaining sentinels name their input source.
+                  The focused VM/ASM fixture prints `left` and `left+right`;
+                  both former crash rows are frontend/checker OK with bounded
+                  diagnostics; full corpus is 194/0/0/1 and native-entry plus
+                  affected conformance 8/8 pass.
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 93 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category

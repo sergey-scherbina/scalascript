@@ -28,6 +28,17 @@ fixtures all still green. Full detail in `BUGS.md`'s `v2-swift-swiftui-native`
 entry. Landed `8d21fb298`..`d15d1e1df`. The v2-native Swift backend itself
 remains open under that claim.
 
+## 2026-07-10 — native frontend corpus has no host errors or timeouts
+
+Multiline lambda bodies now open after `=>`, tuple patterns use the same
+right-nested `Pair` representation as tuple expressions, and the RDF full-stack
+example imports the current `std/ui/data.ssc` table API. The prior
+`dsl-mini-language.ssc` `Pair/2` matcher crash and stale-table
+`NoSuchFileException` are gone; remaining parser sentinels identify their input
+file instead of leaking a host stack. The full 195-file frontend result is 194
+successes, 0 host errors/timeouts, and 1 non-code document; standard VM/ASM
+remains 11 identical, 0 mismatch/one-sided, 96 honest both-fail, 88 skipped.
+
 ## 2026-07-10 — standard VM and direct ASM have no one-sided corpus failures
 
 The self-hosted frontend now preserves multiline function-typed parameters,
@@ -37,8 +48,9 @@ fallback. Together with the braced-interpolation and local-recursion fixes,
 all three prior one-sided rows (`index.ssc`, `recursion.ssc`, and
 `ui-fetch-json.ssc`) are byte-identical. The 195-file standard sweep is now 11
 identical, 0 mismatch, 0 one-sided, 96 honest both-fail, and 88 explicitly
-skipped; the native frontend has 192 successes, 92 sentinels, and 2 tracked host
-errors. The current reproducible artifact is 24,777,543 bytes with SHA-256
+skipped; at that slice the native frontend had 192 successes, 92 sentinels, and
+2 tracked host errors. The reproducible artifact baseline was 24,777,543 bytes
+with SHA-256
 `ee47e75d07ea980d1075c55397e2a07b543dafe55014d03a49b30d5549c32392`.
 
 ## 2026-07-10 — direct ASM trampolines local self and mutual recursion
