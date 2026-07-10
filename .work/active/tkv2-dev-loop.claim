@@ -1,6 +1,6 @@
 feature/tkv2-dev-loop 2026-07-10T02:01:54Z
 agent: codex
-heartbeat: 2026-07-10T02:01:54Z
-status: not-started
-done-so-far:
+heartbeat: 2026-07-10T02:02:40Z
+status: in-progress
+done-so-far: worktree created
 next: write SPRINT verification plan before touching code
