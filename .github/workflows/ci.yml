@@ -230,6 +230,9 @@ jobs:
       - name: ScalaScript 2.1 JRE-shaped no-javac module gate
         run: tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
 
+      - name: ScalaScript 2.1 direct-ASM local recursion gate
+        run: tests/e2e/v21-direct-asm-recursion-smoke.sh
+
       - name: Test via sbt
         timeout-minutes: 60
         run: sbt test

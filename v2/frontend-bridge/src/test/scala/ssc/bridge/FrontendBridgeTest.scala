@@ -31,6 +31,13 @@ class FrontendBridgeTest extends AnyFunSuite:
     catch case e: java.lang.reflect.InvocationTargetException =>
       throw Option(e.getCause).getOrElse(e)
 
+  def runBytecodeProgram(prog: Program): Value =
+    Emit.globalsRef = Map.empty
+    val bytes = bytecode.JvmByteGen.emitProgram(prog)
+    try bytecode.JvmByteGen.runProgram(bytes)
+    catch case e: java.lang.reflect.InvocationTargetException =>
+      throw Option(e.getCause).getOrElse(e)
+
   private lazy val repoRoot: java.io.File =
     Iterator.iterate(new java.io.File(".").getAbsoluteFile)(_.getParentFile)
       .takeWhile(f => f != null && f.getParentFile != f)
@@ -568,6 +575,32 @@ class FrontendBridgeTest extends AnyFunSuite:
         |""".stripMargin
 
     assert(runBytecode(src) == Value.IntV(832040))
+  }
+
+  test("v2 bytecode local self and mutual tail recursion stay stack safe") {
+    val self =
+      """def count(n: Int): Int =
+        |  def loop(left: Int, acc: Int): Int =
+        |    if left <= 0 then acc else loop(left - 1, acc + 1)
+        |  loop(n, 0)
+        |
+        |count(100000)
+        |""".stripMargin
+    assert(runBytecode(self) == Value.IntV(100000))
+
+    import Const.*, Term.*
+    def dec: Term = Prim("__arith__", List(Lit(CStr("-")), Local(0), Lit(CInt(1))))
+    def isZero: Term = Prim("__arith__", List(Lit(CStr("==")), Local(0), Lit(CInt(0))))
+    // In each arity-1 lambda: Local(0)=arg, Local(1)=odd (last group
+    // binding), Local(2)=even (first group binding). The LetRec body sees
+    // Local(0)=odd and Local(1)=even.
+    val even = Lam(1, If(isZero, Lit(CBool(true)), App(Local(1), List(dec))))
+    val odd  = Lam(1, If(isZero, Lit(CBool(false)), App(Local(2), List(dec))))
+    val mutual = Program(
+      Nil,
+      LetRec(List(even, odd), App(Local(1), List(Lit(CInt(100001))))))
+
+    assert(runBytecodeProgram(mutual) == Value.BoolV(false))
   }
 
   test("if-else") {

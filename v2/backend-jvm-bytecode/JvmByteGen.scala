@@ -40,7 +40,9 @@ object JvmByteGen:
       body: Term,
       selfGlobal: String | Null = null,
       selfArity: Int = -1,
-      sourceLine: Option[Int] = None)
+      sourceLine: Option[Int] = None,
+      localTailTargets: Map[Int, (String, Int)] = Map.empty,
+      localFrameArity: Int = -1)
 
   private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug]):
     val pending = collection.mutable.Queue.empty[Pending]
@@ -71,6 +73,11 @@ object JvmByteGen:
     var startLabel: Label | Null = null
     var sourceLine: Option[Int] = None
     var statementLines: Vector[Option[Int]] = Vector.empty
+    /** Environment-relative De Bruijn index -> compiled LetRec target/arity.
+     * JVM-slot lets/match binders are subtracted at the call site. */
+    var localTailTargets: Map[Int, (String, Int)] = Map.empty
+    /** Number of current call arguments at the end of the local LetRec frame. */
+    var localFrameArity: Int = -1
     def saveSlots(): List[Int] = { val s = stack.toList; stack.clear(); s }
     def restoreSlots(s: List[Int]): Unit = { stack.clear(); stack ++= s }
 
@@ -212,7 +219,9 @@ object JvmByteGen:
           paramIsEnv = true,
           selfGlobal = pnd.selfGlobal,
           selfArity = pnd.selfArity,
-          sourceLine = pnd.sourceLine)
+          sourceLine = pnd.sourceLine,
+          localTailTargets = pnd.localTailTargets,
+          localFrameArity = pnd.localFrameArity)
       while g.chains.nonEmpty do
         val (names, ts, tailLast, lines) = g.chains.dequeue()
         emitChain(g, names, ts, tailLast, lines)
@@ -380,7 +389,9 @@ object JvmByteGen:
   private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean,
                        selfGlobal: String | Null = null, selfArity: Int = -1,
                        sourceLine: Option[Int] = None,
-                       statementLines: Vector[Option[Int]] = Vector.empty): Unit =
+                       statementLines: Vector[Option[Int]] = Vector.empty,
+                       localTailTargets: Map[Int, (String, Int)] = Map.empty,
+                       localFrameArity: Int = -1): Unit =
     val desc = if paramIsEnv then s"([L$VAL;)L$VAL;" else s"()L$VAL;"
     val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
@@ -388,6 +399,8 @@ object JvmByteGen:
     ctx.selfGlobal = selfGlobal
     ctx.selfArity = selfArity
     ctx.statementLines = statementLines
+    ctx.localTailTargets = localTailTargets
+    ctx.localFrameArity = localFrameArity
     if !paramIsEnv then
       // no env param: slot 0 hosts an empty frame for uniformity
       mv.visitInsn(Opcodes.ICONST_0)
@@ -738,20 +751,35 @@ object JvmByteGen:
         val entries = lams.map {
           case Term.Lam(ar, b) =>
             val m = ctx.g.freshLam()
-            ctx.g.pending.enqueue(Pending(m, b, sourceLine = ctx.sourceLine))
-            (ar, m)
+            (ar, m, b)
           case other => throw new Unsupported("letrec:non-lam")
+        }
+        val groupSize = entries.length
+        // A local lambda frame is captured ++ group-closures ++ call-args.
+        // De Bruijn Local(arity + groupSize - 1 - targetIndex) therefore names
+        // a LetRec peer. Preserve the complete group so self and mutual tail
+        // calls can return a Bounce instead of recursively invoking Emit.app.
+        entries.foreach { case (ar, m, b) =>
+          val targets = entries.zipWithIndex.map { case ((targetArity, targetMethod, _), targetIndex) =>
+            (ar + groupSize - 1 - targetIndex) -> (targetMethod, targetArity)
+          }.toMap
+          ctx.g.pending.enqueue(Pending(
+            m,
+            b,
+            sourceLine = ctx.sourceLine,
+            localTailTargets = targets,
+            localFrameArity = ar))
         }
         // arities array
         mv.visitLdcInsn(entries.length)
         mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT)
-        entries.zipWithIndex.foreach { case ((ar, _), i) =>
+        entries.zipWithIndex.foreach { case ((ar, _, _), i) =>
           mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i); mv.visitLdcInsn(ar); mv.visitInsn(Opcodes.IASTORE)
         }
         // fns array
         mv.visitLdcInsn(entries.length)
         mv.visitTypeInsn(Opcodes.ANEWARRAY, LAMFN)
-        entries.zipWithIndex.foreach { case ((_, m), i) =>
+        entries.zipWithIndex.foreach { case ((_, m, _), i) =>
           mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i); emitLamFnRef(ctx, m); mv.visitInsn(Opcodes.AASTORE)
         }
         emitCapture(ctx)
@@ -764,9 +792,18 @@ object JvmByteGen:
         mv.visitVarInsn(Opcodes.ASTORE, 0)
         val savedSlots = ctx.saveSlots()
         val savedSelf = ctx.selfGlobal
+        val savedLocalTargets = ctx.localTailTargets
+        val savedLocalArity = ctx.localFrameArity
         ctx.selfGlobal = null // slot 0 no longer holds the def's own frame
+        ctx.localTailTargets = entries.zipWithIndex.map {
+          case ((targetArity, targetMethod, _), targetIndex) =>
+            (groupSize - 1 - targetIndex) -> (targetMethod, targetArity)
+        }.toMap
+        ctx.localFrameArity = 0
         gen(body, ctx, tail)
         ctx.selfGlobal = savedSelf
+        ctx.localTailTargets = savedLocalTargets
+        ctx.localFrameArity = savedLocalArity
         ctx.restoreSlots(savedSlots)
       case Term.While(cond, body) =>
         val startL = new Label(); val endL = new Label()
@@ -850,6 +887,25 @@ object JvmByteGen:
         // unreachable value for the verifier's stack shape at merge points
         mv.visitInsn(Opcodes.ACONST_NULL)
         mv.visitTypeInsn(Opcodes.CHECKCAST, VAL)
+      case Term.App(Term.Local(i), args)
+          if tail && ctx.localFrameArity >= 0 && i >= ctx.slotDepth &&
+            ctx.localTailTargets.get(i - ctx.slotDepth).exists(_._2 == args.length) =>
+        val (method, _) = ctx.localTailTargets(i - ctx.slotDepth)
+        // LOCAL SELF/MUTUAL TAIL: preserve captured values and the tied LetRec
+        // closure group, replace only the current call-argument suffix, and
+        // return a Bounce consumed by Emit.unroll. This mirrors Runtime.Call
+        // without recursive JVM frames.
+        emitLamFnRef(ctx, method)
+        loadEnv(ctx)
+        mv.visitLdcInsn(ctx.localFrameArity)
+        genArray(args, ctx)
+        mv.visitMethodInsn(
+          Opcodes.INVOKESTATIC,
+          EMIT,
+          "localRebind",
+          s"([L$VAL;I[L$VAL;)[L$VAL;",
+          false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "bounce", s"(L$LAMFN;[L$VAL;)L$VAL;", false)
       case Term.App(Term.Global(gname), args) if ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
         val (m, _) = ctx.g.defMethods(gname)
         if tail then

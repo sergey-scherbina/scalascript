@@ -56,7 +56,7 @@ object Emit:
     var i = 0
     while i < fns.length do
       val f = fns(i)
-      cs(i) = Value.ClosV(Array.empty[Value], arities(i), e => Done(f.call(e)))
+      cs(i) = Value.ClosV(Array.empty[Value], arities(i), e => Done(unroll(f.call(e))))
       i += 1
     val envP = Runtime.extend(env, cs)
     i = 0
@@ -129,6 +129,17 @@ object Emit:
       val n = env.clone()
       System.arraycopy(args, 0, n, n.length - args.length, args.length)
       n
+
+  /** Local LetRec tail-call frame rebind. The frame is
+   * captured ++ tied-group ++ current-args; peer functions may have different
+   * arities, so retain the prefix and append the target call's argument array. */
+  def localRebind(env: Array[Value], currentArity: Int, args: Array[Value]): Array[Value] =
+    val prefix = env.length - currentArity
+    if prefix < 0 then sys.error(s"local tail frame: arity $currentArity exceeds ${env.length}")
+    val n = new Array[Value](prefix + args.length)
+    System.arraycopy(env, 0, n, 0, prefix)
+    System.arraycopy(args, 0, n, prefix, args.length)
+    n
 
   /** Concatenate the array part of the frame with materialized let-slot values
    *  (closure capture: the compiled code keeps lets in JVM slots; a nested Lam
