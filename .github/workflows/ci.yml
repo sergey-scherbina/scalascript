@@ -221,6 +221,9 @@ jobs:
       - name: Compile and assemble ssc.jar
         run: sbt compile cli/assembly installBin
 
+      - name: ScalaScript 2.1 compiler-free ASM artifact release gate
+        run: tests/e2e/v21-build-jvm-release-gate.sh --report target/v21-build-jvm-release.tsv
+
       - name: Test via sbt
         timeout-minutes: 60
         run: sbt test
