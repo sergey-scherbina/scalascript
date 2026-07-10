@@ -84,8 +84,11 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       rejection, core-free host globals, and a nine-operation crypto pilot.
       `RunNativeV2` is split from the compatibility runner and loads neither
       `PluginBridge` nor Scalameta (static jdeps/javap plus runtime class-load
-      gate); native VM/ASM crypto/argv smokes remain green. Next: migrate
-      fs/os/json providers, then HTTP/SQL/UI with feature-specific smokes.
+      gate); native VM/ASM crypto/argv smokes remain green. `7335d2a1c` added
+      complete core-free JVM `std.fs` and non-host `std.os` providers, with
+      4/4 provider tests, identical assembled VM/ASM file round-trips, and the
+      same static/runtime dependency gates. Next: migrate JSON, then
+      HTTP/SQL/UI with feature-specific smokes.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a

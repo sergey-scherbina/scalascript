@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native FS/OS providers removed their v1 runtime edge
+
+The complete JVM `std.fs` surface and the environment/path/temp portion of
+`std.os` now install through core-free `ssc.plugin.NativePlugin` providers.
+Unit tests cover text, bytes, directories, file management, environment, paths,
+and temporary files; assembled VM/direct-ASM round-trips and dependency gates
+pass without loading the compatibility bridge or Scalameta.
+
 ## 2026-07-10 — core-free v2 native plugin boundary established
 
 `ssc run --native` now loads deterministic `ssc.plugin.NativePlugin` providers
