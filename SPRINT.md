@@ -665,9 +665,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             explicit tools-tier categories and source-located failures.
             Current baseline 2026-07-10 after TI-8.2b and native K62.14/K62.15:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 77
+            frontend host errors/timeouts, 1 non-code document, 76
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            27 runtime successes, and 90 runtime errors (167 strict-fail rows).
+            27 runtime successes, and 91 runtime errors (167 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -705,19 +705,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 77 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 76 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `91a955171`):** join the native-front
+                        (`aa9b30f28`, refined through `e87a3aab2`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 77 rows classify as 9 standard-gap / 26
+                        Result: all 76 rows classify as 8 standard-gap / 26
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
@@ -725,14 +725,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        9 remaining deterministic rows by actual `_err` source
+                        8 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
                         Measured groups (overlap is intentional): extension and
                         symbolic extension methods affect 8 documents; match
-                        Constructor guards remain in one document; binder guards
-                        are closed. (`throw` was not the money sentinel.)
+                        Binder and flat constructor guards are closed. (`throw`
+                        was not the money sentinel.)
                         Decimal separators/`L`, triple-quoted strings, the
                         enum→generic-case-class boundary, and delimiter-aware
                         multiline tuple-lambda layout are closed;
@@ -823,7 +823,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomy 9/26/36/5/1, parity remains 10/60/125 with
                               no mismatch/one-sided; native-entry and fresh
                               conformance 9/9 pass.
-                        - [ ] **TI-8.2c2g flat constructor match guards:** extend
+                        - [x] **TI-8.2c2g flat constructor match guards — DONE
+                              2026-07-10 (`e87a3aab2`):** extend
                               guarded-pattern parsing to constructors whose
                               fields are plain binders/wildcards. Lower guard and
                               body in field scope; on false, continue with later
@@ -831,7 +832,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               position. Keep nested constructor guards explicit
                               follow-up. Prove guarded `Some` fall-through on
                               native VM/direct ASM, then rerun
-                              `direct-syntax-demo.ssc` and taxonomy.
+                              `direct-syntax-demo.ssc` and taxonomy. Result:
+                              enough/low/missing output is byte-identical;
+                              direct-syntax is sentinel-clear/checker-OK and
+                              reaches the explicit `direct` runtime gap. Native
+                              corpus has 76 sentinels, taxonomy 8/26/36/5/1,
+                              parity remains 10/60/125 with no mismatch/one-sided;
+                              native-entry and fresh conformance 9/9 pass.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — flat constructor guards fall through on one scrutinee
+
+The self-hosted guard lowerer now scopes flat constructor fields in guard/body
+and, on false, continues later arms against the same shifted scrutinee without
+leaking failed-arm binder names. A guarded `Some` fixture is byte-identical on
+native VM/direct ASM; `direct-syntax-demo.ssc` is sentinel-clear/checker-OK and
+reaches its explicit `direct` runtime gap. The corpus has 76 sentinels and 8
+standard gaps; native-entry, taxonomy, zero-difference parity, and fresh 9/9
+conformance pass. Landed `e87a3aab2`.
+
 ## 2026-07-10 — binder match guards preserve ordered fall-through
 
 The self-hosted parser/lowerer now represents `case x if cond =>` and guarded
@@ -87,15 +97,15 @@ taxonomy smoke, parity, and affected conformance gates pass. Landed
 
 ## 2026-07-10 — every native parser sentinel has a release category
 
-The release join now classifies all 77 `_err` rows from the native-front and
-standard parity reports: 9 standard deterministic parser gaps, 26
+The release join now classifies all 76 `_err` rows from the native-front and
+standard parity reports: 8 standard deterministic parser gaps, 26
 server/integration documents, 36 backend-specific documents, 5 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
 entrypoints before execution; backend-only fenced documents are source-classified
 without overrides. VM/ASM parity is 10 identical, 60 honest both-fail, 125
-skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `91a955171`).
+skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `e87a3aab2`).
 
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 
