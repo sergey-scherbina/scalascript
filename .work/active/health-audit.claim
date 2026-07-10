@@ -1,5 +1,0 @@
-agent: claude-opus-4-8
-branch: n/a (audit only, no code changes)
-started: 2026-07-10
-status: in-progress
-task: health-audit — проверка здоровья main после недавних приземлений; взгляд на 8 корпус-фейлов; НЕ дублировать чужие клеймы (money-decimal, route-policy)
