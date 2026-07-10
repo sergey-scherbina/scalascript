@@ -1814,6 +1814,11 @@ def selTrimDef =
   IrDef("_sel_trim",
     IrLam(1, IrPrim("str.trim", Cons(IrLocal(0), Nil))))
 
+-- _sel_replace(obj, from, to) → str.replace  (obj=local2, from=local1, to=local0)
+def selReplaceDef =
+  IrDef("_sel_replace",
+    IrLam(3, IrPrim("str.replace", Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLocal(0), Nil))))))
+
 -- _sel_mkString(obj, sep) → join list with separator
 -- IrLam(2): sep=local0, obj=local1
 -- IrLetRec: go=local0, sep=local1, obj=local2; call=go(obj)
@@ -2231,6 +2236,7 @@ def kc6Defs =
   Cons(sel4Def,
   Cons(selSplitDef,
   Cons(selTrimDef,
+  Cons(selReplaceDef,
   Cons(selMkStringDef,
   Cons(selTakeWhileDef,
   Cons(selDropWhileDef,
@@ -2252,7 +2258,7 @@ def kc6Defs =
   Cons(selLengthDef,
   Cons(listConcatDef,
   Cons(listFlatMapDef,
-  Nil)))))))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 -- K62.7b: pre-scan user `object` names so isKnownObject is reliable during lowering

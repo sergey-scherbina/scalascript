@@ -1923,6 +1923,7 @@ object Prims:
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
     case "str.split" => a => { val parts = str(a, 0).split(str(a, 1), -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
     case "str.trim"  => a => StrV(str(a, 0).trim)
+    case "str.replace" => a => StrV(str(a, 0).replace(str(a, 1), str(a, 2)))
     case "str.lines" => a => { val parts = str(a, 0).split("\n", -1); val nilV: Value = DataV("Nil", IndexedSeq.empty); parts.foldRight(nilV)((s, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(s), acc))) }
     // Bytes
     case "blen"      => a => IntV(bytes(a, 0).length.toLong)
