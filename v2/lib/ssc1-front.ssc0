@@ -411,15 +411,48 @@ def skipType = (toks) => skipTypeAt(0, toks)
 def skipTypeAnnot = (toks) =>
   if kindIs(":", toks) then skipType(advance(toks)) else toks
 
+-- ── K62.17: default-parameter registry (call-site default synthesis) ──────────
+-- ssc1-lower `import`s ssc1-front and both run in ONE ssc0 process, so these
+-- top-level cells are SHARED: the front populates them during parse; lowerProg
+-- reads funcDefaultsCell for call-site synthesis. paramDefaultsCell accumulates
+-- the current param list's defaults [Pair(name, dfltExpr)]; parseDef snapshots it
+-- into funcDefaultsCell as Pair(funcName, positionalDefaults) — one entry per
+-- param, either the default expr AST or the Pair("__nodflt__", "") sentinel.
+def paramDefaultsCell = #cell.new(Nil)
+def funcDefaultsCell  = #cell.new(Nil)
+def dfltLookup = (nm, dflts) =>
+  match dflts {
+    case Nil => Pair("__nodflt__", "")
+    case Cons(h, t) =>
+      match h { case Pair(pn, pe) => if #seq(pn, nm) then pe else dfltLookup(nm, t) }
+  }
+def dfltIsNone = (d) =>
+  match d { case Pair(tg, e) => #seq(tg, "__nodflt__") }
+def anyDflt = (params, dflts) =>
+  match params {
+    case Nil => false
+    case Cons(p, rest) =>
+      if dfltIsNone(dfltLookup(p, dflts)) then anyDflt(rest, dflts) else true
+  }
+def positionalDflts = (params, dflts) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) => Cons(dfltLookup(p, dflts), positionalDflts(rest, dflts))
+  }
+
 -- ── Parameter list parser ─────────────────────────────────────────────────────
 def parseParam = (toks) =>
   if #seq(tokKind(peek(toks)), "id") then
     let name = tokVal(peek(toks)) in
     let ts1 = skipTypeAnnot(advance(toks)) in
-    -- K62.6g: default value `param: T = expr` — consume the default expression so
-    -- the signature parses (parse-only; call-site default synthesis is separate).
-    let ts2 = if kindIs("=", ts1) then prT(parseExpr(advance(ts1))) else ts1 in
-    pr(name, ts2)
+    -- K62.6g/K62.17: default value `param: T = expr` — parse the default AND record it
+    -- in paramDefaultsCell so parseDef can register it for call-site synthesis.
+    if kindIs("=", ts1) then
+      let rd = parseExpr(advance(ts1)) in
+      let _rec = #cell.set(paramDefaultsCell,
+                   Cons(Pair(name, prV(rd)), #cell.get(paramDefaultsCell))) in
+      pr(name, prT(rd))
+    else pr(name, ts1)
   else pr("_", toks)
 
 def parseParamList = (toks) =>
@@ -1090,6 +1123,10 @@ def parseDef = (toks) =>
   let toks3 = prT(rCtx) in
   -- context dict params: prepend "__tc_TC" for each (tv, TC) bound
   let ctxParams = map(mkCtxParam, ctxBounds) in
+  -- K62.17: reset the per-def default accumulator before parsing THIS def's params
+  -- (a nested def in the body clears it again before the outer def reads the body,
+  -- so outer/inner never interfere).
+  let _clr = #cell.set(paramDefaultsCell, Nil) in
   -- first parameter list
   let rp = parseParamList(toks3) in
   let params = prV(rp) in
@@ -1103,6 +1140,13 @@ def parseDef = (toks) =>
     else pr(Nil, toks4) in
   -- ctxParams first, then regular params, then using params
   let allParams = append(ctxParams, append(params, prV(rp2))) in
+  -- K62.17: snapshot this def's defaults (positional, over allParams) into the shared
+  -- funcDefaultsCell so the lower can synthesize omitted trailing args at call sites.
+  let _defs = #cell.get(paramDefaultsCell) in
+  let _reg = if anyDflt(allParams, _defs) then
+      #cell.set(funcDefaultsCell,
+        Cons(Pair(name, positionalDflts(allParams, _defs)), #cell.get(funcDefaultsCell)))
+    else 0 in
   let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in

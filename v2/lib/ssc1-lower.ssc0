@@ -723,6 +723,40 @@ def isStrExpr = (e) =>
       else false
   }
 
+-- K62.17: call-site default-parameter synthesis. funcDefaultsCell (populated by the
+-- front, shared process) maps funcName → positional defaults [dfltExpr | ("__nodflt__","")].
+-- padDefaults appends the omitted TRAILING defaults when a known function is called with
+-- fewer args than its arity. Constants ([]/"") are the common case (content-toolkit).
+def dfltRegLookup = (nm, reg) =>
+  match reg {
+    case Nil => Pair("__none__", Nil)
+    case Cons(h, t) =>
+      match h { case Pair(fnm, dflts) =>
+        if #seq(fnm, nm) then Pair("__some__", dflts) else dfltRegLookup(nm, t) }
+  }
+def resolveTailDflts = (dflts, n) =>
+  if #i.le(n, 0) then
+    match dflts {
+      case Nil => Nil
+      case Cons(h, t) =>
+        match h { case Pair(tg, e) =>
+          if #seq(tg, "__nodflt__") then Nil
+          else Cons(resolveE(h), resolveTailDflts(t, 0)) }
+    }
+  else match dflts { case Nil => Nil case Cons(h, t) => resolveTailDflts(t, #i.sub(n, 1)) }
+def padDefaults = (fn, rargs) =>
+  let nm = match fn { case Pair(ftag, fdata) =>
+    if #seq(ftag, "var") then fdata else if #seq(ftag, "uid") then fdata else "" } in
+  if #seq(nm, "") then rargs
+  else match dfltRegLookup(nm, #cell.get(funcDefaultsCell)) {
+    case Pair(found, dflts) =>
+      if #seq(found, "__none__") then rargs
+      else
+        let given = lenL(rargs) in
+        if #i.lt(given, lenL(dflts)) then append(rargs, resolveTailDflts(dflts, given))
+        else rargs
+  }
+
 -- Main resolve function — transforms one AST node
 def resolveE = (expr) =>
   match expr {
@@ -740,7 +774,8 @@ def resolveE = (expr) =>
       else if #seq(tag, "app") then
         match data {
           case Pair(fn, args) =>
-            let rargs = resolveArgs(args) in
+            -- K62.17: synthesize omitted trailing default args for known functions
+            let rargs = padDefaults(fn, resolveArgs(args)) in
             match fn {
               case Pair(ftag, fdata) =>
                 if #seq(ftag, "uid") then
