@@ -2519,13 +2519,27 @@ ssc `Int` is documented 64-bit and the interpreter + v2 VM honor it, but JS AND
 JVM codegen treat Int as 32-bit UNIVERSALLY (measured: non-TCO `100000*100000` →
 JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
 (interop, perf, every numeric test, output formatting) — NOT a bolt-on.
-- [ ] **int-1 decision+scope** — confirm the intended contract: (A) Int is 64-bit
-      everywhere → JVM emit ssc Int → Scala `Long`, JS drop int32 truncation
-      (float64 to 2^53; BigInt for full 64-bit) — measure blast radius on full
-      conformance FIRST; or (B) codegen Int is native-32-bit by design → `Long` is
-      the 64-bit type, and deep-tail-recursion is over-specified (use Long / scope).
-      Owner decision gates int-2. Do NOT unilaterally change Int width.
-- [ ] **int-2 implement (pending int-1)** — whichever direction int-1 picks.
+- [x] **int-1 decision** ✓ Sergiy chose **Option A: Int is 64-bit everywhere** (honor
+      the spec/interpreter; codegen must stop treating Int as Scala's 32-bit Int).
+      MECHANISM CONFIRMED: JVM + JS(scala.js) codegen are pass-through — `def f(n: Int)`
+      emits verbatim Scala `Int` (32-bit); `xs.length` (scala.Int) used directly. So the
+      fix = ssc `Int` → Scala `Long` in emitted code + boundary conversions.
+- [ ] **int-2a type-rewrite** — emit ssc `Int` type annotations as Scala `Long`
+      (`def f(n: Int): Int` → `def f(n: Long): Long`), Int literals widen (Scala allows
+      `5` for a Long param). Find the JVM-codegen type-emission point (pass-through vs
+      IR pass at JvmGen ~3750). **BLOCKER FOUND:** JVM emission is heavy TEXT-SLICE
+      pass-through (`out.append(src.substring(...))`, scalameta `.syntax` verbatim) —
+      there is NO clean type-emission point; `Int` flows as raw text in dozens of
+      places. int-2a requires either re-architecting emission to AST-render (not
+      text-slice) OR a fragile whole-output text rewrite (Int appears in strings,
+      comments, identifiers, runtime preamble). Major re-architecture, multi-session.
+- [ ] **int-2b stdlib-Int boundaries** — the CRUX. Scala stdlib returns/takes 32-bit
+      `Int` (`.length`/`.size`/`.indexOf` return Int; `arr(i)`/`.take`/`.drop`/`.charAt`/
+      `substring` TAKE Int). With ssc Int=Long, passing a Long to an Int-param API is a
+      compile error. Need a type-aware pass inserting `.toInt`/`.toLong` at the Scala-
+      stdlib seam. Measure how many conformance cases break FIRST, then decide scope.
+- [ ] **int-2c validate+land** — FULL conformance (all 3 backends) green + no numeric
+      regressions, then land. LARGE multi-session; a partial change mass-breaks compile.
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
