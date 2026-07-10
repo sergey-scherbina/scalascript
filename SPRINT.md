@@ -9,6 +9,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-vm-production-jit-gate** - VERIFY/RECONCILE 2026-07-10:
+      close the stale open BACKLOG row only if the existing shipped slices
+      already prove the production route policy. Check
+      `specs/v2-vm-production-jit-gate.md`,
+      `specs/v2-pattern-match-heavy-production-profile.md`,
+      `specs/v2-four-row-route-policy-sweep.md`, and `CHANGELOG.md` for the
+      final route matrix: VM default, bytecode/JVM source for recursion, and
+      VM/Rust source for scalar/pattern-heavy rows. Do not add a new optimizer
+      or auto-router in this slice. Done when the BACKLOG row is either closed
+      as route-policy satisfied with evidence, or left open with a precise
+      remaining blocker; run at least `scripts/sbtc "installBin"`,
+      a focused `scripts/bench` route-policy sanity row, affected conformance,
+      and `git diff --check` before push.
+
 - [x] **tkv2-dev-loop** - DONE 2026-07-10 (verification/reconcile):
       no new implementation was needed. `ssc serve <file>.ssc` already dispatches
       to `watch`; `WatchCmd` supports `--frontend`, starts `serve(...)` files once,
