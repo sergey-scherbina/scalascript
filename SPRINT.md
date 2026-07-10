@@ -823,6 +823,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomy 9/26/36/5/1, parity remains 10/60/125 with
                               no mismatch/one-sided; native-entry and fresh
                               conformance 9/9 pass.
+                        - [ ] **TI-8.2c2g flat constructor match guards:** extend
+                              guarded-pattern parsing to constructors whose
+                              fields are plain binders/wildcards. Lower guard and
+                              body in field scope; on false, continue with later
+                              arms against the same scrutinee at its shifted local
+                              position. Keep nested constructor guards explicit
+                              follow-up. Prove guarded `Some` fall-through on
+                              native VM/direct ASM, then rerun
+                              `direct-syntax-demo.ssc` and taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
