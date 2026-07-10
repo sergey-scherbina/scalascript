@@ -687,15 +687,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 92 rows classify as 14 standard-gap / 35
-                        server / 38 backend / 4 tools-backend / 1 nondeterministic;
+                        Result: all 92 rows classify as 13 standard-gap / 35
+                        server / 38 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
                         without overrides. Parity is 10 identical / 60 both-fail /
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        14 remaining deterministic rows by actual `_err` source
+                        13 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
@@ -703,9 +703,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         symbolic extension methods affect 8 documents; match
                         guards affect 3; `throw`, triple-quoted strings, and
                         generic/type-pattern residue affect one each. Decimal
-                        separators/`L` are closed. `x402-client.ssc` is a platform/compiler block
-                        in a `scalascript` fence and belongs to tools/backend by
-                        the platform-type prohibition, not to the standard parser.
+                        separators/`L` are closed; `x402-client.ssc` has moved to
+                        tools/backend under the platform-type prohibition.
                         - [x] **TI-8.2c2a numeric separators — DONE 2026-07-10
                               (`4bcf6a976`):** lex decimal
                               separators before the existing `L`/`l` suffix,
@@ -718,7 +717,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               194/0/0/1 with 92 sentinels, taxonomy is 14/35/38/4/1,
                               parity remains 10/60/125 with no mismatch/one-sided,
                               native-entry passes, and conformance is 8/8.
-                        - [ ] **TI-8.2c2b platform-fence classification:** move
+                        - [x] **TI-8.2c2b platform-fence classification — DONE
+                              2026-07-10 (`230645b3a`):** move
                               `x402-client.ssc` from standard-gap to the reviewed
                               tools/backend manifest because its regular
                               `scalascript` fence imports `scala.concurrent`,
@@ -726,6 +726,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               standard path. Keep the override sentinel- and
                               parity-bound so a future portable rewrite makes it
                               fail stale instead of hiding new parser debt.
+                              Taxonomy is now 13 standard-gap / 35 server / 38
+                              backend / 5 tools-backend / 1 nondeterministic;
+                              smoke and affected conformance 8/8 pass.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.

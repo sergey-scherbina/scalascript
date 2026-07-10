@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — compiler-backed x402 client is explicit tools-tier input
+
+`x402-client.ssc` no longer inflates the standard parser queue: its regular
+`scalascript` fence imports `scala.concurrent`, sttp, and compiler-backed URI
+interpolation, all forbidden on the compiler-free standard path. A reviewed,
+sentinel-bound override classifies it as tools/backend and will fail stale after
+a future portable rewrite. The taxonomy is now 13 standard gaps, 35 server, 38
+backend, 5 tools/backend, and 1 nondeterministic row. Landed `230645b3a`.
+
 ## 2026-07-10 — native decimal literals accept separators before `L`
 
 The self-hosted lexer now treats `_` between decimal digits as part of one
@@ -18,8 +27,8 @@ taxonomy smoke, parity, and affected conformance gates pass. Landed
 ## 2026-07-10 — every native parser sentinel has a release category
 
 The release join now classifies all 92 `_err` rows from the native-front and
-standard parity reports: 14 standard deterministic parser gaps, 35
-server/integration documents, 38 backend-specific documents, 4 explicit
+standard parity reports: 13 standard deterministic parser gaps, 35
+server/integration documents, 38 backend-specific documents, 5 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
