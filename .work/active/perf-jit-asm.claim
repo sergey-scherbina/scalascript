@@ -1,10 +1,16 @@
 feature/perf-jit-asm 2026-07-10
 agent: claude (lucky-perch)
 status: in-progress
-scope: WIDE JIT foundation (Sergiy-directed) — spec-first. The register-VM JIT (VmCompiler)
-  is NARROW because it re-infers types at runtime (VmType default TInt, param types from
-  decltpe/runtime hints) instead of using static types — dominant bail is type-unknown.
-  Root traced: IrExpr untyped, `run` never typechecks, interp re-parses source→scalameta,
-  VmCompiler works on FunV(Term + string paramTypes). Writing specs/wide-jit-typed-input.md
-  + SPRINT plan BEFORE any code (user: "подготовлю план в спеку/SPRINT прежде чем трогать код").
-next: write spec + phased SPRINT, present design fork to user
+scope: WIDE JIT foundation (Sergiy-directed, strategy C) — spec specs/wide-jit-typed-input.md.
+DONE + on main: C-1 (dbec2af53) Typer records Term->SType node-type map (nodeTypes).
+HELD on branch feature/perf-jit-asm (commit 587ef79d5, NOT on main — unverified core
+  run-path change): C-2 Plan A — compileViaBackend feeds the interpreter the ORIGINAL
+  ast.Module via new InterpreterBackend.compileAstModule (skips Normalize->Denormalize
+  round-trip + re-parse). BLOCKED on verification: machine load 42 → can't run a reliable
+  build + --v1 conformance gate; won't land an unverified core change.
+next (needs QUIET machine): (1) build + full conformance --v1 lane on C-2; verify
+  rewriteConsole (println vs Console.println) + Normalize-bypass are behavior-neutral;
+  if green land C-2. (2) C-3: typecheck original module once, thread nodeTypes to
+  VmCompiler.compile via a new closure (like metaFor), seed regType from it. (3) C-0
+  baseline JIT miss histogram (foreground sbt, SSC_JIT_STATS=1 — sbtc detaches). (4) C-4
+  remove type-unknown bails. Subagent's Plan A/tree-threading map is in the transcript.
