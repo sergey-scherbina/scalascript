@@ -191,6 +191,34 @@ Decimal is target-independent data, not a JVM `ForeignV` and not a Swift
   unsupported rounding modes produce deterministic errors rather than host
   exceptions with platform-specific text.
 
+The runtime value is `DecimalV(canonicalDisplayText)`. It is a target-neutral
+value case, not a CoreIR literal: construction still enters through `Prim`, so
+serialized CoreIR contains only portable strings and operations. The display
+text preserves scale (`1.00` stays `1.00`), while equality, ordering, and hash
+identity use the normalized numeric value (`1.0` equals and hashes like `1.00`).
+This distinction is required for Decimal map keys as well as arithmetic.
+
+The first frozen primitive vocabulary is:
+
+| Primitive | Arguments | Result / contract |
+|---|---|---|
+| `dec.parse` | canonicalizable string | `DecimalV`, preserving explicit fractional scale |
+| `dec.from-unscaled` | `BigInt`, scale | exact `DecimalV(unscaled × 10^-scale)` |
+| `dec.add`, `dec.sub`, `dec.mul`, `dec.rem` | two Decimal-compatible values | exact `DecimalV` |
+| `dec.div` | lhs, rhs, result scale, rounding mode | rounded exact quotient; zero divisor is a bounded error |
+| `dec.compare` | two Decimal-compatible values | `-1`, `0`, or `1`, ignoring scale |
+| `dec.set-scale` | value, scale, rounding mode | scale-preserving rounded `DecimalV` |
+| `dec.pow` | value, non-negative integral exponent | exact `DecimalV` |
+| `dec.abs`, `dec.negate`, `dec.signum` | value | exact unary result |
+| `dec.scale`, `dec.unscaled` | value | scale `Int` / exact unscaled `BigInt` |
+| `dec.to-bigint`, `dec.to-string` | value | truncating `BigInt` / canonical display text |
+
+The public `Decimal`, `BigDecimal`, conversion, arithmetic, comparison, and
+method surfaces lower or dispatch to this vocabulary. Constructing Decimal
+from binary floating point is rejected as inexact. CoreIR `__arith__` remains a
+dynamic compatibility operation, but its Decimal arms delegate to the same
+`dec.*` contract; a target must not implement a second set of semantics.
+
 ## Portable algebraic effects
 
 Generated Swift must not copy the current JVM-only `ThreadLocal` handler stack.
@@ -213,6 +241,14 @@ The lowering pass is shared infrastructure. Swift is its first compiled target
 consumer; VM parity tests protect existing semantics and later JS/Rust/JVM
 adoption. A Swift-only handler shortcut is forbidden even if it makes a smoke
 test pass.
+
+The v2 kernel and Mira library already encode user computations as ordinary
+`Pure`/`Op` data with reusable closures. The portable slice extracts one named
+runtime contract for operation construction, argument packing, continuation
+threading, and the handler loop, then makes bridge and generated targets use it.
+`V2EffectContext` remains only the in-process JVM compatibility adapter for
+legacy plugin `BlockForm` runners; it is not part of compiled Swift semantics
+and arbitrary JVM-only BlockForms are not promised on Apple targets.
 
 ## CLI and packaging boundary
 
