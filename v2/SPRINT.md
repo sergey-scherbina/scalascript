@@ -1391,3 +1391,16 @@ net-negative ONLY because enum cases are skipped → `North` unbound). Slices:
       the index-1 case; data-types.ssc now runs 8+ lines (Point, Person, enum toHex colors,
       Shape/area) — was crashing at Person immediately. Compounds with K62.13 (enum) + K62.14
       (literal patterns). ~7 corpus files had shared field names. Conformance + stage1 pending.
+
+## K62.16 — structural ==/!= (string equality) — 2026-07-10
+
+- [x] `==`/`!=` lowered to `IrPrim("i.eq",…)`; the VM i.eq compile path (Runtime.scala:1725)
+      coerces operands via asInt, so `"a"=="a"` and any string equality CRASHED ("expected
+      Int, got …"). Corpus-wide correctness bug. Fix (ssc1-lower only): lower `==`/`!=` via
+      the structural `__eq__` prim (Runtime.scala:2174 — value equality over StrV/IntV/FloatV/
+      BoolV/DataV). Trade-off: an int `==`/`!=` loop condition no longer matches the i.eq JIT
+      fast-path (falls to the correct general interpreter). Verified conformance-neutral.
+- [x] Verified: `"foo"=="foo"`→T, `!="bar"`→T, int/float/char == still correct; recursion.ssc
+      (100k-iter recursions w/ `==` base cases) 0.5s + correct; fast conformance 406/0 @164s
+      (JVM-startup-dominated, no perf regression). String `<`/`<=`/`>=` (ordering) still use
+      i.eq/i.lt — out of scope (rare; needs a string-compare prim).

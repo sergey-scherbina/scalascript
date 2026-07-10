@@ -1049,7 +1049,13 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, "*")  then IrPrim("i.mul", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "/")  then IrPrim("i.div", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "%")  then IrPrim("i.mod", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "==") then IrPrim("i.eq",  Cons(lv, Cons(rv, Nil)))
+                -- K62.16: ==/!= lower to the STRUCTURAL __eq__ prim, not i.eq. i.eq's VM
+                -- compile path (Runtime.scala:1725) coerces operands via asInt, so string
+                -- `"a"=="a"` crashed (expected Int). __eq__ (Runtime.scala:2174) is value
+                -- equality over all types (StrV/IntV/FloatV/BoolV/DataV). Trade-off: an int
+                -- ==/!= loop condition no longer matches the i.eq JIT fast-path (falls to the
+                -- correct general interpreter) — measured conformance-neutral.
+                else if #seq(op, "==") then IrPrim("__eq__", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "<")  then IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "++") then IrPrim("sconcat", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
@@ -1063,7 +1069,7 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, "&&") then IrIf(lv, rv, IrLit(IrBool(false)))
                 else if #seq(op, "||") then IrIf(lv, IrLit(IrBool(true)), rv)
                 else if #seq(op, "!=") then
-                  IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(false)), IrLit(IrBool(true)))
+                  IrIf(IrPrim("__eq__", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(false)), IrLit(IrBool(true)))
                 else if #seq(op, "<=") then
                   IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ">")  then
