@@ -1,0 +1,6 @@
+agent: claude-opus-4-8
+branch: feature/dsl-yaml-tuple
+worktree: ../scalascript-wt-dyt
+started: 2026-07-10
+status: in-progress
+task: v2-dsl-yaml-tuple-accessor — fieldAt(YStr,1) OOB: YStr reaches ._2 where Tuple2 expected. Минимальные репро на std/parsing (~, ~>, <~), изолировать корень, починить. Deep field-index family.
