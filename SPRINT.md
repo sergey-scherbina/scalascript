@@ -718,6 +718,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               194/0/0/1 with 92 sentinels, taxonomy is 14/35/38/4/1,
                               parity remains 10/60/125 with no mismatch/one-sided,
                               native-entry passes, and conformance is 8/8.
+                        - [ ] **TI-8.2c2b platform-fence classification:** move
+                              `x402-client.ssc` from standard-gap to the reviewed
+                              tools/backend manifest because its regular
+                              `scalascript` fence imports `scala.concurrent`,
+                              sttp, and JVM compiler syntax forbidden on the
+                              standard path. Keep the override sentinel- and
+                              parity-bound so a future portable rewrite makes it
+                              fail stale instead of hiding new parser debt.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
