@@ -702,10 +702,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         active foreign claims.
                         Measured groups (overlap is intentional): extension and
                         symbolic extension methods affect 8 documents; match
-                        guards affect 3; `throw`, triple-quoted strings, and
-                        generic/type-pattern residue affect one each. Decimal
-                        separators/`L` are closed; `x402-client.ssc` has moved to
-                        tools/backend under the platform-type prohibition.
+                        guards affect 3; triple-quoted strings,
+                        generic/type-pattern residue, and the multiline
+                        tuple-lambda closing boundary in `std/money.allocate`
+                        affect one each. (`throw` is not the money sentinel.)
+                        Decimal separators/`L` are closed; `x402-client.ssc` has
+                        moved to tools/backend under the platform-type prohibition.
                         - [x] **TI-8.2c2a numeric separators — DONE 2026-07-10
                               (`4bcf6a976`):** lex decimal
                               separators before the existing `L`/`l` suffix,
@@ -730,6 +732,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Taxonomy is now 13 standard-gap / 35 server / 38
                               backend / 5 tools-backend / 1 nondeterministic;
                               smoke and affected conformance 8/8 pass.
+                        - [ ] **TI-8.2c2c triple-quoted strings:** lex a
+                              `"""..."""` body as one raw string token with
+                              embedded newlines and quotes, retain ordinary
+                              string/interpolation behavior, and prove identical
+                              native VM/direct-ASM output. Rerun
+                              `graph-rdf4j-http-storage.ssc` and the full
+                              sentinel/parity taxonomy.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
