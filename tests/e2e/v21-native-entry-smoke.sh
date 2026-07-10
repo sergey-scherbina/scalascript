@@ -44,12 +44,15 @@ json_expected=$'Ada\n2\ntrue\n1000.01\ntrue\n{"payload":[1,2]}\n[1,2,3]\n{"name"
 [[ $(run_native "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
 http_response_expected=$'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true}\npublic, max-age=60\nv1\nno-store'
 [[ $(run_native "$FIXTURES/http-response-provider.ssc") == "$http_response_expected" ]]
+sql_expected=$'1\n7\nAda\ntrue'
+[[ $(run_native "$FIXTURES/sql-provider.ssc") == "$sql_expected" ]]
 [[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 [[ $(run_native --bytecode "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/http-response-provider.ssc") == "$http_response_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/sql-provider.ssc") == "$sql_expected" ]]
 http_port=$((32000 + ($$ % 10000)))
 [[ $(run_native "$FIXTURES/http-server-provider.ssc" -- "$http_port") == $'203\npong:/ping' ]]
 [[ $(run_native --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((http_port + 1))") == $'203\npong:/ping' ]]
