@@ -168,6 +168,35 @@ lazy val v2JsBackend = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// ScalaScript 2.1 standard-tier plugin SPI and the first core-free providers.
+// These projects depend only on the v2 runtime graph; the compatibility
+// NativeImpl/PluginValue adapter remains isolated in v2PluginBridge.
+lazy val v2NativePluginSpi = project
+  .in(file("v2/plugin-spi"))
+  .dependsOn(v2Core)
+  .settings(
+    name := "scalascript-v2-native-plugin-spi",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
+lazy val v2NativeHostPlugin = project
+  .in(file("v2/runtime/std/host-plugin"))
+  .dependsOn(v2NativePluginSpi)
+  .settings(
+    name := "scalascript-v2-native-host-plugin",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
+lazy val v2NativeCryptoPlugin = project
+  .in(file("v2/runtime/std/crypto-plugin"))
+  .dependsOn(v2NativePluginSpi)
+  .settings(
+    name := "scalascript-v2-native-crypto-plugin",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -1029,7 +1058,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -3930,7 +3959,8 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    v2Core, v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend,
+    v2Core, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
+    v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,

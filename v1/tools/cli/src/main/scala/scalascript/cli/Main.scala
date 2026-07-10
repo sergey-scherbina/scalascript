@@ -1539,7 +1539,7 @@ final class RunCmd extends CliCommand:
 
     if nativeFlag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      try RunV2.runNative(fileArgs.toList, programArgv, bytecodeFlag)
+      try RunNativeV2.run(fileArgs.toList, programArgv, bytecodeFlag)
       catch case e: Exception =>
         System.err.println(s"run --native: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
         System.exit(1)

@@ -22,8 +22,8 @@ run_fail() {
 }
 
 FIX="$ROOT/tests/fixtures/v21-native/unhandled-effect.ssc"
-run_fail 'native VM missing dispatch'  'unresolved runtime dispatch:' run --native "$FIX"
-run_fail 'native ASM missing dispatch' 'unresolved runtime dispatch:' run --native --bytecode "$FIX"
+run_fail 'native VM missing dispatch'  'unhandled runtime effect: MissingRuntime.call' run --native "$FIX"
+run_fail 'native ASM missing dispatch' 'unhandled runtime effect: MissingRuntime.call' run --native --bytecode "$FIX"
 run_fail 'bridge ASM x402 Op'  'unhandled runtime effect: Wallets.metaMask' run --bytecode "$ROOT/examples/x402-metamask.ssc"
 
 echo 'PASS v21-unhandled-effect-smoke'

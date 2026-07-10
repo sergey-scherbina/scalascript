@@ -17,7 +17,7 @@ object RunV2:
       val src  = scala.io.Source.fromFile(f).mkString
       val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
       warnIfDocOnly(file)
-      reportResult(_root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
+      V2Result.report(_root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   /** A fence-less markdown document converts to an EMPTY program by design
    *  (doc-only examples must stay runnable no-ops) — but silently doing
@@ -47,109 +47,7 @@ object RunV2:
         try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
         catch case e: java.lang.reflect.InvocationTargetException =>
           throw Option(e.getCause).getOrElse(e)   // surface the real failure
-      reportResult(res)
-
-  /** `ssc run --native` — execute the staged, self-hosted ScalaScript frontend
-   *  through the prebuilt v2 kernel, then run its checked-for-sentinels CoreIR
-   *  on the VM or direct ASM backend. No scala-cli/scalac/javac process is
-   *  consulted. The scalameta FrontendBridge is deliberately not referenced by
-   *  this route; it remains the explicit compatibility path. */
-  def runNative(files: List[String], argv: List[String], bytecode: Boolean): Unit =
-    loadPluginJars()
-    val (runner, stdRoot) = nativeFrontLayout()
-    val sourceFiles = files.map { file =>
-      val f = new java.io.File(file).getCanonicalFile
-      if !f.isFile then
-        throw new java.io.FileNotFoundException(s"native frontend input not found: $file")
-      portablePath(f)
-    }
-
-    val previousArgv = _root_.ssc.Runtime.argv
-    try
-      val ir = lowerNative(runner, stdRoot, sourceFiles)
-      if ir.isEmpty then throw new RuntimeException("native frontend emitted no CoreIR")
-      if ir.contains("(global _err)") then
-        throw new RuntimeException(
-          "native frontend rejected incomplete parse: emitted CoreIR contains parser sentinel _err")
-
-      _root_.ssc.Runtime.argv = argv
-      _root_.ssc.bridge.PluginBridge.loadAll()
-      val prog = _root_.ssc.Reader.parseProgram(ir)
-      if bytecode then runNativeBytecode(prog) else runNativeVm(prog)
-    finally _root_.ssc.Runtime.argv = previousArgv
-
-  /** Parser/lowerer recursion for real std-heavy documents needs more stack
-   *  than the general CLI thread. Isolate that cost to the frontend instead of
-   *  imposing a huge `-Xss` on every thread of long-running server programs. */
-  private def lowerNative(runner: java.io.File, stdRoot: java.io.File, sourceFiles: List[String]): String =
-    val irOut   = new java.io.ByteArrayOutputStream()
-    val irPs    = new java.io.PrintStream(irOut, true, java.nio.charset.StandardCharsets.UTF_8)
-    val failure = new java.util.concurrent.atomic.AtomicReference[Throwable]()
-    val task = new Runnable:
-      def run(): Unit =
-        try
-          _root_.ssc.Runtime.argv = "--std-root" :: portablePath(stdRoot.getCanonicalFile) :: sourceFiles
-          Console.withOut(irPs) {
-            val tower = _root_.ssc.Lower.module(_root_.ssc.Loader.load(runner.getCanonicalPath))
-            _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(tower), Array.empty[_root_.ssc.Value])
-          }
-        catch case t: Throwable => failure.set(t)
-    val thread = new Thread(null, task, "ssc-native-frontend", 64L * 1024L * 1024L)
-    try
-      thread.start()
-      thread.join()
-      val err = failure.get()
-      if err != null then throw err
-      irOut.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing()
-    finally irPs.close()
-
-  private def runNativeVm(prog: _root_.ssc.Program): Unit =
-    reportResult(_root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
-
-  private def runNativeBytecode(prog: _root_.ssc.Program): Unit =
-    val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
-    _root_.ssc.Emit.globalsRef = globals
-    val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
-    val result =
-      try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
-      catch case e: java.lang.reflect.InvocationTargetException =>
-        throw Option(e.getCause).getOrElse(e)
-    reportResult(result)
-
-  /** A dotted free `Op` is the runtime's unresolved plugin/effect fallback.
-   *  Treating it as an ordinary printable result made the ASM lane exit zero
-   *  after failed dispatch (for example `Wallets.metaMask`). Pure v2 effect
-   *  libraries also use `Op` as data, but their labels are intentionally
-   *  undotted and remain printable when a program explicitly returns them.
-   *  `Stub` is the separate missing-method sentinel and is never a successful
-   *  user result. */
-  private def reportResult(result: _root_.ssc.Value): Unit = result match
-    case _root_.ssc.Value.UnitV => ()
-    case op @ _root_.ssc.Value.DataV("Op", fields) if _root_.ssc.Runtime.isAutoThreadOp(op) =>
-      val label = fields.headOption.collect { case _root_.ssc.Value.StrV(s) => s }.getOrElse("<unknown>")
-      throw new RuntimeException(s"unhandled runtime effect: $label")
-    case _root_.ssc.Value.DataV("Stub", fields) =>
-      val label = fields.headOption.collect { case _root_.ssc.Value.StrV(s) => s }.getOrElse("<unknown>")
-      throw new RuntimeException(s"unresolved runtime dispatch: $label")
-    case other => println(_root_.ssc.Show.show(other))
-
-  private def nativeFrontLayout(): (java.io.File, java.io.File) =
-    val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
-      throw new IllegalStateException(
-        "native frontend requires a staged installation (ssc.lib.path is unset); run scripts/sbtc \"installBin\" and use bin/ssc")
-    }
-    val base    = new java.io.File(installRoot, "bin/lib/native-front")
-    val runner  = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
-    val stdRoot = new java.io.File(base, "runtime")
-    if !runner.isFile || !stdRoot.isDirectory then
-      throw new IllegalStateException(
-        s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")
-    runner -> stdRoot
-
-  /** The self-hosted resolver uses `/` as its target-independent separator;
-   *  `java.nio.file.Path` accepts that spelling on Windows as well. */
-  private def portablePath(file: java.io.File): String =
-    file.getPath.replace(java.io.File.separatorChar, '/')
+      V2Result.report(res)
 
   /** `ssc run-js --v2` — opt-in Phase-4 JS lane. The same bridge pipeline emits
    *  CoreIR and then JavaScript, writes a temporary CommonJS file, and executes

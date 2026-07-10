@@ -1805,6 +1805,14 @@ object V2PluginRegistry:
   def lookupFieldNames(tag: String, arity: Int): Option[Vector[String]] =
     fieldNamesByArity.get((tag, arity)).orElse(fieldNames.get(tag))
 
+  /** Start a standard native-provider session without retaining handlers or
+   *  field layouts installed by an earlier compatibility-bridge run. */
+  def clear(): Unit =
+    handlers.clear()
+    globalValues.clear()
+    fieldNames.clear()
+    fieldNamesByArity.clear()
+
 // ── Effect context — ThreadLocal stack for BlockForm effect runners ────────────
 // PluginBridge installs one V2EffectHandler per active runXxx block.
 // __method__ dispatch calls V2EffectContext.peek(tag) before "unimplemented".
