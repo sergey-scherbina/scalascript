@@ -55,13 +55,26 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
       corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
       BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
       stuck on array-update. Retry when load is stable.
-- [ ] **v2asm-perf-1..N** (needs stable bench) — one perf slice per push, each A/B-proven
-      (`scripts/bench v2-bytecode <pat>`) + `FrontendBridgeTest` runBytecode + v2 conf. Ranked
-      candidates (from the JvmByteGen map): unboxed Double loop (needs a `dcell` double-loop-cell
-      analog to `lcell` — cross-cutting), foldLeft/map/filter inline (extend the foreach Cons-walk
-      at JvmByteGen:829), widen `canParamLong` to accept `Match`/`Let`/`Seq` self-tail bodies
-      (JvmByteGen:551), HOF/first-class calls deopt to VM (JvmByteGen:923 → use wide-jit types
-      to compile known-arity typed calls). Perf magnitude needs a stable bench to prove.
+- [ ] **v2asm-perf-remaining** — the clean BOUNDED wins are landed (CBig/CBytes, foldLeft).
+      Every remaining candidate is MULTI-FILE infrastructure or a bad trade (scope confirmed
+      2026-07-10) — pick with eyes open; magnitude needs a stable bench:
+      · **unboxed Double loop** (highest perf) — NO `dcell` exists; `lcell` is emitted only for
+        int loop vars (`FrontendBridge.scala:1726` `isIntLit→lcell.new @@`). Needs a `dcell`
+        mirror across 4 files: FrontendBridge (`isFloatLit→dcell.new`), Runtime (a DoubleCell +
+        `dcell.new/get/set` prims mirroring LongCell/lcell), JvmByteGen (`canDouble`/`genDouble`
+        + `dcell.get/set` mirroring `canLong`/`genLong`/`lcell`, JvmByteGen:489/854), Emit.
+        Bounded mirror of the whole lcell path but cross-cutting + correctness-critical.
+      · **HOF/first-class calls deopt to VM** (JvmByteGen:923 `Emit.app`→`Runtime.run`) — needs
+        the callee's arity/type at emit time. USE THE WIDE-JIT WORK: for `--v2` the v1 Typer
+        runs (C-1 `nodeTypes` map); thread callee types through FrontendBridge into CoreIR so a
+        first-class call to a known typed fn compiles to invokestatic/indy. Biggest + needs the
+        v2 typed-CoreIR plumbing (a v2 analog of wide-jit C-2/C-3).
+      · **widen `canParamLong`** (JvmByteGen:551) to `Let` (needs long-local-slot mgmt in
+        `emitParamLong` — currently params only) / `Match` (needs switch dispatch). Int-only.
+      · **map/filter inline** — REJECTED: immutable Cons forces prepend+reverse = 2n allocations
+        vs the VM's n → likely net-neutral/slower. Not a win. (foldLeft won because it's a scalar
+        accumulator, no list building.)
+      · **foldRight** — same reverse+allocation trade as map. Skip.
 
 ## ScalaScript 2.0 — Swift + SwiftUI native parity (2026-07-10)
 
