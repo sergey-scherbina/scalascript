@@ -1,0 +1,6 @@
+agent: claude-opus-4-8 (lucky-perch)
+branch: feature/v2-serve-view-frontend-default
+worktree: ../scalascript-wt-v2-serve-view-frontend-default
+started: 2026-07-10
+status: in-progress
+task: FIX v2-serve-view-frontend-default — serve(view,port) on --v2 crashed "the active frontend backend 'swiftui' is native-only" because the v2 bridge never wired the frontmatter frontend: selection (v1 does in Interpreter.scala). Added FrontendBridge.selectFrontendFromFrontmatter (FrontendFrameworks.setBackend, only if unselected). Verified content-introspection + datatable-static-spa serve frontend=react on --v2; corpus 154/8. Gate tests/e2e/serve-view-frontend-v2-smoke.sh.

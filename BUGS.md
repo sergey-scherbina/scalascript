@@ -174,6 +174,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## v2-serve-view-frontend-default — serve(view,port) crashes 'swiftui native-only' instead of serving the web SPA
+
+**Status:** FIXED 2026-07-10 — on `--v2`, `serve(view, port)` for any UI-serving
+program crashed `the active frontend backend 'swiftui' is native-only` instead of
+serving the web SPA. v1 reads the front-matter `frontend:` value and selects the
+framework (`Interpreter.scala`: `m.frontendFramework.foreach(FrontendFrameworks.setBackend)`);
+the v2 bridge never wired this, so `serve` fell to `FrontendFrameworks.current()` →
+`impls.head` (swiftui, native-only). Invisible to the corpus (serve is stubbed in
+batch mode) but broke every real `ssc run --v2` serving a UI view
+(content-introspection, datatable-static-spa, …). Fix: `FrontendBridge.selectFrontendFromFrontmatter`
+reads the `frontend:` value and calls `FrontendFrameworks.setBackend`, mirroring v1
+(only when nothing is selected, so CLI `--frontend` / `setFrontendFramework` still win).
+Verified: content-introspection + datatable-static-spa serve `frontend=react` on --v2
+(matching v1); corpus 154/8. Gate: tests/e2e/serve-view-frontend-v2-smoke.sh. Fixed by lucky-perch.
+
 ## v2-rust-recursion-tco-bench-fold — `fixed` (2026-07-09)
 
 - **Found by:** codex during `v2-source-backend-production-perf-sweep`.

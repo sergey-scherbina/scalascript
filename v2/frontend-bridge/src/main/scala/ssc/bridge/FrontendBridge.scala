@@ -158,6 +158,19 @@ object FrontendBridge:
 
   private var pendingRemoteHandlers: Vector[RemoteHandlerSpec] = Vector.empty
 
+  /** A `frontend:` front-matter value selects the frontend framework, mirroring v1
+   *  (Interpreter.scala: `m.frontendFramework.foreach(FrontendFrameworks.setBackend)`).
+   *  Without it, v2 leaves `FrontendFrameworks` unselected so `serve(view, port)`
+   *  falls to `impls.head` (swiftui, native-only) and crashes
+   *  "the active frontend backend 'swiftui' is native-only" instead of serving the
+   *  web SPA (v2-serve-view-frontend-default). Only sets it when nothing was
+   *  selected yet — an explicit `setFrontendFramework(...)` / CLI flag still wins. */
+  private def selectFrontendFromFrontmatter(src: String): Unit =
+    if scalascript.frontend.FrontendFrameworks.selectedName.isEmpty then
+      frontMatterValue(src, "frontend").map(_.trim).filter(_.nonEmpty).foreach { name =>
+        scala.util.Try(scalascript.frontend.FrontendFrameworks.setBackend(name))
+      }
+
   /** Parse `databases:` YAML block from front-matter and register JDBC connections.
    *  Format:
    *    databases:
@@ -744,6 +757,7 @@ object FrontendBridge:
       Some(CT.Lit(Const.CStr("")))        // maskableIcon
     )
     parseDatabasesFromFrontmatter(src)
+    selectFrontendFromFrontmatter(src)
     pendingRemoteHandlers = collectRemoteHandlersFromSource(src)
     val merged = resolveImportsCode(src, fileDir)
     // Op-arg lifting is only NEEDED by programs where a raw effect Op can
