@@ -1,0 +1,6 @@
+feature/ui-fetch-get-offline-confirmation 2026-07-10T17:17:17Z
+agent: codex
+heartbeat: 2026-07-10T17:17:17Z
+status: in-progress
+done-so-far: busi rebuilt the canonical ScalaScript owner SPA with a0d45ad44 and completed the installed-profile offline browser matrix
+next: record the reporter confirmation in BUGS.md, add the transient SPRINT closure item, publish the documentation-only closeout, then release the claim
