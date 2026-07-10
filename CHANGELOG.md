@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — standard runtime passes without Java compiler modules
+
+CI now derives a 13-module runtime set from every standard JAR and runs the
+native VM, direct ASM, all representative providers, and a generated H2 SQL JAR
+through `java --limit-modules`; `java.compiler` and `jdk.compiler` are both
+unresolvable. The audit found and removed eight optional H2 `SourceCompiler*`
+classes from only the standard-tier driver and strengthened the slim gate so
+ServiceLoader/JDBC dependencies can no longer evade static scanning.
+
 ## 2026-07-10 — canonical JSON parsing is self-hosted in ScalaScript
 
 The new pure `std/json-core.ssc` character scanner owns strict and tolerant
@@ -21,8 +30,8 @@ The release gate now copies an installed distribution, removes its full CLI,
 compatibility JAR/plugin/compiler trees, legacy frontend, `ssc`, and
 `ssc-tools`, and runs only the surviving `ssc-standard` files. VM, direct ASM,
 imports/argv, FS/OS, JSON, HTTP, SQL, UI, State, and deterministic `build-jvm`
-all pass with compiler commands hidden. The stable baseline is 33 JARs, 7,060
-classes, 31,454,827 bytes, and zero compiler/Scalameta/v1 forbidden references.
+all pass with compiler commands hidden. The stable baseline is 33 JARs, 7,052
+classes, 31,463,542 bytes, and zero compiler/Scalameta/v1 forbidden references.
 
 ## 2026-07-10 — compatibility tooling gets an explicit tier launcher
 

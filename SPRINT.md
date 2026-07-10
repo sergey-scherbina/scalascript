@@ -362,23 +362,33 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             counts/sizes in stable TSV, wire CI, and update the spec/docs.
             Result: after deleting the full CLI, compatibility JARs/plugins,
             compiler, legacy frontend, `ssc`, and `ssc-tools`, the surviving
-            33-JAR / 7,060-class / 31,454,827-byte standard tier passes VM,
+            33-JAR / 7,052-class / 31,463,542-byte standard tier passes VM,
             direct ASM, every representative TI-5 provider, and `build-jvm`.
             Compiler commands are hidden, the tools tier is absent, and the
-            recursive static/runtime scans find 0 forbidden references.
+            recursive static/runtime scans find 0 forbidden references. TI-8.1
+            strengthened this baseline by making every dependency JAR a scan
+            root and removing H2's eight optional compiler classes.
 - [ ] **v21-ti-no-javac-cutover** — retire the default v1 `JavacJitBackend` from
       the standard tier instead of treating the old scala.meta-based
       `AsmJitBackend` as the new architecture. Keep v1 JITs only in the optional
       compatibility tier; close any correctness gap needed by `--v1` there.
       Done when `jdeps` for the standard launcher/runtime does not require
       `java.compiler` and standard conformance runs on a JRE-shaped module set.
-      - [ ] **TI-8.1 JRE-shaped module gate:** derive the standard runtime module
+      - [x] **TI-8.1 JRE-shaped module gate — DONE 2026-07-10 (`e4cd55b36`):** derive the standard runtime module
             allowlist from the staged classpath, explicitly subtract
             `java.compiler`/`jdk.compiler`, and run native VM, direct ASM,
             representative provider families, and the generated artifact with
             `java --limit-modules`. Assert the compiler modules are
             unresolvable, scan `jdeps`, emit a stable TSV, and wire the gate
-            into CI before broad tests.
+            into CI before broad tests. Result: an audit exposed H2's optional
+            `SourceCompiler*` edge hidden behind ServiceLoader reachability.
+            The standard H2 copy now deterministically omits those eight
+            classes while tools retains the full driver; all 33 JARs become
+            `jdeps` roots. The derived 13-module set excludes both compiler
+            modules and makes them unresolvable; VM, direct ASM, all TI-5
+            provider families, and a generated H2 SQL JAR pass under
+            `--limit-modules`. Slim/core dependency/artifact/standard gates and
+            fresh affected conformance 8/8 are green.
       - [ ] **TI-8.2 default-cutover readiness:** rerun the portable native-front
             and VM/ASM corpus reports after current self-hosted parser changes;
             classify every remaining parser/checker sentinel or backend gap.
