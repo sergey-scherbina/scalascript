@@ -1492,6 +1492,24 @@ Discovery via `ServiceLoader` (in-process JARs) or `plugin.yaml` (subprocess).
 `ssc --list-backends` enumerates in-process bundled backends discovered via `ServiceLoader`.
 `spark` is special-cased in `Main.runCommand` until § 9.5 Phase A wraps it in a regular `Backend`.
 
+### 9.2.1 ScalaScript 2.1 toolchain-independent JVM path
+
+The standard ScalaScript 2.1 JVM path is `.ssc -> native frontend -> native
+checker -> CoreIR -> v2 VM/direct ASM`. A prebuilt standard installation MUST
+run this path without Scalameta, Scala CLI, the Scala compiler, javac, or the
+`java.compiler`/`jdk.compiler` modules. It MAY contain the Scala runtime and ASM;
+building ScalaScript itself from source remains a separate bootstrap concern.
+
+Plain `ssc run` uses the native frontend and v2 VM after the 2.1 cutover;
+`ssc run --bytecode` changes only the execution backend to direct ASM.
+`ssc build-jvm ... -o app.jar` is the compiler-free direct-ASM artifact path.
+Compiler-backed backends and the v1/Scalameta frontend remain available only as
+explicit tools/compatibility-tier choices and never as transparent fallbacks.
+
+The complete dependency tiers, migration flags, artifact requirements, current
+baselines, and acceptance gates are normative in
+[`specs/v2.1-toolchain-independence.md`](specs/v2.1-toolchain-independence.md).
+
 ### 9.3 Custom Backends
 
 Two distribution shapes:
@@ -2039,6 +2057,8 @@ ssc compile-jvm file.ssc        Compile to .scjvm artifact
 ssc compile-js file.ssc         Compile to .scjs artifact
 ssc emit-interface file.ssc     Emit .scim interface
 ssc emit-ir file.ssc            Emit .scir normalized IR
+ssc build-jvm file.ssc -o app.jar
+                                 Native frontend + CoreIR → direct ASM executable JAR (§ 9.2.1)
 ssc link [--backend B] dir/     Link artifacts
 ssc build [--incremental] dir/  Incremental project build
 ssc deps file.ssc               Print import closure
