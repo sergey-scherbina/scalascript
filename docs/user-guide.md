@@ -236,15 +236,25 @@ errorDetails = true
 See [`specs/repl-web.md`](repl-web.md) and [`specs/mount-handlers.md`](mount-handlers.md)
 for the full command reference, handler-file contract, and typed-handler deserialization rules.
 
-### `run`, `run --v1`, `run --target jvm`, `run-jvm`, and `run-js`
+### `run`, `run --native`, `run --v1`, `run --target jvm`, `run-jvm`, and `run-js`
 
 `ssc run` uses the v2 VM by default through the v1 frontend and FrontendBridge.
 Use `ssc run --v1` as the rollback path for the old tree-walking interpreter.
+ScalaScript 2.1 also ships an opt-in compiler-free frontend route:
+`ssc run --native`. It executes the staged `mira-md -> ssc1-front ->
+ssc1-lower` tower through the prebuilt v2 kernel, rejects partial CoreIR that
+contains the parser `_err` sentinel, and never invokes Scala CLI, scalac, or
+javac. `--compat-frontend` names the current Scalameta bridge explicitly while
+the native corpus and checker are being completed.
+
 When you need true JVM or Node.js execution semantics (or want to benchmark
 performance) use `--target jvm` or `run-js`:
 
 ```bash
 ssc run              hello.ssc   # v2 VM default runner
+ssc run --native     hello.ssc   # staged self-hosted frontend → CoreIR → v2 VM
+ssc run --native --bytecode hello.ssc # same frontend → direct ASM
+ssc run --compat-frontend hello.ssc   # explicit Scalameta compatibility frontend
 ssc run --v1         hello.ssc   # v1 tree-walking interpreter rollback
 ssc run              hello.ssc -- one two  # v2 VM program args
 ssc run --target jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
@@ -267,7 +277,15 @@ before `--` are still source files, so multi-file runs are unchanged:
 ssc run app.ssc -- one two
 ssc run --v2 app.ssc -- one two
 ssc run --bytecode app.ssc -- one two
+ssc run --native app.ssc support.ssc -- one two
 ```
+
+The staged native route resolves standalone Markdown link imports relative to
+the importing file, resolves `std/...` against `bin/lib/native-front/runtime`,
+deduplicates normalized module paths, accepts multiple source files before
+`--`, and forwards only the values after `--` as program arguments. Prose and
+inline-code links are not imports. There is no transparent fallback: use
+`--compat-frontend` when a source still hits a documented native parity gap.
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
@@ -286,6 +304,9 @@ When to use each:
 | Command | Runtime | When to use |
 |---------|---------|-------------|
 | `ssc run` | v2 VM | Default day-to-day runner |
+| `ssc run --native` | v2 VM via self-hosted frontend | Validate/deploy the ScalaScript 2.1 compiler-free route |
+| `ssc run --native --bytecode` | direct ASM via self-hosted frontend | Validate native frontend plus JVM bytecode execution |
+| `ssc run --compat-frontend` / `--v2` | v2 VM via Scalameta bridge | Explicit migration compatibility route |
 | `ssc run --v1` | v1 interpreter | Rollback/debug path for old tree-walking behavior |
 | `ssc run <file> -- [args...]` | v2 VM | Pass program args to v2 `args` without changing source-file positionals |
 | `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
@@ -295,8 +316,10 @@ When to use each:
 | `ssc run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
 | `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
 
-**Requirements:** `ssc run --target jvm` / `ssc run-jvm` require `scala-cli`
-on PATH; `ssc run-js` requires `node` on PATH; `ssc run-rust` /
+**Requirements:** `ssc run --native` requires a staged installation produced by
+`installBin`, but does not require Scala CLI or a Java/Scala compiler at user
+runtime. `ssc run --target jvm` / `ssc run-jvm` require `scala-cli` on PATH;
+`ssc run-js` requires `node` on PATH; `ssc run-rust` /
 `ssc build-rust` require `cargo` on PATH (install via `brew install rust`
 or <https://www.rust-lang.org/tools/install>).
 

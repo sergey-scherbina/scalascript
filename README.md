@@ -708,6 +708,7 @@ ScalaScript supports the following bundled backends, all loaded through the
 | Command | Backend id | How it works |
 |---------|------------|--------------|
 | `bin/ssc file.ssc` / `ssc run file.ssc` | `v2`        | Default v2 VM runner through the v1 frontend + FrontendBridge. Use `ssc run --v1 file.ssc` to roll back to the v1 tree-walking interpreter. Program args use `ssc run file.ssc -- [args...]`. |
+| `ssc run --native file.ssc` | `v2-native` | Opt-in ScalaScript 2.1 path: staged self-hosted frontend → CoreIR → v2 VM, with no Scala CLI/scalac/javac process. `--native --bytecode` selects direct ASM; `--compat-frontend` explicitly selects the Scalameta bridge during migration. |
 | `ssc run --target jvm file.ssc`      | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
 | `ssc run-jvm file.ssc`               | `jvm`         | Alias for `ssc run --target jvm` (kept for backward compatibility) |
 | `ssc run-js  file.ssc`               | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
@@ -806,6 +807,9 @@ complete worked example and `docs/user-guide.md §21` for the full API reference
 ssc run file.ssc              # v2 VM default runner
 ssc run --v1 file.ssc         # rollback: v1 tree-walking interpreter
 ssc run --v2 file.ssc         # explicit v2 VM runner
+ssc run --native file.ssc     # staged self-hosted frontend -> CoreIR -> v2 VM
+ssc run --native --bytecode file.ssc # same native frontend -> direct ASM execution
+ssc run --compat-frontend file.ssc   # explicit Scalameta bridge during migration
 ssc run file.ssc -- arg1 arg2 # pass program args to the v2 VM runner
 ssc run --bytecode file.ssc -- arg1 arg2 # pass args to the v2 JVM bytecode lane
 ssc run --target jvm file.ssc # compile via JvmGen + run with scala-cli (no artifacts)
