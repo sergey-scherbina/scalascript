@@ -3333,6 +3333,7 @@ Import selectively from each `std/ui` sub-module:
 [textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
 [webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
 [showWhen, signalText_, fragment_, forKeyed, rawText, rawHtml](std/ui/reactive.ssc)
+[loadState, stateName, errorText, triState, triStateText](std/ui/state.ssc)
 [badge, spinner, signalPre](std/ui/display.ssc)
 [card, cardWithHeader, modal](std/ui/containers.ssc)
 [tableCol, tableRow, table, sortableTable, fcol, rowDelete, rowPost, rowLink, rowEdit, dataTable](std/ui/data.ssc)
@@ -3421,6 +3422,34 @@ tracks the browser's `online`/`offline` events; both lower to a per-process
 map and constant `true` off-browser (JVM interpreter, Node), so the same
 logic is unit-testable server-side. Runnable example:
 `examples/frontend/offline-demo/offline-demo.ssc`.
+
+#### Fetched-view state (`std/ui/state.ssc`)
+
+Use `loadState` and `triStateText` when a view already has loading, empty, and
+error signals and needs one consistent state switch. Loading wins over error,
+error wins over empty, and ready content is shown only when all three guards
+are clear.
+
+```scalascript
+[signal](std/ui/primitives.ssc)
+[loadState, stateName, triStateText](std/ui/state.ssc)
+
+val loading = signal("invoicesLoading", false)
+val empty   = signal("invoicesEmpty", false)
+val error   = signal("invoicesError", "")
+val state   = loadState(loading, empty, error)
+
+val body = triStateText(state,
+  readyView = text("Invoices loaded"),
+  loadingText = "Loading invoices...",
+  emptyText = "No invoices yet",
+  errorPrefix = "Could not load invoices: ")
+```
+
+`stateName(state)` returns a computed `Signal[String]` with
+`loading`/`error`/`empty`/`ready`, which is useful in tests and status labels.
+`errorText(state, prefix)` returns a reactive error message signal. Runnable
+example: `examples/std-ui/tri-state-demo.ssc`.
 
 #### Forms — validators as data (`std/ui/form.ssc`)
 
