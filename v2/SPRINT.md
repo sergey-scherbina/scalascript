@@ -1312,11 +1312,15 @@ identical pass/FAIL set (diff old-vs-new output before landing).
 - [ ] **K63.3 — batch run-ir into one JVM**: add `ssc run-ir-batch <list>` (one JVM
       runs many IRs) or a persistent JVM; replace 316× cold `java -jar run-ir`. ~1.5-2
       min saved. VERIFY: batched stdout matches per-invocation, byte-for-byte.
-- [ ] **K63.4 — parallelize independent lanes**: run rustc/node/run-ir compiles via
-      `xargs -P $(ncpu)` / bounded background batches, aggregating ok/FAIL. The real
-      fix (14 idle cores) → 3-5× wall-clock. Higher risk: restructures the sequential
-      inline `chk` script — MUST preserve exact ok/FAIL lines (sort before diff since
-      order changes). VERIFY: identical pass/fail SET vs sequential.
+- [~] **K63.4 — OPTIONAL parallelism (opt-in `CONF_JOBS=N`, default 1=sequential)**:
+      infra = bounded bg pool + barrier; landed for the stateless `chk`/`chk_hm` VM lane
+      (188 tests) → parallel fast-mode 210s→111s (~2×), IDENTICAL 406/0 set. Sequential
+      default byte-identical. Fix/expand the other lanes gradually:
+  - [ ] K63.4a — parallelize the inline rustc lane (240 compiles, the slowest) — convert
+        the `if have_rust; then rustc…; assert; fi` blocks to the pool (unique temp per job).
+  - [ ] K63.4b — parallelize the inline node lane (177).
+  - [ ] K63.4c — ordered output in parallel mode (currently chk results emit at the barrier,
+        after the inline/header lines — sort/interleave by call index).
 - [x] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
       unchanged (keyed jar in a stable cache dir). ~2-3 min/iteration. VERIFY: rebuilds
       on any src change, reuses otherwise; stale-cache guard.

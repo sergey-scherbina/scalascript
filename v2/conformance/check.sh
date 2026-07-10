@@ -10,7 +10,15 @@ LOGDIR="$TMPBASE/ssc-conformance-logs-$$"
 JAR="$LOGDIR/ssc-conformance.jar"
 ERR_SUMMARY="$LOGDIR/failures.log"
 fail=0
+# K63.4: OPTIONAL parallelism. CONF_JOBS=N (default 1 = sequential, byte-identical to
+# before) runs the stateless chk/chk_hm helper tests through a bounded background pool;
+# results are collected at a barrier before exit. Other lanes (rustc/node/inline) stay
+# sequential for now — parallelize them gradually. Out-of-order output in parallel mode
+# is expected (the pass/FAIL SET is what's asserted).
+CONF_JOBS="${CONF_JOBS:-1}"
 mkdir -p "$LOGDIR"
+_PAR_DIR="$LOGDIR/par"; mkdir -p "$_PAR_DIR"; _par_idx=0
+_par_slot() { while [ "$(jobs -rp | wc -l | tr -d " ")" -ge "$CONF_JOBS" ]; do wait -n 2>/dev/null || sleep 0.02; done; }
 touch "$ERR_SUMMARY"
 record_diag() { printf '%s\n' "$*" >> "$ERR_SUMMARY"; }
 diag_path() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
@@ -123,9 +131,17 @@ ssc_last() { # label args...
   printf '%s\n' "$got"
 }
 chk() { # mode file want
-  got=$(ssc_last "$1 ${2##*/}" "$1" "$2")
-  if [ "$got" = "$3" ]; then printf 'ok   %-26s => %s\n' "$1 ${2##*/}" "$got"
-  else printf 'FAIL %-26s got [%s] want [%s]\n' "$1 ${2##*/}" "$got" "$3"; fail=1; fi
+  if [ "$CONF_JOBS" -le 1 ]; then
+    got=$(ssc_last "$1 ${2##*/}" "$1" "$2")
+    if [ "$got" = "$3" ]; then printf 'ok   %-26s => %s\n' "$1 ${2##*/}" "$got"
+    else printf 'FAIL %-26s got [%s] want [%s]\n' "$1 ${2##*/}" "$got" "$3"; fail=1; fi
+  else
+    local i=$_par_idx m="$1" f="$2" w="$3"; _par_idx=$((_par_idx+1)); _par_slot
+    { g=$(ssc_last "$m ${f##*/}" "$m" "$f")
+      if [ "$g" = "$w" ]; then printf 'ok   %-26s => %s\n' "$m ${f##*/}" "$g"
+      else printf 'FAIL %-26s got [%s] want [%s]\n' "$m ${f##*/}" "$g" "$w"; fi
+    } >"$_PAR_DIR/$(printf '%06d' "$i")" 2>&1 &
+  fi
 }
 chk_raw_targets() { # label file want
   lbl="$1"; file="$2"; want="$3"
@@ -296,9 +312,17 @@ chk_ssct examples/bad.ssct  'TypeError("Add expects Int operands")'
 
 echo "# mira textual surface (UNANNOTATED source text -> lex+parse+INFER, all in ssc0)"
 chk_hm() { # file want
-  got=$(ssc_last "mira ${1##*/}" run bin/mira.ssc0 "$1")
-  if [ "$got" = "$2" ]; then printf 'ok   %-26s => %s\n' "mira ${1##*/}" "$got"
-  else printf 'FAIL %-26s got [%s] want [%s]\n' "mira ${1##*/}" "$got" "$2"; fail=1; fi
+  if [ "$CONF_JOBS" -le 1 ]; then
+    got=$(ssc_last "mira ${1##*/}" run bin/mira.ssc0 "$1")
+    if [ "$got" = "$2" ]; then printf 'ok   %-26s => %s\n' "mira ${1##*/}" "$got"
+    else printf 'FAIL %-26s got [%s] want [%s]\n' "mira ${1##*/}" "$got" "$2"; fail=1; fi
+  else
+    local i=$_par_idx f="$1" w="$2"; _par_idx=$((_par_idx+1)); _par_slot
+    { g=$(ssc_last "mira ${f##*/}" run bin/mira.ssc0 "$f")
+      if [ "$g" = "$w" ]; then printf 'ok   %-26s => %s\n' "mira ${f##*/}" "$g"
+      else printf 'FAIL %-26s got [%s] want [%s]\n' "mira ${f##*/}" "$g" "$w"; fi
+    } >"$_PAR_DIR/$(printf '%06d' "$i")" 2>&1 &
+  fi
 }
 chk_hm examples/hm-src-inc.hm '"(Int -> Int)"'
 chk_hm examples/hm-src-id.hm  '"(t0 -> t0)"'
@@ -1987,4 +2011,9 @@ kc13md=$(ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/std
 if [ "$kc13md" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc13 md .ssc runner" "$kc13md"
 else printf 'FAIL %-26s\n  got: [%s] want: [Hello, World!]\n' "kc13 md .ssc runner" "$kc13md"; fail=1; fi
 
+# K63.4 barrier: drain the parallel pool, emit results in call order, aggregate FAIL.
+if [ "$CONF_JOBS" -gt 1 ]; then
+  wait
+  for _pf in "$_PAR_DIR"/*; do [ -e "$_pf" ] || continue; cat "$_pf"; grep -q '^FAIL' "$_pf" && fail=1; done
+fi
 exit $fail
