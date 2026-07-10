@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-dsl-yaml-tuple-accessor** - REPRO/FIX 2026-07-10:
+      work the open `BUGS.md` entry where `examples/dsl-yaml-like.ssc`
+      fails on v2 with `fieldAt(YStr, 1)` / tuple-accessor OOB after the
+      layout parser mis-structures a nested mapping. Current ledger notes that
+      v1 is not a clean reference (`withIndent` import-resolution failure), so
+      do not assume a v1-vs-v2 parity oracle. Plan: stage the CLI if needed,
+      reproduce through the real `bin/ssc`/v2 path, capture the smallest
+      parser-combinator shape that produces `YStr` where a `(key, value)` pair
+      is expected, then inspect the concrete root in layout context-threading
+      or tuple/field fallback. Land a conservative fix only if the failing
+      shape is explicit and covered; otherwise update `BUGS.md` with the exact
+      minimized blocker and leave it open/needs-info instead of speculative
+      churn. Gates: focused example or new conformance repro, affected
+      conformance slice, `scripts/sbtc "installBin"` when `bin/ssc` is used,
+      and `git diff --check`.
+
 - [x] **v2-jvm-backend-echo-macos** - DONE 2026-07-10 in `a4f7662be`:
       `v2/backend/check.sh` was already safe because it writes generated
       JVM/JS/Rust sources through direct redirects, but live helper paths still
