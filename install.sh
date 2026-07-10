@@ -76,13 +76,14 @@ fi
 echo ""
 echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 (cd "$ROOT" && sbt -no-colors cli/installBin)
-[ -f "$LIB/ssc.jar" ]  || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }
-[ -d "$LIB/jars" ]     || { echo "Stage did not produce $LIB/jars/" >&2; exit 1; }
+[ -f "$LIB/standard/ssc.jar" ]  || { echo "Stage did not produce $LIB/standard/ssc.jar" >&2; exit 1; }
+[ -d "$LIB/standard/jars" ]     || { echo "Stage did not produce $LIB/standard/jars/" >&2; exit 1; }
+[ -f "$LIB/ssc.jar" ]           || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }
+[ -d "$LIB/jars" ]              || { echo "Stage did not produce $LIB/jars/" >&2; exit 1; }
 
 mkdir -p "$BIN"
 
-# Launcher: classpath-based, no fat jar needed.
-# bin/lib/jars/* holds runtime JARs; bin/lib/ssc.jar is the thin entry-point.
+# Compatibility launcher remains the default until the TI-8 cutover.
 # Keep this launcher in sync with the checked-in bin/ssc (AppCDS cold-start cut).
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
@@ -108,6 +109,16 @@ exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
 LAUNCHER
 chmod +x "$BIN/ssc"
+
+cat > "$BIN/ssc-standard" <<'STANDARD_LAUNCHER'
+#!/usr/bin/env bash
+_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SSC_ROOT="$(dirname "$_SSC_BIN")"
+exec java -Dssc.lib.path="$_SSC_ROOT" \
+  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
+  scalascript.cli.StandardMain "$@"
+STANDARD_LAUNCHER
+chmod +x "$BIN/ssc-standard"
 
 for launcher in "$ROOT"/v1/tools/scripts/launchers/*; do
     name="$(basename "$launcher")"

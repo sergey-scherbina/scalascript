@@ -1266,11 +1266,14 @@ lazy val cli = project
       val root         = (ThisBuild / baseDirectory).value
       val libDir       = root / "bin" / "lib"
       val runtimeDir   = libDir / "jars"
+      val standardDir  = libDir / "standard"
+      val standardRuntimeDir = standardDir / "jars"
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
       val availableDir = libDir / "compiler" / "plugin-available"
       val nativeFrontDir = libDir / "native-front"
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
+      IO.delete(standardDir); IO.createDirectory(standardRuntimeDir)
       IO.delete(compilerDir); IO.createDirectory(compilerDir)
       IO.delete(plugDir);     IO.createDirectory(plugDir)
       IO.delete(availableDir); IO.createDirectory(availableDir)
@@ -1278,6 +1281,48 @@ lazy val cli = project
       // Thin cli entry-point JAR (no scala3-compiler dep).
       val appJar = (Compile / packageBin).value
       IO.copyFile(appJar, libDir / "ssc.jar")
+      // The tools JAR contains every compatibility command class. The standard
+      // entry JAR is a physical class-level allowlist, so merely deleting
+      // Scalameta/v1 dependency JARs cannot leave dormant references in the
+      // standard tier itself.
+      val standardJar = standardDir / "ssc.jar"
+      val standardJarStage = target.value / "standard-cli-jar"
+      IO.delete(standardJarStage); IO.createDirectory(standardJarStage)
+      val standardClassPrefixes = Seq(
+        "scalascript/cli/StandardMain",
+        "scalascript/cli/RunNativeV2",
+        "scalascript/cli/NativeFrontmatter",
+        "scalascript/cli/NativeJvmArtifact",
+        "scalascript/cli/NativeJvmSourceMap",
+        "scalascript/cli/NativeSourceClosure",
+        "scalascript/cli/NativeSourceUnit",
+        "scalascript/cli/NativeV2Compilation",
+        "scalascript/cli/V2Result"
+      )
+      val appZip = new java.util.zip.ZipFile(appJar)
+      try {
+        val entries = appZip.entries()
+        while (entries.hasMoreElements) {
+          val entry = entries.nextElement()
+          if (!entry.isDirectory && standardClassPrefixes.exists(entry.getName.startsWith)) {
+            val dest = standardJarStage / entry.getName
+            IO.createDirectory(dest.getParentFile)
+            val in = appZip.getInputStream(entry)
+            try IO.write(dest, IO.readBytes(in)) finally in.close()
+          }
+        }
+      } finally appZip.close()
+      IO.zip(Path.allSubpaths(standardJarStage).toSeq, standardJar)
+      val standardLauncher = root / "bin" / "ssc-standard"
+      IO.write(standardLauncher,
+        """#!/usr/bin/env bash
+          |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          |_SSC_ROOT="$(dirname "$_SSC_BIN")"
+          |exec java -Dssc.lib.path="$_SSC_ROOT" \
+          |  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
+          |  scalascript.cli.StandardMain "$@"
+          |""".stripMargin)
+      standardLauncher.setExecutable(true, false)
       log.info(s"bin/lib/ssc.jar  (${appJar.length / 1024} KB)")
       // compiler-driver JAR → lib/compiler/jars/
       val driverJar = (compilerDriver / Compile / packageBin).value
@@ -1315,6 +1360,29 @@ lazy val cli = project
       }
       runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       log.info(s"bin/lib/jars/           (${runtimeJars.size} JARs)")
+      // ScalaScript 2.1 standard tier: explicit native frontend/runtime/ASM
+      // allowlist. The v1 parser/interpreter, Scalameta, bridge, compiler,
+      // Scala-source and platform compiler backends stay only in the optional
+      // compatibility layout above.
+      val standardJarPrefixes = Set(
+        "scala-library-", "scala3-library_3-", "asm-",
+        "scalascript-v2-core_", "scalascript-v2-jvm-bytecode_",
+        "scalascript-v2-native-plugin-spi_", "scalascript-v2-native-host-plugin_",
+        "scalascript-v2-native-crypto-plugin_", "scalascript-v2-native-os-plugin_",
+        "scalascript-v2-native-fs-plugin_", "scalascript-v2-native-json-plugin_",
+        "scalascript-v2-native-http-plugin_", "scalascript-v2-native-sql-plugin_",
+        "scalascript-v2-native-ui-plugin_", "scalascript-v2-native-state-effect-plugin_",
+        "scalascript-backend-sql-runtime_", "scalascript-backend-config-runtime_",
+        "scalascript-backend-typed-data-runtime_", "scalascript-markup-core_",
+        "scalascript-yaml_", "scalascript-wire-core_",
+        "ujson_3-", "upickle-core_3-", "upack_3-", "geny_3-",
+        "HikariCP-", "h2-", "sqlite-jdbc-", "postgresql-", "checker-qual-",
+        "slf4j-api-", "slf4j-simple-"
+      )
+      val standardJars = runtimeJars.filter(j =>
+        standardJarPrefixes.exists(j.getName.startsWith))
+      standardJars.foreach(j => IO.copyFile(j, standardRuntimeDir / j.getName))
+      log.info(s"bin/lib/standard/jars/  (${standardJars.size} JARs)")
       // pdf-plugin pulls transitive third-party runtime deps (PDFBox, fontbox,
       // openhtmltopdf, commons-logging, …).  packagePlugin bundles into the
       // .sscpkg only the deps NOT already "provided" by a dependsOn project's
@@ -1372,6 +1440,8 @@ lazy val cli = project
         IO.copyFile(src, dest)
       }
       log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size} std modules)")
+      IO.copyDirectory(nativeFrontDir, standardDir / "native-front", overwrite = true)
+      log.info(s"bin/lib/standard/native-front/ (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size} std modules)")
 
       // Package and install standard-library plugins as .sscpkg archives.
       // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list

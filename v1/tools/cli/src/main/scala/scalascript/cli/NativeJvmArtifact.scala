@@ -67,6 +67,34 @@ private[cli] object NativeJvmArtifact:
     "postgresql-",
   )
 
+  def runCommand(args: List[String]): Unit =
+    var output: Option[String] = None
+    val files = mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext => output = Some(it.next())
+        case flag if flag.startsWith("-") =>
+          throw new IllegalArgumentException(s"build-jvm: unknown option: $flag")
+        case file => files += file
+
+    if files.isEmpty || output.isEmpty then
+      throw new IllegalArgumentException(
+        "usage: ssc build-jvm file.ssc [more.ssc ...] -o app.jar")
+
+    val compilation = RunNativeV2.compile(files.toList)
+    val installRoot = Option(System.getProperty("ssc.lib.path")).map(new File(_)).getOrElse {
+      throw new IllegalStateException("build-jvm requires a staged installation (ssc.lib.path is unset)")
+    }
+    val out = new File(output.get).getCanonicalFile
+    write(
+      compilation.program,
+      compilation.config,
+      compilation.sourceUnits,
+      new File(installRoot, "bin/lib/standard/jars"),
+      out)
+    println(s"JVM artifact written to ${out.getPath}")
+
   def write(
       program: _root_.ssc.Program,
       config: NativeRuntimeConfig,
@@ -233,33 +261,8 @@ final class BuildJvmCmd extends CliCommand:
   override def details = List("Usage: ssc build-jvm file.ssc [more.ssc ...] -o app.jar")
 
   def run(args: List[String]): Unit =
-    var output: Option[String] = None
-    val files = mutable.ArrayBuffer.empty[String]
-    val it = args.iterator
-    while it.hasNext do
-      it.next() match
-        case "-o" | "--output" if it.hasNext => output = Some(it.next())
-        case flag if flag.startsWith("-") =>
-          throw new IllegalArgumentException(s"build-jvm: unknown option: $flag")
-        case file => files += file
-
-    if files.isEmpty || output.isEmpty then
-      throw new IllegalArgumentException(
-        "usage: ssc build-jvm file.ssc [more.ssc ...] -o app.jar")
-
     try
-      val compilation = RunNativeV2.compile(files.toList)
-      val installRoot = Option(System.getProperty("ssc.lib.path")).map(new File(_)).getOrElse {
-        throw new IllegalStateException("build-jvm requires a staged installation (ssc.lib.path is unset)")
-      }
-      val out = new File(output.get).getCanonicalFile
-      NativeJvmArtifact.write(
-        compilation.program,
-        compilation.config,
-        compilation.sourceUnits,
-        new File(installRoot, "bin/lib/jars"),
-        out)
-      println(s"JVM artifact written to ${out.getPath}")
+      NativeJvmArtifact.runCommand(args)
     catch
       case e: Exception =>
         System.err.println(s"build-jvm: ${e.getMessage}")

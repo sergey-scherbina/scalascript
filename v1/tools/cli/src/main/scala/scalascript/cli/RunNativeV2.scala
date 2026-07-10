@@ -115,7 +115,9 @@ object RunNativeV2:
       throw new IllegalStateException(
         "native frontend requires a staged installation (ssc.lib.path is unset); run scripts/sbtc \"installBin\" and use bin/ssc")
     }
-    val base    = new java.io.File(installRoot, "bin/lib/native-front")
+    val standardBase = new java.io.File(installRoot, "bin/lib/standard/native-front")
+    val legacyBase = new java.io.File(installRoot, "bin/lib/native-front")
+    val base = if standardBase.isDirectory then standardBase else legacyBase
     val runner  = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
     val checker = new java.io.File(base, "tower/bin/ssc1-check-run.ssc0")
     val stdRoot = new java.io.File(base, "runtime")
