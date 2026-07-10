@@ -7,47 +7,40 @@ bundle-id: com.example.ios-hello
 min-os:
   ios: "17"
   macos: "14"
+main: run
 ---
 
 # iOS Hello
 
-A minimal counter app demonstrating the SwiftUI frontend target.
-Compile with: `ssc build --target mobile-ios ios-hello.ssc`
+A minimal counter app demonstrating the SwiftUI native backend, written
+against the real `std/ui` API (the one real `.ssc` clients — including busi's
+production app — actually use), not a hand-written/aspirational DSL.
 
-```ssc
-val count  = Signal(0)
-val name   = Signal("")
-val active = Signal(true)
+Compile with: `ssc build --target macos ios-hello.ssc` (or `--target ios`).
 
-def view() =
-  Column(spacing = 16, align = Start) {
-    Text("Hello from ScalaScript!")
-      .style(fontSize = 28, fontWeight = Bold)
-      .padding(top = 40)
+[vstack, hstack](std/ui/layout.ssc)
+[text](std/ui/typography.ssc)
+[signal, incSignal](std/ui/primitives.ssc)
+[showWhen, signalText_](std/ui/reactive.ssc)
+[actionButton](std/ui/input.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
 
-    Row(spacing = 12) {
-      Button("-") { count -= 1 }
-      Text(s"Count: $count")
-        .style(fontSize = 22)
-      Button("+") { count += 1 }
-    }
+```scalascript
+val count  = signal("count", 0)
+val active = signal("active", true)
 
-    TextInput(name, placeholder = "Your name")
-      .style(padding = 8)
+def view(): TkNode =
+  vstack()(
+    text("Hello from ScalaScript!"),
+    hstack()(
+      actionButton(incSignal(count), "+"),
+      text("Count:"),
+      signalText_(count)
+    ),
+    showWhen(active, text("Active"), text("Inactive"))
+  )
 
-    Show(name.nonEmpty) {
-      Text(s"Hello, $name!")
-        .style(foreground = Color.blue)
-    }
-
-    Divider()
-
-    Toggle(active, label = "Active")
-
-    Show(active) {
-      Text("Feature is active")
-        .style(foreground = Color.green)
-    }
-  }
-  .padding(16)
+def run(): Unit = serve(lower(view(), defaultTheme), 0)
 ```

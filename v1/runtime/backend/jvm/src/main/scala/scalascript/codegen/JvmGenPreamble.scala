@@ -624,6 +624,10 @@ private[codegen] trait JvmGenPreamble:
          |
          |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
          |def serve(tree: Any, port: Int, extraCss: String): Unit = _ssc_ui_serve(tree, port, extraCss)
+         |// text(String): beats extension (r: Response.type) def text(body: Any) — same
+         |// shadow-fix as the non-swiftui branch above; real std/ui-based programs (the
+         |// only ones reachable via --target macos|ios) call text(...) too.
+         |def text(content: String) = std.ui.typography.text(content)
          |
          |// Bring View extension methods (foreground, background, fontWeight, etc.) into scope
          |import scalascript.frontend.{foreground, background, fontWeight, fontSize, cornerRadius, opacity, padding}
@@ -780,19 +784,15 @@ private[codegen] trait JvmGenPreamble:
          |  scalascript.frontend.RowActionDef.RowLink(label,
          |    signal.asInstanceOf[scalascript.frontend.ReactiveSignal[String]], fieldPath)
          |
-         |def dataTableView(source: Any, columns: Any, actions: Any): scalascript.frontend.View[?] =
-         |  val _src = source match
-         |    case s: scalascript.frontend.TableDataSource => s
-         |    case s => scalascript.frontend.TableDataSource.Remote(s.asInstanceOf[scalascript.frontend.FetchUrlSignal])
-         |  scalascript.frontend.View.DataTable(_src,
-         |    columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]],
-         |    actions.asInstanceOf[List[scalascript.frontend.RowActionDef]])
-         |
+         |// dataTableView itself is NOT redeclared here (was a byte-for-byte duplicate of
+         |// JvmRuntimeUiPrimitives.scala's version, made ambiguous by the ui.primitives.{...}
+         |// hoist that's always active alongside this preamble — "Reference to dataTableView
+         |// is ambiguous"). dataTable below resolves it via the hoisted import instead.
          |def fcol(title: String, fieldPath: String, align: String = ""): Any = fieldColumn(title, fieldPath, align)
          |def rowDelete(url: String, idField: String, tick: Any, headers: Any = null): Any = rowDeleteAction(url, idField, tick, headers)
          |def rowPost(label: String, method: String, url: String, bodyField: String, tick: Any, headers: Any = null): Any = rowPostAction(label, method, url, bodyField, tick, headers)
          |def rowLink(label: String, signal: Any, fieldPath: String): Any = rowLinkAction(label, signal, fieldPath)
-         |def dataTable(signal: Any, columns: Any, actions: Any = List()): scalascript.frontend.View[?] = dataTableView(signal, columns, actions)
+         |def dataTable(signal: Any, columns: Any, actions: Any = List()): Any = std.ui.primitives.dataTableView(signal, columns, actions)
          |
          |// ── Widget children stack (for multi-statement DSL blocks) ─────────────────
          |private val _ssc_wstack = java.util.ArrayDeque[scala.collection.mutable.ArrayBuffer[scalascript.frontend.View[?]]]()

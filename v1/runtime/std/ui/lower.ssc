@@ -169,7 +169,7 @@ def lower(n: TkNode, theme: Theme): View = n match
     // capture the recursive function locally so the closure does not re-resolve
     // the module-global `lower` name from that other context.
     val lowerFn = lower
-    forKeyedView(items, key, (item: Any) => lowerFn(render(item), theme))
+    forKeyedView(items, key, (item) => lowerFn(render(item), theme))
 
   case RawTextNode(text) =>
     val fs = theme.typography.body.fontSize
@@ -512,7 +512,7 @@ def lower(n: TkNode, theme: Theme): View = n match
   // throws on a non-matching scrutinee) in lockstep with the interpreter.
   // See specs/js-backend-ui-render-gaps.md (Layer 2).
   case alreadyLowered =>
-    alreadyLowered
+    alreadyLowered.asInstanceOf[View]
 
 def mobileOverrideCss(breakpoint: Int, mobile: Theme): String =
   val bp  = breakpoint

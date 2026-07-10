@@ -341,8 +341,11 @@ object SwiftUIEmitter:
       case View.ShowSignal(cond, whenTrue, whenFalse) =>
         val truePart  = emitView(whenTrue, indent + 4, ctx)
         val falsePart = emitView(whenFalse, indent + 4, ctx)
-        val elseClause = if falsePart.trim.isEmpty then "" else s"\n${pad}} else {\n$falsePart"
-        s"${pad}if ${cond.id} {\n$truePart\n$pad}$elseClause"
+        // The closing brace belongs to whichever clause is last (truePart alone, or
+        // falsePart after "} else {") — appending it unconditionally AND again inside
+        // a non-empty elseClause emitted "}\n} else {", a Swift syntax error.
+        val tail = if falsePart.trim.isEmpty then s"\n${pad}}" else s"\n${pad}} else {\n$falsePart\n${pad}}"
+        s"${pad}if ${cond.id} {\n$truePart$tail"
 
       case View.For(items, render) =>
         items().map(item => emitView(render(item), indent, ctx)).mkString("\n")

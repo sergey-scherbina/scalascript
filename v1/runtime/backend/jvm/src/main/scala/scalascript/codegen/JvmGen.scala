@@ -908,7 +908,17 @@ class JvmGen(
     val hasPrimitivesObj = lines.exists(l => l.trim == "object primitives {" || l.contains("object primitives {"))
     if hasPrimitivesObj then
       importBuf.filterInPlace(!_.contains("ui.primitives.{"))
-      importBuf.prepend("  import ui.primitives.{Signal, View, EventHandler, signal, element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, incSignal, fetchActionClear, fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, dataTableView}")
+      // NOTE: "Signal" (capitalized) is deliberately NOT imported here — it is not a
+      // member of ui.primitives (JvmRuntimeUiPrimitives only exports lowercase `signal`).
+      // It's a SEPARATE, unrelated top-level `type Signal[A] = ReactiveSignal[A]` alias
+      // emitted only for the swiftui-native convenience DSL (JvmGenPreamble's frontendName
+      // == "swiftui" branch), already visible without import when present. Importing it
+      // from here previously threw "value Signal is not a member of ... ui.primitives".
+      // Full list of JvmRuntimeUiPrimitives.source's actual exports (kept in sync by hand;
+      // this had silently drifted — forKeyedView/seedSignal/emptyHeaders/fetchActionTo/
+      // fetchCaptureAction/rowEditAction were missing, so any real .ssc using dynamic
+      // forKeyed or those less-common primitives hit "Not found" on this import alone).
+      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, element, textNode, signalText, showSignal, fragment, forKeyedView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
 
     if importBuf.isEmpty && !hasPrimitivesObj then return src
 
