@@ -5,7 +5,7 @@ version: 2.1.0
 
 # Self-hosted JSON core
 
-[JsonCoreErr, jsonCoreParseStrict, jsonCoreParseTolerant, jsonCoreRender, jsonCoreRenderResult, jsonCoreKind](std/json-core.ssc)
+[JsonCoreErr, jsonCoreParseStrict, jsonCoreParseTolerant, jsonCoreValueOrNull, jsonCoreGet, jsonCoreAt, jsonCoreIsNull, jsonCoreAsDecimalText, jsonCoreAsBool, jsonCoreArraySize, jsonCoreRender, jsonCoreRenderResult, jsonCoreKind](std/json-core.ssc)
 
 ```scalascript
 val valid = List(
@@ -38,6 +38,17 @@ val invalid = List(
 
 for source <- invalid do
   println(jsonCoreRenderResult(jsonCoreParseStrict(source)))
+
+val navigable = jsonCoreValueOrNull(
+  jsonCoreParseStrict("{\"amount\":1234567890.0012300,\"ok\":true,\"steps\":[1,2]}")
+)
+println(jsonCoreAsDecimalText(jsonCoreGet(navigable, "amount")))
+println(jsonCoreAsBool(jsonCoreGet(navigable, "ok")))
+println(jsonCoreAsDecimalText(jsonCoreAt(jsonCoreGet(navigable, "steps"), 1)))
+println(jsonCoreArraySize(jsonCoreGet(navigable, "steps")))
+println(jsonCoreIsNull(jsonCoreGet(navigable, "missing")))
+println(jsonCoreIsNull(jsonCoreAt(jsonCoreGet(navigable, "steps"), 9)))
+println(jsonCoreIsNull(jsonCoreGet(jsonCoreAt(navigable, 0), "wrong-shape")))
 
 println(jsonCoreRender(jsonCoreParseTolerant("not-json")))
 println(jsonCoreKind(jsonCoreParseTolerant("[]")))

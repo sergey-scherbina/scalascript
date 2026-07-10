@@ -15,6 +15,13 @@ exports:
   - JsonCoreErr
   - jsonCoreParseStrict
   - jsonCoreParseTolerant
+  - jsonCoreValueOrNull
+  - jsonCoreGet
+  - jsonCoreAt
+  - jsonCoreIsNull
+  - jsonCoreAsDecimalText
+  - jsonCoreAsBool
+  - jsonCoreArraySize
   - jsonCoreRender
   - jsonCoreRenderResult
   - jsonCoreKind
@@ -329,6 +336,84 @@ def jsonCoreParseTolerant(source: String): Any =
   jsonCoreParseStrict(source) match {
     case JsonCoreOk(value, _) => value
     case _ => JsonCoreNull()
+  }
+
+def jsonCoreValueOrNull(result: Any): Any =
+  result match {
+    case JsonCoreOk(value, _) => value
+    case _ => JsonCoreNull()
+  }
+
+def jsonCoreCodeUnitsEqualString(codeUnits: List[Int], text: String, index: Int): Boolean =
+  codeUnits match {
+    case Nil => index == text.length
+    case Cons(unit, tail) =>
+      index < text.length &&
+        unit == text.charAt(index) &&
+        jsonCoreCodeUnitsEqualString(tail, text, index + 1)
+  }
+
+def jsonCoreFindField(fields: List[Any], key: String): Any =
+  fields match {
+    case Nil => JsonCoreNull()
+    case Cons(field, tail) =>
+      field match {
+        case JsonCoreField(codeUnits, value) =>
+          if jsonCoreCodeUnitsEqualString(codeUnits, key, 0) then value
+          else jsonCoreFindField(tail, key)
+        case _ => jsonCoreFindField(tail, key)
+      }
+  }
+
+def jsonCoreGet(value: Any, key: String): Any =
+  value match {
+    case JsonCoreObject(fields) => jsonCoreFindField(fields, key)
+    case _ => JsonCoreNull()
+  }
+
+def jsonCoreAtList(items: List[Any], index: Int): Any =
+  if index < 0 then JsonCoreNull()
+  else
+    items match {
+      case Nil => JsonCoreNull()
+      case Cons(item, tail) =>
+        if index == 0 then item else jsonCoreAtList(tail, index - 1)
+    }
+
+def jsonCoreAt(value: Any, index: Int): Any =
+  value match {
+    case JsonCoreArray(items) => jsonCoreAtList(items, index)
+    case _ => JsonCoreNull()
+  }
+
+def jsonCoreIsNull(value: Any): Boolean =
+  value match {
+    case JsonCoreNull() => true
+    case _ => false
+  }
+
+def jsonCoreAsDecimalText(value: Any): String =
+  value match {
+    case JsonCoreNumber(raw) => raw
+    case _ => "0"
+  }
+
+def jsonCoreAsBool(value: Any): Boolean =
+  value match {
+    case JsonCoreBool(boolean) => boolean
+    case _ => false
+  }
+
+def jsonCoreListSize(items: List[Any], size: Int): Int =
+  items match {
+    case Nil => size
+    case Cons(_, tail) => jsonCoreListSize(tail, size + 1)
+  }
+
+def jsonCoreArraySize(value: Any): Int =
+  value match {
+    case JsonCoreArray(items) => jsonCoreListSize(items, 0)
+    case _ => 0
   }
 
 val jsonCoreHexAlphabet = "0123456789ABCDEF"

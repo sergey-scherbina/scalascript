@@ -17,5 +17,12 @@ ERR@3:expected value after comma
 ERR@7:expected field after comma
 ERR@5:expected colon after object key
 ERR@5:trailing input
+1234567890.0012300
+true
+2
+2
+true
+true
+true
 null
 array
