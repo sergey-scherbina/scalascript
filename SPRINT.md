@@ -51,6 +51,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       `--strict-parsers` rejects it for the future cutover, and a closed TI-7
       `standard/jars` layout rejects every unclassified extra. Synthetic
       constant-pool reject, e2e gate, and `v2-*` conformance 8/8 pass.
+- [ ] **v21-shc-gate-ti7-reconcile** — TI-7 has now landed its physical
+      `bin/lib/standard/jars` layout with 32 JARs, exposing 15 closed-layout
+      entries that predate the classifier's migration snapshot. Classify every
+      entry under the five normative ownership layers (including reflective
+      plugin dependencies that `jdeps` cannot discover), keep unknown JARs a
+      hard failure, and prove strict-parser mode still isolates only the JSON
+      migration dependency. Done when the assembled closed-layout smoke and
+      synthetic forbidden-reference self-test pass without weakening the gate.
 - [ ] **v21-shc-json-core** — implement the canonical strict/tolerant JSON
       scanner, target-independent ADT, total navigation, exact-decimal handling,
       and deterministic compact encoder in `.ssc` without `extern def` or host
