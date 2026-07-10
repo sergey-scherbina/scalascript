@@ -291,11 +291,14 @@ an unresolved dotted runtime-effect `Op` as a nonzero runtime failure. They are
 diagnostics, not printable successful program values.
 
 The native route also has its own core-free ServiceLoader plugin boundary. The
-process globals (`args`, `cwd`, `sep`, `platform`) and the first migrated crypto
-intrinsics (`sha256`, SHA/base64/HMAC/PBKDF2/random helpers) no longer load the
-v1 `PluginBridge`, interpreter values, or Scalameta classes. Other plugin
-families are still being migrated; a missing native provider fails explicitly.
-Use `--compat-frontend` for a tools-tier plugin that has not moved yet.
+process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (`sha256`,
+SHA/base64/HMAC/PBKDF2/random helpers), and the JVM implementations of
+`std.fs`/`std.os` no longer load the v1 `PluginBridge`, interpreter values, or
+Scalameta classes. File reads/writes, byte I/O, directory operations,
+environment lookup, path operations, and temporary paths work on both the v2 VM
+and direct-ASM native routes. Other plugin families are still being migrated; a
+missing native provider fails explicitly. Use `--compat-frontend` for a
+tools-tier plugin that has not moved yet.
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
