@@ -14,13 +14,24 @@ The native VM and direct ASM outputs are byte-identical, focused conformance is
 green, and the standard dependency gate reports no pure-core violation. Landed
 `7a06d4a55`; the structural frontend cutover remains the next slice.
 
+## 2026-07-10 — native frontend preserves raw triple-quoted strings
+
+The self-hosted lexer now emits `"""..."""` as one raw multiline string token,
+preserving newlines, quotes, and backslashes; ordinary strings and `s`-prefixed
+interpolation retain their existing paths. A real fixture is byte-identical on
+native VM/direct ASM, and `graph-rdf4j-http-storage.ssc` is now
+sentinel-clear/checker/runtime OK. Seven corpus rows lose sentinels: 85 remain,
+the checker is 194/0, and taxonomy shrinks to 12 standard, 31 server, 36 backend,
+5 tools/backend, and 1 nondeterministic. Native-entry, taxonomy, parity, and
+fresh 9/9 affected conformance pass. Landed `7a1802261`.
+
 ## 2026-07-10 — compiler-backed x402 client is explicit tools-tier input
 
 `x402-client.ssc` no longer inflates the standard parser queue: its regular
 `scalascript` fence imports `scala.concurrent`, sttp, and compiler-backed URI
 interpolation, all forbidden on the compiler-free standard path. A reviewed,
 sentinel-bound override classifies it as tools/backend and will fail stale after
-a future portable rewrite. The taxonomy is now 13 standard gaps, 35 server, 38
+a future portable rewrite. At that slice the taxonomy was 13 standard gaps, 35 server, 38
 backend, 5 tools/backend, and 1 nondeterministic row. Landed `230645b3a`.
 
 ## 2026-07-10 — native decimal literals accept separators before `L`
@@ -36,15 +47,15 @@ taxonomy smoke, parity, and affected conformance gates pass. Landed
 
 ## 2026-07-10 — every native parser sentinel has a release category
 
-The release join now classifies all 92 `_err` rows from the native-front and
-standard parity reports: 13 standard deterministic parser gaps, 35
-server/integration documents, 38 backend-specific documents, 5 explicit
+The release join now classifies all 85 `_err` rows from the native-front and
+standard parity reports: 12 standard deterministic parser gaps, 31
+server/integration documents, 36 backend-specific documents, 5 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
 entrypoints before execution; backend-only fenced documents are source-classified
 without overrides. VM/ASM parity is 10 identical, 60 honest both-fail, 125
-skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `4bcf6a976`).
+skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `7a1802261`).
 
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 

@@ -640,9 +640,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             explicit tools-tier categories and source-located failures.
             Current baseline 2026-07-10 after TI-8.2b and native K62.14/K62.15:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 92
-            sentinel-bearing outputs, 191 checker successes, 3 type errors,
-            24 runtime successes, and 78 runtime errors (170 strict-fail rows).
+            frontend host errors/timeouts, 1 non-code document, 85
+            sentinel-bearing outputs, 194 checker successes, 0 type errors,
+            26 runtime successes, and 83 runtime errors (168 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -680,38 +680,38 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 92 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 85 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `4bcf6a976`):** join the native-front
+                        (`aa9b30f28`, refined through `7a1802261`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 92 rows classify as 13 standard-gap / 35
-                        server / 38 backend / 5 tools-backend / 1 nondeterministic;
+                        Result: all 85 rows classify as 12 standard-gap / 31
+                        server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
                         without overrides. Parity is 10 identical / 60 both-fail /
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        13 remaining deterministic rows by actual `_err` source
+                        12 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
                         Measured groups (overlap is intentional): extension and
                         symbolic extension methods affect 8 documents; match
-                        guards affect 3; triple-quoted strings,
-                        generic/type-pattern residue, and the multiline
+                        guards affect 3; generic/type-pattern residue and the multiline
                         tuple-lambda closing boundary in `std/money.allocate`
                         affect one each. (`throw` is not the money sentinel.)
-                        Decimal separators/`L` are closed; `x402-client.ssc` has
-                        moved to tools/backend under the platform-type prohibition.
+                        Decimal separators/`L` and triple-quoted strings are
+                        closed; `x402-client.ssc` has moved to tools/backend
+                        under the platform-type prohibition.
                         - [x] **TI-8.2c2a numeric separators — DONE 2026-07-10
                               (`4bcf6a976`):** lex decimal
                               separators before the existing `L`/`l` suffix,
@@ -736,13 +736,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Taxonomy is now 13 standard-gap / 35 server / 38
                               backend / 5 tools-backend / 1 nondeterministic;
                               smoke and affected conformance 8/8 pass.
-                        - [ ] **TI-8.2c2c triple-quoted strings:** lex a
+                        - [x] **TI-8.2c2c triple-quoted strings — DONE 2026-07-10
+                              (`7a1802261`):** lex a
                               `"""..."""` body as one raw string token with
                               embedded newlines and quotes, retain ordinary
                               string/interpolation behavior, and prove identical
                               native VM/direct-ASM output. Rerun
                               `graph-rdf4j-http-storage.ssc` and the full
-                              sentinel/parity taxonomy.
+                              sentinel/parity taxonomy. Result: the focused
+                              fixture is byte-identical and the RDF4J document is
+                              sentinel-clear/checker/runtime OK. Seven corpus
+                              rows lose sentinels: native is 194/0/0/1 with 85
+                              sentinels, checker 194/0, taxonomy 12/31/36/5/1;
+                              parity remains 10/60/125 with no mismatch or
+                              one-sided error. Native-entry passes and fresh
+                              affected conformance is 9/9.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
