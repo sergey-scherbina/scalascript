@@ -1199,6 +1199,15 @@ class Typer(
       )
 
   private def isCompatible(actual: SType, expected: SType): Boolean =
+    // Expand user type aliases (`type Env = Map[String, Int]`) on both sides before the
+    // structural comparison, so `Env` and `Map[String, Int]` are seen as the same type.
+    def unalias(t: SType): SType = t match
+      case SType.Named(n, Nil) => typeAliases.get(n) match
+        case Some((Nil, rhs)) => rhs
+        case _                => t
+      case _ => t
+    val ua = unalias(actual); val ue = unalias(expected)
+    if ua != actual || ue != expected then return isCompatible(ua, ue)
     // Opaque-type sealing: if the expected type is an opaque type and the
     // actual type is the underlying primitive, they are NOT compatible outside
     // the defining scope.  We require the user to go through the companion
@@ -1250,7 +1259,21 @@ class Typer(
     // assignable to `expected` (conservative; handles `Union <: Union`).
     (actual match
       case SType.Union(alts) => alts.forall(isCompatible(_, expected))
-      case _                 => false)
+      case _                 => false) ||
+    // Function compatibility (contravariant params, covariant return), lenient on
+    // `Any`: a fully-dynamic `Any => Any` — the type inferred for lambdas the checker
+    // can't pin down (e.g. typed-effect handler bodies) — is assignable to any
+    // same-arity function type.
+    ((actual, expected) match
+      case (SType.Function(ap, ar, _), SType.Function(ep, er, _)) if ap.length == ep.length =>
+        ap.zip(ep).forall((a, e) => a == SType.Any || e == SType.Any || isCompatible(e, a)) &&
+          (ar == SType.Any || er == SType.Any || isCompatible(ar, er))
+      case _ => false) ||
+    // Quote lifting: a value of type `T` is assignable where `Expr[T]` is expected
+    // (quoted-macro `${ }` / `'{ }` context — the checker does not model splices).
+    (expected match
+      case SType.Named("Expr", List(inner)) => actual == inner || isCompatible(actual, inner)
+      case _                                => false)
 
   private def isNullable(t: SType): Boolean = t match
     case SType.Named(_, _) => true
