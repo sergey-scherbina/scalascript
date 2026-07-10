@@ -1,6 +1,0 @@
-feature/v2-native-enum feature/v2-native-enum 2026-07-10T18:59:06Z
-agent: claude-code (opus)
-heartbeat: 2026-07-10T18:59:06Z
-status: in-progress
-done-so-far: Measured native-frontend corpus coverage (192/195 stage1 parse+lower; the gap is stage2 execution). Real frontend blockers isolated: _err fallback (13 files: annotations/derives), enum case (4 files), dsl no-arm (1). Parser-axis stage1 essentially closed.
-next: REAL enum support in ssc1-front + ssc1-lower. Front: parse enum E: / enum E{} layout, cases (nullary + parametrized multi-field) → decl. Lower: register each case as ctor (nullary bare-ref → ctorap Nil; parametrized → casecls field order), subtypesOf for type-tests. Fixes enums.ssc + data-types.ssc; unblocks the =>/match layout openers (North was unbound). Touches v2/lib/ssc1-front.ssc0, v2/lib/ssc1-lower.ssc0. Verify: ssc1-run enums.ssc | run-ir → Direction/Shape/Tree output; corpus no-regress.
