@@ -1316,9 +1316,12 @@ identical pass/FAIL set (diff old-vs-new output before landing).
       infra = bounded bg pool + barrier; landed for the stateless `chk`/`chk_hm` VM lane
       (188 tests) → parallel fast-mode 210s→111s (~2×), IDENTICAL 406/0 set. Sequential
       default byte-identical. Fix/expand the other lanes gradually:
-  - [ ] K63.4a — parallelize the inline rustc lane (240 compiles, the slowest) — convert
-        the `if have_rust; then rustc…; assert; fi` blocks to the pool (unique temp per job).
-  - [ ] K63.4b — parallelize the inline node lane (177).
+  - [x] K63.4a+b — parallelize the inline rustc (62) + node (62) blocks: wrap each
+        `if have_X; then <body> fi` with a sequential/parallel split; the parallel branch
+        runs `<body>` in a bg subshell with an ISOLATED `TMPDIR=$_PAR_DIR/<n>` (no temp
+        collisions) + captured output. Structural blocks (fn-defs / else-branch) skipped.
+        Validated CONF_JOBS=6 → 640/0. NOTE: backend jobs are HEAVY (JVM emit + rustc);
+        keep CONF_JOBS ≈ cores/2 to avoid oversubscription (CONF_JOBS=14 thrashed).
   - [ ] K63.4c — ordered output in parallel mode (currently chk results emit at the barrier,
         after the inline/header lines — sort/interleave by call index).
 - [x] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
