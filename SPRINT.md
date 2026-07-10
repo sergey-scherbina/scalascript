@@ -110,6 +110,11 @@ there before changing this plan.
       generator tests plus `swift run` execution gates for CoreIR fact/TCO/map
       and real `money-multisection` / `effect-transitive-handler`-class cases;
       string assertions alone are not acceptance.
+      Progress 2026-07-10 (`68d0b6610`): deterministic AppCore SwiftPM package,
+      complete structural Term evaluator/trampoline, generation-time negative
+      diagnostics, and real Swift fact/TCO/map gates landed (3/3). Remaining in
+      this item: arbitrary BigInt, Decimal/Money, Pure/Op, mutual-TCO, and
+      checked `.ssc` domain execution.
 - [ ] **v2-swift-cli-package** — add Rust-shaped developer commands
       (`emit-swift`, `run-swift`) and route `build/run --target
       macos|desktop-macos|ios|mobile-ios` to v2 by default. `--v1` is the only
