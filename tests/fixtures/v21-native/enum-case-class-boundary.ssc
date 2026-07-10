@@ -1,0 +1,14 @@
+---
+name: v21-native-enum-case-class-boundary
+---
+
+```scalascript
+enum Color:
+  case Red
+  case Blue
+
+case class Box[A](value: A)
+
+println(Red)
+println(Box(7))
+```

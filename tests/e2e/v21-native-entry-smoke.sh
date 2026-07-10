@@ -61,6 +61,8 @@ interpolation_expected=$'Squares: 1, 4, 9, 16, 25\nWrapped: 1-4-9-16-25!'
 [[ $(run_native "$FIXTURES/numeric-separator.ssc") == '10000' ]]
 triple_string_expected=$'first line\n"quoted" line\nlast line'
 [[ $(run_native "$FIXTURES/triple-quoted-string.ssc") == "$triple_string_expected" ]]
+enum_boundary_expected=$'Red\nBox(7)'
+[[ $(run_native "$FIXTURES/enum-case-class-boundary.ssc") == "$enum_boundary_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -72,6 +74,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/nested-tuple-pattern.ssc") == $'left\nleft+right' ]]
 [[ $(run_native --bytecode "$FIXTURES/numeric-separator.ssc") == '10000' ]]
 [[ $(run_native --bytecode "$FIXTURES/triple-quoted-string.ssc") == "$triple_string_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/enum-case-class-boundary.ssc") == "$enum_boundary_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

@@ -1618,10 +1618,14 @@ def parseOneStmt = (toks) =>
           let tsA = skipSemis(ts) in
           if kwIs("case", tsA) then
             let tsB = advance(tsA) in
-            let cname = tokVal(peek(tsB)) in
-            let tsC = advance(tsB) in
-            let rp = if kindIs("(", tsC) then parseParamList(tsC) else pr(Nil, tsC) in
-            goCases(prT(rp), Cons(Pair(cname, prV(rp)), acc))
+            -- A following top-level `case class` is a new declaration, not an
+            -- enum case named `class` (layout newlines are otherwise erased).
+            if kwIs("class", tsB) then pr(reverse(acc), tsA)
+            else
+              let cname = tokVal(peek(tsB)) in
+              let tsC = advance(tsB) in
+              let rp = if kindIs("(", tsC) then parseParamList(tsC) else pr(Nil, tsC) in
+              goCases(prT(rp), Cons(Pair(cname, prV(rp)), acc))
           else pr(reverse(acc), tsA) in
         let rc = goCases(ts5, Nil) in
         let ts6 = if brace then skipRestBrace(prT(rc)) else prT(rc) in
