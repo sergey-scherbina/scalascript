@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 production readiness bounded audit green
+
+After the layout/YAML fixes, a bounded v2 production audit found no new
+actionable blocker. Gates passed: `installBin`, focused `v2-*,indent-*`
+conformance 8/8, full `v2/conformance/check.sh`, four v2 e2e smoke scripts
+(`dsl-yaml-like`, `indent-layout`, `route-params`, `req-type-collision`), and a
+representative source-backend subset (`fact`, `bool`, `mutual-recursion`, `tco`
+including `mutual-tco`, and `letrec`) across JVM/JS/Rust.
+
 ## 2026-07-10 — v2 indent layout demos active in conformance
 
 The two indentation parser demos now run on an opt-in V2 conformance lane
