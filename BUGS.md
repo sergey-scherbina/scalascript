@@ -1,5 +1,30 @@
 # Bug tracker
 
+## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
+
+**Status:** open (2026-07-10); reproduced in busi's generated canonical owner
+SPA using the assembled ScalaScript emitter and a real browser.
+
+- **Found by:** codex while running busi Gate 1 canonical `/app` offline QA.
+- **Real-harness repro:** emit and serve busi `src/v2/clients/ssc/app.ssc`, load
+  paired `/app` online, stop the local hub, then reload from the installed PWA
+  cache. The shell and local facts remain usable, but each mounted
+  `fetchUrlSignal` logs an app-origin `TypeError: Failed to fetch`; hidden
+  routes are mounted too, so one outage produces repeated console errors.
+- **Generated root cause:** `_mountFetchGet` emits
+  `fetch(...).then(responseText).then(setSignal)` without a rejection handler.
+  A network failure therefore escapes as an unhandled promise rejection even
+  though absence of the optional hub is a normal offline state.
+- **Expected:** a rejected managed GET keeps its last-good signal value, emits
+  no unhandled rejection, and remains eligible for the next tick-driven fetch.
+  HTTP response semantics are unchanged.
+- **Fix direction:** change the owning custom-SPA runtime generator, not emitted
+  busi HTML; add a faithful generated-runtime test with a rejected `fetch` and
+  a subsequent successful refresh.
+- **Done-when:** focused frontend tests, assembled custom-SPA emission, and
+  affected conformance are green; busi rebuild confirms a clean app-origin
+  offline console.
+
 ## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
 
 **Status:** fixed (2026-07-10, `e4f16baaf`); waiting for human confirmation
