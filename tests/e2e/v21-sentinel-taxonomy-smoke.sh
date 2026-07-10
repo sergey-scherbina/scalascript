@@ -17,8 +17,8 @@ cat >"$tmp/parity.tsv" <<'EOF'
 file	category	vm_rc	bytecode_rc	detail
 backend.ssc	skipped-backend	-	-	target
 server.ssc	skipped-server	-	-	server
-tool.ssc	both-fail	1	1	sentinel
-standard.ssc	both-fail	1	1	sentinel
+tool.ssc	identical	0	0	unobserved sentinel
+standard.ssc	identical	0	0	unobserved sentinel
 clear.ssc	identical	0	0	
 EOF
 cat >"$tmp/overrides.tsv" <<'EOF'
@@ -41,7 +41,8 @@ EOF
   --report "$tmp/report.tsv" >"$tmp/summary"
 grep -F $'backend\t1' "$tmp/summary" >/dev/null
 grep -F $'tools-backend\t1' "$tmp/summary" >/dev/null
-grep -F $'standard.ssc\tstandard-gap\tboth-fail' "$tmp/report.tsv" >/dev/null
+grep -F $'tool.ssc\ttools-backend\tidentical' "$tmp/report.tsv" >/dev/null
+grep -F $'standard.ssc\tstandard-gap\tidentical' "$tmp/report.tsv" >/dev/null
 
 # The parity classifier must recognize non-parenthesized and named server
 # entrypoints before trying either backend, plus explicit external-I/O rows.
