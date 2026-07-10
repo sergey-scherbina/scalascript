@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T10:35:27Z
+heartbeat: 2026-07-10T10:42:34Z
 status: in-progress
-done-so-far: claim published; isolated worktree created from origin/main
-next: write and commit the toolchain-independence spec plus resume-cold SPRINT slices
+done-so-far: plan published to origin/main at 097da04f4; v2 conformance baseline is 8/8 green
+next: write, verify, and publish the normative v2.1 toolchain-independence spec
