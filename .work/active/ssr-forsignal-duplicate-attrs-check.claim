@@ -1,6 +1,0 @@
-feature/ssr-forsignal-duplicate-attrs-check 2026-07-10T01:36:53Z
-agent: codex
-heartbeat: 2026-07-10T01:42:23Z
-status: in-progress
-done-so-far: resumed after context compaction; regression test added in worktree, no source fix needed because bb5342f08 already removed the duplicate writeAttrs path
-next: run focused frontendToolkit SsrTest; record BUGS/SPRINT/CHANGELOG; diff-check; commit and push
