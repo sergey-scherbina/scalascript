@@ -81,6 +81,26 @@ def scanEnd = (pred, s, i) =>
   if #i.ge(i, slen(s)) then i
   else if pred(sget(s, i)) then scanEnd(pred, s, #i.add(i, 1))
   else i
+
+-- Decimal separators are part of a numeric token only between digits. Starting
+-- at a digit, consume digits plus `_` followed by a digit; invalid/trailing
+-- underscores stay outside the token and are rejected by ordinary parsing.
+def scanDecEnd = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if isDigit(c) then scanDecEnd(s, #i.add(i, 1))
+    else if #i.eq(c, 95) then
+      let next = nget(s, #i.add(i, 1)) in
+      if isDigit(next) then scanDecEnd(s, #i.add(i, 1)) else i
+    else i
+
+def stripNumericSeparators = (s) =>
+  let rec go = (i, acc) =>
+    if #i.ge(i, slen(s)) then acc
+    else let c = sget(s, i) in
+      if #i.eq(c, 95) then go(#i.add(i, 1), acc)
+      else go(#i.add(i, 1), scat(acc, #sfromCodes(Cons(c, Nil)))) in
+  go(0, "")
 -- Skip a quoted string nested inside a `${...}` expression. `i` is the first
 -- character after its opening quote and the result is just after the closing
 -- quote (or EOF). This keeps inner delimiters from terminating the outer
@@ -216,7 +236,7 @@ def lexFrom = (s, i) =>
          case Pair(hv, hend) => Cons(mkTok("int", #i->str(hv)), lexFrom(s, hend))
        })
     else if isDigit(c) then
-      let e = scanEnd(isDigit, s, #i.add(i2, 1)) in
+      let e = scanDecEnd(s, i2) in
       -- float: digit '.' digit (e.g. 3.14159, 0.5, 1.0)
       let nextIsDot = if #i.lt(e, slen(s)) then #i.eq(sget(s, e), 46) else false in
       let nextDotIsFloat = if nextIsDot then
@@ -224,8 +244,8 @@ def lexFrom = (s, i) =>
         else false
       else false in
       if nextDotIsFloat then
-        let e2 = scanEnd(isDigit, s, #i.add(e, 2)) in
-        Cons(mkTok("float", #sslice(s, i2, e2)), lexFrom(s, e2))
+        let e2 = scanDecEnd(s, #i.add(e, 1)) in
+        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, e2))), lexFrom(s, e2))
       else
       -- strip Long suffix L/l (e.g. 0L, 2862933555777941757L)
       let eL = if #i.lt(e, slen(s)) then
@@ -234,7 +254,7 @@ def lexFrom = (s, i) =>
         else if #i.eq(lc, 108) then #i.add(e, 1)
         else e
       else e in
-      Cons(mkTok("int", #sslice(s, i2, e)), lexFrom(s, eL))
+      Cons(mkTok("int", stripNumericSeparators(#sslice(s, i2, e))), lexFrom(s, eL))
     else if #i.eq(c, 34) then
       let e = scanStr(s, #i.add(i2, 1)) in
       Cons(mkTok("str", buildStr(s, #i.add(i2, 1), e, "")), lexFrom(s, #i.add(e, 1)))

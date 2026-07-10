@@ -1,0 +1,7 @@
+---
+name: v21-native-numeric-separator
+---
+
+```scalascript
+println(100_00L)
+```
