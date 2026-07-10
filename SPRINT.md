@@ -27,6 +27,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       conformance and an emitted-SPA/jsdom smoke pass, docs/backlog are
       updated, and `git diff --check` is clean.
 
+- [ ] **ssr-forsignal-duplicate-attrs-check** - verify and, if confirmed,
+      fix the SSR fallback path for `View.ForSignal` without broad renderer
+      churn. While implementing `tkv2-raw-html`, `frontend/toolkit/.../Ssr.scala`
+      showed two consecutive `writeAttrs(sb, attrs)` calls in the
+      `View.ForSignal(..., itemTemplate = None)` branch. This likely emits
+      duplicate attributes for each repeated fallback element. Done when a
+      focused test or conformance case proves the current behavior, the fix
+      removes the duplicate serialization if needed, and `git diff --check`
+      plus the affected SSR/toolkit gate pass.
+
 - [x] **tkv2-spa-i18n-parity** - DONE 2026-07-10 in `7e5d55e4f`:
       fixed the custom emitted-SPA i18n crash where a collision-renamed import
       `serve__ssc` was imported correctly but `JsGen.dispatchIntrinsicJs` still
