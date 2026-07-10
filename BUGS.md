@@ -98,25 +98,35 @@ before `done`.
 
 ## v2-indent-conformance-demos-skipped — indent demo cases are skipped by conformance but fail directly
 
-**Status:** open (found 2026-07-10 by codex while fixing
-`v2-dsl-yaml-tuple-accessor`).
+**Status:** fixed (2026-07-10, demo fix `886502d64`, conformance lane
+`bcffa0019`); waiting for human confirmation before `done`.
 
-- **Repro:** after `scripts/sbtc "installBin"`, direct runs still fail:
-  `bin/ssc run tests/conformance/indent-config-format.ssc` fails with
+- **Found by:** codex while fixing `v2-dsl-yaml-tuple-accessor`.
+- **Repro before fix:** after `scripts/sbtc "installBin"`, direct v2 runs
+  failed: `bin/ssc run tests/conformance/indent-config-format.ssc` crashed with
   `__method__: no dispatch for ._1 on "host"`, and
-  `bin/ssc run tests/conformance/indent-block-statements.ssc` fails with
-  `__method__: no dispatch for ._1 on "x"`.
-- **Harness gap:** `tests/conformance/run.sh --only
-  'indent-config-format,indent-block-statements' --no-memo` reports both cases
-  as SKIP because they have no expected-output files, so the current affected
-  conformance gate does not catch the direct failure.
-- **Expected:** either make the demo expressions valid and add expected outputs
-  so conformance exercises them, or move/delete them if they are not meant to be
-  active tests.
-- **Notes:** likely separate from the YAML layout runtime fix; the first suspect
-  is expression shape around `~`/tuple destructuring in the demos. Queue as a
-  focused follow-up rather than expanding the already-green
-  `dsl-yaml-like` fix.
+  `bin/ssc run tests/conformance/indent-block-statements.ssc` crashed with
+  `__method__: no dispatch for ._1 on "x"`. The conformance harness also
+  reported both cases as `SKIP (no expected/*.txt)`, so it did not catch the
+  direct production v2 failures.
+- **Root cause:** the demo parsers relied on infix precedence in expressions
+  like `identifier <~ ... ~ value`; v2 grouped the `~` under the `<~`, so the
+  mapper received the left scalar (`"host"`/`"x"`) instead of a Tuple2. The
+  config demo also used a nullable blank-line regex that could match the empty
+  string before consuming separators, leaving the second section in `rest`.
+  Finally, `tests/conformance/run.sc` had only INT/JS/JVM lanes, so there was no
+  honest way to activate v2-only expected-output cases.
+- **Fix:** parenthesized the parser sequences so maps receive the intended
+  Tuple2 shapes, changed config blank-line skipping to a non-nullable
+  `blankLine.many()`, added a `while`/`for` sample to cover nested tuple shape,
+  added expected outputs, and taught the conformance runner an opt-in `V2` lane
+  for files declaring `backends: [v2]`.
+- **Verified:** direct `bin/ssc run --v2` for both files; `bash -n
+  tests/e2e/indent-layout-v2-smoke.sh &&
+  tests/e2e/indent-layout-v2-smoke.sh`; `tests/conformance/run.sh --only
+  'indent-config-format,indent-block-statements' --no-memo` now reports 2/2
+  with `PASS [V2 ]`; `tests/conformance/run.sh --only 'parsing-*' --no-memo`
+  passes 3/3; `git diff --check` passes.
 
 ## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
 

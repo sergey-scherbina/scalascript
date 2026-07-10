@@ -9,23 +9,21 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-indent-conformance-demos-skipped** - REPRO/FIX 2026-07-10:
-      direct `bin/ssc run` still fails for
-      `tests/conformance/indent-config-format.ssc` (`__method__: no dispatch
-      for ._1 on "host"`) and
-      `tests/conformance/indent-block-statements.ssc` (`__method__: no dispatch
-      for ._1 on "x"`), but
+- [x] **v2-indent-conformance-demos-skipped** - DONE 2026-07-10 in
+      `886502d64` / `bcffa0019`: fixed the two indent layout demo cases that
+      still crashed under direct v2 runs while the conformance harness skipped
+      them. The demo parsers now parenthesize `~` sequences before mapping tuple
+      fields, config blank-line skipping uses non-nullable `blankLine.many()`,
+      and block-statements covers `if`, `while`, and `for`. The conformance
+      runner now has an opt-in `V2` lane for files declaring `backends: [v2]`,
+      with expected outputs for both indent cases. Gates:
+      `scripts/sbtc "installBin"`, direct `bin/ssc run --v2` for both files,
+      `bash -n tests/e2e/indent-layout-v2-smoke.sh &&
+      tests/e2e/indent-layout-v2-smoke.sh`,
       `tests/conformance/run.sh --only
-      'indent-config-format,indent-block-statements' --no-memo` skips both
-      because there are no expected-output files. Plan: stage the CLI with
-      `scripts/sbtc "installBin"`, reproduce both direct failures, decide
-      whether the demo expressions need parser/layout fixes or just explicit
-      parentheses/grammar cleanup, then add expected outputs so the harness
-      stops silently skipping them. Gates: focused direct runs, the newly active
-      indent conformance slice, affected parser/layout conformance, and
-      `git diff --check`. Keep separate from `v2-dsl-yaml-tuple-accessor`: the
-      YAML example is green, and this follow-up is about skipped conformance
-      coverage plus the remaining direct demo failures.
+      'indent-config-format,indent-block-statements' --no-memo` 2/2
+      (`PASS [V2 ]`), `tests/conformance/run.sh --only 'parsing-*' --no-memo`
+      3/3, and `git diff --check`.
 
 - [x] **v2-dsl-yaml-tuple-accessor** - DONE 2026-07-10 in `4def0c749`:
       fixed the long-standing v2 crash in `examples/dsl-yaml-like.ssc` where

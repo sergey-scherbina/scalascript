@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 indent layout demos active in conformance
+
+The two indentation parser demos now run on an opt-in V2 conformance lane
+instead of being skipped without expected output. Their parser expressions
+explicitly group `~` sequences before tuple-field mapping, config blank-line
+skipping no longer relies on a nullable regex, and `indent-block-statements`
+also covers `while` and `for`. Gates: `installBin`, direct v2 runs, new
+`indent-layout-v2-smoke`, indent conformance 2/2 with `PASS [V2 ]`, parser
+conformance 3/3, and `git diff --check`.
+
 ## 2026-07-10 — v2 layout indentation parsing restored for YAML-style DSLs
 
 `std/parsing/layout.ssc` now preserves explicit `withIndent(n)` on v2, consumes
