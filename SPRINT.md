@@ -9,17 +9,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## Bug confirmation closeouts (2026-07-10)
-
-- [ ] **ui-fetch-get-offline-confirmation** — record busi's reporter-side
-      confirmation for `a0d45ad44`: the rebuilt canonical owner SPA was loaded
-      online in an existing installed profile, the hub was stopped, and the
-      cached `/app` reloaded with last-good/local facts and zero app-origin
-      `Failed to fetch` console entries. Move the `BUGS.md` status from fixed to
-      done, cite the busi release evidence, then remove this transient sprint
-      item in the final bookkeeping commit. Documentation only; no runtime or
-      generated artifact changes.
-
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 
 Goal: make the standard JVM production path `.ssc -> native frontend -> CoreIR
