@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — Frontmatter YAML core is self-hosted
+
+`runtime/std/yaml-core.ssc` now parses the bounded Frontmatter YAML Profile in
+pure ScalaScript: ordered block/flow mappings and sequences, manifest/database
+nesting, scalar and block-string forms, comments, exact numeric text, and stable
+source-located rejection of duplicate keys and unsupported YAML graph features.
+The native VM and direct ASM outputs are byte-identical, focused conformance is
+green, and the standard dependency gate reports no pure-core violation. Landed
+`7a06d4a55`; the structural frontend cutover remains the next slice.
+
 ## 2026-07-10 — compiler-backed x402 client is explicit tools-tier input
 
 `x402-client.ssc` no longer inflates the standard parser queue: its regular

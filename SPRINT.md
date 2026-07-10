@@ -323,11 +323,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       bridge has no external codec dependency. VM/ASM, provider, slim,
       deterministic `build-jvm`, JSON 3/3, and v2 8/8 gates pass; a slim copy
       with ujson/upickle/upack/geny physically deleted still runs JSON and HTTP.
-- [ ] **v21-shc-frontmatter-yaml-core** — implement the bounded Frontmatter YAML
-      Profile in ScalaScript (block/flow maps/lists, scalars, comments, block
-      strings; reject duplicate keys, anchors, tags, merge keys, and multi-doc)
-      with source positions and no host regex. Prove the parser on native VM/ASM
-      and the current manifest/database fixture corpus.
+- [x] **v21-shc-frontmatter-yaml-core — DONE 2026-07-10 (`7a06d4a55`, documented `423a4013d`):** implement the bounded
+      Frontmatter YAML Profile in ScalaScript (block/flow maps/lists, scalars,
+      comments, block strings; reject duplicate keys, anchors, tags, merge keys,
+      and multi-doc) with source positions and no host regex. Result:
+      `runtime/std/yaml-core.ssc` is a pure recursive scanner/renderer covering
+      ordered manifest/database shapes, lists of maps, exact numeric text, and
+      stable rejection diagnostics. Native frontend/checker are sentinel-clear;
+      VM and direct ASM match the checked fixture byte-for-byte, focused
+      conformance is 1/1, and the core dependency gate remains green.
 - [ ] **v21-shc-structural-frontend-result** — make the self-hosted frontend
       return checked CoreIR plus parsed manifest/runtime config structurally via
       `ssc.Value`/a frozen seed ABI; retire `NativeFrontmatter` and `SimpleYaml`
