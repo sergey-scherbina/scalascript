@@ -1,0 +1,10 @@
+feature/perf-jit-asm 2026-07-10
+agent: claude (lucky-perch)
+status: in-progress
+scope: WIDE JIT foundation (Sergiy-directed) — spec-first. The register-VM JIT (VmCompiler)
+  is NARROW because it re-infers types at runtime (VmType default TInt, param types from
+  decltpe/runtime hints) instead of using static types — dominant bail is type-unknown.
+  Root traced: IrExpr untyped, `run` never typechecks, interp re-parses source→scalameta,
+  VmCompiler works on FunV(Term + string paramTypes). Writing specs/wide-jit-typed-input.md
+  + SPRINT plan BEFORE any code (user: "подготовлю план в спеку/SPRINT прежде чем трогать код").
+next: write spec + phased SPRINT, present design fork to user
