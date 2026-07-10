@@ -1305,7 +1305,7 @@ identical pass/FAIL set (diff old-vs-new output before landing).
       (`[ -z "$CONF_FAST" ]`) so front/lower iteration runs only the VM (run-ir) lane.
       Lowest risk (default unchanged). ~12 min → ~4 min for iteration. VERIFY:
       `CONF_FAST=1` skips Rust/JS/WASM; default still runs+passes all 640.
-- [ ] **K63.2 — robust+fast rustc**: install-guarded `-C link-arg=-fuse-ld=lld` (if
+- [x] **K63.2 — robust+fast rustc**: install-guarded `-C link-arg=-fuse-ld=lld` (if
       `lld` present) + `RUSTC_WRAPPER=sccache` (if present); no-op when absent. Kills
       the `ld: file is empty` disk-pressure flakes + caches repeat compiles. VERIFY:
       rustc lane still green; 2nd run faster.

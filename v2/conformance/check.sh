@@ -102,7 +102,14 @@ have_rust() { [ -n "${CONF_FAST:-}" ] && return 1; command -v rustc >/dev/null 2
 have_node() { [ -n "${CONF_FAST:-}" ] && return 1; command -v node >/dev/null 2>&1; }
 if have_rust; then
   RUSTC_BIN="$(command -v rustc)"
-  rustc() { run_logged "rustc" "$RUSTC_BIN" "$@"; }
+  # K63.2: faster/robust rustc — sccache caches compiles across runs; lld links faster
+  # and dodges the `ld: file is empty` flakes. Both are NO-OPs when the tool is absent
+  # (empty prefix/flag ⇒ the wrapper is byte-identical to before).
+  RUSTC_PREFIX=""
+  command -v sccache >/dev/null 2>&1 && RUSTC_PREFIX="sccache"
+  RUSTC_LINK=""
+  { command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; } && RUSTC_LINK="-C link-arg=-fuse-ld=lld"
+  rustc() { run_logged "rustc" ${RUSTC_PREFIX:-} "$RUSTC_BIN" ${RUSTC_LINK:-} "$@"; }
 fi
 ssc_last() { # label args...
   local lbl got
