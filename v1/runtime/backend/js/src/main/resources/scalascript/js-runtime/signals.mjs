@@ -737,7 +737,11 @@ function _ssc_ui_mount(sigs, keyedRoots) {
         var hs = _sv[headersId];
         if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
       }
-      fetch(theUrl, opts).then(function(r) { return r.text(); }).then(function(t) { _set(sigId, t); });
+      fetch(theUrl, opts)
+        .then(function(r) { return r.text(); })
+        .then(function(t) { _set(sigId, t); })
+        // Offline is a normal state for a managed binding: retain last-good data.
+        .catch(function(_e) {});
     }
     // urlSig present: _sub fires doGet on mount AND whenever the URL signal changes; else fetch once.
     if (urlSigId) _sub(urlSigId, function() { doGet(); });
