@@ -589,8 +589,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             sentinel-bearing outputs, 191 checker successes, 3 type errors,
             22 runtime successes, and 79 runtime errors (172 strict-fail rows).
             Standard VM/ASM
-            classification is 11 identical, 0 stdout mismatch, 96 both-fail,
-            88 skipped server/backend/nondeterministic, and 0 one-sided rows.
+            classification is 11 identical, 0 stdout mismatch, 80 both-fail,
+            104 skipped server/backend/nondeterministic, and 0 one-sided rows.
             Reports:
             `target/v21-native-front-current.tsv` and
             `target/v21-standard-bc-parity-current.tsv` from the named scripts.
@@ -630,12 +630,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
-                  - [ ] **TI-8.2c1 stable taxonomy gate:** join the native-front
+                  - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
+                        (`aa9b30f28`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
+                        Result: all 93 rows classify as 28 standard-gap / 35
+                        server / 20 backend / 9 tools-backend / 1 nondeterministic;
+                        category growth, stale overrides, and unknown rows fail.
+                        Parity is 11 identical / 80 both-fail / 104 skipped / 0
+                        mismatch or one-sided; smoke and conformance 8/8 pass.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
                         remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
@@ -644,7 +650,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
-            - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 96
+            - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 80
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
                   report must not count both-fail as parity success.

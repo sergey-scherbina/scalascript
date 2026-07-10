@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — every native parser sentinel has a release category
+
+The release join now classifies all 93 `_err` rows from the native-front and
+standard parity reports: 28 standard deterministic parser gaps, 35
+server/integration documents, 20 backend-specific documents, 9 explicit
+compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
+Reviewed overrides and category ceilings reject unknown growth or stale
+exceptions. Server detection now recognizes `serve {}` and named `serveX`
+entrypoints before execution, so VM/ASM parity is 11 identical, 80 honest
+both-fail, 104 skipped, and 0 mismatch/one-sided.
+
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 
 The v2 runtime now exposes scale-preserving, numerically comparable `DecimalV`
