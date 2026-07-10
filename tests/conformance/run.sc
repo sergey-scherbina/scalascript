@@ -224,6 +224,21 @@ def parseBackends(src: String): Option[Set[String]] =
       }.filter(_.nonEmpty).toSet
       if normalised.isEmpty then None else Some(normalised)
 
+// Parse `codegen: v2` — route this case's JVM/JS lanes through the v2 codegen
+// pipeline (`run --bytecode` / `run-js --v2`) instead of the v1 codegen
+// (`run-jvm` / `emit-js`). The v1 codegen treats ssc `Int` as Scala's 32-bit
+// Int; v2 (CoreIR) is natively 64-bit. Cases whose semantics need 64-bit Int
+// (e.g. deep-tail-recursion's 5e9 accumulator) opt in here so they run on the
+// backend that honors the ssc Int=64-bit contract. INT stays the interpreter.
+def parseCodegen(src: String): Option[String] =
+  val allLines = src.linesIterator.toList
+  val lines = if allLines.headOption.exists(_.startsWith("#!")) then allLines.tail else allLines
+  if !lines.headOption.contains("---") then return None
+  val fmEnd = lines.tail.indexOf("---")
+  if fmEnd < 0 then return None
+  val fm = lines.slice(1, fmEnd + 1)
+  fm.find(_.startsWith("codegen:")).map(_.stripPrefix("codegen:").trim.toLowerCase).filter(_.nonEmpty)
+
 // Parse `pending: <reason>` — a one-line frontmatter marker that PENDINGs
 // the test out of the suite (counted as pending, not failed). Use sparingly
 // for tests that document an intended API that needs other infrastructure
@@ -250,14 +265,14 @@ val BATCH_MARK = "<<<SSC-BATCH-CASE:"
 
 case class Meta(test: os.Path, name: String, src: String, expected: Option[String],
                 requires: List[String], backendsGate: Option[Set[String]],
-                pending: Option[String], memoHit: Boolean)
+                pending: Option[String], codegen: Option[String], memoHit: Boolean)
 
 val metas: List[Meta] = tests.toList.map { t =>
   val src = os.read(t)
   val ef  = expectedDir / s"${t.baseName}.txt"
   val exp = if os.exists(ef) then Some(os.read(ef).stripTrailing()) else None
   val hit = !noMemo && exp.exists(e => memo.get(t.baseName).contains(memoKey(t.baseName, src, e)))
-  Meta(t, t.baseName, src, exp, parseRequires(src), parseBackends(src), parsePending(src), hit)
+  Meta(t, t.baseName, src, exp, parseRequires(src), parseBackends(src), parsePending(src), parseCodegen(src), hit)
 }
 
 def metaSupports(m: Meta, b: String): Boolean =
@@ -298,6 +313,7 @@ for test <- tests do
   val requires     = parseRequires(src)
   val backendsGate = parseBackends(src)
   val pending      = parsePending(src)
+  val codegen      = parseCodegen(src)  // Some("v2") → JVM/JS via the 64-bit v2 codegen
 
   if pending.isDefined then
     println(s"$name: PENDING (${pending.get})")
@@ -342,13 +358,16 @@ for test <- tests do
         println(s"  SKIP [JS ] (${skipReason("js")})")
         true
       else
-        val jsSource = jsEmitted.getOrElse(name, run(ssc("emit-js", test.toString)))
-        val jsRes = os.proc("node").call(
-          stdin  = jsSource,
-          stderr = os.Pipe,
-          check  = false
-        )
-        val jsOut = outputWithFailureContext(jsRes.out.text(), jsRes.err.text(), jsRes.exitCode)
+        val jsOut =
+          if codegen.contains("v2") then
+            // 64-bit v2 JS codegen: `run-js --v2` compiles + runs via node itself.
+            val r = os.proc(sscBin.toString, "run-js", "--v2", test.toString)
+              .call(stdin = "", stderr = os.Pipe, check = false)
+            outputWithFailureContext(r.out.text(), r.err.text(), r.exitCode)
+          else
+            val jsSource = jsEmitted.getOrElse(name, run(ssc("emit-js", test.toString)))
+            val jsRes = os.proc("node").call(stdin = jsSource, stderr = os.Pipe, check = false)
+            outputWithFailureContext(jsRes.out.text(), jsRes.err.text(), jsRes.exitCode)
         check("JS ", jsOut, expected)
 
     // JVM via JvmGen + scala-cli compile+run
@@ -368,8 +387,14 @@ for test <- tests do
         val jvmEnv =
           if warmJvm then Map("SSC_SCALACLI_SERVER" -> "1")
           else Map("SSC_SCALACLI_SERVER" -> "0")
-        val jvmRes = os.proc(sscBin.toString, "run-jvm", test.toString)
-          .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
+        val jvmRes =
+          if codegen.contains("v2") then
+            // 64-bit v2 JVM codegen: `run --bytecode` (v2 CoreIR → JVM bytecode).
+            os.proc(sscBin.toString, "run", "--bytecode", test.toString)
+              .call(stdin = "", stderr = os.Pipe, check = false)
+          else
+            os.proc(sscBin.toString, "run-jvm", test.toString)
+              .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
         val jvmOut = outputWithFailureContext(jvmRes.out.text(), jvmRes.err.text(), jvmRes.exitCode)
         check("JVM", jvmOut, expected)
 

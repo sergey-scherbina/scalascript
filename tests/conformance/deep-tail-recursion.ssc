@@ -1,6 +1,21 @@
+---
+name: deep-tail-recursion
+codegen: v2
+---
+
+# Deep tail recursion
+
+Tail-call depth on the codegen backends. `sumTco(100000, 0)` = 5,000,050,000,
+which exceeds 32-bit `Int` — ssc `Int` is 64-bit, and the v1 codegen (which maps
+ssc `Int` to Scala's 32-bit `Int`) cannot honor that. So this case runs its
+JVM/JS lanes through the **v2 codegen** (CoreIR, natively 64-bit: `run --bytecode`
+/ `run-js --v2`). INT stays the interpreter, also 64-bit.
+
+```scalascript
 def countdown(n: Int): Int = if n <= 0 then 0 else countdown(n - 1)
 def sumTco(n: Int, acc: Int): Int = if n <= 0 then acc else sumTco(n - 1, acc + n)
 def gcd(a: Int, b: Int): Int = if b == 0 then a else gcd(b, a % b)
 println(countdown(500000))
 println(sumTco(100000, 0))
 println(gcd(48, 36))
+```
