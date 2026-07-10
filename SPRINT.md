@@ -28,7 +28,7 @@ there before changing this plan.
       legacy command fails with 27–29 errors headed by unresolved bare `View` /
       `EventHandler`. Done when the same real fixture writes a parseable Swift
       package and focused JvmGen/SwiftUI gates pass.
-- [ ] **v2-swift-swiftui-spec-repro** — audit the shipped `bin/ssc` CLI routing
+- [x] **v2-swift-swiftui-spec-repro — DONE 2026-07-10 (`192c4e678`)** — audit the shipped `bin/ssc` CLI routing
       for `--v2` plus `emit/build/run --target macos|ios`, reproduce the current
       failure or v1 fallback through the assembled real harness, and specify the
       v2 Swift backend/SwiftUI toolkit contract before implementation. Read
@@ -50,7 +50,9 @@ there before changing this plan.
       shared explicit `Pure`/`Op` effect lowering; portable `NativeUi` ABI rather
       than v1 `Foreign View`; dynamic SwiftUI gets its own design review. Commit
       `specs/v2-swift-swiftui-native.md` + the normative `SPEC.md` backend entry
-      before implementation.
+      before implementation. Result: the assembled baseline, Rozum-reviewed
+      architecture, CLI/package contract, portable lowering boundaries, SwiftUI
+      behavior gates, test order, and explicit non-goals are now normative.
 - [ ] **v2-portable-decimal-money-effects** — introduce a target-independent
       CoreIR lowering/runtime contract required by real Swift domain code:
       canonical decimal text at the IR boundary, portable `dec.*` primitives,
