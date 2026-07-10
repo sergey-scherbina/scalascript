@@ -9,22 +9,23 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **tkv2-spa-i18n-parity** - verify and fix `std/ui/i18n` live locale
-      switching in the production `emit-spa --frontend custom` browser path.
-      Context: `specs/ssc-toolkit-v2.md` P2-12 requires generated SPA parity
-      with server pages for four locales and live switch. Existing
-      `runtime/std/ui/i18n.ssc` exposes `localeSignal`, `localeText`,
-      `localeHeading`, `localePlural`, and `localeSwitcher`; existing
-      `examples/std-ui/i18n-demo.ssc` is the app-level smoke source. Spec:
-      `specs/tkv2-spa-i18n-parity.md`. Plan: first reproduce with
-      `bin/ssc emit-spa --frontend custom examples/std-ui/i18n-demo.ssc` plus
-      a browser/jsdom-style live-click harness; if it already passes, land the
-      missing regression test/docs only. If it fails, fix only the narrow
-      generated-SPA/runtime bridge needed for `signalButton` ->
-      `setSignal(localeSignal, loc)` to recompute `computedSignal`-backed
-      translated nodes. Done when EN/RU/UK/PL live switch is regression-tested,
-      affected `std-ui-i18n`/`tkv2-*` conformance passes, emit-spa smoke passes,
-      docs/backlog are updated, and `git diff --check` is clean.
+- [x] **tkv2-spa-i18n-parity** - DONE 2026-07-10 in `7e5d55e4f`:
+      fixed the custom emitted-SPA i18n crash where a collision-renamed import
+      `serve__ssc` was imported correctly but `JsGen.dispatchIntrinsicJs` still
+      stole the top-level call as bare `serve(...)`, causing jsdom/browser
+      runtime failure before `.ssc-page` mounted (`ReferenceError: serve is not
+      defined`). The JS intrinsic dispatcher now skips intrinsic dispatch for
+      raw declared names, emitted collision names, and top-level user renames,
+      so the generated call is `_call(serve__ssc, ...)`. Added a jsdom
+      regression that renders `examples/std-ui/i18n-demo.ssc` with the custom
+      browser runtime and live-clicks EN/RU/UK/PL/EN. Gates: patched-`JsGen`
+      direct `scala-cli compile`, standalone jsdom harness
+      `i18n-spa-live-ok`, CLI-shaped patched-class `emit-spa --frontend
+      custom` smoke with emitted HTML jsdom live switch, affected conformance
+      `tests/conformance/run.sh --only 'std-ui-i18n,tkv2-*' --no-memo` 10/10,
+      and `git diff --check`. Note: full sbt focused test attempts received
+      external `SIGTERM` during build load in this tool session before running
+      tests; see `specs/tkv2-spa-i18n-parity.md` Results.
 
 - [x] **v2-four-row-route-policy-sweep** - DONE 2026-07-10: reran the
       bounded four-row route gate after the VM `pattern-match-heavy` fix and

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — custom emitted SPA i18n live-switch parity restored
+
+The JS backend now lets collision-renamed imports/user bindings win before
+intrinsic dispatch. This fixes `examples/std-ui/i18n-demo.ssc` emitted through
+`emit-spa --frontend custom`, where `std.ui.primitives.serve` was imported as
+`serve__ssc` but the top-level call was emitted as bare `serve(...)` and crashed
+before mount. Added a jsdom regression for EN/RU/UK/PL/EN live switching. Gates:
+standalone patched-`JsGen` compile + jsdom harness, CLI-shaped emitted HTML
+jsdom smoke, affected conformance 10/10, and `git diff --check`.
+
 ## 2026-07-10 — v2 production route policy recorded for four representative rows
 
 Reran the bounded route gate after the VM `pattern-match-heavy` fix. The global

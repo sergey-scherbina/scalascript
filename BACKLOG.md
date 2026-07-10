@@ -24,8 +24,11 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 - [ ] **tkv2-tri-state** — loading/empty/error helper for fetched views (busi P2-10).
 - [ ] **tkv2-raw-html** — raw-markup escape hatch (only `rawText` exists today — it's a text node,
       not markup injection); needed so a missing widget never blocks a migration screen.
-- [ ] **tkv2-spa-i18n-parity** — verify/fix `std/ui/i18n` live-switch inside an emitted browser SPA
-      bundle (server pages already work; the SPA path needs a conformance case, 4 locales).
+- **tkv2-spa-i18n-parity** — ✓ Landed (2026-07-10, `7e5d55e4f`):
+      custom emitted SPA now respects the collision-renamed
+      `std.ui.primitives.serve` import (`serve__ssc`) instead of dispatching a
+      bare `serve` intrinsic, and the i18n demo live-switches EN/RU/UK/PL/EN in
+      jsdom over the production custom browser runtime.
 
 ## v1→v2 migration follow-ups (2026-07-03)
 

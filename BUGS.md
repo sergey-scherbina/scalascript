@@ -1,5 +1,33 @@
 # Bug tracker
 
+## tkv2-spa-i18n-serve-intrinsic-shadow — emitted custom SPA calls bare `serve` instead of imported `serve__ssc`
+
+**Status:** fixed (2026-07-10, `7e5d55e4f`); waiting for human confirmation
+before `done`.
+
+- **Found by:** codex during `tkv2-spa-i18n-parity`.
+- **Repro:** emit `examples/std-ui/i18n-demo.ssc` through the custom SPA path and
+  execute it in a browser/jsdom harness. The generated module imports
+  `std.ui.primitives.serve` as `serve__ssc`, but the top-level auto-call was
+  emitted as bare `serve(...)`; jsdom failed before mounting `.ssc-page` with
+  `ReferenceError: serve is not defined`.
+- **Expected:** imported/user bindings, including collision-renamed imports,
+  must take precedence over JS intrinsic dispatch. The i18n demo should mount
+  and live-switch EN/RU/UK/PL without reload.
+- **Root cause:** `JsGen.dispatchIntrinsicJs` checked only
+  `declaredBindings.contains(fname)` before stealing `Term.Name(fname)` calls.
+  Collision-renamed imports bind `emittedName(fname)` (`serve__ssc`), so the
+  hardcoded `serve` intrinsic path incorrectly won over the imported binding.
+- **Fix:** `dispatchIntrinsicJs` now also skips intrinsic dispatch when the
+  emitted binding name is declared or when a top-level user rename exists. The
+  generated call falls through to regular `_call(serve__ssc, ...)`.
+- **Verified:** standalone patched-`JsGen` jsdom harness prints
+  `i18n-spa-live-ok`; CLI-shaped `emit-spa --frontend custom` with patched
+  classes emits `_call(serve__ssc, ...)` and the emitted HTML passes the same
+  jsdom live-switch check; affected conformance
+  `tests/conformance/run.sh --only 'std-ui-i18n,tkv2-*' --no-memo` passes
+  10/10; `git diff --check` passes.
+
 ## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
 
 **Status:** OPEN — CORRECTED 2026-07-10: my earlier "v1 correct" was WRONG. This
