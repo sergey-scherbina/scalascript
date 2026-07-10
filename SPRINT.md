@@ -117,6 +117,18 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             VM/ASM output `1/7/Ada/true`, both assembled e2e gates PASS,
             `v2-*` conformance 8/8. The real harness exposed the separately
             tracked eager-plugin-`val` ordering bug below.
+      - [ ] **Native UI slice:** add `v2/runtime/std/ui-plugin` without a
+            `frontendCore` edge; represent mutable/derived signals, basic event
+            descriptors, and text/signal/show/fragment/element views on
+            `ssc.Value`; implement deterministic escaped UTF-8
+            `emit(<outDir>/index.html)`. Cover signal mutation/callbacks and
+            rendering in unit tests, then compare the same emitted file in
+            assembled native VM/ASM with Scala CLI absent. Extend ServiceLoader,
+            `jdeps`/`javap`, and runtime class-load gates. Keep `serve(view)`,
+            framework SPA codegen, keyed/fetch/data-table/storage/WebAuthn, and
+            desktop/mobile rendering as explicit follow-ups without a v1
+            fallback. Done when provider tests, `installBin`, both e2e gates,
+            and `v2-*` conformance are green.
       - [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering
             repro in `BUGS.md`: a plugin-backed top-level `val` currently runs
             before preceding entry statements on native VM and ASM. Coordinate
