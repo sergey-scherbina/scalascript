@@ -123,9 +123,14 @@ jobs:
           # other's stale crypto-spi classes (zinc marked them up-to-date and
           # skipped recompiling), re-creating the "not a member of scalascript.crypto"
           # poison. Keeping the prefixes disjoint stops the cross-contamination.
-          key: ${{ runner.os }}-classes-v2-conf-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          # Include the build.sbt hash: zinc doesn't detect `dependsOn`/module-graph
+          # changes, so restoring a classes cache built under a different build.sbt
+          # serves stale upstream classes (the "value X is not a member of scalascript"
+          # poison). Keying by build.sbt forces a clean cold rebuild whenever the
+          # module graph changes, and reuses the cache only within a stable graph.
           restore-keys: |
-            ${{ runner.os }}-classes-v2-conf-
+            ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
 
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
@@ -160,7 +165,7 @@ jobs:
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-v2-conf-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
 
   sbt:
     name: sbt — compile and test
@@ -215,12 +220,14 @@ jobs:
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-v2-sbt-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
           # ONLY this job's own prefix — do NOT fall back to the conformance job's
           # …-v2-conf- cache: their zinc analyses are incompatible and sharing
           # re-poisons crypto-spi (see the conformance Restore step's note).
+          # See the conformance job's note — key by build.sbt hash so a module-graph
+          # change cold-rebuilds instead of restoring stale classes (poison).
           restore-keys: |
-            ${{ runner.os }}-classes-v2-sbt-
+            ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
 
       # installBin stages bin/lib/compiler/jars — the Scala compiler jars that
       # `compile-jvm --bytecode` / `link` load lazily via ssc.lib.path. The CLI
@@ -257,4 +264,4 @@ jobs:
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-v2-sbt-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
