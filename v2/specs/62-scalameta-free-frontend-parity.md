@@ -479,3 +479,31 @@ modules reach ~0 `_err`. The openers themselves stay unlanded until `dsl-mini-la
 NON-layout blockers (dsl: `.andThen` → unbound `_sel_andThen`; a missing method, not a
 parse gap). Routing the `resolveMethodCall` `_sel_<m>` fallback through `__method__`
 (as K62.6e did for `resolveField`) is the likely next lever to make those graceful.
+
+---
+
+## K62.12 — 2026-07-10 (method dispatch: unknown `_sel_<m>` → `__method__`, with a known-helper split)
+
+**Landed (correct, corpus 40 → 41 with the module-loading driver + SSC_STD, ZERO
+regressions).** `resolveMethodCall`'s two remaining `_sel_<method>` fallbacks (summon-None
+and non-var/method-chain receiver) now route UNKNOWN methods to the VM `__method__`
+dispatch (graceful Op/Stub) instead of an unbound `_sel_<m>` global — this is exactly the
+`unbound global: _sel_replace` ceiling the module-loading driver (4815915ba) revealed.
+
+The routing is guarded by `isKnownSelMethod`: the GENERATED `_sel_<m>` collection helpers
+(map/filter/foldLeft/to/until/length/mkString/take/sum/… — the range/list intrinsics)
+ARE bound, so they keep their `_sel_<m>` path; only names with no helper (`.replace`,
+`.andThen`, plugin ops) go to `__method__`. Blanket-routing regressed `recursion`
+(`1.to(10)` → `__method__ .to on 1` crash) — the split fixes it. Verified: recursion →
+3628800, remote-registry-rpc → graceful `Op("Remote.function", …)`.
+
+**Openers NOT landed (net −2 with the driver).** The `=>`/`match` layout openers +
+bracket-aware layout make the code-heavy std modules parse (ui/lower 37→0 err) AND are
+parse-safe (zero parse regressions), but with the driver they flip 4 corpus files
+OK→RUNERR by parsing them FAR ENOUGH to hit new blockers: `enums` (enum-case ctors —
+enum declarations are skipped by K62.8, so `North` is unbound) and three
+`distributed-dataset-*` (brace-less match now parses → downstream). They gain only 2
+(middleware-demo, remote-registry-rpc). To land the openers net-positive: (a) real enum
+support (parse `enum E:` cases → 0-arg value ctors + n-arg lambda ctors, replacing the
+skip), (b) the distributed-* downstream blockers. Openers are ready in the worktree; the
+driver + SSC_STD config make the module-loading measurable (`SSC_STD=$WT/v1/runtime`).

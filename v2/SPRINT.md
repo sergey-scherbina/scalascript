@@ -1292,3 +1292,31 @@ stdlib already exists in the v2 runtime and the bridge uses it. It reduces to tw
 bounded, scalameta-independent frontend/lowering jobs: **K62.6 parse-completeness**
 (~40 `_err` files) and **K62.7 dispatch alignment** (started). They compound per
 file, so end-to-end pass-count lags until both close. See spec 62.
+
+## K63 — Conformance runner speedup (v2/conformance/check.sh)
+
+Baseline: ~12 min, **0 parallelism on 14 cores**, everything sequential. Measured
+costs: rustc 240 compiles (~2-3 min, `ld` slow+flaky), ~300+ cold `java -jar` starts
+(219 ms each ⇒ ~1.5-2 min), assembly-jar build (~2-3 min), node 177 (~30 s), wasm 9
++ compute (~2 min). Do INCREMENTALLY, each slice keeps the default run at 640/640 and
+identical pass/FAIL set (diff old-vs-new output before landing).
+
+- [ ] **K63.1 — fast mode `CONF_FAST=1`**: guard the rustc/node/wasm blocks
+      (`[ -z "$CONF_FAST" ]`) so front/lower iteration runs only the VM (run-ir) lane.
+      Lowest risk (default unchanged). ~12 min → ~4 min for iteration. VERIFY:
+      `CONF_FAST=1` skips Rust/JS/WASM; default still runs+passes all 640.
+- [ ] **K63.2 — robust+fast rustc**: install-guarded `-C link-arg=-fuse-ld=lld` (if
+      `lld` present) + `RUSTC_WRAPPER=sccache` (if present); no-op when absent. Kills
+      the `ld: file is empty` disk-pressure flakes + caches repeat compiles. VERIFY:
+      rustc lane still green; 2nd run faster.
+- [ ] **K63.3 — batch run-ir into one JVM**: add `ssc run-ir-batch <list>` (one JVM
+      runs many IRs) or a persistent JVM; replace 316× cold `java -jar run-ir`. ~1.5-2
+      min saved. VERIFY: batched stdout matches per-invocation, byte-for-byte.
+- [ ] **K63.4 — parallelize independent lanes**: run rustc/node/run-ir compiles via
+      `xargs -P $(ncpu)` / bounded background batches, aggregating ok/FAIL. The real
+      fix (14 idle cores) → 3-5× wall-clock. Higher risk: restructures the sequential
+      inline `chk` script — MUST preserve exact ok/FAIL lines (sort before diff since
+      order changes). VERIFY: identical pass/fail SET vs sequential.
+- [ ] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
+      unchanged (keyed jar in a stable cache dir). ~2-3 min/iteration. VERIFY: rebuilds
+      on any src change, reuses otherwise; stale-cache guard.

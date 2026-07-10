@@ -541,7 +541,7 @@ def resolveMethodCall = (robj, method, rargs) =>
           if #seq(rname, "summon") then
             -- summon[TC].method → static dispatch via active ctx cell
             match firstActiveGiven(0) {
-              case None => Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+              case None => selMethodOr(method, robj, rargs)
               case Some(gname) =>
                 Pair("app", Pair(Pair("var", #sconcat(gname, #sconcat("_", method))), rargs))
             }
@@ -557,8 +557,25 @@ def resolveMethodCall = (robj, method, rargs) =>
           else
             Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
         else
-          Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+          selMethodOr(method, robj, rargs)
     }
+
+def isKnownSelMethod = (m) =>
+  let ks = Cons("map", Cons("filter", Cons("flatMap", Cons("fold", Cons("foldLeft",
+           Cons("foreach", Cons("getOrElse", Cons("length", Cons("mkString", Cons("split",
+           Cons("trim", Cons("sum", Cons("take", Cons("takeWhile", Cons("dropWhile",
+           Cons("to", Cons("until", Cons("toList", Cons("runToList", Cons("mapUpdated",
+           Cons("mapGetOrElse", Cons("_1", Cons("_2", Cons("_3", Cons("_4", Nil))))))))))))))))))))))))) in
+  let rec go = (xs) =>
+    match xs { case Nil => false
+      case Cons(h, t) => if #seq(h, m) then true else go(t) } in
+  go(ks)
+
+def selMethodOr = (method, robj, rargs) =>
+  if isKnownSelMethod(method) then
+    Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
+  else
+    Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
 
 -- Resolve a pure field access obj.field (no args)
 def resolveField = (robj, field) =>
