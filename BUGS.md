@@ -2,8 +2,8 @@
 
 ## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
 
-**Status:** open (2026-07-10); reproduced in busi's generated canonical owner
-SPA using the assembled ScalaScript emitter and a real browser.
+**Status:** fixed (2026-07-10, `a0d45ad44`); waiting for busi's rebuilt
+real-browser confirmation before `done`.
 
 - **Found by:** codex while running busi Gate 1 canonical `/app` offline QA.
 - **Real-harness repro:** emit and serve busi `src/v2/clients/ssc/app.ssc`, load
@@ -24,6 +24,13 @@ SPA using the assembled ScalaScript emitter and a real browser.
 - **Done-when:** focused frontend tests, assembled custom-SPA emission, and
   affected conformance are green; busi rebuild confirms a clean app-origin
   offline console.
+- **Fix:** the shared `_mountFetchGet` promise chain now consumes transport and
+  response-body rejection without writing the signal. Tick and reactive-URL
+  subscriptions stay installed, so a later refresh can recover.
+- **Verified:** real `JsRuntimeSignals` Node regression 1/1 plus existing
+  `FetchUrlSignalToTest` 1/1; assembled `emit-spa --frontend custom` contains
+  the rejection boundary; focused `std-ui-jobpanel`, `tkv2-busi-home`, and
+  `tkv2-offline` conformance passes 3/3 on INT and JS.
 
 ## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
 

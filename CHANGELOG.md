@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — managed UI GETs retain last-good data offline
+
+Generated custom SPAs now consume transport and response-body rejection from
+`fetchUrlSignal`/`fetchUrlSignalTo`, preserve the current signal value, and keep
+their refresh subscriptions alive without leaking unhandled promises. A real
+runtime regression proves offline failure followed by successful reconnect;
+the assembled SPA and focused INT/JS conformance gates are green.
+
 ## 2026-07-10 — TI-6 direct ASM artifact pipeline is release-gated
 
 CI now rebuilds native ASM applications from unrelated clean directories,

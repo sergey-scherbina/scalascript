@@ -9,22 +9,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## Frontend runtime reliability (2026-07-10)
-
-- [ ] **ui-fetch-get-offline-rejection** — make generated custom-SPA managed
-      GET bindings (`fetchUrlSignal`) treat network rejection as an unavailable
-      refresh while retaining the signal's last-good value, without emitting an
-      unhandled browser promise rejection. The real-browser repro is busi's
-      canonical `/app`: stop its local hub after an online load and every
-      mounted managed GET currently logs `TypeError: Failed to fetch` from
-      `_mountFetchGet`; hidden-but-mounted views multiply the errors. Specify
-      the contract in `specs/ui-fetch-get-offline-rejection.md`, fix the owning
-      JS runtime generator rather than busi output, add a generated-runtime
-      regression that rejects `fetch`, and verify the affected frontend tests,
-      an assembled `emit-spa --frontend custom` artifact, and focused
-      conformance. Done when rejected GETs preserve the previous value, later
-      refreshes can still succeed, and no `unhandledRejection` escapes.
-
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 
 Goal: make the standard JVM production path `.ssc -> native frontend -> CoreIR
