@@ -71,10 +71,23 @@ run_stdout_logged() { # label command...
   cat "$out"
   return "$code"
 }
-echo "building ssc ..." >&2
+# K63.5: cache the assembly jar keyed by a hash of src/ — skip the ~2-3 min
+# scala-cli package when the sources are unchanged. SSC_CONF_NOCACHE=1 forces a rebuild.
+CONF_CACHE_DIR="${SSC_CONF_CACHE:-$HOME/.cache/ssc-conf}"
+mkdir -p "$CONF_CACHE_DIR"
+SRC_HASH="$(find src -type f \( -name '*.scala' -o -name '*.sc' \) -exec shasum {} + 2>/dev/null | shasum | awk '{print $1}')"
+CACHED_JAR="$CONF_CACHE_DIR/ssc-$SRC_HASH.jar"
 BUILD_LOG="$LOGDIR/scala-cli-package-$RANDOM.err"
-scala-cli --power package src -o "$JAR" -f --assembly --server=false -q >/dev/null 2>"$BUILD_LOG"
-build_code=$?
+if [ -z "${SSC_CONF_NOCACHE:-}" ] && [ -n "$SRC_HASH" ] && [ -s "$CACHED_JAR" ]; then
+  echo "reusing cached ssc jar (src $SRC_HASH)" >&2
+  cp "$CACHED_JAR" "$JAR"
+  build_code=0
+else
+  echo "building ssc ..." >&2
+  scala-cli --power package src -o "$JAR" -f --assembly --server=false -q >/dev/null 2>"$BUILD_LOG"
+  build_code=$?
+  if [ "$build_code" -eq 0 ] && [ -n "$SRC_HASH" ]; then cp "$JAR" "$CACHED_JAR" 2>/dev/null; fi
+fi
 if [ "$build_code" -ne 0 ]; then
   record_diag "FAIL scala-cli package exit=$build_code stderr=$BUILD_LOG"
   sed -n '1,80p' "$BUILD_LOG" >> "$ERR_SUMMARY"

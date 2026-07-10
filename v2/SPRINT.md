@@ -1301,7 +1301,7 @@ costs: rustc 240 compiles (~2-3 min, `ld` slow+flaky), ~300+ cold `java -jar` st
 + compute (~2 min). Do INCREMENTALLY, each slice keeps the default run at 640/640 and
 identical pass/FAIL set (diff old-vs-new output before landing).
 
-- [ ] **K63.1 — fast mode `CONF_FAST=1`**: guard the rustc/node/wasm blocks
+- [x] **K63.1 (89120ab3e) — fast mode `CONF_FAST=1`**: guard the rustc/node/wasm blocks
       (`[ -z "$CONF_FAST" ]`) so front/lower iteration runs only the VM (run-ir) lane.
       Lowest risk (default unchanged). ~12 min → ~4 min for iteration. VERIFY:
       `CONF_FAST=1` skips Rust/JS/WASM; default still runs+passes all 640.
@@ -1317,6 +1317,6 @@ identical pass/FAIL set (diff old-vs-new output before landing).
       fix (14 idle cores) → 3-5× wall-clock. Higher risk: restructures the sequential
       inline `chk` script — MUST preserve exact ok/FAIL lines (sort before diff since
       order changes). VERIFY: identical pass/fail SET vs sequential.
-- [ ] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
+- [x] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
       unchanged (keyed jar in a stable cache dir). ~2-3 min/iteration. VERIFY: rebuilds
       on any src change, reuses otherwise; stale-cache guard.
