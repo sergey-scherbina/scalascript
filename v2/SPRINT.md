@@ -1378,3 +1378,16 @@ net-negative ONLY because enum cases are skipped → `North` unbound). Slices:
       actors-typed-remote-spawn) stay compound-blocked by UNRELATED gaps (Person case-class
       match, Parser_regex/runActors plugins) — the fix is a correctness improvement, not a
       corpus flip.
+
+## K62.15 — merged field accessors across shared field names (parser-axis) — 2026-07-10
+
+- [x] Two case classes sharing a field name (`Person(name,age)` + `Student(name,grade)`)
+      each emitted `IrDef("_sel_name", …)` in lowerCaseCls; the SECOND overwrote the first,
+      so `.name` on the earlier class hit `no arm for <Ctor>/N`. Fix (ssc1-lower only):
+      lowerCaseCls emits only the ctor def; buildMergedAccessors generates ONE `_sel_<field>`
+      per unique field with a match arm for EVERY ctor declaring it (each returning its own
+      index) from caseFieldOrderCell (covers case classes + enum cases + imported modules).
+- [x] Verified: synthetic Person/Student/Company (`name` at idx 0,0,1) → all correct incl.
+      the index-1 case; data-types.ssc now runs 8+ lines (Point, Person, enum toHex colors,
+      Shape/area) — was crashing at Person immediately. Compounds with K62.13 (enum) + K62.14
+      (literal patterns). ~7 corpus files had shared field names. Conformance + stage1 pending.
