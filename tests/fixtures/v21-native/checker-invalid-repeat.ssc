@@ -1,0 +1,5 @@
+# Native checker rejects a non-integer repetition count
+
+```scalascript
+val impossible = "x" * "twice"
+```

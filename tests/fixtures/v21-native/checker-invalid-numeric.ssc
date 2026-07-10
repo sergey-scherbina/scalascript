@@ -1,0 +1,5 @@
+# Native checker rejects known non-numeric arithmetic
+
+```scalascript
+val impossible = "not a number" - 1
+```

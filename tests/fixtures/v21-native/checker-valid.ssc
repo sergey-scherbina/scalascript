@@ -1,0 +1,9 @@
+# Native checker numeric/string coverage
+
+```scalascript
+val stars = "*" * 4
+val area = 0.5 * 4.0 * 2.0
+val ratio = 9.0 / 2
+val label = "stars=" ++ stars + ":" + area
+if ratio > 1.0 then println(label) else println("small")
+```

@@ -61,6 +61,12 @@ def ssc1chkIsStr = (t) =>
     case _     => false
   }
 
+def ssc1chkIsFloat = (t) =>
+  match t {
+    case TyFloat => true
+    case _       => false
+  }
+
 -- ── Unification: Ok(s') | Err(msg) ───────────────────────────────────────────
 def ssc1chkUnify = (s, t1, t2) =>
   let a = ssc1chkAppTy(s, t1) in
@@ -222,6 +228,7 @@ def ssc1inferE = (env, s, expr) =>
   match expr {
     case Pair(tag, data) =>
       if #seq(tag, "int")   then TcOk(s, TyInt)
+      else if #seq(tag, "float") then TcOk(s, TyFloat)
       else if #seq(tag, "str")   then TcOk(s, TyStr)
       else if #seq(tag, "bool")  then TcOk(s, TyBool)
       else if #seq(tag, "uid")   then TcOk(s, TyDyn)
@@ -320,9 +327,9 @@ def ssc1inferIf = (env, s, cnd, th, el) =>
 -- Infix: dispatch on operator
 def ssc1inferInf = (env, s, op, l, r) =>
   if #seq(op, "+")  then ssc1inferPlus(env, s, l, r)
-  else if #seq(op, "-")  then ssc1inferArith(env, s, op, l, r)
-  else if #seq(op, "*")  then ssc1inferArith(env, s, op, l, r)
-  else if #seq(op, "/")  then ssc1inferArith(env, s, op, l, r)
+  else if #seq(op, "-")  then ssc1inferNumeric(env, s, op, l, r)
+  else if #seq(op, "*")  then ssc1inferMul(env, s, l, r)
+  else if #seq(op, "/")  then ssc1inferNumeric(env, s, op, l, r)
   else if #seq(op, "%")  then ssc1inferArith(env, s, op, l, r)
   else if #seq(op, "==") then ssc1inferCmp(env, s, op, l, r)
   else if #seq(op, "!=") then ssc1inferCmp(env, s, op, l, r)
@@ -344,9 +351,13 @@ def ssc1inferPlus = (env, s, l, r) =>
       match ssc1inferE(env, s1, r) {
         case TcErr(m) => TcErr(m)
         case TcOk(s2, tr) =>
+          let al = ssc1chkAppTy(s2, tl) in
+          let ar = ssc1chkAppTy(s2, tr) in
           -- If either side is String, result is String (Scala's Any->toString concat)
-          if ssc1chkIsStr(tl) then TcOk(s2, TyStr)
-          else if ssc1chkIsStr(tr) then TcOk(s2, TyStr)
+          if ssc1chkIsStr(al) then TcOk(s2, TyStr)
+          else if ssc1chkIsStr(ar) then TcOk(s2, TyStr)
+          else if ssc1chkIsFloat(al) then ssc1inferFloatPeer(s2, "+", ar)
+          else if ssc1chkIsFloat(ar) then ssc1inferFloatPeer(s2, "+", al)
           else match ssc1chkUnify(s2, tl, tr) {
             case Err(m) => TcErr(#sconcat("type mismatch in (+): ", m))
             case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, tl))
@@ -354,7 +365,82 @@ def ssc1inferPlus = (env, s, l, r) =>
       }
   }
 
--- "-", "*", "/", "%" — Int only
+-- Float arithmetic accepts Int widening, Float, unknown dynamic values, or a
+-- fresh variable that can safely be constrained to Float.
+def ssc1inferFloatPeer = (s, op, t) =>
+  match t {
+    case TyInt   => TcOk(s, TyFloat)
+    case TyFloat => TcOk(s, TyFloat)
+    case TyDyn   => TcOk(s, TyFloat)
+    case TyVar(n) => TcOk(Cons(Pair(n, TyFloat), s), TyFloat)
+    case _ => TcErr(#sconcat(op, " requires numeric operands"))
+  }
+
+-- Numeric -, / and the numeric branch of * support Int and Float. Unknown
+-- plugin/OOP values remain Dyn; known non-numeric values are rejected.
+def ssc1inferNumeric = (env, s, op, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          let al = ssc1chkAppTy(s2, tl) in
+          let ar = ssc1chkAppTy(s2, tr) in
+          match al {
+            case TyDyn => TcOk(s2, TyDyn)
+            case TyFloat => ssc1inferFloatPeer(s2, op, ar)
+            case _ =>
+              match ar {
+                case TyDyn => TcOk(s2, TyDyn)
+                case TyFloat => ssc1inferFloatPeer(s2, op, al)
+                case _ => ssc1inferArithKnownInt(s2, op, al, ar)
+              }
+          }
+      }
+  }
+
+def ssc1inferArithKnownInt = (s, op, l, r) =>
+  match ssc1chkUnify(s, l, TyInt) {
+    case Err(m) => TcErr(#sconcat(op, " requires numeric left operand"))
+    case Ok(s2) =>
+      match ssc1chkUnify(s2, r, TyInt) {
+        case Err(m) => TcErr(#sconcat(op, " requires numeric right operand"))
+        case Ok(s3) => TcOk(s3, TyInt)
+      }
+  }
+
+-- ScalaScript supports String * Int repetition in addition to numeric *.
+def ssc1inferMul = (env, s, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) =>
+          let al = ssc1chkAppTy(s2, tl) in
+          if ssc1chkIsStr(al) then
+            match ssc1chkUnify(s2, tr, TyInt) {
+              case Err(m) => TcErr("String repetition requires an Int count")
+              case Ok(s3) => TcOk(s3, TyStr)
+            }
+          else ssc1inferNumericKnown(s2, "*", al, ssc1chkAppTy(s2, tr))
+      }
+  }
+
+def ssc1inferNumericKnown = (s, op, l, r) =>
+  match l {
+    case TyDyn => TcOk(s, TyDyn)
+    case TyFloat => ssc1inferFloatPeer(s, op, r)
+    case _ =>
+      match r {
+        case TyDyn => TcOk(s, TyDyn)
+        case TyFloat => ssc1inferFloatPeer(s, op, l)
+        case _ => ssc1inferArithKnownInt(s, op, l, r)
+      }
+  }
+
+-- "%" remains Int-only; the other arithmetic operators use the numeric path above.
 def ssc1inferArith = (env, s, op, l, r) =>
   match ssc1inferE(env, s, l) {
     case TcErr(m) => TcErr(m)
@@ -415,9 +501,13 @@ def ssc1inferConcat = (env, s, l, r) =>
       match ssc1inferE(env, s1, r) {
         case TcErr(m) => TcErr(m)
         case TcOk(s2, tr) =>
-          match ssc1chkUnify(s2, tl, tr) {
+          let al = ssc1chkAppTy(s2, tl) in
+          let ar = ssc1chkAppTy(s2, tr) in
+          if ssc1chkIsStr(al) then TcOk(s2, TyStr)
+          else if ssc1chkIsStr(ar) then TcOk(s2, TyStr)
+          else match ssc1chkUnify(s2, al, ar) {
             case Err(m) => TcErr(#sconcat("type mismatch in (++): ", m))
-            case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, tl))
+            case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, al))
           }
       }
   }
@@ -443,9 +533,15 @@ def ssc1inferPre = (env, s, op, e) =>
     match ssc1inferE(env, s, e) {
       case TcErr(m) => TcErr(m)
       case TcOk(s1, te) =>
-        match ssc1chkUnify(s1, te, TyInt) {
-          case Err(m) => TcErr("unary - requires Int")
-          case Ok(s2) => TcOk(s2, TyInt)
+        let at = ssc1chkAppTy(s1, te) in
+        if ssc1chkIsFloat(at) then TcOk(s1, TyFloat)
+        else match at {
+          case TyDyn => TcOk(s1, TyDyn)
+          case _ =>
+            match ssc1chkUnify(s1, at, TyInt) {
+              case Err(m) => TcErr("unary - requires a numeric operand")
+              case Ok(s2) => TcOk(s2, TyInt)
+            }
         }
     }
   else if #seq(op, "!") then

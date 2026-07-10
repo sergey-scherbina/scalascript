@@ -1,0 +1,5 @@
+# Native checker rejects a non-boolean condition
+
+```scalascript
+if 1 then println("yes") else println("no")
+```
