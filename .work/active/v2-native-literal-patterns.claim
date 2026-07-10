@@ -1,6 +1,0 @@
-feature/v2-native-litpat 2026-07-10T19:28:13Z
-agent: claude-code (opus)
-heartbeat: 2026-07-10T19:28:13Z
-status: in-progress
-done-so-far: K62.13 (enum + match opener) landed. Diagnosed next parser-axis correctness bug: integer/char/str/bool/float LITERAL PATTERNS in match are silently treated as catch-all defaults (lowerMatch else-branch, ssc1-lower ~1444) → `case 0 => a; case _ => b` always returns b. Front already emits ("lpat",...) correctly; the lower ignores it. Chars tokenize as int codes so char patterns are int lpat too.
-next: lowerMatch — detect lpat arms → build an IrIf(__eq__(scrutinee, litIr)) fallthrough chain (hasLpat + lowerLitArms + litPatIr helpers). __eq__ prim = structural eq (all types). Fixes data-types.classify, dsl-calc-parser (char patterns), actors-typed-remote-spawn. Verify: synthetic int/char/str + those 3 files + conformance 640/640. Touches v2/lib/ssc1-lower.ssc0 only.
