@@ -873,7 +873,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               skipped with no mismatch or one-sided row.
                               Native-entry and fresh conformance 9/9 pass.
                         - [ ] **TI-8.2c2i list append `:+`:** recognize `:+`
-                              as one infix token at additive precedence, infer
+                              as one infix token at collection-concatenation
+                              precedence (the existing `++` tier), infer
                               `List[A] :+ A` as `List[A]`, and lower it through
                               the portable `__arith__(":+", ...)` primitive
                               already shared by VM/direct ASM. Do not add a
