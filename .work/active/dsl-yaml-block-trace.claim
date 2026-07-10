@@ -1,6 +1,0 @@
-agent: claude-opus-4-8
-branch: feature/dsl-yaml-block
-worktree: ../scalascript-wt-dyb
-started: 2026-07-10
-status: in-progress
-task: dsl-yaml-block-trace — инструментировать runLayout/block в std/parsing (реальная либа, не минимальный репро), гонять полный пример, найти где .block context-threading расходится на v2 (собирает 1 элемент вместо N). Починить.
