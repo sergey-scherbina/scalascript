@@ -1587,13 +1587,33 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
       }
   }
 
+def altPatArms = (pats, body) =>
+  match pats {
+    case Nil => Nil
+    case Cons(pat, rest) => Cons(Pair(pat, body), altPatArms(rest, body))
+  }
+
+def expandAltArms = (arms) =>
+  match arms {
+    case Nil => Nil
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "apat") then
+            appendL(altPatArms(pdata, body), expandAltArms(rest))
+          else Cons(arm, expandAltArms(rest))
+        }
+      }
+  }
+
 def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in
   let letScope = Cons("__scr__", scope) in
-  if hasGuardPat(arms) then
-    IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, arms))
-  else if hasLpat(arms) then
-    IrLet(Cons(eIr, Nil), lowerLitArms(scope, letScope, arms))
+  let flatArms = expandAltArms(arms) in
+  if hasGuardPat(flatArms) then
+    IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
+  else if hasLpat(flatArms) then
+    IrLet(Cons(eIr, Nil), lowerLitArms(scope, letScope, flatArms))
   else
   let rec procArms = (armsLeft, irAcc, defAcc) =>
     match armsLeft {
@@ -1619,7 +1639,7 @@ def lowerMatch = (scope, scrutinee, arms) =>
             }
         }
     } in
-  let result = procArms(arms, Nil, None) in
+  let result = procArms(flatArms, Nil, None) in
   match result {
     case Pair(irArms, defOpt) =>
       match irArms {

@@ -1,0 +1,17 @@
+---
+name: v21-native-constructor-pattern-alternative
+---
+
+```scalascript
+case class A(value: Int)
+case class B(value: Int)
+
+def classify(value: Any): String =
+  value match
+    case A(_) | B(_) => "hit"
+    case _ => "miss"
+
+println(classify(A(1)))
+println(classify(B(2)))
+println(classify("other"))
+```

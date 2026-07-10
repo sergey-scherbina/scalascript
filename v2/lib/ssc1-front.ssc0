@@ -1360,10 +1360,28 @@ def guardablePat = (pat) =>
       match pdata { case Pair(ctorName, fields) => flatGuardFields(fields) }
     else false }
 
+-- Flat constructor alternatives: `case A(_) | B(_) => body`. The lowerer
+-- expands the shared body into ordered constructor arms; the scrutinee remains
+-- once-evaluated by ordinary match lowering.
+def parsePatAlternatives = (ts, acc) =>
+  if kindIs("op", ts) then
+    if #seq(tokVal(peek(ts)), "|") then
+      let rp = parsePat(advance(ts)) in
+      parsePatAlternatives(prT(rp), Cons(prV(rp), acc))
+    else pr(reverse(acc), ts)
+  else pr(reverse(acc), ts)
+
 def parseMatchArm = (toks) =>
   let rPat = parsePat(toks) in
-  let ts1 = skipTypeAnnot(prT(rPat)) in
-  let canGuard = guardablePat(prV(rPat)) in
+  let rAlts = parsePatAlternatives(prT(rPat), Cons(prV(rPat), Nil)) in
+  let pats = prV(rAlts) in
+  let pat0 = match pats {
+    case Cons(one, rest) =>
+      match rest { case Nil => one case _ => Pair("apat", pats) }
+    case Nil => Pair("wpat", "")
+  } in
+  let ts1 = skipTypeAnnot(prT(rAlts)) in
+  let canGuard = guardablePat(pat0) in
   let rGuard = if canGuard then
     if kwIs("if", ts1) then
       let rg = parseExpr(advance(ts1)) in pr(Some(prV(rg)), prT(rg))
@@ -1372,8 +1390,8 @@ def parseMatchArm = (toks) =>
   let ts2 = skipKind("=>", prT(rGuard)) in
   let re   = parseArmBody(ts2) in
   let pat = match prV(rGuard) {
-    case None => prV(rPat)
-    case Some(guard) => Pair("gpat", Pair(prV(rPat), guard))
+    case None => pat0
+    case Some(guard) => Pair("gpat", Pair(pat0, guard))
   } in
   pr(Pair(pat, prV(re)), prT(re))
 
