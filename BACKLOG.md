@@ -21,7 +21,9 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 
 - [ ] **tkv2-dev-loop** — watch-rebuild-reload for the web target (sub-second; React-HMR-class
       productivity is the bar, plain reload is acceptable).
-- [ ] **tkv2-tri-state** — loading/empty/error helper for fetched views (busi P2-10).
+- **tkv2-tri-state** — promoted to `SPRINT.md` (2026-07-10): loading/empty/error
+      helper for fetched views (busi P2-10), scoped as a pure `.ssc` helper in
+      `std.ui.state`.
 - **tkv2-raw-html** — ✓ Landed (2026-07-10, `bb5342f08`):
       `rawHtml(html: String): TkNode` now injects trusted raw markup through a
       toolkit-owned sentinel handled by the custom SPA runtime and SSR; `rawText`
