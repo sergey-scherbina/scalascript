@@ -450,7 +450,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             counts/sizes in stable TSV, wire CI, and update the spec/docs.
             Result: after deleting the full CLI, compatibility JARs/plugins,
             compiler, legacy frontend, `ssc`, and `ssc-tools`, the surviving
-            33-JAR / 7,052-class / 31,463,542-byte standard tier passes VM,
+            33-JAR / 7,052-class / 31,478,441-byte standard tier passes VM,
             direct ASM, every representative TI-5 provider, and `build-jvm`.
             Compiler commands are hidden, the tools tier is absent, and the
             recursive static/runtime scans find 0 forbidden references. TI-8.1
@@ -502,7 +502,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   string literals. The exact two-line index output and a
                   focused `mkString` fixture are byte-identical on assembled
                   VM/ASM; focused parity is 1/0/0/0 and affected conformance is
-                  8/8. Direct-ASM recursion and the JSON-owned UI row remain.
+                  8/8. `3153fb2db` then closed direct-ASM local recursion by
+                  returning self/mutual `LetRec` tail calls through a captured-
+                  frame-preserving bounce. Focused bytecode tests are 3/3 and
+                  the complete 13-row `recursion.ssc` output is identical on
+                  VM, in-memory ASM, and `build-jvm` at `-Xss256k`; focused
+                  parity is 1/0/0/0 and all release/conformance gates are green.
+                  Only the now-released JSON/UI arity row remains in this slice.
             - [ ] **TI-8.2b frontend host errors:** eliminate the
                   `dsl-mini-language.ssc` `Pair/2` matcher crash and reconcile
                   the missing `std/ui/table.ssc` example import. A failed row

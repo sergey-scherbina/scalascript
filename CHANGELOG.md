@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — direct ASM trampolines local self and mutual recursion
+
+Compiled `LetRec` groups now retain generated peer identity and return tail
+calls through a bounce whose frame preserves captured values plus the tied
+closure group. The full `recursion.ssc` example produces all 13 rows identically
+on VM, in-memory ASM, and deterministic `build-jvm` at `-Xss256k`. The current
+compiler-free artifact baseline is 24,769,060 bytes with SHA-256
+`c6791b629f03b1966a039eed3f482a3cb4ba8ba433abb7b9f8cbe1dfe416bfde`.
+
 ## 2026-07-10 — public standard JSON now uses the self-hosted codec
 
 `std.json` strict/tolerant parsing, total navigation, exact decimal handling,
@@ -48,8 +57,8 @@ The release gate now copies an installed distribution, removes its full CLI,
 compatibility JAR/plugin/compiler trees, legacy frontend, `ssc`, and
 `ssc-tools`, and runs only the surviving `ssc-standard` files. VM, direct ASM,
 imports/argv, FS/OS, JSON, HTTP, SQL, UI, State, and deterministic `build-jvm`
-all pass with compiler commands hidden. The stable baseline is 33 JARs, 7,052
-classes, 31,463,542 bytes, and zero compiler/Scalameta/v1 forbidden references.
+all pass with compiler commands hidden. The current baseline is 33 JARs, 7,052
+classes, 31,478,441 bytes, and zero compiler/Scalameta/v1 forbidden references.
 
 ## 2026-07-10 — compatibility tooling gets an explicit tier launcher
 
