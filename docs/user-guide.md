@@ -339,6 +339,20 @@ arbitrary unsupported commands do not. In a slim installation the same request
 fails before execution and names `ssc-tools` plus the full-distribution remedy.
 Self-install creates both tier launchers alongside the migration-default `ssc`.
 
+CI proves that this is a physical boundary, not only a launcher convention:
+
+```bash
+tests/e2e/v21-slim-distribution-gate.sh \
+  --report target/v21-slim-distribution.tsv
+```
+
+The gate copies the installation, deletes its compatibility JARs, compiler,
+legacy frontend, full CLI, `ssc`, and `ssc-tools`, then runs VM/direct-ASM,
+imports and argv, FS/OS, JSON, HTTP, SQL, UI, State, and `build-jvm` using only
+`ssc-standard`. It also hides `scala-cli`, `scalac`, and `javac`, rejects
+compiler/Scalameta/v1 references recursively, and verifies that a requested
+compatibility route fails with the tools-tier remedy instead of falling back.
+
 `ssc build-jvm` runs the self-hosted frontend and native checker, emits
 `ssc.gen.Entry` directly through ASM, and writes a deterministic self-contained
 JAR. It does not generate Scala/Java source and does not invoke Scala CLI,

@@ -53,7 +53,10 @@ $ ssc watch hello.ssc
 
 ## Quick Start
 
-**Requirements:** [scala-cli](https://scala-cli.virtuslab.org) · [Node.js](https://nodejs.org) (for JS backend) · [sbt](https://www.scala-sbt.org) (optional, for library use)
+**Standard 2.1 runtime requirement:** Java 21+. Scala CLI/scalac/javac are not
+required by `ssc-standard`; Scala CLI is an optional tools-tier dependency.
+[Node.js](https://nodejs.org) is needed for the JS backend, and
+[sbt](https://www.scala-sbt.org) for contributor builds.
 
 ```bash
 git clone https://github.com/sergey-scherbina/scalascript
@@ -95,6 +98,10 @@ bin/sscc examples/hello.ssc
 # Build a deterministic self-contained JAR directly through native CoreIR + ASM
 bin/ssc-standard build-jvm examples/hello.ssc -o hello.jar
 java -jar hello.jar
+
+# Contributor/release check: remove the tools tier and prove the remainder works
+tests/e2e/v21-slim-distribution-gate.sh \
+  --report target/v21-slim-distribution.tsv
 
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
 # see docs/rust-backend.md for the capability surface).
