@@ -1,5 +1,36 @@
 # Bug tracker
 
+## v21-standard-h2-java-compiler-edge — slim gate misses compiler classes inside dependency JARs
+
+**Status:** open (2026-07-10); reproduced against the TI-7 deletion-gate input
+`65773c2fe`.
+
+- **Found by:** codex while implementing the TI-8 JRE-shaped module gate.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `jdeps --multi-release base --ignore-missing-deps -verbose:class
+  bin/lib/standard/jars/h2-2.2.224.jar`. The staged standard H2 JAR reports
+  `org.h2.util.SourceCompiler -> javax.tools.*` and a `java.compiler` module
+  dependency even though `tests/e2e/v21-slim-distribution-gate.sh` reports zero
+  forbidden references.
+- **Root cause:** the TI-7 static gate starts recursive `jdeps` only from the
+  class-filtered standard CLI JAR. Service-loaded providers and their JDBC
+  drivers are not statically reachable from that entry, so dependency JARs are
+  not scanned as roots. `build-jvm` already excludes H2's optional source
+  compiler classes, but `installBin` copies the complete H2 JAR into the
+  standard tier.
+- **Expected:** every standard-tier dependency JAR is a scan root and the
+  complete staged tier has no class/reference/module edge to `javax.tools`,
+  `java.compiler`, or `jdk.compiler`; normal H2 SQL remains functional on a
+  module-limited JRE-shaped runtime.
+- **Fix direction:** stage a deterministic H2 runtime-only JAR in
+  `lib/standard/jars` with the optional `org/h2/util/SourceCompiler*` family
+  removed, retain the unmodified driver only in the tools tier, and strengthen
+  the slim/JRE gates to inspect every standard dependency root.
+- **Done-when:** full standard-tier `jdeps` reports no compiler module, the
+  compiler modules are unresolvable under `java --limit-modules`, native H2 SQL
+  passes on VM/direct ASM and as a generated JAR, and affected conformance is
+  green.
+
 ## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
 
 **Status:** fixed (2026-07-10, `a0d45ad44`); waiting for busi's rebuilt
