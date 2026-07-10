@@ -1333,3 +1333,31 @@ identical pass/FAIL set (diff old-vs-new output before landing).
 - [x] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
       unchanged (keyed jar in a stable cache dir). ~2-3 min/iteration. VERIFY: rebuilds
       on any src change, reuses otherwise; stale-cache guard.
+
+## K62.13 — native enum support (parser-axis) — 2026-07-10
+
+Measured native-frontend coverage (`-Xss512m`): **stage1 parse+lower = 192/195** (parser
+axis essentially closed); the real gap is stage2 execution. Genuine frontend blockers:
+`_err` fallback (13 files: annotations/`derives`), **enum `case` (4 files)**, dsl no-arm.
+Enum is the memory-flagged ceiling and unblocks the `=>`/`match` layout openers (they were
+net-negative ONLY because enum cases are skipped → `North` unbound). Slices:
+
+- [x] E1 — front: parse `enum E[T](p) <: S:` / `enum E { … }`, then `case X` (nullary) and
+      `case X(p1: T, p2: T)` (parametrized, multi-field) → `("enum", Pair(name,
+      [Pair(caseName, params)…]))`. Layout `;` between case lines; loop skips semis, reads
+      while next kw is `case`, stops at first non-case. Braced form skips to matching `}`.
+- [x] E2 — lower: expand the `enum` node in the stmt→def pass. Nullary case → `IrDef(name,
+      IrCtor(name, Nil))` (VALUE — bare `North` → IrGlobal → ctor value). Parametrized case →
+      `lowerCaseCls` (ctor fn + `_sel_` accessors).
+- [x] E2b — front: add `match` to `isLayoutOpener` so brace-less `def f = e match`⏎<arms>
+      opens a layout block that closes at dedent — the arms no longer swallow the following
+      top-level statements (a PRE-EXISTING bug this enum work exposed; braced `match {…}`
+      unaffected). This is the last `=>`/`match` opener the spec flagged; enum support made it
+      net-positive (was net-negative only because enum cases were skipped → `North` unbound).
+- [x] E3 — lower: extend `collectCaseFields` + `collectCaseClassOrder` to walk `enum` cases
+      (named-args reorder + accessor-routing parity with case classes).
+- [~] E4 — verify: enums.ssc Direction block runs (`North -> South …`), was fully broken.
+      Fast conformance 406/0 (parity w/ origin/main), full corpus stage1 192/195 = zero parse
+      regressions. Shape/Tree still blocked on stdlib `math` + literal-pattern `case 0` (both
+      PRE-EXISTING, non-parser gaps).
+- [ ] E5 (stretch) — subtypesOf registration so `case _: Shape` type-tests resolve on enums.
