@@ -1,7 +1,7 @@
 feature/v21-self-hosted-core-parsers 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-10T16:27:29Z
-status: not-started
-done-so-far:
-next: create isolated worktree; write the self-hosted core parser spec and queue every implementation slice before code
+heartbeat: 2026-07-10T16:27:57Z
+status: in-progress
+done-so-far: claimed scope and created isolated worktree /Users/sergiy/work/my/scalascript-wt-v21-self-hosted-core-parsers
+next: write the self-hosted core parser spec and queue every implementation slice before code
 scope: additive self-hosted parser spec and pure parser modules; avoid the live v21 TI-7 slim-distribution owner's files until rebase/coordination
