@@ -120,6 +120,16 @@ exec java -Dssc.lib.path="$_SSC_ROOT" \
 STANDARD_LAUNCHER
 chmod +x "$BIN/ssc-standard"
 
+cat > "$BIN/ssc-tools" <<'TOOLS_LAUNCHER'
+#!/usr/bin/env bash
+_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SSC_ROOT="$(dirname "$_SSC_BIN")"
+exec java -Dssc.lib.path="$_SSC_ROOT" \
+  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
+  scalascript.cli.ssc "$@"
+TOOLS_LAUNCHER
+chmod +x "$BIN/ssc-tools"
+
 for launcher in "$ROOT"/v1/tools/scripts/launchers/*; do
     name="$(basename "$launcher")"
     ln -sf "../v1/tools/scripts/launchers/$name" "$BIN/$name"

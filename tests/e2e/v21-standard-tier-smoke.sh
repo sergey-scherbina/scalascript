@@ -44,5 +44,7 @@ grep -F 'requires the optional ScalaScript tools/compatibility tier' "$sandbox/t
 
 # The pre-cutover compatibility launcher remains green until TI-8.
 [[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc" run "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
+[[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc-tools" run --v1 "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
+[[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --v1 "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 
 echo 'PASS v21-standard-tier-smoke'

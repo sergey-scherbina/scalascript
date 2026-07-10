@@ -1323,6 +1323,16 @@ lazy val cli = project
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin)
       standardLauncher.setExecutable(true, false)
+      val toolsLauncher = root / "bin" / "ssc-tools"
+      IO.write(toolsLauncher,
+        """#!/usr/bin/env bash
+          |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          |_SSC_ROOT="$(dirname "$_SSC_BIN")"
+          |exec java -Dssc.lib.path="$_SSC_ROOT" \
+          |  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
+          |  scalascript.cli.ssc "$@"
+          |""".stripMargin)
+      toolsLauncher.setExecutable(true, false)
       log.info(s"bin/lib/ssc.jar  (${appJar.length / 1024} KB)")
       // compiler-driver JAR → lib/compiler/jars/
       val driverJar = (compilerDriver / Compile / packageBin).value

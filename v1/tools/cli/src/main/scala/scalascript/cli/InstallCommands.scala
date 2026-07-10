@@ -90,6 +90,27 @@ def selfInstallCommand(args: List[String]): Unit =
     launcher.toNIO,
     java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"))
   println(s"  ✓  Launcher  → $launcher")
+  val standardLauncher = destBin / "ssc-standard"
+  os.write.over(standardLauncher,
+    s"""#!/usr/bin/env bash
+       |exec java -Dssc.lib.path="$destRoot" \\
+       |  -cp "$destRoot/bin/lib/standard/jars/*:$destRoot/bin/lib/standard/ssc.jar" \\
+       |  scalascript.cli.StandardMain "$$@"
+       |""".stripMargin)
+  java.nio.file.Files.setPosixFilePermissions(
+    standardLauncher.toNIO,
+    java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"))
+  val toolsLauncher = destBin / "ssc-tools"
+  os.write.over(toolsLauncher,
+    s"""#!/usr/bin/env bash
+       |exec java -Dssc.lib.path="$destRoot" \\
+       |  -cp "$destRoot/bin/lib/jars/*:$destRoot/bin/lib/ssc.jar" \\
+       |  scalascript.cli.ssc "$$@"
+       |""".stripMargin)
+  java.nio.file.Files.setPosixFilePermissions(
+    toolsLauncher.toNIO,
+    java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"))
+  println(s"  ✓  Tier launchers → $standardLauncher, $toolsLauncher")
   println()
 
   val pathDirs = sys.env.getOrElse("PATH", "").split(':').toSet

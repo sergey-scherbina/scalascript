@@ -34,11 +34,11 @@ object StandardMain:
       else args.take(separator) -> args.drop(separator + 1)
     var bytecode = false
     val files = collection.mutable.ListBuffer.empty[String]
+    if beforeArgs.exists(arg => arg == "--v1" || arg == "--compat-frontend") then
+      delegateTools("run" :: args)
     beforeArgs.foreach {
       case "--native" | "--v2" => ()
       case "--bytecode"         => bytecode = true
-      case "--v1" | "--compat-frontend" =>
-        toolsRequired("run with the compatibility frontend")
       case flag if flag.startsWith("-") =>
         throw new IllegalArgumentException(s"unknown standard run option: $flag")
       case file => files += file
@@ -59,6 +59,17 @@ object StandardMain:
     throw new IllegalArgumentException(
       s"'$surface' requires the optional ScalaScript tools/compatibility tier; " +
       s"run $root/bin/ssc-tools or install the full distribution")
+
+  private def delegateTools(args: List[String]): Nothing =
+    val root = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
+      toolsRequired("run with the compatibility frontend")
+    }
+    val launcher = new java.io.File(root, "bin/ssc-tools")
+    if !launcher.isFile || !launcher.canExecute then
+      toolsRequired("run with the compatibility frontend")
+    val process = new ProcessBuilder((launcher.getPath :: args)*).inheritIO().start()
+    System.exit(process.waitFor())
+    throw new IllegalStateException("unreachable after tools process exit")
 
   private def printHelp(): Unit =
     println(
