@@ -36,18 +36,18 @@ extract_block() {
 }
 
 # Check if src defines def main
-has_main() { echo "$1" | grep -q 'def main'; }
+has_main() { printf '%s\n' "$1" | grep -q 'def main'; }
 
 # Check if workload takes a Long seed argument
-needs_seed() { echo "$1" | grep -qE 'def workload\s*\(\s*seed\s*:'; }
+needs_seed() { printf '%s\n' "$1" | grep -qE 'def workload\s*\(\s*seed\s*:'; }
 
 # Check if workload returns Unit (side-effecting, no println wrapper)
-returns_unit() { echo "$1" | grep -qE 'def workload\(\)\s*:\s*Unit'; }
+returns_unit() { printf '%s\n' "$1" | grep -qE 'def workload\(\)\s*:\s*Unit'; }
 
 # Compile + run one program; print output
 run_prog() {
   local src="$1"
-  echo "$src" \
+  printf '%s\n' "$src" \
     | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null \
     | java -jar "$JAR" run-ir /dev/stdin 2>/dev/null
 }
@@ -88,7 +88,7 @@ bench_prog() {
 
   # Compile to IR once
   local ir
-  ir=$(echo "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null) || {
+  ir=$(printf '%s\n' "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null) || {
     echo "SKIP $name (compile error)"
     return
   }
@@ -108,7 +108,7 @@ print((t1-t0)*1000)
   done)
 
   local med
-  med=$(echo "$times" | median)
+  med=$(printf '%s\n' "$times" | median)
   printf "ok  %-30s %7.2f ms\n" "$name" "$med"
 }
 
@@ -121,7 +121,7 @@ for sscfile in "$CORPUS_DIR"/*.ssc; do
   prog="$(basename "$sscfile" .ssc)"
 
   # Apply optional filter
-  if [ -n "$PATTERN" ] && ! echo "$prog" | grep -q "$PATTERN"; then
+  if [ -n "$PATTERN" ] && ! printf '%s\n' "$prog" | grep -q "$PATTERN"; then
     continue
   fi
 
@@ -133,7 +133,7 @@ for sscfile in "$CORPUS_DIR"/*.ssc; do
   fi
 
   # Convert Scala 3 indentation to brace style
-  src=$(echo "$src" | python3 "$INDENT_PY" 2>/dev/null) || {
+  src=$(printf '%s\n' "$src" | python3 "$INDENT_PY" 2>/dev/null) || {
     printf "| %-30s | %-8s |\n" "$prog" "SKIP(indent)"
     continue
   }
@@ -153,7 +153,7 @@ def main(): Unit = { val _ = workload(); () }"
   fi
 
   # Compile to IR (also acts as the ssc1c compatibility check)
-  ir=$(echo "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null) || true
+  ir=$(printf '%s\n' "$src" | java -jar "$JAR" run bin/ssc1c.ssc0 /dev/stdin 2>/dev/null) || true
   if [ -z "$ir" ]; then
     printf "| %-30s | %-8s |\n" "$prog" "SKIP(ssc1c)"
     continue
@@ -161,7 +161,7 @@ def main(): Unit = { val _ = workload(); () }"
 
   # bench-ir: one JVM, in-process warmup + reps, prints median ms/op
   # (|| med="" handles programs whose IR has no main/workload — set -e would abort otherwise)
-  med=$(echo "$ir" | java -jar "$JAR" bench-ir /dev/stdin --warmup "$WARMUP" --reps "$REPS" 2>/dev/null) || med=""
+  med=$(printf '%s\n' "$ir" | java -jar "$JAR" bench-ir /dev/stdin --warmup "$WARMUP" --reps "$REPS" 2>/dev/null) || med=""
   if [ -z "$med" ]; then
     printf "| %-30s | %-8s |\n" "$prog" "SKIP(no-main)"
   else

@@ -1,5 +1,27 @@
 # Bug tracker
 
+## v2-jvm-backend-echo-macos — shell `echo "$text"` can corrupt generated/source text on macOS
+
+**Status:** open — fix in progress in `feature/v2-jvm-backend-echo-macos`.
+
+- **Found by:** codex while working the BACKLOG
+  `v2-jvm-backend-echo-macos` harness gotcha.
+- **Repro class:** any shell helper that stores generated/source text containing
+  backslash escapes such as `split("\n", -1)` in a variable and later pipes it
+  with `echo "$var"` can corrupt the text on shells whose `echo` interprets
+  `\n`. The historical symptom was JVM/Rust generated source becoming
+  `split("` + real newline + `", -1)` before scalac/rustc.
+- **Observed current surface:** `v2/backend/check.sh` already uses files and
+  redirects for generated backend sources and carries the macOS warning, but
+  `v2/scripts/bench.sh` still piped source/IR variables with `echo "$src"` /
+  `echo "$ir"`, and `v2/ssc1` piped generated IR with `echo "$IR"`.
+- **Expected:** generated/source text should be written to stdin with `printf`
+  or direct file redirects so backslash escapes stay byte-preserving.
+- **Root cause:** shell `echo` is not a byte-preserving serialization primitive
+  for arbitrary generated/source text.
+- **Fix:** replace live text-to-stdin `echo "$..."` uses in `v2/scripts/bench.sh`
+  and `v2/ssc1` with `printf '%s\n'`.
+
 ## ssr-forsignal-duplicate-attrs - SSR `ForSignal` fallback duplicated static attrs
 
 **Status:** fixed (2026-07-10, source fix `bb5342f08`; regression

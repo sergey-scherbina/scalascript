@@ -4,6 +4,6 @@
 # Pipeline: extract scalascript blocks → compile → run on v2 VM
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-# -J-Xss512m: large .ssc programs recurse deeply in the VM's compile stage.
-IR=$(command scala-cli run "$DIR/src" --server=false --quiet -J-Xss512m -- run "$DIR/bin/ssc1-run.ssc0" "$@")
-echo "$IR" | command scala-cli run "$DIR/src" --server=false --quiet -J-Xss512m -- run-ir /dev/stdin
+# --java-opt=-Xss512m: large .ssc programs recurse deeply in the VM's compile stage.
+IR=$(command scala-cli run "$DIR/src" --server=false --quiet --java-opt=-Xss512m -- run "$DIR/bin/ssc1-run.ssc0" "$@")
+printf '%s\n' "$IR" | command scala-cli run "$DIR/src" --server=false --quiet --java-opt=-Xss512m -- run-ir /dev/stdin

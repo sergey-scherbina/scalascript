@@ -5,4 +5,4 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 # -Xss is large: the self-compiler uses deep non-tail recursion over its input source.
-exec command scala-cli run "$DIR/src" --server=false --quiet -J-Xss512m -- run "$DIR/bin/ssc0c.ssc0" "$@"
+exec command scala-cli run "$DIR/src" --server=false --quiet --java-opt=-Xss512m -- run "$DIR/bin/ssc0c.ssc0" "$@"
