@@ -57,6 +57,7 @@ state_expected=$'17\n20\n2\n101\n101\n2'
 interpolation_expected=$'Squares: 1, 4, 9, 16, 25\nWrapped: 1-4-9-16-25!'
 [[ $(run_native "$FIXTURES/interpolation-expression.ssc") == "$interpolation_expected" ]]
 [[ $(run_native "$FIXTURES/multiline-function-param.ssc") == '[typed]' ]]
+[[ $(run_native "$FIXTURES/nested-tuple-pattern.ssc") == $'left\nleft+right' ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -65,6 +66,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$FIXTURES/interpolation-expression.ssc") == "$interpolation_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/multiline-function-param.ssc") == '[typed]' ]]
+[[ $(run_native --bytecode "$FIXTURES/nested-tuple-pattern.ssc") == $'left\nleft+right' ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -89,11 +91,13 @@ grep -F 'native HTTP server unavailable: useGzip requires the standard server-ho
   "$sandbox/http-server.err" >/dev/null
 
 set +e
-run_native "$ROOT/examples/imports.ssc" >"$sandbox/sentinel.out" 2>"$sandbox/sentinel.err"
-sentinel_rc=$?
+run_native "$ROOT/examples/imports.ssc" >"$sandbox/imports.out" 2>"$sandbox/imports.err"
+imports_rc=$?
 set -e
-[[ $sentinel_rc -ne 0 ]]
-grep -F 'parser sentinel _err' "$sandbox/sentinel.err" >/dev/null
+[[ $imports_rc -ne 0 ]]
+# Multiline-lambda layout now parses this document completely; the remaining
+# standard gap is the explicit math provider, not a parser sentinel/host crash.
+grep -F 'unbound global: math' "$sandbox/imports.err" >/dev/null
 
 set +e
 run_native "$ROOT/examples/components-demo.ssc" >"$sandbox/components.out" 2>"$sandbox/components.err"

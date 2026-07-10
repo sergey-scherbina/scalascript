@@ -69,7 +69,7 @@ route("PUT", "/api/graph/rdf") { req =>
 [vstack, hstack, divider](std/ui/layout.ssc)
 [heading, text, code](std/ui/typography.ssc)
 [button, textInput](std/ui/form.ssc)
-[table, tableHeader, tableRow, tableCell](std/ui/table.ssc)
+[tableCol, tableRow, table](std/ui/data.ssc)
 
 ## Client — typed API clients
 
@@ -92,11 +92,11 @@ val triples      = fetchUrlSignal("triples", "/api/graph/triples", tick)
 
 ```scala @side=client
 val tripleRow = (t: Triple) =>
-  tableRow([
-    tableCell(code(t.subject.toString)),
-    tableCell(code(t.predicate.toString)),
-    tableCell(code(t.`object`.toString)),
-  ])
+  tableRow(
+    code(t.subject.toString),
+    code(t.predicate.toString),
+    code(t.`object`.toString),
+  )
 
 val view = lower(defaultTheme(vstack([
   heading("RDF Knowledge Graph", 1),
@@ -104,7 +104,11 @@ val view = lower(defaultTheme(vstack([
   divider(),
   heading("Triples", 2),
   table(
-    tableHeader(["Subject", "Predicate", "Object"]),
+    [
+      tableCol("Subject", "subject"),
+      tableCol("Predicate", "predicate"),
+      tableCol("Object", "object"),
+    ],
     triples.value.map(tripleRow),
   ),
   divider(),

@@ -1,0 +1,21 @@
+---
+name: v21-native-nested-tuple-pattern
+---
+
+# Nested tuple pattern
+
+```scalascript
+def first(pair: Any): String =
+  val pick = value =>
+    val (left, ignored) = value
+    left
+  pick(pair)
+
+def render(value: Any): String = value match {
+    case Some((left, '+', right)) => left ++ "+" ++ right
+    case None => "none"
+  }
+
+println(first(("left", "ignored")))
+println(render(Some(("left", '+', "right"))))
+```

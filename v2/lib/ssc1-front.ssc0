@@ -1173,6 +1173,24 @@ def goSubPats = (ts0) =>
     else pr(Pair(reverse(Cons(prV(rp), acc)), cnt2), tsA) in
   go(ts0, Nil, 0)
 
+-- Tuple expressions lower to right-nested Pair constructors:
+-- `(a, b, c)` = Pair(a, Pair(b, c)). Pattern tuples must use the identical
+-- shape; a synthetic Tuple3 arm can never match the runtime Pair/2 value.
+def tuplePat = (subs) =>
+  match subs {
+    case Nil => Pair("wpat", "")
+    case Cons(first, rest) =>
+      match rest {
+        case Nil => first
+        case Cons(second, tail) =>
+          match tail {
+            case Nil => Pair("cpat", Pair("Pair", Cons(first, Cons(second, Nil))))
+            case Cons(third, more) =>
+              Pair("cpat", Pair("Pair", Cons(first, Cons(tuplePat(rest), Nil))))
+          }
+      }
+  }
+
 def parsePat = (toks) =>
   let t  = peek(toks) in
   let k  = tokKind(t) in
@@ -1198,9 +1216,7 @@ def parsePat = (toks) =>
   else if #seq(k, "(") then
     let rSub = goSubPats(advance(toks)) in
     match prV(rSub) {
-      case Pair(subs, n) =>
-        let ctor = if #i.eq(n, 2) then "Pair" else #sconcat("Tuple", #i->str(n)) in
-        pr(Pair("cpat", Pair(ctor, subs)), skipKind(")", prT(rSub)))
+      case Pair(subs, n) => pr(tuplePat(subs), skipKind(")", prT(rSub)))
     }
   else if #seq(k, "int") then pr(Pair("lpat", Pair("int", v)), advance(toks))
   else if #seq(k, "str") then pr(Pair("lpat", Pair("str", v)), advance(toks))
@@ -1587,7 +1603,7 @@ def parseStmts = (toks) =>
 
 -- ── K62.6c-indent: layout (offside → virtual braces) ─────────────────────────
 -- Convert NL <indent> tokens into virtual { ; } for brace-less indented blocks.
--- A layout block ("L") opens after an opener token (= then else do yield) that is
+-- A layout block ("L") opens after an opener token (= => then else do yield) that is
 -- immediately followed by a newline; its statements sit at the block's indent.
 -- Explicit braces are tracked as "B" so dedent/close stay correctly nested. NLs
 -- outside any L block (top level, or directly inside a `{}`) are consumed — that
@@ -1595,6 +1611,7 @@ def parseStmts = (toks) =>
 def isLayoutOpener = (t) =>
   match t { case Pair(k, v) =>
     if #seq(k, "=") then true
+    else if #seq(k, "=>") then true
     else if #seq(k, "kw") then
       (if #seq(v, "then") then true else if #seq(v, "else") then true
        else if #seq(v, "do") then true else if #seq(v, "yield") then true
