@@ -1122,7 +1122,10 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, ">=") then
                   IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(rv, Cons(lv, Nil))))
                 else
-                  IrPrim("i.add", Cons(lv, Cons(rv, Nil)))
+                  -- User-defined symbolic operator. Receiver-aware extension
+                  -- dispatch is a later slice; an explicit global call keeps
+                  -- this path honest instead of silently becoming Int addition.
+                  IrApp(IrGlobal(op), Cons(lv, Cons(rv, Nil)))
             }
         }
       else if #seq(tag, "pre") then

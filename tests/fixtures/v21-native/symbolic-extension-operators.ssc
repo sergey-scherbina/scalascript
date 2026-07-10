@@ -1,0 +1,11 @@
+---
+name: v21-native-symbolic-extension-operators
+---
+
+```scalascript
+extension [A](value: A)
+  def ~>(next: A): A = next
+  def <~(next: A): A = value
+
+println("symbolic-operators-ok")
+```
