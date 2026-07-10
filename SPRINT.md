@@ -981,10 +981,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `for ... do` return Unit and update the correct
                               local/top-level cell. Add a focused VM/direct-ASM
                               fixture covering both positions, then rerun
-                              `dsl-mini-language.ssc`, `extensions.ssc`, and the
-                              full readiness reports. These are the final two
-                              standard parser-gap rows; extension receiver/
-                              dispatch runtime semantics remain TI-8.2d work.
+                              `extensions.ssc` and the full readiness reports.
+                              `dsl-mini-language.ssc` also contains assignment,
+                              but its remaining sentinels are independently
+                              caused by a parenthesized condition continuation
+                              and tuple-cons pattern. Extension receiver/dispatch
+                              runtime semantics remain TI-8.2d work.
+                        - [ ] **TI-8.2c2m final mini-language shapes:** parse an
+                              `if` condition whose leading parenthesized term is
+                              followed by `&&`/ordinary infix continuation, and
+                              parse `(name, pass) :: rest` as a cons pattern
+                              whose head is the existing right-nested tuple
+                              pattern. Add focused VM/direct-ASM regressions and
+                              rerun `dsl-mini-language.ssc` plus every readiness
+                              gate. This is the final standard parser-gap row.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
