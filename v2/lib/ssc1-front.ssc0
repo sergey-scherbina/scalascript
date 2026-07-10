@@ -1015,6 +1015,12 @@ def parseDef = (toks) =>
 -- with no lambda header stays a 0-arity thunk (runStream { … } style).
 -- toks = tokens AFTER the '{'. Returns pr(argExpr, toksAfterBlock).
 def parseBlockArg = (toks) =>
+  -- K62.9: partial-function literal `{ case P => B; … }` (the `{` already consumed) →
+  -- `__pf => __pf match { arms }`. parseMatchArms consumes the closing `}`.
+  if kwIs("case", toks) then
+    let rArms = parseMatchArms(toks) in
+    pr(mkLam(Cons("__pf", Nil), mkMatch(mkVar("__pf"), prV(rArms))), prT(rArms))
+  else
   let single =
     if kindIs("id", toks) then
       let name = tokVal(peek(toks)) in
@@ -1124,6 +1130,23 @@ def parsePat = (toks) =>
     else pr(Pair("vpat", v), ts2)
   else if #seq(k, "kw") then
     pr(Pair("cpat", Pair(v, Nil)), advance(toks))
+  else if #seq(k, "(") then
+    -- K62.9: tuple pattern (a, b, …) → cpat("Pair"/"TupleN", varnames). Binder names
+    -- only (ssc0 patterns are shallow — no nested ctor patterns).
+    let rec goVars = (ts, acc, cnt) =>
+      let vt = peek(ts) in
+      let vk = tokKind(vt) in
+      let nm = if #seq(vk, "id") then tokVal(vt) else if #seq(vk, "uid") then tokVal(vt) else "_" in
+      let ts2 = skipTypeAnnot(advance(ts)) in
+      let cnt2 = #i.add(cnt, 1) in
+      if kindIs(",", ts2) then goVars(advance(ts2), Cons(nm, acc), cnt2)
+      else pr(Pair(reverse(Cons(nm, acc)), cnt2), skipKind(")", ts2)) in
+    let r = goVars(advance(toks), Nil, 0) in
+    match prV(r) {
+      case Pair(vars, n) =>
+        let ctor = if #i.eq(n, 2) then "Pair" else #sconcat("Tuple", #i->str(n)) in
+        pr(Pair("cpat", Pair(ctor, vars)), prT(r))
+    }
   else pr(Pair("wpat", ""), advance(toks))
 
 -- parseMatchArm: `case Pat => expr`  (keyword `case` already consumed)
@@ -1448,7 +1471,8 @@ def isLayoutOpener = (t) =>
     if #seq(k, "=") then true
     else if #seq(k, "kw") then
       (if #seq(v, "then") then true else if #seq(v, "else") then true
-       else if #seq(v, "do") then true else if #seq(v, "yield") then true else false)
+       else if #seq(v, "do") then true else if #seq(v, "yield") then true
+       else false)
     else false }
 
 -- close L blocks whose indent > v (stop at a B or a shallow-enough L)

@@ -379,3 +379,45 @@ Result: the **leaf** std modules parse clean (0 `_err`): `json`, `ui/primitives`
 3. Nearly every content/ui/mapreduce corpus file imports ≥1 code-heavy module, so the
    driver alone (with only leaf modules clean) unblocks ~1 file (`ui-typed-json`, which
    imports only `json.ssc`). The desync work in (1) gates the bulk.
+
+---
+
+## K62.9 — 2026-07-10 (partial functions + tuple patterns; layout for brace-less match investigated)
+
+**Landed (safe, corpus 40 → 41, ssc1-front only):**
+- **Partial-function literals `{ case P => B; … }`** → `__pf => __pf match { arms }`
+  (`parseBlockArg`). Common in `xs.map { case (k, v) => … }`; was a pre-existing gap
+  (both baseline and native produced `_err`).
+- **Tuple patterns `case (a, b, …) =>`** → `cpat("Pair"/"TupleN", varnames)` in
+  `parsePat` (binder names only — ssc0 patterns are shallow).
+
+**Investigated but NOT landed (regresses the corpus — needs the block below first):**
+The code-heavy std modules (`ui/{content,theme,lower}`, `agent`, `mapreduce/*`) fail on
+**brace-less `match` with multi-statement arm bodies** — the module-loading critical
+path. Two layout changes make it work in isolation but regress the corpus:
+- `=>` and `match` as `isLayoutOpener`s (arm/lambda bodies get their own `L` block).
+- **bracket-aware layout** (`go` tracks `(`/`[` depth; suppresses the offside rule
+  inside brackets, reset per `{…}` via a pd stored in the `B` frame) — required so a
+  lambda `map(x =>\n body)` doesn't open an `L` block that `)` cannot close.
+With both, `ui/lower.ssc` goes 37 → 7 `_err` and multi-statement match arms / block
+lambdas parse. BUT the corpus drops 40 → 37: `dsl-mini-language` and
+`distributed-dataset-wire-protocol` flip OK → RUNERR. Root cause: they use **nested
+constructor patterns** ssc0 cannot represent — `Some((l, '+', r))` (ctor over a tuple
+with a **literal** `'+'`), `Some(TJsonValue.Num(value))` (ctor over ctor). In baseline
+these files had 36 / 9 `_err` (the WHOLE nested match failed to parse) yet ran "OK"
+because the dead `_err` was never reached; the openers parse the match FURTHER (16 / 11
+`_err`) so the residual nested-pattern `_err` now lands in reached code and crashes.
+Partial-parse is worse than no-parse for such files.
+
+**Precise remaining path to land the openers (and unblock code-heavy modules):**
+1. **Nested constructor patterns** — parser produces a nested pattern; `lowerMatch`
+   emits `case Ctor(__t) => __t match { case <inner> => body }` with correct de Bruijn
+   scoping. Recovers `distributed-…` (ctor-over-ctor).
+2. **Literal patterns inside tuples + guards** — `case (l, '+', r) =>` needs the `'+'`
+   as a literal match (guard `__t._2 == '+'`), not a binder. Recovers `dsl-mini-language`.
+3. Only then do the `=>`/`match` openers + bracket-aware land corpus-neutral (≥41).
+4. Beyond that, code-heavy modules ALSO need **named arguments** `f(field = value)`
+   (theme.ssc: 78 `,` + 18 `=` triggers from `Theme(colors = …, spacing = …)`) and
+   **multi-line case-class defs** before they reach 0 `_err`. So module-loading remains
+   a multi-step frontend effort; each construct is real and landed incrementally to keep
+   the corpus green.
