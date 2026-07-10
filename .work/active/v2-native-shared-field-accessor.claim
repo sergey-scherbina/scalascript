@@ -1,0 +1,6 @@
+feature/v2-native-shared-field 2026-07-10T19:46:15Z
+agent: claude-code (opus)
+heartbeat: 2026-07-10T19:46:15Z
+status: in-progress
+done-so-far: K62.13 (enum+match-opener) + K62.14 (literal patterns) landed. Diagnosed field-index-registry bug: two case classes sharing a field name (Person+Student both have 'name') each generate IrDef("_sel_name",…) in lowerCaseCls; the second OVERWRITES the first → .name on the earlier class → "no arm for <Ctor>/N". ~7 corpus files affected (data-types, dsl-calc/json/mini-parser, graph-codecs, lenses, sse-typed-client).
+next: generate ONE merged _sel_<field> per unique field name (arms for every ctor that has it, each returning its own index) from caseFieldOrderCell (already holds all case classes + enum cases). Remove per-class mkAcc from lowerCaseCls (keep ctor def); add buildMergedAccessors in lowerProg. Touches v2/lib/ssc1-lower.ssc0 only. Verify: Person.name+Student.name both work; conformance 640/640; corpus stage1 192/195.
