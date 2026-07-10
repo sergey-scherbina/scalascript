@@ -124,7 +124,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       malformed, Unicode/surrogate, numeric, nesting, trailing-input, and total
       navigation cases and passes byte-for-byte; JSON conformance is 3/3 and
       `v2-*` conformance is 8/8.
-- [ ] **v21-shc-json-cutover** — switch `std.json` and HTTP JSON reuse to the
+- [x] **v21-shc-json-cutover — DONE 2026-07-10 (`ed945466d`):** switch `std.json` and HTTP JSON reuse to the
       self-hosted codec, remove ujson/upickle from the default standard JSON
       graph, and keep any accelerated codec only as an explicit optional plugin.
       Gate with runtime class-load/JAR scans plus existing json/http VM/ASM
@@ -132,6 +132,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       This must remove every JSON-owned strict-parser edge. The remaining
       ujson/upickle/upack references are a single SQL `wire-core` plugin family
       (four exact strict-gate rows) assigned to plugin/backend isolation.
+      Result: public strict/tolerant parsing, total `JsonValue` navigation,
+      exact decimals, arbitrary-value stringify, builders, legacy lookup, and
+      `Response.json` now route through the pure scanner/renderer. The v2 JSON
+      bridge has no external codec dependency. VM/ASM, provider, slim,
+      deterministic `build-jvm`, JSON 3/3, and v2 8/8 gates pass; a slim copy
+      with ujson/upickle/upack/geny physically deleted still runs JSON and HTTP.
 - [ ] **v21-shc-frontmatter-yaml-core** — implement the bounded Frontmatter YAML
       Profile in ScalaScript (block/flow maps/lists, scalars, comments, block
       strings; reject duplicate keys, anchors, tags, merge keys, and multi-doc)

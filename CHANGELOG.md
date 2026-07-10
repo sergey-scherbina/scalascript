@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — public standard JSON now uses the self-hosted codec
+
+`std.json` strict/tolerant parsing, total navigation, exact decimal handling,
+string builders, legacy lookup, arbitrary-value stringify, and HTTP
+`Response.json` now cross only a small portable-ADT bridge and execute the
+ScalaScript scanner/renderer. The v2 JSON provider has no ujson/upickle edge and
+JSON/HTTP pass on VM, direct ASM, and the slim launcher after ujson, upickle,
+upack, and geny are physically deleted. The remaining external JSON-family JARs
+are assigned solely to the SQL `wire-core` plugin family.
+
 ## 2026-07-10 — native interpolation parses complete braced expressions
 
 The self-hosted frontend now balances `${...}`, nested braces, and quoted
