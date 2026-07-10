@@ -331,17 +331,22 @@ java -jar app.jar -- one two
 ```
 
 The JAR embeds the v2 core, Scala runtime, and the currently selected core-free
-native providers (host/process globals, crypto, FS/OS, JSON, HTTP, UI, and
-State). Entries are lexically ordered with fixed ZIP metadata; two builds from
-identical sources and staged runtime inputs are byte-identical. The manifest
-names `ssc.gen.Entry`, while
+native providers (host/process globals, crypto, FS/OS, JSON, HTTP, UI, State,
+and SQL when a database is configured). Imported modules and multiple explicit
+roots are lowered into the same checked program; resolved source identities are
+recorded in the artifact. Entries are lexically ordered with fixed ZIP metadata;
+two builds from identical sources and staged runtime inputs are byte-identical.
+The manifest names `ssc.gen.Entry`, while
 `META-INF/scalascript/artifact.properties` records source SHA-256 digests,
-runtime inputs, and provider classes without timestamps or absolute paths.
+Parsed database configuration is stored there as well and reconstructed before
+native provider installation, so a configured H2 program runs through
+`java -jar` without consulting the ScalaScript installation or loading a Java
+compiler.
 
 This command is distinct from legacy `compile-jvm --bytecode`, which produces a
 `.scjvm` compatibility artifact through generated Scala and compiler tooling.
-Native SQL configuration, full multi-file artifact metadata, and `.ssc` SMAP
-line mapping are the next ScalaScript 2.1 artifact slices.
+`.ssc` SourceFile/line-table/SMAP propagation remains the next ScalaScript 2.1
+artifact slice.
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
