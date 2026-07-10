@@ -269,6 +269,12 @@ SELECT count(*) FROM events WHERE day = ${today}
 environment at module load.  Missing env vars are an immediate fatal
 diagnostic — no silent fallback to empty string.
 
+On the 2.1 standard JVM path, explicit root-module `databases:` maps are parsed
+by the standalone YAML parser and handed to the core-free native SQL provider;
+the v1 AST/manifest and `PluginBridge` are not involved. Multiple explicit roots
+may repeat an identical named declaration, but conflicting declarations for the
+same name fail before any JDBC connection is opened.
+
 **Drivers.**  The `backend-sql-runtime` module bundles H2 and SQLite
 (both embedded, no network) so that `jdbc:h2:mem:test` and
 `jdbc:sqlite:./data.db` work with zero configuration.  Any other

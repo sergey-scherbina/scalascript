@@ -100,6 +100,16 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       SSE/upload/WebSocket hooks remain explicit failures. Next: migrate the
       representative SQL boundary, then UI; return to advanced HTTP host hooks
       before closing TI-5.
+      - [ ] **Native SQL slice:** add `NativeDatabaseConfig` to the core-free
+            context; parse/strictly merge explicit-root `databases:` YAML in
+            `RunNativeV2`; add `v2/runtime/std/sql-plugin` over the already
+            standalone `backendSqlRuntime`; cover H2 DDL, parameterized writes,
+            and map-row reads in provider tests and assembled VM/ASM. Extend the
+            ServiceLoader, `jdeps`/`javap`, runtime class-load, and no-scala-cli
+            gates. Record typed writes, LISTEN/NOTIFY, and fenced SQL lowering
+            as explicit pending SQL follow-ups rather than compatibility
+            fallbacks. Done when `v2NativePluginSpi/test`, native SQL provider
+            tests, `installBin`, both e2e gates, and `v2-*` conformance are green.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a
