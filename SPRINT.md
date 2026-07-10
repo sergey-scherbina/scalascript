@@ -630,6 +630,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
+                  - [ ] **TI-8.2c1 stable taxonomy gate:** join the native-front
+                        and standard parity TSVs, inherit the existing
+                        server/backend/nondeterministic classifications, and
+                        keep an explicit reviewed manifest for compiler/target-
+                        only rows. Fail on every unclassified sentinel and on
+                        manifest entries that disappear or change category.
+                  - [ ] **TI-8.2c2 standard syntax families:** group the
+                        remaining deterministic rows by actual `_err` source
+                        shape, add one real-launcher regression per family, and
+                        close them in descending corpus impact without touching
+                        active foreign claims.
+                  - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
+                        freeze the exact standard/tools/backend/server counts in
+                        the feature spec, and make category growth fail CI.
             - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 96
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
