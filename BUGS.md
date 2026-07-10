@@ -1,5 +1,97 @@
 # Bug tracker
 
+## v21-standard-index-vm-asm-divergence — index example fails VM and succeeds with malformed ASM output
+
+**Status:** open (2026-07-10); found in the TI-8.2 standard corpus sweep.
+
+- **Found by:** codex from `scripts/bc-parity-sweep --ssc bin/ssc-standard`.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run examples/index.ssc` and the same command with
+  `--bytecode`. VM prints only `ScalaScript 0.1 is running!` then fails
+  `arity: 1 expected, 2 given`; direct ASM exits zero but prints the malformed
+  second line `)}` instead of `Squares: 1, 4, 9, 16, 25`.
+- **Expected:** both lanes execute the checked program, print the same complete
+  two-line result, and either both reject or both succeed; malformed output may
+  not count as bytecode success.
+- **Root-cause direction:** inspect lowering/dispatch for the for-yield result
+  and `mkString(", ")`; compare VM `App` arity with the generated direct-ASM
+  dispatch path before changing the example.
+- **Done-when:** assembled VM/ASM output is byte-identical and semantically
+  correct, the focused parity row is `identical`, and affected conformance is
+  green.
+
+## v21-standard-direct-asm-recursion-stack — direct ASM lacks the VM recursion trampoline
+
+**Status:** open (2026-07-10); found in the TI-8.2 standard corpus sweep.
+
+- **Found by:** codex from the standard VM/ASM parity report.
+- **Real-harness repro:** `bin/ssc-standard run examples/recursion.ssc` prints
+  all 13 expected rows, including 100,000-call self/mutual-tail recursion;
+  `bin/ssc-standard run --bytecode examples/recursion.ssc` prints only the
+  first four rows and then throws `StackOverflowError` through
+  `ssc.gen.Entry.lam$77 -> ssc.Emit.letrec -> ssc.Runtime.run`.
+- **Expected:** direct ASM implements the checked CoreIR recursion semantics and
+  the same stack-safety contract as the VM, including self and mutual tail
+  calls.
+- **Root-cause direction:** retain the current direct emitter but route tail
+  calls in generated `LetRec` groups through a bounded trampoline/loop; do not
+  fall back to a compiler or the VM execution backend.
+- **Done-when:** the full example is byte-identical on VM/ASM with a small JVM
+  stack, focused recursion/TCO tests cover self/mutual groups, and affected
+  conformance is green.
+
+## v21-standard-ui-fetch-json-vm-arity — native VM rejects a five-argument UI helper accepted by ASM
+
+**Status:** open (2026-07-10); deferred while the active
+`v21-self-hosted-core-parsers` claim owns the public JSON/HTTP reuse cutover.
+
+- **Found by:** codex from the TI-8.2 standard corpus sweep.
+- **Real-harness repro:** `bin/ssc-standard run examples/ui-fetch-json.ssc`
+  prints the structured body then fails `arity: 3 expected, 5 given`; the same
+  command with `--bytecode` prints `fetch-json:ok` and exits zero.
+- **Expected:** the public five-argument `fetchJsonAction` helper has identical
+  checked arity and behavior on VM and direct ASM.
+- **Root-cause direction:** after the JSON cutover owner releases the surface,
+  compare staged `std/ui/fetch-json.ssc` currying/lowering with VM application
+  dispatch and the ASM multi-argument path.
+- **Done-when:** both assembled lanes print the same two lines, the focused
+  parity row is `identical`, and JSON/UI/provider gates remain green.
+
+## v21-native-front-dsl-pair-match-crash — valid tuple pattern aborts the self-hosted frontend
+
+**Status:** open (2026-07-10); found in the TI-8.2 native-front corpus sweep.
+
+- **Found by:** codex from `scripts/native-front-corpus`.
+- **Real-harness repro:** the assembled self-hosted frontend on
+  `examples/dsl-mini-language.ssc` aborts before CoreIR with
+  `RuntimeException: match: no arm for Pair/2`, while the checker-only route
+  reports `OK`. The source uses nested tuple patterns such as
+  `case Some((l, '+', r))`.
+- **Expected:** supported tuple/constructor patterns lower or produce a
+  source-located compile diagnostic; the compiler must never crash inside its
+  own pattern matcher.
+- **Done-when:** the real staged frontend emits sentinel-free checked CoreIR or
+  a bounded source diagnostic, with a focused tuple-pattern regression and
+  affected conformance green.
+
+## v21-native-front-missing-ui-table-import — corpus import closure references a deleted std module
+
+**Status:** open (2026-07-10); found in the TI-8.2 native-front corpus sweep.
+
+- **Found by:** codex from `scripts/native-front-corpus`.
+- **Real-harness repro:** compiling `examples/graph-fullstack-rdf.ssc` aborts
+  with `NoSuchFileException: v1/runtime/std/ui/table.ssc`; the document imports
+  `table`, `tableHeader`, `tableRow`, and `tableCell` from that path, but the
+  staged std tree has no such module.
+- **Expected:** every checked-in example import resolves deterministically, or
+  a removed API is migrated with an explicit source-level diagnostic rather
+  than a host filesystem exception.
+- **Fix direction:** reconcile the example with the current `std/ui/data.ssc`
+  table API or provide the intended compatibility module; do not weaken import
+  closure checks.
+- **Done-when:** the full native-front corpus has no host exception for this
+  row and the relevant UI/server example gate is green.
+
 ## v21-standard-h2-java-compiler-edge — slim gate misses compiler classes inside dependency JARs
 
 **Status:** fixed (2026-07-10, `e4cd55b36`); waiting for human confirmation
