@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — static UI moved onto core-free v2 native values
+
+The native provider graph now owns mutable/derived signals, callback updates,
+event descriptors, and representative text/signal/show/fragment/element views.
+Static `emit` writes deterministic escaped UTF-8 HTML; provider, assembled
+VM/direct-ASM, ServiceLoader, static dependency, and runtime class-load gates
+pass without `frontendCore`, the compatibility bridge, or Scalameta.
+
 ## 2026-07-10 — named JDBC moved onto the v2 native provider boundary
 
 Explicit-root `databases:` front-matter now reaches core-free providers through

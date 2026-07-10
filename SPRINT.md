@@ -101,8 +101,11 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       `44fec39e1` added strict root database config plus named JDBC
       `Db.query`/`Db.execute`: provider tests 2/2, installBin 103 runtime JARs,
       assembled VM/ASM SQL output identical, both e2e gates PASS, and
-      conformance 8/8. Next: migrate UI; return to advanced HTTP and SQL
-      follow-ups before closing TI-5.
+      conformance 8/8. `145505252` then added core-free signals/view values and
+      deterministic static UI emission: provider tests 2/2, 104 runtime JARs,
+      VM/ASM `index.html` bytes identical, both e2e gates PASS, and no
+      `frontendCore`/Scalameta edge. Next: migrate a representative effect
+      provider; return to advanced HTTP/SQL/UI follow-ups before closing TI-5.
       - [x] **Native SQL slice — DONE 2026-07-10 (`2528ce3e9`, `44fec39e1`):** add `NativeDatabaseConfig` to the core-free
             context; parse/strictly merge explicit-root `databases:` YAML in
             `RunNativeV2`; add `v2/runtime/std/sql-plugin` over the already
@@ -117,7 +120,7 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             VM/ASM output `1/7/Ada/true`, both assembled e2e gates PASS,
             `v2-*` conformance 8/8. The real harness exposed the separately
             tracked eager-plugin-`val` ordering bug below.
-      - [ ] **Native UI slice:** add `v2/runtime/std/ui-plugin` without a
+      - [x] **Native UI slice — DONE 2026-07-10 (`145505252`):** add `v2/runtime/std/ui-plugin` without a
             `frontendCore` edge; represent mutable/derived signals, basic event
             descriptors, and text/signal/show/fragment/element views on
             `ssc.Value`; implement deterministic escaped UTF-8
@@ -128,7 +131,10 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             framework SPA codegen, keyed/fetch/data-table/storage/WebAuthn, and
             desktop/mobile rendering as explicit follow-ups without a v1
             fallback. Done when provider tests, `installBin`, both e2e gates,
-            and `v2-*` conformance are green.
+            and `v2-*` conformance are green. Result: provider tests 2/2,
+            104 staged runtime JARs, imported `std/ui/primitives` emitted the
+            same escaped HTML bytes on native VM/ASM, both assembled gates
+            PASS, and `v2-*` conformance 8/8.
       - [ ] **v21-native-front-eager-plugin-val:** fix the assembled ordering
             repro in `BUGS.md`: a plugin-backed top-level `val` currently runs
             before preceding entry statements on native VM and ASM. Coordinate
