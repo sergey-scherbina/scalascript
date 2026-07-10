@@ -353,6 +353,21 @@ imports and argv, FS/OS, JSON, HTTP, SQL, UI, State, and `build-jvm` using only
 compiler/Scalameta/v1 references recursively, and verifies that a requested
 compatibility route fails with the tools-tier remedy instead of falling back.
 
+The stronger module gate proves the same tier works when the Java compiler
+modules themselves are unavailable:
+
+```bash
+tests/e2e/v21-jre-module-gate.sh \
+  --report target/v21-jre-module.tsv
+```
+
+It derives the runtime modules by scanning every standard JAR as a root, rejects
+`java.compiler` and `jdk.compiler`, verifies that neither can be resolved, and
+runs the VM, direct ASM, representative providers, and a generated H2 SQL JAR
+through `java --limit-modules`. The standard H2 JAR excludes only its optional
+`SourceCompiler*` classes; the complete driver remains available to
+`ssc-tools`.
+
 `ssc build-jvm` runs the self-hosted frontend and native checker, emits
 `ssc.gen.Entry` directly through ASM, and writes a deterministic self-contained
 JAR. It does not generate Scala/Java source and does not invoke Scala CLI,

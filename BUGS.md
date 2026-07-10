@@ -2,8 +2,8 @@
 
 ## v21-standard-h2-java-compiler-edge — slim gate misses compiler classes inside dependency JARs
 
-**Status:** open (2026-07-10); reproduced against the TI-7 deletion-gate input
-`65773c2fe`.
+**Status:** fixed (2026-07-10, `e4cd55b36`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex while implementing the TI-8 JRE-shaped module gate.
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
@@ -30,6 +30,16 @@
   compiler modules are unresolvable under `java --limit-modules`, native H2 SQL
   passes on VM/direct ASM and as a generated JAR, and affected conformance is
   green.
+- **Fix:** `installBin` deterministically repacks only the standard-tier H2 JAR
+  and omits its eight optional `SourceCompiler*` classes; the tools-tier copy is
+  unchanged. Slim and JRE gates merge every standard dependency into a
+  scan-only archive so ServiceLoader/JDBC classes are static roots.
+- **Verified:** derived runtime modules exclude `java.compiler`/`jdk.compiler`
+  and both fail `--describe-module` under the limit; VM, direct ASM, FS/OS,
+  JSON, HTTP, SQL, UI, State, and generated SQL JAR pass. Strengthened slim and
+  core-dependency gates pass, artifact SHA remains
+  `1d078c3ffe330eae72a809f98794333c123d715bbf19012fbdc4f0c686715173`, and
+  affected conformance is 8/8.
 
 ## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
 

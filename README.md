@@ -103,6 +103,9 @@ java -jar hello.jar
 tests/e2e/v21-slim-distribution-gate.sh \
   --report target/v21-slim-distribution.tsv
 
+# Also remove java.compiler/jdk.compiler from the resolvable module graph
+tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
+
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
 # see docs/rust-backend.md for the capability surface).
 bin/ssc build-rust examples/hello.ssc && ./hello
