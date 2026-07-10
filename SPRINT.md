@@ -79,7 +79,7 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       active native-front claim before touching `ssc1-front` or `ssc1-lower`;
       done when the SQL DDL/DML/`val rows = Db.query` and nested `val inside =
       runState(...)` shapes execute in source order on both backends.
-- [x] **v21-ti-plugin-runtime-boundary — DONE 2026-07-10 (`169fa2c28` through `b466fa954`):** remove the standard native lane's
+- [x] **v21-ti-plugin-runtime-boundary — DONE 2026-07-10 (`169fa2c28` through `250a52da1`):** remove the standard native lane's
       dependency on the scalameta-coupled v1 `core`/`Value.FunV` graph. Introduce
       or finish a scalameta-free runtime value/SPI boundary for `NativeImpl`
       plugins, move `run-ir` hosting out of `v2FrontendBridge`, and keep any v1
@@ -111,7 +111,7 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       conformance 8/8. `145505252` then added core-free signals/view values and
       deterministic static UI emission: provider tests 2/2, 104 runtime JARs,
       VM/ASM `index.html` bytes identical, both e2e gates PASS, and no
-      `frontendCore`/Scalameta edge. `0fad7cbbb` and `b466fa954` finally added
+      `frontendCore`/Scalameta edge. `0fad7cbbb` and `250a52da1` finally added
       host-scoped dynamic effects plus native State: SPI 6/6, provider 2/2, 105
       runtime JARs, nested VM/ASM output identical, both e2e gates PASS, and
       conformance 8/8. Every TI-5 representative family now runs without the
@@ -145,7 +145,7 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
             104 staged runtime JARs, imported `std/ui/primitives` emitted the
             same escaped HTML bytes on native VM/ASM, both assembled gates
             PASS, and `v2-*` conformance 8/8.
-      - [x] **Native State effect slice — DONE 2026-07-10 (`0fad7cbbb`, `b466fa954`):** extend `NativePluginContext` with
+      - [x] **Native State effect slice — DONE 2026-07-10 (`0fad7cbbb`, `250a52da1`):** extend `NativePluginContext` with
             host-owned `withEffect(effectTag)(handler)(body)` so push/pop and
             exception cleanup remain kernel details. Add a core-free
             `v2/runtime/std/state-effect-plugin` that registers `State` and
