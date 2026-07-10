@@ -973,6 +973,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               96 errors, taxonomy 2/26/36/5/1, standard parity
                               10/60/125 with zero mismatch or one-sided row,
                               native-entry passes, and conformance is 9/9.
+                        - [ ] **TI-8.2c2l assignment expressions:** let the
+                              expression parser consume a bare mutable-variable
+                              `name = rhs` tail, preserving named call arguments
+                              and `==`. Reuse the existing `assign` AST/lowering
+                              so assignments inside `if ... then` and
+                              `for ... do` return Unit and update the correct
+                              local/top-level cell. Add a focused VM/direct-ASM
+                              fixture covering both positions, then rerun
+                              `dsl-mini-language.ssc`, `extensions.ssc`, and the
+                              full readiness reports. These are the final two
+                              standard parser-gap rows; extension receiver/
+                              dispatch runtime semantics remain TI-8.2d work.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
