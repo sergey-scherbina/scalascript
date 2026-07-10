@@ -19,6 +19,67 @@ repository from source without scalac is a separate future milestone. Feature
 spec: `specs/v2.1-toolchain-independence.md`. Active claim:
 `.work/active/v21-toolchain-independence.claim`.
 
+### Self-hosted core parsers and dependency boundary
+
+Goal: keep the permanent Scala 3 seed while making every normative parser above
+it self-hosted on ScalaScript. Standard seed/core modules must have no
+third-party parser/codec dependency; external libraries live only behind
+explicit plugin/backend boundaries or in build/test tooling. Feature spec:
+`specs/v2.1-self-hosted-core.md`. Active claim:
+`.work/active/v21-self-hosted-core-parsers.claim`.
+
+- [ ] **v21-shc-spec-and-contract** — commit the permanent Scala 3 seed
+      exception, five-layer dependency model, JSON/Frontmatter-YAML/Markdown
+      profiles, structural frontend result, plugin/backend ownership rules,
+      behavior checks, and implementation order before code. Update `SPEC.md`
+      without editing the live TI-7 owner's feature spec. Done when the new
+      feature spec is committed and `git diff --check` is clean.
+- [ ] **v21-shc-dependency-gate** — inventory the actual standard runtime graph,
+      classify every JAR/module as seed, pure core, backend plugin, feature
+      plugin, or tools/test, and add a portable negative gate that rejects
+      unclassified dependencies plus forbidden parser/codec families in the
+      seed/core. Record the initial counts and exact command in the spec. Done
+      when the gate passes from any worktree and fails on a synthetic forbidden
+      reference without changing the live TI-7 packaging files.
+- [ ] **v21-shc-json-core** — implement the canonical strict/tolerant JSON
+      scanner, target-independent ADT, total navigation, exact-decimal handling,
+      and deterministic compact encoder in `.ssc` without `extern def` or host
+      regex. Add focused valid/invalid/Unicode/numeric conformance cases and run
+      them on native VM and direct ASM.
+- [ ] **v21-shc-json-cutover** — switch `std.json` and HTTP JSON reuse to the
+      self-hosted codec, remove ujson/upickle from the default standard JSON
+      graph, and keep any accelerated codec only as an explicit optional plugin.
+      Gate with runtime class-load/JAR scans plus existing json/http VM/ASM
+      smokes; preserve the public strict/tolerant and total-accessor behavior.
+- [ ] **v21-shc-frontmatter-yaml-core** — implement the bounded Frontmatter YAML
+      Profile in ScalaScript (block/flow maps/lists, scalars, comments, block
+      strings; reject duplicate keys, anchors, tags, merge keys, and multi-doc)
+      with source positions and no host regex. Prove the parser on native VM/ASM
+      and the current manifest/database fixture corpus.
+- [ ] **v21-shc-structural-frontend-result** — make the self-hosted frontend
+      return checked CoreIR plus parsed manifest/runtime config structurally via
+      `ssc.Value`/a frozen seed ABI; retire `NativeFrontmatter` and `SimpleYaml`
+      from the standard path and avoid reparsing frontend-emitted textual
+      CoreIR. Verify malformed/conflicting database config fails before provider
+      installation and build-jvm metadata stays reproducible.
+- [ ] **v21-shc-markdown-profile** — complete the self-hosted ScalaScript
+      Markdown Profile for headings/scopes, pure-link imports, prose, fences,
+      lists, images, tables, metadata directives, and interpolation source;
+      remove CommonMark/Flexmark from the standard path while preserving them
+      only for compatibility/reference tests. Run content/import/native corpus
+      gates without a host Markdown parser.
+- [ ] **v21-shc-plugin-backend-isolation** — after the live TI-7 slim-layout
+      owner lands, rebase and isolate ASM plus every remaining removable
+      dependency behind the backend/plugin that declares it. Keep JDK and Scala
+      runtime as the explicit permanent seed allowance; ensure pure core has no
+      hidden `extern` parser or `java.util.regex` route.
+- [ ] **v21-shc-bootstrap-release-gates** — add stage-2 compiler-image
+      reproducibility, forbidden-JAR deletion, `jdeps`, runtime class-load,
+      parser corpus/fuzz, standard slim execution, and deterministic build-jvm
+      release gates. Reconcile `specs/v2.1-toolchain-independence.md` after its
+      active owner releases it, check every behavior item, and record results in
+      the spec/CHANGELOG.
+
 - [x] **v21-ti-spec-and-contract** — DONE 2026-07-10 in `625cb3339`:
       specified the standard/tools dependency tiers, mandatory native checker,
       migration flags, direct-ASM `build-jvm` contract, corpus classifications,

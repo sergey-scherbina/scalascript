@@ -1516,6 +1516,15 @@ The complete dependency tiers, migration flags, artifact requirements, current
 baselines, and acceptance gates are normative in
 [`specs/v2.1-toolchain-independence.md`](specs/v2.1-toolchain-independence.md).
 
+All normative parsers above the permanent Scala 3 bootstrap seed are
+self-hosted in ScalaScript. The seed may decode only its frozen bootstrap
+`ssc0`/CoreIR/image formats; JSON, YAML/front-matter, Markdown, portable regex,
+and ordinary `.ssc` syntax belong to the self-hosted core or pure standard
+library. Standard seed/core modules have no third-party parser dependency;
+external libraries are reachable only through explicit backend/plugin choices
+or build/test tooling. The complete boundary and migration gates are normative
+in [`specs/v2.1-self-hosted-core.md`](specs/v2.1-self-hosted-core.md).
+
 ### 9.3 Custom Backends
 
 Two distribution shapes:
