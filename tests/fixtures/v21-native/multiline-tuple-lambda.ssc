@@ -1,0 +1,12 @@
+---
+name: v21-native-multiline-tuple-lambda
+---
+
+```scalascript
+def apply2(f: Any): Int = f(10, 0)
+
+val result = apply2((u, i) =>
+  if i < 1 then u + 1 else u)
+
+println(result)
+```

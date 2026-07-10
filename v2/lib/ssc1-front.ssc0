@@ -1688,6 +1688,20 @@ def closeToBrace = (stack) =>
         if #seq(tag, "B") then Pair(Nil, srest)
         else match closeToBrace(srest) { case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns) } } }
 
+-- On `)` / `]`, close only virtual layout blocks opened inside the matching
+-- explicit delimiter. A different explicit delimiter is a hard boundary.
+def closeToDelim = (wanted, stack) =>
+  match stack {
+    case Nil => Pair(Nil, Nil)
+    case Cons(top, srest) =>
+      match top { case Pair(tag, ind) =>
+        if #seq(tag, wanted) then Pair(Nil, srest)
+        else if #seq(tag, "L") then
+          match closeToDelim(wanted, srest) {
+            case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns)
+          }
+        else Pair(Nil, stack) } }
+
 -- at EOF: close all still-open L blocks.
 def closeAllL = (stack) =>
   match stack {
@@ -1774,6 +1788,8 @@ def nlStep = (v, stack, cont) =>
     case Cons(top, srest) =>
       match top { case Pair(tag, ind) =>
         if #seq(tag, "B") then Pair(if cont then Nil else Cons(mkTok(";", ""), Nil), stack)
+        else if #seq(tag, "P") then Pair(if cont then Nil else Cons(mkTok(";", ""), Nil), stack)
+        else if #seq(tag, "S") then Pair(if cont then Nil else Cons(mkTok(";", ""), Nil), stack)
         else if #i.gt(v, ind) then Pair(Nil, stack)
         else if #i.eq(v, ind) then (if cont then Pair(Nil, stack) else Pair(Cons(mkTok(";", ""), Nil), stack))
         else
@@ -1799,6 +1815,14 @@ def layout = (toks) =>
               match nlStep(v, stack, suppressSep) {
                 case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false))
               }
+          else if #seq(k, "(") then
+            Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false))
+          else if #seq(k, "[") then
+            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false))
+          else if #seq(k, ")") then
+            match closeToDelim("P", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true))) }
+          else if #seq(k, "]") then
+            match closeToDelim("S", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true))) }
           else if #seq(k, "{") then
             Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false))
           else if #seq(k, "}") then
