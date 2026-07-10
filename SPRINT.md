@@ -87,8 +87,11 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       gate); native VM/ASM crypto/argv smokes remain green. `7335d2a1c` added
       complete core-free JVM `std.fs` and non-host `std.os` providers, with
       4/4 provider tests, identical assembled VM/ASM file round-trips, and the
-      same static/runtime dependency gates. Next: migrate JSON, then
-      HTTP/SQL/UI with feature-specific smokes.
+      same static/runtime dependency gates. `9798dfc5c` added core-free typed
+      JSON with total navigation, strict/tolerant parsing, exact decimals,
+      stringify/lookup compatibility, 3/3 provider tests, identical assembled
+      VM/ASM JSON output, and clean static/runtime dependency gates. Next:
+      migrate HTTP/SQL/UI with feature-specific smokes.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — typed JSON moved onto the v2 native provider boundary
+
+The native VM/direct-ASM path now parses, navigates, looks up, and serializes
+JSON without the v1 interpreter, plugin API, bridge, or Scalameta. Tolerant
+`JsonValue` accessors, strict parsing, exact string-decimals, compact raw values,
+and `.ssc` structured builders share one core-free value model and pass assembled
+ServiceLoader/classpath/runtime gates.
+
 ## 2026-07-10 — native FS/OS providers removed their v1 runtime edge
 
 The complete JVM `std.fs` surface and the environment/path/temp portion of
