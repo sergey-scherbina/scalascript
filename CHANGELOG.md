@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — portable toolchain-independence corpus gates landed
+
+VM/ASM parity and the scalameta-free native frontend now have repository-relative,
+portable-timeout sweep commands that write one TSV row per corpus input. The
+native report separates frontend errors, `_err` sentinels, checker outcomes, and
+plugin-runtime execution, preventing partial IR from counting as success. The
+195-file baseline is now explicit: bridge VM/ASM has no unexplained deterministic
+one-sided/mismatch row after target/server/nondeterministic classification, while
+the import-aware native route has 78 frontend OK and only 7 runtime OK rows.
+
 ## 2026-07-10 — packaged plugin temp trees cleaned at CLI exit
 
 `SscpkgLoader` no longer leaves one non-empty `sscpkg-*` extraction tree per

@@ -26,13 +26,14 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       `specs/v2.1-toolchain-independence.md`; `SPEC.md` now makes the compiler-free
       JVM path normative while preserving DStream's feature-version labels.
       Gate: `tests/conformance/run.sh --only 'v2-*'` 8/8.
-- [ ] **v21-ti-portable-baseline-gates** — replace the hard-coded
-      `scripts/bc-parity-sweep` worktree path with repository-relative discovery,
-      make its command/timeout behavior portable, and add a native-front corpus
-      gate that records parse/lower/run classifications rather than treating
-      partial `_err` IR as success. Baseline the current bridge->VM/ASM and
-      native-front->VM results before changing routing. Done when both gates run
-      from any worktree and produce machine-readable summaries.
+- [x] **v21-ti-portable-baseline-gates** — DONE 2026-07-10 in `7ba4d413b`,
+      `4d538ae98`, and baseline doc `e611e4883`: removed the hard-coded worktree,
+      added portable timeout + TSV reports, made native `_err` a separate failed
+      dimension, classified all 195 rows, and added an any-cwd assembled smoke.
+      Bridge VM/ASM: 95 identical, 12 both-fail, 45 backend-specific, 7 nondet,
+      36 server, zero unexplained mismatch/one-sided. Native: front 78 OK/116
+      error/1 non-code, 51 sentinel; checker 75 OK; runtime 7 OK. Gates:
+      portable e2e PASS, `v2-*` conformance 8/8.
 - [x] **v21-ti-sscpkg-temp-lifecycle** — DONE 2026-07-10 in `784ac95d3`:
       `SscpkgLoader` now registers every extracted descendant parent-first for
       reverse-order JVM shutdown deletion, covering intrinsic JARs and source
