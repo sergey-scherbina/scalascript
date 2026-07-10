@@ -551,6 +551,11 @@ type Alias = List[Int]                // type alias
 inline def double(x: Int): Int = x * 2        // inline (compile-time)
 ```
 
+Assignment to an existing `var` is an expression of type `Unit`. It is valid in
+branch and loop bodies (for example `if ok then total = total + 1` and
+`for x <- xs do total = total + x`). Named call arguments remain call syntax,
+and `==` remains equality rather than assignment.
+
 ### 5.3 Control Flow
 
 ```scalascript
