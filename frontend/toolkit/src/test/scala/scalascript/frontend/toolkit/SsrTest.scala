@@ -2,7 +2,7 @@ package scalascript.frontend.toolkit
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.frontend.{View, AttrValue, EventHandler, ReactiveSignal}
+import scalascript.frontend.{View, AttrValue, EventHandler, ReactiveSignal, ReactiveSignalList}
 
 /** v1.18 Phase C — SSR (HTML stringifier) tests.  Verifies the
  *  `Ssr.renderToHtml` walker handles every View subtype, escapes
@@ -172,6 +172,19 @@ class SsrTest extends AnyFunSuite with Matchers:
       items  = () => Seq.empty,
       render = i => View.TextNode(() => i.toString))
     Ssr.renderToHtml(tree) shouldBe ""
+
+  test("ForSignal fallback serializes attributes once per item"):
+    val rows = new ReactiveSignalList[String]("rows", Seq("a", "b"))
+    val tree = View.ForSignal[String](
+      items = rows,
+      tag = "li",
+      attrs = Map("class" -> AttrValue.Str("row"), "data-id" -> AttrValue.Str("x")),
+      itemTemplate = None)
+    val out = Ssr.renderToHtml(tree)
+    out.sliding("class=\"row\"".length).count(_ == "class=\"row\"") shouldBe 2
+    out.sliding("data-id=\"x\"".length).count(_ == "data-id=\"x\"") shouldBe 2
+    out should include (">a</li>")
+    out should include (">b</li>")
 
   // ─── Defensive paths ──────────────────────────────────────────
 
