@@ -1,0 +1,25 @@
+# Native State effect provider
+
+```scalascript
+val first = runState(10) {
+  val before = State.get()
+  State.modify(x => x + 5)
+  State.set(State.get() + 2)
+  before * 2
+}
+
+val nested = runState(1) {
+  State.set(2);
+  (runState(100) {
+     State.set(101)
+     State.get()
+   }, State.get())
+}
+
+println(first._1)
+println(first._2)
+println(nested._1)
+println(nested._2._1._1)
+println(nested._2._1._2)
+println(nested._2._2)
+```

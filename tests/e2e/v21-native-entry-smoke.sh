@@ -51,6 +51,8 @@ ui_vm="$sandbox/ui-vm"
 ui_asm="$sandbox/ui-asm"
 [[ $(run_native "$FIXTURES/ui-provider.ssc" -- "$ui_vm") == "$ui_expected" ]]
 [[ $(<"$ui_vm/index.html") == "$ui_expected" ]]
+state_expected=$'17\n20\n2\n101\n101\n2'
+[[ $(run_native "$FIXTURES/state-effect-provider.ssc") == "$state_expected" ]]
 [[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 [[ $(run_native --bytecode "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
@@ -60,6 +62,7 @@ ui_asm="$sandbox/ui-asm"
 [[ $(run_native --bytecode "$FIXTURES/sql-provider.ssc") == "$sql_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/ui-provider.ssc" -- "$ui_asm") == "$ui_expected" ]]
 [[ $(<"$ui_asm/index.html") == "$ui_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/state-effect-provider.ssc") == "$state_expected" ]]
 http_port=$((32000 + ($$ % 10000)))
 [[ $(run_native "$FIXTURES/http-server-provider.ssc" -- "$http_port") == $'203\npong:/ping' ]]
 [[ $(run_native --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((http_port + 1))") == $'203\npong:/ping' ]]

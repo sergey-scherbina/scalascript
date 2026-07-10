@@ -15,7 +15,8 @@ json=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-json-plugin_*.jar' 
 http=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-http-plugin_*.jar' -print -quit)
 sql=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-sql-plugin_*.jar' -print -quit)
 ui=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-ui-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui"; do
+state=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-state-effect-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -30,8 +31,9 @@ jar tf "$json" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$http" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$sql" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$ui" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$state" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -69,6 +71,9 @@ grep -F 'Ada' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/ui-provider.ssc" -- "$ui_tmp" >>"$classlog" 2>&1
 grep -F 'Hi &lt;native&gt;' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
+  "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >>"$classlog" 2>&1
+grep -F '202' "$classlog" >/dev/null
 if grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' "$classlog" >/dev/null; then
   echo 'native crypto run loaded compatibility bridge/Scalameta classes' >&2
   grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' "$classlog" >&2
