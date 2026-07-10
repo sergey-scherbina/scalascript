@@ -1,8 +1,10 @@
 feature/v2-native-vm-runtime-coverage 2026-07-10
 agent: claude (lucky-perch)
 status: in-progress
-scope: native-front e2e runtime coverage on the VM — fix VM/dispatch/missing-prim
-  blockers (Runtime.scala, generic prims) that stop plugin-FREE native-lowered
-  corpus files from running. NOT ssc1-front (K62 parser lane), NOT ssc1-lower
-  pattern code (K62), NOT provider migration (codex TI-4/5). Complements module-loading.
-next: classify per-example first bare-VM blocker; fix top mine-ownable VM/prim gap
+scope: PIVOTED after finding the native-front residue is entirely K62's parser lane.
+  Now implementing NAMED ARGUMENTS in the native front (highest-leverage unblock: 9
+  content-*/datatable/control-center files via theme.ssc palettes). ADDITIVE + distinct
+  code regions from K62's pattern-matching work: ssc1-front emits `narg` labeled arg nodes
+  (moreArgs); ssc1-lower reorders by casecls declared field order (new caseFieldOrderCell,
+  correct/erroring — NOT silent strip). Announced to K62-owner rozum /71; will yield if they object.
+next: implement + test on native tower (no sbt); gate conformance 640/640
