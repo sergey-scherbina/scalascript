@@ -17,39 +17,34 @@ Connect with `npx @modelcontextprotocol/inspector` or any MCP client.
 
 ```scalascript
 [mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
-
-import scala.io.Source
-import java.nio.file.{Files, Paths}
-import scala.jdk.CollectionConverters._
+[readFile, writeFile, listDir, deleteFile, exists](std/fs.ssc)
 
 mcpServer { srv =>
 
   srv.tool("read_file", "Read text content of a file") { args =>
     val path = requireString(args, "path")
-    val src = Source.fromFile(path)
-    try Tool.text(src.mkString) finally src.close()
+    Tool.text(readFile(path))
   }
 
   srv.tool("write_file", "Write text content to a file (overwrites)") { args =>
     val path = requireString(args, "path")
     val content = requireString(args, "content")
-    Files.write(Paths.get(path), content.getBytes("UTF-8"))
+    writeFile(path, content)
     Tool.text(s"Wrote ${content.length} chars to $path")
   }
 
   srv.tool("list_directory", "List entries in a directory") { args =>
     val path = requireString(args, "path")
-    val stream = Files.list(Paths.get(path))
-    try {
-      val entries = stream.iterator().asScala.map(_.getFileName.toString).toList.sorted
-      Tool.text(entries.mkString("\n"))
-    } finally stream.close()
+    Tool.text(listDir(path).sorted.mkString("\n"))
   }
 
   srv.tool("delete_file", "Delete a file from disk") { args =>
     val path = requireString(args, "path")
-    val deleted = Files.deleteIfExists(Paths.get(path))
-    Tool.text(if (deleted) s"Deleted $path" else s"No such file: $path")
+    if exists(path) then
+      deleteFile(path)
+      Tool.text(s"Deleted $path")
+    else
+      Tool.text(s"No such file: $path")
   }
 
   srv.onConnected(() => println("Filesystem MCP client connected"))
