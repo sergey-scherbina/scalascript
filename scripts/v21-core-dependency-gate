@@ -25,8 +25,9 @@ usage: scripts/v21-core-dependency-gate [options]
   --report PATH       write stable TSV report (default: temporary file)
   --strict-parsers    reject parser/codec dependencies in plugins too
   --require-closed-layout
-                      reject every staged JAR outside the declared standard roots
-                      and their jdeps closure (automatic for */standard/jars)
+                      reject every staged JAR outside declared standard ownership
+                      (roots, jdeps closure, and named reflective plugin deps;
+                      automatic for */standard/jars)
   --self-test         prove the forbidden-reference detector rejects a fixture
 
 Default JAR lookup prefers bin/lib/standard/jars (the 2.1 slim layout), then
@@ -108,6 +109,7 @@ done
 
 declare -a root_specs=(
   'seed|scalascript-v2-core_*.jar'
+  'seed|scala3-library_3-*.jar'
   'pure-core|scalascript-v2-native-plugin-spi_*.jar'
   'backend-plugin|scalascript-v2-jvm-bytecode_*.jar'
   'feature-plugin|scalascript-v2-native-host-plugin_*.jar'
@@ -119,6 +121,27 @@ declare -a root_specs=(
   'feature-plugin|scalascript-v2-native-sql-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-ui-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-state-effect-plugin_*.jar'
+)
+
+# Some plugin dependencies are selected by runtime configuration, JDBC URLs,
+# or service loading and therefore do not appear in static jdeps output.  A
+# closed distribution still needs an explicit owner for every one of them.
+# Keep the list exact: a newly staged JAR remains a hard failure until reviewed.
+declare -a reflective_specs=(
+  'feature-plugin|json-plugin|geny_3-*.jar'
+  'feature-plugin|json-plugin|upack_3-*.jar'
+  'feature-plugin|sql-plugin|HikariCP-*.jar'
+  'feature-plugin|sql-plugin|checker-qual-*.jar'
+  'feature-plugin|sql-plugin|h2-*.jar'
+  'feature-plugin|sql-plugin|postgresql-*.jar'
+  'feature-plugin|sql-plugin|sqlite-jdbc-*.jar'
+  'feature-plugin|sql-plugin|slf4j-api-*.jar'
+  'feature-plugin|sql-plugin|slf4j-simple-*.jar'
+  'feature-plugin|sql-plugin|scalascript-backend-config-runtime_*.jar'
+  'feature-plugin|sql-plugin|scalascript-backend-typed-data-runtime_*.jar'
+  'feature-plugin|sql-plugin|scalascript-markup-core_*.jar'
+  'feature-plugin|sql-plugin|scalascript-wire-core_*.jar'
+  'feature-plugin|sql-plugin|scalascript-yaml_*.jar'
 )
 
 mkdir -p "$(dirname -- "$report")"
@@ -159,6 +182,7 @@ plugin_parser_edges=0
 violations=0
 staged_jars=0
 outside_closure=0
+reflective_count=0
 
 for spec in "${root_specs[@]}"; do
   layer=${spec%%|*}
@@ -220,6 +244,43 @@ for spec in "${root_specs[@]}"; do
   fi
 done
 
+for spec in "${reflective_specs[@]}"; do
+  layer=${spec%%|*}
+  rest=${spec#*|}
+  owner=${rest%%|*}
+  pattern=${rest#*|}
+  shopt -s nullglob
+  matches=("$jars_dir"/$pattern)
+  shopt -u nullglob
+  if [[ ${#matches[@]} -ne 1 ]]; then
+    echo "v21-core-dependency-gate: expected one reflective $pattern in $jars_dir, found ${#matches[@]}" >&2
+    violations=$((violations + 1))
+    continue
+  fi
+  owned_jar=${matches[0]}
+  owned_name=${owned_jar##*/}
+  reflective_count=$((reflective_count + 1))
+  record_classified_jar "$owned_name" "$layer"
+
+  has_forbidden=0
+  if archive_has_forbidden_reference "$owned_jar"; then
+    has_forbidden=1
+  fi
+  policy=reflective-plugin-dependency
+  if [[ $has_forbidden -eq 1 ]]; then
+    if [[ $strict_parsers -eq 1 ]]; then
+      policy=forbidden
+      violations=$((violations + 1))
+      echo "v21-core-dependency-gate: forbidden parser/codec reference in $owner dependency $owned_name" >&2
+    else
+      policy=migration-plugin
+      plugin_parser_edges=$((plugin_parser_edges + 1))
+    fi
+  fi
+  printf '%s\t(layout:%s)\t%s\t%s\t%s\n' \
+    "$layer" "$owner" "$owned_name" "$has_forbidden" "$policy" >>"$tmp_report"
+done
+
 # The migration layout still co-locates tools/compat JARs with the standard v2
 # closure. Classify those explicitly in the report. Once TI-7 provides
 # bin/lib/standard/jars, any such extra is an error instead.
@@ -246,7 +307,8 @@ mv "$tmp_report" "$report"
 rm -f "$classified"
 trap - EXIT HUP INT TERM
 
-echo "=== roots: $root_count  dependency-edges: $edge_count  staged-jars: $staged_jars  outside-standard-closure: $outside_closure"
+echo "=== roots: $root_count  dependency-edges: $edge_count  reflective-plugin-jars: $reflective_count"
+echo "=== staged-jars: $staged_jars  outside-standard-closure: $outside_closure"
 echo "=== migration-plugin-parser-roots: $plugin_parser_edges  violations: $violations"
 echo "REPORT: $report"
 if [[ $violations -ne 0 ]]; then
