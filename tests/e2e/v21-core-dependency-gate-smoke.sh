@@ -37,8 +37,13 @@ if [[ $strict_rc -ne 1 ]]; then
   cat "$strict_err" >&2
   exit 1
 fi
-grep -F 'feature-plugin root scalascript-v2-native-json-plugin_' "$strict_err" >/dev/null
-grep -F 'json-plugin dependency upack_3-' "$strict_err" >/dev/null
+if grep -F 'feature-plugin root scalascript-v2-native-json-plugin_' "$strict_err" >/dev/null; then
+  echo 'v21-core-dependency-gate-smoke: native JSON provider still owns an external codec' >&2
+  exit 1
+fi
+grep -F 'sql-plugin dependency ujson_3-' "$strict_err" >/dev/null
+grep -F 'sql-plugin dependency upickle-core_3-' "$strict_err" >/dev/null
+grep -F 'sql-plugin dependency upack_3-' "$strict_err" >/dev/null
 grep -F 'sql-plugin dependency scalascript-wire-core_' "$strict_err" >/dev/null
 if awk -F '\t' '$4 == 1 && $1 != "feature-plugin" { bad = 1 } END { exit bad }' "$strict_report"; then
   :

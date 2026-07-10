@@ -51,12 +51,14 @@ if printf '%s\n' "$native_refs" | grep -E 'ssc/bridge/(PluginBridge|FrontendBrid
 fi
 
 classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-classload.XXXXXX")
+json_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-json-classload.XXXXXX")
+http_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-http-classload.XXXXXX")
 ui_tmp=$(mktemp -d "${TMPDIR:-/tmp}/v21-native-ui.XXXXXX")
 sql_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-vm.XXXXXX")
 sql_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-asm.XXXXXX")
 state_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-vm.XXXXXX")
 state_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-asm.XXXXXX")
-trap 'rm -f "$classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
+trap 'rm -f "$classlog" "$json_classlog" "$http_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/std-crypto.ssc" >"$classlog" 2>&1
 grep -F '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' "$classlog" >/dev/null
@@ -64,11 +66,16 @@ PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native
   "$ROOT/tests/fixtures/v21-native/fs-os-provider.ssc" >>"$classlog" 2>&1
 grep -F 'one-two' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
-  "$ROOT/tests/fixtures/v21-native/json-provider.ssc" >>"$classlog" 2>&1
-grep -F '{"payload":[1,2]}' "$classlog" >/dev/null
+  "$ROOT/tests/fixtures/v21-native/json-provider.ssc" >"$json_classlog" 2>&1
+grep -F '{"payload":[1,2]}' "$json_classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
-  "$ROOT/tests/fixtures/v21-native/http-response-provider.ssc" >>"$classlog" 2>&1
-grep -F 'public, max-age=60' "$classlog" >/dev/null
+  "$ROOT/tests/fixtures/v21-native/http-response-provider.ssc" >"$http_classlog" 2>&1
+grep -F 'public, max-age=60' "$http_classlog" >/dev/null
+if grep -E 'ujson[.]|upickle[.]|upack[.]' "$json_classlog" "$http_classlog" >/dev/null; then
+  echo 'native JSON/HTTP run loaded an external JSON codec class' >&2
+  grep -E 'ujson[.]|upickle[.]|upack[.]' "$json_classlog" "$http_classlog" >&2
+  exit 1
+fi
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >>"$classlog" 2>&1
 grep -F 'Ada' "$classlog" >/dev/null

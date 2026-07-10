@@ -1,0 +1,10 @@
+true
+1234567890.0012300
+A😀
+2
+true
+{"exact":1234567890.0012300,"unicode":"A\uD83D\uDE00","items":[1,2]}
+42
+x
+None
+{"a":true,"z":1}

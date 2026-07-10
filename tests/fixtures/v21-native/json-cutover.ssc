@@ -1,0 +1,27 @@
+---
+name: v21-self-hosted-json-cutover
+version: 2.1.0
+---
+
+# Public self-hosted JSON surface
+
+[jsonValue, jsonParse, jsonRead, jsonStringify, lookup, lookupOpt](std/json.ssc)
+
+```scalascript
+println(jsonValue("{").isNull)
+
+val root = jsonRead(
+  "{\"exact\":1234567890.0012300,\"unicode\":\"\\u0041\\uD83D\\uDE00\",\"items\":[1,2]}"
+)
+println(root.get("exact").asDecimal)
+println(root.get("unicode").asString)
+println(root.get("items").at(1).asInt)
+println(root.get("missing").isNull)
+println(jsonStringify(root))
+
+val raw = jsonParse("{\"k\":42,\"xs\":[\"x\"]}")
+println(lookup(raw, "k"))
+println(lookup(lookup(raw, "xs"), 0))
+println(lookupOpt(raw, "missing"))
+println(jsonStringify(Map("z" -> 1, "a" -> true)))
+```

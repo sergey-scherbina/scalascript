@@ -1,12 +1,16 @@
 ---
 name: std-json
-version: 1.0.0
-description: Typed JSON for .ssc — navigable JsonValue with total accessors (incl. exact Decimal for money) and structured string builders for request bodies.
+version: 2.1.0
+description: Self-hosted typed JSON for .ssc — total navigation, exact decimals, and structured request-body builders.
 package: std.json
 exports:
   - JsonValue
   - jsonValue
+  - jsonParse
+  - jsonRead
   - jsonStringify
+  - lookup
+  - lookupOpt
   - jStr
   - jNum
   - jBool
@@ -24,12 +28,25 @@ Client-side JSON for `.ssc` UI code: decode a fetch result into a **navigable
 hand-rolled substring decoders or duplicated escape helpers.
 
 Navigation is **total**: a missing key, wrong shape, or parse failure funnels to a
-Null `JsonValue` / zero-default, never a crash. Use `opt*` / `jsonParseStrict` when
+Null `JsonValue` / zero-default, never a crash. Use `opt*` / `jsonRead` when
 absence must be distinguished. Money is exact: read amounts with `asDecimal`
 (lossless), never `asDouble`. See [`specs/std-ui-typed-json.md`](../../specs/std-ui-typed-json.md).
 
+[JsonCoreErr, jsonCoreParseStrict, jsonCoreParseTolerant, jsonCoreRender](json-core.ssc)
+
 ```scalascript
 opaque type JsonValue = Any
+
+// Native/provider boundary only: parsing and rendering stay in json-core.ssc.
+// The bridge wraps portable JsonCore ADTs for method navigation and converts
+// ordinary runtime values into those ADTs before the pure renderer sees them.
+extern def __jsonCoreInstallRenderer(render: Any => String): Unit
+extern def __jsonCoreWrap(value: Any): JsonValue
+extern def __jsonCoreWrapStrict(result: Any): JsonValue
+extern def __jsonCoreRawStrict(result: Any): Any
+extern def __jsonCoreEncodeValue(value: Any): Any
+
+val __jsonCoreRendererInstalled = __jsonCoreInstallRenderer(jsonCoreRender)
 
 // ── Parse → navigable JsonValue ─────────────────────────────────────────────
 /** Tolerant parse — malformed input yields a Null JsonValue (never throws).
@@ -41,25 +58,40 @@ opaque type JsonValue = Any
  *    get(key) / at(idx) / isNull
  *    asString / asInt / asDouble / asBool / asList / asDecimal
  *    optString / optInt / optDecimal / getOrElse(key, fallback) / raw */
-extern def jsonValue(s: String): JsonValue
+def jsonValue(s: String): JsonValue =
+  __jsonCoreWrap(jsonCoreParseTolerant(s))
+
+/** Strict parse into ordinary ScalaScript values. */
+def jsonParse(s: String): Any =
+  __jsonCoreRawStrict(jsonCoreParseStrict(s))
+
+/** Strict parse into the total navigable wrapper. */
+def jsonRead(s: String): JsonValue =
+  __jsonCoreWrapStrict(jsonCoreParseStrict(s))
+
 /** Serialize a JsonValue (or any value) to a compact JSON string. */
-extern def jsonStringify(v: Any): String
+def jsonStringify(v: Any): String =
+  jsonCoreRender(__jsonCoreEncodeValue(v))
+
+/** Legacy total/optional lookup helpers over parsed raw values. */
+extern def lookup(value: Any, key: Any): Any
+extern def lookupOpt(value: Any, key: Any): Option[Any]
 
 // ── Structured builders for request bodies ──────────────────────────────────
 // Runtime-escaped; build bodies as values, never by string concatenation. Each
 // builder yields the JSON text of its node, joined by jObj/jArr.
 
 def jsonEscape(s: String): String =
-  s.replace("\\", "\\\\").replace("\"", "\\\"")
-   .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+  val encoded = jsonStringify(s)
+  encoded.substring(1, encoded.length - 1)
 
 /** Encode a string scalar (quoted + escaped). */
-def jStr(s: String): String   = "\"" + jsonEscape(s) + "\""
+def jStr(s: String): String   = jsonStringify(s)
 /** Encode a pre-rendered numeric token verbatim (caller passes textual form). */
 def jNum(s: String): String   = s
 def jBool(b: Boolean): String = if b then "true" else "false"
 /** Lossless exact-decimal token — emits the Decimal's plain text (no Double). */
-def jDecimal(d: Decimal): String = d.toString
+def jDecimal(d: Decimal): String = jsonStringify(d)
 /** Pair a key with an already-encoded value (jStr/jNum/jObj/jArr/...). */
 def jField(key: String, value: String): String = jStr(key) + ":" + value
 def jObj(fields: List[String]): String = "{" + fields.mkString(",") + "}"

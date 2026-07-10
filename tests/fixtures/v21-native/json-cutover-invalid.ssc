@@ -1,0 +1,7 @@
+# Strict self-hosted JSON failure
+
+[jsonRead](std/json.ssc)
+
+```scalascript
+jsonRead("{")
+```

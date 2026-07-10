@@ -1,7 +1,7 @@
 package ssc.plugin.json
 
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Prims, V2PluginRegistry, Value}
+import ssc.{Done, Prims, Runtime, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
 
 class JsonNativePluginTest extends AnyFunSuite:
@@ -11,36 +11,52 @@ class JsonNativePluginTest extends AnyFunSuite:
   private def method(receiver: Value, name: String, args: Value*): Value =
     Prims.methodOp(name, receiver, args.toList)
 
-  test("JsonValue navigation is total and preserves exact string decimals") {
+  private def install(): Unit =
     NativePluginHost.installProviders(List(JsonNativePlugin()))
-    val root = call("jsonValue", Value.StrV(
-      "{\"name\":\"Ada\",\"items\":[1,2],\"amount\":\"1000.01\",\"on\":true}"))
+    val renderer = Value.ClosV(Runtime.emptyEnv, 1, _ => Done(Value.StrV("SELF-HOSTED")))
+    call("__jsonCoreInstallRenderer", renderer)
+
+  test("JsonValue bridge navigates portable JsonCore values totally") {
+    install()
+    val source = collection.mutable.LinkedHashMap[Value, Value](
+      Value.StrV("name") -> Value.StrV("Ada"),
+      Value.StrV("items") -> Value.DataV("Cons", Vector(Value.IntV(1),
+        Value.DataV("Cons", Vector(Value.IntV(2), Value.DataV("Nil", Vector.empty))))),
+      Value.StrV("amount") -> Value.ForeignV(new java.math.BigDecimal("1000.0100")),
+      Value.StrV("on") -> Value.BoolV(true))
+    val root = call("__jsonCoreWrap", NativeJsonCodec.toCore(Value.ForeignV(source)))
+
     assert(method(method(root, "get", Value.StrV("name")), "asString") == Value.StrV("Ada"))
     val items = method(root, "get", Value.StrV("items"))
     assert(method(method(items, "at", Value.IntV(1)), "asInt") == Value.IntV(2))
     assert(method(method(root, "get", Value.StrV("missing")), "isNull") == Value.BoolV(true))
     assert(method(method(root, "get", Value.StrV("amount")), "asDecimal") ==
-      Value.ForeignV(new java.math.BigDecimal("1000.01")))
+      Value.ForeignV(new java.math.BigDecimal("1000.0100")))
     assert(method(method(root, "get", Value.StrV("on")), "asBool") == Value.BoolV(true))
+    assert(method(root, "size") == Value.IntV(4))
+    assert(method(root, "raw") == Value.StrV("SELF-HOSTED"))
   }
 
-  test("malformed JsonValue input is Null while strict jsonParse rejects") {
-    NativePluginHost.installProviders(List(JsonNativePlugin()))
-    val tolerant = call("jsonValue", Value.StrV("not json"))
-    assert(method(tolerant, "isNull") == Value.BoolV(true))
-    val error = intercept[RuntimeException](call("jsonParse", Value.StrV("not json")))
-    assert(error.getMessage.startsWith("invalid JSON:"))
+  test("strict result bridge rejects JsonCoreErr and converts JsonCoreOk") {
+    install()
+    val ok = Value.DataV("JsonCoreOk", Vector(
+      NativeJsonCodec.toCore(Value.StrV("hello")), Value.IntV(7)))
+    assert(call("__jsonCoreRawStrict", ok) == Value.StrV("hello"))
+
+    val error = Value.DataV("JsonCoreErr", Vector(Value.StrV("unexpected token"), Value.IntV(3)))
+    val thrown = intercept[RuntimeException](call("__jsonCoreRawStrict", error))
+    assert(thrown.getMessage == "invalid JSON at 3: unexpected token")
   }
 
-  test("jsonStringify and legacy lookup points share the same value model") {
-    NativePluginHost.installProviders(List(JsonNativePlugin()))
+  test("runtime encoding and HTTP reuse invoke the installed self-hosted renderer") {
+    install()
     val values = Value.DataV("Cons", Vector(Value.IntV(1),
       Value.DataV("Cons", Vector(Value.StrV("two"), Value.DataV("Nil", Vector.empty)))))
-    assert(call("jsonStringify", values) == Value.StrV("[1,\"two\"]"))
+    val core = call("__jsonCoreEncodeValue", values)
+    assert(core.isInstanceOf[Value.DataV])
+    assert(NativeJsonCodec.stringify(values) == "SELF-HOSTED")
 
-    val parsed = call("jsonParse", Value.StrV("{\"k\":42}"))
-    assert(call("lookup", parsed, Value.StrV("k")) == Value.IntV(42))
-    assert(call("lookupOpt", parsed, Value.StrV("missing")) == Value.DataV("None", Vector.empty))
-    val navigable = call("jsonRead", Value.StrV("{\"k\":42}"))
-    assert(method(method(navigable, "get", Value.StrV("k")), "raw") == Value.StrV("42"))
+    val parsedRaw = NativeJsonCodec.toRaw(core)
+    assert(call("lookup", parsedRaw, Value.IntV(1)) == Value.StrV("two"))
+    assert(call("lookupOpt", parsedRaw, Value.IntV(9)) == Value.DataV("None", Vector.empty))
   }

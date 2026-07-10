@@ -220,10 +220,7 @@ lazy val v2NativeJsonPlugin = project
   .dependsOn(v2NativePluginSpi)
   .settings(
     name := "scalascript-v2-native-json-plugin",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "ujson" % upickleV,
-      scalatestTest,
-    ),
+    libraryDependencies += scalatestTest,
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 

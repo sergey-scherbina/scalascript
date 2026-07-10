@@ -41,6 +41,8 @@ Platform-neutral HTTP server primitives.  Implementations live in each
 backend's intrinsic table (Stage 5+/B); the per-backend runtime helpers
 are shipped via `Backend.runtimePreamble` (Stage 5+/A.6).
 
+[jsonStringify](json.ssc)
+
 ```scalascript
 // TLS configuration — pass to serve() to enable HTTPS.
 extern def tls(certPath: String, keyPath: String): TlsContext

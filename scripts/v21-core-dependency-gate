@@ -128,8 +128,10 @@ declare -a root_specs=(
 # closed distribution still needs an explicit owner for every one of them.
 # Keep the list exact: a newly staged JAR remains a hard failure until reviewed.
 declare -a reflective_specs=(
-  'feature-plugin|json-plugin|geny_3-*.jar'
-  'feature-plugin|json-plugin|upack_3-*.jar'
+  'feature-plugin|sql-plugin|geny_3-*.jar'
+  'feature-plugin|sql-plugin|ujson_3-*.jar'
+  'feature-plugin|sql-plugin|upickle-core_3-*.jar'
+  'feature-plugin|sql-plugin|upack_3-*.jar'
   'feature-plugin|sql-plugin|HikariCP-*.jar'
   'feature-plugin|sql-plugin|checker-qual-*.jar'
   'feature-plugin|sql-plugin|h2-*.jar'

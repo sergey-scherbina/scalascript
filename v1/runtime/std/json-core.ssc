@@ -39,7 +39,7 @@ lossless without adding a host string-construction dependency.
 ```scalascript
 case class JsonCoreNull()
 case class JsonCoreBool(value: Boolean)
-case class JsonCoreNumber(raw: String)
+case class JsonCoreNumber(numberText: String)
 case class JsonCoreString(codeUnits: List[Int])
 case class JsonCoreArray(items: List[Any])
 case class JsonCoreObject(fields: List[Any])

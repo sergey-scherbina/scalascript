@@ -28,9 +28,6 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-http-plugin_",
     "scalascript-v2-native-ui-plugin_",
     "scalascript-v2-native-state-effect-plugin_",
-    "ujson_3-",
-    "upickle-core_3-",
-    "geny_3-",
   )
 
   private val RequiredPrefixes = List(
@@ -55,7 +52,10 @@ private[cli] object NativeJvmArtifact:
     "postgresql-",
     "checker-qual-",
     "slf4j-api-1.",
+    "ujson_3-",
+    "upickle-core_3-",
     "upack_3-",
+    "geny_3-",
   )
 
   private val RequiredSqlPrefixes = List(
