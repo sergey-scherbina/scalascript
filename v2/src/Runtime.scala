@@ -2221,6 +2221,15 @@ object Prims:
           val nilV: Value = DataV("Nil", IndexedSeq.empty)
           parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
         }
+        // split(delimiter, limit) — the two-arg overload (v2-string-split-limit-overload). limit
+        // follows Java/Scala String.split semantics: >0 caps field count (remainder joins the last
+        // field), 0 drops trailing empty fields, <0 (e.g. -1) keeps them. busi's identity.ssc TSV
+        // parser (readTsv) uses split(delim, -1) on every row so a blank trailing column survives.
+        case (StrV(s), "split", List(StrV(d), IntV(limit))) => {
+          val parts = s.split(d, limit.toInt)
+          val nilV: Value = DataV("Nil", IndexedSeq.empty)
+          parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
+        }
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
         case (StrV(s), "forall", List(fn: Value.ClosV)) =>

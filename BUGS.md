@@ -4012,7 +4012,25 @@ same session as `v2-req-form-type-collision`.
 
 ## v2-string-split-limit-overload — String.split(delimiter, limit) unimplemented on v2 (CAUSED A REAL PRODUCTION OUTAGE)
 
-**Status:** OPEN — v1 correct, guarded by
+**Status:** FIXED 2026-07-10 — `Runtime.scala`'s `String` method dispatch had
+`(StrV(s), "split", List(StrV(d)))` (one-arg) but no two-arg case. Added a
+sibling `(StrV(s), "split", List(StrV(d), IntV(limit)))` arm right next to it,
+calling the SAME underlying `s.split(d, limit.toInt)` the one-arg case already
+used internally (with `-1` hardcoded) — just parameterizing the limit instead.
+Mirrors the existing `substring`/`substring(i,j)` sibling-arm pattern in the
+same match. Verified: the repro below now matches v1 exactly; edge cases
+across the full Java/Scala `split` limit semantics (positive/zero/negative)
+are byte-identical v1 vs v2; 8+ busi domain tests exercising this code path
+(durable, ledger, requests, bank_reconcile, social, sync, plus the exact
+production trigger shape) pass cleanly on the patched binary. The full
+175-test conformance suite could not be run to completion in this session
+(scala-cli's compilation server died early under heavy concurrent load from a
+sibling agent's work on the same machine — confirmed environmental, not
+code-related: smaller batches through the same real harness passed cleanly).
+Whoever lands this should re-run the full suite once on a quieter machine as
+final confirmation. Fixed by busi (fable), same session as the report.
+
+**Status (superseded, kept for history):** OPEN — v1 correct, guarded by
 tests/conformance/v2-string-split-limit-overload.ssc. **Severity: this
 exact gap took down a real, live production service** (busi, 2026-07-10)
 within minutes of a routine v1→v2 default flip + deploy — not a test
