@@ -19,6 +19,7 @@ exports:
   - RawTextNode
   - RawHtmlNode
   - TextFieldNode
+  - TextFieldRNode
   - CheckboxNode
   - SignalButtonNode
   - ActionButtonNode
@@ -79,6 +80,12 @@ case class TextFieldNode(value: Any,
                          label: String,
                          disabled: Boolean,
                          required: Boolean)             extends TkNode
+// TextFieldRNode — like TextFieldNode but the label tracks a Signal[String]
+// (reactive, e.g. on a locale switch), mirroring SignalLabelButtonNode.
+case class TextFieldRNode(value: Any,
+                          labelSig: Any,
+                          disabled: Boolean,
+                          required: Boolean)            extends TkNode
 case class CheckboxNode(checked: Any,
                         label: String,
                         disabled: Boolean)              extends TkNode

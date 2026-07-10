@@ -1,0 +1,35 @@
+---
+name: tkv2-textfield-reactive-label
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - textFieldR: reactive input label (P2 SPA i18n parity)
+
+Slice `tkv2-textfield-reactive-label` of `specs/ssc-toolkit-v2.md` §5 P2
+"SPA i18n parity check": `textFieldR` mirrors `signalLabelButton` — the
+label tracks a `Signal[String]` (e.g. a locale switch) instead of being
+baked as a static `String` at build time. DOM serialization of the reactive
+placeholder/`<label>` text is covered by the emitted SPA/jsdom gate for this
+slice; this conformance file keeps the public API, the underlying label
+signal, and the `lower()` path live on both lanes.
+
+[signal](std/ui/primitives.ssc)
+[textFieldR](std/ui/input.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val value = signal("tfrValue", "")
+val label = signal("tfrLabel", "Name")
+
+// The same label signal a locale-switcher would flip — no rebuild of the
+// field/value binding needed, unlike a static FieldSpec.label.
+println(label())
+label.set("Имя")
+println(label())
+
+val node = textFieldR(value, label, disabled = false, required = true)
+val view = lower(node, defaultTheme)
+println("textfieldr-built")
+```

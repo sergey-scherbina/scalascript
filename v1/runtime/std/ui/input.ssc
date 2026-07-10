@@ -5,6 +5,7 @@ description: Input widget constructors — textField, checkbox, signalButton, ac
 package: std.ui.input
 exports:
   - textField
+  - textFieldR
   - checkbox
   - signalButton
   - actionButton
@@ -14,7 +15,7 @@ exports:
 
 # `std.ui.input` — input constructors
 
-[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
+[TkNode, TextFieldNode, TextFieldRNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
 
 ```scalascript
 def textField(value: Any,
@@ -22,6 +23,14 @@ def textField(value: Any,
               disabled: Boolean = false,
               required: Boolean = false): TkNode =
   TextFieldNode(value, label, disabled, required)
+
+// textFieldR — like textField but the label tracks a Signal[String]
+// (reactive, e.g. on a locale switch), mirroring signalLabelButton.
+def textFieldR(value: Any,
+               labelSig: Any,
+               disabled: Boolean = false,
+               required: Boolean = false): TkNode =
+  TextFieldRNode(value, labelSig, disabled, required)
 
 def checkbox(checked: Any,
              label: String = "",

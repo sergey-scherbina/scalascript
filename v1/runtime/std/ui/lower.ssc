@@ -14,7 +14,7 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
 
 [Theme, TypographyItem](theme.ssc)
 
@@ -203,6 +203,30 @@ def lower(n: TkNode, theme: Theme): View = n match
       ["style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"],
       Map(),
       [textNode(label)])
+    element("div",
+      ["style" -> s"display:flex; flex-direction:column; gap:${sp.xs}px"],
+      Map(),
+      [labelEl, inputEl])
+
+  case TextFieldRNode(value, labelSig, disabled, required) =>
+    val sp    = theme.spacing
+    val base  = s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; " +
+                s"padding:${sp.sm}px ${sp.sm}px; border:1px solid ${theme.colors.muted}; " +
+                s"border-radius:${theme.radii.sm}px; width:100%; box-sizing:border-box"
+    val style = if disabled then base + "; background:#f3f4f6; color:#9ca3af; cursor:not-allowed" else base
+    val inputEl = element("input",
+      ["style"       -> style,
+       "type"        -> "text",
+       "placeholder" -> labelSig,
+       "disabled"    -> disabled,
+       "required"    -> required,
+       "value"       -> value],
+      if disabled then Map() else ["change" -> inputChange(value)],
+      [])
+    val labelEl = element("label",
+      ["style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"],
+      Map(),
+      [signalText(labelSig)])
     element("div",
       ["style" -> s"display:flex; flex-direction:column; gap:${sp.xs}px"],
       Map(),
