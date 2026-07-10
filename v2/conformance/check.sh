@@ -13,8 +13,8 @@ fail=0
 # K63.4: OPTIONAL parallelism. CONF_JOBS=N (default 1 = sequential, byte-identical to
 # before) runs the stateless chk/chk_hm helper tests through a bounded background pool;
 # results are collected at a barrier before exit. Other lanes (rustc/node/inline) stay
-# sequential for now — parallelize them gradually. Out-of-order output in parallel mode
-# is expected (the pass/FAIL SET is what's asserted).
+# sequential for now — parallelize them gradually. K63.4c orders the parallel output via
+# exec-redirect segments, so CONF_JOBS>1 output matches the sequential run line-for-line.
 CONF_JOBS="${CONF_JOBS:-1}"
 mkdir -p "$LOGDIR"
 _PAR_DIR="$LOGDIR/par"; mkdir -p "$_PAR_DIR"; _par_idx=0
@@ -141,6 +141,7 @@ chk() { # mode file want
       if [ "$g" = "$w" ]; then printf 'ok   %-26s => %s\n' "$m ${f##*/}" "$g"
       else printf 'FAIL %-26s got [%s] want [%s]\n' "$m ${f##*/}" "$g" "$w"; fi
     } >"$_PAR_DIR/$(printf '%06d' "$i")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 }
 chk_raw_targets() { # label file want
@@ -156,6 +157,19 @@ chk_raw_targets() { # label file want
     if [ "$got" = "$want" ]; then printf 'ok   %-26s => %s (rustc)\n' "$lbl -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "$lbl Rust" "$got"; fail=1; fi
   fi
 }
+
+# K63.4c: in parallel mode, ORDER the output. stdout is redirected to an indexed
+# "segment" file; every parallel enqueue seals the current segment (the inline output
+# accumulated since the last job), runs the job into the next index, then opens a fresh
+# segment (_pseg). The barrier restores real stdout and cats every indexed file in order,
+# so inline headers/tests and backgrounded job results interleave EXACTLY as in the
+# sequential run. stderr stays live for progress. Sequential mode (CONF_JOBS=1) untouched.
+if [ "$CONF_JOBS" -gt 1 ]; then
+  exec 3>&1
+  _pseg() { exec >"$_PAR_DIR/$(printf '%06d' "$_par_idx")"; _par_idx=$((_par_idx+1)); }
+  echo "[CONF_JOBS=$CONF_JOBS] parallel mode: stdout buffered, emitted in order at completion (stderr stays live)" >&2
+  _pseg  # open segment 0 for the inline output that precedes the first job
+fi
 
 echo "# ssc0 source -> ir -> run"
 chk run examples/fact.ssc0 "120"
@@ -274,6 +288,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ts.js" 2>/dev/null | tail -1)
   if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (node)\n' "adt tree-sum -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "adt tree-sum JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -288,6 +303,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ts.rs" -o "${TMPDIR:-/tmp}/ts-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ts-bin"); else got="(rustc err)"; fi
   if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (rustc)\n' "adt tree-sum -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "adt tree-sum Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 
@@ -311,6 +327,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/hm-map.js" 2>/dev/null | tail -1)
   if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (node)\n' "hm-map -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "hm-map JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -325,6 +342,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/hm-map.rs" -o "${TMPDIR:-/tmp}/hm-map-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/hm-map-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (rustc)\n' "hm-map -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "hm-map Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 
@@ -358,6 +376,7 @@ chk_hm() { # file want
       if [ "$g" = "$w" ]; then printf 'ok   %-26s => %s\n' "mira ${f##*/}" "$g"
       else printf 'FAIL %-26s got [%s] want [%s]\n' "mira ${f##*/}" "$g" "$w"; fi
     } >"$_PAR_DIR/$(printf '%06d' "$i")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 }
 chk_hm examples/hm-src-inc.hm '"(Int -> Int)"'
@@ -435,6 +454,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/sw.js" 2>/dev/null | tail -1)
   if [ "$got" = "$SW" ]; then printf 'ok   %-26s => %s (node)\n' "string -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "string JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -449,6 +469,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/sw.rs" -o "${TMPDIR:-/tmp}/sw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SW" ]; then printf 'ok   %-26s => %s (rustc)\n' "string -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "string Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira FLOAT: Float type + literals + fadd/fsub/fmul/fdiv/flt/feq + toFloat, on every backend"
@@ -469,6 +490,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/fw.js" 2>/dev/null | tail -1)
   if [ "$got" = "$FW" ]; then printf 'ok   %-26s => %s (node)\n' "float -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "float JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -483,6 +505,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/fw.rs" -o "${TMPDIR:-/tmp}/fw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/fw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$FW" ]; then printf 'ok   %-26s => %s (rustc)\n' "float -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "float Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira TUPLES: (a, b) / (a, b, c) syntax + fst/snd, on every backend"
@@ -503,6 +526,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/tp.js" 2>/dev/null | tail -1)
   if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s (node)\n' "tuple -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -517,6 +541,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/tp.rs" -o "${TMPDIR:-/tmp}/tp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$TW" ]; then printf 'ok   %-26s => %s (rustc)\n' "tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "tuple Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# K42 — TUPLE TYPES in ADT field positions: a constructor field may be a tuple (A, B) / (A, B, C). data Rec = Rec (String, Int) (Int, Int, Int)"
@@ -555,6 +580,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/shw.js" 2>/dev/null | tail -1)
   if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s (node)\n' "show Int -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "show JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -569,6 +595,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/shw.rs" -o "${TMPDIR:-/tmp}/shw-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/shw-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SHW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Int -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "show Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira Show over LISTS: recursive type-directed (show [Int]/[[Int]]/[Bool]) on every backend"
@@ -589,6 +616,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/sl.js" 2>/dev/null | tail -1)
   if [ "$got" = "$SLW" ]; then printf 'ok   %-26s => %s (node)\n' "show [Int] -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showlist JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -603,6 +631,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/sl.rs" -o "${TMPDIR:-/tmp}/sl-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sl-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show [Int] -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showlist Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira Eq over LISTS: eq [Int]/[[Int]] structural, recursive type-directed, on every backend"
@@ -622,6 +651,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/el.js" 2>/dev/null | tail -1)
   if [ "$got" = "$ELW" ]; then printf 'ok   %-26s => %s (node)\n' "eq [Int] -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eqlist JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -636,6 +666,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/el.rs" -o "${TMPDIR:-/tmp}/el-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/el-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ELW" ]; then printf 'ok   %-26s => %s (rustc)\n' "eq [Int] -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eqlist Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira Show/Eq over TUPLES: show (1,true) / eq (1,2) (1,2), type-directed, on every backend"
@@ -658,6 +689,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/st.js" 2>/dev/null | tail -1)
   if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (node)\n' "show tuple -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtup JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -672,6 +704,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/st.rs" -o "${TMPDIR:-/tmp}/st-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/st-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show tuple -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtup Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira Show/Eq over Option/Either: show (Some 5)/eq, type-directed, on every backend"
@@ -694,6 +727,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/so.js" 2>/dev/null | tail -1)
   if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (node)\n' "show Option -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showopt JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -708,6 +742,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/so.rs" -o "${TMPDIR:-/tmp}/so-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/so-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Option -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showopt Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira Show/Eq over GENERAL/RECURSIVE ADTs: Tree + user enums, via per-type recursive helpers"
@@ -730,6 +765,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/tr.js" 2>/dev/null | tail -1)
   if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (node)\n' "show Tree -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtree JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -744,6 +780,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/tr.rs" -o "${TMPDIR:-/tmp}/tr-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tr-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$STW" ]; then printf 'ok   %-26s => %s (rustc)\n' "show Tree -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "showtree Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira TYPECLASS Eq/Ord: eq (4 base types) + compare (Int+Float) resolved by type"
@@ -766,6 +803,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/eq.js" 2>/dev/null | tail -1)
   if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (node)\n' "eq -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -780,6 +818,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/eq.rs" -o "${TMPDIR:-/tmp}/eq-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eq-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$EQW" ]; then printf 'ok   %-26s => %s (rustc)\n' "eq -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eq Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# mira USER TYPECLASSES: `method m` + `instance m T = impl`, m resolves by arg type-head, on every backend'
@@ -800,6 +839,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/uc.js" 2>/dev/null | tail -1)
   if [ "$got" = "$UCW" ]; then printf 'ok   %-26s => %s (node)\n' "describe 5 -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -814,6 +854,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/uc.rs" -o "${TMPDIR:-/tmp}/uc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/uc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$UCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "describe 5 -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira USER TYPECLASS over a user data type: instance name Color resolves + dispatches the impl"
@@ -834,6 +875,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ucc.js" 2>/dev/null | tail -1)
   if [ "$got" = "$UCC" ]; then printf 'ok   %-26s => %s (node)\n' "name Green -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass-color JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -848,6 +890,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ucc.rs" -o "${TMPDIR:-/tmp}/ucc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ucc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$UCC" ]; then printf 'ok   %-26s => %s (rustc)\n' "name Green -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "userclass-color Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira RECORDS: { x = e, y = e } literals + r.x access (structural record types), 3 backends"
@@ -868,6 +911,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/rec.js" 2>/dev/null | tail -1)
   if [ "$got" = "$RW" ]; then printf 'ok   %-26s => %s (node)\n' "record -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "record JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -882,6 +926,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/rec.rs" -o "${TMPDIR:-/tmp}/rec-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/rec-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$RW" ]; then printf 'ok   %-26s => %s (rustc)\n' "record -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "record Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira ARITH: div/mod/neg (Int) + fneg/fsqrt (Float), on every backend"
@@ -902,6 +947,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ar.js" 2>/dev/null | tail -1)
   if [ "$got" = "$AW" ]; then printf 'ok   %-26s => %s (node)\n' "arith -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -916,6 +962,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ar.rs" -o "${TMPDIR:-/tmp}/ar-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ar-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$AW" ]; then printf 'ok   %-26s => %s (rustc)\n' "arith -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira SHOWCASE: a typed arithmetic-expression interpreter, written in mira, on 3 backends"
@@ -935,6 +982,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ev.js" 2>/dev/null | tail -1)
   if [ "$got" = "7" ]; then printf 'ok   %-26s => %s (node)\n' "eval interp -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eval JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -949,6 +997,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ev.rs" -o "${TMPDIR:-/tmp}/ev-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ev-bin"); else got="(rustc err)"; fi
   if [ "$got" = "7" ]; then printf 'ok   %-26s => %s (rustc)\n' "eval interp -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eval Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 chk_hm examples/hm-streq.hm '"Int"'                                 # strEq (string equality)
@@ -976,6 +1025,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/q2.rs" -o "${TMPDIR:-/tmp}/q2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/q2-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$QS2" ]; then printf 'ok   %-26s => %s (rustc)\n' "qsort dup -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "qsort dup Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira BOOLEAN operators: && (tighter) / || (looser) / not — desugar to If, consistent on all backends"
@@ -996,6 +1046,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/hb.js" 2>/dev/null | tail -1)
   if [ "$got" = "$BLW" ]; then printf 'ok   %-26s => %s (node)\n' "and/or/not -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "bool JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1010,6 +1061,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/hb.rs" -o "${TMPDIR:-/tmp}/hb-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/hb-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$BLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "and/or/not -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "bool Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira STRING ops: strLen / charAt / substr (typed builtins -> slen/scodeAt/sslice) on every backend"
@@ -1030,6 +1082,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/sop.js" 2>/dev/null | tail -1)
   if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (node)\n' "strLen/charAt/substr -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "strops JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1044,6 +1097,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/sop.rs" -o "${TMPDIR:-/tmp}/sop-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/sop-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "strLen/charAt/substr -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "strops Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira CURRY sugar: multi-arg 'fun x y => e' + function-def 'let f x y = e' / 'let rec f n = e'"
@@ -1064,6 +1118,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/cur.js" 2>/dev/null | tail -1)
   if [ "$got" = "$CUW" ]; then printf 'ok   %-26s => %s (node)\n' "curry sugar -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "curry JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1078,6 +1133,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/cur.rs" -o "${TMPDIR:-/tmp}/cur-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cur-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$CUW" ]; then printf 'ok   %-26s => %s (rustc)\n' "curry sugar -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "curry Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira WILDCARD match: 'case _ => e' catch-all arm -> IrMatch default slot, on every backend"
@@ -1098,6 +1154,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/wc.js" 2>/dev/null | tail -1)
   if [ "$got" = "$WCW" ]; then printf 'ok   %-26s => %s (node)\n' "wildcard match -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "wildcard JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1112,6 +1169,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/wc.rs" -o "${TMPDIR:-/tmp}/wc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/wc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$WCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "wildcard match -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "wildcard Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira LINE COMMENTS: '// ...' to end of line (lexer skips; strings keep their slashes), all backends"
@@ -1132,6 +1190,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/cmt.js" 2>/dev/null | tail -1)
   if [ "$got" = "$CMW" ]; then printf 'ok   %-26s => %s (node)\n' "comments -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "comments JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1146,6 +1205,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/cmt.rs" -o "${TMPDIR:-/tmp}/cmt-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/cmt-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$CMW" ]; then printf 'ok   %-26s => %s (rustc)\n' "comments -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "comments Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira VARIABLE pattern: 'case x => body' binds the whole scrutinee (let x = scrut in match _), all backends"
@@ -1166,6 +1226,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/vp.js" 2>/dev/null | tail -1)
   if [ "$got" = "$VPW" ]; then printf 'ok   %-26s => %s (node)\n' "var pattern -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "varpat JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1180,6 +1241,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/vp.rs" -o "${TMPDIR:-/tmp}/vp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/vp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$VPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "var pattern -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "varpat Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira PRELUDE: map/filter/foldr/foldl/append/reverse/length/sum/range auto-injected ONLY when used free"
@@ -1200,6 +1262,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/pl.js" 2>/dev/null | tail -1)
   if [ "$got" = "$PLW" ]; then printf 'ok   %-26s => %s (node)\n' "prelude compose -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1214,6 +1277,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/pl.rs" -o "${TMPDIR:-/tmp}/pl-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pl-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$PLW" ]; then printf 'ok   %-26s => %s (rustc)\n' "prelude compose -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 # the prelude must NOT perturb a program that defines its own helper (free-var scan excludes bound names)
@@ -1238,6 +1302,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/pl2.js" 2>/dev/null | tail -1)
   if [ "$got" = "$PL2" ]; then printf 'ok   %-26s => %s (node)\n' "take/zip/replicate -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude2 JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1252,6 +1317,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/pl2.rs" -o "${TMPDIR:-/tmp}/pl2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pl2-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$PL2" ]; then printf 'ok   %-26s => %s (rustc)\n' "take/zip/replicate -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "prelude2 Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira LITERAL Int patterns: 'match n { 0 => .. | 1 => .. | _ => .. }' -> if-chain, all backends"
@@ -1272,6 +1338,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/lp.js" 2>/dev/null | tail -1)
   if [ "$got" = "$LPW" ]; then printf 'ok   %-26s => %s (node)\n' "fib (lit patterns) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1286,6 +1353,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/lp.rs" -o "${TMPDIR:-/tmp}/lp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/lp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$LPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "fib (lit patterns) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira STRING/BOOL literal patterns: 'match s { \"add\" => .. | _ => .. }' (strEq) / true|false (if)"
@@ -1306,6 +1374,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ls.js" 2>/dev/null | tail -1)
   if [ "$got" = "$LSW" ]; then printf 'ok   %-26s => %s (node)\n' "string dispatch -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat-str JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1320,6 +1389,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ls.rs" -o "${TMPDIR:-/tmp}/ls-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ls-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$LSW" ]; then printf 'ok   %-26s => %s (rustc)\n' "string dispatch -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "litpat-str Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira NESTED patterns: Con (Sub ..) / tuple / list (Cons/Nil) / literal sub-patterns, backtracking"
@@ -1340,6 +1410,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ne.js" 2>/dev/null | tail -1)
   if [ "$got" = "$NPW" ]; then printf 'ok   %-26s => %s (node)\n' "nested patterns -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "nestpat JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1354,6 +1425,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ne.rs" -o "${TMPDIR:-/tmp}/ne-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ne-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$NPW" ]; then printf 'ok   %-26s => %s (rustc)\n' "nested patterns -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "nestpat Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira PRELUDE Option/list: concatMap (transitive dep on append) / mapOption / getOrElse / find"
@@ -1374,6 +1446,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/oe.js" 2>/dev/null | tail -1)
   if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s (node)\n' "option/concatMap -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "option JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1388,6 +1461,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/oe.rs" -o "${TMPDIR:-/tmp}/oe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/oe-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$OEW" ]; then printf 'ok   %-26s => %s (rustc)\n' "option/concatMap -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "option Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# K44 — Either/Result combinators: partitionEithers / mapLeft / mapRight / either / fromLeft / fromRight / isLeft / isRight"
@@ -1416,6 +1490,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/de.js" 2>/dev/null | tail -1)
   if [ "$got" = "$DOW" ]; then printf 'ok   %-26s => %s (node)\n' "do-notation -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "do JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1430,6 +1505,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/de.rs" -o "${TMPDIR:-/tmp}/de-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/de-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$DOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "do-notation -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "do Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira PRELUDE (sort): concat / zipWith / elemBy / sortBy — polymorphic, comparator-passing"
@@ -1450,6 +1526,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/se.js" 2>/dev/null | tail -1)
   if [ "$got" = "$SRW" ]; then printf 'ok   %-26s => %s (node)\n' "sortBy/zipWith -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "sort JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1464,6 +1541,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/se.rs" -o "${TMPDIR:-/tmp}/se-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/se-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$SRW" ]; then printf 'ok   %-26s => %s (rustc)\n' "sortBy/zipWith -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "sort Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira TYPE ASCRIPTION: (e : T) checks/documents, and disambiguates typeclasses (show (None : Option Int))"
@@ -1484,6 +1562,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ae.js" 2>/dev/null | tail -1)
   if [ "$got" = "$ASW" ]; then printf 'ok   %-26s => %s (node)\n' "ascription -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "ascribe JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1498,6 +1577,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ae.rs" -o "${TMPDIR:-/tmp}/ae-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ae-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ASW" ]; then printf 'ok   %-26s => %s (rustc)\n' "ascription -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "ascribe Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira PRELUDE combinators: id / const / abs / minBy / maxBy"
@@ -1518,6 +1598,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ce.js" 2>/dev/null | tail -1)
   if [ "$got" = "$CBW" ]; then printf 'ok   %-26s => %s (node)\n' "combinators -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "combinators JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1532,6 +1613,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ce.rs" -o "${TMPDIR:-/tmp}/ce-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ce-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$CBW" ]; then printf 'ok   %-26s => %s (rustc)\n' "combinators -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "combinators Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira FUNCTION-TYPED data fields: data F a = Op (Int -> F a) | Ret a  (free monads, K7-P1)"
@@ -1552,6 +1634,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ffe.js" 2>/dev/null | tail -1)
   if [ "$got" = "$FFW" ]; then printf 'ok   %-26s => %s (node)\n' "fn-typed field -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "fnfield JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1566,6 +1649,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ffe.rs" -o "${TMPDIR:-/tmp}/ffe-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ffe-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$FFW" ]; then printf 'ok   %-26s => %s (rustc)\n' "fn-typed field -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "fnfield Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira TYPED EFFECTS (K7-P): State (one-shot) + Nondeterminism (MULTI-SHOT) as typed free monads + do-notation"
@@ -1596,6 +1680,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/en.js" 2>/dev/null | tail -1)
   if [ "$got" = "$ENW" ]; then printf 'ok   %-26s => %s (node)\n' "Nondet (multi-shot) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-nondet JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1616,6 +1701,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/en.rs" -o "${TMPDIR:-/tmp}/en-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/en-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ENW" ]; then printf 'ok   %-26s => %s (rustc)\n' "Nondet (multi-shot) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-nondet Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira UNIVERSAL Comp via Dyn (K7-E): one effect monad for all ops; perform + label-dispatch handler"
@@ -1636,6 +1722,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ec.js" 2>/dev/null | tail -1)
   if [ "$got" = "$ECW" ]; then printf 'ok   %-26s => %s (node)\n' "universal Comp/Dyn -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-comp JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1650,6 +1737,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ec.rs" -o "${TMPDIR:-/tmp}/ec-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ec-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ECW" ]; then printf 'ok   %-26s => %s (rustc)\n' "universal Comp/Dyn -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-comp Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 # Dyn round-trip (the escape-hatch) types and erases
@@ -1672,6 +1760,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/no.js" 2>/dev/null | tail -1)
   if [ "$got" = "$NOW" ]; then printf 'ok   %-26s => %s (node)\n' "float +/* -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "numops JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1686,6 +1775,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/no.rs" -o "${TMPDIR:-/tmp}/no-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/no-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$NOW" ]; then printf 'ok   %-26s => %s (rustc)\n' "float +/* -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "numops Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 # int arithmetic still resolves to Int (regression guard)
@@ -1708,6 +1798,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/nc.js" 2>/dev/null | tail -1)
   if [ "$got" = "$NCW" ]; then printf 'ok   %-26s => %s (node)\n' "float < -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "numcmp JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1722,6 +1813,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/nc.rs" -o "${TMPDIR:-/tmp}/nc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/nc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$NCW" ]; then printf 'ok   %-26s => %s (rustc)\n' "float < -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "numcmp Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 # int comparison still resolves to Int (regression guard)
@@ -1744,6 +1836,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/dv.js" 2>/dev/null | tail -1)
   if [ "$got" = "$DIVW" ]; then printf 'ok   %-26s => %s (node)\n' "int/float div -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "div JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1758,6 +1851,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/dv.rs" -o "${TMPDIR:-/tmp}/dv-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/dv-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$DIVW" ]; then printf 'ok   %-26s => %s (rustc)\n' "int/float div -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "div Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   mixed div rejected       => "; printf '9.0 / 2' > "${TMPDIR:-/tmp}/dmx.hm"; dmx=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/dmx.hm" | tail -1); if [ "$dmx" = '"TypeError: arithmetic operands must have the same type"' ]; then echo "Int/Float mix rejected (correct)"; else echo "FAIL [$dmx]"; fail=1; fi
@@ -1779,6 +1873,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/ay.js" 2>/dev/null | tail -1)
   if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s (node)\n' "async sched -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "async JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1793,6 +1888,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ay.rs" -o "${TMPDIR:-/tmp}/ay-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ay-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$AYW" ]; then printf 'ok   %-26s => %s (rustc)\n' "async sched -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "async Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira TYPED ACTORS: stateful behavior (state, msg) -> (state', out) over a message stream, all backends"
@@ -1813,6 +1909,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/at.js" 2>/dev/null | tail -1)
   if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s (node)\n' "actor behavior -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1827,6 +1924,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/at.rs" -o "${TMPDIR:-/tmp}/at-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/at-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ATW" ]; then printf 'ok   %-26s => %s (rustc)\n' "actor behavior -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "actors Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# mira EFFECT ROWS (K10): type tracks effects + runE rejects unhandled; runs on all backends"
@@ -1847,6 +1945,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/er.js" 2>/dev/null | tail -1)
   if [ "$got" = "$ERV" ]; then printf 'ok   %-26s => %s (node)\n' "effect run (State) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "effrow JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1861,6 +1960,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/er.rs" -o "${TMPDIR:-/tmp}/er-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/er-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$ERV" ]; then printf 'ok   %-26s => %s (rustc)\n' "effect run (State) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "effrow Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   effect tracked in type   => "; printf 'getE' > "${TMPDIR:-/tmp}/er1.hm"; et=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/er1.hm" | tail -1); if [ "$et" = '"Comp {State | e0} Dyn"' ]; then echo "Comp {State | e0} Dyn"; else echo "FAIL [$et]"; fail=1; fi
@@ -1883,6 +1983,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/e2.js" 2>/dev/null | tail -1)
   if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s (node)\n' "two effects -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2 JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1897,6 +1998,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/e2.rs" -o "${TMPDIR:-/tmp}/e2-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/e2-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$E2V" ]; then printf 'ok   %-26s => %s (rustc)\n' "two effects -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff2 Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   second effect tracked too => "; printf 'runE (runStateE (bindE (logE (7 : Dyn)) (fun w => bindE getE (fun x => pureE ((x : Int) + 1)))) 0)' > "${TMPDIR:-/tmp}/er3.hm"; el=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/er3.hm" | tail -1); if [ "$el" = '"TypeError: effect not handled: Log"' ]; then echo "Log unhandled rejected (correct)"; else echo "FAIL [$el]"; fail=1; fi
@@ -1928,6 +2030,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/eh.js" 2>/dev/null | tail -1)
   if [ "$got" = "$EHV" ]; then printf 'ok   %-26s => %s (node)\n' "multi-shot handle -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-handle JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1942,6 +2045,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/eh.rs" -o "${TMPDIR:-/tmp}/eh-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/eh-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$EHV" ]; then printf 'ok   %-26s => %s (rustc)\n' "multi-shot handle -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-handle Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   user effect tracked too   => "; printf 'runE (perform "Choose" "flip" (0 : Dyn))' > "${TMPDIR:-/tmp}/er4.hm"; ec=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/er4.hm" | tail -1); if [ "$ec" = '"TypeError: effect not handled: Choose"' ]; then echo "user Choose unhandled rejected (correct)"; else echo "FAIL [$ec]"; fail=1; fi
@@ -1963,6 +2067,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/us.js" 2>/dev/null | tail -1)
   if [ "$got" = "$USV" ]; then printf 'ok   %-26s => %s (node)\n' "user State handler -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-userstate JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -1977,6 +2082,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/us.rs" -o "${TMPDIR:-/tmp}/us-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/us-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$USV" ]; then printf 'ok   %-26s => %s (rustc)\n' "user State handler -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-userstate Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# K10.4e.2 — 'doE { x <- m ; .. }' do-notation for effects (desugars <- to bindE; the existing 'do' -> 'bind' is untouched)"
@@ -2004,6 +2110,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-eff-do-nondet.hm > "${TMPDIR:-/tmp}/edn.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/edn.js" 2>/dev/null | tail -1)
   if [ "$got" = "$DNV" ]; then printf 'ok   %-26s => %s (node)\n' "doE nondet -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do-nondet JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2018,6 +2125,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/edo.rs" -o "${TMPDIR:-/tmp}/edo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/edo-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$DOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "doE State -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-do Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# K11.1 — 'effect Name op1 op2 in …' declaration sugar: 'op arg' => perform (no string literals)"
@@ -2045,6 +2153,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-eff-decl-choose.hm > "${TMPDIR:-/tmp}/edc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/edc.js" 2>/dev/null | tail -1)
   if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s (node)\n' "effect decl Choose -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2059,6 +2168,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/edc.rs" -o "${TMPDIR:-/tmp}/edc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/edc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$EDCV" ]; then printf 'ok   %-26s => %s (rustc)\n' "effect decl Choose -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-decl-choose Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   declared op tracked too   => "; printf 'effect Choose flip in runE (flip (0 : Dyn))' > "${TMPDIR:-/tmp}/edu.hm"; edu=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/edu.hm" | tail -1); if [ "$edu" = '"TypeError: effect not handled: Choose"' ]; then echo "declared Choose unhandled rejected (correct)"; else echo "FAIL [$edu]"; fail=1; fi
@@ -2081,6 +2191,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-eff-rowann.hm > "${TMPDIR:-/tmp}/ra.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ra.js" 2>/dev/null | tail -1)
   if [ "$got" = "$RAV" ]; then printf 'ok   %-26s => %s (node)\n' "row ascription -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-rowann JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2095,6 +2206,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ra.rs" -o "${TMPDIR:-/tmp}/ra-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ra-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$RAV" ]; then printf 'ok   %-26s => %s (rustc)\n' "row ascription -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-rowann Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# K11.3 — NUMERIC POLYMORPHISM (light qualified types via inlining): a closed numeric helper works at Int AND Float"
@@ -2113,6 +2225,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-poly-num.hm > "${TMPDIR:-/tmp}/pn.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/pn.js" 2>/dev/null | tail -1)
   if [ "$got" = "$PNV" ]; then printf 'ok   %-26s => %s (node)\n' "poly numeric -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "poly-num JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2127,6 +2240,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/pn.rs" -o "${TMPDIR:-/tmp}/pn-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/pn-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$PNV" ]; then printf 'ok   %-26s => %s (rustc)\n' "poly numeric -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "poly-num Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 # the eager-default sharp edge is gone for a closed helper, but a let-bound NON-inlined numeric fn still defaults to Int (sound)
@@ -2147,6 +2261,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-eff-typed.hm > "${TMPDIR:-/tmp}/tp.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/tp.js" 2>/dev/null | tail -1)
   if [ "$got" = "$TPV" ]; then printf 'ok   %-26s => %s (node)\n' "typed payloads -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-typed JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2161,6 +2276,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/tp.rs" -o "${TMPDIR:-/tmp}/tp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$TPV" ]; then printf 'ok   %-26s => %s (rustc)\n' "typed payloads -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "eff-typed Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   typed op arg checked     => "; printf 'effect State { get : Dyn -> Int , put : Int -> Dyn } in runE (runStateE (doE { u <- put "x" ; x <- get ; pureE (x + 1) }) 0)' > "${TMPDIR:-/tmp}/tpb.hm"; tpb=$(ssc run bin/mira.ssc0 "${TMPDIR:-/tmp}/tpb.hm" | tail -1); if [ "$tpb" = '"TypeError: effect op arg type mismatch for put"' ]; then echo "put String rejected (correct)"; else echo "FAIL [$tpb]"; fail=1; fi
@@ -2202,6 +2318,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-method-poly.hm > "${TMPDIR:-/tmp}/mp.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mp.js" 2>/dev/null | tail -1)
   if [ "$got" = "$MPV" ]; then printf 'ok   %-26s => %s (node)\n' "method poly -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2216,6 +2333,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/mp.rs" -o "${TMPDIR:-/tmp}/mp-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mp-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MPV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method poly -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   eager method still works => "; printf 'method sz in instance sz Int = fun n => n + 1 in instance sz Bool = fun b => 0 in sz 5' > "${TMPDIR:-/tmp}/eg.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/eg.hm" 2>/dev/null > "${TMPDIR:-/tmp}/eg.coreir"; egg=$(ssc run-ir "${TMPDIR:-/tmp}/eg.coreir" | tail -1); if [ "$egg" = "6" ]; then echo "6 (monomorphic, no sig)"; else echo "FAIL [$egg]"; fail=1; fi
@@ -2235,6 +2353,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-method-poly-ops.hm > "${TMPDIR:-/tmp}/mo.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mo.js" 2>/dev/null | tail -1)
   if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s (node)\n' "method poly (ops) -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2249,6 +2368,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/mo.rs" -o "${TMPDIR:-/tmp}/mo-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mo-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MOV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method poly (ops) -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-poly-ops Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# K11.3c — RECEIVER-RESULT methods: `method negate : self` (result = the receiver type) polymorphic at Int & Float'
@@ -2267,6 +2387,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-method-self.hm > "${TMPDIR:-/tmp}/ms.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ms.js" 2>/dev/null | tail -1)
   if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s (node)\n' "method self -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2281,6 +2402,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ms.rs" -o "${TMPDIR:-/tmp}/ms-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ms-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$MSV" ]; then printf 'ok   %-26s => %s (rustc)\n' "method self -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-self Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# K50 — BINARY METHOD SIGS: `method m : self -> R` (parseFnType parses -> in sig; selfRes recurses into TyFun; myMin polymorphic over Int & Float)'
@@ -2299,6 +2421,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-method-binary.hm > "${TMPDIR:-/tmp}/mb.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mb.js" 2>/dev/null | tail -1)
   if [ "$got" = "$K50W" ]; then printf 'ok   %-26s => %s (node)\n' "method binary -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-binary JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2313,6 +2436,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/mb.rs" -o "${TMPDIR:-/tmp}/mb-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mb-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$K50W" ]; then printf 'ok   %-26s => %s (rustc)\n' "method binary -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "method-binary Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo "# MUTUAL RECURSION: let rec f = .. and g = .. in ..  (multi-binding IrLetRec; Rust gen got an n-way knot-tie)"
@@ -2330,6 +2454,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-mutual.hm > "${TMPDIR:-/tmp}/mut.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/mut.js" 2>/dev/null | tail -1)
   if [ "$got" = "true" ]; then printf 'ok   %-26s => %s (node)\n' "mutual rec -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2344,6 +2469,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/mut.rs" -o "${TMPDIR:-/tmp}/mut-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/mut-bin"); else got="(rustc err)"; fi
   if [ "$got" = "true" ]; then printf 'ok   %-26s => %s (rustc)\n' "mutual rec -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "mutual Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo -n "ok   3-way mutual rec         => "; printf 'let rec f = fun n => if n = 0 then 0 else g (n - 1) and g = fun n => if n = 0 then 1 else h (n - 1) and h = fun n => if n = 0 then 2 else f (n - 1) in f 7' > "${TMPDIR:-/tmp}/m3.hm"; ssc run bin/mirac.ssc0 "${TMPDIR:-/tmp}/m3.hm" 2>/dev/null > "${TMPDIR:-/tmp}/m3.coreir"; m3=$(ssc run-ir "${TMPDIR:-/tmp}/m3.coreir" | tail -1); if [ "$m3" = "1" ]; then echo "1 (f→g→h→f…)"; else echo "FAIL [$m3]"; fail=1; fi
@@ -2641,6 +2767,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/tmap.js" 2>/dev/null | tail -1)
   if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (node)\n' "mira-js map.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "mira-js map.hm" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2655,6 +2782,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/tmap.rs" -o "${TMPDIR:-/tmp}/tmap-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tmap-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$LMAP" ]; then printf 'ok   %-26s => %s (rustc)\n' "mira-rust map.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "mira-rust map.hm" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 
@@ -2676,6 +2804,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/qs.js" 2>/dev/null | tail -1)
   if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s (node)\n' "mira-js qsort.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "mira-js qsort.hm" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2690,6 +2819,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/qs.rs" -o "${TMPDIR:-/tmp}/qs-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/qs-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$QS" ]; then printf 'ok   %-26s => %s (rustc)\n' "mira-rust qsort.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "mira-rust qsort.hm" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 
@@ -2725,6 +2855,7 @@ if have_node; then
   got=$(node "${TMPDIR:-/tmp}/tt.js" 2>/dev/null | tail -1)
   if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (node)\n' "mira-js tree.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "mira-js tree.hm" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2739,6 +2870,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/tt.rs" -o "${TMPDIR:-/tmp}/tt-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/tt-bin"); else got="(rustc err)"; fi
   if [ "$got" = "6" ]; then printf 'ok   %-26s => %s (rustc)\n' "mira-rust tree.hm" "$got"; else printf 'FAIL %-26s got [%s]\n' "mira-rust tree.hm" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 
@@ -2872,6 +3004,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-lambda.hm > "${TMPDIR:-/tmp}/lc.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/lc.js" 2>/dev/null | tail -1)
   if [ "$got" = "$K52LV" ]; then printf 'ok   %-26s => %s (node)\n' "lambda calc -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "lambda-calc JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2886,6 +3019,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/lc.rs" -o "${TMPDIR:-/tmp}/lc-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/lc-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$K52LV" ]; then printf 'ok   %-26s => %s (rustc)\n' "lambda calc -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "lambda-calc Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# K52 — SHOWCASE: arithmetic expression parser (recursive descent; "1+2*3" => 7, * before +) all 3 backends'
@@ -2904,6 +3038,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-arith-parser.hm > "${TMPDIR:-/tmp}/ap.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/ap.js" 2>/dev/null | tail -1)
   if [ "$got" = "$K52AV" ]; then printf 'ok   %-26s => %s (node)\n' "arith parser -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith-parser JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2918,6 +3053,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/ap.rs" -o "${TMPDIR:-/tmp}/ap-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/ap-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$K52AV" ]; then printf 'ok   %-26s => %s (rustc)\n' "arith parser -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "arith-parser Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# K51 — mira STDLIB EXPANSION: assoc-list map ops (assocInsert/Delete/MapKV/UnionWith) — type check + JS'
@@ -2934,6 +3070,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-stdlib-map.hm > "${TMPDIR:-/tmp}/k51m.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/k51m.js" 2>/dev/null | tail -1)
   if [ "$got" = "$K51MV" ]; then printf 'ok   %-26s => %s (node)\n' "stdlib-map -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "stdlib-map JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# K51 — mira STDLIB EXPANSION: parser combinators (pChar/pStr/pSeq/pAlt/pMap/pMany/pInt) — all 3 backends'
@@ -2952,6 +3089,7 @@ if have_node; then
   ssc run bin/mira-js.ssc0 examples/hm-parser-comb.hm > "${TMPDIR:-/tmp}/k51p.js" 2>/dev/null; got=$(node "${TMPDIR:-/tmp}/k51p.js" 2>/dev/null | tail -1)
   if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (node)\n' "parser-comb -> JS" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb JS" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 if have_rust; then
@@ -2966,6 +3104,7 @@ if have_rust; then
   if rustc -O "${TMPDIR:-/tmp}/k51p.rs" -o "${TMPDIR:-/tmp}/k51p-bin" 2>/dev/null; then got=$("${TMPDIR:-/tmp}/k51p-bin"); else got="(rustc err)"; fi
   if [ "$got" = "$K51PV" ]; then printf 'ok   %-26s => %s (rustc)\n' "parser-comb -> Rust" "$got"; else printf 'FAIL %-26s got [%s]\n' "parser-comb Rust" "$got"; fail=1; fi
     ) >"$_PAR_DIR/$(printf '%06d' "$_bi")" 2>&1 &
+    _pseg  # K63.4c: seal segment, open next for inline output
   fi
 fi
 echo '# K55 — Markdown fence extractor (ssc-front / bin/ssc-front.ssc0)'
@@ -3123,9 +3262,12 @@ kc13md=$(ssc run bin/ssc1-run.ssc0 examples/kc13-hello.ssc | ssc run-ir /dev/std
 if [ "$kc13md" = "Hello, World!" ]; then printf 'ok   %-26s => %s\n' "kc13 md .ssc runner" "$kc13md"
 else printf 'FAIL %-26s\n  got: [%s] want: [Hello, World!]\n' "kc13 md .ssc runner" "$kc13md"; fail=1; fi
 
-# K63.4 barrier: drain the parallel pool, emit results in call order, aggregate FAIL.
+# K63.4 barrier: drain the parallel pool. K63.4c: restore the real stdout (fd 3), then
+# emit every indexed segment/job file in order — inline output and backgrounded job
+# results interleave exactly as the sequential run. [0-9]* skips the n*/r* TMPDIR subdirs.
 if [ "$CONF_JOBS" -gt 1 ]; then
   wait
-  for _pf in "$_PAR_DIR"/*; do [ -e "$_pf" ] || continue; cat "$_pf"; grep -q '^FAIL' "$_pf" && fail=1; done
+  exec >&3
+  for _pf in "$_PAR_DIR"/[0-9]*; do [ -f "$_pf" ] || continue; cat "$_pf"; grep -q '^FAIL' "$_pf" && fail=1; done
 fi
 exit $fail
