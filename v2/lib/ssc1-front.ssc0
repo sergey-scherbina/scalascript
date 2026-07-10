@@ -81,22 +81,50 @@ def scanEnd = (pred, s, i) =>
   if #i.ge(i, slen(s)) then i
   else if pred(sget(s, i)) then scanEnd(pred, s, #i.add(i, 1))
   else i
+-- Skip a quoted string nested inside a `${...}` expression. `i` is the first
+-- character after its opening quote and the result is just after the closing
+-- quote (or EOF). This keeps inner delimiters from terminating the outer
+-- interpolated string.
+def scanNestedStr = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if #i.eq(c, 34) then #i.add(i, 1)
+    else if #i.eq(c, 92) then scanNestedStr(s, #i.add(i, 2))
+    else scanNestedStr(s, #i.add(i, 1))
+
+-- Find the byte just after the matching `}` for an interpolation body. Nested
+-- braces and string literals are balanced; malformed input returns EOF and is
+-- subsequently rejected by the ordinary expression/parser checks.
+def scanInterpEnd = (s, i, depth) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if #i.eq(c, 34) then scanInterpEnd(s, scanNestedStr(s, #i.add(i, 1)), depth)
+    else if #i.eq(c, 123) then scanInterpEnd(s, #i.add(i, 1), #i.add(depth, 1))
+    else if #i.eq(c, 125) then
+      if #i.eq(depth, 1) then #i.add(i, 1)
+      else scanInterpEnd(s, #i.add(i, 1), #i.sub(depth, 1))
+    else scanInterpEnd(s, #i.add(i, 1), depth)
+
 def scanStr = (s, i) =>
   if #i.ge(i, slen(s)) then i
   else let c = sget(s, i) in
     if #i.eq(c, 34) then i
     else if #i.eq(c, 92) then scanStr(s, #i.add(i, 2))
+    else if #i.eq(c, 36) then
+      if #i.eq(nget(s, #i.add(i, 1)), 123) then
+        scanStr(s, scanInterpEnd(s, #i.add(i, 2), 1))
+      else scanStr(s, #i.add(i, 1))
     else scanStr(s, #i.add(i, 1))
-def buildStr = (s, i, acc) =>
-  if #i.ge(i, slen(s)) then acc
+
+def buildStr = (s, i, end, acc) =>
+  if #i.ge(i, end) then acc
   else let c = sget(s, i) in
-    if #i.eq(c, 34) then acc
-    else if #i.eq(c, 92) then
+    if #i.eq(c, 92) then
       let e = nget(s, #i.add(i, 1)) in
       let ec = if #i.eq(e, 110) then "\n" else if #i.eq(e, 116) then "\t"
                else #sfromCodes(Cons(e, Nil)) in
-      buildStr(s, #i.add(i, 2), scat(acc, ec))
-    else buildStr(s, #i.add(i, 1), scat(acc, #sfromCodes(Cons(c, Nil))))
+      buildStr(s, #i.add(i, 2), end, scat(acc, ec))
+    else buildStr(s, #i.add(i, 1), end, scat(acc, #sfromCodes(Cons(c, Nil))))
 
 -- ── Lexer ─────────────────────────────────────────────────────────────────────
 -- K62.6c-indent: from `i` at a line start, count leading spaces/tabs → (indent, pos).
@@ -209,7 +237,7 @@ def lexFrom = (s, i) =>
       Cons(mkTok("int", #sslice(s, i2, e)), lexFrom(s, eL))
     else if #i.eq(c, 34) then
       let e = scanStr(s, #i.add(i2, 1)) in
-      Cons(mkTok("str", buildStr(s, #i.add(i2, 1), "")), lexFrom(s, #i.add(e, 1)))
+      Cons(mkTok("str", buildStr(s, #i.add(i2, 1), e, "")), lexFrom(s, #i.add(e, 1)))
     else if #i.eq(c, 40)  then Cons(mkTok("(", ""),   lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 41)  then Cons(mkTok(")", ""),   lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 91)  then Cons(mkTok("[", ""),   lexFrom(s, #i.add(i2, 1)))
@@ -387,24 +415,18 @@ def interpParts = (raw) =>
         else
           let c2 = sget(raw, i1) in
           if #i.eq(c2, 123) then
-            -- ${ident}: flush literal, emit as var, skip }; complex: skip to }
+            -- ${expr}: balance nested braces/strings, parse the complete inner
+            -- expression, and splice its AST into the concatenation.
             let i2 = #i.add(i1, 1) in
-            let c3 = if #i.lt(i2, len) then sget(raw, i2) else 0 in
-            if isAlpha(c3) then
-              let lit = #sslice(raw, litStart, i) in
-              let acc2 = if #i.eq(slen(lit), 0) then acc else Cons(Pair("str", lit), acc) in
-              let endId = readInterpId(raw, i2) in
-              let name = #sslice(raw, i2, endId) in
-              let iClose = if #i.lt(endId, len) then
-                if #i.eq(sget(raw, endId), 125) then #i.add(endId, 1) else endId
-              else endId in
-              go(iClose, iClose, Cons(Pair("var", name), acc2))
-            else
-              let rec skipBx = (j) =>
-                if #i.ge(j, len) then j
-                else if #i.eq(sget(raw, j), 125) then #i.add(j, 1)
-                else skipBx(#i.add(j, 1)) in
-              go(skipBx(i2), litStart, acc)
+            let iAfter = scanInterpEnd(raw, i2, 1) in
+            let exprEnd = if #i.gt(iAfter, i2) then
+              if #i.eq(sget(raw, #i.sub(iAfter, 1)), 125) then #i.sub(iAfter, 1)
+              else len
+            else len in
+            let lit = #sslice(raw, litStart, i) in
+            let acc2 = if #i.eq(slen(lit), 0) then acc else Cons(Pair("str", lit), acc) in
+            let exprSrc = #sslice(raw, i2, exprEnd) in
+            go(iAfter, iAfter, Cons(Pair("expr", exprSrc), acc2))
           else if isAlpha(c2) then
             -- $name: flush literal, extract identifier
             let lit = #sslice(raw, litStart, i) in
@@ -423,7 +445,9 @@ def partsToExpr = (parts) =>
     case Cons(p, rest) =>
       let pexpr = match p {
         case Pair(pkind, pval) =>
-          if #seq(pkind, "str") then mkStr(pval) else mkVar(pval)
+          if #seq(pkind, "str") then mkStr(pval)
+          else if #seq(pkind, "expr") then prV(parseExpr(lex(pval)))
+          else mkVar(pval)
       } in
       match rest {
         case Nil => pexpr

@@ -1,0 +1,11 @@
+---
+name: v21-native-interpolation-expression
+---
+
+# Interpolation expressions
+
+```scalascript
+val nums = for n <- List(1, 2, 3, 4, 5) yield n * n
+println(s"Squares: ${nums.mkString(", ")}")
+println(s"Wrapped: ${nums.mkString("-")}!")
+```
