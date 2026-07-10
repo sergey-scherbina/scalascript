@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T11:17:07Z
+heartbeat: 2026-07-10T11:33:45Z
 status: in-progress
-done-so-far: TI-1 done; TI-2 gates 7ba4d413b; bugs tracked 2fb0ce4e2/0815c7871; sscpkg temp leak fixed 784ac95d3 + bookkeeping 056a56d94
-next: publish authoritative 195-file TI-2 counts/spec results and mark portable-baseline slice done
+done-so-far: TI-1 done; TI-2 gates/classification 7ba4d413b/4d538ae98, spec baseline e611e4883, bookkeeping 78593aee9; sscpkg leak fixed 784ac95d3
+next: implement staged compiler-free native frontend entry and close its prose self-import bug (TI-3)
