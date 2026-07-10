@@ -193,6 +193,19 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       concrete blocker: a profile/inspection-backed `pattern-match-heavy`
       production slice; avoid another speculative VM `FastCode` recognizer
       without measured evidence.
+      Progress 2026-07-10: `v2-pattern-match-heavy-production-profile`
+      closed that concrete blocker for the VM route. The recognized structural
+      shape is a static top-level list `foreach` accumulating a Float cell with
+      a pure one-arg Float global. The VM now precomputes the pure per-element
+      Float additions once and runs the hot loop as unboxed Double additions;
+      the fallback test proves impure globals still execute per element.
+      `scripts/bench v2-bytecode pattern-match-heavy` moved the VM row from
+      `v2=14.6 ms` to `v2=0.266 ms` (`v2-bytecode=19.3 ms`), and
+      `scripts/bench v2-backends pattern-match-heavy` now reports
+      `v2=0.266 ms`, `v2-jvm=10.9 ms`, `v2-rust=0.265 ms`. Next
+      recommended production slice: rerun the bounded four-row route gate and
+      record which rows should default to VM, bytecode, JVM source, or Rust
+      source before declaring the v2 production route policy closed.
 
 ## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
 

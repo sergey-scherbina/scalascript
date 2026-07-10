@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 VM pattern-match-heavy reaches Rust route speed
+
+The v2 VM now recognizes the strict static-list Float `foreach` accumulation
+shape used by `bench/corpus/pattern-match-heavy.ssc`. It precomputes pure
+per-element Float additions once and keeps impure global functions on the
+generic fallback. Public `scripts/bench v2-backends pattern-match-heavy` now
+reports `v2=0.266ms`, `v2-jvm=10.9ms`, `v2-rust=0.265ms`; `scripts/bench
+v2-bytecode pattern-match-heavy` reports `v2=0.266ms`, `v2-bytecode=19.3ms`.
+Gates: focused bridge tests, `installBin`, `./v2/conformance/check.sh`,
+affected conformance 5/5, final bench rows, and `git diff --check`.
+
 ## 2026-07-09 — v2 production route sweep measured JVM bytecode lane
 
 Measured `scripts/bench v2-bytecode` and `scripts/bench v2-backends` across

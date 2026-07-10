@@ -9,7 +9,27 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-- [ ] **v2-pattern-match-heavy-production-profile** - next v2 production gate
+- [x] **v2-pattern-match-heavy-production-profile** - DONE 2026-07-10 in
+      `eead9c4b8`: VM `pattern-match-heavy` now recognizes the strict
+      static top-level list + pure one-arg Float global + Float-cell
+      accumulating `foreach` loop shape. It precomputes the pure per-element
+      Float additions once and then runs the hot loop as unboxed Double
+      additions, with a focused fallback test proving impure global functions
+      still execute per element. Fresh baseline after `installBin`:
+      `scripts/bench v2-bytecode pattern-match-heavy` reported `v2=14.6 ms`,
+      `v2-bytecode=19.4 ms`; `scripts/bench v2-backends pattern-match-heavy`
+      reported `v2=15.8 ms`, `v2-jvm=10.8 ms`, `v2-rust=0.296 ms`; direct
+      machine bench was `BENCH v2 14.4`. Final rows: direct machine bench
+      `BENCH v2 0.2653`; `scripts/bench v2-bytecode pattern-match-heavy`
+      reports `v2=0.266 ms`, `v2-bytecode=19.3 ms`; `scripts/bench
+      v2-backends pattern-match-heavy` reports `v2=0.266 ms`,
+      `v2-jvm=10.9 ms`, `v2-rust=0.265 ms`. Gates: `v2FrontendBridge/compile`,
+      focused bridge tests `pattern-match-heavy` and `static`, `installBin`,
+      `./v2/conformance/check.sh`, affected conformance 5/5, and
+      `git diff --check`. Note: full `FrontendBridgeTest` probe still has one
+      unrelated `Currency.scale` failure covered by the active
+      `v2-money-decimal-regression` sibling claim. Original plan:
+      next v2 production gate
       slice for the remaining `pattern-match-heavy` blocker. Context:
       `v2-bytecode-production-gate-sweep` measured that `v2-bytecode` closes
       recursion rows but is worse than the VM on `pattern-match-heavy`
