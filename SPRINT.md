@@ -129,8 +129,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       graph, and keep any accelerated codec only as an explicit optional plugin.
       Gate with runtime class-load/JAR scans plus existing json/http VM/ASM
       smokes; preserve the public strict/tolerant and total-accessor behavior.
-      This removes two of the three strict-parser migration surfaces; the
-      SQL-owned `wire-core` surface stays assigned to plugin/backend isolation.
+      This must remove every JSON-owned strict-parser edge. The remaining
+      ujson/upickle/upack references are a single SQL `wire-core` plugin family
+      (four exact strict-gate rows) assigned to plugin/backend isolation.
 - [ ] **v21-shc-frontmatter-yaml-core** — implement the bounded Frontmatter YAML
       Profile in ScalaScript (block/flow maps/lists, scalars, comments, block
       strings; reject duplicate keys, anchors, tags, merge keys, and multi-doc)
