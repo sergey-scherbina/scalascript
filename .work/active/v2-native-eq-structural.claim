@@ -1,0 +1,6 @@
+feature/v2-native-eqstruct 2026-07-10T20:15:32Z
+agent: claude-code (opus)
+heartbeat: 2026-07-10T20:15:32Z
+status: in-progress
+done-so-far: K62.13/14/15 landed (enum+match-opener, literal patterns, merged field accessors — data-types now runs 8+ lines). Diagnosed: native front lowers ==/!= to IrPrim("i.eq",…); the VM i.eq compile path (Runtime.scala:1725) coerces operands via asInt → "foo"=="foo" and float == CRASH (expected Int). Corpus-wide correctness bug (string/float equality).
+next: ssc1-lower — lower == and != via __eq__ (structural prim, Runtime.scala:2174, works on all Value types incl StrV/FloatV/DataV) instead of i.eq. Lower-only, no kernel rebuild. Risk = loss of i.eq JIT fast-path for int loops → measure conformance timing (must stay ~same + 406/0). Verify: "a"=="a"→true, 0.5==0.5→true, int/char == still correct, recursion.ssc timing OK.
