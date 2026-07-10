@@ -320,3 +320,62 @@ payments-bridge pattern), a separate lane from the frontend. Remaining pure-fron
 items are small and semantically tricky (pattern guards `case P if g =>` need
 fall-through; typeclass `derives`/`TC[T].encode` needs derivation+summon) and are
 themselves downstream-blocked, so they do not move the e2e count on their own.
+
+---
+
+## K62.8 — 2026-07-10 (CORRECTION: the lever is module-loading, not plugin bridging)
+
+The "unbridged plugins" finding above was **half right**. Probing the actual v2 plugin
+runtime (`PluginBridge.loadAll()` → `ServiceLoader` over `Backend`) shows the leaf UI
+primitives **ARE** registered: `signal`/`element`/`textNode`/`fragment`/`serve`/
+`contentToolkitSection` all resolve (they are `NativeImpl` intrinsics in
+`frontend-plugin`/`content-plugin`, both on the bridge classpath). What is *unbound* is
+the **ssc-defined std helpers** built on top of them — `staticDataTable`, `jObj`,
+`lower`, `fcol`, `contentToolkitOptionsWithActions` live in `v1/runtime/std/{json,
+ui/data, ui/content, ui/lower}.ssc` as ordinary `def`s. So the real lever is
+**module-loading** (load those std `.ssc` modules), NOT plugin bridging — and it is in
+the frontend lane after all.
+
+Module-loading is a **source-preprocessing** step: `FrontendBridge.resolveImportsCode`
+(the v1 reference) resolves `[names](path)` link-imports, DFS-loads each module's code
+(dedup by canonical path), and concatenates `prelude + main` BEFORE parsing. Path
+resolution: relative-to-file → `std/…` root → dev-tree walk to `v1/runtime/std`.
+
+**Landed this session (parse-completeness for std modules — the prerequisite):**
+- **`/* … */` block comments** in the lexer (`skipBlockComment`, wired into `skipWS`
+  and `skipToCode`). The native front previously had NO block-comment support — every
+  stdlib module's doc comments were parsed as code. Biggest single unblock.
+- **statement-level type/decl skips**: `type X = Y`, `opaque type`, `extern def …`
+  (declares a plugin intrinsic — no body), `enum E { … }`. All erased/no-op.
+- **`skipToStmt` boundary fix**: top-level statements have NO `;` separators (layout
+  emits none at depth 0), so a declaration-body skip must halt at the next decl
+  keyword — added `type`(kw) + `extern`/`opaque`/`enum`(id) stops (consecutive
+  `extern def`s over-skipped before).
+
+**REVERTED — brace-less `match`.** Adding `match` to `isLayoutOpener` (so `x match <NL>
+case …` gets virtual `{ ; }`) parsed the isolated case but **regressed the corpus
+40 → 22** with ~18 hangs/kills (`RUNERR(137)`): making `match` a layout opener desyncs
+the many existing braced/inline `match` sites. Brace-less match needs a narrower
+mechanism (only open the block when the next token is `case`, or handle it inside
+`parseMatchExpr`), not a blanket layout opener. Left out of this batch.
+
+Result: the **leaf** std modules parse clean (0 `_err`): `json`, `ui/primitives`,
+`ui/data`, `ui/nodes`, `ui/layout`, `ui/typography`, `ui/input`, `mapreduce/index`.
+(These use no brace-less match; the code-heavy modules that DO — `ui/lower`,
+`ui/theme` — still need it, so they remain in the desync bucket below.)
+
+**Still blocking module-loading (the remaining work, multi-session):**
+1. **Code-heavy std modules desync** — `ui/content`, `ui/theme`, `ui/lower`, `agent`,
+   `mcp/server`, `http`, `mapreduce/{dataset,distributed,shuffle}` still emit `_err`.
+   Isolated typed lambdas `(x: T) =>`, multi-param lambdas, and brace-less match all
+   parse fine on their own, so the residue is a **parser desync** inside multi-line
+   block-lambda / nested constructs (a `}`-imbalance cascade shows up as dozens of
+   spurious `=>` triggers). Needs targeted layout work, not a single feature.
+2. **The driver** — replicate `resolveImportsCode` in `ssc1-run.ssc0`: scan imports,
+   resolve paths (deterministic: `std/X` → `<main-dir>/../v1/runtime/std/X`; relatives
+   vs the importing module's dir), DFS + dedup, concat. `#io.readFile` exists but
+   **throws** on a missing path (`Files.readAllBytes`), so robust multi-candidate
+   resolution wants a fault-tolerant read primitive (`io.tryReadFile`/`io.fileExists`).
+3. Nearly every content/ui/mapreduce corpus file imports ≥1 code-heavy module, so the
+   driver alone (with only leaf modules clean) unblocks ~1 file (`ui-typed-json`, which
+   imports only `json.ssc`). The desync work in (1) gates the bulk.

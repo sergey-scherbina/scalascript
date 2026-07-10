@@ -89,6 +89,18 @@ def countIndent = (s, i, acc) =>
     else if #i.eq(c, 9) then countIndent(s, #i.add(i, 1), #i.add(acc, 1))
     else Pair(acc, i)
 
+-- K62.8: skip a `/* … */` block comment; `i` points at the opening `/`.
+-- Returns the position just after the closing `*/` (or EOF). Nesting not handled
+-- (Scala doc/block comments in the stdlib modules are non-nested).
+def skipBlockComment = (s, i) =>
+  let rec go = (j) =>
+    if #i.ge(j, slen(s)) then j
+    else if #i.eq(sget(s, j), 42) then
+      if #i.eq(nget(s, #i.add(j, 1)), 47) then #i.add(j, 2)
+      else go(#i.add(j, 1))
+    else go(#i.add(j, 1)) in
+  go(#i.add(i, 2))
+
 -- from `i` pointing AT a newline char, skip newline(s), blank lines and comment
 -- lines, and return (indent, pos) of the next real code token (or (0, EOF)).
 def skipToCode = (s, i) =>
@@ -103,6 +115,12 @@ def skipToCode = (s, i) =>
           if #i.eq(nget(s, #i.add(pos, 1)), 47) then
             let e = scanEnd((c2) => if #i.eq(c2, 10) then false else true, s, #i.add(pos, 2)) in
             if #i.ge(e, slen(s)) then Pair(0, e) else skipToCode(s, e)
+          else if #i.eq(nget(s, #i.add(pos, 1)), 42) then
+            -- `/* … */` block comment line: skip it, keep looking for code
+            let e = skipBlockComment(s, pos) in
+            if #i.ge(e, slen(s)) then Pair(0, e)
+            else if #i.eq(sget(s, e), 10) then skipToCode(s, e)
+            else Pair(ind, e)
           else Pair(ind, pos)
         else Pair(ind, pos)
   }
@@ -115,6 +133,9 @@ def skipWS = (s, i) =>
       if #i.eq(nget(s, #i.add(i, 1)), 47) then
         let j = scanEnd((c2) => if #i.eq(c2, 10) then false else true, s, #i.add(i, 2)) in
         skipWS(s, j)
+      else if #i.eq(nget(s, #i.add(i, 1)), 42) then
+        -- `/* … */` block comment (may span lines): skip and continue
+        skipWS(s, skipBlockComment(s, i))
       else i
     else i
 
@@ -1184,6 +1205,7 @@ def skipBraceBlock = (ts) =>
 def skipToStmt = (ts) =>
   let tok = peek(ts) in
   let k2  = tokKind(tok) in
+  let v2  = tokVal(tok) in
   if #seq(k2, "EOF") then ts
   else if #seq(k2, ";") then ts
   else if #seq(k2, "kw") then
@@ -1195,6 +1217,15 @@ def skipToStmt = (ts) =>
     else if kwIs("given",  ts) then ts
     else if kwIs("object", ts) then ts
     else if kwIs("abstract", ts) then ts
+    -- K62.8: `type X = Y` alias starts a new statement (top-level has no `;`
+    -- separators, so a body-skip must halt at the next declaration keyword).
+    else if kwIs("type",   ts) then ts
+    else skipToStmt(advance(ts))
+  else if #seq(k2, "id") then
+    -- K62.8: declaration-starting identifiers (not real keywords) also bound a skip
+    if #seq(v2, "extern") then ts
+    else if #seq(v2, "opaque") then ts
+    else if #seq(v2, "enum") then ts
     else skipToStmt(advance(ts))
   else skipToStmt(advance(ts))
 
@@ -1356,6 +1387,9 @@ def parseOneStmt = (toks) =>
             parseObj(prT(r), Cons(prV(r), acc)) in
         parseObj(advance(ts2), Nil)
       else pr(Pair("object", Pair(name, Nil)), ts2)
+    else if #seq(v, "type") then
+      -- K62.8: `type X = Y` / `type X[..] = Y` alias — erased, skip to next stmt.
+      pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
   else
     -- KV9: check for "multi effect E { ... }" multi-shot effect declaration
@@ -1371,6 +1405,22 @@ def parseOneStmt = (toks) =>
             pr(Pair("multi_effect", ename), ts4)
           else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
         else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
+      else if #seq(v, "extern") then
+        -- K62.8: `extern def foo(...): T` declares a plugin intrinsic — no body,
+        -- resolved at runtime via the plugin registry. Skip the whole signature.
+        -- (advance past `extern` and the following `def` kw, then skip to next stmt.)
+        let ts1 = advance(toks) in
+        let ts2 = if kindIs("kw", ts1) then advance(ts1) else ts1 in
+        pr(Pair("sealed", ""), skipToStmt(ts2))
+      else if #seq(v, "opaque") then
+        -- K62.8: `opaque type X = Y` — erased alias, skip to next stmt.
+        pr(Pair("sealed", ""), skipToStmt(advance(toks)))
+      else if #seq(v, "enum") then
+        -- K62.8: `enum E { case … }` / `enum E(p) : T { … }` — skip name + optional
+        -- params/bounds, then the body (braces or nothing) to the next stmt.
+        let ts1 = skipToBrace(advance(toks)) in
+        let ts2 = if kindIs("{", ts1) then skipBraceBlock(ts1) else skipToStmt(ts1) in
+        pr(Pair("sealed", ""), ts2)
       else parseExprOrAssign(toks)
     else parseExprOrAssign(toks)
 
