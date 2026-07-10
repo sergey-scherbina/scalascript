@@ -80,7 +80,7 @@ Recognized front-matter keys:
 | `routes` | List | Declarative HTTP route table |
 | `databases` | Map | JDBC connection registry consumed by `sql` blocks (§ 3.3.1) |
 | `schemas` | Map | Optional type-to-storage mapping metadata for typed data codecs (`fields`, aliases, defaults, keys, unknown-field policy) |
-| `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `ssc` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `spark`). § 9.2. |
+| `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `ssc` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `swift` / `spark`). § 9.2. |
 | `spark-version` | String | Apache Spark version pinned for the Spark backend.  Resolution order: CLI `--spark-version` flag → this key → `SparkGen.DefaultVersion`. § 9.5. |
 | `spark-master` | String | Spark master URL passed to `SparkSession.builder().master(...)` (`local[*]` / `local[N]` / `spark://...` / `yarn` / `k8s://...`).  Resolution order: CLI `--spark-master` flag → this key → `SparkGen.DefaultMaster` (= `local[*]`). § 9.5. |
 | `spark-config` | Map[String, String] | Ad-hoc Spark configuration entries.  Each pair emits one `.config(key, value)` line on `SparkSession.builder()` in sorted-key order, between the fixed defaults and `.getOrCreate()`.  User keys that collide with fixed defaults win (Spark's builder is last-write).  Values are coerced via `toString` so YAML scalars (`200`, `true`) survive intact. § 9.5. |
@@ -1510,6 +1510,7 @@ Discovery via `ServiceLoader` (in-process JARs) or `plugin.yaml` (subprocess).
 | `node` | Node.js | `ssc run --backend node`, `bin/ssc-node` | Self-contained `.cjs` bundle for `node` | Extends JsGen with verbatim linking of `node.js` opaque-exec blocks (§ 3.3) and a Node-side `_output` flush epilogue. v1.25 Phase 3. |
 | `scalajs-spa` | Scala.js SPA bundle | `ssc emit-spa` | Self-contained HTML + JS bundle | Cross-compiles `scala` blocks via Scala.js for browser execution. |
 | `wasm` | WebAssembly (Scala.js) | `ssc emit-wasm` | `.wasm` module + JS glue | Re-uses Scala.js's WASM emission path. |
+| `swift` | Swift / Apple native | `ssc emit-swift`, `ssc build --target macos\|ios` | Swift Package (`AppCore` plus SwiftUI app target when UI is present) | Consumes checked v2 CoreIR, applies portable Decimal/Money/effect/UI lowering, and never falls back to v1 JvmGen. macOS and iOS share source semantics. See `specs/v2-swift-swiftui-native.md`. |
 | `spark` | Apache Spark | `ssc run --backend spark`, `bin/ssc-spark` | Scala 3 + Spark source → `scala-cli run --dep org.apache.spark::spark-{core,sql}:<v>` | Out-of-process — Spark JARs resolved at runtime by Coursier. v1.21 `Dataset[T]` API maps 1-to-1. § 9.5. |
 
 `ssc --list-backends` enumerates in-process bundled backends discovered via `ServiceLoader`.
@@ -2080,6 +2081,8 @@ ssc preview file.ssc            Preview component variants
 ssc emit-js file.ssc            Transpile to JavaScript
 ssc emit-spa file.ssc           Emit SPA HTML bundle
 ssc emit-wasm file.ssc          Emit WebAssembly module via Scala.js
+ssc emit-swift file.ssc         Emit checked-v2 CoreIR as a Swift Package
+ssc run-swift file.ssc          Build and run the generated AppCore product on macOS
 ssc emit-wc file.ssc            Emit Web Components bundle
 ssc emit-spark file.ssc         Emit Scala 3 + Spark source
 ssc submit file.ssc             Build fat JAR + invoke spark-submit (§ 9.5 Phase B.2)
@@ -2091,6 +2094,10 @@ ssc emit-interface file.ssc     Emit .scim interface
 ssc emit-ir file.ssc            Emit .scir normalized IR
 ssc build-jvm file.ssc -o app.jar
                                  Native frontend + CoreIR → direct ASM executable JAR (§ 9.2.1)
+ssc build --target macos file.ssc
+                                 Native frontend + CoreIR → Swift/SwiftUI macOS package
+ssc build --target ios file.ssc
+                                 Native frontend + CoreIR → Swift/SwiftUI iOS package
 ssc link [--backend B] dir/     Link artifacts
 ssc build [--incremental] dir/  Incremental project build
 ssc deps file.ssc               Print import closure
