@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — compatibility tooling gets an explicit tier launcher
+
+Full staging and self-install now create `ssc-tools` over the compatibility
+runtime/compiler layout. The slim launcher delegates only explicit `run --v1`
+or `--compat-frontend` requests when that tier exists; other unsupported
+commands fail with a bounded tools-tier/remedy diagnostic instead of silently
+discovering compatibility classes.
+
 ## 2026-07-10 — ScalaScript 2.1 gains a physically slim standard launcher
 
 `bin/ssc-standard` now starts from a class-filtered native-only entry JAR, 32

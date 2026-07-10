@@ -323,12 +323,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             Standard VM, ASM, SQL, linked `build-jvm`, execution-plan, forbidden
             filename/reference scans, compatibility hello, artifact/native
             e2e, and fresh conformance 8/8 are green.
-      - [ ] **TI-7.2 explicit tools entry:** stage `bin/ssc-tools` over the
+      - [x] **TI-7.2 explicit tools entry — DONE 2026-07-10 (`be229a70d`):** stage `bin/ssc-tools` over the
             compatibility/runtime/compiler layout. Route only explicit
             `run --v1`/`--compat-frontend` requests from the standard launcher;
             unsupported compiler-backed commands name the tools tier and remedy
             instead of classpath-discovering it silently. Keep self-install and
-            generated launchers consistent.
+            generated launchers consistent. Result: all three staging paths
+            create `ssc-tools`; direct v1 hello and explicit delegation through
+            `ssc-standard run --v1` pass, unsupported `check` stays a bounded
+            tier/remedy failure, standard smoke passes, and conformance is 8/8.
       - [ ] **TI-7.3 physical deletion gate:** copy the staged distribution,
             delete compatibility runtime/plugin/compiler trees and every
             Scalameta/compiler-family JAR, then run default/native VM, direct
