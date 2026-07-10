@@ -1,0 +1,6 @@
+feature/v2-production-readiness-audit 2026-07-10T03:14:17Z
+agent: codex
+heartbeat: 2026-07-10T03:14:17Z
+status: not-started
+done-so-far:
+next: create worktree and record SPRINT audit plan
