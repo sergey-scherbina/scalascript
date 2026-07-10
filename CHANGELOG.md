@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — SSR ForSignal fallback attr serialization covered
+
+Added a focused toolkit SSR regression for `View.ForSignal(...,
+itemTemplate = None)` fallback rendering. The source bug had already been fixed
+by the raw-html SSR patch (`bb5342f08`); the new test locks the behavior by
+asserting repeated fallback elements serialize each static attr once per item.
+Gates: `SsrTest` 33/33, `installBin`, affected conformance `tkv2-raw-html` 1/1,
+and `git diff --check`.
+
 ## 2026-07-10 — toolkit v2 rawHtml escape hatch landed
 
 `std/ui/reactive.ssc` now exports `rawHtml(html: String): TkNode` for trusted

@@ -26,15 +26,20 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       DOM assertions (nested strong=1, escaped literal text present, sentinel
       attrs=0, runtime errors=0), and `git diff --check`.
 
-- [ ] **ssr-forsignal-duplicate-attrs-check** - verify and, if confirmed,
-      fix the SSR fallback path for `View.ForSignal` without broad renderer
-      churn. While implementing `tkv2-raw-html`, `frontend/toolkit/.../Ssr.scala`
-      showed two consecutive `writeAttrs(sb, attrs)` calls in the
-      `View.ForSignal(..., itemTemplate = None)` branch. This likely emits
-      duplicate attributes for each repeated fallback element. Done when a
-      focused test or conformance case proves the current behavior, the fix
-      removes the duplicate serialization if needed, and `git diff --check`
-      plus the affected SSR/toolkit gate pass.
+- [x] **ssr-forsignal-duplicate-attrs-check** - DONE 2026-07-10 in
+      `4291a7239` (regression) / `bb5342f08` (source fix): verified the
+      suspected duplicate SSR attrs bug found during `tkv2-raw-html`. No new
+      source edit was needed because the raw-html renderer patch had already
+      removed the second `writeAttrs(sb, attrs)` call from
+      `View.ForSignal(..., itemTemplate = None)`. Added a focused `SsrTest`
+      regression that renders two fallback `<li>` rows and asserts `class` and
+      `data-id` serialize exactly once per row. Gates:
+      `frontendToolkit/testOnly scalascript.frontend.toolkit.SsrTest` 33/33,
+      `installBin`, `tests/conformance/run.sh --only 'tkv2-raw-html'
+      --no-memo` 1/1, and `git diff --check`. Gotcha: the first conformance
+      attempt in the fresh worktree failed before executing the case because
+      `bin/ssc` had not been staged (`ClassNotFoundException:
+      scalascript.cli.ssc`); rerunning after `installBin` passed.
 
 - [x] **tkv2-spa-i18n-parity** - DONE 2026-07-10 in `7e5d55e4f`:
       fixed the custom emitted-SPA i18n crash where a collision-renamed import

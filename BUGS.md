@@ -1,5 +1,30 @@
 # Bug tracker
 
+## ssr-forsignal-duplicate-attrs - SSR `ForSignal` fallback duplicated static attrs
+
+**Status:** fixed (2026-07-10, source fix `bb5342f08`; regression
+`4291a7239`); waiting for human confirmation before `done`.
+
+- **Found by:** codex during `tkv2-raw-html`.
+- **Repro:** before `bb5342f08`, render
+  `View.ForSignal[String](items = new ReactiveSignalList[String]("rows", Seq("a",
+  "b")), tag = "li", attrs = Map("class" -> AttrValue.Str("row"),
+  "data-id" -> AttrValue.Str("x")), itemTemplate = None)` through
+  `Ssr.renderToHtml`.
+- **Observed failure:** each fallback `<li>` serialized the same static attrs
+  twice, producing duplicate `class`/`data-id` attributes for every row.
+- **Expected:** fallback SSR should serialize the supplied attrs once per
+  repeated item.
+- **Root cause:** the `View.ForSignal(..., itemTemplate = None)` fallback
+  branch called `writeAttrs(sb, attrs)` twice before closing the start tag.
+- **Fix:** the duplicate call was removed as part of the raw-html SSR renderer
+  patch in `bb5342f08`; `4291a7239` adds the focused regression that counts the
+  serialized attrs for two repeated rows.
+- **Verified:** `scripts/sbtc "frontendToolkit/testOnly
+  scalascript.frontend.toolkit.SsrTest"` passes 33/33; `scripts/sbtc
+  "installBin"` passes; `tests/conformance/run.sh --only 'tkv2-raw-html'
+  --no-memo` passes 1/1 after staging a fresh CLI in the worktree.
+
 ## tkv2-spa-i18n-serve-intrinsic-shadow — emitted custom SPA calls bare `serve` instead of imported `serve__ssc`
 
 **Status:** fixed (2026-07-10, `7e5d55e4f`); waiting for human confirmation
