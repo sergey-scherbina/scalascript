@@ -1389,17 +1389,30 @@ axis) / DISPATCH `_sel_`/`__method__` / VMERR (VM crash) / RUNS. The DISPATCH+VM
 on plugin-free files are my fixable set. Gate every fix with `v2/conformance/check.sh`
 (640/640) — same discipline as the module-loading chain.
 
-**Tasks (filled from the scan histogram; each landed on main, conformance-gated):**
-- [ ] **nvm-1-classify** — run the full-corpus bare-VM classification scan, write the
-      blocker histogram here, identify the top mine-ownable (VMERR / generic-prim / dispatch)
-      blockers on plugin-free files. (IN PROGRESS — scan PID running.)
-- [ ] **nvm-2-vmerr-fixes** — fix the VM-crash blockers surfaced by the scan (e.g.
-      match-dispatch wrong-arm, scrutinee-not-Data, arity) in `Runtime.scala`, one per slice.
-- [ ] **nvm-3-generic-prims** — add missing generic VM prims / `_sel_` prelude defs for
-      plugin-free stdlib methods that native-lowered files need (pattern: the `str.replace`
-      / `_sel_replace` slice, but for the next most-common missing method).
-- [ ] **nvm-4-remeasure** — re-run the classification, record the delta, hand any remaining
-      PARSE blockers to K62 and any PLUGIN blockers to the relevant plugin axis.
+**Tasks (scan-driven, conformance-gated):**
+- [x] **nvm-1-classify** — DONE 2026-07-10. Classified a 40/195 bare-VM sample
+      (`scratchpad/nvm-scan.tsv`) before stopping the slow scan; the shape is unambiguous.
+      Histogram: **36 UNBOUND** (runActors/runAsync/serve/sha256/hashPassword/mcpConnect/…
+      = plugin axis; `primary`×9 + `_err`×2 + `summon` + `case` = parser/K62), **4 VMERR**
+      (2 = my earlier concurrent-build-race contamination, empty detail — bitwise-operators
+      is KNOWN to pass; 2 = `arity` on data-types/dataset-stats).
+- [x] **nvm-2-finding** — DONE 2026-07-10. **KEY FINDING: there is NO independent VM surface
+      here — the entire native-front residue is K62's parser/lowering lane.** Proven with
+      minimal repros on the native tower (`v2/ssc`, no sbt):
+      - plain 2-field case class `Point(x,y)` + `Point(3,4)` → RUNS (VM fine).
+      - Double-field ctor → RUNS.
+      - `arity: 1 expected, 2 given` (data-types) = enum multi-field variant lowering:
+        `enum Shape: case Rect(w,h)` → Rect never appears in IR (indented enum cases dropped
+        at parse). K62.
+      - `primary`×9 = **named-args**: `Palette(primary="a", secondary="b")` → `unbound
+        global: primary` (label leaks); positional `Palette("a","b")` RUNS. K62. Highest
+        single-gap leverage (9 content-*/datatable/control-center files, via theme.ssc).
+      Handed all repros to K62-owner (rozum 2026-07-10/71) + offered to take named-args
+      end-to-end if they're clear on ssc1-front/ssc1-lower.
+- [ ] **nvm-3-decision** — pending K62 response: EITHER take named-args (parse `ident=` +
+      reorder-by-field-name in lower; unblocks 9 files) IF K62 is off those files, OR pivot
+      to a genuinely non-parser axis (perf bc-lane is build/OOM-risky under the current
+      high contention; evaluate before committing).
 
 ## Разоблачённые exit-0 фикции (cdd032f03 unmask, диагнозы 2026-07-09)
 
