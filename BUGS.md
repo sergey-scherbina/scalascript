@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v21-native-front-prose-self-import-loop — raw link scan follows prose links as module imports
+
+**Status:** open (2026-07-10).
+
+- **Found by:** codex during the TI-2 native-front corpus baseline at
+  `7ba4d413b`.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `SSC_NO_CDS=1 scripts/run-with-timeout 20 java -Xss512m -cp 'bin/lib/jars/*'
+  ssc.cli run v2/bin/ssc1-run.ssc0 examples/components-demo.ssc`.
+- **Observed:** the native loader repeatedly prefixes `./` until
+  `java.nio.file.FileSystemException: .../components/././.../button.ssc: File
+  name too long`.
+- **Expected:** prose links are not imports, and a canonical module path is
+  loaded at most once.
+- **Root cause:** `sscImports` scans the entire raw Markdown document for every
+  `](...ssc)` substring. The prose in `examples/components/button.ssc` contains
+  the documentation example `` `[Button](./button.ssc)` ``, so the module
+  imports itself. `sscResolve` concatenates paths without canonicalizing `./`,
+  and the textual `seen` set therefore never recognizes the cycle.
+- **Fix direction:** derive imports from actual top-level Markdown import nodes
+  (or at minimum exclude fenced/inline-code/prose link examples) and normalize
+  path segments before DFS/load-once comparison. Add this repro to the native
+  corpus gate; do not merely special-case `button.ssc`.
+- **Owner/slice:** `v21-ti-native-front-production-entry` / frontend parity.
+
 ## v2-type-ascription-pattern-no-op — `case _: T =>` silently matched everything (type test dropped)
 
 **Status:** fixed (2026-07-10); waiting for human confirmation before `done`.
