@@ -453,16 +453,21 @@ building generated Swift; snapshot/string tests alone are insufficient.
   cyclic `LetRec` environments, ordered constructor matching, cells, arrays,
   maps, sequences/loops, and a tail-call trampoline. Generation rejects an
   unknown global or primitive with its exact name rather than emitting a no-op.
-- `scripts/sbtc "v2SwiftBackend/test"` passed 3/3 generator/negative/toolchain
+- `scripts/sbtc "v2SwiftBackend/test"` initially passed 3/3
+  generator/negative/toolchain
   tests. The real Swift 6.3.2 toolchain compiled and ran independent packages
   for `v2/conformance/fact.coreir` (`120`), `tco.coreir` at one million calls
   (`500000500000`), and `map.coreir` (`List(2, 4, 6)`). The affected assembled
   smoke `tests/conformance/run.sh --only 'money-portable-v2' --no-memo` also
   remained green 1/1.
+- Follow-up `02342d967` added a target-owned arbitrary-precision signed BigInt
+  implementation (including exact add/subtract/multiply/divide/remainder and
+  comparisons). A real generated package round-tripped a 30-digit value through
+  multiplication and division; the Swift backend suite is now 4/4.
 - This is the first backend sub-slice, not closure of the Swift-core gate:
-  arbitrary BigInt arithmetic, portable Decimal/Money, explicit `Pure`/`Op`,
-  mutual-TCO, and real checked `.ssc` domain fixtures remain required before
-  `v2-swift-core-backend` is complete.
+  portable Decimal/Money, explicit `Pure`/`Op`, mutual-TCO, and real checked
+  `.ssc` domain fixtures remain required before `v2-swift-core-backend` is
+  complete.
 
 ### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
 
