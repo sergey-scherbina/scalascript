@@ -1,0 +1,9 @@
+---
+name: v21-native-triple-quoted-string
+---
+
+```scalascript
+println("""first line
+"quoted" line
+last line""")
+```

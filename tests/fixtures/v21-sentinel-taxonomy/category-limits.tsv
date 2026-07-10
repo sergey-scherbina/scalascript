@@ -1,7 +1,7 @@
 category	max_count
-backend	38
+backend	36
 nondeterministic	1
-server	35
+server	31
 tools-backend	5
-standard-gap	13
-total	92
+standard-gap	12
+total	85

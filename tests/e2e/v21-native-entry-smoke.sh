@@ -59,6 +59,8 @@ interpolation_expected=$'Squares: 1, 4, 9, 16, 25\nWrapped: 1-4-9-16-25!'
 [[ $(run_native "$FIXTURES/multiline-function-param.ssc") == '[typed]' ]]
 [[ $(run_native "$FIXTURES/nested-tuple-pattern.ssc") == $'left\nleft+right' ]]
 [[ $(run_native "$FIXTURES/numeric-separator.ssc") == '10000' ]]
+triple_string_expected=$'first line\n"quoted" line\nlast line'
+[[ $(run_native "$FIXTURES/triple-quoted-string.ssc") == "$triple_string_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -69,6 +71,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/multiline-function-param.ssc") == '[typed]' ]]
 [[ $(run_native --bytecode "$FIXTURES/nested-tuple-pattern.ssc") == $'left\nleft+right' ]]
 [[ $(run_native --bytecode "$FIXTURES/numeric-separator.ssc") == '10000' ]]
+[[ $(run_native --bytecode "$FIXTURES/triple-quoted-string.ssc") == "$triple_string_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -106,7 +109,9 @@ run_native "$ROOT/examples/components-demo.ssc" >"$sandbox/components.out" 2>"$s
 components_rc=$?
 set -e
 [[ $components_rc -ne 0 ]]
-grep -F 'parser sentinel _err' "$sandbox/components.err" >/dev/null
+# Triple-quoted component templates now parse completely. The remaining gap is
+# ordinary extension/runtime resolution, not a parser sentinel or host crash.
+grep -F 'unbound global: s' "$sandbox/components.err" >/dev/null
 if grep -E 'File name too long|StackOverflowError' "$sandbox/components.err" >/dev/null; then
   echo 'components native regression: recursive prose import or frontend stack overflow' >&2
   exit 1
