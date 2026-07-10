@@ -4,3 +4,4 @@ quoted-macro-constfold.ssc	tools-backend	restricted quoted-macro expansion remai
 quoted-macro-interpreter.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
 wasm-http.ssc	tools-backend	WASM/Scala.js target document
 wasm-scalascript.ssc	tools-backend	WASM target document
+x402-client.ssc	tools-backend	regular scalascript fence imports scala.concurrent and sttp compiler/backend APIs forbidden in the standard tier
