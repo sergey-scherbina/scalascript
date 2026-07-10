@@ -197,7 +197,8 @@ before `done`.
 
 ## v21-native-front-dsl-pair-match-crash — valid tuple pattern aborts the self-hosted frontend
 
-**Status:** open (2026-07-10); found in the TI-8.2 native-front corpus sweep.
+**Status:** fixed (2026-07-10, `d4513cb8a`, diagnostic gate
+`ac441ef62`); waiting for human confirmation before `done`.
 
 - **Found by:** codex from `scripts/native-front-corpus`.
 - **Real-harness repro:** the assembled self-hosted frontend on
@@ -208,13 +209,27 @@ before `done`.
 - **Expected:** supported tuple/constructor patterns lower or produce a
   source-located compile diagnostic; the compiler must never crash inside its
   own pattern matcher.
-- **Done-when:** the real staged frontend emits sentinel-free checked CoreIR or
-  a bounded source diagnostic, with a focused tuple-pattern regression and
-  affected conformance green.
+- **Root cause:** `=>` was not a native layout opener. A multiline lambda whose
+  first statement was `val (a, c) = ac` therefore left the lambda after one
+  expression and fed detached tuple AST nodes into the lowerer, which crashed
+  while matching an unexpected `Pair/2`. Separately, 3+-element tuple patterns
+  used synthetic `TupleN` tags although tuple expressions lower to right-nested
+  `Pair` constructors.
+- **Fix:** `=>` now opens an offside block, and tuple patterns recursively build
+  the same right-nested `Pair` shape as tuple expressions. The standard launcher
+  source-locates any remaining parser sentinel instead of exposing a host stack.
+- **Verified:** a multiline-lambda/local-tuple plus nested
+  `Some((left, '+', right))` fixture prints `left` and `left+right` identically
+  on assembled VM/direct ASM. The real DSL row is frontend/checker OK and fails
+  only through its filename-bearing bounded sentinel diagnostic; no `Pair/2`
+  host exception remains. Native-entry passes, affected conformance is 8/8, and
+  the full frontend corpus has zero host errors/timeouts. Remaining unsupported
+  DSL surface syntax is tracked by TI-8.2c, not this crash bug.
 
 ## v21-native-front-missing-ui-table-import — corpus import closure references a deleted std module
 
-**Status:** open (2026-07-10); found in the TI-8.2 native-front corpus sweep.
+**Status:** fixed (2026-07-10, `d4513cb8a`, diagnostic gate
+`ac441ef62`); waiting for human confirmation before `done`.
 
 - **Found by:** codex from `scripts/native-front-corpus`.
 - **Real-harness repro:** compiling `examples/graph-fullstack-rdf.ssc` aborts
@@ -224,11 +239,16 @@ before `done`.
 - **Expected:** every checked-in example import resolves deterministically, or
   a removed API is migrated with an explicit source-level diagnostic rather
   than a host filesystem exception.
-- **Fix direction:** reconcile the example with the current `std/ui/data.ssc`
-  table API or provide the intended compatibility module; do not weaken import
-  closure checks.
-- **Done-when:** the full native-front corpus has no host exception for this
-  row and the relevant UI/server example gate is green.
+- **Root cause:** the example retained the removed `std/ui/table.ssc` path and
+  old `tableHeader`/`tableCell` wrappers after the toolkit consolidated tables
+  under `std/ui/data.ssc`.
+- **Fix:** import `tableCol`/`tableRow`/`table` from the current module and build
+  the three columns/row cells through that API; import resolution remains strict.
+- **Verified:** the real row is frontend/checker OK and any remaining unsupported
+  backend-specific surface is a filename-bearing bounded sentinel diagnostic.
+  Native-entry rejects `NoSuchFileException`/host matcher leakage explicitly;
+  the full frontend corpus has 194 successes, 0 host errors, 0 timeouts, and 1
+  non-code document.
 
 ## v21-standard-h2-java-compiler-edge — slim gate misses compiler classes inside dependency JARs
 
