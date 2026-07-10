@@ -16,15 +16,22 @@ import java.util.concurrent.CountDownLatch
 @nowarn("cat=deprecation")
 class JavaFxTypedModelsTest extends AnyFunSuite:
 
+  // Headless CI has no JavaFX toolkit — `Platform.startup` throws (not an
+  // IllegalStateException) and aborted the whole suite. Catch it, record
+  // availability, and `assume` it in each JavaFX-touching test so those CANCEL
+  // (not fail) on a headless runner; the pure `RuntimeState.withModel` tests
+  // below don't use the toolkit and still run.
   private val fxReady = new CountDownLatch(1)
-  try
-    Platform.startup(() => fxReady.countDown())
-  catch
-    case _: IllegalStateException => fxReady.countDown() // already started
-
-  fxReady.await(5, java.util.concurrent.TimeUnit.SECONDS)
+  private val fxAvailable: Boolean =
+    try
+      Platform.startup(() => fxReady.countDown())
+      fxReady.await(5, java.util.concurrent.TimeUnit.SECONDS)
+    catch
+      case _: IllegalStateException => fxReady.countDown(); true // already started
+      case _: Throwable             => false                     // headless / no toolkit
 
   private def onFx[A](body: => A): A =
+    assume(fxAvailable, "JavaFX toolkit unavailable (headless environment)")
     val p = Promise[A]()
     Platform.runLater(() => p.success(body))
     Await.result(p.future, 5.seconds)
