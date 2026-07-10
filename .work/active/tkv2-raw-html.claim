@@ -1,6 +1,6 @@
 feature/tkv2-raw-html 2026-07-10T01:04:09Z
 agent: codex
-heartbeat: 2026-07-10T01:11:24Z
+heartbeat: 2026-07-10T01:31:19Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-tkv2-raw-html; spec committed in branch (9fa4b325f); rawText verified as escaped text, not markup
-next: implement RawHtmlNode + rawHtml helper + sentinel rendering in custom JS/static SSR, then add conformance/jsdom gates
+done-so-far: rawHtml node/helper/lowering implemented; JS runtime/custom/SSR sentinel handling implemented; static std/ui capability bug fixed; installBin, SsrTest, and std-ui-i18n/tkv2-* conformance green
+next: rerun final emitted-SPA DOM smoke + diff-check, update spec/docs/bookkeeping, commit, rebase, push, release claim
