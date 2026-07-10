@@ -1312,7 +1312,7 @@ identical pass/FAIL set (diff old-vs-new output before landing).
 - [ ] **K63.3 — batch run-ir into one JVM**: add `ssc run-ir-batch <list>` (one JVM
       runs many IRs) or a persistent JVM; replace 316× cold `java -jar run-ir`. ~1.5-2
       min saved. VERIFY: batched stdout matches per-invocation, byte-for-byte.
-- [~] **K63.4 — OPTIONAL parallelism (opt-in `CONF_JOBS=N`, default 1=sequential)**:
+- [x] **K63.4 — OPTIONAL parallelism (opt-in `CONF_JOBS=N`, default 1=sequential)**:
       infra = bounded bg pool + barrier; landed for the stateless `chk`/`chk_hm` VM lane
       (188 tests) → parallel fast-mode 210s→111s (~2×), IDENTICAL 406/0 set. Sequential
       default byte-identical. Fix/expand the other lanes gradually:
@@ -1322,8 +1322,14 @@ identical pass/FAIL set (diff old-vs-new output before landing).
         collisions) + captured output. Structural blocks (fn-defs / else-branch) skipped.
         Validated CONF_JOBS=6 → 640/0. NOTE: backend jobs are HEAVY (JVM emit + rustc);
         keep CONF_JOBS ≈ cores/2 to avoid oversubscription (CONF_JOBS=14 thrashed).
-  - [ ] K63.4c — ordered output in parallel mode (currently chk results emit at the barrier,
-        after the inline/header lines — sort/interleave by call index).
+  - [x] K63.4c — ORDERED output in parallel mode via exec-redirect SEGMENTS. In CONF_JOBS>1
+        mode stdout is redirected to an indexed segment file; each enqueue seals the current
+        segment (inline output since the last job), runs the job into the next index, then
+        opens a fresh segment (`_pseg`). The barrier restores real stdout (fd 3) and cats
+        every `[0-9]*` file in index order → inline headers/tests and backgrounded job
+        results interleave EXACTLY as sequential. stderr stays live (one-line note). Verified:
+        FAST SEQ vs FAST PAR6 stdout diff = IDENTICAL. Tradeoff: parallel stdout is buffered
+        until the barrier (silent run + note), which is the standard output-sync cost.
 - [x] **K63.5 — cache the assembly jar**: hash `src/` → skip `scala-cli package` when
       unchanged (keyed jar in a stable cache dir). ~2-3 min/iteration. VERIFY: rebuilds
       on any src change, reuses otherwise; stale-cache guard.
