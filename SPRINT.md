@@ -302,6 +302,24 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       and v1 rollback may opt into the tools tier with a clear diagnostic.
       Done when standard hello/import/plugin/JAR flows pass after physically
       removing `lib/compiler/jars` and all scalameta-family JARs.
+      - [ ] **TI-7.1 standard launcher/layout:** add a small `StandardMain` that
+            owns plain/native VM, direct ASM, and `build-jvm` without importing
+            v1 parser/AST/interpreter classes. Stage its thin JAR, native tower,
+            and an explicit standard dependency allowlist under
+            `bin/lib/standard/`; point `bin/ssc` there while retaining the full
+            compatibility graph outside the standard classpath.
+      - [ ] **TI-7.2 explicit tools entry:** stage `bin/ssc-tools` over the
+            compatibility/runtime/compiler layout. Route only explicit
+            `run --v1`/`--compat-frontend` requests from the standard launcher;
+            unsupported compiler-backed commands name the tools tier and remedy
+            instead of classpath-discovering it silently. Keep self-install and
+            generated launchers consistent.
+      - [ ] **TI-7.3 physical deletion gate:** copy the staged distribution,
+            delete compatibility runtime/plugin/compiler trees and every
+            Scalameta/compiler-family JAR, then run default/native VM, direct
+            ASM, import/argv/JSON/HTTP/SQL/UI/State, and `build-jvm`. Inspect the
+            standard startup classpath with JAR/`jdeps` gates, record exact tier
+            counts/sizes in stable TSV, wire CI, and update the spec/docs.
 - [ ] **v21-ti-no-javac-cutover** — retire the default v1 `JavacJitBackend` from
       the standard tier instead of treating the old scala.meta-based
       `AsmJitBackend` as the new architecture. Keep v1 JITs only in the optional
