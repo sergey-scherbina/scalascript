@@ -4044,13 +4044,13 @@ e.g. `-1` to keep trailing empty fields, the standard idiom for parsing
 TSV/CSV rows that may have a blank last column) is not dispatched at all:
 
 ```
-val s = "a	b	c	"
-s.split("	")       // works on v2
-s.split("	", -1)   // RuntimeException: __method__: no dispatch for .split
+val s = "a\tb\tc\t"
+s.split("\t")       // works on v2
+s.split("\t", -1)   // RuntimeException: __method__: no dispatch for .split
 ```
 
 busi's real trigger: `identity.ssc`'s `readTsv()` parses a real TSV
-sessions file via `line.split("	", -1)` at hub boot (loading the
+sessions file via `line.split("\t", -1)` at hub boot (loading the
 sessions store for WebAuthn/email-login identity resolution). This file
 only exists on an instance with real prior login history — every
 pre-flip verification (a full v1-vs-v2 A/B harness covering an entire
