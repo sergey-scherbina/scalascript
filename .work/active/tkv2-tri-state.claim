@@ -1,6 +1,0 @@
-feature/tkv2-tri-state 2026-07-10T01:51:21Z
-agent: codex
-heartbeat: 2026-07-10T01:51:41Z
-status: in-progress
-done-so-far: spec and SPRINT plan landed in 12c4a5cb0; worktree exists at /Users/sergiy/work/my/scalascript-wt-tkv2-tri-state
-next: rebase worktree onto claim commit, implement std.ui.state, add conformance/example/docs, run installBin + tkv2-tri-state conformance
