@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **tkv2-raw-html** - verify and implement the toolkit-v2 raw markup
+      escape hatch without widening the frontend core IR. Context:
+      `specs/ssc-toolkit-v2.md` P2-11 says `rawHtml` / raw-JS escape hatch is
+      needed so a missing widget never blocks migration; the same spec notes
+      rawHtml may already be covered by `element`/`rawText`, so verify before
+      building. Finding: existing `rawText` is `RawTextNode` and `lower.ssc`
+      lowers it to `textNode(text)`, so it is escaped text, not markup. Spec:
+      `specs/tkv2-raw-html.md`. Plan: add `RawHtmlNode` and public
+      `rawHtml(html: String): TkNode`; lower it to an existing `element`
+      sentinel (`data-ssc-raw-html`, `display:contents`) so `frontend.core.View`
+      need not grow a new case; teach the custom JS runtime and static
+      frontend renderer/SSR to treat that sentinel as trusted raw children while
+      keeping `rawText` escaped. Explicit non-goal: no eval/raw-JS execution or
+      CSP bypass in this slice. Done when raw markup renders nested DOM in the
+      custom emitted SPA, `rawText` still escapes the same payload, affected
+      conformance and an emitted-SPA/jsdom smoke pass, docs/backlog are
+      updated, and `git diff --check` is clean.
+
 - [x] **tkv2-spa-i18n-parity** - DONE 2026-07-10 in `7e5d55e4f`:
       fixed the custom emitted-SPA i18n crash where a collision-renamed import
       `serve__ssc` was imported correctly but `JsGen.dispatchIntrinsicJs` still
