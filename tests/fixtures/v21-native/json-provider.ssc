@@ -1,0 +1,15 @@
+# Native std.json provider
+
+[jsonValue, jsonStringify, jStr, jBool, jField, jObj](std/json.ssc)
+
+```scalascript
+val root = jsonValue("{\"name\":\"Ada\",\"items\":[1,2],\"amount\":\"1000.01\",\"on\":true}")
+println(root.get("name").asString)
+println(root.get("items").at(1).asInt)
+println(root.get("missing").isNull)
+println(root.get("amount").asString)
+println(root.get("on").asBool)
+println(jObj(List(jField("payload", root.get("items").raw))))
+println(jsonStringify(List(1, 2, 3)))
+println(jObj(List(jField("name", jStr("A\"B")), jField("on", jBool(true)))))
+```
