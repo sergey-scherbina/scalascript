@@ -300,12 +300,14 @@ navigation, strict/tolerant parsing, exact string-decimals, and structured JSON
 builders work on both the v2 VM and direct-ASM native routes. The native HTTP
 client adds JDK-backed GET/POST/PUT/PATCH/DELETE, streaming line callbacks,
 base-URL blocks, timeout/retry controls, `Response` builders, and cache helpers;
-non-string JSON responses use the same native JSON codec. HTTP server lifecycle,
-routes, middleware, uploads, SSE, and WebSockets still await the server-host SPI
-and fail with `native HTTP server unavailable` rather than falling back. Other
-plugin families are still being migrated; a missing native provider fails
-explicitly. Use `--compat-frontend` for a tools-tier plugin that has not moved
-yet.
+non-string JSON responses use the same native JSON codec. A JDK server host now
+supports exact-method/path `route`, `serve`, `serveAsync`, `stop`, v2 `Request`
+construction, and handler-closure invocation on both VM and direct ASM. Advanced
+middleware, TLS, uploads, SSE, streaming responses, and WebSockets remain
+bounded `native HTTP server unavailable` errors until their host sub-slices
+land; there is no compatibility fallback. Other plugin families are still being
+migrated; a missing native provider fails explicitly. Use `--compat-frontend`
+for a tools-tier plugin that has not moved yet.
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
