@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T17:04:13Z
+heartbeat: 2026-07-10T18:30:31Z
 status: in-progress
-done-so-far: TI-1/TI-2/TI-3; TI-4 slices; TI-5 native boundary; TI-6 ASM artifacts through a8e6742fa; TI-7 standard/tools split + deletion gate 65773c2fe
-next: document/close TI-7, then TI-8 no-javac/default cutover readiness and remaining TI-4 parity blockers
+done-so-far: TI-1..TI-7; TI-8 no-javac/JRE gates; native interpolation and recursion parity; multiline UI fetch helper parity staged
+next: land/document TI-8.2 parity slice, remeasure corpus, close remaining frontend/runtime blockers, then default cutover and final negative gates
