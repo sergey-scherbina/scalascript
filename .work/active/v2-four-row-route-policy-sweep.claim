@@ -1,0 +1,6 @@
+feature/v2-four-row-route-policy-sweep 2026-07-10T00:16:04Z
+agent: codex
+heartbeat: 2026-07-10T00:16:04Z
+status: not-started
+done-so-far:
+next: create worktree, add SPRINT/spec, then rerun four-row v2 route gate
