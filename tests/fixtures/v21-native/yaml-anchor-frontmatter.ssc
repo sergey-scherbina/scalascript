@@ -1,0 +1,9 @@
+---
+databases:
+  default: &database
+    url: jdbc:h2:mem:anchor
+---
+
+```scalascript
+println("must-not-run")
+```

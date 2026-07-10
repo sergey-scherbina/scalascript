@@ -1,0 +1,9 @@
+---
+databases:
+  default:
+    url: jdbc:h2:mem:conflict-b
+---
+
+```scalascript
+println("must-not-run-b")
+```

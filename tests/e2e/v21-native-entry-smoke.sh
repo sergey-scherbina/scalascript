@@ -84,6 +84,30 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/ui-provider.ssc" -- "$ui_asm") == "$ui_expected" ]]
 [[ $(<"$ui_asm/index.html") == "$ui_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/state-effect-provider.ssc") == "$state_expected" ]]
+
+assert_frontmatter_failure() {
+  local name=$1
+  shift
+  set +e
+  run_native "$@" >"$sandbox/$name.out" 2>"$sandbox/$name.err"
+  local rc=$?
+  set -e
+  [[ $rc -ne 0 ]]
+  [[ ! -s "$sandbox/$name.out" ]]
+}
+
+assert_frontmatter_failure yaml-duplicate "$FIXTURES/yaml-duplicate-frontmatter.ssc"
+grep -E 'yaml-duplicate-frontmatter[.]ssc:4:5: duplicate mapping key' \
+  "$sandbox/yaml-duplicate.err" >/dev/null
+assert_frontmatter_failure yaml-anchor "$FIXTURES/yaml-anchor-frontmatter.ssc"
+grep -F 'anchors, aliases, and tags are not supported' "$sandbox/yaml-anchor.err" >/dev/null
+assert_frontmatter_failure yaml-missing-url "$FIXTURES/yaml-missing-url.ssc"
+grep -F "native database 'default'" "$sandbox/yaml-missing-url.err" >/dev/null
+grep -F 'requires a non-empty url' "$sandbox/yaml-missing-url.err" >/dev/null
+assert_frontmatter_failure yaml-conflict \
+  "$FIXTURES/yaml-conflict-a.ssc" "$FIXTURES/yaml-conflict-b.ssc"
+grep -F "conflicting native database 'default'" "$sandbox/yaml-conflict.err" >/dev/null
+
 http_port=$((32000 + ($$ % 10000)))
 [[ $(run_native "$FIXTURES/http-server-provider.ssc" -- "$http_port") == $'203\npong:/ping' ]]
 [[ $(run_native --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((http_port + 1))") == $'203\npong:/ping' ]]

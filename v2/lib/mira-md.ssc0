@@ -3,7 +3,9 @@
 -- fenced code block.  Also strips optional YAML front matter.
 --
 -- Public API (called from bin/ssc-front.ssc0):
---   extractFences(src)  : String -> List Pair(String, String)
+--   extractFences(src)      : String -> List Pair(String, String)
+--   extractFrontmatter(src) : FrontmatterNone | FrontmatterText(String) |
+--                             FrontmatterErr(String, line, column)
 --
 -- Fence detection: a line whose stripped prefix is exactly ``` opens/closes a block.
 -- Opening: ```lang   (lang is trimmed; "" if bare ```)
@@ -35,6 +37,10 @@ def dropRight = (s) =>
     else s
 
 def strip = (s) => dropRight(dropLeft(s, 0))
+
+def stripBom = (s) =>
+  if #i.eq(#slen(s), 0) then s
+  else (if #i.eq(#scodeAt(s, 0), 65279) then #sslice(s, 1, #slen(s)) else s)
 
 -- Does string s start with ``` ?
 def startsWith3bt = (s) =>
@@ -116,6 +122,32 @@ def skipYaml = (ls) =>
       else ls
   }
 
+def isShebang = (line) =>
+  if #i.lt(#slen(line), 2) then false
+  else (if #i.eq(#scodeAt(line, 0), 35) then #i.eq(#scodeAt(line, 1), 33) else false)
+
+def frontmatterLines = (ls) =>
+  match ls {
+    case Cons(first, rest) => if isShebang(first) then rest else ls
+    case Nil => Nil
+  }
+
+def collectFrontmatter = (ls, acc, line) =>
+  match ls {
+    case Nil => FrontmatterErr("unterminated native YAML front-matter", line, 1)
+    case Cons(current, rest) =>
+      if isYamlMarker(current) then FrontmatterText(joinLines(reverse(acc)))
+      else collectFrontmatter(rest, Cons(current, acc), #i.add(line, 1))
+  }
+
+def extractFrontmatter = (src) =>
+  match frontmatterLines(splitLines(stripBom(src), 0, Nil)) {
+    case Nil => FrontmatterNone
+    case Cons(first, rest) =>
+      if isYamlMarker(first) then collectFrontmatter(rest, Nil, 2)
+      else FrontmatterNone
+  }
+
 -- ── main extractor ──────────────────────────────────────────────────────────
 
 -- go ls inFence curLang curLines acc
@@ -141,6 +173,6 @@ def go = (ls, inFence, curLang, curLines, acc) =>
 
 -- Public entry point.
 def extractFences = (src) =>
-  let allLines = splitLines(src, 0, Nil) in
+  let allLines = splitLines(stripBom(src), 0, Nil) in
   let bodyLines = skipYaml(allLines) in
   go(bodyLines, false, "", Nil, Nil)

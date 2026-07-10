@@ -1,0 +1,9 @@
+---
+databases:
+  default:
+    user: sa
+---
+
+```scalascript
+println("must-not-run")
+```

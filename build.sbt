@@ -1300,7 +1300,10 @@ lazy val cli = project
       val standardClassPrefixes = Seq(
         "scalascript/cli/StandardMain",
         "scalascript/cli/RunNativeV2",
-        "scalascript/cli/NativeFrontmatter",
+        "scalascript/cli/NativeManifest",
+        "scalascript/cli/NativeSourceManifest",
+        "scalascript/cli/NativeStructuralFrontend",
+        "scalascript/cli/NativeV2Structural",
         "scalascript/cli/NativeJvmArtifact",
         "scalascript/cli/NativeJvmSourceMap",
         "scalascript/cli/NativeSourceClosure",

@@ -21,7 +21,6 @@ object RunNativeV2:
       f
     }
     val sourceFiles = canonicalFiles.map(portablePath)
-    val nativeConfig = NativeFrontmatter.fromFiles(canonicalFiles)
     val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot)
 
     val previousArgv = _root_.ssc.Runtime.argv
@@ -33,31 +32,43 @@ object RunNativeV2:
           throw new IllegalArgumentException(detail)
       }
 
-      val ir = lowerNative(layout.runner, layout.stdRoot, sourceFiles)
-      if ir.isEmpty then throw new RuntimeException("native frontend emitted no CoreIR")
-      if ir.contains("(global _err)") then
+      val structural = lowerNative(layout.runner, layout.stdRoot, sourceFiles, canonicalFiles)
+      if containsErrorSentinel(structural.program) then
         val inputs = sourceFiles.mkString(", ")
         throw new RuntimeException(
           s"native frontend rejected incomplete parse in $inputs: " +
-            "emitted CoreIR contains parser sentinel _err")
+            "structural CoreIR contains parser sentinel _err")
 
-      val prog = _root_.ssc.Reader.parseProgram(ir)
-      NativeV2Compilation(prog, nativeConfig, canonicalFiles, sourceUnits, ir)
+      NativeV2Compilation(
+        structural.program,
+        structural.config,
+        structural.manifests,
+        canonicalFiles,
+        sourceUnits)
     finally _root_.ssc.Runtime.argv = previousArgv
 
   /** Parser/lowerer recursion for real std-heavy documents needs more stack
    *  than the general CLI thread. Isolate that cost to the frontend instead of
    *  imposing a huge `-Xss` on every thread of long-running server programs. */
-  private def lowerNative(runner: java.io.File, stdRoot: java.io.File, sourceFiles: List[String]): String =
+  private def lowerNative(
+      runner: java.io.File,
+      stdRoot: java.io.File,
+      sourceFiles: List[String],
+      canonicalFiles: List[java.io.File]): NativeStructuralFrontend =
     val result = runTower(
       runner,
-      "--std-root" :: portablePath(stdRoot.getCanonicalFile) :: sourceFiles,
+      "--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) :: sourceFiles,
       "ssc-native-frontend")
     if result.exitCode != 0 then
       throw new RuntimeException(s"native frontend exited with ${result.exitCode}")
-    result.output
+    val value = result.value
+    if value == null then throw new RuntimeException("native frontend emitted no structural result")
+    NativeV2Structural.decode(value, canonicalFiles)
 
-  private final case class TowerResult(output: String, exitCode: Int)
+  private final case class TowerResult(
+      output: String,
+      exitCode: Int,
+      value: _root_.ssc.Value | Null)
   private final class TowerExit(val code: Int) extends RuntimeException
 
   private def runTower(runner: java.io.File, args: List[String], threadName: String): TowerResult =
@@ -65,6 +76,7 @@ object RunNativeV2:
     val irPs    = new java.io.PrintStream(irOut, true, java.nio.charset.StandardCharsets.UTF_8)
     val failure = new java.util.concurrent.atomic.AtomicReference[Throwable]()
     val exitCode = new java.util.concurrent.atomic.AtomicInteger(0)
+    val resultValue = new java.util.concurrent.atomic.AtomicReference[_root_.ssc.Value | Null](null)
     val previousExitHandler = _root_.ssc.Runtime.exitHandler
     _root_.ssc.Runtime.exitHandler = code => throw new TowerExit(code)
     val task = new Runnable:
@@ -73,7 +85,8 @@ object RunNativeV2:
           _root_.ssc.Runtime.argv = args
           Console.withOut(irPs) {
             val tower = _root_.ssc.Lower.module(_root_.ssc.Loader.load(runner.getCanonicalPath))
-            _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(tower), Array.empty[_root_.ssc.Value])
+            resultValue.set(_root_.ssc.Runtime.run(
+              _root_.ssc.Compiler.compile(tower), Array.empty[_root_.ssc.Value]))
           }
         catch
           case e: TowerExit => exitCode.set(e.code)
@@ -86,7 +99,8 @@ object RunNativeV2:
       if err != null then throw err
       TowerResult(
         irOut.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing(),
-        exitCode.get())
+        exitCode.get(),
+        resultValue.get())
     finally
       _root_.ssc.Runtime.exitHandler = previousExitHandler
       irPs.close()
@@ -106,6 +120,32 @@ object RunNativeV2:
       catch case e: java.lang.reflect.InvocationTargetException =>
         throw Option(e.getCause).getOrElse(e)
     V2Result.report(result)
+
+  private def containsErrorSentinel(program: _root_.ssc.Program): Boolean =
+    program.defs.exists(definition => containsErrorSentinel(definition.body)) ||
+      containsErrorSentinel(program.entry)
+
+  private def containsErrorSentinel(term: _root_.ssc.Term): Boolean = term match
+    case _root_.ssc.Term.Global("_err") => true
+    case _root_.ssc.Term.Lam(_, body) => containsErrorSentinel(body)
+    case _root_.ssc.Term.App(fn, args) =>
+      containsErrorSentinel(fn) || args.exists(containsErrorSentinel)
+    case _root_.ssc.Term.Let(rhs, body) =>
+      rhs.exists(containsErrorSentinel) || containsErrorSentinel(body)
+    case _root_.ssc.Term.LetRec(lams, body) =>
+      lams.exists(containsErrorSentinel) || containsErrorSentinel(body)
+    case _root_.ssc.Term.If(cond, yes, no) =>
+      containsErrorSentinel(cond) || containsErrorSentinel(yes) || containsErrorSentinel(no)
+    case _root_.ssc.Term.Ctor(_, fields) => fields.exists(containsErrorSentinel)
+    case _root_.ssc.Term.Match(scrutinee, arms, default) =>
+      containsErrorSentinel(scrutinee) ||
+        arms.exists(arm => containsErrorSentinel(arm.body)) ||
+        default.exists(containsErrorSentinel)
+    case _root_.ssc.Term.Prim(_, args) => args.exists(containsErrorSentinel)
+    case _root_.ssc.Term.While(cond, body) =>
+      containsErrorSentinel(cond) || containsErrorSentinel(body)
+    case _root_.ssc.Term.Seq(terms) => terms.exists(containsErrorSentinel)
+    case _ => false
 
   private final case class NativeFrontLayout(
       runner: java.io.File,
@@ -136,6 +176,6 @@ object RunNativeV2:
 private[cli] final case class NativeV2Compilation(
     program: _root_.ssc.Program,
     config: _root_.ssc.plugin.NativeRuntimeConfig,
+    manifests: List[NativeSourceManifest],
     roots: List[java.io.File],
-    sourceUnits: List[NativeSourceUnit],
-    coreIr: String)
+    sourceUnits: List[NativeSourceUnit])

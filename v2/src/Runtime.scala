@@ -2156,6 +2156,8 @@ object Prims:
     case "io.exit" => a => Runtime.exitHandler(int(a, 0).toInt); UnitV
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
+    case "coreir.eval"   => a => Runtime.run(
+      Compiler.compile(IrDecode.program(a(0))), Array.empty[Value])
     // ── FrontendBridge collection factories ────────────────────────────────────────
     // Map(k->v, ...) factory: args are Tuple2 pairs (DataV("Tuple2", [k, v]))
     case "__mk_map__" => a =>
@@ -3502,6 +3504,59 @@ object IrEncode:
     case DataV("Cons", Seq(h, t)) => h :: list(t)
     case DataV("Nil", _) => Nil
     case x => sys.error(s"coreir.encode: expected list, got ${Show.show(x)}")
+
+/** Structural decoder for the frozen self-hosted frontend ABI. Unlike
+ *  [[Reader]], this consumes the `IrProg` value produced by the tower directly:
+ *  no frontend-emitted CoreIR text crosses into the Scala seed. */
+object IrDecode:
+  import Value.*
+
+  def program(v: Value): Program = v match
+    case DataV("IrProg", Seq(defs, entry)) =>
+      Program(list(defs).map(definition), term(entry))
+    case x => sys.error(s"coreir.decode: expected IrProg, got ${Show.show(x)}")
+
+  private def definition(v: Value): Def = v match
+    case DataV("IrDef", Seq(StrV(name), body)) => Def(name, term(body))
+    case x => sys.error(s"coreir.decode: bad IrDef ${Show.show(x)}")
+
+  private def term(v: Value): Term = v match
+    case DataV("IrLit", Seq(c))             => Term.Lit(constant(c))
+    case DataV("IrLocal", Seq(IntV(i)))     => Term.Local(i.toInt)
+    case DataV("IrGlobal", Seq(StrV(name))) => Term.Global(name)
+    case DataV("IrLam", Seq(IntV(arity), body)) => Term.Lam(arity.toInt, term(body))
+    case DataV("IrApp", Seq(fn, args))      => Term.App(term(fn), list(args).map(term))
+    case DataV("IrLet", Seq(rhs, body))     => Term.Let(list(rhs).map(term), term(body))
+    case DataV("IrLetRec", Seq(lams, body)) => Term.LetRec(list(lams).map(term), term(body))
+    case DataV("IrIf", Seq(cond, yes, no))  => Term.If(term(cond), term(yes), term(no))
+    case DataV("IrCtor", Seq(StrV(tag), fields)) => Term.Ctor(tag, list(fields).map(term))
+    case DataV("IrPrim", Seq(StrV(op), args))    => Term.Prim(op, list(args).map(term))
+    case DataV("IrWhile", Seq(cond, body))       => Term.While(term(cond), term(body))
+    case DataV("IrSeq", Seq(terms))              => Term.Seq(list(terms).map(term))
+    case DataV("IrMatch", Seq(scrutinee, arms, default)) =>
+      val decodedArms = list(arms).map {
+        case DataV("IrArm", Seq(StrV(tag), IntV(arity), body)) =>
+          Arm(tag, arity.toInt, term(body))
+        case x => sys.error(s"coreir.decode: bad IrArm ${Show.show(x)}")
+      }
+      val decodedDefault = default match
+        case DataV("Some", Seq(body)) => Some(term(body))
+        case DataV("None", _)         => None
+        case x => sys.error(s"coreir.decode: bad default ${Show.show(x)}")
+      Term.Match(term(scrutinee), decodedArms, decodedDefault)
+    case x => sys.error(s"coreir.decode: bad term ${Show.show(x)}")
+
+  private def constant(v: Value): Const = v match
+    case DataV("IrUnit", _)              => Const.CUnit
+    case DataV("IrBool", Seq(BoolV(b)))  => Const.CBool(b)
+    case DataV("IrInt", Seq(IntV(n)))    => Const.CInt(n)
+    case DataV("IrBig", Seq(BigV(n)))    => Const.CBig(n)
+    case DataV("IrFloat", Seq(FloatV(d)))=> Const.CFloat(d)
+    case DataV("IrStr", Seq(StrV(s)))    => Const.CStr(s)
+    case DataV("IrBytes", Seq(BytesV(b)))=> Const.CBytes(b)
+    case x => sys.error(s"coreir.decode: bad const ${Show.show(x)}")
+
+  private def list(v: Value): List[Value] = Prims.unlistPub(v)
 
 object Show:
   /** Pluggable renderer for opaque ForeignV payloads. The v1 bridge installs a

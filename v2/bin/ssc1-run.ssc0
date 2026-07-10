@@ -198,24 +198,83 @@ def sscLoadRoots = (paths, seen) =>
       }
   }
 
+-- Build and evaluate a configuration-only CoreIR program from the canonical
+-- ScalaScript YAML module. The user program is never executed during compile;
+-- only yamlParse calls over front-matter strings run in this nested pure VM.
+def sscEscapeYamlString = (s, i) =>
+  if #i.ge(i, #slen(s)) then ""
+  else
+    let c = #scodeAt(s, i) in
+    let piece =
+      if #i.eq(c, 34) then "\\\""
+      else (if #i.eq(c, 92) then "\\\\"
+      else (if #i.eq(c, 10) then "\\n"
+      else (if #i.eq(c, 13) then "\\r"
+      else (if #i.eq(c, 9) then "\\t"
+      else #sslice(s, i, #i.add(i, 1)))))) in
+    #sconcat(piece, sscEscapeYamlString(s, #i.add(i, 1)))
+
+def sscQuoteYamlString = (s) => #sconcat("\"", #sconcat(sscEscapeYamlString(s, 0), "\""))
+
+def sscFrontmatterCall = (path) =>
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  match extractFrontmatter(fileStr) {
+    case FrontmatterNone => "None"
+    case FrontmatterText(yaml) =>
+      #sconcat("Some(yamlParse(", #sconcat(sscQuoteYamlString(yaml), "))"))
+    case FrontmatterErr(message, line, column) =>
+      #sconcat("Some(YamlErr(",
+        #sconcat(sscQuoteYamlString(message),
+          #sconcat(", 0, ",
+            #sconcat(#i->str(line),
+              #sconcat(", ", #sconcat(#i->str(column), ")))"))))))
+  }
+
+def sscFrontmatterCalls = (paths) =>
+  match paths {
+    case Nil => ""
+    case Cons(path, rest) =>
+      match rest {
+        case Nil => sscFrontmatterCall(path)
+        case _ => #sconcat(sscFrontmatterCall(path), #sconcat(", ", sscFrontmatterCalls(rest)))
+      }
+  }
+
+def sscParseFrontmatters = (paths) =>
+  let yamlPath = sscResolve("", "std/yaml-core.ssc") in
+  match sscLoadMod(yamlPath, Nil) {
+    case Pair(yamlDefs, yamlSeen) =>
+      let callSource = #sconcat("List(", #sconcat(sscFrontmatterCalls(paths), ")")) in
+      let callStmts = parse(callSource) in
+      #coreir.eval(lowerProg(sscApp(yamlDefs, callStmts)))
+  }
+
+def sscStructuralCell = #cell.new(false)
 def sscNativeArgs = (args) =>
   match args {
     case Cons(flag, rest) =>
       if #seq(flag, "--std-root") then
         match rest {
           case Cons(root, paths) =>
-            let z = #cell.set(sscStdRootCell, sscNormalize(root)) in paths
+            let z = #cell.set(sscStdRootCell, sscNormalize(root)) in sscNativeArgs(paths)
           case Nil => Nil
         }
-      else args
+      else (if #seq(flag, "--structural") then
+        let z = #cell.set(sscStructuralCell, true) in sscNativeArgs(rest)
+      else args)
     case Nil => Nil
   }
 
 def main = () =>
-  match sscNativeArgs(#io.args()) {
+  let paths = sscNativeArgs(#io.args()) in
+  match paths {
     case Cons(path, rest) =>
       match sscLoadRoots(Cons(path, rest), Nil) {
-        case Pair(allStmts, seen) => #io.print(#coreir.encode(lowerProg(allStmts)))
+        case Pair(allStmts, seen) =>
+          let ir = lowerProg(allStmts) in
+          if #cell.get(sscStructuralCell) then
+            NativeCompilation(ir, sscParseFrontmatters(paths), paths)
+          else #io.print(#coreir.encode(ir))
       }
     case Nil =>
       let z = #io.eprint("usage: ssc1-run [--std-root DIR] <file.ssc> [more.ssc ...]\n") in
