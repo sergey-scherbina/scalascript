@@ -1,6 +1,6 @@
 feature/js-enum-treeshake 2026-07-10T16:26:13Z
 agent: claude-code (jolly-raven)
-heartbeat: 2026-07-10T16:26:13Z
-status: in-progress
-done-so-far: Root-caused examples-step CI red (unmasked after poison fix). TreeShaker.scala:103 registers only PARAMETRIZED enum-case names as reachability edges → bare nullary case ref (North) doesn't keep its enum → all-nullary enum pruned entirely → const North never emitted → node ReferenceError. Minimal repro confirmed (standalone enum Direction emits nothing; enum-shared-casename via qualified refs works).
-next: register ALL case names (nullary+parametrized+RepeatedEnumCase) in TreeShaker; rebuild; verify enums.ssc/data-types on node; then Red/toHex + 'r'-redeclare examples bugs. Part of ci-full-green (poison already fixed).
+heartbeat: 2026-07-10T17:56:57Z
+status: examples+actor DONE; ssc-check 172->74, tail remains
+done-so-far: examples step GREEN (enum treeshake + Red/toHex + lenses 'r' + JVM-lane sscc/run-jvm); v2 actor sendAfter quiescence race FIXED (verified via forced-window); ssc check 172->74 (broaden plugin prelude agg + no-owner pluginBuiltins + __ssc_macro__).
+next: ssc-check tail (74): stdlib interface-loading for std.crypto/pdf/totp/nfc/payments TYPES+externs, frontmatter API clients (Items/Chat) predeclare, ~5 genuine example bugs (java.nio.file platform-type, parse error). Then conformance job fully green.
