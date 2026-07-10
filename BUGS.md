@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
+
+**Status:** OPEN (v2 only; v1 correct). Corpus example dsl-yaml-like fails with
+`ArrayIndexOutOfBoundsException: Index 1 out of bounds for length 1` at
+Runtime.scala fieldAt 2-arg (`asData(v)._2(i)`). Instrumented: the receiver is a
+`YStr` (`case class YStr(v: String)`, 1 field) accessed at index 1 — i.e. a
+`._2` tuple-accessor (compiled to `fieldAt(recv, 1)`) is applied to a YStr.
+
+The example (examples/dsl-yaml-like.ssc) uses std/parsing combinators: `~` builds
+a `PSequence` whose runParser returns `ParseOk((a, b), …)` — a Tuple2 — and
+`~>`/`<~`/`.map(pair => (pair._1, pair._2))` read `pair._1`/`pair._2`. Somewhere a
+YStr reaches a `._2` where a Tuple2 is expected. Two candidate roots (member of
+the field-index-registry family — see project memory): (a) the bridge compiles
+`._N` to a POSITIONAL `fieldAt(recv, N-1)` that trusts a compile-time type it got
+wrong (should be tag-aware / fall to method dispatch when recv isn't a TupleN);
+(b) a parser ADT's field layout is mis-registered so `ParseOk(v, rest, pos)`
+destructuring binds `v` to the wrong field, flattening a tuple to a scalar.
+
+NOT a fresh regression: verified FAIL at 0f4edec73, its parent, AND ~120 commits
+back (7af1d869f) — it has never passed on v2. A long-standing v2 gap with
+parser-combinator-style code, not caused by any recent change. Repro:
+`bin/ssc run examples/dsl-yaml-like.ssc` (v1 renders the YAML correctly).
+Found while auditing the corpus-8 fails 2026-07-10 (claude).
+
+
 Durable ledger of bugs reported in the `scalascript` rozum room (or found locally).
 See the `rozum` skill — "The bug-tracking loop". Newest first. Status flow:
 `open → needs-info → fixed → (confirmed) → done`. Keep fixed/done entries with their
