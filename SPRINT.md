@@ -138,11 +138,40 @@ BLOCKED by machine load.** Findings (nothing landed — investigation only):
       + a self-timed driver (not JMH) to confirm — measure warm steady-state fib(N)-in-a-loop
       via the ASSEMBLED jar (NOT `ssc run`, which disables JIT via classpath). If real, find
       why fib stopped JIT-triggering reliably.
-- [ ] **perf-jit-p7-refreturn** — (coverage, count+conformance verifiable, load-immune):
-      RETREF/CALLREF opcodes so compiled functions can return ref types (String/instance),
-      unblocking the 18 `ret: ref-typed return` misses + cascading CALLREF misses. Marginal
-      timing payoff (tree-walk is fast) but advances documented JIT-completeness. Do only if
-      coverage-completeness is wanted over measurable speedup.
+- [ ] **perf-jit-p7-refreturn** — (SUPERSEDED by wide-jit below; RETREF/CALLREF appear
+      already landed — `SscVm` has both opcodes, `unifyRet` accepts `TRef`. Verify + close
+      gaps as part of wj-3.)
+
+### WIDE JIT — typed input to the code generator (spec: `specs/wide-jit-typed-input.md`)
+
+Sergiy-directed: "широкий джит значит что он работает для всех случаев." Root traced: the
+register-VM JIT (`VmCompiler`) is narrow because static types NEVER reach it — the IR is
+untyped, `run` doesn't typecheck, the interp re-parses `source`→scalameta, and `VmCompiler`
+works on `FunV(Term + string paramTypes)` with `VmType` defaulting to `TInt`. Foundation =
+give the JIT static types via the `FunV` signature seam. **Spec-first; strategy B-then-A;
+open decision (B+A vs C) flagged for the user before wj-1.**
+
+- [ ] **wj-0-baseline** — capture the CURRENT JIT miss histogram FOREGROUND
+      (`SSC_JIT_STATS=1 sbt "backendInterpreter/test"` — NOT `scripts/sbtc`, it detaches).
+      Record per-reason before-counts (June: 199 `call: no compilable target` + N unknown-type;
+      p8/p10 may have shifted it). This is the count-verifiable baseline for wj-1/2.
+- [ ] **wj-1-typed-funv-signature** — add a return-type field to `Value.FunV` + carry the
+      typer's `SType` in `paramTypes` (or a small typed enum), populated from `DefSummary`
+      for top-level defs; compute the signatures on the `run`/`--v1` path (which doesn't
+      typecheck today). VmCompiler reads them instead of `decltpe`/runtime hints/`TInt`.
+      Gate: unknown-param/unknown-ret miss counts drop; conformance green.
+- [ ] **wj-2-local-type-propagation** — with correct param/return seeds, extend `regType`
+      propagation so provably-typed locals/intermediates stop defaulting to `TInt`. Removes
+      the "type-unknown local → bail" residue. Gate: further miss-count drop + conformance.
+- [ ] **wj-3-return-type-completeness** — compile functions returning any statically-known
+      type; verify/close the p8 RETREF/CALLREF path. Gate: `ret:`/`call:` type misses drop.
+- [ ] **wj-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
+      `scripts/bench cross`): confirm wider coverage doesn't regress hot paths + ideally
+      removes the `recursionFib` bimodal variance. (This is the "(1)" timing work, deferred
+      until load drops — current load ~30 makes timing meaningless.)
+      NON-GOALS (separate programs, NOT wj-1..3): closures/HOF (need a closure/heap model,
+      the dominant ~199 miss), effects (need ANF/handlers), Term.Function-as-value. Types
+      widen "all TYPED first-order code" — the large majority + the right foundation.
 
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 
