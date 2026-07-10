@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T10:42:34Z
+heartbeat: 2026-07-10T10:46:53Z
 status: in-progress
-done-so-far: plan published to origin/main at 097da04f4; v2 conformance baseline is 8/8 green
-next: write, verify, and publish the normative v2.1 toolchain-independence spec
+done-so-far: plan 097da04f4; spec 625cb3339; TI-1 bookkeeping 6a05f4f13; v2 conformance 8/8
+next: implement portable machine-readable native-front and VM/ASM baseline gates (TI-2)
