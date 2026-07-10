@@ -1,0 +1,6 @@
+feature/k63-ordered-output 2026-07-10T17:28:45Z
+agent: claude-code (opus)
+heartbeat: 2026-07-10T17:28:45Z
+status: in-progress
+done-so-far: K63.1/2/4/4a/4b/5 landed (conformance fast mode + jar cache + rustc tooling + optional CONF_JOBS=N parallelism across chk/chk_hm/rustc/node lanes; ~2.1x full run, all opt-in, default sequential byte-identical, 640/0).
+next: K63.4c — ordered output in CONF_JOBS>1 mode via exec-redirect segments (inline headers/tests + backgrounded job results interleave exactly as sequential). Touches ONLY v2/conformance/check.sh. Verify: CONF_JOBS=6 vs seq output ordering + 640/0.
