@@ -33,6 +33,16 @@ class Typer(
 ):
   private val errors      = ListBuffer[TypeError]()
 
+  /** wide-jit C-1: Term → inferred `SType` side-map, recorded by `inferType` during
+   *  type inference. Keyed by scalameta `Tree` IDENTITY (each node is a distinct object).
+   *  Exposed so the register-VM JIT can seed its register types from real static types
+   *  instead of re-inferring at runtime (`typeOf` defaulting to `TInt`). Partial by design:
+   *  first-order shapes get real types; lambdas/closures get `SType.Any` (out of wide-jit
+   *  scope — those need a closure model). See `specs/wide-jit-typed-input.md`. */
+  private val _nodeTypes = new java.util.IdentityHashMap[scala.meta.Tree, SType]()
+  /** Read the per-node type map after `typeCheck` (identity-keyed on the checked trees). */
+  def nodeTypes: java.util.Map[scala.meta.Tree, SType] = _nodeTypes
+
   /** Deprecated definitions: name → deprecation message. */
   private val deprecatedDefs    = collection.mutable.Map.empty[String, String]
   /** Experimental definitions: name → experimental notice. */
@@ -802,8 +812,14 @@ class Typer(
     case _ => ()
 
   /** Very lightweight type inference — returns an SType label for a term.
-   *  Does not attempt full HM inference; focuses on literals and known names. */
-  private def inferType(term: scala.meta.Tree, scope: Scope): SType = term match
+   *  Does not attempt full HM inference; focuses on literals and known names.
+   *  wide-jit C-1: the result is recorded into `_nodeTypes` (identity-keyed) by the
+   *  `inferType` wrapper below, so every node reached during inference is captured. */
+  private def inferType(term: scala.meta.Tree, scope: Scope): SType =
+    val t = inferTypeImpl(term, scope)
+    _nodeTypes.put(term, t)
+    t
+  private def inferTypeImpl(term: scala.meta.Tree, scope: Scope): SType = term match
     case Lit.Int(_)     => SType.Int
     case Lit.Long(_)    => SType.Long
     case Lit.Double(_)  => SType.Double
