@@ -168,6 +168,18 @@ lazy val v2JsBackend = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// CoreIR -> deterministic AppCore Swift package. The generated runtime is a
+// native CoreIR consumer and deliberately has no dependency on v1/JvmGen or
+// the legacy SwiftUI View emitter.
+lazy val v2SwiftBackend = project
+  .in(file("v2/backend/swift"))
+  .dependsOn(v2Core)
+  .settings(
+    name := "scalascript-v2-swift-backend",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 // ScalaScript 2.1 standard-tier plugin SPI and the first core-free providers.
 // These projects depend only on the v2 runtime graph; the compatibility
 // NativeImpl/PluginValue adapter remains isolated in v2PluginBridge.
@@ -4154,7 +4166,7 @@ lazy val root = project
     v2Core, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
     v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin,
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin,
-    v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend,
+    v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,

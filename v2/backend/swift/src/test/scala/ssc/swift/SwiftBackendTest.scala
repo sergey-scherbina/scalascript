@@ -1,0 +1,83 @@
+package ssc.swift
+
+import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path, Paths}
+
+import org.scalatest.funsuite.AnyFunSuite
+
+import ssc.{Program, Reader, Term}
+
+final class SwiftBackendTest extends AnyFunSuite:
+  private val repoRoot =
+    Iterator.iterate(Paths.get(sys.props("user.dir")).toAbsolutePath.normalize())(_.getParent)
+      .takeWhile(_ != null)
+      .find(path => Files.isRegularFile(path.resolve("build.sbt")) && Files.isDirectory(path.resolve("v2/conformance")))
+      .getOrElse(fail("cannot locate repository root"))
+
+  test("generated AppCore package is deterministic and structurally separated"):
+    val program = fixture("fact")
+    val first = SwiftBackend.generate(program, "Fact-App")
+    val second = SwiftBackend.generate(program, "Fact-App")
+    assert(first == second)
+    assert(first.files.map(_._1) == Vector(
+      "Package.swift",
+      "Sources/AppCore/SscRuntime.swift",
+      "Sources/AppCore/GeneratedProgram.swift",
+      "Sources/Fact_App/main.swift",
+    ))
+    val all = first.files.map(_._2).mkString("\n")
+    assert(all.contains("SscProgram(definitions:"))
+    assert(!all.contains("scalascript.codegen.JvmGen"))
+    assert(!all.contains("SwiftUIEmitter"))
+
+  test("unsupported globals and primitives fail during generation with their names"):
+    val badGlobal = Program(Nil, Term.Global("host.secret"))
+    val globalError = intercept[IllegalArgumentException](SwiftBackend.generate(badGlobal))
+    assert(globalError.getMessage == "swift backend: unsupported global 'host.secret'")
+
+    val badPrimitive = Program(Nil, Term.Prim("host.secret", Nil))
+    val primitiveError = intercept[IllegalArgumentException](SwiftBackend.generate(badPrimitive))
+    assert(primitiveError.getMessage == "swift backend: unsupported primitive 'host.secret'")
+
+  test("real swift run matches VM structural fixtures fact tco and map"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val cases = List(
+      "fact" -> "120",
+      "tco" -> "500000500000",
+      "map" -> "List(2, 4, 6)",
+    )
+    cases.foreach { (name, expected) =>
+      assert(runSwift(name, fixture(name)) == expected)
+    }
+
+  private def fixture(name: String): Program =
+    val path = repoRoot.resolve(s"v2/conformance/$name.coreir")
+    Reader.parseProgram(Files.readString(path, StandardCharsets.UTF_8))
+
+  private def swiftAvailable: Boolean =
+    try
+      val process = new ProcessBuilder("swift", "--version").start()
+      process.waitFor() == 0
+    catch case _: Exception => false
+
+  private def runSwift(name: String, program: Program): String =
+    val root = Files.createTempDirectory(s"ssc-swift-$name-")
+    val errors = root.resolve("swift.stderr")
+    try
+      val product = s"Ssc${name.capitalize}"
+      SwiftBackend.generate(program, product).writeTo(root)
+      val process = new ProcessBuilder(
+        "swift", "run", "--package-path", root.toString, "--quiet", product,
+      ).redirectError(errors.toFile).start()
+      val stdout = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val exit = process.waitFor()
+      val stderr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(exit == 0, s"swift run $name failed ($exit):\n$stderr\n$stdout")
+      stdout
+    finally deleteRecursively(root)
+
+  private def deleteRecursively(root: Path): Unit =
+    if Files.exists(root) then
+      val stream = Files.walk(root)
+      try stream.sorted(java.util.Comparator.reverseOrder()).forEach(Files.deleteIfExists)
+      finally stream.close()
