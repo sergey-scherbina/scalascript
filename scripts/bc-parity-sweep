@@ -77,6 +77,10 @@ for f in "$ROOT"/examples/*.ssc; do
   if printf '%s\n' "$b" | grep -qE "$nondet_re"; then
     skipped=$((skipped + 1)); record "$b" skipped-nondeterministic - - 'declared nondeterministic output'; continue
   fi
+  if grep -qE '^```(scala|java|javascript|rust)([[:space:]]|$)' "$f" 2>/dev/null &&
+     ! grep -qE '^```scalascript([[:space:]]|$)' "$f" 2>/dev/null; then
+    skipped=$((skipped + 1)); record "$b" skipped-backend - - 'backend-specific fenced document with no standard scalascript block'; continue
+  fi
 
   "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run "$f" >"$tmp/vm.out" 2>"$tmp/vm.err"
   vm_rc=$?

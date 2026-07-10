@@ -53,6 +53,9 @@ grep -F $'x402-server.ssc\tskipped-server' "$tmp/server-parity.tsv" >/dev/null
 "$ROOT/scripts/bc-parity-sweep" --ssc "$true_bin" --only graphql-client.ssc \
   --report "$tmp/nondet-parity.tsv" >/dev/null
 grep -F $'graphql-client.ssc\tskipped-nondeterministic' "$tmp/nondet-parity.tsv" >/dev/null
+"$ROOT/scripts/bc-parity-sweep" --ssc "$true_bin" --only bank-rails-ach.ssc \
+  --report "$tmp/scala-fence-parity.tsv" >/dev/null
+grep -F $'bank-rails-ach.ssc\tskipped-backend' "$tmp/scala-fence-parity.tsv" >/dev/null
 
 # A tools exception may not silently disappear or move to another category.
 grep -v '^tool.ssc' "$tmp/native.tsv" >"$tmp/native-stale.tsv"
