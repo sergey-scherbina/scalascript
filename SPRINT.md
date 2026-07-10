@@ -2675,6 +2675,14 @@ std/money.ssc case class. Validatable against the full money/payments suite.
       money/payments suite (NO 61→25 cascade) + V2ConformanceTest, then land.
 
 **B. int-width (Conformance job — `deep-tail-recursion`) — LARGE, language-semantics.**
+- [x] **int-2v2 RESOLVED via v2-routing (2026-07-10, 70d8b0b25)** ✓ — text-rewrite of v1
+      codegen proven net-negative (84→11 best, synthetic-Int boxing irreducible, scalameta
+      `.transform` is a Scala-2.13 macro absent in Scala 3). The v2 pipeline (CoreIR) is
+      NATIVELY 64-bit (run --bytecode / run --v2 / run-js --v2 all → 5000050000). Added a
+      `codegen: v2` frontmatter opt-in to conformance run.sc: such a case runs its JVM lane
+      via `run --bytecode` and JS via `run-js --v2` (INT stays interpreter). deep-tail-recursion
+      opts in → PASS on all 3 backends; only codegen:v2 cases affected, 0 regressions. FIRST
+      slice of the v1→v2 codegen migration; more cases can opt in as v2 codegen coverage grows.
 ssc `Int` is documented 64-bit and the interpreter + v2 VM honor it, but JS AND
 JVM codegen treat Int as 32-bit UNIVERSALLY (measured: non-TCO `100000*100000` →
 JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
@@ -2701,7 +2709,8 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
       scala.Int] = _.toInt`. Fires only on a real mismatch → the (already-compiling)
       preamble is untouched. Naive `\bInt\b`→Long ALONE = 70/84; **+given = MEASURED
       84 fails → 11.** deep-tail-recursion JVM → 5000050000; content-introspection passes.
-- [ ] **int-2c consistency — close the last 10 JVM (generic/inferred)** — the given bridges
+- [x] **int-2c consistency (SUPERSEDED — text-rewrite proven net-negative, best 84→11)** — see int-2v2 below
+- [ ] **_int-2c-orig_ — close the last 10 JVM (generic/inferred)** — the given bridges
       VALUES but not TYPE CONSTRUCTORS (`List[Long]` vs `List[Int]` invariance, `Int=>Int`
       vs `Long=>Long`) nor runtime BOXING (`generator[Int]`→`[Long]` but inferred `var i=1`
       stays Int → Integer boxed → `unboxToLong` CCE). ROOT = PARTIAL rewrite: I rewrite
