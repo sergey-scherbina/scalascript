@@ -1454,6 +1454,18 @@ val page = html(
 \```
 ```
 
+#### 8.6.1 Managed browser GET bindings
+
+`fetchUrlSignal` and `fetchUrlSignalTo` are persistent browser bindings: they
+fetch on mount and again when their refresh tick (or reactive URL) changes. A
+fulfilled response writes its text body using the existing HTTP-status
+semantics. If the transport or response-body read rejects, the generated SPA
+runtime consumes that rejection, retains the signal's last-good value, and
+keeps the binding subscribed for a later refresh. Expected offline operation
+must not produce an unhandled browser promise rejection. The detailed runtime
+contract is normative in
+[`specs/ui-fetch-get-offline-rejection.md`](specs/ui-fetch-get-offline-rejection.md).
+
 ### 8.7 Web Primitives (REST/HTTP)
 
 See §7.9–7.14 for the full HTTP/WS/auth surface. Static-rendering variants:
