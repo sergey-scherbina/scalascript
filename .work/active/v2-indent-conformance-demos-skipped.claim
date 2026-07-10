@@ -1,6 +1,0 @@
-feature/v2-indent-conformance-demos-skipped 2026-07-10T02:59:37Z
-agent: codex
-heartbeat: 2026-07-10T02:59:56Z
-status: in-progress
-done-so-far: worktree created
-next: reproduce direct failures, inspect test expressions, then fix and add expected outputs
