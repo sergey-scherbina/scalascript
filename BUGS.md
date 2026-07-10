@@ -1,5 +1,32 @@
 # Bug tracker
 
+## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
+
+**Status:** open (2026-07-10); reproduced on current `origin/main` after native
+plugin-function dispatch `895898bfd`.
+
+- **Found by:** codex while running the TI-6.3 post-source-map regression gate.
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run `bin/ssc run
+  --native --bytecode examples/hello.ssc`. The command exits nonzero with
+  `run --native: None.get`; the same source succeeds through native VM and the
+  self-contained `build-jvm` direct-ASM JAR.
+- **Expected:** in-memory direct ASM consumes the same checked `Program` and
+  initializes generated globals through `JvmByteGen.install`, just like the
+  artifact entry; unrelated VM compiler optimizations/dispatch must not change
+  its result.
+- **Root cause:** `RunNativeV2.runBytecode` calls
+  `Compiler.compileWithGlobals` solely to seed `Emit.globalsRef` before emitting
+  ASM. Since TI-6.1 the generated `install()` evaluates/registers value defs
+  itself. The redundant VM prepass now observes installed plugin handlers and
+  takes the new VM-only App(Global)->Prim route, leaving state that makes the
+  generated hello path evaluate `None.get`.
+- **Fix direction:** initialize a fresh mutable generated-global map and rely on
+  `JvmByteGen.install`, eliminating the VM compilation prepass from the direct
+  ASM lane. Keep the artifact and in-memory lanes on the same initialization
+  contract.
+- **Done-when:** native VM, in-memory direct ASM, and `java -jar` hello/import/
+  ordered-value fixtures all pass; `v2-*` conformance stays green.
+
 ## v21-build-jvm-import-source-identity-gap — artifact metadata omits resolved imports
 
 **Status:** open (2026-07-10); found while verifying TI-6.3 source mapping

@@ -208,6 +208,11 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
                   the complete linked source closure; hash/map imported
                   declarations and prove the relative helper appears in both
                   metadata and SMAP without breaking byte reproducibility.
+            - [ ] **Remove the VM compiler prepass from native direct ASM
+                  (`v21-native-bytecode-vm-prepass-state`):** seed a fresh
+                  generated-global map and let `JvmByteGen.install()` own
+                  definition initialization, matching persisted artifacts.
+                  Gate native VM + in-memory ASM hello/import/ordered values.
       - [ ] **TI-6.4 artifact release gates:** build twice from clean temp dirs
             and compare bytes; inspect JAR and `jdeps` for compiler, Scalameta,
             bridge, v1 AST/interpreter, and `javax.tools`; run hello/import/argv/
