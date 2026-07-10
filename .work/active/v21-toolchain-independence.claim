@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T10:57:29Z
+heartbeat: 2026-07-10T11:17:07Z
 status: in-progress
-done-so-far: TI-1 through 6a05f4f13; portable TSV gates + e2e smoke landed at 7ba4d413b; full corpus measurements running
-next: persist full TI-2 baseline counts/spec results, verify, and mark the slice done
+done-so-far: TI-1 done; TI-2 gates 7ba4d413b; bugs tracked 2fb0ce4e2/0815c7871; sscpkg temp leak fixed 784ac95d3 + bookkeeping 056a56d94
+next: publish authoritative 195-file TI-2 counts/spec results and mark portable-baseline slice done
