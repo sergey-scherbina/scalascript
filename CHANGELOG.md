@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — sentinel readiness no longer depends on backend exit status
+
+The release taxonomy now keeps the frontend `_err` sentinel authoritative when
+VM and direct ASM happen to exit zero identically because the bad node is
+uncalled or otherwise unobserved. Synthetic standard/tools regressions and the
+real 74-row report pass; measured limits are 6 standard, 26 server, 36 backend,
+5 tools/backend, and 1 nondeterministic. Landed `07c1d9b55`.
+
+## 2026-07-10 — native frontend supports portable list append
+
+The self-hosted lexer, checker, and lowerer now implement `List[A] :+ A` at the
+collection-concatenation precedence through portable `__arith__`, with no Scala
+collection or JVM-only dependency. A real fixture prints `1,2,3,4` identically
+on native VM/direct ASM; `dsl-ast-builder.ssc` is sentinel-clear/checker-OK.
+The corpus has 74 sentinels and 6 standard gaps; standard parity remains
+10 identical / 60 both-fail / 125 skipped with zero mismatch/one-sided, and
+fresh conformance is 9/9. Landed `c018ad6a1`.
+
 ## 2026-07-10 — native frontend accepts extension declaration headers
 
 The self-hosted parser now consumes `extension [T](receiver: Type)` as a

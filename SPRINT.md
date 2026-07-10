@@ -674,11 +674,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
             explicit tools-tier categories and source-located failures.
-            Current baseline 2026-07-10 after TI-8.2b and native K62.14/K62.15:
+            Current baseline 2026-07-10 after TI-8.2c2i:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 75
+            frontend host errors/timeouts, 1 non-code document, 74
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            27 runtime successes, and 92 runtime errors (167 strict-fail rows).
+            27 runtime successes, and 93 runtime errors (167 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -716,26 +716,27 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 75 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 74 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `e87a3aab2`):** join the native-front
+                        (`aa9b30f28`, refined through `07c1d9b55`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 75 rows classify as 7 standard-gap / 26
+                        Result: all 74 rows classify as 6 standard-gap / 26
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
                         without overrides. Parity is 10 identical / 60 both-fail /
                         125 skipped / 0 mismatch or one-sided; smoke and
                         conformance 8/8 pass.
-                  - [ ] **TI-8.2c1a parity-success sentinel classification:**
+                  - [x] **TI-8.2c1a parity-success sentinel classification —
+                        DONE 2026-07-10 (`07c1d9b55`):**
                         fix `scripts/v21-sentinel-taxonomy` so frontend
                         `PRESENT` remains the readiness authority when VM and
                         ASM happen to exit zero identically. Apply source
@@ -744,11 +745,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         classify the row as `standard-gap`. Extend the synthetic
                         smoke with both an identical standard sentinel and an
                         identical reviewed-tools sentinel, then rerun the real
-                        74-row taxonomy and tighten measured limits. This blocks
-                        TI-8.2c2i closure; tracked in
-                        `BUGS.md#v21-sentinel-taxonomy-parity-success`.
+                        74-row taxonomy and tighten measured limits. Result:
+                        identical standard and reviewed-tools sentinels pass the
+                        synthetic regression; the real report classifies all 74
+                        rows as 6/26/36/5/1. Category ceilings are tightened,
+                        taxonomy smoke and fresh conformance 9/9 pass. Tracked
+                        in `BUGS.md#v21-sentinel-taxonomy-parity-success`.
                   - [ ] **TI-8.2c2 standard syntax families:** group the
-                        7 remaining deterministic rows by actual `_err` source
+                        6 remaining deterministic rows by actual `_err` source
                         shape, add one real-launcher regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
@@ -884,7 +888,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               and parity 10 identical / 60 both-fail / 125
                               skipped with no mismatch or one-sided row.
                               Native-entry and fresh conformance 9/9 pass.
-                        - [ ] **TI-8.2c2i list append `:+`:** recognize `:+`
+                        - [x] **TI-8.2c2i list append `:+` — DONE 2026-07-10
+                              (`c018ad6a1`):** recognize `:+`
                               as one infix token at collection-concatenation
                               precedence (the existing `++` tier), infer
                               `List[A] :+ A` as `List[A]`, and lower it through
@@ -902,7 +907,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               native-entry, and fresh `v2-*` conformance. Done
                               when the fixture is byte-identical, the DSL row
                               has no `_err`, and category ceilings shrink
-                              without a new mismatch or one-sided row.
+                              without a new mismatch or one-sided row. Result:
+                              `List(1, 2) :+ 3 :+ 4` prints `1,2,3,4` on both
+                              assembled lanes; `dsl-ast-builder.ssc` is
+                              sentinel-clear/checker-OK and reaches the honest
+                              missing imported `Node` runtime boundary. Corpus
+                              is 194/0/0/1 with 74 sentinels, checker 194/0,
+                              runtime 27 OK / 93 errors, taxonomy 6/26/36/5/1,
+                              standard parity 10/60/125 with no mismatch or
+                              one-sided row, native-entry passes, and fresh
+                              conformance is 9/9.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.

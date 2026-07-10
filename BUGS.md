@@ -2,7 +2,8 @@
 
 ## v21-sentinel-taxonomy-parity-success — parser sentinel becomes unclassified when both lanes exit zero
 
-**Status:** open (2026-07-10); found by codex while verifying TI-8.2c2i.
+**Status:** fixed (2026-07-10, `07c1d9b55`); found by codex while verifying
+TI-8.2c2i, waiting for Sergiy confirmation before `done`.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
   `scripts/native-front-corpus --report target/v21-native-front-current.tsv`,
@@ -20,6 +21,14 @@
   reviewed override only when the parity category is `both-fail`. Uncalled or
   non-observable `_err` nodes can let both lanes exit zero identically, so parity
   success and frontend completeness are independent axes.
+- **Fix:** readiness now accepts `both-fail` or `identical` parity after
+  source-derived categories, while mismatch/one-sided rows remain rejected.
+  Reviewed overrides follow the same rule, so an identical unobserved sentinel
+  cannot become stale merely because neither lane executes it.
+- **Verified:** synthetic identical standard/tools sentinels pass; the real
+  normative standard-tier report classifies all 74 sentinels as 6 standard, 26
+  server, 36 backend, 5 tools/backend, and 1 nondeterministic. Native-entry and
+  fresh affected conformance 9/9 pass.
 - **Done-when:** a synthetic regression covers an `identical` sentinel plus an
   `identical` reviewed tools row, the real 74-row report classifies completely,
   category ceilings shrink to the measured counts, and affected conformance is
