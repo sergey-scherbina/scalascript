@@ -1345,6 +1345,51 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       4 environmental, dsl-mini batch-ghost, x402-cardano external). Parity 63/85, conf 68.
       REMAINING (non-gate): v1-deep ×2 (actors scheduler-termination race; dsl-calc .many()),
       dsl-mini batch-vs-run arity ghost, control-center-live wip mechanics, datatable emit-path.
+## v2-native-vm-runtime-coverage (2026-07-10, Sergiy: "переключайся на другую ось… запиши всё что видишь в спринт. И делай")
+
+**Axis pick + landscape survey.** Switched here after finishing the native-front
+MODULE-LOADING axis (443d1d646 + hex 3b5c0d4e1 + str.replace 13c864994, all on main).
+Surveyed the whole v2 landscape to pick a genuinely-unowned, non-clashing, valuable slice:
+
+**Axes I see (ownership as of 2026-07-10):**
+- **Parser axis** (`ssc1-front.ssc0`) — K62-owner, actively landing (K62.10/11 nested-ctor
+  + tuple patterns). Handed them 3 parser gaps (type-param case class `Node[A]`, `summon`,
+  `dsl-mini-language` parse). NOT MINE.
+- **Toolchain-independence (2.1)** (`v21-…` claim) — codex sibling, in-progress
+  (TI-4 checker/result/prefix, TI-5 native SPI/crypto + core-free FS/OS; next = core-free
+  JSON/HTTP/SQL/UI providers). Builds ON my module-loader. NOT MINE.
+- **Module-loading** (`ssc1-run.ssc0`) — MINE, DONE.
+- **Bridge output-parity** (`--v2` production path) — MATURE: output-parity baseline
+  (v2/output-parity-baseline.md, 07-09) = 68/91 identical, **0 mismatch, 0 v2-error**;
+  compat-coverage 186/193. The only non-passing are `both-fail` (v1 ALSO fails — not a v2
+  gap: distributed-MapReduce drivers, actor link/monitor supervision, Dataset codec Op/3 —
+  need real infra) + true-server/backend-lane/nondet skips. LOW ROI to chase.
+- **Perf: bc-lane** (`## p4-bc-perf`, SPRINT:1449) — bytecode 3-12× behind the now-fast VM;
+  open, infra-heavy (bench + OOM-risk). Available but not picked.
+- **Native e2e runtime coverage** (`Runtime.scala` VM + generic prims) — the e2e metric is
+  40/195 through the plugin runtime; most misses are PLUGIN globals (separate axis) or
+  PARSER `_err` (K62), but a residue are **VM crashes / missing generic prims** that block
+  plugin-FREE native-lowered files. THIS IS MINE — complements module-loading, touches
+  `Runtime.scala` (VM) not K62's `ssc1-front`/pattern-lowering, not codex's providers.
+
+**Method:** classify every `examples/*.ssc` by its FIRST blocker on the native front + bare
+VM (`scratchpad/nvm-scan.sh` → `nvm-scan.tsv`): PARSE (→K62) / UNBOUND plugin (→plugin
+axis) / DISPATCH `_sel_`/`__method__` / VMERR (VM crash) / RUNS. The DISPATCH+VMERR buckets
+on plugin-free files are my fixable set. Gate every fix with `v2/conformance/check.sh`
+(640/640) — same discipline as the module-loading chain.
+
+**Tasks (filled from the scan histogram; each landed on main, conformance-gated):**
+- [ ] **nvm-1-classify** — run the full-corpus bare-VM classification scan, write the
+      blocker histogram here, identify the top mine-ownable (VMERR / generic-prim / dispatch)
+      blockers on plugin-free files. (IN PROGRESS — scan PID running.)
+- [ ] **nvm-2-vmerr-fixes** — fix the VM-crash blockers surfaced by the scan (e.g.
+      match-dispatch wrong-arm, scrutinee-not-Data, arity) in `Runtime.scala`, one per slice.
+- [ ] **nvm-3-generic-prims** — add missing generic VM prims / `_sel_` prelude defs for
+      plugin-free stdlib methods that native-lowered files need (pattern: the `str.replace`
+      / `_sel_replace` slice, but for the next most-common missing method).
+- [ ] **nvm-4-remeasure** — re-run the classification, record the delta, hand any remaining
+      PARSE blockers to K62 and any PLUGIN blockers to the relevant plugin axis.
+
 ## Разоблачённые exit-0 фикции (cdd032f03 unmask, диагнозы 2026-07-09)
 
 cdd032f03 «run standard scala source fences» сделал исполняемыми ```scala-фенсы —
