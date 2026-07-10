@@ -1,0 +1,22 @@
+agent: claude-busi-session
+started: 2026-07-10
+task: textfield-reactive-label
+
+next:
+- Add TextFieldRNode (nodes.ssc) + textFieldR() (input.ssc) — a textField
+  variant whose label tracks a Signal[String], mirroring the existing
+  signalLabelButton/SignalActionButtonNode pattern (labelSig: Any).
+- Lower it in lower.ssc: reactive placeholder attr + signalText(labelSig) for
+  the visible <label> child (input.ssc's element() attrs already decode
+  Signal values by shape — confirmed via the existing value/disabled attrs).
+- Conformance test: a locale-style signal-driven label swap, INT==JS.
+- Closes the P2 "SPA i18n parity" backlog item noted in specs/ssc-toolkit-v2.md
+  §5 — busi's ssc SPA (app.ssc) currently bakes FieldSpec labels as static
+  strings, so form fields never live-switch locale (documented gap in busi's
+  src/v2/clients/ssc/app.ssc header + src/v2/specs/frontend-on-scalascript.md
+  §4 P2#12). This is the minimal additive toolkit primitive; the actual i18n
+  wiring for the 9 busi form fields happens busi-side (no other stdlib change
+  needed — std/ui/form.ssc's FieldSpec/validateField stay untouched to avoid
+  any risk to other std/ui/form.ssc consumers).
+- Push, bump busi's scalascript pin, wire busi's app.ssc, verify (make
+  v2-ssc-app + v2-test + browser locale-switch check).
