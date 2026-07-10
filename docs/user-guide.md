@@ -332,6 +332,13 @@ does not retain dormant compatibility command references. `bin/ssc` remains the
 compatibility launcher until the TI-8 default cutover; a standard request for a
 compiler-backed command fails with a tools-tier diagnostic.
 
+The full installation also stages `bin/ssc-tools`, whose classpath contains the
+compatibility runtime, plugins, and lazy compiler directory. An explicit
+`ssc-standard run --v1 ...` or `--compat-frontend` delegates to that launcher;
+arbitrary unsupported commands do not. In a slim installation the same request
+fails before execution and names `ssc-tools` plus the full-distribution remedy.
+Self-install creates both tier launchers alongside the migration-default `ssc`.
+
 `ssc build-jvm` runs the self-hosted frontend and native checker, emits
 `ssc.gen.Entry` directly through ASM, and writes a deterministic self-contained
 JAR. It does not generate Scala/Java source and does not invoke Scala CLI,

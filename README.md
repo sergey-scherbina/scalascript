@@ -75,8 +75,10 @@ bin/ssc examples/hello.ssc
 bin/ssc-standard run examples/hello.ssc
 bin/ssc-standard run --bytecode examples/hello.ssc
 
-# Roll back to the v1 tree-walking interpreter explicitly
-bin/ssc run --v1 examples/hello.ssc
+# Roll back through the explicit optional tools/compatibility tier
+bin/ssc-tools run --v1 examples/hello.ssc
+# The slim launcher delegates this explicit request when tools are installed:
+bin/ssc-standard run --v1 examples/hello.ssc
 
 # Watch mode — re-run on every file change
 bin/ssc watch examples/hello.ssc
