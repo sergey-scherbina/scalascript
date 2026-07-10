@@ -1,0 +1,6 @@
+agent: claude-fable-5
+branch: fix/v2-split-limit-overload
+worktree: ../scalascript-wt-v2-split-fix
+started: 2026-07-10
+status: in-progress
+task: FIX v2-string-split-limit-overload (BUGS.md) — String.split(delimiter, limit), the two-arg overload, is unimplemented on the v2 VM ("no dispatch for .split"); one-arg split(delimiter) works. Caused a real busi production outage. Repro at tests/conformance/v2-string-split-limit-overload.ssc.
