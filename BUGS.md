@@ -61,7 +61,8 @@ before `done`.
 
 ## v21-standard-direct-asm-recursion-stack — direct ASM lacks the VM recursion trampoline
 
-**Status:** open (2026-07-10); found in the TI-8.2 standard corpus sweep.
+**Status:** fixed (2026-07-10, `3153fb2db`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex from the standard VM/ASM parity report.
 - **Real-harness repro:** `bin/ssc-standard run examples/recursion.ssc` prints
@@ -78,6 +79,20 @@ before `done`.
 - **Done-when:** the full example is byte-identical on VM/ASM with a small JVM
   stack, focused recursion/TCO tests cover self/mutual groups, and affected
   conformance is green.
+- **Root cause:** top-level recursive targets already had self-loop/mutual
+  `Bounce` lowering, but local `LetRec` lambdas were emitted as anonymous
+  methods without peer identity. Their tail `App(Local(...))` therefore entered
+  `Emit.app -> Runtime.run` recursively. The first failure was `_sel_to`, not the
+  user-level top-level `length` function.
+- **Fix:** each local recursion body carries environment-relative peer
+  method/arity metadata. Tail calls preserve `captured ++ tied-group`, replace
+  the current argument suffix, and return a trampoline bounce; generic local
+  closure invocation unrolls it iteratively.
+- **Verified:** focused bytecode tests pass arithmetic/non-tail recursion plus
+  100,000-call local self/mutual TCO (3/3). The real `recursion.ssc` produces all
+  13 expected rows identically through VM, in-memory ASM, and `build-jvm` JAR at
+  `-Xss256k`; strict focused parity is 1 identical/0 errors; native-entry,
+  standard, slim, JRE-module, artifact, and affected conformance gates pass.
 
 ## v21-standard-ui-fetch-json-vm-arity — native VM rejects a five-argument UI helper accepted by ASM
 
@@ -168,9 +183,10 @@ before `done`.
 - **Verified:** derived runtime modules exclude `java.compiler`/`jdk.compiler`
   and both fail `--describe-module` under the limit; VM, direct ASM, FS/OS,
   JSON, HTTP, SQL, UI, State, and generated SQL JAR pass. Strengthened slim and
-  core-dependency gates pass, artifact SHA remains
-  `1d078c3ffe330eae72a809f98794333c123d715bbf19012fbdc4f0c686715173`, and
-  affected conformance is 8/8.
+  core-dependency gates pass. At the H2 fix boundary the artifact SHA remained
+  `1d078c3ffe330eae72a809f98794333c123d715bbf19012fbdc4f0c686715173`;
+  subsequent self-hosted JSON and local-recursion runtime changes intentionally
+  advanced the reproducible baseline. Affected conformance is 8/8.
 
 ## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
 

@@ -899,6 +899,11 @@ def apply(f: Int => Int, x: Int): Int = f(x)
 apply(double, 21)    // 42
 ```
 
+Self and mutual tail calls are stack-safe in the standard VM and direct-ASM
+lanes, including functions declared locally inside another function. The
+direct-ASM `build-jvm` artifact uses the same trampoline contract; it does not
+invoke the VM or a Java/Scala compiler to obtain tail-call elimination.
+
 ### Case Classes and Sealed Traits
 
 ```scalascript
