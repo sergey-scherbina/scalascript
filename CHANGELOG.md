@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — core-free v2 native plugin boundary established
+
+`ssc run --native` now loads deterministic `ssc.plugin.NativePlugin` providers
+instead of the v1 `PluginBridge`. Process globals and nine crypto helpers have
+core-free providers; duplicate ownership is rejected, VM/ASM crypto/argv smokes
+pass, and static plus runtime gates show no native bridge/Scalameta class edge.
+
 ## 2026-07-10 — native unary operators bind postfix calls correctly
 
 The self-hosted frontend now parses `!f()`, `-f()`, and `~f()` as unary

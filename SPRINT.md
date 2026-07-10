@@ -79,6 +79,13 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       AST/BlockForm adapter in an optional compatibility module. Done when the
       native VM and ASM lanes run representative json/http/sql/ui/plugin cases
       without any `org.scalameta` JAR on their classpath.
+      **Progress 2026-07-10:** `169fa2c28` introduced the deterministic
+      `ssc.plugin.NativePlugin` ServiceLoader boundary, duplicate-ownership
+      rejection, core-free host globals, and a nine-operation crypto pilot.
+      `RunNativeV2` is split from the compatibility runner and loads neither
+      `PluginBridge` nor Scalameta (static jdeps/javap plus runtime class-load
+      gate); native VM/ASM crypto/argv smokes remain green. Next: migrate
+      fs/os/json providers, then HTTP/SQL/UI with feature-specific smokes.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a
