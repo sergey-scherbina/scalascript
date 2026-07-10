@@ -313,6 +313,36 @@ blocks remain separate migration slices. Other plugin families are still being
 migrated; a missing native provider fails explicitly. Use `--compat-frontend`
 for a tools-tier plugin that has not moved yet.
 
+### `build-jvm` — executable JAR directly from native CoreIR + ASM
+
+`ssc build-jvm` runs the self-hosted frontend and native checker, emits
+`ssc.gen.Entry` directly through ASM, and writes a deterministic self-contained
+JAR. It does not generate Scala/Java source and does not invoke Scala CLI,
+scalac, or javac:
+
+```bash
+ssc build-jvm app.ssc -o app.jar
+java -jar app.jar
+
+# Multiple explicit roots are linked in command-line order. `--` is optional
+# on java -jar, but provides the same visible argv as `ssc run ... --`.
+ssc build-jvm app.ssc support.ssc -o app.jar
+java -jar app.jar -- one two
+```
+
+The JAR embeds the v2 core, Scala runtime, and the currently selected core-free
+native providers (host/process globals, crypto, FS/OS, JSON, HTTP, UI, and
+State). Entries are lexically ordered with fixed ZIP metadata; two builds from
+identical sources and staged runtime inputs are byte-identical. The manifest
+names `ssc.gen.Entry`, while
+`META-INF/scalascript/artifact.properties` records source SHA-256 digests,
+runtime inputs, and provider classes without timestamps or absolute paths.
+
+This command is distinct from legacy `compile-jvm --bytecode`, which produces a
+`.scjvm` compatibility artifact through generated Scala and compiler tooling.
+Native SQL configuration, full multi-file artifact metadata, and `.ssc` SMAP
+line mapping are the next ScalaScript 2.1 artifact slices.
+
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
 emits v2 CoreIR JavaScript, and passes trailing args through Node's
@@ -332,6 +362,7 @@ When to use each:
 | `ssc run` | v2 VM | Default day-to-day runner |
 | `ssc run --native` | v2 VM via self-hosted frontend | Validate/deploy the ScalaScript 2.1 compiler-free route |
 | `ssc run --native --bytecode` | direct ASM via self-hosted frontend | Validate native frontend plus JVM bytecode execution |
+| `ssc build-jvm <files...> -o app.jar` | direct ASM executable JAR | Ship a reproducible compiler-free JVM artifact |
 | `ssc run --compat-frontend` / `--v2` | v2 VM via Scalameta bridge | Explicit migration compatibility route |
 | `ssc run --v1` | v1 interpreter | Rollback/debug path for old tree-walking behavior |
 | `ssc run <file> -- [args...]` | v2 VM | Pass program args to v2 `args` without changing source-file positionals |

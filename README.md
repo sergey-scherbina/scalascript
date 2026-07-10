@@ -86,6 +86,10 @@ bin/jssc examples/hello.ssc
 # Compile to JVM bytecode and run via Scala 3 / scala-cli
 bin/sscc examples/hello.ssc
 
+# Build a deterministic self-contained JAR directly through native CoreIR + ASM
+bin/ssc build-jvm examples/hello.ssc -o hello.jar
+java -jar hello.jar
+
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
 # see docs/rust-backend.md for the capability surface).
 bin/ssc build-rust examples/hello.ssc && ./hello
