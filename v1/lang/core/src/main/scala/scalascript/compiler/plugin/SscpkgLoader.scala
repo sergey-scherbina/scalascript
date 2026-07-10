@@ -75,12 +75,14 @@ object SscpkgLoader:
         if intrinsicEntries.isEmpty then Nil
         else
           val tmpDir = os.temp.dir(prefix = s"sscpkg-${manifest.id}-intrinsics")
-          intrinsicEntries.map { e =>
+          val jars = intrinsicEntries.map { e =>
             val fileName = e.getName.split('/').last
             val dest = tmpDir / fileName
             os.write(dest, zip.getInputStream(e).readAllBytes())
             dest
           }
+          registerTreeForExitCleanup(tmpDir)
+          jars
 
       // ── sources/*.ssc ──────────────────────────────────────────────
       val sourcePaths = entries
@@ -110,6 +112,16 @@ object SscpkgLoader:
         os.makeDir.all(dest / os.up)
         os.write(dest, zip.getInputStream(e).readAllBytes())
       }
+      registerTreeForExitCleanup(tmpDir)
       tmpDir
     finally
       zip.close()
+
+  /** `os.temp.dir` registers only the empty root with `File.deleteOnExit`.
+   *  Once extraction adds children, deleting that non-empty root at JVM exit
+   *  fails silently. Register descendants parent-first so Java's reverse-order
+   *  shutdown deletion removes files, then nested directories, then the root. */
+  private def registerTreeForExitCleanup(root: os.Path): Unit =
+    os.walk(root)
+      .sortBy(_.segments.length)
+      .foreach(_.toIO.deleteOnExit())
