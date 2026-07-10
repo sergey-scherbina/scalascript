@@ -42,13 +42,24 @@ fs_os_expected=$'one-two\nsample.txt\ntrue\nfallback\ntrue\nfalse'
 [[ $(run_native "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
 json_expected=$'Ada\n2\ntrue\n1000.01\ntrue\n{"payload":[1,2]}\n[1,2,3]\n{"name":"A\\"B","on":true}'
 [[ $(run_native "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
+http_response_expected=$'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true}\npublic, max-age=60\nv1\nno-store'
+[[ $(run_native "$FIXTURES/http-response-provider.ssc") == "$http_response_expected" ]]
 [[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 [[ $(run_native --bytecode "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/http-response-provider.ssc") == "$http_response_expected" ]]
 [[ $(PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" SSC_NO_CDS=1 \
   "$ROOT/bin/ssc" run --compat-frontend "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
+
+set +e
+run_native "$FIXTURES/http-server-unavailable.ssc" >"$sandbox/http-server.out" 2>"$sandbox/http-server.err"
+http_server_rc=$?
+set -e
+[[ $http_server_rc -ne 0 ]]
+grep -F 'native HTTP server unavailable: serve requires the standard server-host SPI' \
+  "$sandbox/http-server.err" >/dev/null
 
 set +e
 run_native "$ROOT/examples/imports.ssc" >"$sandbox/sentinel.out" 2>"$sandbox/sentinel.err"

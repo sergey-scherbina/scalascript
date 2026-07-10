@@ -227,6 +227,15 @@ lazy val v2NativeJsonPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+lazy val v2NativeHttpPlugin = project
+  .in(file("v2/runtime/std/http-plugin"))
+  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin)
+  .settings(
+    name := "scalascript-v2-native-http-plugin",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -1088,7 +1097,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -3990,7 +3999,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     v2Core, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
-    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin,
+    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 

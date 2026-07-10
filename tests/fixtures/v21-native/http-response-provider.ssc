@@ -1,0 +1,16 @@
+# Native std.http Response provider
+
+[Response, cacheable, noCache](std/http.ssc)
+
+```scalascript
+val text = Response.text("hello", 201)
+println(text.status)
+println(text.headers("Content-Type"))
+println(text.body)
+val json = Response.json(Map("ok" -> true, "n" -> 2))
+println(json.body)
+val cached = cacheable(text, 60, "v1")
+println(cached.headers("Cache-Control"))
+println(cached.headers("ETag"))
+println(noCache(text).headers("Cache-Control"))
+```

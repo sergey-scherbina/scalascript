@@ -62,37 +62,7 @@ final class JsonNativePlugin extends NativePlugin:
       obj.value.foreach { case (key, item) => values(Value.StrV(key)) = rawValue(item) }
       Value.ForeignV(values)
 
-  private def jsonValue(value: Value): ujson.Value = value match
-    case Value.UnitV => ujson.Null
-    case Value.BoolV(boolean) => ujson.Bool(boolean)
-    case Value.IntV(number) => ujson.Num(number.toDouble)
-    case Value.BigV(number) => ujson.Num(number.toDouble)
-    case Value.FloatV(number) => ujson.Num(number)
-    case Value.StrV(text) => ujson.Str(text)
-    case Value.BytesV(bytes) => ujson.Arr.from(bytes.map(byte => ujson.Num((byte & 0xff).toDouble)))
-    case Value.DataV("Nil", _) => ujson.Arr()
-    case cons @ Value.DataV("Cons", _) => ujson.Arr.from(unlist(cons).map(jsonValue))
-    case Value.DataV("None", _) => ujson.Null
-    case Value.DataV("Some", Seq(inner)) => jsonValue(inner)
-    case Value.DataV(tag, fields) if tag.startsWith("Tuple") => ujson.Arr.from(fields.map(jsonValue))
-    case Value.DataV(tag, fields) => ujson.Obj(
-      "tag" -> ujson.Str(tag),
-      "fields" -> ujson.Arr.from(fields.map(jsonValue)))
-    case Value.ForeignV(box: JsonBox) => box.inner
-    case Value.ForeignV(decimal: java.math.BigDecimal) => ujson.Num(decimal.doubleValue())
-    case Value.ForeignV(map: collection.Map[?, ?]) =>
-      val entries = map.iterator.map {
-        case (Value.StrV(key), item: Value) => key -> jsonValue(item)
-        case (key: String, item: Value) => key -> jsonValue(item)
-        case (key, item: Value) => key.toString -> jsonValue(item)
-        case (key, item) => key.toString -> ujson.Str(item.toString)
-      }.toList.sortBy(_._1)
-      ujson.Obj.from(entries)
-    case _: Value.ClosV => ujson.Str("<function>")
-    case Value.ForeignV(other) => ujson.Str(other.toString)
-    case cell: Value.LongCellV => ujson.Num(cell.v.toDouble)
-
-  private final class JsonBox(val inner: ujson.Value) extends Value.NamedMethodObj:
+  private final class JsonBox(val inner: ujson.Value) extends Value.NamedMethodObj, NativeJsonValue:
     def underlying: AnyRef = inner
 
     private def boxed(value: ujson.Value): Value = Value.ForeignV(JsonBox(value))
@@ -165,7 +135,7 @@ final class JsonNativePlugin extends NativePlugin:
   private def inputJson(args: List[Value], tolerant: Boolean): ujson.Value = args.headOption match
     case Some(Value.StrV(text)) => if tolerant then parseTolerant(text) else parse(text)
     case Some(Value.ForeignV(box: JsonBox)) => box.inner
-    case Some(value) => jsonValue(value)
+    case Some(value) => NativeJsonCodec.toJson(value)
     case None => ujson.Null
 
   private def lookup(args: List[Value]): Option[Value] = args match
@@ -186,7 +156,7 @@ final class JsonNativePlugin extends NativePlugin:
     native(context, "jsonValue") { args => Value.ForeignV(JsonBox(inputJson(args, tolerant = true))) }
     native(context, "jsonStringify") { args =>
       val value = args.headOption.getOrElse(throw new RuntimeException("jsonStringify(v)"))
-      Value.StrV(ujson.write(jsonValue(value)))
+      Value.StrV(NativeJsonCodec.stringify(value))
     }
     native(context, "jsonParse") { args => rawValue(inputJson(args, tolerant = false)) }
     native(context, "jsonRead") { args => Value.ForeignV(JsonBox(inputJson(args, tolerant = false))) }
