@@ -34,8 +34,12 @@ def runInt(file: os.Path): Run =
   runProc(os.proc(sscBin.toString, file.toString))
 
 def runJvm(file: os.Path): Run =
-  if os.exists(ssccBin) then runProc(os.proc(ssccBin.toString, file.toString))
-  else runProc(os.proc(sscBin.toString, "compile", file.toString))
+  // `run-jvm` compiles via JVM codegen AND runs, so we get program stdout to
+  // compare against the interpreter. (The old `sscc`/`ssc compile` path invoked
+  // a removed `compile` subcommand — `Error: File not found: compile` — which
+  // failed every example on the JVM lane. `compile-jvm` only writes an artifact
+  // and produces no stdout, so it can't be used here.)
+  runProc(os.proc(sscBin.toString, "run-jvm", file.toString))
 
 def runJs(file: os.Path): Run =
   if os.exists(jsscBin) then runProc(os.proc(jsscBin.toString, file.toString))
