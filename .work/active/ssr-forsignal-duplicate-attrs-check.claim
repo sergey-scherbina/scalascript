@@ -1,6 +1,6 @@
 feature/ssr-forsignal-duplicate-attrs-check 2026-07-10T01:36:53Z
 agent: codex
-heartbeat: 2026-07-10T01:36:53Z
-status: not-started
-done-so-far:
-next: create worktree; reproduce duplicate SSR attrs with focused SsrTest; fix only the duplicate writeAttrs path if confirmed
+heartbeat: 2026-07-10T01:37:20Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-ssr-forsignal-duplicate-attrs-check
+next: reproduce duplicate SSR attrs with focused SsrTest; fix only the duplicate writeAttrs path if confirmed; run frontendToolkit SsrTest and diff-check
