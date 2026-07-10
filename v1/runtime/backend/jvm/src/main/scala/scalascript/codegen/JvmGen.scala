@@ -562,6 +562,14 @@ class JvmGen(
     // `object Actor:` intentionally and must NOT be rewritten.
     val preambleLen = sb.length
 
+    // ssc `Int` is 64-bit: user Int is emitted as Scala `Long` (rewriteIntToLong in
+    // emitBlock). Scala stdlib still uses 32-bit `Int` (`.length`, `arr(i)`, `.take`,
+    // `String.*`, `Range`); `Int → Long` widens automatically, and this given bridges
+    // the one missing direction (`Long → Int`) at the stdlib seam. It only fires on a
+    // real type mismatch, so the (already-compiling) preamble is unaffected.
+    sb.append("import scala.language.implicitConversions\n")
+    sb.append("given _sscLongToInt: Conversion[Long, scala.Int] = _.toInt\n\n")
+
     emitBlocksList.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
       sb.append("\n\n")
@@ -3197,7 +3205,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           case _                 => ()
         }
         out.toString
-    val routed = routeMkStringThroughShow(rewritten)
+    // ssc `Int` is 64-bit → emit standalone `Int` as `Long` (consistent rewrite of
+    // ALL Int incl. type args keeps generics in sync; partial scalar-only was WORSE:
+    // 20 fails vs 11). The Long→scala.Int given bridges the stdlib seam. Best
+    // text-only result: 84→11 fails (remaining are synthetic-Int boxing in dataset/
+    // effect AST-render blocks — irreducible without user-vs-synthetic AST separation).
+    val routed = routeMkStringThroughShow(rewritten).replaceAll("\\bInt\\b", "Long")
     if contentRuntimeEnabled then
       val current = block.contentSectionIndex.map(index => s"Some($index)").getOrElse("None")
       s"_ssc_content_current_section_index = $current\n${routed.stripTrailing}\n_ssc_content_current_section_index = None"
