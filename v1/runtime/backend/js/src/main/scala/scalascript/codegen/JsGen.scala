@@ -272,8 +272,14 @@ object JsGen:
       if !JsRuntimeWebAuthn.endsWith("\n") then sb.append('\n')
     sb.toString
 
+  // Anchor at column 0 (no leading whitespace): the runtime shares a FLAT
+  // classic-script scope, so only its true TOP-LEVEL declarations can collide
+  // with user code. `^\s*` also matched INDENTED (nested) declarations — loop
+  // counters (`i`, `k`), temporaries (`buf`, `result`) and inner helpers
+  // (YAML `parseBlockMap`, …) — polluting the reserved set and forcing spurious
+  // `__ssc` renames of innocent user top-level names (e.g. `val x`, `val result`).
   private val runtimeTopLevelDecl =
-    """(?m)^\s*(?:async\s+function|function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b""".r
+    """(?m)^(?:async\s+function|function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b""".r
 
   /** Runtime declarations share the classic-script top-level scope with user
    *  code after the CLI concatenates runtime + user JS. A user `val doc = ...`
