@@ -1,24 +1,114 @@
-#!/bin/bash
-# output-parity: run (v2-VM) vs run --bytecode, corpus-wide
-cd /Users/sergiy/work/my/scalascript-wt-marathon
-SKIP_RE='serve\(|listen|WebServer|websocket|\btui\b'
-NONDET_RE='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo)\.ssc$'
-ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0
-mlist=""; elist=""; vlist=""
-for f in examples/*.ssc; do
-  b=$(basename "$f")
-  if grep -qiE "$SKIP_RE" "$f" 2>/dev/null; then skipped=$((skipped+1)); continue; fi
-  if head -15 "$f" | grep -qE '^backend:[[:space:]]*(jvm|spark|js|rust|wasm)'; then skipped=$((skipped+1)); continue; fi
-  if echo "$b" | grep -qE "$NONDET_RE"; then skipped=$((skipped+1)); continue; fi
-  vm_out=$(timeout 45 bin/ssc run "$f" 2>/dev/null); vm_rc=$?
-  bc_out=$(timeout 45 bin/ssc run --bytecode "$f" 2>/dev/null); bc_rc=$?
-  if [ $vm_rc -ne 0 ] && [ $bc_rc -ne 0 ]; then bothfail=$((bothfail+1))
-  elif [ $bc_rc -ne 0 ]; then bcerr=$((bcerr+1)); elist="$elist $b"
-  elif [ $vm_rc -ne 0 ]; then vmerr=$((vmerr+1)); vlist="$vlist $b"
-  elif [ "$vm_out" == "$bc_out" ]; then ident=$((ident+1))
-  else mismatch=$((mismatch+1)); mlist="$mlist $b"; fi
+#!/usr/bin/env bash
+# Corpus output parity: v2 VM (`ssc run`) versus direct v2 JVM bytecode
+# (`ssc run --bytecode`). Runs from any checkout/worktree and always writes a
+# machine-readable TSV report.
+set -u
+set -o pipefail
+export LC_ALL=C
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+  echo "bc-parity-sweep: cannot locate repository root" >&2
+  exit 2
+}
+
+ssc=${SSC:-"$ROOT/bin/ssc"}
+seconds=${BC_PARITY_TIMEOUT:-45}
+only='*.ssc'
+strict=0
+report=${BC_PARITY_REPORT:-"${TMPDIR:-/tmp}/scalascript-bc-parity-$$.tsv"}
+
+usage() {
+  cat <<'EOF'
+usage: scripts/bc-parity-sweep [options]
+  --ssc PATH       staged ssc launcher (default: <repo>/bin/ssc)
+  --timeout SEC    per-backend timeout (default: 45)
+  --only GLOB      basename glob, e.g. 'hello*.ssc'
+  --report PATH    TSV output path (default: temporary file)
+  --strict         fail on mismatch or one-sided backend error
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ssc)     ssc=$2; shift 2 ;;
+    --timeout) seconds=$2; shift 2 ;;
+    --only)    only=$2; shift 2 ;;
+    --report)  report=$2; shift 2 ;;
+    --strict)  strict=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "bc-parity-sweep: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
 done
-echo "=== identical: $ident  mismatch: $mismatch  bc-error: $bcerr  vm-only-error: $vmerr  both-fail: $bothfail  skipped: $skipped"
+
+if [[ ! -x "$ssc" ]]; then
+  echo "bc-parity-sweep: staged launcher not found: $ssc (run scripts/sbtc \"installBin\")" >&2
+  exit 2
+fi
+
+mkdir -p "$(dirname -- "$report")"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/ssc-bc-parity.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+printf 'file\tcategory\tvm_rc\tbytecode_rc\tdetail\n' > "$report"
+
+skip_re='serve\(|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
+nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo)\.ssc$'
+ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; total=0
+mlist=''; elist=''; vlist=''
+
+record() {
+  local file=$1 category=$2 vm_rc=$3 bc_rc=$4 detail=$5
+  detail=$(printf '%s' "$detail" | tr '\t\r\n' '   ')
+  printf '%s\t%s\t%s\t%s\t%s\n' "$file" "$category" "$vm_rc" "$bc_rc" "$detail" >> "$report"
+}
+
+for f in "$ROOT"/examples/*.ssc; do
+  b=$(basename -- "$f")
+  case "$b" in $only) ;; *) continue ;; esac
+  total=$((total + 1))
+
+  if grep -qiE "$skip_re" "$f" 2>/dev/null; then
+    skipped=$((skipped + 1)); record "$b" skipped-server - - 'server/tui source'; continue
+  fi
+  if head -15 "$f" | grep -qE '^backend:[[:space:]]*(jvm|spark|js|rust|wasm)'; then
+    skipped=$((skipped + 1)); record "$b" skipped-backend - - 'backend-specific front matter'; continue
+  fi
+  if printf '%s\n' "$b" | grep -qE "$nondet_re"; then
+    skipped=$((skipped + 1)); record "$b" skipped-nondeterministic - - 'declared nondeterministic output'; continue
+  fi
+
+  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run "$f" >"$tmp/vm.out" 2>"$tmp/vm.err"
+  vm_rc=$?
+  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run --bytecode "$f" >"$tmp/bc.out" 2>"$tmp/bc.err"
+  bc_rc=$?
+
+  if [[ $vm_rc -ne 0 && $bc_rc -ne 0 ]]; then
+    bothfail=$((bothfail + 1))
+    detail=$(head -1 "$tmp/bc.err")
+    record "$b" both-fail "$vm_rc" "$bc_rc" "$detail"
+  elif [[ $bc_rc -ne 0 ]]; then
+    bcerr=$((bcerr + 1)); elist="$elist $b"
+    detail=$(head -1 "$tmp/bc.err")
+    record "$b" bytecode-error "$vm_rc" "$bc_rc" "$detail"
+  elif [[ $vm_rc -ne 0 ]]; then
+    vmerr=$((vmerr + 1)); vlist="$vlist $b"
+    detail=$(head -1 "$tmp/vm.err")
+    record "$b" vm-error "$vm_rc" "$bc_rc" "$detail"
+  elif cmp -s "$tmp/vm.out" "$tmp/bc.out"; then
+    ident=$((ident + 1)); record "$b" identical "$vm_rc" "$bc_rc" ''
+  else
+    mismatch=$((mismatch + 1)); mlist="$mlist $b"
+    record "$b" mismatch "$vm_rc" "$bc_rc" 'stdout differs'
+  fi
+done
+
+echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  skipped: $skipped"
 echo "MISMATCH:$mlist"
-echo "BC-ERROR:$elist"
-echo "VM-ONLY:$vlist"
+echo "BYTECODE-ERROR:$elist"
+echo "VM-ERROR:$vlist"
+echo "REPORT: $report"
+
+if [[ $strict -eq 1 && $((mismatch + bcerr + vmerr)) -ne 0 ]]; then
+  exit 1
+fi

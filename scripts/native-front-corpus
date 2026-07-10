@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# Measure the scalameta-free ssc1 frontend against every example. Front/lower,
+# parser-sentinel, checker, and plugin-runtime outcomes are independent columns;
+# a partial `_err` IR can therefore never be counted as frontend success.
+set -u
+set -o pipefail
+export LC_ALL=C
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+  echo "native-front-corpus: cannot locate repository root" >&2
+  exit 2
+}
+
+java_cmd=${JAVA:-java}
+seconds=${NATIVE_FRONT_TIMEOUT:-12}
+only='*.ssc'
+strict=0
+report=${NATIVE_FRONT_REPORT:-"${TMPDIR:-/tmp}/scalascript-native-front-$$.tsv"}
+classpath="$ROOT/bin/lib/jars/*"
+
+usage() {
+  cat <<'EOF'
+usage: scripts/native-front-corpus [options]
+  --timeout SEC    timeout for each front/check/runtime process (default: 12)
+  --only GLOB      basename glob, e.g. 'hello*.ssc'
+  --report PATH    TSV output path (default: temporary file)
+  --strict         require front/check success and runtime success/server start
+
+Requires a staged distribution: scripts/sbtc "installBin"
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --timeout) seconds=$2; shift 2 ;;
+    --only)    only=$2; shift 2 ;;
+    --report)  report=$2; shift 2 ;;
+    --strict)  strict=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "native-front-corpus: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+core_jar=$(find "$ROOT/bin/lib/jars" -maxdepth 1 -name 'scalascript-v2-core_*.jar' -print -quit 2>/dev/null)
+bridge_jar=$(find "$ROOT/bin/lib/jars" -maxdepth 1 -name 'scalascript-v2-frontend-bridge_*.jar' -print -quit 2>/dev/null)
+if [[ -z "$core_jar" || -z "$bridge_jar" ]]; then
+  echo 'native-front-corpus: staged v2 jars missing (run scripts/sbtc "installBin")' >&2
+  exit 2
+fi
+
+mkdir -p "$(dirname -- "$report")"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/ssc-native-front.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+printf 'file\tfront\tsentinel\tcheck\truntime\tfront_rc\tcheck_rc\truntime_rc\tdetail\n' > "$report"
+
+total=0; front_ok=0; front_err=0; front_timeout=0; noncode=0; sentinel=0
+check_ok=0; type_err=0; check_err=0; run_ok=0; server_timeout=0; run_timeout=0; run_err=0
+strict_fail=0
+server_re='serve\(|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
+
+first_detail() {
+  local file=$1
+  if [[ -s "$file" ]]; then head -1 "$file" | tr '\t\r\n' '   '; fi
+}
+
+for f in "$ROOT"/examples/*.ssc; do
+  b=$(basename -- "$f")
+  case "$b" in $only) ;; *) continue ;; esac
+  total=$((total + 1))
+  : >"$tmp/front.out"; : >"$tmp/front.err"
+  : >"$tmp/check.out"; : >"$tmp/check.err"
+  : >"$tmp/run.out"; : >"$tmp/run.err"
+
+  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
+    ssc.cli run "$ROOT/v2/bin/ssc1-run.ssc0" "$f" >"$tmp/front.out" 2>"$tmp/front.err"
+  front_rc=$?
+  if [[ $front_rc -eq 124 ]]; then
+    front_status=TIMEOUT; front_timeout=$((front_timeout + 1))
+  elif [[ $front_rc -ne 0 ]]; then
+    if grep -q 'no scalascript blocks found' "$tmp/front.err"; then
+      front_status=NON_CODE; noncode=$((noncode + 1))
+    else
+      front_status=ERROR; front_err=$((front_err + 1))
+    fi
+  else
+    front_status=OK; front_ok=$((front_ok + 1))
+  fi
+
+  if [[ $front_rc -eq 0 ]] && grep -q '(global _err)' "$tmp/front.out"; then
+    sentinel_status=PRESENT; sentinel=$((sentinel + 1))
+  else
+    sentinel_status=clear
+  fi
+
+  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
+    ssc.cli run "$ROOT/v2/bin/ssc1-check-run.ssc0" "$f" >"$tmp/check.out" 2>"$tmp/check.err"
+  check_rc=$?
+  if [[ $check_rc -eq 0 && $(cat "$tmp/check.out") == OK ]]; then
+    check_status=OK; check_ok=$((check_ok + 1))
+  elif [[ $check_rc -eq 1 && $(cat "$tmp/check.out") == TYPEERR:* ]]; then
+    check_status=TYPEERR; type_err=$((type_err + 1))
+  elif [[ $check_rc -eq 124 ]]; then
+    check_status=TIMEOUT; check_err=$((check_err + 1))
+  elif [[ $front_status == NON_CODE ]]; then
+    check_status=NON_CODE
+  else
+    check_status=ERROR; check_err=$((check_err + 1))
+  fi
+
+  runtime_rc=-
+  if [[ $front_status == OK && $sentinel_status == clear ]]; then
+    "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
+      ssc.bridge.bridgeCli run-ir "$tmp/front.out" >"$tmp/run.out" 2>"$tmp/run.err"
+    runtime_rc=$?
+    if [[ $runtime_rc -eq 0 ]]; then
+      runtime_status=OK; run_ok=$((run_ok + 1))
+    elif [[ $runtime_rc -eq 124 ]] && grep -qiE "$server_re" "$f"; then
+      runtime_status=SERVER_TIMEOUT; server_timeout=$((server_timeout + 1))
+    elif [[ $runtime_rc -eq 124 ]]; then
+      runtime_status=TIMEOUT; run_timeout=$((run_timeout + 1))
+    else
+      runtime_status=ERROR; run_err=$((run_err + 1))
+    fi
+  elif [[ $front_status == NON_CODE ]]; then
+    runtime_status=NON_CODE
+  else
+    runtime_status=NOT_RUN
+  fi
+
+  detail=$(first_detail "$tmp/front.err")
+  if [[ -z "$detail" && $sentinel_status == PRESENT ]]; then detail='CoreIR contains (global _err)'; fi
+  if [[ -z "$detail" && $check_status != OK ]]; then detail=$(first_detail "$tmp/check.out"); fi
+  if [[ -z "$detail" && $runtime_status == ERROR ]]; then detail=$(first_detail "$tmp/run.err"); fi
+  detail=$(printf '%s' "$detail" | tr '\t\r\n' '   ')
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$b" "$front_status" "$sentinel_status" "$check_status" "$runtime_status" \
+    "$front_rc" "$check_rc" "$runtime_rc" "$detail" >> "$report"
+
+  if [[ $front_status != OK && $front_status != NON_CODE ]] || \
+     [[ $sentinel_status == PRESENT ]] || \
+     [[ $check_status != OK && $check_status != NON_CODE ]] || \
+     [[ $runtime_status != OK && $runtime_status != SERVER_TIMEOUT && $runtime_status != NON_CODE ]]; then
+    strict_fail=$((strict_fail + 1))
+  fi
+done
+
+echo "=== total: $total  front-ok: $front_ok  front-error: $front_err  front-timeout: $front_timeout  non-code: $noncode  sentinel: $sentinel"
+echo "=== check-ok: $check_ok  type-error: $type_err  check-error/timeout: $check_err"
+echo "=== run-ok: $run_ok  server-timeout: $server_timeout  run-timeout: $run_timeout  run-error: $run_err"
+echo "=== strict-fail rows: $strict_fail"
+echo "REPORT: $report"
+
+if [[ $strict -eq 1 && $strict_fail -ne 0 ]]; then
+  exit 1
+fi

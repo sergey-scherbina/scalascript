@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Portable timeout wrapper. GNU coreutils calls the command `timeout`; Homebrew
+# exposes the same program as `gtimeout`. Python is the dependency-free fallback
+# on supported developer/CI hosts and kills the whole child process group.
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "usage: run-with-timeout <seconds> <command> [args...]" >&2
+  exit 2
+fi
+
+seconds=$1
+shift
+
+if command -v timeout >/dev/null 2>&1; then
+  exec timeout "$seconds" "$@"
+fi
+
+if command -v gtimeout >/dev/null 2>&1; then
+  exec gtimeout "$seconds" "$@"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 - "$seconds" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+seconds = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(command, start_new_session=True)
+try:
+    process.wait(timeout=seconds)
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=1.0)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    raise SystemExit(124)
+raise SystemExit(process.returncode)
+PY
+fi
+
+echo "run-with-timeout: need timeout, gtimeout, or python3" >&2
+exit 127
