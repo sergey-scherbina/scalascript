@@ -1,0 +1,14 @@
+---
+name: v21-native-constructor-match-guard
+---
+
+```scalascript
+def classify(value: Option[Int]): String = value match
+  case Some(n) if n >= 2 => "enough"
+  case Some(n)           => "low"
+  case None              => "missing"
+
+println(classify(Some(3)))
+println(classify(Some(1)))
+println(classify(None))
+```

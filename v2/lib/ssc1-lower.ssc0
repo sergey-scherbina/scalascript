@@ -1486,6 +1486,12 @@ def hasGuardPat = (arms) =>
           if #seq(ptag, "gpat") then true else hasGuardPat(rest) } }
   }
 
+def guardDummyBinders = (fields) =>
+  match fields {
+    case Nil => Nil
+    case Cons(field, rest) => Cons("__guard_field__", guardDummyBinders(rest))
+  }
+
 -- Ordered arm lowering used when binder/wildcard guards are present. `scope`
 -- contains the once-evaluated scrutinee at `scrutPos`; constructor fall-through
 -- reuses that local instead of evaluating the source expression again.
@@ -1504,6 +1510,18 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                   IrLet(Cons(IrLocal(scrutPos), Nil),
                     IrIf(lowerE(boundScope, guard), lowerE(boundScope, body),
                       lowerOrderedGuardArms(fallbackScope, #i.add(scrutPos, 1), rest)))
+                else if #seq(btag, "cpat") then
+                  match bdata { case Pair(ctorName, fields) =>
+                    let arity = lenL(fields) in
+                    let armScope = appendL(revL(fldBinders(fields)), scope) in
+                    let failedScope = appendL(revL(guardDummyBinders(fields)), scope) in
+                    let failedBody = lowerOrderedGuardArms(
+                      failedScope, #i.add(scrutPos, arity), rest) in
+                    let armBody = IrIf(lowerE(armScope, guard), lowerE(armScope, body), failedBody) in
+                    IrMatch(IrLocal(scrutPos),
+                      Cons(IrArm(ctorName, arity, armBody), Nil),
+                      Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
+                  }
                 else
                   IrIf(lowerE(scope, guard), lowerE(scope, body),
                     lowerOrderedGuardArms(scope, scrutPos, rest))

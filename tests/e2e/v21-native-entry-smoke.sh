@@ -66,6 +66,8 @@ enum_boundary_expected=$'Red\nBox(7)'
 [[ $(run_native "$FIXTURES/multiline-tuple-lambda.ssc") == '11' ]]
 guard_expected=$'negative\nzero\nsmall\nlarge'
 [[ $(run_native "$FIXTURES/binder-match-guard.ssc") == "$guard_expected" ]]
+constructor_guard_expected=$'enough\nlow\nmissing'
+[[ $(run_native "$FIXTURES/constructor-match-guard.ssc") == "$constructor_guard_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -80,6 +82,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/enum-case-class-boundary.ssc") == "$enum_boundary_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/multiline-tuple-lambda.ssc") == '11' ]]
 [[ $(run_native --bytecode "$FIXTURES/binder-match-guard.ssc") == "$guard_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/constructor-match-guard.ssc") == "$constructor_guard_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

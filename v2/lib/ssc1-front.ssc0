@@ -1292,12 +1292,28 @@ def parseArmBody = (toks) =>
       }
   }
 
+def flatGuardFields = (fields) =>
+  match fields {
+    case Nil => true
+    case Cons(field, rest) =>
+      match field { case Pair(ftag, fdata) =>
+        if #seq(ftag, "vpat") then flatGuardFields(rest)
+        else if #seq(ftag, "wpat") then flatGuardFields(rest)
+        else false }
+  }
+
+def guardablePat = (pat) =>
+  match pat { case Pair(ptag, pdata) =>
+    if #seq(ptag, "vpat") then true
+    else if #seq(ptag, "wpat") then true
+    else if #seq(ptag, "cpat") then
+      match pdata { case Pair(ctorName, fields) => flatGuardFields(fields) }
+    else false }
+
 def parseMatchArm = (toks) =>
   let rPat = parsePat(toks) in
   let ts1 = skipTypeAnnot(prT(rPat)) in
-  let canGuard = match prV(rPat) {
-    case Pair(ptag, pdata) => if #seq(ptag, "vpat") then true else #seq(ptag, "wpat")
-  } in
+  let canGuard = guardablePat(prV(rPat)) in
   let rGuard = if canGuard then
     if kwIs("if", ts1) then
       let rg = parseExpr(advance(ts1)) in pr(Some(prV(rg)), prT(rg))
