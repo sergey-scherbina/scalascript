@@ -1,6 +1,6 @@
 feature/js-enum-treeshake 2026-07-10T16:26:13Z
 agent: claude-code (jolly-raven)
-heartbeat: 2026-07-10T17:56:57Z
-status: examples+actor DONE; ssc-check 172->74, tail remains
+heartbeat: 2026-07-10T18:53:57Z
+status: ssc-check 172->1 (191/192 OK); last = parser limitation
 done-so-far: examples step GREEN (enum treeshake + Red/toHex + lenses 'r' + JVM-lane sscc/run-jvm); v2 actor sendAfter quiescence race FIXED (verified via forced-window); ssc check 172->74 (broaden plugin prelude agg + no-owner pluginBuiltins + __ssc_macro__).
-next: ssc-check tail (74): stdlib interface-loading for std.crypto/pdf/totp/nfc/payments TYPES+externs, frontmatter API clients (Items/Chat) predeclare, ~5 genuine example bugs (java.nio.file platform-type, parse error). Then conformance job fully green.
+next: last ssc-check error is dsl-json-parser.ssc — parser can't tree the combinator DSL (~>/<~), though `ssc run` executes it fine via interpreter tolerance. Needs deep parser fix OR example rewrite to parseable syntax. All other CI blockers (poison/examples/actor/154 conformance) done.
