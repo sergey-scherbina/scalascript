@@ -1,0 +1,10 @@
+---
+name: v21-native-extension-declaration
+---
+
+```scalascript
+extension [A](value: A)
+  def ignored(): A = value
+
+println("extension-header-ok")
+```

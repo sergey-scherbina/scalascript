@@ -1652,7 +1652,14 @@ def parseOneStmt = (toks) =>
   else
     -- KV9: check for "multi effect E { ... }" multi-shot effect declaration
     if #seq(k, "id") then
-      if #seq(v, "multi") then
+      if #seq(v, "extension") then
+        -- Parse-only extension header. The following `def` declarations remain
+        -- ordinary statements; receiver binding/dispatch is a later lowering
+        -- slice, but the type parameter/annotation syntax must not leak `_err`.
+        let ts1 = skipTypeParams(advance(toks)) in
+        let ts2 = if kindIs("(", ts1) then prT(parseParamList(ts1)) else ts1 in
+        pr(Pair("sealed", ""), ts2)
+      else if #seq(v, "multi") then
         let ts1 = advance(toks) in
         if kindIs("kw", ts1) then
           if #seq(tokVal(peek(ts1)), "effect") then
