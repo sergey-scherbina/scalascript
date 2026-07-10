@@ -1419,9 +1419,56 @@ def dischargeObs = (obs, scope, body) =>
       }
   }
 
+-- K62.14: LITERAL patterns (`case 0` / `case 'x'` [char = int code] / `case "s"` /
+-- `case true`) are EQUALITY tests, not catch-all binders. The front emits ("lpat",
+-- Pair(ty, v)); before this the lower dropped them into the vpat/wpat default arm, so
+-- `case 0 => a; case _ => b` always took the last default (b). hasLpat detects a literal
+-- match; lowerLitArms builds an IrIf fallthrough (structural __eq__ vs each literal, a
+-- vpat/wpat terminates the chain). Ctor arms in a literal match (type-invalid, but kept
+-- safe) become a one-arm IrMatch with the rest as its default.
+def hasLpat = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "lpat") then true else hasLpat(rest) } }
+  }
+
+def litPatIr = (ty, v) =>
+  if #seq(ty, "int") then IrLit(IrInt(parseI(v)))
+  else if #seq(ty, "str") then IrLit(IrStr(v))
+  else if #seq(ty, "bool") then IrLit(IrBool(if #seq(v, "true") then true else false))
+  else match #str->f(v) { case Some(d) => IrLit(IrFloat(d)) case None => IrLit(IrFloat(0.0)) }
+
+def lowerLitArms = (scope, letScope, arms) =>
+  match arms {
+    case Nil => IrLit(IrUnit)
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "lpat") then
+            match pdata { case Pair(ty, v) =>
+              IrIf(IrPrim("__eq__", Cons(IrLocal(0), Cons(litPatIr(ty, v), Nil))),
+                   lowerE(letScope, body),
+                   lowerLitArms(scope, letScope, rest)) }
+          else if #seq(ptag, "vpat") then
+            lowerE(Cons(pdata, scope), body)
+          else if #seq(ptag, "cpat") then
+            match pdata { case Pair(ctorName, fields) =>
+              let armScope = appendL(revL(fldBinders(fields)), letScope) in
+              let armBody = dischargeObs(fldObligations(fields, lenL(fields)), armScope, body) in
+              IrMatch(IrLocal(0), Cons(IrArm(ctorName, lenL(fields), armBody), Nil),
+                      Some(lowerLitArms(scope, letScope, rest))) }
+          else lowerE(letScope, body) } }
+  }
+
 def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in
   let letScope = Cons("__scr__", scope) in
+  if hasLpat(arms) then
+    IrLet(Cons(eIr, Nil), lowerLitArms(scope, letScope, arms))
+  else
   let rec procArms = (armsLeft, irAcc, defAcc) =>
     match armsLeft {
       case Nil => Pair(irAcc, defAcc)
