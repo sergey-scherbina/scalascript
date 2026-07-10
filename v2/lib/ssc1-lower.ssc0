@@ -1516,19 +1516,11 @@ def lowerMatch = (scope, scrutinee, arms) =>
 def lowerCaseCls = (name, params) =>
   let n = lenL(params) in
   let ctorArgs = buildCtorArgs(0, n, Nil) in
-  let ctorDef = IrDef(name, IrLam(n, IrCtor(name, ctorArgs))) in
-  let rec mkAcc = (ps, idx) =>
-    match ps {
-      case Nil => Nil
-      case Cons(field, rest) =>
-        let fieldLocal = #i.sub(#i.sub(n, 1), idx) in
-        let accDef = IrDef(#sconcat("_sel_", field),
-          IrLam(1, IrMatch(IrLocal(0),
-            Cons(IrArm(name, n, IrLocal(fieldLocal)), Nil),
-            None))) in
-        Cons(accDef, mkAcc(rest, #i.add(idx, 1)))
-    } in
-  Cons(ctorDef, mkAcc(params, 0))
+  -- K62.15: emit ONLY the constructor def here. The `_sel_<field>` accessors are generated
+  -- ONCE per unique field name (merged across every ctor that shares it) in
+  -- buildMergedAccessors, so two case classes with a common field (`Person(name,…)` +
+  -- `Student(name,…)`) no longer overwrite each other's accessor → `.name` works on both.
+  Cons(IrDef(name, IrLam(n, IrCtor(name, ctorArgs))), Nil)
 
 -- K62.13: lower an `enum` decl into constructor defs. A nullary case is a VALUE
 -- (IrDef name = IrCtor name []) so a bare reference (`North`) → IrGlobal → the ctor
@@ -2508,6 +2500,61 @@ def topValCellDefs = (names) =>
            topValCellDefs(rest))
   }
 
+-- K62.15: build ONE `_sel_<field>` accessor per unique field name, with a match arm for
+-- EVERY case class / enum case that declares that field (each arm returns the field at its
+-- OWN index). Fixes shared field names (Person.name + Student.name) that previously
+-- overwrote each other. Source = caseFieldOrderCell ([Pair(ctorName, [field…])]).
+def acc_isMember = (x, xs) =>
+  match xs {
+    case Nil => false
+    case Cons(h, t) => if #seq(h, x) then true else acc_isMember(x, t)
+  }
+def acc_triples = (caseOrder) =>
+  match caseOrder {
+    case Nil => Nil
+    case Cons(cc, rest) =>
+      match cc { case Pair(ctorName, params) =>
+        let ar = lenL(params) in
+        let rec go = (ps, idx) =>
+          match ps {
+            case Nil => Nil
+            case Cons(f, more) =>
+              Cons(Pair(f, Pair(ctorName, Pair(ar, idx))), go(more, #i.add(idx, 1)))
+          } in
+        append(go(params, 0), acc_triples(rest)) }
+  }
+def acc_uniqFields = (triples, seen) =>
+  match triples {
+    case Nil => Nil
+    case Cons(t, rest) =>
+      match t { case Pair(f, r) =>
+        if acc_isMember(f, seen) then acc_uniqFields(rest, seen)
+        else Cons(f, acc_uniqFields(rest, Cons(f, seen))) }
+  }
+def acc_armsFor = (field, triples) =>
+  match triples {
+    case Nil => Nil
+    case Cons(t, rest) =>
+      match t { case Pair(f, r) =>
+        if #seq(f, field) then
+          match r { case Pair(ctorName, r2) =>
+            match r2 { case Pair(ar, idx) =>
+              Cons(IrArm(ctorName, ar, IrLocal(#i.sub(#i.sub(ar, 1), idx))),
+                   acc_armsFor(field, rest)) } }
+        else acc_armsFor(field, rest) }
+  }
+def buildMergedAccessors = (caseOrder) =>
+  let triples = acc_triples(caseOrder) in
+  let rec go = (fs) =>
+    match fs {
+      case Nil => Nil
+      case Cons(f, rest) =>
+        Cons(IrDef(#sconcat("_sel_", f),
+               IrLam(1, IrMatch(IrLocal(0), acc_armsFor(f, triples), None))),
+             go(rest))
+    } in
+  go(acc_uniqFields(triples, Nil))
+
 def lowerProg = (stmts) =>
   -- KC5: initialize given table and sig table from parsed stmts
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
@@ -2533,8 +2580,11 @@ def lowerProg = (stmts) =>
     Cons(printDef,
     kc6Defs)) in
   let userDefs = lowerStmts(stmts) in
+  -- K62.15: merged field accessors (one _sel_<field> per name, all ctors) from the order registry
+  let accDefs = buildMergedAccessors(#cell.get(caseFieldOrderCell)) in
   let allDefs = appendL(defs,
-    appendL(topVarCellDefs(stmts), appendL(topValCellDefs(topValNames), userDefs))) in
+    appendL(topVarCellDefs(stmts),
+    appendL(topValCellDefs(topValNames), appendL(accDefs, userDefs)))) in
   -- T5.7: top-level expression statements ("expr") used to be silently dropped
   -- (~190/194 real .ssc files became no-ops). Collect them in document order into
   -- the entry: Seq(exprs..., main() if present). Defs are all registered before the
