@@ -55,7 +55,13 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
       corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
       BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
       stuck on array-update. Retry when load is stable.
-- [ ] **v2asm-perf-remaining** — the clean BOUNDED wins are landed (CBig/CBytes, foldLeft).
+- [x] **v2asm-unboxed-double** — DONE 2026-07-10 (`b2138eec6`). Full `dcell` (DoubleCellV)
+      mirror of the `lcell`/Long path: Runtime prims + FrontendBridge lowering (`@#` prefix)
+      + JvmByteGen `canDouble`/`genDouble`/`genDoubleCmp*` (DADD/DSUB/DMUL/DDIV, DCMPG/DCMPL
+      NaN-correct). Restricted to `+ - * /` and `< <= > >=` (VM arithFast parity). Gate:
+      dcell test (bytecode==VM) + bridge 56/56 + census 195/195 + `--bytecode`/`--v2` parity
+      (100 match, 4 nondet) + v2 conf 9/9.
+- [ ] **v2asm-perf-remaining** — CBig/CBytes, foldLeft, unboxed-double landed.
       Every remaining candidate is MULTI-FILE infrastructure or a bad trade (scope confirmed
       2026-07-10) — pick with eyes open; magnitude needs a stable bench:
       · **unboxed Double loop** (highest perf) — NO `dcell` exists; `lcell` is emitted only for
