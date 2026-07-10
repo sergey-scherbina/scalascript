@@ -613,11 +613,17 @@ def parseAtom = (toks) =>
   else if #seq(k, "{") then parseBlock(advance(toks))
   else if #seq(k, "op") then
     if #seq(v, "-") then
-      let r = parseAtom(advance(toks)) in pr(mkPre("-", prV(r)), prT(r))
+      let r0 = parseAtom(advance(toks)) in
+      let r = buildPostfix(prV(r0), prT(r0)) in
+      pr(mkPre("-", prV(r)), prT(r))
     else if #seq(v, "!") then
-      let r = parseAtom(advance(toks)) in pr(mkPre("!", prV(r)), prT(r))
+      let r0 = parseAtom(advance(toks)) in
+      let r = buildPostfix(prV(r0), prT(r0)) in
+      pr(mkPre("!", prV(r)), prT(r))
     else if #seq(v, "~") then
-      let r = parseAtom(advance(toks)) in pr(mkPre("~", prV(r)), prT(r))  -- K62.6c: bitwise not
+      let r0 = parseAtom(advance(toks)) in
+      let r = buildPostfix(prV(r0), prT(r0)) in
+      pr(mkPre("~", prV(r)), prT(r))  -- K62.6c: bitwise not
     else pr(mkVar("_err"), advance(toks))
   else pr(mkVar("_err"), advance(toks))
 

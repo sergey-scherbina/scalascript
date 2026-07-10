@@ -38,7 +38,9 @@ run_native() {
 [[ $(run_native "$FIXTURES/argv.ssc" -- one two) == $'one\ntwo' ]]
 [[ $(run_native "$FIXTURES/std-import.ssc") == 'std-import-ok' ]]
 [[ $(run_native "$FIXTURES/std-crypto.ssc") == '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' ]]
+[[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(run_native --bytecode "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
+[[ $(run_native --bytecode "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 [[ $(PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" SSC_NO_CDS=1 \
   "$ROOT/bin/ssc" run --compat-frontend "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 

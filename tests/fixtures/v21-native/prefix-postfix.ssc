@@ -1,0 +1,9 @@
+# Postfix calls bind inside unary prefix operators
+
+```scalascript
+def flag() = false
+def one() = 1
+println(!flag())
+println(-one())
+println(~one())
+```
