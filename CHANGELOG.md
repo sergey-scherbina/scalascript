@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
+
+The v2 runtime now exposes scale-preserving, numerically comparable `DecimalV`
+through one exact `dec.*` vocabulary and evaluates `Pure`/`Op` computations with
+reusable multi-shot continuations independent of JVM handler stacks. JSON, SQL,
+HTTP, UI display, and plugin bridges preserve the portable value; dynamic
+BigInt arithmetic now carries real `std/money.allocate` through the assembled
+v2 lane. The slice passed 94 focused unit tests and 6/6 affected conformance
+cases. Landed `ff3a52eba`; detailed results are in
+`specs/v2-swift-swiftui-native.md`.
+
 ## 2026-07-10 — swiftui-legacy-real-harness: a real `.ssc` module now builds a native macOS/iOS package
 
 Compatibility-only sub-slice of `v2-swift-swiftui-native` (assigned in the

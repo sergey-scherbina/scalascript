@@ -98,6 +98,55 @@
   all still green — no regression. The v2-native Swift backend itself remains
   open, owned by the `v2-swift-swiftui-native` claim.
 
+## v2-http-json-renderer-test-contract — native HTTP test omits the required self-hosted renderer
+
+**Status:** fixed (2026-07-10, `ff3a52eba`); waiting for reporter confirmation
+before `done`. Found by codex while verifying the portable Decimal/JSON/HTTP
+boundary; regression source `ed945466d`.
+
+- **Real-harness repro:** `scripts/sbtc
+  "v2NativeJsonPlugin/test;v2NativeSqlPlugin/test;v2NativeHttpPlugin/test"`
+  reaches `HttpNativePluginTest` and fails `Response builders reuse native JSON
+  and cache helpers preserve fields` with `self-hosted JSON renderer is not
+  installed; import std/json.ssc`.
+- **Expected:** provider-level tests obey the post-cutover contract: production
+  JSON has no host fallback, and a test that calls `Response.json` installs an
+  explicit renderer through `__jsonCoreInstallRenderer` before asserting the
+  HTTP bridge output.
+- **Root cause:** `ed945466d` correctly made `NativeJsonCodec.stringify`
+  require the self-hosted renderer, but the HTTP unit fixture still installs
+  only `HttpNativePlugin` and assumes the removed host renderer exists.
+- **Fix:** the provider fixture now installs `JsonNativePlugin` and a bounded
+  deterministic renderer through `__jsonCoreInstallRenderer`; production
+  `NativeJsonCodec` retains the no-host-fallback rule.
+- **Verified:** `v2NativeJsonPlugin/test` 3/3 and
+  `v2NativeHttpPlugin/test` 4/4 passed in the final 94-test focused gate.
+
+## v2-bigint-dynamic-arith-money — std/money allocation feeds Unit to an if condition on v2
+
+**Status:** fixed (2026-07-10, `ff3a52eba`); waiting for reporter confirmation
+before `done`. Found by codex in assembled conformance while implementing
+`v2-portable-decimal-money-effects`.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `tests/conformance/run.sh --only 'money-*,effect-*' --no-memo`.
+  `money-portable-v2` prints five correct exact-Decimal rows, then exits 1 in
+  `std/money.ssc` with `if: condition not Bool: ()` while evaluating
+  `BigInt(i) < remainder` inside `allocate`.
+- **Expected:** bridge-emitted dynamic arithmetic on `BigInt` implements the
+  same exact arithmetic/comparison contract as named `big.*` primitives, so
+  Money allocation returns `$0.02, $0.02, $0.01` instead of host `Unit`.
+- **Root cause:** `Prims.resolve` implements named `big.add`/`big.lt` primitives,
+  but bridge code emits `__arith__`; `arithRest` has no `BigV`/`BigV` or mixed
+  `BigV`/`IntV` arms, so relational operators fall through to the generic
+  plugin/declaration fallback and become `UnitV`.
+- **Fix:** dynamic `__arith__` now delegates `BigV`/`BigV` and mixed
+  `BigV`/`IntV` operations to exact BigInt arithmetic/comparison semantics.
+- **Verified:** the focused frontend-bridge regression passed, `installBin`
+  assembled the real distribution, and
+  `tests/conformance/run.sh --only 'money-*,effect-*,effects' --no-memo`
+  passed 6/6 including unchanged `std/money.allocate` behavior.
+
 ## v21-standard-index-vm-asm-divergence — index example fails VM and succeeds with malformed ASM output
 
 **Status:** fixed (2026-07-10, `86a2de03a`); waiting for human confirmation

@@ -44,7 +44,7 @@ there before changing this plan.
       before implementation. Result: the assembled baseline, Rozum-reviewed
       architecture, CLI/package contract, portable lowering boundaries, SwiftUI
       behavior gates, test order, and explicit non-goals are now normative.
-- [ ] **v2-portable-decimal-money-effects** — introduce a target-independent
+- [x] **v2-portable-decimal-money-effects — DONE 2026-07-10 (`ff3a52eba`)** — introduced a target-independent
       CoreIR lowering/runtime contract required by real Swift domain code:
       canonical decimal text at the IR boundary, portable `dec.*` primitives,
       ordinary `Money`/`Currency` constructors, and explicit `Pure`/`Op` effect
@@ -52,7 +52,26 @@ there before changing this plan.
       Foundation `Decimal` may implement Swift arithmetic but must not leak into
       CoreIR. Do not encode JVM `ForeignV` or `ThreadLocal` behavior. Verify the
       lowering against VM parity and focused existing `money-*` / `effect-*`
-      fixtures before adding UI.
+      fixtures before adding UI. Result: portable scale-preserving `DecimalV`
+      plus exact `dec.*`, reusable-closure `Pure`/`Op`, exact Money allocation,
+      94 focused unit tests, `installBin`, and 6/6 affected conformance cases.
+- [x] **v2-http-json-renderer-test-contract — FIXED 2026-07-10 (`ff3a52eba`)** — discovered while verifying the
+      portable Decimal JSON/HTTP boundary: after `ed945466d`,
+      `v2NativeHttpPlugin/test` calls `Response.json` without installing the
+      required self-hosted JSON renderer and fails with `self-hosted JSON
+      renderer is not installed`. Keep the production no-host-fallback rule;
+      make the provider-level test install an explicit renderer through the
+      same `__jsonCoreInstallRenderer` seam, then rerun the HTTP suite. This is
+      a test-contract regression, not authorization to restore a host codec.
+      The fixture now installs a renderer through the public seam; production
+      remains host-fallback-free and HTTP tests pass 4/4.
+- [x] **v2-bigint-dynamic-arith-money — FIXED 2026-07-10 (`ff3a52eba`)** — assembled `money-portable-v2`
+      reaches `std/money.allocate` but `BigInt(i) < remainder` returns `UnitV`
+      because bridge `__arith__` lacks `BigV` arms even though named `big.*`
+      primitives exist. Add exact `BigV`/`BigV` and mixed `BigV`/`IntV`
+      arithmetic/comparisons with a focused runtime regression, then rerun the
+      unchanged Money/effect conformance slice. Exact dynamic BigInt delegation
+      and the real Money allocation fixture now pass.
 - [ ] **v2-swift-core-backend** — add `v2/backend/swift` as a first-class
       checked-CoreIR consumer parallel to JS/Rust. Emit deterministic `AppCore`
       Swift sources/runtime for all structural terms, values, cells/maps,
