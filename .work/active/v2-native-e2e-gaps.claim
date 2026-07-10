@@ -1,0 +1,7 @@
+feature/v2-native-e2e-gaps 2026-07-10
+agent: claude (lucky-perch)
+status: in-progress
+scope: measure REAL native-front e2e on the PLUGIN runtime (ssc run --native, not bare VM)
+  → find + close NON-PARSER gaps (missing intrinsics, dispatch, plugin-bridge). Parser _err
+  gaps go to K62 (actively on ssc1-front: K62.12/6e8464ea8). NOT provider-migration (codex TI).
+next: installBin, run native front→plugin runtime over corpus, classify real blockers
