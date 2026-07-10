@@ -9,6 +9,37 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
+
+Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`
+(runtime shim). NOT `v2/backend/jvm/JvmBackend.scala` (that's a Scala-source-text lane). A/B:
+`scripts/bench v2-bytecode [pat]` (v2 VM vs v2-bytecode); coverage census: `v2FrontendBridge/
+runMain ssc.bridge.sweepByteGen examples`; unit tests: `FrontendBridgeTest` `runBytecode`.
+
+**Census (2026-07-10): 195/195 examples compile to bytecode, 0 conversion failures — coverage
+is already 100%.** So the work is PERF, not coverage: many shapes COMPILE but deopt to the VM
+at RUNTIME (`Emit.app`→`Runtime.run`) or box. "Wide JIT" here = make more compiled code run as
+NATIVE bytecode. Whole-program, no per-method bail; hard `Unsupported` only on `Lit(CBig/CBytes)`
++ non-lam `LetRec` (absent from the corpus).
+
+Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running baseline bench):
+- **unboxed Double/Float loop** — `canLong`/`canParamLong` (JvmByteGen:489,551) are Int-only;
+  all float arith boxes through `Emit.arith`. STRUCTURAL (CoreIR `Const.CFloat` IS the type — no
+  external types needed, mirror the Long path). High leverage for float numeric workloads.
+- **HOF calls deopt to the VM** — generic `App(f,args)` (JvmByteGen:923) → `Emit.app`→`Runtime.run`;
+  only self/local/def-method calls compile. Hits hof-pipeline/typeclass/streams. Here the wide-jit
+  work HELPS: for `--v2`, the v1 Typer runs (C-1 `nodeTypes` map) — thread callee types through
+  FrontendBridge so a first-class call to a known-arity typed fn compiles to invokestatic/invokedynamic.
+- **only `.foreach` inlined** — map/filter/fold/flatMap get no fast path (JvmByteGen:829). Add inline
+  Cons-walk variants (like foreach) for the pure-body cases.
+- **narrow unboxed self-tail** — `canParamLong` rejects `Match`/`Let`/`Seq` bodies (JvmByteGen:551);
+  numeric recursion with a `Match` never unboxes. Widen the accepted body shapes.
+
+- [ ] **v2asm-0-baseline** — record `scripts/bench v2-bytecode` A/B (VM vs bytecode) over the
+      corpus; identify workloads where bytecode > VM (deopt/box). Grounds the slice order.
+- [ ] **v2asm-1..N** — one perf slice per push, each A/B-proven (`scripts/bench v2-bytecode <pat>`)
+      + `FrontendBridgeTest` runBytecode correctness + affected v2 conformance. Order set by v2asm-0.
+
 ## ScalaScript 2.0 — Swift + SwiftUI native parity (2026-07-10)
 
 Goal: make the production v2 path generate and run native SwiftUI applications
