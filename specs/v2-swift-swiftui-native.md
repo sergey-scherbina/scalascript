@@ -442,6 +442,28 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### Structural AppCore Swift backend (`68d0b6610`, 2026-07-10)
+
+- `v2/backend/swift` is an sbt-built first-class CoreIR consumer. It writes a
+  deterministic SwiftPM package with an `AppCore` library, generated typed
+  `SscProgram` data, a target-owned runtime, and a thin executable product;
+  neither generated sources nor the Scala generator reference v1 `JvmGen`,
+  `View`, or `SwiftUIEmitter`.
+- The AppCore evaluator implements every structural `Term` shape, closures,
+  cyclic `LetRec` environments, ordered constructor matching, cells, arrays,
+  maps, sequences/loops, and a tail-call trampoline. Generation rejects an
+  unknown global or primitive with its exact name rather than emitting a no-op.
+- `scripts/sbtc "v2SwiftBackend/test"` passed 3/3 generator/negative/toolchain
+  tests. The real Swift 6.3.2 toolchain compiled and ran independent packages
+  for `v2/conformance/fact.coreir` (`120`), `tco.coreir` at one million calls
+  (`500000500000`), and `map.coreir` (`List(2, 4, 6)`). The affected assembled
+  smoke `tests/conformance/run.sh --only 'money-portable-v2' --no-memo` also
+  remained green 1/1.
+- This is the first backend sub-slice, not closure of the Swift-core gate:
+  arbitrary BigInt arithmetic, portable Decimal/Money, explicit `Pure`/`Op`,
+  mutual-TCO, and real checked `.ssc` domain fixtures remain required before
+  `v2-swift-core-backend` is complete.
+
 ### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
 
 - `DecimalV` now carries exact scale-preserving text while numeric equality and
