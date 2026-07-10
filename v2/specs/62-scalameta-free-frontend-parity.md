@@ -456,3 +456,26 @@ until the next `case`/`}`. After that, `dsl-mini-language` / `distributed-…` s
 regress because the openers make them parse far enough to hit NEW blockers (dsl:
 `_sel_andThen` missing method) — the openers remain corpus-negative until that per-file
 chain is cleared, so they stay unlanded. Nested patterns landed standalone (safe).
+
+---
+
+## K62.11 — 2026-07-10 (multi-statement match-arm bodies)
+
+**Landed (correct, parse-safe — deterministic parse A/B: zero regressions, +1
+improvement `effects`).** A match-arm body can now be a statement SEQUENCE, not just one
+expression: `case Some(n) => val d = n + 1; d * 2`. `parseArmBody` reads statements (via
+`parseOneStmt`) until the next `case`/`}`/EOF; one expr-statement unwraps to the bare
+expr (the common case — no block wrapper), a `val`/`def` or several statements becomes a
+`block`. Was a pre-existing bug even in BRACED matches (`parseExpr` on the body couldn't
+parse the leading `val` → `unbound global: val`). Verified: `case Some(n) => val d=n+1;
+d*2` → 12, two `val`s → 7. (Gotcha logged: ssc0 — the kernel `ssc1-front` is written in —
+has NO nested ctor patterns, so `case Cons(x, Nil) =>` in the helper had to become
+`case Cons(x, tl) => match tl { case Nil … }`.)
+
+This is the last shared layout blocker on the openers path: with nested patterns
+(K62.10) + arm-body blocks (K62.11) + the `=>`/`match` layout openers, the code-heavy std
+modules reach ~0 `_err`. The openers themselves stay unlanded until `dsl-mini-language` /
+`distributed-…` stop regressing — after patterns+arm-bodies they parse far enough to hit
+NON-layout blockers (dsl: `.andThen` → unbound `_sel_andThen`; a missing method, not a
+parse gap). Routing the `resolveMethodCall` `_sel_<m>` fallback through `__method__`
+(as K62.6e did for `resolveField`) is the likely next lever to make those graceful.

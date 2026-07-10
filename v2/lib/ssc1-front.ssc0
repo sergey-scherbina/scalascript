@@ -1142,11 +1142,39 @@ def parsePat = (toks) =>
   else pr(Pair("wpat", ""), advance(toks))
 
 -- parseMatchArm: `case Pat => expr`  (keyword `case` already consumed)
+-- K62.11: a match-arm body can be a statement SEQUENCE (`case X => val n = e; expr`),
+-- not just one expression. Parse statements (via parseOneStmt) until the next arm
+-- boundary (`case`/`}`/EOF). One expr-statement unwraps to the bare expr (the common
+-- case, no block); anything else (a val/def, or several statements) becomes a block.
+def parseArmBody = (toks) =>
+  let rec go = (ts, acc) =>
+    let ts2 = skipSemis(ts) in
+    if kwIs("case", ts2) then pr(reverse(acc), ts)
+    else if kindIs("}", ts2) then pr(reverse(acc), ts)
+    else if kindIs("EOF", ts2) then pr(reverse(acc), ts)
+    else
+      let r = parseOneStmt(ts2) in
+      go(prT(r), Cons(prV(r), acc)) in
+  let r = go(toks, Nil) in
+  let stmts = prV(r) in
+  let endToks = prT(r) in
+  match stmts {
+    case Nil => pr(Pair("uid", "Unit"), endToks)
+    case Cons(single, tl) =>
+      match tl {
+        case Nil =>
+          match single { case Pair(stag, sdata) =>
+            if #seq(stag, "expr") then pr(sdata, endToks)
+            else pr(Pair("block", stmts), endToks) }
+        case Cons(h2, t2) => pr(Pair("block", stmts), endToks)
+      }
+  }
+
 def parseMatchArm = (toks) =>
   let rPat = parsePat(toks) in
   let ts1  = skipTypeAnnot(prT(rPat)) in
   let ts2  = skipKind("=>", ts1) in
-  let re   = parseExpr(ts2) in
+  let re   = parseArmBody(ts2) in
   pr(Pair(prV(rPat), prV(re)), prT(re))
 
 -- parseMatchArms: all arms inside `{ case ... }` (opening `{` already consumed)
