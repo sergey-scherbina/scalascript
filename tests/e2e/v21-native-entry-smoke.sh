@@ -73,6 +73,8 @@ constructor_guard_expected=$'enough\nlow\nmissing'
 [[ $(run_native "$FIXTURES/symbolic-extension-operators.ssc") == 'symbolic-operators-ok' ]]
 pattern_alternative_expected=$'hit\nhit\nmiss'
 [[ $(run_native "$FIXTURES/constructor-pattern-alternative.ssc") == "$pattern_alternative_expected" ]]
+assignment_expression_expected=$'6\ntrue\n7'
+[[ $(run_native "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -92,6 +94,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/list-append.ssc") == '1,2,3,4' ]]
 [[ $(run_native --bytecode "$FIXTURES/symbolic-extension-operators.ssc") == 'symbolic-operators-ok' ]]
 [[ $(run_native --bytecode "$FIXTURES/constructor-pattern-alternative.ssc") == "$pattern_alternative_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

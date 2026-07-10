@@ -1,0 +1,16 @@
+---
+name: v21-native-assignment-expression
+---
+
+```scalascript
+case class Box(value: Int)
+
+var total = 0
+if true then total = total + 1
+for x <- List(2, 3) do total = total + x
+
+val box = Box(value = 7)
+println(total)
+println(total == 6)
+println(box.value)
+```

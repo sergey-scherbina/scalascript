@@ -994,8 +994,20 @@ def tryLamParams = (toksAfterParen) =>
   if kindIs(")", toksAfterParen) then pr(Some(Nil), advance(toksAfterParen))
   else tryLamParamsMore(toksAfterParen, Nil)
 
--- KC11: parse expression, with lambda short-circuit before infix parsing
-def parseExpr = (toks) =>
+def finishAssignment = (r) =>
+  if kindIs("=", prT(r)) then
+    match prV(r) { case Pair(tag, data) =>
+      if #seq(tag, "var") then
+        let rr = parseExpr(advance(prT(r))) in
+        pr(Pair("assign", Pair(data, prV(rr))), prT(rr))
+      else r
+    }
+  else r
+
+-- KC11: parse expression, with lambda short-circuit before infix parsing.
+-- A single `=` tail on a bare variable is an assignment expression; named
+-- call arguments are consumed by parseArgs before reaching this path.
+def parseExprCore = (toks) =>
   if kindIs("id", toks) then
     -- peek: id => body  →  lambda with one param
     let name = tokVal(peek(toks)) in
@@ -1020,6 +1032,8 @@ def parseExpr = (toks) =>
     }
   else
     let r = parsePostfix(toks) in parseInfix(1, prV(r), prT(r))
+
+def parseExpr = (toks) => finishAssignment(parseExprCore(toks))
 
 -- ── Statement parser ──────────────────────────────────────────────────────────
 -- Skip type params [A, B, ...]
