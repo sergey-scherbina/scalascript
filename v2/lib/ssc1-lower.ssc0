@@ -855,7 +855,15 @@ def resolveE = (expr) =>
                 case Cons(arm, rest) =>
                   match arm {
                     case Pair(pat, body) =>
-                      Cons(Pair(pat, resolveE(body)), rArms(rest))
+                      let rpat = match pat {
+                        case Pair(ptag, pdata) =>
+                          if #seq(ptag, "gpat") then
+                            match pdata {
+                              case Pair(basePat, guard) => Pair("gpat", Pair(basePat, resolveE(guard)))
+                            }
+                          else pat
+                      } in
+                      Cons(Pair(rpat, resolveE(body)), rArms(rest))
                   }
               } in
             Pair("match", Pair(re, rArms(arms)))
@@ -1469,10 +1477,64 @@ def lowerLitArms = (scope, letScope, arms) =>
           else lowerE(letScope, body) } }
   }
 
+def hasGuardPat = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "gpat") then true else hasGuardPat(rest) } }
+  }
+
+-- Ordered arm lowering used when binder/wildcard guards are present. `scope`
+-- contains the once-evaluated scrutinee at `scrutPos`; constructor fall-through
+-- reuses that local instead of evaluating the source expression again.
+def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
+  match arms {
+    case Nil => IrLit(IrUnit)
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "gpat") then
+            match pdata { case Pair(basePat, guard) =>
+              match basePat { case Pair(btag, bdata) =>
+                if #seq(btag, "vpat") then
+                  let boundScope = Cons(bdata, scope) in
+                  let fallbackScope = Cons("__guard_scrut__", scope) in
+                  IrLet(Cons(IrLocal(scrutPos), Nil),
+                    IrIf(lowerE(boundScope, guard), lowerE(boundScope, body),
+                      lowerOrderedGuardArms(fallbackScope, #i.add(scrutPos, 1), rest)))
+                else
+                  IrIf(lowerE(scope, guard), lowerE(scope, body),
+                    lowerOrderedGuardArms(scope, scrutPos, rest))
+              }
+            }
+          else if #seq(ptag, "lpat") then
+            match pdata { case Pair(ty, v) =>
+              IrIf(IrPrim("__eq__", Cons(IrLocal(scrutPos), Cons(litPatIr(ty, v), Nil))),
+                lowerE(scope, body), lowerOrderedGuardArms(scope, scrutPos, rest))
+            }
+          else if #seq(ptag, "vpat") then
+            IrLet(Cons(IrLocal(scrutPos), Nil), lowerE(Cons(pdata, scope), body))
+          else if #seq(ptag, "cpat") then
+            match pdata { case Pair(ctorName, fields) =>
+              let armScope = appendL(revL(fldBinders(fields)), scope) in
+              let armBody = dischargeObs(fldObligations(fields, lenL(fields)), armScope, body) in
+              IrMatch(IrLocal(scrutPos),
+                Cons(IrArm(ctorName, lenL(fields), armBody), Nil),
+                Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
+            }
+          else lowerE(scope, body)
+        }
+      }
+  }
+
 def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in
   let letScope = Cons("__scr__", scope) in
-  if hasLpat(arms) then
+  if hasGuardPat(arms) then
+    IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, arms))
+  else if hasLpat(arms) then
     IrLet(Cons(eIr, Nil), lowerLitArms(scope, letScope, arms))
   else
   let rec procArms = (armsLeft, irAcc, defAcc) =>

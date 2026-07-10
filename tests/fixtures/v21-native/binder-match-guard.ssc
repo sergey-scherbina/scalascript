@@ -1,0 +1,16 @@
+---
+name: v21-native-binder-match-guard
+---
+
+```scalascript
+def classify(n: Int): String = n match
+  case x if x < 0  => "negative"
+  case 0            => "zero"
+  case x if x < 10 => "small"
+  case _            => "large"
+
+println(classify(-3))
+println(classify(0))
+println(classify(7))
+println(classify(42))
+```

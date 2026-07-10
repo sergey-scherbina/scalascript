@@ -1294,10 +1294,22 @@ def parseArmBody = (toks) =>
 
 def parseMatchArm = (toks) =>
   let rPat = parsePat(toks) in
-  let ts1  = skipTypeAnnot(prT(rPat)) in
-  let ts2  = skipKind("=>", ts1) in
+  let ts1 = skipTypeAnnot(prT(rPat)) in
+  let canGuard = match prV(rPat) {
+    case Pair(ptag, pdata) => if #seq(ptag, "vpat") then true else #seq(ptag, "wpat")
+  } in
+  let rGuard = if canGuard then
+    if kwIs("if", ts1) then
+      let rg = parseExpr(advance(ts1)) in pr(Some(prV(rg)), prT(rg))
+    else pr(None, ts1)
+  else pr(None, ts1) in
+  let ts2 = skipKind("=>", prT(rGuard)) in
   let re   = parseArmBody(ts2) in
-  pr(Pair(prV(rPat), prV(re)), prT(re))
+  let pat = match prV(rGuard) {
+    case None => prV(rPat)
+    case Some(guard) => Pair("gpat", Pair(prV(rPat), guard))
+  } in
+  pr(Pair(pat, prV(re)), prT(re))
 
 -- parseMatchArms: all arms inside `{ case ... }` (opening `{` already consumed)
 def parseMatchArms = (toks) =>
