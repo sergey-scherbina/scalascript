@@ -337,11 +337,11 @@ change deployment metadata and native adapters, not source-level behavior.
 
 ### Portable lowering
 
-- [ ] Decimal values and Money arithmetic lower without host `ForeignV` data and
+- [x] Decimal values and Money arithmetic lower without host `ForeignV` data and
   match VM output on the focused money fixtures.
-- [ ] Nested, transitive, and multi-shot effects lower to explicit `Pure`/`Op`
+- [x] Nested, transitive, and multi-shot effects lower to explicit `Pure`/`Op`
   computations and match VM output.
-- [ ] Unhandled effects produce the same bounded program-boundary diagnostic.
+- [x] Unhandled effects produce the same bounded program-boundary diagnostic.
 
 ### Swift core backend
 
@@ -442,6 +442,26 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
-The pre-implementation baseline is recorded above. Each completed slice must
-append exact test counts, generated artifact paths, tool versions, and any
-accepted platform limitation here before its behavior items are checked.
+### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
+
+- `DecimalV` now carries exact scale-preserving text while numeric equality and
+  hashing ignore scale. Public Decimal construction, arithmetic, comparison,
+  JSON, SQL, HTTP, UI display, and v1/v2 plugin conversion cross the portable
+  value/`dec.*` boundary; no new public result contains a host Decimal
+  `ForeignV`.
+- `effect.pure`, `effect.perform`, and `effect.handle` share one explicit
+  reusable-closure `Pure`/`Op` runtime loop. Nested/transitive handlers and
+  multi-shot continuation reuse no longer depend on the JVM compatibility
+  handler stack. An unresolved operation reaches the CLI boundary as the
+  bounded `unhandled effect` diagnostic.
+- The real `std/money.ssc` allocation path exposed a missing dynamic BigInt
+  operation family. `BigV`/`BigV` and mixed `BigV`/`IntV` arithmetic and
+  comparison now delegate to exact BigInt semantics instead of falling through
+  to `UnitV`.
+- Final gates on the rebased commit: 94 focused unit tests passed across the v2
+  frontend bridge, plugin bridge, native JSON/SQL/HTTP/UI providers, and CLI;
+  `scripts/sbtc "...;installBin"` assembled the distribution; and
+  `tests/conformance/run.sh --only 'money-*,effect-*,effects' --no-memo`
+  passed 6/6 cases on every applicable INT/JS/JVM/V2 lane.
+- This slice emits no Swift artifact by design. Swift 6.3.2/Xcode 26.5 remain
+  the recorded toolchain for the next CoreIR-to-AppCore execution gate.
