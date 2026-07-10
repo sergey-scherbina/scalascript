@@ -2619,13 +2619,28 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
       places. int-2a requires either re-architecting emission to AST-render (not
       text-slice) OR a fragile whole-output text rewrite (Int appears in strings,
       comments, identifiers, runtime preamble). Major re-architecture, multi-session.
-- [ ] **int-2b stdlib-Int boundaries** — the CRUX. Scala stdlib returns/takes 32-bit
-      `Int` (`.length`/`.size`/`.indexOf` return Int; `arr(i)`/`.take`/`.drop`/`.charAt`/
-      `substring` TAKE Int). With ssc Int=Long, passing a Long to an Int-param API is a
-      compile error. Need a type-aware pass inserting `.toInt`/`.toLong` at the Scala-
-      stdlib seam. Measure how many conformance cases break FIRST, then decide scope.
-- [ ] **int-2c validate+land** — FULL conformance (all 3 backends) green + no numeric
-      regressions, then land. LARGE multi-session; a partial change mass-breaks compile.
+- [x] **int-2b BREAKTHROUGH — the given-conversion design (2026-07-10)** ✓ The stdlib-Int
+      boundary (the CRUX) is bridged AUTOMATICALLY by one conversion, NOT a multi-week
+      type-aware pass. `Int→Long` widens automatically; the one missing direction
+      `Long→scala.Int` is supplied by emitting ONCE before the user blocks:
+      `import scala.language.implicitConversions` + `given _sscLongToInt: Conversion[Long,
+      scala.Int] = _.toInt`. Fires only on a real mismatch → the (already-compiling)
+      preamble is untouched. Naive `\bInt\b`→Long ALONE = 70/84; **+given = MEASURED
+      84 fails → 11.** deep-tail-recursion JVM → 5000050000; content-introspection passes.
+- [ ] **int-2c consistency — close the last 10 JVM (generic/inferred)** — the given bridges
+      VALUES but not TYPE CONSTRUCTORS (`List[Long]` vs `List[Int]` invariance, `Int=>Int`
+      vs `Long=>Long`) nor runtime BOXING (`generator[Int]`→`[Long]` but inferred `var i=1`
+      stays Int → Integer boxed → `unboxToLong` CCE). ROOT = PARTIAL rewrite: I rewrite
+      explicit `Int` but Scala INFERS `Int` for `var i=1`, `List(1,2,3)`. FIX = also
+      rewrite integer LITERALS `N`→`NL` (so inference yields Long) — regex must skip
+      decimals/hex/exponents/already-`L`. With types+literals+given CONSISTENT, generic
+      pipelines box Long uniformly. Iterate to 0 JVM regressions.
+- [ ] **int-2d JS lane** — JsGen→scala.js is a SEPARATE emission (JsGen.genModuleSegmented
+      scala segments). Apply the same given + Int/literal rewrite there so deep-tail-recursion
+      passes on JS too (it needs all 3 backends green).
+- [ ] **int-2e validate+land per-stage** — FULL conformance (int/js/jvm) ≤ baseline (0 net
+      regressions) BEFORE each push. Only push net-positive stages. deep-tail-recursion green
+      on all 3 = done. WIP on feature/int64b (given+rewrite, ff8e90fc2, 84→11).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
