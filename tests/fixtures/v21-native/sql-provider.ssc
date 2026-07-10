@@ -10,7 +10,8 @@ databases:
 ```scalascript
 Db.execute("default", "CREATE TABLE people (id BIGINT PRIMARY KEY, name VARCHAR(80), active BOOLEAN)", List())
 println(Db.execute("default", "INSERT INTO people VALUES (?, ?, ?)", List(7, "Ada", true)))
-println(Db.query("default", "SELECT id FROM people WHERE id = ?", List(7))(0)("ID"))
-println(Db.query("default", "SELECT name FROM people WHERE id = ?", List(7))(0)("NAME"))
-println(Db.query("default", "SELECT active FROM people WHERE id = ?", List(7))(0)("ACTIVE"))
+val rows = Db.query("default", "SELECT id, name, active FROM people WHERE id = ?", List(7))
+println(rows(0)("ID"))
+println(rows(0)("NAME"))
+println(rows(0)("ACTIVE"))
 ```

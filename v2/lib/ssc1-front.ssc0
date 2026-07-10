@@ -1586,14 +1586,59 @@ def isCont = (ts) =>
         else if #seq(k, "->") then true
         else false } }
 
+-- Scala-style semicolon inference for physical newlines.  The original layout
+-- pass discarded every NL at top level and directly inside explicit braces.
+-- That made a following parenthesized statement attach to the previous
+-- expression (`val x = f { ... }` newline `(x, y)` became one application).
+-- Keep newlines invisible while an expression is syntactically incomplete,
+-- but emit a separator when the token before NL can end a statement and the
+-- token after it can start one.
+def canEndLine = (t) =>
+  match t { case Pair(k, v) =>
+    if #seq(k, "id") then true
+    else if #seq(k, "uid") then true
+    else if #seq(k, "int") then true
+    else if #seq(k, "float") then true
+    else if #seq(k, "str") then true
+    else if #seq(k, ")") then true
+    else if #seq(k, "]") then true
+    else if #seq(k, "}") then true
+    else if #seq(k, "kw") then
+      (if #seq(v, "true") then true else if #seq(v, "false") then true
+       else if #seq(v, "null") then true else #seq(v, "this"))
+    else false }
+
+def canStartLine = (ts) =>
+  match ts {
+    case Nil => false
+    case Cons(t, rest) =>
+      match t { case Pair(k, v) =>
+        if #seq(k, "EOF") then false
+        else if #seq(k, ")") then false
+        else if #seq(k, "]") then false
+        else if #seq(k, "}") then false
+        else if #seq(k, ",") then false
+        else if #seq(k, ";") then false
+        else if #seq(k, ".") then false
+        else if #seq(k, ":") then false
+        else if #seq(k, "=") then false
+        else if #seq(k, "=>") then false
+        else if #seq(k, "->") then false
+        else if #seq(k, "::") then false
+        else if #seq(k, "kw") then
+          (if #seq(v, "else") then false else if #seq(v, "match") then false
+           else if #seq(v, "yield") then false else true)
+        else true }
+  }
+
 -- a non-opener NL <v>: returns Pair(emittedTokens, newStack). `cont` = the next
 -- line is a continuation, so suppress the `;` (but still close dedented blocks).
 def nlStep = (v, stack, cont) =>
   match stack {
-    case Nil => Pair(Nil, stack)
+    case Nil => Pair(if cont then Nil else Cons(mkTok(";", ""), Nil), stack)
     case Cons(top, srest) =>
       match top { case Pair(tag, ind) =>
-        if #seq(tag, "B") then Pair(Nil, stack)
+        if #seq(tag, "B") then Pair(if cont then Nil else Cons(mkTok(";", ""), Nil), stack)
         else if #i.gt(v, ind) then Pair(Nil, stack)
         else if #i.eq(v, ind) then (if cont then Pair(Nil, stack) else Pair(Cons(mkTok(";", ""), Nil), stack))
         else
@@ -1602,7 +1647,7 @@ def nlStep = (v, stack, cont) =>
           } } }
 
 def layout = (toks) =>
-  let rec go = (ts, stack, prevOpener) =>
+  let rec go = (ts, stack, prevOpener, prevCanEnd) =>
     match ts {
       case Nil => Nil
       case Cons(t, rest) =>
@@ -1610,19 +1655,23 @@ def layout = (toks) =>
           if #seq(k, "EOF") then append(closeAllL(stack), Cons(t, Nil))
           else if #seq(k, "NL") then
             if prevOpener then
-              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false))
+              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false, false))
             else
-              match nlStep(v, stack, isCont(rest)) {
-                case Pair(emitted, ns) => append(emitted, go(rest, ns, false))
+              let suppressSep =
+                if prevCanEnd then
+                  if canStartLine(rest) then isCont(rest) else true
+                else true in
+              match nlStep(v, stack, suppressSep) {
+                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false))
               }
           else if #seq(k, "{") then
-            Cons(t, go(rest, Cons(Pair("B", 0), stack), false))
+            Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false))
           else if #seq(k, "}") then
-            match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false))) }
-          else Cons(t, go(rest, stack, isLayoutOpener(t)))
+            match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true))) }
+          else Cons(t, go(rest, stack, isLayoutOpener(t), canEndLine(t)))
         }
     } in
-  go(toks, Nil, false)
+  go(toks, Nil, false, false)
 
 def parse = (src) => parseStmts(layout(lex(src)))
 

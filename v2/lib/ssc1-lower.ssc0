@@ -73,6 +73,14 @@ def isTopVar = (name) =>
     match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
   go(#cell.get(topVarsCell))
 
+-- Top-level immutable values are also initialized through global cells.  Their
+-- initializers execute from the entry in document order instead of being
+-- evaluated eagerly with IrDef before earlier expression statements.
+def isTopVal = (name) =>
+  let rec go = (xs) =>
+    match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
+  go(#cell.get(topValsCell))
+
 -- Check if a resolved expression is Array/Vector construction
 def isArrayConstruction = (rb) =>
   match rb {
@@ -122,6 +130,7 @@ def caseFieldOrderCell = #cell.new(Nil)
 -- Array and Map variable name registries (for indexed read/write lowering)
 def arrVarsCell = #cell.new(Nil)
 def topVarsCell = #cell.new(Nil)
+def topValsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
 -- List variable name registry (for .length dispatch to _sel_length vs slen)
 def listVarsCell = #cell.new(Nil)
@@ -1009,6 +1018,8 @@ def lowerE = (scope, rawExpr) =>
                     -- K62.6b: a top-level `var` reference → cell.get(global name__cell)
                     if isTopVar(data) then
                       IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
+                    else if isTopVal(data) then
+                      IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
                     else IrGlobal(data)
                 }
             }
@@ -1722,7 +1733,9 @@ def lowerStmtToList = (stmt) =>
             let _reg = if isArrayConstruction(rb) then
               #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
             else () in
-            Cons(IrDef(name, lowerE(Nil, body)), Nil)
+            -- The cell definition is emitted by topValCellDefs; initialization
+            -- belongs to the entry so it interleaves with expression statements.
+            Nil
         }
       else if #seq(tag, "given") then
         -- KC5: given emits as a regular IrDef val
@@ -1804,28 +1817,9 @@ def lowerStmtToList = (stmt) =>
         let _reg = #cell.set(multiEffectsCell, Cons(data, #cell.get(multiEffectsCell))) in
         Nil
       else if #seq(tag, "tuppat") then
-        -- T5.7: TOP-LEVEL `val (a, b) = expr` (block-level tuppat existed; top-level
-        -- fell through to Nil and every later read was an unbound global).
-        -- Emit value defs: $vd = expr; a = _sel__1($vd); b = _sel__2($vd); …
-        -- (pass 2 evaluates value defs in order, so $vd is ready before the accessors)
-        match data {
-          case Pair(names, expr) =>
-            match names {
-              case Cons(n1, nrest) =>
-                let vdName = #sconcat("$vd_", n1) in
-                let vdDef = IrDef(vdName, lowerE(Nil, resolveE(expr))) in
-                let rec accessors = (ns, k) =>
-                  match ns {
-                    case Nil => Nil
-                    case Cons(nm, more) =>
-                      Cons(IrDef(nm,
-                             IrApp(IrGlobal(#sconcat("_sel__", #i->str(k))),
-                                   Cons(IrGlobal(vdName), Nil))),
-                           accessors(more, #i.add(k, 1)))
-                  } in
-                Cons(vdDef, accessors(names, 1))
-            }
-        }
+        -- Like ordinary top-level vals, tuple bindings are cell-backed and
+        -- initialized once from the entry in document order.
+        Nil
       else Nil
   }
 
@@ -2387,6 +2381,21 @@ def collectTopVars = (stmts) =>
       }
   }
 
+-- Names bound by top-level immutable vals, including tuple patterns.
+def collectTopVals = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "val") then
+            match data { case Pair(name, init) => Cons(name, collectTopVals(rest)) }
+          else if #seq(tag, "tuppat") then
+            match data { case Pair(names, init) => appendL(names, collectTopVals(rest)) }
+          else collectTopVals(rest)
+      }
+  }
+
 -- K62.6b: an empty global cell def per top-level var; the init runs in document
 -- order in the entry (as cell.set), so ordering matches source.
 def topVarCellDefs = (stmts) =>
@@ -2401,6 +2410,14 @@ def topVarCellDefs = (stmts) =>
                    topVarCellDefs(rest)) }
           else topVarCellDefs(rest)
       }
+  }
+
+def topValCellDefs = (names) =>
+  match names {
+    case Nil => Nil
+    case Cons(name, rest) =>
+      Cons(IrDef(#sconcat(name, "__cell"), IrPrim("cell.new", Cons(IrLit(IrUnit), Nil))),
+           topValCellDefs(rest))
   }
 
 def lowerProg = (stmts) =>
@@ -2421,12 +2438,15 @@ def lowerProg = (stmts) =>
   let _lv = #cell.set(listVarsCell, Nil) in
   -- K62.6b: register top-level var names BEFORE lowering so references resolve to cells
   let _tv = #cell.set(topVarsCell, collectTopVars(stmts)) in
+  let topValNames = collectTopVals(stmts) in
+  let _tvl = #cell.set(topValsCell, topValNames) in
   let defs =
     Cons(printlnDef,
     Cons(printDef,
     kc6Defs)) in
   let userDefs = lowerStmts(stmts) in
-  let allDefs = appendL(defs, appendL(topVarCellDefs(stmts), userDefs)) in
+  let allDefs = appendL(defs,
+    appendL(topVarCellDefs(stmts), appendL(topValCellDefs(topValNames), userDefs))) in
   -- T5.7: top-level expression statements ("expr") used to be silently dropped
   -- (~190/194 real .ssc files became no-ops). Collect them in document order into
   -- the entry: Seq(exprs..., main() if present). Defs are all registered before the
@@ -2449,6 +2469,38 @@ def lowerProg = (stmts) =>
                   Cons(IrPrim("cell.set",
                         Cons(IrGlobal(#sconcat(vname, "__cell")),
                         Cons(lowerE(Nil, resolveE(vinit)), Nil))),
+                       topExprs(rest1))
+              }
+            else if #seq(stag, "val") then
+              match sdata {
+                case Pair(vname, vinit) =>
+                  Cons(IrPrim("cell.set",
+                        Cons(IrGlobal(#sconcat(vname, "__cell")),
+                        Cons(lowerE(Nil, resolveE(vinit)), Nil))),
+                       topExprs(rest1))
+              }
+            else if #seq(stag, "tuppat") then
+              match sdata {
+                case Pair(names, init) =>
+                  let rec tupleSets = (ns, k) =>
+                    match ns {
+                      case Nil => Nil
+                      case Cons(nm, more) =>
+                        Cons(IrPrim("cell.set",
+                               Cons(IrGlobal(#sconcat(nm, "__cell")),
+                               Cons(IrApp(IrGlobal(#sconcat("_sel__", #i->str(k))),
+                                     Cons(IrLocal(0), Nil)), Nil))),
+                             tupleSets(more, #i.add(k, 1)))
+                    } in
+                  let sets = tupleSets(names, 1) in
+                  let setBody = match sets {
+                    case Nil => IrLit(IrUnit)
+                    case Cons(one, more) => match more {
+                      case Nil => one
+                      case _ => IrSeq(sets)
+                    }
+                  } in
+                  Cons(IrLet(Cons(lowerE(Nil, resolveE(init)), Nil), setBody),
                        topExprs(rest1))
               }
             else topExprs(rest1)

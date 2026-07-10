@@ -9,11 +9,12 @@ val first = runState(10) {
 }
 
 val nested = runState(1) {
-  State.set(2);
-  (runState(100) {
-     State.set(101)
-     State.get()
-   }, State.get())
+  State.set(2)
+  val inside = runState(100) {
+    State.set(101)
+    State.get()
+  }
+  (inside, State.get())
 }
 
 println(first._1)

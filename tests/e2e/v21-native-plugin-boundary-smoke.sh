@@ -52,7 +52,11 @@ fi
 
 classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-classload.XXXXXX")
 ui_tmp=$(mktemp -d "${TMPDIR:-/tmp}/v21-native-ui.XXXXXX")
-trap 'rm -f "$classlog"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
+sql_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-vm.XXXXXX")
+sql_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-asm.XXXXXX")
+state_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-vm.XXXXXX")
+state_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-asm.XXXXXX")
+trap 'rm -f "$classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/std-crypto.ssc" >"$classlog" 2>&1
 grep -F '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' "$classlog" >/dev/null
@@ -73,11 +77,28 @@ PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native
 grep -F 'Hi &lt;native&gt;' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >>"$classlog" 2>&1
-grep -F '202' "$classlog" >/dev/null
+grep -F '101' "$classlog" >/dev/null
 if grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' "$classlog" >/dev/null; then
   echo 'native crypto run loaded compatibility bridge/Scalameta classes' >&2
   grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' "$classlog" >&2
   exit 1
 fi
+
+# Faithful source-order regressions on both standard backends.  Keep the vals in
+# the fixtures: in the broken lowerer `rows` ran before the DDL/DML and `inside`
+# escaped its runState thunk as an unbound global.
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native \
+  "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >"$sql_vm"
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \
+  "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >"$sql_asm"
+cmp -s "$sql_vm" "$sql_asm"
+[[ $(cat "$sql_vm") == $'1\n7\nAda\ntrue' ]]
+
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native \
+  "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >"$state_vm"
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \
+  "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >"$state_asm"
+cmp -s "$state_vm" "$state_asm"
+[[ $(cat "$state_vm") == $'17\n20\n2\n101\n101\n2' ]]
 
 echo 'PASS v21-native-plugin-boundary-smoke'
