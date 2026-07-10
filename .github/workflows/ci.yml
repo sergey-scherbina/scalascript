@@ -116,9 +116,16 @@ jobs:
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-v2-${{ github.sha }}
+          # Per-job prefix (…-v2-conf-, disjoint from the sbt job's …-v2-sbt-).
+          # The two jobs compile with different sbt invocations (install.sh
+          # cli/installBin vs `sbt compile cli/assembly`), so their zinc analyses
+          # are NOT interchangeable — sharing a cache let one job restore the
+          # other's stale crypto-spi classes (zinc marked them up-to-date and
+          # skipped recompiling), re-creating the "not a member of scalascript.crypto"
+          # poison. Keeping the prefixes disjoint stops the cross-contamination.
+          key: ${{ runner.os }}-classes-v2-conf-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-classes-v2-
+            ${{ runner.os }}-classes-v2-conf-
 
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
@@ -153,7 +160,7 @@ jobs:
             **/target/scala-*/test-classes
             **/target/scala-*/zinc
             **/target/streams
-          key: ${{ runner.os }}-classes-v2-${{ github.sha }}
+          key: ${{ runner.os }}-classes-v2-conf-${{ github.sha }}
 
   sbt:
     name: sbt — compile and test
@@ -209,9 +216,11 @@ jobs:
             **/target/scala-*/zinc
             **/target/streams
           key: ${{ runner.os }}-classes-v2-sbt-${{ github.sha }}
+          # ONLY this job's own prefix — do NOT fall back to the conformance job's
+          # …-v2-conf- cache: their zinc analyses are incompatible and sharing
+          # re-poisons crypto-spi (see the conformance Restore step's note).
           restore-keys: |
             ${{ runner.os }}-classes-v2-sbt-
-            ${{ runner.os }}-classes-v2-
 
       # installBin stages bin/lib/compiler/jars — the Scala compiler jars that
       # `compile-jvm --bytecode` / `link` load lazily via ssc.lib.path. The CLI
