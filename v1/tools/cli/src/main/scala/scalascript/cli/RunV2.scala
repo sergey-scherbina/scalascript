@@ -17,9 +17,7 @@ object RunV2:
       val src  = scala.io.Source.fromFile(f).mkString
       val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
       warnIfDocOnly(file)
-      _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]) match
-        case _root_.ssc.Value.UnitV => ()
-        case other                  => println(_root_.ssc.Show.show(other))
+      reportResult(_root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   /** A fence-less markdown document converts to an EMPTY program by design
    *  (doc-only examples must stay runnable no-ops) — but silently doing
@@ -49,9 +47,7 @@ object RunV2:
         try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
         catch case e: java.lang.reflect.InvocationTargetException =>
           throw Option(e.getCause).getOrElse(e)   // surface the real failure
-      res match
-        case _root_.ssc.Value.UnitV => ()
-        case other                  => println(_root_.ssc.Show.show(other))
+      reportResult(res)
 
   /** `ssc run --native` — execute the staged, self-hosted ScalaScript frontend
    *  through the prebuilt v2 kernel, then run its checked-for-sentinels CoreIR
@@ -108,9 +104,7 @@ object RunV2:
     finally irPs.close()
 
   private def runNativeVm(prog: _root_.ssc.Program): Unit =
-    _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]) match
-      case _root_.ssc.Value.UnitV => ()
-      case other                  => println(_root_.ssc.Show.show(other))
+    reportResult(_root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   private def runNativeBytecode(prog: _root_.ssc.Program): Unit =
     val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
@@ -120,9 +114,24 @@ object RunV2:
       try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
       catch case e: java.lang.reflect.InvocationTargetException =>
         throw Option(e.getCause).getOrElse(e)
-    result match
-      case _root_.ssc.Value.UnitV => ()
-      case other                  => println(_root_.ssc.Show.show(other))
+    reportResult(result)
+
+  /** A dotted free `Op` is the runtime's unresolved plugin/effect fallback.
+   *  Treating it as an ordinary printable result made the ASM lane exit zero
+   *  after failed dispatch (for example `Wallets.metaMask`). Pure v2 effect
+   *  libraries also use `Op` as data, but their labels are intentionally
+   *  undotted and remain printable when a program explicitly returns them.
+   *  `Stub` is the separate missing-method sentinel and is never a successful
+   *  user result. */
+  private def reportResult(result: _root_.ssc.Value): Unit = result match
+    case _root_.ssc.Value.UnitV => ()
+    case op @ _root_.ssc.Value.DataV("Op", fields) if _root_.ssc.Runtime.isAutoThreadOp(op) =>
+      val label = fields.headOption.collect { case _root_.ssc.Value.StrV(s) => s }.getOrElse("<unknown>")
+      throw new RuntimeException(s"unhandled runtime effect: $label")
+    case _root_.ssc.Value.DataV("Stub", fields) =>
+      val label = fields.headOption.collect { case _root_.ssc.Value.StrV(s) => s }.getOrElse("<unknown>")
+      throw new RuntimeException(s"unresolved runtime dispatch: $label")
+    case other => println(_root_.ssc.Show.show(other))
 
   private def nativeFrontLayout(): (java.io.File, java.io.File) =
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {

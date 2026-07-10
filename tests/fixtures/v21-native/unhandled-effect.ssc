@@ -1,0 +1,5 @@
+# Unhandled plugin/effect fallback must fail
+
+```scalascript
+MissingRuntime.call("payload")
+```
