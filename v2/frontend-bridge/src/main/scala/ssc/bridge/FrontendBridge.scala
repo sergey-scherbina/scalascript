@@ -1951,7 +1951,19 @@ object FrontendBridge:
       val qualIsMethodObject = qual match
         case Term.Name(qn) => methodObjectNames.contains(qn)
         case _             => false
-      if qualIsTypeName && !qualIsMethodObject && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
+      val qualCompanionStatic = qual match
+        case Term.Name(qn) => companionStaticConstructors.contains(qn)
+        case _             => false
+      // cur-2: `Currency.USD`/`.EUR`/… — a companion STATIC on a functionConstructor
+      // whose members are currency codes. The runtime global `Currency` methodObject
+      // resolves the code via `apply` (currencyV, with scale/symbol defaults); route
+      // `Currency.CODE` to that apply so it doesn't fall through to a zero-arg
+      // `CT.Ctor("USD", Nil)` (v2-money Currency companion compatibility).
+      if qualCompanionStatic && isCtorName(name) then
+        qual match
+          case Term.Name(qn) => CT.App(CT.Global(qn), List(CT.Lit(Const.CStr(name))))
+          case _             => CT.Ctor(name, Nil)
+      else if qualIsTypeName && !qualIsMethodObject && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
         if extensionMethods.contains(name) then
@@ -2214,7 +2226,17 @@ object FrontendBridge:
         // A user/imported case class of this name wins over a plugin
         // functionConstructor companion (std/money.ssc Money/Currency vs the
         // payments-bridge factories — v2-money-decimal-regression).
-        if functionConstructors.contains(name) && !userCaseClasses.contains(name) then CT.App(CT.Global(name), args)
+        // cur-1: a user/imported case class wins over a plugin functionConstructor
+        // companion of the same name (v2-money-decimal-regression) — but only when
+        // the call ARITY matches the case class. A companion shorthand of a
+        // DIFFERENT arity coexists: std/money `Currency(code, scale, symbol)` 3-arg
+        // → Ctor, payments `Currency(code)` 1-arg → companion (fills scale/symbol
+        // defaults the case class lacks). `Money(amount, cur)` 2-arg still matches
+        // its case class → Ctor, so the decimal-regression fix is preserved.
+        val caseArity      = fieldRegistry.get(name).map(_.length)
+        val argMatchesCase = caseArity.contains(args.length)
+        if functionConstructors.contains(name) && (!userCaseClasses.contains(name) || !argMatchesCase) then
+          CT.App(CT.Global(name), args)
         else buildWithDefaults(name, args, refs => CT.Ctor(name, refs))
                .getOrElse(CT.Ctor(name, fillDefaults(name, args)))
       // .copy(field = val, ...) — case class copy with named field overrides.
@@ -2868,6 +2890,11 @@ object FrontendBridge:
         "IllegalStateException", "UnsupportedOperationException",
         "Currency", "Money", "StripeProvider", "PixProvider", "FedNowProvider",
         "FedNowConfig")
+
+  /** functionConstructors that also expose companion STATICS as `X.MEMBER` (e.g.
+   *  `Currency.USD`). The runtime global methodObject resolves the member; the
+   *  compile side routes `X.MEMBER` to its `apply(MEMBER)` (cur-2). */
+  private val companionStaticConstructors: Set[String] = Set("Currency")
 
   private val impureMethodObjects: Set[String] =
     Set("Dataset", "DistributedDataset", "HandlerRegistry", "WorkerProtocol",

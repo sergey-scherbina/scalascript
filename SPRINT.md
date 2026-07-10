@@ -2492,6 +2492,41 @@ Claimable slices for the above (queued 2026-07-07):
 
 ## Active tasks
 
+### ▶ ci-green-final (2026-07-10, Sergiy: "занеси в спринт и делай") — the last 2 CI reds
+
+After the CI-green sweep (jsgen `__ssc`, facade installBin, pickIosSimulator,
+Conformance timeout, Lint tabs, graph-edge-display, tkv2 skip, my own
+type-ascription-conformance backends:[int]) two reds remain. Both are REAL
+(not paper-over-able). See [[project_ci_green_sweep_0710]] for full diagnosis.
+
+**A. money-Currency (sbt job — `v2 Currency companion remains compatible`) — BOUNDED, doing first.**
+The payments-bridge Currency companion features aren't wired on v2 alongside the
+std/money.ssc case class. Validatable against the full money/payments suite.
+- [x] **cur-1 arity-ctor-routing** ✓ — FrontendBridge ~2217: route `Currency(1-arg)` →
+      companion global (`currencyV`, fills scale/symbol defaults the case class
+      lacks); `Currency(3-arg)` → std Ctor; `Money(2-arg)` == case arity → Ctor
+      (v2-money-decimal-regression fix preserved). Condition:
+      `functionConstructors(name) && (!userCaseClasses(name) || args.length != fieldRegistry(name).length)`.
+- [x] **cur-2 companion-statics** ✓ — `Currency.USD`/`.EUR`/… companion constants
+      (from payments `currencyV`) aren't implemented on v2 (fail even via `bin/ssc
+      run`; `Currency.USD` compiles to a zero-arg ctor `DataV("USD",[])`). Register
+      them + route `Currency.<CODE>` select on a functionConstructor to the constant.
+- [x] **cur-3 validate+land** ✓ FrontendBridgeTest 47/0, V2ConformanceTest 104/0, money smoke (Decimal preserved, shorthand+statics+3-arg) — FrontendBridgeTest (Currency green) + FULL
+      money/payments suite (NO 61→25 cascade) + V2ConformanceTest, then land.
+
+**B. int-width (Conformance job — `deep-tail-recursion`) — LARGE, language-semantics.**
+ssc `Int` is documented 64-bit and the interpreter + v2 VM honor it, but JS AND
+JVM codegen treat Int as 32-bit UNIVERSALLY (measured: non-TCO `100000*100000` →
+JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
+(interop, perf, every numeric test, output formatting) — NOT a bolt-on.
+- [ ] **int-1 decision+scope** — confirm the intended contract: (A) Int is 64-bit
+      everywhere → JVM emit ssc Int → Scala `Long`, JS drop int32 truncation
+      (float64 to 2^53; BigInt for full 64-bit) — measure blast radius on full
+      conformance FIRST; or (B) codegen Int is native-32-bit by design → `Long` is
+      the 64-bit type, and deep-tail-recursion is over-specified (use Long / scope).
+      Owner decision gates int-2. Do NOT unilaterally change Int width.
+- [ ] **int-2 implement (pending int-1)** — whichever direction int-1 picks.
+
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
 Requirements source: busi `src/v2/specs/frontend-on-scalascript.md` (owner 2026-07-06). busi is the
