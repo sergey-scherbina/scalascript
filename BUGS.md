@@ -1,5 +1,31 @@
 # Bug tracker
 
+## sscpkg-loader-temp-tree-leak — every CLI process leaves extracted plugin directories
+
+**Status:** open (2026-07-10).
+
+- **Found by:** codex while running the TI-2 assembled-CLI corpus baselines; the
+  host temp directory reached tens of thousands of `sscpkg-*-intrinsics*`
+  entries and eventually failed plugin loading with `No space left on device`.
+- **Real-harness repro:** create an empty sandbox and run
+  `JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=<sandbox> bin/ssc run
+  examples/hello.ssc`; after the JVM exits, `<sandbox>` still contains one
+  non-empty extraction directory per packaged plugin.
+- **Expected:** extracted intrinsic/source trees live for at most the CLI JVM
+  lifetime and are gone after process exit.
+- **Root cause:** `SscpkgLoader.load` creates the root with `os.temp.dir`, whose
+  default `deleteOnExit=true` registers only the then-empty directory. It later
+  writes intrinsic JAR children without registering them. JVM shutdown cannot
+  delete the non-empty root, so every invocation leaks the whole tree. The
+  analogous `extractSources` path also creates unregistered descendants.
+- **Fix direction:** register every extracted file and nested directory for
+  reverse-order deletion (or own an explicit recursive shutdown cleanup), while
+  preserving the paths for the lifetime of URL classloaders/callers. Add a
+  subprocess/assembled-CLI regression that asserts an isolated temp root is
+  empty after exit.
+- **Owner/slice:** urgent `v21-ti-sscpkg-temp-lifecycle`, before more corpus
+  sweeps and the slim/plugin-runtime work.
+
 ## v2-bytecode-x402-unhandled-op-success — bytecode lane exits 0 with unresolved `Wallets.metaMask` op
 
 **Status:** open (2026-07-10).
