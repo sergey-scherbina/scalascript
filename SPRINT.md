@@ -90,8 +90,11 @@ spec: `specs/v2.1-toolchain-independence.md`. Active claim:
       same static/runtime dependency gates. `9798dfc5c` added core-free typed
       JSON with total navigation, strict/tolerant parsing, exact decimals,
       stringify/lookup compatibility, 3/3 provider tests, identical assembled
-      VM/ASM JSON output, and clean static/runtime dependency gates. Next:
-      migrate HTTP/SQL/UI with feature-specific smokes.
+      VM/ASM JSON output, and clean static/runtime dependency gates.
+      `69649de16` added the core-free JDK HTTP client/streaming configuration,
+      `Response`/JSON/cache values, 3/3 loopback/provider tests, identical
+      assembled VM/ASM output, and an explicit negative diagnostic instead of a
+      server fallback. Next: add the HTTP server-host SPI, then migrate SQL/UI.
 - [ ] **v21-ti-asm-artifact-pipeline** — promote `v2JvmBytecode` from in-memory
       `defineClass` runner to deterministic `.class`/JAR output with runtime
       metadata, multi-module linking, source mapping, plugin packaging, and a

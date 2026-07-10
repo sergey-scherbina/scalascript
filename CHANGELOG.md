@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native HTTP client and Response values moved off v1
+
+The standard native provider graph now owns JDK outbound HTTP, streaming line
+callbacks, base URL/timeout/retry state, `Response` builders, shared JSON
+serialization, and cache helpers. Loopback tests and assembled VM/ASM smokes are
+green; server calls fail with a bounded server-host-SPI diagnostic instead of
+loading the compatibility bridge or succeeding silently.
+
 ## 2026-07-10 — typed JSON moved onto the v2 native provider boundary
 
 The native VM/direct-ASM path now parses, navigates, looks up, and serializes
