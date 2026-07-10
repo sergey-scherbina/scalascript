@@ -25,6 +25,7 @@ object JvmByteGen:
   private val VAL   = "ssc/Value"
   private val INTV  = "ssc/Value$IntV"
   private val LCELL = "ssc/Value$LongCellV"
+  private val DCELL = "ssc/Value$DoubleCellV"
   private val OBJ   = "java/lang/Object"
   private val GEN   = "ssc/gen/Entry"
   private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
@@ -530,7 +531,9 @@ object JvmByteGen:
 
   private def genBoolBranchFalse(t: Term, ctx: Ctx, falseLabel: Label): Boolean = t match
     case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) =>
-      genLongCmpFalse(op, a, b, ctx, falseLabel)
+      // Long attempt emits nothing when inapplicable (guard short-circuits before emit),
+      // so `||` safely falls through to the Double (dcell) comparison path.
+      genLongCmpFalse(op, a, b, ctx, falseLabel) || genDoubleCmpFalse(op, a, b, ctx, falseLabel)
     case _ => false
 
   private def genLongCmpValue(op: String, a: Term, b: Term, ctx: Ctx): Boolean =
@@ -540,6 +543,77 @@ object JvmByteGen:
       val falseL = new Label()
       val endL = new Label()
       genLongCmpFalse(op, a, b, ctx, falseL)
+      mv.visitInsn(Opcodes.ICONST_1)
+      mv.visitJumpInsn(Opcodes.GOTO, endL)
+      mv.visitLabel(falseL)
+      mv.visitInsn(Opcodes.ICONST_0)
+      mv.visitLabel(endL)
+      callZ(mv, "boolV")
+      true
+
+  // ── Unboxed Double (dcell) machinery — the twin of the Long/lcell path above.
+  // Restricted to the ops the VM's float fast path (arithFast) computes, so the two
+  // lanes stay bit-identical: + - * / (arith) and < <= > >= (compare). % / == / != on
+  // floats fall to the boxed Emit.arith here (as they do in the VM).
+  private def doubleArithOpcode(op: String): Int = op match
+    case "+" => Opcodes.DADD
+    case "-" => Opcodes.DSUB
+    case "*" => Opcodes.DMUL
+    case "/" => Opcodes.DDIV
+    case _   => throw new Unsupported(s"double-arith:$op")
+
+  private def isDoubleCmp(op: String): Boolean =
+    op == "<" || op == "<=" || op == ">" || op == ">="
+
+  private def canDouble(t: Term): Boolean = t match
+    case Term.Lit(Const.CFloat(_)) => true
+    case Term.Prim("dcell.get", List(Term.Local(_))) => true
+    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+        if op.length == 1 && "+-*/".contains(op) =>
+      canDouble(a) && canDouble(b)
+    case _ => false
+
+  private def genDouble(t: Term, ctx: Ctx): Unit =
+    val mv = ctx.mv
+    t match
+      case Term.Lit(Const.CFloat(d)) =>
+        mv.visitLdcInsn(d)
+      case Term.Prim("dcell.get", List(Term.Local(i))) =>
+        loadLocalValue(i, ctx)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, DCELL)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, DCELL, "v", "()D", false)
+      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+          if op.length == 1 && "+-*/".contains(op) && canDouble(a) && canDouble(b) =>
+        genDouble(a, ctx)
+        genDouble(b, ctx)
+        mv.visitInsn(doubleArithOpcode(op))
+      case other =>
+        throw new Unsupported(s"double:${other.getClass.getSimpleName}")
+
+  private def genDoubleCmpFalse(op: String, a: Term, b: Term, ctx: Ctx, falseLabel: Label): Boolean =
+    if !isDoubleCmp(op) || !canDouble(a) || !canDouble(b) then false
+    else
+      val mv = ctx.mv
+      genDouble(a, ctx)
+      genDouble(b, ctx)
+      // NaN-correct match to the VM (`x < y` is false for NaN): DCMPG for < <= (NaN→+1),
+      // DCMPL for > >= (NaN→-1) — the javac convention. Same IF* jump table as LCMP.
+      mv.visitInsn(if op == "<" || op == "<=" then Opcodes.DCMPG else Opcodes.DCMPL)
+      val jump = op match
+        case "<"  => Opcodes.IFGE
+        case "<=" => Opcodes.IFGT
+        case ">"  => Opcodes.IFLE
+        case ">=" => Opcodes.IFLT
+      mv.visitJumpInsn(jump, falseLabel)
+      true
+
+  private def genDoubleCmpValue(op: String, a: Term, b: Term, ctx: Ctx): Boolean =
+    if !isDoubleCmp(op) || !canDouble(a) || !canDouble(b) then false
+    else
+      val mv = ctx.mv
+      val falseL = new Label()
+      val endL = new Label()
+      genDoubleCmpFalse(op, a, b, ctx, falseL)
       mv.visitInsn(Opcodes.ICONST_1)
       mv.visitJumpInsn(Opcodes.GOTO, endL)
       mv.visitLabel(falseL)
@@ -900,11 +974,24 @@ object JvmByteGen:
         genLong(body, ctx)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LCELL, "v_$eq", "(J)V", false)
         call0(mv, "unitV")
+      case t @ Term.Prim("dcell.get", List(Term.Local(_))) if canDouble(t) =>
+        genDouble(t, ctx)
+        callD(mv, "floatV")
+      case Term.Prim("dcell.set", List(Term.Local(c), body)) if canDouble(body) =>
+        loadLocalValue(c, ctx)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, DCELL)
+        genDouble(body, ctx)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, DCELL, "v_$eq", "(D)V", false)
+        call0(mv, "unitV")
       case t @ Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
         if genLongCmpValue(aop, a, b, ctx) then ()
         else if canLong(t) then
           genLong(t, ctx)
           callJ(mv, "intV")
+        else if genDoubleCmpValue(aop, a, b, ctx) then ()
+        else if canDouble(t) then
+          genDouble(t, ctx)
+          callD(mv, "floatV")
         else
           mv.visitLdcInsn(aop); gen(a, ctx); gen(b, ctx)
           mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "arith", s"(Ljava/lang/String;L$VAL;L$VAL;)L$VAL;", false)

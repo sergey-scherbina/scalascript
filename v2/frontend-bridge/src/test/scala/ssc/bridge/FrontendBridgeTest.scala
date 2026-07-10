@@ -705,6 +705,27 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(runCore(empty) == Value.IntV(7))
   }
 
+  test("v2 bytecode unboxed double loop (dcell) matches the VM") {
+    val src =
+      """def compute(): Double = {
+        |  var sum: Double = 0.0
+        |  var i: Double = 0.0
+        |  while (i < 5.0) {
+        |    sum = sum + i
+        |    i = i + 1.0
+        |  }
+        |  sum
+        |}
+        |compute()
+        |""".stripMargin
+    assert(runBytecode(src) == Value.FloatV(10.0)) // 0+1+2+3+4
+    assert(run(src) == Value.FloatV(10.0))         // VM agrees
+    // dcell must actually be chosen for the float vars (else this exercises `cell`, not the
+    // unboxed path): the converted IR should contain dcell prims.
+    val prog = FrontendBridge.convertSource(src)
+    assert(prog.toString.contains("dcell"), "expected dcell lowering for Double vars")
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }

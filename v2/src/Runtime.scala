@@ -57,6 +57,9 @@ object Value:
   // Mutable long cell: avoids IntV boxing on every cell.set in tight arithmetic loops.
   // Lowered from `var x: Long = 0` via `lcell.new`.
   final class LongCellV(var v: Long)                  extends Value
+  // Mutable double cell: the Double twin of LongCellV — avoids FloatV boxing on every
+  // cell.set in tight float loops. Lowered from `var x: Double = 0.0` via `dcell.new`.
+  final class DoubleCellV(var v: Double)              extends Value
 
 object Runtime:
   import Value.*
@@ -2144,6 +2147,10 @@ object Prims:
     case "lcell.new" => a => new LongCellV(asInt1(a(0)))
     case "lcell.get" => a => IntV(a(0).asInstanceOf[LongCellV].v)
     case "lcell.set" => a => a(0).asInstanceOf[LongCellV].v = asInt1(a(1)); UnitV
+    // Double cell: mutable double without FloatV boxing per store (tight float loops)
+    case "dcell.new" => a => new DoubleCellV(asFloat1(a(0)))
+    case "dcell.get" => a => FloatV(a(0).asInstanceOf[DoubleCellV].v)
+    case "dcell.set" => a => a(0).asInstanceOf[DoubleCellV].v = asFloat1(a(1)); UnitV
     // I/O [eff]
     case "io.print"   => a => out(a(0), Console.out); UnitV
     case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
@@ -3176,6 +3183,8 @@ object Prims:
     case "cell.new" => Some(v  => ForeignV(scala.Array[Value](v)))
     case "lcell.get"=> Some(c  => IntV(c.asInstanceOf[LongCellV].v))
     case "lcell.new"=> Some(v  => new LongCellV(asInt1(v)))
+    case "dcell.get"=> Some(c  => FloatV(c.asInstanceOf[DoubleCellV].v))
+    case "dcell.new"=> Some(v  => new DoubleCellV(asFloat1(v)))
     case "i.neg"    => Some { case IntV(n) => IntV(-n);  case FloatV(d) => FloatV(-d); case v => IntV(-asInt1(v)) }
     case "i.not"    => Some { case IntV(n) => IntV(~n);  case v => IntV(~asInt1(v)) }
     case "not"      => Some { case BoolV(b) => BoolV(!b); case v => sys.error(s"not: not Bool: ${Show.show(v)}") }
@@ -3274,6 +3283,9 @@ object Prims:
     case "lcell.set"=> Some { (c, v) => v match
       case op @ DataV("Op", _) => liftOverOp(op, x => { c.asInstanceOf[LongCellV].v = asInt1(x); UnitV })
       case _ => c.asInstanceOf[LongCellV].v = asInt1(v); UnitV }
+    case "dcell.set"=> Some { (c, v) => v match
+      case op @ DataV("Op", _) => liftOverOp(op, x => { c.asInstanceOf[DoubleCellV].v = asFloat1(x); UnitV })
+      case _ => c.asInstanceOf[DoubleCellV].v = asFloat1(v); UnitV }
     case "map.get"  => Some { (m, k) => asMap(m).get(k).fold(none)(some) }
     case "map.has"  => Some { (m, k) => BoolV(asMap(m).contains(k)) }
     case "map.del"  => Some { (m, k) => asMap(m).remove(k); UnitV }
@@ -3312,6 +3324,9 @@ object Prims:
     case v => use(v)
 
   private def asInt1(v: Value): Long = v match { case IntV(n) => n; case x => sys.error(s"expected Int, got ${Show.show(x)}") }
+  // Double coercion for dcell.new/set — accepts Int too (a double var assigned an int
+  // literal, e.g. `x = 5`), matching the VM's Int→Float widening in arithFast.
+  private def asFloat1(v: Value): Double = v match { case FloatV(d) => d; case IntV(n) => n.toDouble; case x => sys.error(s"expected Double, got ${Show.show(x)}") }
 
   // numeric dispatch helpers: promote to Float when either operand is FloatV
   private def numBin(a: List[Value], fi: (Long, Long) => Long, ff: (Double, Double) => Double): Value =
@@ -3592,3 +3607,4 @@ object Show:
       val r = tryForeign(h)
       if r == null then "<foreign>" else r
     case c: LongCellV => s"<lcell:${c.v}>"
+    case c: DoubleCellV => s"<dcell:${c.v}>"

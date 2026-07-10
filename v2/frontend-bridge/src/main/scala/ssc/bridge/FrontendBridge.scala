@@ -1724,6 +1724,7 @@ object FrontendBridge:
         val shared = topLevel && names.headOption.exists(sharedTopVars.contains)
         val (cellOp, prefix) =
           if !shared && isIntLit(rhs) then ("lcell.new", "@@")
+          else if !shared && isFloatLit(rhs) then ("dcell.new", "@#")
           else                             ("cell.new",  "@")
         val cellName = names.headOption.map(n => s"$prefix$n").getOrElse("@_")
         val body = convertBlock(rest, cellName :: scope, topLevel)
@@ -2077,9 +2078,11 @@ object FrontendBridge:
     if i >= 0 then CT.Local(i)
     else
       val lcell = scope.indexOf(s"@@$name")
+      val dcell = scope.indexOf(s"@#$name")
       val cell  = scope.indexOf(s"@$name")
       val arr   = scope.indexOf(s"##$name")
       if lcell >= 0 then CT.Prim("lcell.get", List(CT.Local(lcell)))
+      else if dcell >= 0 then CT.Prim("dcell.get", List(CT.Local(dcell)))
       else if cell >= 0 then CT.Prim("cell.get", List(CT.Local(cell)))
       else if arr >= 0 then CT.Local(arr)  // array val — return raw local
       else if globalVarNames.contains(name) then
@@ -2107,9 +2110,11 @@ object FrontendBridge:
     a.lhs match
       case Term.Name(name) =>
         val lcell = scope.indexOf(s"@@$name")
+        val dcell = scope.indexOf(s"@#$name")
         val cell  = scope.indexOf(s"@$name")
         val rhs   = convertExpr(a.rhs, scope)
         if lcell >= 0 then CT.Prim("lcell.set", List(CT.Local(lcell), rhs))
+        else if dcell >= 0 then CT.Prim("dcell.set", List(CT.Local(dcell), rhs))
         else if cell >= 0 then CT.Prim("cell.set", List(CT.Local(cell), rhs))
         else CT.Prim("cell.set", List(CT.Global(s"@$name"), rhs))
       case Term.Apply.After_4_6_0(fn, argClause) =>
@@ -2961,6 +2966,9 @@ object FrontendBridge:
   private def isIntLit(t: Term): Boolean = t match
     case Lit.Int(_) | Lit.Long(_) => true
     case _                        => false
+  private def isFloatLit(t: Term): Boolean = t match
+    case Lit.Double(_) | Lit.Float(_) => true
+    case _                            => false
 
   private def varRhs(v: Defn.Var): Term = v match
     case Defn.Var.After_4_7_2(_, _, _, body: Term) => body
