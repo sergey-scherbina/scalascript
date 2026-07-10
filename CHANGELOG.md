@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — binder match guards preserve ordered fall-through
+
+The self-hosted parser/lowerer now represents `case x if cond =>` and guarded
+wildcards explicitly, evaluates the scrutinee once, scopes the binder in guard
+and body, and falls through to later literal/constructor/default arms in source
+order. A classification fixture is byte-identical on native VM/direct ASM;
+`data-types.ssc` is sentinel-clear/checker-OK. The corpus has 77 sentinels and 9
+standard gaps; native-entry, taxonomy, zero-difference parity, and fresh 9/9
+conformance pass. Landed `91a955171`.
+
 ## 2026-07-10 — layout closes multiline lambdas before call delimiters
 
 The self-hosted offside pass now tracks parentheses and brackets alongside
@@ -77,15 +87,15 @@ taxonomy smoke, parity, and affected conformance gates pass. Landed
 
 ## 2026-07-10 — every native parser sentinel has a release category
 
-The release join now classifies all 78 `_err` rows from the native-front and
-standard parity reports: 10 standard deterministic parser gaps, 26
+The release join now classifies all 77 `_err` rows from the native-front and
+standard parity reports: 9 standard deterministic parser gaps, 26
 server/integration documents, 36 backend-specific documents, 5 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
 entrypoints before execution; backend-only fenced documents are source-classified
 without overrides. VM/ASM parity is 10 identical, 60 honest both-fail, 125
-skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `6440860f7`).
+skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `91a955171`).
 
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 
