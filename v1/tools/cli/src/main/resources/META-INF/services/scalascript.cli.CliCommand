@@ -33,6 +33,7 @@ scalascript.cli.EmitIrCmd
 scalascript.cli.RunJvmCmd
 scalascript.cli.RunJsCmd
 scalascript.cli.CompileJvmCmd
+scalascript.cli.BuildJvmCmd
 scalascript.cli.CompileJsCmd
 scalascript.cli.CompileRuntimeCmd
 scalascript.cli.CheckWithIfaceCmd

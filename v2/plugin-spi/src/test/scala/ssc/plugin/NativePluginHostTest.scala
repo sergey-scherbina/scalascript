@@ -96,3 +96,16 @@ class NativePluginHostTest extends AnyFunSuite:
     assert(ssc.V2EffectContext.peek("Test").isEmpty)
     assert(ssc.V2EffectContext.peek("Boom").isEmpty)
   }
+
+  test("artifact runtime initializes argv and preserves unresolved-result failures") {
+    val previous = ssc.Runtime.argv
+    try
+      NativeArtifactRuntime.initialize(Array("--", "one", "two"))
+      assert(ssc.Runtime.argv == List("one", "two"))
+
+      val error = intercept[RuntimeException] {
+        NativeArtifactRuntime.report(Value.DataV("Stub", Vector(Value.StrV("missing"))))
+      }
+      assert(error.getMessage == "unresolved runtime dispatch: missing")
+    finally ssc.Runtime.argv = previous
+  }

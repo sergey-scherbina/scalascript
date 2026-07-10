@@ -27,6 +27,7 @@ object JvmByteGen:
   private val LCELL = "ssc/Value$LongCellV"
   private val OBJ   = "java/lang/Object"
   private val GEN   = "ssc/gen/Entry"
+  private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
 
   private val metafactory = new Handle(
     Opcodes.H_INVOKESTATIC,
@@ -88,6 +89,36 @@ object JvmByteGen:
 
     // entry(): compiled entry term with an EMPTY frame
     emitBody(g, "entry", p.entry, paramIsEnv = false)
+
+    // A persisted class is directly executable. Runtime/plugin initialization
+    // stays in the core-free native artifact helper; generated code only owns
+    // the stable JVM main convention and its own install/entry calls.
+    val mainMv = cw.visitMethod(
+      Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+      "main",
+      "([Ljava/lang/String;)V",
+      null,
+      null)
+    mainMv.visitCode()
+    mainMv.visitVarInsn(Opcodes.ALOAD, 0)
+    mainMv.visitMethodInsn(
+      Opcodes.INVOKESTATIC,
+      ARTIFACT,
+      "initialize",
+      "([Ljava/lang/String;)V",
+      false)
+    mainMv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, "install", "()V", false)
+    mainMv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, "entry", s"()L$VAL;", false)
+    mainMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "unroll", s"(L$VAL;)L$VAL;", false)
+    mainMv.visitMethodInsn(
+      Opcodes.INVOKESTATIC,
+      ARTIFACT,
+      "report",
+      s"(L$VAL;)V",
+      false)
+    mainMv.visitInsn(Opcodes.RETURN)
+    mainMv.visitMaxs(0, 0)
+    mainMv.visitEnd()
 
     // install(): compiled ClosV for every top-level Lam def (overrides the
     // VM-compiled version in Emit.globalsRef; value defs stay VM-compiled)

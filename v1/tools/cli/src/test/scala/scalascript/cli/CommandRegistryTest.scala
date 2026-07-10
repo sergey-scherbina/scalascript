@@ -11,7 +11,7 @@ class CommandRegistryTest extends AnyFunSuite with Matchers:
     "emit-js", "emit-wasm", "emit-rust", "build-rust", "run-rust",
     "emit-openapi", "emit-spa", "emit-scala", "emit-spark",
     "submit", "emit-wc", "emit-interface", "emit-ir",
-    "run-jvm", "run-js", "compile-jvm", "compile-js", "compile-runtime",
+    "run-jvm", "run-js", "compile-jvm", "build-jvm", "compile-js", "compile-runtime",
     "check-with-iface", "link", "generate-facade", "info", "clean", "verify",
     "check-compat", "deps", "deploy", "package", "publish", "serve", "render",
     "build", "bundle", "new", "plugin", "install", "lock", "update", "search",
