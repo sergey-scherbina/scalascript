@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+- [ ] **v2-production-readiness-audit** - VERIFY/RECONCILE 2026-07-10:
+      after closing the layout/YAML and indent-demo blockers, run a bounded
+      production-readiness audit instead of starting speculative feature work.
+      Plan: stage the CLI with `scripts/sbtc "installBin"`, inspect current
+      open v2 BUGS/BACKLOG/claims for unresolved correctness blockers, run the
+      focused v2 gates that should stay green (`v2/conformance/check.sh`,
+      `tests/conformance/run.sh --only 'v2-*,indent-*' --no-memo`, selected
+      v2 e2e smoke scripts, and a small representative backend/source smoke if
+      cheap), then record either "no new actionable v2 production blocker found"
+      or queue exact follow-up bugs with repro/gates. Rejected scope: do not
+      pick `v2-auto-route-selector` unless a measurement shows explicit route
+      flags are insufficient; do not touch sibling stale worktrees
+      `v2-option-exists` or `v2-serve-view-frontend-default`. Done when gates,
+      blockers, and next-step decision are written to SPRINT/CHANGELOG and the
+      slice is pushed/released.
+
 - [x] **v2-indent-conformance-demos-skipped** - DONE 2026-07-10 in
       `886502d64` / `bcffa0019`: fixed the two indent layout demo cases that
       still crashed under direct v2 runs while the conformance harness skipped
