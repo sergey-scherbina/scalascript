@@ -1361,3 +1361,20 @@ net-negative ONLY because enum cases are skipped → `North` unbound). Slices:
       regressions. Shape/Tree still blocked on stdlib `math` + literal-pattern `case 0` (both
       PRE-EXISTING, non-parser gaps).
 - [ ] E5 (stretch) — subtypesOf registration so `case _: Shape` type-tests resolve on enums.
+
+## K62.14 — native literal patterns in match (parser-axis correctness) — 2026-07-10
+
+- [x] Integer/char/string/bool/float LITERAL patterns (`case 0`, `case '+'`, `case "s"`,
+      `case true`) were silently lowered as catch-all defaults (lowerMatch else-branch), so
+      `case 0 => a; case _ => b` always returned the LAST default (b). The front already
+      emits `("lpat", Pair(ty, v))`; the lower ignored it. Fix (ssc1-lower only): `hasLpat`
+      detects a literal match → `lowerLitArms` builds an `IrIf(__eq__(scrutinee, litIr))`
+      fallthrough chain (structural `__eq__`, all value types; vpat/wpat terminates; a ctor
+      arm becomes a one-arm IrMatch with the rest as default). Chars tokenize as int codes,
+      so char patterns are int lpat and are handled too.
+- [x] Verified: synthetic int + char (`sign 0/1/9`→zero/one/many, `op '+'/'-'/'*'`→
+      add/sub/other) all correct. Non-literal matches skip the new branch (unchanged).
+      The 3 corpus files with literal patterns (data-types, dsl-calc-parser,
+      actors-typed-remote-spawn) stay compound-blocked by UNRELATED gaps (Person case-class
+      match, Parser_regex/runActors plugins) — the fix is a correctness improvement, not a
+      corpus flip.
