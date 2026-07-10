@@ -350,6 +350,24 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       compatibility tier; close any correctness gap needed by `--v1` there.
       Done when `jdeps` for the standard launcher/runtime does not require
       `java.compiler` and standard conformance runs on a JRE-shaped module set.
+      - [ ] **TI-8.1 JRE-shaped module gate:** derive the standard runtime module
+            allowlist from the staged classpath, explicitly subtract
+            `java.compiler`/`jdk.compiler`, and run native VM, direct ASM,
+            representative provider families, and the generated artifact with
+            `java --limit-modules`. Assert the compiler modules are
+            unresolvable, scan `jdeps`, emit a stable TSV, and wire the gate
+            into CI before broad tests.
+      - [ ] **TI-8.2 default-cutover readiness:** rerun the portable native-front
+            and VM/ASM corpus reports after current self-hosted parser changes;
+            classify every remaining parser/checker sentinel or backend gap.
+            Fix only unclaimed standard deterministic blockers, preserving
+            explicit tools-tier categories and source-located failures.
+      - [ ] **TI-8.3 default launcher cutover:** once TI-4 parity is green, make
+            staged/self-installed `bin/ssc` use `StandardMain`, require
+            `ssc-tools` for every explicit compatibility/compiler surface, and
+            update launcher/CLI/docs regressions. Prove plain `ssc run`,
+            `--bytecode`, and `build-jvm` on the compiler-free module-limited
+            graph; retain bounded diagnostics rather than transparent fallback.
 - [ ] **v21-ti-negative-ci-and-release** — add CI lanes with scala-cli absent,
       compiler/scalameta jars removed, and `java.compiler` unavailable; run the
       portable native-front VM/ASM corpus gates plus representative plugin/server
