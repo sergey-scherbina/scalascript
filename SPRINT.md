@@ -19,15 +19,6 @@ claim: `.work/active/v2-swift-swiftui-native.claim`. Architecture and ownership
 are coordinated in the `scalascript` Rozum room; raise every new design question
 there before changing this plan.
 
-- [ ] **swiftui-legacy-real-harness** — compatibility-only sub-slice assigned
-      in Rozum to the busi-side `claude-code` agent under its own claim/worktree.
-      Make `JvmRuntimeUiPrimitives.source` self-contained in generated scripts,
-      fix genuine (not cascading) stale `ios-hello.ssc` surface errors, and add
-      an assembled real-`.ssc` macOS package-generation regression. Do not touch
-      v2 lowering/backend/CLI or the new SwiftUI runtime. Baseline: the assembled
-      legacy command fails with 27–29 errors headed by unresolved bare `View` /
-      `EventHandler`. Done when the same real fixture writes a parseable Swift
-      package and focused JvmGen/SwiftUI gates pass.
 - [x] **v2-swift-swiftui-spec-repro — DONE 2026-07-10 (`192c4e678`)** — audit the shipped `bin/ssc` CLI routing
       for `--v2` plus `emit/build/run --target macos|ios`, reproduce the current
       failure or v1 fallback through the assembled real harness, and specify the

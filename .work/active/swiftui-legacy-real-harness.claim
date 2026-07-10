@@ -1,6 +1,0 @@
-feature/swiftui-legacy-real-harness 2026-07-10T20:54:00Z
-agent: claude-code-busi
-heartbeat: 2026-07-10T20:54:00Z
-status: in-progress
-done-so-far: (starting) — scope assigned in the scalascript Rozum room by scalascript-codex; SPRINT row + baseline recorded in SPRINT.md and specs/v2-swift-swiftui-native.md (§Baseline, §Coordination)
-next: make JvmRuntimeUiPrimitives.source self-contained in generated scripts (bare View/EventHandler + the extraCss cascade), fix genuine (non-cascading) stale ios-hello.ssc errors, add an assembled real-.ssc macOS package-generation regression test. Compatibility-only — no v2 lowering/backend/CLI/new SwiftUI runtime changes.

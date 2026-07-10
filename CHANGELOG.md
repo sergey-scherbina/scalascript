@@ -4,6 +4,30 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — swiftui-legacy-real-harness: a real `.ssc` module now builds a native macOS/iOS package
+
+Compatibility-only sub-slice of `v2-swift-swiftui-native` (assigned in the
+`scalascript` Rozum room to the busi-side `claude-code` agent). `bin/ssc build
+--target macos <real .ssc file>` compiled through `JvmGen` for the first time
+ever with a genuinely parsed module rather than a hand-built Scala `View`
+literal, surfacing six independent, previously-invisible bugs across the
+hoisted `ui.primitives` import list (a stale `Signal` entry, six missing real
+names), the `frontendName == "swiftui"` preamble branch (missing the
+`text(String)` shadow-fix the non-swiftui branch already had), a duplicate
+`dataTableView` declaration, two `std/ui/lower.ssc` JVM-codegen-only type
+gaps (its intentional idempotent-passthrough catch-all, and a `forKeyedView`
+callback type-inference conflict), and an invalid-Swift double-brace bug in
+`SwiftUIEmitter`'s `ShowSignal` case. `examples/frontend/ios-hello/ios-hello.ssc`
+was rewritten off its stale aspirational DSL onto the real `std/ui` API and now
+builds and links a real executable. New regression `SwiftUiRealFixtureBuildTest`
+(gated on `assume(swiftAvailable)`) drives that fixture through
+`buildSwiftUIPackage(..., runSwiftBuild = true)` end to end — mirrors
+`RustGenCargoSmokeTest`'s "actually run the toolchain" gate. 118
+`frontendSwiftUI` + 26 `SwiftUIBuildCliTest` + 19 `std/ui`-touching conformance
+fixtures all still green. Full detail in `BUGS.md`'s `v2-swift-swiftui-native`
+entry. Landed `8d21fb298`..`d15d1e1df`. The v2-native Swift backend itself
+remains open under that claim.
+
 ## 2026-07-10 — standard VM and direct ASM have no one-sided corpus failures
 
 The self-hosted frontend now preserves multiline function-typed parameters,
