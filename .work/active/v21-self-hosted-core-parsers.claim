@@ -1,7 +1,7 @@
 feature/v21-self-hosted-core-parsers 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-10T17:47:49Z
+heartbeat: 2026-07-10T20:46:07Z
 status: in-progress
-done-so-far: dependency gates; pure JSON core; public JSON/HTTP cutover ed945466d with external-codec deletion proof
-next: implement the bounded self-hosted Frontmatter YAML Profile and native VM/direct-ASM corpus
-scope: additive pure YAML profile module and focused fixtures first; avoid the live TI-8 launcher/default-cutover files
+done-so-far: dependency gates; pure JSON core; public JSON/HTTP cutover ed945466d; pure Frontmatter YAML core 7a06d4a55 with VM/direct-ASM parity
+next: return parsed manifest/runtime config structurally from the self-hosted frontend and retire the standard host YAML reparse
+scope: NativeFrontmatter/SimpleYaml standard-path cutover plus frozen seed ABI and focused config fixtures; coordinate around live TI-8 launcher/default-cutover files
