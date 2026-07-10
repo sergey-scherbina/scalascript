@@ -4,17 +4,28 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-10 — native decimal literals accept separators before `L`
+
+The self-hosted lexer now treats `_` between decimal digits as part of one
+numeric token, removes separators before lowering, and then erases the existing
+`L`/`l` suffix. A real `100_00L` fixture prints `10000` identically on native VM
+and direct ASM. `international-bank-rails.ssc` is sentinel-clear/checker-OK and
+now reaches its honest missing-Swift-provider boundary; the full corpus drops
+from 93 to 92 sentinels and from 15 to 14 standard parser gaps. Native-entry,
+taxonomy smoke, parity, and affected conformance gates pass. Landed
+`4bcf6a976`.
+
 ## 2026-07-10 — every native parser sentinel has a release category
 
-The release join now classifies all 93 `_err` rows from the native-front and
-standard parity reports: 15 standard deterministic parser gaps, 35
+The release join now classifies all 92 `_err` rows from the native-front and
+standard parity reports: 14 standard deterministic parser gaps, 35
 server/integration documents, 38 backend-specific documents, 4 explicit
 compiler/target tools surfaces, and 1 nondeterministic external-I/O row.
 Reviewed overrides and category ceilings reject unknown growth or stale
 exceptions. Server detection now recognizes `serve {}` and named `serveX`
 entrypoints before execution; backend-only fenced documents are source-classified
 without overrides. VM/ASM parity is 10 identical, 60 honest both-fail, 125
-skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined in `c82913f7b`).
+skipped, and 0 mismatch/one-sided (`aa9b30f28`, refined through `4bcf6a976`).
 
 ## 2026-07-10 — v2 gains portable exact Decimal/Money and algebraic effects
 
