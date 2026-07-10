@@ -1463,10 +1463,19 @@ on plugin-free files are my fixable set. Gate every fix with `v2/conformance/che
         single-gap leverage (9 content-*/datatable/control-center files, via theme.ssc).
       Handed all repros to K62-owner (rozum 2026-07-10/71) + offered to take named-args
       end-to-end if they're clear on ssc1-front/ssc1-lower.
-- [ ] **nvm-3-decision** — pending K62 response: EITHER take named-args (parse `ident=` +
-      reorder-by-field-name in lower; unblocks 9 files) IF K62 is off those files, OR pivot
-      to a genuinely non-parser axis (perf bc-lane is build/OOM-risky under the current
-      high contention; evaluate before committing).
+- [x] **nvm-3-named-args** — DONE 2026-07-10 (`ba51b0295`, conformance 640/640). Took
+      named-args (K62 not active on ssc1-front, no formal claim, announced rozum /71).
+      ssc1-front `moreArgs` emits `narg` on `id =` (lexer already splits `==` as `op`, so
+      `x == 5` is safe); ssc1-lower reorders all-named case-class construction by declared
+      field order via a new `caseFieldOrderCell` (correct for OUT-OF-ORDER — verified
+      `Palette(secondary="b", primary="a")` → primary=a; loud-fails on bad label, never
+      silent). The 9 `primary`-blocked files (content-*/datatable/control-center) now clear
+      `primary` and advance to their plugin-global blockers (`signal`/
+      `contentToolkitOptionsWithSlots` — plugin axis, separate). Additive, in distinct code
+      regions from K62's pattern work; no clash.
+      Remaining native-front residue is now all K62 parser lane (enum multi-field variant
+      construction, type-param case class `Node[A]`, `summon`, dsl-mini-language) + plugin
+      globals (plugin-bridging axis).
 
 ## Разоблачённые exit-0 фикции (cdd032f03 unmask, диагнозы 2026-07-09)
 
