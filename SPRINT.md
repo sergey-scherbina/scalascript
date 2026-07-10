@@ -313,8 +313,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             owns plain/native VM, direct ASM, and `build-jvm` without importing
             v1 parser/AST/interpreter classes. Stage its thin JAR, native tower,
             and an explicit standard dependency allowlist under
-            `bin/lib/standard/`; point `bin/ssc` there while retaining the full
-            compatibility graph outside the standard classpath.
+            `bin/lib/standard/`; expose it first as `bin/ssc-standard` while
+            retaining the full compatibility graph outside the standard
+            classpath. Keep `bin/ssc` on the compatibility launcher until TI-8:
+            TI-4 parity is still open, so an earlier default flip would make
+            ordinary corpus/examples regress rather than form a green slice.
       - [ ] **TI-7.2 explicit tools entry:** stage `bin/ssc-tools` over the
             compatibility/runtime/compiler layout. Route only explicit
             `run --v1`/`--compat-frontend` requests from the standard launcher;
