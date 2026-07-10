@@ -1559,6 +1559,23 @@ on plugin-free files are my fixable set. Gate every fix with `v2/conformance/che
       gaps (module-loading, named-args, hex, str.replace) are all closed; the remaining ~140
       require K62's parser/dispatch expertise IN their actively-edited files — closing them
       here would clash with K62.12/6e8464ea8 in-flight work, so handed off rather than raced.
+- [x] **nvm-5-pluginfn-dispatch** — DONE 2026-07-10 (`895898bfd`, conformance 640/640). The
+      one plugin-fn slice cleanly MINE (VM, Runtime.scala — not ssc1-lower/K62, not plugin-SPI/
+      codex): native front emits `App(Global("f"),args)` for plugin function calls; when `f` is
+      a `V2PluginRegistry` op-handler and neither a user def nor a registered global, redirect to
+      `Prim("f",args)` — the IDENTICAL dispatch the bridge uses (Prims.resolve falls back to the
+      handler registry), 0-mismatch by construction, guard makes it only affect previously-unbound
+      names (can't regress). Resolves handler-registered intrinsics (spark et al.) on --native.
+      IMPACT: 0 corpus files flip to RUNS — the handler-registered intrinsics that now resolve
+      are all infra-bound both-fail files (spark→Dataset.of effect, indexeddb→IndexedDb.store;
+      --v2 also fails these). Still a correct capability closed. The BULK plugin-fn cluster
+      (aesGenKey/oauth/verifyEd25519 = v1 QualifiedName intrinsics NOT exposed as v2 Backend SPI,
+      so loadAll never registers them) is **codex's TI-5 native-SPI axis** — handed to codex
+      (rozum /89). Language-prims (Seq/null/System/math, K62) also don't flip files standalone
+      (compound blockers), deprioritized vs the 101-file parser `_err` lever.
+      HONEST CLOSE: every native-front gap that flips a corpus file now requires either K62's
+      parser tail (101) or codex's TI-5 SPI migration (~40); all my safe, cleanly-owned slices
+      are landed (module-loading, named-args, hex, str.replace, pluginfn-op-handler dispatch).
 
 ## Разоблачённые exit-0 фикции (cdd032f03 unmask, диагнозы 2026-07-09)
 
