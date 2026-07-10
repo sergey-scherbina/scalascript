@@ -113,8 +113,8 @@ before `done`.
 
 ## v21-standard-ui-fetch-json-vm-arity — native VM rejects a five-argument UI helper accepted by ASM
 
-**Status:** open (2026-07-10); deferred while the active
-`v21-self-hosted-core-parsers` claim owns the public JSON/HTTP reuse cutover.
+**Status:** fixed (2026-07-10, `d6b9ae9ce`); waiting for human confirmation
+before `done`.
 
 - **Found by:** codex from the TI-8.2 standard corpus sweep.
 - **Real-harness repro:** `bin/ssc-standard run examples/ui-fetch-json.ssc`
@@ -122,11 +122,23 @@ before `done`.
   command with `--bytecode` prints `fetch-json:ok` and exits zero.
 - **Expected:** the public five-argument `fetchJsonAction` helper has identical
   checked arity and behavior on VM and direct ASM.
-- **Root-cause direction:** after the JSON cutover owner releases the surface,
-  compare staged `std/ui/fetch-json.ssc` currying/lowering with VM application
-  dispatch and the ASM multi-argument path.
-- **Done-when:** both assembled lanes print the same two lines, the focused
-  parity row is `identical`, and JSON/UI/provider gates remain green.
+- **Root cause:** the self-hosted type skipper balanced `[...]` but not nested
+  `(...)`. In a multiline parameter list, the inner `)` of `() => String`
+  prematurely ended the outer list, so imported fetch helpers lost parameters
+  and their bodies. The VM then honestly rejected the malformed call while
+  direct ASM omitted the VM's closure-arity check and falsely succeeded. After
+  both compiler defects were corrected, the standard UI provider also needed
+  explicit core-free `fetchUrlSignal`, `fetchAction`, and `emptyHeaders`
+  declarative values instead of a v1 fallback.
+- **Fix:** balance parentheses while skipping function types, enforce closure
+  arity in `Emit.app`, and construct readable static fetch signals/actions in
+  the native UI provider while leaving actual network execution to an emitted
+  browser runtime.
+- **Verified:** both assembled lanes print the identical structured body plus
+  `fetch-json:ok`; focused strict parity is 1 identical/0 errors. A multiline
+  function-parameter fixture, bytecode arity negative test, UI provider test,
+  native-entry, standard, slim, JRE-module, artifact, JSON-cutover, and affected
+  conformance gates all pass.
 
 ## v21-native-front-dsl-pair-match-crash — valid tuple pattern aborts the self-hosted frontend
 

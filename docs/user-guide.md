@@ -3882,6 +3882,12 @@ val refresh = signal[Int]("refresh", 0)
 actionButton(fetchAction("POST", "/api/todos", text, refresh), "Add")
 ```
 
+On the compiler-free standard JVM/static lane, `fetchUrlSignal` and
+`fetchAction` remain declarative: helpers can construct and read the values
+without loading the compatibility frontend, while actual network requests are
+performed only by the emitted browser/runtime target. A fetch signal therefore
+has an empty initial value during static JVM evaluation.
+
 #### `fetchActionClear` — submit and clear input
 
 ```scalascript
