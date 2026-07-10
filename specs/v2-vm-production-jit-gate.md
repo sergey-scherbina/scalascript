@@ -150,3 +150,28 @@ effect-handler family (`effects-state`, `effects-nondet`, `async-tasks`,
 clean `origin/main` `ab78c6cac` reproduces the same failures, so this is tracked
 separately as `BUGS.md` / SPRINT item `v2-vm-effect-handlers-regression` and is
 not caused by the arith-loop recognizer.
+
+Final update 2026-07-10: the remaining representative route-policy blocker is
+closed by the later shipped slices:
+
+- `specs/v2-pattern-match-heavy-production-profile.md` made the VM
+  `pattern-match-heavy` route match the Rust source route (`v2=0.266 ms`,
+  `v2-rust=0.265 ms` in the recorded final row).
+- `specs/v2-four-row-route-policy-sweep.md` reran the four representative
+  public routes and recorded the production policy: keep the VM as the global
+  default; use bytecode/JVM source for recursion-heavy deployments; use VM/Rust
+  source for scalar-loop and pattern-heavy rows.
+
+This closes the `v2-vm-production-jit-gate` backlog item as a route-policy gate.
+Pure-VM recursion remains a known non-default performance gap only for
+deployments that forbid bytecode/source routes. Automatic route selection is a
+separate can-wait follow-up (`v2-auto-route-selector`), not a production blocker
+while explicit public route flags are available.
+
+Reconcile sanity check in `feature/v2-vm-production-jit-gate`:
+
+- `scripts/sbtc "installBin"` passed.
+- `scripts/bench v2-backends pattern-match-heavy` reported `v2=0.266 ms`,
+  `v2-jvm=10.4 ms`, `v2-rust=0.293 ms`.
+- `tests/conformance/run.sh --only 'list-companion' --no-memo` passed 1/1
+  across INT/JS/JVM.
