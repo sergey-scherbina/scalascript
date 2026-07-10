@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-10T15:09:15Z
+heartbeat: 2026-07-10T15:28:14Z
 status: in-progress
-done-so-far: TI-1/TI-2/TI-3; TI-4 slices; TI-5 representative native JSON/HTTP/SQL/UI/State boundary complete through 250a52da1
-next: fix reproduced eager plugin-val ordering and explicit-brace newline parsing, then implement TI-6 deterministic ASM artifact pipeline
+done-so-far: TI-1/TI-2/TI-3; TI-4 slices incl. ordered immutable init 5db137a20; TI-5 representative native JSON/HTTP/SQL/UI/State complete
+next: implement TI-6 deterministic checked-CoreIR build-jvm artifact pipeline
