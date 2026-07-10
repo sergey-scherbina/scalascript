@@ -354,6 +354,13 @@ display paths; absolute checkout paths are never embedded.
 This command is distinct from legacy `compile-jvm --bytecode`, which produces a
 `.scjvm` compatibility artifact through generated Scala and compiler tooling.
 
+Release/CI verification uses
+`tests/e2e/v21-build-jvm-release-gate.sh --report <file.tsv>`. It rebuilds from
+two unrelated clean source directories, compares bytes, executes representative
+native providers with compiler commands hidden, and rejects compiler,
+Scalameta, compatibility-bridge, and v1 frontend/runtime references with
+`javap`/`jdeps` inspection.
+
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
 emits v2 CoreIR JavaScript, and passes trailing args through Node's
