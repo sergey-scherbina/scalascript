@@ -1376,7 +1376,8 @@ derives Functor      // map over type parameter
 
 - `Option[A]` — optional values
 - `Either[E, A]` — error handling; `mapRight`, `flatMapRight`, `foldEither`
-- `List[A]` — immutable list with full combinators
+- `List[A]` — immutable list with full combinators; `xs :+ x` returns a new
+  `List[A]` with `x` appended after every element of `xs`
 - `Map[K, V]` — immutable map
 - `Set[A]` — immutable set
 - `Tuple2[A, B]` through `Tuple22`
@@ -2061,10 +2062,11 @@ From lowest to highest:
 6. `&`
 7. `==`, `!=`
 8. `<`, `>`, `<=`, `>=`
-9. `+`, `-`
-10. `*`, `/`, `%`
-11. Unary `+`, `-`, `!`, `~`
-12. Postfix operators (including `.!`)
+9. `++`, `:+`
+10. `+`, `-`
+11. `*`, `/`, `%`
+12. Unary `+`, `-`, `!`, `~`
+13. Postfix operators (including `.!`)
 
 ## Appendix C: Grammar Summary
 
