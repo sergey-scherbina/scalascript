@@ -286,6 +286,9 @@ deduplicates normalized module paths, accepts multiple source files before
 `--`, and forwards only the values after `--` as program arguments. Prose and
 inline-code links are not imports. There is no transparent fallback: use
 `--compat-frontend` when a source still hits a documented native parity gap.
+Both v2 VM and direct-ASM runners treat a top-level missing-dispatch `Stub` or
+an unresolved dotted runtime-effect `Op` as a nonzero runtime failure. They are
+diagnostics, not printable successful program values.
 
 `ssc run-js --v2 <file.ssc> [args...]` is an opt-in v2 JS lane. It keeps the
 legacy `run-js` path unchanged, but routes the source through FrontendBridge,
