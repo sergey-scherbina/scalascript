@@ -1,6 +1,0 @@
-feature/v2-production-readiness-audit 2026-07-10T03:14:17Z
-agent: codex
-heartbeat: 2026-07-10T03:14:37Z
-status: in-progress
-done-so-far: worktree created
-next: write SPRINT audit plan, run bounded v2 gates, record findings
