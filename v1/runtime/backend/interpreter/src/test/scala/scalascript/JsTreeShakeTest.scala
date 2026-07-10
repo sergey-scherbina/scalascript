@@ -361,3 +361,42 @@ class JsTreeShakeTest extends AnyFunSuite:
     assert(containsConstDecl(js, "Config"), "Config is referenced by main — must be kept")
     assert(!containsConstDecl(js, "Unused"), "Unused is never referenced — should be pruned")
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 17. Regression: an enum referenced only via a BARE parameterless case name
+  //     must be kept. Nullary case names were not registered as reachability
+  //     edges (only parametrized ones were), so an all-nullary enum used via a
+  //     bare case name was pruned wholesale — `const North` never emitted, and
+  //     Node failed at runtime with `ReferenceError: North is not defined`.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  test("enum reachable via a bare parameterless case reference is kept") {
+    val source =
+      """# App
+        |```scalascript
+        |enum Direction:
+        |  case North
+        |  case South
+        |def main() = println(North)
+        |```
+        |""".stripMargin
+
+    val js = withShake(source)
+    assert(containsConstDecl(js, "North"),     "North is referenced by main via bare name — its enum must be kept")
+    assert(containsConstDecl(js, "Direction"), "the Direction companion must be kept too")
+  }
+
+  test("comma-form parameterless cases (RepeatedEnumCase) keep the enum via bare ref") {
+    val source =
+      """# App
+        |```scalascript
+        |enum Suit:
+        |  case Hearts, Spades
+        |def main() = println(Spades)
+        |```
+        |""".stripMargin
+
+    val js = withShake(source)
+    assert(containsConstDecl(js, "Spades"), "Spades (comma-form nullary case) referenced by main — enum must be kept")
+    assert(containsConstDecl(js, "Suit"),   "the Suit companion must be kept")
+  }

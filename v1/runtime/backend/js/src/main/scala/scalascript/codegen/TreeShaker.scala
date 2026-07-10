@@ -96,15 +96,27 @@ object TreeShaker:
           val name = d.name.value
           allDeclared += name
           // enum cases are included when the enum is reachable
-          val caseTrees = d.templ.body.stats.collect { case ec: Defn.EnumCase => ec: Tree }
+          val caseTrees = d.templ.body.stats.collect {
+            case ec: Defn.EnumCase          => ec: Tree
+            case rec: Defn.RepeatedEnumCase => rec: Tree
+          }
           declBodies(name) = caseTrees
-          // Also register each parametrized case name so that direct references to
-          // `Circle` / `Square` etc. make the enclosing enum reachable.
-          d.templ.body.stats.collect { case ec: Defn.EnumCase if ec.ctor.paramClauses.exists(_.values.nonEmpty) => ec.name.value }
-            .foreach { caseName =>
-              allDeclared += caseName
-              declBodies(caseName) = List(Term.Name(name))  // case reachability → enum reachability
-            }
+          // Register EVERY case name — parametrized (`Circle`) AND parameterless
+          // (`North`), including comma-form `case North, South` (RepeatedEnumCase)
+          // — so a direct reference to any case makes the enclosing enum reachable.
+          // Parameterless cases were previously omitted, so an enum used only via
+          // bare nullary case names (e.g. `val d = North`) was pruned wholesale:
+          // its `const North …` / companion never emitted, and Node failed at
+          // runtime with `ReferenceError: North is not defined`.
+          val caseNames = d.templ.body.stats.flatMap {
+            case ec: Defn.EnumCase          => List(ec.name.value)
+            case rec: Defn.RepeatedEnumCase => rec.cases.map(_.value)
+            case _                          => Nil
+          }
+          caseNames.foreach { caseName =>
+            allDeclared += caseName
+            declBodies(caseName) = List(Term.Name(name))  // case reachability → enum reachability
+          }
         case d: Defn.Given =>
           val explicitName = d.name.value
           val hasExtensions = d.templ.body.stats.exists(_.isInstanceOf[Defn.ExtensionGroup])
