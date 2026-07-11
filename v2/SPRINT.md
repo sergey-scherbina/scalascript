@@ -1517,3 +1517,13 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       case + guard-true + multi-arm fallthrough + all flat guards; v2/conformance 406/0.
 - [ ] Follow-up: standard-scala-multifence now differs ONLY on the %-format line
       (f"${x}%-4s=${v}%.1f" — printf specifiers not applied). One fix from fully green.
+
+## native f-interpolation (2026-07-11, opus) — K62.26b, standard-scala-multifence FULLY green
+
+- [x] K62.26b — f"${x}%-4s=${v}%.1f" emitted the printf specs as literal text (native lowered f""
+      like s"" = plain ++ concat). Fix: buildFInterp peels the spec off the front of each
+      post-interpolation literal (splitFFormatPrefix, grammar %[-#+ 0,(<]*[w][.p]<letter>, default
+      %s) and emits app(var(__fInterpolate__), [head, spec,arg,rest, …]); resolveE routes it to the
+      existing __fInterpolate__ prim (runtime String.format, Locale.US). s""/raw"" unchanged.
+      Verified: %-4s/%.1f/%d/%5s specifiers correct; s-strings unchanged; v2/conformance 406/0.
+      With K62.26 (nested-pattern guards) this makes standard-scala-multifence FULLY green.
