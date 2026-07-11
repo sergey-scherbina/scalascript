@@ -280,8 +280,18 @@ ssc run --bytecode app.ssc -- one two
 ssc run --native app.ssc support.ssc -- one two
 ```
 
-The staged native route resolves standalone Markdown link imports relative to
-the importing file, resolves `std/...` against `bin/lib/native-front/runtime`,
+The staged native route evaluates the canonical pure ScalaScript Markdown
+Profile for every root and returns its `MarkdownDocument` alongside CoreIR and
+the parsed Frontmatter YAML product. The Scala 3 seed validates that structural
+ADT; it does not reparse source text. Headings/scopes, pure-link import
+paragraphs, prose and `${...}` source, fenced blocks, bullet/ordered lists,
+images, GFM pipe tables, and metadata directives are covered. Unsupported
+CommonMark extensions stay inert prose, while an unterminated fence is a
+source-located error before plugin installation. CommonMark/Flexmark are not on
+the standard path.
+
+Standalone Markdown link imports resolve relative to the importing file;
+`std/...` resolves against `bin/lib/native-front/runtime`. The loader
 deduplicates normalized module paths, accepts multiple source files before
 `--`, and forwards only the values after `--` as program arguments. Prose and
 inline-code links are not imports. There is no transparent fallback: use
