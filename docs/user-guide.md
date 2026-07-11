@@ -734,6 +734,30 @@ java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
 
 ## 3. Language Basics
 
+### Content composition and output
+
+`doc(parts...)` keeps ordinary runtime values in source order; `render(value)`
+writes either those document parts separated by one newline or one ordinary
+value using the same display rules as `println`:
+
+```scalascript
+val report = doc(
+  "=== Results ===",
+  List("one", "two").mkString("\n"),
+  42
+)
+
+render(report)
+```
+
+The helpers compose values; they do not parse Markdown. On the ScalaScript 2.1
+compiler-free JVM path they are owned by the core-free native host provider and
+run identically on the VM, direct ASM, and `build-jvm` artifacts without the v1
+`DocV`/`PluginBridge` graph, Scalameta, or an external renderer/parser. A local
+definition named `doc` or `render` retains normal lexical precedence over the
+provider fallback. The built-in `md"..."` interpolator is a separate language
+lowering feature.
+
 ### Collections with real Scala semantics
 
 The interpreter models true Scala collection semantics, not a single uniform
