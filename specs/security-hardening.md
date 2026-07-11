@@ -119,5 +119,13 @@ regressions of H6/M3).
 - **js+server `473bf2d71`** — M6 (JS `exec` exitCode no longer masks
   signal-kill/ENOENT as 0), M11 (static-file containment via `Path.startsWith`).
 
-Remaining (`SPRINT.md` Batches B/C): H1, H2, H4, H5, M1, M2, M7, M10, L1, L3,
-L4, L5, L6, L8 — plus mirroring H3/M3/M9 to the JVM/interp/JS HTTP clients.
+Second batch:
+- **js `fc8cbce00`** — H1: `_ssc_json_html_safe` escapes `<>&`/U+2028/2029 to `\uXXXX`
+  before inlining state JSON into the SSR `<script>` (both renderPage + serve).
+- **http-client `ef7fd23e7`** — H3 join (blocks `@`-userinfo host re-point) + M9
+  stream timeout mirrored to OutboundClients (JVM) / HttpIntrinsics (interp) /
+  ws-server (JS); H5 JVM outbound config → ThreadLocal. Verified: scala-cli join
+  keeps host=api.internal for a `@169.…` path.
+
+Remaining (`SPRINT.md` Batches B/C): H2, H4, M1, M2, M7, M10, L1, L3, L4, L5, L6,
+L8, and the JS redirect policy (M3-JS).

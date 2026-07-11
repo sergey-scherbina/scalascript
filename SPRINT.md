@@ -30,7 +30,8 @@ sound. `✎` = in code shipped this session. Fix order + full exploit/fix per fi
 - [x] **M8 ✎ native jsonQuote parity** — escapes all `c<0x20 || c>0x7e` as `\uXXXX`.
 - [x] **M9 ✎ Rust overall timeout** — AgentBuilder `.timeout(timeout)`.
 - [x] **L2 ✎ Rust header CRLF** — skip header k/v containing `\r`/`\n`.
-- [ ] follow-up: mirror H3/M3/M9 to OutboundClients/HttpIntrinsics/ws-server (JVM/interp/JS clients).
+- [x] follow-up: H3 join + M9 stream-timeout mirrored to OutboundClients/HttpIntrinsics/ws-server;
+      H5 JVM config → ThreadLocal. LANDED ef7fd23e7. (M3 JS redirect deferred — manual mode = opaque resp.)
 
 ### Batch B — cross-backend one-liners
 - [x] **M6 JS exec exitCode masking** — `status!=null ? status : (signal||error?-1:0)`. LANDED 473bf2d71.
@@ -40,14 +41,13 @@ sound. `✎` = in code shipped this session. Fix order + full exploit/fix per fi
       `jsStringLit` / `scalaStringLiteral`.
 
 ### Batch C — design-heavy (queued, need a design decision)
-- [ ] **H1 SSR XSS** — `signals.mjs:1329` inlines `JSON.stringify` state into `<script>`. FIX:
-      HTML-safe serialize (`<`→`<`, `>`, `&`, U+2028/2029) before interpolation.
+- [x] **H1 SSR XSS** — `signals.mjs` `_ssc_json_html_safe` escapes `<>&`/U+2028/2029 to `\uXXXX`
+      before inlining into `<script>` (both renderPage + serve). LANDED fc8cbce00. VERIFIED node.
 - [ ] **H2 SSRF guard** — opt-in allow-list / reject loopback+link-local+RFC-1918 in the shared
       resolve step (policy, not a pure bug — needs a config surface).
 - [ ] **H4 cache integrity** — HMAC/sign `.scjvm`/`.scjs`/`classBundle` with an install-private
       key (jar mtime/size stamp is forgeable); reject group/other-writable artifact dirs.
-- [ ] **H5 JVM outbound global vars** — move base/timeout/retries/delay to `ThreadLocal`
-      (interp/Rust already scope per-thread) to stop cross-request bleed.
+- [x] **H5 JVM outbound global vars** — base/timeout/retries/delay → `ThreadLocal`. LANDED ef7fd23e7.
 - [ ] **M1 request-body cap** — sane default + streaming counted read on the legacy JDK serve
       path (chunked bypasses the Content-Length pre-check).
 - [ ] **M2 response-body cap** — bounded reader (mirror ureq's 10 MB) on JVM/interp/JS clients.
