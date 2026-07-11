@@ -266,7 +266,7 @@ object JvmByteGen:
     case Term.Lit(_) | Term.Local(_) | Term.Global(_) => true
     case Term.Prim(op, args) =>
       val okOp = op == "__arith__" || op == "__isTag__" || op == "fieldAt" ||
-        op.startsWith("cell.") || op.startsWith("lcell.") ||
+        op.startsWith("cell.") || op.startsWith("lcell.") || op.startsWith("dcell.") ||
         op == "arr.get" || op == "arr.set" || op == "unitV"
       okOp && args.forall(pureNoEffect(_, pureDefs))
     case Term.If(c, a, b) => pureNoEffect(c, pureDefs) && pureNoEffect(a, pureDefs) && pureNoEffect(b, pureDefs)

@@ -1,0 +1,15 @@
+# float-loop
+
+Hot path: FloatV boxing, env lookup, while-loop overhead — the Double twin of
+`arith-loop`. Exercises the `dcell` unboxed-double lane (`var x: Double` loop
+vars + float arith/compare) vs the boxed `cell`/`Emit.arith` path.
+
+```scalascript
+def workload(): Double =
+  var i: Double = 0.0
+  var sum: Double = 0.0
+  while i < 1000000.0 do
+    sum = sum + i
+    i = i + 1.0
+  sum
+```
