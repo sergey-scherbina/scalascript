@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — dynamic length and size are no longer String-only
+
+Proven String/list paths retain their fast lowering, while unknown receivers now
+use the existing portable method contract. Dynamic String/List/Array regressions
+agree on VM/direct ASM, invalid receivers fail honestly, and the full extension
+example advances from false `slen` conversion to its independent `while` gap.
+Landed `5a4e7fd45`.
+
 ## 2026-07-11 — v2 maps and plugin data dispatch are portable
 
 The v2 JVM runtime now uses insertion-ordered identity `MapV` values matching

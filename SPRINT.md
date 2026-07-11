@@ -1270,7 +1270,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     `v21-parity-external-http-flake`. Result:
                                     synthetic smoke and strict 195-row parity
                                     pass at 12/57/126 with zero one-sided row.
-                        - [ ] **TI-8.2d2f dynamic length/size dispatch:** keep
+                        - [x] **TI-8.2d2f dynamic length/size dispatch — DONE
+                              2026-07-11 (`5a4e7fd45`):** keep
                               proven String and known-list fast paths, but lower
                               `.length`/`.size` on an unknown receiver through
                               the existing portable `__method__` contract instead
@@ -1278,6 +1279,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               invalid-receiver VM/direct-ASM regressions, rerun
                               `extensions.ssc`, and shrink taxonomy only after
                               corpus/parity/native-entry/conformance stay green.
+                              Result: dynamic String/List/Array lengths agree on
+                              both lanes, unsupported receivers fail honestly,
+                              and the full extension example advances to its
+                              independent `while` boundary with all gates green.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
