@@ -345,13 +345,13 @@ change deployment metadata and native adapters, not source-level behavior.
 
 ### Swift core backend
 
-- [ ] Every structural CoreIR term and core value has executable Swift lowering.
-- [ ] Deep self and mutual recursion run with bounded stack through a trampoline.
-- [ ] `fact`, `tco`, and `map` CoreIR fixtures match VM output under real
+- [x] Every structural CoreIR term and core value has executable Swift lowering.
+- [x] Deep self and mutual recursion run with bounded stack through a trampoline.
+- [x] `fact`, `tco`, and `map` CoreIR fixtures match VM output under real
   `swift run`.
-- [ ] Existing money/effect `.ssc` fixtures compile through the checked frontend
+- [x] Existing money/effect `.ssc` fixtures compile through the checked frontend
   and match VM output under real `swift run`.
-- [ ] Unsupported globals/primitives fail at generation with actionable names.
+- [x] Unsupported globals/primitives fail at generation with actionable names.
 
 ### CLI/package
 
@@ -478,9 +478,22 @@ building generated Swift; snapshot/string tests alone are insufficient.
   package resumed one `Choose` continuation twice and returned `30`; the suite
   is now 6/6, while the existing imported/multi-argument/transitive/multi-shot
   effect conformance slice remains green 4/4 on all applicable lanes.
-- This is the first backend sub-slice, not closure of the Swift-core gate:
-  mutual-TCO and real checked `.ssc` Money/effect domain fixtures remain
-  required before `v2-swift-core-backend` is complete.
+- Closure `f20b47b35` added the checked-source seam and closed the Swift-core
+  gate. Constructor field layouts discovered by the checked frontend are
+  serialized into generated `SscProgram` data, so dynamic field/method access
+  is target-owned rather than coupled to Scala reflection or v1 values. The
+  trampoline runs both the one-million-call self-TCO fixture and the 100,000-
+  step mutual `even`/`odd` fixture with bounded stack.
+- The unchanged `money-portable-v2.ssc` source now passes through
+  `FrontendBridge.convertSource`, the Swift generator, SwiftPM compilation, and
+  a real executable with exact expected output (including `$3.75`, `1.2100`,
+  `3.3333`, `1234`, and the scale-preserving allocation list). The unchanged
+  `effect-transitive-handler.ssc` follows the same path and prints `6`,
+  `sum=6`, and `sum=6!6`, proving operation lifting through collection methods,
+  arithmetic, and reusable continuations.
+- The final Swift backend suite passes 8/8 on Swift 6.3.2. The unchanged
+  conformance gates pass 1/1 for `money-portable-v2` and 4/4 for
+  `effect-*,effects` on every applicable lane.
 
 ### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
 
