@@ -70,6 +70,17 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       backend; PluginBridge.registerWebServer calls HttpServerBackends.setBackend("fast"). Verified
       `ssc run --v2` serves on the fast transport (marker), --native unregressed (params/query/WS
       echo). 44 module tests (engine 36 + backend 4 + plugin 4).
+- [x] **hf-8 fast-default consolidation** — DONE. HttpServerBackends.current() prefers "fast" on
+      classpath → fast is the global default transport for EVERY lane (v1/v2/native), not just --v2;
+      removed the redundant per-lane setBackend. Verified identical output on --native/--v1/--v2.
+- [x] **hf-9 fast-backend hardening & parity** (Sergiy: "#1 реализовывай, все остальное тоже") — DONE.
+      #1 multipart/auth/session parity (FastServerBackend → RequestBuilder.parseRaw for HTTP+WS,
+      spooled-tmp cleanup; sibling d202d2abf); #3 request-smuggling (reject CL+TE together / non-final
+      chunked / dup CL → 400); #2 coverage (FastServerBackendParityTest: multipart→files/form, bearer,
+      signed-session round-trip + smuggling + metrics tests); graceful drain (active-request counter);
+      maxConnections cap; onExchange access-log hook + ssc idleTimeout/maxConnections/onRequest
+      intrinsics (e2e "LOG GET /x 200"); FastVsJdkBench → fast 1.40× req/s vs jdk (39.9k/28.4k, p50
+      −35%, p99 −30%). Deferred: SSE write-watchdog (documented). 40 engine + 8 backend tests.
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 
 Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`
