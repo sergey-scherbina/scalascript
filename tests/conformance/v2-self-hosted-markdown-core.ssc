@@ -1,0 +1,16 @@
+---
+name: v21-self-hosted-markdown-core
+version: 2.1.0
+backends: [v2]
+---
+
+# Self-hosted Markdown Profile conformance
+
+[markdownParse, markdownRender](std/markdown-core.ssc)
+
+```scalascript
+val interpolation = "$" + "{items.mkString(\", \")}"
+val source = "# Pricing {#pricing route=/pricing}\n\n[One](./one.ssc) [Two](dep:org/two:1.0)\n\nSee [One](./one.ssc) and " + interpolation + " here.\n\n<!-- @meta component=PlanList source=plans -->\n\n- Free\n- Pro\n\n3. Third\n4. Fourth\n\n![Logo](./logo.png \"Brand\")\n\n| Name | Price |\n| :--- | ---: |\n| Free | 0 |\n| Pro | 10 |\n\n```scalascript\nprintln(\"inside\")\n```\n\n~~unsupported stays prose~~"
+println(markdownRender(markdownParse(source)))
+println(markdownRender(markdownParse("```scala\nval x = 1")))
+```

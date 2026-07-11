@@ -1,0 +1,11 @@
+H1@1(Pricing|#pricing route=/pricing)
+IMPORT@3(One->./one.ssc,Two->dep:org/two:1.0)
+P@5(T(See [One](./one.ssc) and )E(items.mkString(", "))T( here.))
+META@7(component=PlanList source=plans)
+UL@9(Free,Pro)
+OL3@12(Third,Fourth)
+IMG@15(Logo|./logo.png|Brand)
+TABLE@17(Name,Price|left,right|Free,0;Pro,10)
+FENCE@22(scalascript|println("inside"))
+P@26(T(~~unsupported stays prose~~))
+ERR@1:1:unterminated fenced block

@@ -1,0 +1,415 @@
+---
+name: markdown-core
+version: 2.1.0
+description: Pure self-hosted ScalaScript Markdown Profile scanner.
+---
+
+# Self-hosted Markdown Profile
+
+The canonical language-core Markdown scanner is deliberately bounded to the
+constructs ScalaScript assigns semantics. Unsupported CommonMark extensions are
+ordinary paragraph text. This module has no `extern def`, host regex, native
+Markdown node, or renderer dependency.
+
+```scalascript
+case class MarkdownDocument(blocks: List[Any])
+case class MarkdownError(message: String, offset: Int, line: Int, column: Int)
+case class MarkdownLine(text: String, number: Int, offset: Int)
+
+case class MarkdownHeading(level: Int, title: String, attrs: String, line: Int)
+case class MarkdownImport(links: List[Any], line: Int)
+case class MarkdownLink(label: String, destination: String)
+case class MarkdownParagraph(inlines: List[Any], line: Int)
+case class MarkdownText(value: String)
+case class MarkdownExpr(source: String)
+case class MarkdownFence(language: String, source: String, line: Int)
+case class MarkdownBulletList(items: List[String], line: Int)
+case class MarkdownOrderedList(start: Int, items: List[String], line: Int)
+case class MarkdownImage(alt: String, source: String, title: String, line: Int)
+case class MarkdownTable(headers: List[String], alignments: List[String], rows: List[Any], line: Int)
+case class MarkdownTableRow(cells: List[String])
+case class MarkdownMetadata(raw: String, line: Int)
+
+case class MarkdownLinkOk(link: Any, next: Int)
+case class MarkdownFenceOk(block: Any, remaining: List[Any])
+case class MarkdownCollectOk(value: Any, remaining: List[Any])
+
+def markdownEqAt(left: String, right: String, index: Int): Boolean =
+  if index >= right.length then true
+  else if index >= left.length then false
+  else if left.charAt(index) == right.charAt(index) then
+    markdownEqAt(left, right, index + 1)
+  else false
+
+def markdownStarts(text: String, prefix: String): Boolean =
+  if text.length < prefix.length then false else markdownEqAt(text, prefix, 0)
+
+def markdownSpace(c: Int): Boolean = c == 32 || c == 9
+
+def markdownSkipSpace(text: String, from: Int): Int =
+  if from < text.length && markdownSpace(text.charAt(from)) then markdownSkipSpace(text, from + 1)
+  else from
+
+def markdownTrimEndAt(text: String, end: Int): Int =
+  if end > 0 && markdownSpace(text.charAt(end - 1)) then markdownTrimEndAt(text, end - 1)
+  else end
+
+def markdownTrim(text: String): String =
+  val start = markdownSkipSpace(text, 0)
+  text.substring(start, markdownTrimEndAt(text, text.length))
+
+def markdownNewline(source: String, from: Int): Int =
+  if from >= source.length then source.length
+  else if source.charAt(from) == 10 then from
+  else markdownNewline(source, from + 1)
+
+def markdownBuildLines(source: String, from: Int, number: Int, reversed: List[Any]): List[Any] =
+  if from >= source.length then reversed.reverse
+  else
+    val end = markdownNewline(source, from)
+    val rawEnd = if end > from && source.charAt(end - 1) == 13 then end - 1 else end
+    val next = if end < source.length then end + 1 else end
+    markdownBuildLines(source, next, number + 1,
+      MarkdownLine(source.substring(from, rawEnd), number, from) :: reversed)
+
+def markdownLineText(value: Any): String = value match
+  case MarkdownLine(text, _, _) => text
+  case _ => ""
+
+def markdownLineNumber(value: Any): Int = value match
+  case MarkdownLine(_, number, _) => number
+  case _ => 1
+
+def markdownLineOffset(value: Any): Int = value match
+  case MarkdownLine(_, _, offset) => offset
+  case _ => 0
+
+def markdownBlank(value: Any): Boolean = markdownTrim(markdownLineText(value)).length == 0
+
+def markdownDropBlank(lines: List[Any]): List[Any] = lines match
+  case Nil => Nil
+  case Cons(head, tail) => if markdownBlank(head) then markdownDropBlank(tail) else lines
+
+def markdownCount(text: String, from: Int, code: Int): Int =
+  if from < text.length && text.charAt(from) == code then markdownCount(text, from + 1, code)
+  else from
+
+def markdownHeading(line: Any): Any =
+  val raw = markdownTrim(markdownLineText(line))
+  val level = markdownCount(raw, 0, 35)
+  if level < 1 || level > 6 || level >= raw.length || !markdownSpace(raw.charAt(level)) then
+    MarkdownError("not a heading", markdownLineOffset(line), markdownLineNumber(line), 1)
+  else
+    val body = markdownTrim(raw.substring(level))
+    val open = markdownLastOpenBrace(body, body.length - 1)
+    if open >= 0 && body.length > 0 && body.charAt(body.length - 1) == 125 then
+      MarkdownHeading(level, markdownTrim(body.substring(0, open)),
+        markdownTrim(body.substring(open + 1, body.length - 1)), markdownLineNumber(line))
+    else MarkdownHeading(level, body, "", markdownLineNumber(line))
+
+def markdownLastOpenBrace(text: String, from: Int): Int =
+  if from < 0 then -1
+  else if text.charAt(from) == 123 then from
+  else markdownLastOpenBrace(text, from - 1)
+
+def markdownFind(text: String, from: Int, code: Int): Int =
+  if from >= text.length then -1
+  else if text.charAt(from) == code then from
+  else markdownFind(text, from + 1, code)
+
+def markdownLinkAt(text: String, from: Int): Any =
+  if from >= text.length || text.charAt(from) != 91 then MarkdownError("not a link", from, 1, from + 1)
+  else
+    val closeLabel = markdownFind(text, from + 1, 93)
+    if closeLabel < 0 || closeLabel + 1 >= text.length || text.charAt(closeLabel + 1) != 40 then
+      MarkdownError("not a link", from, 1, from + 1)
+    else
+      val closeDestination = markdownFind(text, closeLabel + 2, 41)
+      if closeDestination < 0 then MarkdownError("not a link", from, 1, from + 1)
+      else MarkdownLinkOk(
+        MarkdownLink(text.substring(from + 1, closeLabel),
+          markdownTrim(text.substring(closeLabel + 2, closeDestination))),
+        closeDestination + 1)
+
+def markdownPureLinks(text: String, from0: Int, reversed: List[Any]): Any =
+  val from = markdownSkipSpace(text, from0)
+  if from >= text.length then
+    if reversed.isEmpty then MarkdownError("not an import paragraph", from, 1, from + 1)
+    else MarkdownImport(reversed.reverse, 0)
+  else markdownLinkAt(text, from) match
+    case MarkdownLinkOk(link, next) => link match
+      case MarkdownLink(_, destination) =>
+        if markdownStarts(destination, "#") || markdownStarts(destination, "toolkit:") then
+          MarkdownError("not an import paragraph", from, 1, from + 1)
+        else markdownPureLinks(text, next, link :: reversed)
+      case _ => MarkdownError("not an import paragraph", from, 1, from + 1)
+    case _ => MarkdownError("not an import paragraph", from, 1, from + 1)
+
+def markdownImport(line: Any): Any = markdownPureLinks(markdownTrim(markdownLineText(line)), 0, Nil) match
+  case MarkdownImport(links, _) => MarkdownImport(links, markdownLineNumber(line))
+  case other => other
+
+def markdownImage(line: Any): Any =
+  val text = markdownTrim(markdownLineText(line))
+  if !markdownStarts(text, "![") then MarkdownError("not an image", 0, markdownLineNumber(line), 1)
+  else
+    val closeAlt = markdownFind(text, 2, 93)
+    if closeAlt < 0 || closeAlt + 1 >= text.length || text.charAt(closeAlt + 1) != 40 then
+      MarkdownError("not an image", 0, markdownLineNumber(line), 1)
+    else
+      val close = markdownFind(text, closeAlt + 2, 41)
+      if close != text.length - 1 then MarkdownError("not an image", 0, markdownLineNumber(line), 1)
+      else
+        val target = markdownTrim(text.substring(closeAlt + 2, close))
+        val quote = markdownFind(target, 0, 34)
+        if quote < 0 then MarkdownImage(text.substring(2, closeAlt), target, "", markdownLineNumber(line))
+        else
+          val titleEnd = markdownFind(target, quote + 1, 34)
+          if titleEnd != target.length - 1 then MarkdownError("invalid image title", quote, markdownLineNumber(line), quote + 1)
+          else MarkdownImage(text.substring(2, closeAlt), markdownTrim(target.substring(0, quote)),
+            target.substring(quote + 1, titleEnd), markdownLineNumber(line))
+
+def markdownFenceOpen(line: Any): Boolean = markdownStarts(markdownTrim(markdownLineText(line)), "```")
+def markdownFenceClose(line: Any): Boolean = markdownTrim(markdownLineText(line)) == "```"
+
+def markdownFenceBody(lines: List[Any], reversed: List[String], start: Any, language: String): Any = lines match
+  case Nil => MarkdownError("unterminated fenced block", markdownLineOffset(start), markdownLineNumber(start), 1)
+  case Cons(head, tail) =>
+    if markdownFenceClose(head) then MarkdownFenceOk(
+      MarkdownFence(language, reversed.reverse.mkString("\n"), markdownLineNumber(start)), tail)
+    else markdownFenceBody(tail, markdownLineText(head) :: reversed, start, language)
+
+def markdownFence(lines: List[Any]): Any = lines match
+  case Nil => MarkdownError("missing fenced block", 0, 1, 1)
+  case Cons(head, tail) =>
+    val open = markdownTrim(markdownLineText(head))
+    markdownFenceBody(tail, Nil, head, markdownTrim(open.substring(3)))
+
+def markdownBulletPrefix(text: String): Int =
+  val t = markdownTrim(text)
+  if t.length >= 2 && (t.charAt(0) == 45 || t.charAt(0) == 42 || t.charAt(0) == 43) && markdownSpace(t.charAt(1)) then 2
+  else 0
+
+def markdownDigits(text: String, from: Int): Int =
+  if from < text.length && text.charAt(from) >= 48 && text.charAt(from) <= 57 then markdownDigits(text, from + 1)
+  else from
+
+def markdownOrderedPrefix(text: String): Int =
+  val t = markdownTrim(text)
+  val end = markdownDigits(t, 0)
+  if end > 0 && end + 1 < t.length && t.charAt(end) == 46 && markdownSpace(t.charAt(end + 1)) then end + 2
+  else 0
+
+def markdownCollectBullet(lines: List[Any], reversed: List[String], startLine: Int): Any = lines match
+  case Nil => MarkdownCollectOk(MarkdownBulletList(reversed.reverse, startLine), Nil)
+  case Cons(head, tail) =>
+    val text = markdownTrim(markdownLineText(head))
+    val prefix = markdownBulletPrefix(text)
+    if prefix == 0 then MarkdownCollectOk(MarkdownBulletList(reversed.reverse, startLine), lines)
+    else markdownCollectBullet(tail, markdownTrim(text.substring(prefix)) :: reversed, startLine)
+
+def markdownCollectOrdered(lines: List[Any], reversed: List[String], start: Int, startLine: Int): Any = lines match
+  case Nil => MarkdownCollectOk(MarkdownOrderedList(start, reversed.reverse, startLine), Nil)
+  case Cons(head, tail) =>
+    val text = markdownTrim(markdownLineText(head))
+    val prefix = markdownOrderedPrefix(text)
+    if prefix == 0 then MarkdownCollectOk(MarkdownOrderedList(start, reversed.reverse, startLine), lines)
+    else markdownCollectOrdered(tail, markdownTrim(text.substring(prefix)) :: reversed, start, startLine)
+
+def markdownPipeCells(text0: String): List[String] =
+  val text = markdownTrim(text0)
+  val start = if text.length > 0 && text.charAt(0) == 124 then 1 else 0
+  val end = if text.length > start && text.charAt(text.length - 1) == 124 then text.length - 1 else text.length
+  markdownPipeCellsAt(text, start, end, start, Nil)
+
+def markdownPipeCellsAt(text: String, from: Int, end: Int, current: Int, reversed: List[String]): List[String] =
+  if current >= end then (markdownTrim(text.substring(from, end)) :: reversed).reverse
+  else if text.charAt(current) == 124 then
+    markdownPipeCellsAt(text, current + 1, end, current + 1,
+      markdownTrim(text.substring(from, current)) :: reversed)
+  else markdownPipeCellsAt(text, from, end, current + 1, reversed)
+
+def markdownDelimiterCell(cell0: String): Boolean =
+  val cell = markdownTrim(cell0)
+  markdownDelimiterChars(cell, 0, 0)
+
+def markdownDelimiterChars(cell: String, from: Int, dashes: Int): Boolean =
+  if from >= cell.length then dashes >= 3
+  else
+    val c = cell.charAt(from)
+    if c == 45 then markdownDelimiterChars(cell, from + 1, dashes + 1)
+    else if c == 58 then markdownDelimiterChars(cell, from + 1, dashes)
+    else false
+
+def markdownAllDelimiter(cells: List[String]): Boolean = cells match
+  case Nil => false
+  case Cons(head, tail) => tail match
+    case Nil => markdownDelimiterCell(head)
+    case _ => markdownDelimiterCell(head) && markdownAllDelimiter(tail)
+
+def markdownAlignment(cell0: String): String =
+  val cell = markdownTrim(cell0)
+  val left = cell.length > 0 && cell.charAt(0) == 58
+  val right = cell.length > 0 && cell.charAt(cell.length - 1) == 58
+  if left && right then "center" else if right then "right" else if left then "left" else "none"
+
+def markdownAlignments(cells: List[String]): List[String] = cells match
+  case Nil => Nil
+  case Cons(head, tail) => markdownAlignment(head) :: markdownAlignments(tail)
+
+def markdownTableRows(lines: List[Any], reversed: List[Any]): Any = lines match
+  case Nil => MarkdownCollectOk(reversed.reverse, Nil)
+  case Cons(head, tail) =>
+    val text = markdownTrim(markdownLineText(head))
+    if markdownFind(text, 0, 124) < 0 || markdownBlank(head) then MarkdownCollectOk(reversed.reverse, lines)
+    else markdownTableRows(tail, MarkdownTableRow(markdownPipeCells(text)) :: reversed)
+
+def markdownMetadata(line: Any): Any =
+  val text = markdownTrim(markdownLineText(line))
+  if markdownStarts(text, "<!-- @meta ") && text.length >= 15 && text.substring(text.length - 3) == "-->" then
+    MarkdownMetadata(markdownTrim(text.substring(11, text.length - 3)), markdownLineNumber(line))
+  else MarkdownError("not metadata", markdownLineOffset(line), markdownLineNumber(line), 1)
+
+def markdownExprEnd(text: String, from: Int, depth: Int, quote: Int, escaped: Boolean): Int =
+  if from >= text.length then -1
+  else
+    val c = text.charAt(from)
+    if escaped then markdownExprEnd(text, from + 1, depth, quote, false)
+    else if quote != 0 then
+      if c == 92 then markdownExprEnd(text, from + 1, depth, quote, true)
+      else if c == quote then markdownExprEnd(text, from + 1, depth, 0, false)
+      else markdownExprEnd(text, from + 1, depth, quote, false)
+    else if c == 34 || c == 39 then markdownExprEnd(text, from + 1, depth, c, false)
+    else if c == 123 then markdownExprEnd(text, from + 1, depth + 1, 0, false)
+    else if c == 125 then if depth == 1 then from else markdownExprEnd(text, from + 1, depth - 1, 0, false)
+    else markdownExprEnd(text, from + 1, depth, 0, false)
+
+def markdownInlineExpr(text: String, from: Int): Int =
+  if from + 1 >= text.length then -1
+  else if text.charAt(from) == 36 && text.charAt(from + 1) == 123 then from
+  else markdownInlineExpr(text, from + 1)
+
+def markdownInlines(text: String, from: Int): List[Any] =
+  val start = markdownInlineExpr(text, from)
+  if start < 0 then if from < text.length then MarkdownText(text.substring(from)) :: Nil else Nil
+  else
+    val end = markdownExprEnd(text, start + 2, 1, 0, false)
+    if end < 0 then MarkdownText(text.substring(from)) :: Nil
+    else
+      val expression = MarkdownExpr(markdownTrim(text.substring(start + 2, end)))
+      val rest = markdownInlines(text, end + 1)
+      if start > from then MarkdownText(text.substring(from, start)) :: expression :: rest
+      else expression :: rest
+
+def markdownBlockStart(lines: List[Any]): Boolean = lines match
+  case Nil => true
+  case Cons(head, tail) =>
+    val text = markdownTrim(markdownLineText(head))
+    val hashes = markdownCount(text, 0, 35)
+    markdownBlank(head) || markdownFenceOpen(head) || markdownBulletPrefix(text) > 0 ||
+      markdownOrderedPrefix(text) > 0 || markdownStarts(text, "![") ||
+      markdownStarts(text, "<!-- @meta ") ||
+      (hashes > 0 && hashes <= 6 && hashes < text.length && markdownSpace(text.charAt(hashes))) ||
+      (tail.nonEmpty && markdownAllDelimiter(markdownPipeCells(markdownLineText(tail.head))))
+
+def markdownParagraph(lines: List[Any], reversed: List[String], startLine: Int): Any = lines match
+  case Nil => MarkdownCollectOk(MarkdownParagraph(markdownInlines(reversed.reverse.mkString("\n"), 0), startLine), Nil)
+  case _ =>
+    if reversed.nonEmpty && markdownBlockStart(lines) then
+      MarkdownCollectOk(MarkdownParagraph(markdownInlines(reversed.reverse.mkString("\n"), 0), startLine), lines)
+    else lines match
+      case Cons(head, tail) => markdownParagraph(tail, markdownLineText(head) :: reversed, startLine)
+      case Nil => MarkdownCollectOk(MarkdownParagraph(Nil, startLine), Nil)
+
+def markdownBlocks(lines0: List[Any], reversed: List[Any]): Any =
+  val lines = markdownDropBlank(lines0)
+  lines match
+    case Nil => MarkdownDocument(reversed.reverse)
+    case Cons(head, tail) =>
+      val text = markdownTrim(markdownLineText(head))
+      val heading = markdownHeading(head)
+      heading match
+        case MarkdownHeading(_, _, _, _) => markdownBlocks(tail, heading :: reversed)
+        case _ => markdownImport(head) match
+          case MarkdownImport(links, line) => markdownBlocks(tail, MarkdownImport(links, line) :: reversed)
+          case _ => markdownImage(head) match
+            case MarkdownImage(alt, source, title, line) =>
+              markdownBlocks(tail, MarkdownImage(alt, source, title, line) :: reversed)
+            case _ => markdownMetadata(head) match
+              case MarkdownMetadata(raw, line) => markdownBlocks(tail, MarkdownMetadata(raw, line) :: reversed)
+              case _ =>
+                if markdownFenceOpen(head) then markdownFence(lines) match
+                  case MarkdownFenceOk(block, remaining) => markdownBlocks(remaining, block :: reversed)
+                  case error => error
+                else if markdownBulletPrefix(text) > 0 then markdownCollectBullet(lines, Nil, markdownLineNumber(head)) match
+                  case MarkdownCollectOk(block, remaining) => markdownBlocks(remaining, block :: reversed)
+                  case error => error
+                else if markdownOrderedPrefix(text) > 0 then
+                  val digits = markdownDigits(text, 0)
+                  val start = text.substring(0, digits).toInt
+                  markdownCollectOrdered(lines, Nil, start, markdownLineNumber(head)) match
+                    case MarkdownCollectOk(block, remaining) => markdownBlocks(remaining, block :: reversed)
+                    case error => error
+                else if tail.nonEmpty && markdownAllDelimiter(markdownPipeCells(markdownLineText(tail.head))) then
+                  val headers = markdownPipeCells(markdownLineText(head))
+                  val alignments = markdownAlignments(markdownPipeCells(markdownLineText(tail.head)))
+                  markdownTableRows(tail.tail, Nil) match
+                    case MarkdownCollectOk(rows, remaining) =>
+                      markdownBlocks(remaining,
+                        MarkdownTable(headers, alignments, rows.asInstanceOf[List[Any]], markdownLineNumber(head)) :: reversed)
+                    case error => error
+                else markdownParagraph(lines, Nil, markdownLineNumber(head)) match
+                  case MarkdownCollectOk(block, remaining) => markdownBlocks(remaining, block :: reversed)
+                  case error => error
+
+def markdownParse(source: String): Any =
+  markdownBlocks(markdownBuildLines(source, 0, 1, Nil), Nil)
+
+def markdownInlineRender(values: List[Any]): String = values match
+  case Nil => ""
+  case Cons(head, tail) => head match
+    case MarkdownText(value) => "T(" + value + ")" + markdownInlineRender(tail)
+    case MarkdownExpr(value) => "E(" + value + ")" + markdownInlineRender(tail)
+    case _ => markdownInlineRender(tail)
+
+def markdownLinksRender(values: List[Any]): String = values match
+  case Nil => ""
+  case Cons(head, tail) => head match
+    case MarkdownLink(label, destination) => tail match
+      case Nil => label + "->" + destination
+      case _ => label + "->" + destination + "," + markdownLinksRender(tail)
+    case _ => markdownLinksRender(tail)
+
+def markdownRowsRender(values: List[Any]): String = values match
+  case Nil => ""
+  case Cons(head, tail) => head match
+    case MarkdownTableRow(cells) => tail match
+      case Nil => cells.mkString(",")
+      case _ => cells.mkString(",") + ";" + markdownRowsRender(tail)
+    case _ => markdownRowsRender(tail)
+
+def markdownBlockRender(value: Any): String = value match
+  case MarkdownHeading(level, title, attrs, line) => "H" + level + "@" + line + "(" + title + "|" + attrs + ")"
+  case MarkdownImport(links, line) => "IMPORT@" + line + "(" + markdownLinksRender(links) + ")"
+  case MarkdownParagraph(inlines, line) => "P@" + line + "(" + markdownInlineRender(inlines) + ")"
+  case MarkdownFence(language, source, line) => "FENCE@" + line + "(" + language + "|" + source + ")"
+  case MarkdownBulletList(items, line) => "UL@" + line + "(" + items.mkString(",") + ")"
+  case MarkdownOrderedList(start, items, line) => "OL" + start + "@" + line + "(" + items.mkString(",") + ")"
+  case MarkdownImage(alt, source, title, line) => "IMG@" + line + "(" + alt + "|" + source + "|" + title + ")"
+  case MarkdownTable(headers, alignments, rows, line) => "TABLE@" + line + "(" + headers.mkString(",") + "|" + alignments.mkString(",") + "|" + markdownRowsRender(rows) + ")"
+  case MarkdownMetadata(raw, line) => "META@" + line + "(" + raw + ")"
+  case MarkdownError(message, _, line, column) => "ERR@" + line + ":" + column + ":" + message
+  case _ => "UNKNOWN"
+
+def markdownBlocksRender(values: List[Any]): String = values match
+  case Nil => ""
+  case Cons(head, tail) => tail match
+    case Nil => markdownBlockRender(head)
+    case _ => markdownBlockRender(head) + "\n" + markdownBlocksRender(tail)
+
+def markdownRender(value: Any): String = value match
+  case MarkdownDocument(blocks) => markdownBlocksRender(blocks)
+  case MarkdownError(message, offset, line, column) =>
+    markdownBlockRender(MarkdownError(message, offset, line, column))
+  case _ => "ERR@1:1:invalid Markdown result"
+```
