@@ -2,8 +2,9 @@
 
 ## v21-native-dynamic-toint-dropped — selected String conversion vanishes
 
-**Status:** open (2026-07-11); found by codex while the new core-free Storage
-provider advanced `storage-demo.ssc` into `bumpCounter`.
+**Status:** fixed (2026-07-11, `63ab041a6`), awaiting Sergiy confirmation;
+found by codex while the new core-free Storage provider advanced
+`storage-demo.ssc` into `bumpCounter`.
 
 - **Real-harness repro:** after staging the native frontend, inspect/run
   `Storage.get(key).getOrElse("0").toInt + 1` from `storage-demo.ssc`. The
@@ -18,6 +19,12 @@ provider advanced `storage-demo.ssc` into `bumpCounter`.
   an Option/getOrElse receiver), repair selector lowering without changing
   numeric `.toString`, rerun `storage-demo.ssc` and every native release gate,
   and keep `fixed` until Sergiy confirms.
+- **Root cause/fix:** `resolveField` erased selected `.toInt` whenever its
+  resolved receiver was not syntactically recognized as a String, so a dynamic
+  `Option.getOrElse` result reached arithmetic unchanged. It now emits portable
+  `__method__("toInt", receiver)` dispatch, preserving both dynamic String and
+  numeric conversions. The focused VM/ASM fixture and full Storage/release gates
+  pass; keep this entry `fixed` until Sergiy confirms.
 
 ## v2-swift-nativeui-descriptor-proof — debug root summary hides ABI field drift
 

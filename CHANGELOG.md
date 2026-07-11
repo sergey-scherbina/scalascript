@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native Storage runs without the v1 bridge
+
+A dedicated core-free provider now owns ordered ephemeral and deterministic
+JSON-backed Storage scopes on native VM, direct ASM, and standalone build-jvm
+artifacts. Dynamic selected `.toInt` is preserved through portable method
+dispatch, so the public Storage example completes identically. Strict parity is
+20/48/127 and runtime blockers fall from 37 to 36. Landed `63ab041a6` and
+`55aae9abe`; taxonomy `98b0d0976`.
+
 ## 2026-07-11 — Swift AppCore executes the portable NativeUi ABI
 
 Checked `std/ui` CoreIR now generates a SwiftUI-free AppCore `NativeUiHost`,

@@ -1538,8 +1538,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Result: `ui-remote-table.ssc` is identical;
                               standard-provider/blocker/total counts tighten to
                               22/40/52 and all gates pass.
-                        - [ ] **TI-8.2d2o dynamic String `.toInt`:** preserve
-                              selected zero-argument `.toInt` in CoreIR by
+                        - [x] **TI-8.2d2o dynamic String `.toInt`:** DONE
+                              2026-07-11 (`63ab041a6`). Preserve selected
+                              zero-argument `.toInt` in CoreIR by
                               routing it through the existing portable
                               `__method__("toInt", receiver)` contract. This is
                               preferable to the String-only `__str_toInt` helper:
@@ -1549,7 +1550,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               zero. Cover a direct dynamic String, an Option/
                               getOrElse receiver, and a numeric receiver on VM/
                               direct ASM, then rerun the Storage example and all
-                              release gates.
+                              release gates. Result: the focused fixture prints
+                              42/8/1/9 identically, `storage-demo.ssc` advances,
+                              and native-entry plus fresh conformance 11/11 pass.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
@@ -1571,8 +1574,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               7/7, three examples are identical, parity improves
                               to 19/49/127, and blockers fall to 37. Dependency,
                               module-limited, and 11/11 conformance gates pass.
-                        - [ ] **TI-8.2d3b core-free Storage effect:** add a
-                              dedicated v2 native storage provider using the
+                        - [x] **TI-8.2d3b core-free Storage effect:** DONE
+                              2026-07-11 (`55aae9abe`, taxonomy `98b0d0976`). Add
+                              a dedicated v2 native storage provider using the
                               existing dynamically scoped effect host. Support
                               insertion-ordered ephemeral state and deterministic
                               JSON file persistence (`SSC_STORAGE_PATH`/explicit
@@ -1580,6 +1584,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               get/put/remove/has/keys contract. Gate the existing
                               `storage-demo.ssc` on VM/direct ASM, dependency and
                               module limits, then retire only its taxonomy row.
+                              Result: unit 3/3; VM/ASM/build-jvm exact output;
+                              corpus 35/91; strict parity 20/48/127; taxonomy
+                              36 blockers / 48 total; dependency, JRE, slim,
+                              plugin/class-load, portable, taxonomy, and fresh
+                              conformance 11/11 gates pass.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move
