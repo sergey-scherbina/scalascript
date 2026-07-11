@@ -83,10 +83,9 @@ object WebServer:
     // so latch.await() below returns and this thread can finish.
     Runtime.getRuntime.addShutdownHook(Thread(() => stop()))
 
-    // Single-thread executor shared with the SPI's WS user-callback
-    // dispatch + HTTP-handler bodies.  Interpreter globals / call-stack
-    // / position tracker aren't thread-safe, so handler bodies must run
-    // serially across both protocols.  Daemon so it never prevents JVM exit.
+    // Preserve WebSocket frame callback order. InterpreterExecutionGate is the
+    // cross-server/per-interpreter correctness boundary shared with HTTP.
+    // Daemon so this ordering executor never prevents JVM exit.
     val executor = java.util.concurrent.Executors.newSingleThreadExecutor(r => {
       val t = Thread(r, "ssc-ws-handler"); t.setDaemon(true); t
     })

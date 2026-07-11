@@ -25,8 +25,8 @@ import scalascript.server.spi.*
  *  (Values, route registry, middleware) is backend-agnostic. */
 final class InterpreterHttpHandler(
     log:                java.io.PrintStream,
-    /** Reused for HTTP handler bodies AND WS user callbacks so global
-     *  state mutations stay serial across both protocols. */
+    /** Preserves per-connection WS callback order. Cross-protocol callback
+     *  serialization is owned by [[InterpreterExecutionGate]]. */
     wsExecutor:         java.util.concurrent.Executor,
     /** HTTP route registry — carries the registered route table and
      *  middleware chain.  Injected so tests and alternative runtimes
@@ -82,11 +82,13 @@ final class InterpreterHttpHandler(
             case _ =>
               List(request)
           () =>
-            try unwrap(entry.interpreter.invoke(entry.handler, handlerArgs))
-            catch case ve: RestValidationError =>
-              Response(400,
-                Map("Content-Type" -> "text/plain; charset=utf-8"),
-                ve.getMessage)
+            InterpreterExecutionGate.forHttpMethod(entry.interpreter, req.method) {
+              try unwrap(entry.interpreter.invoke(entry.handler, handlerArgs))
+              catch case ve: RestValidationError =>
+                Response(400,
+                  Map("Content-Type" -> "text/plain; charset=utf-8"),
+                  ve.getMessage)
+            }
         case None =>
           () =>
             fallbackRenderer(req) match
@@ -102,7 +104,9 @@ final class InterpreterHttpHandler(
         val nextFn = Value.NativeFnV("next",
           Computation.pureFn(_ => reliftAnyToValue(inner())))
         val cur: () => Any = () =>
-          unwrap(mwInterp.invoke(fn, List(request, nextFn)))
+          InterpreterExecutionGate.forHttpMethod(mwInterp, req.method) {
+            unwrap(mwInterp.invoke(fn, List(request, nextFn)))
+          }
         chain = cur
       }
       try chain() match
@@ -139,13 +143,15 @@ final class InterpreterHttpHandler(
         var userPayload: Option[Value] = None
         var authRejected: Boolean      = false
         entry.auth.foreach { fn =>
-          try entry.interpreter.invoke(fn, List(requestValue)) match
-            case ov: Value.OptionV if ov.inner != null => userPayload = Some(ov.inner)
-            case _: Value.OptionV                     => authRejected = true
-            case other                                => userPayload = Some(other)
-          catch case e: Throwable =>
-            log.println(s"WS auth hook error: ${e.getMessage}")
-            authRejected = true
+          InterpreterExecutionGate.write(entry.interpreter) {
+            try entry.interpreter.invoke(fn, List(requestValue)) match
+              case ov: Value.OptionV if ov.inner != null => userPayload = Some(ov.inner)
+              case _: Value.OptionV                     => authRejected = true
+              case other                                => userPayload = Some(other)
+            catch case e: Throwable =>
+              log.println(s"WS auth hook error: ${e.getMessage}")
+              authRejected = true
+          }
         }
         if authRejected then
           return WsUpgradeResult.Reject(401, "Unauthorized")
@@ -245,7 +251,9 @@ final class InterpreterHttpHandler(
             write(chunk)
             Value.UnitV
           })
-        interp.invoke(callback, List(writeNative))
+        InterpreterExecutionGate.write(interp) {
+          interp.invoke(callback, List(writeNative))
+        }
       })
     case Value.InstanceV("Response", fields) =>
       val s = fields.get("status") match
@@ -320,18 +328,22 @@ private final class InterpreterWsListener(
   override def onOpen(controls: WsControls): Unit =
     _wsValue  = buildWsValue(controls)
     executor.execute { () =>
-      try entry.interpreter.invoke(entry.handler, List(_wsValue))
-      catch case e: Throwable =>
-        log.println(s"WS upgrade handler error: ${e.getMessage}")
+      InterpreterExecutionGate.write(entry.interpreter) {
+        try entry.interpreter.invoke(entry.handler, List(_wsValue))
+        catch case e: Throwable =>
+          log.println(s"WS upgrade handler error: ${e.getMessage}")
+      }
     }
 
   override def onMessage(text: String): Unit =
     val cb = _onMessageCb
     if cb != null then
       executor.execute { () =>
-        try entry.interpreter.invoke(cb, List(Value.StringV(text)))
-        catch case e: Throwable =>
-          log.println(s"WS handler error: ${e.getMessage}")
+        InterpreterExecutionGate.write(entry.interpreter) {
+          try entry.interpreter.invoke(cb, List(Value.StringV(text)))
+          catch case e: Throwable =>
+            log.println(s"WS handler error: ${e.getMessage}")
+        }
       }
 
   override def onBinary(bytes: Array[Byte]): Unit =
@@ -344,9 +356,11 @@ private final class InterpreterWsListener(
     if cb != null then
       val s = new String(payload, "ISO-8859-1")
       executor.execute { () =>
-        try entry.interpreter.invoke(cb, List(Value.StringV(s)))
-        catch case e: Throwable =>
-          log.println(s"WS onPong handler error: ${e.getMessage}")
+        InterpreterExecutionGate.write(entry.interpreter) {
+          try entry.interpreter.invoke(cb, List(Value.StringV(s)))
+          catch case e: Throwable =>
+            log.println(s"WS onPong handler error: ${e.getMessage}")
+        }
       }
 
   override def onClose(code: Int, reason: String): Unit =
@@ -354,9 +368,11 @@ private final class InterpreterWsListener(
     entry.release()
     if cb != null then
       executor.execute { () =>
-        try entry.interpreter.invoke(cb, Nil)
-        catch case e: Throwable =>
-          log.println(s"WS close handler error: ${e.getMessage}")
+        InterpreterExecutionGate.write(entry.interpreter) {
+          try entry.interpreter.invoke(cb, Nil)
+          catch case e: Throwable =>
+            log.println(s"WS close handler error: ${e.getMessage}")
+        }
       }
 
   override def onError(t: Throwable): Unit =
