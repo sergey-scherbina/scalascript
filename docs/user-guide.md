@@ -613,9 +613,15 @@ signal, dependency-safe derived reads, exact subscription tokens, and atomic
 Host/Store keyed transactions. The recursive renderer covers reactive text,
 show/fragment/elements, text and checkbox bindings, styles/accessibility, and
 keyed component identity with move/delete/fresh-reinsert semantics. Malformed
-or deferred semantics are source-located Unsupported output; fetch execution,
-native tables, trusted WKWebView content, and navigation actions are the next
-toolkit slice rather than silent fallbacks.
+or deferred semantics are source-located Unsupported output. Fetch signals and
+actions now use URLSession with first/last-subscriber ownership, structural
+request metadata, generation-checked replacement/cancellation, atomic
+idle/loading/done/error state, click-time body/header snapshots, 2xx-only
+capture/clear/ordered success effects, form-body snapshots, and preflighted
+http/https/mailto navigation. Unsafe, hostless, stale, malformed, or late
+descriptors cannot start or mutate current work. Native tables, UserDefaults/
+NWPathMonitor adapters, trusted WKWebView content, and the Xcode app target are
+the next toolkit slices rather than silent fallbacks.
 
 `--target ios` already emits an iOS-deployment Swift package through the same
 v2 backend plus the AppleApp sources. Until the real Xcode application project

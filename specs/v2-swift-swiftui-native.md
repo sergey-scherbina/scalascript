@@ -934,6 +934,33 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### SwiftUI async fetch/action lifecycle (`261dadb6b`, 2026-07-11)
+
+- The main-actor Store now owns URLSession fetch families and action tasks by
+  structural owner/site/occurrence plus exact phase/error capabilities.
+  First/last observation, dependency changes, action replacement, keyed
+  absence/deletion, explicit cancellation, and root disposal invalidate the
+  right generation; late or stale callbacks cannot mutate current state.
+- Request URL/body/headers and form fields are resolved at the required
+  observation/tap boundary. Only 2xx responses run capture, clear, and the
+  source-ordered success plan. Error text is Unicode-bounded, response-time
+  effect projection is non-trapping, and shared mounts retain loading until
+  their last exact capability task ends.
+- Action and fetch metadata compare nested signal references by validated
+  `(scope,id,kind)`, not regenerated closure identity. Same-key reconstruction
+  preserves live work, genuine descriptor changes restart once, and multiple
+  same-key registrations in one Host transaction coalesce to the final
+  committed descriptor.
+- One external URL predicate rejects javascript/data/file/hash and hostless
+  navigation/openJson templates before transport; http/https require an
+  authority and mailto a non-empty target. HTTP methods/header names use token
+  validation and header values reject control characters.
+- `nativeui-reviewer` approved the final async slice in the `scalascript` Rozum
+  room. Landing gates passed Swift backend 30/30 with real SwiftPM/SwiftUI and
+  strict-concurrency URLProtocol execution, plus `tkv2-*` conformance 12/12.
+  Persisted/online ownership, ordinary event overflow hardening, native tables,
+  WKWebView, and Xcode application products remain separate queued slices.
+
 ### SwiftUI observation store and recursive renderer (`70bee065d`, 2026-07-11)
 
 - UI-mode packages now emit a main-actor `NativeUiStore` plus recursive
