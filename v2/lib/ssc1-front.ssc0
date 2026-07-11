@@ -1320,9 +1320,9 @@ def goSubPats = (ts0) =>
     else pr(Pair(reverse(Cons(prV(rp), acc)), cnt2), tsA) in
   go(ts0, Nil, 0)
 
--- Tuple expressions lower to right-nested Pair constructors:
--- `(a, b, c)` = Pair(a, Pair(b, c)). Pattern tuples must use the identical
--- shape; a synthetic Tuple3 arm can never match the runtime Pair/2 value.
+-- K62.20 tuple values use Pair for arity two and flat Tuple${N} constructors
+-- for arity three or greater. Pattern tuples must use the identical shape,
+-- including when nested inside another constructor such as Some((a, b, c)).
 def tuplePat = (subs) =>
   match subs {
     case Nil => Pair("wpat", "")
@@ -1333,7 +1333,7 @@ def tuplePat = (subs) =>
           match tail {
             case Nil => Pair("cpat", Pair("Pair", Cons(first, Cons(second, Nil))))
             case Cons(third, more) =>
-              Pair("cpat", Pair("Pair", Cons(first, Cons(tuplePat(rest), Nil))))
+              Pair("cpat", Pair(#sconcat("Tuple", #i->str(lenL(subs))), subs))
           }
       }
   }
