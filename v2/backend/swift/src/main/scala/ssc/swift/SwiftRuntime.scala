@@ -759,6 +759,7 @@ private final class Machine {
         case "io.print": Swift.print(sscPlain(args[0]), terminator: ""); return .unit
         case "io.println": Swift.print(sscPlain(args[0])); return .unit
         case "io.nanoTime": return .int(Int64(bitPattern: DispatchTime.now().uptimeNanoseconds))
+        case "io.args": return listValue(CommandLine.arguments.dropFirst().map(SscValue.string))
         default: fatalError("swift runtime: unsupported primitive '\(operation)'")
         }
     }

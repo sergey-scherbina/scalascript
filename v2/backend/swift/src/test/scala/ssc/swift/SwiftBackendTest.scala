@@ -40,6 +40,13 @@ final class SwiftBackendTest extends AnyFunSuite:
     val primitiveError = intercept[IllegalArgumentException](SwiftBackend.generate(badPrimitive))
     assert(primitiveError.getMessage == "swift backend: unsupported primitive 'host.secret'")
 
+  test("generated package declares the selected Apple deployment platform"):
+    val program = fixture("fact")
+    val macos = SwiftBackend.generate(program, "Fact", SwiftPlatform.MacOS).files.head._2
+    val ios = SwiftBackend.generate(program, "Fact", SwiftPlatform.IOS).files.head._2
+    assert(macos.contains("platforms: [.macOS(.v13)]"))
+    assert(ios.contains("platforms: [.iOS(.v16)]"))
+
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val cases = List(
@@ -98,6 +105,11 @@ final class SwiftBackendTest extends AnyFunSuite:
     val program = Program(Nil, Term.Prim("effect.handle", List(computation, handler)))
     assert(runSwift("effects", program) == "30")
 
+  test("real swift run exposes executable arguments through io.args"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val program = Program(Nil, Term.Prim("io.args", Nil))
+    assert(runSwift("args", program, List("one", "two")) == "List(\"one\", \"two\")")
+
   test("checked real money source runs through FrontendBridge and SwiftPM"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val source = repoRoot.resolve("tests/conformance/money-portable-v2.ssc")
@@ -138,7 +150,7 @@ final class SwiftBackendTest extends AnyFunSuite:
       process.waitFor() == 0
     catch case _: Exception => false
 
-  private def runSwift(name: String, program: Program): String =
+  private def runSwift(name: String, program: Program, programArgs: List[String] = Nil): String =
     val root = Files.createTempDirectory(s"ssc-swift-$name-")
     val errors = root.resolve("swift.stderr")
     try
@@ -146,7 +158,7 @@ final class SwiftBackendTest extends AnyFunSuite:
       val product = SwiftBackend.productName(requestedProduct)
       SwiftBackend.generate(program, requestedProduct).writeTo(root)
       val process = new ProcessBuilder(
-        "swift", "run", "--package-path", root.toString, "--quiet", product,
+        (List("swift", "run", "--package-path", root.toString, "--quiet", product) ++ programArgs)*
       ).redirectError(errors.toFile).start()
       val stdout = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
       val exit = process.waitFor()

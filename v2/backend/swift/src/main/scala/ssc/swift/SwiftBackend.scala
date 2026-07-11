@@ -5,6 +5,9 @@ import java.nio.file.{Files, Path}
 
 import ssc.{Arm, Const, Def, Program, Term}
 
+enum SwiftPlatform:
+  case MacOS, IOS
+
 final case class SwiftPackage(files: Vector[(String, String)]):
   def writeTo(root: Path): Unit =
     files.foreach { (relative, content) =>
@@ -44,14 +47,18 @@ object SwiftBackend:
     "arr.new", "arr.len", "arr.get", "arr.set", "arr.push", "arr.pop", "arr.slice",
     "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
     "__method__", "__effect__", "__arith__", "__unary__",
-    "io.print", "io.println", "io.nanoTime",
+    "io.print", "io.println", "io.nanoTime", "io.args",
   )
 
-  def generate(program: Program, packageName: String = "SscApp"): SwiftPackage =
+  def generate(
+      program: Program,
+      packageName: String = "SscApp",
+      platform: SwiftPlatform = SwiftPlatform.MacOS,
+  ): SwiftPackage =
     validate(program)
     val product = productName(packageName)
     SwiftPackage(Vector(
-      "Package.swift" -> packageManifest(product),
+      "Package.swift" -> packageManifest(product, platform),
       "Sources/AppCore/SscRuntime.swift" -> SwiftRuntime.source,
       "Sources/AppCore/GeneratedProgram.swift" -> generatedProgram(program),
       s"Sources/$product/main.swift" ->
@@ -63,13 +70,16 @@ object SwiftBackend:
     val nonEmpty = if cleaned.isEmpty then "SscApp" else cleaned
     if nonEmpty.head.isDigit then s"Ssc_$nonEmpty" else nonEmpty
 
-  private def packageManifest(product: String): String =
+  private def packageManifest(product: String, platform: SwiftPlatform): String =
+    val platformDeclaration = platform match
+      case SwiftPlatform.MacOS => ".macOS(.v13)"
+      case SwiftPlatform.IOS => ".iOS(.v16)"
     s"""// swift-tools-version: 6.0
        |import PackageDescription
        |
        |let package = Package(
        |    name: ${swiftString(product)},
-       |    platforms: [.macOS(.v13)],
+       |    platforms: [$platformDeclaration],
        |    products: [
        |        .library(name: "AppCore", targets: ["AppCore"]),
        |        .executable(name: ${swiftString(product)}, targets: [${swiftString(product)}])
