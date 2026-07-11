@@ -59,6 +59,24 @@ found by codex while closing the native content-helper cutover.
   dependency/plugin/standard/slim/JRE gates pass, native corpus runtime success
   rises to 47, standard parity is 36/30/129 with no mismatch/one-sided row,
   runtime blockers fall to 18, and affected conformance is 17/17.
+## v21-native-sql-recovery-parser-sentinel — loaded recovery source leaves `_err`
+
+**Status:** open (2026-07-11); found by codex after fixing the wrapped-import
+loss exposed the complete `dsl-sql-recovery.ssc` module closure.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, both
+  `bin/ssc-standard run --native examples/dsl-sql-recovery.ssc` and its
+  `--bytecode` twin exit 1 with `native frontend rejected incomplete parse ...
+  structural CoreIR contains parser sentinel _err`. The focused wrapped-import
+  fixture already passes `82` on both lanes, so module loading itself is fixed.
+- **Expected:** isolate the exact imported/root source syntax that owns `_err`,
+  repair its general self-hosted parser/lowerer boundary, and keep the strict
+  structural sentinel rejection. Never execute partial IR or suppress `_err`.
+- **Plan/done-when:** inspect structural CoreIR and the assembled statement
+  stream, add the smallest faithful regression for the proved syntax family,
+  fix spec-first if the grammar contract changes, then require exact public
+  VM/ASM output and the complete release gates before taxonomy retirement.
+
 ## v21-native-multiline-markdown-import-dropped — std parser companion stays unloaded
 
 **Status:** open (2026-07-11); found by codex while reproducing the queued

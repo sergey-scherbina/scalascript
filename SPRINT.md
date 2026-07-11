@@ -2126,6 +2126,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               public example on installed VM/direct ASM, module
                               loading/native-entry/release gates, and fresh
                               `v2-*` conformance before taxonomy retirement.
+                              - [ ] **TI-8.2d2x1 loaded recovery parser
+                                    sentinel:** once wrapped imports load, the
+                                    installed structural gate correctly rejects
+                                    remaining `(global _err)` in the complete
+                                    recovery closure on both VM/ASM. Isolate the
+                                    owning syntax/module, add a faithful focused
+                                    regression, and fix the general self-hosted
+                                    parser boundary without weakening sentinel
+                                    rejection or running partial IR. Track in
+                                    `v21-native-sql-recovery-parser-sentinel`.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line
