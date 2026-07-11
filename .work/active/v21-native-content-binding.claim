@@ -1,6 +1,6 @@
 feature/v21-native-content-binding 2026-07-11T19:44:00Z
 agent: codex
-heartbeat: 2026-07-11T19:44:00Z
+heartbeat: 2026-07-11T20:12:00Z
 status: in-progress
-done-so-far: TI-8.2d3f is queued in SPRINT and the native content spec is committed
-next: create isolated worktree; specify pure contentBind semantics; implement and gate VM/ASM/build-jvm
+done-so-far: pure ScalaScript contentBind, table/list projection, positional record copy, VM/ASM/build-jvm smoke, and INT/JS/JVM focused parity are implemented
+next: rerun post-rebase full compiler-free gates; close spec/bug/sprint evidence; push and release claim
