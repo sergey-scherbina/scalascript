@@ -2501,7 +2501,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     native-entry passes, and fresh affected
                                     conformance is 11/11.
                         - [x] **TI-8.2d3e core-free structural content — DONE
-                              2026-07-11 (spec `cd63d01c4`, code `eed2043cf`):** retain
+                              2026-07-11 (spec `cd63d01c4`, code `8b66e73a0`):** retain
                               the already parsed `MarkdownDocument` nodes from
                               `NativeCompilation/4` as immutable values in the
                               native runtime configuration instead of reducing
@@ -2540,11 +2540,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               focused multi-file and public
                               `content-to-markdown` output are exact, affected
                               conformance is 16/16, and full parity is
-                              31 identical / 35 both-fail / 129 skipped with
+                              32 identical / 34 both-fail / 129 skipped with
                               zero mismatch/one-sided. Dependency closure is
                               18 roots / 69 edges / 32 dependency JARs / zero
-                              violations; taxonomy is 13 language / 10 standard
-                              / 6 optional / 6 tools, 23 blockers / 35 total.
+                              violations; taxonomy is 12 language / 10 standard
+                              / 6 optional / 6 tools, 22 blockers / 34 total.
                               `content-linked-namespaces` now reaches its later
                               independently queued `BigInt.toString` failure;
                               `content.ssc` is independently owned by `md`.

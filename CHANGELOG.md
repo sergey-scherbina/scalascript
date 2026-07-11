@@ -39,9 +39,9 @@ the permanent Scala 3 seed. A core-free provider exposes current/imported
 lookups plus plain-text and semantic-Markdown rendering on VM, ASM, standard,
 slim/JRE, and deterministic `build-jvm`; artifacts embed the same immutable
 values in `content.bin`. No v1 content bridge, Scalameta, CommonMark/Flexmark,
-or host reparse is used. Full parity is 31/35/129 with zero mismatch or
-one-sided failure, and runtime blockers fall to 23. Landed `eed2043cf`; contract
-and evidence `cd63d01c4`, `dcd097dea`.
+or host reparse is used. Full parity is 32/34/129 with zero mismatch or
+one-sided failure, and runtime blockers fall to 22. Landed `8b66e73a0`; contract
+and evidence `cd63d01c4`, `680b32a60`.
 
 ## 2026-07-11 — parser DSLs preserve composed values end to end
 
