@@ -1,5 +1,23 @@
 # Bug tracker
 
+## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
+
+**Status:** open (2026-07-11); found by `apple_table_impl_map` during the
+read-only implementation audit of the local Apple table decoder draft.
+
+- **Draft repro:** evaluate a fetch table in `loading` with last-good rows and
+  an empty/stale body; the draft reparses and can replace the retained rows.
+  It also admits Float through ordinary display/payload scalar conversion,
+  validates table colors separately from shipped CSS colors, accepts a generic
+  signal as a fetch source, and accepts a read-only refresh signal.
+- **Expected:** loading immediately retains the last-good set; ordinary display
+  excludes Float and Field payloads allow only String/Int/BigInt/Bool; one
+  bounded native color grammar serves CSS and table status; fetch metadata and
+  writable refresh capabilities reject at descriptor decode.
+- **Plan/done-when:** close all four seams before the first Apple table code
+  commit, add them to the six named executable gates, and obtain Rozum reviewer
+  confirmation with the complete slice.
+
 ## v2-native-table-payload-validator-drift — row payload descriptors validate differently by adapter
 
 **Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by

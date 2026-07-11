@@ -689,6 +689,13 @@ there before changing this plan.
                         and `tkv2-*` conformance 12/12 are green.
                   - [ ] add the shared strict Apple table decoder/model/view and
                         reuse the exact-capability request runner for row work;
+                        Draft-audit blockers (tracked as
+                        `v2-native-table-model-contract-gaps`): loading must
+                        retain last-good rows without reparsing; ordinary cells
+                        and Field payloads use their distinct strict scalar
+                        sets; table status and CSS share one bounded color
+                        grammar; fetch metadata and writable refresh reject at
+                        descriptor decode.
                   - [ ] execute the six named generated-Swift table tests plus
                         focused compatibility/conformance gates, obtain final
                         Rozum implementation APPROVE, then document results.
