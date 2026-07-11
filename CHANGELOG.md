@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — exact summon resolves named givens natively
+
+The self-hosted parser now retains nested type text for `summon[TC[T]]`, and the
+lowerer resolves exact evidence through its existing named-given table. Positive
+and missing-evidence fixtures agree on VM/direct ASM; the typeclass example
+advances to its independent dictionary-dispatch gap. Landed `a5b97f0dd`.
+
 ## 2026-07-11 — self-hosted standard programs publish portable math
 
 The native lowerer now exposes the v2 kernel's existing `math` receiver without

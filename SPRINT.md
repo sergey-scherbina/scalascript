@@ -1377,7 +1377,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               honest collection arity gap, and mixed Scala fences
                               are reviewed backend skips. Corpus is 33/93,
                               parity 14/54/127, blockers 42, conformance 11/11.
-                        - [ ] **TI-8.2d2j exact top-level summon:** retain the
+                        - [x] **TI-8.2d2j exact top-level summon — DONE
+                              2026-07-11 (`a5b97f0dd`):** retain the
                               bracketed type string only for `summon[T]`, resolve
                               it through the existing named-given table, and
                               lower the result as that static instance without
@@ -1389,6 +1390,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               derives support. Require native-entry, corpus,
                               strict parity, both taxonomies, and fresh affected
                               conformance before push.
+                              Result: exact and nested named evidence resolves on
+                              VM/direct ASM; missing evidence fails identically.
+                              `typeclass` advances through summon/Eq/Ord to its
+                              dictionary-sentinel gap; Mirror derives stays
+                              honest. Corpus/parity/taxonomy remain 33/93,
+                              14/54/127, and 42 blockers; conformance is 11/11.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
