@@ -37,8 +37,9 @@ full strict parity sweep.
 
 ## fast-http-session-cookie — successful setSession response loses Set-Cookie
 
-**Status:** open (2026-07-11); reported by busi immediately after pinning the
-hf-7 `--v2` fast backend.
+**Status:** fixed (2026-07-11); reported and confirmed by busi immediately
+after pinning the hf-7 `--v2` fast backend. Fix commit: `5c89150b6` (subject to
+final rebase SHA).
 
 - **Real-harness repro:** assemble `bin/ssc`, boot busi's `src/v2/http/hub.ssc`
   on `--v2`, and submit the displayed code to `POST /pair`. The response is 200
@@ -58,6 +59,9 @@ hf-7 `--v2` fast backend.
 - **Plan/done-when:** add a raw-input shared-builder path, reproduce through a
   real fast socket, run module/assembled/conformance gates, and obtain reporter
   confirmation from busi Vault plus canonical browser E2E.
+- **Verification:** common 150/150, fast backend 5/5, interpreter-server 58/58,
+  `rest-validate` INT/JS/JVM, assembled paired Vault 11-step/restart/leakage
+  check, and canonical busi fast-backend Chromium 6/6 in 1.9 minutes.
 
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 

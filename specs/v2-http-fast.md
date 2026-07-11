@@ -187,7 +187,7 @@ the SPI.
       selects it with `HttpServerBackends.setBackend("fast")` so `ssc run --v2 <server>` serves
       on the fast engine (framework unchanged). `--native` keeps the native plugin lane;
       `--v1`/default keep the JDK backend unless they `setHttpServerBackend("fast")`.
-- [ ] **hf-6d framework request/session parity** — the fast SPI backend must
+- [x] **hf-6d framework request/session parity** — DONE. The fast SPI backend
       feed raw method/path/query/headers/body through the same shared
       `RequestBuilder` semantics as the JDK backend: urlencoded and multipart
       form fields, generic cookies, signed session, bearer/basic auth and JWT
@@ -195,7 +195,14 @@ the SPI.
       engine unchanged. A real-socket pairing regression posts a form, observes
       `Set-Cookie`, and authenticates the next request with that cookie. The
       fast engine remains value-agnostic and does not duplicate application or
-      cookie policy.
+      cookie policy. `RequestBuilder.parseRaw` now owns the transport-neutral
+      body/header half and is shared by fast/JDK semantics; multipart temp files
+      are removed after handler completion. A real-socket test covers
+      urlencoded form, explicit cookie round-trip, signed session round-trip,
+      bearer and basic auth. Verification: common 150/150, fast 5/5,
+      interpreter-server 58/58, `rest-validate` INT/JS/JVM, assembled busi Vault
+      11-step/restart/leakage check, and canonical fast-backend Chromium 6/6 in
+      1.9 minutes.
 
 ## Non-goals (this spec)
 
