@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T23:24:53Z
+heartbeat: 2026-07-11T23:39:55Z
 status: in-progress
-done-so-far: W2 effects, parser recovery, and the required core-free Dataset provider are pushed through 645ba0d69; release gate is ready at 40 identical / 26 both-fail / 14 blockers
-next: implement the core-free standard Generator provider deferred by Dataset, prove generators.ssc on VM/direct ASM/build-jvm, and retire only its exact row after full gates
+done-so-far: core-free Generator provider is implemented and focused VM/ASM/build-jvm/isolation/slim gates are green in ea60d2384
+next: run the complete self-hosted release gate, retire only generators.ssc from taxonomy, rerun fresh conformance, then push the green slice
