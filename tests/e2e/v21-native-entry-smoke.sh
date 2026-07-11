@@ -89,6 +89,8 @@ extension_receivers_expected=$'HELLO!\nhahaha\n25\n20\n5'
 [[ $(run_native "$FIXTURES/extension-receivers.ssc") == "$extension_receivers_expected" ]]
 dynamic_length_expected=$'3\n8\n6\n4'
 [[ $(run_native "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
+top_level_while_expected=$'0\n10\n4'
+[[ $(run_native "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -117,6 +119,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/collection-companions.ssc") == "$collection_companions_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/extension-receivers.ssc") == "$extension_receivers_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

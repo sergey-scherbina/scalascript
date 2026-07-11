@@ -1645,6 +1645,17 @@ def parseOneStmt = (toks) =>
       -- K62.6b: top-level mutable var (parseBlock handled var; parseOneStmt did not)
       let r = parseVal(advance(toks)) in
       match prV(r) { case Pair(vtag, vdata) => pr(Pair("var", vdata), prT(r)) }
+    else if #seq(v, "while") then
+      -- K62.19: document-level while reuses the block statement shape.
+      let ts1 = advance(toks) in
+      let rCond = if kindIs("(", ts1) then
+        let r = parseExpr(advance(ts1)) in
+        pr(prV(r), skipKind(")", prT(r)))
+      else parseExpr(ts1) in
+      let ts2 = if kwIs("do", prT(rCond)) then advance(prT(rCond)) else prT(rCond) in
+      let rBody = if kindIs("{", ts2) then parseBlock(advance(ts2))
+                  else parseExpr(ts2) in
+      pr(Pair("while", Pair(prV(rCond), prV(rBody))), prT(rBody))
     else if #seq(v, "case") then
       let ts2 = advance(toks) in
       if kwIs("class", ts2) then parseCaseClass(advance(ts2))

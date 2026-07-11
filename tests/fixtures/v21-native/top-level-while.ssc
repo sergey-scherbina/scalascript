@@ -1,0 +1,27 @@
+---
+name: v21-native-top-level-while
+---
+
+```scalascript
+var skipped = 0
+while skipped < 0 do
+  skipped = skipped + 1
+println(skipped)
+
+var i = 0
+var total = 0
+while i < 5 do
+  total = total + i
+  i = i + 1
+println(total)
+
+var outer = 0
+var visits = 0
+while (outer < 2) do
+  var inner = 0
+  while inner < 2 do
+    visits = visits + 1
+    inner = inner + 1
+  outer = outer + 1
+println(visits)
+```

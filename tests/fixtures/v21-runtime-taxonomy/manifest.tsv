@@ -26,7 +26,6 @@ dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhan
 dsl-yaml-like.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
 effects.ssc	language-runtime	yes	effects	declared portable effect operation greet remains an unbound global
 enums.ssc	standard-provider	yes	math	standard math is not installed as the native math global
-extensions.ssc	language-runtime	yes	control-flow	dynamic List length now works; the remaining while statement is parsed as an unbound global
 functional.ssc	language-runtime	yes	dispatch	portable functional dispatch leaks a Stub/1 into match lowering
 generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler

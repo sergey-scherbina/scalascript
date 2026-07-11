@@ -2879,6 +2879,10 @@ def lowerProg = (stmts) =>
             else if #seq(stag, "assign") then
               -- K62.6b: top-level assignment → cell.set (lowerE's assign case handles isTopVar)
               Cons(lowerE(Nil, s1), topExprs(rest1))
+            else if #seq(stag, "while") then
+              -- K62.19: reuse the block path so top-level cell mutation and
+              -- IrWhile emission stay identical to a loop inside a function.
+              Cons(lowerBlock(Nil, Cons(s1, Nil)), topExprs(rest1))
             else if #seq(stag, "var") then
               -- K62.6b: run the var's initializer in document order as cell.set(name__cell, init)
               match sdata {
