@@ -1,5 +1,24 @@
 # Bug tracker
 
+## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
+
+**Status:** open (2026-07-11); found by codex while joining the fresh 195-row
+typeclass release report to the reviewed runtime taxonomy.
+
+- **Real-harness repro:** fresh strict parity classifies
+  `derived-route-clients.ssc` as `identical` with VM/ASM exit 0, and direct
+  installed `ssc-standard run --native` plus `--bytecode` both exit 0 with
+  identical empty output/stderr. `scripts/v21-runtime-taxonomy` nevertheless
+  fails `stale or reclassified manifest row: derived-route-clients.ssc` because
+  the manifest still says standard HTTP `mount` is missing.
+- **Expected:** completed standard-provider rows leave the reviewed blocker
+  manifest and tighten category/total ceilings; the core-only no-provider
+  corpus diagnostic remains visible but cannot override the plugin-enabled
+  standard parity contract.
+- **Plan/done-when:** remove only the stale derived-route row after exact
+  installed VM/ASM evidence, run the real taxonomy and full release gate, and
+  record the already-landed provider ownership without changing HTTP code.
+
 ## v21-native-typeclass-dictionary-sentinel — explicit dictionaries lose members
 
 **Status:** open (2026-07-11); found by codex while reducing the reviewed

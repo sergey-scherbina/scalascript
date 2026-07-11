@@ -2346,6 +2346,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         Each provider family needs unit coverage, assembled
                         VM/ASM coverage, and forbidden-dependency/class-load
                         gates before its taxonomy rows can leave the blocker set.
+                        - [ ] **TI-8.2d3f HTTP mount taxonomy reconciliation:**
+                              the current installed compiler-free standard VM
+                              and ASM both execute `derived-route-clients.ssc`
+                              successfully after the already landed HTTP-fast
+                              `mount` surface, while the reviewed runtime
+                              manifest still classifies it as a blocking missing
+                              provider. Pin the exact parity/runtime evidence,
+                              remove only this empirically stale row, tighten
+                              standard-provider/total/blocker ceilings, and run
+                              the real runtime taxonomy plus complete release
+                              gate. Do not change HTTP implementation or hide a
+                              remaining core-only diagnostic.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
