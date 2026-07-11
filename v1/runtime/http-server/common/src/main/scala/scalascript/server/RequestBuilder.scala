@@ -57,13 +57,28 @@ object RequestBuilder:
     catch case _: Throwable => 0L
     if clHdr > cfg.maxBodySize then throw new BodyTooLargeError()
     val bodyBytes = ex.getRequestBody.readAllBytes()
-    if bodyBytes.length.toLong > cfg.maxBodySize then throw new BodyTooLargeError()
+    val rawQuery = Option(ex.getRequestURI.getRawQuery).getOrElse("")
+    parseRaw(method, path, params, HttpHelpers.parseQuery(rawQuery), headers, bodyBytes, cfg)
 
+  /** Build the same fully populated Request from a transport-neutral raw
+   *  request. Backends with their own parser use this instead of duplicating
+   *  form, cookie-session and authorization semantics. */
+  def parseRaw(
+      method:    String,
+      path:      String,
+      params:    Map[String, String],
+      query:     Map[String, String],
+      headers:   Map[String, String],
+      bodyBytes: Array[Byte],
+      cfg:       Config = Config()
+  ): (Request, Map[String, String], List[java.io.File]) =
+    if bodyBytes.length.toLong > cfg.maxBodySize then throw new BodyTooLargeError()
+    val normalizedHeaders = headers.map { case (k, v) =>
+      k.toLowerCase(java.util.Locale.ROOT) -> v
+    }
     val body       = new String(bodyBytes, "UTF-8")
     val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
-    val contentType = headers.collectFirst {
-      case (k, v) if k.equalsIgnoreCase("Content-Type") => v
-    }.getOrElse("")
+    val contentType = normalizedHeaders.getOrElse("content-type", "")
 
     val ctLower = contentType.toLowerCase
     val (form, files, spooledTmps): (Map[String, String], Map[String, UploadedFile], List[java.io.File]) =
@@ -74,9 +89,7 @@ object RequestBuilder:
       else
         (Map.empty[String, String], Map.empty[String, UploadedFile], List.empty[java.io.File])
 
-    val cookieHeader = headers.collectFirst {
-      case (k, v) if k.equalsIgnoreCase("Cookie") => v
-    }.getOrElse("")
+    val cookieHeader = normalizedHeaders.getOrElse("cookie", "")
     val rawCookieSession =
       if cookieHeader.isEmpty then Map.empty[String, String]
       else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
@@ -88,20 +101,17 @@ object RequestBuilder:
         rawCookieSession.get("_ssid").flatMap(cfg.sessionStoreGet).getOrElse(Map.empty)
       else rawCookieSession
 
-    val authHeader = headers.collectFirst {
-      case (k, v) if k.equalsIgnoreCase("Authorization") => v
-    }.getOrElse("")
+    val authHeader = normalizedHeaders.getOrElse("authorization", "")
     val bearer    = Jwt.fromAuthHeader(authHeader)
     val claims    = bearer.flatMap(cfg.jwtVerify)
     val basicAuth = BasicAuth.fromHeader(authHeader)
 
-    val rawQuery = Option(ex.getRequestURI.getRawQuery).getOrElse("")
     val req = Request(
       method      = method,
       path        = path,
       params      = params,
-      query       = HttpHelpers.parseQuery(rawQuery),
-      headers     = headers,
+      query       = query,
+      headers     = normalizedHeaders,
       body        = body,
       form        = form,
       files       = files,

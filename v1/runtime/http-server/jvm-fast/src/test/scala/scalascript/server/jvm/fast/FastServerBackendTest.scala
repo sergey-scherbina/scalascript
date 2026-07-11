@@ -19,7 +19,29 @@ class FastServerBackendTest extends AnyFunSuite:
 
   private val handler = new HttpHandler:
     def onHttpRequest(req: Request): HttpResult =
-      if req.path == "/stream" then
+      if req.path == "/pair" then
+        if req.form.get("code").contains("123456") then
+          HttpResult.PlainResp(Response(200,
+            Map("Set-Cookie" -> "busi_device=fixture; Path=/; HttpOnly; SameSite=Lax"),
+            "paired"))
+        else HttpResult.PlainResp(Response(400, body = "bad code"))
+      else if req.path == "/protected" then
+        if req.cookies.get("busi_device").contains("fixture") then
+          HttpResult.PlainResp(Response(200, body = "owner"))
+        else HttpResult.PlainResp(Response(401, body = "unpaired"))
+      else if req.path == "/signed-session" then
+        HttpResult.PlainResp(Response(200, body = "session",
+          setSession = Some(Map("user" -> "owner"))))
+      else if req.path == "/session-view" then
+        HttpResult.PlainResp(Response(if req.session.get("user").contains("owner") then 200 else 401,
+          body = req.session.getOrElse("user", "missing")))
+      else if req.path == "/bearer" then
+        HttpResult.PlainResp(Response(if req.bearerToken.contains("owner-token") then 200 else 401,
+          body = req.bearerToken.getOrElse("missing")))
+      else if req.path == "/basic" then
+        HttpResult.PlainResp(Response(if req.basicAuth.contains(("owner", "secret")) then 200 else 401,
+          body = req.basicAuth.map((u, _) => u).getOrElse("missing")))
+      else if req.path == "/stream" then
         HttpResult.StreamResp(scalascript.server.StreamResponse(200,
           Map("Content-Type" -> "text/plain"), emit => { emit("a"); emit("b"); () }))
       else
@@ -60,6 +82,48 @@ class FastServerBackendTest extends AnyFunSuite:
         HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/stream")).GET().build(),
         HttpResponse.BodyHandlers.ofString())
       assert(r.body() == "ab")
+    }
+  }
+
+  test("urlencoded pairing form sets a cookie that authenticates the next request") {
+    withBackend { (port, client) =>
+      val pair = client.send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/pair"))
+          .header("Content-Type", "application/x-www-form-urlencoded")
+          .POST(HttpRequest.BodyPublishers.ofString("code=123456")).build(),
+        HttpResponse.BodyHandlers.ofString())
+      assert(pair.statusCode() == 200)
+      val cookie = pair.headers().firstValue("set-cookie").orElse("")
+      assert(cookie == "busi_device=fixture; Path=/; HttpOnly; SameSite=Lax")
+
+      val protectedResponse = client.send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/protected"))
+          .header("Cookie", "busi_device=fixture").GET().build(),
+        HttpResponse.BodyHandlers.ofString())
+      assert(protectedResponse.statusCode() == 200)
+      assert(protectedResponse.body() == "owner")
+
+      val session = client.send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/signed-session")).GET().build(),
+        HttpResponse.BodyHandlers.ofString())
+      val sessionCookie = session.headers().firstValue("set-cookie").orElse("")
+      assert(sessionCookie.startsWith("session="))
+      val sessionView = client.send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/session-view"))
+          .header("Cookie", sessionCookie.takeWhile(_ != ';')).GET().build(),
+        HttpResponse.BodyHandlers.ofString())
+      assert(sessionView.statusCode() == 200 && sessionView.body() == "owner")
+
+      val bearer = client.send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/bearer"))
+          .header("Authorization", "Bearer owner-token").GET().build(),
+        HttpResponse.BodyHandlers.ofString())
+      assert(bearer.statusCode() == 200 && bearer.body() == "owner-token")
+      val basic = client.send(
+        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/basic"))
+          .header("Authorization", "Basic b3duZXI6c2VjcmV0").GET().build(),
+        HttpResponse.BodyHandlers.ofString())
+      assert(basic.statusCode() == 200 && basic.body() == "owner")
     }
   }
 

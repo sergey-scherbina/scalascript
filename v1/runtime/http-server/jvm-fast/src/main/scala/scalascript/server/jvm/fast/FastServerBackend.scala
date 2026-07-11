@@ -1,6 +1,6 @@
 package scalascript.server.jvm.fast
 
-import scalascript.server.{Request, Response, StreamResponse, SessionCookie, HttpHelpers, TlsContextBuilder}
+import scalascript.server.{Request, RequestBuilder, Response, StreamResponse, SessionCookie, TlsContextBuilder}
 import scalascript.server.spi.*
 import ssc.plugin.httpfast.{FastHttpServer, RawRequest, RawResponse, HttpReader, WsConnection, WebSocketFrames}
 import java.net.{InetSocketAddress, ServerSocket, Socket}
@@ -50,23 +50,20 @@ class FastServerBackend extends HttpServerSpi:
   // ── HTTP ──────────────────────────────────────────────────────────────
 
   private def httpDispatch(raw: RawRequest, handler: HttpHandler): RawResponse =
-    handler.onHttpRequest(toPojo(raw, new String(raw.body, UTF_8))) match
-      case HttpResult.PlainResp(r)   => plainToRaw(r)
-      case HttpResult.StreamResp(sr) => streamToRaw(sr)
-      case HttpResult.Reject(status, body, contentType) =>
-        RawResponse(status, Map("Content-Type" -> contentType), body.getBytes(UTF_8))
+    val (request, _, spooledTmps) = toPojo(raw)
+    try
+      handler.onHttpRequest(request) match
+        case HttpResult.PlainResp(r)   => plainToRaw(r)
+        case HttpResult.StreamResp(sr) => streamToRaw(sr)
+        case HttpResult.Reject(status, body, contentType) =>
+          RawResponse(status, Map("Content-Type" -> contentType), body.getBytes(UTF_8))
+    finally spooledTmps.foreach(f => try f.delete() catch case _: Throwable => ())
 
-  /** Minimal POJO Request (same shape the Jetty backend builds): the framework derives
-    * form / auth / session above the SPI. `query` is already parsed by the engine. */
-  private def toPojo(raw: RawRequest, body: String): Request =
-    Request(
-      method  = raw.method,
-      path    = raw.path,
-      params  = Map.empty,
-      query   = raw.query,
-      headers = raw.headers,
-      body    = body,
-      cookies = HttpHelpers.parseCookieHeader(raw.headers.getOrElse("cookie", "")))
+  /** Reuse the transport-neutral half of RequestBuilder so fast and JDK
+    * backends expose identical form/session/auth/file semantics. */
+  private def toPojo(raw: RawRequest): (Request, Map[String, String], List[java.io.File]) =
+    RequestBuilder.parseRaw(raw.method, raw.path, Map.empty, raw.query,
+      raw.headers, raw.body)
 
   private def plainToRaw(r: Response): RawResponse =
     var headers = r.headers
@@ -94,7 +91,7 @@ class FastServerBackend extends HttpServerSpi:
     def hasRoute(path: String): Boolean = true
 
     def onUpgrade(request: RawRequest, sock: Socket, reader: HttpReader, out: java.io.OutputStream): Unit =
-      handler.onWsUpgrade(toPojo(request, "")) match
+      handler.onWsUpgrade(toPojo(request)._1) match
         case WsUpgradeResult.Reject(status, reason) =>
           try
             out.write(s"HTTP/1.1 $status $reason\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
