@@ -30,6 +30,7 @@ object SwiftBackend:
     "dec.div", "dec.rem", "dec.compare", "dec.set-scale", "dec.pow",
     "dec.abs", "dec.negate", "dec.signum", "dec.scale", "dec.unscaled",
     "dec.to-bigint", "dec.to-string",
+    "effect.pure", "effect.perform", "effect.handle",
     "f.add", "f.sub", "f.mul", "f.div", "f.neg",
     "f.sqrt", "f.floor", "f.ceil", "f.round", "f.trunc",
     "f.eq", "f.lt", "f.le", "f.gt", "f.ge", "f.isNaN", "f.isInf",

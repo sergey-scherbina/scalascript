@@ -5,7 +5,7 @@ import java.nio.file.{Files, Path, Paths}
 
 import org.scalatest.funsuite.AnyFunSuite
 
-import ssc.{Const, Program, Reader, Term}
+import ssc.{Arm, Const, Program, Reader, Term}
 
 final class SwiftBackendTest extends AnyFunSuite:
   private val repoRoot =
@@ -78,6 +78,23 @@ final class SwiftBackendTest extends AnyFunSuite:
     ))
     val program = Program(Nil, Term.Let(List(Term.Prim("map.new", Nil)), body))
     assert(runSwift("decimal", program) == "(3.50, 0.125, 2.35, true, 12.30, Some(7))")
+
+  test("real swift run preserves reusable multi-shot Pure Op continuations"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def int(value: Long) = Term.Lit(Const.CInt(value))
+    def resume(value: Long) = Term.App(Term.Local(0), List(int(value)))
+    val chooseBody = Term.Prim("i.add", List(resume(10), resume(20)))
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(
+        Arm("Choose", 2, chooseBody),
+        Arm("Return", 1, Term.Local(0)),
+      ),
+      None,
+    ))
+    val computation = Term.Prim("effect.perform", List(Term.Lit(Const.CStr("Demo.Choose")), int(1)))
+    val program = Program(Nil, Term.Prim("effect.handle", List(computation, handler)))
+    assert(runSwift("effects", program) == "30")
 
   private def fixture(name: String): Program =
     val path = repoRoot.resolve(s"v2/conformance/$name.coreir")

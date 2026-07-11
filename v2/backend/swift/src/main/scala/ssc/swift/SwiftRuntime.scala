@@ -598,6 +598,23 @@ private final class Machine {
         case "dec.unscaled": return .big(decimal(args[0]).unscaled)
         case "dec.to-bigint": return .big(decimal(args[0]).toBigInt())
         case "dec.to-string": return .string(decimal(args[0]).description)
+        case "effect.pure":
+            guard args.count == 1 else { fatalError("effect: effect.pure expects 1 argument") }
+            return .data("Pure", [args[0]])
+        case "effect.perform":
+            guard !args.isEmpty, case let .string(label) = args[0] else {
+                fatalError("effect: effect.perform expects a String label")
+            }
+            let operationArgs = Array(args.dropFirst())
+            let argument: SscValue
+            if operationArgs.isEmpty { argument = .unit }
+            else if operationArgs.count == 1 { argument = operationArgs[0] }
+            else { argument = .data("__EffArgs__", operationArgs) }
+            let identity = SscClosure(arity: 1) { values in values[0] }
+            return .data("Op", [.string(label), argument, .closure(identity)])
+        case "effect.handle":
+            guard args.count == 2 else { fatalError("effect: effect.handle expects 2 arguments") }
+            return handleEffect(args[0], args[1])
         case "f.add": return .float(float(args, 0) + float(args, 1))
         case "f.sub": return .float(float(args, 0) - float(args, 1))
         case "f.mul": return .float(float(args, 0) * float(args, 1))
@@ -750,6 +767,33 @@ private final class Machine {
         case ">": return .bool(a > b); case ">=": return .bool(a >= b)
         case "++": return .string(a.description + b.description)
         default: fatalError("decimal: operator '\(op)' is not valid for Decimal")
+        }
+    }
+
+    private func handleEffect(_ computation: SscValue, _ handlerValue: SscValue) -> SscValue {
+        guard case let .closure(handler) = handlerValue else { fatalError("effect: handler must be a closure") }
+        switch computation {
+        case let .data("Pure", fields) where fields.count == 1:
+            return handleEffect(fields[0], handlerValue)
+        case let .data("Op", fields) where fields.count == 3:
+            guard case let .string(label) = fields[0], case let .closure(continuation) = fields[2] else {
+                fatalError("effect: malformed Op")
+            }
+            let resume = SscClosure(arity: 1) { [weak self] values in
+                guard let self else { fatalError("effect: runtime released") }
+                return self.handleEffect(self.call(continuation, values), handlerValue)
+            }
+            let eventArgs: [SscValue]
+            switch fields[1] {
+            case .unit: eventArgs = [.closure(resume)]
+            case let .data("__EffArgs__", packed): eventArgs = packed + [.closure(resume)]
+            default: eventArgs = [fields[1], .closure(resume)]
+            }
+            let operation = label.split(separator: ".").last.map(String.init) ?? label
+            return call(handler, [.data(operation, eventArgs)])
+        case .data("Op", _): fatalError("effect: malformed Op")
+        default:
+            return call(handler, [.data("Return", [computation])])
         }
     }
 
