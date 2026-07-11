@@ -7,8 +7,6 @@ async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-f
 content-linked-namespaces.ssc	standard-provider	yes	content	contentModuleSection is missing from a core-free standard content provider
 content-to-markdown.ssc	standard-provider	yes	content	contentSection is missing from a core-free standard content provider
 content.ssc	standard-provider	yes	content	md is missing from a core-free standard content provider
-crypto-encrypt-demo.ssc	standard-provider	yes	crypto	aesGenKey is missing from the core-free standard crypto provider
-crypto-verify-demo.ssc	standard-provider	yes	crypto	verifyEd25519 is missing from the core-free standard crypto provider
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
 data-types.ssc	language-runtime	yes	value-conversion	portable enum/data rendering attempts to use a foreign value as String
 dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
@@ -44,7 +42,6 @@ sql-browser-duckdb.ssc	example-contract	yes	sql-browser	browser SQL section bind
 sql-browser-sqlite.ssc	example-contract	yes	sql-browser	browser SQL section binding Active is not declared as a non-JVM backend surface
 sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section binding ActiveUsers is not lowered natively
 storage-demo.ssc	standard-provider	yes	storage	runEphemeralStorage is missing from a core-free standard storage provider
-totp-shamir-demo.ssc	standard-provider	yes	crypto	totp is missing from the core-free standard crypto provider
 typeclass.ssc	language-runtime	yes	typeclass	exact summon now runs; an explicitly passed typeclass dictionary remains a sentinel value whose member dispatch fails
 typed-sql-crud.ssc	example-contract	yes	sql	the deterministic native run queries TODOS before the fixture creates it
 wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
