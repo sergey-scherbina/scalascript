@@ -12,7 +12,11 @@ private[cli] object SwiftV2Cli:
       platform: SwiftPlatform,
       xcodeApp: Option[XcodeAppArtifact],
   )
-  final case class BuiltXcodeApp(bundle: os.Path, executable: os.Path)
+  final case class BuiltXcodeApp(
+      bundle: os.Path,
+      executable: os.Path,
+      buildSettings: Map[String, String],
+  )
 
   def parsePlatform(raw: String, command: String): SwiftPlatform =
     raw.trim.toLowerCase match
@@ -157,7 +161,7 @@ private[cli] object SwiftV2Cli:
       else bundle / executableName
     if !os.exists(executable) then
       throw new IllegalStateException(s"$command: application executable missing at $executable")
-    BuiltXcodeApp(bundle, executable)
+    BuiltXcodeApp(bundle, executable, parsed)
 
 private[cli] def buildV2SwiftPackage(
     sscFile: os.Path,

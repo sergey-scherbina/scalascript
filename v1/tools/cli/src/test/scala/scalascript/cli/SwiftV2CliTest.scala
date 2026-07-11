@@ -1,6 +1,7 @@
 package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
+import java.util.concurrent.TimeUnit
 
 import _root_.ssc.swift.SwiftPlatform
 
@@ -125,6 +126,11 @@ final class SwiftV2CliTest extends AnyFunSuite:
         os.makeDir.all(out / "AppleApp" / "Resources")
         os.write(out / "AppleApp" / "Resources" / "user-e2e.txt", "preserved resource")
         val emitted = SwiftV2Cli.emit(nativeUiExample, out, SwiftPlatform.MacOS)
+        val second = out / "second"
+        os.makeDir.all(second / "AppleApp" / "Resources")
+        os.write(second / "AppleApp" / "Resources" / "user-e2e.txt", "preserved resource")
+        SwiftV2Cli.emit(nativeUiExample, second, SwiftPlatform.MacOS)
+        assert(generatedFiles(out).filterNot(_._1.startsWith("second/")) == generatedFiles(second))
         val listing = os.proc("xcodebuild", "-list", "-json", "-project", emitted.xcodeApp.get.project)
           .call(cwd = out, stdout = os.Pipe, stderr = os.Pipe)
         val project = ujson.read(listing.out.text())("project")
@@ -134,17 +140,23 @@ final class SwiftV2CliTest extends AnyFunSuite:
           emitted, "platform=macOS", out / "derived-mac", "test macOS app")
         assert(mac.bundle.ext == "app" && os.exists(mac.executable))
         assert(os.read(mac.bundle / "Contents" / "Resources" / "user-e2e.txt") == "preserved resource")
+        assertFrozenSettings(mac.buildSettings, "appcore_nativeui")
         val process = new ProcessBuilder(mac.executable.toString).start()
-        Thread.sleep(1000)
-        assert(process.isAlive, "macOS application exited before bounded smoke interval")
-        process.destroy()
-        process.waitFor()
+        try
+          Thread.sleep(1000)
+          assert(process.isAlive, "macOS application exited before bounded smoke interval")
+        finally
+          process.destroy()
+          if !process.waitFor(2, TimeUnit.SECONDS) then
+            process.destroyForcibly()
+            assert(process.waitFor(2, TimeUnit.SECONDS), "macOS application ignored forced bounded termination")
 
         val (udid, _) = pickIosSimulator().getOrElse(fail("installed iOS simulator is unavailable"))
         val iosEmitted = SwiftV2Cli.emit(nativeUiExample, out / "ios", SwiftPlatform.IOS)
         val ios = SwiftV2Cli.buildXcodeApplication(
           iosEmitted, s"platform=iOS Simulator,id=$udid", out / "derived-ios", "test iOS app")
         assert(ios.bundle.ext == "app")
+        assertFrozenSettings(ios.buildSettings, "appcore_nativeui")
       finally os.remove.all(out)
     }
 
@@ -166,6 +178,21 @@ final class SwiftV2CliTest extends AnyFunSuite:
       .map(path => path.relativeTo(root).toString -> os.read(path))
       .toVector
       .sortBy(_._1)
+
+  private def assertFrozenSettings(settings: Map[String, String], product: String): Unit =
+    assert(settings("TARGET_NAME") == product)
+    assert(settings("FULL_PRODUCT_NAME") == s"$product.app")
+    assert(settings("PRODUCT_BUNDLE_IDENTIFIER") == "com.scalascript.appcore-nativeui")
+    assert(settings("INFOPLIST_KEY_CFBundleDisplayName") == "appcore-nativeui")
+    assert(settings("MARKETING_VERSION") == "1.0.0")
+    assert(settings("CURRENT_PROJECT_VERSION") == "1")
+    assert(settings("IPHONEOS_DEPLOYMENT_TARGET") == "16.0")
+    assert(settings("MACOSX_DEPLOYMENT_TARGET") == "13.0")
+    assert(settings("SUPPORTED_PLATFORMS") == "iphoneos iphonesimulator macosx")
+    assert(settings("SUPPORTS_MACCATALYST") == "NO")
+    assert(settings("SWIFT_VERSION") == "6.0")
+    assert(settings("GENERATE_INFOPLIST_FILE") == "YES")
+    assert(settings.get("DEVELOPMENT_TEAM").forall(_.isEmpty))
 
   private def swiftAvailable: Boolean =
     try os.proc("swift", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
