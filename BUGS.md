@@ -1,5 +1,34 @@
 # Bug tracker
 
+## v21-case-object-no-context-unbound — native frontend drops `case object`
+
+**Status:** open (2026-07-11); found by codex after imported extension dispatch
+advanced `dsl-json-parser.ssc` beyond the `PRegex/1` failure.
+
+- **Real-harness repro:** `bin/ssc-standard run examples/dsl-json-parser.ssc`
+  fails identically on VM/ASM with `unbound global: NoContext`; the declaration
+  is `case object NoContext extends ParserContext` in `std/parsing/core.ssc`.
+- **Expected:** a nullary case object lowers to one stable constructor value and
+  is usable as the default parser context without a host provider.
+- **Plan/done-when:** specify native `case object` parsing/lowering, add an
+  isolated import-boundary VM/ASM regression, and rerun the JSON/YAML parser
+  examples plus release gates.
+
+## v21-symbolic-extension-infix-precedence — `Parser.|` becomes numeric `i.or`
+
+**Status:** open (2026-07-11); found by codex after imported extension dispatch
+advanced calculator/YAML-like parser examples beyond `PRegex/1`.
+
+- **Real-harness repro:** `bin/ssc-standard run examples/dsl-calc-parser.ssc`
+  and `dsl-yaml-like.ssc` fail identically on VM/ASM with `expected Int, got
+  PChar(42)` / `PChar(10)`. Their `Parser[A] | Parser[A]` calls lower through
+  the hard-coded numeric `i.or` path instead of imported extension `|`.
+- **Expected:** a registered symbolic extension method on the receiver wins
+  over primitive numeric lowering; ordinary integer bitwise OR stays `i.or`.
+- **Plan/done-when:** make infix resolution consult durable extension identity
+  before primitive dispatch, cover Parser-like and Int receivers on VM/ASM, and
+  rerun both DSLs plus release gates.
+
 ## v21-match-pregex-constructor — extension body captures the following top-level def
 
 **Status:** open (2026-07-11); found by codex after the layout-object fix

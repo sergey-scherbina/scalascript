@@ -1694,6 +1694,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               for imported dispatch plus following top-level def
                               arity on VM/ASM. Then rerun the three examples and
                               reclassify only fully resolved rows.
+                        - [ ] **TI-8.2d2r symbolic extension precedence:** the
+                              durable imported registry now exposes the next
+                              calc/YAML boundary: `Parser.|` is still hard-coded
+                              to numeric `i.or`, producing `expected Int, got
+                              PChar`. Specify extension-before-primitive infix
+                              resolution, preserve integer bitwise OR, add exact
+                              VM/ASM coverage, and rerun both examples/gates.
+                        - [ ] **TI-8.2d2s native `case object`:** the JSON parser
+                              now reaches `unbound global: NoContext` because the
+                              native frontend does not retain `case object
+                              NoContext extends ParserContext`. Specify a
+                              portable nullary constructor value, add a
+                              multi-file VM/ASM regression, and rerun JSON/YAML
+                              parser examples plus all release gates.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
