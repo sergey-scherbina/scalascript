@@ -1,0 +1,16 @@
+---
+name: v21-native-imported-pmapped-lib
+exports:
+  - mappedResult
+---
+
+[Position, PSucceed, NoContext](std/parsing/core.ssc)
+
+[PMapped, runParser](std/parsing/combinators.ssc)
+
+# Imported mapped parser
+
+```scalascript
+def mappedResult(): Any =
+  runParser(PMapped(PSucceed(20), value => value + 2), "", Position(0), NoContext)
+```

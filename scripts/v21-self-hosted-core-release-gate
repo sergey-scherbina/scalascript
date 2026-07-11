@@ -49,6 +49,7 @@ fi
 "$ROOT/tests/e2e/v21-self-hosted-markdown-core-smoke.sh"
 "$ROOT/tests/e2e/v21-self-hosted-markdown-frontend-smoke.sh"
 "$ROOT/tests/e2e/v21-self-hosted-parser-fuzz-smoke.sh"
+"$ROOT/tests/e2e/v21-parser-dsl-smoke.sh"
 
 "$ROOT/tests/e2e/v21-plugin-backend-isolation-smoke.sh"
 "$ROOT/tests/e2e/v21-native-entry-smoke.sh"

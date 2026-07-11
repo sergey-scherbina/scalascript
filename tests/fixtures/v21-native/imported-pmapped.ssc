@@ -1,0 +1,18 @@
+---
+name: v21-native-imported-pmapped
+---
+
+[mappedResult](imported-pmapped-lib.ssc)
+
+[ParseOk](std/parsing/core.ssc)
+
+# Imported evaluator result
+
+```scalascript
+mappedResult() match
+  case ParseOk(value, rest, pos) =>
+    println(value)
+    println(rest.length)
+    println(pos.offset)
+  case _ => println("failed")
+```
