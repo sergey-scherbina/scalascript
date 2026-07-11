@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: v21-native-generator-provider
+---
+
+# Core-free Generator provider
+
+```scalascript
+val pulled = generator[Int] { () => suspend(1); suspend(2) }
+println(pulled.next())
+println(pulled.next())
+println(pulled.next())
+
+val infinite = generator[Int] { () =>
+  var value = 0
+  while true do
+    suspend(value)
+    value = value + 1
+}
+println(infinite.take(5).toList)
+
+val nested = generator[Int] { () => suspend(1); suspend(2) }
+  .flatMap(n => generator[Int] { () => suspend(n); suspend(n * 10) })
+println(nested.toList)
+
+val indexed = generator[String] { () => suspend("x"); suspend("y") }.zipWithIndex
+println(indexed.toList)
+```
