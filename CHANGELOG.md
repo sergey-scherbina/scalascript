@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — checked CoreIR has honest Swift developer and Apple routes
+
+`emit-swift` and `run-swift` now generate/run deterministic macOS/iOS SwiftPM
+packages through the checked v2 frontend and target-owned AppCore runtime.
+Apple build/run flags work in either order, default to v2, and require explicit
+`--v1` for the compatibility generator; unfinished NativeUi-dependent iOS and
+distribution operations fail once with no fallback. Executable argv and
+top-level `val` registration work in native Swift. Backend tests pass 10/10,
+CLI/registry 12/12, legacy Apple compatibility 27/27, and the assembled CLI e2e
+plus Money/effect conformance are green. Landed `159e45625` and `0174796ef`;
+user commands and the staged adapter boundary are documented in `4c25b4326`.
+
 ## 2026-07-11 — parser codecs and ASM are isolated by explicit owner
 
 The closed standard runtime now has 27 dependency JARs and zero strict

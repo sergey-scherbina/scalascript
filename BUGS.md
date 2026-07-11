@@ -1,5 +1,28 @@
 # Bug tracker
 
+## v2-swift-global-reg — generated Swift rejected ordinary top-level values
+
+**Status:** fixed (2026-07-11, `0174796ef`); found by codex while running the
+new user-facing Swift AppCore example, waiting for Sergiy confirmation before
+`done`.
+
+- **Real-harness repro:** after `scripts/sbtc installBin`, run `bin/ssc
+  run-swift examples/swift/appcore-money.ssc` with a top-level `val total = ...`.
+  Generation stopped with `swift backend: unsupported primitive 'global.reg'`.
+- **Expected:** compiler-internal top-level registration updates the target
+  runtime's dynamic global table, matching the v2 VM; it is not an unsupported
+  user intrinsic and must not become a no-op when later definitions read it.
+- **Root cause:** the checked bridge lowers top-level value initialization to
+  `global.reg(name, value)`. JVM/Rust already own backend handling, but the new
+  Swift primitive vocabulary omitted it because the initial checked Money gate
+  used only inline expressions.
+- **Fix/verified:** AppCore now stores the value in the machine's mutable global
+  environment. `SwiftV2CliTest` builds and runs the unchanged example with real
+  SwiftPM; it prints `$3.75`, `1.2100`, and the exact allocation list. Focused
+  Money conformance remains 1/1.
+- **Done-when:** the user example stays in the real Swift CLI test and Sergiy
+  confirms ordinary top-level values in the Swift workflow.
+
 ## v21-runtime-taxonomy-content-owner — content extern gaps assigned to module linker
 
 **Status:** fixed (2026-07-11, `6b736d078`); found by codex while starting
@@ -119,6 +142,15 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
   uses a stale style surface. The v2 tree has no Swift generator. Preserve one
   shared View/toolkit IR rather than cloning toolkit semantics into a
   backend-specific parser.
+- **V2 core/CLI progress (2026-07-11):** `f20b47b35` closes the checked AppCore
+  domain backend and `159e45625` adds assembled `emit-swift`/`run-swift` plus
+  v2-default Apple build/run routing. Both original flag-order failures are
+  covered: `--v2` is consumed as a lane flag and Apple target dispatch happens
+  before the generic VM return. `0174796ef` adds ordinary top-level globals.
+  macOS executes exact Money under real SwiftPM; iOS generation declares the
+  correct deployment platform. The bug remains open because NativeUi/SwiftUI
+  app rendering, simulator/device, signing, and distribution gates are still
+  the remaining user-reported half.
 - **Done-when:** an assembled real-harness regression proves v2 owns Swift
   generation, a common toolkit example emits/builds for macOS and iOS as far as
   the installed Apple toolchain permits, affected conformance is green, and the

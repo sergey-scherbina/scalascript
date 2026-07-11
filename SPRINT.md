@@ -188,6 +188,17 @@ there before changing this plan.
       publish orchestration after generation, but never call v1 `Parser`,
       `JvmGen`, Scala CLI, or silently fall back. Pin bounded missing-tool
       diagnostics and assembled routing tests.
+      Progress 2026-07-11 (`159e45625`, follow-up `0174796ef`):
+      ServiceLoader `emit-swift`/`run-swift`, macOS 13/iOS 16 package metadata,
+      argv, v2-default build/run routing, explicit `--v1`, both flag orders,
+      and no-fallback iOS/package/publish diagnostics are live. The assembled
+      `tests/e2e/v2-swift-cli.sh` passes; backend 10/10, CLI/registry 12/12,
+      legacy Apple compatibility 27/27, Money/effects 1/1 + 4/4. The real
+      `examples/swift/appcore-money.ssc` also forced correct dynamic
+      `global.reg` handling. Remaining in this item: replace the deliberately
+      bounded iOS/package/publish NativeUi-pending diagnostics with the real App
+      target and existing simulator/signing adapters after the next reviewed UI
+      ABI slices land; do not close this row early.
 - [ ] **v2-swiftui-reactive-spec-review** — before UI implementation, extend
       the feature spec in a separate spec-only commit and discuss it in Rozum.
       Freeze the portable `NativeUi` data/closure ABI and the SwiftUI state
