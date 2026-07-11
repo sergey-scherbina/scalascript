@@ -326,8 +326,8 @@ The native route also has its own core-free ServiceLoader plugin boundary. The
 process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (hashing,
 Base64, HMAC/PBKDF2/random, AES-GCM/CBC, RSA/X.509, Ed25519, HOTP/TOTP, and
 Shamir recovery), and the JVM implementations of
-`std.fs`/`std.os`, typed `std.json`, the `Storage` effect, and general
-`Signal`/`computed`/`effect` reactivity no longer load the v1 `PluginBridge`,
+`std.fs`/`std.os`, typed `std.json`, runtime `std.yaml`, the `Storage` effect,
+and general `Signal`/`computed`/`effect` reactivity no longer load the v1 `PluginBridge`,
 interpreter values, or Scalameta classes. File reads/writes, byte I/O, directory
 operations, environment lookup, path operations, temporary paths, total JSON
 navigation, strict/tolerant parsing, exact string-decimals, and structured JSON
@@ -356,6 +356,17 @@ without recursively scheduling itself. The same semantics run in packaged
 `build-jvm` artifacts. Other plugin families are still being migrated; a
 missing native provider fails explicitly. Use
 `--compat-frontend` for a tools-tier plugin that has not moved yet.
+
+Runtime YAML uses portable `YStr`, `YNum`, `YBool`, `YNull`, `YArr`, and `YObj`
+values. `parseYaml` accepts the documented project subset (nested block/flow
+maps and lists, comments, quoted scalars, and literal/folded blocks), `toYaml`
+sorts object keys and emits stable round-trippable text, and the `yaml*`
+accessors are total. A `yaml` or `yml` fence is attached to its nearest heading
+and is available as `<SectionId>.yaml`; for example `# Service config` binds
+`ServiceConfig.yaml`. The same rule works in imported modules and on native VM,
+direct ASM, and packaged `build-jvm` JARs. Runtime YAML intentionally uses the
+project-owned dependency-free `SimpleYaml`; front-matter remains the separate
+self-hosted structural parser and is not reparsed by the Scala seed.
 
 ### `build-jvm` — executable JAR directly from native CoreIR + ASM
 
@@ -400,7 +411,7 @@ tests/e2e/v21-slim-distribution-gate.sh \
 
 The gate copies the installation, deletes its compatibility JARs, compiler,
 legacy frontend, full CLI, `ssc`, and `ssc-tools`, then runs VM/direct-ASM,
-imports and argv, FS/OS, JSON, HTTP, SQL, UI, State, and `build-jvm` using only
+imports and argv, FS/OS, JSON, YAML, HTTP, SQL, UI, State, and `build-jvm` using only
 `ssc-standard`. It also hides `scala-cli`, `scalac`, and `javac`, rejects
 compiler/Scalameta/v1 references recursively, and verifies that a requested
 compatibility route fails with the tools-tier remedy instead of falling back.
