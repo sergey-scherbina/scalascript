@@ -2,7 +2,7 @@
 
 ## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
 
-**Status:** open (2026-07-11); found by codex while running the exhaustive
+**Status:** fixed (2026-07-11, `05454dd1c`), awaiting Sergiy confirmation; found by codex while running the exhaustive
 post-rebase release gate for pure native content binding.
 
 - **Real-harness repro:** fresh `scripts/native-front-corpus` reports 57
@@ -21,7 +21,7 @@ post-rebase release gate for pure native content binding.
 
 ## v21-build-jvm-content-path-nondeterminism — content.bin leaks source roots
 
-**Status:** open (2026-07-11); found by codex in the exhaustive post-effect
+**Status:** fixed (2026-07-11, `82d27b896`), awaiting Sergiy confirmation; found by codex in the exhaustive post-effect
 release gate after the structural content provider landed.
 
 - **Real-harness repro:** `tests/e2e/v21-build-jvm-release-gate.sh` builds the
@@ -38,7 +38,7 @@ release gate after the structural content provider landed.
 
 ## v21-native-http-request-source-arity — canonical Request omits provider fields
 
-**Status:** open (2026-07-11); found by codex after fixing extern-class layout
+**Status:** fixed (2026-07-11, `794cb6e7c`), awaiting Sergiy confirmation; found by codex after fixing extern-class layout
 ownership and rerunning the installed native-entry gate.
 
 - **Real-harness repro:** `tests/e2e/v21-native-entry-smoke.sh` reaches the HTTP
@@ -55,7 +55,7 @@ ownership and rerunning the installed native-entry gate.
 
 ## v21-native-extern-class-members-escape — abstract fields become parser sentinels
 
-**Status:** open (2026-07-11); found by codex in the exhaustive post-effect
+**Status:** fixed (2026-07-11, `fd36ee87e`), awaiting Sergiy confirmation; found by codex in the exhaustive post-effect
 release gate after the content-provider main rebase.
 
 - **Real-harness repro:** `scripts/v21-self-hosted-core-release-gate
@@ -97,7 +97,7 @@ ScalaScript.
 
 ## v21-native-explicit-effect-handler-erasure — declarations and handlers disappear
 
-**Status:** open (2026-07-11); found by codex while reducing the reviewed
+**Status:** fixed (2026-07-11, `4c0435f4b`), awaiting Sergiy confirmation; found by codex while reducing the reviewed
 `effects.ssc` standard-language/runtime blocker on the installed compiler-free
 binary.
 

@@ -1939,7 +1939,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomies, standard/slim/JRE/build-jvm, and fresh
                               `v2-*` conformance pass. Spec:
                               `specs/v2.1-native-effect-runtime.md`.
-                        - [ ] **TI-8.2d2w1 explicit effect declarations and
+                        - [x] **TI-8.2d2w1 explicit effect declarations and
                               handlers:** retain ordinary `effect E` declaration
                               boundaries and operations, lower `handle(body) {
                               case ... }` to the existing portable
@@ -1955,7 +1955,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               effect semantics through core-free providers or
                               portable runtime definitions, with nested runner
                               and multi-shot coverage.
-                        - [ ] **TI-8.2d2w0 extern-class layout ownership:** the
+                        - [x] **TI-8.2d2w0 extern-class layout ownership:** the
                               post-handler exhaustive gate newly exposes
                               `extern class UploadedFile:` members as top-level
                               uninitialized `val` parser sentinels in the HTTP
@@ -1964,7 +1964,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               make `extern class` consume exactly that body;
                               pin the installed HTTP response fixture before
                               resuming effect taxonomy retirement.
-                        - [ ] **TI-8.2d2w0b native Request field contract:**
+                        - [x] **TI-8.2d2w0b native Request field contract:**
                               once extern-class members no longer hide the
                               following declarations, `std.http.Request` is
                               visibly 9-field while the portable HTTP host and
@@ -1972,7 +1972,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               11 fields. Restore those two documented fields in
                               the canonical case class, pin route dispatch, and
                               rerun native-entry plus the release gate.
-                        - [ ] **TI-8.2d2w0c deterministic content artifacts:**
+                        - [x] **TI-8.2d2w0c deterministic content artifacts:**
                               the new structural `content.bin` persists
                               canonical checkout paths, so identical build-jvm
                               inputs in two directories differ byte-for-byte.
