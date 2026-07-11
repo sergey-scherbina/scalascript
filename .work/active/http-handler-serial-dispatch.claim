@@ -1,0 +1,6 @@
+feature/http-handler-serial-dispatch 2026-07-11T12:38:53Z
+agent: codex
+heartbeat: 2026-07-11T12:38:53Z
+status: not-started
+done-so-far: busi Vault E2E reproduced accepted-fact loss under concurrent reactive GET and POST
+next: queue the bug and add a real concurrent HTTP regression before serializing interpreter handler dispatch
