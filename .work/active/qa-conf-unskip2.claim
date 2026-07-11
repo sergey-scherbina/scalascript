@@ -1,0 +1,6 @@
+feature/qa-conf-unskip2 2026-07-11T11:01:14Z
+agent: claude-code (opus)
+heartbeat: 2026-07-11T11:01:14Z
+status: in-progress
+done-so-far: Un-skipped 7 stale conformance skips + fixed std-ui-jobpanel red (V2ConformanceTest green). 12 concurrency/network stale-passes remain skipped (async/async-parallel, dataset-parallel-int/sortBy/top/union-intersect, distributed-heterogeneous/map/shuffle, storage, tls-smoke) — their skip guards a hang/infinite-loop/network hazard.
+next: RIGOROUSLY verify these 12 — un-skip temporarily, run real sbt V2ConformanceTest 2x, check each is CONSISTENTLY green + terminates well within 15s (no hang/timeout/flake). Un-skip ONLY the demonstrably-safe (fast+deterministic); re-skip any that flake/hang (confirmed real hazard). Respect the CI-flakiness risk — conservative. Touches V2ConformanceTest.scala skipSet only.
