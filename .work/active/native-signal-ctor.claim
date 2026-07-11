@@ -1,0 +1,5 @@
+claim: native-signal-ctor
+owner: opus (native-front correctness program, cont.)
+started: 2026-07-11
+scope:
+  - v2/lib/ssc1-lower.ssc0 — Signal/ComputedSignal application → ctorap (compiler special-case)
