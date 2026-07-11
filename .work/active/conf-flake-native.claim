@@ -1,0 +1,6 @@
+claim: conf-flake-native
+owner: opus (native-front correctness program, cont.)
+started: 2026-07-11
+scope:
+  - v2/conformance/check.sh — K63.4d fix parallel $RANDOM temp-file collision (BASHPID)
+  - v2/lib/ssc1-*.ssc0 — one native-front correctness fix (storage/option quoting or similar)
