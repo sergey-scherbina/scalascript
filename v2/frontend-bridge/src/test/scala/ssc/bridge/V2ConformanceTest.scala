@@ -24,6 +24,14 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
   private val conformanceDir  = new File(repoRoot, "tests/conformance")
   private val expectedDir     = new File(conformanceDir, "expected")
 
+  // Plugin-registry snapshot taken once after loadAll (beforeAll); restored before EACH
+  // conformance test so runtime registrations (databases, cells, namespaces, dataset/effect
+  // executors) a case installs cannot leak into the NEXT test's shared JVM. Mirrors BatchCli.
+  // Without it, a case running a stateful runtime (async / dataset / distributed) order-
+  // dependently poisoned a LATER pure test (e.g. html-dsl) — FrontendBridge.resetState() alone
+  // did not cover the V2PluginRegistry runtime state.
+  private var registrySnap: V2PluginRegistry.Snapshot = null
+
   // Tests that spawn non-daemon threads (actors, async), require network,
   // need external storage, or are JS/browser-only.
   private val skipSet: Set[String] = Set(
@@ -33,22 +41,18 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     "actors-leader-protocol", "actors-phi-accrual", "actors-process-info",
     "actors-supervision", "cluster-connect",
     // async / coroutines — long-poll, may hang
-    "async", "async-parallel", "async-parallel-io", "async-recv-from",
+    "async-parallel-io", "async-recv-from",
     "coroutine-basic", "coroutine-error",
     // dataset / distributed — free-monad executor → infinite loop
     "dataset-agg", "dataset-error", "dataset-from-file", "dataset-from-generator",
-    "dataset-groupBy", "dataset-map-filter", "dataset-of", "dataset-parallel-int",
-    "dataset-parallel-jvm", "dataset-reduce", "dataset-shape", "dataset-sortBy",
-    "dataset-top", "dataset-union-intersect", "dataset-zip",
+    "dataset-groupBy", "dataset-map-filter", "dataset-of", "dataset-parallel-jvm", "dataset-reduce", "dataset-shape", "dataset-zip",
     "distributed-failure-partial", "distributed-failure-retry",
-    "distributed-heterogeneous", "distributed-map", "distributed-shuffle",
     // network / external services
-    "http-client", "tls-smoke", "ws-client",
+    "http-client", "ws-client",
     // NOTE: webauthn-server-verify is PURE crypto (challenge + garbage-reject, no network) — it passes on
     // v2 via FrontendBridge, so it is intentionally NOT skipped (verified byte-exact vs expected/).
     "mcp-client-invoke", "mcp-server-resource", "mcp-server-tool",
     // storage (filesystem, not available in batch test)
-    "storage",
     // JS / browser-only
     // NOTE (2026-07-11 QA un-skip): js-applyunary-effect-cps / js-cps-intrinsic-rewrite /
     // js-crypto-extern-standalone now execute byte-exact on the v2 VM via FrontendBridge
@@ -99,6 +103,7 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
   override def beforeAll(): Unit =
     super.beforeAll()
     PluginBridge.loadAll()
+    registrySnap = V2PluginRegistry.snapshot()
 
   test("v2 quoted macro interpreter helper globals run computed bodies") {
     FrontendBridge.resetState()
@@ -194,6 +199,7 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
           else
             test(s"v2-conformance: $slug") {
               FrontendBridge.resetState()
+              V2PluginRegistry.restore(registrySnap)  // isolate runtime registrations per test
               val src      = scala.io.Source.fromFile(f).mkString
               val dir      = Some(f.getParentFile)
               val expected = scala.io.Source.fromFile(expectedFile).mkString.stripTrailing()

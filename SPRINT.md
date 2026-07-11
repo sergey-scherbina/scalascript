@@ -7241,3 +7241,23 @@ is stale) + 36 genuinely need actor/cluster/coroutine/http/UI runtime.
       ("filesystem not in batch"), tls-smoke ("network"). Un-skipping these risks CI hangs/
       flakiness — leave until the executor/runtime hazards are addressed.
 - [ ] The 36 hard-skips (actors/coroutine/http/mcp/UI-signals) need their runtime — out of scope.
+
+## QA — fix cross-test state pollution in V2ConformanceTest → un-skip 11 concurrency cases (2026-07-11, opus)
+
+Root-caused the pollution: un-skipping concurrency conformance cases (async/dataset/distributed)
+broke a LATER pure test (html-dsl) because they install runtime registrations (databases/cells/
+namespaces/effect+dataset executors) in V2PluginRegistry that leak across the shared sequential
+test JVM. FrontendBridge.resetState() did NOT cover the V2PluginRegistry runtime state; BatchCli
+already solved the identical leak via snapshot/restore.
+
+- [x] FIX: V2ConformanceTest takes `V2PluginRegistry.snapshot()` once after loadAll (beforeAll)
+      and `restore(snap)` before EACH conformance test (mirrors BatchCli). Per-test isolation of
+      runtime registrations.
+- [x] UN-SKIP the 11 now-safe concurrency/network stale-passes (async, async-parallel,
+      dataset-parallel-int/sortBy/top/union-intersect, distributed-heterogeneous/map/shuffle,
+      storage, tls-smoke). Verified via the real sbt V2ConformanceTest 2×: 126 succeeded, 0
+      failed — html-dsl (the former pollution victim) green, all 11 green, deterministic.
+- Net across the QA conformance work: +18 un-skipped (7 content/js earlier + 11 concurrency),
+      +1 red fixed (std-ui-jobpanel), + a general per-test isolation hardening. The remaining
+      skips genuinely need their runtime (actors non-daemon pools, http/ws/mcp network, coroutine,
+      the dataset-* that fail on content not pollution, signals/std-ui frontend).
