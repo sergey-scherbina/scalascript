@@ -22,6 +22,7 @@ dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evalua
 dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhandled Op/3 into match lowering
 dsl-yaml-like.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
 effects.ssc	language-runtime	yes	effects	declared portable effect operation greet remains an unbound global
+extensions.ssc	language-runtime	yes	collection-dispatch	tuple selectors now run; the following collection pipeline reaches a Tuple2/2 match gap
 functional.ssc	language-runtime	yes	dispatch	portable functional dispatch leaks a Stub/1 into match lowering
 generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
