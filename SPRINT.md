@@ -1218,6 +1218,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               lanes; `lang-split.ssc` prints both grids and moves
                               to its standard math boundary, parity stays clean
                               at 12/58/125, and conformance 11/11 passes.
+                        - [ ] **TI-8.2d2e extension receiver dispatch:** retain
+                              the receiver parameter for contiguous top-level
+                              extension definitions, register unique extension
+                              method names, and rewrite receiver syntax to the
+                              generated global function before CoreIR lowering.
+                              Cover property-style and argument-taking String,
+                              Int, and List extensions on VM/direct ASM; rerun
+                              `extensions.ssc` and `script.ssc`, then shrink the
+                              taxonomy only after all release gates stay green.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
