@@ -695,7 +695,10 @@ there before changing this plan.
                         and Field payloads use their distinct strict scalar
                         sets; table status and CSS share one bounded color
                         grammar; fetch metadata and writable refresh reject at
-                        descriptor decode.
+                        descriptor decode. Refresh also preflights current Int
+                        non-overflow before transport, and a committed row-set
+                        update cancels/prunes task/action/edit state for deleted
+                        typed identities without relying on `onDisappear`.
                   - [ ] execute the six named generated-Swift table tests plus
                         focused compatibility/conformance gates, obtain final
                         Rozum implementation APPROVE, then document results.

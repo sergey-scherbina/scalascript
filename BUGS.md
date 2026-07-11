@@ -10,10 +10,16 @@ read-only implementation audit of the local Apple table decoder draft.
   It also admits Float through ordinary display/payload scalar conversion,
   validates table colors separately from shipped CSS colors, accepts a generic
   signal as a fetch source, and accepts a read-only refresh signal.
+- **Action/model audit extension:** refresh must also be an Int/non-overflowing
+  capability before transport. When a committed source update removes a row,
+  its in-flight task plus action/edit slots must be cancelled/pruned immediately
+  rather than waiting for SwiftUI `onDisappear`.
 - **Expected:** loading immediately retains the last-good set; ordinary display
   excludes Float and Field payloads allow only String/Int/BigInt/Bool; one
   bounded native color grammar serves CSS and table status; fetch metadata and
   writable refresh capabilities reject at descriptor decode.
+- **Reconciliation invariant:** old/new typed row identities reconcile
+  transactionally; deleted identities synchronously release table task/state.
 - **Plan/done-when:** close all four seams before the first Apple table code
   commit, add them to the six named executable gates, and obtain Rozum reviewer
   confirmation with the complete slice.
