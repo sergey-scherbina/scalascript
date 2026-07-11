@@ -3904,6 +3904,10 @@ enum NativeUiHtmlAdapter {
         "<style>html,body{margin:0!important;overflow:hidden!important;}</style>" + html
     }
 
+    static func revisionKey(html: String, source: String) -> String {
+        String(source.utf8.count) + ":" + source + html
+    }
+
     static func externalURL(
         _ text: String,
         navigationType: WKNavigationType,
@@ -3966,7 +3970,9 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
     private lazy var messageProxy = NativeUiHtmlMessageProxy(target: self)
     private var generation: UInt64 = 0
     private var authorizedGeneration: UInt64?
+    private var issuedGeneration: UInt64?
     private var loadingGeneration: UInt64?
+    private var activeNavigation: (generation: UInt64, handle: WKNavigation)?
     private var lastHTML: String?
     private var lastSource: String?
     private var mounted = false
@@ -4049,14 +4055,15 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         lastHTML = html
         lastSource = source
         authorizedGeneration = nil
+        issuedGeneration = nil
         loadingGeneration = nil
+        activeNavigation = nil
         publishError(nil)
         webView.stopLoading()
         #if !os(macOS)
         contentSizeObservation?.invalidate()
         contentSizeObservation = nil
         #endif
-        controller?.removeAllContentRuleLists()
         controller?.removeAllUserScripts()
         ruleCompiler { [weak self, weak webView] rule, error in
             guard let self, let webView, self.mounted,
@@ -4069,6 +4076,7 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
                     generation: candidateGeneration)
                 return
             }
+            self.controller?.removeAllContentRuleLists()
             self.controller?.add(rule)
             #if os(macOS)
             self.controller?.addUserScript(WKUserScript(
@@ -4078,7 +4086,13 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
                 in: .defaultClient))
             #endif
             self.authorizedGeneration = candidateGeneration
-            webView.loadHTMLString(NativeUiHtmlAdapter.document(html), baseURL: nil)
+            self.issuedGeneration = candidateGeneration
+            guard let navigation = webView.loadHTMLString(
+                NativeUiHtmlAdapter.document(html), baseURL: nil) else {
+                self.fail("trusted HTML navigation did not start", generation: candidateGeneration)
+                return
+            }
+            self.activeNavigation = (candidateGeneration, navigation)
         }
     }
 
@@ -4086,7 +4100,9 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         guard mounted, generation == candidateGeneration else { return }
         let source = lastSource ?? "<unknown source>"
         authorizedGeneration = nil
+        issuedGeneration = nil
         loadingGeneration = nil
+        activeNavigation = nil
         publishError(NativeUiHtmlAdapter.bounded(message) + " at " + source)
     }
 
@@ -4110,7 +4126,8 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         guard action.targetFrame?.isMainFrame == true,
               action.navigationType == .other,
               action.request.url?.absoluteString == "about:blank",
-              authorizedGeneration == generation else { return false }
+              authorizedGeneration == generation,
+              issuedGeneration == generation else { return false }
         authorizedGeneration = nil
         loadingGeneration = generation
         return true
@@ -4142,7 +4159,11 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard mounted, self.webView === webView, loadingGeneration == generation else { return }
+        guard let navigation, let activeNavigation,
+              mounted, self.webView === webView,
+              activeNavigation.generation == generation,
+              activeNavigation.handle === navigation,
+              loadingGeneration == generation else { return }
         #if !os(macOS)
         let observedGeneration = generation
         contentSizeObservation?.invalidate()
@@ -4159,10 +4180,16 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard let navigation, let activeNavigation,
+              activeNavigation.generation == generation,
+              activeNavigation.handle === navigation else { return }
         fail("trusted HTML navigation failed: " + error.localizedDescription, generation: generation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard let navigation, let activeNavigation,
+              activeNavigation.generation == generation,
+              activeNavigation.handle === navigation else { return }
         fail("trusted HTML navigation failed: " + error.localizedDescription, generation: generation)
     }
 
@@ -4183,7 +4210,9 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         mounted = false
         generation &+= 1
         authorizedGeneration = nil
+        issuedGeneration = nil
         loadingGeneration = nil
+        activeNavigation = nil
         #if !os(macOS)
         contentSizeObservation?.invalidate()
         contentSizeObservation = nil
@@ -4209,6 +4238,15 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
     isolated deinit {
         #if !os(macOS)
         contentSizeObservation?.invalidate()
+        #endif
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        controller?.removeAllContentRuleLists()
+        controller?.removeAllUserScripts()
+        #if os(macOS)
+        controller?.removeScriptMessageHandler(
+            forName: NativeUiHtmlAdapter.messageName, contentWorld: .defaultClient)
         #endif
         messageProxy.target = nil
     }
@@ -4238,7 +4276,7 @@ struct NativeUiTrustedHtmlView: View {
                     .frame(height: height)
             }
         }
-        .task(id: html) { diagnostic = nil }
+        .task(id: NativeUiHtmlAdapter.revisionKey(html: html, source: source)) { diagnostic = nil }
     }
 }
 

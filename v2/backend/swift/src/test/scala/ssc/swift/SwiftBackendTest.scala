@@ -3943,11 +3943,28 @@ struct NativeHtmlProbe {
         var opened: [URL] = []
         let loopback = try! LoopbackServer()
         let loopbackPort = loopback.start()
+        var compiledRule: WKContentRuleList?
+        var compileCount = 0
+        var delayedCompiles: [((WKContentRuleList?, Error?) -> Void)] = []
         var coordinator: NativeUiHtmlCoordinator? = NativeUiHtmlCoordinator(
             safeExternalURL: { store.safeExternalURL($0) },
             openURL: { opened.append($0) },
             publishHeight: { heights.append($0) },
-            publishError: { errors.append($0) })
+            publishError: { errors.append($0) },
+            ruleCompiler: { completion in
+                compileCount += 1
+                if compileCount == 1 {
+                    WKContentRuleListStore.default().compileContentRuleList(
+                        forIdentifier: NativeUiHtmlAdapter.contentRuleIdentifier,
+                        encodedContentRuleList: NativeUiHtmlAdapter.contentRuleJSON
+                    ) { rule, error in
+                        compiledRule = rule
+                        completion(rule, error)
+                    }
+                } else {
+                    delayedCompiles.append(completion)
+                }
+            })
         let initial = [
             "<strong id='strong' data-x='ok' style='color:rgb(255,0,0)'>raw</strong>",
             "<img id='data' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' />",
@@ -3972,7 +3989,7 @@ struct NativeHtmlProbe {
         guard loopback.hits() == 0 else { fatalError("trusted HTML network subresource escaped blocker") }
         do {
             let facts = try await webView.evaluateJavaScript(
-                "[document.querySelector('#strong')?.dataset.x || '', getComputedStyle(document.querySelector('#strong')).color, document.querySelector('#data')?.complete === true, window.__sscPageScriptRan === true]")
+                "[document.querySelector('#strong')?.dataset.x || '', getComputedStyle(document.querySelector('#strong')).color, (document.querySelector('#data')?.naturalWidth || 0) > 0, window.__sscPageScriptRan === true]")
             guard let values = facts as? [Any], values.count == 4,
                   values[0] as? String == "ok",
                   (values[1] as? String)?.contains("255") == true,
@@ -3992,6 +4009,10 @@ struct NativeHtmlProbe {
               NativeUiHtmlAdapter.externalURL(
                 "javascript:alert(1)", navigationType: .linkActivated,
                 safeExternalURL: safe) == nil else { fatalError("trusted HTML external URL policy") }
+        guard NativeUiHtmlAdapter.revisionKey(html: "same", source: "a.ssc:1:1") !=
+                NativeUiHtmlAdapter.revisionKey(html: "same", source: "b.ssc:1:1") else {
+            fatalError("trusted HTML source-only revision key")
+        }
         guard coordinator!.handoffExternal("https://example.com/path", navigationType: .linkActivated),
               opened.map(\.absoluteString) == ["https://example.com/path"],
               !coordinator!.handoffExternal("https://example.com/redirect", navigationType: .other),
@@ -4001,26 +4022,50 @@ struct NativeHtmlProbe {
               case let .data("NativeUiTrustedHtml", htmlFields) = abiFields[1] else {
             fatalError("trusted HTML generated descriptor")
         }
+        func decodeRejects(_ value: SscValue) -> Bool {
+            guard case let .data(_, candidateFields) = value else { return false }
+            do { _ = try NativeUiHtmlAdapter.decode(candidateFields, store: store); return false }
+            catch { return String(describing: error).contains("malformed NativeUiTrustedHtml at") }
+        }
         do {
             let decoded = try NativeUiHtmlAdapter.decode(htmlFields, store: store)
             guard decoded.html.contains("data-x=\"ok\"") else { fatalError("trusted HTML exact descriptor") }
-            let forged = SscValue.data("NativeUiTrustedHtml", [htmlFields[0], .int(1)])
-            guard case let .data(_, forgedFields) = forged else { fatalError("trusted HTML forged fields") }
-            do {
-                _ = try NativeUiHtmlAdapter.decode(forgedFields, store: store)
-                fatalError("trusted HTML forged source was accepted")
-            } catch {
-                guard String(describing: error).contains("malformed NativeUiTrustedHtml at") else { throw error }
+            guard decodeRejects(.data("NativeUiTrustedHtml", [htmlFields[0]])),
+                  decodeRejects(.data("NativeUiTrustedHtml", [.int(1), .string("html")])),
+                  decodeRejects(.data("NativeUiTrustedHtml", [.string("forged-site"), .string("html")])),
+                  decodeRejects(.data("NativeUiTrustedHtml", [htmlFields[0], .int(1)])) else {
+                fatalError("trusted HTML forged arity/site/source was accepted")
             }
         } catch { fatalError("trusted HTML descriptor probe: \(error)") }
 
+        let openedBeforeProgrammatic = opened.count
+        _ = try? await webView.evaluateJavaScript("location.href='https://example.com/programmatic'")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        guard opened.count == openedBeforeProgrammatic,
+              webView.url?.absoluteString == "about:blank" else {
+            fatalError("trusted HTML programmatic navigation escaped")
+        }
+
         coordinator!.update(html: "<div style='height:420px'>grow</div>", source: "raw.ssc:4:2 [rawHtml]", in: webView)
+        guard await waitFor({ delayedCompiles.count == 1 }), let compiledRule else {
+            fatalError("trusted HTML pending replacement compile")
+        }
+        _ = try? await webView.evaluateJavaScript(
+            "document.body.insertAdjacentHTML('beforeend', \"<img src='http://127.0.0.1:\(loopbackPort)/late.png'>\")")
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard loopback.hits() == 0 else { fatalError("trusted HTML removed prior blocker during compile") }
+        delayedCompiles.removeFirst()(compiledRule, nil)
         guard await waitFor({ heights.last.map { $0 > 350 } == true }) else {
             fatalError("timed out waiting for grown height: \(heights)")
         }
         let staleStart = heights.count
         coordinator!.update(html: "<div style='height:900px'>stale</div>", source: "raw.ssc:4:2 [rawHtml]", in: webView)
         coordinator!.update(html: "<div style='height:24px'>shrink</div>", source: "raw.ssc:4:2 [rawHtml]", in: webView)
+        guard await waitFor({ delayedCompiles.count == 2 }) else {
+            fatalError("trusted HTML stale/current compile queue")
+        }
+        delayedCompiles.removeFirst()(compiledRule, nil)
+        delayedCompiles.removeFirst()(compiledRule, nil)
         guard await waitFor({ heights.last.map { $0 < 100 } == true }) else {
             fatalError("timed out waiting for shrunk height: \(heights)")
         }
@@ -4061,6 +4106,19 @@ struct NativeHtmlProbe {
             fatalError("trusted HTML current compile failure missing")
         }
         staleCoordinator.dismantle(staleWebView)
+
+        var orphanCoordinator: NativeUiHtmlCoordinator? = NativeUiHtmlCoordinator(
+            safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
+            publishError: { _ in }, ruleCompiler: { _ in })
+        let orphanWebView = orphanCoordinator!.makeWebView(
+            html: "orphan", source: "orphan.ssc:1:1 [rawHtml]")
+        let weakOrphan = WeakCoordinatorBox(orphanCoordinator)
+        orphanCoordinator = nil
+        guard weakOrphan.value == nil,
+              orphanWebView.navigationDelegate == nil,
+              orphanWebView.uiDelegate == nil else {
+            fatalError("trusted HTML coordinator deinit without dismantle")
+        }
         let stableHeight = heights.last!
         let publishCount = heights.count
         coordinator!.dismantle(webView)
