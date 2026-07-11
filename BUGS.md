@@ -82,7 +82,7 @@ former collection arity failure.
 
 ## v21-yaml-unit-global — native layout parser emits an unbound `Unit` value
 
-**Status:** open (2026-07-11); found by codex after symbolic extension dispatch
+**Status:** done (2026-07-11, `aef599a80`); found and confirmed by codex after symbolic extension dispatch
 advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
 
 - **Real-harness repro:** `bin/ssc-standard run --native
@@ -99,6 +99,10 @@ advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
   typed-pattern fixture, specify a pattern-specific type boundary that preserves
   nested delimiters but stops at `=>`/guard, eliminate the false `Unit` global,
   and rerun the YAML-like example plus release gates.
+- **Root cause/fix:** the general scanner intentionally accepts function arrows;
+  a dedicated pattern scanner now stops at depth-zero `if`/`=>` while preserving
+  nested delimiters. The exact import fixture passes VM/ASM, and YAML advances
+  identically to the separately tracked parser-context arity gap.
 
 ## v21-yaml-parser-context-arity — YAML parser calls a nullary value with one argument
 

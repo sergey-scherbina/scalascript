@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — typed match arms retain their delimiter and body
+
+The self-hosted frontend now bounds pattern type annotations before a
+depth-zero guard or arm arrow while preserving nested type delimiters and the
+general function-type scanner. Imported typed and guarded binders agree on
+VM/direct ASM; the YAML-like parser leaves its false `Unit` global and reaches
+a separately tracked call-arity gap. Landed `aef599a80`; full baseline in
+`specs/v2.1-native-typed-pattern-boundaries.md`.
+
 ## 2026-07-11 — native case objects are stable imported values
 
 Top-level `case object` declarations now survive the self-hosted parser and

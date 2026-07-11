@@ -1784,7 +1784,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               fixture, preserve the evaluator's existing mapping
                               semantics without a host parser special case, and
                               rerun every parser DSL plus release gates.
-                        - [ ] **TI-8.2d2t typed-pattern type boundary:** after
+                        - [x] **TI-8.2d2t typed-pattern type boundary — DONE
+                              2026-07-11 (`aef599a80`):** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances
                               to identical VM/ASM `unbound global: Unit`. Isolate
                               the imported layout-parser declaration: the general
@@ -1793,7 +1794,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `uid Unit`. Add a depth-aware pattern-type scanner
                               that stops at `=>`/guard, a multi-file regression,
                               and rerun the YAML-like example plus all release
-                              gates.
+                              gates. Result: the imported fixture prints
+                              `3/deep/shallow` on VM/ASM; YAML advances to the
+                              separately queued arity gap. Front/check remains
+                              194/194, runtime 36/90, parity 23/43/129, and
+                              blockers 31. Language/taxonomy/portable/standard/
+                              build-jvm/conformance gates pass; the concurrent
+                              HTTP-fast standard staging regression is tracked
+                              independently as hf-6.
                         - [ ] **TI-8.2d2t2 YAML parser-context call arity:** the
                               typed-pattern boundary advances
                               `dsl-yaml-like.ssc` to `arity: 0 expected, 1
