@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native output and provider ownership stay exact
+
+Native `List.mkString` now captures its requested separator, NativeUi keeps
+`serve` behind its provenance-qualified ABI global without colliding with HTTP,
+and the newly identical remote-table example leaves blocker taxonomy. Strict
+parity improves to 16 identical / 52 both-fail / 127 skipped and blockers fall
+from 41 to 40. Landed `727c806e8`, `23fddc6a2`, and `4cdca959c`.
+
 ## 2026-07-11 — portable NativeUi ABI-v1 runtime and lifecycle
 
 The v2 UI plugin now produces the frozen portable signal/view/action/table/root

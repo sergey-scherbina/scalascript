@@ -1454,25 +1454,37 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               and `typed-data.ssc` VM/direct-ASM execution agrees.
                               Corpus/parity improve to 34/92 and 15/53/127;
                               runtime blockers fall to 41; conformance is 11/11.
-                        - [ ] **TI-8.2d2l list mkString capture index:** correct
+                        - [x] **TI-8.2d2l list mkString capture index:** DONE
+                              2026-07-11 (`23fddc6a2`). Correct
                               `_sel_mkString`'s `Cons/2` environment reference so
                               it inserts the captured separator (local 4), not
                               the original source list (local 5). Add empty/
                               singleton/multi-element VM/direct-ASM regression,
                               rerun `typed-data.ssc`, and apply all release gates
                               before push.
-                        - [ ] **TI-8.2d2m native `serve` ownership collision:**
-                              repair the post-`1f3ca3962` full-provider startup
+                              Result: empty/singleton/multi/numeric fixtures and
+                              `typed-data.ssc` agree on both lanes; every gate
+                              passes and parity advances to 16/52/127.
+                        - [x] **TI-8.2d2m native `serve` ownership collision:**
+                              DONE 2026-07-11 (`727c806e8`).
+                              Repair the post-`1f3ca3962` full-provider startup
                               failure where both `50-http` and `55-ui` claim
                               `serve`. Preserve the UI ABI without taking the
                               HTTP-owned global, add installed-binary coverage,
                               and rerun HTTP/UI focused tests plus every v2.1
                               native release gate before resuming d2l delivery.
-                        - [ ] **TI-8.2d2n stale UI runtime taxonomy:** verify
+                              Result: UI owns only its reserved ABI-v1 name;
+                              HTTP remains the sole public owner. NativeUi 14/14
+                              and installed full-provider gates pass.
+                        - [x] **TI-8.2d2n stale UI runtime taxonomy:** DONE
+                              2026-07-11 (`4cdca959c`). Verify
                               `ui-remote-table.ssc` is now identical after the
                               NativeUi ABI-v1 landing, remove its obsolete
                               blocker row, tighten taxonomy expectations, and
                               rerun all taxonomy/portable/conformance gates.
+                              Result: `ui-remote-table.ssc` is identical;
+                              standard-provider/blocker/total counts tighten to
+                              22/40/52 and all gates pass.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
