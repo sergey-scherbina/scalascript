@@ -84,6 +84,18 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       each streaming write, closes the socket if it blocks past streamWriteTimeoutMs (default 30s) —
       arms only while a write is in-flight; ssc streamWriteTimeout(ms) intrinsic. 41 engine + 8
       backend tests. Nothing deferred.
+- [ ] **hf-10 http-fast completeness** (Sergiy: "Бери всё"):
+      - [ ] #1 TLS/HTTPS e2e: the SSLServerSocket path in FastServerBackend is untested — generate a
+            self-signed cert, HTTPS request through the fast backend, verify (security-adjacent).
+      - [ ] #6 Secure session cookie under TLS: thread `tls.isDefined` → SessionCookie.toSetCookie
+            secureFlag (currently hardcoded false).
+      - [ ] #4 Jetty backend parity: route JettyRequestAdapter through RequestBuilder.parseRaw (same
+            multipart/auth/session gap fast had) → completes the parity story.
+      - [ ] #3 native `mount(urlPrefix, dir)`: static file serving in the native plugin (currently a
+            throwing stub) — read file, content-type, 404.
+      - [ ] #5 WS permessage-deflate (RFC 7692): negotiate in the handshake + deflate/inflate frames
+            (no context-takeover first cut).
+      - [ ] #2 broader coverage: fill any backend-contract gaps not yet exercised against fast.
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 
 Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`
