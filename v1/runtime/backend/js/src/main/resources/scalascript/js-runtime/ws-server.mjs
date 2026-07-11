@@ -522,8 +522,16 @@ let _httpRetryDelay = 1_000;
 function httpTimeout(ms) { _httpTimeoutMs = ms; }
 function httpRetry(n, delayMs) { _httpMaxRetries = n; if (delayMs !== undefined) _httpRetryDelay = delayMs; }
 
+function _httpResolveUrl(url) {
+  // H3: absolute only on an explicit http(s):// scheme; otherwise join base + a
+  // leading-'/' path so a `url` like "@evil/x" can't inject userinfo that re-points the host.
+  if (!_httpBaseUrl || url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = _httpBaseUrl.replace(/\/+$/, '');
+  return url.startsWith('/') ? base + url : base + '/' + url;
+}
+
 function _httpSyncFetch(method, url, body, headers) {
-  const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const effective = _httpResolveUrl(url);
   const timeoutMs = _httpTimeoutMs;
   const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
   const sab  = new SharedArrayBuffer(4);
@@ -617,7 +625,7 @@ function httpClient(baseUrl, block) {
 // Streaming HTTP — collects lines in a worker thread then calls handler per line.
 // Uses _httpTimeoutMs for the worker AbortController and the Atomics.wait guard.
 function _httpStreamFetch(method, url, body, headers, handler) {
-  const effective  = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const effective  = _httpResolveUrl(url);
   const timeoutMs  = _httpTimeoutMs;
   const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
   const sab  = new SharedArrayBuffer(4);

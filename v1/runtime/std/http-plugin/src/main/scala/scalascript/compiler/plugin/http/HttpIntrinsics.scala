@@ -611,7 +611,12 @@ object HttpIntrinsics:
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
     val base    = ctx.httpBaseUrl
-    val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+    val url     =
+      // H3: absolute only on an explicit http(s):// scheme; otherwise join base + a
+      // leading-'/' path so a `rawUrl` like "@evil/x" can't re-point the host via userinfo.
+      if base.isEmpty || rawUrl.startsWith("http://") || rawUrl.startsWith("https://") then rawUrl
+      else if rawUrl.startsWith("/") then base.stripSuffix("/") + rawUrl
+      else base.stripSuffix("/") + "/" + rawUrl
     val timeout = java.time.Duration.ofMillis(ctx.httpTimeoutMs)
     val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
     val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
@@ -657,7 +662,12 @@ object HttpIntrinsics:
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
     val base    = ctx.httpBaseUrl
-    val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+    val url     =
+      // H3: absolute only on an explicit http(s):// scheme; otherwise join base + a
+      // leading-'/' path so a `rawUrl` like "@evil/x" can't re-point the host via userinfo.
+      if base.isEmpty || rawUrl.startsWith("http://") || rawUrl.startsWith("https://") then rawUrl
+      else if rawUrl.startsWith("/") then base.stripSuffix("/") + rawUrl
+      else base.stripSuffix("/") + "/" + rawUrl
     val timeout = java.time.Duration.ofMillis(ctx.httpTimeoutMs)
     val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
     val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)

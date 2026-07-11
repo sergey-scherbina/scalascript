@@ -10,20 +10,33 @@ import scalascript.server.*
 // BUILD-ONLY:end
 
 // ── Outbound HTTP client ────────────────────────────────────────────────
-private var _httpBaseUrl:    String = ""
-private var _httpTimeoutMs:  Long   = 30_000L
-private var _httpMaxRetries: Int    = 0
-private var _httpRetryDelay: Long   = 1_000L
+// Per-thread config (H5): serve() dispatches each request on its own (virtual)
+// thread, so process-global vars bled base/timeout/retries across concurrent
+// requests. ThreadLocal isolates them per request — matching the interpreter
+// and the Rust thread_local! runtime.
+private val _httpBaseUrl    = ThreadLocal.withInitial[String](() => "")
+private val _httpTimeoutMs  = ThreadLocal.withInitial[Long](() => 30_000L)
+private val _httpMaxRetries = ThreadLocal.withInitial[Int](() => 0)
+private val _httpRetryDelay = ThreadLocal.withInitial[Long](() => 1_000L)
 
-def httpTimeout(ms: Int): Unit  = _httpTimeoutMs = ms.toLong
-def httpRetry(n: Int, delayMs: Int = 1000): Unit = { _httpMaxRetries = n; _httpRetryDelay = delayMs.toLong }
+def httpTimeout(ms: Int): Unit  = _httpTimeoutMs.set(ms.toLong)
+def httpRetry(n: Int, delayMs: Int = 1000): Unit = { _httpMaxRetries.set(n); _httpRetryDelay.set(delayMs.toLong) }
+
+// Resolve `url` against the scoped base (H3): absolute only on an explicit
+// http(s):// scheme; otherwise join base + a leading-'/' path so a `url` like
+// "@evil/x" can't be parsed as userinfo that re-points the host.
+private def _httpResolve(url: String): String =
+  val base = _httpBaseUrl.get().stripSuffix("/")
+  if base.isEmpty || url.startsWith("http://") || url.startsWith("https://") then url
+  else if url.startsWith("/") then base + url
+  else base + "/" + url
 
 private def _httpDoRequest(method: String, url: String, body: String,
     headers: Map[String, String]): Response =
   import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
   import scala.jdk.CollectionConverters.*
-  val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
-  val timeout = java.time.Duration.ofMillis(_httpTimeoutMs)
+  val effectiveUrl = _httpResolve(url)
+  val timeout = java.time.Duration.ofMillis(_httpTimeoutMs.get())
   val client  = JHC.newBuilder().connectTimeout(timeout).build()
   val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl)).timeout(timeout)
   headers.foreach((k, v) => builder.header(k, v))
@@ -31,14 +44,14 @@ private def _httpDoRequest(method: String, url: String, body: String,
     case "GET"    => builder.GET().build()
     case "DELETE" => builder.DELETE().build()
     case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-  val maxTries = _httpMaxRetries + 1
+  val maxTries = _httpMaxRetries.get() + 1
   var attempt = 0; var lastResp: HttpResponse[String] | Null = null; var lastErr: Throwable | Null = null
   while attempt < maxTries do
     try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
     catch case e: Throwable => lastErr = e
     val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
     attempt += 1
-    if shouldRetry && attempt < maxTries then Thread.sleep(_httpRetryDelay)
+    if shouldRetry && attempt < maxTries then Thread.sleep(_httpRetryDelay.get())
     else attempt = maxTries
   if lastErr != null then throw lastErr
   val resp = lastResp.nn
@@ -64,11 +77,11 @@ def httpDelete(url: String, headers: Map[String, String] = Map.empty): Response 
   _httpDoRequest("DELETE", url, "", headers)
 
 def httpClient(baseUrl: String)(block: => Any): Any =
-  val priorBase = _httpBaseUrl; val priorT = _httpTimeoutMs
-  val priorR = _httpMaxRetries; val priorD = _httpRetryDelay
-  _httpBaseUrl = baseUrl
-  try block finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT
-                       _httpMaxRetries = priorR; _httpRetryDelay = priorD }
+  val priorBase = _httpBaseUrl.get(); val priorT = _httpTimeoutMs.get()
+  val priorR = _httpMaxRetries.get(); val priorD = _httpRetryDelay.get()
+  _httpBaseUrl.set(baseUrl)
+  try block finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT)
+                       _httpMaxRetries.set(priorR); _httpRetryDelay.set(priorD) }
 
 // Streaming variants — call handler for each line as it arrives.
 // Uses BodyHandlers.ofLines() so lines are emitted incrementally.
@@ -76,10 +89,10 @@ private def _httpDoRequestStream(method: String, url: String, body: String,
     headers: Map[String, String], handler: String => Any): Any =
   import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
   import scala.jdk.CollectionConverters.*
-  val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
-  val timeout = java.time.Duration.ofMillis(_httpTimeoutMs)
+  val effectiveUrl = _httpResolve(url)
+  val timeout = java.time.Duration.ofMillis(_httpTimeoutMs.get())
   val client  = JHC.newBuilder().connectTimeout(timeout).build()
-  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl))
+  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl)).timeout(timeout)
   headers.foreach((k, v) => builder.header(k, v))
   val req = method match
     case "GET"  => builder.GET().build()
