@@ -1668,7 +1668,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               plugin/class-load, JRE, slim, build-jvm,
                               standard-tier, portable/taxonomy, algebraic
                               effects, and fresh conformance 11/11 pass.
-                        - [ ] **TI-8.2d3d core-free YAML:** implement
+                        - [x] **TI-8.2d3d core-free YAML — DONE 2026-07-11
+                              (code `2da4183f5`, docs `1d28aeeca`):** implement
                               `specs/v2.1-native-yaml.md`. Add a dedicated
                               native provider for `parseYaml`, `toYaml`, and
                               all `yaml*` accessors using portable `Y*` values
@@ -1680,6 +1681,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               semantics and exact full `yaml-parse.ssc` output
                               on VM/direct ASM/build-jvm before retiring only its
                               standard-provider taxonomy row.
+                              Result: provider tests 3/3; exact public example
+                              plus yaml/yml/digit/import section regressions on
+                              VM/direct ASM/build-jvm; parity 22/44/129 with no
+                              mismatch or one-sided error; taxonomy 32 blockers /
+                              44 total; dependency 16 roots / 63 edges / 11
+                              reflective / 30 staged dependency jars. Native-
+                              entry, provider/class-load, no-compiler JRE,
+                              slim, reproducible build-jvm, standard,
+                              portable/taxonomy, and conformance 11/11 pass.
                               - [x] **TI-8.2d3d0 zero-arg println — DONE
                                     2026-07-11 (`e74241f5e`):** the self-hosted
                                     lowerer maps only empty global `println()`

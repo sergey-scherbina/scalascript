@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — runtime YAML joins the core-free JVM route
+
+A portable native provider now owns `std.yaml` parsing, total accessors, and
+deterministic serialization. The self-hosted scanner retains heading-scoped
+`yaml`/`yml` fences across roots and imports, so `<SectionId>.yaml` runs exactly
+on VM, direct ASM, and standalone build-jvm without a v1 bridge. Strict parity
+improves to 22/44/129 and runtime blockers fall from 33 to 32. Landed
+`2da4183f5`; documented `1d28aeeca`.
+
 ## 2026-07-11 — native zero-argument println preserves the blank line
 
 The self-hosted lowerer now adapts only `println()` with no arguments to the
