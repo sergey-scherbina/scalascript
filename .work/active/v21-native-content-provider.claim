@@ -1,6 +1,6 @@
 feature/v21-native-content-provider 2026-07-11T18:34:26Z
 agent: codex
-heartbeat: 2026-07-11T18:34:26Z
-status: not-started
-done-so-far: verified structural Markdown currently stops at CLI blockCount and no v2 content provider exists
-next: create isolated worktree; queue the content slice in SPRINT; commit the feature spec before implementation
+heartbeat: 2026-07-11T18:34:46Z
+status: in-progress
+done-so-far: worktree created; structural Markdown retention seam and missing provider confirmed
+next: queue the content slice in SPRINT and commit the feature spec before implementation
