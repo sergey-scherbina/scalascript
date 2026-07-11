@@ -1,0 +1,6 @@
+feature/v21-toolchain-independence 2026-07-11T14:25:00Z
+agent: codex
+heartbeat: 2026-07-11T14:25:00Z
+status: in-progress
+done-so-far: regression reproduced in existing nested-tuple-pattern fixture on VM and direct ASM
+next: align 3+ tuple patterns with K62.20 flat TupleN values while retaining Pair/2
