@@ -1204,7 +1204,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               advances to an independent pattern boundary,
                               parity improves to 12/58/125, blockers shrink to
                               46, and fresh conformance 11/11 passes.
-                        - [ ] **TI-8.2d2d collection companion calls:** lower
+                        - [x] **TI-8.2d2d collection companion calls — DONE
+                              2026-07-11 (`69a0b2a51`):** lower
                               `List`/`Seq`/`Vector`/`Array` companion receivers
                               to the existing portable method-object contract and
                               flatten Scala-style curried `tabulate(n)(f)` /
@@ -1213,6 +1214,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `lang-split.ssc` boundary, preserve first-order
                               `range` calls, and shrink taxonomy only after the
                               full corpus/parity/native-entry/conformance gates.
+                              Result: focused list/array factories pass on both
+                              lanes; `lang-split.ssc` prints both grids and moves
+                              to its standard math boundary, parity stays clean
+                              at 12/58/125, and conformance 11/11 passes.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

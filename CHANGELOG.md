@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — collection companion factories lower portably
+
+The self-hosted resolver now represents collection companions through the
+existing method-object contract and flattens only known curried `tabulate` and
+`fill` factories. List/array regressions pass on VM/direct ASM; `lang-split.ssc`
+advances from a false collection effect to its standard math-provider boundary
+with zero parity regression. Landed `69a0b2a51`.
+
 ## 2026-07-11 — NativeUi ABI and SwiftUI lifecycle are frozen before code
 
 The reviewed ABI v1 now defines portable roots, nodes, signals, actions, tables,
