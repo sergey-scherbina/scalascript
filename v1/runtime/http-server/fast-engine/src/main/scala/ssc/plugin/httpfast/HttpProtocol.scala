@@ -194,6 +194,10 @@ object HttpProtocol:
     else if c >= 'A' && c <= 'F' then c - 'A' + 10
     else -1
 
+  /** Parse an `x-www-form-urlencoded` string (query string or POST form body): `k=v&k=v`,
+    * keys/values percent- and `+`-decoded. Public so the ssc bridge can reuse it for `form`. */
+  def parseFormUrlEncoded(s: String): Map[String, String] = parseQuery(s)
+
   private def parseQuery(q: String): Map[String, String] =
     if q.isEmpty then Map.empty
     else

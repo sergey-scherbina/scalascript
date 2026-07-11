@@ -1465,6 +1465,8 @@ lazy val cli = project
         "scalascript-v2-native-plugin-spi_", "scalascript-v2-native-host-plugin_",
         "scalascript-v2-native-crypto-plugin_", "scalascript-v2-native-os-plugin_",
         "scalascript-v2-native-fs-plugin_", "scalascript-v2-native-json-plugin_",
+        // hf-5/hf-6: the http provider is now the from-scratch fast plugin (+ its shared
+        // engine), replacing the removed com.sun `scalascript-v2-native-http-plugin_`.
         "scalascript-v2-native-http-fast-plugin_", "scalascript-http-fast-engine_",
         "scalascript-v2-native-sql-plugin_",
         "scalascript-v2-native-ui-plugin_", "scalascript-v2-native-state-effect-plugin_",

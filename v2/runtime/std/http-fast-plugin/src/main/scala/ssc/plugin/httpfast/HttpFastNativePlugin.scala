@@ -148,7 +148,7 @@ final class HttpFastNativePlugin extends NativePlugin:
   def install(context: NativePluginContext): Unit =
     context.registerFields("Response", Vector("status", "headers", "body"))
     context.registerFields("TlsContext", Vector("certPath", "keyPath"))
-    context.registerFields("Request", Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json"))
+    context.registerFields("Request", Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json", "params", "query"))
     val serverHost = NioNativeHttpServerHost(context)
 
     val httpGet: List[Value] => Value = args => requestArgs("GET", args, hasBody = false)

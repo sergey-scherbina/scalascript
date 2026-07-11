@@ -254,18 +254,28 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     else resp
 
   private def requestValue(req: RawRequest, pathParams: Map[String, String]): Value =
-    // `form` carries query + path params (path params win) to stay 9-field compatible.
-    val form = req.query ++ pathParams
+    // Field shape matches the v1 WebServer Request so an ssc HTTP program is portable across
+    // --native and --v2: `params` = path params, `query` = query string, `form` = POST
+    // urlencoded body. (`params`/`query` appended → existing field indices unchanged.)
     Value.DataV("Request", Vector(
       Value.StrV(req.method),
       Value.StrV(req.path),
       valueMap(req.headers),
       Value.StrV(new String(req.body, UTF_8)),
-      valueMap(form),
-      valueMap(Map.empty),
-      valueMap(cookies(req.headers)),
-      valueMap(Map.empty),
-      Value.DataV("None", Vector.empty)))
+      valueMap(formBody(req)),               // form  (index 4)
+      valueMap(Map.empty),                   // files (index 5)
+      valueMap(cookies(req.headers)),        // cookies (index 6)
+      valueMap(Map.empty),                   // session (index 7)
+      Value.DataV("None", Vector.empty),     // json  (index 8)
+      valueMap(pathParams),                  // params (index 9)
+      valueMap(req.query)))                  // query (index 10)
+
+  /** POST `application/x-www-form-urlencoded` body → form map (empty otherwise). */
+  private def formBody(req: RawRequest): Map[String, String] =
+    val ct = req.headers.getOrElse("content-type", "").toLowerCase(java.util.Locale.ROOT)
+    if ct.startsWith("application/x-www-form-urlencoded") then
+      HttpProtocol.parseFormUrlEncoded(new String(req.body, UTF_8))
+    else Map.empty
 
   private def toResponse(value: Value): RawResponse = value match
     case Value.DataV("Response", Seq(Value.IntV(status), headerValue, Value.StrV(body))) =>

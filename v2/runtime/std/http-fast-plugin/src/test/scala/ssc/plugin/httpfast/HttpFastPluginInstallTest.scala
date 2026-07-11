@@ -32,7 +32,8 @@ class HttpFastPluginInstallTest extends AnyFunSuite:
     for m <- List("add", "remove", "broadcast", "size") do
       assert(ssc.V2PluginRegistry.lookupTaggedMethod("WsRoom", m).isDefined, s"room.$m not registered")
 
-    assert(ssc.V2PluginRegistry.lookupFieldNames("Request").exists(_.length == 9))
+    assert(ssc.V2PluginRegistry.lookupFieldNames("Request").exists(fs =>
+      fs.contains("params") && fs.contains("query") && fs.contains("form")))
     assert(ssc.V2PluginRegistry.lookupFieldNames("Response").exists(_.length == 3))
     assert(ssc.V2PluginRegistry.lookupFieldNames("WebSocket").isDefined)
   }
