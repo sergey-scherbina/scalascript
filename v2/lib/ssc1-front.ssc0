@@ -602,6 +602,13 @@ def partsToExpr = (parts) =>
 
 def buildSInterp = (raw) => partsToExpr(interpParts(raw))
 
+-- `md"..."` is the normative language interpolator from SPEC.md §5.7. Reuse
+-- the complete s-interpolation parser, then route the resulting String through
+-- the portable indent-strip primitive. Emitting the prim here keeps `md` out
+-- of runtime/global resolution and needs no host parser or provider.
+def buildMdInterp = (raw) =>
+  Pair("prim", Pair("__mdStrip__", Cons(buildSInterp(raw), Nil)))
+
 -- K62.26b: f"" format specifiers. In an f-string a ${expr} may be followed by a printf
 -- spec  %[-#+ 0,(<]*[width][.prec]<letter>  at the front of the NEXT literal (f"$x%-4s").
 -- splitFFormatPrefix peels that spec off (default "%s" when absent). buildFInterp emits
@@ -848,7 +855,7 @@ def parseAtom = (toks) =>
   else if #seq(k, "float") then pr(mkFloat(v), advance(toks))
   else if #seq(k, "str") then pr(mkStr(v), advance(toks))
   else if #seq(k, "id")  then
-    -- KC12: detect s"..." / f"..." / raw"..." string interpolation
+    -- KC12: detect built-in s"..." / f"..." / raw"..." / md"..." interpolation
     if #seq(v, "s") then
       let ts2 = advance(toks) in
       if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
@@ -860,6 +867,10 @@ def parseAtom = (toks) =>
     else if #seq(v, "raw") then
       let ts2 = advance(toks) in
       if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
+      else pr(mkVar(v), ts2)
+    else if #seq(v, "md") then
+      let ts2 = advance(toks) in
+      if kindIs("str", ts2) then pr(buildMdInterp(tokVal(peek(ts2))), advance(ts2))
       else pr(mkVar(v), ts2)
     else if #seq(v, "_") then pr(Pair("ph", ""), advance(toks))   -- K62.6c: underscore placeholder
     else if #seq(v, "throw") then

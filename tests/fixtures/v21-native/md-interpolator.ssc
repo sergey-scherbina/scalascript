@@ -1,0 +1,24 @@
+---
+name: v21-native-md-interpolator
+version: 1.0.0
+---
+
+```scalascript
+val name = "Ada"
+
+val block = md"""
+  Hello, $name!
+    nested ${1 + 2}
+
+  Tail
+"""
+
+println("[" + block + "]")
+println(md"single-$name")
+
+def md(value: String): String = "local:" + value
+println(md("ok"))
+
+val blank = md"   "
+println("[" + blank + "]")
+```
