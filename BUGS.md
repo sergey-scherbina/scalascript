@@ -2,7 +2,8 @@
 
 ## v21-native-doc-nested-render — nested documents leak the runtime tag
 
-**Status:** open; found by codex when native `md` unblocked the complete public
+**Status:** fixed (2026-07-11, `fe279650d`), awaiting Sergiy confirmation;
+found by codex when native `md` unblocked the complete public
 `examples/content.ssc` execution.
 
 - **Real-harness repro:** after a current-source `scripts/sbtc "installBin"`,
@@ -22,6 +23,11 @@
   language-owned `md` slice lands; recursively flatten only `NativeDoc` values,
   retain ordinary value display, add nested/empty provider and assembled
   regressions, then rerun the full release/dependency/content gates.
+- **Fix/verification:** provider-local recursion now flattens only `NativeDoc`
+  leaves, skips empty nested documents, and preserves shared display semantics
+  for every ordinary value. Host unit is 3/3; focused and full content output is
+  exact on VM/direct ASM/build-jvm with no leaked tag; plugin/dependency and
+  standard/slim/JRE/build-jvm gates pass; no-memo conformance is 17/17.
 
 ## v21-native-md-interpolator-unbound — self-hosted front misses the built-in prefix
 

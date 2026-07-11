@@ -2557,7 +2557,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Result: `Some((left, '+', right))` again prints
                               `left+right` on VM/ASM; all corpus, parity,
                               taxonomy, release, and conformance gates pass.
-                        - [ ] **TI-8.2d2w native built-in content helpers:**
+                        - [x] **TI-8.2d2w native built-in content helpers
+                              — DONE 2026-07-11 (`50715b7a3`, `fe279650d`):**
                               `examples/content.ssc` reaches the checker but
                               fails identically on VM/direct ASM with `unbound
                               global: md`. The self-hosted lowerer currently
@@ -2570,6 +2571,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               (not the structural content plugin). Gate the full
                               example byte-identically on VM/ASM/build-jvm and
                               keep user-defined interpolator dispatch unchanged.
+                              Result: the self-hosted language front now owns
+                              `md` interpolation/indent stripping, while the
+                              core-free host provider owns lexical-safe,
+                              recursively composable `doc`/`render`. The complete
+                              public example prints intended text without a
+                              compatibility parser or leaked runtime tag on
+                              VM/direct ASM/build-jvm; all release/dependency
+                              gates and affected conformance pass.
                               - [x] **TI-8.2d2w-doc core-free `doc`/`render`
                                     host contract:** split the provider-owned half
                                     from the lowerer-owned `md` fix while the
@@ -2632,8 +2641,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     blockers fall 19→18, and no-memo conformance
                                     is 17/17. Full execution exposed the separately
                                     queued nested-`NativeDoc` rendering bug.
-                              - [ ] **TI-8.2d2w-doc-nested recursive document
-                                    rendering:** once `md` lets the full public
+                              - [x] **TI-8.2d2w-doc-nested recursive document
+                                    rendering — DONE 2026-07-11
+                                    (`fe279650d`):** once `md` lets the full public
                                     example run, its nested `doc(table(...),
                                     table(...))` values leak as
                                     `NativeDoc(...)`. Specify a provider-owned
@@ -2647,6 +2657,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     plugin/dependency/distribution and affected
                                     conformance gates. Tracked in `BUGS.md` as
                                     `v21-native-doc-nested-render`.
+                                    Result: provider-local recursion flattens
+                                    only `NativeDoc` leaves, skips empty nested
+                                    documents, and preserves shared display for
+                                    ordinary values. Host unit is 3/3; focused
+                                    and full content VM/ASM/build-jvm output is
+                                    exact with no leaked tag; dependency/plugin,
+                                    standard/slim/JRE/build-jvm, and no-memo
+                                    conformance 17/17 pass.
                         - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
                               2026-07-11 (`e2511c6ad`):** after the
                               structural content provider resolves

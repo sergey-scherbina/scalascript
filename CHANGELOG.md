@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — nested native documents render as content
+
+The core-free ScalaScript 2.1 host provider now recursively flattens nested
+`doc(...)` values while leaving ordinary values on the shared display path.
+Empty nested documents add no separator and the reserved `NativeDoc` tag never
+leaks into output. The complete content example is exact on VM, direct ASM, and
+`build-jvm`; host unit is 3/3, every release/dependency gate passes, and
+conformance is 17/17. Landed `fe279650d`.
+
 ## 2026-07-11 — native `md` interpolation is self-hosted
 
 ScalaScript 2.1 now parses `$name` / `${expr}` and strips common indentation for
