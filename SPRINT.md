@@ -950,6 +950,14 @@ there before changing this plan.
                   unlisted resource, and atomically replace the ownership manifest
                   last. Gate product rename, UI→domain→UI, unlisted-resource
                   preservation, and full-tree/manifest determinism.
+            Round-1 implementation `2bb8f86c1` remains BLOCKED until: metadata
+            reads exact unindented top-level keys (including empty-value errors)
+            and `frontend: swiftui` forces UI mode; existing unowned Resources
+            are sorted into the PBX phase; ownership commit is atomic or fails
+            closed with hostile absolute/parent manifest tests; and the common
+            `XcodeAppArtifact` helper drives v2 build, macOS run, and simulator
+            run through `-project/-scheme/-showBuildSettings` plus APPL/bundle/
+            non-CLI verification.
       - [ ] **v2-swiftui-apple-distribution-adapters** — after the common
             `XcodeAppArtifact` helper lands, route signed device/archive/IPA,
             macOS codesign/notarization/DMG, TestFlight, and App Store lanes to
@@ -963,6 +971,11 @@ there before changing this plan.
             exact app discovery/inspection/non-CLI executable selection, then
             re-run Swift/AppCore/JVM ABI/toolkit conformance and obtain Rozum
             read-only approval.
+            Replace the round-1 hand-built/hard-coded gate with a checked `.ssc`
+            fixture, full owned-tree comparison, exact `xcodebuild -list`,
+            destination-specific build-settings discovery, plist inspection,
+            bounded macOS executable launch, and the concrete installed iOS
+            26.5 simulator destination.
 - [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
       `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
       exact supported glob form), verify every behavior

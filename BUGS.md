@@ -144,6 +144,15 @@ taxonomy. Provider implementation already landed in `608d63425`.
   validate every entry as relative with no `..`, delete only the previous list
   and empty owned directories, preserve unlisted files, and atomically replace
   the manifest last. Gate product rename, UI→domain→UI, and preserved resources.
+- **Implementation review round 1 (BLOCKED):** the metadata helper treats
+  indented nested YAML keys as top-level and drops empty values into defaults;
+  explicit `frontend: swiftui` does not force UI mode. Preserved user Resources
+  are absent from the PBX phase, and ownership falls back to a non-atomic move.
+  `XcodeAppArtifact` is not yet consumed: build/macOS run still use SwiftPM CLI,
+  iOS still rejects, and no shared showBuildSettings/APPL/bundle/non-CLI verifier
+  exists. The real gate hand-builds Program, hard-codes Debug paths, weakly
+  matches `-list`, uses a generic simulator, and omits plist/product discovery
+  and bounded launch. Record/fix all before round 2.
 - **Plan/done-when:** freeze the exact metadata/default/validation, PBX id and
   target settings, source/resource membership, artifact split, discovery, and
   distribution sub-slice in `specs/v2-swift-swiftui-native.md`; obtain Rozum
