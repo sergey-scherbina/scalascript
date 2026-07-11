@@ -131,7 +131,8 @@ A Markdown paragraph is an import declaration when every non-whitespace inline
 node is an import link. Multiple import links in that pure paragraph lower in
 source order. A paragraph that mixes prose text with links stays prose, and
 links whose destination starts with `#` are internal cross-references rather
-than imports.
+than imports. The label of an import link may wrap across physical source lines;
+line wrapping does not split the paragraph or change the import target.
 
 ### 3.3 Fenced Code Blocks → Typed Expressions
 
