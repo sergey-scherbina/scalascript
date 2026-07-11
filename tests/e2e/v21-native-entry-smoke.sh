@@ -75,6 +75,8 @@ pattern_alternative_expected=$'hit\nhit\nmiss'
 [[ $(run_native "$FIXTURES/constructor-pattern-alternative.ssc") == "$pattern_alternative_expected" ]]
 assignment_expression_expected=$'6\ntrue\n7'
 [[ $(run_native "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
+final_mini_language_expected=$'condition-ok\nstage\n7\ntrue'
+[[ $(run_native "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -95,6 +97,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/symbolic-extension-operators.ssc") == 'symbolic-operators-ok' ]]
 [[ $(run_native --bytecode "$FIXTURES/constructor-pattern-alternative.ssc") == "$pattern_alternative_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -164,7 +167,20 @@ if grep -E 'File name too long|StackOverflowError' "$sandbox/components.err" >/d
   exit 1
 fi
 
-for source in dsl-mini-language.ssc graph-fullstack-rdf.ssc; do
+set +e
+run_native "$ROOT/examples/dsl-mini-language.ssc" \
+  >"$sandbox/dsl-mini-language.out" 2>"$sandbox/dsl-mini-language.err"
+mini_language_rc=$?
+set -e
+[[ $mini_language_rc -ne 0 ]]
+grep -F 'expected Int, got "2"' "$sandbox/dsl-mini-language.err" >/dev/null
+if grep -E 'parser sentinel _err|match: no arm|StackOverflowError' \
+  "$sandbox/dsl-mini-language.err" >/dev/null; then
+  echo 'dsl-mini-language native frontend did not reach its runtime boundary' >&2
+  exit 1
+fi
+
+for source in graph-fullstack-rdf.ssc; do
   set +e
   run_native "$ROOT/examples/$source" >"$sandbox/$source.out" 2>"$sandbox/$source.err"
   source_rc=$?

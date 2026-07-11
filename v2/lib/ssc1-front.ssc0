@@ -839,10 +839,14 @@ def parseStmtOrExpr = (toks) =>
 -- parseIfExpr: toks has consumed 'if'
 def parseIfExpr = (toks) =>
   -- accept both 'if (cond) e1 else e2'  and  'if cond then e1 else e2'
-  let rCond = if kindIs("(", toks) then
-    let r = parseExpr(advance(toks)) in pr(prV(r), skipKind(")", prT(r)))
-  else
-    let r = parseExpr(toks) in pr(prV(r), skipKw("then", prT(r))) in
+  -- A leading parenthesis groups the first term but does not end a following
+  -- infix tail. Resume at infix parsing directly so a legacy `{ branch }`
+  -- cannot be mistaken for a block argument applied to the condition.
+  let r0 = if kindIs("(", toks) then
+    let rInner = parseExpr(advance(toks)) in
+    parseInfix(1, prV(rInner), skipKind(")", prT(rInner)))
+  else parseExpr(toks) in
+  let rCond = pr(prV(r0), skipKw("then", prT(r0))) in
   let cond = prV(rCond) in
   -- then-branch may be an assignment (Scala 3: if cond then x = expr)
   let rt = parseStmtOrExpr(prT(rCond)) in
@@ -1302,7 +1306,7 @@ def tuplePat = (subs) =>
       }
   }
 
-def parsePat = (toks) =>
+def parsePatAtom = (toks) =>
   let t  = peek(toks) in
   let k  = tokKind(t) in
   let v  = tokVal(t) in
@@ -1333,6 +1337,15 @@ def parsePat = (toks) =>
   else if #seq(k, "str") then pr(Pair("lpat", Pair("str", v)), advance(toks))
   else if #seq(k, "float") then pr(Pair("lpat", Pair("float", v)), advance(toks))
   else pr(Pair("wpat", ""), advance(toks))
+
+-- Pattern cons is right-associative, like expression `::`. In particular, a
+-- tuple head retains its ordinary nested Pair pattern inside the outer Cons.
+def parsePat = (toks) =>
+  let rHead = parsePatAtom(toks) in
+  if kindIs("::", prT(rHead)) then
+    let rTail = parsePat(advance(prT(rHead))) in
+    pr(Pair("cpat", Pair("Cons", Cons(prV(rHead), Cons(prV(rTail), Nil)))), prT(rTail))
+  else rHead
 
 -- parseMatchArm: `case Pat => expr`  (keyword `case` already consumed)
 -- K62.11: a match-arm body can be a statement SEQUENCE (`case X => val n = e; expr`),
