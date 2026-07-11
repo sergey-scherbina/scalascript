@@ -20,6 +20,7 @@ class HttpNativePluginTest extends AnyFunSuite:
     case other => fail(s"expected Response, got $other")
 
   private def headerMap(value: Value): collection.Map[Value, Value] = value match
+    case Value.MapV(map) => map
     case Value.ForeignV(map: collection.Map[?, ?]) => map.asInstanceOf[collection.Map[Value, Value]]
     case other => fail(s"expected header Map, got $other")
 
@@ -41,9 +42,9 @@ class HttpNativePluginTest extends AnyFunSuite:
       assert(get(2) == Value.StrV("GET:"))
       assert(headerMap(get(1)).get(Value.StrV("x-fixture")).contains(Value.StrV("native-http")))
 
-      val requestHeaders = collection.mutable.LinkedHashMap[Value, Value](
-        Value.StrV("Content-Type") -> Value.StrV("text/plain"))
-      val post = fields(call("httpPost", Value.StrV(url), Value.StrV("hello"), Value.ForeignV(requestHeaders)))
+      val requestHeaders = Value.MapV.from(List(
+        Value.StrV("Content-Type") -> Value.StrV("text/plain")))
+      val post = fields(call("httpPost", Value.StrV(url), Value.StrV("hello"), requestHeaders))
       assert(post(0) == Value.IntV(202))
       assert(post(2) == Value.StrV("POST:hello"))
     finally server.stop(0)
@@ -54,9 +55,9 @@ class HttpNativePluginTest extends AnyFunSuite:
     val renderer = Value.ClosV(Runtime.emptyEnv, 1, _ =>
       Done(Value.StrV("{\"n\":2,\"ok\":true}")))
     call("__jsonCoreInstallRenderer", renderer)
-    val values = collection.mutable.LinkedHashMap[Value, Value](
-      Value.StrV("ok") -> Value.BoolV(true), Value.StrV("n") -> Value.IntV(2))
-    val json = fields(call("Response.json", Value.ForeignV(values)))
+    val values = Value.MapV.from(List(
+      Value.StrV("ok") -> Value.BoolV(true), Value.StrV("n") -> Value.IntV(2)))
+    val json = fields(call("Response.json", values))
     assert(json(0) == Value.IntV(200))
     assert(json(2) == Value.StrV("{\"n\":2,\"ok\":true}"))
 
@@ -83,7 +84,7 @@ class HttpNativePluginTest extends AnyFunSuite:
       val request = env.last.asInstanceOf[Value.DataV]
       ssc.Done(Value.DataV("Response", Vector(
         Value.IntV(203),
-        Value.ForeignV(collection.mutable.LinkedHashMap.empty[Value, Value]),
+        Value.MapV.empty,
         Value.StrV("pong:" + request.fields(1).asInstanceOf[Value.StrV].s)))))
     val register = call("route", Value.StrV("GET"), Value.StrV("/ping")).asInstanceOf[Value.ClosV]
     ssc.Runtime.run(register.code, Array(handler))

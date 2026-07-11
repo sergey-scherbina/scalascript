@@ -53,6 +53,45 @@ class NativePluginHostTest extends AnyFunSuite:
     assert(result == Value.StrV("ok"))
   }
 
+  test("tag-qualified apply and method hooks are isolated and snapshot-safe") {
+    val provider = new NativePlugin:
+      def id: String = "tagged"
+      def install(context: NativePluginContext): Unit =
+        context.registerTaggedApply("PortableBox") {
+          case Value.DataV("PortableBox", fields) :: Nil => fields.head
+          case _ => fail("unexpected tagged apply arguments")
+        }
+        context.registerTaggedMethod("PortableBox", "set") {
+          case Value.DataV("PortableBox", _) :: value :: Nil => Value.DataV("PortableBox", Vector(value))
+          case _ => fail("unexpected tagged method arguments")
+        }
+
+    NativePluginHost.installProviders(List(provider))
+    val box = Value.DataV("PortableBox", Vector(Value.IntV(1)))
+    assert(ssc.Runtime.applyFallback(box, Array.empty) == ssc.Done(Value.IntV(1)))
+    assert(ssc.Prims.methodOp("set", box, List(Value.IntV(2))) ==
+      Value.DataV("PortableBox", Vector(Value.IntV(2))))
+    assert(ssc.V2PluginRegistry.lookupTaggedMethod("OtherBox", "set").isEmpty)
+
+    val snapshot = ssc.V2PluginRegistry.snapshot()
+    ssc.V2PluginRegistry.clear()
+    assert(ssc.V2PluginRegistry.lookupTaggedApply("PortableBox").isEmpty)
+    ssc.V2PluginRegistry.restore(snapshot)
+    assert(ssc.Runtime.applyFallback(box, Array.empty) == ssc.Done(Value.IntV(1)))
+  }
+
+  test("MapV preserves insertion order and keeps identity equality") {
+    val first = Value.MapV.from(List(
+      Value.StrV("b") -> Value.IntV(2),
+      Value.StrV("a") -> Value.IntV(1)))
+    val sameContents = Value.MapV.from(first.entries)
+
+    assert(first.entries.keys.toList == List(Value.StrV("b"), Value.StrV("a")))
+    assert(first ne sameContents)
+    assert(first != sameContents)
+    assert(ssc.Show.show(first) == "Map(\"b\" -> 2, \"a\" -> 1)")
+  }
+
   test("providers see immutable native database configuration") {
     var seen = Map.empty[String, NativeDatabaseConfig]
     val provider = new NativePlugin:

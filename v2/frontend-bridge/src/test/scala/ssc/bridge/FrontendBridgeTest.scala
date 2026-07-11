@@ -374,8 +374,7 @@ class FrontendBridgeTest extends AnyFunSuite:
       Term.Lit(Const.CStr("demo"))))
     val out = runCore(dynamicArith("+", Term.Prim("__mk_map__", Nil), pair))
 
-    val map = out.asInstanceOf[Value.ForeignV].h
-      .asInstanceOf[collection.mutable.Map[Value, Value]]
+    val map = out.asInstanceOf[Value.MapV].entries
     assert(map(Value.StrV("id")) == Value.StrV("demo"))
   }
 

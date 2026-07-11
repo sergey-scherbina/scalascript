@@ -18,13 +18,13 @@ class JsonNativePluginTest extends AnyFunSuite:
 
   test("JsonValue bridge navigates portable JsonCore values totally") {
     install()
-    val source = collection.mutable.LinkedHashMap[Value, Value](
+    val source = Value.MapV.from(List(
       Value.StrV("name") -> Value.StrV("Ada"),
       Value.StrV("items") -> Value.DataV("Cons", Vector(Value.IntV(1),
         Value.DataV("Cons", Vector(Value.IntV(2), Value.DataV("Nil", Vector.empty))))),
       Value.StrV("amount") -> Value.DecimalV("1000.0100"),
-      Value.StrV("on") -> Value.BoolV(true))
-    val root = call("__jsonCoreWrap", NativeJsonCodec.toCore(Value.ForeignV(source)))
+      Value.StrV("on") -> Value.BoolV(true)))
+    val root = call("__jsonCoreWrap", NativeJsonCodec.toCore(source))
 
     assert(method(method(root, "get", Value.StrV("name")), "asString") == Value.StrV("Ada"))
     val items = method(root, "get", Value.StrV("items"))

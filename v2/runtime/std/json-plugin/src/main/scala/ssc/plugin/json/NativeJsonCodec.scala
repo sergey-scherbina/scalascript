@@ -57,6 +57,12 @@ private[plugin] object NativeJsonCodec:
     case Value.DataV(tag, fields) => objectCore(List(
       "tag" -> stringCore(tag),
       "fields" -> arrayCore(fields.map(toCore))))
+    case Value.MapV(entries) =>
+      val fields = entries.iterator.map {
+        case (Value.StrV(key), item) => key -> toCore(item)
+        case (key, item) => key.toString -> toCore(item)
+      }.toList.sortBy(_._1)
+      objectCore(fields)
     case Value.ForeignV(decimal: java.math.BigDecimal) => numberCore(decimal.toPlainString)
     case Value.ForeignV(map: collection.Map[?, ?]) =>
       val entries = map.iterator.map {
@@ -83,13 +89,13 @@ private[plugin] object NativeJsonCodec:
     case Value.DataV("JsonCoreString", Seq(codeUnits)) => Value.StrV(decodeCodeUnits(codeUnits))
     case Value.DataV("JsonCoreArray", Seq(items)) => list(unlist(items).map(toRaw))
     case Value.DataV("JsonCoreObject", Seq(fields)) =>
-      val values = collection.mutable.LinkedHashMap.empty[Value, Value]
+      val values = Value.MapV.empty
       unlist(fields).foreach {
         case Value.DataV("JsonCoreField", Seq(key, item)) =>
-          values(Value.StrV(decodeCodeUnits(key))) = toRaw(item)
+          values.entries(Value.StrV(decodeCodeUnits(key))) = toRaw(item)
         case _ => ()
       }
-      Value.ForeignV(values)
+      values
     case Value.DataV("JsonCoreOk", _) => toRaw(unwrapStrict(core))
     case Value.DataV("JsonCoreErr", _) => toRaw(unwrapStrict(core))
     case _ => Value.UnitV

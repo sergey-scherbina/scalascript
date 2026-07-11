@@ -36,6 +36,11 @@ class PluginBridgeTest extends AnyFunSuite:
     assert(PluginBridge.v2ToV1(V2Value.DecimalV("12.3400")) ==
       DataValue.DecimalV(BigDecimal("12.3400")))
 
+  test("v2ToV1: MapV crosses the compatibility adapter as MapV"):
+    val value = V2Value.MapV.from(List(V2Value.StrV("id") -> V2Value.IntV(7)))
+    assert(PluginBridge.v2ToV1(value) == scalascript.interpreter.Value.MapV(Map(
+      DataValue.StringV("id") -> DataValue.IntV(7))))
+
   test("v2ToV1: DataV → InstanceV with positional fields"):
     val v2 = V2Value.DataV("Pair", Vector(V2Value.IntV(1L), V2Value.StrV("x")))
     val v1 = PluginBridge.v2ToV1(v2)
@@ -148,6 +153,12 @@ class PluginBridgeTest extends AnyFunSuite:
   test("v1ToV2: TupleV → DataV Tuple2"):
     val t = scalascript.interpreter.Value.TupleV(List(DataValue.IntV(1L), DataValue.StringV("a")))
     assert(PluginBridge.v1ToV2(t) == V2Value.DataV("Tuple2", Vector(V2Value.IntV(1L), V2Value.StrV("a"))))
+
+  test("v1ToV2: MapV becomes target-neutral insertion-ordered MapV"):
+    val map = scalascript.interpreter.Value.MapV(Map(
+      DataValue.StringV("id") -> DataValue.IntV(7)))
+    val converted = PluginBridge.v1ToV2(map).asInstanceOf[V2Value.MapV]
+    assert(converted.entries.toList == List(V2Value.StrV("id") -> V2Value.IntV(7)))
 
   test("v1ToV2: named InstanceV prints via v1 show while preserving field access"):
     val inst = scalascript.interpreter.Value.InstanceV("StoredEdge", Map(

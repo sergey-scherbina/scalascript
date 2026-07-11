@@ -110,6 +110,7 @@ final class JsonNativePlugin extends NativePlugin:
       box.getCoreValue(key).map(NativeJsonCodec.toRaw)
     case Value.ForeignV(box: JsonBox) :: Value.IntV(index) :: Nil =>
       box.atCoreValue(index).map(NativeJsonCodec.toRaw)
+    case Value.MapV(map) :: key :: Nil => map.get(key)
     case Value.ForeignV(map: collection.Map[?, ?]) :: key :: Nil
         if map.keysIterator.forall(_.isInstanceOf[Value]) =>
       map.asInstanceOf[collection.Map[Value, Value]].get(key)

@@ -559,6 +559,11 @@ object PluginBridge:
 
     def paramsValue(v: V2Value): Map[String, String] = v match
       case DataV("Nil", _) | UnitV => Map.empty
+      case V2Value.MapV(entries) =>
+        entries.iterator.map {
+          case (StrV(k), value) => k -> strValue(value)
+          case (key, _) => sys.error(s"XSLT params require String keys, got ${Show.show(key)}")
+        }.toMap
       case ForeignV(m: collection.mutable.Map[?, ?]) =>
         m.asInstanceOf[collection.mutable.Map[V2Value, V2Value]].iterator.map {
           case (StrV(k), value) => k -> strValue(value)
@@ -1646,6 +1651,7 @@ object PluginBridge:
       if i < 0 || i >= xs.length then v
       else xs.updated(i.toInt, nv).foldRight[V2Value](DataV("Nil", Vector.empty))((x, acc) => DataV("Cons", Vector(x, acc)))
     def mapOf(v: V2Value): Option[collection.mutable.Map[V2Value, V2Value]] = v match
+      case V2Value.MapV(entries) => Some(entries)
       case ForeignV(m: collection.mutable.Map[?, ?]) => Some(m.asInstanceOf[collection.mutable.Map[V2Value, V2Value]])
       case _ => None
 
@@ -1865,6 +1871,8 @@ object PluginBridge:
         s"TableNode(${v1Show(columns)}, ${v1Show(rows)}, null)"
       case V2Value.DataV(tag, fs) if fs.isEmpty => tag
       case V2Value.DataV(tag, fs) => tag + fs.map(v1Show).mkString("(", ", ", ")")
+      case V2Value.MapV(entries) =>
+        entries.iterator.map { case (k, vv) => s"${v1Show(k)} -> ${v1Show(vv)}" }.mkString("Map(", ", ", ")")
       case V2Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
         m.asInstanceOf[collection.mutable.Map[V2Value, V2Value]]
           .map { case (k, vv) => s"${v1Show(k)} -> ${v1Show(vv)}" }.mkString("Map(", ", ", ")")
@@ -2300,6 +2308,7 @@ object PluginBridge:
       currentErrors.foreach { m => m(StrV(name)) = StrV(msg) }
     def reqLookup(req: V2Value, name: String): Option[String] =
       def fromMap(mapV: V2Value): Option[String] = mapV match
+        case V2Value.MapV(entries) => entries.get(StrV(name)).collect { case StrV(s) => s }
         case ForeignV(m: collection.mutable.HashMap[V2Value, V2Value] @unchecked) =>
           m.get(StrV(name)).collect { case StrV(s) => s }
         case _ => None
@@ -3685,6 +3694,10 @@ object PluginBridge:
       lst.foldRight[V2Value](V2Value.DataV("Nil", Vector.empty)) { (x, acc) =>
         V2Value.DataV("Cons", Vector(rawToV2(x.asInstanceOf[Any]), acc))
       }
+    case map: scala.collection.Map[?, ?] =>
+      V2Value.MapV.from(map.iterator.map { case (key, value) =>
+        rawToV2(key.asInstanceOf[Any]) -> rawToV2(value.asInstanceOf[Any])
+      })
     case null       => V2Value.DataV("None", Vector.empty)
     case other      => V2Value.ForeignV(other.asInstanceOf[AnyRef])
 
@@ -3766,6 +3779,10 @@ object PluginBridge:
       inst.fieldsArr = arr
       inst.fieldNames = names
       inst
+    case V2Value.MapV(entries) =>
+      scalascript.interpreter.Value.MapV(entries.iterator.map { case (key, value) =>
+        v2ToV1(key) -> v2ToV1(value)
+      }.toMap)
     case V2Value.ForeignV(m: scala.collection.mutable.Map[?, ?]) =>
       // v2 Map (from __mk_map__) → v1 MapV so plugins can MapVal.unapply
       val converted = m.asInstanceOf[scala.collection.mutable.Map[V2Value, V2Value]]
@@ -3871,9 +3888,7 @@ object PluginBridge:
     case scalascript.interpreter.Value.TupleV(elems) =>
       V2Value.DataV(s"Tuple${elems.length}", elems.map(v1ToV2).toVector)
     case scalascript.interpreter.Value.MapV(entries) =>
-      val hm = scala.collection.mutable.HashMap[V2Value, V2Value]()
-      entries.foreach { case (k, v) => hm(v1ToV2(k)) = v1ToV2(v) }
-      V2Value.ForeignV(hm)
+      V2Value.MapV.from(entries.iterator.map { case (k, v) => v1ToV2(k) -> v1ToV2(v) })
     case orig @ scalascript.interpreter.Value.Foreign(_, s: scalascript.frontend.Signal[?]) =>
       // Signal[T]: callable (0 args → get, 1 arg → set) AND round-trip-safe —
       // a bare ClosV here DESTROYED the Foreign("ReactiveSignal") identity, so

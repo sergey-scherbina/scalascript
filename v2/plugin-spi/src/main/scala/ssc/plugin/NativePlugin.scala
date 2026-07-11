@@ -27,4 +27,6 @@ trait NativePluginContext:
   def register(name: String)(fn: List[Value] => Value): Unit
   def registerGlobal(name: String, arity: Int)(fn: List[Value] => Value): Unit
   def registerValue(name: String, value: Value): Unit
+  def registerTaggedApply(tag: String)(fn: List[Value] => Value): Unit
+  def registerTaggedMethod(tag: String, name: String)(fn: List[Value] => Value): Unit
   def registerFields(tag: String, fields: Vector[String]): Unit

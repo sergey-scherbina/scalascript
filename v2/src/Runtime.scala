@@ -47,6 +47,18 @@ object Value:
     // Callers can invoke this instead of trampoline to eliminate Done allocs.
     var fcEntry: Option[FastCode.FC] = None
   final case class ForeignV(h: AnyRef)                extends Value
+  /** Target-neutral insertion-ordered mutable map. Equality and hashing remain
+   *  object identity, matching Swift's SscMap; UI semantic equality is a
+   *  separate cycle-safe operation owned by the NativeUi runtime. */
+  final class MapV private (val entries: collection.mutable.LinkedHashMap[Value, Value]) extends Value
+  object MapV:
+    def empty: MapV = new MapV(collection.mutable.LinkedHashMap.empty)
+    def from(entries: IterableOnce[(Value, Value)]): MapV =
+      val out = collection.mutable.LinkedHashMap.empty[Value, Value]
+      out ++= entries
+      new MapV(out)
+    def unapply(value: MapV): Some[collection.mutable.LinkedHashMap[Value, Value]] =
+      Some(value.entries)
   /** A named-field dispatch object: method calls are routed by name.
    *  Used by PluginBridge to wrap v1 InstanceV objects with plugin-owned method fields
    *  (e.g. AuthServer.registerClient) without exposing v1 types in the v2 core module. */
@@ -135,9 +147,15 @@ object Runtime:
       avs(0) match
         case Value.IntV(i) => Done(Prims.unlistPub(lv)(i.toInt))
         case _             => sys.error("app: list index must be Int")
-    case Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
-      Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](avs(0)))
+    case Value.MapV(entries) => Done(entries(avs(0)))
     case Value.DataV("Stub", fs) => Done(Value.DataV("Stub", fs))
+    case value @ Value.DataV(tag, _) =>
+      V2PluginRegistry.lookupTaggedApply(tag) match
+        case Some(fn) => Done(fn(value :: avs.toList))
+        case None => sys.error(s"app: not a function: ${Show.show(v)}")
+    case Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
+      // Transitional adapter value; core map construction uses MapV.
+      Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](avs(0)))
     case _ => sys.error(s"app: not a function: ${Show.show(v)}")
 
   /** io.exit lands here. Default = real process exit; embedders that run many
@@ -810,6 +828,7 @@ object Compiler:
                       case c: ClosV => Call(c, avs)
                       case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
                         avs(0) match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
+                      case MapV(m) => Done(m(avs(0)))
                       case ForeignV(m: collection.mutable.Map[?, ?]) =>
                         Done(m.asInstanceOf[collection.mutable.Map[Value,Value]](avs(0)))
                       case DataV("Stub", fs) => Done(DataV("Stub", fs))  // propagate the missed-method breadcrumb
@@ -847,6 +866,7 @@ object Compiler:
                   v0 match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
                 case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
                   v0 match { case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt)); case _ => sys.error("app: array index must be Int") }
+                case MapV(m) => Done(m(v0))
                 case ForeignV(m: collection.mutable.Map[?, ?]) =>
                   Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](v0))
                 case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
@@ -1792,6 +1812,17 @@ object V2PluginRegistry:
   def register(op: String, fn: Fn): Unit = handlers(op) = fn
   def lookup(op: String): Option[Fn] = handlers.get(op)
 
+  // Tag-qualified runtime extension points. These keep plugin-owned data
+  // callable without installing collision-prone global get/set/apply hooks.
+  private val taggedApply = collection.mutable.HashMap[String, Fn]()
+  private val taggedMethods = collection.mutable.HashMap[(String, String), Fn]()
+  def registerTaggedApply(tag: String, fn: Fn): Unit = taggedApply(tag) = fn
+  def lookupTaggedApply(tag: String): Option[Fn] = taggedApply.get(tag)
+  def registerTaggedMethod(tag: String, name: String, fn: Fn): Unit =
+    taggedMethods((tag, name)) = fn
+  def lookupTaggedMethod(tag: String, name: String): Option[Fn] =
+    taggedMethods.get((tag, name))
+
   // Global value registry — for runLogger/runState/handle etc. that appear as Global(name) in Core IR.
   private val globalValues = collection.mutable.HashMap[String, Value]()
   def registerGlobal(name: String, v: Value): Unit = globalValues(name) = v
@@ -1803,11 +1834,19 @@ object V2PluginRegistry:
    *  restore it before each file, so one program's registrations/mutations
    *  (databases, cells, namespaces) cannot leak into the next — batch PASS
    *  counts were ±2 order-dependent without this. */
-  def snapshot(): (Map[String, Fn], Map[String, Value]) =
-    (handlers.toMap, globalValues.toMap)
-  def restore(snap: (Map[String, Fn], Map[String, Value])): Unit =
-    handlers.clear(); handlers ++= snap._1
-    globalValues.clear(); globalValues ++= snap._2
+  final case class Snapshot(
+      handlers: Map[String, Fn],
+      globalValues: Map[String, Value],
+      taggedApply: Map[String, Fn],
+      taggedMethods: Map[(String, String), Fn])
+
+  def snapshot(): Snapshot =
+    Snapshot(handlers.toMap, globalValues.toMap, taggedApply.toMap, taggedMethods.toMap)
+  def restore(snap: Snapshot): Unit =
+    handlers.clear(); handlers ++= snap.handlers
+    globalValues.clear(); globalValues ++= snap.globalValues
+    taggedApply.clear(); taggedApply ++= snap.taggedApply
+    taggedMethods.clear(); taggedMethods ++= snap.taggedMethods
 
   // ADT field-name registry: tag → ordered field names.
   // Populated by FrontendBridge so PluginBridge.v2ToV1 can produce named InstanceV fields.
@@ -1832,6 +1871,8 @@ object V2PluginRegistry:
   def clear(): Unit =
     handlers.clear()
     globalValues.clear()
+    taggedApply.clear()
+    taggedMethods.clear()
     fieldNames.clear()
     fieldNamesByArity.clear()
 
@@ -2030,6 +2071,7 @@ object Prims:
                     margs.head match
                       case IntV(ix) => unlistPub(lv)(ix.toInt)
                       case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
+                  case MapV(m) => m(margs.head)
                   case ForeignV(m: collection.mutable.Map[?, ?]) =>
                     m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
                   case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
@@ -2085,6 +2127,11 @@ object Prims:
       case DataV(_, fields) =>
         val i = int(a, 1).toInt
         if i < fields.length then fields(i) else DataV("Stub", Vector.empty)  // graceful OOB
+      case MapV(mm) if a.length >= 3 =>
+        val fieldName = a(2) match { case StrV(s) => s; case other => Show.show(other) }
+        mm.getOrElse(StrV(fieldName),
+          mm.collectFirst { case (StrV(k), v) if k.equalsIgnoreCase(fieldName) => v }
+            .getOrElse(sys.error(s"fieldAt: no column '$fieldName' in row ${mm.keys.map(anyStr).mkString("[", ",", "]")}")))
       // 3-arg form fieldAt(recv, idx, name): SQL rows are UNORDERED maps with
       // UPPERCASE column labels (Db.query; the [T] type arg is stripped so no
       // case-class decoding happens) — an index is meaningless there, so the
@@ -2117,8 +2164,8 @@ object Prims:
       // where the test is on the tag alone, independent of field count.
       case DataV(t, fs) => val ar = int(a, 2).toInt; BoolV(t == str(a, 1) && (ar < 0 || fs.length == ar))
       case _            => BoolV(false)
-    // Map (Foreign, mutable; keys/values are Values)
-    case "map.new"  => _ => ForeignV(collection.mutable.HashMap[Value, Value]())
+    // Target-neutral insertion-ordered mutable MapV.
+    case "map.new"  => _ => MapV.empty
     case "map.get"  => a => asMap(a(0)).get(a(1)).fold(none)(some)
     case "map.put"  => a => asMap(a(0)).update(a(1), a(2)); UnitV
     case "map.has"  => a => BoolV(asMap(a(0)).contains(a(1)))
@@ -2168,13 +2215,13 @@ object Prims:
     // ── FrontendBridge collection factories ────────────────────────────────────────
     // Map(k->v, ...) factory: args are Tuple2 pairs (DataV("Tuple2", [k, v]))
     case "__mk_map__" => a =>
-      val m = collection.mutable.HashMap[Value, Value]()
+      val m = MapV.empty
       a.foreach {
-        case DataV("Tuple2", Seq(k, v)) => m(k) = v
-        case DataV("->", Seq(k, v))     => m(k) = v
+        case DataV("Tuple2", Seq(k, v)) => m.entries(k) = v
+        case DataV("->", Seq(k, v))     => m.entries(k) = v
         case pair => sys.error(s"Map factory: expected k->v pair, got ${Show.show(pair)}")
       }
-      ForeignV(m)
+      m
     // ── Dynamic dispatch primitives (for FrontendBridge — no static type info) ────
     // __arith__(op, lhs, rhs): type-dispatched arithmetic/comparison/string concat.
     // Keep this as a thin wrapper: the literal-op fast paths call `arithOp`
@@ -2207,6 +2254,9 @@ object Prims:
           val k2 = ClosV(Array[Value](k), 1, env2 =>
             Done(methodOp(name, runClos1(env2(0).asInstanceOf[ClosV], env2.last), margs)))
           DataV("Op", Vector(l, ag, k2))
+        case (value @ DataV(tag, _), method, args)
+            if V2PluginRegistry.lookupTaggedMethod(tag, method).isDefined =>
+          V2PluginRegistry.lookupTaggedMethod(tag, method).get(value :: args)
         // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
         case (v, "asInstanceOf", _)          => v
         // Runtime .copy on a record: overrides arrive as (name, value) pairs; the
@@ -2410,6 +2460,10 @@ object Prims:
         case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "foreach", List(fn: Value.ClosV)) =>
           mapThreadOp(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList,
             x => callClos(fn, Array(x)), _ => UnitV)
+        case (MapV(entries), "foldLeft", List(z, fn: Value.ClosV)) =>
+          foldThreadOp(entries.toList
+              .map((k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))), z,
+            (acc, x) => callClos(fn, Array(acc, x)))
         case (ForeignV(m: collection.mutable.Map[?, ?]), "foldLeft", List(z, fn: Value.ClosV)) =>
           foldThreadOp(m.asInstanceOf[collection.mutable.Map[Value, Value]].toList
               .map((k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))), z,
@@ -2619,7 +2673,7 @@ object Prims:
         case (DataV("BenchObj", _), "opaque", List(v)) => v
         // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
         case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
-        case (DataV("Map", _), "empty", Nil) => ForeignV(collection.mutable.HashMap[Value, Value]())
+        case (DataV("Map", _), "empty", Nil) => MapV.empty
         // Array companion statics return a REAL mutable array (ForeignV(ArrayBuffer)) —
         // they were folded into the List lane and `Array.fill(512)(0)` came back a
         // Cons-list, so the first `m(i) = v` hit arr.set with "expected Array, got
@@ -2670,6 +2724,31 @@ object Prims:
         case (DataV("Right", Seq(v)), "toOption", Nil) => some(v)
         case (DataV("Left",  _), "toOption", Nil) => none
         // ── Map/HashMap ──────────────────────────────────────────────────────────
+        case (MapV(m), "size", Nil) => IntV(m.size.toLong)
+        case (MapV(m), "get", List(k)) => m.get(k).fold(none)(some)
+        case (MapV(m), "getOrElse", List(k, default)) => m.getOrElse(k, default)
+        case (MapV(m), "apply", List(k)) => m(k)
+        case (MapV(m), "updated", List(k, v)) =>
+          val out = MapV.from(m)
+          out.entries.update(k, v)
+          out
+        case (MapV(m), "removed", List(k)) =>
+          val out = MapV.from(m)
+          out.entries.remove(k)
+          out
+        case (MapV(m), "+", List(DataV("Tuple2", Seq(k, v)))) =>
+          val out = MapV.from(m)
+          out.entries.update(k, v)
+          out
+        case (MapV(m), "contains", List(k)) => BoolV(m.contains(k))
+        case (MapV(m), "isEmpty", Nil) => BoolV(m.isEmpty)
+        case (MapV(m), "nonEmpty", Nil) => BoolV(m.nonEmpty)
+        case (MapV(m), "keys", Nil) => listOf(m.keys.toSeq)
+        case (MapV(m), "values", Nil) => listOf(m.values.toSeq)
+        case (MapV(m), "toList", Nil) =>
+          listOf(m.toList.map { case (k, v) =>
+            DataV("Tuple2", collection.immutable.ArraySeq(k, v))
+          })
         case (ForeignV(m: collection.mutable.Map[?, ?]), "size", Nil) =>
           IntV(m.size.toLong)
         case (ForeignV(m: collection.mutable.Map[?, ?]), "get", List(k)) =>
@@ -2712,6 +2791,10 @@ object Prims:
         // case-insensitive fallback for SQL column labels (H2 upper-cases).
         // Placed AFTER the named map METHODS above so get/keys/… keep their
         // Scala semantics.
+        case (MapV(mm), fieldName, Nil) if mm.keysIterator.forall(_.isInstanceOf[StrV]) =>
+          mm.getOrElse(StrV(fieldName),
+            mm.collectFirst { case (StrV(k), v) if k.equalsIgnoreCase(fieldName) => v }
+              .getOrElse(sys.error(s"__method__: no column '$fieldName' in row ${mm.keys.map(anyStr).mkString("[", ",", "]")}")))
         case (ForeignV(m: collection.Map[?, ?]), fieldName, Nil)
             // Guard on the UNCAST keys: casting first made the forall lambda
             // cast String keys (method-objects) to Value → CCE inside forall.
@@ -2835,6 +2918,7 @@ object Prims:
                             margs.head match
                               case IntV(ix) => unlistPub(lv)(ix.toInt)
                               case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
+                          case MapV(m) => m(margs.head)
                           case ForeignV(m: collection.mutable.Map[?, ?]) =>
                             m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
                           case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
@@ -2951,8 +3035,12 @@ object Prims:
       DataV("Op", Vector(rb, arg, k2))
     case (DataV("Cons" | "Nil", _), _) if op == "-" =>
       listOf(unlistPub(l).filterNot(_ == r))
-    // Map + (k -> v): copy-on-write over the mutable-HashMap map repr so the
+    // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
     // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
+    case (MapV(m), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+      val out = MapV.from(m)
+      out.entries(k) = v
+      out
     case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
@@ -3000,8 +3088,12 @@ object Prims:
     // then blew up on the next `pending.isEmpty`.
     case (DataV("Cons" | "Nil", _), _) if op == "-" =>
       listOf(unlistPub(l).filterNot(_ == r))
-    // Map + (k -> v): copy-on-write over the mutable-HashMap map repr so the
+    // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
     // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
+    case (MapV(m), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+      val out = MapV.from(m)
+      out.entries(k) = v
+      out
     case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
@@ -3402,6 +3494,8 @@ object Prims:
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
       s"$tag(${fields.map(anyStr).mkString(", ")})"
+    case MapV(entries) =>
+      s"Map(${entries.iterator.map((k, x) => s"${anyStr(k)} -> ${anyStr(x)}").mkString(", ")})"
     // SQL result rows (and map.new maps) are ForeignV(scala Map) with Value
     // keys — v1 renders them Map(K -> V, …) with unquoted scalars; "<foreign>"
     // broke output parity for every SELECT-printing example. METHOD-OBJECTS
@@ -3415,7 +3509,10 @@ object Prims:
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
-  private def asMap(v: Value) = v match { case ForeignV(m: collection.mutable.Map[Value, Value] @unchecked) => m; case x => sys.error(s"expected Map, got ${Show.show(x)}") }
+  private def asMap(v: Value): collection.mutable.Map[Value, Value] = v match
+    case MapV(entries) => entries
+    case ForeignV(m: collection.mutable.Map[Value, Value] @unchecked) => m
+    case x => sys.error(s"expected Map, got ${Show.show(x)}")
   private def asArr(v: Value) = v match { case ForeignV(a: collection.mutable.ArrayBuffer[Value] @unchecked) => a; case x => sys.error(s"expected Array, got ${Show.show(x)}") }
   private def asCell(v: Value) = v match { case ForeignV(c: Array[Value] @unchecked) => c; case x => sys.error(s"expected Cell, got ${Show.show(x)}") }
 
@@ -3607,6 +3704,8 @@ object Show:
       s"List(${ul(v).map(show).mkString(", ")})"
     case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
+    case MapV(entries) =>
+      s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(nmo: NamedMethodObj) =>
       val r = tryForeign(nmo.underlying)

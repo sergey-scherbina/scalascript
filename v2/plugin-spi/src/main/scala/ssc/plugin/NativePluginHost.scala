@@ -66,6 +66,14 @@ object NativePluginHost:
           claim("global", name, provider.id)
           V2PluginRegistry.registerGlobal(name, value)
 
+        def registerTaggedApply(tag: String)(fn: List[Value] => Value): Unit =
+          claim("tagged-apply", tag, provider.id)
+          V2PluginRegistry.registerTaggedApply(tag, fn)
+
+        def registerTaggedMethod(tag: String, name: String)(fn: List[Value] => Value): Unit =
+          claim("tagged-method", s"$tag.$name", provider.id)
+          V2PluginRegistry.registerTaggedMethod(tag, name, fn)
+
         def registerFields(tag: String, fields: Vector[String]): Unit =
           claim("fields", s"$tag/${fields.length}", provider.id)
           V2PluginRegistry.registerFieldNames(tag, fields)

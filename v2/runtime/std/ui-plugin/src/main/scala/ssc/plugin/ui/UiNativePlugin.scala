@@ -82,6 +82,7 @@ final class UiNativePlugin extends NativePlugin:
     out.toList
 
   private def valueMap(value: Value, operation: String): collection.Map[Value, Value] = value match
+    case Value.MapV(entries) => entries
     case Value.ForeignV(map: collection.Map[?, ?]) if map.keysIterator.forall(_.isInstanceOf[Value]) =>
       map.asInstanceOf[collection.Map[Value, Value]]
     case _ => throw new RuntimeException(s"$operation expected Map[String, Any]")

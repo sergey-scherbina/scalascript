@@ -2,7 +2,6 @@ package ssc.plugin.ui
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import scala.collection.mutable
 import org.scalatest.funsuite.AnyFunSuite
 import ssc.{Runtime, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
@@ -28,9 +27,7 @@ class UiNativePluginTest extends AnyFunSuite:
     }
 
   private def map(entries: (String, Value)*): Value =
-    val result = mutable.LinkedHashMap.empty[Value, Value]
-    entries.foreach { case (key, value) => result(Value.StrV(key)) = value }
-    Value.ForeignV(result)
+    Value.MapV.from(entries.map { case (key, value) => Value.StrV(key) -> value })
 
   test("mutable and derived signals use the native callback boundary"):
     NativePluginHost.installProviders(List(UiNativePlugin()))

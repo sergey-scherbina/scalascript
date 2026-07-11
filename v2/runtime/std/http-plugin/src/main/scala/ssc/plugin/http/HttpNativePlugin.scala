@@ -43,13 +43,16 @@ final class HttpNativePlugin extends NativePlugin:
     case other => Show.show(other)
 
   private def valueMap(entries: Iterable[(String, String)]): Value =
-    val result = collection.mutable.LinkedHashMap.empty[Value, Value]
+    val result = Value.MapV.empty
     entries.toList.sortBy(_._1.toLowerCase).foreach { case (key, value) =>
-      result(Value.StrV(key)) = Value.StrV(value)
+      result.entries(Value.StrV(key)) = Value.StrV(value)
     }
-    Value.ForeignV(result)
+    result
 
   private def headers(value: Value): Map[String, String] = value match
+    case Value.MapV(map) => map.iterator.collect {
+      case (Value.StrV(key), Value.StrV(headerValue)) => key -> headerValue
+    }.toMap
     case Value.ForeignV(map: collection.Map[?, ?]) if map.keysIterator.forall(_.isInstanceOf[Value]) =>
       map.asInstanceOf[collection.Map[Value, Value]].iterator.collect {
         case (Value.StrV(key), Value.StrV(headerValue)) => key -> headerValue
