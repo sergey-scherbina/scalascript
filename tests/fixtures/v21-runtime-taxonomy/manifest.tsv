@@ -19,7 +19,7 @@ distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler i
 dsl-json-parser.ssc	language-runtime	yes	match	case-object lowering now runs; the imported evaluator reaches an unhandled PMapped/2 match
 dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evaluation receives token text where an Int value is required
 dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhandled Op/3 into match lowering
-dsl-yaml-like.ssc	language-runtime	yes	parser-call-arity	typed-pattern parsing now runs; the imported YAML layout path calls a nullary value with one argument
+dsl-yaml-like.ssc	language-runtime	yes	match	extension receiver scope now runs; the imported evaluator reaches the shared unhandled PMapped/2 match
 effects.ssc	language-runtime	yes	effects	declared portable effect operation greet remains an unbound global
 extensions.ssc	language-runtime	yes	collection-dispatch	tuple selectors now run; the following collection pipeline reaches a Tuple2/2 match gap
 functional.ssc	language-runtime	yes	dispatch	portable functional dispatch leaks a Stub/1 into match lowering

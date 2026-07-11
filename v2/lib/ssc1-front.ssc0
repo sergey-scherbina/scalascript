@@ -1668,14 +1668,9 @@ def parseOneStmt = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
   let v = tokVal(t) in
-  -- The current self-hosted extension subset owns consecutive top-level defs.
-  -- Any other statement closes the group; a new extension header replaces it.
-  let keepExtension =
-    if #seq(k, "kw") then #seq(v, "def")
-    else if #seq(k, "id") then #seq(v, "extension")
-    else false in
-  let _extensionBoundary =
-    if keepExtension then 0 else #cell.set(extensionParamsCell, Nil) in
+  -- Receiver lifetime is owned by the extension layout/brace frame. Nested
+  -- member bodies also call parseOneStmt, so statement kind cannot safely
+  -- clear the shared receiver cell.
   if #seq(k, "@") then
     -- annotation(s): @Name / @Name("args") before a def/class/val — no runtime
     -- effect in the native path, so skip them and parse the annotated statement.
@@ -1912,12 +1907,12 @@ def parseStmts = (toks) =>
   let rec go = (ts, acc) =>
     let ts2 = skipSemis(ts) in
     if kindIs("EOF", ts2) then reverse(acc)
-    else if kindIs("}", ts2) then
-      -- A residual virtual close belongs to a flat extension layout body.
-      -- Its member defs have already been emitted as ordinary top-level defs;
-      -- clear the receiver before parsing the following dedented declaration.
+    else if kindIs("extension_end", ts2) then
+      -- Only the close of the owning extension frame ends receiver scope.
+      -- Ordinary residual `}` tokens may belong to nested member layout.
       let _closeExtension = #cell.set(extensionParamsCell, Nil) in
       go(advance(ts2), Cons(Pair("extension_end", ""), acc))
+    else if kindIs("}", ts2) then go(advance(ts2), acc)
     else
       let r = parseOneStmt(ts2) in
       go(prT(r), Cons(prV(r), acc)) in
@@ -1946,26 +1941,48 @@ def isLayoutOpener = (t) =>
        else false)
     else false }
 
--- close L blocks whose indent > v (stop at a B or a shallow-enough L)
+def prependLayoutClose = (tag, closes) =>
+  if #seq(tag, "E") then
+    Cons(mkTok("}", ""), Cons(mkTok("extension_end", ""), closes))
+  else Cons(mkTok("}", ""), closes)
+
+def isLayoutFrame = (tag) =>
+  if #seq(tag, "L") then true else #seq(tag, "E")
+
+-- close L/E blocks whose indent > v (stop at a brace or shallow-enough frame)
 def dedentL = (v, stack) =>
   match stack {
     case Nil => Pair(Nil, Nil)
     case Cons(top, srest) =>
       match top { case Pair(tag, ind) =>
-        if #seq(tag, "L") then
+        if isLayoutFrame(tag) then
           (if #i.lt(v, ind) then
-             match dedentL(v, srest) { case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns) }
+             match dedentL(v, srest) { case Pair(cs, ns) => Pair(prependLayoutClose(tag, cs), ns) }
            else Pair(Nil, stack))
         else Pair(Nil, stack) } }
 
--- on `}`: emit a virtual } for each open L above the nearest B, then pop the B.
+def nearestBraceIsExtension = (stack) =>
+  match stack {
+    case Nil => false
+    case Cons(top, srest) =>
+      match top { case Pair(tag, ind) =>
+        if #seq(tag, "EB") then true
+        else if #seq(tag, "B") then false
+        else nearestBraceIsExtension(srest) }
+  }
+
+-- on `}`: emit a virtual } for each open layout frame above the nearest
+-- B/EB, then pop that explicit brace frame.
 def closeToBrace = (stack) =>
   match stack {
     case Nil => Pair(Nil, Nil)
     case Cons(top, srest) =>
       match top { case Pair(tag, ind) =>
         if #seq(tag, "B") then Pair(Nil, srest)
-        else match closeToBrace(srest) { case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns) } } }
+        else if #seq(tag, "EB") then Pair(Nil, srest)
+        else match closeToBrace(srest) {
+          case Pair(cs, ns) => Pair(prependLayoutClose(tag, cs), ns)
+        } } }
 
 -- On `)` / `]`, close only virtual layout blocks opened inside the matching
 -- explicit delimiter. A different explicit delimiter is a hard boundary.
@@ -1975,19 +1992,20 @@ def closeToDelim = (wanted, stack) =>
     case Cons(top, srest) =>
       match top { case Pair(tag, ind) =>
         if #seq(tag, wanted) then Pair(Nil, srest)
-        else if #seq(tag, "L") then
+        else if isLayoutFrame(tag) then
           match closeToDelim(wanted, srest) {
-            case Pair(cs, ns) => Pair(Cons(mkTok("}", ""), cs), ns)
+            case Pair(cs, ns) => Pair(prependLayoutClose(tag, cs), ns)
           }
         else Pair(Nil, stack) } }
 
--- at EOF: close all still-open L blocks.
+-- at EOF: close all still-open L/E blocks.
 def closeAllL = (stack) =>
   match stack {
     case Nil => Nil
     case Cons(top, srest) =>
       match top { case Pair(tag, ind) =>
-        if #seq(tag, "L") then Cons(mkTok("}", ""), closeAllL(srest)) else closeAllL(srest) } }
+        if isLayoutFrame(tag) then prependLayoutClose(tag, closeAllL(srest))
+        else closeAllL(srest) } }
 
 -- after a dedent to stack `ns`, does `v` land at a same-level L (→ a `;`)?
 def sepAfter = (v, ns) =>
@@ -1995,7 +2013,7 @@ def sepAfter = (v, ns) =>
     case Nil => Nil
     case Cons(nt, nsr) =>
       match nt { case Pair(ntag, nind) =>
-        if #seq(ntag, "L") then (if #i.eq(v, nind) then Cons(mkTok(";", ""), Nil) else Nil)
+        if isLayoutFrame(ntag) then (if #i.eq(v, nind) then Cons(mkTok(";", ""), Nil) else Nil)
         else Nil } }
 
 -- a line that STARTS with one of these continues the previous expression rather
@@ -2099,7 +2117,7 @@ def layout = (toks) =>
   -- `extension [A](receiver)` uses its outer receiver parentheses as a
   -- contextual layout opener. X distinguishes that delimiter from nested
   -- parentheses in receiver/function types.
-  let rec go = (ts, stack, prevOpener, prevCanEnd, declHead, extensionHead) =>
+  let rec go = (ts, stack, prevOpener, prevCanEnd, declHead, extensionHead, extensionOpener) =>
     match ts {
       case Nil => Nil
       case Cons(t, rest) =>
@@ -2107,40 +2125,45 @@ def layout = (toks) =>
           if #seq(k, "EOF") then append(closeAllL(stack), Cons(t, Nil))
           else if #seq(k, "NL") then
             if prevOpener then
-              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false, false, false, false))
+              let frameTag = if extensionOpener then "E" else "L" in
+              Cons(mkTok("{", ""), go(rest, Cons(Pair(frameTag, v), stack), false, false, false, false, false))
             else
               let suppressSep =
                 if prevCanEnd then
                   if canStartLine(rest) then isCont(rest) else true
                 else true in
               match nlStep(v, stack, suppressSep) {
-                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false, false))
+                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false, false, false))
               }
           else if #seq(k, "(") then
             if extensionReceiverParen(extensionHead, stack) then
-              Cons(t, go(rest, Cons(Pair("X", 0), stack), false, false, declHead, false))
+              Cons(t, go(rest, Cons(Pair("X", 0), stack), false, false, declHead, false, false))
             else
-              Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, declHead, extensionHead))
+              Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, declHead, extensionHead, false))
           else if #seq(k, "[") then
-            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, declHead, extensionHead))
+            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, declHead, extensionHead, false))
           else if #seq(k, ")") then
             if topStackIs("X", stack) then
               match closeToDelim("X", stack) {
-                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, true, true, declHead, false)))
+                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, true, true, declHead, false, true)))
               }
             else
               match closeToDelim("P", stack) {
-                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead, extensionHead)))
+                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead, extensionHead, false)))
               }
           else if #seq(k, "]") then
             match closeToDelim("S", stack) {
-              case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead, extensionHead)))
+              case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead, extensionHead, false)))
             }
           else if #seq(k, "{") then
-            Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false, false, false))
+            let braceTag = if extensionOpener then "EB" else "B" in
+            Cons(t, go(rest, Cons(Pair(braceTag, 0), stack), false, false, false, false, false))
           else if #seq(k, "}") then
+            let extensionClose = nearestBraceIsExtension(stack) in
             match closeToBrace(stack) {
-              case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, false, false)))
+              case Pair(cs, ns) =>
+                let closeTail = if extensionClose then Cons(mkTok("extension_end", ""), Nil) else Nil in
+                append(cs, Cons(t, append(closeTail, go(rest, ns, false, true, false, false, false))))
             }
           else
             let inDeclHead =
@@ -2154,10 +2177,10 @@ def layout = (toks) =>
               else extensionHead in
             Cons(t, go(rest, stack,
               (if declColon then true else isLayoutOpener(t)),
-              canEndLine(t), nextDeclHead, nextExtensionHead))
+              canEndLine(t), nextDeclHead, nextExtensionHead, false))
         }
     } in
-  go(toks, Nil, false, false, false, false)
+  go(toks, Nil, false, false, false, false, false)
 
 def parse = (src) =>
   let _ep = #cell.set(extensionParamsCell, Nil) in

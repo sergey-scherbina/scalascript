@@ -1,0 +1,32 @@
+---
+name: v21-native-extension-receiver-scope-lib
+---
+
+# Nested extension member layout
+
+```scalascript
+case class LayoutBox(value: Int)
+
+extension (box: LayoutBox)
+  def layoutNested: Int =
+    box.value match
+      case n if n > 0 => n
+      case _          => 0
+
+  def layoutCurrent: Int = box.value
+  def layoutPlus(n: Int): Int = box.value + n
+
+case class BracedBox(value: Int)
+
+extension (box: BracedBox) {
+  def bracedNested: Int =
+    box.value match
+      case n if n > 0 => n
+      case _          => 0
+
+  def bracedCurrent: Int = box.value
+  def bracedPlus(n: Int): Int = box.value + n
+}
+
+def ordinary(value: Int): Int = value + 1
+```

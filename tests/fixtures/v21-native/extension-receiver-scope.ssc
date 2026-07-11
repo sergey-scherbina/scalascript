@@ -1,0 +1,20 @@
+---
+name: v21-native-extension-receiver-scope
+---
+
+[LayoutBox, BracedBox, layoutNested, layoutCurrent, layoutPlus, bracedNested, bracedCurrent, bracedPlus, ordinary](extension-receiver-scope-lib.ssc)
+
+# Imported receiver ownership
+
+```scalascript
+val layout = LayoutBox(2)
+println(layout.layoutNested)
+println(layout.layoutCurrent)
+println(layout.layoutPlus(3))
+
+val braced = BracedBox(3)
+println(braced.bracedNested)
+println(braced.bracedCurrent)
+println(braced.bracedPlus(4))
+println(ordinary(8))
+```
