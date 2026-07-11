@@ -36,9 +36,8 @@ sound. `✎` = in code shipped this session. Fix order + full exploit/fix per fi
 ### Batch B — cross-backend one-liners
 - [x] **M6 JS exec exitCode masking** — `status!=null ? status : (signal||error?-1:0)`. LANDED 473bf2d71.
 - [x] **M11 static-file prefix traversal** — `target.toPath.startsWith(rootDir.toPath)`. LANDED 473bf2d71.
-- [ ] **L6 OpenApiGenerator.jsonEscape** — escapes only `"`/`\`. FIX: route through `jsonStr`.
-- [ ] **L5 escapers omit newline** — `JsGen:3860` / `JvmGenStringUtils:6`. FIX: use full
-      `jsStringLit` / `scalaStringLiteral`.
+- [x] **L6 OpenApiGenerator.jsonEscape** — delegates to `jsonStr` (−outer quotes). LANDED 46e2aa06c.
+- [x] **L5 escapers omit newline** — JsGen → `jsStringLit`; JvmGenStringUtils adds `\n\r\t`. LANDED 46e2aa06c.
 
 ### Batch C — design-heavy (queued, need a design decision)
 - [x] **H1 SSR XSS** — `signals.mjs` `_ssc_json_html_safe` escapes `<>&`/U+2028/2029 to `\uXXXX`
@@ -51,12 +50,13 @@ sound. `✎` = in code shipped this session. Fix order + full exploit/fix per fi
 - [ ] **M1 request-body cap** — sane default + streaming counted read on the legacy JDK serve
       path (chunked bypasses the Content-Length pre-check).
 - [ ] **M2 response-body cap** — bounded reader (mirror ureq's 10 MB) on JVM/interp/JS clients.
-- [ ] **M7 secure temp files** — Rust `create_new(true)`+random / JS `mkdtempSync`/O_EXCL.
+- [x] **M7 secure temp files** — Rust `create_new`+pid/nanos / JS `'wx' 0o600`+randomBytes. LANDED a2b11223b.
+      (Bonus 921a5da7c: fixed BorrowedArgIntrinsics so &str fs/path intrinsics compile on Rust — E0308.)
 - [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
       NOFOLLOW; document raw helpers as trusted-input-only.
 - [ ] **L1 retry backoff/cap** — cap `n`, exponential backoff + jitter, honor `Retry-After`.
 - [ ] **L3 env-scrub option** — `ProcessOptions(inheritEnv=false)`.
-- [ ] **L4 mkdir TOCTOU** — drop the exists-guard; catch `FileAlreadyExists`.
+- [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
 - [ ] **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics.
 
 ## v2-http-fast — super-optimal HTTP/WS plugin for v2 JVM (2026-07-11, Sergiy: "сделай для v2 jvm новый супер оптимальный http/ws плагин … по умолчанию вместо старого … проверь thread-safety")

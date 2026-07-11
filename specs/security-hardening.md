@@ -127,5 +127,14 @@ Second batch:
   ws-server (JS); H5 JVM outbound config → ThreadLocal. Verified: scala-cli join
   keeps host=api.internal for a `@169.…` path.
 
-Remaining (`SPRINT.md` Batches B/C): H2, H4, M1, M2, M7, M10, L1, L3, L4, L5, L6,
-L8, and the JS redirect policy (M3-JS).
+Third batch:
+- **fs `a2b11223b`** — M7 (O_EXCL temp files, Rust+JS) + L4 (idempotent mkdir).
+- **rust `921a5da7c`** — bonus: BorrowedArgIntrinsics fix; the `&str` fs/path
+  intrinsic family (mkdir/tempFile/copyFile/moveFile/path.*) was E0308-broken on
+  Rust codegen. Verified: emit-rust + cargo run of a tempFile+mkdir program.
+- **codegen `46e2aa06c`** — L5 (interpolator/config escapers add `\n\r\t`) + L6
+  (openapi jsonEscape → jsonStr).
+
+Remaining (`SPRINT.md` Batches C): H2, H4, M1, M2, M10, L1, L3, L8, and the JS
+redirect policy (M3-JS). H2 (SSRF allow-list) and H4 (artifact signing) need a
+design decision (config surface / key management) before implementation.
