@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T19:47:23Z
+heartbeat: 2026-07-11T20:26:37Z
 status: in-progress
-done-so-far: explicit effect declarations/handlers are pushed; imported focused VM/ASM smoke and effects conformance are green
-next: run the exhaustive release gate, retire only the verified effects.ssc taxonomy row, then implement the separately queued standard effect runners
+done-so-far: explicit handlers plus three exposed release blockers are fixed; effects.ssc taxonomy retirement is pushed with 33 identical/33 both-fail and 21 blockers
+next: run the final consolidated gate with runtime taxonomy enabled, verify/docs-close w1, then implement the separately queued standard effect runners
