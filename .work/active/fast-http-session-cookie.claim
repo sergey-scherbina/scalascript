@@ -1,0 +1,6 @@
+feature/fast-http-session-cookie 2026-07-11T13:45:30Z
+agent: codex
+heartbeat: 2026-07-11T13:45:30Z
+status: in-progress
+done-so-far: reproduced --v2 fast backend dropping Set-Cookie after successful busi POST /pair
+next: queue bug, add FastServerBackend session-cookie regression, fix response mapping, verify busi Vault and canonical browser
