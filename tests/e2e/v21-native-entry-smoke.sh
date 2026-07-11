@@ -89,6 +89,8 @@ final_mini_language_expected=$'condition-ok\nstage\n7\ntrue'
 [[ $(run_native "$FIXTURES/multiline-link-import.ssc") == '82' ]]
 bind_pattern_expected=$'BoundEnvelope(Some(BoundBox(7)), ok)|7\n1\nfallback:none\n2'
 [[ $(run_native "$FIXTURES/bind-pattern.ssc") == "$bind_pattern_expected" ]]
+sql_recovery_expected=$'--- input: SELECT * FROM users\nparse-succeeded: false\nerror-count: 1\n  error @ 0: unknown parser node\n--- input: SELECT name BORKED users\nparse-succeeded: false\nerror-count: 1\n  error @ 0: unknown parser node\n--- input: BOGUS QUERY HERE\nparse-succeeded: false\nerror-count: 1\n  error @ 0: unknown parser node\n--- input: SELECT id FROM orders WHERE status = '\''open'\''\nparse-succeeded: false\nerror-count: 1\n  error @ 0: unknown parser node'
+[[ $(run_native "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 imported_tuple_expected='Ada:90|Lin=88|Some(Cy/77)'
 [[ $(run_native "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 exact_decimal_expected=$'12.35\n10.00\n13.00\n3.60\ntrue\n10\ndue: 12.35'
@@ -168,6 +170,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
 [[ $(run_native --bytecode "$FIXTURES/multiline-link-import.ssc") == '82' ]]
 [[ $(run_native --bytecode "$FIXTURES/bind-pattern.ssc") == "$bind_pattern_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
