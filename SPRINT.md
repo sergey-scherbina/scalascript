@@ -2366,6 +2366,34 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Result: `Some((left, '+', right))` again prints
                               `left+right` on VM/ASM; all corpus, parity,
                               taxonomy, release, and conformance gates pass.
+                        - [ ] **TI-8.2d2w native built-in content helpers:**
+                              `examples/content.ssc` reaches the checker but
+                              fails identically on VM/direct ASM with `unbound
+                              global: md`. The self-hosted lowerer currently
+                              treats the normative `md"..."` interpolator as a
+                              normal global call instead of the built-in
+                              indentation-stripping string interpolation
+                              semantics in `SPEC.md` §5.7. Restore pure lowering
+                              for `md`, then expose general `doc`/`render`
+                              through the appropriate core-free host provider
+                              (not the structural content plugin). Gate the full
+                              example byte-identically on VM/ASM/build-jvm and
+                              keep user-defined interpolator dispatch unchanged.
+                        - [ ] **TI-8.2d2x dynamic `BigInt.toString`:** after the
+                              structural content provider resolves
+                              `contentModuleSection`,
+                              `examples/content-linked-namespaces.ssc` prints
+                              the imported section title and then fails with
+                              VM `i->str: not Int` / ASM `expected Int, got
+                              1234`. The lowerer routes selector `.toString`
+                              through the Int-only primitive even when
+                              `minorUnits` returns `BigInt`. Use the existing
+                              dynamic method dispatch for non-proven Int values,
+                              preserve the optimized Int path only when type
+                              evidence is sound, and gate exact `1234` on both
+                              lanes plus build-jvm. Coordinate with the active
+                              typeclass/lowerer claim before editing
+                              `v2/lib/ssc1-lower.ssc0`.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
@@ -2472,7 +2500,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     ordinary one-argument calls are unchanged,
                                     native-entry passes, and fresh affected
                                     conformance is 11/11.
-                        - [ ] **TI-8.2d3e core-free structural content:** retain
+                        - [x] **TI-8.2d3e core-free structural content — DONE
+                              2026-07-11 (spec `cd63d01c4`, code `eed2043cf`):** retain
                               the already parsed `MarkdownDocument` nodes from
                               `NativeCompilation/4` as immutable values in the
                               native runtime configuration instead of reducing
@@ -2502,6 +2531,31 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               native plugin/dependency/class-load gates, slim/
                               JRE/build-jvm, and fresh `content*,v2-*`
                               conformance are green.
+                              Result: `content-core.ssc` projects complete
+                              closure modules/direct edges/section trees and
+                              YAML fence data before the Scala seed; immutable
+                              values survive native VM, ASM, standard, and a
+                              deterministic artifact `content.bin`. Provider
+                              tests are 2/2, SPI 10/10, structural ABI 7/7,
+                              focused multi-file and public
+                              `content-to-markdown` output are exact, affected
+                              conformance is 16/16, and full parity is
+                              31 identical / 35 both-fail / 129 skipped with
+                              zero mismatch/one-sided. Dependency closure is
+                              18 roots / 69 edges / 32 dependency JARs / zero
+                              violations; taxonomy is 13 language / 10 standard
+                              / 6 optional / 6 tools, 23 blockers / 35 total.
+                              `content-linked-namespaces` now reaches its later
+                              independently queued `BigInt.toString` failure;
+                              `content.ssc` is independently owned by `md`.
+                        - [ ] **TI-8.2d3f pure native content binding:** port
+                              `contentBind(value, bindings)` path resolution and
+                              recursive inline/block substitution into pure
+                              `.ssc` content code, then expose the finished
+                              structural operation without parsing expression
+                              paths in the Scala provider. Cover nested/missing
+                              paths and every supported block shape on VM/ASM/
+                              build-jvm; do not install an identity fallback.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions

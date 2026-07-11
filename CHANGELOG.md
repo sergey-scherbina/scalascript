@@ -31,6 +31,18 @@ fail closed. Independent round-3 Rozum review approved; Swift backend passed
 41/41, the final real macOS/iOS16 gate 2/2, and toolkit conformance 12/12.
 Landed `7cc1ff978`; docs `3a694d901`.
 
+## 2026-07-11 — native content stays self-hosted across runtime and artifacts
+
+The self-hosted tower now projects canonical Markdown/YAML values into complete
+`DocumentContent` modules with normalized direct-import edges before crossing
+the permanent Scala 3 seed. A core-free provider exposes current/imported
+lookups plus plain-text and semantic-Markdown rendering on VM, ASM, standard,
+slim/JRE, and deterministic `build-jvm`; artifacts embed the same immutable
+values in `content.bin`. No v1 content bridge, Scalameta, CommonMark/Flexmark,
+or host reparse is used. Full parity is 31/35/129 with zero mismatch or
+one-sided failure, and runtime blockers fall to 23. Landed `eed2043cf`; contract
+and evidence `cd63d01c4`, `dcd097dea`.
+
 ## 2026-07-11 — parser DSLs preserve composed values end to end
 
 Imported extension calls now use member-first portable dispatch, local tuple
