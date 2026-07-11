@@ -1764,6 +1764,36 @@ def dischargeObsOr = (obs, successScope, failureScope, scrutPos, body, fallbackA
       }
   }
 
+-- K62.26: like dischargeObsOr, but checks a GUARD once ALL nested obligations are
+-- discharged (all binders in scope). guard-false falls through to fallbackArms exactly
+-- like a nested-pattern mismatch (lowerOrderedGuardArms on failureScope at the current
+-- scrutPos — the dummy-binder padding keeps IrLocal(scrutPos) on the original scrutinee).
+-- For a FLAT pattern obs=Nil immediately → IrIf(guard, body, fallback), identical to the
+-- old flat gpat/cpat lowering (backward compatible).
+def dischargeObsOrGuard = (obs, successScope, failureScope, scrutPos, guard, body, fallbackArms) =>
+  match obs {
+    case Nil =>
+      IrIf(lowerE(successScope, guard),
+        lowerE(successScope, body),
+        lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms))
+    case Cons(ob, rest) =>
+      match ob { case Pair(pos, sp) =>
+        match sp { case Pair(sptag, spdata) =>
+          match spdata { case Pair(subctor, subs) =>
+            let m = lenL(subs) in
+            let innerSuccess = appendL(revL(fldBinders(subs)), successScope) in
+            let innerFailure = appendL(revL(guardDummyBinders(subs)), failureScope) in
+            let subObs = fldObligations(subs, m) in
+            let restShifted = shiftObs(rest, m) in
+            let successBody = dischargeObsOrGuard(
+              appendL(subObs, restShifted), innerSuccess, innerFailure,
+              #i.add(scrutPos, m), guard, body, fallbackArms) in
+            let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
+            IrMatch(IrLocal(pos), Cons(IrArm(subctor, m, successBody), Nil), Some(failureBody))
+          } }
+      }
+  }
+
 -- K62.14: LITERAL patterns (`case 0` / `case 'x'` [char = int code] / `case "s"` /
 -- `case true`) are EQUALITY tests, not catch-all binders. The front emits ("lpat",
 -- Pair(ty, v)); before this the lower dropped them into the vpat/wpat default arm, so
@@ -1868,9 +1898,12 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                     let arity = lenL(fields) in
                     let armScope = appendL(revL(fldBinders(fields)), scope) in
                     let failedScope = appendL(revL(guardDummyBinders(fields)), scope) in
-                    let failedBody = lowerOrderedGuardArms(
-                      failedScope, #i.add(scrutPos, arity), rest) in
-                    let armBody = IrIf(lowerE(armScope, guard), lowerE(armScope, body), failedBody) in
+                    -- K62.26: discharge NESTED field obligations before the guard so nested
+                    -- binders (case (ah::at, bh::_) if ah<=bh) are in scope; flat fields give
+                    -- fldObligations=[] → the old IrIf(guard, body, fallback) exactly.
+                    let armBody = dischargeObsOrGuard(
+                      fldObligations(fields, arity), armScope, failedScope,
+                      #i.add(scrutPos, arity), guard, body, rest) in
                     IrMatch(IrLocal(scrutPos),
                       Cons(IrArm(ctorName, arity, armBody), Nil),
                       Some(lowerOrderedGuardArms(scope, scrutPos, rest)))

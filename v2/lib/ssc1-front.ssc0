@@ -1445,6 +1445,10 @@ def parseArmBody = (toks) =>
       }
   }
 
+-- K62.26: a field is guard-safe if it's a binder/wildcard OR a nested constructor
+-- pattern whose own fields are (recursively) guard-safe. The lowerer's
+-- dischargeObsOrGuard destructures the nesting before the guard, so `case (ah::at,
+-- bh::_) if ah<=bh` is now honoured instead of silently dropping the guard.
 def flatGuardFields = (fields) =>
   match fields {
     case Nil => true
@@ -1452,6 +1456,9 @@ def flatGuardFields = (fields) =>
       match field { case Pair(ftag, fdata) =>
         if #seq(ftag, "vpat") then flatGuardFields(rest)
         else if #seq(ftag, "wpat") then flatGuardFields(rest)
+        else if #seq(ftag, "cpat") then
+          match fdata { case Pair(cn, cf) =>
+            if flatGuardFields(cf) then flatGuardFields(rest) else false }
         else false }
   }
 
