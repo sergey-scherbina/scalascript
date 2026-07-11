@@ -420,10 +420,24 @@ there before changing this plan.
             node rather than correlating a per-site FIFO with later tree order;
             reverse construction versus returned order in a real regression
             (`v2-swiftui-owner-hint-fifo-swap`).
+            Preserve the original render-closure identity: host-only metadata
+            must bind to the concrete returned node, prune superseded hints for
+            surviving-owner refreshes inside the transaction, restore exactly
+            on rollback, and delete without tombstones. Gate two nodes sharing
+            one closure plus bounded hint counts across repeated refresh/
+            rollback/delete (`v2-swiftui-owner-hint-closure-clone-leak`).
             Inventory tests must exercise values and semantic attributes
             (role/aria-disabled/required), not only property-name strings.
+            The current accepted-but-ignored align-items:center, font-weight:
+            500, strong/em/code, href-only anchor, and ol/start paths must map
+            to real behavior or sourced Unsupported, with executable gates
+            (`v2-swiftui-shipped-inventory-semantic-loss`). Malformed element/
+            keyed/event paths and invalid semantic booleans must retain their
+            lexical source (`v2-swiftui-unsourced-malformed-seams`).
             Fetch signals/actions stay sourced Unsupported until the next slice
-            implements phases, cancellation, and ordered success effects.
+            implements phases, cancellation, and ordered success effects; the
+            guard must cover signal text, controls, styles, and keyed items,
+            not only one wrapper (`v2-swiftui-fetch-wrapper-silent-default`).
       - [ ] **v2-swiftui-actions-tables-html** — add control bindings and ordered
             set/input/toggle/increment/navigation/fetch/form success actions,
             native table/column/row-action decoding, persisted/online state, and

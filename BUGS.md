@@ -1,5 +1,69 @@
 # Bug tracker
 
+## v2-swiftui-fetch-wrapper-silent-default — non-text fetch bindings render an empty value
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+read-only SwiftUI store/renderer review in Rozum.
+
+- **Real-harness repro:** bind a deferred `fetch` signal to a text control or a
+  signal-backed style. `NativeUiSignalText` reports sourced Unsupported, but
+  the other wrappers read the fetch signal's empty default and render it as if
+  a request had completed.
+- **Expected:** until the async slice lands, every rendered seam rejects a
+  fetch-kind signal with the same source-located Unsupported diagnostic.
+- **Plan/done-when:** centralize the guard in the observation/binding seam and
+  execute signal-text, text-control, toggle/style, and keyed-items probes; none
+  may expose the empty fetch default.
+
+## v2-swiftui-unsourced-malformed-seams — malformed nodes and events lose site provenance
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+read-only SwiftUI store/renderer review in Rozum.
+
+- **Real-harness repro:** render malformed `NativeUiElement` attrs/events/
+  children or `NativeUiForKeyed`, dispatch a malformed/unsupported ordinary
+  event, or pass a non-boolean `aria-disabled`/`required`. Several paths omit
+  the available site source, while semantic booleans silently become false.
+- **Expected:** every malformed/unsupported diagnostic names the owning lexical
+  site; semantic boolean attributes accept only their frozen value forms.
+- **Plan/done-when:** pass site/source through the renderer and action seams,
+  validate semantic booleans before modifiers run, and add executable exact-
+  source negative gates for element, keyed, event, aria-disabled, and required.
+
+## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+read-only SwiftUI store/renderer review in Rozum.
+
+- **Real-harness repro:** shipped `align-items:center` is accepted while stacks
+  remain hard-coded leading/top; `font-weight:500` is accepted but unapplied;
+  `strong`/`em`/`code` are plain children; an href-only anchor is a no-op
+  button; and `ol start` still renders bullet list items.
+- **Expected:** every shipped inventory value maps to its native behavior or a
+  sourced Unsupported node; accepted-but-ignored semantics are forbidden.
+- **Plan/done-when:** implement the exact native mapping where bounded, use
+  sourced Unsupported for any deferred value, and execute behavior-or-
+  Unsupported probes for alignment, medium weight, semantic text, href-only
+  navigation, and ordered-list numbering/start.
+
+## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+read-only SwiftUI store/renderer review in Rozum.
+
+- **Real-harness repro:** two `NativeUiForKeyed` nodes reuse the same render
+  closure. The draft clones that closure solely to key owner hints, violating
+  the frozen constructor identity contract. Every successful refresh of a
+  surviving owner also retains superseded cloned closure/hint entries because
+  pruning runs only for deleted owner subtrees.
+- **Expected:** constructors preserve the exact original closure identity;
+  owner metadata binds to the concrete returned node/instance, remains bounded
+  across refreshes, rolls back transactionally, and disappears on deletion.
+- **Plan/done-when:** attach host-only exact-node identity without adding or
+  changing ABI fields, prune superseded hints within the owner transaction,
+  and real-gate shared closure identity plus bounded counts across repeated
+  refresh, failed rollback, and committed delete.
+
 ## v2-swiftui-owner-hint-fifo-swap — reversed tree construction exchanges repeated-site state
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` in the second
