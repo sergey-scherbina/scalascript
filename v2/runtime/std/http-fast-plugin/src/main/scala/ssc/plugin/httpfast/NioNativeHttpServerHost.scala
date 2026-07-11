@@ -146,13 +146,14 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       case Some(u) => Value.DataV("Some", Vector(Value.StrV(u)))
       case None    => Value.DataV("None", Vector.empty)
 
-  /** Client: `wsConnect(url)(handler)`. Runs the handler to wire callbacks, then connects. */
+  /** Client: `wsConnect(url)(handler)`. Connects first (so the handler can send immediately),
+    * then runs the handler to wire callbacks + kick off traffic. For an echo client that
+    * sends first, no inbound frame arrives until after the handler sets `onMessage`. */
   def connectClient(url: String, headers: Map[String, String], protocols: List[String], handler: Value): Value =
     val id      = wsIds.incrementAndGet()
     val channel = new ClientWsChannel()
     wsChannels.put(id, channel)
     channel.setOnTeardown(() => { wsChannels.remove(id); removeFromAllRooms(id) })
-    context.invoke(handler, List(wsValue(id))) // wire callbacks before connecting
     val builder = HttpClient.newHttpClient().newWebSocketBuilder()
     headers.foreach((k, v) => builder.header(k, v))
     protocols match
@@ -160,6 +161,7 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       case Nil           => ()
     val ws = builder.buildAsync(URI.create(url), channel.listener).join()
     channel.attach(ws)
+    context.invoke(handler, List(wsValue(id))) // now connected — wire callbacks + send
     wsValue(id)
 
   // ---- WsRoom: broadcast helper ----

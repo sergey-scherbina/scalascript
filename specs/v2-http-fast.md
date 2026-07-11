@@ -140,8 +140,24 @@ without your own synchronization" (out of scope for the VM fix).
       an engine streaming test + the install smoke test extended over the new intrinsics +
       `HttpStream` methods (37 module tests). Still stubbed (honest): `uploadSpoolThreshold`,
       `uploadDir`, `mount` (file-upload spooling + static mounting — future).
-- [ ] **hf-5 default-swap** — make the new plugin the DEFAULT http plugin (service-file swap /
-      drop the old module), full conformance + the busi/http examples green, remove the old.
+- [x] **hf-5 default-swap** — DONE. The CLI now bundles `v2NativeHttpFastPlugin` (id 50-http)
+      in place of `v2NativeHttpPlugin`; the old module (`v2/runtime/std/http-plugin`) is
+      **removed** and its client + Response-builder test coverage ported to the fast module
+      (`HttpFastClientResponseTest`). 40 module tests green. End-to-end validated through the
+      real v2 VM via `bin/ssc run --native`: HTTP (route, path `:params` → `user=42`, query
+      `q=hello world`, POST echo, 404), WebSocket (`onWebSocket` echo + `wsConnect` client →
+      `client got: echo:hello-ws` — the tagged-method dispatch through the VM), and hf-4
+      (cors header `Some(*)`, `use` middleware 403 short-circuit, `sse` events). A new
+      `HttpFastVmIntegrationTest` locks route+serve+dispatch through the ServiceLoader-
+      registered intrinsics into CI.
+
+      **Lane note (important).** The fast plugin is the v2 *native* HTTP/WS server, used by
+      the `--native` runner (`RunNativeV2` → `NativePluginHost.loadAll`, no v1). The `--v2`
+      FrontendBridge runner (`RunV2` → `PluginBridge`) still overrides `serve`/`route` with the
+      legacy v1 `scalascript.server.WebServer` (`PluginBridge.registerWebServer`) — that is a
+      separate migration seam, out of scope here. So "default v2 http server" = the `--native`
+      lane. Full `tests/conformance` runs via `--v2`, so it exercises the v1 WebServer, not this
+      plugin; the `--native` e2e programs above are the authoritative validation.
 
 ## Non-goals (this spec)
 

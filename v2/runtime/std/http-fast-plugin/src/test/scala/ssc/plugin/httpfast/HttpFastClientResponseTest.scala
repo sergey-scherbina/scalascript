@@ -1,17 +1,17 @@
-package ssc.plugin.http
+package ssc.plugin.httpfast
 
 import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-import java.net.URI
+import java.net.{InetSocketAddress, URI}
 import java.nio.charset.StandardCharsets.UTF_8
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Done, Prims, Runtime, V2PluginRegistry, Value}
+import ssc.{Done, Runtime, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
 import ssc.plugin.json.JsonNativePlugin
 
-class HttpNativePluginTest extends AnyFunSuite:
+/** Client + Response-builder coverage (ported from the old http-plugin's HttpNativePluginTest,
+  * which is removed with that module in hf-5). The client still delegates to java.net.http;
+  * the Response builders + cache helpers are a verbatim carry-over — this pins them. */
+class HttpFastClientResponseTest extends AnyFunSuite:
   private def call(name: String, args: Value*): Value =
     V2PluginRegistry.lookup(name).get(args.toList)
 
@@ -25,7 +25,7 @@ class HttpNativePluginTest extends AnyFunSuite:
     case other => fail(s"expected header Map, got $other")
 
   test("outbound GET and POST use the JDK client and return v2 Response data") {
-    NativePluginHost.installProviders(List(HttpNativePlugin()))
+    NativePluginHost.installProviders(List(HttpFastNativePlugin()))
     val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     server.createContext("/echo", exchange =>
       val requestBody = String(exchange.getRequestBody.readAllBytes(), UTF_8)
@@ -51,7 +51,7 @@ class HttpNativePluginTest extends AnyFunSuite:
   }
 
   test("Response builders reuse native JSON and cache helpers preserve fields") {
-    NativePluginHost.installProviders(List(JsonNativePlugin(), HttpNativePlugin()))
+    NativePluginHost.installProviders(List(JsonNativePlugin(), HttpFastNativePlugin()))
     val renderer = Value.ClosV(Runtime.emptyEnv, 1, _ =>
       Done(Value.StrV("{\"n\":2,\"ok\":true}")))
     call("__jsonCoreInstallRenderer", renderer)
@@ -67,33 +67,4 @@ class HttpNativePluginTest extends AnyFunSuite:
     assert(cached(2) == Value.StrV("hello"))
     assert(headerMap(cached(1))(Value.StrV("Cache-Control")) == Value.StrV("public, max-age=60"))
     assert(headerMap(cached(1))(Value.StrV("ETag")) == Value.StrV("v1"))
-  }
-
-  test("server operations fail explicitly instead of entering the compatibility bridge") {
-    NativePluginHost.installProviders(List(HttpNativePlugin()))
-    val error = intercept[RuntimeException](call("useGzip"))
-    assert(error.getMessage ==
-      "native HTTP server unavailable: useGzip requires the standard server-host SPI")
-  }
-
-  test("route, serveAsync, callback invocation, and stop run on the JDK server host") {
-    NativePluginHost.installProviders(List(HttpNativePlugin()))
-    val socket = ServerSocket(0)
-    val port = try socket.getLocalPort finally socket.close()
-    val handler = Value.ClosV(ssc.Runtime.emptyEnv, 1, env =>
-      val request = env.last.asInstanceOf[Value.DataV]
-      ssc.Done(Value.DataV("Response", Vector(
-        Value.IntV(203),
-        Value.MapV.empty,
-        Value.StrV("pong:" + request.fields(1).asInstanceOf[Value.StrV].s)))))
-    val register = call("route", Value.StrV("GET"), Value.StrV("/ping")).asInstanceOf[Value.ClosV]
-    ssc.Runtime.run(register.code, Array(handler))
-    call("serveAsync", Value.IntV(port))
-    try
-      val response = HttpClient.newHttpClient().send(
-        HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/ping")).GET().build(),
-        HttpResponse.BodyHandlers.ofString())
-      assert(response.statusCode() == 203)
-      assert(response.body() == "pong:/ping")
-    finally call("stop")
   }

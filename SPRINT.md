@@ -39,7 +39,13 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       (headers + OPTIONS preflight), useGzip (>=256B + Accept-Encoding), sse/streamResponse via
       engine stream hook (RawResponse.stream), HttpStream value (send/write/comment/close/
       isClosed). 37 module tests. Still stubbed (honest): uploadSpoolThreshold/uploadDir/mount.
-- [ ] **hf-5 default-swap** — make it the default http plugin, full conformance, remove old.
+- [x] **hf-5 default-swap** — DONE. CLI bundles v2NativeHttpFastPlugin (id 50-http) instead of
+      v2NativeHttpPlugin; old module removed (client + Response tests ported). 40 module tests.
+      Validated e2e via `ssc run --native`: HTTP (params/query/POST/404), WS (onWebSocket echo +
+      wsConnect), hf-4 (cors/middleware/sse). LANE NOTE: fast plugin = the v2 NATIVE http server
+      (--native lane); --v2 FrontendBridge still uses the v1 WebServer (PluginBridge.
+      registerWebServer) — separate seam, out of scope. tests/conformance runs via --v2 so it
+      does NOT exercise this plugin; the --native e2e is the authoritative validation.
 
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 

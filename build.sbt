@@ -236,18 +236,9 @@ lazy val v2NativeJsonPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
-lazy val v2NativeHttpPlugin = project
-  .in(file("v2/runtime/std/http-plugin"))
-  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin)
-  .settings(
-    name := "scalascript-v2-native-http-plugin",
-    libraryDependencies += scalatestTest,
-    scalacOptions ++= Seq("-deprecation", "-feature"),
-  )
-
-// Super-optimal from-scratch HTTP/WS server plugin (NIO + virtual-thread-per-connection).
-// Aggregated for CI test coverage but NOT yet on the CLI classpath — it becomes the default
-// (replacing v2NativeHttpPlugin) in phase hf-5. See specs/v2-http-fast.md.
+// The DEFAULT v2 native HTTP/WS server plugin (hf-5): super-optimal from-scratch NIO +
+// virtual-thread-per-connection engine. Replaced the old com.sun.net.httpserver-based
+// `v2NativeHttpPlugin` (v2/runtime/std/http-plugin), which was removed. See specs/v2-http-fast.md.
 lazy val v2NativeHttpFastPlugin = project
   .in(file("v2/runtime/std/http-fast-plugin"))
   .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin)
@@ -1177,7 +1168,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -4236,7 +4227,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     v2Core, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
-    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin, v2NativeHttpFastPlugin,
+    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin,
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
