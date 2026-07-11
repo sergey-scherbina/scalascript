@@ -2,8 +2,9 @@
 
 ## v2-native-table-urlprotocol-harness-race — strict action probe mutates shared Set concurrently
 
-**Status:** open (2026-07-11); found by codex in the mandatory post-rebase
-six-test rerun after the native-table round-3 Rozum APPROVE.
+**Status:** done (2026-07-11, `51dcdba65`); found by codex in the mandatory
+post-rebase six-test rerun and confirmed fixed by `nativeui-reviewer` in the
+`scalascript` Rozum room.
 
 - **Real-harness repro:** run
   `scripts/sbtc 'v2SwiftBackend/testOnly ssc.swift.SwiftBackendTest -- -z "native table"'`.
@@ -20,6 +21,11 @@ six-test rerun after the native-table round-3 Rozum APPROVE.
   work, then pass the action probe repeatedly, all six named tests, and the full
   40-test backend suite. Ask `nativeui-reviewer` to confirm the harness-only
   root cause in Rozum before closing.
+- **Fix/verification:** one `NSLock` now owns `instances` and `stopped` plus
+  every lookup; body stream reads and URLProtocol client callbacks happen after
+  the selected value is copied outside the critical section. The reviewer
+  confirmed production sources are unchanged and approved action 5/5, named
+  6/6, and full backend 40/40.
 
 ## v2-swiftui-ios16-onchange-availability — generated renderer requires iOS 17 accidentally
 

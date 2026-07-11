@@ -746,7 +746,7 @@ there before changing this plan.
                         14/14, fetch compatibility 12/12, and Swift CLI 6/6 are
                         green. The installed iOS 16 Simulator strict Swift 6
                         typecheck is part of the sixth named gate.
-                  - [ ] **native table URLProtocol harness synchronization** —
+                  - [x] **native table URLProtocol harness synchronization** —
                         fix the final-repeat exit-134 race tracked as
                         `v2-native-table-urlprotocol-harness-race`: one lock
                         owns `TableURLProtocol.instances` and `stopped`; request
@@ -754,6 +754,10 @@ there before changing this plan.
                         before stream/callback work. Stress the action test,
                         repeat named 6/6 and full 40/40, then obtain Rozum
                         confirmation before publication.
+                        Result: fixed `51dcdba65`; `nativeui-reviewer` confirmed
+                        the harness-only root cause and lock boundary in Rozum.
+                        Action stress 5/5, named table 6/6, and full backend
+                        40/40 are green after the fix.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
