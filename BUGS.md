@@ -1118,7 +1118,10 @@ read-only async lifecycle review in the `scalascript` Rozum room.
   the Host/Session reconciliation seam, cancel matching Store tasks without
   view lifecycle callbacks, and add generated strict-concurrency Swift gates for
   same-key action removal/replacement, stopped transport, no late 2xx mutation,
-  and a freshly idle/error-empty action after reinsertion. Keep `fixed` until
+  and a freshly idle/error-empty action after reinsertion. Explicit cancellation
+  must reset a unique/last task to idle+empty after generation invalidation while
+  preserving loading if another mounted task shares the exact phase/error
+  capability. Keep `fixed` until
   the Rozum reporter confirms the regression.
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS

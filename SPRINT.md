@@ -533,6 +533,10 @@ there before changing this plan.
                   2xx capture/clear/effect can commit. Gate same-key removal and
                   fresh reinsertion without relying on SwiftUI `onDisappear`
                   (`v2-swiftui-surviving-owner-action-task-leak`).
+                  Explicit action cancellation is status-aware: unique/last
+                  capability cancellation resets error/phase to empty/idle, but
+                  cancelling one of multiple mounted tasks that share the exact
+                  status capability must leave loading for the survivor.
                   Preserve stable action status and in-flight work when the same
                   structural action is reconstructed for a surviving key: compare
                   request/effect signal refs by `(scope,id,kind)`, not regenerated
