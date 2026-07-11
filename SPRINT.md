@@ -729,7 +729,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 68 sentinel rows
+            - [x] **TI-8.2c sentinel taxonomy — DONE 2026-07-11
+                  (`063c64dcd`):** classify all 68 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
@@ -1031,9 +1032,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               checker 194/0, runtime 28 OK / 98 errors, taxonomy
                               0/26/36/5/1, and parity 10/60/125 with zero mismatch
                               or one-sided row. Native-entry and conformance 9/9 pass.
-                  - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
+                  - [x] **TI-8.2c3 release classification — DONE 2026-07-11
+                        (`063c64dcd`, `b7b5e1bb8`):** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
+                        Result: 68 sentinel rows are frozen as 0 standard-gap /
+                        26 server / 36 backend / 5 tools-backend / 1
+                        nondeterministic; category growth and stale overrides
+                        fail the taxonomy gate. Standard parity is 10 identical /
+                        60 both-fail / 125 skipped with no mismatch or one-sided
+                        row, and fresh conformance is 9/9.
             - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 60
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
