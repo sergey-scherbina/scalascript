@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — v2 maps and plugin data dispatch are portable
+
+The v2 JVM runtime now uses insertion-ordered identity `MapV` values matching
+Swift `SscMap`, including core factories, methods, display, HTTP/JSON providers,
+and the compatibility adapter. Native plugins gained ownership-checked,
+snapshot-safe tag-qualified apply/method handlers, removing the need for
+collision-prone global `get`/`set` hooks when NativeUi signals become DataV.
+Focused suites and 4/4 map/JSON conformance are green. Landed `689969978`;
+results recorded in `561dfe818`.
+
 ## 2026-07-11 — self-hosted extensions bind and dispatch receivers
 
 Contiguous top-level extension definitions now retain their receiver as a real

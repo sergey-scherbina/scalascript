@@ -242,6 +242,14 @@ there before changing this plan.
       Baseline: `scripts/sbtc "v2NativeUiPlugin/test"` passes 3/3 before the
       migration. The second reviewer approved this seam in the `scalascript`
       Rozum room; its MapV/provenance/tag-qualified guardrails are mandatory.
+      Progress 2026-07-11 (`689969978`, docs `561dfe818`): step 2 foundation
+      landed. Core maps are insertion-ordered identity `MapV`; JSON/HTTP/UI and
+      the v1 adapter cross portable maps without new host payloads; tagged
+      apply/method handlers are ownership-checked and snapshot-safe. Gates:
+      SPI 9/9, bridge 30/30, FrontendBridge 56/56, JSON 3/3, HTTP 4/4, UI 3/3,
+      maps/JSON conformance 4/4. The already-recorded SQLite 15-second timeout
+      remains the only broad FrontendBridge failure. Next: step 3,
+      provenance-aware `NativeUiSites` and reserved ABI-v1 globals.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
