@@ -1,0 +1,17 @@
+---
+name: v21-native-parser-layout-block
+---
+
+[Position, Parser](std/parsing/core.ssc)
+
+[runParser](std/parsing/combinators.ssc)
+
+[IndentContext, PSameIndent, block, runLayout, parseLayoutWith](std/parsing/layout.ssc)
+
+# Indented block value preservation
+
+```scalascript
+val input = "  host"
+println(runLayout(PSameIndent(3), input, input, Position(0), IndentContext.at(3)))
+println(Parser.regex("[a-z]+").block.withIndent(3).parseLayoutWith(input, IndentContext.at(1)))
+```
