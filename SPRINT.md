@@ -434,7 +434,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       parser corpus/fuzz, standard slim execution, and deterministic build-jvm
       release gates. Reconcile `specs/v2.1-toolchain-independence.md` after its
       active owner releases it, check every behavior item, and record results in
-      the spec/CHANGELOG.
+      the spec/CHANGELOG. Implement `scripts/v21-stage2-bootstrap-gate` against
+      the staged Scala 3 seed (`java -cp bin/lib/standard/jars/* ssc.cli`): the
+      single-file `ssc0c-self.ssc0` image must reproduce across gen1/gen2/gen3
+      and the multi-file `bin/ssc0c.ssc0` image across gen1/gen2. Current
+      canonical semantic baselines are 21,017 bytes / SHA-256
+      `1382c30892678f801d04e51e548d8e00d63041df7bab6c3f6b55be45e45a531d`
+      and 25,842 bytes /
+      `879be9621f1eb6bb25c52324fdac3a46e925cfbd2703ea2d0251fb78a1e9d8ae`.
+      Also hash the sorted staged `native-front` tree, add a bounded pure
+      JSON/YAML/Markdown mutation corpus on VM/direct ASM, and compose the
+      existing strict dependency, deletion/class-load, slim, native corpus,
+      and build-jvm gates without editing the live TI-8 owner's files.
 
 - [x] **v21-ti-spec-and-contract** — DONE 2026-07-10 in `625cb3339`:
       specified the standard/tools dependency tiers, mandatory native checker,
