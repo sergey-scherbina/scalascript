@@ -1,6 +1,6 @@
 feature/v21-native-typeclass-dictionary-dispatch 2026-07-11T18:39:47Z
 agent: codex
-heartbeat: 2026-07-11T18:39:47Z
-status: not-started
-done-so-far:
-next: queue and specify exact portable dispatch for explicitly passed typeclass dictionaries, reproduce typeclass.ssc on assembled VM/direct ASM, then implement and run release gates
+heartbeat: 2026-07-11T18:40:09Z
+status: in-progress
+done-so-far: worktree created from current origin/main
+next: queue the slice in SPRINT, commit the feature spec, then reproduce the first dictionary sentinel in the assembled VM/direct-ASM harness
