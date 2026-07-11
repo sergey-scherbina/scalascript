@@ -1880,7 +1880,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               mapping/list/fold/tuple rendering semantics, then
                               strengthen `v21-parser-dsl-smoke.sh` to exact
                               canonical JSON/YAML output on VM/direct ASM.
-                        - [ ] **TI-8.2d2s4 functional VM/ASM parity:** the full
+                        - [x] **TI-8.2d2s4 functional VM/ASM parity — DONE
+                              2026-07-11 (`4c5254eed`):** the full
                               post-PMapped sweep is 25 identical / 1 mismatch /
                               40 both-fail / 129 skipped. `functional.ssc`
                               agrees through `440`, then VM prints
@@ -1894,7 +1895,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               arity-one closure after `[z]`, cover list/array
                               receivers, require canonical running totals, and
                               restore zero mismatch and one-sided rows before
-                              the next release baseline.
+                              the next release baseline. Result: focused
+                              list/array output is `1, 3, 6, 10, 15` / `10`,
+                              `functional.ssc` is canonical on both lanes,
+                              parity is 26 identical / 0 mismatch / 40
+                              both-fail / 129 skips, runtime taxonomy is
+                              14/14/6/6 with 28 blockers, and sentinel remains
+                              68 with zero standard gaps.
                         - [x] **TI-8.2d2t typed-pattern type boundary — DONE
                               2026-07-11 (`aef599a80`):** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances

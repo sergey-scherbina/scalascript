@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — curried collection folds share VM and ASM semantics
+
+Portable `foldLeft(z) { f }` now returns a real partial closure after its first
+argument list and completes through the existing effect-aware collection
+dispatcher. Lists and mutable arrays produce canonical results on native
+VM/direct ASM; `functional.ssc` ends with `1, 3, 6, 10, 15`, and full strict
+parity returns to zero mismatch/one-sided rows. Landed `4c5254eed`; verified in
+`specs/v2.1-curried-collection-fold.md`.
+
 ## 2026-07-11 — fast --v2 preserves forms, sessions and authentication
 
 The fast HttpServerSpi backend now feeds its raw request through the shared

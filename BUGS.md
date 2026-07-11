@@ -2,8 +2,8 @@
 
 ## v21-functional-vm-asm-mkstring-parity — functional demo diverges on final dispatch
 
-**Status:** open (2026-07-11); found by codex during the post-`PMapped`
-full strict parity sweep.
+**Status:** done (2026-07-11, `4c5254eed`); found and confirmed by codex
+during the post-`PMapped` full strict parity sweep.
 
 - **Real-harness repro:** `SSC=bin/ssc-standard scripts/bc-parity-sweep
   --strict` reports the only mismatch at `functional.ssc`. Both lanes exit 0
@@ -18,11 +18,11 @@ full strict parity sweep.
   accepts both `z` and `lambda` in one call, so the first application fabricates
   an unresolved `Op`; VM later exposes `Op("Stub.mkString", ...)`, while ASM
   collapses the same path to `Stub`.
-- **Plan/done-when:** make one-argument `foldLeft(z)` return a portable arity-one
-  closure which completes the existing effect-aware fold when applied, cover
-  list plus mutable-array receivers on VM/direct ASM, require the canonical
-  `1, 3, 6, 10, 15` result, and rerun full parity plus runtime/sentinel taxonomy
-  gates.
+- **Fix/result:** one-argument `foldLeft(z)` now returns a portable arity-one
+  closure which completes the existing effect-aware fold when applied. The
+  exact list/array fixture prints `1, 3, 6, 10, 15` and `10`; the functional
+  example is canonical and byte-identical. Full parity is 26/0/40/129 with zero
+  mismatch/one-sided rows; runtime blockers fall to 28.
 
 ## v21-native-parser-dsl-stub-values — parser DSLs exit successfully with placeholders
 
