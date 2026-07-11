@@ -31,8 +31,9 @@ advanced calculator/YAML-like parser examples beyond `PRegex/1`.
 
 ## v21-match-pregex-constructor — extension body captures the following top-level def
 
-**Status:** open (2026-07-11); found by codex after the layout-object fix
-advanced all three parser-combinator examples past their missing owned members.
+**Status:** done (2026-07-11, `f7ff66a1f`, taxonomy `4feb715ea`);
+found and confirmed by codex after the layout-object fix advanced all three
+parser-combinator examples past their missing owned members.
 
 - **Real-harness repro:** run
   `bin/ssc-standard run examples/dsl-calc-parser.ssc` after the
@@ -61,6 +62,13 @@ advanced all three parser-combinator examples past their missing owned members.
   and verify a following top-level function's arity. Add a multi-file VM/ASM
   regression and rerun all three examples; keep any later independent failures
   separately classified.
+- **Resolution:** contextual receiver delimiters now open/close a virtual
+  extension body, and explicit AST markers preserve imported member identity
+  through module filtering into the combined lowerer. `runParser` is `lam 4`,
+  imported `map` is `(global map)`, the two-file fixture is exact on VM/ASM,
+  and every release gate plus fresh conformance 11/11 passes. All three DSLs
+  leave `PRegex/1`; their symbolic-infix and `case object` gaps are tracked
+  separately above.
 
 ## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
 

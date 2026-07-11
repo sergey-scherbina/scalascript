@@ -1676,7 +1676,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               parity remains 22/44/129 with zero mismatch or
                               one-sided error, 32 reviewed blockers, and all
                               release gates plus fresh conformance 11/11 green.
-                        - [ ] **TI-8.2d2q extension layout boundary:** all
+                        - [x] **TI-8.2d2q extension layout boundary:** DONE
+                              2026-07-11 (`f7ff66a1f`, taxonomy `4feb715ea`,
+                              docs `7f21b7e4a`). All
                               three parser-combinator examples now pass owned
                               `Parser_*` lookup but both VM and direct ASM fail
                               with `match: no arm for PRegex/1`. CoreIR proves
@@ -1694,6 +1696,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               for imported dispatch plus following top-level def
                               arity on VM/ASM. Then rerun the three examples and
                               reclassify only fully resolved rows.
+                              Result: `runParser` is `lam 4`, imported `map`
+                              remains a selected extension, and the multi-file
+                              fixture prints 20/22/rx/fallback exactly on both
+                              lanes. `dsl-ast-builder.ssc` becomes identical;
+                              parity improves to 23/43/129 and blockers to 31,
+                              with all release gates and conformance 11/11 green.
                         - [ ] **TI-8.2d2r symbolic extension precedence:** the
                               durable imported registry now exposes the next
                               calc/YAML boundary: `Parser.|` is still hard-coded

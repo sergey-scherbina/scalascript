@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — extension ownership survives layout and imports
+
+Indented extension bodies now close at dedent/code-fence boundaries, so a
+following top-level function keeps its declared arity. AST boundary markers
+also carry extension identity across per-module parsing, letting the combined
+lowerer resolve imported selected calls without confusing them with collection
+helpers. `dsl-ast-builder.ssc` becomes fully identical; strict parity improves
+to 23/43/129 and blockers fall to 31. Landed `f7ff66a1f`; taxonomy
+`4feb715ea`; verified `7f21b7e4a`.
+
 ## 2026-07-11 — SwiftUI observation and keyed rendering are native and transactional
 
 Generated AppleApp sources now include a main-actor per-signal observation
