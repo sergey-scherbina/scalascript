@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI events mutate authenticated Host cells safely
+
+Native set/input/toggle/increment dispatch now binds validation, dynamic read,
+and write to the same current Host cell, so forged/stale wrapper closures are
+inert. Read-only targets are source-rejected, Int64 overflow is non-trapping,
+and pristine seed events observe the latest source before becoming dirty.
+Strict Swift 6 execution, full backend 30/30, affected conformance 12/12, and
+Rozum review are green. Landed `f062a9184`, `9ae1a130b`, and `12fae35e7`.
+
 ## 2026-07-11 — nested member layout preserves extension receivers
 
 Indented and explicit-brace extension bodies now own a distinct close marker,

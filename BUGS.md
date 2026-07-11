@@ -1097,9 +1097,9 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
 
 ## v2-swiftui-event-increment-overflow-readonly — ordinary event dispatch can trap or lose source
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` as a nonblocking
-follow-up during the approved async lifecycle review in the `scalascript` Rozum
-room.
+**Status:** done (2026-07-11; fixed in `f062a9184`, `9ae1a130b`, and
+`12fae35e7`; `nativeui-reviewer` confirmed with APPROVE in the `scalascript`
+Rozum room).
 
 - **Real-harness repro:** dispatch an ordinary `NativeUiEvent(kind=increment)`
   against a live Int signal holding `Int64.max`; the generated Swift performs

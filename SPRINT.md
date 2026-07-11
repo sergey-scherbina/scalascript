@@ -573,7 +573,7 @@ there before changing this plan.
                   full backend suite pass 30/30, `tkv2-*` passes 12/12, and
                   `nativeui-reviewer` posted APPROVE in Rozum. Docs landed
                   `5d6c13955`.
-            - [ ] **ordinary event mutation hardening** — validate live writable
+            - [x] **ordinary event mutation hardening** — validate live writable
                   targets for set/input/toggle/increment before dispatch, use a
                   checked non-trapping Int64 increment, and retain the owning
                   element site/source on every rejection. Add strict generated
@@ -588,6 +588,10 @@ there before changing this plan.
                   increment reads through that same Host cell's `dynamicRead`,
                   so a pristine seed observes its current source before the
                   event write makes it dirty and releases the dependency.
+                  Result: landed `f062a9184`, authenticated-cell hardening
+                  `9ae1a130b`, strict Swift 6 gate `12fae35e7`, and docs
+                  `07f4b8efe`; full Swift backend 30/30, `tkv2-*` 12/12, Rozum
+                  reviewer APPROVE.
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope
