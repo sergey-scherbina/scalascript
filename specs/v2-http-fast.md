@@ -215,16 +215,16 @@ JAR allowlists; neither may retain the removed
 
 Behavior:
 
-- [ ] `installBin` stages the fast native provider and engine in both tools and
+- [x] `installBin` stages the fast native provider and engine in both tools and
       standard layouts, with no retired native HTTP provider JAR.
-- [ ] `NativeJvmArtifact` includes the same fast provider/engine pair when an
+- [x] `NativeJvmArtifact` includes the same fast provider/engine pair when an
       executable artifact is assembled.
-- [ ] Core-dependency and native-provider gates classify the fast artifact
+- [x] Core-dependency and native-provider gates classify the fast artifact
       names, retain forbidden parser/compiler dependency scans, and require the
       provider ServiceLoader entry without treating the engine as a plugin.
-- [ ] Native-entry replaces the obsolete `useGzip` feature-unavailable
+- [x] Native-entry replaces the obsolete `useGzip` feature-unavailable
       assertion with a positive zero-error fast-provider check.
-- [ ] Native provider, core dependency, slim, JRE module, standard tier,
+- [x] Native provider, core dependency, slim, JRE module, standard tier,
       build-jvm, native-entry, and fresh affected conformance gates pass.
 
 Decisions:
@@ -239,6 +239,24 @@ Decisions:
 - **Positive middleware smoke** — chosen because `useGzip` landed in hf-4 and
   now exits successfully. Rejected: preserving a negative assertion for a
   deliberately available feature.
+
+Results (2026-07-11, `d503cf856`):
+
+- `installBin` stages 111 tools JARs and 31 standard dependency JARs. Both
+  layouts contain `scalascript-v2-native-http-fast-plugin` and
+  `scalascript-http-fast-engine`; neither contains the retired provider.
+- The strict dependency gate classifies 17 roots, 65 static edges, and 11
+  reflective plugin dependencies across all 31 staged JARs, with zero
+  outside-closure artifacts, parser migrations, or violations. The engine is
+  scanned as a feature root and has no `NativePlugin` service entry.
+- Native VM and direct ASM both execute the positive `useGzip()` fixture with
+  empty output and stderr. A compiler-free `build-jvm` artifact records the
+  fast provider, provider implementation, and engine in deterministic metadata.
+- Native provider, core dependency, standard, slim, JRE module, native-entry,
+  build-jvm smoke/release, and fresh `v2-*` conformance (11/11) pass. The quick
+  consolidated self-hosted-core gate reports `release.ready=true`; the slim
+  image is 32 total JARs including `ssc.jar`, 6,617 classes, and 30,727,574
+  bytes with compiler tools absent.
 
 ## Non-goals (this spec)
 
