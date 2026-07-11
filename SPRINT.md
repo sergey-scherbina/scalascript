@@ -1860,6 +1860,23 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               assembled artifact; still add an exact multi-file
                               imported `PMapped` regression and a focused parser
                               DSL release smoke before closing the slice.
+                        - [ ] **TI-8.2d2s3 parser DSL placeholder semantics:**
+                              clean assembly removes the `PMapped/2` exception,
+                              but JSON arrays/objects render `[Stub]`/`{Stub}`
+                              and YAML renders its document/query values as
+                              `Stub`; compatibility output is complete. Isolate
+                              the first complex mapped value, restore portable
+                              mapping/list/fold/tuple rendering semantics, then
+                              strengthen `v21-parser-dsl-smoke.sh` to exact
+                              canonical JSON/YAML output on VM/direct ASM.
+                        - [ ] **TI-8.2d2s4 functional VM/ASM parity:** the full
+                              post-PMapped sweep is 25 identical / 1 mismatch /
+                              40 both-fail / 129 skipped. `functional.ssc`
+                              agrees through `440`, then VM prints
+                              `Op("Stub.mkString", ", ", <closure>)` while ASM
+                              prints `Stub`. Isolate the final dispatch, repair
+                              shared semantics, and restore zero mismatch and
+                              one-sided rows before the next release baseline.
                         - [x] **TI-8.2d2t typed-pattern type boundary — DONE
                               2026-07-11 (`aef599a80`):** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances

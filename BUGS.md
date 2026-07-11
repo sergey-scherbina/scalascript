@@ -1,5 +1,40 @@
 # Bug tracker
 
+## v21-functional-vm-asm-mkstring-parity — functional demo diverges on final dispatch
+
+**Status:** open (2026-07-11); found by codex during the post-`PMapped`
+full strict parity sweep.
+
+- **Real-harness repro:** `SSC=bin/ssc-standard scripts/bc-parity-sweep
+  --strict` reports the only mismatch at `functional.ssc`. Both lanes exit 0
+  and agree through `440`; the native VM prints
+  `Op("Stub.mkString", ", ", <closure>)`, while direct ASM prints `Stub`.
+- **Expected:** portable functional dispatch either produces the same real
+  value on both lanes or fails identically under an owned runtime blocker;
+  strict parity must have zero mismatch/one-sided rows.
+- **Plan/done-when:** isolate the final expression in a focused VM/ASM fixture,
+  identify whether the `Stub.mkString` operation is lost in ASM lowering or
+  incorrectly retained by the VM, repair the shared semantics, and rerun the
+  full parity plus runtime/sentinel taxonomy gates.
+
+## v21-native-parser-dsl-stub-values — parser DSLs exit successfully with placeholders
+
+**Status:** open (2026-07-11); found by codex while validating the clean
+`PMapped/2` assembly result against the compatibility frontend.
+
+- **Real-harness repro:** native VM/direct ASM are byte-identical and exit 0,
+  but `dsl-json-parser.ssc` renders arrays/objects as `[Stub]` / `{Stub}` and
+  `dsl-yaml-like.ssc` renders the parsed document and selected values as
+  `Stub`. `bin/ssc run --compat-frontend` renders the complete JSON values and
+  YAML tree/queries (`localhost`, `myapp`, `10`).
+- **Expected:** the self-hosted native pipeline preserves the parser mapping,
+  list/fold, tuple, and rendering semantics needed for the examples' canonical
+  output; successful exit must not hide placeholder values.
+- **Plan/done-when:** isolate the first complex mapping result in a focused
+  import-shaped fixture, classify each later placeholder separately if it has
+  a different root cause, restore exact compatibility output on VM/direct ASM,
+  and strengthen the parser DSL smoke from exit/parity to exact output.
+
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 
 **Status:** open (2026-07-11); found by codex in the mandatory post-rebase
