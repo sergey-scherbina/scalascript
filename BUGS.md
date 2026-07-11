@@ -29,15 +29,20 @@ work before touching the provider.
   expects the same retired JAR. `tests/e2e/v21-slim-distribution-gate.sh` and
   `tests/e2e/v21-jre-module-gate.sh` both fail with `unhandled runtime effect:
   Response.text` because `http-fast-plugin` is present in tools `jars/` but not
-  standard `jars/`.
+  standard `jars/`. After the fast provider became runnable in the tools image,
+  `tests/e2e/v21-native-entry-smoke.sh` also reaches its stale
+  `http-server-feature-unavailable.ssc` assertion: `useGzip` now exits 0, while
+  the gate still requires the retired "native HTTP server unavailable" error.
 - **Expected:** the default HTTP-fast provider is staged into both tools and
   standard images; boundary/dependency gates discover its new artifact name;
   slim and module-limited HTTP response fixtures pass without the retired
   provider.
 - **Plan/done-when:** update standard staging and all provider/dependency gate
-  ownership from `http-plugin` to `http-fast-plugin`, retain the forbidden
-  dependency/class-load scans, and rerun native provider, core dependency,
-  slim, JRE, standard, build-jvm, native-entry, and conformance gates.
+  ownership from `http-plugin` to `http-fast-plugin`, replace the obsolete
+  feature-unavailable assertion with a positive fast-provider feature check,
+  retain the forbidden dependency/class-load scans, and rerun native provider,
+  core dependency, slim, JRE, standard, build-jvm, native-entry, and
+  conformance gates.
 
 ## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
 

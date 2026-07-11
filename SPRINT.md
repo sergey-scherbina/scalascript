@@ -50,7 +50,9 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       `http-fast-plugin`, but the standard image contains neither the new
       provider nor the retired one. Update staging plus boundary/core-dependency
       artifact discovery; restore `Response.text` under slim/JRE deletion
-      gates; rerun every v2.1 release gate. Coordinate with the live
+      gates; replace native-entry's obsolete `useGzip` feature-unavailable
+      negative assertion (the fast provider now exits 0) with a positive
+      provider check; rerun every v2.1 release gate. Coordinate with the live
       `http-handler-serial-dispatch` claim before editing HTTP provider files.
 - [x] **hf-7 fast engine backs --v2 too** (Sergiy: "сделай это тоже") — DONE. Extracted the
       value-agnostic engine to module httpFastEngine (v1/runtime/http-server/fast-engine, pkg
