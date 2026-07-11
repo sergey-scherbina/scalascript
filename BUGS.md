@@ -16,6 +16,10 @@
 - **Plan/done-when:** route all action constructors through one exact validator
   per runtime boundary, add negative gates for wrong types, empty/duplicate/
   malformed paths across v1, v2, and generated Swift, and obtain Rozum approval.
+- **Review round 2:** JS still scalarized `Fields` members (rejecting valid
+  compound JSON), rejected the valid empty-String `Field` body, and normalized a
+  forged `wholeRow` descriptor carrying names. JVM helper coverage only searched
+  generated text instead of executing rejection. These remain part of this bug.
 
 ## v2-native-table-request-url-untested — Swift URL resolver and CLI routing lack executable coverage
 
@@ -49,6 +53,9 @@
 - **Plan/done-when:** make JS mount and Rust/TUI runtime consume strict row
   identity, add non-default/missing/empty/compound/duplicate adapter gates, and
   obtain the implementation reviewer's confirmation.
+- **Review round 2:** JS must reject non-object rows rather than accepting an
+  array via a numeric dotted segment. TUI/Rust must execute the complete
+  missing/empty/compound/duplicate runtime matrix, not rely on compile smoke.
 
 ## v2-native-table-five-field-registry-drift — v2 field layout disagrees with constructed ABI value
 

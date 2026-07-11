@@ -664,7 +664,8 @@ there before changing this plan.
                   - [ ] preserve and consume non-default `rowKeyPath` in JS and
                         Rust/TUI (never an ignored underscore argument/unused
                         DOM attribute), with missing/empty/compound/duplicate
-                        row-key adapter gates;
+                        row-key adapter gates; reject non-object JS rows and
+                        execute the full invalid-key matrix in TUI/Rust;
                   - [ ] execute Swift request resolution for absolute,
                         root-relative, base-relative, and rejected URL forms,
                         and invoke a real Apple CLI command with `--server-url`
@@ -674,6 +675,10 @@ there before changing this plan.
                         generated JVM, and JS adapters, including wrong-type,
                         empty, malformed, and duplicate negative gates; no
                         public constructor/helper may bypass the validator.
+                        JS Fields preserves arbitrary JSON values, Field sends
+                        empty String verbatim, and forged raw descriptors retain
+                        exact shape rejection; JVM rejection must execute from
+                        emitted helpers rather than use source-text assertions.
                   - [ ] update the target-independent public/ABI surface and all
                         existing JVM/JS/Rust/Swift adapters for `rowKeyPath`,
                         Any row payloads, and normalized Apple `--server-url`;
