@@ -41,18 +41,24 @@ work before touching the provider.
 
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
 
-**Status:** open (2026-07-11); found by codex after native `case object`
-support advanced `dsl-json-parser.ssc` beyond `unbound global: NoContext`.
+**Status:** open, non-reproducible after clean assembly (2026-07-11); found by
+codex after native `case object` support advanced `dsl-json-parser.ssc` beyond
+`unbound global: NoContext`.
 
 - **Real-harness repro:** `bin/ssc-standard run --native
   examples/dsl-json-parser.ssc` now fails identically on VM/ASM with `match: no
   arm for PMapped/2`.
 - **Expected:** the imported combinator evaluator's existing `PMapped(inner, f)`
   arm matches the reified parser node and applies the mapping closure.
-- **Plan/done-when:** isolate the constructor/import boundary in a multi-file
-  regression, compare the emitted `PMapped/2` arm with the assembled value,
-  repair native match ownership/order without parser-specific host code, and
-  rerun all parser DSLs plus release gates.
+- **Diagnosis:** a clean `scripts/sbtc "installBin"` at `c227b40ee` makes both
+  examples exit 0 on native VM and direct ASM with byte-identical output. No
+  source commit after the extension receiver fix `878474b8d` changed the
+  frontend/runtime path. The earlier failure therefore came from a staged
+  distribution assembled before that fix, not from a missing `PMapped/2` arm.
+- **Plan/done-when:** pin the already-correct imported `PMapped(inner, f)`
+  behavior in a multi-file exact-output VM/direct-ASM regression, add the
+  parser DSLs to a focused release smoke, and close without parser-specific
+  host code only after the clean release gates pass.
 
 ## v21-k62-flat-tuple-pattern-regression — flat tuple values keep nested `Pair` patterns
 

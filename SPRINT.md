@@ -1846,6 +1846,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               fixture, preserve the evaluator's existing mapping
                               semantics without a host parser special case, and
                               rerun every parser DSL plus release gates.
+                              Fresh `scripts/sbtc "installBin"` at `c227b40ee`
+                              no longer reproduces the failure: JSON and YAML
+                              both exit 0 and are byte-identical on VM/direct
+                              ASM, with no intervening source fix after
+                              `878474b8d`. Treat the old boundary as a stale
+                              assembled artifact; still add an exact multi-file
+                              imported `PMapped` regression and a focused parser
+                              DSL release smoke before closing the slice.
                         - [x] **TI-8.2d2t typed-pattern type boundary — DONE
                               2026-07-11 (`aef599a80`):** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances
