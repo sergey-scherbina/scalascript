@@ -95,6 +95,8 @@ layout_given_expected=$'int\nint:7\nbool:yes\nbool:no\nafter-givens'
 [[ $(run_native "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
 native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
+exact_summon_expected=$'show:7\ntrue\nnested'
+[[ $(run_native "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -126,6 +128,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -193,6 +196,21 @@ for mode in vm asm; do
   [[ ! -s "$sandbox/dynamic-length-invalid.$mode.out" ]]
   grep -F 'no dispatch for .length on true' \
     "$sandbox/dynamic-length-invalid.$mode.err" >/dev/null
+done
+
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  set +e
+  run_native "${mode_args[@]}" "$FIXTURES/exact-summon-missing.ssc" \
+    >"$sandbox/exact-summon-missing.$mode.out" \
+    2>"$sandbox/exact-summon-missing.$mode.err"
+  summon_missing_rc=$?
+  set -e
+  [[ $summon_missing_rc -ne 0 ]]
+  [[ ! -s "$sandbox/exact-summon-missing.$mode.out" ]]
+  grep -F 'unbound global: summon' \
+    "$sandbox/exact-summon-missing.$mode.err" >/dev/null
 done
 
 http_port=$((32000 + ($$ % 10000)))

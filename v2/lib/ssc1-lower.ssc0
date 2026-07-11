@@ -895,6 +895,14 @@ def resolveE = (expr) =>
       else if #seq(tag, "str") then expr
       else if #seq(tag, "bool") then expr
       else if #seq(tag, "var") then expr
+      else if #seq(tag, "summon") then
+        match parseGivenType(data) {
+          case Pair(tc, typeName) =>
+            match findGiven(#cell.get(kc5GivenCell), tc, typeName) {
+              case Some(gname) => Pair("var", gname)
+              case None => Pair("var", "summon")
+            }
+        }
       else if #seq(tag, "uid") then
         if #seq(data, "None") then Pair("ctorap", Pair("None", Nil))
         else if #seq(data, "Nil") then Pair("ctorap", Pair("Nil", Nil))

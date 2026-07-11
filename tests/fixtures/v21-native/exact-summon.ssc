@@ -1,0 +1,27 @@
+---
+name: v21-native-exact-summon
+---
+
+```scalascript
+trait Show[A]:
+  def show(value: A): String
+
+given intShow: Show[Int] with
+  def show(value: Int): String = "show:" + value
+
+trait Eq[A]:
+  def eql(left: A, right: A): Boolean
+
+given stringEq: Eq[String] with
+  def eql(left: String, right: String): Boolean = left == right
+
+trait Label[A]:
+  def value: String
+
+given nestedLabel: Label[List[Int]] with
+  def value: String = "nested"
+
+println(summon[Show[Int]].show(7))
+println(summon[Eq[String]].eql("same", "same"))
+println(summon[Label[List[Int]]].value)
+```

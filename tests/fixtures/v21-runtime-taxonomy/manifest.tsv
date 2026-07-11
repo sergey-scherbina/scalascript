@@ -9,7 +9,7 @@ content-to-markdown.ssc	standard-provider	yes	content	contentSection is missing 
 content.ssc	standard-provider	yes	content	md is missing from a core-free standard content provider
 crypto-encrypt-demo.ssc	standard-provider	yes	crypto	aesGenKey is missing from the core-free standard crypto provider
 crypto-verify-demo.ssc	standard-provider	yes	crypto	verifyEd25519 is missing from the core-free standard crypto provider
-custom-derives-mirror.ssc	language-runtime	yes	typeclass	summon/typeclass resolution is absent from the native runtime path
+custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
 data-types.ssc	language-runtime	yes	value-conversion	portable enum/data rendering attempts to use a foreign value as String
 dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
 dataset-stats.ssc	language-runtime	yes	effects	portable dataset evaluation leaks an unhandled Op/3 into match lowering
@@ -45,7 +45,7 @@ sql-browser-sqlite.ssc	example-contract	yes	sql-browser	browser SQL section bind
 sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section binding ActiveUsers is not lowered natively
 storage-demo.ssc	standard-provider	yes	storage	runEphemeralStorage is missing from a core-free standard storage provider
 totp-shamir-demo.ssc	standard-provider	yes	crypto	totp is missing from the core-free standard crypto provider
-typeclass.ssc	language-runtime	yes	typeclass	top-level summon/type-directed resolution remains unbound after explicit named givens run
+typeclass.ssc	language-runtime	yes	typeclass	exact summon now runs; an explicitly passed typeclass dictionary remains a sentinel value whose member dispatch fails
 typed-data.ssc	language-runtime	yes	pattern-match	constructor defaults now lower; nested Option pattern matching has no Some/1 arm at runtime
 typed-sql-crud.ssc	example-contract	yes	sql	the deterministic native run queries TODOS before the fixture creates it
 ui-remote-table.ssc	standard-provider	yes	ui	fieldColumn is missing from the core-free standard UI provider

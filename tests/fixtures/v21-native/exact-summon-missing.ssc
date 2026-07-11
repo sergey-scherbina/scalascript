@@ -1,0 +1,13 @@
+---
+name: v21-native-exact-summon-missing
+---
+
+```scalascript
+trait Show[A]:
+  def show(value: A): String
+
+given intShow: Show[Int] with
+  def show(value: Int): String = "show:" + value
+
+println(summon[Show[String]].show("missing"))
+```

@@ -871,6 +871,23 @@ def parseIfExpr = (toks) =>
   else
     pr(mkIf(cond, thenE, mkTup(Nil)), ts2)
 
+-- Read one bracketed type application (opening `[` already consumed) while
+-- retaining nested brackets as source text. Ordinary type applications remain
+-- erased; summon uses the payload for exact named-given lookup.
+def readTypeApply = (toks, depth, acc) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  let v = tokVal(t) in
+  if #seq(k, "EOF") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, "[") then
+    readTypeApply(advance(toks), #i.add(depth, 1), Cons("[", acc))
+  else if #seq(k, "]") then
+    if #i.le(depth, 1) then pr(joinStrs(reverse(acc)), advance(toks))
+    else readTypeApply(advance(toks), #i.sub(depth, 1), Cons("]", acc))
+  else
+    let sv = if #seq(v, "") then k else v in
+    readTypeApply(advance(toks), depth, Cons(sv, acc))
+
 -- buildPostfix: e . name | e (args)  (left-recursive, iterative)
 def buildPostfix = (e, toks) =>
   let t = peek(toks) in
@@ -917,16 +934,14 @@ def buildPostfix = (e, toks) =>
       let ra = moreArgs(toks2b, Nil) in
       buildPostfix(mergeWithE(prV(ra)), skipKind(")", prT(ra)))
   else if #seq(k, "[") then
-    -- skip type argument list [A, B, C[D]] (type applications, not real args)
-    -- depth-tracking to handle nested brackets like [Monoid[A]]
-    let rec skipBrackD = (ts, depth) =>
-      if kindIs("EOF", ts) then ts
-      else if kindIs("[", ts) then skipBrackD(advance(ts), #i.add(depth, 1))
-      else if kindIs("]", ts) then
-        if #i.le(depth, 1) then advance(ts)
-        else skipBrackD(advance(ts), #i.sub(depth, 1))
-      else skipBrackD(advance(ts), depth) in
-    buildPostfix(e, skipBrackD(advance(toks), 1))
+    let rt = readTypeApply(advance(toks), 1, Nil) in
+    let typed = match e {
+      case Pair(etag, edata) =>
+        if #seq(etag, "var") then
+          if #seq(edata, "summon") then Pair("summon", prV(rt)) else e
+        else e
+    } in
+    buildPostfix(typed, prT(rt))
   else if #seq(k, "{") then
     -- trailing block argument: e { body }  →  e(body)  (T5.7 / KC-postfix)
     -- lambda-aware: parseBlockArg strips a `param =>` header, so
