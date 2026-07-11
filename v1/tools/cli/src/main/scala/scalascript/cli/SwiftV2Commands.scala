@@ -1,7 +1,8 @@
 package scalascript.cli
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
+import java.nio.file.{Files, Path}
+import scala.jdk.CollectionConverters.*
 
 import _root_.ssc.swift.{SwiftAppMetadata, SwiftBackend, SwiftPlatform, XcodeAppArtifact}
 
@@ -115,40 +116,64 @@ private[cli] object SwiftV2Cli:
       destination: String,
       derivedData: os.Path,
       command: String,
-      extraSettings: List[String] = List("CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"),
+      configuration: String = "Debug",
+      extraArgs: List[String] = List("CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"),
   ): BuiltXcodeApp =
     val app = pkg.xcodeApp.getOrElse(
       throw new IllegalArgumentException(s"$command: checked program does not define a NativeUi application"))
-    val common = List(
-      "-project", app.project, "-scheme", app.scheme,
-      "-configuration", "Debug", "-destination", destination,
-      "-derivedDataPath", derivedData.toString,
-    )
-    val build = os.proc(List("xcodebuild", "build") ++ common ++ extraSettings)
-      .call(cwd = pkg.root, stdout = os.Pipe, stderr = os.Pipe, check = false)
+    val common = xcodeSelection(app, destination, configuration, derivedData)
+    val build = callXcode(
+      List("build") ++ common ++ extraArgs, pkg.root, command, "xcodebuild")
     if build.exitCode != 0 then
       throw new IllegalStateException(
         s"$command: xcodebuild failed (exit ${build.exitCode}): ${build.err.text().take(2048)}")
-    val settings = os.proc(List("xcodebuild", "-showBuildSettings") ++ common)
-      .call(cwd = pkg.root, stdout = os.Pipe, stderr = os.Pipe, check = false)
-    if settings.exitCode != 0 then
-      throw new IllegalStateException(s"$command: xcodebuild -showBuildSettings failed")
-    val parsed = settings.out.text().linesIterator.flatMap { line =>
-      val marker = " = "
-      val at = line.indexOf(marker)
-      if at < 0 then None else Some(line.take(at).trim -> line.drop(at + marker.length).trim)
-    }.toMap
+    val parsed = queryBuildSettings(pkg, destination, configuration, derivedData, extraArgs, command)
     val targetDir = parsed.getOrElse("TARGET_BUILD_DIR",
       throw new IllegalStateException(s"$command: TARGET_BUILD_DIR missing from Xcode settings"))
     val fullName = parsed.getOrElse("FULL_PRODUCT_NAME",
       throw new IllegalStateException(s"$command: FULL_PRODUCT_NAME missing from Xcode settings"))
     val bundle = os.Path(targetDir, os.pwd) / fullName
-    val infoPlist = if destination.contains("macOS") then bundle / "Contents" / "Info.plist" else bundle / "Info.plist"
+    verifyAppBundle(pkg, bundle, parsed, command)
+
+  def queryBuildSettings(
+      pkg: EmittedPackage,
+      destination: String,
+      configuration: String,
+      derivedData: os.Path,
+      extraArgs: List[String],
+      command: String,
+  ): Map[String, String] =
+    val app = pkg.xcodeApp.getOrElse(
+      throw new IllegalArgumentException(s"$command: checked program does not define a NativeUi application"))
+    val common = xcodeSelection(app, destination, configuration, derivedData)
+    val settings = callXcode(
+      List("-showBuildSettings") ++ common ++ extraArgs, pkg.root, command,
+      "xcodebuild -showBuildSettings")
+    if settings.exitCode != 0 then
+      throw new IllegalStateException(
+        s"$command: xcodebuild -showBuildSettings failed (exit ${settings.exitCode})")
+    settings.out.text().linesIterator.flatMap { line =>
+      val marker = " = "
+      val at = line.indexOf(marker)
+      if at < 0 then None else Some(line.take(at).trim -> line.drop(at + marker.length).trim)
+    }.toMap
+
+  def verifyAppBundle(
+      pkg: EmittedPackage,
+      bundle: os.Path,
+      buildSettings: Map[String, String],
+      command: String,
+  ): BuiltXcodeApp =
+    val app = pkg.xcodeApp.getOrElse(
+      throw new IllegalArgumentException(s"$command: checked program does not define a NativeUi application"))
+    val macInfo = bundle / "Contents" / "Info.plist"
+    val infoPlist = if os.exists(macInfo) then macInfo else bundle / "Info.plist"
     if bundle.ext != "app" || !os.exists(infoPlist) then
       throw new IllegalStateException(s"$command: Xcode application product missing at $bundle")
     def plist(key: String): String =
-      val result = os.proc("plutil", "-extract", key, "raw", "-o", "-", infoPlist.toString)
-        .call(stdout = os.Pipe, stderr = os.Pipe, check = false)
+      val result = callProcess(
+        List("plutil", "-extract", key, "raw", "-o", "-", infoPlist.toString),
+        None, command, s"Info.plist $key")
       if result.exitCode != 0 then throw new IllegalStateException(s"$command: Info.plist missing $key")
       result.out.text().trim
     val packageType = plist("CFBundlePackageType")
@@ -157,11 +182,95 @@ private[cli] object SwiftV2Cli:
     if packageType != "APPL" || bundleId != app.bundleId || executableName == pkg.debugCli then
       throw new IllegalStateException(s"$command: selected product is not the expected application")
     val executable =
-      if destination.contains("macOS") then bundle / "Contents" / "MacOS" / executableName
+      if infoPlist == macInfo then bundle / "Contents" / "MacOS" / executableName
       else bundle / executableName
     if !os.exists(executable) then
       throw new IllegalStateException(s"$command: application executable missing at $executable")
-    BuiltXcodeApp(bundle, executable, parsed)
+    BuiltXcodeApp(bundle, executable, buildSettings)
+
+  def archiveXcodeApplication(
+      pkg: EmittedPackage,
+      destination: String,
+      archivePath: os.Path,
+      derivedData: os.Path,
+      teamId: String,
+      command: String,
+  ): BuiltXcodeApp =
+    val app = pkg.xcodeApp.getOrElse(
+      throw new IllegalArgumentException(s"$command: checked program does not define a NativeUi application"))
+    if os.exists(archivePath) then os.remove.all(archivePath)
+    val signing = List("-allowProvisioningUpdates", s"DEVELOPMENT_TEAM=$teamId")
+    val settings = queryBuildSettings(
+      pkg, destination, "Release", derivedData, signing, command)
+    val archive = callXcode(
+      archiveArguments(app, destination, archivePath, derivedData, teamId),
+      pkg.root, command, "xcodebuild archive")
+    if archive.exitCode != 0 then
+      throw new IllegalStateException(
+        s"$command: xcodebuild archive failed (exit ${archive.exitCode}): ${archive.err.text().take(2048)}")
+    val appBundle = archivedApplication(archivePath, command)
+    verifyAppBundle(pkg, appBundle, settings, command)
+
+  def archivedApplication(archivePath: os.Path, command: String): os.Path =
+    val info = archivePath / "Info.plist"
+    val result = callProcess(
+      List("plutil", "-extract", "ApplicationProperties.ApplicationPath", "raw", "-o", "-", info.toString),
+      None, command, "xcarchive ApplicationPath")
+    if result.exitCode != 0 then
+      throw new IllegalStateException(s"$command: xcarchive ApplicationPath missing")
+    val raw = result.out.text().trim
+    val relative = Path.of(raw)
+    if raw.isEmpty || relative.isAbsolute || relative.iterator().asScala.exists(_.toString == "..") then
+      throw new IllegalStateException(s"$command: invalid xcarchive ApplicationPath '$raw'")
+    val products = archivePath / "Products"
+    val resolved = os.Path(products.toNIO.resolve(relative).normalize())
+    if !resolved.toNIO.startsWith(products.toNIO.normalize()) then
+      throw new IllegalStateException(s"$command: xcarchive ApplicationPath escapes Products")
+    resolved
+
+  def archiveArguments(
+      app: XcodeAppArtifact,
+      destination: String,
+      archivePath: os.Path,
+      derivedData: os.Path,
+      teamId: String,
+  ): List[String] =
+    List("archive") ++ xcodeSelection(app, destination, "Release", derivedData) ++
+      List("-archivePath", archivePath.toString, "-allowProvisioningUpdates", s"DEVELOPMENT_TEAM=$teamId")
+
+  private[cli] def xcodeSelection(
+      app: XcodeAppArtifact,
+      destination: String,
+      configuration: String,
+      derivedData: os.Path,
+  ): List[String] =
+    List(
+      "-project", app.project, "-scheme", app.scheme,
+      "-configuration", configuration, "-destination", destination,
+      "-derivedDataPath", derivedData.toString,
+    )
+
+  private def callXcode(
+      args: List[String],
+      cwd: os.Path,
+      command: String,
+      purpose: String,
+  ): os.CommandResult =
+    callProcess(List(sys.props.getOrElse("ssc.xcodebuild.command", "xcodebuild")) ++ args,
+      Some(cwd), command, purpose)
+
+  private def callProcess(
+      args: List[String],
+      cwd: Option[os.Path],
+      command: String,
+      purpose: String,
+  ): os.CommandResult =
+    try
+      os.proc(args).call(
+        cwd = cwd.getOrElse(os.pwd), stdout = os.Pipe, stderr = os.Pipe, check = false)
+    catch case _: java.io.IOException =>
+      throw new IllegalStateException(
+        s"$command: ${args.headOption.getOrElse(purpose)} is required for $purpose")
 
 private[cli] def buildV2SwiftPackage(
     sscFile: os.Path,

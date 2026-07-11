@@ -1493,6 +1493,7 @@ final class RunCmd extends CliCommand:
     var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
     var deviceFlag:        Boolean        = false  // --device
     var deviceIdFlag:      Option[String] = None   // --device-id <udid>
+    var teamIdFlag:        Option[String] = None   // --team-id <developer team>
     var v1Flag:            Boolean        = false  // --v1 (rollback to the v1 tree-walking interpreter)
     var v2Flag:            Boolean        = false  // --v2 (force the ssc 2.0 VM via FrontendBridge)
     var nativeFlag:        Boolean        = false  // --native (self-hosted frontend -> v2)
@@ -1525,6 +1526,7 @@ final class RunCmd extends CliCommand:
         case "--rebuild"                   => rebuildFlag  = true
         case "--no-rebuild"                => rebuildFlag  = false
         case "--device"                    => deviceFlag   = true
+        case "--team-id" if it.hasNext    => teamIdFlag = Some(it.next())
         case "--v1"                        => v1Flag       = true
         case "--v2"                        => v2Flag       = true
         case "--native"                    => nativeFlag   = true
@@ -1645,7 +1647,8 @@ final class RunCmd extends CliCommand:
     if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
       rejectProgramArgs("run --target ios")
       if v1Flag then runIosTargets(fileArgs.toList, deviceFlag, deviceIdFlag, consoleFlag, rebuildFlag)
-      else runV2IosTargets(fileArgs.toList, consoleFlag)
+      else runV2IosTargets(
+        fileArgs.toList, consoleFlag, deviceFlag, deviceIdFlag, teamIdFlag, serverUrlFlag)
       return
 
     val noExplicitRunMode =
@@ -1884,28 +1887,50 @@ private[cli] def runIosTargets(files: List[String], device: Boolean, deviceId: O
       runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, console, rebuild)
 
 private[cli] def runV2IosTargets(files: List[String], console: Boolean): Unit =
+  runV2IosTargets(files, console, device = false, None, None, None)
+
+private[cli] def runV2IosTargets(
+    files: List[String],
+    console: Boolean,
+    device: Boolean,
+    deviceId: Option[String],
+    teamId: Option[String],
+    backendBaseUrl: Option[String],
+): Unit =
   try
-    val outDir = os.Path("target/build", os.pwd) / "ios"
-    val (simUdid, simName) = pickIosSimulator().getOrElse {
-      throw new IllegalStateException("run --target ios: no available iOS Simulator")
-    }
-    for file <- files do
-      val emitted = buildV2SwiftPackage(
-        os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS)
-      val built = SwiftV2Cli.buildXcodeApplication(
-        emitted, s"platform=iOS Simulator,id=$simUdid", outDir / "derived", "run --target ios")
-      os.proc("xcrun", "simctl", "boot", simUdid).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-      val install = os.proc("xcrun", "simctl", "install", simUdid, built.bundle.toString)
-        .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
-      if install.exitCode != 0 then throw new IllegalStateException("run --target ios: simulator install failed")
-      val bundleId = emitted.xcodeApp.get.bundleId
-      val launchArgs = if console then List("--console", simUdid, bundleId) else List(simUdid, bundleId)
-      val launch = os.proc(List("xcrun", "simctl", "launch") ++ launchArgs)
-        .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
-      if launch.exitCode != 0 then throw new IllegalStateException(s"run --target ios: launch failed on $simName")
+    if device then
+      val resolvedTeam = SwiftV2Distribution.resolveTeam(teamId, sys.env, "run --target ios --device")
+      SwiftV2Distribution.requireIosDeploy("run --target ios --device")
+      for file <- files do
+        val outDir = os.Path("target/build", os.pwd) / "ios-device"
+        val context = SwiftV2Distribution.context(
+          os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS,
+          backendBaseUrl, "run --target ios --device")
+        SwiftV2Distribution.runIosDevice(
+          context, resolvedTeam, deviceId, console, "run --target ios --device")
+    else
+      val outDir = os.Path("target/build", os.pwd) / "ios"
+      val (simUdid, simName) = pickIosSimulator().getOrElse {
+        throw new IllegalStateException("run --target ios: no available iOS Simulator")
+      }
+      for file <- files do
+        val emitted = buildV2SwiftPackage(
+          os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS,
+          backendBaseUrl = backendBaseUrl)
+        val built = SwiftV2Cli.buildXcodeApplication(
+          emitted, s"platform=iOS Simulator,id=$simUdid", outDir / "derived", "run --target ios")
+        os.proc("xcrun", "simctl", "boot", simUdid).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+        val install = os.proc("xcrun", "simctl", "install", simUdid, built.bundle.toString)
+          .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
+        if install.exitCode != 0 then throw new IllegalStateException("run --target ios: simulator install failed")
+        val bundleId = emitted.xcodeApp.get.bundleId
+        val launchArgs = if console then List("--console", simUdid, bundleId) else List(simUdid, bundleId)
+        val launch = os.proc(List("xcrun", "simctl", "launch") ++ launchArgs)
+          .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
+        if launch.exitCode != 0 then throw new IllegalStateException(s"run --target ios: launch failed on $simName")
   catch case e: Exception =>
     val detail = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
-    val message = if detail.startsWith("run --target ios:") then detail else s"run --target ios: $detail"
+    val message = if detail.startsWith("run --target ios") then detail else s"run --target ios: $detail"
     System.err.println(message)
     System.exit(1)
 
@@ -4754,6 +4779,8 @@ final class PackageCmd extends CliCommand:
     var distributionFlag: Boolean        = false
     var dmgFlag:          Boolean        = true
     var notarizeFlag:     Boolean        = true
+    var notaryProfileFlag: Option[String] = None
+    var notaryTimeoutFlag: Option[String] = None
     var v1Flag:           Boolean        = false
     var v2Flag:           Boolean        = false
     var serverUrlFlag:    Option[String] = None
@@ -4770,6 +4797,8 @@ final class PackageCmd extends CliCommand:
         case "--dmg"                        => dmgFlag           = true
         case "--no-notarize"                => notarizeFlag      = false
         case "--notarize"                   => notarizeFlag      = true
+        case "--notary-profile" if it.hasNext => notaryProfileFlag = Some(it.next())
+        case "--notary-timeout-seconds" if it.hasNext => notaryTimeoutFlag = Some(it.next())
         case "--v1"                         => v1Flag            = true
         case "--v2"                         => v2Flag            = true
         case "--server-url" if it.hasNext  => serverUrlFlag     = Some(it.next())
@@ -4826,13 +4855,50 @@ final class PackageCmd extends CliCommand:
         System.err.println("ssc package: no project file found (pass a name, name.ssc, or run from a project directory)")
         System.exit(1)
       case Some(pf) =>
+        val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
+        val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
+        val explicitV2Apple = !v1Flag && effectiveTarget.exists {
+          case "ios" | "mobile-ios" => true
+          case "macos" | "desktop-macos" => distributionFlag
+          case _ => false
+        }
+        if explicitV2Apple then
+          try
+            os.makeDir.all(outDir)
+            val team = SwiftV2Distribution.resolveTeam(teamIdFlag, sys.env, "ssc package")
+            effectiveTarget.get match
+              case "ios" | "mobile-ios" =>
+                val targetOut = outDir / effectiveTarget.get
+                val context = SwiftV2Distribution.context(
+                  pf, targetOut, _root_.ssc.swift.SwiftPlatform.IOS,
+                  serverUrlFlag, "ssc package --target ios")
+                val ipa = SwiftV2Distribution.packageIos(
+                  context, exportMethodFlag, team, "ssc package --target ios")
+                println(s"  .ipa → ${displayPath(ipa)}")
+              case "macos" | "desktop-macos" =>
+                val timeout = notaryTimeoutFlag.map(_.toInt).getOrElse(900)
+                val profile = notaryProfileFlag.orElse(sys.env.get("SSC_NOTARY_KEYCHAIN_PROFILE"))
+                val targetOut = outDir / effectiveTarget.get
+                val context = SwiftV2Distribution.context(
+                  pf, targetOut, _root_.ssc.swift.SwiftPlatform.MacOS,
+                  serverUrlFlag, "ssc package --target macos --distribution")
+                val result = SwiftV2Distribution.packageMacDeveloperId(
+                  context, team, notarizeFlag, dmgFlag, profile, timeout,
+                  "ssc package --target macos --distribution")
+                result.dmg match
+                  case Some(path) => println(s"  .dmg → ${displayPath(path)}")
+                  case None => println(s"  .app → ${displayPath(result.app)}")
+              case _ => ()
+            return
+          catch case e: Exception =>
+            System.err.println(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+            System.exit(1)
+
         val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(pf)).manifest).toOption.flatten
         val name     = manifest.flatMap(_.name).getOrElse(pf.last.stripSuffix(".ssc"))
-        val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
         val targets  = effectiveTarget.map(List(_))
           .orElse(manifest.map(_.targets).filter(_.nonEmpty))
           .getOrElse(List("ssc"))
-        val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
         os.makeDir.all(outDir)
 
         println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}/")
@@ -4874,6 +4940,7 @@ final class PublishCmd extends CliCommand:
     var apiKeyPathFlag:      Option[String] = None
     var submitForReviewFlag: Boolean        = false
     var releaseNotesFlag:    Option[String] = None
+    var teamIdFlag:          Option[String] = None
     var v1Flag:              Boolean        = false
     var v2Flag:              Boolean        = false
     var serverUrlFlag:       Option[String] = None
@@ -4884,6 +4951,7 @@ final class PublishCmd extends CliCommand:
         case "--target"           if it.hasNext => targetFlag       = Some(it.next())
         case "--api-key-path"     if it.hasNext => apiKeyPathFlag   = Some(it.next())
         case "--release-notes"    if it.hasNext => releaseNotesFlag = Some(it.next())
+        case "--team-id"          if it.hasNext => teamIdFlag = Some(it.next())
         case "--testflight"                     => testflightFlag   = true
         case "--appstore"                       => appstoreFlag     = true
         case "--fastlane"                       => fastlaneFlag     = true
@@ -4908,15 +4976,42 @@ final class PublishCmd extends CliCommand:
 
     val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
 
-    if !v1Flag && effectiveTarget.exists {
+    val v2AppleTarget = !v1Flag && effectiveTarget.exists {
       case "ios" | "mobile-ios" | "macos" | "desktop-macos" => true
       case _ => false
-    } then
-      serverUrlFlag.foreach(_root_.ssc.swift.SwiftBackend.normalizeBackendBaseUrl)
-      System.err.println(
-        s"ssc publish --target ${effectiveTarget.get}: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted"
-      )
-      System.exit(1)
+    }
+    if v2AppleTarget then
+      try
+        val target = effectiveTarget.get
+        val isIos = target == "ios" || target == "mobile-ios"
+        if isIos && !testflightFlag && !appstoreFlag then
+          throw new IllegalArgumentException(
+            "ssc publish --target ios: specify --testflight or --appstore")
+        if !isIos && !appstoreFlag then
+          throw new IllegalArgumentException(
+            "ssc publish --target macos: specify --appstore")
+        val command = s"ssc publish --target ${if isIos then "ios" else "macos"}"
+        val team = SwiftV2Distribution.resolveTeam(teamIdFlag, sys.env, command)
+        val apiKey = SwiftV2Distribution.requireApiKey(apiKeyPathFlag, sys.env, command)
+        SwiftV2Distribution.requireFastlane(command)
+        val output = os.Path("target/publish", os.pwd) / (if isIos then "ios" else "macos")
+        val platform = if isIos then _root_.ssc.swift.SwiftPlatform.IOS else _root_.ssc.swift.SwiftPlatform.MacOS
+        val context = SwiftV2Distribution.context(
+          projectFile, output, platform, serverUrlFlag, command)
+        val (artifact, lane) =
+          if isIos then
+            val ipa = SwiftV2Distribution.packageIos(
+              context, "app-store-connect", team, command)
+            ipa -> (if appstoreFlag then "appstore" else "testflight")
+          else
+            SwiftV2Distribution.packageMacAppStore(context, team, command) -> "mac_appstore"
+        SwiftV2Distribution.runFastlane(
+          context, lane, artifact, apiKey, releaseNotesFlag, submitForReviewFlag,
+          fastlaneFlag, projectFile / os.up, command)
+        return
+      catch case e: Exception =>
+        System.err.println(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+        System.exit(1)
 
     effectiveTarget match
       case Some("ios") | Some("mobile-ios") =>
