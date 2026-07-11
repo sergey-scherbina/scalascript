@@ -61,7 +61,8 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       (--native lane); --v2 FrontendBridge still uses the v1 WebServer (PluginBridge.
       registerWebServer) — separate seam, out of scope. tests/conformance runs via --v2 so it
       does NOT exercise this plugin; the --native e2e is the authoritative validation.
-- [ ] **hf-8 standard-tier cutover:** the hf-5 tools image contains
+- [x] **hf-8 standard-tier cutover — DONE 2026-07-11 (`d503cf856`, spec
+      verification `5f2a736e4`):** the hf-5 tools image contains
       `http-fast-plugin`, but the standard image contains neither the new
       provider nor the retired one. Update staging plus boundary/core-dependency
       artifact discovery; restore `Response.text` under slim/JRE deletion
@@ -69,6 +70,10 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       negative assertion (the fast provider now exits 0) with a positive
       provider check; rerun every v2.1 release gate. Coordinate with the live
       `http-handler-serial-dispatch` claim before editing HTTP provider files.
+      Result: tools/standard stage the fast provider and engine with no retired
+      JAR; dependency closure is 17 roots / 65 edges / 31 JARs / 0 violations;
+      positive VM/ASM middleware, provider, standard, slim, JRE, build-jvm,
+      native-entry, 11/11 conformance, and quick release-ready gates pass.
 - [x] **hf-7 fast engine backs --v2 too** (Sergiy: "сделай это тоже") — DONE. Extracted the
       value-agnostic engine to module httpFastEngine (v1/runtime/http-server/fast-engine, pkg
       unchanged); both v2NativeHttpFastPlugin + the new backend depend on it. New FastServerBackend
@@ -2001,7 +2006,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `Parsed successfully.` and reaches the shared
                               `PMapped/2` gap. Baselines remain 194/194,
                               36/90, parity 23/43/129, blockers 31.
-                        - [ ] **TI-8.2d2t3 storage print gate reconciliation:**
+                        - [x] **TI-8.2d2t3 storage print gate reconciliation —
+                              DONE 2026-07-11 (`befc249d4`, release confirmation
+                              `d503cf856`):**
                               K62.22 deliberately renders nested strings through
                               the parity renderer (`Some(alice)`,
                               `List(user, role)`), matching conformance, while
@@ -2009,6 +2016,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               storage spec still require quoted children. Update
                               only those stale contracts and rerun every affected
                               release gate before the extension-scope push.
+                              Result: assembled native-entry, provider-boundary,
+                              build-jvm smoke/release, slim, JRE, and conformance
+                              gates all accept the canonical unquoted renderer.
                         - [ ] **TI-8.2d2u imported tuple collection match:**
                               K62.19 advances `imports.ssc` beyond its former
                               collection arity boundary to identical VM/ASM

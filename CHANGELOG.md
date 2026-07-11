@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — HTTP fast provider ships in every compiler-free artifact
+
+The standard distribution and deterministic `build-jvm` artifact now include
+the hf-5 fast native provider plus its value-agnostic engine, while the removed
+provider is absent. Dependency/provider gates own and scan both artifacts, the
+engine remains non-ServiceLoader, and native VM/direct ASM positively execute
+`useGzip()`. The focused matrix and consolidated quick release gate are green.
+Landed `d503cf856`; verified in `specs/v2-http-fast.md` hf-8.
+
+## 2026-07-11 — storage release gates use the portable container renderer
+
+Native-entry, provider-boundary, and standalone build-jvm storage assertions
+now match conformance's `Some(alice)` and `List(user, role)` output. The full
+affected release matrix confirmed the reconciliation while closing the HTTP
+standard-tier cutover. Landed `befc249d4`; release confirmation `d503cf856`.
+
 ## 2026-07-11 — SwiftUI persisted and online signals own native Apple resources
 
 Generated Apple stores now load and transactionally commit `persistedSignal`

@@ -219,7 +219,8 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
 
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 
-**Status:** open (2026-07-11); found by codex in the mandatory post-rebase
+**Status:** done (2026-07-11, `befc249d4`; release confirmation
+`d503cf856`); found and confirmed by codex in the mandatory post-rebase
 native-entry run after K62.22 (`d1a7b5451`) intentionally aligned native
 container printing with the parity renderer.
 
@@ -232,13 +233,15 @@ container printing with the parity renderer.
 - **Plan/done-when:** update all three stale exact/grep expectations and the
   storage feature spec, retain the value/order checks, then rerun native-entry,
   plugin-boundary, build-jvm smoke/release, slim/JRE, and conformance gates.
+- **Fix/result:** the three assembled gates now assert `Some(alice)` and
+  `List(user, role)`, matching conformance and
+  `specs/v2.1-native-storage-effect.md`. Native-entry, provider boundary,
+  build-jvm smoke/release, slim, JRE, and fresh conformance all pass.
 
 ## v21-http-fast-standard-tier-cutover — standard image lost its HTTP provider
 
-**Status:** open (2026-07-11); found by codex while running the v2.1 release
-gates after the HTTP-fast default swap (`67158c185`). Ownership overlaps the
-live `http-handler-serial-dispatch` claim, so the fix must coordinate with that
-work before touching the provider.
+**Status:** done (2026-07-11, `d503cf856`); found and confirmed by codex while
+running the v2.1 release gates after the HTTP-fast default swap (`67158c185`).
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`,
   `tests/e2e/v21-native-plugin-boundary-smoke.sh` reports a missing staged
@@ -260,6 +263,11 @@ work before touching the provider.
   retain the forbidden dependency/class-load scans, and rerun native provider,
   core dependency, slim, JRE, standard, build-jvm, native-entry, and
   conformance gates.
+- **Root cause/fix:** the hf-5 module replacement updated the CLI dependency
+  graph but left explicit standard/build-jvm allowlists and artifact-discovery
+  globs on the removed JAR name. Those surfaces now own the fast provider plus
+  its non-provider engine; VM/ASM positively execute `useGzip()`. All focused
+  gates and the quick consolidated self-hosted-core release gate pass.
 
 ## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
 
