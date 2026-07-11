@@ -71,6 +71,10 @@ ssc run-swift  [--target macos] [-- <args...>] <file.ssc>
 `emit-swift` performs checked frontend + CoreIR lowering and writes a Swift
 package without building it. `run-swift` invokes `swift run` and is supported
 for host macOS; iOS execution continues through the simulator/device adapter.
+Both commands accept the existing client setting `--server-url <absolute-url>`.
+The value is generated into UI-mode target configuration and is the only base
+used to resolve relative native HTTP requests; it does not affect domain-mode
+programs that never construct NativeUi.
 
 ### Application commands
 
@@ -82,6 +86,12 @@ ssc run     --target ios|mobile-ios [--device] <file.ssc>
 ssc package --target macos|ios <file.ssc>
 ssc publish --target macos|ios <file.ssc>
 ```
+
+`build`, `run`, `package`, and `publish` accept the same `--server-url` client
+setting for Apple UI targets and validate/normalize it once before generation. A
+manifest/client build setting may provide the same resolved value before this
+backend boundary, but the Swift generator receives one optional value, never a
+list of fallbacks.
 
 For these targets the v2 Swift backend is the default. `--v2` is accepted as an
 explicit spelling of that default. `--v1` is the only compatibility selection
@@ -347,7 +357,7 @@ NativeUiFragment(children)
 NativeUiElement(siteId, tag, attrs, events, children)
 NativeUiForKeyed(siteId, items, keyClosure, renderClosure)
 NativeUiTrustedHtml(siteId, source)
-NativeUiDataTable(siteId, source, columns, actions)
+NativeUiDataTable(siteId, source, columns, actions, rowKeyPath)
 NativeUiUnsupported(feature, sourceRef, detail)
 NativeUiSourceRef(file, line, column, operation)
 ```
@@ -522,7 +532,24 @@ new Apple-only source API. Header signals contain a JSON object of string
 values; malformed JSON or non-string values are deterministic request errors.
 
 Table values preserve the existing descriptor families rather than flattening
-to pre-rendered text:
+to pre-rendered text. The public surface is target-independent and gains only
+backward-compatible defaults:
+
+```scalascript
+dataTableView(source, columns, actions, rowKeyPath = "id")
+staticDataTable(rows, columns, actions = [], rowKeyPath = "id")
+signalDataTable(signal, columns, actions = [], rowKeyPath = "id")
+remoteTable(fetch, columns, rowsPath = "", actions = [], rowKeyPath = "id")
+dataTable(signal, columns, actions = [], rowKeyPath = "id")
+rowPostAction(label, method, url, payload: Any, tick, headers = emptyHeaders)
+rowPost(label, method, url, payload: Any, tick, headers = emptyHeaders)
+```
+
+`DataTableNode` stores `rowKeyPath` so lowering cannot lose the selection.
+Passing the historical String `bodyField` to `rowPostAction`/`rowPost` remains
+equivalent to `fieldPayload(bodyField)`; no existing call site changes meaning.
+
+The ABI descriptors are:
 
 ```text
 NativeUiTableSource(kind = static|signal|fetch, value, rowsPath)
@@ -533,14 +560,127 @@ NativeUiRowAction(kind = delete|post|link|edit,
 NativeUiRowPayload(kind = field|wholeRow|fields, names)
 ```
 
-Rows remain portable `Map[String, Value]` values. macOS and iOS share the same
-descriptor decoding; presentation may use platform-appropriate `Table`/`Grid`
-containers, but ordering, field-path lookup, formatting, action payloads, and
-empty/error behavior are identical. Column `options` preserve date format,
-money currency/locale, status color maps, link templates, stacked sub-fields,
-alignment, and inline-edit descriptors. Row actions preserve path templating,
-headers, id/body fields, refresh signals, and Field/WholeRow/Fields payload
-selection.
+Rows remain portable `Map[String, Value]` values. macOS and iOS use one shared
+`Grid`/`LazyVStack` implementation and one strict descriptor decoder; platform
+conditionals may change spacing only. There is one dotted-path walker for row
+keys, columns, templates, payloads, and edits. A malformed descriptor or row is
+a source-located table error, never a silently dropped field, row, or action.
+
+#### Table row identity
+
+`rowKeyPath` is normalized to `"id"` only when the caller supplies an empty
+string or uses the default. Otherwise the explicit non-empty dotted path wins.
+The resolved key must be a String or an integral scalar (`Int` or exact
+integral `BigInt`). Identity is the pair `(portable scalar type, canonical
+value)`, so `Int(1)` and String `"1"` are distinct. An empty String is invalid.
+Missing, null, empty-String, non-scalar, or duplicate keys reject the complete
+candidate row set with a source-located
+error and retain the last valid rows. Collection indices, action ids, display
+fields, hashes, and object identity are forbidden fallbacks.
+Row-local action state is keyed by the stable row identity plus the action's
+list index; edit state is keyed by the stable row identity plus column index.
+Neither slot participates in row identity.
+
+#### Table sources and states
+
+- `static` resolves its row list immediately. `signal` subscribes through the
+  exact signal capability token and reconciles on semantic changes.
+- `fetch` reuses the existing fetch signal/value/phase/error cells and their
+  ownership generation; a table never starts a second request stack. The
+  response body is parsed as JSON and drilled by `rowsPath`. A non-empty path
+  first tries that explicit dotted path; if it is missing or not an array, the
+  root's built-in envelope keys are tried in exact order `data`, `rows`,
+  `items`, `results`. An empty path accepts a root array before trying the same
+  ordered envelope fallback. Failure of every candidate is one sourced error.
+- The fixed visible copy is `Loading…`, `No rows`, and
+  `Error: <bounded message>`. Loading/error retains and displays the last valid
+  rows when one exists; otherwise it displays the status alone. An idle/done
+  source with zero rows displays `No rows`.
+- A non-array result, non-object row, invalid key, malformed field/options, or
+  JSON parse/drill failure enters sourced `Error` without partially committing
+  a new row set.
+
+#### Column semantics
+
+- Every display field uses the same dotted walker. Missing or Unit renders an
+  empty field; a present compound value is a sourced row error. String is
+  verbatim, Int/BigInt decimal, Bool lowercase, and Decimal uses canonical
+  display text.
+- Date accepts RFC3339/ISO-8601 date-time input or exact `yyyy-MM-dd`. Empty
+  format uses a medium date with no time; `short`, `medium`, `long`, and `full`
+  select the corresponding date
+  style with no time; every other non-empty string is a Unicode-TR35 pattern.
+  Formatting uses injectable `Locale.current` and `TimeZone.current` defaults.
+  Parse failure renders the original scalar text.
+- Money accepts Int, BigInt, Decimal, finite Float, or a String parseable as a
+  locale-independent decimal. It uses the non-empty ISO-4217 currency (default
+  `USD`) and the declared locale identifier, or injectable `Locale.current`
+  when locale is empty. An unparseable String renders its original text; an
+  invalid currency/locale or unsupported present value is a sourced error.
+- Status requires scalar text. Unit/missing renders empty. `colorMap` is Unit
+  or a String-to-String map; keys match status text exactly. An unmapped status
+  renders neutral text with no badge background. A mapped color must use the
+  shared native color grammar: `black|white|red|green|blue|gray|grey`,
+  `transparent|none`, 3/6-digit hex, or bounded `rgba(r,g,b,a)`; malformed maps
+  or colors are sourced errors. RGB components are decimal `0...255` and alpha
+  is decimal `0...1`.
+- Stacked requires exactly one non-empty dotted `subFieldPath` and renders the
+  main value plus that one subordinate scalar line. A missing, Unit, or empty
+  subordinate value omits the second line and renders the plain one-line cell;
+  lists of subpaths are not accepted. Alignment accepts exactly empty,
+  `start`, `left`, `center`, `end`, or `right`: empty/`start`/`left` normalize
+  to leading and `end`/`right` to trailing. Every other value is a sourced
+  descriptor error on both Apple platforms.
+- A link column with an empty template treats the resolved field as the target.
+  A non-empty template replaces every `:value` occurrence with the field text
+  percent-encoded as one URL component. The final target uses the shared safe
+  external-URL policy: absolute `http`/`https` requires a host and `mailto`
+  requires a meaningful recipient; all other schemes and malformed targets
+  are non-tappable and produce a sourced table error before handoff.
+
+#### Row requests, payloads, and edits
+
+Row request URL substitution happens before base resolution. Every `/:field`
+token resolves the named dotted row path to a scalar and percent-encodes it as
+exactly one path segment; a missing/non-scalar token fails before transport.
+After substitution an absolute `http`/`https` URL with a host is unchanged. A
+root-relative or relative URL is resolved by Foundation against the sole
+generated `--server-url`, which itself must be absolute `http`/`https` with a
+host and must not contain credentials, query, or fragment. Generation forces a
+trailing slash on the base path so it always has directory semantics: `/x`
+resolves from the origin root, while `x` resolves beneath that normalized base
+directory using Foundation URL semantics. Scheme-relative targets,
+credentials, fragments, a relative request without a configured base, and
+localhost inference are rejected.
+
+Payload descriptors are decoded exactly:
+
+- `Field(name)` requires one non-empty dotted name and sends that resolved
+  scalar as canonical UTF-8 text: String verbatim, Int/BigInt decimal, and Bool
+  as `true`/`false`; Unit and compound values are rejected;
+- `WholeRow` sends the complete row as JSON;
+- `Fields(names)` requires a non-empty list of unique non-empty dotted names
+  and sends JSON whose keys are the exact declared path strings and whose
+  values are the resolved values.
+
+Missing paths, non-JSON values, malformed names, headers, URL, or method fail
+before transport and cannot bump refresh. Delete preserves its specified
+id-field canonical UTF-8 scalar request body. WholeRow, Fields, and edit JSON
+requests add `Content-Type: application/json` only when no caller header with a
+case-insensitive `Content-Type` name is present. `rowLinkAction` is local
+selection: it writes the exact dotted scalar text to its authenticated target
+signal and performs no network or external navigation.
+
+Inline edit looks up both id and field through dotted paths but uses the exact
+descriptor strings as JSON object keys. Each focus acquisition creates one
+monotonic edit revision. Enter or blur atomically consumes that revision before
+starting transport; the other callback for the same focus revision is ignored,
+irrespective of callback order or request outcome. Re-focus creates a new
+revision. Row post/delete/edit execution reuses the existing exact-capability
+request runner with per-row/action status,
+canonical descriptor signatures, UUID/generation checks, owner cancellation,
+2xx-only refresh, and late-completion rejection; a second networking engine is
+forbidden. Table/root/key disposal cancels owned work.
 
 ### Component scopes and keyed reconciliation
 
@@ -765,6 +905,13 @@ manifest explicitly requests SwiftUI), never by attempting a v1 parse after a
 failure. Generated source cleanup is target-scoped so changing modes cannot
 leave the old entry point in the new target.
 
+The generator also emits one immutable optional backend base URL into the
+Apple target configuration. It is the already-resolved `--server-url`/client
+build setting, validated during generation as absolute `http` or `https` with
+a host. `NativeUiStore` receives it explicitly; AppCore and the portable
+`NativeUiRootConfig` do not read process environment, infer localhost, or own a
+second base-URL source.
+
 The iOS adapter invokes `xcodebuild -project <AppName>.xcodeproj -scheme
 <AppName>` with an iOS Simulator/device destination, derived-data path, and the
 existing signing/team flags. It locates the application target's produced
@@ -861,6 +1008,12 @@ behavior.
   specified semantics on macOS and iOS.
 - [ ] Fetch/form/model/table state is reactive and cancels obsolete work.
 - [x] Unsupported native features produce deterministic source diagnostics.
+- [ ] Native tables decode static/signal/fetch sources transactionally, keep
+  stable explicit dotted row identity, and share exact rendering semantics on
+  macOS and iOS.
+- [ ] Field/WholeRow/Fields row payloads, relative URL resolution, column
+  formatting, link safety, inline-edit dedupe, 2xx refresh, and cancellation
+  match the frozen table contract under strict Swift 6 execution.
 
 ### Apple end to end
 
@@ -889,6 +1042,28 @@ cd <worktree> && tests/conformance/run.sh --only 'v2-*'
 Generator unit tests pin escaping, identifiers, structural lowering, package
 metadata, and negative diagnostics. Acceptance always includes executing or
 building generated Swift; snapshot/string tests alone are insufficient.
+
+The table slice adds a generated Swift 6 executable probe with a controllable
+`URLProtocol`: static/signal/fetch envelopes and failures, explicit identity,
+dotted columns, all payload modes, path/base resolution, exact bodies/headers,
+link safety, edit dedupe, 2xx refresh, generation cancellation, last-good-row
+retention, and disposal execute on macOS. The same Apple table/store/renderer
+sources must also type-check for an installed iOS SDK; when no iOS SDK is
+available locally the skip is recorded and the CI iOS compile remains required.
+The focused ScalaTest cases are named and remain independently runnable:
+
+- `native table ABI decodes five fields and rejects malformed payloads`;
+- `native table sources apply rowsPath fallback and retain exact states`;
+- `native table columns format dotted values deterministically`;
+- `native table row identity rejects missing empty compound and duplicates`;
+- `native table actions emit exact request bytes and lifecycle transitions`;
+- `native table generated Swift runs on macOS and typechecks for iOS`.
+
+Together they pin the five-field ABI and payload-negative matrix; all source
+kinds/fallback/status copy; date/money/status/link/stacked/alignment behavior;
+typed key identity; URL substitution/base validation; headers/body bytes;
+link/edit/post/delete behavior; generation ownership and cancellation; strict
+Swift 6 warnings-as-errors execution on macOS and compile on iOS.
 
 ## Implementation order
 

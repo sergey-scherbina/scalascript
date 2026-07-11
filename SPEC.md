@@ -1626,7 +1626,7 @@ Discovery via `ServiceLoader` (in-process JARs) or `plugin.yaml` (subprocess).
 | `node` | Node.js | `ssc run --backend node`, `bin/ssc-node` | Self-contained `.cjs` bundle for `node` | Extends JsGen with verbatim linking of `node.js` opaque-exec blocks (§ 3.3) and a Node-side `_output` flush epilogue. v1.25 Phase 3. |
 | `scalajs-spa` | Scala.js SPA bundle | `ssc emit-spa` | Self-contained HTML + JS bundle | Cross-compiles `scala` blocks via Scala.js for browser execution. |
 | `wasm` | WebAssembly (Scala.js) | `ssc emit-wasm` | `.wasm` module + JS glue | Re-uses Scala.js's WASM emission path. |
-| `swift` | Swift / Apple native | `ssc emit-swift`, `ssc build --target macos\|ios` | Swift Package (`AppCore` plus SwiftUI app target when UI is present) | Consumes checked v2 CoreIR, applies portable Decimal/Money/effect/UI lowering, and never falls back to v1 JvmGen. macOS and iOS share source semantics. See `specs/v2-swift-swiftui-native.md`. |
+| `swift` | Swift / Apple native | `ssc emit-swift`, `ssc build --target macos\|ios` | Swift Package (`AppCore` plus SwiftUI app target when UI is present) | Consumes checked v2 CoreIR, applies portable Decimal/Money/effect/UI lowering, and never falls back to v1 JvmGen. macOS and iOS share source semantics. Apple UI commands accept `--server-url <absolute-http(s)-url>` as the sole generated base for relative native HTTP requests. See `specs/v2-swift-swiftui-native.md`. |
 | `spark` | Apache Spark | `ssc run --backend spark`, `bin/ssc-spark` | Scala 3 + Spark source → `scala-cli run --dep org.apache.spark::spark-{core,sql}:<v>` | Out-of-process — Spark JARs resolved at runtime by Coursier. v1.21 `Dataset[T]` API maps 1-to-1. § 9.5. |
 
 `ssc --list-backends` enumerates in-process bundled backends discovered via `ServiceLoader`.
@@ -2204,8 +2204,10 @@ ssc preview file.ssc            Preview component variants
 ssc emit-js file.ssc            Transpile to JavaScript
 ssc emit-spa file.ssc           Emit SPA HTML bundle
 ssc emit-wasm file.ssc          Emit WebAssembly module via Scala.js
-ssc emit-swift file.ssc         Emit checked-v2 CoreIR as a Swift Package
-ssc run-swift file.ssc          Build and run the generated AppCore product on macOS
+ssc emit-swift [--server-url URL] file.ssc
+                                 Emit checked-v2 CoreIR as a Swift Package
+ssc run-swift [--server-url URL] file.ssc
+                                 Build and run the generated AppCore product on macOS
 ssc emit-wc file.ssc            Emit Web Components bundle
 ssc emit-spark file.ssc         Emit Scala 3 + Spark source
 ssc submit file.ssc             Build fat JAR + invoke spark-submit (§ 9.5 Phase B.2)
@@ -2217,10 +2219,16 @@ ssc emit-interface file.ssc     Emit .scim interface
 ssc emit-ir file.ssc            Emit .scir normalized IR
 ssc build-jvm file.ssc -o app.jar
                                  Native frontend + CoreIR → direct ASM executable JAR (§ 9.2.1)
-ssc build --target macos file.ssc
+ssc build --target macos [--server-url URL] file.ssc
                                  Native frontend + CoreIR → Swift/SwiftUI macOS package
-ssc build --target ios file.ssc
+ssc build --target ios [--server-url URL] file.ssc
                                  Native frontend + CoreIR → Swift/SwiftUI iOS package
+ssc run --target macos|ios [--server-url URL] file.ssc
+                                 Build and launch the generated Apple application
+ssc package --target macos|ios [--server-url URL] file.ssc
+                                 Package the generated Apple application product
+ssc publish --target macos|ios [--server-url URL] file.ssc
+                                 Publish the generated Apple application product
 ssc link [--backend B] dir/     Link artifacts
 ssc build [--incremental] dir/  Incremental project build
 ssc deps file.ssc               Print import closure
