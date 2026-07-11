@@ -11,7 +11,9 @@ provider advanced `storage-demo.ssc` into `bumpCounter`.
   `__str_toInt` call; VM later reports `i->str: not Int`, direct ASM reports
   `expected Int, got "01"`.
 - **Expected:** zero-argument selected `.toInt` lowers through the existing
-  portable `__str_toInt` helper on both lanes before arithmetic.
+  portable `__method__("toInt", receiver)` contract on both lanes before
+  arithmetic. Unlike the String-only `__str_toInt` helper, method dispatch also
+  preserves established numeric receiver conversions and normal parse failure.
 - **Plan/done-when:** add a focused dynamic String conversion fixture (including
   an Option/getOrElse receiver), repair selector lowering without changing
   numeric `.toString`, rerun `storage-demo.ssc` and every native release gate,

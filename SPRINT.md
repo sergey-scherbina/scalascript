@@ -1498,10 +1498,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               22/40/52 and all gates pass.
                         - [ ] **TI-8.2d2o dynamic String `.toInt`:** preserve
                               selected zero-argument `.toInt` in CoreIR by
-                              routing through the existing `__str_toInt` helper.
-                              Cover a direct dynamic String and an Option/
-                              getOrElse receiver on VM/direct ASM, then rerun the
-                              Storage example and all release gates.
+                              routing it through the existing portable
+                              `__method__("toInt", receiver)` contract. This is
+                              preferable to the String-only `__str_toInt` helper:
+                              method dispatch retains String/Int/Float/BigInt/
+                              Decimal conversion semantics instead of erasing
+                              unknown receivers or defaulting parse failure to
+                              zero. Cover a direct dynamic String, an Option/
+                              getOrElse receiver, and a numeric receiver on VM/
+                              direct ASM, then rerun the Storage example and all
+                              release gates.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
