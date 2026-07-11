@@ -68,10 +68,14 @@ advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
 - **Expected:** source-level unit types/literals used by the imported layout
   parser lower to the portable unit value and never become a value-level global
   named `Unit`.
+- **Root cause:** `parseMatchArm` reuses the general `skipTypeAnnot`, whose
+  depth-zero stop set does not contain `=>` or a guard `if`. For
+  `case ic: IndentContext => ic.currentLevel`, it consumes the arrow and body up
+  to `}`; `parseArmBody` then sees no statements and synthesizes `uid Unit`.
 - **Plan/done-when:** isolate the owning imported declaration in a multi-file
-  fixture, specify the portable unit boundary if current specs do not cover it,
-  fix native parsing/lowering, and rerun the YAML-like example plus release
-  gates.
+  typed-pattern fixture, specify a pattern-specific type boundary that preserves
+  nested delimiters but stops at `=>`/guard, eliminate the false `Unit` global,
+  and rerun the YAML-like example plus release gates.
 
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
 

@@ -1778,14 +1778,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               fixture, preserve the evaluator's existing mapping
                               semantics without a host parser special case, and
                               rerun every parser DSL plus release gates.
-                        - [ ] **TI-8.2d2t portable unit lowering:** after
+                        - [ ] **TI-8.2d2t typed-pattern type boundary:** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances
                               to identical VM/ASM `unbound global: Unit`. Isolate
-                              the imported layout-parser declaration that leaks
-                              the type/literal as a value global, add a
-                              multi-file regression, preserve portable `UnitV`
-                              semantics, and rerun the YAML-like example plus
-                              all release gates.
+                              the imported layout-parser declaration: the general
+                              type-annotation scanner currently consumes a
+                              pattern's `=>` and body, so an empty arm fabricates
+                              `uid Unit`. Add a depth-aware pattern-type scanner
+                              that stops at `=>`/guard, a multi-file regression,
+                              and rerun the YAML-like example plus all release
+                              gates.
                         - [ ] **TI-8.2d2u imported tuple collection match:**
                               K62.19 advances `imports.ssc` beyond its former
                               collection arity boundary to identical VM/ASM
