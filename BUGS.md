@@ -1,5 +1,28 @@
 # Bug tracker
 
+## v21-http-fast-standard-tier-cutover — standard image lost its HTTP provider
+
+**Status:** open (2026-07-11); found by codex while running the v2.1 release
+gates after the HTTP-fast default swap (`67158c185`). Ownership overlaps the
+live `http-handler-serial-dispatch` claim, so the fix must coordinate with that
+work before touching the provider.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`,
+  `tests/e2e/v21-native-plugin-boundary-smoke.sh` reports a missing staged
+  `scalascript-v2-native-http-plugin`; `tests/e2e/v21-core-dependency-gate-smoke.sh`
+  expects the same retired JAR. `tests/e2e/v21-slim-distribution-gate.sh` and
+  `tests/e2e/v21-jre-module-gate.sh` both fail with `unhandled runtime effect:
+  Response.text` because `http-fast-plugin` is present in tools `jars/` but not
+  standard `jars/`.
+- **Expected:** the default HTTP-fast provider is staged into both tools and
+  standard images; boundary/dependency gates discover its new artifact name;
+  slim and module-limited HTTP response fixtures pass without the retired
+  provider.
+- **Plan/done-when:** update standard staging and all provider/dependency gate
+  ownership from `http-plugin` to `http-fast-plugin`, retain the forbidden
+  dependency/class-load scans, and rerun native provider, core dependency,
+  slim, JRE, standard, build-jvm, native-entry, and conformance gates.
+
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
 
 **Status:** open (2026-07-11); found by codex after native `case object`
