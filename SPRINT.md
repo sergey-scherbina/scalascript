@@ -1396,6 +1396,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               dictionary-sentinel gap; Mirror derives stays
                               honest. Corpus/parity/taxonomy remain 33/93,
                               14/54/127, and 42 blockers; conformance is 11/11.
+                        - [ ] **TI-8.2d2k nested-pattern arm fallback:** lower
+                              nested constructor obligations with an ordered
+                              fallback to later outer arms when an inner tag
+                              does not match, preserving once-evaluated scrutinee
+                              and de Bruijn scope under every bound field. Cover
+                              repeated outer tags with `Some`/`None`, deeper
+                              nesting, and wildcard fallback on VM/direct ASM;
+                              rerun `typed-data.ssc`, then require native-entry,
+                              corpus, strict parity, both taxonomies, and fresh
+                              affected conformance before removing its blocker.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
