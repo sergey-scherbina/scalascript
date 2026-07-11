@@ -1303,6 +1303,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Result: focused loops and the full extension
                               example run on both lanes; corpus is 32/94, strict
                               parity 13/56/126, and blockers shrink to 44.
+                        - [ ] **TI-8.2d2h layout given-object bodies:** make
+                              newline-after-`with` open the existing layout block
+                              so named `given name: TC[T] with` methods are parsed,
+                              emitted under their static prefix, and callable as
+                              properties/functions. Cover multiple methods and
+                              multiple givens on VM/direct ASM, rerun
+                              `typeclass.ssc`, and distinguish the later top-level
+                              `summon[...]` gap before changing taxonomy.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
