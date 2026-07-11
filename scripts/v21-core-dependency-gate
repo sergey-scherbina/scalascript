@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Classify the ScalaScript 2.1 standard v2 runtime roots and reject parser/codec
 # dependencies from the permanent Scala 3 seed and pure core. Feature plugins
-# may temporarily report parser edges during the self-hosting migration; the
-# final cutover runs with --strict-parsers and rejects those edges too.
+# may declare their own external codecs, but those implementation JARs are not
+# part of the closed standard layout unless a separately packaged plugin owns
+# them. The final cutover runs with --strict-parsers as an extra root-reference
+# check after all migration parser JARs have left that layout.
 set -euo pipefail
 export LC_ALL=C
 
@@ -23,7 +25,7 @@ usage() {
 usage: scripts/v21-core-dependency-gate [options]
   --jars DIR          staged standard JAR directory
   --report PATH       write stable TSV report (default: temporary file)
-  --strict-parsers    reject parser/codec dependencies in plugins too
+  --strict-parsers    reject parser/codec references in staged plugin roots too
   --require-closed-layout
                       reject every staged JAR outside declared standard ownership
                       (roots, jdeps closure, and named reflective plugin deps;
@@ -128,10 +130,6 @@ declare -a root_specs=(
 # closed distribution still needs an explicit owner for every one of them.
 # Keep the list exact: a newly staged JAR remains a hard failure until reviewed.
 declare -a reflective_specs=(
-  'feature-plugin|sql-plugin|geny_3-*.jar'
-  'feature-plugin|sql-plugin|ujson_3-*.jar'
-  'feature-plugin|sql-plugin|upickle-core_3-*.jar'
-  'feature-plugin|sql-plugin|upack_3-*.jar'
   'feature-plugin|sql-plugin|HikariCP-*.jar'
   'feature-plugin|sql-plugin|checker-qual-*.jar'
   'feature-plugin|sql-plugin|h2-*.jar'
@@ -142,7 +140,6 @@ declare -a reflective_specs=(
   'feature-plugin|sql-plugin|scalascript-backend-config-runtime_*.jar'
   'feature-plugin|sql-plugin|scalascript-backend-typed-data-runtime_*.jar'
   'feature-plugin|sql-plugin|scalascript-markup-core_*.jar'
-  'feature-plugin|sql-plugin|scalascript-wire-core_*.jar'
   'feature-plugin|sql-plugin|scalascript-yaml_*.jar'
 )
 

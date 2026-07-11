@@ -1415,8 +1415,7 @@ lazy val cli = project
         "scalascript-v2-native-ui-plugin_", "scalascript-v2-native-state-effect-plugin_",
         "scalascript-backend-sql-runtime_", "scalascript-backend-config-runtime_",
         "scalascript-backend-typed-data-runtime_", "scalascript-markup-core_",
-        "scalascript-yaml_", "scalascript-wire-core_",
-        "ujson_3-", "upickle-core_3-", "upack_3-", "geny_3-",
+        "scalascript-yaml_",
         "HikariCP-", "h2-", "sqlite-jdbc-", "postgresql-", "checker-qual-",
         "slf4j-api-", "slf4j-simple-"
       )
