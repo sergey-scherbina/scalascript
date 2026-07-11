@@ -38,8 +38,7 @@ full strict parity sweep.
 ## fast-http-session-cookie — successful setSession response loses Set-Cookie
 
 **Status:** fixed (2026-07-11); reported and confirmed by busi immediately
-after pinning the hf-7 `--v2` fast backend. Fix commit: `5c89150b6` (subject to
-final rebase SHA).
+after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
 
 - **Real-harness repro:** assemble `bin/ssc`, boot busi's `src/v2/http/hub.ssc`
   on `--v2`, and submit the displayed code to `POST /pair`. The response is 200
