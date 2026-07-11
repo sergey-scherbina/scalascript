@@ -69,6 +69,23 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   `rest-validate` INT/JS/JVM, assembled paired Vault 11-step/restart/leakage
   check, and canonical busi fast-backend Chromium 6/6 in 1.9 minutes.
 
+## v2-swiftui-online-component-scope-split — onlineSignal is not process-wide
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of the persisted/online Apple slice.
+
+- **Real-harness repro:** call `onlineSignal()` from two component/keyed scopes.
+  Host creates two scope-local `__online__` cells. After the first owner receives
+  `false`, a later owner of the second copy starts at default `true`; because the
+  monitor is already active it receives no immediate replay and stays wrong until
+  the next path transition.
+- **Expected:** `onlineSignal` is one process/root-scoped signal, matching the
+  frozen spec and JS/JVM singleton behavior; every owner observes current state,
+  and only the last exact token cancels the single monitor.
+- **Plan/done-when:** force online construction to the root signal key (or an
+  equivalent singleton identity) and gate two component/keyed owners, late-owner
+  current-value visibility, one monitor, and exact last-owner cancellation.
+
 ## v2-swiftui-persisted-cell-dependent-journal — persisted writes can miss UserDefaults
 
 **Status:** open (2026-07-11); reported by `nativeui-reviewer` in the

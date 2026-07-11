@@ -608,11 +608,15 @@ there before changing this plan.
                         so a queued old callback is inert after cancel/restart;
                   - [ ] let active computed/equality dependencies own online
                         monitoring and release it on their last token;
+                  - [ ] make `onlineSignal()` one process/root-scoped cell across
+                        component/keyed owners and replay current state to a late
+                        owner without another path transition;
                   - [ ] make wrong-type persisted writes atomic and prove the
                         in-memory String/defaults remain unchanged.
                   Bugs: `v2-swiftui-persisted-cell-dependent-journal`,
                   `v2-swiftui-online-stale-monitor-generation`,
-                  `v2-swiftui-online-derived-owner-gap`, and
+                  `v2-swiftui-online-derived-owner-gap`,
+                  `v2-swiftui-online-component-scope-split`, and
                   `v2-swiftui-persisted-wrong-type-corruption` in `BUGS.md`.
             - [ ] **native tables and row actions** — decode static/signal/fetch
                   sources, column options/field paths and row payloads into the
