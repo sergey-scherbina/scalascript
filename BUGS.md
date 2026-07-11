@@ -1,5 +1,58 @@
 # Bug tracker
 
+## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` during the first
+read-only Apple store/renderer review in Rozum.
+
+- **Real-harness repro:** generate a root containing trusted HTML, a data table,
+  an unknown semantic tag/style, or an unimplemented event. The draft renderer
+  shows raw markup as `Text`, shows a fake “Native data table”, ignores the
+  action/style, or converts a malformed list/map to empty output.
+- **Expected:** implemented inventory entries have their exact native semantics;
+  every deferred, malformed, or unknown semantic value becomes a deterministic
+  sourced `NativeUiUnsupported` presentation. Silent ignore/fake success is
+  forbidden.
+- **Plan/done-when:** make the core renderer strict and use explicit Unsupported
+  stubs for the separate actions/tables/WKWebView slice; add generated inventory
+  and malformed-value gates before replacing each stub with real semantics.
+
+## v2-swiftui-keyed-owner-lifecycle — deleted keys retain and resurrect component state
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` during the first
+read-only Apple store/renderer review in Rozum.
+
+- **Real-harness repro:** the draft Swift renderer invokes a keyed render
+  closure directly and relies only on SwiftUI `ForEach`; `NativeUiHost`
+  stores signals by `(scope,id)` and has no structural owner transaction,
+  scope refcounts, rollback, or deletion. Removing then reinserting a key can
+  reuse stale component signals, while duplicate/non-String keys are silently
+  dropped/coerced.
+- **Expected:** Host-owned begin/commit/rollback/delete transactions use the
+  frozen root/owner/site/occurrence path, preserve moved keys, dispose a scope
+  after its last owner, and create fresh state after committed deletion. Store
+  orchestrates those calls and removes returned observation/dependency keys.
+- **Plan/done-when:** expose the transaction across `NativeUiSession`, render
+  keyed entries provisionally, retain the last committed tree on error, reject
+  the first duplicate/non-String key, and pass executable Swift
+  insert/move/update/delete/reinsert/rollback probes.
+
+## v2-swiftui-unobserved-signal-read — dynamic nodes do not rerender
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` during the first
+read-only Apple store/renderer review in Rozum.
+
+- **Real-harness repro:** only `NativeUiSignalTextView` owns an
+  `@ObservedObject` cell/token. Show conditions, keyed item signals,
+  value/checked bindings, and signal-backed style/attribute reads call
+  `store.read` directly, so a write does not invalidate those view subtrees.
+- **Expected:** every rendered signal read is owned by a stable observed cell
+  and exact appearance token; first/last subscriptions activate/release
+  dependencies and rerender only the affected subtree.
+- **Plan/done-when:** route each dynamic node/binding/style seam through a small
+  observed wrapper and pin token/revision behavior with executable Swift probes
+  plus real SwiftUI typecheck.
+
 ## v2-swiftui-dependent-double-publish — one dependency write advances a computed cell twice
 
 **Status:** open (2026-07-11); found by codex while implementing the generated

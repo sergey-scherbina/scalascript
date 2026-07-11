@@ -388,12 +388,24 @@ there before changing this plan.
             The real generated-Swift gate must pin stable cell identity,
             semantic-equal suppression, direct/transitive invalidation, and
             exact opaque-token subscribe/unsubscribe ownership before review.
+            Route every dynamic Show/keyed/binding/style read through an
+            observed cell/token wrapper; direct `store.read` in a rendered
+            subtree is not reactive and is tracked as
+            `v2-swiftui-unobserved-signal-read`.
       - [ ] **v2-swiftui-recursive-renderer** — emit
             `NativeUiRenderer.swift`/`NativeUiStyles.swift`; recursively decode
             text/signal/show/fragment/element/forKeyed/unsupported and the exact
             lowerer tag/style/accessibility inventory into SwiftUI. Preserve
             structural ids and key moves; unknown semantic input renders the
             sourced Unsupported diagnostic instead of disappearing.
+            Keyed render must cross a `NativeUiSession` API into Host-owned
+            provisional owner transactions (component scopes/signals are born
+            there), with Store-orchestrated commit/rollback/delete observation
+            cleanup. Gate duplicate/non-String keys, move/delete/fresh
+            reinsertion, shared-scope refcounts, and rollback using executable
+            generated Swift. Until the next slice, actions/tables/WKWebView and
+            any unimplemented inventory entry render explicit sourced
+            Unsupported—not no-op/fake semantics.
       - [ ] **v2-swiftui-actions-tables-html** — add control bindings and ordered
             set/input/toggle/increment/navigation/fetch/form success actions,
             native table/column/row-action decoding, persisted/online state, and
