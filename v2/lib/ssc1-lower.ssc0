@@ -650,7 +650,14 @@ def buildMapExpr = (args) =>
 -- Resolve a method call obj.method(rargs) — obj and rargs already resolved
 def resolveMethodCall = (robj, method, rargs) =>
   if isExtensionMethod(method) then
-    Pair("app", Pair(Pair("var", method), Cons(robj, rargs)))
+    -- Extension names are collected over the whole imported module closure,
+    -- but Scala member selection is receiver-owned: a real List.map (or any
+    -- other runtime method) wins over an unrelated imported extension with the
+    -- same name. Keep the extension closure as the final fallback argument so
+    -- the shared runtime can make that type-erased choice generically.
+    Pair("prim", Pair("__methodOrExt__",
+      Cons(Pair("str", method),
+        Cons(robj, appendL(rargs, Cons(Pair("var", method), Nil))))))
   else if #seq(method, "charAt") then
     match rargs {
       case Cons(idx, idxRest) =>
@@ -2253,19 +2260,23 @@ def lowerBlock = (scope, stmts) =>
                 }
             }
           else if #seq(tag, "tuppat") then
-            -- val (n1, n2) = expr  →  let _tup = expr in let n1 = _sel__1(_tup) in rest
-            -- Only the first binding (n1) is surfaced; n2/_/etc are treated as ignored
-            -- De Bruijn: after IrLet([expr]) _tup=L0; after IrLet([_sel__1(L0)]) n1=L0 _tup=L1
+            -- val (n1, n2, …) = expr  →  evaluate expr once, then bind every
+            -- component through the matching portable tuple selector. Each new
+            -- binding shifts the saved tuple deeper in the de Bruijn scope, so
+            -- resolve it by name instead of retaining a stale local index.
             match data {
               case Pair(names, expr) =>
-                match names {
-                  case Cons(n1, namesRest) =>
-                    IrLet(Cons(lowerE(scope, expr), Nil),
-                      IrLet(Cons(IrApp(IrGlobal("_sel__1"), Cons(IrLocal(0), Nil)), Nil),
-                        lowerBlock(Cons(n1, Cons("__tup", scope)), rest)
-                      )
-                    )
-                }
+                let rec bindTuple = (ns, idx, bindScope) =>
+                  match ns {
+                    case Nil => lowerBlock(bindScope, rest)
+                    case Cons(nm, more) =>
+                      IrLet(
+                        Cons(IrApp(IrGlobal(#sconcat("_sel__", #i->str(idx))),
+                          Cons(lookupVar(bindScope, "__tup"), Nil)), Nil),
+                        bindTuple(more, #i.add(idx, 1), Cons(nm, bindScope)))
+                  } in
+                IrLet(Cons(lowerE(scope, expr), Nil),
+                  bindTuple(names, 1, Cons("__tup", scope)))
             }
           else lowerBlock(scope, rest)
       }
