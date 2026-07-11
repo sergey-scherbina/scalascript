@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Join standard VM/ASM parity with the reviewed ScalaScript 2.1 runtime/provider
+# manifest. Backend agreement is not success: every both-fail row needs an owner.
+set -euo pipefail
+export LC_ALL=C
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+  echo 'v21-runtime-taxonomy: cannot locate repository root' >&2
+  exit 2
+}
+
+parity_report="$ROOT/target/v21-standard-bc-parity-current.tsv"
+sentinel_report="$ROOT/target/v21-sentinel-taxonomy-current.tsv"
+manifest="$ROOT/tests/fixtures/v21-runtime-taxonomy/manifest.tsv"
+limits="$ROOT/tests/fixtures/v21-runtime-taxonomy/category-limits.tsv"
+report="$ROOT/target/v21-runtime-taxonomy-current.tsv"
+
+usage() {
+  echo 'usage: scripts/v21-runtime-taxonomy [--parity-report PATH] [--sentinel-report PATH] [--manifest PATH] [--limits PATH] [--report PATH]'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --parity-report) parity_report=$2; shift 2 ;;
+    --sentinel-report) sentinel_report=$2; shift 2 ;;
+    --manifest) manifest=$2; shift 2 ;;
+    --limits) limits=$2; shift 2 ;;
+    --report) report=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "v21-runtime-taxonomy: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+for input in "$parity_report" "$sentinel_report" "$manifest" "$limits"; do
+  [[ -f "$input" ]] || { echo "v21-runtime-taxonomy: missing input: $input" >&2; exit 2; }
+done
+
+mkdir -p "$(dirname -- "$report")"
+summary=$(mktemp "${TMPDIR:-/tmp}/v21-runtime-taxonomy-summary.XXXXXX")
+rows=$(mktemp "${TMPDIR:-/tmp}/v21-runtime-taxonomy-rows.XXXXXX")
+trap 'rm -f "$summary" "$rows"' EXIT HUP INT TERM
+
+if ! awk -F '\t' -v OFS='\t' -v summary="$summary" '
+  BEGIN {
+    expectedBlocker["language-runtime"]="yes"
+    expectedBlocker["standard-provider"]="yes"
+    expectedBlocker["optional-provider"]="no"
+    expectedBlocker["example-contract"]="yes"
+    expectedBlocker["tools-backend"]="no"
+  }
+  FILENAME == ARGV[1] {
+    if (FNR == 1) next
+    file=$1; category=$2; blocker=$3; owner=$4; reason=$5
+    if (file == "") next
+    if (file in manifestCategory) {
+      print "duplicate manifest row: " file > "/dev/stderr"; bad=1; next
+    }
+    if (!(category in expectedBlocker)) {
+      print "invalid manifest category: " file "=" category > "/dev/stderr"; bad=1
+    } else if (blocker != expectedBlocker[category]) {
+      print "invalid blocker decision: " file "=" category "/" blocker > "/dev/stderr"; bad=1
+    }
+    if (owner == "" || reason == "") {
+      print "missing owner/reason: " file > "/dev/stderr"; bad=1
+    }
+    manifestCategory[file]=category
+    manifestBlocker[file]=blocker
+    manifestOwner[file]=owner
+    manifestReason[file]=reason
+    next
+  }
+  FILENAME == ARGV[2] {
+    if (FNR > 1 && $1 != "") sentinelCategory[$1]=$2
+    next
+  }
+  FILENAME == ARGV[3] {
+    if (FNR == 1 || $1 == "") next
+    file=$1; parity=$2
+    if (parity != "both-fail") next
+    if (!(file in manifestCategory)) {
+      print "unclassified both-fail row: " file > "/dev/stderr"; bad=1; next
+    }
+    category=manifestCategory[file]
+    if (category == "tools-backend" &&
+        sentinelCategory[file] != "backend" && sentinelCategory[file] != "tools-backend") {
+      print "tools-backend row disagrees with sentinel taxonomy: " file > "/dev/stderr"; bad=1
+    }
+    seen[file]=1
+    count[category]++
+    total++
+    if (manifestBlocker[file] == "yes") blockerTotal++
+    print file, category, manifestBlocker[file], manifestOwner[file], manifestReason[file], $5
+    next
+  }
+  FILENAME == ARGV[4] {
+    if (FNR > 1 && $1 != "") limit[$1]=$2 + 0
+    next
+  }
+  END {
+    for (file in manifestCategory) {
+      if (!(file in seen)) {
+        print "stale or reclassified manifest row: " file > "/dev/stderr"; bad=1
+      }
+    }
+    split("example-contract language-runtime optional-provider standard-provider tools-backend", cats, " ")
+    for (i=1; i<=5; i++) {
+      category=cats[i]
+      if (!(category in limit)) {
+        print "missing category limit: " category > "/dev/stderr"; bad=1
+      } else if (count[category] > limit[category]) {
+        print "category growth: " category "=" count[category] " > " limit[category] > "/dev/stderr"; bad=1
+      }
+      print category "\t" (count[category] + 0) >> summary
+    }
+    if (!("blocker-total" in limit)) {
+      print "missing category limit: blocker-total" > "/dev/stderr"; bad=1
+    } else if (blockerTotal > limit["blocker-total"]) {
+      print "category growth: blocker-total=" blockerTotal " > " limit["blocker-total"] > "/dev/stderr"; bad=1
+    }
+    print "blocker-total\t" (blockerTotal + 0) >> summary
+    if (!("total" in limit)) {
+      print "missing category limit: total" > "/dev/stderr"; bad=1
+    } else if (total > limit["total"]) {
+      print "category growth: total=" total " > " limit["total"] > "/dev/stderr"; bad=1
+    }
+    print "total\t" total >> summary
+    if (bad) exit 1
+  }
+' "$manifest" "$sentinel_report" "$parity_report" "$limits" > "$rows"; then
+  exit 1
+fi
+
+{
+  printf 'file\tcategory\tblocker\towner\treason\tparity_detail\n'
+  cat "$rows"
+} > "$report"
+
+cat "$summary"
+echo "REPORT: $report"

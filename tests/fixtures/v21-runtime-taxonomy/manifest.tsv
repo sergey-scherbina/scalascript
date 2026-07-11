@@ -1,0 +1,61 @@
+file	category	blocker	owner	reason
+actors-pingpong.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
+actors-typed-remote-spawn.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
+agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
+algebraic-effects.ssc	language-runtime	yes	effects	portable effect-handler application reaches an arity mismatch
+async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-free standard async provider
+content-linked-namespaces.ssc	language-runtime	yes	module-linker	imported contentModuleSection definition is not linked into the native program
+content-to-markdown.ssc	language-runtime	yes	module-linker	imported contentSection definition is not linked into the native program
+content.ssc	language-runtime	yes	module-linker	imported md definition is not linked into the native program
+crypto-encrypt-demo.ssc	standard-provider	yes	crypto	aesGenKey is missing from the core-free standard crypto provider
+crypto-verify-demo.ssc	standard-provider	yes	crypto	verifyEd25519 is missing from the core-free standard crypto provider
+custom-derives-mirror.ssc	language-runtime	yes	typeclass	summon/typeclass resolution is absent from the native runtime path
+data-types.ssc	language-runtime	yes	value-conversion	portable enum/data rendering attempts to use a foreign value as String
+dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
+dataset-stats.ssc	language-runtime	yes	effects	portable dataset evaluation leaks an unhandled Op/3 into match lowering
+dataset-word-count.ssc	language-runtime	yes	value-conversion	portable dataset rendering attempts to use a List as String
+default-params.ssc	language-runtime	yes	default-arguments	default-argument lowering leaves parameter x unbound
+derived-route-clients.ssc	standard-provider	yes	http	mount is missing from the core-free standard HTTP server host
+direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
+distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
+distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
+dsl-ast-builder.ssc	language-runtime	yes	module-linker	imported generic Node constructor is not linked into the native program
+dsl-calc-parser.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
+dsl-json-parser.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
+dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evaluation receives token text where an Int value is required
+dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhandled Op/3 into match lowering
+dsl-yaml-like.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
+effects.ssc	language-runtime	yes	effects	declared portable effect operation greet remains an unbound global
+enums.ssc	standard-provider	yes	math	standard math is not installed as the native math global
+extensions.ssc	language-runtime	yes	extensions	extension receiver/method dispatch is absent from the native runtime
+functional.ssc	language-runtime	yes	dispatch	portable functional dispatch leaks a Stub/1 into match lowering
+generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
+graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
+graph-storage-interpreter.ssc	standard-provider	yes	graph	Graph.putVertex has no core-free standard effect handler
+imports.ssc	standard-provider	yes	math	standard math is not installed as the native math global
+international-bank-rails.ssc	optional-provider	no	swift	SwiftProvider is an explicitly optional platform provider
+invoice-email.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
+invoice-pdf.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
+lang-split.ssc	language-runtime	yes	collections	List.tabulate is emitted as an unhandled runtime effect
+lenses.ssc	language-runtime	yes	dispatch	portable lens dispatch leaks a Stub/1 into match lowering
+mcp-client-discover.ssc	optional-provider	no	mcp	mcpConnect belongs to the explicitly optional MCP provider
+multi-link-imports.ssc	language-runtime	yes	module-linker	imported minorUnits definition is not linked into the native program
+nfc-ndef.ssc	optional-provider	no	nfc	nfcCapabilities belongs to the explicitly optional NFC platform provider
+pdf-extract-demo.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
+quoted-macro-constfold.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
+quoted-macro-interpreter.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
+script.ssc	language-runtime	yes	extensions	extension receiver/method dispatch for stars is absent from the native runtime
+signals-demo.ssc	standard-provider	yes	ui	Signal companion values are missing from the core-free standard UI provider
+sql-browser-duckdb.ssc	example-contract	yes	sql-browser	browser SQL section binding Totals is not declared as a non-JVM backend surface
+sql-browser-sqlite.ssc	example-contract	yes	sql-browser	browser SQL section binding Active is not declared as a non-JVM backend surface
+sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section binding ActiveUsers is not lowered natively
+storage-demo.ssc	standard-provider	yes	storage	runEphemeralStorage is missing from a core-free standard storage provider
+totp-shamir-demo.ssc	standard-provider	yes	crypto	totp is missing from the core-free standard crypto provider
+typeclass.ssc	language-runtime	yes	typeclass	implicit/typeclass resolution leaves intShow unbound
+typed-data.ssc	language-runtime	yes	default-arguments	default constructor arguments are not supplied on the native path
+typed-sql-crud.ssc	example-contract	yes	sql	the deterministic native run queries TODOS before the fixture creates it
+ui-remote-table.ssc	standard-provider	yes	ui	fieldColumn is missing from the core-free standard UI provider
+wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
+wasm-scalascript.ssc	tools-backend	no	wasm	WASM ScalaScript syntax is already a reviewed backend surface
+x402-client.ssc	tools-backend	no	x402	compiler-backed Scala/sttp client syntax is already a reviewed tools surface
+yaml-parse.ssc	standard-provider	yes	yaml	parseYaml is missing from a core-free standard YAML provider
