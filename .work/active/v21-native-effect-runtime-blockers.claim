@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T21:33:55Z
+heartbeat: 2026-07-11T21:46:54Z
 status: in-progress
-done-so-far: W2 standard Logger/Stream runners, strict source-call reconciliation, and reactive core Signal bridge are committed and focused/release gates are green locally
-next: retire algebraic-effects.ssc from runtime taxonomy, tighten ceilings, rerun the consolidated gate, verify docs/board, and push W2 to origin/main
+done-so-far: W2 standard effect runners, hidden-CPS removal, strict curried-call reconciliation, taxonomy retirement, specs, and full release gate are pushed through 2a49bf6ad
+next: implement queued TI-8.2d2x parser recovery companion dispatch for dsl-sql-recovery.ssc, retire only its proved blocker after full gates, then continue Dataset
