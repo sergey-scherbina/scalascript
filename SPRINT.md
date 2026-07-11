@@ -457,6 +457,9 @@ there before changing this plan.
             event metadata keys with source-located forged-value regressions.
             Validate each signal metadata tag/arity against its kind; gate an
             allowed mutable kind with real closures but Unit metadata.
+            Recursively and cycle-safely validate seed/equality source signals
+            plus fetch URL/signal fields; gate correct tags/arities containing
+            Unit in each required nested field.
             Fetch signals/actions stay sourced Unsupported until the next slice
             implements phases, cancellation, and ordered success effects; the
             guard must cover signal text, controls, styles, and keyed items,

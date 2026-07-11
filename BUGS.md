@@ -97,6 +97,9 @@ read-only SwiftUI store/renderer review in Rozum.
   Seventh review leaves one final full-shape case: field 5 must match its kind
   (`mutable` String-key Map; exact `NativeUiSignalMeta*` tag/arity for seed,
   computed, equality, hash, fetch, online, and persisted).
+  Eighth review requires typed nested fields too: seed/equality sources and the
+  fetch refresh/headers/phase/error fields are valid signals; fetch URL is
+  String or signal. Recursive validation is cycle-safe by `SscFields` identity.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 
