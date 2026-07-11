@@ -73,7 +73,7 @@ release gate after the content-provider main rebase.
 
 ## v21-content-bind-copy-lane-divergence — structural copy is not portable
 
-**Status:** fixed (2026-07-11, `208ec4c60`); found by codex while running the required
+**Status:** done (2026-07-11, `208ec4c60`); found by codex while running the required
 `content-tables` INT/JS/JVM conformance after moving `contentBind` to pure
 ScalaScript.
 
