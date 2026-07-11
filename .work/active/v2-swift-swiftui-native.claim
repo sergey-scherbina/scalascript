@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T17:29:15Z
+heartbeat: 2026-07-11T18:18:13Z
 status: in-progress
-done-so-far: Apple native tables and synchronized executable harness landed through 3f08028bf after Rozum APPROVE; Swift 40/40 and tkv2 12/12 green
-next: spec-check and implement the isolated trusted WKWebView slice, then continue to generated Xcode application products
+done-so-far: trusted HTML spec and first two implementation rounds are committed through 5213f4ddf; round-two residuals are tracked in SPRINT/BUGS after Rozum review
+next: close serialized policy authority, probe-only seams, shared delegate handoff, and forced recovery/terminal gates; request Rozum round-three verdict
