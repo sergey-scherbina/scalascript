@@ -874,6 +874,13 @@ Implementation: a **trampolined Free Monad** (`Pure | Perform | FlatMap`) with
 constant-time `flatMap`. `resume(v)` invokes the captured continuation directly;
 multi-shot handlers interpret each `resume` branch independently.
 
+The target-neutral CoreIR boundary is `effect.perform(label, args...)` and
+`effect.handle(computation, handler)`. An unhandled operation remains an
+explicit computation value until the nearest enclosing handler can consume it;
+top-level reporting must not pre-empt that handler. Operation argument packing,
+deep resume, `Return` handling, and multi-shot reuse are identical on VM and
+compiled backends.
+
 Supported on all three backends.
 
 #### 7.2.1 Effect Declaration and Use
