@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T11:08:10Z
+heartbeat: 2026-07-11T11:51:05Z
 status: in-progress
-done-so-far: eighth SwiftUI store/renderer diff passes fresh Swift backend 27/27 plus prior CLI 5/5 and JVM NativeUi 14/14; exact owner identity, transactional store, value-total inventory, sourced malformed seams and strict per-kind signal/event shapes are under final review
-next: obtain nativeui-reviewer eighth verdict, run affected conformance immediately before push, then land code/spec/bookkeeping separately and continue actions/tables/WKWebView
+done-so-far: async URLSession fetch signal/action lifecycle is implemented in the feature worktree with family/dependency ownership, instance-keyed cancellation, generation+token guards, strict target transactions, ordered success effects, form snapshots, bounded failures, and a real strict-concurrency URLProtocol gate green
+next: run the full Swift backend gate, obtain nativeui-reviewer async verdict in Rozum, then run affected conformance immediately before the code push and continue persisted/online
