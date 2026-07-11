@@ -1,7 +1,0 @@
-feature/v21-ti-imported-tuple-collection-match 2026-07-11T17:50:58Z
-agent: codex
-heartbeat: 2026-07-11T18:11:08Z
-status: in-progress
-done-so-far: spec bed01d886; Pair/Tuple2 source lowering fix plus multi-file VM/ASM regression; imports/extensions identical; corpus 194/194, parity 29/0/37/129, taxonomy 25 blockers before latest HTTP rebase
-next: rebase latest HTTP-fast integration, rerun combined install/native-entry/release gates, then push code/docs/bookkeeping
-scope: v2 imported list/tuple matching plus focused multi-file regression; do not touch active parser-DSL or multi-placeholder work
