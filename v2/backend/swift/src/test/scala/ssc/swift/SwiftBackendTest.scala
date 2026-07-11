@@ -265,6 +265,108 @@ final class SwiftBackendTest extends AnyFunSuite:
       assert(stdout == "stable|4|4|3|cycle")
     finally deleteRecursively(root)
 
+  test("real Swift URLProtocol gates fetch signal and action lifecycle"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-fetch-")
+    val compileErrors = root.resolve("compile.stderr")
+    val runErrors = root.resolve("run.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiAsyncProgram(), "NativeAsync")
+      generated.writeTo(root)
+      val probe = root.resolve("AsyncProbe.swift")
+      val binary = root.resolve("AsyncProbe")
+      Files.writeString(probe, nativeUiAsyncProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") || path == "AppleApp/NativeUiStore.swift" =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder(
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-strict-concurrency=complete",
+          "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
+      ).redirectError(compileErrors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(compileErrors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift async compile failed ($compileExit):\n$compileErr\n$compileOut")
+
+      val run = new ProcessBuilder(binary.toString).redirectError(runErrors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift async probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "family|replace|snapshot|bounded|cancel|ordered|failure|form|projected|shared|open-json")
+    finally deleteRecursively(root)
+
+  test("surviving keyed owner cancels disposed action capability without view lifecycle"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-keyed-action-")
+    val compileErrors = root.resolve("compile.stderr")
+    val runErrors = root.resolve("run.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiKeyedActionLifecycleProgram(), "NativeKeyedAction")
+      generated.writeTo(root)
+      val probe = root.resolve("KeyedActionProbe.swift")
+      val binary = root.resolve("KeyedActionProbe")
+      Files.writeString(probe, nativeUiKeyedActionLifecycleProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") || path == "AppleApp/NativeUiStore.swift" =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder(
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-strict-concurrency=complete",
+          "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
+      ).redirectError(compileErrors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(compileErrors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift keyed action compile failed ($compileExit):\n$compileErr\n$compileOut")
+
+      val run = new ProcessBuilder(binary.toString).redirectError(runErrors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift keyed action probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "disposed|late-inert|fresh|unsafe|bounded")
+    finally deleteRecursively(root)
+
+  test("surviving keyed fetch restarts only when structural metadata changes"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-keyed-fetch-")
+    val compileErrors = root.resolve("compile.stderr")
+    val runErrors = root.resolve("run.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiKeyedFetchMetadataProgram(), "NativeKeyedFetch")
+      generated.writeTo(root)
+      val probe = root.resolve("KeyedFetchProbe.swift")
+      val binary = root.resolve("KeyedFetchProbe")
+      Files.writeString(probe, nativeUiKeyedFetchMetadataProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") || path == "AppleApp/NativeUiStore.swift" =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder(
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-strict-concurrency=complete",
+          "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
+      ).redirectError(compileErrors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(compileErrors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift keyed fetch compile failed ($compileExit):\n$compileErr\n$compileOut")
+
+      val run = new ProcessBuilder(binary.toString).redirectError(runErrors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift keyed fetch probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "identical|literal-restart|late-inert|ref-restart|bounded")
+    finally deleteRecursively(root)
+
   test("failed keyed Store batch drops provisional writes revisions and derived cache changes"):
     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
     val root = Files.createTempDirectory("ssc-swiftui-store-rollback-")
@@ -323,7 +425,7 @@ final class SwiftBackendTest extends AnyFunSuite:
       val runExit = run.waitFor()
       val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
       assert(runExit == 0, s"Swift deferred probe failed ($runExit):\n$stderr\n$stdout")
-      assert(stdout == "fetch-signal|fetch-action|css-value|attribute|behavior|source")
+      assert(stdout == "fetch-live|css-value|attribute|behavior|source")
     finally deleteRecursively(root)
 
   test("real Swift keyed reconciliation preserves moves and disposes deleted component state"):
@@ -522,6 +624,180 @@ final class SwiftBackendTest extends AnyFunSuite:
       Term.App(Term.Global("emit"), List(root, str("out"))),
     ))))
 
+  private def nativeUiAsyncProgram(): Program =
+    val url = Term.App(Term.Global("signal"), List(str("url"), str("https://example.test/first")))
+    val refresh = Term.App(Term.Global("signal"), List(str("refresh"), Term.Lit(Const.CInt(0))))
+    val headers = Term.App(Term.Global("signal"), List(str("headers"), str("{\"X-Snapshot\":\"one\"}")))
+    val body = Term.App(Term.Global("signal"), List(str("body"), str("body-one")))
+    val capture = Term.App(Term.Global("signal"), List(str("capture"), str("capture-old")))
+    val clear = Term.App(Term.Global("signal"), List(str("clear"), str("clear-old")))
+    val effect = Term.App(Term.Global("signal"), List(str("effect"), str("before")))
+    val fetch = Term.App(Term.Global("fetchUrlSignalTo"), List(
+      str("remote"), Term.Local(6), Term.Local(5), Term.Local(4),
+    ))
+    val seed = Term.App(Term.Global("seedSignal"), List(str("seed"), Term.Local(0)))
+    val computed = Term.App(Term.Global("computedSignal"), List(
+      Term.Lam(0, Term.App(Term.Local(1), Nil)),
+    ))
+    val effects = list(List(
+      Term.App(Term.Global("onSetSignal"), List(Term.Local(3), str("after"))),
+      Term.App(Term.Global("onBumpTick"), List(Term.Local(8))),
+      Term.App(Term.Global("onBumpTick"), List(Term.Local(8))),
+    ))
+    val action = Term.App(Term.Global("fetchActionWith"), List(
+      str("POST"), str("https://example.test/action"), Term.Local(7), Term.Local(0), Term.Local(8),
+    ))
+    val captureAction = Term.App(Term.Global("fetchCaptureAction"), List(
+      str("POST"), str("https://example.test/capture"), Term.Local(8), Term.Local(7), Term.Local(10), Term.Local(9),
+    ))
+    val clearAction = Term.App(Term.Global("fetchActionClear"), List(
+      str("POST"), str("https://example.test/clear"), Term.Local(9), Term.Local(11), Term.Local(10),
+    ))
+    val form = Term.App(Term.Global("formBody"), List(list(List(
+      str("body"), Term.Ctor("Tuple2", List(str("renamed"), str("effect"))),
+    ))))
+    val formAction = Term.App(Term.Global("fetchActionWith"), List(
+      str("POST"), str("https://example.test/form"), Term.Local(0), Term.Local(4), Term.Local(12),
+    ))
+    val openEffect = list(List(Term.App(Term.Global("onOpenJson"), List(
+      str("https://example.test/items/:value"), str("id"),
+    ))))
+    val openAction = Term.App(Term.Global("fetchActionWith"), List(
+      str("POST"), str("https://example.test/open"), Term.Local(13), Term.Local(0), Term.Local(14),
+    ))
+    val unsafeEffect = list(List(Term.App(Term.Global("onNavigate"), List(str("javascript:alert(1)")))))
+    val unsafeAction = Term.App(Term.Global("fetchActionWith"), List(
+      str("POST"), str("https://example.test/unsafe"), Term.Local(15), Term.Local(0), Term.Local(16),
+    ))
+    val hashEffect = list(List(Term.App(Term.Global("onNavigate"), List(str("#/route")))))
+    val hashAction = Term.App(Term.Global("fetchActionWith"), List(
+      str("POST"), str("https://example.test/hash"), Term.Local(17), Term.Local(0), Term.Local(18),
+    ))
+    val safeEffect = list(List(Term.App(Term.Global("onNavigate"), List(str("https://example.test/done")))))
+    val safeAction = Term.App(Term.Global("fetchActionWith"), List(
+      str("POST"), str("https://example.test/safe"), Term.Local(19), Term.Local(0), Term.Local(20),
+    ))
+    val aliasAction = Term.App(Term.Global("fetchCaptureAction"), List(
+      str("POST"), str("https://example.test/alias"), Term.Local(20), Term.Local(22), Term.Local(22), Term.Local(21),
+    ))
+    val root = Term.App(Term.Global("fragment"), List(list(List(
+      Term.App(Term.Global("signalText"), List(Term.Local(24))),
+      Term.App(Term.Global("signalText"), List(Term.Local(23))),
+      Term.App(Term.Global("signalText"), List(Term.Local(22))),
+      Term.App(Term.Global("signalText"), List(Term.Local(21))),
+      Term.App(Term.Global("signalText"), List(Term.Local(20))),
+      Term.App(Term.Global("signalText"), List(Term.Local(19))),
+      Term.App(Term.Global("signalText"), List(Term.Local(18))),
+      Term.App(Term.Global("signalText"), List(Term.Local(17))),
+      Term.App(Term.Global("signalText"), List(Term.Local(16))),
+      Term.App(Term.Global("signalText"), List(Term.Local(15))),
+      Term.Local(13), Term.Local(12), Term.Local(11), Term.Local(9),
+      Term.Local(7), Term.Local(5), Term.Local(3), Term.Local(1), Term.Local(0),
+    ))))
+    Program(Nil, Term.Let(
+      List(
+        url, refresh, headers, body, capture, clear, effect, fetch, seed, computed,
+        effects, action, captureAction, clearAction, form, formAction,
+        openEffect, openAction, unsafeEffect, unsafeAction, hashEffect, hashAction,
+        safeEffect, safeAction, aliasAction,
+      ),
+      Term.App(Term.Global("emit"), List(root, str("out"))),
+    ))
+
+  private def nativeUiKeyedActionLifecycleProgram(): Program =
+    val mode = Term.App(Term.Global("signal"), List(str("mode"), str("with")))
+    val items = Term.App(Term.Global("signal"), List(str("items"), list(List(str("row")))))
+    val refresh = Term.App(Term.Global("signal"), List(str("refresh"), Term.Lit(Const.CInt(0))))
+    val headers = Term.App(Term.Global("signal"), List(str("headers"), str("")))
+    val body = Term.App(Term.Global("signal"), List(str("body"), str("payload")))
+    val effect = Term.App(Term.Global("signal"), List(str("effect"), str("before")))
+    def modeIs(value: String) = Term.Prim("__arith__", List(
+      str("=="), Term.App(Term.Local(9), Nil), str(value),
+    ))
+    def navigate(destination: String) = list(List(
+      Term.App(Term.Global("onNavigate"), List(str(destination))),
+    ))
+    val success = list(List(
+      Term.App(Term.Global("onSetSignal"), List(Term.Local(4), str("after"))),
+      Term.App(Term.Global("onBumpTick"), List(Term.Local(2))),
+    ))
+    def action(method: String, path: String, effects: Term) =
+      Term.App(Term.Global("fetchActionWith"), List(
+        str(method), str(path), Term.Local(0), effects, Term.Local(1),
+      ))
+    val renderBranch =
+      Term.If(modeIs("with"), action("POST", "https://example.test/keyed", success),
+        Term.If(modeIs("data"), action("POST", "https://example.test/data", navigate("data:text/plain,x")),
+          Term.If(modeIs("file"), action("POST", "https://example.test/file", navigate("file:///tmp/x")),
+            Term.If(modeIs("bad-method"), action("POST\r\nX-Injected", "https://example.test/bad", success),
+              Term.App(Term.Global("textNode"), List(str("plain"))),
+            ),
+          ),
+        ),
+      )
+    val render = Term.Lam(1, Term.App(Term.Global("componentScope"), List(
+      str("action-scope"),
+      Term.Lam(0, Term.Let(List(
+        Term.App(Term.Global("signal"), List(str("scoped-refresh"), Term.Lit(Const.CInt(0)))),
+        Term.App(Term.Global("signal"), List(str("scoped-headers"), str(""))),
+        Term.App(Term.Global("signal"), List(str("scoped-body"), str("payload"))),
+      ), renderBranch)),
+    )))
+    val keyed = Term.App(Term.Global("forKeyedView"), List(
+      Term.Local(5), Term.Lam(1, Term.Local(0)), Term.Local(0),
+    ))
+    val root = Term.App(Term.Global("fragment"), List(list(List(
+      Term.App(Term.Global("signalText"), List(Term.Local(7))),
+      Term.App(Term.Global("signalText"), List(Term.Local(5))),
+      Term.App(Term.Global("signalText"), List(Term.Local(4))),
+      Term.App(Term.Global("signalText"), List(Term.Local(3))),
+      Term.App(Term.Global("signalText"), List(Term.Local(2))),
+      Term.Local(0),
+    ))))
+    Program(Nil, Term.Let(
+      List(mode, items, refresh, headers, body, effect, render, keyed),
+      Term.App(Term.Global("emit"), List(root, str("out"))),
+    ))
+
+  private def nativeUiKeyedFetchMetadataProgram(): Program =
+    val mode = Term.App(Term.Global("signal"), List(str("mode"), str("a")))
+    val items = Term.App(Term.Global("signal"), List(str("items"), list(List(str("row")))))
+    def modeIs(value: String) = Term.Prim("__arith__", List(
+      str("=="), Term.App(Term.Local(5), Nil), str(value),
+    ))
+    val fetch = Term.If(modeIs("a"),
+      Term.App(Term.Global("fetchUrlSignal"), List(
+        str("remote"), str("https://example.test/a"), Term.Local(2), Term.Local(1),
+      )),
+      Term.If(modeIs("b"),
+        Term.App(Term.Global("fetchUrlSignal"), List(
+          str("remote"), str("https://example.test/b"), Term.Local(2), Term.Local(1),
+        )),
+        Term.App(Term.Global("fetchUrlSignalTo"), List(
+          str("remote"), Term.Local(0), Term.Local(2), Term.Local(1),
+        )),
+      ),
+    )
+    val render = Term.Lam(1, Term.App(Term.Global("componentScope"), List(
+      str("fetch-scope"),
+      Term.Lam(0, Term.Let(List(
+        Term.App(Term.Global("signal"), List(str("scoped-refresh"), Term.Lit(Const.CInt(0)))),
+        Term.App(Term.Global("signal"), List(str("scoped-headers"), str(""))),
+        Term.App(Term.Global("signal"), List(str("scoped-url"), str("https://example.test/b"))),
+      ), Term.App(Term.Global("signalText"), List(fetch)))),
+    )))
+    val keyed = Term.App(Term.Global("forKeyedView"), List(
+      Term.Local(1), Term.Lam(1, Term.Local(0)), Term.Local(0),
+    ))
+    val root = Term.App(Term.Global("fragment"), List(list(List(
+      Term.App(Term.Global("signalText"), List(Term.Local(3))),
+      Term.Local(0),
+    ))))
+    Program(Nil, Term.Let(
+      List(mode, items, render, keyed),
+      Term.App(Term.Global("emit"), List(root, str("out"))),
+    ))
+
   private def nativeUiKeyedLifecycleProgram(): Program =
     val items = Term.App(Term.Global("signal"), List(str("items"), list(List(str("a"), str("b")))))
     val render = Term.Lam(1, Term.App(Term.Global("componentScope"), List(
@@ -599,22 +875,21 @@ struct DeferredProbe {
             }
         }
     }
+    private static func makeList(_ values: [SscValue]) -> SscValue {
+        values.reversed().reduce(.data("Nil", [])) { .data("Cons", [$1, $0]) }
+    }
     @MainActor
     static func main() {
         let store = NativeUiStore()
         let abi = fields(store.root, "NativeUiAbi")
         let children = list(fields(abi[1], "NativeUiFragment")[0])
         let fetch = fields(children[0], "NativeUiSignalText")[0]
-        let action = children[1]
         guard store.signalKind(fetch) == "fetch",
-              store.source(for: fetch) == "deferred.ssc:10:3 [fetchUrlSignal]",
-              store.cell(for: fetch).renderedDiagnostic() ==
-                "fetch signal adapter pending at deferred.ssc:10:3 [fetchUrlSignal]" else {
+              store.source(for: fetch) == "deferred.ssc:10:3 [fetchUrlSignal]" else {
             fatalError("fetch signal source missing")
         }
-        NativeUiActions.run(action, input: nil, store: store, siteId: "deferred:action")
-        guard store.failure == "fetch action adapter pending at deferred.ssc:20:3 [fetchAction]" else {
-            fatalError("fetch action was silent")
+        guard store.cell(for: fetch).renderedDiagnostic() == nil else {
+            fatalError("fetch signal adapter remained deferred")
         }
 
         let css = SscMap()
@@ -687,7 +962,8 @@ struct DeferredProbe {
             .data("NativeUiEvent", [.string("mystery"), .unit, .unit, .unit]),
             input: nil,
             store: store,
-            siteId: "deferred:action"
+            siteId: "deferred:action",
+            ownerPath: "root"
         )
         guard store.failure ==
             "unsupported native event kind mystery at deferred.ssc:20:3 [fetchAction]" else {
@@ -702,7 +978,8 @@ struct DeferredProbe {
             ]),
             input: nil,
             store: store,
-            siteId: "deferred:action"
+            siteId: "deferred:action",
+            ownerPath: "root"
         )
         guard store.failure ==
             "native event increment target must be NativeUiSignal at deferred.ssc:20:3 [fetchAction]" else {
@@ -712,7 +989,8 @@ struct DeferredProbe {
             .data("NativeUiEvent", [.string("set"), fetch, .string("x"), .unit]),
             input: nil,
             store: store,
-            siteId: "deferred:action"
+            siteId: "deferred:action",
+            ownerPath: "root"
         )
         guard store.failure ==
             "native event set metadata must be Map at deferred.ssc:20:3 [fetchAction]" else {
@@ -724,7 +1002,8 @@ struct DeferredProbe {
             .data("NativeUiEvent", [.string("set"), fetch, .string("x"), .map(invalidMetadata)]),
             input: nil,
             store: store,
-            siteId: "deferred:action"
+            siteId: "deferred:action",
+            ownerPath: "root"
         )
         guard store.failure ==
             "native event set metadata key must be String at deferred.ssc:20:3 [fetchAction]" else {
@@ -739,7 +1018,8 @@ struct DeferredProbe {
             .data("NativeUiEvent", [.string("increment"), forgedKind, .int(1), .map(SscMap())]),
             input: nil,
             store: store,
-            siteId: "deferred:action"
+            siteId: "deferred:action",
+            ownerPath: "root"
         )
         guard store.failure ==
             "native event increment target must be NativeUiSignal at deferred.ssc:20:3 [fetchAction]" else {
@@ -753,7 +1033,8 @@ struct DeferredProbe {
             .data("NativeUiEvent", [.string("set"), forgedMetadata, .string("x"), .map(SscMap())]),
             input: nil,
             store: store,
-            siteId: "deferred:action"
+            siteId: "deferred:action",
+            ownerPath: "root"
         )
         guard store.failure ==
             "native event set target must be NativeUiSignal at deferred.ssc:20:3 [fetchAction]" else {
@@ -777,7 +1058,15 @@ struct DeferredProbe {
               store.signalKind(badFetch) == nil else {
             fatalError("correct-tag metadata with invalid nested field was accepted")
         }
-        Swift.print("fetch-signal|fetch-action|css-value|attribute|behavior|source")
+        NativeUiActions.run(
+            .data("NativeUiFetchAction", [.int(1)]), input: nil, store: store,
+            siteId: "deferred:action", ownerPath: "root"
+        )
+        guard store.failure ==
+            "malformed native fetch action at deferred.ssc:20:3 [fetchAction]" else {
+            fatalError("malformed fetch action lost owning element source")
+        }
+        Swift.print("fetch-live|css-value|attribute|behavior|source")
     }
 }
 """
@@ -848,6 +1137,899 @@ struct StoreRollbackProbe {
             Swift.print("rollback|\(string(mutableCell.read()))|\(string(computedCell.read()))|\(mutableCell.revision)|\(computedCell.revision)")
             store.unsubscribe(token)
         } catch { fatalError(String(describing: error)) }
+    }
+}
+"""
+
+  private val nativeUiAsyncProbe = """
+import Foundation
+
+final class ControlledURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var instances: [ControlledURLProtocol] = []
+    nonisolated(unsafe) private static var stoppedIndices = Set<Int>()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.instances.append(self)
+        Self.lock.unlock()
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        if let index = Self.instances.firstIndex(where: { $0 === self }) {
+            Self.stoppedIndices.insert(index)
+        }
+        Self.lock.unlock()
+    }
+
+    static func reset() {
+        lock.lock(); instances = []; stoppedIndices = []; lock.unlock()
+    }
+
+    static var count: Int {
+        lock.lock(); defer { lock.unlock() }; return instances.count
+    }
+
+    static func request(_ index: Int) -> URLRequest {
+        lock.lock(); defer { lock.unlock() }; return instances[index].request
+    }
+
+    static func body(_ index: Int) -> String? {
+        let request = request(index)
+        if let data = request.httpBody { return String(data: data, encoding: .utf8) }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func wasStopped(_ index: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return stoppedIndices.contains(index)
+    }
+
+    static func respond(_ index: Int, status: Int, body: String) {
+        respond(index, status: status, data: Data(body.utf8))
+    }
+
+    static func respond(_ index: Int, status: Int, data: Data) {
+        lock.lock(); let instance = instances[index]; lock.unlock()
+        let response = HTTPURLResponse(
+            url: instance.request.url!, statusCode: status,
+            httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/plain"]
+        )!
+        instance.client?.urlProtocol(instance, didReceive: response, cacheStoragePolicy: .notAllowed)
+        instance.client?.urlProtocol(instance, didLoad: data)
+        instance.client?.urlProtocolDidFinishLoading(instance)
+    }
+
+    static func fail(_ index: Int, _ error: URLError) {
+        lock.lock(); let instance = instances[index]; lock.unlock()
+        instance.client?.urlProtocol(instance, didFailWithError: error)
+    }
+}
+
+@main
+struct AsyncProbe {
+    private static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
+        guard case let .data(actual, fields) = value, actual == tag else { fatalError("expected \(tag)") }
+        return fields.asArray()
+    }
+    private static func list(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected list")
+            }
+        }
+    }
+    private static func makeList(_ values: [SscValue]) -> SscValue {
+        values.reversed().reduce(SscValue.data("Nil", [])) {
+            SscValue.data("Cons", [$1, $0])
+        }
+    }
+    private static func string(_ value: SscValue) -> String {
+        guard case let .string(result) = value else { fatalError("expected string") }
+        return result
+    }
+    private static func int(_ value: SscValue) -> Int64 {
+        guard case let .int(result) = value else { fatalError("expected int") }
+        return result
+    }
+    private static func signal(_ node: SscValue) -> SscValue {
+        fields(node, "NativeUiSignalText")[0]
+    }
+    private static func waitForRequests(_ count: Int) async {
+        for _ in 0..<400 {
+            if ControlledURLProtocol.count >= count { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for \(count) requests; got \(ControlledURLProtocol.count)")
+    }
+    private static func waitForStop(_ index: Int) async {
+        for _ in 0..<400 {
+            if ControlledURLProtocol.wasStopped(index) { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for request \(index) cancellation")
+    }
+    @MainActor
+    private static func waitForPhase(_ store: NativeUiStore, _ phase: SscValue, _ expected: String) async {
+        for _ in 0..<400 {
+            if string(store.read(phase)) == expected { return }
+            await Task.yield()
+        }
+        fatalError("timed out waiting for phase \(expected); got \(string(store.read(phase)))")
+    }
+
+    @MainActor
+    private static func assertNoStoreLeak() async {
+        ControlledURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ControlledURLProtocol.self]
+        weak var leaked: NativeUiStore?
+        do {
+            let candidate = NativeUiStore(urlSession: URLSession(configuration: configuration))
+            leaked = candidate
+            let abi = fields(candidate.root, "NativeUiAbi")
+            let children = list(fields(abi[1], "NativeUiFragment")[0])
+            let fetch = signal(children[7])
+            let metadata = fields(fields(fetch, "NativeUiSignal")[5], "NativeUiSignalMetaFetch")
+            _ = candidate.subscribe(candidate.cell(for: metadata[3]))
+            await waitForRequests(1)
+        }
+        await waitForStop(0)
+        for _ in 0..<20 where leaked != nil { await Task.yield() }
+        guard leaked == nil else { fatalError("NativeUiStore was retained by an async task") }
+    }
+
+    @MainActor
+    static func main() async {
+        ControlledURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ControlledURLProtocol.self]
+        let store = NativeUiStore(urlSession: URLSession(configuration: configuration))
+        let abi = fields(store.root, "NativeUiAbi")
+        let children = list(fields(abi[1], "NativeUiFragment")[0])
+        let url = signal(children[0])
+        let refresh = signal(children[1])
+        let headers = signal(children[2])
+        let body = signal(children[3])
+        let capture = signal(children[4])
+        _ = signal(children[5])
+        let effect = signal(children[6])
+        let fetch = signal(children[7])
+        let seed = signal(children[8])
+        let computed = signal(children[9])
+        let baseAction = children[10]
+        let captureAction = children[11]
+        let clearAction = children[12]
+        let formAction = children[13]
+        let openAction = children[14]
+        let unsafeAction = children[15]
+        let hashAction = children[16]
+        let safeAction = children[17]
+        let aliasAction = children[18]
+        let fetchMetadata = fields(fields(fetch, "NativeUiSignal")[5], "NativeUiSignalMetaFetch")
+        let phase = fetchMetadata[3]
+        let errorSignal = fetchMetadata[4]
+
+        let phaseFields = fields(phase, "NativeUiSignal")
+        guard case let .closure(phaseRead) = phaseFields[3] else { fatalError("phase read missing") }
+        let compute = SscClosure(arity: 0) { _ in try phaseRead.native!([]) }
+        let computedPhase = SscValue.data("NativeUiSignal", [
+            .string("phase-observer"), .string("root"), .string("computed"),
+            .closure(SscClosure(arity: 0) { _ in try compute.native!([]) }),
+            .closure(SscClosure(arity: 1) { _ in throw SscRuntimeFailure(description: "read-only") }),
+            .data("NativeUiSignalMetaComputed", [.closure(compute)])
+        ])
+        let token = store.subscribe(store.cell(for: computedPhase))
+        await waitForRequests(1)
+        let familyToken = store.subscribe(store.cell(for: phase))
+        await Task.yield()
+        guard string(store.read(phase)) == "loading",
+              store.fetchOwnerCount(for: fetch) == 2,
+              ControlledURLProtocol.count == 1,
+              ControlledURLProtocol.request(0).url?.absoluteString == "https://example.test/first",
+              ControlledURLProtocol.request(0).value(forHTTPHeaderField: "X-Snapshot") == "one" else {
+            fatalError("phase subscription did not own fetch family")
+        }
+        store.unsubscribe(familyToken)
+        guard store.fetchOwnerCount(for: fetch) == 1 else { fatalError("reentrant dependency overcounted fetch") }
+        store.cell(for: url).write(.string("https://example.test/first"))
+        store.cell(for: headers).write(.string("{\"X-Snapshot\":\"one\"}"))
+        await Task.yield()
+        guard ControlledURLProtocol.count == 1 else { fatalError("equal source write restarted fetch") }
+
+        store.cell(for: url).write(.string("https://example.test/second"))
+        await waitForRequests(2)
+        store.cell(for: headers).write(.string("{\"X-Snapshot\":\"two\"}"))
+        await waitForRequests(3)
+        guard ControlledURLProtocol.wasStopped(0), ControlledURLProtocol.wasStopped(1),
+              ControlledURLProtocol.request(0).url?.absoluteString == "https://example.test/first",
+              ControlledURLProtocol.request(1).value(forHTTPHeaderField: "X-Snapshot") == "one",
+              ControlledURLProtocol.request(2).url?.absoluteString == "https://example.test/second",
+              ControlledURLProtocol.request(2).value(forHTTPHeaderField: "X-Snapshot") == "two" else {
+            fatalError("replacement or request snapshot was incorrect")
+        }
+        ControlledURLProtocol.respond(2, status: 200, body: "new")
+        await waitForPhase(store, phase, "done")
+        ControlledURLProtocol.respond(0, status: 200, body: "stale-zero")
+        ControlledURLProtocol.respond(1, status: 200, body: "stale-one")
+        await Task.yield()
+        guard string(store.read(fetch)) == "new", string(store.read(computed)) == "new",
+              string(store.read(errorSignal)).isEmpty else {
+            fatalError("late completion overwrote current fetch")
+        }
+
+        store.cell(for: refresh).write(.int(int(store.read(refresh)) + 1))
+        await waitForRequests(4)
+        ControlledURLProtocol.respond(3, status: 503, body: String(repeating: "🙂", count: 1200))
+        await waitForPhase(store, phase, "error")
+        let bounded = string(store.read(errorSignal))
+        guard bounded.hasPrefix("HTTP 503: "), bounded.unicodeScalars.count <= 1024,
+              string(store.read(fetch)) == "new" else {
+            fatalError("non-2xx error was unbounded or destroyed previous value")
+        }
+
+        store.cell(for: refresh).write(.int(int(store.read(refresh)) + 1))
+        await waitForRequests(5)
+        ControlledURLProtocol.respond(4, status: 200, data: Data([0xff]))
+        await waitForPhase(store, phase, "error")
+        guard string(store.read(errorSignal)).contains("not valid UTF-8"),
+              string(store.read(fetch)) == "new" else {
+            fatalError("invalid UTF-8 did not preserve previous fetch value")
+        }
+        store.cell(for: refresh).write(.int(int(store.read(refresh)) + 1))
+        await waitForRequests(6)
+        ControlledURLProtocol.fail(5, URLError(.timedOut))
+        await waitForPhase(store, phase, "error")
+        guard string(store.read(errorSignal)).hasPrefix("request failed: "),
+              string(store.read(fetch)) == "new" else {
+            fatalError("transport failure did not preserve previous fetch value")
+        }
+        store.cell(for: refresh).write(.int(int(store.read(refresh)) + 1))
+        await waitForRequests(7)
+        ControlledURLProtocol.fail(6, URLError(.cancelled))
+        await waitForPhase(store, phase, "idle")
+        guard string(store.read(errorSignal)).isEmpty else {
+            fatalError("mounted cancellation did not return fetch to clean idle")
+        }
+
+        let authorityRequestCount = ControlledURLProtocol.count
+        store.cell(for: url).write(.string("https:foo"))
+        await waitForPhase(store, phase, "error")
+        guard ControlledURLProtocol.count == authorityRequestCount,
+              string(store.read(errorSignal)).contains("absolute http/https URL") else {
+            fatalError("hostless https URL started transport")
+        }
+        store.cell(for: url).write(.string("http:///x"))
+        await waitForPhase(store, phase, "error")
+        guard ControlledURLProtocol.count == authorityRequestCount else {
+            fatalError("empty-authority http URL started transport")
+        }
+
+        store.unsubscribe(token)
+        guard store.fetchOwnerCount(for: fetch) == 0 else { fatalError("computed unsubscribe leaked fetch owner") }
+        store.cell(for: url).write(.string("https://example.test/second"))
+        let seedToken = store.subscribe(store.cell(for: seed))
+        await waitForRequests(8)
+        let keyClosure = SscClosure(arity: 1) { _ in .string("row") }
+        let failingRender = SscClosure(arity: 1) { _ in
+            MainActor.assumeIsolated { () -> Void in
+                store.cell(for: seed).write(.string("provisional-seed"))
+            }
+            throw SscRuntimeFailure(description: "seed rollback")
+        }
+        do {
+            _ = try store.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "seed-rollback",
+                items: [.string("row")], key: keyClosure, render: failingRender)
+            fatalError("seed rollback unexpectedly committed")
+        } catch {
+            guard String(describing: error).contains("seed rollback") else {
+                fatalError("unexpected seed rollback error: \(error)")
+            }
+        }
+        guard !ControlledURLProtocol.wasStopped(7), string(store.read(seed)) == "new" else {
+            fatalError("rolled-back seed write released fetch dependency")
+        }
+        store.cell(for: seed).write(.string("local-seed"))
+        await waitForStop(7)
+        ControlledURLProtocol.respond(7, status: 200, body: "late-seed")
+        await Task.yield()
+        guard string(store.read(seed)) == "local-seed" else {
+            fatalError("dirty seed retained fetch dependency or accepted late completion")
+        }
+        store.unsubscribe(seedToken)
+        let secondToken = store.subscribe(store.cell(for: errorSignal))
+        await waitForRequests(9)
+        store.unsubscribe(secondToken)
+        await waitForStop(8)
+        ControlledURLProtocol.respond(8, status: 200, body: "disposed")
+        await Task.yield()
+        guard string(store.read(fetch)) == "new" else { fatalError("disposed completion mutated fetch") }
+
+        ControlledURLProtocol.reset()
+        let base = fields(baseAction, "NativeUiFetchAction")
+        guard case let .map(baseStatus) = base[4] else { fatalError("action status missing") }
+        let actionPhase = baseStatus.get(.string("phase"))!
+        let actionError = baseStatus.get(.string("error"))!
+        let owner = store.actionOwnerPath(for: baseAction, mountedAt: "root")
+
+        store.runFetchAction(baseAction, ownerPath: owner)
+        await waitForRequests(1)
+        guard ControlledURLProtocol.body(0) == "body-one",
+              ControlledURLProtocol.request(0).value(forHTTPHeaderField: "X-Snapshot") == "two" else {
+            fatalError("action snapshot body=\(ControlledURLProtocol.body(0) ?? "<nil>") header=\(ControlledURLProtocol.request(0).value(forHTTPHeaderField: "X-Snapshot") ?? "<nil>")")
+        }
+        store.cell(for: body).write(.string("body-two"))
+        store.cell(for: headers).write(.string("{\"X-Snapshot\":\"three\"}"))
+        store.runFetchAction(baseAction, ownerPath: owner)
+        await waitForRequests(2)
+        guard ControlledURLProtocol.wasStopped(0),
+              ControlledURLProtocol.body(1) == "body-two",
+              ControlledURLProtocol.request(1).value(forHTTPHeaderField: "X-Snapshot") == "three" else {
+            fatalError("action replacement lost click-time snapshot")
+        }
+        var mutations: [String] = []
+        store.installMutationObserver { _, id in mutations.append(id) }
+        ControlledURLProtocol.respond(1, status: 201, body: "reply")
+        await waitForPhase(store, actionPhase, "done")
+        ControlledURLProtocol.respond(0, status: 200, body: "stale-action")
+        await Task.yield()
+        let ordered = mutations.filter { ["effect", "refresh"].contains($0) }
+        guard ordered == ["effect", "refresh", "refresh"],
+              string(store.read(effect)) == "after", string(store.read(actionError)).isEmpty else {
+            fatalError("source-ordered success effects did not run exactly")
+        }
+
+        store.cell(for: effect).write(.string("keep-effect"))
+        store.runFetchAction(baseAction, ownerPath: owner)
+        await waitForRequests(3)
+        ControlledURLProtocol.respond(2, status: 500, body: "nope")
+        await waitForPhase(store, actionPhase, "error")
+        guard string(store.read(effect)) == "keep-effect" else {
+            fatalError("non-2xx action ran success mutations")
+        }
+
+        store.runFetchAction(baseAction, ownerPath: owner)
+        await waitForRequests(4)
+        store.cancelFetchAction(baseAction, ownerPath: owner)
+        await waitForStop(3)
+        ControlledURLProtocol.respond(3, status: 200, body: "cancelled")
+        await Task.yield()
+        guard string(store.read(effect)) == "keep-effect" else {
+            fatalError("cancelled action ran success mutations")
+        }
+        mutations = []
+        let captureFields = fields(captureAction, "NativeUiFetchAction")
+        guard case let .map(captureStatus) = captureFields[4],
+              let capturePhase = captureStatus.get(.string("phase")) else { fatalError("capture status missing") }
+        let captureOwner = store.actionOwnerPath(for: captureAction, mountedAt: "root")
+        store.runFetchAction(captureAction, ownerPath: captureOwner)
+        await waitForRequests(5)
+        ControlledURLProtocol.respond(4, status: 200, body: "captured")
+        await waitForPhase(store, capturePhase, "done")
+        let captureOrder = mutations.filter { ["capture", "refresh"].contains($0) }
+        guard captureOrder == ["capture", "refresh"], string(store.read(capture)) == "captured" else {
+            fatalError("capture did not precede its success effect")
+        }
+        mutations = []
+        store.cell(for: body).write(.string("clear-me"))
+        mutations = []
+        let clearFields = fields(clearAction, "NativeUiFetchAction")
+        guard case let .map(clearStatus) = clearFields[4],
+              let clearPhase = clearStatus.get(.string("phase")) else { fatalError("clear status missing") }
+        let clearOwner = store.actionOwnerPath(for: clearAction, mountedAt: "root")
+        store.runFetchAction(clearAction, ownerPath: clearOwner)
+        await waitForRequests(6)
+        ControlledURLProtocol.respond(5, status: 200, body: "cleared")
+        await waitForPhase(store, clearPhase, "done")
+        let clearOrder = mutations.filter { ["body", "refresh"].contains($0) }
+        guard clearOrder == ["body", "refresh"], string(store.read(body)).isEmpty else {
+            fatalError("clear did not precede its success effect")
+        }
+        store.cell(for: body).write(.string("body-two"))
+        let formOwner = store.actionOwnerPath(for: formAction, mountedAt: "root")
+        store.runFetchAction(formAction, ownerPath: formOwner)
+        await waitForRequests(7)
+        guard ControlledURLProtocol.body(6) == "{\"body\":\"body-two\",\"renamed\":\"keep-effect\"}",
+              ControlledURLProtocol.request(6).value(forHTTPHeaderField: "X-Snapshot") == "three" else {
+            fatalError("formBody did not snapshot named signals into deterministic JSON")
+        }
+        ControlledURLProtocol.respond(6, status: 204, body: "")
+        let formFields = fields(formAction, "NativeUiFetchAction")
+        guard case let .map(formStatus) = formFields[4],
+              let formPhase = formStatus.get(.string("phase")),
+              let formError = formStatus.get(.string("error")) else { fatalError("form status missing") }
+        await waitForPhase(store, formPhase, "done")
+
+        ControlledURLProtocol.reset()
+        store.cell(for: headers).write(.string("{\"X-Snapshot\":\"projected\"}"))
+        store.cell(for: refresh).write(.int(Int64.max - 2))
+        store.runFetchAction(baseAction, ownerPath: owner)
+        await waitForRequests(1)
+        store.cell(for: refresh).write(.int(Int64.max - 1))
+        ControlledURLProtocol.respond(0, status: 200, body: "ok")
+        await waitForPhase(store, actionPhase, "error")
+        guard int(store.read(refresh)) == Int64.max - 1,
+              string(store.read(actionError)).contains("bumpTick requires writable Int") else {
+            fatalError("response-time projected plan trapped or partially bumped: refresh=\(int(store.read(refresh))) error=\(string(store.read(actionError))) phase=\(string(store.read(actionPhase)))")
+        }
+        store.cell(for: refresh).write(.int(0))
+        store.cell(for: headers).write(.string("{\"Bad\":1}"))
+        store.runFetchAction(formAction, ownerPath: formOwner)
+        guard ControlledURLProtocol.count == 1,
+              string(store.read(formPhase)) == "error",
+              string(store.read(formError)).contains("header 'Bad' must be String") else {
+            fatalError("malformed headers started transport or lost deterministic error: count=\(ControlledURLProtocol.count) phase=\(string(store.read(formPhase))) error=\(string(store.read(formError))) failure=\(store.failure ?? "nil")")
+        }
+        store.cell(for: headers).write(.string("{\"X-Bad\":\"ok\\r\\nInjected: yes\"}"))
+        store.runFetchAction(formAction, ownerPath: formOwner)
+        guard ControlledURLProtocol.count == 1,
+              string(store.read(formError)).contains("control character") else {
+            fatalError("header injection escaped deterministic preflight")
+        }
+        let aliasOwner = store.actionOwnerPath(for: aliasAction, mountedAt: "root")
+        store.runFetchAction(aliasAction, ownerPath: aliasOwner)
+        guard ControlledURLProtocol.count == 1,
+              store.failure?.contains("bumpTick requires writable non-overflowing Int") == true else {
+            fatalError("capture/effect alias escaped preflight and started transport")
+        }
+        let forgedStatus = SscValue.data("NativeUiFetchAction", [
+            base[0], base[1], base[2], base[3], formFields[4]
+        ])
+        store.runFetchAction(forgedStatus, ownerPath: owner)
+        guard ControlledURLProtocol.count == 1,
+              store.failure?.contains("status capability mismatch") == true else {
+            fatalError("cross-action phase/error capability was accepted")
+        }
+        ControlledURLProtocol.reset()
+        store.cell(for: headers).write(.string("{\"X-Snapshot\":\"shared\"}"))
+        store.cell(for: refresh).write(.int(0))
+        let ownerA = store.actionOwnerPath(for: baseAction, mountedAt: "owner-a")
+        let ownerB = store.actionOwnerPath(for: baseAction, mountedAt: "owner-b")
+        guard ownerA != ownerB else { fatalError("shared action lost containing mount owner") }
+        store.runFetchAction(baseAction, ownerPath: ownerA)
+        store.runFetchAction(baseAction, ownerPath: ownerB)
+        await waitForRequests(2)
+        guard !ControlledURLProtocol.wasStopped(0), !ControlledURLProtocol.wasStopped(1) else {
+            fatalError("shared action mounts cancelled each other")
+        }
+        store.cancelFetchAction(baseAction, ownerPath: ownerA)
+        for _ in 0..<200 where !ControlledURLProtocol.wasStopped(0) && !ControlledURLProtocol.wasStopped(1) {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let stoppedIndex = ControlledURLProtocol.wasStopped(0) ? 0 : 1
+        let liveIndex = stoppedIndex == 0 ? 1 : 0
+        guard ControlledURLProtocol.wasStopped(stoppedIndex),
+              !ControlledURLProtocol.wasStopped(liveIndex) else { fatalError("cancel A cancelled zero or both shared mounts") }
+        ControlledURLProtocol.respond(liveIndex, status: 200, body: "owner-b")
+        await waitForPhase(store, actionPhase, "done")
+        ControlledURLProtocol.respond(stoppedIndex, status: 200, body: "late-owner-a")
+        await Task.yield()
+        guard string(store.read(actionError)).isEmpty,
+              store.networkMetadataCount() == 0 else {
+            fatalError("shared owner B lost completion or leaked task metadata")
+        }
+        ControlledURLProtocol.reset()
+        var opened: [String] = []
+        store.installOpenURL { opened.append($0.absoluteString) }
+        let openFields = fields(openAction, "NativeUiFetchAction")
+        guard case let .map(openStatus) = openFields[4],
+              let openPhase = openStatus.get(.string("phase")) else { fatalError("open status missing") }
+        let openOwner = store.actionOwnerPath(for: openAction, mountedAt: "owner-open")
+        store.runFetchAction(openAction, ownerPath: openOwner)
+        await waitForRequests(1)
+        ControlledURLProtocol.respond(0, status: 200, body: "{\"id\":\"a/b?x#y\"}")
+        await waitForPhase(store, openPhase, "done")
+        guard opened == ["https://example.test/items/a%2Fb%3Fx%23y"] else {
+            fatalError("openJson did not use encodeURIComponent-equivalent substitution")
+        }
+        store.runFetchAction(openAction, ownerPath: openOwner)
+        await waitForRequests(2)
+        ControlledURLProtocol.respond(1, status: 200, body: "{\"id\":true}")
+        await waitForPhase(store, openPhase, "error")
+        guard opened.count == 1 else { fatalError("openJson accepted Bool as number") }
+        let unsafeOwner = store.actionOwnerPath(for: unsafeAction, mountedAt: "root")
+        store.runFetchAction(unsafeAction, ownerPath: unsafeOwner)
+        guard ControlledURLProtocol.count == 2,
+              store.failure?.contains("absolute http/https/mailto URL") == true else {
+            fatalError("javascript navigation escaped sourced preflight")
+        }
+        let hashOwner = store.actionOwnerPath(for: hashAction, mountedAt: "root")
+        store.runFetchAction(hashAction, ownerPath: hashOwner)
+        guard ControlledURLProtocol.count == 2,
+              store.failure?.contains("absolute http/https/mailto URL") == true else {
+            fatalError("hash navigation escaped sourced preflight")
+        }
+        let safeFields = fields(safeAction, "NativeUiFetchAction")
+        guard case let .map(safeStatus) = safeFields[4],
+              let safePhase = safeStatus.get(.string("phase")) else { fatalError("safe status missing") }
+        let safeOwner = store.actionOwnerPath(for: safeAction, mountedAt: "root")
+        store.runFetchAction(safeAction, ownerPath: safeOwner)
+        await waitForRequests(3)
+        ControlledURLProtocol.respond(2, status: 200, body: "ok")
+        await waitForPhase(store, safePhase, "done")
+        guard opened.last == "https://example.test/done" else {
+            fatalError("safe navigate did not use SwiftUI openURL")
+        }
+        await assertNoStoreLeak()
+        Swift.print("family|replace|snapshot|bounded|cancel|ordered|failure|form|projected|shared|open-json")
+    }
+}
+"""
+
+  private val nativeUiKeyedActionLifecycleProbe = """
+import Foundation
+
+final class LifecycleURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var instances: [LifecycleURLProtocol] = []
+    nonisolated(unsafe) private static var stoppedIndices = Set<Int>()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.lock(); Self.instances.append(self); Self.lock.unlock()
+    }
+    override func stopLoading() {
+        Self.lock.lock()
+        if let index = Self.instances.firstIndex(where: { $0 === self }) {
+            Self.stoppedIndices.insert(index)
+        }
+        Self.lock.unlock()
+    }
+    static var count: Int {
+        lock.lock(); defer { lock.unlock() }; return instances.count
+    }
+    static func wasStopped(_ index: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return stoppedIndices.contains(index)
+    }
+    static func respond(_ index: Int, status: Int, body: String) {
+        lock.lock(); let instance = instances[index]; lock.unlock()
+        let response = HTTPURLResponse(
+            url: instance.request.url!, statusCode: status,
+            httpVersion: "HTTP/1.1", headerFields: nil)!
+        instance.client?.urlProtocol(instance, didReceive: response, cacheStoragePolicy: .notAllowed)
+        instance.client?.urlProtocol(instance, didLoad: Data(body.utf8))
+        instance.client?.urlProtocolDidFinishLoading(instance)
+    }
+}
+
+@main
+struct KeyedActionProbe {
+    private static func fields(_ value: SscValue, _ tag: String) -> SscFields {
+        guard case let .data(actual, result) = value, actual == tag else { fatalError("expected \(tag)") }
+        return result
+    }
+    private static func list(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected list")
+            }
+        }
+    }
+    private static func signal(_ node: SscValue) -> SscValue {
+        fields(node, "NativeUiSignalText")[0]
+    }
+    private static func string(_ value: SscValue) -> String {
+        guard case let .string(result) = value else { fatalError("expected string") }
+        return result
+    }
+    private static func closure(_ value: SscValue) -> SscClosure {
+        guard case let .closure(result) = value else { fatalError("expected closure") }
+        return result
+    }
+    private static func status(_ action: SscValue) -> (SscValue, SscValue) {
+        let actionFields = fields(action, "NativeUiFetchAction")
+        guard case let .map(values) = actionFields[4],
+              let phase = values.get(.string("phase")),
+              let error = values.get(.string("error")) else { fatalError("missing action status") }
+        return (phase, error)
+    }
+    private static func waitForRequest(_ count: Int) async {
+        for _ in 0..<200 {
+            if LifecycleURLProtocol.count >= count { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for request \(count)")
+    }
+    private static func waitForStop(_ index: Int) async {
+        for _ in 0..<200 {
+            if LifecycleURLProtocol.wasStopped(index) { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for cancellation")
+    }
+
+    @MainActor
+    static func main() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LifecycleURLProtocol.self]
+        let store = NativeUiStore(urlSession: URLSession(configuration: configuration))
+        store.installOpenURL { _ in fatalError("unsafe navigation reached openURL") }
+        let abi = fields(store.root, "NativeUiAbi")
+        let children = list(fields(abi[1], "NativeUiFragment")[0])
+        let mode = signal(children[0])
+        let effect = signal(children[4])
+        let keyed = fields(children[5], "NativeUiForKeyed")
+        _ = list(store.read(keyed[1]))
+        let stableKey = SscClosure(arity: 1) { _ in .string("row") }
+        func reconcile(_ item: String) throws -> NativeUiKeyedResult {
+            try store.reconcileKeyed(
+                parentOwnerPath: "root", siteId: string(keyed[0]), items: [.string(item)],
+                key: stableKey, render: closure(keyed[3]))
+        }
+
+        let baseSignals = store.hostSignalCount()
+        let first = try! reconcile("v1")
+        guard first.entries.count == 1 else { fatalError("missing first keyed action") }
+        let firstAction = first.entries[0].value
+        guard case let .data("NativeUiFetchAction", firstFields) = firstAction,
+              store.actionStatusHintCount() == 1,
+              store.hostSignalCount() == baseSignals + 5 else { fatalError("first action ownership was not exact") }
+        let firstOwner = store.actionOwnerPath(for: firstAction, mountedAt: first.entries[0].ownerPath)
+        store.runFetchAction(firstAction, ownerPath: firstOwner)
+        await waitForRequest(1)
+
+        let firstStatus = status(firstAction)
+        let same = try! reconcile("v2")
+        let sameAction = same.entries[0].value
+        let sameStatus = status(sameAction)
+        let firstPhaseFields = fields(firstStatus.0, "NativeUiSignal")
+        let samePhaseFields = fields(sameStatus.0, "NativeUiSignal")
+        guard string(firstPhaseFields[0]) == string(samePhaseFields[0]),
+              string(firstPhaseFields[1]) == string(samePhaseFields[1]),
+              string(store.read(sameStatus.0)) == "loading",
+              !LifecycleURLProtocol.wasStopped(0),
+              store.networkMetadataCount() == 1 else {
+            fatalError("stable same-key action refresh cancelled or reset live work")
+        }
+
+        store.cell(for: mode).write(.string("without"))
+        _ = try! reconcile("v3")
+        await waitForStop(0)
+        guard store.networkMetadataCount() == 0,
+              store.actionStatusHintCount() == 0,
+              store.hostSignalCount() == baseSignals + 3 else { fatalError("disposed action leaked task, hint, or signals") }
+        LifecycleURLProtocol.respond(0, status: 200, body: "late")
+        await Task.yield()
+        guard string(store.read(effect)) == "before" else { fatalError("late disposed action committed success effects") }
+        store.runFetchAction(firstAction, ownerPath: firstOwner)
+        guard LifecycleURLProtocol.count == 1,
+              store.failure?.contains("status capability mismatch") == true else {
+            fatalError("disposed action capability remained executable")
+        }
+
+        store.cell(for: mode).write(.string("with"))
+        let fresh = try! reconcile("v4")
+        let freshAction = fresh.entries[0].value
+        guard case let .data("NativeUiFetchAction", freshFields) = freshAction,
+              firstFields !== freshFields else { fatalError("reinsertion reused action identity") }
+        let freshStatus = status(freshAction)
+        guard string(store.read(freshStatus.0)) == "idle",
+              string(store.read(freshStatus.1)).isEmpty,
+              store.actionStatusHintCount() == 1,
+              store.hostSignalCount() == baseSignals + 5 else { fatalError("reinserted action was not fresh") }
+
+        let freshOwner = store.actionOwnerPath(for: freshAction, mountedAt: fresh.entries[0].ownerPath)
+        store.runFetchAction(freshAction, ownerPath: freshOwner)
+        await waitForRequest(2)
+        store.cell(for: mode).write(.string("data"))
+        let dataAction = try! reconcile("v5").entries[0]
+        await waitForStop(1)
+        let dataStatus = status(dataAction.value)
+        guard string(store.read(dataStatus.0)) == "idle",
+              string(store.read(dataStatus.1)).isEmpty,
+              store.networkMetadataCount() == 0 else {
+            fatalError("replaced action did not cancel and reset exact status")
+        }
+        let dataOwner = store.actionOwnerPath(for: dataAction.value, mountedAt: dataAction.ownerPath)
+        store.runFetchAction(dataAction.value, ownerPath: dataOwner)
+        guard LifecycleURLProtocol.count == 2,
+              store.failure?.contains("absolute http/https/mailto URL") == true else {
+            fatalError("unsafe data navigation started transport")
+        }
+        store.cell(for: mode).write(.string("file"))
+        let fileAction = try! reconcile("v6").entries[0]
+        let fileOwner = store.actionOwnerPath(for: fileAction.value, mountedAt: fileAction.ownerPath)
+        store.runFetchAction(fileAction.value, ownerPath: fileOwner)
+        guard LifecycleURLProtocol.count == 2,
+              store.failure?.contains("absolute http/https/mailto URL") == true else {
+            fatalError("unsafe file navigation started transport")
+        }
+        store.cell(for: mode).write(.string("bad-method"))
+        do {
+            _ = try reconcile("v7")
+            fatalError("invalid HTTP method was accepted")
+        } catch {
+            guard String(describing: error).contains("RFC HTTP token"),
+                  LifecycleURLProtocol.count == 2,
+                  store.actionStatusHintCount() == 1,
+                  store.hostSignalCount() == baseSignals + 5 else {
+                fatalError("invalid method rollback leaked state: \(error)")
+            }
+        }
+
+        store.cell(for: mode).write(.string("without"))
+        _ = try! reconcile("v8")
+        for _ in 0..<20 {
+            store.cell(for: mode).write(.string("with"))
+            _ = try! reconcile("churn-with")
+            guard store.actionStatusHintCount() == 1,
+                  store.hostSignalCount() == baseSignals + 5 else { fatalError("action churn grew live metadata") }
+            store.cell(for: mode).write(.string("without"))
+            _ = try! reconcile("churn-without")
+            guard store.actionStatusHintCount() == 0,
+                  store.hostSignalCount() == baseSignals + 3 else { fatalError("action churn left tombstones") }
+        }
+        guard store.networkMetadataCount() == 0 else { fatalError("action churn leaked network metadata") }
+        Swift.print("disposed|late-inert|fresh|unsafe|bounded")
+    }
+}
+"""
+
+  private val nativeUiKeyedFetchMetadataProbe = """
+import Foundation
+
+final class FetchURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var instances: [FetchURLProtocol] = []
+    nonisolated(unsafe) private static var stoppedIndices = Set<Int>()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.lock(); Self.instances.append(self); Self.lock.unlock()
+    }
+    override func stopLoading() {
+        Self.lock.lock()
+        if let index = Self.instances.firstIndex(where: { $0 === self }) { Self.stoppedIndices.insert(index) }
+        Self.lock.unlock()
+    }
+    static var count: Int { lock.lock(); defer { lock.unlock() }; return instances.count }
+    static func request(_ index: Int) -> URLRequest {
+        lock.lock(); defer { lock.unlock() }; return instances[index].request
+    }
+    static func wasStopped(_ index: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return stoppedIndices.contains(index)
+    }
+    static func respond(_ index: Int, body: String) {
+        lock.lock(); let instance = instances[index]; lock.unlock()
+        let response = HTTPURLResponse(
+            url: instance.request.url!, statusCode: 200,
+            httpVersion: "HTTP/1.1", headerFields: nil)!
+        instance.client?.urlProtocol(instance, didReceive: response, cacheStoragePolicy: .notAllowed)
+        instance.client?.urlProtocol(instance, didLoad: Data(body.utf8))
+        instance.client?.urlProtocolDidFinishLoading(instance)
+    }
+}
+
+@main
+struct KeyedFetchProbe {
+    private static func fields(_ value: SscValue, _ tag: String) -> SscFields {
+        guard case let .data(actual, result) = value, actual == tag else { fatalError("expected \(tag)") }
+        return result
+    }
+    private static func list(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected list")
+            }
+        }
+    }
+    private static func signal(_ node: SscValue) -> SscValue { fields(node, "NativeUiSignalText")[0] }
+    private static func string(_ value: SscValue) -> String {
+        guard case let .string(result) = value else { fatalError("expected string") }
+        return result
+    }
+    private static func closure(_ value: SscValue) -> SscClosure {
+        guard case let .closure(result) = value else { fatalError("expected closure") }
+        return result
+    }
+    private static func waitForRequest(_ count: Int) async {
+        for _ in 0..<200 {
+            if FetchURLProtocol.count >= count { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for request \(count)")
+    }
+    private static func waitForStop(_ index: Int) async {
+        for _ in 0..<200 {
+            if FetchURLProtocol.wasStopped(index) { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for stop \(index)")
+    }
+    @MainActor
+    private static func waitForValue(_ store: NativeUiStore, _ signal: SscValue, _ expected: String) async {
+        for _ in 0..<200 {
+            if string(store.read(signal)) == expected { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        fatalError("timed out waiting for fetch value")
+    }
+
+    @MainActor
+    static func main() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FetchURLProtocol.self]
+        let store = NativeUiStore(urlSession: URLSession(configuration: configuration))
+        let abi = fields(store.root, "NativeUiAbi")
+        let children = list(fields(abi[1], "NativeUiFragment")[0])
+        let mode = signal(children[0])
+        let keyed = fields(children[1], "NativeUiForKeyed")
+        let stableKey = SscClosure(arity: 1) { _ in .string("row") }
+        func reconcile(_ item: String) throws -> NativeUiKeyedResult {
+            try store.reconcileKeyed(
+                parentOwnerPath: "root", siteId: string(keyed[0]), items: [.string(item)],
+                key: stableKey, render: closure(keyed[3]))
+        }
+        func fetch(_ result: NativeUiKeyedResult) -> SscValue { signal(result.entries[0].value) }
+
+        let firstFetch = fetch(try! reconcile("v1"))
+        let firstCell = store.cell(for: firstFetch)
+        let token = store.subscribe(firstCell)
+        await waitForRequest(1)
+        guard FetchURLProtocol.request(0).url?.absoluteString == "https://example.test/a" else {
+            fatalError("initial literal URL was wrong")
+        }
+
+        let sameFetch = fetch(try! reconcile("v2"))
+        let sameCell = store.cell(for: sameFetch)
+        await Task.yield()
+        guard sameCell === firstCell, FetchURLProtocol.count == 1,
+              !FetchURLProtocol.wasStopped(0) else { fatalError("identical metadata restarted or replaced stable cell") }
+
+        store.cell(for: mode).write(.string("b"))
+        let secondFetch = fetch(try! reconcile("v3"))
+        await waitForRequest(2)
+        await waitForStop(0)
+        guard FetchURLProtocol.request(1).url?.absoluteString == "https://example.test/b" else {
+            fatalError("changed literal URL did not restart with B")
+        }
+        FetchURLProtocol.respond(0, body: "late-a")
+        await Task.yield()
+        guard string(store.read(secondFetch)).isEmpty else { fatalError("late A completion overwrote replacement") }
+        FetchURLProtocol.respond(1, body: "current-b")
+        await waitForValue(store, secondFetch, "current-b")
+
+        store.cell(for: mode).write(.string("ref"))
+        let refFetch = fetch(try! reconcile("v4"))
+        await waitForRequest(3)
+        guard FetchURLProtocol.request(2).url?.absoluteString == "https://example.test/b" else {
+            fatalError("signal URL source did not resolve B")
+        }
+        _ = fetch(try! reconcile("v5"))
+        await Task.yield()
+        guard FetchURLProtocol.count == 3, !FetchURLProtocol.wasStopped(2) else {
+            fatalError("identical signal-ref metadata duplicated request")
+        }
+        store.unsubscribe(token)
+        await waitForStop(2)
+        guard store.fetchOwnerCount(for: refFetch) == 0,
+              store.networkMetadataCount() == 0 else { fatalError("fetch metadata lifecycle leaked") }
+        Swift.print("identical|literal-restart|late-inert|ref-restart|bounded")
     }
 }
 """
@@ -1084,7 +2266,11 @@ public enum SessionProbe {
             let deleted = try session.reconcileKeyed(
                 parentOwnerPath: "root", siteId: site,
                 items: [.string("b")], key: key, render: render)
-            guard deleted.disposedSignalKeys.contains("a\u{0}local") else { fatalError("delete retained a") }
+            guard deleted.disposedSignalKeys.contains("a\u{0}local"),
+                  deleted.disposedOwnerPaths.count == 1,
+                  deleted.disposedOwnerPaths[0].hasSuffix("/k1:a") else {
+                fatalError("delete retained a owner or state")
+            }
             guard string(try session.read(signal(value("b", in: deleted)))) == "dirty-b" else {
                 fatalError("delete damaged survivor")
             }

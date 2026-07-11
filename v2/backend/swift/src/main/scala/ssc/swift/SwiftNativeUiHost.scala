@@ -1,7 +1,7 @@
 package ssc.swift
 
 private[swift] object SwiftNativeUiHost:
-  val source: String = """// Generated ScalaScript v2 portable NativeUi host. No SwiftUI dependency.
+  private val sourcePart1: String = """// Generated ScalaScript v2 portable NativeUi host. No SwiftUI dependency.
 import Foundation
 
 private final class NativeUiSignalCell {
@@ -10,28 +10,33 @@ private final class NativeUiSignalCell {
     let kind: String
     let declaredDefault: SscValue
     let writable: Bool
+    let targetWritable: Bool
+    var metadataSignature: SscValue
     var current: SscValue
     var dirty = false
     var dynamicRead: () throws -> SscValue
     var afterWrite: (SscValue) throws -> Void = { _ in }
 
-    init(id: String, scope: String, kind: String, declaredDefault: SscValue, writable: Bool) {
+    init(id: String, scope: String, kind: String, declaredDefault: SscValue, writable: Bool, targetWritable: Bool, metadataSignature: SscValue) {
         self.id = id
         self.scope = scope
         self.kind = kind
         self.declaredDefault = declaredDefault
         self.writable = writable
+        self.targetWritable = targetWritable
+        self.metadataSignature = metadataSignature
         self.current = declaredDefault
         self.dynamicRead = { declaredDefault }
     }
 
     func snapshot() -> NativeUiSignalState {
-        NativeUiSignalState(current: current, dirty: dirty, dynamicRead: dynamicRead, afterWrite: afterWrite)
+        NativeUiSignalState(current: current, dirty: dirty, metadataSignature: metadataSignature, dynamicRead: dynamicRead, afterWrite: afterWrite)
     }
 
     func restore(_ state: NativeUiSignalState) {
         current = state.current
         dirty = state.dirty
+        metadataSignature = state.metadataSignature
         dynamicRead = state.dynamicRead
         afterWrite = state.afterWrite
     }
@@ -40,6 +45,7 @@ private final class NativeUiSignalCell {
 private struct NativeUiSignalState {
     let current: SscValue
     let dirty: Bool
+    let metadataSignature: SscValue
     let dynamicRead: () throws -> SscValue
     let afterWrite: (SscValue) throws -> Void
 }
@@ -60,9 +66,24 @@ private struct NativeUiForOwnerHint {
     let path: String
 }
 
+private struct NativeUiActionStatusHint {
+    let fields: SscFields
+    let instance: String
+    let phase: SscValue
+    let error: SscValue
+}
+
+struct NativeUiActionStatusReset {
+    let phase: SscValue
+    let error: SscValue
+}
+
 struct NativeUiKeyedResult {
     let entries: [NativeUiKeyedEntryValue]
     let disposedSignalKeys: [String]
+    let disposedOwnerPaths: [String]
+    let replacedActionStatuses: [NativeUiActionStatusReset]
+    let changedFetchSignals: [SscValue]
 }
 
 private struct NativeUiHostSnapshot {
@@ -75,6 +96,9 @@ private struct NativeUiHostSnapshot {
     let keyedOwners: [String: Set<String>]
     let siteSources: [String: SscValue]
     let signalSources: [String: SscValue]
+    let fetchFamilies: [String: SscValue]
+    let actionStatusHints: [ObjectIdentifier: NativeUiActionStatusHint]
+    let actionSignatures: [String: SscValue]
     let forOwnerHints: [ObjectIdentifier: NativeUiForOwnerHint]
     let currentSiteOccurrences: [String: Int]
     let currentOwnerPath: String
@@ -116,11 +140,26 @@ final class NativeUiSession {
 
     func read(_ signal: SscValue) throws -> SscValue { try host.readSignal(signal, "NativeUiSession.read") }
     func write(_ signal: SscValue, _ value: SscValue) throws { try host.writeSignal(signal, value, "NativeUiSession.write") }
+    func targetWrite(_ signal: SscValue, _ value: SscValue) throws {
+        try host.targetWriteSignals([(signal, value)], "NativeUiSession.targetWrite")
+    }
+    func targetWrite(_ writes: [(SscValue, SscValue)]) throws {
+        try host.targetWriteSignals(writes, "NativeUiSession.targetWrite")
+    }
+    func readSignal(named id: String) throws -> SscValue { try host.readSignal(named: id) }
     func equal(_ left: SscValue, _ right: SscValue) -> Bool { nativeUiEqual(left, right) }
     func sourceRef(_ siteId: String) -> SscValue? { host.sourceRef(siteId) }
     func sourceRef(for signal: SscValue) -> SscValue? { host.sourceRef(for: signal) }
     func ownerPath(for node: SscValue) -> String? { host.ownerPath(for: node) }
+    func fetchSignal(scope: String, id: String) -> SscValue? { host.fetchSignal(scope: scope, id: id) }
+    func fetchSignal(for signal: SscValue) -> SscValue? { host.fetchSignal(for: signal) }
+    func isWritable(_ signal: SscValue) -> Bool { host.isWritable(signal) }
+    func validActionStatus(_ action: SscValue, phase: SscValue, error: SscValue) -> Bool {
+        host.validActionStatus(action, phase: phase, error: error)
+    }
     func ownerHintCount() -> Int { host.ownerHintCount() }
+    func actionStatusHintCount() -> Int { host.actionStatusHintCount() }
+    func signalCount() -> Int { host.signalCount() }
     func reconcileKeyed(
         parentOwnerPath: String,
         siteId: String,
@@ -152,8 +191,13 @@ final class NativeUiHost: SscRuntimeExtension {
     private var keyedOwners: [String: Set<String>] = [:]
     private var siteSources: [String: SscValue] = [:]
     private var signalSources: [String: SscValue] = [:]
+    private var fetchFamilies: [String: SscValue] = [:]
+    private var actionStatusHints: [ObjectIdentifier: NativeUiActionStatusHint] = [:]
+    private var actionSignatures: [String: SscValue] = [:]
     private var forOwnerHints: [ObjectIdentifier: NativeUiForOwnerHint] = [:]
     private var ownerHintCollectors: [Set<ObjectIdentifier>] = []
+    private var actionReplacementCollectors: [[NativeUiActionStatusReset]] = []
+    private var fetchChangeCollectors: [[SscValue]] = []
     private var currentSiteOccurrences: [String: Int] = [:]
     private var currentOwnerPath = "root"
     private var currentOwnerScopes = Set<String>()
@@ -178,8 +222,13 @@ final class NativeUiHost: SscRuntimeExtension {
         keyedOwners.removeAll(keepingCapacity: true)
         siteSources.removeAll(keepingCapacity: true)
         signalSources.removeAll(keepingCapacity: true)
+        fetchFamilies.removeAll(keepingCapacity: true)
+        actionStatusHints.removeAll(keepingCapacity: true)
+        actionSignatures.removeAll(keepingCapacity: true)
         forOwnerHints.removeAll(keepingCapacity: true)
         ownerHintCollectors.removeAll(keepingCapacity: true)
+        actionReplacementCollectors.removeAll(keepingCapacity: true)
+        fetchChangeCollectors.removeAll(keepingCapacity: true)
         currentSiteOccurrences.removeAll(keepingCapacity: true)
         currentOwnerPath = "root"
         currentOwnerScopes.removeAll(keepingCapacity: true)
@@ -199,8 +248,13 @@ final class NativeUiHost: SscRuntimeExtension {
         keyedOwners.removeAll(keepingCapacity: true)
         siteSources.removeAll(keepingCapacity: true)
         signalSources.removeAll(keepingCapacity: true)
+        fetchFamilies.removeAll(keepingCapacity: true)
+        actionStatusHints.removeAll(keepingCapacity: true)
+        actionSignatures.removeAll(keepingCapacity: true)
         forOwnerHints.removeAll(keepingCapacity: true)
         ownerHintCollectors.removeAll(keepingCapacity: true)
+        actionReplacementCollectors.removeAll(keepingCapacity: true)
+        fetchChangeCollectors.removeAll(keepingCapacity: true)
         currentSiteOccurrences.removeAll(keepingCapacity: true)
         currentOwnerPath = "root"
         currentOwnerScopes.removeAll(keepingCapacity: true)
@@ -245,13 +299,17 @@ final class NativeUiHost: SscRuntimeExtension {
         func native(_ name: String, _ body: @escaping ([SscValue]) throws -> SscValue) {
             values[name] = .closure(SscClosure(arity: -1, native: body))
         }
+        let instanceOwnedSites = Set([
+            "element", "forKeyedView", "fetchAction", "fetchActionTo",
+            "fetchActionClear", "fetchCaptureAction", "fetchActionWith", "dataTableView",
+        ])
         func site(_ name: String, _ body: @escaping (String, SscValue, [SscValue]) throws -> SscValue) {
             native(name) { [weak self] args in
                 let siteId = "manual:\(name)", source = try nativeUiSource(name)
                 self!.siteSources[siteId] = source
                 let result = try body(siteId, source, args)
                 try self!.bindSignalSource(result, source: source)
-                if name == "forKeyedView" { try self!.bindForOwner(result, siteId: siteId) }
+                if instanceOwnedSites.contains(name) { try self!.bindForOwner(result, siteId: siteId) }
                 return result
             }
             native("__ssc_nativeui_v1.\(name)") { [weak self] args in
@@ -261,7 +319,7 @@ final class NativeUiHost: SscRuntimeExtension {
                 self!.siteSources[site] = args[1]
                 let result = try body(site, args[1], Array(args.dropFirst(2)))
                 try self!.bindSignalSource(result, source: args[1])
-                if name == "forKeyedView" { try self!.bindForOwner(result, siteId: site) }
+                if instanceOwnedSites.contains(name) { try self!.bindForOwner(result, siteId: site) }
                 return result
             }
         }
@@ -342,11 +400,13 @@ final class NativeUiHost: SscRuntimeExtension {
         func fetchSignal(_ name: String, _ url: SscValue, _ refresh: SscValue, _ headers: SscValue) throws -> SscValue {
             _ = try nativeUiSignalFields(refresh, "fetch refresh")
             _ = try nativeUiSignalFields(headers, "fetch headers")
-            let phase = try self.makeSignal(id: "\(name)__phase", kind: "mutable", declaredDefault: .string("idle"), metadata: nativeUiMap())
-            let error = try self.makeSignal(id: "\(name)__error", kind: "mutable", declaredDefault: .string(""), metadata: nativeUiMap())
-            return try self.makeSignal(
+            let phase = try self.makeSignal(id: "\(name)__phase", kind: "mutable", declaredDefault: .string("idle"), metadata: nativeUiMap(), writable: false, targetWritable: true)
+            let error = try self.makeSignal(id: "\(name)__error", kind: "mutable", declaredDefault: .string(""), metadata: nativeUiMap(), writable: false, targetWritable: true)
+            let value = try self.makeSignal(
                 id: name, kind: "fetch", declaredDefault: .string(""),
-                metadata: try nativeUiData("NativeUiSignalMetaFetch", [url, refresh, headers, phase, error]), writable: false)
+                metadata: try nativeUiData("NativeUiSignalMetaFetch", [url, refresh, headers, phase, error]), writable: false, targetWritable: true)
+            try self.registerFetchFamily(value: value, phase: phase, error: error)
+            return value
         }
         site("fetchUrlSignal") { siteId, _, args in
             try nativeUiRequire(args.count == 3 || args.count == 4, "fetchUrlSignal(name, url, refresh[, headers])")
@@ -426,14 +486,46 @@ final class NativeUiHost: SscRuntimeExtension {
             return try nativeUiListValue([try nativeUiSuccess("bumpTick", tick, .unit)])
         }
         func request(_ method: String, _ url: SscValue, _ body: SscValue, _ headers: SscValue) throws -> SscValue {
+            try nativeUiRequire(nativeUiHttpToken(method), "native fetch method must be an RFC HTTP token")
             _ = try nativeUiSignalFields(headers, "fetch headers")
             try [url, body, headers].enumerated().forEach { try nativeUiEnsurePortable($0.element, "NativeUiFetchRequest[\($0.offset)]") }
             return try nativeUiData("NativeUiFetchRequest", [.string(method), url, body, headers])
         }
+        func actionSignature(_ values: [SscValue]) throws -> SscValue {
+            try nativeUiData("NativeUiFetchActionSignature", values.map(nativeUiCanonicalSignalRefs))
+        }
         func action(_ siteId: String, _ method: String, _ url: SscValue, _ body: SscValue, _ effects: SscValue, _ headers: SscValue, _ capture: SscValue = .unit, _ clear: SscValue = .unit) throws -> SscValue {
-            return try nativeUiData("NativeUiFetchAction", [
-                .string(siteId), try request(method, url, body, headers), effects, capture,
-                nativeUiMap(("clearTarget", clear))])
+            let occurrenceKey = currentOwnerPath + "\u{0}" + siteId
+            let occurrence = currentSiteOccurrences[occurrenceKey, default: 0]
+            let instance = currentOwnerPath + "/o" + String(siteId.utf8.count) + ":" + siteId + ":" + String(occurrence)
+            let requestValue = try request(method, url, body, headers)
+            let signature = try actionSignature([requestValue, effects, capture, clear])
+            let replaced = actionSignatures[instance].map { !nativeUiEqual($0, signature) } ?? false
+            let statusScope = "__action_status__" + instance
+            scopes.append(statusScope)
+            currentOwnerScopes.insert(statusScope)
+            defer { scopes.removeLast() }
+            let phase = try makeSignal(
+                id: "phase", kind: "mutable", declaredDefault: .string("idle"),
+                metadata: nativeUiMap(), writable: false, targetWritable: true)
+            let error = try makeSignal(
+                id: "error", kind: "mutable", declaredDefault: .string(""),
+                metadata: nativeUiMap(), writable: false, targetWritable: true)
+            let result = try nativeUiData("NativeUiFetchAction", [
+                .string(siteId), requestValue, effects, capture,
+                nativeUiMap(("clearTarget", clear), ("phase", phase), ("error", error))])
+            guard case let .data("NativeUiFetchAction", fields) = result else {
+                throw SscRuntimeFailure(description: "NativeUiFetchAction constructor returned malformed value")
+            }
+            actionSignatures[instance] = signature
+            actionStatusHints[ObjectIdentifier(fields)] = NativeUiActionStatusHint(
+                fields: fields, instance: instance, phase: phase, error: error)
+            if replaced {
+                for index in actionReplacementCollectors.indices {
+                    actionReplacementCollectors[index].append(NativeUiActionStatusReset(phase: phase, error: error))
+                }
+            }
+            return result
         }
         site("fetchAction") { siteId, _, args in
             try nativeUiRequire(args.count == 4 || args.count == 5, "fetchAction(method, url, body, tick[, headers])")
@@ -517,6 +609,8 @@ final class NativeUiHost: SscRuntimeExtension {
         }
         site("dataTableView") { siteId, _, args in try nativeUiRequire(args.count == 3, "dataTableView"); return try nativeUiData("NativeUiDataTable", [.string(siteId)] + args) }
 
+"""
+  private val sourcePart2: String = """
         native("localStorageGet") { [weak self] args in
             try nativeUiRequire(args.count == 1, "localStorageGet")
             let key = try nativeUiString(args[0], "storage key")
@@ -591,18 +685,24 @@ final class NativeUiHost: SscRuntimeExtension {
 
     private func signalKey(scope: String, id: String) -> String { "\(scope)\u{0}\(id)" }
 
-    private func makeSignal(id: String, kind: String, declaredDefault: SscValue, metadata: SscValue, writable: Bool = true) throws -> SscValue {
+    private func makeSignal(id: String, kind: String, declaredDefault: SscValue, metadata: SscValue, writable: Bool = true, targetWritable: Bool = false) throws -> SscValue {
         try nativeUiEnsurePortable(declaredDefault, "NativeUiSignal[\(id)].default")
         try nativeUiEnsurePortable(metadata, "NativeUiSignal[\(id)].metadata")
         let scope = scopes.last!, key = signalKey(scope: scope, id: id)
+        let metadataSignature = try nativeUiCanonicalSignalRefs(metadata)
         let cell: NativeUiSignalCell
+        var metadataChanged = false
         if let existing = signals[key] {
-            guard existing.kind == kind && nativeUiEqual(existing.declaredDefault, declaredDefault) else {
+            guard existing.kind == kind && existing.writable == writable && existing.targetWritable == targetWritable && nativeUiEqual(existing.declaredDefault, declaredDefault) else {
                 throw SscRuntimeFailure(description: "duplicate native UI signal '\(id)' in scope '\(scope)' has conflicting kind/default")
             }
+            metadataChanged = !nativeUiEqual(existing.metadataSignature, metadataSignature)
+            existing.metadataSignature = metadataSignature
             cell = existing
         } else {
-            cell = NativeUiSignalCell(id: id, scope: scope, kind: kind, declaredDefault: declaredDefault, writable: writable)
+            cell = NativeUiSignalCell(
+                id: id, scope: scope, kind: kind, declaredDefault: declaredDefault,
+                writable: writable, targetWritable: targetWritable, metadataSignature: metadataSignature)
             cell.dynamicRead = { [weak cell] in cell?.current ?? .unit }
             signals[key] = cell
         }
@@ -626,7 +726,11 @@ final class NativeUiHost: SscRuntimeExtension {
             }
             return .unit
         }
-        return try nativeUiData("NativeUiSignal", [.string(id), .string(scope), .string(kind), .closure(read), .closure(write), metadata])
+        let result = try nativeUiData("NativeUiSignal", [.string(id), .string(scope), .string(kind), .closure(read), .closure(write), metadata])
+        if metadataChanged && kind == "fetch" {
+            for index in fetchChangeCollectors.indices { fetchChangeCollectors[index].append(result) }
+        }
+        return result
     }
 
     func readSignal(_ signal: SscValue, _ operation: String) throws -> SscValue {
@@ -637,6 +741,44 @@ final class NativeUiHost: SscRuntimeExtension {
     func writeSignal(_ signal: SscValue, _ value: SscValue, _ operation: String) throws {
         let fields = try nativeUiSignalFields(signal, operation)
         _ = try call(try nativeUiClosure(fields[4], operation), [value])
+    }
+
+    func targetWriteSignals(_ writes: [(SscValue, SscValue)], _ operation: String) throws {
+        let checked = try writes.map { signal, value -> (NativeUiSignalCell, String, String, SscValue) in
+            let fields = try nativeUiSignalFields(signal, operation)
+            let id = try nativeUiString(fields[0], operation + " id")
+            let scope = try nativeUiString(fields[1], operation + " scope")
+            try nativeUiEnsurePortable(value, operation + " value")
+            guard let cell = signals[signalKey(scope: scope, id: id)] else {
+                throw SscRuntimeFailure(description: "\(operation): signal '\(id)' is not live")
+            }
+            guard cell.targetWritable else {
+                throw SscRuntimeFailure(description: "\(operation): signal '\(id)' is not target-owned")
+            }
+            return (cell, scope, id, value)
+        }
+        let states = checked.map { ($0.0, $0.0.snapshot()) }
+        do {
+            for (cell, scope, id, value) in checked where !nativeUiEqual(cell.current, value) {
+                cell.current = value
+                cell.dirty = true
+                try cell.afterWrite(value)
+                onWrite?(scope, id)
+            }
+        } catch {
+            for (cell, state) in states { cell.restore(state) }
+            throw error
+        }
+    }
+
+    func readSignal(named id: String) throws -> SscValue {
+        let matches = signals.values.filter { $0.id == id }
+        guard matches.count == 1, let cell = matches.first else {
+            throw SscRuntimeFailure(description: matches.isEmpty
+                ? "native UI form signal '\(id)' is not live"
+                : "native UI form signal '\(id)' is ambiguous across scopes")
+        }
+        return try cell.dynamicRead()
     }
 
     func reconcileKeyed(
@@ -657,6 +799,8 @@ final class NativeUiHost: SscRuntimeExtension {
         var nextOwnerScopes: [String: Set<String>] = [:]
         var nextOwnerHints: [String: Set<ObjectIdentifier>] = [:]
         var entries: [NativeUiKeyedEntryValue] = []
+        actionReplacementCollectors.append([])
+        fetchChangeCollectors.append([])
         do {
             for item in items {
                 let keyValue = try call(key, [item])
@@ -691,13 +835,23 @@ final class NativeUiHost: SscRuntimeExtension {
 
             let oldOwners = keyedOwners[base, default: []]
             let nextOwners = Set(nextOwnerScopes.keys)
-            for removed in oldOwners.subtracting(nextOwners) { removeOwnerSubtree(removed) }
+            let removedOwners = oldOwners.subtracting(nextOwners)
+            for removed in removedOwners { removeOwnerSubtree(removed) }
             for (owner, usedScopes) in nextOwnerScopes {
                 let retained = nextOwnerHints[owner, default: []]
+                let retainedActionInstances = Set(retained.compactMap { actionStatusHints[$0]?.instance })
+                for instance in Array(actionSignatures.keys) where
+                    (instance == owner || instance.hasPrefix(owner + "/")) &&
+                    !retainedActionInstances.contains(instance) {
+                    actionSignatures.removeValue(forKey: instance)
+                }
                 let obsolete = forOwnerHints.compactMap { id, hint in
                     (hint.path == owner || hint.path.hasPrefix(owner + "/")) && !retained.contains(id) ? id : nil
                 }
-                for id in obsolete { forOwnerHints.removeValue(forKey: id) }
+                for id in obsolete {
+                    forOwnerHints.removeValue(forKey: id)
+                    actionStatusHints.removeValue(forKey: id)
+                }
                 ownerScopes[owner] = usedScopes
             }
             keyedOwners[base] = nextOwners
@@ -707,8 +861,17 @@ final class NativeUiHost: SscRuntimeExtension {
             currentSiteOccurrences = previousSiteOccurrences
             scopes = previousScopes
             onBatchCommit?()
-            return NativeUiKeyedResult(entries: entries, disposedSignalKeys: disposed.sorted())
+            let replacedActionStatuses = actionReplacementCollectors.removeLast()
+            let changedFetchSignals = fetchChangeCollectors.removeLast()
+            return NativeUiKeyedResult(
+                entries: entries,
+                disposedSignalKeys: disposed.sorted(),
+                disposedOwnerPaths: removedOwners.sorted(),
+                replacedActionStatuses: replacedActionStatuses,
+                changedFetchSignals: changedFetchSignals)
         } catch {
+            _ = actionReplacementCollectors.removeLast()
+            _ = fetchChangeCollectors.removeLast()
             restoreState(snapshot)
             onBatchRollback?()
             throw error
@@ -726,6 +889,9 @@ final class NativeUiHost: SscRuntimeExtension {
             keyedOwners: keyedOwners,
             siteSources: siteSources,
             signalSources: signalSources,
+            fetchFamilies: fetchFamilies,
+            actionStatusHints: actionStatusHints,
+            actionSignatures: actionSignatures,
             forOwnerHints: forOwnerHints,
             currentSiteOccurrences: currentSiteOccurrences,
             currentOwnerPath: currentOwnerPath,
@@ -745,6 +911,9 @@ final class NativeUiHost: SscRuntimeExtension {
         keyedOwners = snapshot.keyedOwners
         siteSources = snapshot.siteSources
         signalSources = snapshot.signalSources
+        fetchFamilies = snapshot.fetchFamilies
+        actionStatusHints = snapshot.actionStatusHints
+        actionSignatures = snapshot.actionSignatures
         forOwnerHints = snapshot.forOwnerHints
         currentSiteOccurrences = snapshot.currentSiteOccurrences
         currentOwnerPath = snapshot.currentOwnerPath
@@ -761,7 +930,14 @@ final class NativeUiHost: SscRuntimeExtension {
         let removedHints = forOwnerHints.compactMap {
             $0.value.path == rootOwner || $0.value.path.hasPrefix(rootOwner + "/") ? $0.key : nil
         }
-        for id in removedHints { forOwnerHints.removeValue(forKey: id) }
+        for id in removedHints {
+            forOwnerHints.removeValue(forKey: id)
+            actionStatusHints.removeValue(forKey: id)
+        }
+        for instance in Array(actionSignatures.keys) where
+            instance == rootOwner || instance.hasPrefix(rootOwner + "/") {
+            actionSignatures.removeValue(forKey: instance)
+        }
     }
 
     private func disposeUnreferencedScopes() -> [String] {
@@ -773,6 +949,7 @@ final class NativeUiHost: SscRuntimeExtension {
             for key in scopeSignals.removeValue(forKey: scope) ?? [] {
                 signals.removeValue(forKey: key)
                 signalSources.removeValue(forKey: key)
+                fetchFamilies.removeValue(forKey: key)
                 disposedSignals.append(key)
             }
         }
@@ -797,20 +974,40 @@ final class NativeUiHost: SscRuntimeExtension {
               case let .string(id) = fields[0], case let .string(scope) = fields[1] else { return nil }
         return signalSources[signalKey(scope: scope, id: id)]
     }
+    func fetchSignal(scope: String, id: String) -> SscValue? {
+        fetchFamilies[signalKey(scope: scope, id: id)]
+    }
+    func fetchSignal(for signal: SscValue) -> SscValue? {
+        guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
+              case let .string(id) = fields[0], case let .string(scope) = fields[1] else { return nil }
+        return fetchSignal(scope: scope, id: id)
+    }
+    func isWritable(_ signal: SscValue) -> Bool {
+        guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
+              case let .string(id) = fields[0], case let .string(scope) = fields[1],
+              case let .string(kind) = fields[2],
+              let cell = signals[signalKey(scope: scope, id: id)] else { return false }
+        return cell.writable && cell.kind == kind
+    }
+    func validActionStatus(_ action: SscValue, phase: SscValue, error: SscValue) -> Bool {
+        guard case let .data("NativeUiFetchAction", fields) = action,
+              let hint = actionStatusHints[ObjectIdentifier(fields)], hint.fields === fields else { return false }
+        return !nativeUiEqual(phase, error) &&
+            nativeUiEqual(hint.phase, phase) && nativeUiEqual(hint.error, error)
+    }
     func ownerPath(for node: SscValue) -> String? {
-        guard case let .data("NativeUiForKeyed", fields) = node, fields.count == 4,
+        guard case let .data(_, fields) = node,
               let hint = forOwnerHints[ObjectIdentifier(fields)],
               hint.fields === fields else { return nil }
         return hint.path
     }
 
     func ownerHintCount() -> Int { forOwnerHints.count }
+    func actionStatusHintCount() -> Int { actionStatusHints.count }
+    func signalCount() -> Int { signals.count }
 
     private func bindForOwner(_ node: SscValue, siteId: String) throws {
-        guard case let .data("NativeUiForKeyed", fields) = node, fields.count == 4,
-              case .closure = fields[3] else {
-            throw SscRuntimeFailure(description: "NativeUiForKeyed constructor returned malformed node")
-        }
+        guard case let .data(_, fields) = node else { return }
         let key = currentOwnerPath + "\u{0}" + siteId
         let occurrence = currentSiteOccurrences[key, default: 0]
         currentSiteOccurrences[key] = occurrence + 1
@@ -829,6 +1026,15 @@ final class NativeUiHost: SscRuntimeExtension {
         signalSources[signalKey(scope: scope, id: id)] = source
     }
 
+    private func registerFetchFamily(value: SscValue, phase: SscValue, error: SscValue) throws {
+        for signal in [value, phase, error] {
+            let fields = try nativeUiSignalFields(signal, "fetch family")
+            let id = try nativeUiString(fields[0], "fetch family id")
+            let scope = try nativeUiString(fields[1], "fetch family scope")
+            fetchFamilies[signalKey(scope: scope, id: id)] = value
+        }
+    }
+
     private func registerRoot(_ tree: SscValue, _ config: SscValue, _ source: SscValue) throws {
         try nativeUiRequire(active, "native UI root registration requires begin")
         try nativeUiEnsurePortable(tree, "NativeUiAbi.root")
@@ -837,11 +1043,46 @@ final class NativeUiHost: SscRuntimeExtension {
             throw SscRuntimeFailure(description: "native UI program registered multiple roots: \(nativeUiRootRegistration(previous.1, previous.2)) and \(nativeUiRootRegistration(config, source))")
         }
         root = (tree, config, source)
+        ownerScopes[currentOwnerPath] = currentOwnerScopes
     }
 }
 
 private func nativeUiRequire(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     if !condition() { throw SscRuntimeFailure(description: message) }
+}
+
+private func nativeUiHttpToken(_ value: String) -> Bool {
+    guard !value.isEmpty else { return false }
+    let punctuation = Set("!#$%&'*+-.^_`|~".unicodeScalars.map(\.value))
+    return value.unicodeScalars.allSatisfy { scalar in
+        let code = scalar.value
+        return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) ||
+            (code >= 97 && code <= 122) || punctuation.contains(code)
+    }
+}
+
+private func nativeUiCanonicalSignalRefs(_ value: SscValue) throws -> SscValue {
+    var maps: [ObjectIdentifier: SscMap] = [:]
+    func loop(_ current: SscValue) throws -> SscValue {
+        switch current {
+        case let .data("NativeUiSignal", fields):
+            let checked = try nativeUiSignalFields(.data("NativeUiSignal", fields), "native UI signal reference")
+            return .data("NativeUiSignalRef", SscFields([checked[0], checked[1], checked[2]]))
+        case let .data(tag, fields):
+            return .data(tag, SscFields(try fields.map(loop)))
+        case let .map(source):
+            let id = ObjectIdentifier(source)
+            if let existing = maps[id] { return .map(existing) }
+            let result = SscMap()
+            maps[id] = result
+            for (key, entry) in source.entries {
+                result.entries.append((try loop(key), try loop(entry)))
+            }
+            return .map(result)
+        default: return current
+        }
+    }
+    return try loop(value)
 }
 
 private func nativeUiString(_ value: SscValue, _ operation: String) throws -> String {
@@ -1003,3 +1244,4 @@ func nativeUiDebug(_ value: SscValue) -> String {
     return "NativeUiAbi(version=\(version), root=\(rootTag), operation=\(operation))"
 }
 """
+  val source: String = sourcePart1 + sourcePart2

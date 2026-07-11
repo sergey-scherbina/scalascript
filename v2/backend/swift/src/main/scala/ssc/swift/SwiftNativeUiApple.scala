@@ -33,7 +33,9 @@ private[swift] object SwiftNativeUiApple:
        |}
        |""".stripMargin
 
-  val storeSource: String = """import SwiftUI
+  val storeSource: String = """import CoreFoundation
+import Foundation
+import SwiftUI
 
 struct NativeUiSubscriptionToken: Hashable {
     fileprivate let id = UUID()
@@ -44,10 +46,22 @@ private struct NativeUiPendingWrite: Hashable {
     let id: String
 }
 
+private struct NativeUiTaskIdentity: Equatable {
+    let generation: UInt64
+    let token: UUID
+}
+
+private struct NativeUiPreparedEffect {
+    let kind: String
+    let target: SscValue
+    let payload: SscValue
+    let url: URL?
+}
+
 @MainActor
 final class NativeUiObservableCell: ObservableObject {
     let key: String
-    let signal: SscValue
+    var signal: SscValue
     @Published private(set) var revision: UInt64 = 0
     private weak var store: NativeUiStore?
 
@@ -76,11 +90,23 @@ final class NativeUiStore: ObservableObject {
     private var readStack: [String] = []
     private var dependencies: [String: Set<String>] = [:]
     private var dependents: [String: Set<String>] = [:]
+    private var dependencyFetchOwners: [String: Set<String>] = [:]
     private var cachedValues: [String: SscValue] = [:]
     private var pendingBatchWrites: [NativeUiPendingWrite]?
     private var pendingBatchWriteSet = Set<NativeUiPendingWrite>()
+    private var pendingSeedReleases = Set<String>()
+    private let urlSession: URLSession
+    private var fetchTasks: [String: Task<Void, Never>] = [:]
+    private var fetchGenerations: [String: UInt64] = [:]
+    private var fetchTaskTokens: [String: UUID] = [:]
+    private var actionTaskStatusKeys: [String: Set<String>] = [:]
+    private var fetchSubscriberCounts: [String: Int] = [:]
+    private var tokenFetchKeys: [UUID: String] = [:]
+    private var openURLHandler: ((URL) -> Void)?
+    private var mutationObserver: ((String, String) -> Void)?
 
-    init() {
+    init(urlSession: URLSession = .shared) {
+        self.urlSession = urlSession
         do {
             let built = try SscGeneratedProgram.makeNativeUiRoot()
             session = built
@@ -116,7 +142,10 @@ final class NativeUiStore: ObservableObject {
         }
     }
 
-    deinit { session?.dispose() }
+    isolated deinit {
+        for task in fetchTasks.values { task.cancel() }
+        session?.dispose()
+    }
 
     func cell(for signal: SscValue) -> NativeUiObservableCell {
         guard let key = signalKey(signal) else {
@@ -126,7 +155,10 @@ final class NativeUiStore: ObservableObject {
             cells[invalid] = created
             return created
         }
-        if let existing = cells[key] { return existing }
+        if let existing = cells[key] {
+            existing.signal = signal
+            return existing
+        }
         let created = NativeUiObservableCell(key: key, signal: signal, store: self)
         cells[key] = created
         return created
@@ -140,10 +172,17 @@ final class NativeUiStore: ObservableObject {
         if previous == 0, isDerived(cell.signal) {
             _ = evaluateDerived(cell.signal, key: cell.key, trackDependencies: true)
         }
+        if let fetch = session?.fetchSignal(for: cell.signal), let fetchKey = signalKey(fetch) {
+            tokenFetchKeys[token.id] = fetchKey
+            acquireFetchSignal(fetch, key: fetchKey)
+        }
         return token
     }
 
     func unsubscribe(_ token: NativeUiSubscriptionToken) {
+        if let fetchKey = tokenFetchKeys.removeValue(forKey: token.id) {
+            releaseFetchSignal(key: fetchKey)
+        }
         guard let key = tokens.removeValue(forKey: token.id) else { return }
         let remaining = max(0, subscriberCounts[key, default: 1] - 1)
         if remaining == 0 {
@@ -203,6 +242,113 @@ final class NativeUiStore: ObservableObject {
         catch { failure = String(describing: error) }
     }
 
+    @discardableResult
+    private func targetTransaction(_ writes: [(SscValue, SscValue)]) -> Bool {
+        beginBatch()
+        do {
+            try session?.targetWrite(writes)
+            commitBatch()
+            return true
+        } catch {
+            rollbackBatch()
+            failure = String(describing: error)
+            return false
+        }
+    }
+
+    func installOpenURL(_ handler: @escaping (URL) -> Void) { openURLHandler = handler }
+    func installMutationObserver(_ observer: @escaping (String, String) -> Void) {
+        mutationObserver = observer
+    }
+    func fetchOwnerCount(for signal: SscValue) -> Int {
+        guard let fetch = session?.fetchSignal(for: signal), let key = signalKey(fetch) else { return 0 }
+        return fetchSubscriberCounts[key, default: 0]
+    }
+    func networkMetadataCount() -> Int {
+        Set(fetchGenerations.keys).union(fetchTaskTokens.keys).union(fetchTasks.keys)
+            .union(actionTaskStatusKeys.keys).count
+    }
+    func hostSignalCount() -> Int { session?.signalCount() ?? 0 }
+    func actionStatusHintCount() -> Int { session?.actionStatusHintCount() ?? 0 }
+
+    func runFetchAction(_ event: SscValue, ownerPath: String, sourceSiteId: String = "") {
+        let diagnosticSite: String
+        if case let .data("NativeUiFetchAction", candidate) = event,
+           candidate.count > 0, case let .string(site) = candidate[0] { diagnosticSite = site }
+        else { diagnosticSite = sourceSiteId }
+        guard let session,
+              case let .data("NativeUiFetchAction", fields) = event, fields.count == 5,
+              case let .string(siteId) = fields[0],
+              case let .data("NativeUiFetchRequest", requestFields) = fields[1], requestFields.count == 4,
+              case let .string(method) = requestFields[0],
+              case let .map(status) = fields[4],
+              let phase = status.get(.string("phase")),
+              let errorSignal = status.get(.string("error")) else {
+            report("malformed native fetch action at " + source(diagnosticSite))
+            return
+        }
+        guard session.validActionStatus(event, phase: phase, error: errorSignal) else {
+            report("native fetch action status capability mismatch at " + source(diagnosticSite))
+            return
+        }
+        guard let phaseKey = signalKey(phase), let errorKey = signalKey(errorSignal) else {
+            report("native fetch action status signals are malformed at " + source(diagnosticSite))
+            return
+        }
+        do { try validateActionSuccess(fields: fields, status: status) }
+        catch { report(bounded(String(describing: error)) + " at " + source(siteId)); return }
+        let taskKey = "action\u{0}" + ownerPath + "\u{0}" + siteId
+        let identity = beginNetworkTask(key: taskKey)
+        actionTaskStatusKeys[taskKey] = [phaseKey, errorKey]
+        guard targetTransaction([(phase, .string("loading")), (errorSignal, .string(""))]) else {
+            finishTask(key: taskKey, identity: identity)
+            return
+        }
+        let request: URLRequest
+        do {
+            let url = try resolveRequestSource(requestFields[1], operation: "fetch action URL", session: session)
+            let body = try resolveRequestSource(requestFields[2], operation: "fetch action body", session: session)
+            let headers = try resolveRequestSource(requestFields[3], operation: "fetch action headers", session: session)
+            request = try makeRequest(method: method, urlValue: url, bodyValue: body, headersValue: headers)
+        } catch {
+            finishTask(key: taskKey, identity: identity)
+            _ = targetTransaction([
+                (errorSignal, .string(bounded("request failed: " + String(describing: error)))),
+                (phase, .string("error")),
+            ])
+            return
+        }
+        let transport = urlSession
+        let task = Task { @MainActor [weak self] in
+            do {
+                let (data, response) = try await transport.data(for: request)
+                guard let self else { return }
+                self.completeFetchAction(
+                    fields: fields, phase: phase, errorSignal: errorSignal,
+                    key: taskKey, identity: identity, data: data, response: response)
+            } catch {
+                guard let self, self.isCurrentTask(key: taskKey, identity: identity) else { return }
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                    self.finishTask(key: taskKey, identity: identity)
+                    _ = self.targetTransaction([(errorSignal, .string("")), (phase, .string("idle"))])
+                    return
+                }
+                self.finishTask(key: taskKey, identity: identity)
+                _ = self.targetTransaction([
+                    (errorSignal, .string(self.bounded("request failed: " + String(describing: error)))),
+                    (phase, .string("error")),
+                ])
+            }
+        }
+        fetchTasks[taskKey] = task
+    }
+
+    func cancelFetchAction(_ event: SscValue, ownerPath: String) {
+        guard case let .data("NativeUiFetchAction", fields) = event, fields.count == 5,
+              case let .string(siteId) = fields[0] else { return }
+        cancelNetworkTask(key: "action\u{0}" + ownerPath + "\u{0}" + siteId)
+    }
+
     func invoke(_ closure: SscClosure, _ arguments: [SscValue]) -> SscValue {
         do { return try session?.invoke(closure, arguments) ?? .unit }
         catch { failure = String(describing: error); return .unit }
@@ -226,6 +372,11 @@ final class NativeUiStore: ObservableObject {
             render: render
         )
         disposeSignalKeys(result.disposedSignalKeys)
+        for status in result.replacedActionStatuses {
+            invalidateActionStatus(phase: status.phase, error: status.error)
+        }
+        for signal in result.changedFetchSignals { replaceFetchSignal(signal) }
+        for owner in result.disposedOwnerPaths { cancelTasks(ownedBy: owner) }
         return result
     }
 
@@ -309,12 +460,19 @@ final class NativeUiStore: ObservableObject {
     }
 
     func renderedSignalDiagnostic(_ signal: SscValue) -> String? {
-        guard signalKind(signal) == "fetch" else { return nil }
-        return "fetch signal adapter pending at " + source(for: signal)
+        nil
     }
 
     func ownerPath(for node: SscValue, fallback: String) -> String {
         session?.ownerPath(for: node) ?? fallback
+    }
+
+    func actionOwnerPath(for event: SscValue, mountedAt ownerPath: String) -> String {
+        guard let construction = session?.ownerPath(for: event),
+              let suffix = construction.range(of: "/o", options: .backwards) else {
+            return ownerPath
+        }
+        return ownerPath + construction[suffix.lowerBound...]
     }
 
     func source(_ value: SscValue) -> String {
@@ -353,6 +511,14 @@ final class NativeUiStore: ObservableObject {
         for source in old.subtracting(next) { dependents[source]?.remove(reader) }
         for source in next.subtracting(old) { dependents[source, default: []].insert(reader) }
         dependencies[reader] = next
+        let previousFetches = dependencyFetchOwners[reader, default: []]
+        let nextFetches = Set(next.compactMap(fetchSignalForKey).compactMap(signalKey))
+        if nextFetches.isEmpty { dependencyFetchOwners.removeValue(forKey: reader) }
+        else { dependencyFetchOwners[reader] = nextFetches }
+        for key in previousFetches.subtracting(nextFetches) { releaseFetchSignal(key: key) }
+        for key in nextFetches.subtracting(previousFetches) {
+            if let signal = fetchSignalForKey(key) { acquireFetchSignal(signal, key: key) }
+        }
     }
 
     private func releaseDependencies(reader: String) {
@@ -361,10 +527,17 @@ final class NativeUiStore: ObservableObject {
             dependents[source]?.remove(reader)
             if dependents[source]?.isEmpty == true { dependents.removeValue(forKey: source) }
         }
+        for key in dependencyFetchOwners.removeValue(forKey: reader) ?? [] {
+            releaseFetchSignal(key: key)
+        }
     }
 
     private func disposeSignalKeys(_ keys: [String]) {
         let removed = Set(keys)
+        let invalidActions = actionTaskStatusKeys.compactMap { taskKey, statusKeys in
+            statusKeys.isDisjoint(with: removed) ? nil : taskKey
+        }
+        for taskKey in invalidActions { cancelNetworkTask(key: taskKey) }
         for key in removed {
             releaseDependencies(reader: key)
             cachedValues.removeValue(forKey: key)
@@ -372,11 +545,43 @@ final class NativeUiStore: ObservableObject {
             subscriberCounts.removeValue(forKey: key)
         }
         let removedTokens = tokens.compactMap { removed.contains($0.value) ? $0.key : nil }
-        for id in removedTokens { tokens.removeValue(forKey: id) }
+        for id in removedTokens {
+            tokens.removeValue(forKey: id)
+            tokenFetchKeys.removeValue(forKey: id)
+        }
+        for key in removed where fetchSubscriberCounts.removeValue(forKey: key) != nil {
+            cancelNetworkTask(key: key)
+        }
+        for key in removed { dependents.removeValue(forKey: key) }
+        for reader in Array(dependencies.keys) {
+            dependencies[reader]?.subtract(removed)
+            if dependencies[reader]?.isEmpty == true { dependencies.removeValue(forKey: reader) }
+        }
+        for reader in Array(dependencyFetchOwners.keys) {
+            dependencyFetchOwners[reader]?.subtract(removed)
+            if dependencyFetchOwners[reader]?.isEmpty == true { dependencyFetchOwners.removeValue(forKey: reader) }
+        }
         for source in Array(dependents.keys) {
             dependents[source]?.subtract(removed)
             if dependents[source]?.isEmpty == true { dependents.removeValue(forKey: source) }
         }
+    }
+
+    private func invalidateActionStatus(phase: SscValue, error: SscValue) {
+        guard let phaseKey = signalKey(phase), let errorKey = signalKey(error) else { return }
+        let statusKeys: Set<String> = [phaseKey, errorKey]
+        let invalidActions = actionTaskStatusKeys.compactMap { taskKey, ownedStatusKeys in
+            ownedStatusKeys.isDisjoint(with: statusKeys) ? nil : taskKey
+        }
+        for taskKey in invalidActions { cancelNetworkTask(key: taskKey) }
+        _ = targetTransaction([(error, .string("")), (phase, .string("idle"))])
+    }
+
+    private func replaceFetchSignal(_ signal: SscValue) {
+        guard let key = signalKey(signal) else { return }
+        cells[key]?.signal = signal
+        guard fetchSubscriberCounts[key, default: 0] > 0 else { return }
+        startFetchSignal(signal, key: key)
     }
 
     private func publish(scope: String, id: String) {
@@ -387,6 +592,12 @@ final class NativeUiStore: ObservableObject {
     }
 
     private func recordWrite(scope: String, id: String) {
+        mutationObserver?(scope, id)
+        let key = scope + "\u{0}" + id
+        if signalKind(cells[key]?.signal ?? .unit) == "seed" {
+            if pendingBatchWrites != nil { pendingSeedReleases.insert(key) }
+            else { releaseDependencies(reader: key) }
+        }
         let write = NativeUiPendingWrite(scope: scope, id: id)
         if pendingBatchWrites != nil {
             if pendingBatchWriteSet.insert(write).inserted { pendingBatchWrites?.append(write) }
@@ -399,25 +610,37 @@ final class NativeUiStore: ObservableObject {
         precondition(pendingBatchWrites == nil, "nested NativeUi keyed batch")
         pendingBatchWrites = []
         pendingBatchWriteSet.removeAll(keepingCapacity: true)
+        pendingSeedReleases.removeAll(keepingCapacity: true)
     }
 
     private func commitBatch() {
         let writes = pendingBatchWrites ?? []
+        let seedReleases = pendingSeedReleases
         pendingBatchWrites = nil
         pendingBatchWriteSet.removeAll(keepingCapacity: true)
+        pendingSeedReleases.removeAll(keepingCapacity: true)
+        for key in seedReleases { releaseDependencies(reader: key) }
         for write in writes { publish(scope: write.scope, id: write.id) }
     }
 
     private func rollbackBatch() {
         pendingBatchWrites = nil
         pendingBatchWriteSet.removeAll(keepingCapacity: true)
+        pendingSeedReleases.removeAll(keepingCapacity: true)
     }
 
     private func publishDependents(of key: String, processed: inout Set<String>) {
         for dependent in Array(dependents[key, default: []]) {
             guard processed.insert(dependent).inserted,
-                  subscriberCounts[dependent, default: 0] > 0,
                   let cell = cells[dependent] else { continue }
+            let active = signalKind(cell.signal) == "fetch"
+                ? fetchSubscriberCounts[dependent, default: 0] > 0
+                : subscriberCounts[dependent, default: 0] > 0
+            guard active else { continue }
+            if signalKind(cell.signal) == "fetch" {
+                startFetchSignal(cell.signal, key: dependent)
+                continue
+            }
             let refreshed = evaluateDerived(cell.signal, key: dependent, trackDependencies: true)
             if refreshed.changed {
                 cell.changed()
@@ -434,6 +657,514 @@ final class NativeUiStore: ObservableObject {
 
     private func signalDisplay(_ key: String) -> String {
         key.split(separator: "\u{0}", omittingEmptySubsequences: false).last.map(String.init) ?? key
+    }
+
+    private func acquireFetchSignal(_ signal: SscValue, key: String) {
+        let previous = fetchSubscriberCounts[key, default: 0]
+        fetchSubscriberCounts[key] = previous + 1
+        if previous == 0 {
+            _ = cell(for: signal)
+            startFetchSignal(signal, key: key)
+        }
+    }
+
+    private func releaseFetchSignal(key: String) {
+        let remaining = max(0, fetchSubscriberCounts[key, default: 1] - 1)
+        if remaining == 0 {
+            fetchSubscriberCounts.removeValue(forKey: key)
+            cancelNetworkTask(key: key)
+        } else {
+            fetchSubscriberCounts[key] = remaining
+        }
+    }
+
+    private func beginNetworkTask(key: String) -> NativeUiTaskIdentity {
+        fetchTasks.removeValue(forKey: key)?.cancel()
+        actionTaskStatusKeys.removeValue(forKey: key)
+        let generation = fetchGenerations[key, default: 0] &+ 1
+        let token = UUID()
+        fetchGenerations[key] = generation
+        fetchTaskTokens[key] = token
+        return NativeUiTaskIdentity(generation: generation, token: token)
+    }
+
+    private func cancelNetworkTask(key: String) {
+        fetchTasks.removeValue(forKey: key)?.cancel()
+        fetchGenerations.removeValue(forKey: key)
+        fetchTaskTokens.removeValue(forKey: key)
+        actionTaskStatusKeys.removeValue(forKey: key)
+    }
+
+    private func cancelTasks(ownedBy owner: String) {
+        let marker = "\u{0}" + owner
+        let ownedKeys = Set(fetchTasks.keys).union(fetchGenerations.keys)
+        for key in ownedKeys where key.hasPrefix("action\u{0}") &&
+            (key.contains(marker + "\u{0}") || key.contains(marker + "/")) {
+            cancelNetworkTask(key: key)
+        }
+    }
+
+    private func isCurrentTask(key: String, identity: NativeUiTaskIdentity) -> Bool {
+        fetchGenerations[key] == identity.generation && fetchTaskTokens[key] == identity.token
+    }
+
+    private func finishTask(key: String, identity: NativeUiTaskIdentity) {
+        guard isCurrentTask(key: key, identity: identity) else { return }
+        fetchTasks.removeValue(forKey: key)
+        fetchGenerations.removeValue(forKey: key)
+        fetchTaskTokens.removeValue(forKey: key)
+        actionTaskStatusKeys.removeValue(forKey: key)
+    }
+
+    private func startFetchSignal(_ signal: SscValue, key: String) {
+        guard fetchSubscriberCounts[key, default: 0] > 0,
+              case let .data("NativeUiSignal", signalFields) = signal,
+              signalFields.count == 6,
+              case let .data("NativeUiSignalMetaFetch", metadata) = signalFields[5],
+              metadata.count == 5 else { return }
+        let phase = metadata[3], errorSignal = metadata[4]
+        let identity = beginNetworkTask(key: key)
+        guard targetTransaction([(phase, .string("loading")), (errorSignal, .string(""))]) else {
+            finishTask(key: key, identity: identity)
+            return
+        }
+        let request: URLRequest
+        do {
+            request = try captureFetchRequest(metadata: metadata, reader: key)
+        } catch {
+            finishTask(key: key, identity: identity)
+            _ = targetTransaction([
+                (errorSignal, .string(bounded("request failed: " + String(describing: error)))),
+                (phase, .string("error")),
+            ])
+            return
+        }
+        let transport = urlSession
+        let task = Task { @MainActor [weak self] in
+            do {
+                let (data, response) = try await transport.data(for: request)
+                guard let self else { return }
+                self.completeFetchSignal(
+                    signal, phase: phase, errorSignal: errorSignal, key: key,
+                    identity: identity, data: data, response: response)
+            } catch {
+                guard let self, self.isCurrentTask(key: key, identity: identity) else { return }
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                    self.finishTask(key: key, identity: identity)
+                    guard self.fetchSubscriberCounts[key, default: 0] > 0 else { return }
+                    _ = self.targetTransaction([(errorSignal, .string("")), (phase, .string("idle"))])
+                    return
+                }
+                self.finishTask(key: key, identity: identity)
+                guard self.fetchSubscriberCounts[key, default: 0] > 0 else { return }
+                _ = self.targetTransaction([
+                    (errorSignal, .string(self.bounded("request failed: " + String(describing: error)))),
+                    (phase, .string("error")),
+                ])
+            }
+        }
+        fetchTasks[key] = task
+    }
+
+    private func completeFetchSignal(
+        _ signal: SscValue,
+        phase: SscValue,
+        errorSignal: SscValue,
+        key: String,
+        identity: NativeUiTaskIdentity,
+        data: Data,
+        response: URLResponse
+    ) {
+        guard isCurrentTask(key: key, identity: identity),
+              fetchSubscriberCounts[key, default: 0] > 0 else { return }
+        finishTask(key: key, identity: identity)
+        guard let http = response as? HTTPURLResponse else {
+            _ = targetTransaction([
+                (errorSignal, .string("request failed: response was not HTTP")),
+                (phase, .string("error")),
+            ])
+            return
+        }
+        guard let body = String(data: data, encoding: .utf8) else {
+            _ = targetTransaction([
+                (errorSignal, .string("request failed: response body is not valid UTF-8")),
+                (phase, .string("error")),
+            ])
+            return
+        }
+        if (200..<300).contains(http.statusCode) {
+            _ = targetTransaction([
+                (signal, .string(body)), (errorSignal, .string("")), (phase, .string("done")),
+            ])
+        } else {
+            _ = targetTransaction([
+                (errorSignal, .string(bounded("HTTP \(http.statusCode): " + body))),
+                (phase, .string("error")),
+            ])
+        }
+    }
+
+    private func completeFetchAction(
+        fields: SscFields,
+        phase: SscValue,
+        errorSignal: SscValue,
+        key: String,
+        identity: NativeUiTaskIdentity,
+        data: Data,
+        response: URLResponse
+    ) {
+        guard isCurrentTask(key: key, identity: identity) else { return }
+        finishTask(key: key, identity: identity)
+        guard let http = response as? HTTPURLResponse else {
+            failAction(phase: phase, errorSignal: errorSignal, message: "request failed: response was not HTTP")
+            return
+        }
+        guard let body = String(data: data, encoding: .utf8) else {
+            failAction(phase: phase, errorSignal: errorSignal, message: "request failed: response body is not valid UTF-8")
+            return
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            failAction(phase: phase, errorSignal: errorSignal, message: "HTTP \(http.statusCode): " + body)
+            return
+        }
+        do {
+            guard let session else { throw SscRuntimeFailure(description: "native UI session is unavailable") }
+            let capture = fields[3]
+            guard unitOrWritableSignal(capture) else {
+                throw SscRuntimeFailure(description: "native fetch capture target must be writable NativeUiSignal or Unit")
+            }
+            guard case let .map(status) = fields[4] else {
+                throw SscRuntimeFailure(description: "native fetch action status must be Map")
+            }
+            let clear = status.get(.string("clearTarget")) ?? .unit
+            guard unitOrWritableSignal(clear) else {
+                throw SscRuntimeFailure(description: "native fetch clear target must be writable NativeUiSignal or Unit")
+            }
+            var preceding: [(SscValue, SscValue)] = []
+            if case .unit = capture {} else { preceding.append((capture, .string(body))) }
+            if case .unit = clear {} else { preceding.append((clear, .string(""))) }
+            let effects = try prepareEffects(fields[2], responseBody: body, preceding: preceding)
+            if case .unit = capture {} else { try session.write(capture, .string(body)) }
+            if case .unit = clear {} else { try session.write(clear, .string("")) }
+            guard targetTransaction([(errorSignal, .string("")), (phase, .string("done"))]) else { return }
+            for effect in effects { try apply(effect) }
+        } catch {
+            failAction(
+                phase: phase, errorSignal: errorSignal,
+                message: "request failed: " + String(describing: error))
+        }
+    }
+
+    private func failAction(phase: SscValue, errorSignal: SscValue, message: String) {
+        _ = targetTransaction([
+            (errorSignal, .string(bounded(message))), (phase, .string("error")),
+        ])
+    }
+
+    private func writableSignal(_ value: SscValue) -> Bool {
+        guard session?.isWritable(value) == true, let kind = signalKind(value) else { return false }
+        return ["mutable", "seed", "hash", "persisted"].contains(kind)
+    }
+
+    private func unitOrWritableSignal(_ value: SscValue) -> Bool {
+        if case .unit = value { return true }
+        return writableSignal(value)
+    }
+
+    private func validateActionSuccess(fields: SscFields, status: SscMap) throws {
+        guard unitOrWritableSignal(fields[3]) else {
+            throw SscRuntimeFailure(description: "native fetch capture target must be writable NativeUiSignal or Unit")
+        }
+        let clear = status.get(.string("clearTarget")) ?? .unit
+        guard unitOrWritableSignal(clear) else {
+            throw SscRuntimeFailure(description: "native fetch clear target must be writable NativeUiSignal or Unit")
+        }
+        var predicted: [String: SscValue] = [:]
+        func predict(_ signal: SscValue, _ value: SscValue) {
+            if let key = signalKey(signal) { predicted[key] = value }
+        }
+        if case .unit = fields[3] {} else { predict(fields[3], .string("<response>")) }
+        if case .unit = clear {} else { predict(clear, .string("")) }
+        for effect in try list(fields[2], operation: "NativeUiFetchAction.onSuccess") {
+            guard case let .data("NativeUiSuccessEffect", effectFields) = effect,
+                  effectFields.count == 3, case let .string(kind) = effectFields[0] else {
+                throw SscRuntimeFailure(description: "native fetch success effect is malformed")
+            }
+            switch kind {
+            case "bumpTick":
+                let current = signalKey(effectFields[1]).flatMap { predicted[$0] } ?? read(effectFields[1])
+                guard writableSignal(effectFields[1]), case .unit = effectFields[2],
+                      case let .int(value) = current, value < Int64.max else {
+                    throw SscRuntimeFailure(description: "bumpTick requires writable non-overflowing Int signal and Unit payload")
+                }
+                predict(effectFields[1], .int(value + 1))
+            case "setSignal":
+                guard writableSignal(effectFields[1]),
+                      signalKind(effectFields[1]) != "persisted" || {
+                          if case .string = effectFields[2] { true } else { false }
+                      }() else {
+                    throw SscRuntimeFailure(description: "setSignal requires writable NativeUiSignal")
+                }
+                predict(effectFields[1], effectFields[2])
+            case "navigate":
+                guard case .unit = effectFields[1], case let .string(path) = effectFields[2],
+                      let url = URL(string: path), let scheme = url.scheme?.lowercased(),
+                      ["http", "https", "mailto"].contains(scheme), openURLHandler != nil else {
+                    throw SscRuntimeFailure(description: "navigate requires an absolute http/https/mailto URL and SwiftUI openURL environment")
+                }
+            case "openJson":
+                guard case let .string(template) = effectFields[1], !template.isEmpty,
+                      case let .string(field) = effectFields[2], !field.isEmpty,
+                      openURLHandler != nil else {
+                    throw SscRuntimeFailure(description: "openJson requires template, field, and SwiftUI openURL environment")
+                }
+            default:
+                throw SscRuntimeFailure(description: "unsupported native fetch success effect " + kind)
+            }
+        }
+    }
+
+    private func prepareEffects(
+        _ value: SscValue,
+        responseBody: String,
+        preceding: [(SscValue, SscValue)]
+    ) throws -> [NativeUiPreparedEffect] {
+        var result: [NativeUiPreparedEffect] = []
+        var predicted: [String: SscValue] = [:]
+        func predict(_ signal: SscValue, _ value: SscValue) {
+            if let key = signalKey(signal) { predicted[key] = value }
+        }
+        for (signal, value) in preceding { predict(signal, value) }
+        for effect in try list(value, operation: "NativeUiFetchAction.onSuccess") {
+            guard case let .data("NativeUiSuccessEffect", fields) = effect, fields.count == 3,
+                  case let .string(kind) = fields[0] else {
+                throw SscRuntimeFailure(description: "native fetch success effect is malformed")
+            }
+            switch kind {
+            case "bumpTick":
+                let current = signalKey(fields[1]).flatMap { predicted[$0] } ?? read(fields[1])
+                guard writableSignal(fields[1]), case .unit = fields[2],
+                      case let .int(value) = current, value < Int64.max else {
+                    throw SscRuntimeFailure(description: "bumpTick requires writable Int signal and Unit payload")
+                }
+                let next = SscValue.int(value + 1)
+                predict(fields[1], next)
+                result.append(NativeUiPreparedEffect(kind: kind, target: fields[1], payload: next, url: nil))
+            case "setSignal":
+                guard writableSignal(fields[1]),
+                      signalKind(fields[1]) != "persisted" || {
+                          if case .string = fields[2] { true } else { false }
+                      }() else {
+                    throw SscRuntimeFailure(description: "setSignal requires writable NativeUiSignal")
+                }
+                predict(fields[1], fields[2])
+                result.append(NativeUiPreparedEffect(kind: kind, target: fields[1], payload: fields[2], url: nil))
+            case "navigate":
+                guard case .unit = fields[1], case let .string(path) = fields[2],
+                      let url = URL(string: path), let scheme = url.scheme?.lowercased(),
+                      ["http", "https", "mailto"].contains(scheme), openURLHandler != nil else {
+                    throw SscRuntimeFailure(description: "navigate requires an absolute http/https/mailto URL and SwiftUI openURL environment")
+                }
+                result.append(NativeUiPreparedEffect(kind: kind, target: fields[1], payload: fields[2], url: url))
+            case "openJson":
+                guard case let .string(template) = fields[1], case let .string(field) = fields[2],
+                      let data = responseBody.data(using: .utf8),
+                      let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let raw = object[field] else {
+                    throw SscRuntimeFailure(description: "openJson requires a JSON object containing the declared field")
+                }
+                let replacement: String
+                if let value = raw as? String { replacement = value }
+                else if let value = raw as? NSNumber,
+                        CFGetTypeID(value) != CFBooleanGetTypeID() { replacement = value.stringValue }
+                else { throw SscRuntimeFailure(description: "openJson field must be String or number") }
+                var componentAllowed = CharacterSet.alphanumerics
+                componentAllowed.insert(charactersIn: "-_.!~*'()")
+                guard let encoded = replacement.addingPercentEncoding(withAllowedCharacters: componentAllowed) else {
+                    throw SscRuntimeFailure(description: "openJson field could not be URL-encoded")
+                }
+                let destination = template.replacingOccurrences(of: ":value", with: encoded)
+                guard let url = URL(string: destination),
+                      let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme),
+                      openURLHandler != nil else {
+                    throw SscRuntimeFailure(description: "openJson produced an unsafe or invalid URL")
+                }
+                result.append(NativeUiPreparedEffect(kind: kind, target: fields[1], payload: fields[2], url: url))
+            default:
+                throw SscRuntimeFailure(description: "unsupported native fetch success effect " + kind)
+            }
+        }
+        return result
+    }
+
+    private func apply(_ effect: NativeUiPreparedEffect) throws {
+        guard let session else { throw SscRuntimeFailure(description: "native UI session is unavailable") }
+        switch effect.kind {
+        case "bumpTick": try session.write(effect.target, effect.payload)
+        case "setSignal": try session.write(effect.target, effect.payload)
+        case "navigate", "openJson":
+            guard let url = effect.url, let handler = openURLHandler else {
+                throw SscRuntimeFailure(description: "SwiftUI openURL environment is unavailable")
+            }
+            handler(url)
+        default: preconditionFailure("validated NativeUiSuccessEffect kind")
+        }
+    }
+
+    private func captureFetchRequest(metadata: SscFields, reader: String) throws -> URLRequest {
+        guard let session else { throw SscRuntimeFailure(description: "native UI session is unavailable") }
+        let previousReader = currentReader
+        let previousPending = pendingDependencies
+        let previousReadStack = readStack
+        currentReader = reader
+        pendingDependencies = []
+        readStack = []
+        var succeeded = false
+        defer {
+            if succeeded { commitDependencies(reader: reader, next: pendingDependencies) }
+            currentReader = previousReader
+            pendingDependencies = previousPending
+            readStack = previousReadStack
+        }
+        let urlValue = try resolveRequestSource(metadata[0], operation: "fetch URL", session: session)
+        _ = try session.read(metadata[1])
+        let headersValue = try session.read(metadata[2])
+        succeeded = true
+        return try makeRequest(method: "GET", urlValue: urlValue, bodyValue: .unit, headersValue: headersValue)
+    }
+
+    private func resolveRequestSource(_ value: SscValue, operation: String, session: NativeUiSession) throws -> SscValue {
+        if case .data("NativeUiSignal", _) = value { return try session.read(value) }
+        return value
+    }
+
+    private func makeRequest(method: String, urlValue: SscValue, bodyValue: SscValue, headersValue: SscValue) throws -> URLRequest {
+        guard case let .string(urlText) = urlValue,
+              let url = URL(string: urlText),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else {
+            throw SscRuntimeFailure(description: "native fetch URL must be an absolute http/https URL")
+        }
+        guard isHttpToken(method) else {
+            throw SscRuntimeFailure(description: "native fetch method must be an RFC HTTP token")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method.uppercased()
+        request.httpBody = try requestBody(bodyValue)
+        for (name, value) in try requestHeaders(headersValue) { request.setValue(value, forHTTPHeaderField: name) }
+        return request
+    }
+
+    private func requestHeaders(_ value: SscValue) throws -> [String: String] {
+        guard case let .string(text) = value else {
+            throw SscRuntimeFailure(description: "native fetch headers signal must contain JSON text")
+        }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [:] }
+        guard let data = text.data(using: .utf8) else {
+            throw SscRuntimeFailure(description: "native fetch headers must be valid UTF-8 JSON")
+        }
+        let decoded: Any
+        do { decoded = try JSONSerialization.jsonObject(with: data) }
+        catch { throw SscRuntimeFailure(description: "native fetch headers must be a JSON object") }
+        guard let object = decoded as? [String: Any] else {
+            throw SscRuntimeFailure(description: "native fetch headers must be a JSON object")
+        }
+        var result: [String: String] = [:]
+        for (name, raw) in object {
+            guard let header = raw as? String else {
+                throw SscRuntimeFailure(description: "native fetch header '\(name)' must be String")
+            }
+            guard isHttpToken(name) else {
+                throw SscRuntimeFailure(description: "native fetch header name '\(name)' must be an RFC HTTP token")
+            }
+            guard header.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7f }) else {
+                throw SscRuntimeFailure(description: "native fetch header '\(name)' contains a control character")
+            }
+            result[name] = header
+        }
+        return result
+    }
+
+    private func isHttpToken(_ value: String) -> Bool {
+        guard !value.isEmpty else { return false }
+        let punctuation = Set("!#$%&'*+-.^_`|~".unicodeScalars.map(\.value))
+        return value.unicodeScalars.allSatisfy { scalar in
+            let code = scalar.value
+            return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) ||
+                (code >= 97 && code <= 122) || punctuation.contains(code)
+        }
+    }
+
+    private func requestBody(_ value: SscValue) throws -> Data? {
+        switch value {
+        case .unit: return nil
+        case let .string(text): return text.data(using: .utf8)
+        case let .data("NativeUiFormBody", fields) where fields.count == 1:
+            guard let session else { throw SscRuntimeFailure(description: "native UI session is unavailable") }
+            var object: [String: Any] = [:]
+            for descriptor in try list(fields[0], operation: "NativeUiFormBody.fields") {
+                let wire: String
+                let signalId: String
+                switch descriptor {
+                case let .string(name): wire = name; signalId = name
+                case let .data(tag, pair) where (tag == "Tuple2" || tag == "Pair") && pair.count == 2:
+                    guard case let .string(key) = pair[0], case let .string(id) = pair[1] else {
+                        throw SscRuntimeFailure(description: "NativeUiFormBody tuple entries must contain String names")
+                    }
+                    wire = key; signalId = id
+                default:
+                    throw SscRuntimeFailure(description: "NativeUiFormBody entries must be String or (String, String)")
+                }
+                object[wire] = try jsonObject(try session.readSignal(named: signalId))
+            }
+            return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        default:
+            return try JSONSerialization.data(withJSONObject: jsonObject(value), options: [.sortedKeys, .fragmentsAllowed])
+        }
+    }
+
+    private func jsonObject(_ value: SscValue) throws -> Any {
+        switch value {
+        case .unit: return NSNull()
+        case let .bool(value): return value
+        case let .int(value): return value
+        case let .float(value): return value
+        case let .string(value): return value
+        case let .big(value): return value.description
+        case let .decimal(value): return value.description
+        case .data("Nil", _): return [Any]()
+        case .data("Cons", _): return try list(value, operation: "JSON list").map(jsonObject)
+        case let .map(map):
+            var object: [String: Any] = [:]
+            for (key, item) in map.entries {
+                guard case let .string(name) = key else { throw SscRuntimeFailure(description: "JSON map keys must be String") }
+                object[name] = try jsonObject(item)
+            }
+            return object
+        default: throw SscRuntimeFailure(description: "request body contains a non-JSON portable value")
+        }
+    }
+
+    private func list(_ value: SscValue, operation: String) throws -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: throw SscRuntimeFailure(description: operation + " must be a proper List")
+            }
+        }
+    }
+
+    private func bounded(_ message: String) -> String {
+        String(message.unicodeScalars.prefix(1024))
+    }
+
+    private func fetchSignalForKey(_ key: String) -> SscValue? {
+        let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        return session?.fetchSignal(scope: String(parts[0]), id: String(parts[1]))
     }
 }
 """
@@ -454,6 +1185,7 @@ struct NativeUiRenderer: View {
     ]
     private static let supportedEventSlots: Set<String> = ["change", "click"]
     @ObservedObject var store: NativeUiStore
+    @Environment(\.openURL) private var openURL
     let value: SscValue
     let ownerPath: String
     let showFailure: Bool
@@ -478,6 +1210,7 @@ struct NativeUiRenderer: View {
             }
             render(value)
         }
+        .onAppear { store.installOpenURL { openURL($0) } }
     }
 
     private func render(_ value: SscValue) -> AnyView {
@@ -506,7 +1239,7 @@ struct NativeUiRenderer: View {
             guard let children = properList(fields[0]) else { return unsupported("NativeUiFragment children must be a proper List") }
             return renderChildren(children)
         case "NativeUiElement" where fields.count == 5:
-            return renderElement(fields)
+            return renderElement(fields, nodeOwnerPath: store.ownerPath(for: value, fallback: ownerPath))
         case "NativeUiForKeyed" where fields.count == 4:
             guard case .string = fields[0], case .data("NativeUiSignal", _) = fields[1],
                   case .closure = fields[2], case .closure = fields[3] else {
@@ -546,7 +1279,7 @@ struct NativeUiRenderer: View {
         })
     }
 
-    private func renderElement(_ fields: SscFields) -> AnyView {
+    private func renderElement(_ fields: SscFields, nodeOwnerPath: String) -> AnyView {
         let tag = store.string(fields[1])
         let source = store.source(store.string(fields[0]))
         guard case let .map(attrs) = fields[2] else { return unsupported("NativeUiElement attrs must be Map at " + source) }
@@ -580,16 +1313,16 @@ struct NativeUiRenderer: View {
         case "br": content = AnyView(Text("\n"))
         case "hr": content = AnyView(Divider())
         case "button":
-            content = AnyView(Button(action: { runEvents(events, siteId: store.string(fields[0])) }) { renderChildren(children) })
+            content = AnyView(Button(action: { runEvents(events, siteId: store.string(fields[0]), nodeOwnerPath: nodeOwnerPath) }) { renderChildren(children) })
         case "input" where attribute(attrs, "type") == "checkbox":
             if let checked = attrs.get(.string("checked")), case .data("NativeUiSignal", _) = checked {
                 content = AnyView(NativeUiToggleControl(
-                    store: store, signal: checked, events: events, siteId: store.string(fields[0])
+                    store: store, signal: checked, events: events, siteId: store.string(fields[0]), ownerPath: nodeOwnerPath
                 ))
             } else {
                 content = AnyView(Toggle("", isOn: Binding(
                     get: { self.boundBool(attrs) },
-                    set: { _ in self.runEvents(events, siteId: store.string(fields[0])) })))
+                    set: { _ in self.runEvents(events, siteId: store.string(fields[0]), nodeOwnerPath: nodeOwnerPath) })))
             }
         case "input":
             if let value = attrs.get(.string("value")), case .data("NativeUiSignal", _) = value {
@@ -598,16 +1331,17 @@ struct NativeUiRenderer: View {
                     signal: value,
                     placeholder: attribute(attrs, "placeholder") ?? "",
                     events: events,
-                    siteId: store.string(fields[0])
+                    siteId: store.string(fields[0]),
+                    ownerPath: nodeOwnerPath
                 ))
             } else {
                 content = AnyView(TextField(attribute(attrs, "placeholder") ?? "", text: Binding(
                     get: { self.boundText(attrs) },
-                    set: { next in self.runEvents(events, input: next, siteId: store.string(fields[0])) })))
+                    set: { next in self.runEvents(events, input: next, siteId: store.string(fields[0]), nodeOwnerPath: nodeOwnerPath) })))
             }
         case "a":
             if Self.anchorBehavior(attrs: attrs, events: events) == "event" {
-                content = AnyView(Button(action: { runEvents(events, siteId: store.string(fields[0])) }) { renderChildren(children) })
+                content = AnyView(Button(action: { runEvents(events, siteId: store.string(fields[0]), nodeOwnerPath: nodeOwnerPath) }) { renderChildren(children) })
             } else if Self.anchorBehavior(attrs: attrs, events: events) == "href",
                       let href = attribute(attrs, "href"), let url = URL(string: href) {
                 content = AnyView(Link(destination: url) { renderChildren(children) })
@@ -636,12 +1370,12 @@ struct NativeUiRenderer: View {
         default:
             return unsupported("unsupported element <" + tag + "> at " + store.source(store.string(fields[0])))
         }
-        return NativeUiStyles.apply(
+        return AnyView(NativeUiStyles.apply(
             content,
             attrs: attrs,
             store: store,
             siteId: store.string(fields[0])
-        )
+        ).onDisappear { cancelEvents(events, nodeOwnerPath: nodeOwnerPath) })
     }
 
     private func renderOrderedList(_ children: [SscValue], start: Int, source: String) -> AnyView {
@@ -664,8 +1398,18 @@ struct NativeUiRenderer: View {
         })
     }
 
-    private func runEvents(_ events: SscMap, input: String? = nil, siteId: String) {
-        for (_, event) in events.entries { NativeUiActions.run(event, input: input, store: store, siteId: siteId) }
+    private func runEvents(_ events: SscMap, input: String? = nil, siteId: String, nodeOwnerPath: String) {
+        for (_, event) in events.entries {
+            NativeUiActions.run(
+                event, input: input, store: store, siteId: siteId,
+                ownerPath: store.actionOwnerPath(for: event, mountedAt: nodeOwnerPath))
+        }
+    }
+
+    private func cancelEvents(_ events: SscMap, nodeOwnerPath: String) {
+        for (_, event) in events.entries {
+            store.cancelFetchAction(event, ownerPath: store.actionOwnerPath(for: event, mountedAt: nodeOwnerPath))
+        }
     }
 
     private func boundText(_ attrs: SscMap) -> String {
@@ -830,14 +1574,16 @@ private struct NativeUiTextControl: View {
     let placeholder: String
     let events: SscMap
     let siteId: String
+    let ownerPath: String
     @State private var token: NativeUiSubscriptionToken?
 
-    init(store: NativeUiStore, signal: SscValue, placeholder: String, events: SscMap, siteId: String) {
+    init(store: NativeUiStore, signal: SscValue, placeholder: String, events: SscMap, siteId: String, ownerPath: String) {
         self.store = store
         self.cell = store.cell(for: signal)
         self.placeholder = placeholder
         self.events = events
         self.siteId = siteId
+        self.ownerPath = ownerPath
     }
 
     @ViewBuilder var body: some View {
@@ -850,14 +1596,21 @@ private struct NativeUiTextControl: View {
                     get: { store.string(cell.read()) },
                     set: { next in
                         for (_, event) in events.entries {
-                            NativeUiActions.run(event, input: next, store: store, siteId: siteId)
+                            NativeUiActions.run(
+                                event, input: next, store: store, siteId: siteId,
+                                ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
                         }
                     }
                 ))
             }
         }
         .onAppear { if token == nil { token = store.subscribe(cell) } }
-        .onDisappear { if let token { store.unsubscribe(token); self.token = nil } }
+        .onDisappear {
+            if let token { store.unsubscribe(token); self.token = nil }
+            for (_, event) in events.entries {
+                store.cancelFetchAction(event, ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
+            }
+        }
     }
 }
 
@@ -867,13 +1620,15 @@ private struct NativeUiToggleControl: View {
     @ObservedObject var store: NativeUiStore
     let events: SscMap
     let siteId: String
+    let ownerPath: String
     @State private var token: NativeUiSubscriptionToken?
 
-    init(store: NativeUiStore, signal: SscValue, events: SscMap, siteId: String) {
+    init(store: NativeUiStore, signal: SscValue, events: SscMap, siteId: String, ownerPath: String) {
         self.store = store
         self.cell = store.cell(for: signal)
         self.events = events
         self.siteId = siteId
+        self.ownerPath = ownerPath
     }
 
     @ViewBuilder var body: some View {
@@ -886,14 +1641,21 @@ private struct NativeUiToggleControl: View {
                     get: { store.bool(cell.read()) },
                     set: { _ in
                         for (_, event) in events.entries {
-                            NativeUiActions.run(event, input: nil, store: store, siteId: siteId)
+                            NativeUiActions.run(
+                                event, input: nil, store: store, siteId: siteId,
+                                ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
                         }
                     }
                 ))
             }
         }
         .onAppear { if token == nil { token = store.subscribe(cell) } }
-        .onDisappear { if let token { store.unsubscribe(token); self.token = nil } }
+        .onDisappear {
+            if let token { store.unsubscribe(token); self.token = nil }
+            for (_, event) in events.entries {
+                store.cancelFetchAction(event, ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
+            }
+        }
     }
 }
 
@@ -1544,10 +2306,9 @@ private struct NativeUiSignalStyleView: View {
 
 enum NativeUiActions {
     @MainActor
-    static func run(_ event: SscValue, input: String?, store: NativeUiStore, siteId: String) {
-        if case let .data("NativeUiFetchAction", fields) = event {
-            let site = fields.first.map(store.string) ?? ""
-            store.report("fetch action adapter pending at " + store.source(site))
+    static func run(_ event: SscValue, input: String?, store: NativeUiStore, siteId: String, ownerPath: String) {
+        if case .data("NativeUiFetchAction", _) = event {
+            store.runFetchAction(event, ownerPath: ownerPath, sourceSiteId: siteId)
             return
         }
         guard case let .data("NativeUiEvent", fields) = event, fields.count == 4,
