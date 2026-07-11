@@ -447,6 +447,8 @@ there before changing this plan.
             Require a valid shorthand color token even with explicit border-
             color, allowlist all frozen signal kinds, and reject non-String
             event metadata keys with source-located forged-value regressions.
+            Validate each signal metadata tag/arity against its kind; gate an
+            allowed mutable kind with real closures but Unit metadata.
             Fetch signals/actions stay sourced Unsupported until the next slice
             implements phases, cancellation, and ordered success effects; the
             guard must cover signal text, controls, styles, and keyed items,

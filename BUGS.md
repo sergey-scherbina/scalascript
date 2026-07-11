@@ -78,6 +78,9 @@ read-only SwiftUI store/renderer review in Rozum.
   six-field `NativeUiSignal`, not merely a matching tag/kind string.
   Sixth review adds the adversarial boundary: signal kind must be one of the
   eight frozen values and every event metadata key must be String.
+  Seventh review leaves one final full-shape case: field 5 must match its kind
+  (`mutable` String-key Map; exact `NativeUiSignalMeta*` tag/arity for seed,
+  computed, equality, hash, fetch, online, and persisted).
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 
