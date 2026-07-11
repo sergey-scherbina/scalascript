@@ -69,9 +69,10 @@ self-hosted release gate while verifying the new structural content projection.
   established source-located failure. Structural tests are 8/8 and both the
   exact Markdown frontend repro and native content e2e pass after the final
   rebase; affected conformance is 16/16, and the fix is on `origin/main`.
+
 ## v2-swift-ios-run-unbounded-error — domain source leaks a JVM stack trace
 
-**Status:** open (2026-07-11); found by codex in the assembled
+**Status:** done (2026-07-11, `08735b15a`); found by codex in the assembled
 `tests/e2e/v2-swift-cli.sh` gate after the Xcode application route was enabled.
 
 - **Real-harness repro:** fresh `scripts/sbtc installBin`, then
@@ -85,23 +86,30 @@ self-hosted release gate while verifying the new structural content projection.
   `run --target ios: checked program does not define a NativeUi application`,
   print no stack, and keep exit 1/no-v1-fallback. Gate through the freshly
   assembled CLI e2e, not a direct helper invocation.
+- **Fix/result:** the iOS v2 adapter now owns the same bounded command exception
+  boundary as macOS. Fresh `installBin` plus assembled `v2-swift-cli` e2e emits
+  the exact one-line diagnostic, exits 1, contains no JVM stack, and never
+  retries v1.
 
 ## tkv2-pwa-stale-default-backend — expected output pins retired JDK default
 
-**Status:** open (2026-07-11); found by codex while running the mandatory
+**Status:** done (2026-07-11, `b060951ce`); found by codex while running the mandatory
 `tkv2-*` landing gate for `v2-swiftui-xcode-project`.
 
 - **Real-harness repro:** after a fresh `scripts/sbtc installBin`, run
   `tests/conformance/run.sh --only 'tkv2-*' --no-memo`. Eleven cases pass, but
   `tkv2-pwa` fails only on line 2: expected `  (backend=jdk)`, got
   `  (backend=fast)`; all eight functional PWA assertions remain `true`.
-- **Root cause hypothesis:** `HttpServerBackends` now deliberately prefers the
+- **Root cause:** `HttpServerBackends` now deliberately prefers the
   installed `fast` provider when no backend is selected, while the corpus
   expected file still pins the former JDK default. The fixture tests PWA
   manifest/service-worker behavior, not transport selection.
 - **Expected/fix:** update the real-harness expected banner to the current
   deterministic default, rerun the isolated case and full `tkv2-*` gate, and
   report the result in Rozum. Do not weaken or filter the remaining output.
+- **Fix/result:** only the obsolete expected banner changed. Isolated
+  `tkv2-pwa` passed 1/1 and the complete no-memo `tkv2-*` corpus passed 12/12
+  after the final rebase; all eight functional PWA assertions remain exact.
 
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
@@ -193,6 +201,13 @@ taxonomy. Provider implementation already landed in `608d63425`.
   deployments/platforms, Catalyst off, no team). macOS smoke calls unbounded
   `waitFor()` after `destroy`; use timed wait and forced kill in `finally` so
   both process and temporary-tree cleanup are bounded.
+- **Unsigned application closure (2026-07-11):** generator `d1b4350b7`, common
+  unsigned adapters `abf9943c8`, and acceptance evidence `3942297ca` are on
+  `origin/main`. Checked metadata, deterministic PBX/scheme/resources,
+  manifest-scoped atomic ownership, build-setting discovery, and plist
+  verification drive real macOS and concrete iOS Simulator apps. Reviewer
+  round 3 APPROVE; Swift 43/43, CLI 8/8, assembled e2e, and `tkv2-*` 12/12.
+  Status remains open only for the named signed distribution-adapter slice.
 - **Plan/done-when:** freeze the exact metadata/default/validation, PBX id and
   target settings, source/resource membership, artifact split, discovery, and
   distribution sub-slice in `specs/v2-swift-swiftui-native.md`; obtain Rozum

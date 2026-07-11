@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI emits verified macOS and iOS Xcode applications
+
+Checked v2 NativeUi sources now emit one deterministic objectVersion-56
+multi-platform application target and app-only shared scheme with exact
+AppCore/AppleApp/resources membership. Typed Xcode artifact authority,
+destination build-setting discovery, and plist verification keep every
+unsigned Apple build/run lane on the real `.app`, never the SwiftPM debug CLI;
+manifest-scoped atomic ownership preserves user resources across mode/product
+changes. Real macOS launch and installed iOS 26.5 Simulator builds passed,
+independent Rozum round 3 approved, Swift backend is 43/43, CLI 8/8, assembled
+e2e passes, and toolkit conformance is 12/12. Landed `d1b4350b7`,
+`abf9943c8`, and `3942297ca`; docs `40eb9c31f`.
+
 ## 2026-07-11 — named givens remain first-class dictionaries
 
 The self-hosted import filter now retains `given_obj`, and given globals reuse

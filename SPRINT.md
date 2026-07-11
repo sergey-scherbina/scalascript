@@ -915,36 +915,36 @@ there before changing this plan.
       device deploy, `.ipa`, notarization, DMG, TestFlight, and App Store
       adapters working after the generator switch. Add the user-facing example
       and README/spec command matrix.
-      - [ ] **v2-swiftui-xcode-project** — UI mode emits the frozen `AppleApp/`
+      - [x] **v2-swiftui-xcode-project** — UI mode emits the frozen `AppleApp/`
             filenames/resources plus a deterministic application PBX target and
             shared scheme compiling AppCore directly. Pin product type, bundle/
             version/deployment settings, supported platforms, source/resource
             phases, and ensure package/publish select the `.app`, never the CLI.
             Pre-code Rozum review is BLOCKED until the following spec delta is
             committed and approved:
-            - [ ] add a v2 checked-source result carrying top-level app metadata
+            - [x] add a v2 checked-source result carrying top-level app metadata
                   without calling v1 `Parser`/`JvmGen`: product precedence is
                   explicit product name, then manifest `name`, then file stem;
                   UI app mode requires an exact reverse-DNS `bundle-id`; display
                   name falls back through manifest name/product; Apple dotted
                   `version` and `build-version` default to `1.0.0` and `1` and
                   reject malformed values with bounded key/value diagnostics;
-            - [ ] generate one Xcode-14-compatible/objectVersion-56 multi-platform
+            - [x] generate one Xcode-14-compatible/objectVersion-56 multi-platform
                   application target with semantic SHA-256 24-hex object ids,
                   collision checks, stable ordering, Swift 6, generated plist,
                   macOS 13/iOS 16, no Catalyst, and no persisted signing secret;
-            - [ ] compile every sorted `Sources/AppCore/*.swift` (including
+            - [x] compile every sorted `Sources/AppCore/*.swift` (including
                   `NativeUiHost.swift`) plus `AppleApp/*.swift`, exclude the CLI
                   main/Package.swift, recursively resource sorted
                   `AppleApp/Resources`, always emit a minimal Assets catalog,
                   and make the shared scheme reference only the `.app` target;
-            - [ ] replace the ambiguous package product field with explicit
+            - [x] replace the ambiguous package product field with explicit
                   `debugCli` and `XcodeAppArtifact`. Only `run-swift` may consume
                   the CLI; Apple build/run/package/publish use `-project/-scheme`,
                   discover `TARGET_BUILD_DIR` + `FULL_PRODUCT_NAME` through
                   `-showBuildSettings`, and verify `.app`, Info.plist `APPL`, exact
                   bundle id, and a non-CLI executable before launch/distribution.
-            - [ ] own cleanup through a sorted `.ssc-swift-generated.json` path
+            - [x] own cleanup through a sorted `.ssc-swift-generated.json` path
                   manifest: reject absolute/`..` entries, delete only previously
                   listed files and newly empty owned directories, preserve every
                   unlisted resource, and atomically replace the ownership manifest
@@ -958,12 +958,16 @@ there before changing this plan.
             `XcodeAppArtifact` helper drives v2 build, macOS run, and simulator
             run through `-project/-scheme/-showBuildSettings` plus APPL/bundle/
             non-CLI verification.
+            Result: generator `d1b4350b7`, unsigned adapters `abf9943c8`,
+            acceptance evidence `3942297ca`, and docs `40eb9c31f` landed;
+            Rozum round 3 APPROVE. Swift 43/43, CLI 8/8, assembled e2e, and
+            `tkv2-*` 12/12 are green.
       - [ ] **v2-swiftui-apple-distribution-adapters** — after the common
             `XcodeAppArtifact` helper lands, route signed device/archive/IPA,
             macOS codesign/notarization/DMG, TestFlight, and App Store lanes to
             that artifact with their existing bounded credential/tool errors;
             no adapter may regenerate through v1 or infer a hard-coded Debug path.
-      - [ ] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
+      - [x] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS
             Simulator destination (iOS 26.5 runtime/device is installed). Gate
@@ -981,24 +985,29 @@ there before changing this plan.
             assert destination-specific target/product/bundle/display/version/
             deployment/platform/Catalyst/no-team build settings; and make macOS
             teardown strictly bounded with timed wait plus forced kill in `finally`.
+            Result: full-tree equality, exact list/settings/plist checks,
+            bounded real macOS launch, and concrete installed iOS 26.5
+            Simulator build execute in the checked CLI gate; round 3 approved.
 - [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
       `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
       exact supported glob form), verify every behavior
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
-      - [ ] **tkv2-pwa-stale-default-backend** — the isolated real harness is
+      - [x] **tkv2-pwa-stale-default-backend** — the isolated real harness is
             11/12 green; `tkv2-pwa` alone expects the retired `backend=jdk`
             banner while the installed default is now `backend=fast`, and all
             eight semantic assertions pass. Track in `BUGS.md`, align the exact
             expected banner, then require isolated `tkv2-pwa` and full
-            `tkv2-* --no-memo` green before any Swift slice push.
-      - [ ] **v2-swift-ios-run-unbounded-error** — assembled domain-source
+            `tkv2-* --no-memo` green before any Swift slice push. Landed
+            `b060951ce`; isolated 1/1 and full 12/12 passed.
+      - [x] **v2-swift-ios-run-unbounded-error** — assembled domain-source
             `run --v2 --target ios` correctly rejects the missing NativeUi app
             but leaks the JVM stack because `runV2IosTargets` has no command
             exception boundary. Add the same bounded stderr/exit-1 contract as
             macOS, update the exact e2e expectation, and assert the real
-            assembled stderr contains no `Exception in thread`.
+            assembled stderr contains no `Exception in thread`. Landed
+            `08735b15a`; fresh assembled e2e passes.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 
