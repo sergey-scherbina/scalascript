@@ -49,9 +49,32 @@ set +e
 PACKAGE_EXIT=$?
 set -e
 test "$PACKAGE_EXIT" -eq 1
-test -f "$TMP/package/ios/Sources/AppCore/GeneratedProgram.swift"
 grep -Fqx \
-  'ssc package --target ios: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted' \
+  'ssc package: --team-id or SSC_TEAM_ID is required' \
   "$TMP/ios-package.err"
+! grep -Fq 'Exception in thread' "$TMP/ios-package.err"
+! test -e "$TMP/package/ios/Sources/AppCore/GeneratedProgram.swift"
+
+set +e
+"$SSC" run --v2 --target ios --device "$FIXTURE" \
+  >"$TMP/ios-device.out" 2>"$TMP/ios-device.err"
+DEVICE_EXIT=$?
+set -e
+test "$DEVICE_EXIT" -eq 1
+grep -Fqx \
+  'run --target ios --device: --team-id or SSC_TEAM_ID is required' \
+  "$TMP/ios-device.err"
+! grep -Fq 'Exception in thread' "$TMP/ios-device.err"
+
+set +e
+"$SSC" publish --v2 --target ios --testflight "$FIXTURE" \
+  >"$TMP/ios-publish.out" 2>"$TMP/ios-publish.err"
+PUBLISH_EXIT=$?
+set -e
+test "$PUBLISH_EXIT" -eq 1
+grep -Fqx \
+  'ssc publish --target ios: --team-id or SSC_TEAM_ID is required' \
+  "$TMP/ios-publish.err"
+! grep -Fq 'Exception in thread' "$TMP/ios-publish.err"
 
 echo "v2-swift-cli: PASS"
