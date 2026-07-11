@@ -1,5 +1,36 @@
 # Bug tracker
 
+## v2-swiftui-owner-hint-fifo-swap — reversed tree construction exchanges repeated-site state
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in the second
+read-only SwiftUI store/renderer review in Rozum.
+
+- **Real-harness repro:** construct two `NativeUiForKeyed` nodes at the same
+  lexical site under distinct component/occurrence owners, then place them in
+  the returned tree in reverse construction order. The draft records owner
+  paths in a per-site FIFO and assigns them during later tree traversal, so the
+  nodes exchange owners and may inherit each other’s component state.
+- **Expected:** an owner hint is bound to the exact returned node/structural
+  instance independently of construction order.
+- **Plan/done-when:** replace FIFO correlation with node-bound identity without
+  changing ABI fields and add a real reversed construction/tree-order gate
+  covering move and fresh reinsertion.
+
+## v2-swiftui-keyed-store-rollback-publication — failed provisional render leaks revisions
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in the second
+read-only SwiftUI store/renderer review in Rozum.
+
+- **Real-harness repro:** a keyed render writes a live signal and then a later
+  item throws. Host restores signal/owner state, but provisional `onWrite`
+  already advanced Store revisions, derived caches, and dependency edges.
+- **Expected:** Host values/owners and Store cells/revisions/caches/dependencies
+  commit or roll back atomically; no mounted subtree observes a failed render.
+- **Plan/done-when:** buffer observer effects for the keyed batch and flush
+  after commit (drop on rollback), or snapshot/restore Store state. Gate
+  write-then-throw with unchanged value/revision/cache/dependencies and clean
+  subsequent reconcile.
+
 ## v21-parity-backends-list-ignored — JS-only examples run on the standard JVM lane
 
 **Status:** fixed (2026-07-11, `d4c953b9c`), awaiting Sergiy confirmation;
@@ -85,6 +116,11 @@ read-only Apple store/renderer review in Rozum.
 - **Plan/done-when:** make the core renderer strict and use explicit Unsupported
   stubs for the separate actions/tables/WKWebView slice; add generated inventory
   and malformed-value gates before replacing each stub with real semantics.
+  Inventory acceptance is behavioral, not string presence: CSS values,
+  align/justify/position/inset/borders/white-space, semantic role/
+  aria-disabled/required attributes, and malformed declarations must either
+  map exactly or render sourced Unsupported. Fetch signals/actions also remain
+  sourced Unsupported until the complete async lifecycle slice.
 
 ## v2-swiftui-keyed-owner-lifecycle — deleted keys retain and resurrect component state
 

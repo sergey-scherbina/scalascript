@@ -411,6 +411,19 @@ there before changing this plan.
             preserve initial/nested short-circuit semantics while proving the
             same retained session reconciles cleanly after rollback
             (`v2-swift-session-sticky-callback-failure`).
+            Keyed Host commit and Store publications are one transaction:
+            buffer provisional read/write observer effects and flush only after
+            commit; a write-then-throw gate keeps Store revision/cache/
+            dependency state unchanged
+            (`v2-swiftui-keyed-store-rollback-publication`).
+            Bind each component/occurrence owner hint to the exact returned
+            node rather than correlating a per-site FIFO with later tree order;
+            reverse construction versus returned order in a real regression
+            (`v2-swiftui-owner-hint-fifo-swap`).
+            Inventory tests must exercise values and semantic attributes
+            (role/aria-disabled/required), not only property-name strings.
+            Fetch signals/actions stay sourced Unsupported until the next slice
+            implements phases, cancellation, and ordered success effects.
       - [ ] **v2-swiftui-actions-tables-html** — add control bindings and ordered
             set/input/toggle/increment/navigation/fetch/form success actions,
             native table/column/row-action decoding, persisted/online state, and
