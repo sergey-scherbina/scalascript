@@ -132,6 +132,8 @@ bin/ssc run-rust   examples/hello.ssc
 bin/ssc emit-swift --target macos -o appcore-swift examples/swift/appcore-money.ssc
 bin/ssc run-swift examples/swift/appcore-money.ssc
 bin/ssc run-swift examples/swift/appcore-nativeui.ssc # ABI debug CLI; emit also writes the reactive AppleApp sources
+bin/ssc build --target macos examples/swift/appcore-nativeui.ssc # real Xcode .app
+bin/ssc run --target ios examples/swift/appcore-nativeui.ssc     # build/install/launch Simulator app
 
 # Run on Apache Spark (Spark 4.0.0 / Scala 3.7.1, local[*] by default)
 bin/ssc-spark examples/spark-encoder-demo.ssc
@@ -201,7 +203,7 @@ bin/http.ssc
 | [Rozum Agent Endpoint Pool](specs/rozum-agent-endpoint-pool.md) | `AgentEndpointPool` + `runAgentPool` / streaming pool variants for bounded ordered failover across multiple rozum gateways |
 | [Rozum Agent Schema Derivation](specs/rozum-agent-schema-derivation.md) | `AgentSchema[A] derives` + `agentToolFor[A]` for typed tool inputs with OpenAI-compatible JSON Schema parameters |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
-| [SwiftUI / iOS / macOS](specs/swiftui.md) | V2 checked-CoreIR Swift/AppCore generation with native SwiftUI observation/rendering, persisted/online adapters, lifecycle-safe URLSession fetch/actions/tables, and isolated dynamically sized trusted HTML via WKWebView on macOS/iOS; Xcode app products, signing, and distribution remain staged |
+| [SwiftUI / iOS / macOS](specs/swiftui.md) | V2 checked-CoreIR Swift/AppCore generation with native SwiftUI observation/rendering, persisted/online adapters, lifecycle-safe URLSession fetch/actions/tables, isolated trusted HTML, and deterministic verified macOS/iOS Xcode application products; signed distribution adapters remain staged |
 | [GraalVM native binary](specs/native-platform.md) | `ssc` native binary via GraalVM native-image; no-JVM distribution; `ssc-plugin-host.jar` bridge |
 | [Native plugin guide](docs/native-plugin-guide.md) | Compile a plugin to a native binary — fully JVM-free `ssc → plugin` |
 

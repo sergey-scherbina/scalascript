@@ -1123,9 +1123,9 @@ behavior.
   fall back.
 - [ ] Package/sign/simulator/device/publish adapters consume the generated
   package and retain bounded missing-tool diagnostics.
-- [ ] UI application metadata is obtained with the checked v2 source result,
+- [x] UI application metadata is obtained with the checked v2 source result,
   validated before output, and never reparsed through the v1 frontend.
-- [ ] Generator ownership cleanup removes only validated manifest-listed paths,
+- [x] Generator ownership cleanup removes only validated manifest-listed paths,
   survives product/mode changes, and preserves unlisted resources.
 
 ### SwiftUI portable runtime
@@ -1146,16 +1146,16 @@ behavior.
 
 ### Apple end to end
 
-- [ ] One reduced busi `.ssc` fixture emits for both macOS and iOS.
-- [ ] The macOS Xcode application scheme produces a real `.app` and launches a
+- [x] One reduced busi `.ssc` fixture emits for both macOS and iOS.
+- [x] The macOS Xcode application scheme produces a real `.app` and launches a
   smoke fixture.
-- [ ] The iOS Xcode application scheme passes an available simulator
+- [x] The iOS Xcode application scheme passes an available simulator
   `xcodebuild` compile.
-- [ ] Full generated trees and semantic PBX ids are byte-for-byte deterministic;
+- [x] Full generated trees and semantic PBX ids are byte-for-byte deterministic;
   `xcodebuild -list` and `-showBuildSettings` select only the application target.
-- [ ] Product discovery verifies `.app`, `APPL`, bundle id, and a non-CLI
+- [x] Product discovery verifies `.app`, `APPL`, bundle id, and a non-CLI
   executable before unsigned launch or signed adapter handoff.
-- [ ] Existing focused conformance and SwiftUI compatibility suites stay green.
+- [x] Existing focused conformance and SwiftUI compatibility suites stay green.
 
 ## Testing strategy
 
@@ -1256,6 +1256,26 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   native conformance screen is in scope).
 
 ## Results
+
+### Deterministic Xcode application products (`v2-swiftui-xcode-project`, 2026-07-11)
+
+- UI-mode generation now emits one objectVersion-56 multi-platform application
+  target and app-only shared scheme over the exact AppCore, AppleApp, and sorted
+  resource inputs. Semantic SHA-256 object ids, a canonical generated-path
+  ownership manifest, atomic manifest-last replacement, and hostile-path gates
+  make product rename and UI/domain mode switches deterministic without claiming
+  user resources.
+- The checked frontend carries exact top-level Swift app metadata and explicit
+  SwiftUI mode without a v1 parser side channel. CLI results distinguish the
+  SwiftPM debug CLI from `XcodeAppArtifact`; unsigned macOS build/run and iOS
+  Simulator run share project/scheme invocation, destination build-setting
+  discovery, and APPL/bundle/non-CLI executable verification.
+- The real checked-source gate byte-compared two complete written trees,
+  validated every frozen macOS/iOS build setting, bounded-launched the macOS
+  executable, and built the concrete installed iOS 26.5 Simulator destination.
+  `nativeui-reviewer` approved round 3 in Rozum. Final pre-publication gates
+  passed Swift backend 43/43, Swift CLI 8/8, assembled `v2-swift-cli` e2e, and
+  isolated no-memo `tkv2-*` conformance 12/12.
 
 ### Isolated trusted HTML on Apple (`7cc1ff978`, 2026-07-11)
 

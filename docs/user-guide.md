@@ -522,7 +522,8 @@ When to use each:
 | `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
 | `ssc emit-swift` | v2 AppCore Swift package | Inspect/integrate deterministic checked-CoreIR Swift sources |
 | `ssc run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable or NativeUi ABI debug CLI on macOS |
-| `ssc run --target macos` | v2 AppCore via SwiftPM | Apple desktop spelling; use `--v1` only for the legacy SwiftUI lane |
+| `ssc build/run --target macos` | v2 AppCore or Xcode application | Domain programs use SwiftPM; NativeUi programs build/verify the generated `.app` and `run` launches it |
+| `ssc build/run --target ios` | v2 Xcode application | NativeUi programs build the application scheme; `run` installs and launches it on an available Simulator |
 
 **Requirements:** `ssc run --native` requires a staged installation produced by
 `installBin`, but does not require Scala CLI or a Java/Scala compiler at user
@@ -640,14 +641,20 @@ page JavaScript disabled and compiled rules that block network subresources
 while retaining inline CSS and `data:` assets. Renderer-owned document loads,
 height callbacks, failures, and link taps are generation-authenticated;
 external http/https/mailto taps leave the web view through the shared native
-URL policy. The Xcode app target remains the next toolkit slice.
+URL policy.
 
-`--target ios` already emits an iOS-deployment Swift package through the same
-v2 backend plus the AppleApp sources. Until the real Xcode application project
-target lands, iOS launch, signing, distribution, and publication stop with an
-explicit diagnostic and never retry the v1 generator. The subsequent Apple
-e2e slice replaces that temporary boundary with the app/simulator/device
-adapters.
+NativeUi generation also writes a deterministic Xcode-14-compatible
+multi-platform application target and shared app-only scheme. Checked top-level
+metadata supplies the required reverse-DNS `bundle-id`, display name, marketing
+version, and build version. `ssc build/run --target macos|ios` invokes that
+project and scheme, discovers the destination product through
+`-showBuildSettings`, and rejects anything other than an `APPL` bundle with the
+expected id and non-CLI executable. Generated-file ownership is limited to the
+paths in `.ssc-swift-generated.json`, so product/mode changes remove stale
+entry points while preserving unlisted resources. macOS run launches the
+verified `.app`; iOS run builds, installs, and launches it on an available
+Simulator. Signed device/archive/IPA, notarization/DMG, TestFlight, and App
+Store routing is the next adapter slice and never falls back to v1.
 
 **Reactive web server.** A declarative `std/ui` view compiled with
 `serve(view, port)` emits a native `tokio` + `hyper` server with
