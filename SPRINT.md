@@ -540,7 +540,10 @@ there before changing this plan.
                   cancels/resets. Apply the same canonical metadata rule to fetch
                   signals so literal/ref URL/header/refresh changes restart an
                   active family exactly once while identical registration does not
-                  (`v2-swiftui-keyed-fetch-metadata-stale`).
+                  (`v2-swiftui-keyed-fetch-metadata-stale`). Coalesce multiple
+                  same-key registrations inside one Host transaction to its final
+                  committed descriptor before starting Store side effects; an
+                  intermediate A followed by final B must produce only B.
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope

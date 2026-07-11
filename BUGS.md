@@ -1089,6 +1089,9 @@ read-only async lifecycle review in the `scalascript` Rozum room.
   identical registration preserves one stable cell/task.
 - **Plan/done-when:** strict generated Swift drives same-key scoped fetch
   reconstruction through identical A, literal A→B, and literal→signal-ref B;
+  one transaction that registers the same live key as intermediate A then final
+  B must coalesce to one B restart (and no restart when final B equals the
+  pre-transaction descriptor);
   assert exact cancellation/request counts, late-A inertness, current value,
   dependency ownership, and bounded task metadata. Keep `fixed` until the Rozum
   reporter confirms the regression.
