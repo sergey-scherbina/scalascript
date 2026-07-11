@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-11T10:01:21Z
+heartbeat: 2026-07-11T10:32:09Z
 status: in-progress
-done-so-far: TI-1..TI-8.2d3c landed; native YAML provider and zero-arg println regression are locally green
-next: push zero-arg println fix, finish heading-scoped YAML lowering, then run YAML release gates
+done-so-far: TI-1..TI-8.2d3d landed; core-free YAML code/docs/bookkeeping are on origin/main and old worktree was cleaned
+next: plan/spec/fix layout object bodies that emit unprefixed members and block three parser-combinator examples
