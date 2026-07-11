@@ -246,6 +246,14 @@ def isKnownObject = (name) =>
     } in
   go(#cell.get(kc7bObjectsCell))
 
+def isExtensionMethod = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(h, t) => if #seq(h, name) then true else go(t)
+    } in
+  go(#cell.get(extensionMethodsCell))
+
 def isCaseField = (name) =>
   let rec go = (xs) =>
     match xs {
@@ -567,7 +575,9 @@ def buildMapExpr = (args) =>
 
 -- Resolve a method call obj.method(rargs) — obj and rargs already resolved
 def resolveMethodCall = (robj, method, rargs) =>
-  if #seq(method, "charAt") then
+  if isExtensionMethod(method) then
+    Pair("app", Pair(Pair("var", method), Cons(robj, rargs)))
+  else if #seq(method, "charAt") then
     match rargs {
       case Cons(idx, idxRest) =>
         Pair("prim", Pair("scodeAt", Cons(robj, Cons(idx, Nil))))
@@ -645,7 +655,9 @@ def resolveField = (robj, field) =>
       else if #seq(rt, "var") then #seq(rd, "RoundingMode")
       else false
   } in
-  if roundingOwner then Pair("str", field)
+  if isExtensionMethod(field) then
+    Pair("app", Pair(Pair("var", field), Cons(robj, Nil)))
+  else if roundingOwner then Pair("str", field)
   else if #seq(field, "length") then
     let rname = match robj { case Pair(rt, rd) => if #seq(rt, "var") then rd else "" } in
     if isListVar(rname) then

@@ -426,6 +426,10 @@ def skipTypeAnnot = (toks) =>
 -- Pair("__nodflt__", "") sentinel. Constructors share the same registry.
 def paramDefaultsCell = #cell.new(Nil)
 def funcDefaultsCell  = #cell.new(Nil)
+-- Active top-level extension group and the unique method names it declares.
+-- ssc1-lower reads extensionMethodsCell in the same self-hosted process.
+def extensionParamsCell  = #cell.new(Nil)
+def extensionMethodsCell = #cell.new(Nil)
 def dfltLookup = (nm, dflts) =>
   match dflts {
     case Nil => Pair("__nodflt__", "")
@@ -1156,6 +1160,7 @@ def parseDef = (toks) =>
   -- name
   let name = tokVal(peek(toks)) in
   let toks2 = advance(toks) in
+  let extensionParams = #cell.get(extensionParamsCell) in
   -- KC5: parse type params → extract context bounds [A: TC, ...]
   let rCtx = parseTypeParams(toks2) in
   let ctxBounds = prV(rCtx) in
@@ -1178,13 +1183,18 @@ def parseDef = (toks) =>
       else parseParamList(toks4)
     else pr(Nil, toks4) in
   -- ctxParams first, then regular params, then using params
-  let allParams = append(ctxParams, append(params, prV(rp2))) in
+  let allParams = append(ctxParams, append(extensionParams, append(params, prV(rp2)))) in
   -- K62.17: snapshot source-call defaults so the lower can synthesize omitted
   -- trailing args at call sites.
   -- Context dictionaries are injected separately by the lowerer and therefore
   -- are not part of the source-call arity/default registry.
   let callParams = append(params, prV(rp2)) in
   let _reg = registerParamDflts(name, callParams) in
+  let _extReg = match extensionParams {
+    case Nil => 0
+    case Cons(h, t) =>
+      #cell.set(extensionMethodsCell, Cons(name, #cell.get(extensionMethodsCell)))
+  } in
   let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
@@ -1573,6 +1583,14 @@ def parseOneStmt = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
   let v = tokVal(t) in
+  -- The current self-hosted extension subset owns consecutive top-level defs.
+  -- Any other statement closes the group; a new extension header replaces it.
+  let keepExtension =
+    if #seq(k, "kw") then #seq(v, "def")
+    else if #seq(k, "id") then #seq(v, "extension")
+    else false in
+  let _extensionBoundary =
+    if keepExtension then 0 else #cell.set(extensionParamsCell, Nil) in
   if #seq(k, "@") then
     -- annotation(s): @Name / @Name("args") before a def/class/val — no runtime
     -- effect in the native path, so skip them and parse the annotated statement.
@@ -1720,11 +1738,11 @@ def parseOneStmt = (toks) =>
     -- KV9: check for "multi effect E { ... }" multi-shot effect declaration
     if #seq(k, "id") then
       if #seq(v, "extension") then
-        -- Parse-only extension header. The following `def` declarations remain
-        -- ordinary statements; receiver binding/dispatch is a later lowering
-        -- slice, but the type parameter/annotation syntax must not leak `_err`.
+        -- K62.18: retain the receiver names for the contiguous defs that follow.
         let ts1 = skipTypeParams(advance(toks)) in
-        let ts2 = if kindIs("(", ts1) then prT(parseParamList(ts1)) else ts1 in
+        let rp = if kindIs("(", ts1) then parseParamList(ts1) else pr(Nil, ts1) in
+        let _ext = #cell.set(extensionParamsCell, prV(rp)) in
+        let ts2 = prT(rp) in
         pr(Pair("sealed", ""), ts2)
       else if #seq(v, "multi") then
         let ts1 = advance(toks) in
@@ -1980,7 +1998,10 @@ def layout = (toks) =>
     } in
   go(toks, Nil, false, false)
 
-def parse = (src) => parseStmts(layout(lex(src)))
+def parse = (src) =>
+  let _ep = #cell.set(extensionParamsCell, Nil) in
+  let _em = #cell.set(extensionMethodsCell, Nil) in
+  parseStmts(layout(lex(src)))
 
 -- ── Pretty-print ──────────────────────────────────────────────────────────────
 -- ssc0 does NOT support nested constructor patterns (case Cons(x, Nil) not allowed).

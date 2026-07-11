@@ -1,0 +1,26 @@
+---
+name: v21-native-extension-receivers
+---
+
+```scalascript
+extension (s: String)
+  def shout: String = s.toUpperCase + "!"
+  def repeat(n: Int): String = s * n
+
+println("hello".shout)
+println("ha".repeat(3))
+
+extension (n: Int)
+  def squared: Int = n * n
+
+println(5.squared)
+
+extension (xs: List[Int])
+  def second: Int = xs.tail.head
+
+val values = List(10, 20, 30)
+println(values.second)
+
+def plain(x: Int): Int = x + 1
+println(plain(4))
+```

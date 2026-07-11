@@ -26,7 +26,7 @@ dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhan
 dsl-yaml-like.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
 effects.ssc	language-runtime	yes	effects	declared portable effect operation greet remains an unbound global
 enums.ssc	standard-provider	yes	math	standard math is not installed as the native math global
-extensions.ssc	language-runtime	yes	extensions	extension receiver/method dispatch is absent from the native runtime
+extensions.ssc	language-runtime	yes	collections	extension dispatch now works; List receiver length is still lowered through the String-only slen path
 functional.ssc	language-runtime	yes	dispatch	portable functional dispatch leaks a Stub/1 into match lowering
 generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
@@ -42,7 +42,6 @@ nfc-ndef.ssc	optional-provider	no	nfc	nfcCapabilities belongs to the explicitly 
 pdf-extract-demo.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
 quoted-macro-constfold.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
 quoted-macro-interpreter.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
-script.ssc	language-runtime	yes	extensions	extension receiver/method dispatch for stars is absent from the native runtime
 signals-demo.ssc	standard-provider	yes	ui	Signal companion values are missing from the core-free standard UI provider
 sql-browser-duckdb.ssc	example-contract	yes	sql-browser	browser SQL section binding Totals is not declared as a non-JVM backend surface
 sql-browser-sqlite.ssc	example-contract	yes	sql-browser	browser SQL section binding Active is not declared as a non-JVM backend surface
