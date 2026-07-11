@@ -1646,6 +1646,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         only where the example is valid standard surface. Move
                         genuinely platform/compiler-backed rows to a reviewed
                         non-blocking category instead of weakening runtime errors.
+                        - [ ] **TI-8.2d4a plural backend classification:** fix
+                              tracked `v21-parity-backends-list-ignored` by
+                              recognizing inline `backends: [js, node, wasm]`
+                              as backend-specific in `bc-parity-sweep`. Add a
+                              real browser-SQL portable-gate assertion, keep
+                              `backends: [jvm]` corpus rows active, rerun full
+                              parity, and retire only the two browser SQL
+                              runtime-taxonomy rows.
+                        - [ ] **TI-8.2d4b typed SQL ownership correction:** move
+                              `typed-sql-crud.ssc` from `example-contract` to
+                              `standard-provider`: the source already contains
+                              its schema fence, while native SQL-fence lowering
+                              and `Db.insert/update` are genuinely absent. Set
+                              the runtime taxonomy example ceiling to zero
+                              without lowering the blocker total for this row.
                   - [ ] **TI-8.2d5 release freeze:** rerun all 195 rows, require
                         zero unclassified and zero blocking `both-fail` rows,
                         freeze exact non-blocking optional/tools counts, and keep

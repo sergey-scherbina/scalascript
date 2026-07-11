@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-parity-backends-list-ignored — JS-only examples run on the standard JVM lane
+
+**Status:** open (2026-07-11); found by codex while starting the TI-8.2d4
+example/config blocker sweep.
+
+- **Real-harness repro:** run full `scripts/bc-parity-sweep --ssc
+  bin/ssc-standard`. Both `sql-browser-{sqlite,duckdb}.ssc` declare
+  `backends: [js, node, wasm]`, yet the harness executes them on VM/direct ASM
+  and records `both-fail` for their browser-only SQL result bindings.
+- **Expected:** a front-matter list containing only JS-family backends is a
+  reviewed backend-specific source classification, identical in status to the
+  existing singular `backend:`/`target:` rules. Lists that include `jvm` (for
+  example `dataset-parallel-sum.ssc`) must not hide standard-runtime debt.
+- **Root cause:** `bc-parity-sweep` recognizes only singular `backend:` and
+  `target:` keys; it never inspects the established plural `backends:` key.
+- **Plan/done-when:** add a bounded inline-list classifier for JS/Node/Wasm-only
+  lists, cover a real browser SQL example in the portable-gates smoke, rerun
+  all 195 parity rows, and remove only the two newly skipped runtime-taxonomy
+  rows while preserving `dataset-parallel-sum.ssc` as a blocker.
+
 ## v21-native-reactive-effect-parsed-as-declaration — top-level effects disappear
 
 **Status:** fixed (2026-07-11, `dae51ecab`), awaiting Sergiy confirmation;
