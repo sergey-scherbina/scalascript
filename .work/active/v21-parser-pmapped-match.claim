@@ -1,6 +1,0 @@
-feature/v21-parser-pmapped-match 2026-07-11T13:31:48Z
-agent: codex
-heartbeat: 2026-07-11T13:51:19Z
-status: in-progress
-done-so-far: clean assembly proved PMapped source semantics correct; spec and exact multi-file VM/ASM regression are on main at 5b16df6df; parser DSL smoke passes
-next: reconcile full baseline and close after independent HTTP native-entry assertion is repaired; then take parser placeholder semantics
