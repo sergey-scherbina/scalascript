@@ -133,6 +133,14 @@ private[codegen] trait JvmGenBlockAnalysis:
           case Term.Apply.After_4_6_0(Term.Name("httpPatch"),    _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("httpDelete"),   _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("httpClient"),   _) => found = true
+          // `httpRetry`/`httpTimeout` config the outbound client; their defs
+          // live in serveRuntime (OutboundClients). In normal use they sit
+          // inside an httpClient{…httpGet…} block that already triggers the
+          // runtime, but a standalone `httpTimeout(ms)` / `httpRetry(n)` (no
+          // sibling http call) would otherwise emit no serveRuntime → "Not
+          // found". Trigger on them directly so they resolve unconditionally.
+          case Term.Apply.After_4_6_0(Term.Name("httpRetry"),    _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("httpTimeout"),  _) => found = true
         }
       }
       found
