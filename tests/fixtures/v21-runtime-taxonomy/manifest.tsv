@@ -26,7 +26,7 @@ functional.ssc	language-runtime	yes	dispatch	portable functional dispatch leaks 
 generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
 graph-storage-interpreter.ssc	standard-provider	yes	graph	Graph.putVertex has no core-free standard effect handler
-imports.ssc	language-runtime	yes	collection-dispatch	native math now runs; the following perimeter list pipeline reaches an arity mismatch
+imports.ssc	language-runtime	yes	collection-dispatch	native math and tuple selectors now run; the following perimeter list pipeline reaches a Tuple2/2 match gap
 international-bank-rails.ssc	optional-provider	no	swift	SwiftProvider is an explicitly optional platform provider
 invoice-email.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
 invoice-pdf.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider

@@ -290,10 +290,11 @@ run_native "$ROOT/examples/imports.ssc" >"$sandbox/imports.out" 2>"$sandbox/impo
 imports_rc=$?
 set -e
 [[ $imports_rc -ne 0 ]]
-# Native math now executes through the portable object. The following perimeter
-# collection pipeline is a separately classified language-runtime arity gap.
+# Native math and tuple selectors now execute through the portable kernel. The
+# following perimeter collection pipeline is separately classified and reaches
+# its honest tuple-pattern boundary on both lanes.
 grep -F 'distance (0,0)-(3,4) = 5' "$sandbox/imports.out" >/dev/null
-grep -F 'arity: 1 expected, 2 given' "$sandbox/imports.err" >/dev/null
+grep -F 'match: no arm for Tuple2/2' "$sandbox/imports.err" >/dev/null
 
 # Object layout now keeps the imported component methods owned, so this
 # long-running server example reaches `serve` instead of failing at `unbound s`.
