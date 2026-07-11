@@ -69,6 +69,25 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   `rest-validate` INT/JS/JVM, assembled paired Vault 11-step/restart/leakage
   check, and canonical busi fast-backend Chromium 6/6 in 1.9 minutes.
 
+## v2-swiftui-persisted-stale-wrapper-disposal — disposed wrapper can write disk or crash
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of the persisted/online Apple slice.
+
+- **Real-harness repro:** retain a scoped persisted signal wrapper, dispose its
+  owner/scope, then call the old native `set` closure. It still captures the
+  tombstone cell strongly and stages UserDefaults through the live Host. Retain
+  it past Host/Store deinit and the persisted `afterWrite` force-unwraps weak
+  `self`, which can crash.
+- **Expected:** every wrapper mutation authenticates the exact current live
+  Host cell; disposed/replaced wrappers fail deterministically and never touch
+  disk. A retained closure after root disposal fails without a crash. A fresh
+  reinserted wrapper works normally.
+- **Plan/done-when:** weakly guard Host plus `signals[key] === cell` before any
+  mutation/side effect, remove force unwraps from persisted callbacks, and gate
+  committed write, scope deletion, stale-old versus fresh-reinsert behavior,
+  and invocation after Store/session deinit.
+
 ## v2-swiftui-online-component-scope-split — onlineSignal is not process-wide
 
 **Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
