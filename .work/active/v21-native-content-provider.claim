@@ -1,6 +1,0 @@
-feature/v21-native-content-provider 2026-07-11T18:34:26Z
-agent: codex
-heartbeat: 2026-07-11T19:17:09Z
-status: in-progress
-done-so-far: self-hosted projection, structural ABI, core-free provider, artifact codec, docs, and focused gates complete
-next: rerun post-rebase release corpus/taxonomy; push feature/docs/bookkeeping commits; release claim
