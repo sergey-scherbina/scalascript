@@ -1598,3 +1598,20 @@ Further native TEST-greening requires the v2.1 extension-dispatch lane (coordina
 ## native mkString arities (2026-07-11, opus) — K62.32
 - [x] K62.32 — 0-arg / 3-arg mkString crashed (arity-2 _sel_mkString); route both to __method__,
       keep 1-arg on the fast path. List + Array, all arities; conformance 406/0. (SPRINT §D item.)
+
+## native Signal ctorap + #1 finding (2026-07-11, opus) — K62.33
+
+- [x] K62.33 — Signal(x)/ComputedSignal(x) → ctorap (compiler special-case, matches bridge).
+      Basic Signal.get/.set work on the native path; conformance 406/0.
+- [#1 FINDING] "run-ir NativePlugin loading" is NOT a simple addition: bridgeCli run/run-ir use
+      PluginBridge.loadAll() (v1-compat: Backend ServiceLoader + builtins like computed/effect-stub).
+      Native PRODUCTION uses NativePluginHost.loadAll() (ServiceLoader classOf[NativePlugin] →
+      ReactiveNativePlugin/Content/Json/etc.), which CLEARS V2PluginRegistry first and enforces
+      EXCLUSIVE ownership (claim() throws on a name registered by two providers — e.g. `effect` is
+      registered by BOTH PluginBridge (stub) and ReactiveNativePlugin (real)). So the two plugin
+      systems are mutually exclusive; you cannot just call NativePluginHost after PluginBridge.
+      CONSEQUENCE: my parity audit (bridgeCli run-ir + PluginBridge) tests native IR against the
+      WRONG plugin system → signals/content/json-value "native failures" are AUDIT-SETUP artifacts,
+      NOT native-front or native-production bugs (production runs them via NativePluginHost). The
+      accurate fix is an audit-runner using NativePluginHost, not a native-front change. Deferred:
+      it's audit-tooling + a Scala runner + architectural (which plugin set the audit should mirror).
