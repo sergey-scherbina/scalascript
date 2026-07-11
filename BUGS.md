@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v21-layout-given-after-abstract-def — abstract return type consumes the next given
+
+**Status:** open (2026-07-11); found by codex while implementing TI-8.2d2h.
+
+- **Real-harness repro:** after `scripts/sbtc installBin`, run
+  `bin/ssc-standard run --native tests/fixtures/v21-native/layout-given-objects.ssc`.
+  A `trait` with an abstract `def ...: String` immediately followed by
+  `given intRender: Render[Int] with` leaves the first given body as an orphan
+  block and fails with `ssc: unbound global: intRender` on both VM and direct
+  ASM lanes.
+- **Expected:** the virtual statement separator after an abstract return type
+  terminates that declaration; each following named layout given is preserved
+  as its own `given_obj`, its methods receive the static given prefix, and both
+  execution lanes agree.
+- **Observed root cause:** self-hosted `skipTypeAt` stops return-type scanning at
+  `=`, delimiters, or EOF, but not at the layout-generated `;`. An abstract def
+  therefore consumes the complete next given header until its virtual `{`.
+- **Planned fix:** make a depth-zero `;` terminate type scanning, retain nested
+  delimiter behavior, and pin multiple consecutive layout givens in the
+  assembled native-entry gate.
+- **Done-when:** the focused fixture passes VM/direct ASM, `typeclass.ssc`
+  advances only to its independent `summon[...]` boundary, and the full native
+  corpus, parity, taxonomy, native-entry, and affected conformance gates remain
+  green. Keep `fixed` until Sergiy confirms.
+
 ## v2-nativeui-component-scope-compat — new scope extern is unbound in legacy INT/JS lanes
 
 **Status:** open (2026-07-11); found by codex while verifying the atomic
