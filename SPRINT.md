@@ -414,7 +414,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       owner lands, rebase and isolate ASM plus every remaining removable
       dependency behind the backend/plugin that declares it. Keep JDK and Scala
       runtime as the explicit permanent seed allowance; ensure pure core has no
-      hidden `extern` parser or `java.util.regex` route.
+      hidden `extern` parser or `java.util.regex` route. Baseline 2026-07-11:
+      `scripts/v21-core-dependency-gate --strict-parsers` has exactly four rows,
+      all from the SQL-only optional wire family (`wire-core`, ujson,
+      upickle-core, upack); seed/pure core have zero violations. Remove that
+      family from the physical standard allowlist (it remains available to its
+      named plugin/tools owners), make strict closed-layout classification
+      green, and add class-load/deletion gates proving native VM does not load
+      ASM, direct bytecode does, and basic SQL still runs with the external
+      parser family absent. `build.sbt` is temporarily overlapping the live
+      Swift worktree; prepare the independent gate changes first and edit the
+      allowlist only after that worktree is clean/landed.
 - [ ] **v21-shc-bootstrap-release-gates** — add stage-2 compiler-image
       reproducibility, forbidden-JAR deletion, `jdeps`, runtime class-load,
       parser corpus/fuzz, standard slim execution, and deterministic build-jvm
