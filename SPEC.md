@@ -612,8 +612,14 @@ x match
 // Destructuring
 case (a, b) => a + b
 case Some(x) => x
+case whole @ Some(x) => (whole, x)
 case head :: tail => head
 ```
+
+A constructor bind pattern `name @ Constructor(fields...)` binds `name` to the
+whole matched value while ordinary field binders remain available inside the
+arm. Constructor mismatch continues with the next arm and the scrutinee is
+evaluated once.
 
 A typed binder's annotation ends before a depth-zero guard or arm arrow.
 Nested type delimiters remain part of the annotation:
