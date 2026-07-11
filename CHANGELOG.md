@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI persisted and online signals own native Apple resources
+
+Generated Apple stores now load and transactionally commit `persistedSignal`
+Strings through UserDefaults without depending on a rendered cell, while failed
+root/keyed work, wrong types, and stale/disposed wrappers are inert. One
+process-wide root `onlineSignal` shares a first/last-owner NWPathMonitor across
+direct and derived readers; callbacks hop to the main actor and stale monitor
+generations cannot publish. Swift backend 31/31, toolkit conformance 12/12, and
+independent Rozum review are green. Landed `0ade8bf7c`; docs `d931d759a`.
+
 ## 2026-07-11 — curried collection folds share VM and ASM semantics
 
 Portable `foldLeft(z) { f }` now returns a real partial closure after its first

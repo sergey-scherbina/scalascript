@@ -594,34 +594,41 @@ there before changing this plan.
                   `9ae1a130b`, strict Swift 6 gate `12fae35e7`, and docs
                   `07f4b8efe`; full Swift backend 30/30, `tkv2-*` 12/12, Rozum
                   reviewer APPROVE.
-            - [ ] **persisted/online ownership** — UserDefaults-backed persisted
+            - [x] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope
                   disposal cancels target resources deterministically.
                   Rozum review blockers (2026-07-11; do not land before a fresh
                   `approve:`):
-                  - [ ] persist through a committed Host journal independent of
+                  - [x] persist through a committed Host journal independent of
                         Store-cell materialization; gate no-cell post-init,
                         successful/failed root evaluation, keyed rollback, and
                         committed disposal;
-                  - [ ] authenticate online callbacks with a monitor generation
+                  - [x] authenticate online callbacks with a monitor generation
                         so a queued old callback is inert after cancel/restart;
-                  - [ ] let active computed/equality dependencies own online
+                  - [x] let active computed/equality dependencies own online
                         monitoring and release it on their last token;
-                  - [ ] make `onlineSignal()` one process/root-scoped cell across
+                  - [x] make `onlineSignal()` one process/root-scoped cell across
                         component/keyed owners and replay current state to a late
                         owner without another path transition;
-                  - [ ] make wrong-type persisted writes atomic and prove the
+                  - [x] make wrong-type persisted writes atomic and prove the
                         in-memory String/defaults remain unchanged.
-                  - [ ] authenticate every persisted wrapper against the exact
+                  - [x] authenticate every persisted wrapper against the exact
                         current live Host cell; disposed/reinserted/deinit-old
                         closures must fail without disk mutation or crash.
                   Bugs: `v2-swiftui-persisted-cell-dependent-journal`,
                   `v2-swiftui-online-stale-monitor-generation`,
                   `v2-swiftui-online-derived-owner-gap`,
-                  `v2-swiftui-online-component-scope-split`, and
+                  `v2-swiftui-online-component-scope-split`,
                   `v2-swiftui-persisted-wrong-type-corruption`, and
                   `v2-swiftui-persisted-stale-wrapper-disposal` in `BUGS.md`.
+                  Result: landed `0ade8bf7c`, docs `d931d759a`. Host-owned
+                  UserDefaults journaling commits only successful root/outer
+                  keyed work and authenticates live String wrappers; one
+                  root-scoped NWPathMonitor is shared by direct/transitive
+                  owners with UUID stale-callback rejection. Strict Swift 6
+                  focused 1/1 and full backend 31/31 pass; `tkv2-*` is 12/12;
+                  `nativeui-reviewer` posted APPROVE in Rozum after six blockers.
             - [ ] **native tables and row actions** — decode static/signal/fetch
                   sources, column options/field paths and row payloads into the
                   shared Grid/Table behavior; execute row post/delete/link/edit

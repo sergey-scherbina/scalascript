@@ -71,7 +71,7 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
 
 ## v2-swiftui-persisted-stale-wrapper-disposal — disposed wrapper can write disk or crash
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
 
 - **Real-harness repro:** retain a scoped persisted signal wrapper, dispose its
@@ -87,10 +87,14 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   mutation/side effect, remove force unwraps from persisted callbacks, and gate
   committed write, scope deletion, stale-old versus fresh-reinsert behavior,
   and invocation after Store/session deinit.
+- **Root cause/fix:** generated wrappers trusted their captured cell forever and
+  persisted callbacks force-unwrapped a weak Host. Reads/writes now require the
+  exact current Host cell; disposed, replaced, and post-deinit closures fail
+  without mutation, while a fresh reinserted wrapper commits normally.
 
 ## v2-swiftui-online-component-scope-split — onlineSignal is not process-wide
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
 
 - **Real-harness repro:** call `onlineSignal()` from two component/keyed scopes.
@@ -104,10 +108,13 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
 - **Plan/done-when:** force online construction to the root signal key (or an
   equivalent singleton identity) and gate two component/keyed owners, late-owner
   current-value visibility, one monitor, and exact last-owner cancellation.
+- **Root cause/fix:** online creation inherited `scopes.last`. It now explicitly
+  uses the root key/cell, so component/keyed wrappers share current state and one
+  target monitor.
 
 ## v2-swiftui-persisted-cell-dependent-journal — persisted writes can miss UserDefaults
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
 
 - **Real-harness repro:** the strict generated-Swift platform-signals probe
@@ -123,10 +130,13 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   Store cells, flush only at successful root/keyed commit, and executable gates
   for no-cell post-init, successful/failed root evaluation, failed keyed
   rollback, and committed disposal.
+- **Root cause/fix:** Store persistence looked up `cells[key]` after Host writes.
+  A Host-owned String journal now flushes at successful root/outer keyed commit,
+  restores on abort/rollback, and writes independently of rendered cells.
 
 ## v2-swiftui-online-stale-monitor-generation — cancelled callback can mutate a restarted monitor
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
 
 - **Real-harness repro:** capture the old monitor callback, unsubscribe the last
@@ -138,10 +148,12 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
 - **Plan/done-when:** bind callbacks to an opaque generation/token, invalidate it
   before cancel, and gate stale-versus-current delivery through the strict Swift
   fake monitor.
+- **Root cause/fix:** callbacks had no identity. Every monitor start now owns a
+  UUID token invalidated before cancel; only the current token may publish.
 
 ## v2-swiftui-online-derived-owner-gap — computed online readers do not own monitoring
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
 
 - **Real-harness repro:** subscribe only to a computed/equality signal whose
@@ -153,10 +165,13 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   unsubscribe cancels the monitor.
 - **Plan/done-when:** mirror dependency fetch ownership for online dependencies
   and gate computed-only first/last subscription plus publication.
+- **Root cause/fix:** dependency commits tracked fetch families only. Online
+  dependencies now have symmetric acquire/release/disposal ownership, so a
+  computed-only subscriber starts and stops the shared monitor correctly.
 
 ## v2-swiftui-persisted-wrong-type-corruption — rejected write can corrupt Host memory
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
 
 - **Real-harness repro:** call the public persisted signal `set` closure with a
@@ -167,6 +182,9 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   the prior String and the error is deterministic.
 - **Plan/done-when:** prevalidate persisted values or restore the complete cell
   snapshot on `afterWrite` failure; add a real generated-Swift wrapper-set gate.
+- **Root cause/fix:** generic writes mutated `current` before persisted String
+  validation. The wrapper now prevalidates and restores its cell snapshot on any
+  side-effect failure, leaving memory and defaults unchanged.
 
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 
