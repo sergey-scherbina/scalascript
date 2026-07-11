@@ -43,6 +43,22 @@ read-only implementation audit of the local Apple table decoder draft.
   writable refresh capabilities reject at descriptor decode.
 - **Reconciliation invariant:** old/new typed row identities reconcile
   transactionally; deleted identities synchronously release table task/state.
+- **Rozum implementation review round 1 (BLOCKED):** the green 40/40 suite and
+  real iOS 16 typecheck do not close seven residual groups:
+  1. row transport needs canonical descriptor signatures/current-capability
+     authentication; a same-site replacement must update/cancel rather than be
+     frozen by `StateObject`;
+  2. payload kinds are action-specific (link/delete/edit cannot accept arbitrary
+     modes), top-level edit is not a button, and edit requires its field/value;
+  3. link targets are current writable String cells and refresh targets are
+     current writable non-overflowing Int cells at preflight;
+  4. finite Float must reach money formatting without passing the stricter
+     ordinary-display scalar conversion first;
+  5. initial fetch error without rows must render visible `Error:` status;
+  6. every row map key must be String and init failures are bounded and sourced;
+  7. the six probes must add Fields, token/base/header/content-type/scalar/
+     overflow negatives, edit dedupe, descriptor replacement, row/unmount/
+     deinit cancellation, and stale-completion rejection.
 - **Plan/done-when:** close all four seams before the first Apple table code
   commit, add them to the six named executable gates, and obtain Rozum reviewer
   confirmation with the complete slice.

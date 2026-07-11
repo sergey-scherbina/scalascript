@@ -717,6 +717,14 @@ there before changing this plan.
                         one-argument overload is deprecated by the current
                         macOS SDK under warnings-as-errors, so use `task(id:)`
                         observation compatible with both deployment floors.
+                        Rozum implementation review round 1 is BLOCKED despite
+                        Swift 40/40: close canonical descriptor replacement/
+                        capability authentication; kind-specific payload/edit
+                        rendering; current String link and non-overflowing Int
+                        refresh preflight; Float-money ordering; visible initial
+                        fetch error; String-only row-map keys plus sourced bounded
+                        init failures; and the missing negative/replacement/
+                        edit-dedupe/cancellation/stale-completion probe matrix.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
