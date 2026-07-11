@@ -16,7 +16,6 @@ var _nodeFs   = (typeof require !== 'undefined') ? require('fs')           : nul
 var _nodePath = (typeof require !== 'undefined') ? require('path')         : null;
 var _nodeOs   = (typeof require !== 'undefined') ? require('os')           : null;
 var _nodeProc = (typeof require !== 'undefined') ? require('child_process'): null;
-var _nodeCrypto = (typeof require !== 'undefined') ? require('crypto')      : null;
 
 // ── std.fs ────────────────────────────────────────────────────────────────────
 function readFile(path) {

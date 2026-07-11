@@ -77,6 +77,12 @@ class JsGenFsRuntimeTest extends AnyFunSuite:
   test("preamble loads node:os via require"):
     assert(preamble.contains("require('os')") || preamble.contains("require(\"os\")"))
 
+  test("preamble owns exactly one top-level node crypto binding"):
+    val declarations = """(?m)^(?:const|let|var)\s+_nodeCrypto\b""".r
+      .findAllMatchIn(preamble).toVector
+    assert(declarations.size == 1,
+      s"generated runtime must declare _nodeCrypto once, found ${declarations.size}")
+
   // ── Browser stubs ──────────────────────────────────────────────────────────
 
   test("preamble has FsNotSupported throw for browser"):
