@@ -12,6 +12,14 @@
 
 import "../lib/list.ssc0"
 
+-- ── List helper ───────────────────────────────────────────────────────────────
+-- lenLF: flat-tuple pattern lowering (Tuple${lenLF(subs)}) needs a list-length here.
+-- The front is imported ALONGSIDE ssc1-lower (which also defines `lenL`), so a plain
+-- `lenL` here collides ("duplicate top-level def across imported files"); a bare `lenL`
+-- reference (as the sibling first wrote it) is instead UNBOUND when the front runs
+-- standalone (kc3). A front-local uniquely-named helper resolves both.
+def lenLF = (xs) => match xs { case Nil => 0 case Cons(h, t) => #i.add(1, lenLF(t)) }
+
 -- ── Token helpers ─────────────────────────────────────────────────────────────
 def mkTok  = (kind, val) => Pair(kind, val)
 def tokKind = (t) => match t { case Pair(k, v) => k }
@@ -1334,7 +1342,7 @@ def tuplePat = (subs) =>
           match tail {
             case Nil => Pair("cpat", Pair("Pair", Cons(first, Cons(second, Nil))))
             case Cons(third, more) =>
-              Pair("cpat", Pair(#sconcat("Tuple", #i->str(lenL(subs))), subs))
+              Pair("cpat", Pair(#sconcat("Tuple", #i->str(lenLF(subs))), subs))
           }
       }
   }
