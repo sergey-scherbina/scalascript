@@ -2,7 +2,8 @@
 
 ## v21-layout-given-after-abstract-def — abstract return type consumes the next given
 
-**Status:** open (2026-07-11); found by codex while implementing TI-8.2d2h.
+**Status:** fixed (2026-07-11, `2a223d060`); found by codex while implementing
+TI-8.2d2h, waiting for Sergiy confirmation before `done`.
 
 - **Real-harness repro:** after `scripts/sbtc installBin`, run
   `bin/ssc-standard run --native tests/fixtures/v21-native/layout-given-objects.ssc`.
@@ -10,16 +11,21 @@
   `given intRender: Render[Int] with` leaves the first given body as an orphan
   block and fails with `ssc: unbound global: intRender` on both VM and direct
   ASM lanes.
-- **Expected:** the virtual statement separator after an abstract return type
-  terminates that declaration; each following named layout given is preserved
-  as its own `given_obj`, its methods receive the static given prefix, and both
-  execution lanes agree.
-- **Observed root cause:** self-hosted `skipTypeAt` stops return-type scanning at
-  `=`, delimiters, or EOF, but not at the layout-generated `;`. An abstract def
-  therefore consumes the complete next given header until its virtual `{`.
-- **Planned fix:** make a depth-zero `;` terminate type scanning, retain nested
-  delimiter behavior, and pin multiple consecutive layout givens in the
-  assembled native-entry gate.
+- **Expected:** each named layout given is preserved as its own `given_obj`, its
+  methods receive the static given prefix, sibling members resolve within that
+  prefix, and both execution lanes agree.
+- **Root cause:** `with` was not a layout opener, and a trait-header colon did
+  not preserve a balanced body. The trait parser therefore returned at its
+  first abstract `def`; generic return-type scanning then consumed the next
+  given header until the newly inserted body brace.
+- **Fix/verified:** `with` opens the existing generic layout path, while a
+  narrow trait-header state makes only its trailing colon open a virtual block.
+  Static member lowering prefixes bare sibling references after lexical lookup.
+  Both a global `skipTypeAt` semicolon stop and a narrower `def` return-type
+  stop were rejected because they regressed the real `std.http` fixture by
+  exposing abstract class fields as top-level parser sentinels. The final
+  fixture passes VM/direct ASM; `typeclass.ssc` reaches only `summon`; corpus,
+  parity, taxonomy, native-entry, and fresh conformance are green.
 - **Done-when:** the focused fixture passes VM/direct ASM, `typeclass.ssc`
   advances only to its independent `summon[...]` boundary, and the full native
   corpus, parity, taxonomy, native-entry, and affected conformance gates remain

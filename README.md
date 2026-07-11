@@ -58,6 +58,10 @@ required by `ssc-standard`; Scala CLI is an optional tools-tier dependency.
 [Node.js](https://nodejs.org) is needed for the JS backend, and
 [sbt](https://www.scala-sbt.org) for contributor builds.
 
+The standard self-hosted route supports named indented `given ... with`
+objects and explicit property/method calls on both its VM and direct-ASM lanes.
+Top-level `summon[...]` remains an explicit migration boundary.
+
 ```bash
 git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript

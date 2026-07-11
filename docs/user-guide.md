@@ -300,6 +300,14 @@ Both v2 VM and direct-ASM runners treat a top-level missing-dispatch `Stub` or
 an unresolved dotted runtime-effect `Op` as a nonzero runtime failure. They are
 diagnostics, not printable successful program values.
 
+The native frontend accepts named layout givens with indented member bodies:
+`given intShow: Show[Int] with` followed by `def` members. Explicit property and
+method calls such as `intShow.prefix` and `intShow.show(7)` use deterministic
+static dispatch on both the VM and direct ASM, including sibling-member calls
+inside the given body. Top-level `summon[...]`, anonymous givens, and
+type-directed overload selection remain bounded migration gaps; use an explicit
+named given on the native route until those slices land.
+
 The native route also has its own core-free ServiceLoader plugin boundary. The
 process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (`sha256`,
 SHA/base64/HMAC/PBKDF2/random helpers), and the JVM implementations of
