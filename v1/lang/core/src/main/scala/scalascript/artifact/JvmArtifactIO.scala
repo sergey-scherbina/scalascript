@@ -20,12 +20,33 @@ object JvmArtifactIO:
 
   /** Cache key for JVM generated Scala.
    *
-   *  Bump this when a JVM backend/runtime codegen change can alter
-   *  `scalaSource` without changing the `.ssc` source bytes.  This is not the
-   *  artifact ABI: old artifacts should remain readable, then be treated as
-   *  stale by `ModuleGraph.isJvmStale`.
+   *  The manual date prefix is a human-anchored bump point (bump it on an
+   *  intentional codegen change you want to describe). The auto-suffix is a
+   *  fingerprint of the running compiler binary, so ANY compiler rebuild
+   *  invalidates cached `.scjvm` artifacts even when the codegen author forgets
+   *  to bump the prefix — closing the trap where run-jvm/compile-jvm silently
+   *  served a stale artifact (keyed only on the `.ssc` source hash) after the
+   *  compiler's codegen changed.  This is not the artifact ABI: old artifacts
+   *  remain readable, then are treated as stale by `ModuleGraph.isJvmStale`.
    */
-  val CurrentCodegenVersion: String = "jvm-codegen-2026-07-09-2"
+  val CurrentCodegenVersion: String = s"jvm-codegen-2026-07-09-2-$compilerBuildStamp"
+
+  /** Cheap fingerprint of the running compiler binary: the classpath entry this
+   *  class was loaded from (the assembled `ssc.jar` in normal use — run-jvm /
+   *  compile-jvm always run from it), as `mtime-size`. Reassembling the jar
+   *  after any codegen change gives a new stamp → cache miss → regeneration.
+   *  In a released, unchanged install the stamp is stable, so the cache still
+   *  works run-to-run. Falls back to a constant if the location is unavailable. */
+  private lazy val compilerBuildStamp: String =
+    try
+      val loc = getClass.getProtectionDomain.getCodeSource.getLocation
+      val f   = new java.io.File(loc.toURI)
+      if f.isFile then s"${f.lastModified}-${f.length}"                 // assembled jar
+      else
+        // classes dir (sbt): best-effort; run-jvm uses the jar (isFile above).
+        val cls = new java.io.File(f, "scalascript/artifact/JvmArtifactIO.class")
+        if cls.exists then s"${cls.lastModified}-${cls.length}" else "dev"
+    catch case _: Throwable => "unknown"
 
   def hasCurrentCodegenVersion(art: ModuleJvmArtifact): Boolean =
     art.codegenVersion == CurrentCodegenVersion
