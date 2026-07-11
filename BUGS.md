@@ -12,10 +12,17 @@ full strict parity sweep.
 - **Expected:** portable functional dispatch either produces the same real
   value on both lanes or fails identically under an owned runtime blocker;
   strict parity must have zero mismatch/one-sided rows.
-- **Plan/done-when:** isolate the final expression in a focused VM/ASM fixture,
-  identify whether the `Stub.mkString` operation is lost in ASM lowering or
-  incorrectly retained by the VM, repair the shared semantics, and rerun the
-  full parity plus runtime/sentinel taxonomy gates.
+- **Root cause:** self-hosted CoreIR lowers block-form
+  `xs.foldLeft(z) { (acc, x) => ... }` as
+  `App(__method__("foldLeft", xs, z), lambda)`. Portable method dispatch only
+  accepts both `z` and `lambda` in one call, so the first application fabricates
+  an unresolved `Op`; VM later exposes `Op("Stub.mkString", ...)`, while ASM
+  collapses the same path to `Stub`.
+- **Plan/done-when:** make one-argument `foldLeft(z)` return a portable arity-one
+  closure which completes the existing effect-aware fold when applied, cover
+  list plus mutable-array receivers on VM/direct ASM, require the canonical
+  `1, 3, 6, 10, 15` result, and rerun full parity plus runtime/sentinel taxonomy
+  gates.
 
 ## v21-native-parser-dsl-stub-values — parser DSLs exit successfully with placeholders
 

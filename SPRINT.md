@@ -1903,9 +1903,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               40 both-fail / 129 skipped. `functional.ssc`
                               agrees through `440`, then VM prints
                               `Op("Stub.mkString", ", ", <closure>)` while ASM
-                              prints `Stub`. Isolate the final dispatch, repair
-                              shared semantics, and restore zero mismatch and
-                              one-sided rows before the next release baseline.
+                              prints `Stub`. CoreIR proves block-form
+                              `foldLeft(z) { f }` is
+                              `App(__method__("foldLeft", recv, z), f)`, but
+                              runtime dispatch accepts only `[z, f]` together;
+                              the partial call fabricates the false Op. Specify
+                              portable curried collection dispatch, return an
+                              arity-one closure after `[z]`, cover list/array
+                              receivers, require canonical running totals, and
+                              restore zero mismatch and one-sided rows before
+                              the next release baseline.
                         - [x] **TI-8.2d2t typed-pattern type boundary — DONE
                               2026-07-11 (`aef599a80`):** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances
