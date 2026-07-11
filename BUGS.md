@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v21-build-jvm-content-path-nondeterminism — content.bin leaks source roots
+
+**Status:** open (2026-07-11); found by codex in the exhaustive post-effect
+release gate after the structural content provider landed.
+
+- **Real-harness repro:** `tests/e2e/v21-build-jvm-release-gate.sh` builds the
+  same `argv.ssc`/`std-crypto.ssc` closure under sibling `a/src` and `b/src`
+  directories, then fails the first `cmp`. Extracted JARs differ only in
+  `META-INF/scalascript/content.bin`; its module `source` strings contain the
+  two canonical temporary paths (and absolute staged-library paths).
+- **Expected:** build-jvm is byte-reproducible and checkout/source-location
+  independent. Embedded content keeps the same documents and module graph but
+  uses the already-frozen stable `NativeSourceUnit.displayPath` identities.
+- **Plan/done-when:** map content module sources and direct imports through the
+  linked source-unit display table only during artifact packaging, then make
+  the full build-jvm reproducibility gate and exhaustive release gate pass.
+
 ## v21-native-http-request-source-arity — canonical Request omits provider fields
 
 **Status:** open (2026-07-11); found by codex after fixing extern-class layout

@@ -1972,6 +1972,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               11 fields. Restore those two documented fields in
                               the canonical case class, pin route dispatch, and
                               rerun native-entry plus the release gate.
+                        - [ ] **TI-8.2d2w0c deterministic content artifacts:**
+                              the new structural `content.bin` persists
+                              canonical checkout paths, so identical build-jvm
+                              inputs in two directories differ byte-for-byte.
+                              Rewrite module source/import identities through
+                              `NativeSourceUnit.displayPath` only at artifact
+                              packaging, retain runtime content values, and
+                              restore the existing reproducibility gate.
                         - [ ] **TI-8.2d2x parser recovery companion dispatch:**
                               `dsl-sql-recovery.ssc` imports the same self-hosted
                               Parser companion that works in YAML but currently
