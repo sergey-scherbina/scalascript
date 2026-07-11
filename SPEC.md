@@ -1422,6 +1422,12 @@ val block = withIndent {
 }
 ```
 
+Collection folds accept a curried second parameter list or trailing block.
+`xs.foldLeft(z) { (acc, value) => next }` first produces an arity-one partial
+method closure from `foldLeft(z)`, then applies the fold function. Native VM and
+direct ASM must delegate completion to the same effect-aware collection fold
+semantics.
+
 Parser nodes remain ordinary portable algebraic data across module imports.
 For example, an imported `runParser` evaluator matches
 `PMapped(PSucceed(value), f)` by the `PMapped/2` constructor, applies `f` to the
