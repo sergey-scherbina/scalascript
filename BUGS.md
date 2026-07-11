@@ -109,6 +109,28 @@ content provider exposed the next failure in `content-linked-namespaces.ssc`.
   VM/ASM/build-jvm output, affected conformance 17/17, and the 195-row strict
   corpus/parity sweep pass; runtime successes improve from 44 to 45.
 
+## v21-native-multi-effect-hidden-cps — declared operation gains a hidden argument
+
+**Status:** open (2026-07-11); found by codex while running the installed
+VM/direct-ASM regression for TI-8.2d2w2 standard effect runners.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run --native examples/algebraic-effects.ssc` (and repeat
+  with `--bytecode`). Both lanes print through the Logger/State section and
+  then fail with `arity: 1 expected, 0 given` at `handle(program())`. Structural
+  CoreIR shows source `def program(): Int ! NonDet` as `program = lam 1 ...`
+  instead of a zero-argument function whose `NonDet.choose` calls produce
+  portable `Op` values.
+- **Root cause:** the pre-portable KV9 `blockHasMultiShotResolved` branch still
+  rewrites functions containing a declared `multi effect` operation into a
+  private list-specific CPS convention with a hidden continuation argument.
+  This conflicts with the now-canonical `effect.perform` / `effect.handle`
+  contract and makes ordinary source calls arity-invalid.
+- **Plan/done-when:** remove the hidden CPS rewrite so multi-shotness comes only
+  from reusable portable resume closures, add the exact `handle(program())`
+  shape to the installed VM/ASM regression, and require both the focused effect
+  smoke and the full release gates before closing the bug.
+
 ## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
 
 **Status:** fixed (2026-07-11, `05454dd1c`), awaiting Sergiy confirmation; found by codex while running the exhaustive

@@ -2051,6 +2051,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               effect semantics through core-free providers or
                               portable runtime definitions, with nested runner
                               and multi-shot coverage.
+                        - [ ] **TI-8.2d2w1b remove hidden multi-effect CPS:** the
+                              W2 installed regression exposes that the old KV9
+                              list-specific transform changes a source
+                              zero-argument function containing `multi effect`
+                              operations into a one-argument private CPS def.
+                              Remove that competing convention and route the
+                              operations through the same portable `Op` /
+                              reusable-resume contract as ordinary effects;
+                              pin exact `handle(program())` VM/ASM output before
+                              continuing to the standard runner boundary.
                         - [x] **TI-8.2d2w0 extern-class layout ownership:** the
                               post-handler exhaustive gate newly exposes
                               `extern class UploadedFile:` members as top-level
