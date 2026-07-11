@@ -1855,7 +1855,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               build-jvm/conformance gates pass; the concurrent
                               HTTP-fast standard staging regression is tracked
                               independently as hf-6.
-                        - [ ] **TI-8.2d2t2 YAML parser-context call arity:** the
+                        - [x] **TI-8.2d2t2 extension receiver scope — DONE
+                              2026-07-11 (`878474b8d`):** the
                               typed-pattern boundary advances
                               `dsl-yaml-like.ssc` to `arity: 0 expected, 1
                               given`. Identify the exact assembled callee,
@@ -1869,6 +1870,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `block`, and `line` become arity 0 with unbound
                               global `p`. Specify real extension-dedent ownership
                               versus nested virtual closes before changing code.
+                              Result: layout/braced imported members print
+                              `2/2/5/3/3/7/9` exactly on VM/ASM; YAML prints
+                              `Parsed successfully.` and reaches the shared
+                              `PMapped/2` gap. Baselines remain 194/194,
+                              36/90, parity 23/43/129, blockers 31.
                         - [ ] **TI-8.2d2t3 storage print gate reconciliation:**
                               K62.22 deliberately renders nested strings through
                               the parity renderer (`Some(alice)`,

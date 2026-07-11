@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — nested member layout preserves extension receivers
+
+Indented and explicit-brace extension bodies now own a distinct close marker,
+so nested match/lambda layout cannot erase the receiver from later members.
+Imported receiver-only and parameterized members retain exact arity on
+VM/direct ASM; the YAML-like parser leaves its false arity-zero call and joins
+the shared `PMapped/2` evaluator gap. Landed `878474b8d`; spec and baseline in
+`specs/v2.1-extension-receiver-scope.md`.
+
 ## 2026-07-11 — SwiftUI fetches and actions have native lifecycle ownership
 
 Generated Apple clients now execute `fetchUrlSignal` and `fetchAction*` through

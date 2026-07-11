@@ -122,7 +122,7 @@ advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
 
 ## v21-yaml-parser-context-arity — YAML parser calls a nullary value with one argument
 
-**Status:** open (2026-07-11); found by codex after the typed-pattern boundary
+**Status:** done (2026-07-11, `878474b8d`); found and confirmed by codex after the typed-pattern boundary
 fix advanced `dsl-yaml-like.ssc` beyond the false `Unit` global.
 
 - **Real-harness repro:** `bin/ssc-standard run --native
@@ -143,6 +143,10 @@ fix advanced `dsl-yaml-like.ssc` beyond the false `Unit` global.
   has a nested layout body and whose later receiver-only/parameterized members
   retain the receiver, distinguish the extension's real dedent from nested
   virtual closes, and rerun all parser DSLs plus release gates.
+- **Fix/result:** extension-specific layout/brace frames now own the only token
+  that clears receiver state; nested `parseOneStmt` calls cannot clear it.
+  Layout/braced multi-file output is exact on VM/ASM, and YAML advances
+  identically to the already tracked `PMapped/2` gap.
 
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
 
