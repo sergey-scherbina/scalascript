@@ -837,17 +837,17 @@ there before changing this plan.
                         the harness-only root cause and lock boundary in Rozum.
                         Action stress 5/5, named table 6/6, and full backend
                         40/40 are green after the fix.
-            - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
+            - [x] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
                   openURL handoff for http/https/mailto links.
                   Implementation plan against the frozen rich-content contract:
-                  - [ ] replace the generated `NativeUiHtmlAdapter.available`
+                  - [x] replace the generated `NativeUiHtmlAdapter.available`
                         stub with one cross-platform SwiftUI representable plus
                         platform coordinators; decode only the exact two-field
                         `NativeUiTrustedHtml(siteId, String)` shape and render
                         malformed values as sourced Unsupported output;
-                  - [ ] create each WKWebView with `.nonPersistent()` website
+                  - [x] create each WKWebView with `.nonPersistent()` website
                         data, content JavaScript disabled, no shared process
                         pool/cookie state, scrolling disabled, and a compiled
                         content rule installed before the first HTML load. The
@@ -856,12 +856,12 @@ there before changing this plan.
                         WebKit's rule regex subset rejects disjunctions, so use
                         independent filters for http, https, ws, wss, and ftp
                         with the same subresource-only type list;
-                  - [ ] allow only the initial in-memory document navigation.
+                  - [x] allow only the initial in-memory document navigation.
                         Cancel every subsequent in-webview navigation; hand
                         tapped absolute `http`, `https`, and non-empty `mailto`
                         links to SwiftUI `openURL`, reject target-frame/new-window
                         and all other schemes without loading them;
-                  - [ ] publish bounded positive height from platform scroll/
+                  - [x] publish bounded positive height from platform scroll/
                         document content-size observation and remove observers
                         on dismantle/deinit. Descriptor replacement updates the
                         existing view without retaining the prior markup;
@@ -884,7 +884,7 @@ there before changing this plan.
                         posted final spec-only APPROVE in Rozum after both SDK
                         corrections (isolated macOS client world and no
                         deprecated explicit process pool).
-                  - [ ] add generated strict Swift gates for configuration,
+                  - [x] add generated strict Swift gates for configuration,
                         compiled-rule-before-load ordering, strong/`data-x` plus
                         inline CSS/data visibility, external-link handoff,
                         blocked network/unsafe navigation, dynamic height, and
@@ -903,6 +903,10 @@ there before changing this plan.
                         behind `SSC_NATIVEUI_HTML_PROBE`; route both delegate
                         callers through one handoff; execute source-only recovery,
                         forced stale terminal callbacks, and nil load start.
+                        Result: landed `7cc1ff978`; docs `3a694d901`.
+                        `nativeui-reviewer` posted round-3 APPROVE in Rozum.
+                        Full Swift backend passed 41/41 twice, final affected
+                        WebKit/macOS+iOS16 gate 2/2, and `tkv2-*` 12/12.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.

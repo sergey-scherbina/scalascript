@@ -2,7 +2,7 @@
 
 ## v2-trusted-html-isolation-contract-gaps — first WKWebView plan leaves stale and navigation authority ambiguous
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, `7cc1ff978`); reported by `nativeui-reviewer` in the
 `scalascript` Rozum room during the read-only design checkpoint for SPRINT plan
 `9533d30b5`.
 
@@ -64,6 +64,14 @@
   APPROVE, then implement and execute loopback-zero-hit, data/inline,
   navigation, replacement grow/shrink, stale/dismantle, malformed descriptor,
   macOS, and iOS 16 gates.
+- **Fix/verification:** one serialized outstanding document-policy generation
+  now gates the latest prepared rule/document load; exact WKNavigation identity
+  authenticates terminal callbacks, and compiler/loader seams compile only
+  under `SSC_NATIVEUI_HTML_PROBE`. Both delegates share one handoff. The real
+  probe executes delayed blocker retention, source-only recovery, forced stale
+  terminals, nil load, grow/shrink, teardown, macOS WebKit, and production iOS
+  16 typecheck. `nativeui-reviewer` confirmed round-3 APPROVE in Rozum; Swift
+  backend 41/41 and `tkv2-*` 12/12 are green.
 
 ## v2-native-table-urlprotocol-harness-race — strict action probe mutates shared Set concurrently
 

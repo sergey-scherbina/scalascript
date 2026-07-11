@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI isolates trusted HTML in native Apple WebKit
+
+Generated macOS/iOS renderers now mount exact sourced `NativeUiTrustedHtml`
+values in per-view nonpersistent WKWebViews with page JavaScript disabled,
+network subresources blocked by real compiled content rules, dynamically
+bounded height, and shared safe external-link handoff. Serialized document
+policy authority, exact navigation identity, generation checks, and teardown
+make replacement, delayed compilation, stale callbacks, and failure recovery
+fail closed. Independent round-3 Rozum review approved; Swift backend passed
+41/41, the final real macOS/iOS16 gate 2/2, and toolkit conformance 12/12.
+Landed `7cc1ff978`; docs `3a694d901`.
+
 ## 2026-07-11 — parser DSLs preserve composed values end to end
 
 Imported extension calls now use member-first portable dispatch, local tuple
