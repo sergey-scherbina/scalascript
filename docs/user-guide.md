@@ -1020,9 +1020,13 @@ VM, direct ASM, and `build-jvm` therefore support `contentDocument`, section/
 block/data/metadata lookup, imported-module lookup, `contentPlainText`, and
 `contentToMarkdown` without Scalameta, CommonMark/Flexmark, or the v1 content
 bridge. `build-jvm` stores the same values in
-`META-INF/scalascript/content.bin`. Source-aware `contentCurrentSection()` and
-path-expression `contentBind(...)` remain separate native follow-ups; the
-native provider does not guess a section or install a lossy identity binding.
+`META-INF/scalascript/content.bin`. `contentBind(...)` is an ordinary pure
+definition in `std/content.ssc`: dotted-path validation, nested `MapV` lookup,
+recursive block/inline rebuilding, and deterministic value rendering run in
+ScalaScript on INT/JS/JVM/native VM/ASM and artifacts. The native provider does
+not parse paths or install a lossy identity binding. Source-aware
+`contentCurrentSection()` remains a separate follow-up until calls carry source
+identity.
 
 When a module is consumed through artifacts, the same snapshot is preserved for
 the current module: `.scir` carries `NormalizedModule.document`, and `.sscc` v3
