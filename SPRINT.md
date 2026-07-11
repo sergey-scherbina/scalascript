@@ -1788,6 +1788,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               that stops at `=>`/guard, a multi-file regression,
                               and rerun the YAML-like example plus all release
                               gates.
+                        - [ ] **TI-8.2d2t2 YAML parser-context call arity:** the
+                              typed-pattern boundary advances
+                              `dsl-yaml-like.ssc` to `arity: 0 expected, 1
+                              given`. Identify the exact assembled callee,
+                              isolate it across the import boundary, repair
+                              portable call/name lowering, and rerun all parser
+                              DSLs plus release gates without a host special
+                              case.
                         - [ ] **TI-8.2d2u imported tuple collection match:**
                               K62.19 advances `imports.ssc` beyond its former
                               collection arity boundary to identical VM/ASM

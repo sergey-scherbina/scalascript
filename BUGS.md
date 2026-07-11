@@ -77,6 +77,22 @@ advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
   nested delimiters but stops at `=>`/guard, eliminate the false `Unit` global,
   and rerun the YAML-like example plus release gates.
 
+## v21-yaml-parser-context-arity — YAML parser calls a nullary value with one argument
+
+**Status:** open (2026-07-11); found by codex after the typed-pattern boundary
+fix advanced `dsl-yaml-like.ssc` beyond the false `Unit` global.
+
+- **Real-harness repro:** `bin/ssc-standard run --native
+  examples/dsl-yaml-like.ssc` and the same command with `--bytecode` now fail
+  identically with `arity: 0 expected, 1 given` after the imported layout
+  parser enters its first typed arm.
+- **Expected:** the imported parser/context operation selects the intended
+  callable definition and completes identically on VM/ASM.
+- **Plan/done-when:** identify the exact callee and declaration ownership from
+  the assembled CoreIR, add an import-boundary regression, repair name/call
+  lowering without a YAML-specific host path, and rerun all parser DSLs plus
+  release gates.
+
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
 
 **Status:** done (2026-07-11, `500ba1668`, taxonomy `9411ebf0e`); found and
