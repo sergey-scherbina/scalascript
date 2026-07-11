@@ -9,6 +9,61 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
+
+Spec: `specs/security-hardening.md`. Report artifact:
+`https://claude.ai/code/artifact/e069a55c-a49f-4aac-bc68-4077e4d88d1b`.
+Defensive audit of fs/process/http-client/http-server+json/codegen+cache across all
+backends. Structural defenses (no-shell exec, TLS verify, escaped codegen literals) verified
+sound. `✎` = in code shipped this session. Fix order + full exploit/fix per finding in the spec.
+
+### Batch A — "your turf" (code shipped this session) — fixing now
+- [ ] **H3 ✎ httpClient scope bypass** — `HttpClientRs resolve()` join is `base+raw`; a `raw`
+      starting with `@` injects userinfo (re-points host), a `http`-prefix drops the base.
+      FIX: absolute only on `http://`/`https://`; else force `raw` to a leading-`/` path so it
+      can't inject authority. Mirror later to OutboundClients/HttpIntrinsics/ws-server.
+- [ ] **H6 Rust deleteFile recursive** — `RuntimeModRs:145` `remove_dir_all` on a dir diverges
+      from JVM/JS/interp (which error). FIX: `remove_file` only.
+- [ ] **M3 ✎ Rust redirect SSRF** — ureq follows 5 redirects (JVM/interp follow none). FIX:
+      `.redirects(0)` to unify with JVM/interp (3xx+Location returned to caller).
+- [ ] **M4 ✎ exec ignores opts.timeout** — JVM `processRuntime` `waitFor()` unbounded. FIX:
+      `waitFor(t,MS)` + `destroyForcibly()` when `opts.timeout` set.
+- [ ] **M5 ✎ JVM exec stderr deadlock** — stdout drained before stderr; >64 KB stderr wedges.
+      FIX: drain stderr on a side thread concurrently with stdout.
+- [ ] **M8 ✎ native jsonQuote parity** — `NativeJsonCodec:60` emits U+2028/2029 + non-ASCII raw.
+      FIX: escape all `c > 0x7e` (and `< 0x20`) as `\uXXXX`, matching the self-hosted renderer.
+- [ ] **M9 ✎ Rust no overall timeout** — only read/connect. FIX: add AgentBuilder `.timeout(t)`.
+- [ ] **L2 ✎ Rust header CRLF** — `req.set(k,v)` unvalidated. FIX: reject `\r`/`\n` in k/v.
+
+### Batch B — cross-backend, tractable one-liners
+- [ ] **M6 JS exec exitCode masking** — `JsRuntimeFs:180` `result.status || 0` → 0 for
+      signal-kill/ENOENT (security-gate bypass). FIX: `status!=null ? status : (signal||error?-1:0)`.
+- [ ] **M11 static-file prefix traversal** — `StaticAssetServer:23` `startsWith` w/o separator.
+      FIX: `target.toPath.startsWith(rootDir.toPath)`.
+- [ ] **L6 OpenApiGenerator.jsonEscape** — escapes only `"`/`\`. FIX: route through `jsonStr`.
+- [ ] **L5 escapers omit newline** — `JsGen:3860` / `JvmGenStringUtils:6`. FIX: use full
+      `jsStringLit` / `scalaStringLiteral`.
+
+### Batch C — design-heavy (queued, need a design decision)
+- [ ] **H1 SSR XSS** — `signals.mjs:1329` inlines `JSON.stringify` state into `<script>`. FIX:
+      HTML-safe serialize (`<`→`<`, `>`, `&`, U+2028/2029) before interpolation.
+- [ ] **H2 SSRF guard** — opt-in allow-list / reject loopback+link-local+RFC-1918 in the shared
+      resolve step (policy, not a pure bug — needs a config surface).
+- [ ] **H4 cache integrity** — HMAC/sign `.scjvm`/`.scjs`/`classBundle` with an install-private
+      key (jar mtime/size stamp is forgeable); reject group/other-writable artifact dirs.
+- [ ] **H5 JVM outbound global vars** — move base/timeout/retries/delay to `ThreadLocal`
+      (interp/Rust already scope per-thread) to stop cross-request bleed.
+- [ ] **M1 request-body cap** — sane default + streaming counted read on the legacy JDK serve
+      path (chunked bypasses the Content-Length pre-check).
+- [ ] **M2 response-body cap** — bounded reader (mirror ureq's 10 MB) on JVM/interp/JS clients.
+- [ ] **M7 secure temp files** — Rust `create_new(true)`+random / JS `mkdtempSync`/O_EXCL.
+- [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
+      NOFOLLOW; document raw helpers as trusted-input-only.
+- [ ] **L1 retry backoff/cap** — cap `n`, exponential backoff + jitter, honor `Retry-After`.
+- [ ] **L3 env-scrub option** — `ProcessOptions(inheritEnv=false)`.
+- [ ] **L4 mkdir TOCTOU** — drop the exists-guard; catch `FileAlreadyExists`.
+- [ ] **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics.
+
 ## v2-http-fast — super-optimal HTTP/WS plugin for v2 JVM (2026-07-11, Sergiy: "сделай для v2 jvm новый супер оптимальный http/ws плагин … по умолчанию вместо старого … проверь thread-safety")
 
 Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-thread-per-connection
