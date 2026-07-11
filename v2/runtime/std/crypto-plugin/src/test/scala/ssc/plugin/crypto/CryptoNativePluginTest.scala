@@ -99,9 +99,13 @@ class CryptoNativePluginTest extends AnyFunSuite:
     NativePluginHost.installProviders(List(CryptoNativePlugin()))
     val sha1 = NativeCrypto.encode("12345678901234567890".getBytes(java.nio.charset.StandardCharsets.UTF_8))
     val sha256 = NativeCrypto.encode("12345678901234567890123456789012".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val sha512 = NativeCrypto.encode(
+      "1234567890123456789012345678901234567890123456789012345678901234"
+        .getBytes(java.nio.charset.StandardCharsets.UTF_8))
     assert(string("hotp", Value.StrV(sha1), Value.IntV(0), Value.IntV(6), Value.StrV("SHA1")) == "755224")
     assert(string("totp", Value.StrV(sha1), Value.IntV(59), Value.IntV(30), Value.IntV(8), Value.StrV("SHA1")) == "94287082")
     assert(string("totp", Value.StrV(sha256), Value.IntV(59), Value.IntV(30), Value.IntV(8), Value.StrV("SHA256")) == "46119246")
+    assert(string("totp", Value.StrV(sha512), Value.IntV(59), Value.IntV(30), Value.IntV(8), Value.StrV("SHA512")) == "90693936")
     val code = string("totp", Value.StrV(sha1), Value.IntV(1111111111),
       Value.IntV(30), Value.IntV(8), Value.StrV("SHA1"))
     assert(boolean("totpValidate", Value.StrV(sha1), Value.StrV(code),
