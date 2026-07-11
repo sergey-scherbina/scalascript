@@ -55,6 +55,15 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
       corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
       BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
       stuck on array-update. Retry when load is stable.
+- [x] **v2asm-listfold-accumulator** — DONE 2026-07-11 (`c52089858`). Closed the ONE
+      workload where bytecode lost to the VM. list-fold (`foreach(x => sum = sum + x)`) emitted
+      box(lcell.get) + Emit.arith(str) + prim2 lcell.set(str) per element (element `x` is a
+      boxed Value → canLong fails). Fused the accumulator pattern `lcell.set(c, arith(op,
+      lcell.get(c), r))` into one `Emit.lcellAccum` (unboxed cell side). Result: **1.44ms
+      (1.4x slower) → 0.566ms (1.67x FASTER than VM)** — the bytecode lane is now
+      parity-or-faster on EVERY measured workload. Gate: order-sensitive test (sum+sub,
+      bytecode==VM) + FrontendBridgeTest 57/57 + 12 accumulator examples parity + census
+      195/195 + v2 conf 9/9. (A dcellAccum twin for float accumulators is a cheap follow-on.)
 - [x] **v2asm-bench-validated** — DONE 2026-07-11 (`9f7dad5f9`). BENCH-VERIFIED the landed
       work on a QUIET machine (load ~2) with a FRESH bin/ssc (the first run read a STALE binary
       → 39ms false negative; rebuilt → real numbers). `scripts/bench v2-bytecode`, ms, VM vs
