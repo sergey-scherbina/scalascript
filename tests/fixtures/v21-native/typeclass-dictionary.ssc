@@ -1,0 +1,22 @@
+---
+name: v21-native-typeclass-dictionary
+---
+
+[Algebra, intAlgebra, stringAlgebra, dictionaryIdentity, dictionaryZero, dictionaryCombine](typeclass-dictionary-lib.ssc)
+
+# Imported dictionary value flow
+
+```scalascript
+val intAlias = dictionaryIdentity(intAlgebra)
+val stringAlias = dictionaryIdentity(stringAlgebra)
+
+println(intAlias.label)
+println(dictionaryZero(intAlias))
+println(dictionaryCombine(intAlias, 3, 4))
+println(stringAlias.label)
+println("[" + dictionaryZero(stringAlias) + "]")
+println(dictionaryCombine(stringAlias, "left", "-right"))
+println(List(intAlias, stringAlias).map(dictionary => dictionary.label).mkString("|"))
+println(intAlgebra.combine(8, 9))
+println(summon[Algebra[Int]].combine(10, 11))
+```

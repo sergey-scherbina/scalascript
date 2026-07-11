@@ -1,0 +1,36 @@
+---
+name: v21-native-typeclass-dictionary-lib
+exports:
+  - Algebra
+  - intAlgebra
+  - stringAlgebra
+  - dictionaryIdentity
+  - dictionaryZero
+  - dictionaryCombine
+---
+
+# First-class typeclass dictionaries
+
+```scalascript
+trait Algebra[A]:
+  def label: String
+  def zero: A
+  def combine(left: A, right: A): A
+
+given intAlgebra: Algebra[Int] with
+  def label: String = "int"
+  def zero: Int = 0
+  def combine(left: Int, right: Int): Int = left + right
+
+given stringAlgebra: Algebra[String] with
+  def label: String = "string"
+  def zero: String = ""
+  def combine(left: String, right: String): String = left + right
+
+def dictionaryIdentity[A](dictionary: Algebra[A]): Algebra[A] = dictionary
+
+def dictionaryZero[A](dictionary: Algebra[A]): A = dictionary.zero
+
+def dictionaryCombine[A](dictionary: Algebra[A], left: A, right: A): A =
+  dictionary.combine(left, right)
+```
