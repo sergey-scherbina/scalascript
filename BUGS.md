@@ -1,5 +1,33 @@
 # Bug tracker
 
+## v2-trusted-html-isolation-contract-gaps — first WKWebView plan leaves stale and navigation authority ambiguous
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum room during the read-only design checkpoint for SPRINT plan
+`9533d30b5`.
+
+- **Design repro:** a single global "first navigation" allowance can authorize
+  a stale `loadHTMLString` after descriptor replacement; target `_blank` can
+  double-open or bypass the main-frame delegate; asynchronous rule compilation
+  can load current HTML without an installed blocker or publish an obsolete
+  failure; and an unscoped size observer can publish after dismantle.
+- **Expected:** every HTML generation owns exactly one renderer-originated
+  main-frame in-memory load after its rule is installed. Stale compile/load/
+  finish/size callbacks are inert; only `linkActivated` absolute http/https or
+  non-empty mailto taps reach the shared external-URL predicate and SwiftUI
+  `openURL` exactly once, including `_blank`; every other navigation cancels.
+- **Isolation/diagnostic gap:** compiled rules match only network subresource
+  schemes/types, preserve inline/data resources, and gate the first load.
+  Compilation failure yields bounded sourced Unsupported without loading.
+  iOS/macOS use explicit finite positive height clamps and dismantle every
+  observer/delegate. Forged `NativeUiTrustedHtml` and malformed rawHtml
+  sentinels must remain exact sourced diagnostics.
+- **Plan/done-when:** freeze these four rules in
+  `specs/v2-swift-swiftui-native.md` before code, obtain a second Rozum design
+  APPROVE, then implement and execute loopback-zero-hit, data/inline,
+  navigation, replacement grow/shrink, stale/dismantle, malformed descriptor,
+  macOS, and iOS 16 gates.
+
 ## v2-native-table-urlprotocol-harness-race — strict action probe mutates shared Set concurrently
 
 **Status:** done (2026-07-11, `400931f68`); found by codex in the mandatory
