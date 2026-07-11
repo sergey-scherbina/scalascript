@@ -1,5 +1,31 @@
 # Bug tracker
 
+## v21-native-explicit-effect-handler-erasure — declarations and handlers disappear
+
+**Status:** open (2026-07-11); found by codex while reducing the reviewed
+`effects.ssc` standard-language/runtime blocker on the installed compiler-free
+binary.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, both
+  `bin/ssc-standard run --native examples/effects.ssc` and its `--bytecode`
+  lane exit 1 with `unbound global: greet` and no stdout. A smaller staged
+  source shows two independent losses: layout `effect E:` handling can consume
+  following top-level declarations, and `resolveE` recognizes
+  `handle(computation)(handler)` only to return the computation and discard the
+  parsed partial-function handler.
+- **Expected:** an effect declaration owns exactly its abstract member body;
+  each member performs the portable `E.member` operation; explicit handlers
+  receive source arguments plus a reusable resume closure and implement
+  one-shot, early-return, deep/nested, `Return`, and multi-shot semantics
+  identically on native VM/direct ASM.
+- **Plan/done-when:** add an installed-binary VM/ASM fixture covering layout
+  ownership plus zero/one/many arguments and every handler mode; retain an
+  `effect_decl` through imports; lower operations to `effect.perform` and both
+  handle operands to `effect.handle`; then make the focused fixture and all six
+  compatibility lines of `examples/effects.ssc` exact before running the full
+  release gate. No provider, v1 bridge, transparent fallback, or backend branch
+  is allowed.
+
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
 **Status:** fixed (2026-07-11, taxonomy `77da8e8e2`); found by codex while
