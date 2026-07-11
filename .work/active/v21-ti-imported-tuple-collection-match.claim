@@ -1,7 +1,7 @@
 feature/v21-ti-imported-tuple-collection-match 2026-07-11T17:50:58Z
 agent: codex
-heartbeat: 2026-07-11T17:50:58Z
-status: not-started
-done-so-far: SPRINT/spec already define TI-8.2d2u and its two real example regressions
-next: create worktree, reproduce imported Tuple2/2 collection match on VM/direct ASM, then isolate the root cause
+heartbeat: 2026-07-11T17:51:15Z
+status: in-progress
+done-so-far: worktree created from origin/main; SPRINT/spec define TI-8.2d2u and its two real example regressions
+next: reproduce imported Tuple2/2 collection match on VM/direct ASM, then isolate the root cause
 scope: v2 imported list/tuple matching plus focused multi-file regression; do not touch active parser-DSL or multi-placeholder work
