@@ -173,7 +173,7 @@ lazy val v2JsBackend = project
 // the legacy SwiftUI View emitter.
 lazy val v2SwiftBackend = project
   .in(file("v2/backend/swift"))
-  .dependsOn(v2Core)
+  .dependsOn(v2Core, v2FrontendBridge % Test)
   .settings(
     name := "scalascript-v2-swift-backend",
     libraryDependencies += scalatestTest,

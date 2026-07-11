@@ -6,6 +6,7 @@ import java.nio.file.{Files, Path, Paths}
 import org.scalatest.funsuite.AnyFunSuite
 
 import ssc.{Arm, Const, Program, Reader, Term}
+import ssc.bridge.{FrontendBridge, PluginBridge}
 
 final class SwiftBackendTest extends AnyFunSuite:
   private val repoRoot =
@@ -44,6 +45,7 @@ final class SwiftBackendTest extends AnyFunSuite:
     val cases = List(
       "fact" -> "120",
       "tco" -> "500000500000",
+      "mutual-tco" -> "true",
       "map" -> "List(2, 4, 6)",
     )
     cases.foreach { (name, expected) =>
@@ -96,6 +98,36 @@ final class SwiftBackendTest extends AnyFunSuite:
     val program = Program(Nil, Term.Prim("effect.handle", List(computation, handler)))
     assert(runSwift("effects", program) == "30")
 
+  test("checked real money source runs through FrontendBridge and SwiftPM"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val source = repoRoot.resolve("tests/conformance/money-portable-v2.ssc")
+    FrontendBridge.resetState()
+    PluginBridge.loadAll()
+    val program = FrontendBridge.convertSource(
+      Files.readString(source, StandardCharsets.UTF_8),
+      Some(source.getParent.toFile),
+    )
+    val expected = Files.readString(
+      repoRoot.resolve("tests/conformance/expected/money-portable-v2.txt"),
+      StandardCharsets.UTF_8,
+    ).trim
+    assert(runSwift("money", program) == expected)
+
+  test("checked transitive effect source runs through FrontendBridge and SwiftPM"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val source = repoRoot.resolve("tests/conformance/effect-transitive-handler.ssc")
+    FrontendBridge.resetState()
+    PluginBridge.loadAll()
+    val program = FrontendBridge.convertSource(
+      Files.readString(source, StandardCharsets.UTF_8),
+      Some(source.getParent.toFile),
+    )
+    val expected = Files.readString(
+      repoRoot.resolve("tests/conformance/expected/effect-transitive-handler.txt"),
+      StandardCharsets.UTF_8,
+    ).trim
+    assert(runSwift("transitiveEffects", program) == expected)
+
   private def fixture(name: String): Program =
     val path = repoRoot.resolve(s"v2/conformance/$name.coreir")
     Reader.parseProgram(Files.readString(path, StandardCharsets.UTF_8))
@@ -110,8 +142,9 @@ final class SwiftBackendTest extends AnyFunSuite:
     val root = Files.createTempDirectory(s"ssc-swift-$name-")
     val errors = root.resolve("swift.stderr")
     try
-      val product = s"Ssc${name.capitalize}"
-      SwiftBackend.generate(program, product).writeTo(root)
+      val requestedProduct = s"Ssc${name.capitalize}"
+      val product = SwiftBackend.productName(requestedProduct)
+      SwiftBackend.generate(program, requestedProduct).writeTo(root)
       val process = new ProcessBuilder(
         "swift", "run", "--package-path", root.toString, "--quiet", product,
       ).redirectError(errors.toFile).start()

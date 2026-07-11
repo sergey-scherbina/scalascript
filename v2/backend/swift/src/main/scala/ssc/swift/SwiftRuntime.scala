@@ -313,6 +313,7 @@ struct SscDefinition {
 struct SscProgram {
     let definitions: [SscDefinition]
     let entry: SscTerm
+    let fieldLayouts: [String: [String]]
 }
 
 final class SscClosure {
@@ -418,6 +419,36 @@ private final class Machine {
             Swift.print("")
             return .unit
         })
+        globals["Decimal"] = .closure(SscClosure(arity: -1) { args in
+            if args.count == 2 {
+                return .decimal(SscDecimal(unscaled: decimalBigInt(args[0]), scale: Int(intValue(args[1]))))
+            }
+            guard args.count == 1 else { fatalError("decimal: invalid constructor arity") }
+            return .decimal(decimal(args[0]))
+        })
+        globals["BigInt"] = .closure(SscClosure(arity: 1) { args in
+            switch args[0] {
+            case let .int(value): return .big(SscBigInt(String(value)))
+            case let .big(value): return .big(value)
+            case let .string(value): return .big(SscBigInt(value))
+            default: fatalError("BigInt: unsupported constructor input")
+            }
+        })
+        globals["RoundingMode"] = .data("__RoundingModeCompanion__", [])
+        globals["RuntimeException"] = .closure(SscClosure(arity: 1) { args in
+            .data("RuntimeException", args)
+        })
+        globals["handle"] = .closure(SscClosure(arity: 1) { [weak self] first in
+            guard let self else { fatalError("effect: runtime released") }
+            let body: SscValue
+            if case let .closure(thunk) = first[0], thunk.arity == 0 { body = self.call(thunk, []) }
+            else { body = first[0] }
+            return .closure(SscClosure(arity: 1) { handler in self.handleEffect(body, handler[0]) })
+        })
+        globals["effect"] = .closure(SscClosure(arity: 1) { _ in .unit })
+        globals["__throw__"] = .closure(SscClosure(arity: 1) { args in
+            fatalError("throw: \(sscPlain(args[0]))")
+        })
     }
 
     private func installDefinitions() {
@@ -454,7 +485,7 @@ private final class Machine {
 
     private func checkArity(_ closure: SscClosure, _ arguments: [SscValue]) {
         if closure.arity >= 0 && closure.arity != arguments.count {
-            fatalError("arity: \(closure.arity) expected, \(arguments.count) given")
+            fatalError("arity: \(closure.arity) expected, \(arguments.count) given: \(arguments.map(sscShow))")
         }
     }
 
@@ -664,11 +695,21 @@ private final class Machine {
         case "utf8->str": return .string(String(decoding: bytes(args, 0), as: UTF8.self))
         case "tagOf": return .string(data(args[0]).0)
         case "arity": return .int(Int64(data(args[0]).1.count))
-        case "fieldAt": return data(args[0]).1[Int(int(args, 1))]
+        case "fieldAt":
+            if args.count >= 3, case .data("__RoundingModeCompanion__", _) = args[0] { return .string(string(args, 2)) }
+            let (tag, fields) = data(args[0])
+            if args.count >= 3, let names = program.fieldLayouts["\(tag)#\(fields.count)"], let index = names.firstIndex(of: string(args, 2)) {
+                return fields[index]
+            }
+            return fields[Int(int(args, 1))]
         case "__isTag__":
             guard case let .data(tag, fields) = args[0] else { return .bool(false) }
             let arity = int(args, 2)
             return .bool(tag == string(args, 1) && (arity < 0 || fields.count == Int(arity)))
+        case "__autoPrint__":
+            if case .unit = args[0] { return .unit }
+            if case .data("Op", _) = args[0] { return .unit }
+            Swift.print(sscPlain(args[0])); return .unit
         case "cell.new": return .cell(SscCell(args[0]))
         case "cell.get": return cell(args[0]).value
         case "cell.set": cell(args[0]).value = args[1]; return .unit
@@ -698,6 +739,11 @@ private final class Machine {
                 result.put(fields[0], fields[1])
             }
             return .map(result)
+        case "__math_obj__": return .data("__Math__", [])
+        case "__match_fail_prim__": fatalError("match: no matching case")
+        case "__method__", "__effect__":
+            guard args.count >= 2 else { fatalError("__method__: missing receiver") }
+            return method(string(args, 0), args[1], Array(args.dropFirst(2)))
         case "__arith__": return dynamicArithmetic(string(args, 0), args[1], args[2])
         case "__unary__":
             let op = string(args, 0)
@@ -712,13 +758,21 @@ private final class Machine {
             fatalError("__unary__: unsupported operation \(op)")
         case "io.print": Swift.print(sscPlain(args[0]), terminator: ""); return .unit
         case "io.println": Swift.print(sscPlain(args[0])); return .unit
+        case "io.nanoTime": return .int(Int64(bitPattern: DispatchTime.now().uptimeNanoseconds))
         default: fatalError("swift runtime: unsupported primitive '\(operation)'")
         }
     }
 
     private func dynamicArithmetic(_ op: String, _ lhs: SscValue, _ rhs: SscValue) -> SscValue {
+        if op == "->" { return .data("Tuple2", [lhs, rhs]) }
+        if case .data("Op", _) = lhs { return liftOperation(lhs) { [weak self] resumed in self!.dynamicArithmetic(op, resumed, rhs) } }
+        if case .data("Op", _) = rhs { return liftOperation(rhs) { [weak self] resumed in self!.dynamicArithmetic(op, lhs, resumed) } }
         if case .decimal = lhs { return decimalArithmetic(op, lhs, rhs) }
         if case .decimal = rhs { return decimalArithmetic(op, lhs, rhs) }
+        if case .big = lhs { return bigArithmetic(op, lhs, rhs) }
+        if case .big = rhs { return bigArithmetic(op, lhs, rhs) }
+        if case let .string(value) = lhs, op == "+" || op == "++" { return .string(value + sscPlain(rhs)) }
+        if case let .string(value) = rhs, op == "+" || op == "++" { return .string(sscPlain(lhs) + value) }
         switch (lhs, rhs) {
         case let (.int(a), .int(b)):
             switch op {
@@ -748,8 +802,108 @@ private final class Machine {
         default:
             if op == "==" { return .bool(sscEqual(lhs, rhs)) }
             if op == "!=" { return .bool(!sscEqual(lhs, rhs)) }
+            if case .closure = lhs, case .unit = rhs { return .unit }
         }
         fatalError("__arith__: unsupported operation \(op) on \(sscShow(lhs)), \(sscShow(rhs))")
+    }
+
+    private func bigArithmetic(_ op: String, _ lhs: SscValue, _ rhs: SscValue) -> SscValue {
+        func value(_ input: SscValue) -> SscBigInt {
+            switch input { case let .big(v): return v; case let .int(v): return SscBigInt(String(v)); default: fatalError("BigInt: incompatible operand") }
+        }
+        let a = value(lhs), b = value(rhs)
+        switch op {
+        case "+": return .big(a + b); case "-": return .big(a - b); case "*": return .big(a * b)
+        case "/": return .big(a / b); case "%": return .big(a % b)
+        case "==": return .bool(a == b); case "!=": return .bool(a != b)
+        case "<": return .bool(a < b); case "<=": return .bool(a <= b)
+        case ">": return .bool(a > b); case ">=": return .bool(a >= b)
+        default: fatalError("BigInt: unsupported operation \(op)")
+        }
+    }
+
+    private func method(_ name: String, _ receiver: SscValue, _ args: [SscValue]) -> SscValue {
+        if case .data("Op", _) = receiver {
+            return liftOperation(receiver) { [weak self] resumed in self!.method(name, resumed, args) }
+        }
+        if case let .data(tag, fields) = receiver,
+           let names = program.fieldLayouts["\(tag)#\(fields.count)"],
+           let index = names.firstIndex(of: name) {
+            if args.isEmpty { return fields[index] }
+            if case let .closure(fn) = fields[index] { return call(fn, args) }
+        }
+        switch receiver {
+        case let .decimal(value):
+            switch name {
+            case "toString", "toPlainString": return .string(value.description)
+            case "setScale" where args.count == 1: return .decimal(value.withScale(Int(intValue(args[0])), mode: "HALF_UP"))
+            case "setScale" where args.count == 2: return .decimal(value.withScale(Int(intValue(args[0])), mode: roundingMode(args[1])))
+            case "divide" where args.count == 3: return .decimal(value.divided(by: decimal(args[0]), scale: Int(intValue(args[1])), mode: roundingMode(args[2])))
+            case "toBigInt": return .big(value.toBigInt())
+            case "scale": return .int(Int64(value.scale))
+            case "unscaledValue": return .big(value.unscaled)
+            case "abs": return .decimal(value.unscaled.signum < 0 ? -value : value)
+            case "negate": return .decimal(-value)
+            case "signum": return .int(Int64(value.unscaled.signum))
+            case "pow": return .decimal(value.power(Int(intValue(args[0]))))
+            case "compareTo": let other = decimal(args[0]); return .int(value < other ? -1 : (value == other ? 0 : 1))
+            default: break
+            }
+        case let .big(value):
+            switch name {
+            case "toString": return .string(value.description)
+            case "pow":
+                var base = value, result = SscBigInt("1"), exponent = Int(intValue(args[0]))
+                if exponent < 0 { fatalError("BigInt.pow: negative exponent") }
+                while exponent > 0 { if exponent & 1 == 1 { result = result * base }; exponent >>= 1; if exponent > 0 { base = base * base } }
+                return .big(result)
+            default: break
+            }
+        case let .map(value):
+            switch name {
+            case "getOrElse": return value.get(args[0]) ?? args[1]
+            case "get": return value.get(args[0]).map(some) ?? none()
+            case "contains": return .bool(value.get(args[0]) != nil)
+            case "size": return .int(Int64(value.entries.count))
+            default: break
+            }
+        case .data("Cons", _), .data("Nil", _):
+            let values = list(receiver)
+            switch name {
+            case "map":
+                guard case let .closure(fn) = args[0] else { fatalError("List.map expects closure") }
+                return listValue(values.map { item in
+                    if case let .data(tag, fields) = item, tag.hasPrefix("Tuple"), fn.arity == fields.count {
+                        return call(fn, fields)
+                    }
+                    return call(fn, [item])
+                })
+            case "foldLeft":
+                guard case let .closure(fn) = args[1] else { fatalError("List.foldLeft expects closure") }
+                return values.reduce(args[0]) { call(fn, [$0, $1]) }
+            case "zipWithIndex":
+                return listValue(values.enumerated().map { .data("Tuple2", [$0.element, .int(Int64($0.offset))]) })
+            case "length", "size": return .int(Int64(values.count))
+            case "isEmpty": return .bool(values.isEmpty)
+            case "nonEmpty": return .bool(!values.isEmpty)
+            default: break
+            }
+        case let .string(value):
+            if name == "toString" { return .string(value) }
+        case let .int(value):
+            if name == "toString" { return .string(String(value)) }
+        case .data("__RoundingModeCompanion__", _):
+            return .string(name)
+        case let .data(tag, _):
+            let argument: SscValue
+            if args.isEmpty { argument = .unit }
+            else if args.count == 1 { argument = args[0] }
+            else { argument = .data("__EffArgs__", args) }
+            let identity = SscClosure(arity: 1) { values in values[0] }
+            return .data("Op", [.string("\(tag).\(name)"), argument, .closure(identity)])
+        default: break
+        }
+        fatalError("method not found: \(name) on \(sscShow(receiver))")
     }
 
     private func decimalArithmetic(_ op: String, _ lhs: SscValue, _ rhs: SscValue) -> SscValue {
@@ -795,6 +949,16 @@ private final class Machine {
         default:
             return call(handler, [.data("Return", [computation])])
         }
+    }
+
+    private func liftOperation(_ operation: SscValue, _ transform: @escaping (SscValue) -> SscValue) -> SscValue {
+        guard case let .data("Op", fields) = operation, fields.count == 3,
+              case let .closure(continuation) = fields[2] else { fatalError("effect: malformed Op") }
+        let lifted = SscClosure(arity: 1) { [weak self] values in
+            guard let self else { fatalError("effect: runtime released") }
+            return transform(self.call(continuation, values))
+        }
+        return .data("Op", [fields[0], fields[1], .closure(lifted)])
     }
 
     private func intDiv(_ lhs: Int64, _ rhs: Int64) -> Int64 {
@@ -844,6 +1008,7 @@ private func decimal(_ value: SscValue) -> SscDecimal {
     case let .decimal(result): return result
     case let .int(result): return SscDecimal(String(result))
     case let .big(result): return SscDecimal(result.description)
+    case let .string(result): return SscDecimal(result)
     case .float: fatalError("decimal: binary floating-point input is inexact")
     default: fatalError("decimal: expected Decimal-compatible value, got \(sscShow(value))")
     }
@@ -936,6 +1101,8 @@ private func showFloat(_ value: Double) -> String {
 
 private func sscPlain(_ value: SscValue) -> String {
     if case let .string(text) = value { return text }
+    if case .data("Cons", _) = value { return "List(" + list(value).map(sscPlain).joined(separator: ", ") + ")" }
+    if case .data("Nil", _) = value { return "List()" }
     return sscShow(value)
 }
 
@@ -949,7 +1116,7 @@ private func sscShow(_ value: SscValue) -> String {
     case let .float(value): return showFloat(value)
     case let .string(value): return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     case let .bytes(value): return "#" + value.map { String(format: "%02x", $0) }.joined()
-    case let .data("Nil", _): return "List()"
+    case .data("Nil", _): return "List()"
     case .data("Cons", _): return "List(" + list(value).map(sscShow).joined(separator: ", ") + ")"
     case let .data(tag, fields) where tag.hasPrefix("Tuple"):
         return "(" + fields.map(sscShow).joined(separator: ", ") + ")"

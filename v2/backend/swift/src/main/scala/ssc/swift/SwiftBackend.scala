@@ -14,7 +14,7 @@ final case class SwiftPackage(files: Vector[(String, String)]):
     }
 
 object SwiftBackend:
-  private val builtinGlobals = Set("print", "println")
+  private val builtinGlobals = Set("print", "println", "Decimal", "BigInt", "RoundingMode", "RuntimeException", "handle", "effect", "__throw__")
 
   // This first executable slice intentionally freezes the structural runtime
   // vocabulary. Portable Decimal/effect primitives are added to this same
@@ -38,17 +38,18 @@ object SwiftBackend:
     "slen", "sconcat", "sslice", "scodeAt", "sfromCodes",
     "seq", "scmp", "sindexOf", "str.trim", "str.replace", "str.lines",
     "blen", "bget", "bslice", "bconcat", "str->utf8", "utf8->str",
-    "tagOf", "arity", "fieldAt", "__isTag__",
+    "tagOf", "arity", "fieldAt", "__isTag__", "__autoPrint__",
     "cell.new", "cell.get", "cell.set", "lcell.new", "lcell.get", "lcell.set",
     "map.new", "map.get", "map.put", "map.has", "map.del", "map.keys", "map.size",
     "arr.new", "arr.len", "arr.get", "arr.set", "arr.push", "arr.pop", "arr.slice",
-    "__mk_arr__", "__mk_map__", "__arith__", "__unary__",
-    "io.print", "io.println",
+    "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
+    "__method__", "__effect__", "__arith__", "__unary__",
+    "io.print", "io.println", "io.nanoTime",
   )
 
   def generate(program: Program, packageName: String = "SscApp"): SwiftPackage =
     validate(program)
-    val product = safeProductName(packageName)
+    val product = productName(packageName)
     SwiftPackage(Vector(
       "Package.swift" -> packageManifest(product),
       "Sources/AppCore/SscRuntime.swift" -> SwiftRuntime.source,
@@ -57,7 +58,7 @@ object SwiftBackend:
         "import AppCore\n\nSscGeneratedProgram.run()\n",
     ))
 
-  private def safeProductName(raw: String): String =
+  def productName(raw: String): String =
     val cleaned = raw.replaceAll("[^A-Za-z0-9_]", "_")
     val nonEmpty = if cleaned.isEmpty then "SscApp" else cleaned
     if nonEmpty.head.isDigit then s"Ssc_$nonEmpty" else nonEmpty
@@ -94,7 +95,32 @@ object SwiftBackend:
 
   private def emitProgram(program: Program): String =
     val defs = program.defs.map(emitDef).mkString("[", ", ", "]")
-    s"SscProgram(definitions: $defs, entry: ${emitTerm(program.entry)})"
+    val layouts = constructorShapes(program).toVector.sorted.flatMap { (tag, arity) =>
+      ssc.V2PluginRegistry.lookupFieldNames(tag, arity).map { names =>
+        val values = names.map(swiftString).mkString("[", ", ", "]")
+        swiftString(s"$tag#$arity") -> values
+      }
+    }
+    val layoutSource =
+      if layouts.isEmpty then "[:]"
+      else layouts.map((key, values) => s"$key: $values").mkString("[", ", ", "]")
+    s"SscProgram(definitions: $defs, entry: ${emitTerm(program.entry)}, fieldLayouts: $layoutSource)"
+
+  private def constructorShapes(program: Program): Set[(String, Int)] =
+    def loop(term: Term): Set[(String, Int)] = term match
+      case Term.Ctor(tag, fields) => fields.flatMap(loop).toSet + (tag -> fields.length)
+      case Term.Lam(_, body) => loop(body)
+      case Term.App(fn, args) => loop(fn) ++ args.flatMap(loop)
+      case Term.Let(rhs, body) => rhs.flatMap(loop).toSet ++ loop(body)
+      case Term.LetRec(lams, body) => lams.flatMap(loop).toSet ++ loop(body)
+      case Term.If(c, t, e) => loop(c) ++ loop(t) ++ loop(e)
+      case Term.Match(scrut, arms, default) =>
+        loop(scrut) ++ arms.flatMap(a => loop(a.body)) ++ default.toSet.flatMap(loop)
+      case Term.Prim(_, args) => args.flatMap(loop).toSet
+      case Term.While(c, body) => loop(c) ++ loop(body)
+      case Term.Seq(terms) => terms.flatMap(loop).toSet
+      case Term.Lit(_) | Term.Local(_) | Term.Global(_) => Set.empty
+    program.defs.flatMap(d => loop(d.body)).toSet ++ loop(program.entry)
 
   private def emitDef(d: Def): String =
     s"SscDefinition(name: ${swiftString(d.name)}, body: ${emitTerm(d.body)})"
