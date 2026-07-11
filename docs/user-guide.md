@@ -1005,6 +1005,18 @@ Use `contentModules()` when you need the full direct-import table, or
 Duplicate direct import namespaces are runtime errors on lookup; transitive
 imports are not exposed unless the parent imports them directly.
 
+The ScalaScript 2.1 standard native path preserves this content structurally.
+The self-hosted tower builds `DocumentContent` and direct-import ownership from
+the canonical Markdown/YAML values; the Scala 3 seed only validates immutable
+tags, and the core-free content provider performs lookups and rendering. Native
+VM, direct ASM, and `build-jvm` therefore support `contentDocument`, section/
+block/data/metadata lookup, imported-module lookup, `contentPlainText`, and
+`contentToMarkdown` without Scalameta, CommonMark/Flexmark, or the v1 content
+bridge. `build-jvm` stores the same values in
+`META-INF/scalascript/content.bin`. Source-aware `contentCurrentSection()` and
+path-expression `contentBind(...)` remain separate native follow-ups; the
+native provider does not guess a section or install a lossy identity binding.
+
 When a module is consumed through artifacts, the same snapshot is preserved for
 the current module: `.scir` carries `NormalizedModule.document`, and `.sscc` v3
 stores an optional trailing `DocumentContent` payload after the executable token

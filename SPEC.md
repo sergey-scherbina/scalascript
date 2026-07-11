@@ -383,6 +383,14 @@ The content snapshot is parse-time data. Inline `${expr}` inside prose is stored
 as expression source until an explicit renderer evaluates it, so reading
 `contentDocument()` does not execute user code or cause side effects.
 
+On the ScalaScript 2.1 standard native path, the self-hosted tower projects the
+canonical Markdown/YAML ADTs to `DocumentContent` for every linked module and
+passes normalized direct-import edges structurally through the permanent Scala
+3 seed. The seed and native provider never reopen or reparse source text;
+`build-jvm` embeds the same immutable values in its bootstrap artifact format.
+The core-free boundary and exact supported helper set are normative in
+[`specs/v2.1-native-content.md`](specs/v2.1-native-content.md).
+
 Frontend lowering is the first public target. `std/ui/content.ssc` provides
 `contentView(...)`, `contentViewSection(...)`, and `contentViewBlock(...)`
 helpers that render the same content tree through the existing backend-agnostic
