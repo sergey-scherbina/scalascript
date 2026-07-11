@@ -1869,6 +1869,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `block`, and `line` become arity 0 with unbound
                               global `p`. Specify real extension-dedent ownership
                               versus nested virtual closes before changing code.
+                        - [ ] **TI-8.2d2t3 storage print gate reconciliation:**
+                              K62.22 deliberately renders nested strings through
+                              the parity renderer (`Some(alice)`,
+                              `List(user, role)`), matching conformance, while
+                              native-entry/provider/build-jvm fixtures and the
+                              storage spec still require quoted children. Update
+                              only those stale contracts and rerun every affected
+                              release gate before the extension-scope push.
                         - [ ] **TI-8.2d2u imported tuple collection match:**
                               K62.19 advances `imports.ssc` beyond its former
                               collection arity boundary to identical VM/ASM

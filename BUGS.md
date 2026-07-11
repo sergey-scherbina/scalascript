@@ -1,5 +1,21 @@
 # Bug tracker
 
+## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
+
+**Status:** open (2026-07-11); found by codex in the mandatory post-rebase
+native-entry run after K62.22 (`d1a7b5451`) intentionally aligned native
+container printing with the parity renderer.
+
+- **Real-harness repro:** `tests/e2e/v21-native-entry-smoke.sh` fails on
+  `storage-demo.ssc`: actual `Some(alice)` / `List(user, role)` versus stale
+  expected `Some("alice")` / `List("user", "role")`. The conformance golden
+  `tests/conformance/expected/storage.txt` already owns the unquoted form.
+- **Expected:** native-entry, native-provider class-load, and standalone
+  build-jvm storage fixtures assert the current user-visible parity renderer.
+- **Plan/done-when:** update all three stale exact/grep expectations and the
+  storage feature spec, retain the value/order checks, then rerun native-entry,
+  plugin-boundary, build-jvm smoke/release, slim/JRE, and conformance gates.
+
 ## v21-http-fast-standard-tier-cutover — standard image lost its HTTP provider
 
 **Status:** open (2026-07-11); found by codex while running the v2.1 release
