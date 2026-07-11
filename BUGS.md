@@ -38,6 +38,27 @@
   runtime now reuses that binding; the focused declaration gate passes 22/22,
   isolated INT+JS execution passes, and the assembled no-memo corpus is 12/12.
 
+## v21-native-doc-render-unbound — standard native host omits core content helpers
+
+**Status:** open; found by codex while isolating the `examples/content.ssc`
+cutover blocker.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, a focused `.ssc`
+  program containing `render(doc("one", 2, true))` fails on both
+  `bin/ssc run --native` and `--native --bytecode` because the standard
+  core-free native host registers no `doc` or `render` globals. The public
+  `examples/content.ssc` is currently stopped one boundary earlier by the
+  independently queued `md` lowering bug.
+- **Expected:** `doc(parts...)` preserves its runtime values in source order;
+  `render(doc)` writes their ordinary deterministic text joined by `\n`, with
+  exactly the normal `println` trailing newline. Native VM, direct ASM, and
+  `build-jvm` must agree without v1 `DocV`, `PluginBridge`, Scalameta, or a
+  parser/renderer dependency.
+- **Plan/done-when:** specify the runtime value and output contract, implement
+  only the host-owned globals in the existing v2 native host provider, add a
+  faithful assembled regression plus provider unit coverage, and pass plugin,
+  dependency/class-load, artifact, and affected conformance gates.
+
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
 
 **Status:** done (2026-07-11, `e2511c6ad`); found by codex after the native structural
