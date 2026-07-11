@@ -42,6 +42,13 @@
   AppleApp, and resource inputs. Apple commands consume an explicit
   `XcodeAppArtifact`, discover the product through build settings, then verify
   `.app`, `CFBundlePackageType=APPL`, exact bundle id, and non-CLI executable.
+- **Spec review residual (BLOCKED):** target-scoped cleanup is not precise
+  enough. Current emit removes `Sources`/`Package.swift` but can retain an old
+  product's xcodeproj/`@main` files; broader deletion could destroy user-owned
+  resources. Freeze a sorted `.ssc-swift-generated.json` of exact owned paths,
+  validate every entry as relative with no `..`, delete only the previous list
+  and empty owned directories, preserve unlisted files, and atomically replace
+  the manifest last. Gate product rename, UI→domain→UI, and preserved resources.
 - **Plan/done-when:** freeze the exact metadata/default/validation, PBX id and
   target settings, source/resource membership, artifact split, discovery, and
   distribution sub-slice in `specs/v2-swift-swiftui-native.md`; obtain Rozum

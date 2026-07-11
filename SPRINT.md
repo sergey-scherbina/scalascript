@@ -944,6 +944,12 @@ there before changing this plan.
                   discover `TARGET_BUILD_DIR` + `FULL_PRODUCT_NAME` through
                   `-showBuildSettings`, and verify `.app`, Info.plist `APPL`, exact
                   bundle id, and a non-CLI executable before launch/distribution.
+            - [ ] own cleanup through a sorted `.ssc-swift-generated.json` path
+                  manifest: reject absolute/`..` entries, delete only previously
+                  listed files and newly empty owned directories, preserve every
+                  unlisted resource, and atomically replace the ownership manifest
+                  last. Gate product rename, UI→domain→UI, unlisted-resource
+                  preservation, and full-tree/manifest determinism.
       - [ ] **v2-swiftui-apple-distribution-adapters** — after the common
             `XcodeAppArtifact` helper lands, route signed device/archive/IPA,
             macOS codesign/notarization/DMG, TestFlight, and App Store lanes to
