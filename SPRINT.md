@@ -139,18 +139,21 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       each streaming write, closes the socket if it blocks past streamWriteTimeoutMs (default 30s) —
       arms only while a write is in-flight; ssc streamWriteTimeout(ms) intrinsic. 41 engine + 8
       backend tests. Nothing deferred.
-- [ ] **hf-10 http-fast completeness** (Sergiy: "Бери всё"):
-      - [ ] #1 TLS/HTTPS e2e: the SSLServerSocket path in FastServerBackend is untested — generate a
-            self-signed cert, HTTPS request through the fast backend, verify (security-adjacent).
-      - [ ] #6 Secure session cookie under TLS: thread `tls.isDefined` → SessionCookie.toSetCookie
-            secureFlag (currently hardcoded false).
-      - [ ] #4 Jetty backend parity: route JettyRequestAdapter through RequestBuilder.parseRaw (same
-            multipart/auth/session gap fast had) → completes the parity story.
-      - [ ] #3 native `mount(urlPrefix, dir)`: static file serving in the native plugin (currently a
-            throwing stub) — read file, content-type, 404.
-      - [ ] #5 WS permessage-deflate (RFC 7692): negotiate in the handshake + deflate/inflate frames
-            (no context-takeover first cut).
-      - [ ] #2 broader coverage: fill any backend-contract gaps not yet exercised against fast.
+- [x] **hf-10 http-fast completeness** (Sergiy: "Бери всё") — DONE:
+      - [x] #1 TLS/HTTPS e2e: FastServerBackendTlsTest (keytool→PKCS12→in-JVM PEM, SAN; HTTPS request
+            through the SSLServerSocket path). #6 Secure session cookie under TLS (tls.isDefined →
+            SessionCookie secureFlag) verified by the same test.
+      - [x] #4 Jetty backend parity: fromJetty/fromUpgrade route through RequestBuilder.parseRaw +
+            spooled-tmp cleanup (was the same minimal-Request multipart gap fast had).
+      - [x] #3 native mount(urlPrefix, dir): binary-safe static serving at host level (raw bytes,
+            content-type by ext, index.html, GET/HEAD, path-traversal guard, 404 fall-through). Test
+            serves non-UTF-8 bytes byte-exact.
+      - [x] #5 WS permessage-deflate (RFC 7692): RSV1 + stateless deflate/inflate + handshake
+            negotiation in all 3 dispatchers. Raw-socket e2e (compressed in + compressed out) since
+            the JDK client doesn't offer it.
+      - [x] #2 broader coverage: satisfied cumulatively (PlainResp/StreamResp/Reject, WS accept/reject,
+            TLS, multipart/session/auth, streaming+watchdog, metrics, mount, deflate all tested).
+      Tests: 43 engine + 5 plugin + 9 backend green. Nothing deferred.
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 
 Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`
