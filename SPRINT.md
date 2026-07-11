@@ -440,7 +440,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       optional SQL wire/ujson family is physically absent, pure parsers have no
       host escape, VM does not load external ASM, direct bytecode does, and
       slim/build-jvm/provider/conformance gates are green.
-- [ ] **v21-shc-bootstrap-release-gates** — add stage-2 compiler-image
+- [x] **v21-shc-bootstrap-release-gates — DONE 2026-07-11 (`88bb53fb5`):** add stage-2 compiler-image
       reproducibility, forbidden-JAR deletion, `jdeps`, runtime class-load,
       parser corpus/fuzz, standard slim execution, and deterministic build-jvm
       release gates. Reconcile `specs/v2.1-toolchain-independence.md` after its
@@ -456,7 +456,22 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       Also hash the sorted staged `native-front` tree, add a bounded pure
       JSON/YAML/Markdown mutation corpus on VM/direct ASM, and compose the
       existing strict dependency, deletion/class-load, slim, native corpus,
-      and build-jvm gates without editing the live TI-8 owner's files.
+      and build-jvm gates without editing the live TI-8 owner's files. Result:
+      both compiler images are gen1/gen2/gen3 fixpoints; the 110-file staged
+      image is source-exact; parser fuzz, strict dependency/deletion/class-load,
+      slim, reproducible build-jvm, full 195-document corpus, zero-gap taxonomy,
+      and conformance 11/11 all pass with `release.ready=true`. The toolchain
+      spec edit is split below because its active owner is still live.
+- [ ] **v21-shc-toolchain-spec-reconcile** — after
+      `.work/active/v21-toolchain-independence.claim` is released, update the two
+      historical stale sections in `specs/v2.1-toolchain-independence.md`:
+      replace `SimpleYaml` host parsing with structural self-hosted YAML/Markdown
+      `NativeCompilation/4`, and replace the old ujson native-provider account
+      with the pure `json-core.ssc` + HTTP renderer cutover. Record the final
+      27 dependency-JAR / 110 image-file / 11-conformance release baseline. Do
+      not edit while the claim is live. Runtime, release gates, and
+      `specs/v2.1-self-hosted-core.md` are already complete; this is a docs-only
+      reconciliation of the toolchain spec's historical migration sections.
 
 - [x] **v21-ti-spec-and-contract** — DONE 2026-07-10 in `625cb3339`:
       specified the standard/tools dependency tiers, mandatory native checker,

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — self-hosted core reaches a reproducible stage-2 release gate
+
+The permanent Scala 3 seed now proves single- and multi-file ssc0 compiler
+gen1/gen2/gen3 fixpoints and an exact 110-file native frontend image. One
+command composes bounded JSON/YAML/Markdown mutation tests, strict dependency
+and class-load checks, tools-deleted slim execution, reproducible build-jvm,
+the full 195-document frontend/VM/ASM taxonomy, and 11/11 conformance. Final
+taxonomy has zero standard parser gaps, mismatches, or one-sided backend errors;
+`release.ready=true`. Landed `88bb53fb5`.
+
 ## 2026-07-11 — self-hosted JVM frontend lowers exact Decimal and BigInt
 
 `Decimal(...)`, `BigInt(...)`, rounding constants, and dynamically typed
