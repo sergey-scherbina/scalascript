@@ -598,6 +598,18 @@ case Some(x) => x
 case head :: tail => head
 ```
 
+A `case object` is one stable nullary constructor value. It can be imported,
+referenced directly, compared structurally, and matched by name:
+
+```scalascript
+trait ParserContext
+case object NoContext extends ParserContext
+
+NoContext match
+  case NoContext => "default"
+  case _         => "custom"
+```
+
 ### 5.5 Functional Updates and Lenses
 
 Case classes carry an auto-generated `copy` method:
