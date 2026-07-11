@@ -64,6 +64,8 @@ Ordinary `object Name:` bodies retain their first and later members with the
 same owned method/property semantics as explicitly braced objects.
 Indented extension bodies close at dedent and retain selected-call ownership
 when imported through another `.ssc` module.
+An imported symbolic extension such as parser choice `|` handles non-primitive
+values while `6 | 3` remains ordinary integer bitwise OR.
 Exact top-level `summon[TC[T]]` resolves a matching named given; Mirror/derived
 evidence, anonymous givens, and general implicit search remain migration gaps.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
@@ -247,7 +249,7 @@ compiles them via Scala.js.
 | Bitwise operators | `a & b`, `a \| b`, `a ^ b`, `a << n`, `a >> n`, `a >>> n`, `~a` on `Int` |
 | String interpolation | `` s"Hello, $name" ``, `` s"${items.mkString(", ")}" `` (full expressions, including nested string literals), `` md"..." `` (strips indent) |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
-| Extension methods | `extension (n: Int) def squared: Int = n * n` |
+| Extension methods | `extension (n: Int) def squared: Int = n * n`; imported symbolic operators dispatch on ADTs while primitive `Int` operators retain their built-in meaning |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]`, context bounds |
 | Higher-kinded types (HKT) | `trait Functor[F[_]]`, sealed dispatch, auto-resolution |
 | Standard typeclasses | Functor, Applicative, Monad, Foldable, Traversable, Either, Eq, Show, Hash, Order, Semigroup, Monoid, Bifunctor, MonadError, Selective |

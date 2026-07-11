@@ -1198,6 +1198,20 @@ Extension ownership is retained across `.ssc` imports, so selected calls use
 the imported extension rather than an unrelated built-in method with the same
 name.
 
+Symbolic extensions share names safely with primitive operators. When a `|`
+extension is in scope, non-`Int` operands call that extension; two integers
+still use bitwise OR:
+
+```scalascript
+case class Choice(label: String)
+
+extension (left: Choice)
+  def |(right: Choice): Choice = Choice(left.label + "|" + right.label)
+
+val selected = Choice("a") | Choice("b") // Choice("a|b")
+val mask = 6 | 3                           // 7
+```
+
 ### List and Map Literals
 
 In `.ssc` code blocks `[…]` is compact syntax sugar — no import needed:
