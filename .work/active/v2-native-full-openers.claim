@@ -1,6 +1,0 @@
-feature/v2-native-openers 2026-07-11T08:38:42Z
-agent: claude-code (opus)
-heartbeat: 2026-07-11T08:38:42Z
-status: in-progress
-done-so-far: 6 parser fixes landed (K62.13-18); honest metric RUN=43; clean per-file wins exhausted. Highest-value remaining PARSER lever = full =>/match layout openers + bracket-aware layout (unlocks code-heavy std modules ui/content/theme → ~11 content-* files). match-opener already landed (K62.13); prereqs (K62.10 nested-ctor patterns, K62.11 arm bodies, K62.13 enum) now landed so past 40→22/37 regressions may be resolved.
-next: add => to isLayoutOpener (multi-line arm bodies + block lambdas get their own L block) + BRACKET-AWARE layout (go tracks (/[ depth, suppress offside inside brackets so map(x=>⏎body) doesn't open an L block ) can't close; pd per-B-frame restore). Test INCREMENTALLY: ui/lower.ssc _err count + full corpus stage1 no-regress + stage2 RUN. Back off if net-negative (land each construct green, per K62.9 lesson). Touches v2/lib/ssc1-front.ssc0.
