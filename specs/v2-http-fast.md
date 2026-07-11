@@ -204,6 +204,42 @@ the SPI.
       11-step/restart/leakage check, and canonical fast-backend Chromium 6/6 in
       1.9 minutes.
 
+## hf-8 — standard-tier ownership and release cutover
+
+The hf-5 module replacement must be reflected in every compiler-free
+distribution surface. The standard image and `build-jvm` artifact use explicit
+JAR allowlists; neither may retain the removed
+`scalascript-v2-native-http-plugin`, and both must include the replacement
+`scalascript-v2-native-http-fast-plugin` plus its value-agnostic
+`scalascript-http-fast-engine` dependency.
+
+Behavior:
+
+- [ ] `installBin` stages the fast native provider and engine in both tools and
+      standard layouts, with no retired native HTTP provider JAR.
+- [ ] `NativeJvmArtifact` includes the same fast provider/engine pair when an
+      executable artifact is assembled.
+- [ ] Core-dependency and native-provider gates classify the fast artifact
+      names, retain forbidden parser/compiler dependency scans, and require the
+      provider ServiceLoader entry without treating the engine as a plugin.
+- [ ] Native-entry replaces the obsolete `useGzip` feature-unavailable
+      assertion with a positive zero-error fast-provider check.
+- [ ] Native provider, core dependency, slim, JRE module, standard tier,
+      build-jvm, native-entry, and fresh affected conformance gates pass.
+
+Decisions:
+
+- **Stage the engine explicitly** — chosen because the fast provider has a real
+  runtime class edge to the extracted transport module. Rejected: relying on
+  tools-only transitive availability (breaks the closed standard image and
+  standalone artifacts).
+- **Keep the engine non-provider** — chosen because it is value-agnostic and
+  has no `NativePlugin` ServiceLoader entry. Rejected: duplicating plugin
+  discovery/ownership in the engine.
+- **Positive middleware smoke** — chosen because `useGzip` landed in hf-4 and
+  now exits successfully. Rejected: preserving a negative assertion for a
+  deliberately available feature.
+
 ## Non-goals (this spec)
 
 HTTP/2, HTTP/3/QUIC (future); the HTTP CLIENT stays on `java.net.http` (the win is the

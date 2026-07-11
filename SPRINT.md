@@ -46,7 +46,7 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       (--native lane); --v2 FrontendBridge still uses the v1 WebServer (PluginBridge.
       registerWebServer) — separate seam, out of scope. tests/conformance runs via --v2 so it
       does NOT exercise this plugin; the --native e2e is the authoritative validation.
-- [ ] **hf-6 standard-tier cutover:** the hf-5 tools image contains
+- [ ] **hf-8 standard-tier cutover:** the hf-5 tools image contains
       `http-fast-plugin`, but the standard image contains neither the new
       provider nor the retired one. Update staging plus boundary/core-dependency
       artifact discovery; restore `Response.text` under slim/JRE deletion
