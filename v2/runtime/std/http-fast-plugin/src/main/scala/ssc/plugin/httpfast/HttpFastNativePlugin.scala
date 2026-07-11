@@ -285,10 +285,24 @@ final class HttpFastNativePlugin extends NativePlugin:
     }
     native(context, "stop") { _ => serverHost.stop(); Value.UnitV }
 
-    // Real intrinsic (the engine supports it) — set the max request-body size in bytes.
+    // Server config (the engine supports these) — call before serve().
     native(context, "maxBodySize") { args =>
       serverHost.setMaxBodyBytes(integer(args, 0, "maxBodySize"))
       Value.UnitV
+    }
+    native(context, "idleTimeout") { args =>
+      serverHost.setIdleTimeoutMs(integer(args, 0, "idleTimeout").toInt)
+      Value.UnitV
+    }
+    native(context, "maxConnections") { args =>
+      serverHost.setMaxConnections(integer(args, 0, "maxConnections").toInt)
+      Value.UnitV
+    }
+    // Access-log / metrics: onRequest { (method, path, status, ms) => … } — fired per exchange.
+    native(context, "onRequest") { args =>
+      args.headOption match
+        case Some(cb) => serverHost.setAccessLog(cb); Value.UnitV
+        case None     => throw new RuntimeException("onRequest { (method, path, status, ms) => … }")
     }
 
     // ---- WebSocket (RFC 6455) ----

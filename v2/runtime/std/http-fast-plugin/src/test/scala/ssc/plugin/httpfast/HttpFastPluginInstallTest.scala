@@ -17,7 +17,8 @@ class HttpFastPluginInstallTest extends AnyFunSuite:
       "httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
       "Response.apply", "Response.json", "Response.html", "Response.text",
       "maxBodySize", "onWebSocket", "onWebSocketAuth", "wsConnect", "WsRoom",
-      "use", "cors", "useGzip", "sse", "streamResponse")
+      "use", "cors", "useGzip", "sse", "streamResponse",
+      "idleTimeout", "maxConnections", "onRequest")
     for name <- intrinsics do
       assert(ssc.V2PluginRegistry.lookup(name).isDefined, s"intrinsic '$name' not registered")
 

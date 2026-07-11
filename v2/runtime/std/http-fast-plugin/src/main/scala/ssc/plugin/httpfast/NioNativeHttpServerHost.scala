@@ -18,8 +18,10 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
   private val router = new Router[Value]
   @volatile private var server: FastHttpServer | Null = null
   @volatile private var stopped = new CountDownLatch(1)
-  private var idleTimeoutMs: Int = 30_000
-  private var maxBody: Long      = 16L * 1024 * 1024
+  private var idleTimeoutMs: Int  = 30_000
+  private var maxBody: Long        = 16L * 1024 * 1024
+  private var maxConnections: Int  = 100_000
+  @volatile private var accessLog: Option[Value] = None
 
   // --- WebSocket state ---
   private final case class WsRoute(handler: Value, auth: Option[Value], protocols: List[String])
@@ -47,6 +49,9 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
 
   def setMaxBodyBytes(n: Long): Unit  = synchronized { maxBody = n.max(0L) }
   def setIdleTimeoutMs(n: Int): Unit  = synchronized { idleTimeoutMs = n.max(0) }
+  def setMaxConnections(n: Int): Unit = synchronized { maxConnections = n.max(1) }
+  /** Access-log callback: ssc `onRequest { (method, path, status, ms) => … }`. */
+  def setAccessLog(cb: Value): Unit   = synchronized { accessLog = Some(cb) }
 
   def serve(port: Int, asynchronous: Boolean): Unit =
     start(port)
@@ -58,7 +63,14 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     wsRouter.freeze()
     stopped = new CountDownLatch(1)
     val limits = HttpProtocol.Limits(maxBodyBytes = maxBody)
+    val logCb  = accessLog
+    val onExchange: (RawRequest, Int, Long) => Unit = logCb match
+      case None     => (_, _, _) => ()
+      case Some(cb) => (req, status, ns) =>
+        context.invoke(cb, List(Value.StrV(req.method), Value.StrV(req.path),
+          Value.IntV(status.toLong), Value.IntV(ns / 1_000_000L)))
     val srv = new FastHttpServer(dispatch, limits = limits, idleTimeoutMs = idleTimeoutMs,
+      maxConnections = maxConnections, onExchange = onExchange,
       webSocket = if wsRouter.isEmpty then None else Some(this))
     srv.start(port)
     server = srv

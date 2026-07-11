@@ -646,7 +646,7 @@ lazy val httpFastEngine = project
 // selected via HttpServerBackends.setBackend("fast"). Registered via ServiceLoader.
 lazy val runtimeServerJvmFast = project
   .in(file("v1/runtime/http-server/jvm-fast"))
-  .dependsOn(runtimeServerSpi, runtimeServerCommon, httpFastEngine)
+  .dependsOn(runtimeServerSpi, runtimeServerCommon, httpFastEngine, runtimeServerJvm % Test)
   .settings(
     name := "scalascript-runtime-server-jvm-fast",
     libraryDependencies += scalatestTest,

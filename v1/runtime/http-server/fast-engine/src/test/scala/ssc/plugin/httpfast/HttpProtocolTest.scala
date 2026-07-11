@@ -13,6 +13,24 @@ class HttpProtocolTest extends AnyFunSuite:
     assert(r != null, "expected a parsed request")
     r.nn
 
+  private def expectReject(raw: String): Unit =
+    val in  = new ByteArrayInputStream(raw.getBytes(ISO_8859_1))
+    val out = new ByteArrayOutputStream()
+    assertThrows[BadRequest](HttpProtocol.parse(new HttpReader(in), out, HttpProtocol.Limits()))
+
+  test("rejects both Transfer-Encoding and Content-Length (request smuggling)") {
+    expectReject(
+      "POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
+  }
+
+  test("rejects Transfer-Encoding whose final coding isn't chunked") {
+    expectReject("POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n")
+  }
+
+  test("rejects duplicate Content-Length values") {
+    expectReject("POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nhello")
+  }
+
   test("parses request line, headers, and a Content-Length body") {
     val req = parse(
       "POST /submit?x=1 HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello")

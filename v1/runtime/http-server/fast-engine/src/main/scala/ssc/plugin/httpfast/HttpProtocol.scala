@@ -129,16 +129,28 @@ object HttpProtocol:
       out.write("HTTP/1.1 100 Continue\r\n\r\n".getBytes(ISO_8859_1))
       out.flush()
 
+    // Request-smuggling defense (RFC 7230 §3.3.3): a message carrying BOTH Transfer-Encoding
+    // and Content-Length is ambiguous between a TE-terminating and a CL-terminating proxy —
+    // reject it rather than pick one. (Duplicate Content-Length values join to "n, n" below,
+    // which fails toLongOption → also rejected.)
+    val te = headers.get("transfer-encoding").map(_.toLowerCase(java.util.Locale.ROOT))
+    if te.isDefined && headers.contains("content-length") then
+      throw new BadRequest("both Transfer-Encoding and Content-Length present (request smuggling)")
+
     val body: Array[Byte] =
-      if headers.get("transfer-encoding").exists(_.toLowerCase(java.util.Locale.ROOT).contains("chunked")) then
-        readChunked(reader, limits.maxBodyBytes)
-      else
-        headers.get("content-length") match
-          case Some(cl) =>
-            val len = cl.toLongOption.getOrElse(throw new BadRequest(s"bad Content-Length: $cl"))
-            if len < 0 || len > limits.maxBodyBytes then throw new BadRequest(s"body too large: $len")
-            reader.readFully(len.toInt)
-          case None => EMPTY
+      te match
+        case Some(enc) =>
+          // We can only frame the message when `chunked` is the final encoding.
+          if !enc.trim.endsWith("chunked") then
+            throw new BadRequest(s"unsupported Transfer-Encoding (chunked must be last): $enc")
+          readChunked(reader, limits.maxBodyBytes)
+        case None =>
+          headers.get("content-length") match
+            case Some(cl) =>
+              val len = cl.toLongOption.getOrElse(throw new BadRequest(s"bad Content-Length: $cl"))
+              if len < 0 || len > limits.maxBodyBytes then throw new BadRequest(s"body too large: $len")
+              reader.readFully(len.toInt)
+            case None => EMPTY
 
     val q = target.indexOf('?')
     val rawPath = if q >= 0 then target.substring(0, q) else target

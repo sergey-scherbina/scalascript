@@ -98,6 +98,22 @@ class FastHttpServerIntegrationTest extends AnyFunSuite:
     }
   }
 
+  test("fires the onExchange access-log/metrics hook once per completed request") {
+    val seen  = new java.util.concurrent.ConcurrentLinkedQueue[(String, Int)]()
+    val latch = new java.util.concurrent.CountDownLatch(2)
+    val server = new FastHttpServer(_ => text(200, "ok"),
+      onExchange = (req, status, durNs) => { seen.add((req.path, status)); latch.countDown() })
+    val port = server.start(0)
+    try
+      val client = HttpClient.newHttpClient()
+      get(client, s"http://127.0.0.1:$port/a")
+      get(client, s"http://127.0.0.1:$port/b")
+      assert(latch.await(5, java.util.concurrent.TimeUnit.SECONDS), "hook didn't fire twice")
+      val paths = seen.toArray.map(_.asInstanceOf[(String, Int)]).toSet
+      assert(paths == Set(("/a", 200), ("/b", 200)))
+    finally server.stop()
+  }
+
   test("a body over the configured limit is rejected with 400") {
     val server = new FastHttpServer(_ => text(200, "ok"),
       limits = HttpProtocol.Limits(maxBodyBytes = 8), idleTimeoutMs = 5000)
