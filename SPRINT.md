@@ -250,6 +250,14 @@ there before changing this plan.
       maps/JSON conformance 4/4. The already-recorded SQLite 15-second timeout
       remains the only broad FrontendBridge failure. Next: step 3,
       provenance-aware `NativeUiSites` and reserved ABI-v1 globals.
+      Progress 2026-07-11 (`0643fde39`, docs `c2f2ab513`): step 3 landed.
+      Import resolution records exact std/ui extern ownership before source
+      flattening; post-Op-ANF lowering assigns stable definition/path sites and
+      source refs under reserved versioned globals. Same-named user defs are
+      untouched, while bare/eta, arity, and reserved-prefix errors are bounded.
+      Gates: sites/provenance 6/6, combined FrontendBridge 62/62, UI 4/4,
+      toolkit conformance 12/12, std-ui-jobpanel 1/1. Next: step 4 atomic
+      `UiNativePlugin` ABI-v1 signal/view/root migration and deep canonicalizer.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,

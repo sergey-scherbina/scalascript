@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — NativeUi calls carry stable lexical sites and provenance
+
+The checked FrontendBridge now records exact imported std/ui extern ownership
+before flattening and applies a pure post-Op-ANF CoreIR pass. Eligible calls use
+reserved versioned globals carrying explainable definition/path site ids and
+source refs; user shadowing is preserved, while bare/eta, arity, and reserved
+namespace mistakes fail deterministically. Focused suites and 12/12 toolkit
+conformance are green. Landed `0643fde39`; results `c2f2ab513`.
+
 ## 2026-07-11 — dynamic length and size are no longer String-only
 
 Proven String/list paths retain their fast lowering, while unknown receivers now
