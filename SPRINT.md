@@ -1042,6 +1042,14 @@ there before changing this plan.
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
+      - [ ] **tkv2-js-duplicate-nodecrypto** — the mandatory fresh assembled
+            `tkv2-* --no-memo` gate is 1/12 after the current-main rebase:
+            every JS case fails at generated stdin line 2098 because
+            `_nodeCrypto` is declared twice, while all applicable INT lanes
+            pass. Track/announce the upstream regression, retain one
+            browser/Node-safe crypto authority with a duplicate-source gate,
+            then require isolated JS and full 12/12 green before publishing
+            the Swift distribution slice.
       - [x] **tkv2-pwa-stale-default-backend** — the isolated real harness is
             11/12 green; `tkv2-pwa` alone expects the retired `backend=jdk`
             banner while the installed default is now `backend=fast`, and all

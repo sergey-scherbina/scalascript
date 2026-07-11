@@ -1,5 +1,25 @@
 # Bug tracker
 
+## tkv2-js-duplicate-nodecrypto — generated JS declares `_nodeCrypto` twice
+
+**Status:** open (2026-07-11); found by codex in the mandatory no-memo
+`tkv2-*` landing gate for Apple distribution round 2 after rebasing current
+`origin/main`.
+
+- **Real-harness repro:** fresh `scripts/sbtc installBin`, then
+  `tests/conformance/run.sh --only 'tkv2-*' --no-memo`. INT passes all eleven
+  applicable cases, but every JS case exits 1 at generated stdin line 2098 with
+  `SyntaxError: Identifier '_nodeCrypto' has already been declared`; only the
+  INT-only PWA case completes, so the corpus is 1/12.
+- **Expected:** the assembled JS runtime declares or imports Node crypto once;
+  all twelve toolkit-v2 cases retain their established exact output on the
+  requested lanes.
+- **Plan/done-when:** identify the two concatenated authorities introduced on
+  current main, keep one environment-safe declaration without weakening
+  browser/Node crypto behavior, add a generated-source duplicate-declaration
+  regression, then require isolated JS repro plus full `tkv2-* --no-memo`
+  12/12 before the Swift distribution push.
+
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
 
 **Status:** done (2026-07-11, `e2511c6ad`); found by codex after the native structural
