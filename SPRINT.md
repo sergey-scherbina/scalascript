@@ -1055,6 +1055,15 @@ there before changing this plan.
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
+      - [ ] **v2-swiftui-final-apple-e2e** — add the remaining assembled
+            `tests/e2e/v2-swiftui-apple.sh` acceptance gate over
+            `examples/swift/appcore-nativeui.ssc`: emit two deterministic
+            macOS trees, assert app-only project/scheme/ownership and no legacy
+            source, build/discover/verify a real unsigned macOS APPL bundle,
+            bounded-launch its non-CLI executable, then build and verify the
+            same checked source for one concrete installed iOS Simulator.
+            The script must use only `bin/ssc`, Xcode/plutil/simctl, temporary
+            owned paths, and no certificate, secret, network, or v1 fallback.
       - [x] **tkv2-js-duplicate-nodecrypto** — the mandatory fresh assembled
             `tkv2-* --no-memo` gate is 1/12 after the current-main rebase:
             every JS case fails at generated stdin line 2098 because
