@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-11T07:31:44Z
+heartbeat: 2026-07-11T07:45:47Z
 status: in-progress
-done-so-far: TI-1..TI-8.2d2j; exact named summon landed; typeclass advances to dictionary dispatch; parity 14/54/127 and blockers 42 with all gates green
-next: implement ordered fallback for nested constructor patterns, rerun typed-data and all release gates, then continue shrinking blockers
+done-so-far: TI-1..TI-8.2d2k; nested-pattern fallback landed; corpus 34/92, parity 15/53/127, blockers 41 with all gates green
+next: fix the tracked list mkString separator capture, add VM/direct-ASM regression, rerun typed-data and all release gates
