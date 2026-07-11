@@ -1148,7 +1148,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               language-runtime / 26 standard-provider with 48
                               blockers unchanged. Native-entry, corpus, parity,
                               taxonomy, and conformance 10/10 pass.
-                        - [ ] **TI-8.2d2b exact Decimal/BigInt lowering:** map
+                        - [x] **TI-8.2d2b exact Decimal/BigInt lowering — DONE
+                              2026-07-11 (`e4a9282d7`):** map
                               self-hosted `Decimal(...)` and `BigInt(...)`
                               constructors to the existing portable `dec.*` /
                               `i->big` CoreIR contract, preserve rounding-mode
@@ -1158,7 +1159,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               money multi-file regressions, rerun
                               `multi-link-imports.ssc`, then shrink runtime
                               taxonomy only after full corpus/parity and fresh
-                              conformance pass.
+                              conformance pass. Result: the exact fixture and
+                              real three-module money example run identically on
+                              VM/direct ASM; parity is 11/59/125 with zero
+                              mismatch/one-sided row, runtime blockers shrink
+                              from 48 to 47, and native-entry plus conformance
+                              10/10 pass.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

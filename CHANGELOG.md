@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — self-hosted JVM frontend lowers exact Decimal and BigInt
+
+`Decimal(...)`, `BigInt(...)`, rounding constants, and dynamically typed
+arithmetic now lower to the target-neutral CoreIR/runtime contract. Exact
+VM/direct-ASM regressions and the real multi-module money example pass; standard
+parity improves to 11 identical / 59 both-fail with zero one-sided failures, and
+the blocking runtime taxonomy shrinks from 48 to 47. Landed `e4a9282d7`.
+
 ## 2026-07-11 — checked CoreIR has honest Swift developer and Apple routes
 
 `emit-swift` and `run-swift` now generate/run deterministic macOS/iOS SwiftPM
