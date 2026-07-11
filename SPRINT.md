@@ -2806,6 +2806,45 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     with zero mismatch/one-sided rows. Taxonomy
                                     is 4 language / 10 standard / 14 blockers /
                                     26 total; conformance 11/11 and release-ready.
+                        - [ ] **TI-8.2d3h core-free Generator provider:**
+                              `generators.ssc` fails on both installed standard
+                              engines at the first `generator` global. Add a
+                              required standard provider for pull-based
+                              `generator { ... }` / `suspend(value)` and the
+                              complete local Generator method object, without
+                              `PluginBridge` or the v1 interpreter.
+                              - [x] **TI-8.2d3h0 installed baseline:** VM and
+                                    direct ASM both exit 1 with
+                                    `unbound global: generator` and no stdout.
+                                    Track as
+                                    `v21-native-generator-provider-missing`.
+                              - [ ] **TI-8.2d3h1 provider contract:** specify
+                                    single-consumer pull semantics, synchronous
+                                    backpressure, completion/error propagation,
+                                    cancellation of abandoned infinite sources,
+                                    method-object operations, deterministic
+                                    ordering, and Dataset integration boundary.
+                                    Commit before code.
+                              - [ ] **TI-8.2d3h2 provider implementation:** add
+                                    the zero-v1-dependency provider, ServiceLoader
+                                    and standard/artifact/dependency wiring, plus
+                                    unit coverage for next/toList/foreach,
+                                    map/filter/take/drop, nested flatMap, zip,
+                                    zipWithIndex, error propagation, cancellation,
+                                    and large finite streams.
+                              - [ ] **TI-8.2d3h3 assembled contract:** add a
+                                    focused real-launcher fixture and require the
+                                    complete public `generators.ssc` output on
+                                    VM/direct ASM/build-jvm. The infinite
+                                    Fibonacci source must terminate after `take`
+                                    without an unbounded queue or surviving
+                                    producer.
+                              - [ ] **TI-8.2d3h4 release closure:** run stage-2,
+                                    native-entry, provider/class-load/dependency,
+                                    slim/JRE, deterministic artifact, full
+                                    corpus/parity/taxonomy, and fresh `v2-*`
+                                    conformance. Retire only `generators.ssc`
+                                    after exact evidence and push immediately.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its

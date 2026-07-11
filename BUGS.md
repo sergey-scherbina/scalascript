@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-native-generator-provider-missing — generator is absent from standard native runtime
+
+**Status:** open (2026-07-11); found by codex while continuing TI-8.2d3 after
+the Dataset provider landed.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run --native examples/generators.ssc`, then repeat with
+  `--bytecode`.
+- **Observed:** both engines exit 1 at the first expression with
+  `ssc: unbound global: generator`; no example output is produced.
+- **Expected:** a core-free standard provider owns `generator`, `suspend`, and
+  the local Generator combinators with pull backpressure. Finite streams are
+  ordered; `take` cancels an abandoned infinite upstream; VM, ASM, and
+  `build-jvm` are exact without compatibility code.
+- **Plan/done-when:** specify the queue/lifecycle contract, implement a required
+  ServiceLoader provider over JDK 21 virtual threads and synchronous handoff,
+  add unit and assembled regressions including infinite Fibonacci and nested
+  flatMap, pass every dependency/distribution/corpus gate, and retire only the
+  proved generator taxonomy row.
+
 ## v21-native-dataset-provider-missing — standard Dataset calls escape as effects
 
 **Status:** fixed (2026-07-11, `17cee1805`, taxonomy `9feff81a8`), awaiting
