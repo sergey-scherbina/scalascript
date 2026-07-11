@@ -2036,6 +2036,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               mapping/list/fold/tuple rendering semantics, then
                               strengthen `v21-parser-dsl-smoke.sh` to exact
                               canonical JSON/YAML output on VM/direct ASM.
+                              Spec: `specs/v2.1-parser-dsl-values.md`.
                         - [x] **TI-8.2d2s4 functional VM/ASM parity — DONE
                               2026-07-11 (`4c5254eed`):** the full
                               post-PMapped sweep is 25 identical / 1 mismatch /

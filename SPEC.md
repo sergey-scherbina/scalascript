@@ -1435,6 +1435,12 @@ successful value, and returns `ParseOk` with the unchanged remaining input and
 position. Native VM and direct ASM implementations must preserve this behavior
 without a host-side parser special case.
 
+Successful parser composition must also preserve the mapped value itself.
+Lists accumulated by `many`/`foldLeft`, tuple-shaped parser results, and user
+ADTs built from them remain ordinary portable values through later `map`,
+pattern matching, rendering, and lookup. A `Stub` placeholder is not a valid
+successful parser value even when VM and direct ASM output agree.
+
 #### Multi-Pass Pipelines — `std/dsl/*`
 
 ```scalascript
