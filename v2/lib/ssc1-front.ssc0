@@ -1836,6 +1836,7 @@ def isLayoutOpener = (t) =>
     else if #seq(k, "kw") then
       (if #seq(v, "then") then true else if #seq(v, "else") then true
        else if #seq(v, "do") then true else if #seq(v, "yield") then true
+       else if #seq(v, "with") then true
        -- K62.13: brace-less `x match` ⏎ <indented case arms> opens a layout block so the
        -- arms close at dedent (a top-level `def f = e match` ⏎ arms no longer swallows the
        -- following statements). Braced `match { … }` is unaffected (match is followed by `{`,
@@ -1975,7 +1976,12 @@ def nlStep = (v, stack, cont) =>
           } } }
 
 def layout = (toks) =>
-  let rec go = (ts, stack, prevOpener, prevCanEnd) =>
+  -- A trailing `:` opens layout only while scanning a trait header. Treating
+  -- every colon as an opener would misclassify split type annotations; keeping
+  -- this one bit of header context gives trait bodies real virtual braces so
+  -- the trait parser can skip their abstract members without consuming the
+  -- following top-level declaration.
+  let rec go = (ts, stack, prevOpener, prevCanEnd, traitHead) =>
     match ts {
       case Nil => Nil
       case Cons(t, rest) =>
@@ -1983,31 +1989,39 @@ def layout = (toks) =>
           if #seq(k, "EOF") then append(closeAllL(stack), Cons(t, Nil))
           else if #seq(k, "NL") then
             if prevOpener then
-              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false, false))
+              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false, false, false))
             else
               let suppressSep =
                 if prevCanEnd then
                   if canStartLine(rest) then isCont(rest) else true
                 else true in
               match nlStep(v, stack, suppressSep) {
-                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false))
+                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false))
               }
           else if #seq(k, "(") then
-            Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false))
+            Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, traitHead))
           else if #seq(k, "[") then
-            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false))
+            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, traitHead))
           else if #seq(k, ")") then
-            match closeToDelim("P", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true))) }
+            match closeToDelim("P", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, traitHead))) }
           else if #seq(k, "]") then
-            match closeToDelim("S", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true))) }
+            match closeToDelim("S", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, traitHead))) }
           else if #seq(k, "{") then
-            Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false))
+            Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false, false))
           else if #seq(k, "}") then
-            match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true))) }
-          else Cons(t, go(rest, stack, isLayoutOpener(t), canEndLine(t)))
+            match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, false))) }
+          else
+            let inTraitHead =
+              if #seq(k, "kw") then (if #seq(v, "trait") then true else traitHead)
+              else traitHead in
+            let traitColon = if #seq(k, ":") then inTraitHead else false in
+            let nextTraitHead = if #seq(k, ":") then false else inTraitHead in
+            Cons(t, go(rest, stack,
+              (if traitColon then true else isLayoutOpener(t)),
+              canEndLine(t), nextTraitHead))
         }
     } in
-  go(toks, Nil, false, false)
+  go(toks, Nil, false, false, false)
 
 def parse = (src) =>
   let _ep = #cell.set(extensionParamsCell, Nil) in

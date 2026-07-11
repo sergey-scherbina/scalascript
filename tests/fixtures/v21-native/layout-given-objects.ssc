@@ -1,0 +1,22 @@
+---
+name: v21-native-layout-given-objects
+---
+
+```scalascript
+trait Render[A]:
+  def render(value: A): String
+
+given intRender: Render[Int] with
+  def prefix: String = "int"
+  def render(value: Int): String = prefix + ":" + value
+
+given boolRender: Render[Boolean] with
+  def prefix: String = "bool"
+  def render(value: Boolean): String = if value then prefix + ":yes" else prefix + ":no"
+
+println(intRender.prefix)
+println(intRender.render(7))
+println(boolRender.render(true))
+println(boolRender.render(false))
+println("after-givens")
+```

@@ -119,6 +119,11 @@ def kc5SigCell   = #cell.new(Nil)
 def kc5ActiveCtxCell = #cell.new(Nil)
 -- Set of object names (lowercase given instances) for static dispatch
 def kc7bObjectsCell = #cell.new(Nil)
+-- While lowering one static object/given body, bare references to sibling
+-- members resolve to the same deterministic owner prefix. Parameters and
+-- locals still win because lowerE consults its lexical scope first.
+def kc7bOwnerPrefixCell  = #cell.new("")
+def kc7bOwnerMembersCell = #cell.new(Nil)
 -- K62.6e: field names of all case classes — a field access whose name is here
 -- has a generated _sel_<field> accessor (index extractor); anything else routes
 -- to __method__ (plugin/record field resolution in the VM).
@@ -245,6 +250,26 @@ def isKnownObject = (name) =>
       case Cons(h, t) => if #seq(h, name) then true else go(t)
     } in
   go(#cell.get(kc7bObjectsCell))
+
+def isActiveOwnerMember = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(h, t) => if #seq(h, name) then true else go(t)
+    } in
+  go(#cell.get(kc7bOwnerMembersCell))
+
+def staticMemberNames = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data { case Pair(name, body) => Cons(name, staticMemberNames(rest)) }
+          else staticMemberNames(rest)
+      }
+  }
 
 def isExtensionMethod = (name) =>
   let rec go = (xs) =>
@@ -1196,6 +1221,8 @@ def lowerE = (scope, rawExpr) =>
                       IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
                     else if isTopVal(data) then
                       IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
+                    else if isActiveOwnerMember(data) then
+                      IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell), data))
                     else IrGlobal(data)
                 }
             }
@@ -2098,6 +2125,8 @@ def lowerStmtToList = (stmt) =>
             -- register as known object for static dispatch on lowercase names
             let _reg = #cell.set(kc7bObjectsCell, Cons(name, #cell.get(kc7bObjectsCell))) in
             let prefix = #sconcat(name, "_") in
+            let _ownerPrefix = #cell.set(kc7bOwnerPrefixCell, prefix) in
+            let _ownerMembers = #cell.set(kc7bOwnerMembersCell, staticMemberNames(stmts)) in
             let rec prefixDefs = (ss) =>
               match ss {
                 case Nil => Nil
@@ -2113,7 +2142,10 @@ def lowerStmtToList = (stmt) =>
                       else prefixDefs(rest)
                   }
               } in
-            prefixDefs(stmts)
+            let loweredMembers = prefixDefs(stmts) in
+            let _clearOwnerPrefix = #cell.set(kc7bOwnerPrefixCell, "") in
+            let _clearOwnerMembers = #cell.set(kc7bOwnerMembersCell, Nil) in
+            loweredMembers
         }
       else if #seq(tag, "given_obj") then
         -- KC5+KC7b: given name: T with { defs } → emit prefixed defs + dummy sentinel
@@ -2123,6 +2155,8 @@ def lowerStmtToList = (stmt) =>
               case Pair(typeStr, stmts) =>
                 let _reg = #cell.set(kc7bObjectsCell, Cons(name, #cell.get(kc7bObjectsCell))) in
                 let prefix = #sconcat(name, "_") in
+                let _ownerPrefix = #cell.set(kc7bOwnerPrefixCell, prefix) in
+                let _ownerMembers = #cell.set(kc7bOwnerMembersCell, staticMemberNames(stmts)) in
                 let rec prefixDefs = (ss) =>
                   match ss {
                     case Nil => Nil
@@ -2150,7 +2184,10 @@ def lowerStmtToList = (stmt) =>
                       }
                   } in
                 -- emit prefixed method defs + sentinel val (for KC5 injection at call sites)
-                appendL(prefixDefs(stmts), Cons(IrDef(name, IrLit(IrInt(0))), Nil))
+                let loweredMembers = prefixDefs(stmts) in
+                let _clearOwnerPrefix = #cell.set(kc7bOwnerPrefixCell, "") in
+                let _clearOwnerMembers = #cell.set(kc7bOwnerMembersCell, Nil) in
+                appendL(loweredMembers, Cons(IrDef(name, IrLit(IrInt(0))), Nil))
             }
         }
       else if #seq(tag, "multi_effect") then
@@ -2840,6 +2877,8 @@ def lowerProg = (stmts) =>
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
+  let _kop = #cell.set(kc7bOwnerPrefixCell, "") in
+  let _kom = #cell.set(kc7bOwnerMembersCell, Nil) in
   -- K62.6e: reset case-class field registry (generated _sel_ accessors)
   let _cf = #cell.set(caseFieldsCell, collectCaseFields(stmts)) in
   -- named-args: per-class ordered field lists (constructor reorder)
