@@ -2061,6 +2061,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               reusable-resume contract as ordinary effects;
                               pin exact `handle(program())` VM/ASM output before
                               continuing to the standard runner boundary.
+                        - [ ] **TI-8.2d2w1c CoreIR curried closure ABI:** the next
+                              installed boundary is a normal two-clause helper
+                              whose CoreIR is nested `App(App(fn, first), second)`
+                              over a flattened two-argument `Lam`. Make
+                              under-application return a closure capturing the
+                              first arguments in both VM and direct ASM, retain
+                              over-application errors, and pin full/partial
+                              invocation before resuming W2 provider checks.
                         - [x] **TI-8.2d2w0 extern-class layout ownership:** the
                               post-handler exhaustive gate newly exposes
                               `extern class UploadedFile:` members as top-level

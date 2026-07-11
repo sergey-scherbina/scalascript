@@ -109,6 +109,27 @@ content provider exposed the next failure in `content-linked-namespaces.ssc`.
   VM/ASM/build-jvm output, affected conformance 17/17, and the 195-row strict
   corpus/parity sweep pass; runtime successes improve from 44 to 45.
 
+## v21-coreir-curried-closure-underapplication — nested parameter lists fail at runtime
+
+**Status:** open (2026-07-11); found by codex while advancing the installed
+`algebraic-effects.ssc` VM/direct-ASM regression after removing hidden
+multi-effect CPS.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, both
+  `bin/ssc-standard run --native examples/algebraic-effects.ssc` and its
+  `--bytecode` twin reach `withLogger(println) { () => "done" }`, then fail
+  `arity: 2 expected, 1 given`. Structural CoreIR correctly represents the
+  source as nested applications of a two-argument closure; the runtime rejects
+  the first, intentionally partial, application.
+- **Expected:** applying fewer arguments than a closure's remaining arity
+  returns a closure that captures those arguments; the later application
+  invokes the original body exactly once with arguments in source order. VM
+  and direct ASM share this ABI, while over-application remains an arity error.
+- **Plan/done-when:** specify and implement the shared partial-closure helper,
+  use it from both `Runtime.run` and `Emit.app`, add focused full/partial and
+  over-application tests, then require exact installed VM/ASM output and the
+  affected conformance/release gates.
+
 ## v21-native-multi-effect-hidden-cps — declared operation gains a hidden argument
 
 **Status:** open (2026-07-11); found by codex while running the installed
