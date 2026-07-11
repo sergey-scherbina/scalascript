@@ -1748,6 +1748,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               multi-file regression, preserve portable `UnitV`
                               semantics, and rerun the YAML-like example plus
                               all release gates.
+                        - [ ] **TI-8.2d2u imported tuple collection match:**
+                              K62.19 advances `imports.ssc` beyond its former
+                              collection arity boundary to identical VM/ASM
+                              `match: no arm for Tuple2/2`. Isolate the
+                              post-math imported list/tuple pipeline in a
+                              multi-file regression, preserve tuple constructor
+                              matching, and retire the taxonomy row only when
+                              the full example becomes identical.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

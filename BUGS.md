@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
+
+**Status:** open (2026-07-11); found by codex while refreshing native-entry
+after K62.19 tuple selector support advanced `examples/imports.ssc` beyond its
+former collection arity failure.
+
+- **Real-harness repro:** `bin/ssc-standard run --native examples/imports.ssc`
+  prints the complete native math section and `distance (0,0)-(3,4) = 5`, then
+  VM/ASM reach the classified collection pipeline and fail with `match: no arm
+  for Tuple2/2`.
+- **Expected:** the imported list/tuple pipeline binds portable tuple pairs and
+  completes identically on VM/ASM.
+- **Plan/done-when:** isolate the post-math tuple pipeline in a multi-file
+  fixture, repair constructor/tuple pattern ownership without a host fallback,
+  make `imports.ssc` identical, and retire its language-runtime taxonomy row
+  only after all release gates pass.
+
 ## v21-yaml-unit-global — native layout parser emits an unbound `Unit` value
 
 **Status:** open (2026-07-11); found by codex after symbolic extension dispatch
