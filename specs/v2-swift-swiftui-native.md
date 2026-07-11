@@ -960,6 +960,19 @@ manifest explicitly requests SwiftUI), never by attempting a v1 parse after a
 failure. Generated source cleanup is target-scoped so changing modes cannot
 leave the old entry point in the new target.
 
+Cleanup authority is explicit. Each successful write atomically replaces a
+sorted `.ssc-swift-generated.json` containing the exact generator-owned file
+paths for that tree. Before writing a replacement, the emitter reads the prior
+manifest, rejects any absolute path or segment equal to `..`, deletes only
+listed files, then prunes only listed parent directories that became empty.
+Unlisted files and resources are always preserved, including content below
+`AppleApp/Resources`. The new ownership manifest is written last through a
+same-directory temporary file plus atomic move, so interruption cannot grant
+ownership of a partially written tree. The manifest itself participates in
+full-tree determinism. Executable gates cover product-name change,
+UI→domain→UI mode switching, stale project/entry-point removal, and preservation
+of an unlisted resource.
+
 Application metadata is part of the v2 checked-source result; the CLI obtains
 it in the same FrontendBridge conversion that produces `Program` and never
 calls the v1 `Parser`, `JvmGen`, or SwiftUI emitter. The app/scheme/product name
@@ -1112,6 +1125,8 @@ behavior.
   package and retain bounded missing-tool diagnostics.
 - [ ] UI application metadata is obtained with the checked v2 source result,
   validated before output, and never reparsed through the v1 frontend.
+- [ ] Generator ownership cleanup removes only validated manifest-listed paths,
+  survives product/mode changes, and preserves unlisted resources.
 
 ### SwiftUI portable runtime
 
@@ -1224,6 +1239,10 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
 - **Checked v2 application metadata** — bundle/version identity crosses the same
   frontend conversion as CoreIR and fails before output. Rejected: using the v1
   parser as a metadata side channel or silently rewriting invalid bundle ids.
+- **Manifest-scoped generated-file ownership** — exact sorted paths permit safe
+  rename/mode cleanup without claiming user resources. Rejected: broad directory
+  deletion and filename heuristics, which either retain stale `@main` files or
+  destroy unlisted assets.
 
 ## Out of scope
 
