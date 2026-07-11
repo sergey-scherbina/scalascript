@@ -1116,7 +1116,7 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
 
 ## Results
 
-### Native Apple tables and row actions (`45033e891`, 2026-07-11)
+### Native Apple tables and row actions (`62b6cd81f`, 2026-07-11)
 
 - Generated Apple sources now decode the exact five-field table ABI into one
   shared macOS/iOS Grid renderer and a transactional model for static, signal,
