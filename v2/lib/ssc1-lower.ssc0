@@ -311,11 +311,25 @@ def isCaseField = (name) =>
     } in
   go(#cell.get(caseFieldsCell))
 
+-- K62.19: the positional tuple accessors _1.._4 have built-in `_sel__N` defs in the prelude
+-- (match Pair/Tuple4). Route them to `_sel_<field>` too — the __method__ path only resolves
+-- them via a Long fast-path (Runtime.scala:1256) that fires in numeric contexts, so
+-- `println(x._2)` / `best._2` in a non-Long context returned a Stub. `_sel__N` is correct in
+-- ALL contexts (fixed the `recursion.ssc via ssc1` Collatz regression: (1,0) → (871,178)).
+def isTupleField = (name) =>
+  if #seq(name, "_1") then true
+  else if #seq(name, "_2") then true
+  else if #seq(name, "_3") then true
+  else if #seq(name, "_4") then true
+  else false
+
 -- K62.6e: a known case field keeps its generated _sel_<field> accessor; every
 -- other field access routes to __method__ (VM resolves record field-index or
 -- plugin field — _sel_<field> was an unbound global otherwise).
 def selOrMethod = (field, robj) =>
   if isCaseField(field) then
+    Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+  else if isTupleField(field) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
   else
     Pair("prim", Pair("__method__", Cons(Pair("str", field), Cons(robj, Nil))))
