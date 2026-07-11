@@ -1,0 +1,12 @@
+---
+name: v21-native-math-object
+---
+
+```scalascript
+println(math.round(math.Pi * 1000000.0))
+println(math.round(math.E * 1000000.0))
+println(math.abs(-42))
+println(math.round(math.abs(-2.5) * 10.0))
+println(math.round(math.sqrt(81) * 10.0))
+println(math.round(math.pow(2.0, 10.0)))
+```

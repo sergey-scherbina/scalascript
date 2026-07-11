@@ -93,6 +93,8 @@ top_level_while_expected=$'0\n10\n4'
 [[ $(run_native "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 layout_given_expected=$'int\nint:7\nbool:yes\nbool:no\nafter-givens'
 [[ $(run_native "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
+native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
+[[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -123,6 +125,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -211,9 +214,10 @@ run_native "$ROOT/examples/imports.ssc" >"$sandbox/imports.out" 2>"$sandbox/impo
 imports_rc=$?
 set -e
 [[ $imports_rc -ne 0 ]]
-# Multiline-lambda layout now parses this document completely; the remaining
-# standard gap is the explicit math provider, not a parser sentinel/host crash.
-grep -F 'unbound global: math' "$sandbox/imports.err" >/dev/null
+# Native math now executes through the portable object. The following perimeter
+# collection pipeline is a separately classified language-runtime arity gap.
+grep -F 'distance (0,0)-(3,4) = 5' "$sandbox/imports.out" >/dev/null
+grep -F 'arity: 1 expected, 2 given' "$sandbox/imports.err" >/dev/null
 
 set +e
 run_native "$ROOT/examples/components-demo.ssc" >"$sandbox/components.out" 2>"$sandbox/components.err"

@@ -34,6 +34,8 @@ set -e
     --report "$tmp/frontend-specific.tsv" --strict
   "$ROOT/scripts/bc-parity-sweep" --only x402-metamask.ssc \
     --report "$tmp/target-specific.tsv" --strict
+  "$ROOT/scripts/bc-parity-sweep" --only lang-split.ssc \
+    --report "$tmp/mixed-scala-fence.tsv" --strict
 )
 
 grep -F $'hello.ssc\tidentical\t0\t0' "$tmp/bytecode.tsv" >/dev/null
@@ -42,5 +44,6 @@ grep -F $'distributed-word-count.ssc\tskipped-nondeterministic' "$tmp/nondetermi
 grep -F $'v2-http-sql-demo.ssc\tskipped-nondeterministic' "$tmp/external-http.tsv" >/dev/null
 grep -F $'paginated-typed-client.ssc\tskipped-backend' "$tmp/frontend-specific.tsv" >/dev/null
 grep -F $'x402-metamask.ssc\tskipped-backend' "$tmp/target-specific.tsv" >/dev/null
+grep -F $'lang-split.ssc\tskipped-backend' "$tmp/mixed-scala-fence.tsv" >/dev/null
 
 echo 'v21 portable gates smoke: PASS'

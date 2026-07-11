@@ -2213,6 +2213,7 @@ def lowerStmts = (stmts) =>
 
 def printlnDef = IrDef("println", IrLam(1, IrPrim("io.println", Cons(IrLocal(0), Nil))))
 def printDef   = IrDef("print",   IrLam(1, IrPrim("io.print", Cons(IrLocal(0), Nil))))
+def mathDef    = IrDef("math", IrPrim("__math_obj__", Nil))
 
 -- ── Tuple accessors: ._1 through ._4 ─────────────────────────────────────────
 -- Pair(a,b): 2 fields, local(0)=b local(1)=a
@@ -2896,7 +2897,8 @@ def lowerProg = (stmts) =>
   let defs =
     Cons(printlnDef,
     Cons(printDef,
-    kc6Defs)) in
+    Cons(mathDef,
+    kc6Defs))) in
   let userDefs = lowerStmts(stmts) in
   -- K62.15: merged field accessors (one _sel_<field> per name, all ctors) from the order registry
   let accDefs = buildMergedAccessors(#cell.get(caseFieldOrderCell)) in
