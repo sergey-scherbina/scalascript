@@ -1168,6 +1168,21 @@ lazy val cli = project
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
+    // CI-only fork crash containment: on GitHub's 2-core runner `sbt test`
+    // ran the cli suites concurrently inside the single forked JVM (default
+    // `parallelExecution := true`). The heavy cluster/server suites
+    // (Cluster*/Partition*/Singleton*/MultiNode*) each bind real ports and
+    // spawn `ssc.jar`/node subprocesses + ws-proxy threads; two of them
+    // overlapping in one fork raced on ports/thread-pools and killed the fork
+    // at shutdown (`sbt.ForkMain … exit code 1` with ZERO failed tests — the
+    // JVM died, not an assertion). It reproduced on every CI run but never
+    // locally (local cancels these env-gated suites when the staged jar/node
+    // deps are absent, and a fast box never overlaps them). Serialize the
+    // suites so at most one cluster node bring-up is live at a time;
+    // `logBuffered := false` streams each suite header immediately so, if a
+    // single suite is ever the culprit, the CI log names it in order.
+    Test / parallelExecution := false,
+    Test / logBuffered       := false,
     assembly / mainClass       := Some("scalascript.cli.ssc"),
     assembly / assemblyJarName := "ssc.jar",
     assembly / assemblyMergeStrategy := {
