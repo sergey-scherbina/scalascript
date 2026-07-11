@@ -1164,6 +1164,30 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
 
 ## Results
 
+### Isolated trusted HTML on Apple (`7cc1ff978`, 2026-07-11)
+
+- The generated macOS/iOS renderer now decodes only the exact sourced
+  `NativeUiTrustedHtml` ABI and mounts a fresh nonpersistent WKWebView with page
+  JavaScript disabled. Five real-compiling content rules block HTTP, HTTPS,
+  WS, WSS, and FTP subresources while inline markup/CSS and `data:` images stay
+  visible; the loopback executable probe records zero network hits.
+- One serialized document-policy capability owns each renderer-generated
+  `about:blank` load. The latest compiled rule and prepared document wait for
+  an older outstanding policy action to cancel before issuance; exact
+  WKNavigation identity plus generation rejects stale finish/fail/height
+  callbacks. Both main-frame and new-window taps use the same
+  linkActivated-only external URL handoff, and replacement/failure/teardown
+  cannot publish obsolete state.
+- Probe-only compiler/navigation seams are excluded from production builds by
+  `SSC_NATIVEUI_HTML_PROBE`. The real macOS gate covers compile-before-load,
+  page/client-world isolation, data-image dimensions, delayed replacement,
+  grow/shrink, source-only recovery, forced stale terminals, nil load,
+  malformed descriptors, and deinit; the installed iOS 16 Simulator SDK
+  typechecks the production source set under strict Swift 6 warnings-as-errors.
+- `nativeui-reviewer` approved round 3 in the `scalascript` Rozum room. The
+  Swift backend passed 41/41 twice on successive integration bases, the final
+  affected WebKit gate passed 2/2, and `tkv2-*` conformance passed 12/12.
+
 ### Native Apple tables and row actions (`d54d02126`, 2026-07-11)
 
 - Generated Apple sources now decode the exact five-field table ABI into one

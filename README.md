@@ -201,7 +201,7 @@ bin/http.ssc
 | [Rozum Agent Endpoint Pool](specs/rozum-agent-endpoint-pool.md) | `AgentEndpointPool` + `runAgentPool` / streaming pool variants for bounded ordered failover across multiple rozum gateways |
 | [Rozum Agent Schema Derivation](specs/rozum-agent-schema-derivation.md) | `AgentSchema[A] derives` + `agentToolFor[A]` for typed tool inputs with OpenAI-compatible JSON Schema parameters |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
-| [SwiftUI / iOS / macOS](specs/swiftui.md) | V2 checked-CoreIR Swift/AppCore generation with native SwiftUI observation/rendering, persisted/online adapters, and lifecycle-safe URLSession fetch, actions, and keyed native tables on macOS/iOS; Xcode app products, WKWebView, signing, and distribution remain staged |
+| [SwiftUI / iOS / macOS](specs/swiftui.md) | V2 checked-CoreIR Swift/AppCore generation with native SwiftUI observation/rendering, persisted/online adapters, lifecycle-safe URLSession fetch/actions/tables, and isolated dynamically sized trusted HTML via WKWebView on macOS/iOS; Xcode app products, signing, and distribution remain staged |
 | [GraalVM native binary](specs/native-platform.md) | `ssc` native binary via GraalVM native-image; no-JVM distribution; `ssc-plugin-host.jar` bridge |
 | [Native plugin guide](docs/native-plugin-guide.md) | Compile a plugin to a native binary — fully JVM-free `ssc → plugin` |
 

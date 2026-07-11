@@ -635,8 +635,12 @@ post, delete, local link, and inline-edit actions authenticate the current
 descriptor/action/row capability before launch and completion. Relative row
 URLs use the normalized `--server-url`, while malformed paths, unsafe URLs,
 stale rows, obsolete replacements, and non-2xx responses cannot mutate current
-state. Trusted WKWebView content and the Xcode app target remain the next
-toolkit slices.
+state. Trusted `rawHtml` now renders in a per-view nonpersistent WKWebView with
+page JavaScript disabled and compiled rules that block network subresources
+while retaining inline CSS and `data:` assets. Renderer-owned document loads,
+height callbacks, failures, and link taps are generation-authenticated;
+external http/https/mailto taps leave the web view through the shared native
+URL policy. The Xcode app target remains the next toolkit slice.
 
 `--target ios` already emits an iOS-deployment Swift package through the same
 v2 backend plus the AppleApp sources. Until the real Xcode application project
@@ -3985,7 +3989,7 @@ vstack(gap = 12)(
 | `fragment_(children*)` | Group children without a wrapper `<div>` |
 | `forKeyed(items, key)(render)` | Keyed browser list; surviving row DOM nodes move by stable string keys on the `emit-spa --frontend custom` runtime |
 | `rawText(text: String)` | Literal text inline (no element, no binding) |
-| `rawHtml(html: String)` | Trusted raw markup escape hatch for missing widgets/pre-rendered fragments; caller must sanitise user-controlled input |
+| `rawHtml(html: String)` | Trusted raw markup escape hatch for missing widgets/pre-rendered fragments; Apple targets isolate it in a nonpersistent, network-blocked WKWebView with page JavaScript disabled; caller must sanitise user-controlled input |
 
 ```scalascript
 showWhen(submitted,
