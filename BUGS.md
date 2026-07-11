@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v21-native-typeclass-dictionary-sentinel — explicit dictionaries lose members
+
+**Status:** open (2026-07-11); found by codex while reducing the reviewed
+`typeclass.ssc` language/runtime blocker after exact `summon` landed.
+
+- **Real-harness repro:** the installed compiler-free `ssc-standard run
+  --native` VM and `--bytecode` lanes both print the same first thirteen lines
+  through Eq/Ord and sorting, then exit 1 with
+  `__method__: no dispatch for .empty on 0`. Explicit
+  `bin/ssc run --compat-frontend` prints the five remaining Monoid/Functor lines
+  (`sum 15`, concatenation, repeat, doubled, squared) and exits 0.
+- **Expected:** a named given is a first-class immutable method dictionary.
+  Passing it as an ordinary parameter, returning or aliasing it, importing it,
+  or storing it in a collection preserves its properties and callable members.
+- **Root cause:** self-hosted `given_obj` lowering emits each member correctly
+  under a static `<given>_<member>` global but emits the given value itself as
+  `IrInt(0)`. Static source-spelled calls bypass that sentinel; generic dispatch
+  after ordinary value flow sees only integer zero. The established portable
+  `__mk_method_obj__` representation is already implemented by both runtime
+  lanes and used by the compatibility bridge.
+- **Plan/done-when:** emit the same ordered method object from the self-hosted
+  lowerer without removing existing static globals; cover imported distinct
+  dictionaries, property/method/eta/value-flow behavior, and exact full
+  `typeclass.ssc`; retire only its taxonomy row after all release gates pass.
+
 ## v2-trusted-html-isolation-contract-gaps — first WKWebView plan leaves stale and navigation authority ambiguous
 
 **Status:** done (2026-07-11, `7cc1ff978`); reported by `nativeui-reviewer` in the
