@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native module loader accepts multiple imports per line
+
+Standalone Markdown import lines now resolve every whitespace-separated
+`[names](path.ssc)` link in source order while lines with prose tails remain
+non-imports. A three-file assembled fixture prints `42` identically on VM/ASM;
+`multi-link-imports.ssc` now resolves both modules and reaches its independent
+Decimal boundary. All corpus/parity/taxonomy gates and conformance 10/10 pass.
+Landed `836ceee03`, taxonomy transfer `64fcab537`.
+
 ## 2026-07-11 — v2 Swift AppCore executes checked Money and effects
 
 The first-class CoreIR-to-Swift backend now closes its domain-runtime gate:

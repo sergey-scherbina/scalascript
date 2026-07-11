@@ -1106,16 +1106,22 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         conversion). Queue a spec-first slice per independent
                         root cause, add real VM/direct-ASM regressions, and shrink
                         the blocker ceiling after every green push.
-                        - [ ] **TI-8.2d2a multiple Markdown imports per line:**
+                        - [x] **TI-8.2d2a multiple Markdown imports per line —
+                              DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line
                               scanner with an all-or-nothing parser for one or
                               more whitespace-separated `[names](path.ssc)`
                               links. Preserve source order and reject prose tails.
                               Add a multi-file assembled VM/direct-ASM fixture,
                               rerun `multi-link-imports.ssc`, then the full
-                              parity/runtime-taxonomy reports. Remove the row and
-                              tighten language-runtime, blocker, and total limits
-                              only when both lanes agree and conformance is green.
+                              parity/runtime-taxonomy reports. Result: the
+                              three-file fixture prints `42` on both lanes and
+                              the real example advances from false `minorUnits`
+                              failure to its independent `Decimal` boundary.
+                              Taxonomy transfers the row to Decimal at 19
+                              language-runtime / 26 standard-provider with 48
+                              blockers unchanged. Native-entry, corpus, parity,
+                              taxonomy, and conformance 10/10 pass.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
