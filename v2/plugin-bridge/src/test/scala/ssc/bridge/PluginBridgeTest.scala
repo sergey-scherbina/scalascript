@@ -86,6 +86,26 @@ class PluginBridgeTest extends AnyFunSuite:
     finally
       V2PluginRegistry.restore(snap)
 
+  test("v2ToV1: registered recursive fields are converted once and shared by every InstanceV layout"):
+    val snap = V2PluginRegistry.snapshot()
+    try
+      V2PluginRegistry.registerFieldNames("JsonBranch", Vector("next"))
+      var nested: V2Value = V2Value.DataV("JsonLeaf", Vector(V2Value.StrV("done")))
+      for _ <- 1 to 18 do
+        nested = V2Value.DataV("JsonBranch", Vector(nested))
+
+      val converted = PluginBridge.v2ToV1(nested)
+      converted match
+        case inst: scalascript.interpreter.Value.InstanceV =>
+          val named = inst.fields("next")
+          val positional = inst.fields("_0")
+          val arrayValue = inst.fieldsArr(0)
+          assert(named eq positional)
+          assert(named eq arrayValue)
+        case other => fail(s"expected InstanceV, got $other")
+    finally
+      V2PluginRegistry.restore(snap)
+
   test("v2ToV1: large Cons/Nil list converts without stack overflow"):
     val size = 20000
     var v2: V2Value = V2Value.DataV("Nil", Vector.empty)

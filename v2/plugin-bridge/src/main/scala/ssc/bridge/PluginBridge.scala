@@ -3770,15 +3770,19 @@ object PluginBridge:
       // Arity-matched so a same-named collision (http vs domain `Request`) names
       // the right layout for this value (v2-req-form-type-collision).
       val knownNames: Option[Vector[String]] = V2PluginRegistry.lookupFieldNames(tag, fields.length)
+      // Convert each field once. InstanceV exposes the same values through named,
+      // positional and array layouts; recursively rebuilding them for every layout
+      // expands a depth-N ADT roughly 3^N (self-hosted JSON made this observable).
+      val convertedFields: Vector[V1Value] = fields.map(v2ToV1).toVector
       val fieldMap: Map[String, V1Value] = knownNames match
         case Some(names) if names.length == fields.length =>
           // Named field map (both named and positional keys for compatibility)
-          (names.zip(fields).map { case (n, fv) => n -> v2ToV1(fv) } ++
-           fields.zipWithIndex.map { case (fv, i) => s"_$i" -> v2ToV1(fv) }).toMap
+          (names.zip(convertedFields) ++
+           convertedFields.zipWithIndex.map { case (fv, i) => s"_$i" -> fv }).toMap
         case _ =>
-          fields.zipWithIndex.map { case (fv, i) => s"_$i" -> v2ToV1(fv) }.toMap
+          convertedFields.zipWithIndex.map { case (fv, i) => s"_$i" -> fv }.toMap
       val inst = scalascript.interpreter.Value.InstanceV(tag, fieldMap)
-      val arr: Array[V1Value] = fields.map(v2ToV1).toArray
+      val arr: Array[V1Value] = convertedFields.toArray
       val names: Array[String] = knownNames match
         case Some(ns) if ns.length == fields.length => ns.toArray
         case _ => fields.indices.map(i => s"_$i").toArray

@@ -1,0 +1,16 @@
+---
+name: conformance-json-deep-tree-lib
+version: 1.0.0
+exports:
+  - deepJsonDocument
+---
+
+# Deep imported JSON fixture
+
+```scalascript
+def wrapJson(level: Int, inner: String): String =
+  if level <= 0 then inner
+  else wrapJson(level - 1, "{\"next\":" + inner + "}")
+
+val deepJsonDocument = wrapJson(18, "{\"value\":\"done\"}")
+```

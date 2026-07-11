@@ -1,0 +1,18 @@
+#!/usr/bin/env ssc
+---
+name: conformance-json-deep-import
+backends: [int, js, v2]
+---
+
+# Deep imported JSON stays bounded
+
+[deepJsonDocument](./lib/json-deep-tree.ssc)
+
+[jsonValue](std/json.ssc)
+
+```scalascript
+var cursor = jsonValue(deepJsonDocument)
+for _ <- 1 to 18 do cursor = cursor.get("next")
+println(cursor.get("value").asString)
+println("json-deep-import-complete")
+```
