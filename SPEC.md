@@ -1549,7 +1549,19 @@ def assert(cond: Boolean, msg: String): Unit
 def require(cond: Boolean, msg: String): Unit
 def getenv(key: String): String
 def getenv(key: String, default: String): String
+def doc(parts: Any*): Doc
+def render(value: Any): Unit
 ```
+
+`doc(parts...)` preserves the supplied values in source order as an opaque,
+target-independent document value. `render(docValue)` writes each document
+part using the same deterministic display semantics as `println`, joined by a
+single LF, and terminates the output with the ordinary single trailing LF.
+For a non-document value, `render(value)` is equivalent to `println(value)`.
+These helpers do not parse Markdown or depend on the structural-content API.
+Their ScalaScript 2.1 native ownership and zero-compatibility-dependency
+requirements are normative in
+[`specs/v2.1-native-doc-render.md`](specs/v2.1-native-doc-render.md).
 
 ### 8.3 Standard Typeclasses
 
