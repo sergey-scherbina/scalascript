@@ -1133,7 +1133,9 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   table tests 6/6 and the full Swift backend 40/40, including generated macOS
   execution and strict Swift 6 typechecking against the installed iOS 16
   Simulator target. Provider 14/14, compatibility fetch 12/12, and Swift CLI
-  6/6 also remain green.
+  6/6 also remain green. A final-repeat URLProtocol harness race was isolated
+  from production code and fixed in `51dcdba65`; action execution then passed
+  5/5 consecutively before another named 6/6 and full 40/40 run.
 
 ### SwiftUI persisted and online Apple ownership (`0ade8bf7c`, 2026-07-11)
 
