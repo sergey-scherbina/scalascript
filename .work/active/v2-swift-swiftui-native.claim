@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T14:08:57Z
+heartbeat: 2026-07-11T14:23:33Z
 status: in-progress
-done-so-far: six persisted/online Rozum blockers are fixed and ledgered; strict focused probe plus full v2SwiftBackend suite 31/31 are green; fresh read-only re-review is in progress
-next: obtain explicit Rozum approve, land/document the persisted/online slice, then implement native tables/row actions and isolated trusted WKWebView
+done-so-far: persisted/online ownership landed as 0ade8bf7c, docs d931d759a, bookkeeping 0a098c821 after Rozum APPROVE; Swift backend 31/31 and tkv2 12/12 are green
+next: complete the active Rozum design checkpoint, implement and review native tables/row actions, then isolated trusted WKWebView
