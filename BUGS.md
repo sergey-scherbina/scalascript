@@ -1,5 +1,69 @@
 # Bug tracker
 
+## v2-native-table-payload-validator-drift — row payload descriptors validate differently by adapter
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+
+- **Real-harness repro:** construct `Field`, `WholeRow`, and `Fields` payloads
+  through the v2 UI provider, generated Swift Host, and v1 compatibility
+  adapter. The v2 provider validates only post actions, while the v1
+  `fieldsPayload` path collect-drops non-String members and accepts empty or
+  duplicate names; the resulting public descriptor depends on the adapter.
+- **Expected:** every entry point uses the frozen exact validator: a Field name
+  is one non-empty dotted path; Fields is a non-empty list of unique non-empty
+  dotted paths; malformed values fail before an action/request is constructed.
+- **Plan/done-when:** route all action constructors through one exact validator
+  per runtime boundary, add negative gates for wrong types, empty/duplicate/
+  malformed paths across v1, v2, and generated Swift, and obtain Rozum approval.
+
+## v2-native-table-request-url-untested — Swift URL resolver and CLI routing lack executable coverage
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+
+- **Real-harness repro:** current JVM generator tests normalize/embed a base and
+  CLI tests call `SwiftV2Cli.emit` directly, but no generated Swift execution
+  resolves absolute, root-relative, and base-relative request URLs or rejects
+  scheme-relative/credential/fragment/hostless forms. No application command
+  proves `--server-url` reaches the emitted Store configuration.
+- **Expected:** executable Swift uses the sole normalized Apple base exactly as
+  specified, and the real public command route threads the same value into the
+  generated package.
+- **Plan/done-when:** execute the resolver matrix through generated strict Swift
+  plus controllable URLProtocol and invoke the actual CLI command path with
+  `--server-url`; pin accepted URLs, rejected forms, and emitted configuration.
+
+## v2-native-table-rowkey-adapter-drop — non-default row identity is silently lost outside Swift
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+
+- **Real-harness repro:** compile `dataTableView(..., rowKeyPath = "meta.key")`
+  through every adapter. JS emits a DOM attribute that its mount runtime never
+  reads, while Rust/TUI accept the fourth argument as `_row_key_path` and ignore
+  it, so the target-independent public selection has no effect.
+- **Expected:** every adapter preserves and consumes the exact dotted row key,
+  or deterministically rejects a target that cannot implement it; silent
+  fallback to `id`, index, or object identity is forbidden.
+- **Plan/done-when:** make JS mount and Rust/TUI runtime consume strict row
+  identity, add non-default/missing/empty/compound/duplicate adapter gates, and
+  obtain the implementation reviewer's confirmation.
+
+## v2-native-table-five-field-registry-drift — v2 field layout disagrees with constructed ABI value
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+
+- **Real-harness repro:** the v2 `UiNativePlugin` constructs
+  `NativeUiDataTable(siteId, source, columns, actions, rowKeyPath)` but its
+  registered named-field layout still declares four fields. Positional access
+  can see the new value while named access/reflection cannot address it.
+- **Expected:** the registry and every producer/consumer agree on the exact
+  five-field ABI layout, including named `rowKeyPath` at index four.
+- **Plan/done-when:** update the authoritative layout and add an executable
+  named-field/arity regression before the five-field value reaches Swift.
+
 ## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
 
 **Status:** done (2026-07-11, `2f3994b31`); reported and confirmed by busi

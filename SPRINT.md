@@ -654,6 +654,25 @@ there before changing this plan.
                   - [x] freeze exact date/edit dotted-key/template/link and
                         loading/empty/error semantics plus strict Swift 6 macOS
                         runtime/iOS compile gates.
+                  Rozum implementation review of local commit `8b758a174`
+                  blocked publication on four cross-adapter contract gaps;
+                  each is tracked in `BUGS.md` and must close before the ABI
+                  plumbing push:
+                  - [ ] make the v2 `NativeUiDataTable` registry and named-field
+                        access use the exact five fields, with an arity/layout
+                        regression in `v2NativeUiPlugin/test`;
+                  - [ ] preserve and consume non-default `rowKeyPath` in JS and
+                        Rust/TUI (never an ignored underscore argument/unused
+                        DOM attribute), with missing/empty/compound/duplicate
+                        row-key adapter gates;
+                  - [ ] execute Swift request resolution for absolute,
+                        root-relative, base-relative, and rejected URL forms,
+                        and invoke a real Apple CLI command with `--server-url`
+                        to prove it reaches generated Store configuration;
+                  - [ ] unify exact Field/WholeRow/Fields validation across the
+                        v2 provider, generated Swift Host, and v1 compatibility
+                        adapter, including wrong-type, empty, malformed, and
+                        duplicate negative gates.
                   - [ ] update the target-independent public/ABI surface and all
                         existing JVM/JS/Rust/Swift adapters for `rowKeyPath`,
                         Any row payloads, and normalized Apple `--server-url`;
