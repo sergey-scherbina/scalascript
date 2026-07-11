@@ -1086,6 +1086,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         conversion). Queue a spec-first slice per independent
                         root cause, add real VM/direct-ASM regressions, and shrink
                         the blocker ceiling after every green push.
+                        - [ ] **TI-8.2d2a multiple Markdown imports per line:**
+                              replace the native loader's one-link/whole-line
+                              scanner with an all-or-nothing parser for one or
+                              more whitespace-separated `[names](path.ssc)`
+                              links. Preserve source order and reject prose tails.
+                              Add a multi-file assembled VM/direct-ASM fixture,
+                              rerun `multi-link-imports.ssc`, then the full
+                              parity/runtime-taxonomy reports. Remove the row and
+                              tighten language-runtime, blocker, and total limits
+                              only when both lanes agree and conformance is green.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
