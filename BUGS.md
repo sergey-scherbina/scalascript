@@ -2,9 +2,8 @@
 
 ## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
 
-**Status:** fixed (2026-07-11, `2f3994b31`); reported by busi while
-verifying the newly published HTTP runtime. Reporter confirmation on the final
-published pin is pending.
+**Status:** done (2026-07-11, `2f3994b31`); reported and confirmed by busi
+against the published runtime.
 
 - **Real-harness repro:** assemble `bin/ssc` at `495467456`, then run busi's
   current `tests/v2/api.ssc` with `SSC_JIT=off`. All serializer assertions pass
@@ -24,10 +23,12 @@ published pin is pending.
   self-hosted JSON ADT exposed the pre-existing exponential `3^depth`
   expansion. It now converts each field once and shares the exact converted
   value across all three `InstanceV` layouts.
-- **Verification so far:** the new 18-level imported JSON fixture OOMs the old
+- **Verification:** the new 18-level imported JSON fixture OOMs the old
   published runtime with `-Xmx512m`, while the fixed assembled runtime reaches
   its sentinel. PluginBridge 31/31, JSON conformance 4/4 and the original busi
-  `tests/v2/api.ssc` are green with the same 512 MiB bound. The broader
+  `tests/v2/api.ssc` are green with the same 512 MiB bound. Busi then passed
+  exact full `make v2-test`, `make v2-test-js`, all four live HTTP/restart
+  checks and canonical Chromium 6/6 on the published runtime. The broader
   FrontendBridge run is 194/195; its sole `tkv2-pwa` failure is the separately
   claimed hf-6 standard-tier provider cutover, not this bridge change.
 

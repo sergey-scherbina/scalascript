@@ -51,4 +51,5 @@ the assembled CLI plus plugin distribution is the contract.
       exact shape and navigation results.
 - [x] Registered record layouts share each converted field by identity across
       named, positional and array access, independent of global storage type.
-- [ ] The published runtime passes both ScalaScript and busi release gates.
+- [x] The published runtime passes ScalaScript focused/module/conformance gates
+      and busi full JVM, JS, live HTTP/restart and Chromium 6/6 release gates.

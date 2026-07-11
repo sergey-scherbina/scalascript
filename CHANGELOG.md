@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — imported recursive records cross the compatibility bridge in linear space
+
+`v2ToV1` now converts each `DataV` field once and shares the result across
+named, positional and array `InstanceV` layouts, eliminating the pre-existing
+`3^depth` expansion exposed by self-hosted JSON. An 18-level imported fixture
+that OOMs the old runtime at 512 MiB now reaches its exact sentinel; bridge
+31/31, JSON conformance 4/4, and busi's full JVM/JS/live-HTTP/Chromium 6/6
+release matrix are green. Landed `2f3994b31`; contract in
+`specs/bridge-v2tov1-openapi-oom.md`.
+
 ## 2026-07-11 — HTTP fast provider ships in every compiler-free artifact
 
 The standard distribution and deterministic `build-jvm` artifact now include
