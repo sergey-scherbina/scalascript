@@ -2,8 +2,8 @@
 
 ## v21-parity-backends-list-ignored — JS-only examples run on the standard JVM lane
 
-**Status:** open (2026-07-11); found by codex while starting the TI-8.2d4
-example/config blocker sweep.
+**Status:** fixed (2026-07-11, `d4c953b9c`), awaiting Sergiy confirmation;
+found by codex while starting the TI-8.2d4 example/config blocker sweep.
 
 - **Real-harness repro:** run full `scripts/bc-parity-sweep --ssc
   bin/ssc-standard`. Both `sql-browser-{sqlite,duckdb}.ssc` declare
@@ -19,6 +19,10 @@ example/config blocker sweep.
   lists, cover a real browser SQL example in the portable-gates smoke, rerun
   all 195 parity rows, and remove only the two newly skipped runtime-taxonomy
   rows while preserving `dataset-parallel-sum.ssc` as a blocker.
+- **Fix/verified:** the harness now recognizes only inline lists composed of
+  `js`/`node`/`wasm`; both browser SQL rows are `skipped-backend`, while the
+  focused `[jvm]` dataset row still executes and remains `both-fail`. Full
+  parity is 21/45/129 with zero mismatch or one-sided error.
 
 ## v21-native-reactive-effect-parsed-as-declaration — top-level effects disappear
 

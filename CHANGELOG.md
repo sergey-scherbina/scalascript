@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — example-contract debt reaches zero
+
+The standard parity harness now honors JS/Node/Wasm-only plural `backends:`
+front matter without hiding `[jvm]` runtime debt. Two browser SQL examples move
+to reviewed backend skips, while typed SQL remains assigned to its genuinely
+missing standard SQL provider surface. Strict parity is 21/45/129 with no
+mismatch or one-sided error; blockers fall from 35 to 33 and the
+`example-contract` category is empty. Landed `d4c953b9c`; taxonomy `39cfe268b`.
+
 ## 2026-07-11 — reactive signals run on the core-free JVM route
 
 A dedicated portable provider now owns general `Signal`, `computed`, and
