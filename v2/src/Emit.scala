@@ -37,6 +37,33 @@ object Emit:
     case Value.IntV(n) => n
     case other         => sys.error(s"lcellAccum: non-Int result ${Show.show(other)}")
 
+  // Double twin of lcellAccum: `cell = cell <op> r` for a Double cell, unboxed on the cell
+  // side. r is a boxed element (FloatV, or IntV widened — matching the VM's Float+Int→Float).
+  // Matches `c.v = asFloat1(arithFast(op, FloatV(c.v), r))`.
+  def dcellAccum(cell: Value, op: String, r: Value): Value =
+    val c = cell.asInstanceOf[Value.DoubleCellV]
+    r match
+      case Value.FloatV(d) =>
+        op match
+          case "+" => c.v = c.v + d
+          case "-" => c.v = c.v - d
+          case "*" => c.v = c.v * d
+          case "/" => c.v = c.v / d
+          case _   => c.v = accDouble(Prims.arithFast(op, Value.FloatV(c.v), r))
+      case Value.IntV(n) =>
+        op match
+          case "+" => c.v = c.v + n
+          case "-" => c.v = c.v - n
+          case "*" => c.v = c.v * n
+          case "/" => c.v = c.v / n
+          case _   => c.v = accDouble(Prims.arithFast(op, Value.FloatV(c.v), r))
+      case _ => c.v = accDouble(Prims.arithFast(op, Value.FloatV(c.v), r))
+    Value.UnitV
+  private def accDouble(v: Value): Double = v match
+    case Value.FloatV(d) => d
+    case Value.IntV(n)   => n.toDouble
+    case other           => sys.error(s"dcellAccum: non-numeric result ${Show.show(other)}")
+
   def prim0(op: String): Value = fn(op)(Nil)
   def prim1(op: String, a: Value): Value = fn(op)(a :: Nil)
   def prim2(op: String, a: Value, b: Value): Value =

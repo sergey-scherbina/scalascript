@@ -751,6 +751,20 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(run(subSrc) == Value.IntV(94))
   }
 
+  test("v2 bytecode dcell foreach accumulator matches the VM") {
+    val src =
+      """def workload(): Double = {
+        |  var sum: Double = 0.0
+        |  val xs: List[Double] = List(1.5, 2.5, 3.0)
+        |  xs.foreach(x => { sum = sum + x })
+        |  sum
+        |}
+        |workload()
+        |""".stripMargin
+    assert(runBytecode(src) == Value.FloatV(7.0)) // 1.5+2.5+3.0, the fused dcellAccum path
+    assert(run(src) == Value.FloatV(7.0))         // VM agrees
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }

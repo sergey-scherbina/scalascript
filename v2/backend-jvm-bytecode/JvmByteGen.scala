@@ -995,6 +995,17 @@ object JvmByteGen:
         genDouble(body, ctx)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, DCELL, "v_$eq", "(D)V", false)
         call0(mv, "unitV")
+      // Fused double accumulator (twin of the lcell one above): dcell.set(c, arith(op,
+      // dcell.get(c), r)) where r is a boxed element (not statically Double).
+      case Term.Prim("dcell.set", List(Term.Local(c),
+          Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)),
+            Term.Prim("dcell.get", List(Term.Local(c2))), r))))
+          if c == c2 && op.length == 1 && "+-*/".contains(op) && !canDouble(r) =>
+        loadLocalValue(c, ctx)
+        mv.visitLdcInsn(op)
+        gen(r, ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dcellAccum",
+          s"(L$VAL;Ljava/lang/String;L$VAL;)L$VAL;", false)
       case t @ Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
         if genLongCmpValue(aop, a, b, ctx) then ()
         else if canLong(t) then
