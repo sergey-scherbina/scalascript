@@ -1626,20 +1626,24 @@ def listTailDef =
         Cons(IrArm("Cons", 2, IrLocal(0)), Nil),
         None)))
 
--- __list_isEmpty(xs): true if Nil, else false
+-- __list_isEmpty(xs): true if Nil OR None, else false
+-- .isEmpty lowers here for BOTH List and Option (no type info at lowering time);
+-- None must count as empty (K62.21) — was only matching Nil, so None.isEmpty gave false.
 def listIsEmptyDef =
   IrDef("__list_isEmpty",
     IrLam(1,
       IrMatch(IrLocal(0),
-        Cons(IrArm("Nil", 0, IrLit(IrBool(true))), Nil),
+        Cons(IrArm("Nil", 0, IrLit(IrBool(true))),
+        Cons(IrArm("None", 0, IrLit(IrBool(true))), Nil)),
         Some(IrLit(IrBool(false))))))
 
--- __list_nonEmpty(xs): false if Nil, else true
+-- __list_nonEmpty(xs): false if Nil OR None, else true (symmetric with isEmpty, K62.21)
 def listNonEmptyDef =
   IrDef("__list_nonEmpty",
     IrLam(1,
       IrMatch(IrLocal(0),
-        Cons(IrArm("Nil", 0, IrLit(IrBool(false))), Nil),
+        Cons(IrArm("Nil", 0, IrLit(IrBool(false))),
+        Cons(IrArm("None", 0, IrLit(IrBool(false))), Nil)),
         Some(IrLit(IrBool(true))))))
 
 -- __str_toInt(s): parse s as integer, default 0 on failure

@@ -3579,7 +3579,11 @@ object Prims:
 
   private def out(v: Value, ps: java.io.PrintStream): Unit = v match
     case StrV(s) => ps.print(s)
-    case _ => ps.print(Show.show(v))
+    // Containers render via anyStr (the parity display renderer: unquoted nested
+    // strings — Some(x), List(a, b)), NOT Show.show, which quotes StrV children and
+    // broke println parity on the native front (Some("x") / List("a", "b")). This
+    // matches __autoPrint__ (line ~2024) and the anyStr contract documented above.
+    case _ => ps.print(anyStr(v))
 
 // coreir.encode — serialize an IR-as-Data tree (built by an ssc0 program) to the
 // canonical Core IR text (specs/12-ir-format.md). The format stays owned by the kernel
