@@ -1,5 +1,26 @@
 # Bug tracker
 
+## v21-parity-external-http-flake — live httpbin makes VM/ASM parity one-sided
+
+**Status:** open (2026-07-11); found by codex while verifying native extension
+dispatch.
+
+- **Real-harness repro:** run `scripts/bc-parity-sweep --ssc bin/ssc-standard
+  --report target/v21-standard-bc-parity-current.tsv`. The sweep executed
+  `examples/v2-http-sql-demo.ssc` twice against live
+  `https://httpbin.org/status/200`; the VM request timed out while the ASM run
+  succeeded, producing forbidden `vm-error 1/0` despite identical compiler and
+  runtime semantics.
+- **Expected:** release parity must be deterministic and must not compare two
+  independent public-network outcomes. The live HTTP demo belongs to the
+  reviewed nondeterministic/server skip lane unless supplied a local fixture.
+- **Observed root cause:** the parity skip classifier does not recognize this
+  front-clean network example, so external availability can turn a skipped or
+  symmetric row into a one-sided release failure.
+- **Done-when:** add a source-derived deterministic skip classification with a
+  synthetic regression, rerun the real 195-row parity report to zero mismatch /
+  one-sided rows, and keep the entry `fixed` until Sergiy confirms.
+
 ## v2-swift-global-reg — generated Swift rejected ordinary top-level values
 
 **Status:** fixed (2026-07-11, `0174796ef`); found by codex while running the

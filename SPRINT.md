@@ -1246,6 +1246,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Int, and List extensions on VM/direct ASM; rerun
                               `extensions.ssc` and `script.ssc`, then shrink the
                               taxonomy only after all release gates stay green.
+                              - [ ] **TI-8.2d2e1 deterministic external-HTTP
+                                    parity:** classify `v2-http-sql-demo.ssc` as
+                                    a reviewed nondeterministic/server skip
+                                    before executing either lane, add a synthetic
+                                    classifier regression, and rerun the full
+                                    report to zero one-sided rows. Track in
+                                    `BUGS.md` as
+                                    `v21-parity-external-http-flake`.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
