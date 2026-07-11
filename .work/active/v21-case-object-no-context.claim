@@ -1,6 +1,0 @@
-feature/v21-case-object-no-context 2026-07-11T14:45:00Z
-agent: codex
-heartbeat: 2026-07-11T14:45:00Z
-status: in-progress
-done-so-far: NoContext import-boundary failure tracked in BUGS.md and TI-8.2d2s
-next: specify portable native case object parsing/lowering, then implement multi-file VM/ASM regression
