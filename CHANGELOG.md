@@ -11,7 +11,7 @@ handlers to VM and direct ASM without v1 `DocV`, `PluginBridge`, Scalameta, or
 a parser/renderer dependency. Ordered values share the `println` display
 contract; local definitions still win. VM/ASM/standard/build-jvm output is
 exact, dependency and distribution gates pass, and affected conformance is
-17/17. Landed through `f7cef379d`.
+17/17. Landed through `55619c912`.
 
 ## 2026-07-11 — fresh native Signal constructors use the reactive provider
 
@@ -19,7 +19,7 @@ Current-source installations no longer let K62.33 `Signal` constructors bypass
 the core-free reactive provider for legacy raw cells. VM and direct ASM prefer
 the provider and retain the old cell only in a bare kernel, restoring complete
 subscription updates in `signals-demo.ssc` and deterministic build-jvm output.
-Landed `2de959bc1` and `70165120f`.
+Landed `e3ab46f68` and `ffdb99a9b`.
 
 ## 2026-07-11 — ScalaScript 2 ships verified SwiftUI Apple applications
 
