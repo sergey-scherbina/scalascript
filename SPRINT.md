@@ -579,6 +579,12 @@ there before changing this plan.
                   element site/source on every rejection. Add strict generated
                   Swift gates for read-only targets and max-value overflow
                   (`v2-swiftui-event-increment-overflow-readonly`).
+                  Validation and mutation must resolve the same current Host
+                  cell; never install/invoke a caller-supplied signal wrapper
+                  closure after authenticating only its `(scope,id,kind)`.
+                  Forge a valid live wrapper with a marker write closure and
+                  prove the marker is inert while the current cell is safely
+                  updated or the event is source-rejected.
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope

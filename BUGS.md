@@ -1104,7 +1104,10 @@ room.
   malformed/read-only/overflow rejection includes the owning element site/source.
 - **Plan/done-when:** harden `NativeUiActions.run`/Store target validation and add
   strict generated-Swift regressions for max-value increment, read-only target,
-  zero mutation, no process trap, and exact source diagnostics. This is outside
+  zero mutation, no process trap, and exact source diagnostics. Validation and
+  mutation must bind to the same current Host cell: a forged otherwise-valid
+  wrapper with a marker write closure cannot execute that closure or resurrect
+  a disposed tombstone. This is outside
   the already approved async fetch/action slice; keep `fixed` until the Rozum
   reporter confirms it.
 
