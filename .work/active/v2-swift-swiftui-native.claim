@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T15:50:45Z
+heartbeat: 2026-07-11T16:56:04Z
 status: in-progress
-done-so-far: native-table adapter fixes are locally green (Swift 34/34, JS 52/52, JVM emitted helper 2/2, TUI 35/35, Rust 261/261); Rozum review round 3 is in progress
-next: obtain Rozum APPROVE, land the adapter slice, then implement the shared Apple table renderer and row actions
+done-so-far: adapter slice landed; Apple native-table decoder/model/view and row-action implementation is locally in round-2 blocker remediation
+next: share one URLSession runner, verify exact capabilities/transactional replacement/strict rowsPath, run 6/6 plus full 40/40, obtain Rozum APPROVE
