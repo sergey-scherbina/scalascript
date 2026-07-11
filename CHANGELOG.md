@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — dynamic selected toString preserves BigInt values
+
+The self-hosted lowerer now keeps `i->str` only for proven integer literals and
+routes dynamically shaped `.toString` receivers through the portable method
+table. Int, BigInt, Float, String, Decimal, and structural fallbacks therefore
+share one VM/ASM contract. `content-linked-namespaces.ssc` resolves its imported
+section and prints BigInt minor units `1234` identically on native VM, direct
+ASM, and deterministic `build-jvm`. Landed `60524918d`.
+
 ## 2026-07-11 — content binding executes as pure ScalaScript
 
 `contentBind` now validates and resolves dotted `ContentValue.MapV` paths,

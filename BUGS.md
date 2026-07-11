@@ -2,7 +2,7 @@
 
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
 
-**Status:** open (2026-07-11); found by codex after the native structural
+**Status:** fixed (2026-07-11, `60524918d`); found by codex after the native structural
 content provider exposed the next failure in `content-linked-namespaces.ssc`.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, both
@@ -17,6 +17,9 @@ content provider exposed the next failure in `content-linked-namespaces.ssc`.
   route every unproven receiver through `__method__("toString", value)`, add a
   focused structural regression for Int/BigInt/Float/String, and make the full
   linked-content example exact without weakening runtime errors.
+- **Verification:** stage-2 single/multi fixpoints, native-entry, focused
+  VM/ASM/build-jvm output, affected conformance 17/17, and the 195-row strict
+  corpus/parity sweep pass; runtime successes improve from 44 to 45.
 
 ## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
 

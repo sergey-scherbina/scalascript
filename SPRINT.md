@@ -2443,7 +2443,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               (not the structural content plugin). Gate the full
                               example byte-identically on VM/ASM/build-jvm and
                               keep user-defined interpolator dispatch unchanged.
-                        - [ ] **TI-8.2d2x dynamic `BigInt.toString`:** after the
+                        - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
+                              2026-07-11 (`60524918d`):** after the
                               structural content provider resolves
                               `contentModuleSection`,
                               `examples/content-linked-namespaces.ssc` prints
@@ -2458,6 +2459,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               lanes plus build-jvm. Coordinate with the active
                               typeclass/lowerer claim before editing
                               `v2/lib/ssc1-lower.ssc0`.
+                              Result: only proven integer literals retain
+                              `i->str`; dynamic receivers use `__method__` and
+                              the full linked-content example prints the section
+                              title plus `1234` identically on VM/ASM/artifact.
+                              Stage-2, native-entry, conformance 17/17, and full
+                              corpus/parity pass with 45 runtime successes.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
