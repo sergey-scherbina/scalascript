@@ -1900,6 +1900,30 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomies, standard/slim/JRE/build-jvm, and fresh
                               `v2-*` conformance pass. Spec:
                               `specs/v2.1-native-effect-runtime.md`.
+                        - [ ] **TI-8.2d2w1 explicit effect declarations and
+                              handlers:** retain ordinary `effect E` declaration
+                              boundaries and operations, lower `handle(body) {
+                              case ... }` to the existing portable
+                              `effect.handle` primitive, and prove deep one-shot,
+                              early-return, and reusable multi-shot resume with
+                              exact imported VM/ASM regressions plus full
+                              `effects.ssc` compatibility output.
+                        - [ ] **TI-8.2d2w2 standard portable effect runners:**
+                              after explicit handlers are exact, isolate
+                              `algebraic-effects.ssc` runners (`runLogger`,
+                              `runState`, `runLoggerToList`, `runStream`) and
+                              implement only missing target-neutral standard
+                              effect semantics through core-free providers or
+                              portable runtime definitions, with nested runner
+                              and multi-shot coverage.
+                        - [ ] **TI-8.2d2x parser recovery companion dispatch:**
+                              `dsl-sql-recovery.ssc` imports the same self-hosted
+                              Parser companion that works in YAML but currently
+                              reaches `Parser.regex` as a fallback `Op/3` in this
+                              larger recovery closure. Isolate declaration/
+                              ownership order across its four imports, restore
+                              the existing `PRegex` constructor dispatch, and
+                              keep parser recovery as ordinary `.ssc` code.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line
@@ -2348,6 +2372,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         Each provider family needs unit coverage, assembled
                         VM/ASM coverage, and forbidden-dependency/class-load
                         gates before its taxonomy rows can leave the blocker set.
+                        - [ ] **TI-8.2d3g core-free Dataset provider:**
+                              `dataset-stats.ssc` currently reaches unresolved
+                              `Dataset.of` as a fallback effect `Op`; this is not
+                              an algebraic-effect handler gap. Port the existing
+                              lazy Dataset method-object contract into a
+                              core-free native standard provider, preserving
+                              deterministic collection semantics and exact
+                              VM/ASM/build-jvm output without `PluginBridge`.
+                              Gate dependency/class-load/module limits before
+                              reclassifying and retiring the row.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
