@@ -51,6 +51,9 @@ object RustGen:
     val authUsage   = scanAuthUsage(astModule)
     val wsUsage     = scanWsUsage(astModule)
     val mcpUsage    = scanMcpUsage(astModule)
+    // Outbound HTTP client — independent of the http SERVER scan above, so a
+    // pure-client program pulls only `ureq` (not hyper/tokio).
+    val httpClientUsage = scanHttpClientUsage(astModule)
     // rust-tui-toolkit (S1): `uiTarget=tui` renders the View to ratatui instead of
     // HTML/SSR — `serve` routes to a ratatui run (not a hyper server), so the http
     // server runtime + deps are suppressed and a `tui.rs` + ratatui deps are emitted.
@@ -59,7 +62,7 @@ object RustGen:
     // program may use no bare View primitive the scan recognises — so the tui target
     // always emits the `ui` module.
     val uiUsage     = scanUiUsage(astModule) || tuiTarget
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget, httpClientUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -72,7 +75,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget, httpClientUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -97,6 +100,9 @@ object RustGen:
           if httpUsage then
             sb.append("\n// ── R.5 — HTTP server runtime ──\n")
             sb.append("pub mod http;\n")
+          if httpClientUsage.nonEmpty then
+            sb.append("\n// ── outbound HTTP client runtime ──\n")
+            sb.append("pub mod http_client;\n")
           if authUsage.nonEmpty then
             sb.append("\n// ── R.6 — auth runtime ──\n")
             sb.append("pub mod auth;\n")
@@ -176,6 +182,13 @@ object RustGen:
             RustRuntimeTemplates.McpRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
+        val httpClientAsset =
+          if httpClientUsage.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/http_client.rs",
+            RustRuntimeTemplates.HttpClientRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
         val uiAsset =
           if !uiUsage then Nil
           else List(Segment.Asset(
@@ -190,7 +203,7 @@ object RustGen:
             RustRuntimeTemplates.TuiRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ uiAsset ++ tuiAsset)
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ httpClientAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ uiAsset ++ tuiAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -240,6 +253,16 @@ object RustGen:
    *  Returns the set of names actually reached; non-empty triggers serde_json dep. */
   private[rust] def scanMcpUsage(astModule: scalascript.ast.Module): Set[String] =
     val names = Set("mcpRegisterTool", "mcpServe")
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, names, found))
+    found.toSet
+
+  /** Scan for outbound HTTP-client intrinsic calls. Separate from
+   *  `scanHttpUsage` (server) so a pure-client program pulls only `ureq`, not
+   *  hyper/tokio. Non-empty emits `src/runtime/http_client.rs` + the ureq dep. */
+  private[rust] def scanHttpClientUsage(astModule: scalascript.ast.Module): Set[String] =
+    val names = Set("httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
+                    "httpClient", "httpTimeout", "httpRetry")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
@@ -354,7 +377,8 @@ object RustGen:
       wsUsage:     Set[String] = Set.empty,
       mcpUsage:    Set[String] = Set.empty,
       uiUsage:     Boolean     = false,
-      tuiTarget:   Boolean     = false
+      tuiTarget:   Boolean     = false,
+      httpClientUsage: Set[String] = Set.empty
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -404,6 +428,10 @@ object RustGen:
     val needsSerdeJson = cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify")
     if mcpUsage.nonEmpty && !needsSerdeJson then
       depLines += "serde_json = \"1.0\""
+    // Outbound HTTP client — blocking `ureq` (rustls TLS). Independent of the http
+    // server; dedup with the tui path which also adds ureq.
+    if httpClientUsage.nonEmpty && !depLines.exists(_.startsWith("ureq")) then
+      depLines += "ureq = \"2\""
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

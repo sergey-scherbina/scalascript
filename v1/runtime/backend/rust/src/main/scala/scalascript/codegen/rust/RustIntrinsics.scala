@@ -66,6 +66,16 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("serve")            -> RuntimeCall("crate::runtime::http::_http_serve"),
   QualifiedName("route")            -> RuntimeCall("crate::runtime::http::_http_route"),
   QualifiedName("requestCookie")    -> RuntimeCall("crate::runtime::http::_http_request_cookie"),
+  // Outbound HTTP client (`ureq`).  Low-arity forms here; the header overloads
+  // (httpGet/2, httpPost/3, …) and httpRetry/2 are arity-dispatched in
+  // RustCodeWalk before generic intrinsic resolution.
+  QualifiedName("httpGet")          -> RuntimeCall("crate::runtime::http_client::_http_get"),
+  QualifiedName("httpPost")         -> RuntimeCall("crate::runtime::http_client::_http_post"),
+  QualifiedName("httpPut")          -> RuntimeCall("crate::runtime::http_client::_http_put"),
+  QualifiedName("httpPatch")        -> RuntimeCall("crate::runtime::http_client::_http_patch"),
+  QualifiedName("httpDelete")       -> RuntimeCall("crate::runtime::http_client::_http_delete"),
+  QualifiedName("httpTimeout")      -> RuntimeCall("crate::runtime::http_client::_http_timeout"),
+  QualifiedName("httpRetry")        -> RuntimeCall("crate::runtime::http_client::_http_retry"),
   // R.6 — auth.  Pulls argon2 + jsonwebtoken + serde into Cargo.toml
   // only when at least one auth intrinsic is reached.
   QualifiedName("hashPassword")     -> RuntimeCall("crate::runtime::auth::_hash_password"),

@@ -73,6 +73,13 @@ object RustRuntimeTemplates:
   val HttpRs: String =
     RustRuntimeResource.load("HttpRs")
 
+  /** Outbound HTTP client (blocking, `ureq`).  Emitted as `src/runtime/http_client.rs`
+   *  only when httpGet/httpPost/httpClient are reached — independent of the http
+   *  SERVER (`serve`/`route`), so a pure-client program pulls only `ureq`, not
+   *  hyper/tokio.  Supplies `Response` + the thread-local timeout/retry/base config. */
+  val HttpClientRs: String =
+    RustRuntimeResource.load("HttpClientRs")
+
   /** std/ui `serve(view, port)` — SSR overload.  Appended to `http.rs` ONLY when
    *  the program also uses the View primitives (uiUsage), since it references
    *  `crate::runtime::ui`.  A pure `route`/`serve(port)` program omits it. */

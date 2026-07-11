@@ -1,0 +1,103 @@
+//! HTTP outbound client runtime — emitted when httpGet/httpPost/httpClient are reached.
+      |//! Blocking client via `ureq` (rustls TLS bundled). Mirrors the interpreter
+      |//! semantics: thread-local (base_url, timeout_ms, max_retries, retry_delay_ms);
+      |//! retries on a transport error OR status >= 500; non-2xx responses are RETURNED
+      |//! (not thrown), so `resp.status` reflects 4xx/5xx.
+      |
+      |use std::cell::RefCell;
+      |use std::collections::HashMap;
+      |use std::time::Duration;
+      |
+      |#[derive(Clone, Debug)]
+      |pub struct Response {
+      |    pub status: i64,
+      |    pub headers: HashMap<String, String>,
+      |    pub body: String,
+      |}
+      |
+      |thread_local! {
+      |    // (base_url, timeout_ms, max_retries, retry_delay_ms) — defaults match the interpreter.
+      |    static CFG: RefCell<(String, i64, i64, i64)> =
+      |        RefCell::new((String::new(), 30_000, 0, 1_000));
+      |}
+      |
+      |pub fn _http_timeout(ms: i64) { CFG.with(|c| c.borrow_mut().1 = ms); }
+      |pub fn _http_retry(n: i64) { CFG.with(|c| c.borrow_mut().2 = n); }
+      |pub fn _http_retry_d(n: i64, d: i64) {
+      |    CFG.with(|c| { let mut b = c.borrow_mut(); b.2 = n; b.3 = d; });
+      |}
+      |
+      |/// `httpClient(base) { block }` — install the scoped base URL, run the block
+      |/// eagerly (so nested httpTimeout/httpGet see it), then restore prior config.
+      |pub fn _http_client<F: FnOnce()>(base: String, block: F) {
+      |    let prior = CFG.with(|c| c.borrow().clone());
+      |    CFG.with(|c| c.borrow_mut().0 = base.trim_end_matches('/').to_string());
+      |    block();
+      |    CFG.with(|c| *c.borrow_mut() = prior);
+      |}
+      |
+      |fn resolve(raw: &str) -> (String, Duration, i64, i64) {
+      |    CFG.with(|c| {
+      |        let (base, t, r, d) = c.borrow().clone();
+      |        let url = if !base.is_empty() && !raw.starts_with("http") {
+      |            format!("{}{}", base, raw)
+      |        } else {
+      |            raw.to_string()
+      |        };
+      |        (url, Duration::from_millis(t.max(0) as u64), r, d)
+      |    })
+      |}
+      |
+      |fn to_resp(r: ureq::Response) -> Response {
+      |    let status = r.status() as i64;
+      |    let mut headers = HashMap::new();
+      |    for name in r.headers_names() {
+      |        if let Some(v) = r.header(&name) {
+      |            headers.insert(name, v.to_string());
+      |        }
+      |    }
+      |    let body = r.into_string().unwrap_or_default();
+      |    Response { status, headers, body }
+      |}
+      |
+      |fn run(method: &str, raw: &str, body: Option<&str>, extra: &HashMap<String, String>) -> Response {
+      |    let (url, timeout, max_retries, delay) = resolve(raw);
+      |    let agent = ureq::AgentBuilder::new()
+      |        .timeout_read(timeout)
+      |        .timeout_connect(timeout)
+      |        .build();
+      |    let mut attempt: i64 = 0;
+      |    loop {
+      |        let mut req = agent.request(method, &url);
+      |        for (k, v) in extra { req = req.set(k, v); }
+      |        let result = match body {
+      |            Some(b) => req.send_string(b),
+      |            None => req.call(),
+      |        };
+      |        attempt += 1;
+      |        match result {
+      |            Ok(r) => return to_resp(r),
+      |            Err(ureq::Error::Status(_, r)) => {
+      |                let rp = to_resp(r);
+      |                if rp.status < 500 || attempt >= max_retries + 1 { return rp; }
+      |            }
+      |            Err(_) => {
+      |                if attempt >= max_retries + 1 {
+      |                    return Response { status: 0, headers: HashMap::new(), body: String::new() };
+      |                }
+      |            }
+      |        }
+      |        std::thread::sleep(Duration::from_millis(delay.max(0) as u64));
+      |    }
+      |}
+      |
+      |pub fn _http_get(url: String) -> Response { run("GET", &url, None, &HashMap::new()) }
+      |pub fn _http_get_h(url: String, h: HashMap<String, String>) -> Response { run("GET", &url, None, &h) }
+      |pub fn _http_post(url: String, body: String) -> Response { run("POST", &url, Some(&body), &HashMap::new()) }
+      |pub fn _http_post_h(url: String, body: String, h: HashMap<String, String>) -> Response { run("POST", &url, Some(&body), &h) }
+      |pub fn _http_put(url: String, body: String) -> Response { run("PUT", &url, Some(&body), &HashMap::new()) }
+      |pub fn _http_put_h(url: String, body: String, h: HashMap<String, String>) -> Response { run("PUT", &url, Some(&body), &h) }
+      |pub fn _http_patch(url: String, body: String) -> Response { run("PATCH", &url, Some(&body), &HashMap::new()) }
+      |pub fn _http_patch_h(url: String, body: String, h: HashMap<String, String>) -> Response { run("PATCH", &url, Some(&body), &h) }
+      |pub fn _http_delete(url: String) -> Response { run("DELETE", &url, None, &HashMap::new()) }
+      |pub fn _http_delete_h(url: String, h: HashMap<String, String>) -> Response { run("DELETE", &url, None, &h) }

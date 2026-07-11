@@ -1855,6 +1855,54 @@ object RustCodeWalk:
         p <- renderTerm(args.values(1), ctx)
       yield s"crate::runtime::http::_ui_serve($v, $p)"
 
+    // ── Outbound HTTP client — arity-dispatched overloads ──────────────────────
+    // The low-arity forms (httpGet/1, httpPost/2, httpRetry/1, httpTimeout/1) are
+    // generic `RuntimeCall` intrinsics. The header overloads and httpRetry/2 need
+    // a distinctly-named Rust fn (Rust has no overloading), so they bind HERE,
+    // before generic intrinsic resolution.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("httpGet"), args) if args.values.size == 2 =>
+      for
+        u <- renderTerm(args.values(0), ctx)
+        h <- renderTerm(args.values(1), ctx)
+      yield s"crate::runtime::http_client::_http_get_h($u, $h)"
+    case m.Term.Apply.After_4_6_0(m.Term.Name("httpDelete"), args) if args.values.size == 2 =>
+      for
+        u <- renderTerm(args.values(0), ctx)
+        h <- renderTerm(args.values(1), ctx)
+      yield s"crate::runtime::http_client::_http_delete_h($u, $h)"
+    case m.Term.Apply.After_4_6_0(m.Term.Name("httpPost"), args) if args.values.size == 3 =>
+      for
+        u <- renderTerm(args.values(0), ctx)
+        b <- renderTerm(args.values(1), ctx)
+        h <- renderTerm(args.values(2), ctx)
+      yield s"crate::runtime::http_client::_http_post_h($u, $b, $h)"
+    case m.Term.Apply.After_4_6_0(m.Term.Name("httpPut"), args) if args.values.size == 3 =>
+      for
+        u <- renderTerm(args.values(0), ctx)
+        b <- renderTerm(args.values(1), ctx)
+        h <- renderTerm(args.values(2), ctx)
+      yield s"crate::runtime::http_client::_http_put_h($u, $b, $h)"
+    case m.Term.Apply.After_4_6_0(m.Term.Name("httpPatch"), args) if args.values.size == 3 =>
+      for
+        u <- renderTerm(args.values(0), ctx)
+        b <- renderTerm(args.values(1), ctx)
+        h <- renderTerm(args.values(2), ctx)
+      yield s"crate::runtime::http_client::_http_patch_h($u, $b, $h)"
+    case m.Term.Apply.After_4_6_0(m.Term.Name("httpRetry"), args) if args.values.size == 2 =>
+      for
+        n <- renderTerm(args.values(0), ctx)
+        d <- renderTerm(args.values(1), ctx)
+      yield s"crate::runtime::http_client::_http_retry_d($n, $d)"
+    // `httpClient(base) { block }` — curried by-name block. Render the block as a
+    // Unit closure so `_http_client` installs the scoped base BEFORE running it.
+    case m.Term.Apply.After_4_6_0(
+           m.Term.Apply.After_4_6_0(m.Term.Name("httpClient"), baseArgs), blockArgs)
+        if baseArgs.values.size == 1 && blockArgs.values.size == 1 =>
+      for
+        base  <- renderTerm(baseArgs.values(0), ctx)
+        block <- renderBody(blockArgs.values(0), ctx, isUnit = true)
+      yield s"crate::runtime::http_client::_http_client($base, || {\n$block\n})"
+
     // std/ui `element(tag, attrs, events, children)` — the attrs map is
     // `Map[String, Any]` with mixed value types (String/bool/Value); coerce each
     // attr value to a String via `_ui_attr(...)` so the HashMap is homogeneous.
