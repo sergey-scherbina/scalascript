@@ -11,7 +11,7 @@ routes dynamically shaped `.toString` receivers through the portable method
 table. Int, BigInt, Float, String, Decimal, and structural fallbacks therefore
 share one VM/ASM contract. `content-linked-namespaces.ssc` resolves its imported
 section and prints BigInt minor units `1234` identically on native VM, direct
-ASM, and deterministic `build-jvm`. Landed `60524918d`.
+ASM, and deterministic `build-jvm`. Landed `0c6719718`.
 
 ## 2026-07-11 — content binding executes as pure ScalaScript
 
