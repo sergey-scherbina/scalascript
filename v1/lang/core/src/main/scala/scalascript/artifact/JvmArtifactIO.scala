@@ -37,7 +37,7 @@ object JvmArtifactIO:
    *  after any codegen change gives a new stamp → cache miss → regeneration.
    *  In a released, unchanged install the stamp is stable, so the cache still
    *  works run-to-run. Falls back to a constant if the location is unavailable. */
-  private lazy val compilerBuildStamp: String =
+  private[artifact] lazy val compilerBuildStamp: String =
     try
       val loc = getClass.getProtectionDomain.getCodeSource.getLocation
       val f   = new java.io.File(loc.toURI)

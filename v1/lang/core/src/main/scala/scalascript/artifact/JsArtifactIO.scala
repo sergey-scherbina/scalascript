@@ -18,6 +18,18 @@ import upickle.default.{read, write}
  *  v2.0 — JS incremental codegen cache. */
 object JsArtifactIO:
 
+  /** JS codegen cache key — mirrors JvmArtifactIO.CurrentCodegenVersion. The
+   *  manual prefix is a human-anchored bump point; the auto-suffix is the same
+   *  running-compiler fingerprint (shared `JvmArtifactIO.compilerBuildStamp`),
+   *  so any compiler rebuild invalidates cached `.scjs` artifacts even when the
+   *  codegen author forgets to bump the prefix — the same trap that silently
+   *  served stale `.scjvm` files (kept in sync across both backends). */
+  val CurrentCodegenVersion: String =
+    s"js-codegen-2026-07-11-${JvmArtifactIO.compilerBuildStamp}"
+
+  def hasCurrentCodegenVersion(art: ModuleJsArtifact): Boolean =
+    art.codegenVersion == CurrentCodegenVersion
+
   /** Serialise a `ModuleJsArtifact` to a pretty-printed JSON string.
    *  The result is suitable for writing to a `.scjs` file. */
   def writeJs(art: ModuleJsArtifact): String =
@@ -48,7 +60,8 @@ object JsArtifactIO:
       jsSource      = jsSource,
       imports       = imports,
       capabilities  = capabilities.sorted,
-      sectionHashes = sectionHashes
+      sectionHashes = sectionHashes,
+      codegenVersion = CurrentCodegenVersion
     )
     writeJs(art)
 

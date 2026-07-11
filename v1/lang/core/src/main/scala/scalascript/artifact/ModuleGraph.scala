@@ -309,7 +309,7 @@ object ModuleGraph:
       case Left(_) => true
       case Right(art) =>
         val currentHash = InterfaceExtractor.sourceFileHash(os.read.bytes(srcPath))
-        art.sourceHash != currentHash
+        art.sourceHash != currentHash || !JsArtifactIO.hasCurrentCodegenVersion(art)
 
   private def buildNode(path: os.Path): Node =
     val src    = scala.util.Try(os.read(path)).getOrElse("")

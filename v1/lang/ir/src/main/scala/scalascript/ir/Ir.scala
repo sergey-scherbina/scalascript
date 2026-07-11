@@ -895,7 +895,13 @@ case class ModuleJsArtifact(
    *  with `.scjs` artifacts emitted before this field existed. */
   sectionHashes: Map[String, String] = Map.empty,
   /** Per-section interface SHA-256 hashes.  See `ModuleInterface.sectionInterfaceHashes`. */
-  sectionInterfaceHashes: Map[String, String] = Map.empty
+  sectionInterfaceHashes: Map[String, String] = Map.empty,
+  /** JS backend codegen cache key — mirrors ModuleJvmArtifact.codegenVersion.
+   *  `sourceHash` only tracks the `.ssc` bytes; this also invalidates
+   *  source-fresh `.scjs` files emitted by an older JS backend. Empty default
+   *  keeps legacy artifacts readable; `ModuleGraph.isJsStale` treats
+   *  legacy/old-version values as stale so they are regenerated. */
+  codegenVersion: String = ""
 ) derives ReadWriter
 
 /** Shared JS runtime artifact — written as `.scjs-runtime` JSON.
