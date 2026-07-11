@@ -1,0 +1,20 @@
+---
+name: v21-native-bind-pattern
+---
+
+[BoundBox, BoundEnvelope,
+ describeBound](bind-pattern-lib.ssc)
+
+```scalascript
+var bindCalls = 0
+
+def nextBound(hit: Boolean): Any =
+  bindCalls = bindCalls + 1
+  if hit then BoundEnvelope(Some(BoundBox(7)), "ok")
+  else BoundEnvelope(None, "none")
+
+println(describeBound(nextBound(true)))
+println(bindCalls)
+println(describeBound(nextBound(false)))
+println(bindCalls)
+```

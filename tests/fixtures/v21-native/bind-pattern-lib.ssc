@@ -1,0 +1,14 @@
+---
+name: v21-native-bind-pattern-lib
+---
+
+```scalascript
+case class BoundBox(value: Int)
+case class BoundEnvelope(payload: Option[BoundBox], label: String)
+
+def describeBound(input: Any): String = input match
+  case whole @ BoundEnvelope(Some(BoundBox(value)), _) =>
+    whole.toString + "|" + value
+  case BoundEnvelope(_, label) => "fallback:" + label
+  case _ => "miss"
+```
