@@ -47,7 +47,6 @@ storage-demo.ssc	standard-provider	yes	storage	runEphemeralStorage is missing fr
 totp-shamir-demo.ssc	standard-provider	yes	crypto	totp is missing from the core-free standard crypto provider
 typeclass.ssc	language-runtime	yes	typeclass	exact summon now runs; an explicitly passed typeclass dictionary remains a sentinel value whose member dispatch fails
 typed-sql-crud.ssc	example-contract	yes	sql	the deterministic native run queries TODOS before the fixture creates it
-ui-remote-table.ssc	standard-provider	yes	ui	fieldColumn is missing from the core-free standard UI provider
 wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
 wasm-scalascript.ssc	tools-backend	no	wasm	WASM ScalaScript syntax is already a reviewed backend surface
 x402-client.ssc	tools-backend	no	x402	compiler-backed Scala/sttp client syntax is already a reviewed tools surface
