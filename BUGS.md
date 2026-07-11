@@ -2,7 +2,7 @@
 
 ## tkv2-js-duplicate-nodecrypto — generated JS declares `_nodeCrypto` twice
 
-**Status:** open (2026-07-11); found by codex in the mandatory no-memo
+**Status:** done (2026-07-11, `aab53ab3c`); found by codex in the mandatory no-memo
 `tkv2-*` landing gate for Apple distribution round 2 after rebasing current
 `origin/main`.
 
@@ -19,6 +19,11 @@
   browser/Node crypto behavior, add a generated-source duplicate-declaration
   regression, then require isolated JS repro plus full `tkv2-* --no-memo`
   12/12 before the Swift distribution push.
+- **Root cause/fix:** security hardening `ed5fcc52a` added a second
+  `var _nodeCrypto` to `JsRuntimeFs`, while the earlier core-collections
+  preamble already owns `const _nodeCrypto` and is concatenated first. The fs
+  runtime now reuses that binding; the focused declaration gate passes 22/22,
+  isolated INT+JS execution passes, and the assembled no-memo corpus is 12/12.
 
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
 
@@ -95,7 +100,7 @@ ownership and rerunning the installed native-entry gate.
   exact again, and rerun native-entry, release, and fresh conformance gates.
 ## v2-swift-distribution-authority-gaps — signed routes can rebuild or select an unverified product
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** done (2026-07-11, through `c75f49fe2`); reported by `nativeui-reviewer` in the
 `scalascript` Rozum room during the `v2-swiftui-apple-distribution-adapters`
 pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
 
@@ -141,6 +146,12 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
   verified archive/export handoffs, device deploy, Developer-ID/notary/DMG, and
   explicit IPA/PKG fastlane upload; gate with pure argv/env, fake-runner,
   synthetic archive/export, syntax, and assembled bounded-negative tests.
+- **Root cause/fix:** signed routes still delegated product selection to legacy
+  parser/generator/path conventions and allowed upload tooling to rebuild.
+  They now share one checked-v2 context, platform-strict app/archive verifier,
+  canonical fresh exports, bounded preflight, and explicit artifact-only
+  fastlane lanes. `nativeui-reviewer` confirmed round 3; Swift is 43/43, the
+  combined CLI matrix 53/53, assembled e2e passes, and `tkv2-*` is 12/12.
 ## v21-native-extern-class-members-escape — abstract fields become parser sentinels
 
 **Status:** fixed (2026-07-11, `fd36ee87e`), awaiting Sergiy confirmation; found by codex in the exhaustive post-effect

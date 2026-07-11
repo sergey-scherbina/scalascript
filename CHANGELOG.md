@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI ships verified signed Apple applications
+
+Checked-v2 Xcode artifact authority now drives physical-device deployment,
+canonical IPA and Mac PKG exports, Developer-ID verification, bounded
+keychain-profile notarization/stapling/DMG, and explicit TestFlight/App Store
+uploads. Every route preflights tools and credentials, verifies the exact
+platform app, bypasses v1, and prevents fastlane rebuild/product discovery.
+Rozum round 3 approved; Swift 43/43, CLI 53/53, assembled e2e, and toolkit
+conformance 12/12 pass. Landed through `c75f49fe2`.
+
+## 2026-07-11 — JS runtime owns one Node crypto binding
+
+The filesystem runtime now reuses the core-collections `_nodeCrypto` binding
+instead of redeclaring it in the concatenated classic-script scope. The new
+declaration-count regression passes 22/22 and restores all `tkv2-*` JS lanes;
+the assembled no-memo corpus is 12/12. Landed `aab53ab3c`.
+
 ## 2026-07-11 — dynamic selected toString preserves BigInt values
 
 The self-hosted lowerer now keeps `i->str` only for proven integer literals and

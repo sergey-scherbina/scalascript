@@ -962,39 +962,39 @@ there before changing this plan.
             acceptance evidence `3942297ca`, and docs `40eb9c31f` landed;
             Rozum round 3 APPROVE. Swift 43/43, CLI 8/8, assembled e2e, and
             `tkv2-*` 12/12 are green.
-      - [ ] **v2-swiftui-apple-distribution-adapters** — after the common
+      - [x] **v2-swiftui-apple-distribution-adapters** — after the common
             `XcodeAppArtifact` helper lands, route signed device/archive/IPA,
             macOS codesign/notarization/DMG, TestFlight, and App Store lanes to
             that artifact with their existing bounded credential/tool errors;
             no adapter may regenerate through v1 or infer a hard-coded Debug path.
             Pre-code audit is BLOCKED until the following exact authority is
             committed to `specs/v2-swift-swiftui-native.md` and re-approved:
-            - [ ] construct one `V2AppleDistributionContext` from one checked
+            - [x] construct one `V2AppleDistributionContext` from one checked
                   `SwiftV2Cli.emit`; ban `Parser`, `swiftAppName`, `JvmGen`,
                   `buildSwiftUIPackage`, inferred paths, and CLI product use;
-            - [ ] share destination/configuration-aware build-settings query
+            - [x] share destination/configuration-aware build-settings query
                   and app verifier. Archive Release with explicit project,
                   scheme, destination, archive/derived paths, provisioning/team
                   args; resolve `ApplicationPath` from xcarchive Info.plist,
                   reject traversal, require `Products`, then verify exact APPL/
                   bundle/non-CLI executable before export;
-            - [ ] v2 iOS device run accepts `--team-id` with CLI >
+            - [x] v2 iOS device run accepts `--team-id` with CLI >
                   `SSC_TEAM_ID`, requires it, performs signed Debug build via
                   the artifact, verifies the app, and passes only that bundle
                   plus exact optional device id to `ios-deploy`;
-            - [ ] iOS package maps legacy export names to Xcode 26.5 canonical
+            - [x] iOS package maps legacy export names to Xcode 26.5 canonical
                   `debugging|release-testing|app-store-connect|enterprise`,
                   exports to a fresh owned directory, and requires exactly one
                   IPA. macOS Developer-ID export verifies the app/codesign,
                   notarizes a bounded `ditto --keepParent` ZIP via explicit
                   keychain profile, staples/validates, then optionally creates
                   a DMG from that exact app;
-            - [ ] publish first builds/verifies the app-store-connect IPA or
+            - [x] publish first builds/verifies the app-store-connect IPA or
                   Mac App Store PKG, then fastlane `pilot`/`deliver` uploads the
                   explicit path; generated Fastfiles never call `gym`.
                   Existing `--fastlane` receives the same explicit artifact/
                   project/scheme/bundle env contract only after CLI verification;
-            - [ ] credentials are noninteractive and bounded: team CLI > env,
+            - [x] credentials are noninteractive and bounded: team CLI > env,
                   API-key JSON flag > env, notary profile flag > env; all tool
                   probes catch spawn failures. Gate pure argv/env plans,
                   synthetic archive traversal/wrong-app/duplicate exports,
@@ -1023,6 +1023,11 @@ there before changing this plan.
             still requiring `key_id` + `key`; and tests cover both independent
             notarize/DMG toggle combinations plus assembled plain non-v1 macOS
             package routing before Parser.
+            Result: published through `c75f49fe2` after Rozum round 3 APPROVE.
+            One checked context now drives signed device/archive/IPA,
+            Developer-ID/notary/DMG, TestFlight, iOS App Store, and Mac App
+            Store. Swift 43/43, CLI 53/53, assembled e2e, and `tkv2-*` 12/12
+            passed; generated fastlane never rebuilds or selects the debug CLI.
       - [x] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS
@@ -1050,7 +1055,7 @@ there before changing this plan.
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
-      - [ ] **tkv2-js-duplicate-nodecrypto** — the mandatory fresh assembled
+      - [x] **tkv2-js-duplicate-nodecrypto** — the mandatory fresh assembled
             `tkv2-* --no-memo` gate is 1/12 after the current-main rebase:
             every JS case fails at generated stdin line 2098 because
             `_nodeCrypto` is declared twice, while all applicable INT lanes
@@ -1058,6 +1063,8 @@ there before changing this plan.
             browser/Node-safe crypto authority with a duplicate-source gate,
             then require isolated JS and full 12/12 green before publishing
             the Swift distribution slice.
+            Landed `aab53ab3c`: core collections remain the sole binding;
+            focused 22/22, isolated INT+JS, and full no-memo 12/12 pass.
       - [x] **tkv2-pwa-stale-default-backend** — the isolated real harness is
             11/12 green; `tkv2-pwa` alone expects the retired `backend=jdk`
             banner while the installed default is now `backend=fast`, and all
