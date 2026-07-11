@@ -1165,6 +1165,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               mismatch/one-sided row, runtime blockers shrink
                               from 48 to 47, and native-entry plus conformance
                               10/10 pass.
+                        - [ ] **TI-8.2d2c default arguments:** preserve parameter
+                              defaults in the self-hosted declaration model and
+                              materialize omitted function and data-constructor
+                              arguments before CoreIR application. Cover both
+                              `default-params.ssc` and `typed-data.ssc` on
+                              assembled VM/direct ASM, reject over-arity without
+                              weakening runtime checks, and shrink taxonomy only
+                              after the native corpus, parity, native-entry, and
+                              fresh conformance gates pass.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
