@@ -1666,6 +1666,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               semantics and exact full `yaml-parse.ssc` output
                               on VM/direct ASM/build-jvm before retiring only its
                               standard-provider taxonomy row.
+                              - [ ] **TI-8.2d3d0 zero-arg println:** fix tracked
+                                    `v21-native-zero-arg-println-arity` by lowering
+                                    only empty global `println()` calls to a
+                                    portable empty-line print. Add a focused
+                                    VM/direct-ASM regression and keep ordinary
+                                    one-argument `println(value)` unchanged.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
