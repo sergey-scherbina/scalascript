@@ -1625,7 +1625,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               release gates. Result: the focused fixture prints
                               42/8/1/9 identically, `storage-demo.ssc` advances,
                               and native-entry plus fresh conformance 11/11 pass.
-                        - [ ] **TI-8.2d2p layout object bodies:** implement
+                        - [x] **TI-8.2d2p layout object bodies:** DONE
+                              2026-07-11 (`afe902ec8`, `b703a6bf0`; docs
+                              `626791f64`). Implement
                               `specs/v2.1-layout-object-bodies.md`. A colon-style
                               `object Parser:` currently opens no virtual layout
                               block: `skipToBrace` consumes its first member and
@@ -1639,6 +1641,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               rows and retire/reclassify only rows that fully
                               complete; require native-entry, full corpus/parity,
                               both taxonomies, and fresh conformance before push.
+                              Result: layout/braced objects print exact
+                              40/41/81 for properties, methods, and sibling
+                              references on VM/direct ASM. The three DSL rows
+                              advance to the separately tracked `PRegex/1` gap;
+                              parity remains 22/44/129 with zero mismatch or
+                              one-sided error, 32 reviewed blockers, and all
+                              release gates plus fresh conformance 11/11 green.
                         - [ ] **TI-8.2d2q `PRegex` constructor matching:** all
                               three parser-combinator examples now pass owned
                               `Parser_*` lookup but both VM and direct ASM fail

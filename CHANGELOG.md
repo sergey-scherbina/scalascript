@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — layout objects retain owned methods and properties
+
+The self-hosted frontend now gives `object Name:` the same virtual-brace scope
+as a braced object. First/later methods, parameterless properties, UID
+selectors, and sibling references lower under one owner prefix on native VM and
+direct ASM, while type-ascription colons remain non-layout syntax. Three parser
+DSLs advance from missing `Parser_*` globals to their next separately tracked
+constructor-match boundary. Landed `afe902ec8` and `b703a6bf0`; verified and
+documented `626791f64`.
+
 ## 2026-07-11 — runtime YAML joins the core-free JVM route
 
 A portable native provider now owns `std.yaml` parsing, total accessors, and

@@ -19,7 +19,8 @@ advanced all three parser-combinator examples past their missing owned members.
 
 ## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
 
-**Status:** open (2026-07-11); found by codex while selecting the next
+**Status:** done (2026-07-11, `afe902ec8`, property completion
+`b703a6bf0`); found and confirmed by codex while selecting the next
 toolchain-independence runtime blocker after core-free YAML.
 
 - **Real-harness repro:** run
@@ -39,6 +40,12 @@ toolchain-independence runtime blocker after core-free YAML.
   add focused braced/layout VM/ASM coverage, rerun the three parser-combinator
   rows, then update taxonomy only for examples that fully complete. Require
   native-entry, corpus/parity/taxonomy, and fresh affected conformance gates.
+- **Resolution:** object and trait headers now share contextual layout state;
+  owned methods and parameterless properties lower under one prefix for both
+  UID selectors and sibling references. The exact layout/braced fixture passes
+  VM/direct ASM, all three real DSLs leave the missing-global boundary, and all
+  release gates plus fresh conformance 11/11 pass. Their next independent
+  `PRegex/1` failure is tracked above.
 
 ## v2-swiftui-fetch-wrapper-silent-default — non-text fetch bindings render an empty value
 
