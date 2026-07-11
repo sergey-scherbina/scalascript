@@ -1,0 +1,6 @@
+feature/qa-conf-unskip 2026-07-11T10:26:08Z
+agent: claude-code (opus)
+heartbeat: 2026-07-11T10:26:08Z
+status: in-progress
+done-so-far: Audited all 55 real skipped conformance cases (V2ConformanceTest skipSet) via bridgeCli+Test-cp: 19 STALE-PASS (now pass — skip is stale), 36 genuinely need actor/cluster/coroutine/http/UI runtime.
+next: un-skip the SAFE, DETERMINISTIC stale-pass cases (content-*/js-*/storage — NOT the concurrency dataset/distributed/async ones which risk CI flakiness) in V2ConformanceTest.scala; VERIFY via the REAL sbt V2ConformanceTest before push (bridgeCli is only an approximation). Conservative: only un-skip what the real test confirms green. Touches v2/frontend-bridge/src/test/.../V2ConformanceTest.scala (skipSet).
