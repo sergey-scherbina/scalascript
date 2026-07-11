@@ -2326,10 +2326,10 @@ def selReplaceDef =
 -- _sel_mkString(obj, sep) → join list with separator
 -- IrLam(2): sep=local0, obj=local1
 -- IrLetRec: go=local0, sep=local1, obj=local2; call=go(obj)
--- go IrLam(1): xs=local0, go=local1, obj=local2, sep=local3
--- Cons arm (2 fields): tail=local0, head=local1, xs=local2, go=local3, sep=local5
+-- go IrLam(1): xs=local0, go=local1, sep=local2, obj=local3
+-- Cons arm (2 fields): tail=local0, head=local1, xs=local2, go=local3, sep=local4, obj=local5
 -- inner Nil arm body: head is local1 (0-field arm, no shift)
--- inner default: sconcat(head=local1, sconcat(sep=local5, go(tail=local0)))
+-- inner default: sconcat(head=local1, sconcat(sep=local4, go(tail=local0)))
 -- sconcat(x, "") converts x to string via anyStr (correct for any element)
 def selMkStringDef =
   let nilArm  = IrArm("Nil", 0, IrLit(IrStr(""))) in
@@ -2341,7 +2341,7 @@ def selMkStringDef =
       Some(IrPrim("sconcat",
         Cons(IrLocal(1),
         Cons(IrPrim("sconcat",
-          Cons(IrLocal(5),
+          Cons(IrLocal(4),
           Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)),
           Nil))),
         Nil))))) in

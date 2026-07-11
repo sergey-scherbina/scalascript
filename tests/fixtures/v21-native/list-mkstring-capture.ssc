@@ -1,0 +1,10 @@
+---
+name: v21-native-list-mkstring-capture
+---
+
+```scalascript
+println("[" + List().mkString(", ") + "]")
+println(List("one").mkString(", "))
+println(List("one", "two", "three").mkString(", "))
+println(List(1, 2, 3).mkString("|"))
+```
