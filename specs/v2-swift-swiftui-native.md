@@ -471,9 +471,16 @@ building generated Swift; snapshot/string tests alone are insufficient.
   Decimal conversion. A generated SwiftPM package produced
   `(3.50, 0.125, 2.35, true, 12.30, Some(7))`; the suite is now 5/5 and the
   affected `money-portable-v2` conformance smoke remains green 1/1.
+- Follow-up `ddcc01156` added `effect.pure`, `effect.perform`, and
+  `effect.handle` to the same AppCore machine. Resumption is an ordinary
+  reusable Swift closure that folds the next explicit computation through the
+  handler; there is no thread-local or captured host stack. A real SwiftPM
+  package resumed one `Choose` continuation twice and returned `30`; the suite
+  is now 6/6, while the existing imported/multi-argument/transitive/multi-shot
+  effect conformance slice remains green 4/4 on all applicable lanes.
 - This is the first backend sub-slice, not closure of the Swift-core gate:
-  explicit `Pure`/`Op`, mutual-TCO, and real checked `.ssc` Money/effect domain
-  fixtures remain required before `v2-swift-core-backend` is complete.
+  mutual-TCO and real checked `.ssc` Money/effect domain fixtures remain
+  required before `v2-swift-core-backend` is complete.
 
 ### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
 
