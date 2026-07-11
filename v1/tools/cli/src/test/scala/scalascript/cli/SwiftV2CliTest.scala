@@ -11,6 +11,7 @@ final class SwiftV2CliTest extends AnyFunSuite:
       .getOrElse(fail("cannot locate repository root"))
 
   private val money = repoRoot / "tests" / "conformance" / "money-portable-v2.ssc"
+  private val appcoreExample = repoRoot / "examples" / "swift" / "appcore-money.ssc"
 
   test("emit writes deterministic v2 AppCore packages for macOS and iOS"):
     withLibPath {
@@ -50,7 +51,7 @@ final class SwiftV2CliTest extends AnyFunSuite:
     withLibPath {
       val out = os.temp.dir(prefix = "ssc-v2-swift-run-")
       try
-        val emitted = SwiftV2Cli.emit(money, out, SwiftPlatform.MacOS)
+        val emitted = SwiftV2Cli.emit(appcoreExample, out, SwiftPlatform.MacOS)
         assert(SwiftV2Cli.runPackage(emitted, Nil, "run-swift") == 0)
       finally os.remove.all(out)
     }

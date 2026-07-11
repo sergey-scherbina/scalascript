@@ -47,7 +47,7 @@ object SwiftBackend:
     "arr.new", "arr.len", "arr.get", "arr.set", "arr.push", "arr.pop", "arr.slice",
     "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
     "__method__", "__effect__", "__arith__", "__unary__",
-    "io.print", "io.println", "io.nanoTime", "io.args",
+    "io.print", "io.println", "io.nanoTime", "io.args", "global.reg",
   )
 
   def generate(
