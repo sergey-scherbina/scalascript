@@ -751,6 +751,8 @@ def resolveField = (robj, field) =>
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
     else if isListConstruction(robj) then
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
+    else if isConcatInf(robj) then
+      Pair("prim", Pair("__method__", Cons(Pair("str", "length"), Cons(robj, Nil))))
     else if isStrExpr(robj) then
       Pair("prim", Pair("slen", Cons(robj, Nil)))
     else
@@ -761,6 +763,8 @@ def resolveField = (robj, field) =>
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
     else if isListConstruction(robj) then
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
+    else if isConcatInf(robj) then
+      Pair("prim", Pair("__method__", Cons(Pair("str", "size"), Cons(robj, Nil))))
     else if isStrExpr(robj) then
       Pair("prim", Pair("slen", Cons(robj, Nil)))
     else
@@ -813,6 +817,16 @@ def resolveField = (robj, field) =>
     }
 
 -- KC5-micro: detect string-producing expressions after resolve (for + upgrade)
+-- K62.30: `a ++ b` is AMBIGUOUS — string concat OR list concat. isStrExpr treats it as a
+-- string, so `(xs ++ ys).length` mis-routed to slen and crashed ("slen: not Str: List(…)").
+-- A ++ receiver for .length/.size goes to the polymorphic runtime __method__ instead (String
+-- and List both answer length there), keeping the slen fast path for UNAMBIGUOUS strings.
+def isConcatInf = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      if #seq(tag, "inf") then match data { case Pair(op, lr) => #seq(op, "++") } else false
+  }
+
 def isStrExpr = (e) =>
   match e {
     case Pair(tag, data) =>

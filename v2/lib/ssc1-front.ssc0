@@ -694,12 +694,72 @@ def replacePh = (e, vn) =>
 def replacePhArgs = (args, vn) =>
   match args { case Nil => Nil case Cons(a, r) => Cons(replacePh(a, vn), replacePhArgs(r, vn)) }
 
+-- K62.29: each `_` in a placeholder expression is a DISTINCT parameter left-to-right, so
+-- `_ + _` is `(a, b) => a + b` (arity 2), not `__u => __u + __u` (arity 1, which crashed
+-- foldLeft/reduce with "arity: 1 expected, 2 given"). Count placeholders, bind each to __u<i>
+-- in traversal order, and emit an N-arg lambda.
+def countPh = (e) =>
+  match e {
+    case Pair(t, d) =>
+      if #seq(t, "ph") then 1
+      else if #seq(t, "inf") then
+        match d { case Pair(op, lr) => match lr { case Pair(l, r) =>
+          #i.add(countPh(l), countPh(r)) } }
+      else if #seq(t, "pre") then match d { case Pair(op, s) => countPh(s) }
+      else if #seq(t, "app") then
+        match d { case Pair(f, args) => #i.add(countPh(f), countPhArgs(args)) }
+      else if #seq(t, "sel") then match d { case Pair(o, fld) => countPh(o) }
+      else 0
+  }
+def countPhArgs = (args) =>
+  match args { case Nil => 0 case Cons(a, r) => #i.add(countPh(a), countPhArgs(r)) }
+
+-- replace placeholders left-to-right with __u<idx>; returns Pair(newExpr, nextIdx)
+def replacePhSeq = (e, idx) =>
+  match e {
+    case Pair(t, d) =>
+      if #seq(t, "ph") then Pair(Pair("var", #sconcat("__u", #i->str(idx))), #i.add(idx, 1))
+      else if #seq(t, "inf") then
+        match d { case Pair(op, lr) => match lr { case Pair(l, r) =>
+          match replacePhSeq(l, idx) { case Pair(nl, i1) =>
+            match replacePhSeq(r, i1) { case Pair(nr, i2) =>
+              Pair(Pair("inf", Pair(op, Pair(nl, nr))), i2) } } } }
+      else if #seq(t, "pre") then
+        match d { case Pair(op, s) =>
+          match replacePhSeq(s, idx) { case Pair(ns, i1) =>
+            Pair(Pair("pre", Pair(op, ns)), i1) } }
+      else if #seq(t, "app") then
+        match d { case Pair(f, args) =>
+          match replacePhSeq(f, idx) { case Pair(nf, i1) =>
+            match replacePhSeqArgs(args, i1) { case Pair(nargs, i2) =>
+              Pair(Pair("app", Pair(nf, nargs)), i2) } } }
+      else if #seq(t, "sel") then
+        match d { case Pair(o, fld) =>
+          match replacePhSeq(o, idx) { case Pair(no, i1) =>
+            Pair(Pair("sel", Pair(no, fld)), i1) } }
+      else Pair(e, idx)
+  }
+def replacePhSeqArgs = (args, idx) =>
+  match args {
+    case Nil => Pair(Nil, idx)
+    case Cons(a, r) =>
+      match replacePhSeq(a, idx) { case Pair(na, i1) =>
+        match replacePhSeqArgs(r, i1) { case Pair(nr, i2) =>
+          Pair(Cons(na, nr), i2) } }
+  }
+def phParams = (i, n) =>
+  if #i.ge(i, n) then Nil
+  else Cons(#sconcat("__u", #i->str(i)), phParams(#i.add(i, 1), n))
+
 -- wrap an argument expression in x => … if it holds a placeholder (but isn't a bare _)
 def wrapPhArg = (e) =>
   match e {
     case Pair(t, d) =>
       if #seq(t, "ph") then e
-      else if exprHasPh(e) then Pair("lam", Pair(Cons("__u", Nil), replacePh(e, "__u")))
+      else if exprHasPh(e) then
+        match replacePhSeq(e, 0) {
+          case Pair(newE, nIdx) => Pair("lam", Pair(phParams(0, countPh(e)), newE))
+        }
       else e
   }
 
