@@ -588,6 +588,74 @@ def partsToExpr = (parts) =>
 
 def buildSInterp = (raw) => partsToExpr(interpParts(raw))
 
+-- K62.26b: f"" format specifiers. In an f-string a ${expr} may be followed by a printf
+-- spec  %[-#+ 0,(<]*[width][.prec]<letter>  at the front of the NEXT literal (f"$x%-4s").
+-- splitFFormatPrefix peels that spec off (default "%s" when absent). buildFInterp emits
+-- app(var("__fInterpolate__"), [head, spec,arg,rest, …]); the lowerer routes it to the
+-- __fInterpolate__ prim (runtime String.format). Char codes: %=37 .=46 flags -#+ 0,(< .
+def isFmtFlag = (c) =>
+  if #i.eq(c, 45) then true else if #i.eq(c, 35) then true
+  else if #i.eq(c, 43) then true else if #i.eq(c, 32) then true
+  else if #i.eq(c, 48) then true else if #i.eq(c, 44) then true
+  else if #i.eq(c, 40) then true else #i.eq(c, 60)
+
+def splitFFormatPrefix = (part) =>
+  let len = slen(part) in
+  if #i.eq(len, 0) then Pair("%s", part)
+  else if #i.eq(sget(part, 0), 37) then
+    let rec scanFlags = (i) =>
+      if #i.ge(i, len) then i
+      else if isFmtFlag(sget(part, i)) then scanFlags(#i.add(i, 1)) else i in
+    let rec scanDigits = (i) =>
+      if #i.ge(i, len) then i
+      else if isDigit(sget(part, i)) then scanDigits(#i.add(i, 1)) else i in
+    let i1 = scanFlags(1) in
+    let i2 = scanDigits(i1) in
+    let i3 = if #i.lt(i2, len) then
+               (if #i.eq(sget(part, i2), 46) then scanDigits(#i.add(i2, 1)) else i2)
+             else i2 in
+    if #i.lt(i3, len) then
+      (if isAlpha(sget(part, i3)) then
+         let specEnd = #i.add(i3, 1) in
+         Pair(#sslice(part, 0, specEnd), #sslice(part, specEnd, len))
+       else Pair("%s", part))
+    else Pair("%s", part)
+  else Pair("%s", part)
+
+def mkFInterpCall = (args) => Pair("app", Pair(Pair("var", "__fInterpolate__"), args))
+
+def fArgExpr = (part) =>
+  match part { case Pair(ak, av) =>
+    if #seq(ak, "expr") then prV(parseExpr(lex(av))) else mkVar(av) }
+
+def goFArgs = (parts) =>
+  match parts {
+    case Nil => Nil
+    case Cons(arg, rest) =>
+      let ae = fArgExpr(arg) in
+      match rest {
+        case Nil => Cons(mkStr("%s"), Cons(ae, Cons(mkStr(""), Nil)))
+        case Cons(nxt, rest2) =>
+          match nxt { case Pair(nk, nv) =>
+            if #seq(nk, "str") then
+              match splitFFormatPrefix(nv) {
+                case Pair(spec, r) =>
+                  Cons(mkStr(spec), Cons(ae, Cons(mkStr(r), goFArgs(rest2))))
+              }
+            else Cons(mkStr("%s"), Cons(ae, Cons(mkStr(""), goFArgs(rest)))) }
+      }
+  }
+
+def buildFInterp = (raw) =>
+  let parts = interpParts(raw) in
+  match parts {
+    case Nil => mkStr("")
+    case Cons(p0, rest0) =>
+      match p0 { case Pair(pk, pv) =>
+        if #seq(pk, "str") then mkFInterpCall(Cons(mkStr(pv), goFArgs(rest0)))
+        else mkFInterpCall(Cons(mkStr(""), goFArgs(parts))) }
+  }
+
 -- K62.6c: underscore-placeholder support. An argument expression that CONTAINS a
 -- `_` (ph) but isn't a bare `_` becomes `x => <expr with ph→x>` — e.g.
 -- filter(_ % 2 == 0) → filter(x => x % 2 == 0). Bare f(_) is left as-is (rarer).
@@ -713,7 +781,7 @@ def parseAtom = (toks) =>
       else pr(mkVar(v), ts2)
     else if #seq(v, "f") then
       let ts2 = advance(toks) in
-      if kindIs("str", ts2) then pr(buildSInterp(tokVal(peek(ts2))), advance(ts2))
+      if kindIs("str", ts2) then pr(buildFInterp(tokVal(peek(ts2))), advance(ts2))
       else pr(mkVar(v), ts2)
     else if #seq(v, "raw") then
       let ts2 = advance(toks) in

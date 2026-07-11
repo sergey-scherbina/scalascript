@@ -957,6 +957,11 @@ def expandCallSugar = (fn, args) =>
       else expandDefaultCall(fn, args)
   }
 
+-- K62.26b: is this call the front's f-interpolation marker app(var("__fInterpolate__"), …)?
+def fInterpCall = (fn) =>
+  match fn { case Pair(ftag, fdata) =>
+    if #seq(ftag, "var") then #seq(fdata, "__fInterpolate__") else false }
+
 -- Main resolve function — transforms one AST node
 def resolveE = (expr) =>
   match expr {
@@ -982,6 +987,12 @@ def resolveE = (expr) =>
       else if #seq(tag, "app") then
         match data {
           case Pair(fn, args) =>
+            -- K62.26b: f"" interpolation is emitted by the front as
+            -- app(var("__fInterpolate__"), [head, spec,arg,rest, …]); route it to a prim
+            -- node so lowerE emits IrPrim("__fInterpolate__", …) (the runtime String.format
+            -- op), not an unbound-global call.
+            if fInterpCall(fn) then Pair("prim", Pair("__fInterpolate__", resolveArgs(args)))
+            else
             -- K62.17: expand omitted positional defaults into a scoped,
             -- single-evaluation lambda chain before ordinary call resolution.
             match expandCallSugar(fn, args) {
