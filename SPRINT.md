@@ -377,6 +377,23 @@ there before changing this plan.
       table/model nodes, accessibility, and offline status where platform
       semantics exist. Use a reduced busi screen as the conformance fixture;
       toy `Text`/`Button` output alone is insufficient.
+      Implementation slices (frozen spec `specs/v2-swift-swiftui-native.md`):
+      - [ ] **v2-swiftui-observation-store** — emit `AppleApp/NativeUiStore.swift`
+            with one stable `ObservableObject` cell per signal key, opaque
+            subscriber tokens, main-actor writes, retained `NativeUiSession`,
+            dependency-safe computed/equality reads, and deterministic disposal.
+            AppCore stays SwiftUI-free; all SscValue decoding lives at the seam.
+      - [ ] **v2-swiftui-recursive-renderer** — emit
+            `NativeUiRenderer.swift`/`NativeUiStyles.swift`; recursively decode
+            text/signal/show/fragment/element/forKeyed/unsupported and the exact
+            lowerer tag/style/accessibility inventory into SwiftUI. Preserve
+            structural ids and key moves; unknown semantic input renders the
+            sourced Unsupported diagnostic instead of disappearing.
+      - [ ] **v2-swiftui-actions-tables-html** — add control bindings and ordered
+            set/input/toggle/increment/navigation/fetch/form success actions,
+            native table/column/row-action decoding, persisted/online state, and
+            isolated non-persistent WKWebView trusted HTML. Gate cancellation,
+            2xx-only effects, exact payloads, and safe navigation/resource rules.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.
@@ -385,6 +402,16 @@ there before changing this plan.
       device deploy, `.ipa`, notarization, DMG, TestFlight, and App Store
       adapters working after the generator switch. Add the user-facing example
       and README/spec command matrix.
+      - [ ] **v2-swiftui-xcode-project** — UI mode emits the frozen `AppleApp/`
+            filenames/resources plus a deterministic application PBX target and
+            shared scheme compiling AppCore directly. Pin product type, bundle/
+            version/deployment settings, supported platforms, source/resource
+            phases, and ensure package/publish select the `.app`, never the CLI.
+      - [ ] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
+            source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
+            Info.plist/product type, run a bounded smoke, and compile an iOS
+            Simulator destination when the SDK exists. Re-run Swift/AppCore/JVM
+            ABI/toolkit conformance and obtain Rozum read-only approval.
 - [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
       `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
       exact supported glob form), verify every behavior
