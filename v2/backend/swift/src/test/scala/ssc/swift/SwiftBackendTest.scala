@@ -897,6 +897,14 @@ struct DeferredProbe {
     private static func makeList(_ values: [SscValue]) -> SscValue {
         values.reversed().reduce(.data("Nil", [])) { .data("Cons", [$1, $0]) }
     }
+    private static func string(_ value: SscValue) -> String {
+        guard case let .string(result) = value else { fatalError("expected String") }
+        return result
+    }
+    private static func int(_ value: SscValue) -> Int64 {
+        guard case let .int(result) = value else { fatalError("expected Int") }
+        return result
+    }
     @MainActor
     static func main() {
         let store = NativeUiStore()
@@ -1029,6 +1037,33 @@ struct DeferredProbe {
             fatalError("non-string event metadata key was accepted")
         }
         let fetchFields = fields(fetch, "NativeUiSignal")
+        NativeUiActions.run(
+            .data("NativeUiEvent", [.string("set"), fetch, .string("forbidden"), .map(SscMap())]),
+            input: nil,
+            store: store,
+            siteId: "deferred:action",
+            ownerPath: "root"
+        )
+        guard store.failure ==
+            "native event set target must be writable NativeUiSignal at deferred.ssc:20:3 [fetchAction]",
+              string(store.read(fetch)).isEmpty else {
+            fatalError("read-only live event target mutated or lost source")
+        }
+        let fetchMetadata = fields(fetchFields[5], "NativeUiSignalMetaFetch")
+        let refresh = fetchMetadata[1]
+        store.cell(for: refresh).write(.int(Int64.max))
+        NativeUiActions.run(
+            .data("NativeUiEvent", [.string("increment"), refresh, .int(1), .map(SscMap())]),
+            input: nil,
+            store: store,
+            siteId: "deferred:action",
+            ownerPath: "root"
+        )
+        guard store.failure ==
+            "native event increment would overflow Int64 at deferred.ssc:20:3 [fetchAction]",
+              int(store.read(refresh)) == Int64.max else {
+            fatalError("increment overflow trapped, mutated, or lost source")
+        }
         let forgedKind = SscValue.data("NativeUiSignal", [
             fetchFields[0], fetchFields[1], .string("bogus"),
             fetchFields[3], fetchFields[4], fetchFields[5]

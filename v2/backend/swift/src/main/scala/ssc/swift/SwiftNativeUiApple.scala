@@ -422,6 +422,8 @@ final class NativeUiStore: ObservableObject {
         return signalKind(signal, visiting: &visiting)
     }
 
+    func isUserWritable(_ signal: SscValue) -> Bool { session?.isWritable(signal) == true }
+
     private func signalKind(_ signal: SscValue, visiting: inout Set<ObjectIdentifier>) -> String? {
         guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
               case .string = fields[0], case .string = fields[1],
@@ -2354,6 +2356,10 @@ enum NativeUiActions {
             store.report("native event " + kind + " target must be NativeUiSignal at " + store.source(siteId))
             return
         }
+        guard store.isUserWritable(fields[1]) else {
+            store.report("native event " + kind + " target must be writable NativeUiSignal at " + store.source(siteId))
+            return
+        }
         switch kind {
         case "set": store.cell(for: fields[1]).write(fields[2])
         case "input":
@@ -2370,7 +2376,11 @@ enum NativeUiActions {
             guard case let .int(amount) = fields[2], case let .int(value) = store.read(fields[1]) else {
                 store.report("native event increment requires Int payload and Int target at " + store.source(siteId)); return
             }
-            store.cell(for: fields[1]).write(.int(value + amount))
+            let (next, overflow) = value.addingReportingOverflow(amount)
+            guard !overflow else {
+                store.report("native event increment would overflow Int64 at " + store.source(siteId)); return
+            }
+            store.cell(for: fields[1]).write(.int(next))
         default: preconditionFailure("validated NativeUiEvent kind")
         }
     }
