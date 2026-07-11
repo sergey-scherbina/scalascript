@@ -324,6 +324,24 @@ there before changing this plan.
       `tkv2-*` is 12/12 and `std-ui-jobpanel` is 1/1. Next: step 5, mirror the
       ABI globals/store/root extraction in Swift AppCore `NativeUiHost` before
       adding the SwiftUI recursive renderer.
+      - [ ] **v2-swift-nativeui-host-core** — make Swift generation detect
+        ABI-v1 globals, emit `Sources/AppCore/NativeUiHost.swift`, and let the
+        AppCore machine install target-owned globals plus tag-qualified signal
+        apply/get/set/update/id dispatch. Add `makeNativeUiRoot` evaluation with
+        begin/take/abort, exactly-one root, scoped signal defaults, seed/
+        computed/equality behavior, and no SwiftUI/Foundation object inside
+        `SscValue`. Domain packages must remain byte-for-byte UI-host-free.
+      - [ ] **v2-swift-nativeui-descriptors** — mirror every JVM ABI-v1 view,
+        event/fetch/form/storage/offline/table/column/row-action constructor and
+        shortened default in Swift. Root-local empty headers, exact raw sentinel,
+        portable ordered maps/lists/closures, and deterministic unsupported
+        source refs must match the frozen tags/field order.
+      - [ ] **v2-swift-nativeui-real-toolchain-gate** — compile and run generated
+        SwiftPM AppCore packages that exercise signal methods, descriptors, and
+        exactly-one root extraction; include zero/duplicate-root negative
+        processes and a checked `std/ui` source when FrontendBridge coverage is
+        sufficient. Re-run `v2SwiftBackend/test`, the JVM ABI suite, assembled
+        toolkit conformance, and request a read-only Rozum review before landing.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
