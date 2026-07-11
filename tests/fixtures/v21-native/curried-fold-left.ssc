@@ -1,0 +1,19 @@
+---
+name: v21-native-curried-fold-left
+---
+
+# Curried collection fold
+
+```scalascript
+def runningTotals(xs: List[Int]): List[Int] =
+  xs.foldLeft(List[Int]()) { (acc, value) =>
+    val previous = if acc.isEmpty then 0 else acc.last
+    acc ++ List(previous + value)
+  }
+
+def arrayTotal(xs: Any): Int =
+  xs.foldLeft(0)((acc, value) => acc + value)
+
+println(runningTotals(List(1, 2, 3, 4, 5)).mkString(", "))
+println(arrayTotal(Array(1, 2, 3, 4)))
+```

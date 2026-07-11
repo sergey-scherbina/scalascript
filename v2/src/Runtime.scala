@@ -2449,6 +2449,13 @@ object Prims:
         case (DataV("Cons", _), "isEmpty", Nil) => BoolV(false)
         case (DataV("Nil", _), "nonEmpty", Nil)  => BoolV(false)
         case (DataV("Cons", _), "nonEmpty", Nil) => BoolV(true)
+        // Self-hosted CoreIR preserves Scala-style parameter-list currying:
+        // `xs.foldLeft(z) { f }` is App(__method__(foldLeft, xs, z), f).
+        // Complete that partial call through the SAME full method dispatcher so
+        // list/ArrayBuffer selection and foldThreadOp effect semantics stay
+        // single-sourced for both the VM and direct ASM closure ABI.
+        case (ls, "foldLeft", List(z)) if isList(ls) =>
+          ClosV(Runtime.emptyEnv, 1, env => Done(methodOp("foldLeft", ls, List(z, env.last))))
         // Mutable array (ForeignV(ArrayBuffer)) basics — Array.fill/tabulate
         // return these now (busi qr: g.length on an rs table).
         case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "length" | "size", Nil) =>

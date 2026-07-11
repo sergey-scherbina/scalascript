@@ -111,6 +111,8 @@ extension_receiver_scope_expected=$'2\n2\n5\n3\n3\n7\n9'
 [[ $(run_native "$FIXTURES/extension-receiver-scope.ssc") == "$extension_receiver_scope_expected" ]]
 imported_pmapped_expected=$'22\n0\n0'
 [[ $(run_native "$FIXTURES/imported-pmapped.ssc") == "$imported_pmapped_expected" ]]
+curried_fold_expected=$'1, 3, 6, 10, 15\n10'
+[[ $(run_native "$FIXTURES/curried-fold-left.ssc") == "$curried_fold_expected" ]]
 case_object_expected=$'Empty\nempty\ntrue'
 [[ $(run_native "$FIXTURES/case-object-import.ssc") == "$case_object_expected" ]]
 symbolic_extension_precedence_expected=$'a|b\na|b|c\n7'
@@ -168,6 +170,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/extension-layout-boundary.ssc") == "$extension_layout_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/extension-receiver-scope.ssc") == "$extension_receiver_scope_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-pmapped.ssc") == "$imported_pmapped_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/curried-fold-left.ssc") == "$curried_fold_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/case-object-import.ssc") == "$case_object_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/symbolic-extension-precedence.ssc") == "$symbolic_extension_precedence_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/typed-pattern-boundary.ssc") == "$typed_pattern_boundary_expected" ]]
