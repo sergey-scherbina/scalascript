@@ -30,9 +30,11 @@ class WebSocketEngineTest extends AnyFunSuite:
     def onUpgrade(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
                   out: java.io.OutputStream): Unit =
       val key = request.headers.getOrElse("sec-websocket-key", "")
-      WebSocketFrames.writeHandshake(out, key, None)
+      val deflate = WebSocketFrames.offersDeflate(request.headers)
+      WebSocketFrames.writeHandshake(out, key, None, deflate = deflate)
       sock.setSoTimeout(0)
-      val conn = new WsConnection(ids.incrementAndGet(), sock, reader, out, request, None)
+      val conn = new WsConnection(ids.incrementAndGet(), sock, reader, out, request, None,
+        permessageDeflate = deflate)
       opened.incrementAndGet()
       wire(conn)
       conn.readLoop()
@@ -152,3 +154,67 @@ class WebSocketEngineTest extends AnyFunSuite:
       sockets.foreach(_.sendClose(WebSocket.NORMAL_CLOSURE, "").join())
     }
   }
+
+  // --- permessage-deflate (RFC 7692) ---
+
+  test("deflate/inflate round-trips message bodies (incl. empty + large + unicode)") {
+    import java.nio.charset.StandardCharsets.UTF_8
+    for s <- List("", "hi", "hello, world", "éèê data", "x" * 100000) do
+      val orig = s.getBytes(UTF_8)
+      val back = WebSocketFrames.inflate(WebSocketFrames.deflate(orig), 1L << 20)
+      assert(back.sameElements(orig), s"round-trip failed for length ${orig.length}")
+  }
+
+  test("permessage-deflate end-to-end: compressed frame in, compressed frame out") {
+    import java.nio.charset.StandardCharsets.{ISO_8859_1, UTF_8}
+    val d = new TestDispatcher(conn => conn.onText = s => conn.sendText("echo:" + s))
+    val server = new FastHttpServer(_ => RawResponse(426, Map.empty, Array.emptyByteArray),
+      webSocket = Some(d))
+    val port = server.start(0)
+    try
+      val sock = new java.net.Socket("127.0.0.1", port)
+      val in   = sock.getInputStream
+      val out  = sock.getOutputStream
+      try
+        // upgrade offering permessage-deflate
+        out.write(
+          ("GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+           "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n" +
+           "Sec-WebSocket-Extensions: permessage-deflate\r\n\r\n").getBytes(ISO_8859_1))
+        out.flush()
+        val handshake = readHandshake(in)
+        assert(handshake.toLowerCase.contains("permessage-deflate"), s"extension not negotiated:\n$handshake")
+
+        // send a masked, compressed (RSV1) text frame carrying "hi"
+        val payload = WebSocketFrames.deflate("hi".getBytes(UTF_8))
+        val mask    = Array[Byte](0x12, 0x34, 0x56, 0x78.toByte)
+        out.write(0x80 | 0x40 | 0x01) // fin + rsv1 + text
+        out.write(0x80 | payload.length) // masked + len (small)
+        out.write(mask)
+        out.write(payload.indices.map(i => (payload(i) ^ mask(i & 3)).toByte).toArray)
+        out.flush()
+
+        // read the server's response frame — must be RSV1-compressed; inflate → "echo:hi"
+        val b0 = in.read()
+        assert((b0 & 0x40) != 0, "server response frame not compressed (RSV1 unset)")
+        val len = in.read() & 0x7F
+        val body = new Array[Byte](len)
+        var got = 0
+        while got < len do { val n = in.read(body, got, len - got); if n < 0 then got = len else got += n }
+        val text = new String(WebSocketFrames.inflate(body, 1L << 20), UTF_8)
+        assert(text == "echo:hi", s"got '$text'")
+      finally sock.close()
+    finally server.stop()
+  }
+
+  private def readHandshake(in: java.io.InputStream): String =
+    val sb = new StringBuilder
+    var c  = in.read()
+    var done = false
+    while c != -1 && !done do
+      sb.append(c.toChar)
+      val n = sb.length
+      if n >= 4 && sb.charAt(n - 4) == '\r' && sb.charAt(n - 3) == '\n' &&
+         sb.charAt(n - 2) == '\r' && sb.charAt(n - 1) == '\n' then done = true
+      else c = in.read()
+    sb.toString

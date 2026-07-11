@@ -105,9 +105,10 @@ class FastServerBackend extends HttpServerSpi:
         case WsUpgradeResult.Accept(subprotocol, listener) =>
           val key = request.headers.getOrElse("sec-websocket-key", "")
           val sub = if subprotocol == null || subprotocol.isEmpty then None else Some(subprotocol)
-          WebSocketFrames.writeHandshake(out, key, sub)
+          val deflate = WebSocketFrames.offersDeflate(request.headers)
+          WebSocketFrames.writeHandshake(out, key, sub, deflate = deflate)
           sock.setSoTimeout(0)
-          val conn = new WsConnection(0L, sock, reader, out, request, sub)
+          val conn = new WsConnection(0L, sock, reader, out, request, sub, permessageDeflate = deflate)
           val controls = new FastWsControls(conn, sub.getOrElse(""))
           conn.onText   = s => try listener.onMessage(s)         catch case e: Throwable => listener.onError(e)
           conn.onBinary = b => try listener.onBinary(b)          catch case e: Throwable => listener.onError(e)

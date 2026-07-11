@@ -28,7 +28,7 @@ object WebSocketFrames:
       headers.contains("sec-websocket-key")
 
   /** One decoded frame. Control frames (close/ping/pong) carry their (short) payload too. */
-  final case class Frame(fin: Boolean, opcode: Int, payload: Array[Byte])
+  final case class Frame(fin: Boolean, opcode: Int, payload: Array[Byte], rsv1: Boolean = false)
 
   /** Read a single frame off `reader`. Client→server frames MUST be masked (RFC 6455 §5.1);
     * an unmasked client frame is a protocol error. Enforces `maxPayload`. */
@@ -36,6 +36,7 @@ object WebSocketFrames:
     val b0 = reader.readFully(1)(0) & 0xFF
     val b1 = reader.readFully(1)(0) & 0xFF
     val fin    = (b0 & 0x80) != 0
+    val rsv1   = (b0 & 0x40) != 0 // permessage-deflate: this message is compressed
     val opcode = b0 & 0x0F
     val masked = (b1 & 0x80) != 0
     if !masked then throw new BadRequest("client frame not masked")
@@ -55,12 +56,14 @@ object WebSocketFrames:
     while i < payload.length do
       payload(i) = (payload(i) ^ mask(i & 3)).toByte
       i += 1
-    Frame(fin, opcode, payload)
+    Frame(fin, opcode, payload, rsv1)
 
-  /** Write a server frame (server→client frames are never masked). Synchronize externally. */
-  def writeFrame(out: OutputStream, opcode: Int, payload: Array[Byte], fin: Boolean = true): Unit =
+  /** Write a server frame (server→client frames are never masked). `rsv1` marks a
+    * permessage-deflate-compressed data frame. Synchronize externally. */
+  def writeFrame(out: OutputStream, opcode: Int, payload: Array[Byte], fin: Boolean = true,
+                 rsv1: Boolean = false): Unit =
     val header = new java.io.ByteArrayOutputStream(10)
-    header.write((if fin then 0x80 else 0x00) | (opcode & 0x0F))
+    header.write((if fin then 0x80 else 0x00) | (if rsv1 then 0x40 else 0x00) | (opcode & 0x0F))
     val len = payload.length
     if len <= 125 then header.write(len)
     else if len <= 0xFFFF then
@@ -91,14 +94,19 @@ object WebSocketFrames:
     if payload.length >= 2 then ((payload(0) & 0xFF) << 8) | (payload(1) & 0xFF) else 1005
 
   /** Write the `101 Switching Protocols` upgrade response (accept-key + optional negotiated
-    * subprotocol). Shared by every [[FastHttpServer.WebSocketDispatcher]]. */
-  def writeHandshake(out: OutputStream, clientKey: String, subprotocol: Option[String]): Unit =
-    val sb = new StringBuilder(160)
+    * subprotocol; `deflate` echoes the permessage-deflate extension). Shared by every
+    * [[FastHttpServer.WebSocketDispatcher]]. */
+  def writeHandshake(out: OutputStream, clientKey: String, subprotocol: Option[String],
+                     deflate: Boolean = false): Unit =
+    val sb = new StringBuilder(200)
     sb.append("HTTP/1.1 101 Switching Protocols\r\n")
       .append("Upgrade: websocket\r\n")
       .append("Connection: Upgrade\r\n")
       .append("Sec-WebSocket-Accept: ").append(acceptKey(clientKey)).append("\r\n")
     subprotocol.foreach(p => sb.append("Sec-WebSocket-Protocol: ").append(p).append("\r\n"))
+    if deflate then
+      sb.append("Sec-WebSocket-Extensions: permessage-deflate; ")
+        .append("server_no_context_takeover; client_no_context_takeover\r\n")
     sb.append("\r\n")
     out.write(sb.toString.getBytes(ISO_8859_1))
     out.flush()
@@ -107,3 +115,46 @@ object WebSocketFrames:
   def offeredSubprotocols(headers: Map[String, String]): List[String] =
     headers.get("sec-websocket-protocol")
       .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList).getOrElse(Nil)
+
+  /** Did the client offer the `permessage-deflate` WebSocket extension? */
+  def offersDeflate(headers: Map[String, String]): Boolean =
+    headers.get("sec-websocket-extensions")
+      .exists(_.toLowerCase(java.util.Locale.ROOT).contains("permessage-deflate"))
+
+  // ---- permessage-deflate (RFC 7692), stateless (no context takeover) ----
+
+  private val DeflateTail = Array[Byte](0x00, 0x00, 0xFF.toByte, 0xFF.toByte)
+
+  /** Raw-DEFLATE a message body (no context takeover: a fresh deflater each call). Per RFC 7692
+    * §7.2.1, flush with SYNC_FLUSH and strip the trailing `00 00 FF FF`. */
+  def deflate(data: Array[Byte]): Array[Byte] =
+    val deflater = new java.util.zip.Deflater(java.util.zip.Deflater.DEFAULT_COMPRESSION, true)
+    deflater.setInput(data)
+    val out = new java.io.ByteArrayOutputStream(math.max(16, data.length / 2))
+    val buf = new Array[Byte](512)
+    var done = false
+    while !done do
+      val n = deflater.deflate(buf, 0, buf.length, java.util.zip.Deflater.SYNC_FLUSH)
+      out.write(buf, 0, n)
+      if n < buf.length then done = true
+    deflater.end()
+    val bytes = out.toByteArray
+    if bytes.length >= 4 && bytes(bytes.length - 4) == 0 && bytes(bytes.length - 3) == 0 &&
+       (bytes(bytes.length - 2) & 0xFF) == 0xFF && (bytes(bytes.length - 1) & 0xFF) == 0xFF
+    then java.util.Arrays.copyOf(bytes, bytes.length - 4) else bytes
+
+  /** Inverse of [[deflate]]: append `00 00 FF FF` and raw-inflate, bounded by `maxOut`. */
+  def inflate(data: Array[Byte], maxOut: Long): Array[Byte] =
+    val inflater = new java.util.zip.Inflater(true)
+    inflater.setInput(data ++ DeflateTail)
+    val out = new java.io.ByteArrayOutputStream(math.max(16, data.length * 2))
+    val buf = new Array[Byte](512)
+    try
+      var n = inflater.inflate(buf)
+      while n > 0 do
+        out.write(buf, 0, n)
+        if out.size().toLong > maxOut then throw new BadRequest("inflated ws message too large")
+        n = inflater.inflate(buf)
+    catch case _: java.util.zip.DataFormatException => throw new BadRequest("bad permessage-deflate frame")
+    finally inflater.end()
+    out.toByteArray

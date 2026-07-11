@@ -18,7 +18,8 @@ final class WsConnection(
     out: OutputStream,
     val request: RawRequest,
     val subprotocol: Option[String],
-    maxPayload: Long = 1L << 20):
+    maxPayload: Long = 1L << 20,
+    permessageDeflate: Boolean = false):
 
   @volatile var onText:   String => Unit       = _ => ()
   @volatile var onBinary: Array[Byte] => Unit  = _ => ()
@@ -66,7 +67,12 @@ final class WsConnection(
   private def send(opcode: Int, payload: Array[Byte]): Unit =
     writeLock.synchronized {
       if !closedFlag then
-        try writeFrame(out, opcode, payload)
+        // permessage-deflate compresses data frames only (never control frames).
+        val (data, rsv1) =
+          if permessageDeflate && (opcode == TEXT || opcode == BINARY) && payload.nonEmpty then
+            (WebSocketFrames.deflate(payload), true)
+          else (payload, false)
+        try writeFrame(out, opcode, data, rsv1 = rsv1)
         catch case _: java.io.IOException => forceClosed()
     }
 
@@ -82,6 +88,7 @@ final class WsConnection(
   /** Blocking read loop; returns when the peer closes, on EOF, timeout, or protocol error. */
   def readLoop(): Unit =
     var fragmentOpcode = -1
+    var fragmentDeflated = false // permessage-deflate: RSV1 is set only on the first frame
     val assembling = new ByteArrayOutputStream()
     try
       var continue = true
@@ -102,9 +109,10 @@ final class WsConnection(
             notifyClose(code, "")
             continue = false
           case TEXT | BINARY =>
-            if frame.fin then dispatch(frame.opcode, frame.payload)
+            if frame.fin then dispatch(frame.opcode, inflateIf(frame.payload, frame.rsv1))
             else
               fragmentOpcode = frame.opcode
+              fragmentDeflated = frame.rsv1
               assembling.reset()
               assembling.write(frame.payload)
           case CONT =>
@@ -114,7 +122,7 @@ final class WsConnection(
               val full = assembling.toByteArray
               val op = fragmentOpcode
               fragmentOpcode = -1
-              dispatch(op, full)
+              dispatch(op, inflateIf(full, fragmentDeflated))
           case _ => () // reserved opcode — ignore
     catch
       case _: EOFException | _: SocketException | _: SocketTimeoutException => ()
@@ -123,6 +131,11 @@ final class WsConnection(
       notifyClose(1006, "")
       closeSocket()
       safe(onTeardown())
+
+  /** Inflate a permessage-deflate data message if the connection negotiated it and the frame's
+    * RSV1 was set; otherwise pass through unchanged. */
+  private def inflateIf(bytes: Array[Byte], deflated: Boolean): Array[Byte] =
+    if permessageDeflate && deflated then WebSocketFrames.inflate(bytes, maxPayload) else bytes
 
   private def dispatch(opcode: Int, bytes: Array[Byte]): Unit =
     if opcode == TEXT then

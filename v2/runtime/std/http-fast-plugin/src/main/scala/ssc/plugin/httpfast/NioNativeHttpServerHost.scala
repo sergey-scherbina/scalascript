@@ -110,11 +110,12 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       .getOrElse(throw new RuntimeException(s"no websocket route for ${request.path}"))
     val key = request.headers.getOrElse("sec-websocket-key", "")
     val sub = route.handler.protocols.find(WebSocketFrames.offeredSubprotocols(request.headers).contains)
-    WebSocketFrames.writeHandshake(out, key, sub)
+    val deflate = WebSocketFrames.offersDeflate(request.headers)
+    WebSocketFrames.writeHandshake(out, key, sub, deflate = deflate)
     sock.setSoTimeout(0) // a live WebSocket may idle between frames; rely on ping/pong + close
 
     val id      = wsIds.incrementAndGet()
-    val conn    = new WsConnection(id, sock, reader, out, request, sub)
+    val conn    = new WsConnection(id, sock, reader, out, request, sub, permessageDeflate = deflate)
     val channel = new ServerWsChannel(conn)
     wsChannels.put(id, channel)
     conn.onTeardown = () => { wsChannels.remove(id); removeFromAllRooms(id) }
