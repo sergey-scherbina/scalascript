@@ -586,6 +586,22 @@ def injectGivens = (fn, args) =>
 def resolveArgs = (args) =>
   match args { case Nil => Nil case Cons(e, rest) => Cons(resolveE(e), resolveArgs(rest)) }
 
+-- Block-form `handle { ... }` is parsed as a zero-argument lambda. Force only
+-- that source sugar; `handle(expr)` passes its already-evaluated computation.
+def forceHandleCompute = (resolved) =>
+  match resolved {
+    case Pair(tag, data) =>
+      if #seq(tag, "lam") then
+        match data {
+          case Pair(params, body) =>
+            match params {
+              case Nil => Pair("app", Pair(resolved, Nil))
+              case _ => resolved
+            }
+        }
+      else resolved
+  }
+
 -- ── named-argument support ───────────────────────────────────────────────────
 -- An `narg` node is Pair("narg", Pair(label, valueExpr)); it appears only inside a
 -- call's argument list. nargVal drops the label (best-effort positional lowering for
@@ -1100,7 +1116,11 @@ def resolveE = (expr) =>
                       resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
                   }
                 else if #seq(ftag, "app") then
-                  -- detect handle(computExpr)(thunk) — strip the handler, lower just computExpr
+                  -- Explicit portable handler: retain both the computation and
+                  -- parsed partial-function closure. Block-form `handle { ... }`
+                  -- supplies a zero-argument thunk, which is forced inside the
+                  -- handler boundary; parenthesized computations are already
+                  -- values.
                   -- ssc0 does not support nested ctor patterns; use nested match
                   let isHandleCall = match fdata {
                     case Pair(innerFn, innerArgs) =>
@@ -1116,28 +1136,16 @@ def resolveE = (expr) =>
                           case Cons(computExpr, innerArgRest) =>
                             match innerArgRest {
                               case Nil =>
-                                -- KV9: if computExpr calls a multi-shot fn, add k=x=>List(x)
-                                let resolvedCompute = resolveE(computExpr) in
-                                match resolvedCompute {
-                                  case Pair(ctag, cdata) =>
-                                    if #seq(ctag, "app") then
-                                      match cdata {
-                                        case Pair(cfn, cargs) =>
-                                          match cfn {
-                                            case Pair(fntag, fnname) =>
-                                              if #seq(fntag, "var") then
-                                                if isMultiShotFn(fnname) then
-                                                  let kLam = Pair("lam",
-                                                    Pair(Cons("__result__", Nil),
-                                                      Pair("ctorap", Pair("Cons",
-                                                        Cons(Pair("var", "__result__"),
-                                                        Cons(Pair("ctorap", Pair("Nil", Nil)), Nil)))))) in
-                                                  Pair("app", Pair(cfn, appendL(cargs, Cons(kLam, Nil))))
-                                                else resolvedCompute
-                                              else resolvedCompute
-                                          }
-                                      }
-                                    else resolvedCompute
+                                let resolvedCompute0 = resolveE(computExpr) in
+                                let resolvedCompute = forceHandleCompute(resolvedCompute0) in
+                                match stripNargs(rargs) {
+                                  case Cons(handlerExpr, handlerRest) =>
+                                    match handlerRest {
+                                      case Nil => Pair("prim", Pair("effect.handle",
+                                        Cons(resolvedCompute, Cons(resolveE(handlerExpr), Nil))))
+                                      case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                                    }
+                                  case Nil => Pair("app", Pair(resolveE(fn), Nil))
                                 }
                               case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
                             }
@@ -2556,6 +2564,44 @@ def lowerStmtToList = (stmt) =>
                 appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
             }
         }
+      else if #seq(tag, "effect_decl") then
+        match data {
+          case Pair(name, rest2) =>
+            match rest2 {
+              case Pair(isMulti, stmts) =>
+                let _multi = if isMulti then
+                  #cell.set(multiEffectsCell, Cons(name, #cell.get(multiEffectsCell)))
+                else 0 in
+                let rec lowerOps = (ss) =>
+                  match ss {
+                    case Nil => Nil
+                    case Cons(s2, more) =>
+                      match s2 {
+                        case Pair(stag, sdata) =>
+                          if #seq(stag, "def") then
+                            match sdata {
+                              case Pair(opName, opRest) =>
+                                match opRest {
+                                  case Pair(params, ignoredBody) =>
+                                    let scope = revL(params) in
+                                    let rec paramExprs = (ps) =>
+                                      match ps {
+                                        case Nil => Nil
+                                        case Cons(p, pt) => Cons(Pair("var", p), paramExprs(pt))
+                                      } in
+                                    let label = #sconcat(name, #sconcat(".", opName)) in
+                                    let body = IrPrim("effect.perform",
+                                      Cons(IrLit(IrStr(label)), lowerArgs(scope, paramExprs(params)))) in
+                                    Cons(IrDef(#sconcat(name, #sconcat("_", opName)),
+                                      IrLam(lenL(params), body)), lowerOps(more))
+                                }
+                            }
+                          else lowerOps(more)
+                      }
+                  } in
+                lowerOps(stmts)
+            }
+        }
       else if #seq(tag, "multi_effect") then
         -- KV9: register effect name as multi-shot for CPS detection
         let _reg = #cell.set(multiEffectsCell, Cons(data, #cell.get(multiEffectsCell))) in
@@ -3094,6 +3140,8 @@ def collectObjects = (stmts) =>
       match s {
         case Pair(tag, data) =>
           if #seq(tag, "object") then
+            match data { case Pair(name, ss) => Cons(name, collectObjects(rest)) }
+          else if #seq(tag, "effect_decl") then
             match data { case Pair(name, ss) => Cons(name, collectObjects(rest)) }
           else collectObjects(rest)
       }

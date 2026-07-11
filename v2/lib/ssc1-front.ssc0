@@ -415,6 +415,7 @@ def skipTypeAt = (depth, toks) =>
   else if #i.gt(depth, 0) then skipTypeAt(depth, advance(toks))
   else if #seq(k, "=") then toks
   else if #seq(k, ",") then toks
+  else if #seq(k, ";") then toks
   else if #seq(k, "{") then toks
   else if #seq(k, "}") then toks
   else skipTypeAt(depth, advance(toks))
@@ -1516,20 +1517,27 @@ def tuplePat = (subs) =>
       }
   }
 
+def finishCtorPat = (tag, toks) =>
+  if kindIs("(", toks) then
+    let ts2 = advance(toks) in
+    if kindIs(")", ts2) then pr(Pair("cpat", Pair(tag, Nil)), advance(ts2))
+    else
+      let rSub = goSubPats(ts2) in
+      match prV(rSub) { case Pair(subs, n) =>
+        pr(Pair("cpat", Pair(tag, subs)), skipKind(")", prT(rSub))) }
+  else pr(Pair("cpat", Pair(tag, Nil)), toks)
+
 def parsePatAtom = (toks) =>
   let t  = peek(toks) in
   let k  = tokKind(t) in
   let v  = tokVal(t) in
   if #seq(k, "uid") then
     let ts2 = advance(toks) in
-    if kindIs("(", ts2) then
+    if kindIs(".", ts2) then
       let ts3 = advance(ts2) in
-      if kindIs(")", ts3) then pr(Pair("cpat", Pair(v, Nil)), advance(ts3))
-      else
-        let rSub = goSubPats(ts3) in
-        match prV(rSub) { case Pair(subs, n) =>
-          pr(Pair("cpat", Pair(v, subs)), skipKind(")", prT(rSub))) }
-    else pr(Pair("cpat", Pair(v, Nil)), ts2)
+      let opName = tokVal(peek(ts3)) in
+      finishCtorPat(opName, advance(ts3))
+    else finishCtorPat(v, ts2)
   else if #seq(k, "id") then
     let ts2 = advance(toks) in
     if #seq(v, "_") then pr(Pair("wpat", ""), ts2)
@@ -1964,10 +1972,22 @@ def parseOneStmt = (toks) =>
         -- separated before the declaration-only erasure below.
         parseExprOrAssign(toks)
       else
-        -- Skip "effect E: { defs }" effect-type declaration (no runtime representation)
-        let ts2 = skipToBrace(ts1) in
-        let ts3 = if kindIs("{", ts2) then skipBraceBlock(ts2) else ts2 in
-        pr(Pair("sealed", ""), ts3)
+        -- A declared effect owns its abstract member body. Retain the operation
+        -- signatures so imports and the portable lowerer can materialize
+        -- E_op closures; erasing/skipping here used to swallow later defs.
+        let ename = tokVal(peek(ts1)) in
+        let ts2 = skipToBrace(advance(ts1)) in
+        let rec parseEffect = (ts, acc) =>
+          let ts3 = skipSemis(ts) in
+          if kindIs("}", ts3) then
+            pr(Pair("effect_decl", Pair(ename, Pair(false, reverse(acc)))), advance(ts3))
+          else if kindIs("EOF", ts3) then
+            pr(Pair("effect_decl", Pair(ename, Pair(false, reverse(acc)))), ts3)
+          else
+            let r = parseOneStmt(ts3) in
+            parseEffect(prT(r), Cons(prV(r), acc)) in
+        if kindIs("{", ts2) then parseEffect(advance(ts2), Nil)
+        else pr(Pair("effect_decl", Pair(ename, Pair(false, Nil))), ts2)
     else if #seq(v, "object") then
       -- KC7b: parse object body into ("object", (name, [stmts]))
       let ts1 = advance(toks) in
@@ -2006,8 +2026,17 @@ def parseOneStmt = (toks) =>
             let ts2 = advance(ts1) in
             let ename = tokVal(peek(ts2)) in
             let ts3 = skipToBrace(advance(ts2)) in
-            let ts4 = if kindIs("{", ts3) then skipBraceBlock(ts3) else ts3 in
-            pr(Pair("multi_effect", ename), ts4)
+            let rec parseEffect = (ts, acc) =>
+              let ts4 = skipSemis(ts) in
+              if kindIs("}", ts4) then
+                pr(Pair("effect_decl", Pair(ename, Pair(true, reverse(acc)))), advance(ts4))
+              else if kindIs("EOF", ts4) then
+                pr(Pair("effect_decl", Pair(ename, Pair(true, reverse(acc)))), ts4)
+              else
+                let r = parseOneStmt(ts4) in
+                parseEffect(prT(r), Cons(prV(r), acc)) in
+            if kindIs("{", ts3) then parseEffect(advance(ts3), Nil)
+            else pr(Pair("effect_decl", Pair(ename, Pair(true, Nil))), ts3)
           else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
         else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
       else if #seq(v, "extern") then
@@ -2322,7 +2351,10 @@ def layout = (toks) =>
           else
             let inDeclHead =
               if #seq(k, "kw") then
-                (if #seq(v, "trait") then true else if #seq(v, "object") then true else declHead)
+                (if #seq(v, "trait") then true
+                 else if #seq(v, "object") then true
+                 else if #seq(v, "effect") then true
+                 else declHead)
               else declHead in
             let declColon = if #seq(k, ":") then inDeclHead else false in
             let nextDeclHead = if #seq(k, ":") then false else inDeclHead in

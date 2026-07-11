@@ -11,7 +11,7 @@ run_native() {
 }
 
 fixture="$ROOT/tests/fixtures/v21-native/effect-handlers.ssc"
-expected=$'owned\n7\n5\n6\n41\n34\n42\nList(2, 12)'
+expected=$'owned\n7\n5\n6\n41\n33\n42\nList(2, 12)'
 
 for mode in vm asm; do
   mode_args=()
