@@ -280,6 +280,14 @@ during the post-`PMapped` full strict parity sweep.
   already exposes the correct member-first/fallback-extension contract as
   `__methodOrExt__`; the native lowerer is not yet routing imported extension
   calls through it.
+- **Later first-loss boundaries:** after routing extension calls through
+  `__methodOrExt__`, JSON is exact. YAML first exposes local tuple
+  destructuring that binds only `_1` (`value` becomes an unbound global), then
+  exposes erased typed-pattern semantics in imported `layout.ssc`: both
+  `case ic: IndentContext` and `_` lower as defaults, so the wildcard wins and
+  `block.withIndent(3)` executes at column 1. The direct probe prints a native
+  indentation error where compatibility returns
+  `ParseOk(List(host), , Position(6))`.
 - **Plan/done-when:** isolate the first complex mapping result in a focused
   import-shaped fixture, classify each later placeholder separately if it has
   a different root cause, restore exact compatibility output on VM/direct ASM,
