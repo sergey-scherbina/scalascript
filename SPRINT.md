@@ -735,7 +735,7 @@ there before changing this plan.
                         static/signal rowsPath plus strict fetch dotted paths;
                         preserve invalid→valid mounting and never combine old
                         retained cells with a changed column descriptor.
-                        Result: landed `45033e891`; final docs `27a59f15c`.
+                        Result: landed `62b6cd81f`; docs `e013509b2`.
                         The shared macOS/iOS Grid table runtime covers strict
                         static/signal/fetch decoding, typed identity, all frozen
                         column and payload modes, exact-current row actions,
