@@ -55,6 +55,15 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
       corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
       BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
       stuck on array-update. Retry when load is stable.
+- [x] **v2asm-bench-validated** — DONE 2026-07-11 (`9f7dad5f9`). BENCH-VERIFIED the landed
+      work on a QUIET machine (load ~2) with a FRESH bin/ssc (the first run read a STALE binary
+      → 39ms false negative; rebuilt → real numbers). `scripts/bench v2-bytecode`, ms, VM vs
+      bytecode: **float-loop (dcell) 22.8 → 1.33 = 17x FASTER** (javap: unboxed DoubleCellV.v()
+      + dadd + v_$eq, no per-iter FloatV); hof-pipeline (foldLeft) 0.328→0.277; range-sum
+      (foldLeft) 0.425→0.287; typeclass-fold 2.11→2.05 parity. NOTE: **list-fold (foreach) is
+      1.4x SLOWER on bytecode (0.94→1.34)** — a PRE-EXISTING foreach gap (not dcell/foldLeft),
+      a real future target. LESSON: always rebuild bin/ssc before benching (the "your binary is
+      stale" gotcha bit here). Added bench/corpus/float-loop.ssc + fixed pureNoEffect dcell gap.
 - [x] **v2asm-unboxed-double** — DONE 2026-07-10 (`b2138eec6`). Full `dcell` (DoubleCellV)
       mirror of the `lcell`/Long path: Runtime prims + FrontendBridge lowering (`@#` prefix)
       + JvmByteGen `canDouble`/`genDouble`/`genDoubleCmp*` (DADD/DSUB/DMUL/DDIV, DCMPG/DCMPL
