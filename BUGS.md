@@ -1069,6 +1069,25 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
   category ceilings shrink to the measured counts, and affected conformance is
   green. Keep `fixed` until Sergiy confirms the release-gate behavior.
 
+## v2-swiftui-event-increment-overflow-readonly — ordinary event dispatch can trap or lose source
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` as a nonblocking
+follow-up during the approved async lifecycle review in the `scalascript` Rozum
+room.
+
+- **Real-harness repro:** dispatch an ordinary `NativeUiEvent(kind=increment)`
+  against a live Int signal holding `Int64.max`; the generated Swift performs
+  trapping `value + delta`. A forged/live read-only signal can also pass the
+  current kind-shape guard and fail later through an unsourced write path.
+- **Expected:** event preflight requires the exact live target to be user-writable,
+  checked addition reports overflow without trapping or mutation, and every
+  malformed/read-only/overflow rejection includes the owning element site/source.
+- **Plan/done-when:** harden `NativeUiActions.run`/Store target validation and add
+  strict generated-Swift regressions for max-value increment, read-only target,
+  zero mutation, no process trap, and exact source diagnostics. This is outside
+  the already approved async fetch/action slice; keep `fixed` until the Rozum
+  reporter confirms it.
+
 ## v2-swiftui-keyed-fetch-metadata-stale — surviving fetch keeps its first request descriptor
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` during the

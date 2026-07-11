@@ -558,6 +558,12 @@ there before changing this plan.
                   same-key registrations inside one Host transaction to its final
                   committed descriptor before starting Store side effects; an
                   intermediate A followed by final B must produce only B.
+            - [ ] **ordinary event mutation hardening** — validate live writable
+                  targets for set/input/toggle/increment before dispatch, use a
+                  checked non-trapping Int64 increment, and retain the owning
+                  element site/source on every rejection. Add strict generated
+                  Swift gates for read-only targets and max-value overflow
+                  (`v2-swiftui-event-increment-overflow-readonly`).
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope
