@@ -2,7 +2,8 @@
 
 ## v21-parity-mixed-scala-fence — native math exposes one-sided compiler surface
 
-**Status:** open (2026-07-11); found by codex while implementing TI-8.2d2i.
+**Status:** fixed (2026-07-11, `ee8467442`); found by codex while implementing
+TI-8.2d2i, waiting for Sergiy confirmation before `done`.
 
 - **Real-harness repro:** after staging the native `math` global, run
   `scripts/bc-parity-sweep --ssc bin/ssc-standard --only 'lang-split.ssc'
@@ -15,12 +16,15 @@
 - **Root cause:** the parity classifier skips backend-specific fences only when
   no standard block exists. It ignores the explicit mixed-fence execution flag,
   so the old shared `math` failure hid divergent unsupported Scala semantics.
-- **Planned fix:** classify `runScalaFences: true` as `skipped-backend`, pin
+- **Fix/verified:** `runScalaFences: true` is classified as `skipped-backend`,
+  `lang-split.ssc` is pinned in the portable-gates smoke, and its stale
+  runtime-taxonomy row is removed. Focused and full strict parity have zero
+  one-sided rows; runtime/sentinel taxonomy and conformance gates pass.
+- **Done-when:** classify `runScalaFences: true` as `skipped-backend`, pin
   `lang-split.ssc` in the portable-gates smoke, remove its stale runtime-taxonomy
-  row, and keep mismatch/one-sided counts at zero.
-- **Done-when:** focused and full strict parity report no one-sided rows,
-  runtime/sentinel taxonomy gates pass, and the landed SHA is recorded here.
-  Keep `fixed` until Sergiy confirms.
+  row, keep mismatch/one-sided counts at zero, and retain `fixed` until Sergiy
+  confirms.
+
 ## v2-nativeui-rust-component-scope-proof — Rust adapter lacks a real compiler gate
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum while

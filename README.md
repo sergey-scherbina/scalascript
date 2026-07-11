@@ -61,6 +61,8 @@ required by `ssc-standard`; Scala CLI is an optional tools-tier dependency.
 The standard self-hosted route supports named indented `given ... with`
 objects and explicit property/method calls on both its VM and direct-ASM lanes.
 Top-level `summon[...]` remains an explicit migration boundary.
+Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
+`sqrt`, `pow`, `floor`, `ceil`, and `round`) without loading the tools tier.
 
 ```bash
 git clone https://github.com/sergey-scherbina/scalascript

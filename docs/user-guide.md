@@ -308,6 +308,13 @@ inside the given body. Top-level `summon[...]`, anonymous givens, and
 type-directed overload selection remain bounded migration gaps; use an explicit
 named given on the native route until those slices land.
 
+The standard native route publishes the same portable `math` receiver on both
+execution lanes. `math.Pi`, `math.E`, and numeric `abs`, `sqrt`, `pow`, `sin`,
+`cos`, `tan`, `log`, `log10`, `exp`, `min`, `max`, `floor`, `ceil`, and `round`
+dispatch through the v2 kernel; no Scala compiler or compatibility plugin is
+loaded. Integer `abs` stays an integer, while `sqrt`/`pow` are floating-point
+and `round` returns an integer.
+
 The native route also has its own core-free ServiceLoader plugin boundary. The
 process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (`sha256`,
 SHA/base64/HMAC/PBKDF2/random helpers), and the JVM implementations of
