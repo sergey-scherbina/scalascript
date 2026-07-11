@@ -1880,6 +1880,26 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         conversion). Queue a spec-first slice per independent
                         root cause, add real VM/direct-ASM regressions, and shrink
                         the blocker ceiling after every green push.
+                        - [ ] **TI-8.2d2w portable effect runtime blockers:**
+                              capture exact installed VM/direct-ASM first-loss
+                              boundaries for `effects.ssc`,
+                              `algebraic-effects.ssc`, `dataset-stats.ssc`, and
+                              `dsl-sql-recovery.ssc`, currently owned as four
+                              `language-runtime/effects` blockers. Specify the
+                              portable operation/handler/resume contract before
+                              code, group only rows with the same proved root
+                              cause, and split independent boundaries into
+                              follow-up slices rather than hiding them. Add
+                              focused multi-file exact regressions for declared
+                              effect operations, single-/multi-shot handlers,
+                              effect-valued method continuation, and parser/
+                              dataset consumers as evidence requires. No host
+                              effect special case, example rewrite, provider,
+                              or compatibility fallback. Retire each row only
+                              after native-entry, full corpus/parity, both
+                              taxonomies, standard/slim/JRE/build-jvm, and fresh
+                              `v2-*` conformance pass. Spec:
+                              `specs/v2.1-native-effect-runtime.md`.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line
