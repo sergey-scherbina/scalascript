@@ -38,6 +38,26 @@
   runtime now reuses that binding; the focused declaration gate passes 22/22,
   isolated INT+JS execution passes, and the assembled no-memo corpus is 12/12.
 
+## v21-native-reactive-ctor-bypasses-provider — fresh install loses subscriptions
+
+**Status:** open; found by codex when the native `doc`/`render` slice reran the
+full plugin and `build-jvm` gates from a clean current-source installation.
+
+- **Real-harness repro:** run `scripts/sbtc "installBin"`, then
+  `bin/ssc run --native examples/signals-demo.ssc` (and `--bytecode` or a fresh
+  `build-jvm` artifact). Output stops after `c=5 d=10` and
+  `n=3 sq=9 cube=27`; the expected updates for `7`, `11`, and `4` are absent.
+  The older binary in the shared checkout prints the full output because its
+  staged lowerer predates K62.33, while its checked-in source does not.
+- **Root cause:** current self-hosted lowering emits `Ctor("Signal", ...)` and
+  `Ctor("ComputedSignal", ...)`; `v2/src/Runtime.scala` handles those tags as
+  legacy `ForeignV(Array)` cells before the core-free reactive provider's
+  registered globals can create subscription-aware `ReactiveSignal` values.
+- **Expected/fix:** when a native provider global exists, the ctor path invokes
+  it with the evaluated fields; the legacy raw-cell behavior remains only for
+  bare-kernel execution. Fresh-install VM/ASM/build-jvm output must match the
+  complete public example and restore the previously claimed release gates.
+
 ## v21-native-doc-render-unbound — standard native host omits core content helpers
 
 **Status:** open; found by codex while isolating the `examples/content.ssc`
