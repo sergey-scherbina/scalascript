@@ -1411,6 +1411,13 @@ val block = withIndent {
 }
 ```
 
+Parser nodes remain ordinary portable algebraic data across module imports.
+For example, an imported `runParser` evaluator matches
+`PMapped(PSucceed(value), f)` by the `PMapped/2` constructor, applies `f` to the
+successful value, and returns `ParseOk` with the unchanged remaining input and
+position. Native VM and direct ASM implementations must preserve this behavior
+without a host-side parser special case.
+
 #### Multi-Pass Pipelines — `std/dsl/*`
 
 ```scalascript
