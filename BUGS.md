@@ -1123,7 +1123,10 @@ read-only async lifecycle review in the `scalascript` Rozum room.
   preserving loading if another mounted task shares the exact phase/error
   capability. A delayed lifecycle callback holding an obsolete action descriptor
   must fail exact `validActionStatus` capability validation before it can cancel
-  or reset a fresh replacement at the same structural owner. Keep `fixed` until
+  or reset a fresh replacement at the same structural owner. Navigation and
+  `openJson` share one preflight/response URL policy: http/https need a non-empty
+  host, mailto a non-empty target, and unsafe or hostless templates cannot start
+  transport. Keep `fixed` until
   the Rozum reporter confirms the regression.
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS

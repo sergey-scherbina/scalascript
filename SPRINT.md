@@ -541,6 +541,12 @@ there before changing this plan.
                   action descriptor: cancel/reset requires the same exact Host
                   capability check as start, so an old A cannot cancel a fresh or
                   replacement B that reuses the structural task owner.
+                  Apply one external-URL predicate at descriptor preflight and
+                  response time: http/https require a non-empty authority,
+                  mailto requires a non-empty target, and `openJson` templates
+                  are validated with a neutral substitution before transport.
+                  javascript/data/file/hash/hostless navigation and templates
+                  must start zero requests and invoke zero handlers.
                   Preserve stable action status and in-flight work when the same
                   structural action is reconstructed for a surviving key: compare
                   request/effect signal refs by `(scope,id,kind)`, not regenerated
