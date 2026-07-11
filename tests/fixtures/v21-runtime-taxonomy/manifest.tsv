@@ -16,7 +16,6 @@ derived-route-clients.ssc	standard-provider	yes	http	mount is missing from the c
 direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
 distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
 distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
-dsl-ast-builder.ssc	language-runtime	yes	module-linker	imported generic Node constructor is not linked into the native program
 dsl-calc-parser.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
 dsl-json-parser.ssc	standard-provider	yes	dsl-regex	Parser_regex is missing from the core-free standard DSL runtime
 dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evaluation receives token text where an Int value is required
