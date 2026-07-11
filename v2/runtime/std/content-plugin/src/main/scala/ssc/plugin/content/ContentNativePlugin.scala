@@ -38,6 +38,7 @@ final class ContentNativePlugin extends NativePlugin:
 
   private def helperImport(path: String): Boolean =
     path == "std/content.ssc" || path.endsWith("/std/content.ssc") ||
+      path == "std/content-bind-core.ssc" || path.endsWith("/std/content-bind-core.ssc") ||
       path == "std/ui/content.ssc" || path.endsWith("/std/ui/content.ssc")
 
   private def directModules(modules: List[NativeContentModule]): List[NativeContentModule] =

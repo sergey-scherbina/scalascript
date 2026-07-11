@@ -31,6 +31,8 @@ exports:
 
 Types and runtime accessors for the parsed `.ssc` document.
 
+[contentBindText](std/content-bind-core.ssc)
+
 ```scalascript
 case class DocumentContent(
   manifest: ContentValue,
@@ -87,13 +89,139 @@ enum ContentValue:
   case MapV(values: Map[String, ContentValue])
   case NullV
 
+def contentBindAsciiLetter(code: Int): Boolean =
+  (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code == 95
+
+def contentBindAsciiPart(code: Int): Boolean =
+  contentBindAsciiLetter(code) || (code >= 48 && code <= 57)
+
+def contentBindSegmentEnd(path: String, start: Int, at: Int): Int =
+  if at >= path.length then
+    if at > start then at else -1
+  else if path.charAt(at) == 46 then
+    if at > start then at else -1
+  else
+    val code = path.charAt(at)
+    val valid = if at == start then contentBindAsciiLetter(code) else contentBindAsciiPart(code)
+    if valid then contentBindSegmentEnd(path, start, at + 1) else -1
+
+def contentBindLookup(values: Map[String, ContentValue], path: String, from: Int): Option[ContentValue] =
+  if from >= path.length then None
+  else
+    val end = contentBindSegmentEnd(path, from, from)
+    if end < 0 then None
+    else values.get(path.substring(from, end)) match
+      case None => None
+      case Some(value) =>
+        if end == path.length then Some(value)
+        else if path.charAt(end) != 46 || end + 1 >= path.length then None
+        else value match
+          case MapV(nested) => contentBindLookup(nested, path, end + 1)
+          case _ => None
+
+def contentBindNumberText(value: Double): String =
+  val rendered = "" + value
+  if rendered.endsWith(".0") then rendered.substring(0, rendered.length - 2) else rendered
+
+def contentBindMapEntryText(keys: List[String], values: Map[String, ContentValue]): List[String] = keys match
+  case Nil => Nil
+  case head :: tail =>
+    val rendered = values.get(head) match
+      case Some(value) => head + ": " + contentBindValueText(value)
+      case None => head + ": "
+    rendered :: contentBindMapEntryText(tail, values)
+
+def contentBindValueText(value: ContentValue): String = value match
+  case Str(text) => text
+  case Bool(flag) => if flag then "true" else "false"
+  case Num(number) => contentBindNumberText(number)
+  case NullV => ""
+  case ListV(values) => values.map(contentBindValueText).mkString(", ")
+  case MapV(values) =>
+    "{" + contentBindMapEntryText(values.keys.toList.sorted, values).mkString(", ") + "}"
+
+def contentBindInline(value: ContentInline, bindings: Map[String, ContentValue]): ContentInline = value match
+  case Expr(source) => contentBindLookup(bindings, source, 0) match
+    case Some(bound) => contentBindText(contentBindValueText(bound)).asInstanceOf[ContentInline]
+    case None => value
+  case Emphasis(children) =>
+    value.asInstanceOf[ContentInline.Emphasis]
+      .copy(children.map(child => contentBindInline(child, bindings)))
+  case Strong(children) =>
+    value.asInstanceOf[ContentInline.Strong]
+      .copy(children.map(child => contentBindInline(child, bindings)))
+  case Link(label, href, title) =>
+    value.asInstanceOf[ContentInline.Link]
+      .copy(label.map(child => contentBindInline(child, bindings)))
+  case _ => value
+
+def contentBindBlockList(values: List[ContentBlock], bindings: Map[String, ContentValue]): List[ContentBlock] =
+  values.map(block => contentBindBlockValue(block, bindings))
+
+def contentBindItems(values: List[List[ContentBlock]], bindings: Map[String, ContentValue]): List[List[ContentBlock]] =
+  values.map(item => contentBindBlockList(item, bindings))
+
+def contentBindCell(values: List[ContentInline], bindings: Map[String, ContentValue]): List[ContentInline] =
+  values.map(inline => contentBindInline(inline, bindings))
+
+def contentBindCells(values: List[List[ContentInline]], bindings: Map[String, ContentValue]): List[List[ContentInline]] =
+  values.map(cell => contentBindCell(cell, bindings))
+
+def contentBindRows(values: List[List[List[ContentInline]]], bindings: Map[String, ContentValue]): List[List[List[ContentInline]]] =
+  values.map(row => contentBindCells(row, bindings))
+
+def contentBindBlockValue(value: ContentBlock, bindings: Map[String, ContentValue]): ContentBlock = value match
+  case Paragraph(inlines, attrs) =>
+    value.asInstanceOf[ContentBlock.Paragraph].copy(contentBindCell(inlines, bindings))
+  case BulletList(items, attrs) =>
+    value.asInstanceOf[ContentBlock.BulletList].copy(contentBindItems(items, bindings))
+  case OrderedList(items, start, attrs) =>
+    value.asInstanceOf[ContentBlock.OrderedList].copy(contentBindItems(items, bindings))
+  case Image(_, _, _, _) => value
+  case Table(headers, rows, alignments, attrs) =>
+    value.asInstanceOf[ContentBlock.Table]
+      .copy(contentBindCells(headers, bindings), contentBindRows(rows, bindings))
+  case Embedded(_, _, _, _, _) => value
+
+def contentBindSectionValue(value: SectionContent, bindings: Map[String, ContentValue]): SectionContent =
+  SectionContent(
+    value.id,
+    value.level,
+    value.title,
+    value.attrs,
+    contentBindBlockList(value.blocks, bindings),
+    value.children.map(child => contentBindSectionValue(child, bindings))
+  )
+
+def contentBindValue(value: Any, bindings: Map[String, ContentValue]): Any = value match
+  case document: DocumentContent =>
+    DocumentContent(
+      document.manifest,
+      document.title,
+      document.description,
+      document.attrs,
+      document.sections.map(section => contentBindSectionValue(section, bindings)),
+      contentBindBlockList(document.blocks, bindings)
+    )
+  case section: SectionContent => contentBindSectionValue(section, bindings)
+  case Paragraph(_, _) => contentBindBlockValue(value.asInstanceOf[ContentBlock], bindings)
+  case BulletList(_, _) => contentBindBlockValue(value.asInstanceOf[ContentBlock], bindings)
+  case OrderedList(_, _, _) => contentBindBlockValue(value.asInstanceOf[ContentBlock], bindings)
+  case Image(_, _, _, _) => contentBindBlockValue(value.asInstanceOf[ContentBlock], bindings)
+  case Table(_, _, _, _) => contentBindBlockValue(value.asInstanceOf[ContentBlock], bindings)
+  case Embedded(_, _, _, _, _) => contentBindBlockValue(value.asInstanceOf[ContentBlock], bindings)
+  case _ => throw RuntimeException("contentBind: expected DocumentContent, SectionContent, or ContentBlock")
+
+def contentBind(value: Any, bindings: ContentValue): Any = bindings match
+  case MapV(values) => contentBindValue(value, values)
+  case _ => throw RuntimeException("contentBind: bindings expected ContentValue.MapV")
+
 extern def contentDocument(): DocumentContent
 extern def contentCurrentSection(): SectionContent
 extern def contentSection(id: String): Option[SectionContent]
 extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
-extern def contentBind(value: Any, bindings: ContentValue): Any
 extern def contentPlainText(value: Any): String
 extern def contentToMarkdown(value: Any): String
 extern def contentModules(): Map[String, DocumentContent]

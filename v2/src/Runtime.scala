@@ -2279,19 +2279,30 @@ object Prims:
           V2PluginRegistry.lookupTaggedMethod(tag, method).get(value :: args)
         // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
         case (v, "asInstanceOf", _)          => v
-        // Runtime .copy on a record: overrides arrive as (name, value) pairs; the
-        // ACTUAL tag's registered field names drive the rebuild (the convert-time
-        // path only fires when the class is unambiguous).
-        case (DataV(tag, fields), "copy", pairs) if pairs.length % 2 == 0 =>
+        // Runtime .copy on a record: the compatibility bridge encodes overrides
+        // as (name | #index, value) pairs, while the self-hosted lowerer emits
+        // ordinary positional values. The ACTUAL tag's registered field names
+        // drive both rebuild forms (the convert-time path only fires when the
+        // class is unambiguous).
+        case (DataV(tag, fields), "copy", args) =>
           V2PluginRegistry.lookupFieldNames(tag, fields.length) match
             case Some(names) =>
-              val overrides = pairs.grouped(2).collect {
-                case List(StrV(n), v) => n -> v
-              }.toMap
-              DataV(tag, names.zipWithIndex.map { case (n, i) =>
-                overrides.get(s"#$i").orElse(overrides.get(n))
-                  .getOrElse(if i < fields.length then fields(i) else UnitV)
-              }.toVector)
+              val explicitNames = args.length % 2 == 0 && args.grouped(2).forall {
+                case List(StrV(n), _) => names.contains(n) ||
+                  (n.startsWith("#") && n.drop(1).forall(_.isDigit))
+                case _ => false
+              }
+              if explicitNames then
+                val overrides = args.grouped(2).collect {
+                  case List(StrV(n), v) => n -> v
+                }.toMap
+                DataV(tag, names.zipWithIndex.map { case (n, i) =>
+                  overrides.get(s"#$i").orElse(overrides.get(n))
+                    .getOrElse(if i < fields.length then fields(i) else UnitV)
+                }.toVector)
+              else if args.length <= fields.length then
+                DataV(tag, (args ++ fields.drop(args.length)).toVector)
+              else DataV("Stub", Vector(StrV(s"$tag.copy")))
             case None => DataV("Stub", Vector(StrV(s"$tag.copy")))
         case (IntV(n), "toString", Nil)      => StrV(n.toString)
         case (IntV(n), "toInt", Nil)         => IntV(n.toInt.toLong)    // truncate to 32-bit

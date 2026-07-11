@@ -1,0 +1,36 @@
+---
+name: conformance-content-binding
+---
+
+# Values
+
+```yaml @id=binding-values
+user:
+  role: Engineer
+  name: Ada
+active: true
+count: 42
+empty: null
+```
+
+# Template
+
+${user.name}|${user}|${active}|${count}|${empty}|${missing.path}|${bad-path}
+
+| Kind | Value |
+| :--- | ---: |
+| Bool | ${active} |
+
+## Child
+
+child=${user.role}
+
+# Runner
+
+[contentData, contentSection, contentBind, contentPlainText](std/content.ssc)
+
+```scalascript
+val bindings = contentData("binding-values").get
+val template = contentSection("template").get
+println(contentPlainText(contentBind(template, bindings)))
+```

@@ -1,7 +1,7 @@
 package ssc.plugin.content
 
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Prims, Runtime, V2PluginRegistry, Value}
+import ssc.{Compiler, Const, Prims, Program, Runtime, Term, V2PluginRegistry, Value}
 import ssc.plugin.{NativeContentModule, NativePluginHost, NativeRuntimeConfig}
 
 class ContentNativePluginTest extends AnyFunSuite:
@@ -80,3 +80,14 @@ class ContentNativePluginTest extends AnyFunSuite:
       NativeRuntimeConfig(contentModules = List(root, first, second)))
     val error = intercept[IllegalArgumentException](call("contentModule", Value.StrV("same")))
     assert(error.getMessage == "contentModule(namespace): duplicate imported content namespace 'same'")
+
+  test("portable record copy accepts positional and explicit-name overrides"):
+    NativePluginHost.installProviders(List(ContentNativePlugin()), NativeRuntimeConfig())
+    def run(term: Term): Value =
+      Runtime.run(Compiler.compile(Program(Nil, term)), Array.empty)
+    def text(value: String): Term = Term.Lit(Const.CStr(value))
+    val original = Term.Ctor("Text", List(text("old")))
+    val positional = Term.Prim("__method__", List(text("copy"), original, text("new")))
+    val named = Term.Prim("__method__", List(text("copy"), original, text("value"), text("named")))
+    assert(run(positional) == Value.DataV("Text", Vector(Value.StrV("new"))))
+    assert(run(named) == Value.DataV("Text", Vector(Value.StrV("named"))))

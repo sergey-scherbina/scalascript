@@ -1,0 +1,6 @@
+Template
+Ada|{name: Ada, role: Engineer}|true|42||${missing.path}|${bad-path}
+Kind | Value
+Bool | true
+Child
+child=Engineer

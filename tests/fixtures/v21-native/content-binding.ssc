@@ -1,0 +1,73 @@
+---
+name: native-content-binding
+---
+
+# Bindings
+
+```yaml @id=content-bindings
+user:
+  role: Engineer
+  name: Ada
+plan:
+  price: "$49"
+active: true
+count: 42
+items:
+  - one
+  - two
+empty: null
+```
+
+# Template
+
+Hello ${user.name}; map=${user}; missing=${missing.path}; invalid=${bad-path}.
+
+- Bullet ${plan.price}
+- Missing ${unknown}
+
+3. Ordered ${count}
+4. Active ${active}
+
+| Key | Value |
+| :--- | ---: |
+| Name | ${user.name} |
+| Items | ${items} |
+
+![static image](/static.png "Static")
+
+```text @id=literal
+Embedded ${user.name} remains literal.
+```
+
+## Nested
+
+Nested ${empty} / ${plan.price}.
+
+# Runner
+
+[contentData, contentSection, contentBind, contentPlainText, contentToMarkdown](std/content.ssc)
+
+```scalascript
+case class Paragraph(inlines: Any, attrs: Any)
+case class Emphasis(children: Any)
+case class Strong(children: Any)
+case class Code(value: String)
+case class Link(label: Any, href: String, title: Any)
+case class Expr(source: String)
+
+val bindings = contentData("content-bindings").get
+val template = contentSection("template").get
+val bound = contentBind(template, bindings)
+val inlineShapes = Paragraph(List(
+  Emphasis(List(Expr("user.name"))),
+  Strong(List(Expr("active"))),
+  Link(List(Expr("plan.price")), "/buy", None),
+  Code("${user.name}")
+), Map())
+println("plain=")
+println(contentPlainText(bound))
+println("markdown=")
+println(contentToMarkdown(bound))
+println("inline-shapes=")
+println(contentToMarkdown(contentBind(inlineShapes, bindings)))
+```

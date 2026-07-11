@@ -9,7 +9,7 @@ description: Pure self-hosted projection from native Markdown/YAML ADTs to std.c
 This module is evaluated by the native frontend tower. It performs every
 text-to-content conversion before values cross the permanent Scala seed.
 
-[markdownParse, MarkdownDocument, MarkdownError, MarkdownHeading, MarkdownImport, MarkdownParagraph, MarkdownText, MarkdownExpr, MarkdownFence, MarkdownBulletList, MarkdownOrderedList, MarkdownImage, MarkdownTable, MarkdownTableRow, MarkdownMetadata](std/markdown-core.ssc)
+[markdownParse, markdownInlines, MarkdownDocument, MarkdownError, MarkdownHeading, MarkdownImport, MarkdownParagraph, MarkdownText, MarkdownExpr, MarkdownFence, MarkdownBulletList, MarkdownOrderedList, MarkdownImage, MarkdownTable, MarkdownTableRow, MarkdownMetadata](std/markdown-core.ssc)
 [yamlParse, YamlOk, YamlErr, YamlNull, YamlBool, YamlInteger, YamlDecimal, YamlString, YamlArray, YamlObject, YamlField](std/yaml-core.ssc)
 
 ```scalascript
@@ -161,7 +161,7 @@ def contentInlines(values: List[Any]): List[Any] = values match
   case Cons(MarkdownExpr(source), tail) => Expr(source) :: contentInlines(tail)
   case Cons(_, tail) => contentInlines(tail)
 
-def contentCell(value: String): List[Any] = Text(value) :: Nil
+def contentCell(value: String): List[Any] = contentInlines(markdownInlines(value, 0))
 
 def contentCells(values: List[String]): List[List[Any]] = values match
   case Nil => Nil
@@ -173,7 +173,7 @@ def contentRows(values: List[Any]): List[List[List[Any]]] = values match
   case Cons(_, tail) => contentRows(tail)
 
 def contentItem(value: String): List[Any] =
-  Paragraph(Text(value) :: Nil, Map()) :: Nil
+  Paragraph(contentInlines(markdownInlines(value, 0)), Map()) :: Nil
 
 def contentItems(values: List[String]): List[List[Any]] = values match
   case Nil => Nil
