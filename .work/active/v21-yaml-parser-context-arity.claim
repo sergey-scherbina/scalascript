@@ -1,6 +1,0 @@
-feature/v21-yaml-parser-context-arity 2026-07-11T13:03:28Z
-agent: codex
-heartbeat: 2026-07-11T13:03:28Z
-status: in-progress
-done-so-far: typed-pattern boundary advanced dsl-yaml-like.ssc to identical VM/ASM arity: 0 expected, 1 given
-next: identify the assembled callee, specify the portable call boundary, add an import regression, and repair lowering
