@@ -236,7 +236,7 @@ compiles them via Scala.js.
 | Pattern matching | `x match { case Some(n) => n; case None => 0 }` |
 | For comprehensions | `for x <- xs if x > 0 yield x * x` |
 | While loops | `while n > 0 do { ... }` |
-| Collections | `List`, `Map`, `Option`, `Set`, `Vector`, `Array`, `LazyList`, `Seq`, `IndexedSeq`, `Iterable` — full method dispatch |
+| Collections | `List`, `Map`, `Option`, `Set`, `Vector`, `Array`, `LazyList`, `Seq`, `IndexedSeq`, `Iterable` — full method dispatch; native `List.mkString` preserves the requested separator for empty, singleton, and multi-element lists |
 | Real collection semantics | The interpreter models true Scala semantics — `Array` is mutable with reference identity (`a(i) = x`), `LazyList` is lazy (`#::` defers; infinite streams work), `Vector` is a distinct indexed type with O(log₃₂ n) access; constructors `Seq/Vector/Array/IndexedSeq/Iterable/LazyList(...)` + `.toSeq/.toVector/.toArray/.toList/.toLazyList` conversions |
 | Tuples | `val t = (1, "hello"); t._1` |
 | Bitwise operators | `a & b`, `a \| b`, `a ^ b`, `a << n`, `a >> n`, `a >>> n`, `~a` on `Int` |

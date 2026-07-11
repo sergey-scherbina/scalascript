@@ -2,8 +2,9 @@
 
 ## v21-runtime-taxonomy-ui-remote-table-stale — successful UI row remains blocked
 
-**Status:** open (2026-07-11); found by codex in the full post-NativeUi v2.1
-release gate after `ui-remote-table.ssc` moved from both-fail to identical.
+**Status:** fixed (2026-07-11, `4cdca959c`); found by codex in the full
+post-NativeUi v2.1 release gate after `ui-remote-table.ssc` moved from both-fail
+to identical; waiting for Sergiy confirmation before `done`.
 
 - **Real-harness repro:** generate the current corpus/parity reports and run
   `scripts/v21-runtime-taxonomy`; it exits non-zero with
@@ -14,11 +15,15 @@ release gate after `ui-remote-table.ssc` moved from both-fail to identical.
   remove only its stale manifest entry, tighten smoke ceilings/counts, and rerun
   runtime taxonomy plus the full portable release gates. Keep `fixed` until
   Sergiy confirms.
+- **Fix/verified:** removed the single stale row and tightened standard-provider
+  to 22, blockers to 40, and total rows to 52. Runtime/sentinel taxonomy,
+  portable gates, and fresh 11/11 conformance pass.
 
 ## v21-native-serve-ownership-conflict — NativeUi duplicates HTTP `serve`
 
-**Status:** open (2026-07-11); found by codex while re-running the native
-release gates after rebasing onto NativeUi runtime commit `1f3ca3962`.
+**Status:** fixed (2026-07-11, `727c806e8`); found by codex while re-running the
+native release gates after rebasing onto NativeUi runtime commit `1f3ca3962`;
+waiting for Sergiy confirmation before `done`.
 
 - **Real-harness repro:** after `scripts/sbtc installBin`, every
   `bin/ssc run --native <portable-file>` invocation exits before evaluation with
@@ -33,11 +38,16 @@ release gates after rebasing onto NativeUi runtime commit `1f3ca3962`.
   native-entry, corpus, strict parity, taxonomies, and fresh conformance.
 - **Done-when:** full-provider startup has no duplicate owner, focused HTTP/UI
   behavior stays green, and the fix remains `fixed` until Sergiy confirms.
+- **Fix/verified:** UI registers only the provenance-rewritten reserved ABI-v1
+  name; HTTP remains the sole public `serve` owner. NativeUi is 14/14,
+  installed native-entry passes, and the full corpus/parity gates load both
+  providers without conflict.
 
 ## v21-list-mkstring-capture — separator slot points at the source list
 
-**Status:** open (2026-07-11); found by codex when nested-pattern fallback made
-`typed-data.ssc` execute through its Adults section.
+**Status:** fixed (2026-07-11, `23fddc6a2`); found by codex when nested-pattern
+fallback made `typed-data.ssc` execute through its Adults section; waiting for
+Sergiy confirmation before `done`.
 
 - **Real-harness repro:** after `scripts/sbtc installBin`, run
   `bin/ssc-standard run examples/typed-data.ssc` and inspect the line after
@@ -52,6 +62,10 @@ release gates after rebasing onto NativeUi runtime commit `1f3ca3962`.
   direct multi-element regression on VM/ASM, rerun every native-entry/corpus/
   parity/taxonomy/conformance gate, and keep the entry `fixed` until Sergiy
   confirms.
+- **Fix/verified:** the regression covers empty, singleton, multi-element, and
+  numeric lists on both lanes; `typed-data.ssc` now prints `Alice, Charlie`.
+  Native-entry, corpus, strict parity, both taxonomies, portable smokes, and
+  fresh 11/11 conformance pass.
 
 ## v21-parity-mixed-scala-fence — native math exposes one-sided compiler surface
 

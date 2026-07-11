@@ -1074,6 +1074,10 @@ maybeUser.map(_.toUpperCase)        // Some(ALICE)
 maybeUser.getOrElse("anonymous")    // "alice"
 ```
 
+The compiler-free native VM and direct-ASM lanes use the same `mkString`
+contract: the supplied separator appears only between adjacent elements, while
+empty and singleton lists do not introduce it.
+
 ### For Comprehensions
 
 ```scalascript
