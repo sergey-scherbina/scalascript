@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-runtime-taxonomy-content-owner — content extern gaps assigned to module linker
+
+**Status:** open (2026-07-11); found by codex while starting TI-8.2d2 from the
+real `target/v21-runtime-taxonomy-current.tsv` report at `df84e8acd`.
+
+- **Real-harness repro:** run `scripts/v21-runtime-taxonomy`, then inspect
+  `content-linked-namespaces.ssc`, `content-to-markdown.ssc`, and `content.ssc`.
+  The manifest classifies them as `language-runtime/module-linker`, while
+  `runtime/std/content.ssc` declares `contentModuleSection` and `contentSection`
+  as `extern def` and the content plugin owns the `md` surface.
+- **Expected:** all three rows are `standard-provider` blockers owned by the
+  core-free content-provider migration. The total blocker ceiling remains 48.
+- **Root cause:** the initial 60-row review grouped unbound imported names by
+  their visible error without checking whether the imported declaration was
+  pure ScalaScript or an extern/provider contract.
+- **Done-when:** move the three rows to `standard-provider`, tighten exact
+  category limits from 23/22 to 20 language-runtime / 25 standard-provider,
+  update the recorded baseline, and rerun taxonomy smoke, the real report, and
+  affected conformance. Keep `fixed` until Sergiy confirms the taxonomy.
+
 ## v21-sentinel-taxonomy-parity-success — parser sentinel becomes unclassified when both lanes exit zero
 
 **Status:** fixed (2026-07-10, `07c1d9b55`); found by codex while verifying
