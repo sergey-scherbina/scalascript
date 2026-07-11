@@ -9,13 +9,14 @@ former collection arity failure.
 - **Real-harness repro:** `bin/ssc-standard run --native examples/imports.ssc`
   prints the complete native math section and `distance (0,0)-(3,4) = 5`, then
   VM/ASM reach the classified collection pipeline and fail with `match: no arm
-  for Tuple2/2`.
+  for Tuple2/2`. `examples/extensions.ssc` now reaches the same boundary after
+  printing through `min = 1, max = 9`.
 - **Expected:** the imported list/tuple pipeline binds portable tuple pairs and
   completes identically on VM/ASM.
 - **Plan/done-when:** isolate the post-math tuple pipeline in a multi-file
   fixture, repair constructor/tuple pattern ownership without a host fallback,
-  make `imports.ssc` identical, and retire its language-runtime taxonomy row
-  only after all release gates pass.
+  make `imports.ssc` and `extensions.ssc` identical, and retire their
+  language-runtime taxonomy rows only after all release gates pass.
 
 ## v21-yaml-unit-global — native layout parser emits an unbound `Unit` value
 

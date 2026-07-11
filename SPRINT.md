@@ -1754,8 +1754,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `match: no arm for Tuple2/2`. Isolate the
                               post-math imported list/tuple pipeline in a
                               multi-file regression, preserve tuple constructor
-                              matching, and retire the taxonomy row only when
-                              the full example becomes identical.
+                              matching, rerun `extensions.ssc` (which reaches
+                              the same boundary after its min/max output), and
+                              retire both taxonomy rows only when the full
+                              examples become identical.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
