@@ -50,7 +50,10 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     // storage (filesystem, not available in batch test)
     "storage",
     // JS / browser-only
-    "js-applyunary-effect-cps", "js-cps-intrinsic-rewrite", "js-crypto-extern-standalone",
+    // NOTE (2026-07-11 QA un-skip): js-applyunary-effect-cps / js-cps-intrinsic-rewrite /
+    // js-crypto-extern-standalone now execute byte-exact on the v2 VM via FrontendBridge
+    // (audited vs expected/), so they are UN-SKIPPED here for extra v2-VM coverage; the JS
+    // lane still owns them too.
     "sql-browser-basic", "node-basic", "dsl-multi-pass",
     // tkv2-typed-client-derived is backends:[js]: its `@side=client` block calls
     // `awaitClient(...)`, a JS-lane intrinsic, so the v2 VM (which this harness
@@ -58,9 +61,14 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     // (JsGenTypedRouteClientTest). Same rationale as the js-* cases above.
     "tkv2-typed-client-derived",
     // UI / signals / content toolkit (requires frontend runtime)
-    "content", "content-introspection", "content-linked-namespaces",
-    "content-tables", "content-to-markdown",
-    "signals",
+    // NOTE (2026-07-11 QA un-skip): most content-* now render byte-exact on the v2 VM via
+    // FrontendBridge (frontend runtime on the Test cp; audited vs expected/) and are UN-SKIPPED.
+    // content-linked-namespaces stays skipped — it passes in isolation but FAILS in the
+    // sequential harness (cross-test namespace/state dependency). `signals` needs the reactive
+    // frontend runtime. std-ui-jobpanel needs the nativeui frontend intrinsic
+    // (__ssc_nativeui_v1.fetchActionWith), absent from this harness's cp — same as the other
+    // std-ui-* below; it was missing from the skipSet (a pre-existing red) → added here.
+    "content-linked-namespaces", "signals", "std-ui-jobpanel",
     "std-ui-aggregator", "std-ui-extended", "std-ui-extended-b", "std-ui-extended-c",
     "std-ui-extended-d", "std-ui-i18n",
   )

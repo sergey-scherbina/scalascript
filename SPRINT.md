@@ -7153,3 +7153,24 @@ doesn't de-fold for it), not a real bc weakness. Landed this session: foreach-in
 pure-Seq-inline (78c459fc4, the systemic one), unboxed self-tail params + overflow
 FIX (c22cb2a39). The last also fixed a latent CORRECTNESS bug: deep tail recursion
 stack-overflowed on the bc lane. Bytecode-perf slice DONE.
+
+## QA — conformance skip-debt audit + un-skip (2026-07-11, opus)
+
+Audited all 55 real V2ConformanceTest skipped cases via `bridgeCli run` + the TEST classpath
+(FrontendBridge → v2 VM, = the harness's `capture`). Result: **19 STALE-PASS** (now pass, skip
+is stale) + 36 genuinely need actor/cluster/coroutine/http/UI runtime.
+
+- [x] UN-SKIP 7 SAFE, DETERMINISTIC stale-pass cases (VERIFIED via real sbt V2ConformanceTest = 115/0):
+      content, content-introspection, content-linked-namespaces, content-tables,
+      content-to-markdown (frontend runtime now loaded on the Test cp), and
+      js-applyunary-effect-cps, js-cps-intrinsic-rewrite, js-crypto-extern-standalone (v2-VM now).
+      content-linked-namespaces stays SKIPPED (passes in isolation, FAILS in the sequential
+      harness — cross-test state dep; the sbt run caught this — bridgeCli alone would have
+      mislanded it). BONUS: std-ui-jobpanel was a PRE-EXISTING RED (missing from skipSet, needs
+      the nativeui intrinsic like other std-ui-*) → added to skipSet, greening the test.
+- [ ] KEPT SKIPPED (stale-pass but the skip guards a real hazard, NOT a failure): async /
+      async-parallel ("may hang"), dataset-parallel-int/sortBy/top/union-intersect +
+      distributed-heterogeneous/map/shuffle ("free-monad executor → infinite loop"), storage
+      ("filesystem not in batch"), tls-smoke ("network"). Un-skipping these risks CI hangs/
+      flakiness — leave until the executor/runtime hazards are addressed.
+- [ ] The 36 hard-skips (actors/coroutine/http/mcp/UI-signals) need their runtime — out of scope.
