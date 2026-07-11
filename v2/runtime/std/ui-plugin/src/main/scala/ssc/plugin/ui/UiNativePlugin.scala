@@ -135,6 +135,10 @@ final class UiNativePlugin extends NativePlugin:
   private def sourceNative(context: NativePluginContext, name: String)(
       fn: (Value, List[Value]) => Value): Unit =
     register(context, name)(args => fn(sourceRef(name), args))
+    internalSourceNative(context, name)(fn)
+
+  private def internalSourceNative(context: NativePluginContext, name: String)(
+      fn: (Value, List[Value]) => Value): Unit =
     register(context, NativeUiSites.internalName(name)) { args =>
       args match
         case source :: rest => fn(source, rest)
@@ -676,7 +680,9 @@ final class UiNativePlugin extends NativePlugin:
         Value.UnitV
       case _ => throw new RuntimeException("emit(tree, outDir)")
     }
-    sourceNative(context, "serve") { (source, args) =>
+    // Public `serve(port)` belongs to the HTTP provider. Imported std.ui.serve
+    // calls carry provenance and are rewritten to this reserved ABI global.
+    internalSourceNative(context, "serve") { (source, args) =>
       if args.length != 2 && args.length != 3 then throw new RuntimeException("serve(tree, port[, extraCss])")
       val tree = args.head; val port = integer(args, 1, "serve"); val css = args.lift(2).map { case Value.StrV(value) => value; case _ => throw new RuntimeException("serve extraCss must be String") }.getOrElse("")
       if appleContext then

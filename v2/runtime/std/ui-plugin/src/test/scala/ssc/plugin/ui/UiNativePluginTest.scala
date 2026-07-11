@@ -122,6 +122,8 @@ class UiNativePluginTest extends AnyFunSuite:
 
   test("reserved ABI-v1 globals accept hidden site and source metadata"):
     NativePluginHost.installProviders(List(UiNativePlugin()))
+    assert(V2PluginRegistry.lookup("serve").isEmpty)
+    assert(V2PluginRegistry.lookup(NativeUiSites.internalName("serve")).nonEmpty)
     val source = Value.DataV("NativeUiSourceRef", Vector(
       Value.StrV("app.ssc"), Value.IntV(4), Value.IntV(2), Value.StrV("element")))
     val value = call(
