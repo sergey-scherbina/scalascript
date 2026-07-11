@@ -1322,11 +1322,20 @@ function _ssc_ui_mount(sigs, keyedRoots) {
   _mountKeyed(document, keyedRoots || []);
 }
 
+// JSON embedded in an inline <script> must not carry a literal `</script>` or
+// `<`/`>`/`&`/U+2028/U+2029 (H1: SSR XSS via a request-derived signal value).
+// Escape them to \uXXXX — valid JSON (decodes identically) and inert in HTML.
+function _ssc_json_html_safe(json) {
+  return json.replace(/[<>&\u2028\u2029]/g, function (c) {
+    return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
+  });
+}
+
 // Backward-compat wrapper: walk the view and return { body, script } where
 // script is an inline <script> IIFE — used by _ssc_ui_serve for server-rendered pages.
 function _ssc_ui_renderPage(view) {
   const { body, sigs } = _ssc_ui_renderBody(view);
-  const sigJson = JSON.stringify(Object.fromEntries(sigs));
+  const sigJson = _ssc_json_html_safe(JSON.stringify(Object.fromEntries(sigs)));
   const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));<\/script>`;
   return { body, script };
 }
@@ -1341,7 +1350,7 @@ function _ssc_ui_serve(treeOrPort, portOrUndef, extraCssOrUndef) {
   const extraCss = extraCssOrUndef || '';
   _ssc_http_route('GET', '/')((_req) => {
     const { body, sigs } = _ssc_ui_renderBody(view);
-    const sigJson = JSON.stringify(Object.fromEntries(sigs));
+    const sigJson = _ssc_json_html_safe(JSON.stringify(Object.fromEntries(sigs)));
     const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));<\/script>`;
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
