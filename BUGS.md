@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v2-swiftui-dependent-double-publish — one dependency write advances a computed cell twice
+
+**Status:** open (2026-07-11); found by codex while implementing the generated
+SwiftUI observation store, announced to `@scalascript` /
+`@nativeui-reviewer` in Rozum.
+
+- **Real-harness repro:** generate the NativeUi Apple sources, mount stable cells
+  for a mutable signal and a computed/equality signal that reads it, then write
+  one semantically different value. The draft `NativeUiStore.publish` calls
+  `changed()` on the dependent and recursively publishes that same dependent,
+  so its revision advances twice for one source transition.
+- **Expected:** the source and each transitively dependent signal publish at
+  most once per write transaction; a semantic-equal write publishes nothing,
+  and cycles are bounded by the visited set.
+- **Plan/done-when:** centralize the revision increment in one graph traversal,
+  add a real generated-Swift runtime probe covering stable cell identity,
+  semantic-equal suppression, direct/transitive invalidation, opaque
+  subscribe/unsubscribe tokens, and obtain independent Rozum approval before
+  landing the store slice.
+
 ## v21-native-dynamic-toint-dropped — selected String conversion vanishes
 
 **Status:** fixed (2026-07-11, `63ab041a6`), awaiting Sergiy confirmation;

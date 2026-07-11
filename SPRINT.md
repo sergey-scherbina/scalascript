@@ -383,6 +383,11 @@ there before changing this plan.
             subscriber tokens, main-actor writes, retained `NativeUiSession`,
             dependency-safe computed/equality reads, and deterministic disposal.
             AppCore stays SwiftUI-free; all SscValue decoding lives at the seam.
+            Fix the tracked `v2-swiftui-dependent-double-publish` draft defect
+            by publishing each source/dependent cell once per transaction.
+            The real generated-Swift gate must pin stable cell identity,
+            semantic-equal suppression, direct/transitive invalidation, and
+            exact opaque-token subscribe/unsubscribe ownership before review.
       - [ ] **v2-swiftui-recursive-renderer** — emit
             `NativeUiRenderer.swift`/`NativeUiStyles.swift`; recursively decode
             text/signal/show/fragment/element/forKeyed/unsupported and the exact
