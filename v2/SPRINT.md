@@ -1425,3 +1425,16 @@ since ssc1-lower imports ssc1-front and both run in one ssc0 process):
       PROGRESS PAST arity (→ next blockers `unbound null` / plugin module-context). Remaining:
       content-introspection is CURRIED (`contentComponent(name)(render)`), a separate gap.
       Conformance + stage1 pending.
+
+## K62.18 — null + throw literals (bridge parity) — 2026-07-11
+
+Blockers revealed behind the K62.17 arity fix (honest BridgeCli measure). Both mirror the
+scalameta bridge exactly:
+- [x] `null` → `None` — parseAtom kw branch → `mkUVar("None")` (front already lowers `None`
+      → `ctorap None`). Bridge: FrontendBridge Lit.Null → Ctor("None"). Verified:
+      `val x = null; x match { case None => … }` → "was null"; content-data-source /
+      datatable-static-spa PROGRESS PAST `unbound null` (→ deeper arity residuals).
+- [x] `throw e` → `__throw__(e)` — parseAtom id branch (`throw` is an id, not a kw). Bridge:
+      Term.Throw → App(Global("__throw__")). __throw__ is registered by the plugin runtime
+      (loadAll), so it resolves under BridgeCli (the bare VM has no throw). inline (macros,
+      `${}` quote/splice) and ctx (context var) stay out of scope.
