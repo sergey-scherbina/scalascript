@@ -1468,6 +1468,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               HTTP-owned global, add installed-binary coverage,
                               and rerun HTTP/UI focused tests plus every v2.1
                               native release gate before resuming d2l delivery.
+                        - [ ] **TI-8.2d2n stale UI runtime taxonomy:** verify
+                              `ui-remote-table.ssc` is now identical after the
+                              NativeUi ABI-v1 landing, remove its obsolete
+                              blocker row, tighten taxonomy expectations, and
+                              rerun all taxonomy/portable/conformance gates.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

@@ -1,5 +1,20 @@
 # Bug tracker
 
+## v21-runtime-taxonomy-ui-remote-table-stale — successful UI row remains blocked
+
+**Status:** open (2026-07-11); found by codex in the full post-NativeUi v2.1
+release gate after `ui-remote-table.ssc` moved from both-fail to identical.
+
+- **Real-harness repro:** generate the current corpus/parity reports and run
+  `scripts/v21-runtime-taxonomy`; it exits non-zero with
+  `stale or reclassified manifest row: ui-remote-table.ssc`.
+- **Expected:** a standard example that now runs identically on VM/direct ASM is
+  absent from the blocking runtime manifest; taxonomy counts match the report.
+- **Plan/done-when:** verify the row is identical with zero one-sided failure,
+  remove only its stale manifest entry, tighten smoke ceilings/counts, and rerun
+  runtime taxonomy plus the full portable release gates. Keep `fixed` until
+  Sergiy confirms.
+
 ## v21-native-serve-ownership-conflict — NativeUi duplicates HTTP `serve`
 
 **Status:** open (2026-07-11); found by codex while re-running the native
