@@ -934,6 +934,24 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### Portable map and tag-qualified runtime seam (`689969978`, 2026-07-11)
+
+- The v2 JVM runtime now has a target-neutral, insertion-ordered `Value.MapV`
+  whose identity equality matches Swift `SscMap`. Core map factories,
+  primitives, methods, field access, arithmetic copy-on-write, rendering, and
+  the v1 compatibility adapter use that value; host-map acceptance remains only
+  on transitional external adapter paths.
+- Native providers can register tag-qualified apply and method handlers. Those
+  handlers participate in ownership checks and registry snapshot/restore/clear,
+  so the forthcoming `NativeUiSignal` DataV can remain callable without global
+  `get`/`set` collisions.
+- Focused gates passed: native plugin SPI 9/9, plugin bridge 30/30,
+  FrontendBridge unit tests 56/56, JSON 3/3, HTTP 4/4, and the pre-migration UI
+  baseline 3/3. `tests/conformance/run.sh --only 'maps,json-*' --no-memo`
+  passed 4/4 on INT/JS/JVM. The broad FrontendBridge suite still hits only the
+  pre-existing `v2-frontendbridge-sqlite-timeout` entry recorded in `BUGS.md`;
+  its isolated 15-second timeout reproduced unchanged.
+
 ### Structural AppCore Swift backend (`68d0b6610`, 2026-07-10)
 
 - `v2/backend/swift` is an sbt-built first-class CoreIR consumer. It writes a
