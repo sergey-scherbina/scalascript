@@ -17,9 +17,10 @@ the assembled CLI plus plugin distribution is the contract.
 
 ## Contract
 
-- Every finite acyclic v2 value converts to its v1/plugin representation once
-  per reachable node, modulo ordinary immutable sharing; conversion must not
-  create cycles or repeatedly expand a stable global/import environment.
+- Every finite acyclic v2 record field converts to its v1/plugin representation
+  once per field occurrence; the named, positional and array layouts reuse that
+  exact converted value rather than recursively rebuilding it. Conversion must
+  not create cycles or repeatedly expand a stable global/import environment.
 - Imported `List`, data values, tuples, maps and native JSON wrappers preserve
   shape and scalar values exactly.
 - Mutable/concurrent global storage must not change value identity, conversion
@@ -43,8 +44,11 @@ the assembled CLI plus plugin distribution is the contract.
 
 ## Behavior
 
-- [ ] The first bad commit and precise retained/recursive value are identified.
-- [ ] Imported nested JSON conversion terminates under a bounded heap and keeps
+- [x] The first runnable bad boundary and precise recursive expansion are
+      identified: self-hosted JSON first exposes the pre-existing triple
+      `InstanceV` field conversion (`efb32a11f` assembled boundary).
+- [x] Imported nested JSON conversion terminates under a bounded heap and keeps
       exact shape and navigation results.
-- [ ] Concurrent/global runtime changes cannot regress bridge ownership.
+- [x] Registered record layouts share each converted field by identity across
+      named, positional and array access, independent of global storage type.
 - [ ] The published runtime passes both ScalaScript and busi release gates.

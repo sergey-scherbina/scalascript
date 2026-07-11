@@ -17,9 +17,9 @@ published fair/fast HTTP runtime. The current assembled `495467456` exhausts a
 OpenAPI document; assembled `3666ccb7a` passes the identical current busi
 source. This blocks the personal-data Vault release.
 
-- [ ] Bisect the real assembled range and reduce the first bad commit to a
+- [x] Bisect the real assembled range and reduce the first bad commit to a
       multi-module fixture that preserves the import + large nested JSON shape.
-- [ ] Repair the conversion/runtime ownership bug without weakening JSON or
+- [x] Repair the conversion/runtime ownership bug without weakening JSON or
       imposing an application-size workaround; add focused regression coverage.
 - [ ] Run affected module tests, assembled repro, relevant conformance, and the
       busi API/OpenAPI plus full JVM/JS/E2E gates on one published SHA.

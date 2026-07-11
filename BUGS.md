@@ -2,8 +2,9 @@
 
 ## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
 
-**Status:** open (2026-07-11); reported by busi while verifying the newly
-published HTTP runtime.
+**Status:** fixed (2026-07-11, `5f8ed9614`); reported by busi while
+verifying the newly published HTTP runtime. Reporter confirmation on the final
+published pin is pending.
 
 - **Real-harness repro:** assemble `bin/ssc` at `495467456`, then run busi's
   current `tests/v2/api.ssc` with `SSC_JIT=off`. All serializer assertions pass
@@ -18,6 +19,17 @@ published HTTP runtime.
   for the first failing boundary, fix the owning runtime path, and pass focused
   modules, affected conformance, the real busi API/OpenAPI gate and its full
   release suite on the same published SHA.
+- **Root cause/fix:** `v2ToV1` recursively converted every `DataV` field three
+  times to populate the named map, positional map and `fieldsArr`. The
+  self-hosted JSON ADT exposed the pre-existing exponential `3^depth`
+  expansion. It now converts each field once and shares the exact converted
+  value across all three `InstanceV` layouts.
+- **Verification so far:** the new 18-level imported JSON fixture OOMs the old
+  published runtime with `-Xmx512m`, while the fixed assembled runtime reaches
+  its sentinel. PluginBridge 31/31, JSON conformance 4/4 and the original busi
+  `tests/v2/api.ssc` are green with the same 512 MiB bound. The broader
+  FrontendBridge run is 194/195; its sole `tkv2-pwa` failure is the separately
+  claimed hf-6 standard-tier provider cutover, not this bridge change.
 
 ## v21-functional-vm-asm-mkstring-parity — functional demo diverges on final dispatch
 
