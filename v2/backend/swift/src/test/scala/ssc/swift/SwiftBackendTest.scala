@@ -61,6 +61,24 @@ final class SwiftBackendTest extends AnyFunSuite:
     val roundTrip = Term.Prim("big.div", List(product, Term.Lit(Const.CBig(right))))
     assert(runSwift("bigint", Program(Nil, roundTrip)) == left.toString)
 
+  test("real swift run preserves portable Decimal scale rounding and map identity"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def str(value: String) = Term.Lit(Const.CStr(value))
+    def int(value: Long) = Term.Lit(Const.CInt(value))
+    def dec(value: String) = Term.Prim("dec.parse", List(str(value)))
+    val add = Term.Prim("dec.add", List(dec("1.20"), dec("2.3")))
+    val div = Term.Prim("dec.div", List(dec("1"), dec("8"), int(3), str("HALF_UP")))
+    val rounded = Term.Prim("dec.set-scale", List(dec("2.345"), int(2), str("HALF_UP")))
+    val numericEquality = Term.Prim("__arith__", List(str("=="), dec("1.0"), dec("1.00")))
+    val fromUnscaled = Term.Prim("dec.from-unscaled", List(Term.Lit(Const.CBig(BigInt(1230))), int(2)))
+    val mapGet = Term.Prim("map.get", List(Term.Local(0), dec("1.00")))
+    val body = Term.Seq(List(
+      Term.Prim("map.put", List(Term.Local(0), dec("1.0"), int(7))),
+      Term.Ctor("Tuple6", List(add, div, rounded, numericEquality, fromUnscaled, mapGet)),
+    ))
+    val program = Program(Nil, Term.Let(List(Term.Prim("map.new", Nil)), body))
+    assert(runSwift("decimal", program) == "(3.50, 0.125, 2.35, true, 12.30, Some(7))")
+
   private def fixture(name: String): Program =
     val path = repoRoot.resolve(s"v2/conformance/$name.coreir")
     Reader.parseProgram(Files.readString(path, StandardCharsets.UTF_8))

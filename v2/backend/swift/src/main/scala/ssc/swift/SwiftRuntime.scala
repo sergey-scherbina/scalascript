@@ -28,6 +28,11 @@ struct SscBigInt: Equatable, Comparable, CustomStringConvertible {
         (sign < 0 ? "-" : "") + digits.map(String.init).joined()
     }
 
+    var signum: Int { sign }
+    var isZero: Bool { sign == 0 }
+    var isEven: Bool { digits.last! % 2 == 0 }
+    var magnitude: SscBigInt { SscBigInt(sign: sign == 0 ? 0 : 1, digits: digits) }
+
     static func < (lhs: SscBigInt, rhs: SscBigInt) -> Bool {
         if lhs.sign != rhs.sign { return lhs.sign < rhs.sign }
         if lhs.sign == 0 { return false }
@@ -133,6 +138,141 @@ struct SscBigInt: Equatable, Comparable, CustomStringConvertible {
     }
 }
 
+struct SscDecimal: Equatable, Comparable, CustomStringConvertible {
+    let unscaled: SscBigInt
+    let scale: Int
+
+    init(_ raw: String) {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { fatalError("decimal: invalid text ''") }
+        var exponent = 0
+        if let e = text.firstIndex(where: { $0 == "e" || $0 == "E" }) {
+            let exponentText = String(text[text.index(after: e)...])
+            guard let parsed = Int(exponentText) else { fatalError("decimal: invalid text '\(raw)'") }
+            exponent = parsed
+            text = String(text[..<e])
+        }
+        let negative = text.hasPrefix("-")
+        if negative || text.hasPrefix("+") { text.removeFirst() }
+        let pieces = text.split(separator: ".", omittingEmptySubsequences: false)
+        guard pieces.count <= 2,
+              !pieces[0].isEmpty,
+              pieces.allSatisfy({ $0.allSatisfy(\.isNumber) }) else {
+            fatalError("decimal: invalid text '\(raw)'")
+        }
+        let fraction = pieces.count == 2 ? String(pieces[1]) : ""
+        var value = SscBigInt((negative ? "-" : "") + String(pieces[0]) + fraction)
+        var resultScale = fraction.count - exponent
+        if resultScale < 0 { value = value * Self.power10(-resultScale); resultScale = 0 }
+        self.unscaled = value
+        self.scale = resultScale
+    }
+
+    init(unscaled: SscBigInt, scale: Int) {
+        if scale < 0 {
+            self.unscaled = unscaled * Self.power10(-scale)
+            self.scale = 0
+        } else {
+            self.unscaled = unscaled
+            self.scale = scale
+        }
+    }
+
+    var description: String {
+        let negative = unscaled.signum < 0
+        var digits = unscaled.magnitude.description
+        if scale == 0 { return (negative ? "-" : "") + digits }
+        if digits.count <= scale { digits = String(repeating: "0", count: scale - digits.count + 1) + digits }
+        let split = digits.index(digits.endIndex, offsetBy: -scale)
+        return (negative ? "-" : "") + String(digits[..<split]) + "." + String(digits[split...])
+    }
+
+    static func == (lhs: SscDecimal, rhs: SscDecimal) -> Bool { compare(lhs, rhs) == 0 }
+    static func < (lhs: SscDecimal, rhs: SscDecimal) -> Bool { compare(lhs, rhs) < 0 }
+
+    static func + (lhs: SscDecimal, rhs: SscDecimal) -> SscDecimal {
+        let target = max(lhs.scale, rhs.scale)
+        return SscDecimal(unscaled: lhs.aligned(target) + rhs.aligned(target), scale: target)
+    }
+    static func - (lhs: SscDecimal, rhs: SscDecimal) -> SscDecimal {
+        let target = max(lhs.scale, rhs.scale)
+        return SscDecimal(unscaled: lhs.aligned(target) - rhs.aligned(target), scale: target)
+    }
+    static func * (lhs: SscDecimal, rhs: SscDecimal) -> SscDecimal {
+        SscDecimal(unscaled: lhs.unscaled * rhs.unscaled, scale: lhs.scale + rhs.scale)
+    }
+    static prefix func - (value: SscDecimal) -> SscDecimal {
+        SscDecimal(unscaled: -value.unscaled, scale: value.scale)
+    }
+
+    func remainder(_ rhs: SscDecimal) -> SscDecimal {
+        if rhs.unscaled.isZero { fatalError("decimal: division by zero") }
+        let target = max(scale, rhs.scale)
+        return SscDecimal(unscaled: aligned(target) % rhs.aligned(target), scale: target)
+    }
+
+    func divided(by rhs: SscDecimal, scale targetScale: Int, mode: String) -> SscDecimal {
+        if rhs.unscaled.isZero { fatalError("decimal: division by zero") }
+        let shift = targetScale + rhs.scale - scale
+        let numerator = shift >= 0 ? unscaled * Self.power10(shift) : unscaled
+        let denominator = shift >= 0 ? rhs.unscaled : rhs.unscaled * Self.power10(-shift)
+        return SscDecimal(unscaled: Self.roundedQuotient(numerator, denominator, mode), scale: targetScale)
+    }
+
+    func withScale(_ targetScale: Int, mode: String) -> SscDecimal {
+        if targetScale >= scale {
+            return SscDecimal(unscaled: unscaled * Self.power10(targetScale - scale), scale: targetScale)
+        }
+        return SscDecimal(
+            unscaled: Self.roundedQuotient(unscaled, Self.power10(scale - targetScale), mode),
+            scale: targetScale
+        )
+    }
+
+    func power(_ exponent: Int) -> SscDecimal {
+        if exponent < 0 { fatalError("decimal: negative exponent: \(exponent)") }
+        var result = SscDecimal("1"), base = self, n = exponent
+        while n > 0 { if n & 1 == 1 { result = result * base }; n >>= 1; if n > 0 { base = base * base } }
+        return result
+    }
+
+    func toBigInt() -> SscBigInt { scale == 0 ? unscaled : unscaled / Self.power10(scale) }
+    private func aligned(_ targetScale: Int) -> SscBigInt { unscaled * Self.power10(targetScale - scale) }
+
+    private static func compare(_ lhs: SscDecimal, _ rhs: SscDecimal) -> Int {
+        let target = max(lhs.scale, rhs.scale), a = lhs.aligned(target), b = rhs.aligned(target)
+        return a < b ? -1 : (a == b ? 0 : 1)
+    }
+
+    static func power10(_ exponent: Int) -> SscBigInt {
+        if exponent < 0 { fatalError("decimal: negative power-of-ten") }
+        return SscBigInt("1" + String(repeating: "0", count: exponent))
+    }
+
+    private static func roundedQuotient(_ numerator: SscBigInt, _ denominator: SscBigInt, _ mode: String) -> SscBigInt {
+        let quotient = numerator / denominator, remainder = numerator % denominator
+        if remainder.isZero { return quotient }
+        let direction = numerator.signum * denominator.signum >= 0 ? 1 : -1
+        let increment: Bool
+        switch mode {
+        case "UP": increment = true
+        case "DOWN": increment = false
+        case "CEILING": increment = direction > 0
+        case "FLOOR": increment = direction < 0
+        case "HALF_UP", "HALF_DOWN", "HALF_EVEN":
+            let doubled = remainder.magnitude * SscBigInt("2"), divisor = denominator.magnitude
+            if doubled != divisor { increment = doubled > divisor }
+            else if mode == "HALF_UP" { increment = true }
+            else if mode == "HALF_DOWN" { increment = false }
+            else { increment = !quotient.isEven }
+        case "UNNECESSARY": fatalError("decimal: rounding necessary")
+        default: fatalError("decimal: unsupported rounding mode '\(mode)'")
+        }
+        if !increment { return quotient }
+        return quotient + SscBigInt(direction > 0 ? "1" : "-1")
+    }
+}
+
 enum SscConst {
     case unit
     case bool(Bool)
@@ -230,6 +370,7 @@ indirect enum SscValue {
     case bool(Bool)
     case int(Int64)
     case big(SscBigInt)
+    case decimal(SscDecimal)
     case float(Double)
     case string(String)
     case bytes([UInt8])
@@ -439,6 +580,24 @@ private final class Machine {
         case "big.ge": return .bool(big(args, 0) >= big(args, 1))
         case "i->big": return .big(SscBigInt(String(int(args, 0))))
         case "big->str": return .string(big(args, 0).description)
+        case "dec.parse": return .decimal(SscDecimal(string(args, 0)))
+        case "dec.from-unscaled": return .decimal(SscDecimal(unscaled: decimalBigInt(args[0]), scale: Int(int(args, 1))))
+        case "dec.add": return .decimal(decimal(args[0]) + decimal(args[1]))
+        case "dec.sub": return .decimal(decimal(args[0]) - decimal(args[1]))
+        case "dec.mul": return .decimal(decimal(args[0]) * decimal(args[1]))
+        case "dec.rem": return .decimal(decimal(args[0]).remainder(decimal(args[1])))
+        case "dec.div": return .decimal(decimal(args[0]).divided(by: decimal(args[1]), scale: Int(int(args, 2)), mode: roundingMode(args[3])))
+        case "dec.compare":
+            let a = decimal(args[0]), b = decimal(args[1]); return .int(a < b ? -1 : (a == b ? 0 : 1))
+        case "dec.set-scale": return .decimal(decimal(args[0]).withScale(Int(int(args, 1)), mode: roundingMode(args[2])))
+        case "dec.pow": return .decimal(decimal(args[0]).power(Int(int(args, 1))))
+        case "dec.abs": let value = decimal(args[0]); return .decimal(value.unscaled.signum < 0 ? -value : value)
+        case "dec.negate": return .decimal(-decimal(args[0]))
+        case "dec.signum": return .int(Int64(decimal(args[0]).unscaled.signum))
+        case "dec.scale": return .int(Int64(decimal(args[0]).scale))
+        case "dec.unscaled": return .big(decimal(args[0]).unscaled)
+        case "dec.to-bigint": return .big(decimal(args[0]).toBigInt())
+        case "dec.to-string": return .string(decimal(args[0]).description)
         case "f.add": return .float(float(args, 0) + float(args, 1))
         case "f.sub": return .float(float(args, 0) - float(args, 1))
         case "f.mul": return .float(float(args, 0) * float(args, 1))
@@ -541,6 +700,8 @@ private final class Machine {
     }
 
     private func dynamicArithmetic(_ op: String, _ lhs: SscValue, _ rhs: SscValue) -> SscValue {
+        if case .decimal = lhs { return decimalArithmetic(op, lhs, rhs) }
+        if case .decimal = rhs { return decimalArithmetic(op, lhs, rhs) }
         switch (lhs, rhs) {
         case let (.int(a), .int(b)):
             switch op {
@@ -572,6 +733,24 @@ private final class Machine {
             if op == "!=" { return .bool(!sscEqual(lhs, rhs)) }
         }
         fatalError("__arith__: unsupported operation \(op) on \(sscShow(lhs)), \(sscShow(rhs))")
+    }
+
+    private func decimalArithmetic(_ op: String, _ lhs: SscValue, _ rhs: SscValue) -> SscValue {
+        if case .float = lhs { fatalError("decimal: Decimal and Double cannot be mixed") }
+        if case .float = rhs { fatalError("decimal: Decimal and Double cannot be mixed") }
+        let a = decimal(lhs), b = decimal(rhs)
+        switch op {
+        case "+": return .decimal(a + b)
+        case "-": return .decimal(a - b)
+        case "*": return .decimal(a * b)
+        case "/": return .decimal(a.divided(by: b, scale: max(max(a.scale, b.scale), 10), mode: "HALF_UP"))
+        case "%": return .decimal(a.remainder(b))
+        case "==": return .bool(a == b); case "!=": return .bool(a != b)
+        case "<": return .bool(a < b); case "<=": return .bool(a <= b)
+        case ">": return .bool(a > b); case ">=": return .bool(a >= b)
+        case "++": return .string(a.description + b.description)
+        default: fatalError("decimal: operator '\(op)' is not valid for Decimal")
+        }
     }
 
     private func intDiv(_ lhs: Int64, _ rhs: Int64) -> Int64 {
@@ -612,6 +791,28 @@ private func float(_ args: [SscValue], _ index: Int) -> Double {
 private func big(_ args: [SscValue], _ index: Int) -> SscBigInt {
     guard case let .big(result) = args[index] else { fatalError("expected BigInt") }
     return result
+}
+private func decimalBigInt(_ value: SscValue) -> SscBigInt {
+    switch value { case let .big(result): return result; case let .int(result): return SscBigInt(String(result)); default: fatalError("decimal: unscaled value must be Int or BigInt") }
+}
+private func decimal(_ value: SscValue) -> SscDecimal {
+    switch value {
+    case let .decimal(result): return result
+    case let .int(result): return SscDecimal(String(result))
+    case let .big(result): return SscDecimal(result.description)
+    case .float: fatalError("decimal: binary floating-point input is inexact")
+    default: fatalError("decimal: expected Decimal-compatible value, got \(sscShow(value))")
+    }
+}
+private func roundingMode(_ value: SscValue) -> String {
+    switch value {
+    case let .string(mode): return mode
+    case let .data("RoundingMode", fields):
+        if fields.count == 1, case let .string(mode) = fields[0] { return mode }
+        fatalError("decimal: malformed RoundingMode")
+    case let .data(mode, _): return mode
+    default: fatalError("decimal: unsupported rounding mode \(sscShow(value))")
+    }
 }
 private func string(_ args: [SscValue], _ index: Int) -> String {
     guard case let .string(result) = args[index] else { fatalError("expected String") }
@@ -666,6 +867,7 @@ private func sscEqual(_ lhs: SscValue, _ rhs: SscValue) -> Bool {
     case let (.bool(a), .bool(b)): return a == b
     case let (.int(a), .int(b)): return a == b
     case let (.big(a), .big(b)): return a == b
+    case let (.decimal(a), .decimal(b)): return a == b
     case let (.float(a), .float(b)): return a == b
     case let (.string(a), .string(b)): return a == b
     case let (.bytes(a), .bytes(b)): return a == b
@@ -699,6 +901,7 @@ private func sscShow(_ value: SscValue) -> String {
     case let .bool(value): return String(value)
     case let .int(value): return String(value)
     case let .big(value): return value.description
+    case let .decimal(value): return value.description
     case let .float(value): return showFloat(value)
     case let .string(value): return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     case let .bytes(value): return "#" + value.map { String(format: "%02x", $0) }.joined()
