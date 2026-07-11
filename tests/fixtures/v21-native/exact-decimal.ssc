@@ -1,0 +1,19 @@
+---
+name: v21-native-exact-decimal
+---
+
+```scalascript
+val rounded = Decimal("12.345").setScale(2, RoundingMode.HALF_UP)
+val tenPow = BigInt(10).pow(3)
+val fromUnits = Decimal(tenPow, 2)
+val sum = rounded + Decimal("0.65")
+val product = Decimal("1.20") * Decimal("3")
+
+println(rounded.toPlainString())
+println(fromUnits.toPlainString())
+println(sum.toPlainString())
+println(product.toPlainString())
+println(rounded > Decimal("12.34"))
+println(fromUnits.toBigInt())
+println("due: " + rounded)
+```

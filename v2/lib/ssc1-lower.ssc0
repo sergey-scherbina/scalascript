@@ -639,7 +639,14 @@ def selMethodOr = (method, robj, rargs) =>
 
 -- Resolve a pure field access obj.field (no args)
 def resolveField = (robj, field) =>
-  if #seq(field, "length") then
+  let roundingOwner = match robj {
+    case Pair(rt, rd) =>
+      if #seq(rt, "uid") then #seq(rd, "RoundingMode")
+      else if #seq(rt, "var") then #seq(rd, "RoundingMode")
+      else false
+  } in
+  if roundingOwner then Pair("str", field)
+  else if #seq(field, "length") then
     let rname = match robj { case Pair(rt, rd) => if #seq(rt, "var") then rd else "" } in
     if isListVar(rname) then
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
@@ -790,6 +797,28 @@ def resolveE = (expr) =>
                     Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
                   else if #seq(fdata, "Map") then
                     buildMapExpr(rargs)
+                  else if #seq(fdata, "BigInt") then
+                    match rargs {
+                      case Cons(value, rest) =>
+                        match rest {
+                          case Nil => Pair("prim", Pair("i->big", Cons(value, Nil)))
+                          case _ => Pair("app", Pair(fn, rargs))
+                        }
+                    }
+                  else if #seq(fdata, "Decimal") then
+                    match rargs {
+                      case Cons(value, rest) =>
+                        match rest {
+                          case Nil =>
+                            Pair("prim", Pair("dec.parse", Cons(value, Nil)))
+                          case Cons(scale, tail) =>
+                            match tail {
+                              case Nil => Pair("prim", Pair("dec.from-unscaled",
+                                Cons(value, Cons(scale, Nil))))
+                              case _ => Pair("app", Pair(fn, rargs))
+                            }
+                        }
+                    }
                   else Pair("app", Pair(fn, resolveCtorArgs(fdata, rargs)))
                 else if #seq(ftag, "sel") then
                   match fdata {
@@ -1087,11 +1116,11 @@ def lowerE = (scope, rawExpr) =>
               case Pair(l, r) =>
                 let lv = lowerE(scope, l) in
                 let rv = lowerE(scope, r) in
-                if #seq(op, "+")  then IrPrim("i.add", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "-")  then IrPrim("i.sub", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "*")  then IrPrim("i.mul", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "/")  then IrPrim("i.div", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "%")  then IrPrim("i.mod", Cons(lv, Cons(rv, Nil)))
+                if #seq(op, "+")  then IrPrim("__arith__", Cons(IrLit(IrStr("+")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, "-")  then IrPrim("__arith__", Cons(IrLit(IrStr("-")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, "*")  then IrPrim("__arith__", Cons(IrLit(IrStr("*")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, "/")  then IrPrim("__arith__", Cons(IrLit(IrStr("/")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, "%")  then IrPrim("__arith__", Cons(IrLit(IrStr("%")), Cons(lv, Cons(rv, Nil))))
                 -- K62.16: ==/!= lower to the STRUCTURAL __eq__ prim, not i.eq. i.eq's VM
                 -- compile path (Runtime.scala:1725) coerces operands via asInt, so string
                 -- `"a"=="a"` crashed (expected Int). __eq__ (Runtime.scala:2174) is value
@@ -1099,8 +1128,8 @@ def lowerE = (scope, rawExpr) =>
                 -- ==/!= loop condition no longer matches the i.eq JIT fast-path (falls to the
                 -- correct general interpreter) — measured conformance-neutral.
                 else if #seq(op, "==") then IrPrim("__eq__", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "<")  then IrPrim("i.lt",  Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "++") then IrPrim("sconcat", Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "<")  then IrPrim("__arith__", Cons(IrLit(IrStr("<")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, "++") then IrPrim("__arith__", Cons(IrLit(IrStr("++")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ":+") then
                   IrPrim("__arith__", Cons(IrLit(IrStr(":+")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
@@ -1116,11 +1145,11 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, "!=") then
                   IrIf(IrPrim("__eq__", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(false)), IrLit(IrBool(true)))
                 else if #seq(op, "<=") then
-                  IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(lv, Cons(rv, Nil))))
+                  IrPrim("__arith__", Cons(IrLit(IrStr("<=")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ">")  then
-                  IrPrim("i.lt", Cons(rv, Cons(lv, Nil)))
+                  IrPrim("__arith__", Cons(IrLit(IrStr(">")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ">=") then
-                  IrIf(IrPrim("i.eq", Cons(lv, Cons(rv, Nil))), IrLit(IrBool(true)), IrPrim("i.lt", Cons(rv, Cons(lv, Nil))))
+                  IrPrim("__arith__", Cons(IrLit(IrStr(">=")), Cons(lv, Cons(rv, Nil))))
                 else
                   -- User-defined symbolic operator. Receiver-aware extension
                   -- dispatch is a later slice; an explicit global call keeps

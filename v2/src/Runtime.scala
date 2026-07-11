@@ -3037,6 +3037,14 @@ object Prims:
       case "+" | "++" => StrV(x + Writer.floatStr(y))
       case "==" => BoolV(false); case "!=" => BoolV(true)
       case _   => sys.error(s"__arith__: unknown op $op for String+Float")
+    case (StrV(x), DecimalV(y)) => op match
+      case "+" | "++" => StrV(x + y)
+      case "==" => BoolV(false); case "!=" => BoolV(true)
+      case _   => sys.error(s"__arith__: unknown op $op for String+Decimal")
+    case (DecimalV(x), StrV(y)) => op match
+      case "+" | "++" => StrV(x + y)
+      case "==" => BoolV(false); case "!=" => BoolV(true)
+      case _   => sys.error(s"__arith__: unknown op $op for Decimal+String")
     case (BoolV(x), BoolV(y)) => op match
       case "==" => BoolV(x == y); case "!=" => BoolV(x != y)
       case _    => sys.error(s"__arith__: op $op not valid for Bool")
