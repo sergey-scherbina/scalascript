@@ -223,6 +223,25 @@ there before changing this plan.
       show/fragment, dynamic keyed lists, component state, fetch actions, and
       deterministic unsupported diagnostics. Do not reuse v1 `View`,
       `SwiftUIEmitter`, or interpreter-only plugin objects.
+      Implementation plan (Rozum checkpoint 2026-07-11):
+      1. Spec and test a target-neutral insertion-ordered `MapV`, separate
+         cycle-safe NativeUi semantic equality, and provenance-aware lexical
+         site annotation; never rewrite UI calls from a flat name alone.
+      2. Migrate core map primitives/methods/show to `MapV`, retain ForeignV-map
+         acceptance only at transitional external adapters, and add
+         tag-qualified plugin apply/method hooks covered by registry isolation.
+      3. Add the pure `NativeUiSites` CoreIR pass plus FrontendBridge import
+         eligibility/source-ref capture; reserved ABI-v1 globals reject bare,
+         shadowed, or unexpected-arity calls deterministically.
+      4. Atomically replace `UiNativePlugin` signals/basic views/root handoff
+         with ABI-v1 DataV/ClosV values and cycle-safe path diagnostics, then
+         complete every fetch/action/form/offline/table descriptor family.
+      5. Mirror the same globals, store, observation/task ownership, and root
+         extraction in Swift AppCore/NativeUiHost before adding the recursive
+         SwiftUI view layer and generated Xcode application target.
+      Baseline: `scripts/sbtc "v2NativeUiPlugin/test"` passes 3/3 before the
+      migration. The second reviewer approved this seam in the `scalascript`
+      Rozum room; its MapV/provenance/tag-qualified guardrails are mandatory.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
