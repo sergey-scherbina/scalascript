@@ -1517,6 +1517,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               7/7, three examples are identical, parity improves
                               to 19/49/127, and blockers fall to 37. Dependency,
                               module-limited, and 11/11 conformance gates pass.
+                        - [ ] **TI-8.2d3b core-free Storage effect:** add a
+                              dedicated v2 native storage provider using the
+                              existing dynamically scoped effect host. Support
+                              insertion-ordered ephemeral state and deterministic
+                              JSON file persistence (`SSC_STORAGE_PATH`/explicit
+                              path), nested scope restoration, and the complete
+                              get/put/remove/has/keys contract. Gate the existing
+                              `storage-demo.ssc` on VM/direct ASM, dependency and
+                              module limits, then retire only its taxonomy row.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move
