@@ -670,9 +670,10 @@ there before changing this plan.
                         and invoke a real Apple CLI command with `--server-url`
                         to prove it reaches generated Store configuration;
                   - [ ] unify exact Field/WholeRow/Fields validation across the
-                        v2 provider, generated Swift Host, and v1 compatibility
-                        adapter, including wrong-type, empty, malformed, and
-                        duplicate negative gates.
+                        v2 provider, generated Swift Host, v1 compatibility,
+                        generated JVM, and JS adapters, including wrong-type,
+                        empty, malformed, and duplicate negative gates; no
+                        public constructor/helper may bypass the validator.
                   - [ ] update the target-independent public/ABI surface and all
                         existing JVM/JS/Rust/Swift adapters for `rowKeyPath`,
                         Any row payloads, and normalized Apple `--server-url`;
