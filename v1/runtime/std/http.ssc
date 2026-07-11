@@ -188,7 +188,9 @@ case class Request(
   files:   Map[String, Any],          // multipart file uploads → UploadedFile
   cookies: Map[String, String],       // Cookie header, parsed
   session: Map[String, String],       // signed session payload
-  json:    Option[Any]                // parsed JSON body, or None
+  json:    Option[Any],               // parsed JSON body, or None
+  params:  Map[String, String],       // route path parameters
+  query:   Map[String, String]        // decoded query-string parameters
 )
 
 // Outgoing HTTP response.  Build with Response.json / Response.text / etc.
