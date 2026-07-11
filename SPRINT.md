@@ -2597,6 +2597,29 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     dependency is 18 roots / 69 edges / 32 JARs /
                                     0 violations, standard/slim/JRE/plugin gates
                                     pass, and affected conformance is 17/17.
+                              - [ ] **TI-8.2d2w-md self-hosted built-in `md`:**
+                                    track the assembled `unbound global: md`
+                                    boundary in `BUGS.md` and specify the
+                                    language-owned interpolation/indent contract
+                                    in `specs/v2.1-native-md-interpolator.md`
+                                    before implementation. Teach only
+                                    `v2/lib/ssc1-front.ssc0` to recognize the
+                                    reserved normative `md` prefix, reuse its
+                                    existing complete `s` interpolation builder,
+                                    and emit the existing `__mdStrip__` primitive
+                                    directly. This deliberately avoids the live
+                                    parser-recovery claim's self-hosted lowerer
+                                    file and adds no host parser, dependency, or
+                                    provider. Add a focused fixture covering
+                                    leading/trailing blank removal, common-indent
+                                    stripping, `$name` and `${expr}`, plus an
+                                    ordinary non-`md` interpolator dispatch
+                                    regression. Done when fresh installed VM,
+                                    direct ASM, full `examples/content.ssc`, and
+                                    deterministic `build-jvm` are byte-identical;
+                                    stage-2, dependency/plugin/distribution gates,
+                                    corpus/parity taxonomy, and affected
+                                    `content*,v2-*` conformance are green.
                         - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
                               2026-07-11 (`e2511c6ad`):** after the
                               structural content provider resolves
