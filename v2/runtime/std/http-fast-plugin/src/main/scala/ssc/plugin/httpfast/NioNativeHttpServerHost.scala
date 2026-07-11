@@ -21,6 +21,7 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
   private var idleTimeoutMs: Int  = 30_000
   private var maxBody: Long        = 16L * 1024 * 1024
   private var maxConnections: Int  = 100_000
+  private var streamWriteMs: Int   = 30_000
   @volatile private var accessLog: Option[Value] = None
 
   // --- WebSocket state ---
@@ -50,6 +51,7 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
   def setMaxBodyBytes(n: Long): Unit  = synchronized { maxBody = n.max(0L) }
   def setIdleTimeoutMs(n: Int): Unit  = synchronized { idleTimeoutMs = n.max(0) }
   def setMaxConnections(n: Int): Unit = synchronized { maxConnections = n.max(1) }
+  def setStreamWriteTimeoutMs(n: Int): Unit = synchronized { streamWriteMs = n.max(0) }
   /** Access-log callback: ssc `onRequest { (method, path, status, ms) => … }`. */
   def setAccessLog(cb: Value): Unit   = synchronized { accessLog = Some(cb) }
 
@@ -70,7 +72,7 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
         context.invoke(cb, List(Value.StrV(req.method), Value.StrV(req.path),
           Value.IntV(status.toLong), Value.IntV(ns / 1_000_000L)))
     val srv = new FastHttpServer(dispatch, limits = limits, idleTimeoutMs = idleTimeoutMs,
-      maxConnections = maxConnections, onExchange = onExchange,
+      maxConnections = maxConnections, streamWriteTimeoutMs = streamWriteMs, onExchange = onExchange,
       webSocket = if wsRouter.isEmpty then None else Some(this))
     srv.start(port)
     server = srv

@@ -114,6 +114,32 @@ class FastHttpServerIntegrationTest extends AnyFunSuite:
     finally server.stop()
   }
 
+  test("stream write-watchdog force-closes a streaming write to a client that stops reading") {
+    val done = new java.util.concurrent.CountDownLatch(1)
+    val handler: RawRequest => RawResponse = _ =>
+      RawResponse(200, Map("Content-Type" -> "text/event-stream"), Array.emptyByteArray,
+        stream = Some { out =>
+          try
+            val chunk = ("data: " + ("x" * 8000) + "\n\n").getBytes(UTF_8)
+            var i = 0
+            while i < 2000 do { out.write(chunk); out.flush(); i += 1 } // ~16 MB → blocks when buffers fill
+          finally done.countDown()
+        })
+    val server = new FastHttpServer(handler, streamWriteTimeoutMs = 300)
+    val port   = server.start(0)
+    try
+      val sock = new java.net.Socket("127.0.0.1", port)
+      try
+        sock.getOutputStream.write("GET /stream HTTP/1.1\r\nHost: x\r\n\r\n".getBytes(UTF_8))
+        sock.getOutputStream.flush()
+        // never read the response: the server's stream write blocks on a full send buffer; the
+        // watchdog closes the socket at ~300 ms, the write throws, and the closure returns.
+        assert(done.await(5, java.util.concurrent.TimeUnit.SECONDS),
+          "watchdog did not unblock the stuck streaming write")
+      finally sock.close()
+    finally server.stop()
+  }
+
   test("a body over the configured limit is rejected with 400") {
     val server = new FastHttpServer(_ => text(200, "ok"),
       limits = HttpProtocol.Limits(maxBodyBytes = 8), idleTimeoutMs = 5000)

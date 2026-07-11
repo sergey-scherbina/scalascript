@@ -23,6 +23,10 @@ final class FastHttpServer(
     maxKeepAliveRequests: Int = 10_000,
     drainTimeoutMs: Int = 2_000,
     maxConnections: Int = 100_000,
+    // Bound on a single blocking write during a streaming (SSE/streamResponse) response — a
+    // client that stops reading would otherwise park the connection's vthread forever (SO_TIMEOUT
+    // only covers reads). 0 disables the watchdog.
+    streamWriteTimeoutMs: Int = 30_000,
     // Access-log / metrics hook, fired once per completed HTTP exchange:
     // (request, responseStatus, durationNanos). Default no-op.
     onExchange: (RawRequest, Int, Long) => Unit = (_, _, _) => (),
@@ -35,6 +39,21 @@ final class FastHttpServer(
   // In-flight HTTP request/response exchanges (excludes idle keep-alive waits + long-lived WS
   // read loops) — `stop()` drains on this so a graceful shutdown waits only for real work.
   private val activeRequests = new java.util.concurrent.atomic.AtomicInteger(0)
+  // One daemon timer thread, created lazily on the first streaming response, arms/disarms the
+  // per-write watchdog.
+  @volatile private var watchdog: java.util.concurrent.ScheduledExecutorService | Null = null
+
+  private def watchdogScheduler(): java.util.concurrent.ScheduledExecutorService =
+    var w = watchdog
+    if w == null then synchronized {
+      w = watchdog
+      if w == null then
+        w = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r =>
+          val t = new Thread(r, "ssc-http-write-watchdog"); t.setDaemon(true); t
+        }
+        watchdog = w
+    }
+    w.nn
 
   /** Bind + start accepting. Returns the actual bound port (useful with port 0). */
   def start(port: Int): Int =
@@ -100,9 +119,15 @@ final class FastHttpServer(
             resp.stream match
               case Some(writeBody) =>
                 // Open-ended stream (SSE / streamResponse): headers now, body over time, close.
-                HttpProtocol.writeStreamHeaders(out, resp)
+                // Guard each write with a watchdog so a client that stops reading can't park this
+                // vthread forever (SO_TIMEOUT covers reads only).
+                val sink: OutputStream =
+                  if streamWriteTimeoutMs > 0 then
+                    new FastHttpServer.WatchdogOutputStream(out, sock, watchdogScheduler(), streamWriteTimeoutMs)
+                  else out
+                HttpProtocol.writeStreamHeaders(sink, resp)
                 fireExchange(req.nn, resp.status, startNs)
-                try writeBody(out) catch case _: Throwable => ()
+                try writeBody(sink) catch case _: Throwable => ()
                 open = false // connection consumed by the stream
               case None =>
                 val keep = req.nn.keepAlive && running && served < maxKeepAliveRequests
@@ -152,11 +177,36 @@ final class FastHttpServer(
         try Thread.sleep(10) catch case _: InterruptedException => ()
     connections.forEach(closeQuietly) // force-close idle keep-alive / WS / stragglers
     connections.clear()
+    val w = watchdog
+    watchdog = null
+    if w != null then try w.nn.shutdownNow() catch case _: Throwable => ()
 
   private def closeQuietly(c: AutoCloseable): Unit =
     try c.close() catch case _: Throwable => ()
 
 object FastHttpServer:
+  /** Wraps a streaming response's output so each blocking `write`/`flush` is bounded: a timer
+    * armed before the call closes the socket if the call hasn't returned within `timeoutMs`
+    * (which unblocks it with an `IOException`), then disarmed after. The watchdog only fires
+    * while a write is genuinely in-flight — an idle stream between events is never touched. */
+  private final class WatchdogOutputStream(
+      delegate: java.io.OutputStream,
+      sock: java.net.Socket,
+      scheduler: java.util.concurrent.ScheduledExecutorService,
+      timeoutMs: Int) extends java.io.OutputStream:
+
+    private def guard(op: => Unit): Unit =
+      val task = scheduler.schedule(
+        new Runnable { def run(): Unit = try sock.close() catch case _: Throwable => () },
+        timeoutMs.toLong, java.util.concurrent.TimeUnit.MILLISECONDS)
+      try op finally task.cancel(false)
+
+    override def write(b: Int): Unit                       = guard(delegate.write(b))
+    override def write(b: Array[Byte]): Unit               = guard(delegate.write(b))
+    override def write(b: Array[Byte], off: Int, len: Int): Unit = guard(delegate.write(b, off, len))
+    override def flush(): Unit                             = guard(delegate.flush())
+    override def close(): Unit                             = delegate.close()
+
   /** The engine's WebSocket seam. The ssc-value bridge implements it (routing to
     * `onWebSocket` handlers, building the `ws` value); the engine drives the handshake +
     * read loop. */

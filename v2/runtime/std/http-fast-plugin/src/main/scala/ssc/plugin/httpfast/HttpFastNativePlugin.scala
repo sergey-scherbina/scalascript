@@ -298,6 +298,10 @@ final class HttpFastNativePlugin extends NativePlugin:
       serverHost.setMaxConnections(integer(args, 0, "maxConnections").toInt)
       Value.UnitV
     }
+    native(context, "streamWriteTimeout") { args =>
+      serverHost.setStreamWriteTimeoutMs(integer(args, 0, "streamWriteTimeout").toInt)
+      Value.UnitV
+    }
     // Access-log / metrics: onRequest { (method, path, status, ms) => … } — fired per exchange.
     native(context, "onRequest") { args =>
       args.headOption match
