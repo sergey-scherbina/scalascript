@@ -2,8 +2,9 @@
 
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
-**Status:** open (2026-07-11); found by codex while joining the fresh 195-row
-typeclass release report to the reviewed runtime taxonomy.
+**Status:** fixed (2026-07-11, taxonomy `77da8e8e2`); found by codex while
+joining the fresh 195-row typeclass release report to the reviewed runtime
+taxonomy. Provider implementation already landed in `608d63425`.
 
 - **Real-harness repro:** fresh strict parity classifies
   `derived-route-clients.ssc` as `identical` with VM/ASM exit 0, and direct
@@ -15,13 +16,16 @@ typeclass release report to the reviewed runtime taxonomy.
   manifest and tighten category/total ceilings; the core-only no-provider
   corpus diagnostic remains visible but cannot override the plugin-enabled
   standard parity contract.
-- **Plan/done-when:** remove only the stale derived-route row after exact
-  installed VM/ASM evidence, run the real taxonomy and full release gate, and
-  record the already-landed provider ownership without changing HTTP code.
+- **Fix/result:** the stale row alone was removed after exact installed VM/ASM
+  exit/output evidence. Standard-provider, blocker, and total ceilings tightened
+  to 13, 23, and 35; the real taxonomy and exhaustive compiler-free release
+  gate pass. No HTTP implementation changed, and the core-only no-provider
+  diagnostic remains visible in the native-front report.
 
 ## v21-native-typeclass-dictionary-sentinel — explicit dictionaries lose members
 
-**Status:** open (2026-07-11); found by codex while reducing the reviewed
+**Status:** fixed (2026-07-11, implementation `8822fa710`, regression
+`0b596a075`, taxonomy `77da8e8e2`); found by codex while reducing the reviewed
 `typeclass.ssc` language/runtime blocker after exact `summon` landed.
 
 - **Real-harness repro:** the installed compiler-free `ssc-standard run
@@ -33,16 +37,18 @@ typeclass release report to the reviewed runtime taxonomy.
 - **Expected:** a named given is a first-class immutable method dictionary.
   Passing it as an ordinary parameter, returning or aliasing it, importing it,
   or storing it in a collection preserves its properties and callable members.
-- **Root cause:** self-hosted `given_obj` lowering emits each member correctly
-  under a static `<given>_<member>` global but emits the given value itself as
-  `IrInt(0)`. Static source-spelled calls bypass that sentinel; generic dispatch
-  after ordinary value flow sees only integer zero. The established portable
-  `__mk_method_obj__` representation is already implemented by both runtime
-  lanes and used by the compatibility bridge.
-- **Plan/done-when:** emit the same ordered method object from the self-hosted
-  lowerer without removing existing static globals; cover imported distinct
-  dictionaries, property/method/eta/value-flow behavior, and exact full
-  `typeclass.ssc`; retire only its taxonomy row after all release gates pass.
+- **Root cause:** the imported-declaration filter omitted `given_obj` entirely.
+  For local declarations, self-hosted lowering emitted each member correctly
+  under a static `<given>_<member>` global but emitted the given value itself as
+  `IrInt(0)`. Static source-spelled calls bypassed that sentinel; generic
+  dispatch after ordinary value flow saw only integer zero.
+- **Fix/result:** imported given objects are retained and the self-hosted
+  lowerer constructs the same ordered portable `__mk_method_obj__` already used
+  by the compatibility bridge, without removing static globals. Distinct
+  imported dictionaries survive parameters, returns, aliases, a list, direct
+  access, and exact summon; full `typeclass.ssc` prints eighteen exact lines on
+  VM/ASM. The exhaustive gate reports 44/82 runtime, parity 31/35/129 with zero
+  mismatch/one-sided rows, and fresh conformance 11/11.
 
 ## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
 

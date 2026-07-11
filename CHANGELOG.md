@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — named givens remain first-class dictionaries
+
+The self-hosted import filter now retains `given_obj`, and given globals reuse
+the existing portable method-object representation instead of integer
+sentinels. Distinct imported dictionaries preserve properties and callable
+members through parameters, returns, aliases, collections, direct calls, and
+exact summon; `typeclass.ssc` prints all eighteen compatibility lines exactly
+on native VM/direct ASM. The same fresh report retired the already completed
+HTTP `mount` row: runtime taxonomy is 10 language / 13 standard / 6 optional /
+0 example / 6 tools, 23 blockers / 35 total. The exhaustive compiler-free gate
+is green at 194/194 front/check, 44/82 runtime, parity 31/35/129 with zero
+mismatch/one-sided rows, zero sentinel standard gaps, and conformance 11/11.
+Landed `8822fa710`; regressions `0b596a075`; taxonomy `77da8e8e2`; verified
+`943343fd1`.
+
 ## 2026-07-11 — SwiftUI isolates trusted HTML in native Apple WebKit
 
 Generated macOS/iOS renderers now mount exact sourced `NativeUiTrustedHtml`

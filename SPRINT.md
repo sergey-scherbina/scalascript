@@ -2042,24 +2042,6 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               dictionary-sentinel gap; Mirror derives stays
                               honest. Corpus/parity/taxonomy remain 33/93,
                               14/54/127, and 42 blockers; conformance is 11/11.
-                        - [ ] **TI-8.2d2j2 explicit typeclass dictionary
-                              dispatch:** `typeclass.ssc` now resolves named
-                              givens and direct `Eq`/`Ord` methods but an
-                              explicitly passed `Monoid[A]` dictionary is
-                              lowered as a sentinel whose `.empty`/`.combine`
-                              selection fails. Specify and isolate the first
-                              loss with an imported multi-file fixture, retain
-                              the concrete given value across ordinary function
-                              parameters, and route dictionary member/property
-                              calls through generic portable dispatch. Do not
-                              synthesize reflection, special-case `Monoid`, or
-                              fall back to the compatibility frontend. Rerun
-                              full `typeclass.ssc` on native VM/direct ASM and
-                              retire only its runtime-taxonomy blocker after
-                              native-entry, corpus, strict parity, both
-                              taxonomies, release packaging, and fresh `v2-*`
-                              conformance pass. Spec:
-                              `specs/v2.1-typeclass-dictionary-dispatch.md`.
                         - [x] **TI-8.2d2k nested-pattern arm fallback:** DONE
                               2026-07-11 (`b6b359b60`). Lower
                               nested constructor obligations with an ordered
@@ -2346,18 +2328,6 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         Each provider family needs unit coverage, assembled
                         VM/ASM coverage, and forbidden-dependency/class-load
                         gates before its taxonomy rows can leave the blocker set.
-                        - [ ] **TI-8.2d3f HTTP mount taxonomy reconciliation:**
-                              the current installed compiler-free standard VM
-                              and ASM both execute `derived-route-clients.ssc`
-                              successfully after the already landed HTTP-fast
-                              `mount` surface, while the reviewed runtime
-                              manifest still classifies it as a blocking missing
-                              provider. Pin the exact parity/runtime evidence,
-                              remove only this empirically stale row, tighten
-                              standard-provider/total/blocker ceilings, and run
-                              the real runtime taxonomy plus complete release
-                              gate. Do not change HTTP implementation or hide a
-                              remaining core-only diagnostic.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
