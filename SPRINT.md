@@ -2330,10 +2330,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               imported-module lookup, plain-text, and Markdown
                               rendering surface without `core`, Scalameta,
                               CommonMark/Flexmark, host reparsing, or the v1
-                              content bridge. Derive section ids and fenced YAML
-                              data only from the canonical structural Markdown
-                              and manifest products; preserve source order and
-                              deterministic namespace ownership. First pin the
+                              content bridge. Implement the semantic projection
+                              from Markdown/manifest ADTs to `DocumentContent`
+                              (section ids/tree, attrs, fenced YAML data) in a
+                              pure `.ssc` content-core module evaluated by the
+                              self-hosted tower; neither the Scala seed nor the
+                              provider may parse these strings. Preserve source
+                              order and deterministic namespace ownership. First pin the
                               contract in `specs/v2.1-native-content.md`, then
                               cover provider semantics plus exact assembled
                               VM/direct-ASM/build-jvm output for
