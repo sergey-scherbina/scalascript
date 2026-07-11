@@ -1,0 +1,6 @@
+feature/native-front-correctness 2026-07-11T11:43:45Z
+agent: claude-code (opus)
+heartbeat: 2026-07-11T11:43:45Z
+status: in-progress
+done-so-far: Native-parity audit (plain run-ir) on 180 tests/conformance cases: MATCH=31, MISMATCH=89 (most got=[] = plugin gaps), RUNERR=34, FRONTERR=6. Real silent native bugs surfaced: 3+ tuple field access (nested-Pair repr), Option ops, string-format, early-halt.
+next: native-front correctness PROGRAM. (1) Get ACCURATE worklist: re-run via BridgeCli run-ir (plugins loaded) vs expected/ → separates plugin-gaps from REAL native-front mismatches. (2) Prioritize + fix the clearest real bugs one at a time (worktree each), verify vs the case + no v2/conformance regress. COORDINATION: ssc1-front/lower is the v2.1 track's active lane — my K62.x fixes integrated cleanly (afb built on K62.17); I fix targeted correctness bugs + verify, holding off broad edits.
