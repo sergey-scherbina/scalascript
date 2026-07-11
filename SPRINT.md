@@ -987,6 +987,12 @@ there before changing this plan.
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
+      - [ ] **tkv2-pwa-stale-default-backend** — the isolated real harness is
+            11/12 green; `tkv2-pwa` alone expects the retired `backend=jdk`
+            banner while the installed default is now `backend=fast`, and all
+            eight semantic assertions pass. Track in `BUGS.md`, align the exact
+            expected banner, then require isolated `tkv2-pwa` and full
+            `tkv2-* --no-memo` green before any Swift slice push.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 

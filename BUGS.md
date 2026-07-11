@@ -69,7 +69,22 @@ self-hosted release gate while verifying the new structural content projection.
   established source-located failure. Structural tests are 8/8 and both the
   exact Markdown frontend repro and native content e2e pass after the final
   rebase; affected conformance is 16/16, and the fix is on `origin/main`.
+## tkv2-pwa-stale-default-backend — expected output pins retired JDK default
 
+**Status:** open (2026-07-11); found by codex while running the mandatory
+`tkv2-*` landing gate for `v2-swiftui-xcode-project`.
+
+- **Real-harness repro:** after a fresh `scripts/sbtc installBin`, run
+  `tests/conformance/run.sh --only 'tkv2-*' --no-memo`. Eleven cases pass, but
+  `tkv2-pwa` fails only on line 2: expected `  (backend=jdk)`, got
+  `  (backend=fast)`; all eight functional PWA assertions remain `true`.
+- **Root cause hypothesis:** `HttpServerBackends` now deliberately prefers the
+  installed `fast` provider when no backend is selected, while the corpus
+  expected file still pins the former JDK default. The fixture tests PWA
+  manifest/service-worker behavior, not transport selection.
+- **Expected/fix:** update the real-harness expected banner to the current
+  deterministic default, rerun the isolated case and full `tkv2-*` gate, and
+  report the result in Rozum. Do not weaken or filter the remaining output.
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
 **Status:** done (2026-07-11, taxonomy `77da8e8e2`); found by codex while
