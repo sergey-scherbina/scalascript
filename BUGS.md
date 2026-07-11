@@ -35,6 +35,25 @@ full strict parity sweep.
   a different root cause, restore exact compatibility output on VM/direct ASM,
   and strengthen the parser DSL smoke from exit/parity to exact output.
 
+## fast-http-session-cookie — successful setSession response loses Set-Cookie
+
+**Status:** open (2026-07-11); reported by busi immediately after pinning the
+hf-7 `--v2` fast backend.
+
+- **Real-harness repro:** assemble `bin/ssc`, boot busi's `src/v2/http/hub.ssc`
+  on `--v2`, and submit the displayed code to `POST /pair`. The response is 200
+  HTML but has no `Set-Cookie`; the cookie jar stays empty and the next
+  `GET /api/vault` returns `{"error":"unpaired"}`. The same flow passed on the
+  previous JDK transport.
+- **Expected:** `HttpResult.PlainResp(Response(..., setSession=Some(token)))`
+  maps through the fast backend to the shared hardened `busi_device` cookie,
+  preserving Path/HttpOnly/SameSite/Secure policy exactly like other backends.
+- **Impact:** every passwordless pairing/session flow is unusable on the new
+  default `--v2` transport despite an apparently successful login response.
+- **Plan/done-when:** reproduce through a real fast socket, repair only the
+  `HttpResult` -> `RawResponse` boundary, run module/assembled/conformance gates,
+  and obtain reporter confirmation from busi Vault plus canonical browser E2E.
+
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 
 **Status:** open (2026-07-11); found by codex in the mandatory post-rebase
