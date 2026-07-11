@@ -1,6 +1,0 @@
-feature/v21-native-doc-nested-render 2026-07-11T22:16:53Z
-agent: codex
-heartbeat: 2026-07-11T22:17:20Z
-status: in-progress
-done-so-far: worktree created; md slice exposed and queued the provider-owned nested NativeDoc rendering bug
-next: update and commit the existing doc/render spec before code, then add recursive provider regressions
