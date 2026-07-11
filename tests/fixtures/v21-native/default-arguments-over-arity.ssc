@@ -1,0 +1,8 @@
+---
+name: v21-native-default-arguments-over-arity
+---
+
+```scalascript
+def one(x: Int = 1): Int = x
+println(one(1, 2))
+```

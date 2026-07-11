@@ -1,0 +1,35 @@
+---
+name: v21-native-default-arguments
+---
+
+```scalascript
+def label(name: String = "World", loud: Boolean = false): String =
+  if loud then name + "!" else name
+
+def shift(x: Int, by: Int = x + 1): Int = x + by
+
+var hits = 0
+def next(): Int =
+  hits = hits + 1
+  hits
+def once(x: Int = next(), y: Int = x + 1): Int = x + y
+
+case class Box(width: Int = 10, height: Int = width + 10)
+
+enum Shape:
+  case Circle(radius: Int = 1)
+  case Square(side: Int = 2)
+
+println(label())
+println(label("Ada"))
+println(label("Ada", true))
+println(shift(10))
+println(shift(10, 5))
+println(once())
+println(hits)
+val box = Box()
+println(box.width)
+println(box.height)
+println(Circle().radius)
+println(Square(7).side)
+```

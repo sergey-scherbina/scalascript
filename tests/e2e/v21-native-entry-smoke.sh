@@ -81,6 +81,8 @@ final_mini_language_expected=$'condition-ok\nstage\n7\ntrue'
 exact_decimal_expected=$'12.35\n10.00\n13.00\n3.60\ntrue\n10\ndue: 12.35'
 [[ $(run_native "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
+default_arguments_expected=$'World\nAda\nAda!\n21\n15\n3\n1\n10\n20\n1\n7'
+[[ $(run_native "$FIXTURES/default-arguments.ssc") == "$default_arguments_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -105,6 +107,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
+[[ $(run_native --bytecode "$FIXTURES/default-arguments.ssc") == "$default_arguments_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -137,6 +140,27 @@ grep -F 'requires a non-empty url' "$sandbox/yaml-missing-url.err" >/dev/null
 assert_frontmatter_failure yaml-conflict \
   "$FIXTURES/yaml-conflict-a.ssc" "$FIXTURES/yaml-conflict-b.ssc"
 grep -F "conflicting native database 'default'" "$sandbox/yaml-conflict.err" >/dev/null
+
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  for name in default-arguments-required default-arguments-over-arity; do
+    set +e
+    run_native "${mode_args[@]}" "$FIXTURES/$name.ssc" \
+      >"$sandbox/$name.$mode.out" 2>"$sandbox/$name.$mode.err"
+    default_failure_rc=$?
+    set -e
+    [[ $default_failure_rc -ne 0 ]]
+    [[ ! -s "$sandbox/$name.$mode.out" ]]
+    grep -E '(ssc:|run --native:) (arity:|TYPEERR:)' \
+      "$sandbox/$name.$mode.err" >/dev/null
+    if grep -E 'parser sentinel _err|match: no arm|StackOverflowError' \
+      "$sandbox/$name.$mode.err" >/dev/null; then
+      echo "$name $mode did not preserve an honest fixed-arity failure" >&2
+      exit 1
+    fi
+  done
+done
 
 http_port=$((32000 + ($$ % 10000)))
 [[ $(run_native "$FIXTURES/http-server-provider.ssc" -- "$http_port") == $'203\npong:/ping' ]]

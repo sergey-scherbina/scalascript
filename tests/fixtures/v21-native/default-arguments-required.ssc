@@ -1,0 +1,8 @@
+---
+name: v21-native-default-arguments-required
+---
+
+```scalascript
+def required(x: Int, y: Int = 2): Int = x + y
+println(required())
+```

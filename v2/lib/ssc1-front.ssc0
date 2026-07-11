@@ -421,8 +421,9 @@ def skipTypeAnnot = (toks) =>
 -- top-level cells are SHARED: the front populates them during parse; lowerProg
 -- reads funcDefaultsCell for call-site synthesis. paramDefaultsCell accumulates
 -- the current param list's defaults [Pair(name, dfltExpr)]; parseDef snapshots it
--- into funcDefaultsCell as Pair(funcName, positionalDefaults) — one entry per
--- param, either the default expr AST or the Pair("__nodflt__", "") sentinel.
+-- into funcDefaultsCell as Pair(funcName, Pair(paramNames, positionalDefaults))
+-- — one entry per param, either the default expr AST or the
+-- Pair("__nodflt__", "") sentinel. Constructors share the same registry.
 def paramDefaultsCell = #cell.new(Nil)
 def funcDefaultsCell  = #cell.new(Nil)
 def dfltLookup = (nm, dflts) =>
@@ -444,6 +445,13 @@ def positionalDflts = (params, dflts) =>
     case Nil => Nil
     case Cons(p, rest) => Cons(dfltLookup(p, dflts), positionalDflts(rest, dflts))
   }
+def registerParamDflts = (name, params) =>
+  let dflts = #cell.get(paramDefaultsCell) in
+  if anyDflt(params, dflts) then
+    #cell.set(funcDefaultsCell,
+      Cons(Pair(name, Pair(params, positionalDflts(params, dflts))),
+        #cell.get(funcDefaultsCell)))
+  else 0
 
 -- ── Parameter list parser ─────────────────────────────────────────────────────
 def parseParam = (toks) =>
@@ -1171,13 +1179,12 @@ def parseDef = (toks) =>
     else pr(Nil, toks4) in
   -- ctxParams first, then regular params, then using params
   let allParams = append(ctxParams, append(params, prV(rp2))) in
-  -- K62.17: snapshot this def's defaults (positional, over allParams) into the shared
-  -- funcDefaultsCell so the lower can synthesize omitted trailing args at call sites.
-  let _defs = #cell.get(paramDefaultsCell) in
-  let _reg = if anyDflt(allParams, _defs) then
-      #cell.set(funcDefaultsCell,
-        Cons(Pair(name, positionalDflts(allParams, _defs)), #cell.get(funcDefaultsCell)))
-    else 0 in
+  -- K62.17: snapshot source-call defaults so the lower can synthesize omitted
+  -- trailing args at call sites.
+  -- Context dictionaries are injected separately by the lowerer and therefore
+  -- are not part of the source-call arity/default registry.
+  let callParams = append(params, prV(rp2)) in
+  let _reg = registerParamDflts(name, callParams) in
   let toks5 = prT(rp2) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
@@ -1451,7 +1458,9 @@ def parseMatchExpr = (toks) =>
 def parseCaseClass = (toks) =>
   let name = tokVal(peek(toks)) in
   let ts1  = skipTypeParams(advance(toks)) in
+  let _clr = #cell.set(paramDefaultsCell, Nil) in
   let rp   = parseParamList(ts1) in
+  let _reg = registerParamDflts(name, prV(rp)) in
   let rec skipExt = (ts) =>
     let tok = peek(ts) in
     let k2  = tokKind(tok) in
@@ -1761,7 +1770,9 @@ def parseOneStmt = (toks) =>
             else
               let cname = tokVal(peek(tsB)) in
               let tsC = advance(tsB) in
+              let _clr = #cell.set(paramDefaultsCell, Nil) in
               let rp = if kindIs("(", tsC) then parseParamList(tsC) else pr(Nil, tsC) in
+              let _reg = registerParamDflts(cname, prV(rp)) in
               goCases(prT(rp), Cons(Pair(cname, prV(rp)), acc))
           else pr(reverse(acc), tsA) in
         let rc = goCases(ts5, Nil) in
