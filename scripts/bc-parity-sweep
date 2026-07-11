@@ -74,6 +74,9 @@ for f in "$ROOT"/examples/*.ssc; do
   if head -25 "$f" | grep -qE '^(backend|target):[[:space:]]*(jvm|spark|js|node|rust|wasm)|^frontend:[[:space:]]*(react|solid|vue|electron|swing|javafx|swiftui)'; then
     skipped=$((skipped + 1)); record "$b" skipped-backend - - 'target/backend/frontend-specific front matter'; continue
   fi
+  if head -25 "$f" | grep -qE '^backends:[[:space:]]*\[[[:space:]]*(js|node|wasm)([[:space:]]*,[[:space:]]*(js|node|wasm))*[[:space:]]*\][[:space:]]*$'; then
+    skipped=$((skipped + 1)); record "$b" skipped-backend - - 'JS-family backends-only front matter'; continue
+  fi
   if printf '%s\n' "$b" | grep -qE "$nondet_re"; then
     skipped=$((skipped + 1)); record "$b" skipped-nondeterministic - - 'declared nondeterministic output'; continue
   fi
