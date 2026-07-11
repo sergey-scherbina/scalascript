@@ -2772,6 +2772,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     three public Dataset examples; require the
                                     100k parallel example to finish without
                                     recursive conversion or renderer overflow.
+                                    - [ ] **TI-8.2d3g3a dynamic selector
+                                          fallback:** the provider exposes the
+                                          correct method object, but the native
+                                          lowerer routes generic `map`, `filter`,
+                                          `flatMap`, and `take` calls through
+                                          list/Option-specialized `_sel_*`
+                                          helpers before runtime dispatch.
+                                          Preserve their fast structural arms,
+                                          add dynamic non-ADT fallthrough, and
+                                          route `take` through the already shared
+                                          runtime method primitive so opaque
+                                          provider receivers are never matched as
+                                          lists. Pin the complete fluent
+                                          word-count chain on VM/direct ASM.
                               - [ ] **TI-8.2d3g4 release closure:** run native
                                     entry, provider/class-load/dependency/slim/JRE,
                                     deterministic build-jvm, full corpus/parity,

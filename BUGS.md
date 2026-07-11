@@ -11,6 +11,13 @@
   `Dataset.fromList` as unhandled effects. Direct ASM leaks the same missing
   statics as `Op/3`; rendering the 100k-element `fromList` payload additionally
   overflows `Show.ul` before the real program can run.
+- **Second boundary after provider install:** `dataset-word-count.ssc` still
+  fails before any lazy stage executes. Structural CoreIR proves the lowerer
+  sends opaque Dataset receivers through `_sel_flatMap`, `_sel_filter`,
+  `_sel_map`, and `_sel_take`; those helpers match only List/Option/Either and
+  try to destructure `ForeignV` as data instead of falling through to
+  `__method__`. Split-val Dataset calls work, confirming provider values and
+  tuple callbacks are sound.
 - **Expected:** the standard native provider owns local `Dataset` constructors,
   lazy transformations, and terminals on both execution engines, with
   deterministic values and stack-safe large-list conversion. Spark and
