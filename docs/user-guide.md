@@ -736,6 +736,22 @@ java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
 
 ### Content composition and output
 
+The built-in `md"..."` interpolator uses ordinary `$name` and `${expr}`
+interpolation, then drops blank edge lines and the common leading-space indent:
+
+```scalascript
+val name = "Ada"
+val summary = md"""
+  Name: $name
+  Score: ${20 + 22}
+"""
+```
+
+On the ScalaScript 2.1 native path this is parsed and lowered by the self-hosted
+ScalaScript frontend directly to the portable indent primitive. It does not
+resolve a global named `md`, load Scalameta, or call a host Markdown parser.
+Ordinary calls such as a user-defined `md(value)` remain lexical.
+
 `doc(parts...)` keeps ordinary runtime values in source order; `render(value)`
 writes either those document parts separated by one newline or one ordinary
 value using the same display rules as `println`:
@@ -755,8 +771,7 @@ compiler-free JVM path they are owned by the core-free native host provider and
 run identically on the VM, direct ASM, and `build-jvm` artifacts without the v1
 `DocV`/`PluginBridge` graph, Scalameta, or an external renderer/parser. A local
 definition named `doc` or `render` retains normal lexical precedence over the
-provider fallback. The built-in `md"..."` interpolator is a separate language
-lowering feature.
+provider fallback. `md` remains a language feature rather than provider API.
 
 ### Collections with real Scala semantics
 

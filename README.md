@@ -251,7 +251,7 @@ compiles them via Scala.js.
 | Real collection semantics | The interpreter models true Scala semantics — `Array` is mutable with reference identity (`a(i) = x`), `LazyList` is lazy (`#::` defers; infinite streams work), `Vector` is a distinct indexed type with O(log₃₂ n) access; constructors `Seq/Vector/Array/IndexedSeq/Iterable/LazyList(...)` + `.toSeq/.toVector/.toArray/.toList/.toLazyList` conversions |
 | Tuples | `val t = (1, "hello"); t._1` |
 | Bitwise operators | `a & b`, `a \| b`, `a ^ b`, `a << n`, `a >> n`, `a >>> n`, `~a` on `Int` |
-| String interpolation | `` s"Hello, $name" ``, `` s"${items.mkString(", ")}" `` (full expressions, including nested string literals), `` md"..." `` (strips indent) |
+| String interpolation | `` s"Hello, $name" ``, `` s"${items.mkString(", ")}" `` (full expressions, including nested string literals), `` md"..." `` (self-hosted interpolation + indent stripping on ScalaScript 2.1 native VM/ASM/build-jvm; no Scalameta or host parser) |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
 | Extension methods | `extension (n: Int) def squared: Int = n * n`; imported symbolic operators dispatch on ADTs while primitive `Int` operators retain their built-in meaning |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]`, context bounds |
@@ -419,7 +419,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Native Rust SSR server | `serve(view, port)` on the **Rust backend** (`ssc build-rust`) emits a self-contained `tokio` + `hyper` server with server-side rendering, a reactive **signal store**, **computed-signal live recompute**, **Server-Sent Events** push (`/__ssc/events`), and a **direct WebSocket** signal endpoint on `port + 1` — no JS framework, no Node runtime. See [`docs/rust-backend.md`](docs/rust-backend.md#web-toolkit-on-rust--reactive-serve) |
 | i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
 | Env access | `getenv(key)` / `getenv(key, default)` |
-| Content helpers | `doc(...)` / `render(...)` structured output; the ScalaScript 2.1 native VM, direct ASM, and `build-jvm` artifact use the core-free host provider with no v1 `DocV`, `PluginBridge`, Scalameta, or parser dependency |
+| Content helpers | Self-hosted `md"..."` plus `doc(...)` / `render(...)` structured output; the ScalaScript 2.1 native VM, direct ASM, and `build-jvm` artifact use language lowering + the core-free host provider with no v1 `DocV`, `PluginBridge`, Scalameta, or parser dependency |
 | HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
 
 ### Blockchain, wallets, and micropayments
