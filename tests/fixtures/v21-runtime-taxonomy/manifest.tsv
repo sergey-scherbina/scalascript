@@ -11,7 +11,6 @@ custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence
 dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
 dataset-stats.ssc	language-runtime	yes	effects	portable dataset evaluation leaks an unhandled Op/3 into match lowering
 dataset-word-count.ssc	language-runtime	yes	value-conversion	portable dataset rendering attempts to use a List as String
-derived-route-clients.ssc	standard-provider	yes	http	mount is missing from the core-free standard HTTP server host
 direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
 distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
 distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
@@ -31,7 +30,6 @@ pdf-extract-demo.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the exp
 quoted-macro-constfold.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
 quoted-macro-interpreter.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
 sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section binding ActiveUsers is not lowered natively
-typeclass.ssc	language-runtime	yes	typeclass	exact summon now runs; an explicitly passed typeclass dictionary remains a sentinel value whose member dispatch fails
 typed-sql-crud.ssc	standard-provider	yes	sql	native SQL-fence lowering and typed Db.insert/update are not installed by the core-free standard SQL provider
 wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
 wasm-scalascript.ssc	tools-backend	no	wasm	WASM ScalaScript syntax is already a reviewed backend surface
