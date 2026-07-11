@@ -28,8 +28,8 @@ binary.
 
 ## v21-native-content-markdown-error-swallowed — malformed roots become empty content
 
-**Status:** open (2026-07-11); found by codex in the consolidated self-hosted
-release gate while verifying the new structural content projection.
+**Status:** fixed (2026-07-11, `b6fe50ef2`); found by codex in the consolidated
+self-hosted release gate while verifying the new structural content projection.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`,
   `tests/e2e/v21-self-hosted-markdown-frontend-smoke.sh` reports
@@ -47,10 +47,11 @@ release gate while verifying the new structural content projection.
 - **Root cause/fix prepared:** `contentDocument` intentionally had a defensive
   empty-document default, but `contentProjectModule` called it for every
   non-`MarkdownDocument`, including the canonical error ADT. Commit
-  `cc3edaaa2` now preserves `MarkdownError/4`; the seed converts it back to the
+  `b6fe50ef2` now preserves `MarkdownError/4`; the seed converts it back to the
   established source-located failure. Structural tests are 8/8 and both the
-  exact Markdown frontend repro and native content e2e pass. Awaiting push and
-  consolidated quick release confirmation before moving status to `fixed`.
+  exact Markdown frontend repro and native content e2e pass after the final
+  rebase; affected conformance is 16/16. Awaiting the origin push before moving
+  status to `done`.
 
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 

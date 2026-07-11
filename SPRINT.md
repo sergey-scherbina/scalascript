@@ -2501,7 +2501,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     native-entry passes, and fresh affected
                                     conformance is 11/11.
                         - [x] **TI-8.2d3e core-free structural content — DONE
-                              2026-07-11 (spec `cd63d01c4`, code `8b66e73a0`):** retain
+                              2026-07-11 (spec `cd63d01c4`, code `282f1f2c9`):** retain
                               the already parsed `MarkdownDocument` nodes from
                               `NativeCompilation/4` as immutable values in the
                               native runtime configuration instead of reducing
@@ -2550,7 +2550,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `content.ssc` is independently owned by `md`.
                               - [x] **TI-8.2d3e0 preserve structural Markdown
                                     failures — DONE 2026-07-11
-                                    (`cc3edaaa2`):** fix tracked
+                                    (`b6fe50ef2`):** fix tracked
                                     `v21-native-content-markdown-error-swallowed`.
                                     `contentProjectModule` must retain
                                     `MarkdownError/4`, and the seed must restore
