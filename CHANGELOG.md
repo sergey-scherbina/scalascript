@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — NativeUi ABI and SwiftUI lifecycle are frozen before code
+
+The reviewed ABI v1 now defines portable roots, nodes, signals, actions, tables,
+source diagnostics, keyed structural identity, component ownership,
+transactional rollback, per-signal observation, fetch lifecycle, trusted HTML,
+and the complete toolkit tag/style inventory without v1 `ForeignV` or `View`.
+Existing Unit-returning `emit`/`serve` register exactly one `ui.root`. Apple UI
+mode generates a real Xcode application target/project with a separate SwiftPM
+AppCore/debug CLI, because a real local SwiftPM/Xcode probe did not establish an
+installable iOS app product. Approved in the `scalascript` Rozum room and landed
+in `b801f28ae`.
+
 ## 2026-07-11 — native function and constructor defaults preserve evaluation
 
 The self-hosted frontend now expands omitted positional defaults through scoped,

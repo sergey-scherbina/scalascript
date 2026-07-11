@@ -196,10 +196,10 @@ there before changing this plan.
       legacy Apple compatibility 27/27, Money/effects 1/1 + 4/4. The real
       `examples/swift/appcore-money.ssc` also forced correct dynamic
       `global.reg` handling. Remaining in this item: replace the deliberately
-      bounded iOS/package/publish NativeUi-pending diagnostics with the real App
-      target and existing simulator/signing adapters after the next reviewed UI
-      ABI slices land; do not close this row early.
-- [ ] **v2-swiftui-reactive-spec-review** — before UI implementation, extend
+      bounded iOS/package/publish NativeUi-pending diagnostics with the generated
+      Xcode application target and existing simulator/signing adapters after the
+      next reviewed UI ABI slices land; do not close this row early.
+- [x] **v2-swiftui-reactive-spec-review** — before UI implementation, extend
       the feature spec in a separate spec-only commit and discuss it in Rozum.
       Freeze the portable `NativeUi` data/closure ABI and the SwiftUI state
       model (`ObservableObject`/bindings/identity/lifecycle). Prove on paper how
@@ -207,6 +207,15 @@ there before changing this plan.
       insert/move/delete, rather than inheriting v1's one-shot static render.
       Also specify fetch cancellation/main-actor updates, navigation links,
       card/theme/style preservation, and cross-platform raw HTML rendering.
+      DONE 2026-07-11 (`b801f28ae`): Rozum reviewer approval froze ABI v1,
+      lexical-site/structural keyed identity, component/signal/task ownership,
+      transactional rollback, per-signal observation, exact fetch phases,
+      complete public toolkit mapping, trusted sandboxed HTML, and generated
+      tag/CSS inventories. Existing Unit-returning `emit`/`serve` register
+      exactly one portable `ui.root`. A real SwiftPM/Xcode probe could not prove
+      an iOS app (`xcodebuild` exit 70 with the iOS 26.5 platform absent), so UI
+      mode normatively generates a real Xcode application target/project while
+      SwiftPM remains AppCore plus the debug CLI.
 - [ ] **v2-swiftui-portable-runtime** — make `std/ui` primitive lowering produce
       portable `NativeUi` constructors, signal references, event descriptors,
       and render closures that survive CoreIR→Swift. Implement the SwiftUI
@@ -222,9 +231,10 @@ there before changing this plan.
       semantics exist. Use a reduced busi screen as the conformance fixture;
       toy `Text`/`Button` output alone is insufficient.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
-      iOS packages with correct deployment declarations, resources, entry
-      point, and stable filenames. Gate macOS with real `swift build`/run and
-      iOS with available `xcodebuild` simulator compilation; keep signing,
+      iOS Xcode application projects with correct deployment declarations,
+      resources, entry point, product type, shared scheme, and stable filenames.
+      Gate macOS by producing and launching a real `.app`, and iOS with available
+      `xcodebuild` simulator compilation; keep signing,
       device deploy, `.ipa`, notarization, DMG, TestFlight, and App Store
       adapters working after the generator switch. Add the user-facing example
       and README/spec command matrix.
