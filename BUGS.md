@@ -1,6 +1,6 @@
 # Bug tracker
 
-## v21-match-pregex-constructor — native match rejects `PRegex/1`
+## v21-match-pregex-constructor — extension body captures the following top-level def
 
 **Status:** open (2026-07-11); found by codex after the layout-object fix
 advanced all three parser-combinator examples past their missing owned members.
@@ -10,12 +10,21 @@ advanced all three parser-combinator examples past their missing owned members.
   `v21-layout-object-members-unprefixed` fix. VM and direct ASM both fail with
   `ssc: match: no arm for PRegex/1`; `dsl-json-parser.ssc` and
   `dsl-yaml-like.ssc` reach the same failure.
-- **Expected:** matching the `PRegex(pattern)` constructor selects its arm and
-  the three pure parser-combinator examples continue identically on VM/ASM.
-- **Plan/done-when:** inspect the emitted constructor tag/arity and ordered
-  match lowering for `Parser`'s algebra; fix the native frontend/runtime seam,
-  add an isolated constructor-match regression, and rerun all three examples.
-  Keep any later independent failures separately classified.
+- **Expected:** the dedent/code-block boundary after an indented `extension`
+  closes its member group. The following top-level `def runParser` has exactly
+  its four declared parameters, so its existing `PRegex(pattern)` arm matches.
+- **Root cause:** constructor metadata and the emitted `arm PRegex 1` are
+  correct. The native parser represents an extension group as mutable
+  `extensionParamsCell` state and currently keeps that state across the
+  physical dedent/code-block boundary when the next statement is another
+  `def`. It therefore prepends the stale receiver `p` to `runParser`, emitting
+  `lam 5`; four-argument calls shift the scrutinee and surface the misleading
+  match failure.
+- **Plan/done-when:** give an indented extension declaration a real layout
+  boundary, clear receiver state at its virtual close, preserve all extension
+  members inside the body, and verify a following top-level function's arity.
+  Add an isolated VM/ASM regression and rerun all three examples; keep any later
+  independent failures separately classified.
 
 ## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
 

@@ -1648,14 +1648,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               parity remains 22/44/129 with zero mismatch or
                               one-sided error, 32 reviewed blockers, and all
                               release gates plus fresh conformance 11/11 green.
-                        - [ ] **TI-8.2d2q `PRegex` constructor matching:** all
+                        - [ ] **TI-8.2d2q extension layout boundary:** all
                               three parser-combinator examples now pass owned
                               `Parser_*` lookup but both VM and direct ASM fail
-                              with `match: no arm for PRegex/1`. Inspect emitted
-                              constructor metadata and ordered pattern lowering,
-                              specify the intended constructor-match behavior,
-                              add an isolated regression, then rerun the three
-                              examples and reclassify only fully resolved rows.
+                              with `match: no arm for PRegex/1`. CoreIR proves
+                              the `PRegex/1` constructor/arm are correct but
+                              `runParser` is `lam 5`, not its declared arity 4:
+                              stale extension receiver state crosses the
+                              dedent/code-block boundary. Specify and implement
+                              a real indented extension-body close, cover member
+                              ownership plus the following top-level def arity
+                              on VM/ASM, then rerun the three examples and
+                              reclassify only fully resolved rows.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
