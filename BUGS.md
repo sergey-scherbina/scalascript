@@ -1,5 +1,24 @@
 # Bug tracker
 
+## v21-list-mkstring-capture — separator slot points at the source list
+
+**Status:** open (2026-07-11); found by codex when nested-pattern fallback made
+`typed-data.ssc` execute through its Adults section.
+
+- **Real-harness repro:** after `scripts/sbtc installBin`, run
+  `bin/ssc-standard run examples/typed-data.ssc` and inspect the line after
+  `=== Adults ===`. It prints `AliceList(Alice, Charlie)Charlie` instead of
+  `Alice, Charlie` on both VM and direct ASM.
+- **Expected:** `_sel_mkString(List("Alice", "Charlie"), ", ")` inserts the
+  supplied separator exactly once between adjacent elements.
+- **Root cause:** inside the recursive `go` lambda and its `Cons/2` arm, the
+  captured separator is de Bruijn local 4 and the original list is local 5;
+  `selMkStringDef` reads local 5 as the separator.
+- **Planned fix:** change the generated separator reference to local 4, add a
+  direct multi-element regression on VM/ASM, rerun every native-entry/corpus/
+  parity/taxonomy/conformance gate, and keep the entry `fixed` until Sergiy
+  confirms.
+
 ## v21-parity-mixed-scala-fence — native math exposes one-sided compiler surface
 
 **Status:** fixed (2026-07-11, `ee8467442`); found by codex while implementing

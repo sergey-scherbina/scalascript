@@ -1416,6 +1416,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               rerun `typed-data.ssc`, then require native-entry,
                               corpus, strict parity, both taxonomies, and fresh
                               affected conformance before removing its blocker.
+                        - [ ] **TI-8.2d2l list mkString capture index:** correct
+                              `_sel_mkString`'s `Cons/2` environment reference so
+                              it inserts the captured separator (local 4), not
+                              the original source list (local 5). Add empty/
+                              singleton/multi-element VM/direct-ASM regression,
+                              rerun `typed-data.ssc`, and apply all release gates
+                              before push.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
