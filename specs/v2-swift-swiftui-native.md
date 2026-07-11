@@ -1266,9 +1266,9 @@ behavior.
 - [x] The NativeUi ABI contains no v1 View/PluginValue/ForeignV instance.
 - [x] Signal bindings and event handlers update SwiftUI on the main actor.
 - [x] Keyed insert/move/delete preserves surviving component state by key.
-- [ ] Toolkit layout/controls/cards/styles/links/rich content retain their
+- [x] Toolkit layout/controls/cards/styles/links/rich content retain their
   specified semantics on macOS and iOS.
-- [ ] Fetch/form/model/table state is reactive and cancels obsolete work.
+- [x] Fetch/form/model/table state is reactive and cancels obsolete work.
 - [x] Unsupported native features produce deterministic source diagnostics.
 - [x] Native tables decode static/signal/fetch sources transactionally, keep
   stable explicit dotted row identity, and share exact rendering semantics on
@@ -1296,7 +1296,7 @@ Planned focused gates, refined to exact test names as slices land:
 
 ```bash
 cd <worktree> && scripts/sbtc "v2Swift/test"
-cd <worktree> && tests/e2e/v2-swift-core.sh
+cd <worktree> && scripts/sbtc "v2SwiftBackend/test"
 cd <worktree> && tests/e2e/v2-swift-cli.sh
 cd <worktree> && tests/e2e/v2-swiftui-apple.sh
 cd <worktree> && tests/conformance/run.sh --only 'money-*'
@@ -1389,6 +1389,21 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   native conformance screen is in scope).
 
 ## Results
+
+### Final Apple assembled and release verification (2026-07-11)
+
+- `tests/e2e/v2-swiftui-apple.sh` now drives the assembled `bin/ssc` over the
+  checked NativeUi example, byte-compares two complete macOS trees, rejects
+  legacy sources and the debug-CLI scheme, real-builds/settings-discovers/
+  verifies and bounded-launches the macOS app, then builds and verifies the
+  same app for a concrete installed iPhone Simulator. `nativeui-reviewer`
+  independently reran it and approved the gate in Rozum.
+- Final gates pass: Swift backend 43/43; distribution plus v2/legacy Swift CLI
+  53/53; assembled `v2-swift-cli` and `v2-swiftui-apple`; money 2/2; effects
+  4/4; toolkit-v2 12/12; and v2 conformance 11/11 on every applicable lane.
+  Xcode 26.5 selected `appcore_nativeui.app` for both macOS and the concrete
+  iPhone 16 Pro Simulator. No certificate, secret, upload, or external network
+  was used.
 
 ### Signed Apple distribution adapters (`v2-swiftui-apple-distribution-adapters`, 2026-07-11)
 
