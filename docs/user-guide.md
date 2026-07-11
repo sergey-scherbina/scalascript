@@ -626,8 +626,17 @@ configured defaults store without depending on a rendered cell, while failed
 root/keyed work and disposed wrappers cannot write. `onlineSignal` is one
 process-wide root signal backed by a single first/last-owner `NWPathMonitor`;
 direct and computed readers share it, callbacks hop to the main actor, and stale
-callbacks are generation-rejected. Native tables, trusted WKWebView content,
-and the Xcode app target remain the next toolkit slices.
+callbacks are generation-rejected. Native `dataTable` values now share one
+strict macOS/iOS Grid renderer and a transactional table model for static,
+signal, and fetch sources. Explicit dotted row keys stay typed and unique;
+loading/error states retain the last coherent rows; text/date/money/status/
+link/stacked columns use deterministic formatting; and Field/WholeRow/Fields
+post, delete, local link, and inline-edit actions authenticate the current
+descriptor/action/row capability before launch and completion. Relative row
+URLs use the normalized `--server-url`, while malformed paths, unsafe URLs,
+stale rows, obsolete replacements, and non-2xx responses cannot mutate current
+state. Trusted WKWebView content and the Xcode app target remain the next
+toolkit slices.
 
 `--target ios` already emits an iOS-deployment Swift package through the same
 v2 backend plus the AppleApp sources. Until the real Xcode application project

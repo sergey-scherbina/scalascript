@@ -1015,10 +1015,10 @@ behavior.
   specified semantics on macOS and iOS.
 - [ ] Fetch/form/model/table state is reactive and cancels obsolete work.
 - [x] Unsupported native features produce deterministic source diagnostics.
-- [ ] Native tables decode static/signal/fetch sources transactionally, keep
+- [x] Native tables decode static/signal/fetch sources transactionally, keep
   stable explicit dotted row identity, and share exact rendering semantics on
   macOS and iOS.
-- [ ] Field/WholeRow/Fields row payloads, relative URL resolution, column
+- [x] Field/WholeRow/Fields row payloads, relative URL resolution, column
   formatting, link safety, inline-edit dedupe, 2xx refresh, and cancellation
   match the frozen table contract under strict Swift 6 execution.
 
@@ -1115,6 +1115,25 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   native conformance screen is in scope).
 
 ## Results
+
+### Native Apple tables and row actions (`45033e891`, 2026-07-11)
+
+- Generated Apple sources now decode the exact five-field table ABI into one
+  shared macOS/iOS Grid renderer and a transactional model for static, signal,
+  and fetch sources. Typed dotted row identities, last-good retention,
+  deterministic column formatting, sourced bounded diagnostics, and strict
+  kind-specific `rowsPath` handling execute in generated Swift.
+- Row post/delete/link/edit work authenticates the current canonical
+  descriptor, action/edit slot, and committed typed row before launch and
+  completion. Ordinary fetch actions and row requests share the same
+  generation/token URLSession runner; replacement, deleted-row, unmount, and
+  store-deinit cancellation cannot publish stale results.
+- `nativeui-reviewer` approved round 3 in the `scalascript` Rozum room after
+  two blocker rounds. Independent and local gates both passed the six named
+  table tests 6/6 and the full Swift backend 40/40, including generated macOS
+  execution and strict Swift 6 typechecking against the installed iOS 16
+  Simulator target. Provider 14/14, compatibility fetch 12/12, and Swift CLI
+  6/6 also remain green.
 
 ### SwiftUI persisted and online Apple ownership (`0ade8bf7c`, 2026-07-11)
 
