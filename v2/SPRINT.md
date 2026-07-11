@@ -1527,3 +1527,12 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       existing __fInterpolate__ prim (runtime String.format, Locale.US). s""/raw"" unchanged.
       Verified: %-4s/%.1f/%d/%5s specifiers correct; s-strings unchanged; v2/conformance 406/0.
       With K62.26 (nested-pattern guards) this makes standard-scala-multifence FULLY green.
+
+## native Map.empty + type-aware isEmpty (2026-07-11, opus) — K62.27, conformance 406/0
+
+- [x] K62.27 — Map.empty[K,V] crashed ("no dispatch for .empty on <closure>"): Map missing from
+      isCollectionCompanion (List/Seq/Vector fixed by K62.25) → receiver stayed unbound global Map
+      (ctor closure) not ctorap(Map). Added Map. That exposed .isEmpty→__list_isEmpty (Nil/None
+      only, flat false otherwise) giving Map.empty.isEmpty=false and "".isEmpty=false; fixed
+      __list_isEmpty default → runtime __method__ isEmpty (type-aware), __list_nonEmpty → NOT(that).
+      Verified Map/List/Option/String/Array isEmpty+nonEmpty; conformance 406/0.
