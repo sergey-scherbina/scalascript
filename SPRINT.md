@@ -1641,6 +1641,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               plugin/class-load, JRE, slim, build-jvm,
                               standard-tier, portable/taxonomy, algebraic
                               effects, and fresh conformance 11/11 pass.
+                        - [ ] **TI-8.2d3d core-free YAML:** implement
+                              `specs/v2.1-native-yaml.md`. Add a dedicated
+                              native provider for `parseYaml`, `toYaml`, and
+                              all `yaml*` accessors using portable `Y*` values
+                              plus the pure project `SimpleYaml` subset parser,
+                              never the v1 interpreter/plugin bridge. Then retain
+                              heading-scoped `yaml`/`yml` fences in the
+                              self-hosted frontend so `<SectionId>.yaml` resolves
+                              through the same provider. Gate provider unit
+                              semantics and exact full `yaml-parse.ssc` output
+                              on VM/direct ASM/build-jvm before retiring only its
+                              standard-provider taxonomy row.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
