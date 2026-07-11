@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — imported two-element tuples match across collection boundaries
+
+The self-hosted lowerer now gives source-level two-element tuples one
+observable identity across its internal `Pair/2` representation and JVM
+collection `Tuple2/2` values. Positional selectors plus direct and nested tuple
+patterns work through imports on native VM/direct ASM; `imports.ssc` and
+`extensions.ssc` become identical successes. Full parity is 29/37/129 with no
+mismatch or one-sided errors, blocking runtime rows fall to 25, and every
+compiler-free release gate plus conformance 11/11 passes. Landed `579679058`;
+contract/results `bed01d886` and `b1117a93f`.
+
 ## 2026-07-11 — SwiftUI renders transactional keyed native tables
 
 Generated Apple apps now share one strict macOS/iOS Grid table runtime for

@@ -2136,7 +2136,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Result: assembled native-entry, provider-boundary,
                               build-jvm smoke/release, slim, JRE, and conformance
                               gates all accept the canonical unquoted renderer.
-                        - [ ] **TI-8.2d2u imported tuple collection match:**
+                        - [x] **TI-8.2d2u imported tuple collection match — DONE
+                              2026-07-11 (`579679058`, spec/results
+                              `bed01d886`/`b1117a93f`):**
                               K62.19 advances `imports.ssc` beyond its former
                               collection arity boundary to identical VM/ASM
                               `match: no arm for Tuple2/2`. Isolate the
@@ -2146,6 +2148,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               the same boundary after its min/max output), and
                               retire both taxonomy rows only when the full
                               examples become identical.
+                              Result: the self-hosted lowerer expands only
+                              source tuple patterns/selectors across its
+                              internal `Pair/2` and runtime `Tuple2/2`
+                              representations; arbitrary CoreIR constructors
+                              remain exact. A two-file imported selector/direct/
+                              nested-pattern fixture is byte-identical on VM
+                              and ASM, and both real examples complete. Corpus
+                              is 194/194 front/check with 43 runtime successes;
+                              parity is 29 identical / 37 both-fail / 129 skips
+                              with zero mismatch/one-sided; taxonomy is 25
+                              blockers. Native-entry, dependency/plugin,
+                              standard/slim/no-compiler JRE, reproducible
+                              build-jvm, both taxonomy gates, and fresh
+                              conformance 11/11 pass.
                         - [x] **TI-8.2d2v K62.20 tuple-pattern regression — DONE
                               2026-07-11 (`7f6821856`):**
                               flat `TupleN` expression lowering left
