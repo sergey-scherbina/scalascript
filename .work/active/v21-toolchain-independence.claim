@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-11T06:57:47Z
+heartbeat: 2026-07-11T07:15:15Z
 status: in-progress
-done-so-far: TI-1..TI-8.2d2h; standard parser gaps closed; runtime taxonomy established; layout givens and explicit typeclass calls landed with corpus/parity/taxonomy green
-next: specify and land the core-free native math object global, rerun three affected examples and all release gates, then continue shrinking runtime blockers
+done-so-far: TI-1..TI-8.2d2i; native math landed; standard parity 14/54/127 and runtime blockers reduced to 42 with all gates green
+next: implement exact top-level summon through the existing named-given table, rerun typeclass/custom-derives and all release gates, then continue shrinking blockers
