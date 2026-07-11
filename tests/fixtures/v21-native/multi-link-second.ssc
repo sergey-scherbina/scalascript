@@ -1,0 +1,7 @@
+---
+name: v21-native-multi-link-second
+---
+
+```scalascript
+def secondPart(): Int = 23
+```

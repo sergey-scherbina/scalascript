@@ -77,6 +77,7 @@ assignment_expression_expected=$'6\ntrue\n7'
 [[ $(run_native "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
 final_mini_language_expected=$'condition-ok\nstage\n7\ntrue'
 [[ $(run_native "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
+[[ $(run_native "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -98,6 +99,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/constructor-pattern-alternative.ssc") == "$pattern_alternative_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

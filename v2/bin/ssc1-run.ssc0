@@ -72,21 +72,38 @@ def sscFindChar = (s, i, c) =>
 def sscEndsSsc = (s) =>
   let n = #slen(s) in
   if #i.lt(n, 4) then false else #seq(#sslice(s, #i.sub(n, 4), n), ".ssc")
-def sscImportLine = (line) =>
-  let t = strip(line) in
-  if #i.lt(#slen(t), 8) then ""
-  else (if #i.eq(#scodeAt(t, 0), 91) then
-    let labelEnd = sscFindChar(t, 1, 93) in
-    if #i.ge(labelEnd, #slen(t)) then ""
-    else (if #i.ge(#i.add(labelEnd, 1), #slen(t)) then ""
-    else (if #i.eq(#scodeAt(t, #i.add(labelEnd, 1)), 40) then
+def sscSkipImportSpace = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then sscSkipImportSpace(s, #i.add(i, 1))
+    else if #i.eq(c, 9) then sscSkipImportSpace(s, #i.add(i, 1))
+    else i
+def sscImportPathsFrom = (t, i, acc) =>
+  let start = sscSkipImportSpace(t, i) in
+  if #i.ge(start, #slen(t)) then reverse(acc)
+  else if #i.eq(#scodeAt(t, start), 91) then
+    let labelEnd = sscFindChar(t, #i.add(start, 1), 93) in
+    if #i.ge(labelEnd, #slen(t)) then Nil
+    else if #i.ge(#i.add(labelEnd, 1), #slen(t)) then Nil
+    else if #i.eq(#scodeAt(t, #i.add(labelEnd, 1)), 40) then
       let close = sscFindChar(t, #i.add(labelEnd, 2), 41) in
-      if #i.eq(close, #i.sub(#slen(t), 1)) then
+      if #i.ge(close, #slen(t)) then Nil
+      else
         let p = #sslice(t, #i.add(labelEnd, 2), close) in
-        if sscEndsSsc(p) then p else ""
-      else ""
-    else ""))
-  else "")
+        if sscEndsSsc(p) then
+          sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
+        else Nil
+    else Nil
+  else Nil
+def sscImportPaths = (line) =>
+  let t = strip(line) in
+  if #i.lt(#slen(t), 8) then Nil else sscImportPathsFrom(t, 0, Nil)
+def sscPushImports = (paths, acc) =>
+  match paths {
+    case Nil => acc
+    case Cons(path, rest) => sscPushImports(rest, Cons(path, acc))
+  }
 def sscScanLines = (lines, inFence, acc) =>
   match lines {
     case Nil => acc
@@ -98,9 +115,8 @@ def sscScanLines = (lines, inFence, acc) =>
         let t = strip(line) in
         if startsWith3bt(t) then sscScanLines(rest, true, acc)
         else
-          let p = sscImportLine(t) in
-          if #seq(p, "") then sscScanLines(rest, false, acc)
-          else sscScanLines(rest, false, Cons(p, acc))
+          let paths = sscImportPaths(t) in
+          sscScanLines(rest, false, sscPushImports(paths, acc))
   }
 def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), false, Nil))
 

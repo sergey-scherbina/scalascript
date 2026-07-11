@@ -1,0 +1,7 @@
+---
+name: v21-native-multi-link-first
+---
+
+```scalascript
+def firstPart(): Int = 19
+```

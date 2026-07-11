@@ -1,0 +1,9 @@
+---
+name: v21-native-multiple-link-imports
+---
+
+[firstPart](multi-link-first.ssc) [secondPart](multi-link-second.ssc)
+
+```scalascript
+println(firstPart() + secondPart())
+```
