@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T20:26:37Z
+heartbeat: 2026-07-11T21:33:55Z
 status: in-progress
-done-so-far: explicit handlers plus three exposed release blockers are fixed; effects.ssc taxonomy retirement is pushed with 33 identical/33 both-fail and 21 blockers
-next: run the final consolidated gate with runtime taxonomy enabled, verify/docs-close w1, then implement the separately queued standard effect runners
+done-so-far: W2 standard Logger/Stream runners, strict source-call reconciliation, and reactive core Signal bridge are committed and focused/release gates are green locally
+next: retire algebraic-effects.ssc from runtime taxonomy, tighten ceilings, rerun the consolidated gate, verify docs/board, and push W2 to origin/main
