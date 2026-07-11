@@ -371,6 +371,19 @@ imports and argv, FS/OS, JSON, HTTP, SQL, UI, State, and `build-jvm` using only
 compiler/Scalameta/v1 references recursively, and verifies that a requested
 compatibility route fails with the tools-tier remedy instead of falling back.
 
+For a complete 2.1 self-hosted-core release check, run:
+
+```bash
+scripts/v21-self-hosted-core-release-gate
+```
+
+It rebuilds the staged distribution, proves the single- and multi-file ssc0
+compiler images are gen1/gen2/gen3 fixpoints, verifies the 110-file native
+frontend image against checked-in sources, runs the bounded JSON/YAML/Markdown
+mutation corpus, strict dependency/JAR/class-load checks, the tools-deleted slim
+distribution, reproducible `build-jvm`, and the full 195-document
+frontend/VM/ASM taxonomy. `--quick` skips only that final corpus sweep.
+
 The stronger module gate proves the same tier works when the Java compiler
 modules themselves are unavailable:
 
