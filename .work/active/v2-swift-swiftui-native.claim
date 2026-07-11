@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T20:04:16Z
+heartbeat: 2026-07-11T20:41:50Z
 status: in-progress
-done-so-far: deterministic Xcode application and unsigned macOS/iOS adapters are published through 1ff9b2e76; Rozum round three approved, Swift 43/43, CLI 8/8, assembled e2e and tkv2 12/12 green
-next: freeze and implement signed device/archive/IPA/notary/DMG/fastlane adapters against XcodeAppArtifact, then add final Apple e2e and release gates
+done-so-far: signed distribution authority is spec-approved through 87b519691 and implementation round one is committed through c380f3363; reviewer residuals are recorded in 00a615029 and fixes/tests are in progress
+next: make the expanded fake/negative distribution matrix green, obtain Rozum round-two approval, publish the slice, then add final Apple e2e and release gates
