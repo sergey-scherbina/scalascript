@@ -1,5 +1,23 @@
 # Bug tracker
 
+## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
+
+**Status:** open (2026-07-11); found by codex after the native structural
+content provider exposed the next failure in `content-linked-namespaces.ssc`.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, both
+  `bin/ssc-standard run --native tests/conformance/content-linked-namespaces.ssc`
+  and `--bytecode` print the imported section title, then fail at
+  `(copyVersion() + fallbackVersion()).toString`: VM reports `i->str: not Int`
+  and ASM reports `expected Int, got 1234`.
+- **Expected:** selected zero-argument `toString` uses dynamic method dispatch
+  unless the receiver is proven Int; BigInt renders `1234` identically on
+  native VM/direct ASM and deterministic `build-jvm`.
+- **Plan/done-when:** retain the `i->str` fast path for literal Int receivers,
+  route every unproven receiver through `__method__("toString", value)`, add a
+  focused structural regression for Int/BigInt/Float/String, and make the full
+  linked-content example exact without weakening runtime errors.
+
 ## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
 
 **Status:** fixed (2026-07-11, `05454dd1c`), awaiting Sergiy confirmation; found by codex while running the exhaustive
