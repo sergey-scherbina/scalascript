@@ -1,5 +1,26 @@
 # Bug tracker
 
+## v21-native-reactive-effect-parsed-as-declaration — top-level effects disappear
+
+**Status:** open (2026-07-11); found by codex while gating the core-free
+reactive provider.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc run --native examples/signals-demo.ssc` (or `--bytecode`). Both
+  assembled lanes print only `0`, `5`, `10`; the expected `c=...` and `n=...`
+  effect lines are absent. Dumping the staged self-hosted CoreIR shows every
+  top-level `effect { ... }` missing while the following signal writes remain.
+- **Expected:** `effect { body }` is parsed as an ordinary global call with a
+  zero-argument thunk and executes in document order; `effect Name:`
+  declarations remain parse-only declarations.
+- **Root cause:** the lexer classifies `effect` as a keyword and
+  `parseOneStmt` unconditionally routes every keyword-led `effect` through the
+  declaration skipper, including a reactive call whose next token is `{`.
+- **Plan/done-when:** discriminate the `{` call form before the declaration
+  branch, keep existing algebraic-effect declaration fixtures green, and pin
+  the complete `signals-demo.ssc` output on assembled VM/direct ASM and
+  standalone `build-jvm` lanes.
+
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` during the first

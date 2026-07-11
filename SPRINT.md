@@ -1618,6 +1618,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               diamond/self-write behavior in provider tests and
                               run `signals-demo.ssc` exactly on VM/direct ASM and
                               build-jvm before retiring only its taxonomy row.
+                              - [ ] **TI-8.2d3c-front-effect-call:** fix tracked
+                                    `v21-native-reactive-effect-parsed-as-declaration`.
+                                    In `ssc1-front.ssc0`, parse keyword-led
+                                    `effect { ... }` as a normal call/thunk while
+                                    retaining `effect Name:` declaration erasure.
+                                    Gate full `signals-demo.ssc` exact output in
+                                    the assembled VM/direct-ASM paths and keep
+                                    algebraic-effect declaration conformance green.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move
