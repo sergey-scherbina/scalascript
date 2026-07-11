@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — runtime readiness failures have a fail-closed taxonomy
+
+All 60 standard VM/direct-ASM `both-fail` rows now have a reviewed category,
+blocker decision, owner, and reason. The initial baseline is 23
+language-runtime, 22 standard-provider, 6 optional-provider, 3
+example-contract, and 6 tools/backend rows: 48 blockers total. Unknown,
+duplicate, stale, invalid-blocker, and category-growing entries fail the gate;
+fresh conformance is 10/10. Landed `df84e8acd`.
+
 ## 2026-07-11 — standard native frontend reaches zero parser gaps
 
 Parenthesized `if` conditions now continue through infix operators without

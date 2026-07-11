@@ -1046,15 +1046,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
                   report must not count both-fail as parity success.
-                  - [ ] **TI-8.2d1 stable runtime taxonomy gate:** add a reviewed
-                        60-row manifest and a parity-joined report with categories
+                  - [x] **TI-8.2d1 stable runtime taxonomy gate — DONE
+                        2026-07-11 (`df84e8acd`):** add a reviewed 60-row
+                        manifest and a parity-joined report with categories
                         `language-runtime`, `standard-provider`,
                         `optional-provider`, `example-contract`, and
                         `tools-backend`. Record blocker status and a concrete
                         reason/owner for every row; fail on unknown, duplicate,
                         stale, reclassified, or category-growing entries. Add a
                         synthetic smoke and rerun the real standard report plus
-                        fresh `v2-*` conformance before push.
+                        fresh `v2-*` conformance before push. Result: all 60
+                        rows classify as 23 language-runtime / 22
+                        standard-provider / 6 optional-provider / 3
+                        example-contract / 6 tools-backend. The initial blocker
+                        ceiling is 48; smoke PASS and current conformance is
+                        10/10.
                   - [ ] **TI-8.2d2 language/runtime blockers:** group the rows
                         classified as portable language/runtime defects by root
                         cause (arity/default arguments, match/effect lowering,
