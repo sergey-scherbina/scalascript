@@ -1638,21 +1638,28 @@ def selFoldLeftDef =
           Nil),
           IrApp(IrLocal(0), Cons(IrLocal(3), Cons(IrLocal(2), Nil)))))))
 
--- __list_head(xs): match xs { Cons(t,h) => h } — Cons arm: t=local0, h=local1
+-- __list_head(xs): Cons(t,h) => h (fast list path). K62.28: `.head` is ambiguous with no type
+-- info — a Cons list's first element OR a case-class field literally named `head` (busi Ref(name,
+-- head)). The default delegates to the runtime __method__, which returns the head element for a
+-- list, resolves a `head`-named field on a DataV via the field-name registry, and errors cleanly
+-- on Nil (was `match: no arm`). — Cons arm: t=local0, h=local1
 def listHeadDef =
   IrDef("__list_head",
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Cons", 2, IrLocal(1)), Nil),
-        None)))
+        Some(IrPrim("__method__",
+          Cons(IrLit(IrStr("head")), Cons(IrLocal(0), Nil)))))))
 
--- __list_tail(xs): match xs { Cons(t,h) => t } — Cons arm: t=local0, h=local1
+-- __list_tail(xs): Cons(t,h) => t (fast list path); default delegates to __method__ for a
+-- `tail`-named field / clean errors, symmetric with __list_head (K62.28). Cons arm: t=local0
 def listTailDef =
   IrDef("__list_tail",
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Cons", 2, IrLocal(0)), Nil),
-        None)))
+        Some(IrPrim("__method__",
+          Cons(IrLit(IrStr("tail")), Cons(IrLocal(0), Nil)))))))
 
 -- __list_isEmpty(xs): true if Nil OR None; otherwise delegate to the runtime __method__
 -- isEmpty (K62.27) so MapV/StrV/ArrayBuffer answer correctly (was a flat `false`, so
@@ -3112,6 +3119,28 @@ def buildMergedAccessors = (caseOrder) =>
     } in
   go(acc_uniqFields(triples, Nil))
 
+-- K62.28: register native case-class field NAMES with the runtime so a field access that
+-- can't be a static _sel_ accessor — e.g. `.head` (ambiguous with List.head, so routed to the
+-- polymorphic runtime __method__) — resolves by name. Emits __regfields__(tag, [names…]) per
+-- case class at program start (prepended to the entry, before any field access). Mirrors what
+-- the scalameta bridge does with V2PluginRegistry.registerFieldNames at convert time.
+def strListIr = (names) =>
+  match names {
+    case Nil => IrCtor("Nil", Nil)
+    case Cons(n, rest) =>
+      IrCtor("Cons", Cons(IrLit(IrStr(n)), Cons(strListIr(rest), Nil)))
+  }
+
+def caseFieldRegs = (order) =>
+  match order {
+    case Nil => Nil
+    case Cons(cc, rest) =>
+      match cc { case Pair(ctorName, params) =>
+        Cons(IrPrim("__regfields__",
+              Cons(IrLit(IrStr(ctorName)), Cons(strListIr(params), Nil))),
+             caseFieldRegs(rest)) }
+  }
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
@@ -3211,7 +3240,7 @@ def lowerProg = (stmts) =>
             else topExprs(rest1)
         }
     } in
-  let entryExprs = topExprs(stmts) in
+  let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)), topExprs(stmts)) in
   let mainCall =
     if hasZeroArgMain(stmts) then Cons(IrApp(IrGlobal("main"), Nil), Nil)
     else Nil in

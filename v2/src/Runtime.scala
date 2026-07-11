@@ -2212,6 +2212,14 @@ object Prims:
     case "dcell.set" => a => a(0).asInstanceOf[DoubleCellV].v = asFloat1(a(1)); UnitV
     // I/O [eff]
     case "io.print"   => a => out(a(0), Console.out); UnitV
+    // __regfields__(tag, [names…]) — the native front (ssc1-lower K62.28) registers each
+    // case class's field names so runtime by-name field access (e.g. `.head` on a case class
+    // with a `head` field) resolves, matching FrontendBridge.registerFieldNames.
+    case "__regfields__" => a =>
+      val tag = str(a, 0)
+      val names = unlistPub(a(1)).map { case StrV(s) => s; case v => anyStr(v) }.toVector
+      V2PluginRegistry.registerFieldNames(tag, names)
+      UnitV
     case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
     case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)
