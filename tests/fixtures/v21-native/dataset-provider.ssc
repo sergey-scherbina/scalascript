@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: v21-native-dataset-provider
+---
+
+# Core-free Dataset provider
+
+```scalascript
+val base = Dataset.of(3, 1, 2, 2)
+println(base.map(_ * 2).filter(_ >= 4).flatMap(n => List(n, n + 1)).collect().mkString(","))
+println(base.take(3).drop(1).distinct.collect().mkString(","))
+println(base.union(Dataset.of(4)).collect().mkString(","))
+println(base.intersect(Dataset.of(2, 3, 8)).collect().mkString(","))
+println(base.zip(Dataset.of("a", "b")).collect().mkString(","))
+println(base.zipWithIndex.collect().mkString(","))
+
+val grouped = base.groupBy(_ % 2).map { case (key, values) => (key, values.mkString("-")) }
+println(grouped.collect().mkString(","))
+println(base.reduceByKey(_ % 2)(_ + _).collect().mkString(","))
+println(base.sortBy(n => n).collect().mkString(","))
+
+println(s"count=${base.count()} sum=${base.sum()} avg=${base.avg()}")
+println(s"min=${base.min()} max=${base.max()}")
+println(s"top=${base.top(2).mkString(",")} ordered=${base.takeOrdered(2).mkString(",")}")
+println(s"reduce=${base.reduce(_ + _)} fold=${base.fold(10)(_ + _)} first=${base.first()}")
+val counts = base.countByValue()
+println(s"twos=${counts(2)}")
+val split = base.partition(_ % 2 == 0)
+println(split)
+println(base.mkString("[", ",", "]"))
+println(base.zip(Dataset.of("c", "a", "b", "z")).toMap())
+println(base.toSet().mkString(","))
+
+val parallel = Dataset.fromList(List.range(1, 10001)).map(n => n.toLong * n).runParallel()
+println(s"parallel=${parallel.reduce(_ + _)} count=${parallel.count()}")
+```

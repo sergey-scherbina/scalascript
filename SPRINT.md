@@ -2756,7 +2756,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     provider ownership, and explicit exclusions
                                     for Spark/distributed execution. Commit the
                                     spec before provider code.
-                              - [ ] **TI-8.2d3g2 provider implementation:** add a
+                              - [x] **TI-8.2d3g2 provider implementation:** add a
                                     zero-v1-dependency native standard provider,
                                     ServiceLoader metadata, build/install/slim
                                     wiring, and provider unit coverage for
@@ -2765,14 +2765,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     and 100k-element conversion. Keep the Scala 3
                                     seed and compatibility bridge intact but
                                     unreachable from the standard native route.
-                              - [ ] **TI-8.2d3g3 assembled contract:** add one
+                              - [x] **TI-8.2d3g3 assembled contract:** add one
                                     focused real-launcher fixture covering the
                                     full local Dataset surface, then require exact
                                     VM/direct-ASM output for that fixture and all
                                     three public Dataset examples; require the
                                     100k parallel example to finish without
                                     recursive conversion or renderer overflow.
-                                    - [ ] **TI-8.2d3g3a dynamic selector
+                                    - [x] **TI-8.2d3g3a dynamic selector
                                           fallback:** the provider exposes the
                                           correct method object, but the native
                                           lowerer routes generic `map`, `filter`,

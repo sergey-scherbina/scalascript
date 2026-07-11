@@ -93,6 +93,9 @@ run_standard() {
 [[ $(run_standard run "$FIXTURES/http-response-provider.ssc") == $'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true}\npublic, max-age=60\nv1\nno-store' ]]
 [[ $(run_standard run "$FIXTURES/sql-provider.ssc") == $'1\n7\nAda\ntrue' ]]
 [[ $(run_standard run "$FIXTURES/state-effect-provider.ssc") == $'17\n20\n2\n101\n101\n2' ]]
+dataset_expected=$'6,7,4,5,4,5\n1,2\n3,1,2,2,4\n3,2\n(3, a),(1, b)\n(3, 0),(1, 1),(2, 2),(2, 3)\nPair(1, 3-1),Pair(0, 2-2)\n(1, 4),(0, 4)\n1,2,2,3\ncount=4 sum=8 avg=2\nmin=1 max=3\ntop=3,2 ordered=1,2\nreduce=8 fold=18 first=Some(3)\ntwos=2\n(List(2, 2), List(3, 1))\n[3,1,2,2]\nMap(3 -> c, 1 -> a, 2 -> z)\n3,1,2\nparallel=333383335000 count=10000'
+[[ $(run_standard run "$FIXTURES/dataset-provider.ssc") == "$dataset_expected" ]]
+[[ $(run_standard run --bytecode "$FIXTURES/dataset-provider.ssc") == "$dataset_expected" ]]
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
 [[ $(run_standard run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
@@ -137,7 +140,7 @@ report_tmp="$sandbox/slim.tsv"
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'
   printf 'standard.asm\tpass\n'
-  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content\n'
+  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset\n'
   printf 'standard.build-jvm\tpass\n'
 } >"$report_tmp"
 if [[ -n $REPORT ]]; then

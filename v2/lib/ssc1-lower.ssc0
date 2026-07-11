@@ -710,6 +710,10 @@ def selMethodOr = (method, robj, rargs) =>
        Pair("app", Pair(Pair("var", "_sel_mkString"), Cons(robj, rargs)))
      else
        Pair("prim", Pair("__method__", Cons(Pair("str", "mkString"), Cons(robj, rargs)))))
+  else if #seq(method, "take") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "take"), Cons(robj, rargs))))
+  else if #seq(method, "sum") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "sum"), Cons(robj, rargs))))
   else if isKnownSelMethod(method) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
   else
@@ -1560,7 +1564,10 @@ def selMapDef =
             Cons(IrArm("Right", 1,
               IrCtor("Right", Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
             Cons(IrArm("Left", 1, IrCtor("Left", Cons(IrLocal(0), Nil))),
-            Nil)))))))), None)),
+            Nil)))))))),
+            Some(IrPrim("__method__",
+              Cons(IrLit(IrStr("map")),
+              Cons(IrLocal(0), Cons(IrLocal(2), Nil))))))),
         Nil),
         IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
 
@@ -1581,7 +1588,10 @@ def selForeachDef =
             Cons(IrArm("Cons", 2,
               IrLet(Cons(IrApp(IrLocal(4), Cons(IrLocal(1), Nil)), Nil),
                 IrApp(IrLocal(4), Cons(IrLocal(1), Nil)))),
-            Nil)), None)),
+            Nil)),
+            Some(IrPrim("__method__",
+              Cons(IrLit(IrStr("foreach")),
+              Cons(IrLocal(0), Cons(IrLocal(2), Nil))))))),
         Nil),
         IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
 
@@ -1600,8 +1610,10 @@ def selFlatMapDef =
         Cons(IrArm("Right", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
         Cons(IrArm("Left", 1, IrCtor("Left", Cons(IrLocal(0), Nil))),
         Nil)))),
-        -- K62.6c: List (Cons/Nil) flatMap → concatMap via _list_flatMap(obj, f)
-        Some(IrApp(IrGlobal("_list_flatMap"), Cons(IrLocal(1), Cons(IrLocal(0), Nil)))))))
+        -- Structural ADTs stay fast; opaque/provider receivers dispatch dynamically.
+        Some(IrPrim("__method__",
+          Cons(IrLit(IrStr("flatMap")),
+          Cons(IrLocal(1), Cons(IrLocal(0), Nil))))))))
 
 -- _sel_fold(either, fa, fb) — Either.fold; IrLam(3): fb=local0, fa=local1, either=local2
 -- Left arm (1 field): v=local0, fb=local1, fa=local2 → fa(v)
@@ -1612,7 +1624,10 @@ def selFoldDef =
       IrMatch(IrLocal(2),
         Cons(IrArm("Left", 1, IrApp(IrLocal(2), Cons(IrLocal(0), Nil))),
         Cons(IrArm("Right", 1, IrApp(IrLocal(1), Cons(IrLocal(0), Nil))),
-        Nil)), None)))
+        Nil)),
+        Some(IrPrim("__method__",
+          Cons(IrLit(IrStr("fold")),
+          Cons(IrLocal(2), Cons(IrLocal(1), Cons(IrLocal(0), Nil)))))))))
 
 -- _sel_getOrElse(opt, default) — Option.getOrElse
 -- IrLam(2): default=local0, opt=local1
@@ -1640,7 +1655,10 @@ def selFilterDef =
                   Cons(IrLocal(1),
                   Cons(IrApp(IrLocal(3), Cons(IrLocal(0), Nil)), Nil))),
                 IrApp(IrLocal(3), Cons(IrLocal(0), Nil)))),
-            Nil)), None)),
+            Nil)),
+            Some(IrPrim("__method__",
+              Cons(IrLit(IrStr("filter")),
+              Cons(IrLocal(0), Cons(IrLocal(2), Nil))))))),
         Nil),
         IrApp(IrLocal(0), Cons(IrLocal(2), Nil)))))
 
