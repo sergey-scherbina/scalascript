@@ -865,9 +865,10 @@ there before changing this plan.
                         document content-size observation and remove observers
                         on dismantle/deinit. Descriptor replacement updates the
                         existing view without retaining the prior markup;
-                        on macOS measure isolated body/child bounds rather than
-                        document/body scrollHeight, whose viewport floor blocks
-                        shrink after a tall generation;
+                        on macOS measure an isolated body-content `Range` plus
+                        child bounds rather than document/body scrollHeight or
+                        the body rectangle, whose viewport floor blocks shrink
+                        after a tall generation;
                   - [x] close the four pre-code design blockers tracked as
                         `v2-trusted-html-isolation-contract-gaps`: generation-
                         scoped allow-once main navigation, linkActivated-only

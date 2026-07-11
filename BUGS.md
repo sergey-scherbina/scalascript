@@ -30,8 +30,9 @@
 - **Real height repro:** `documentElement.scrollHeight` and `body.scrollHeight`
   retain the current WKWebView viewport as a floor, so a 420-point fragment
   replaced by a 24-point fragment never shrinks. The isolated observer must
-  publish body/child content bounds independent of the current viewport, then
-  apply the frozen finite clamp.
+  publish a `Range` over body contents plus child bounds independent of the
+  current viewport (the body rectangle itself also inherits the viewport
+  floor), then apply the frozen finite clamp.
 - **Plan/done-when:** freeze these four rules in
   `specs/v2-swift-swiftui-native.md` before code, obtain a second Rozum design
   APPROVE, then implement and execute loopback-zero-hit, data/inline,
