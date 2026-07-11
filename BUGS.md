@@ -1,5 +1,24 @@
 # Bug tracker
 
+## v21-native-serve-ownership-conflict — NativeUi duplicates HTTP `serve`
+
+**Status:** open (2026-07-11); found by codex while re-running the native
+release gates after rebasing onto NativeUi runtime commit `1f3ca3962`.
+
+- **Real-harness repro:** after `scripts/sbtc installBin`, every
+  `bin/ssc run --native <portable-file>` invocation exits before evaluation with
+  `native plugin ownership conflict for intrinsic 'serve': 50-http and 55-ui`;
+  both VM and direct ASM are affected.
+- **Expected:** the compiler-free native route loads HTTP and UI providers
+  together with unique intrinsic ownership, and unrelated portable programs
+  start normally.
+- **Plan:** identify the new NativeUi declaration/handler that claims the
+  HTTP-owned global, preserve the public UI surface without duplicate ownership,
+  add an installed-binary regression that loads the full provider set, then rerun
+  native-entry, corpus, strict parity, taxonomies, and fresh conformance.
+- **Done-when:** full-provider startup has no duplicate owner, focused HTTP/UI
+  behavior stays green, and the fix remains `fixed` until Sergiy confirms.
+
 ## v21-list-mkstring-capture — separator slot points at the source list
 
 **Status:** open (2026-07-11); found by codex when nested-pattern fallback made

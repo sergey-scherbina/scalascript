@@ -1443,6 +1443,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               singleton/multi-element VM/direct-ASM regression,
                               rerun `typed-data.ssc`, and apply all release gates
                               before push.
+                        - [ ] **TI-8.2d2m native `serve` ownership collision:**
+                              repair the post-`1f3ca3962` full-provider startup
+                              failure where both `50-http` and `55-ui` claim
+                              `serve`. Preserve the UI ABI without taking the
+                              HTTP-owned global, add installed-binary coverage,
+                              and rerun HTTP/UI focused tests plus every v2.1
+                              native release gate before resuming d2l delivery.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
