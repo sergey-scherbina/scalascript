@@ -1342,7 +1342,17 @@ def lowerE = (scope, rawExpr) =>
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "->")  then IrCtor("Pair", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "&")  then IrPrim("i.and", Cons(lv, Cons(rv, Nil)))
-                else if #seq(op, "|")  then IrPrim("i.or",  Cons(lv, Cons(rv, Nil)))
+                else if #seq(op, "|")  then
+                  -- Imported extension ownership is rebuilt over the assembled
+                  -- module closure. CoreIR is type-erased here, so retain the
+                  -- exact extension closure and let the shared runtime keep
+                  -- Int | Int primitive while dispatching every other shape to
+                  -- the extension.
+                  if isExtensionMethod(op) then
+                    IrPrim("__arithExt__",
+                      Cons(IrLit(IrStr(op)),
+                        Cons(lv, Cons(rv, Cons(IrGlobal(op), Nil)))))
+                  else IrPrim("i.or", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "^")  then IrPrim("i.xor", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "<<")  then IrPrim("i.shl",  Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, ">>")  then IrPrim("i.shr",  Cons(lv, Cons(rv, Nil)))

@@ -2090,7 +2090,14 @@ object Prims:
       val num = (v: Value) => v match { case IntV(_) | FloatV(_) | BigV(_) => true; case _ => false }
       (a(0), a(3)) match
         case (StrV(op), ext: ClosV) =>
-          if num(a(1)) && num(a(2)) then arithOp(op, a(1), a(2))
+          // Bitwise `|` is primitive only for Int operands. Float/Big pairs are
+          // not valid bitwise values and, when an extension is in scope, must
+          // reach that extension just like ADTs do. Other ambiguous arithmetic
+          // operators keep the established numeric-first behavior.
+          val primitiveWins =
+            if op == "|" then a(1).isInstanceOf[IntV] && a(2).isInstanceOf[IntV]
+            else num(a(1)) && num(a(2))
+          if primitiveWins then arithOp(op, a(1), a(2))
           else callClos(ext, Array(a(1), a(2)))
         case _ => sys.error("__arithExt__: bad args")
     case "__isNum2__" => a =>

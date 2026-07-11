@@ -1,0 +1,7 @@
+---
+name: v21-native-symbolic-or-no-extension-invalid
+---
+
+```scalascript
+println("left" | "right")
+```

@@ -1,0 +1,12 @@
+---
+name: v21-native-symbolic-extension-precedence-lib
+---
+
+# Choice extension
+
+```scalascript
+case class Choice(label: String)
+
+extension (left: Choice)
+  def |(right: Choice): Choice = Choice(left.label + "|" + right.label)
+```

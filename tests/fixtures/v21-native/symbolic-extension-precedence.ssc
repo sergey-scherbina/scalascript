@@ -1,0 +1,16 @@
+---
+name: v21-native-symbolic-extension-precedence
+---
+
+[Choice](symbolic-extension-precedence-lib.ssc)
+
+# Imported symbolic extension and primitive bitwise OR
+
+```scalascript
+val first = Choice("a") | Choice("b")
+val chain = first | Choice("c")
+
+println(first.label)
+println(chain.label)
+println(6 | 3)
+```
