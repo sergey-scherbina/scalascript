@@ -39,10 +39,16 @@
       |fn resolve(raw: &str) -> (String, Duration, i64, i64) {
       |    CFG.with(|c| {
       |        let (base, t, r, d) = c.borrow().clone();
-      |        let url = if !base.is_empty() && !raw.starts_with("http") {
+      |        // An absolute URL (explicit scheme) bypasses the scoped base. Otherwise join
+      |        // base + a leading-'/' path: forcing the '/' stops a `raw` like "@evil/x" from
+      |        // being parsed as userinfo that re-points the host (confused-deputy SSRF).
+      |        let url = if base.is_empty()
+      |            || raw.starts_with("http://") || raw.starts_with("https://") {
+      |            raw.to_string()
+      |        } else if raw.starts_with('/') {
       |            format!("{}{}", base, raw)
       |        } else {
-      |            raw.to_string()
+      |            format!("{}/{}", base, raw)
       |        };
       |        (url, Duration::from_millis(t.max(0) as u64), r, d)
       |    })
@@ -65,11 +71,17 @@
       |    let agent = ureq::AgentBuilder::new()
       |        .timeout_read(timeout)
       |        .timeout_connect(timeout)
+      |        .timeout(timeout)          // bound the WHOLE request (slowloris defence)
+      |        .redirects(0)              // don't follow — match JVM/interp; 3xx+Location returned
       |        .build();
       |    let mut attempt: i64 = 0;
       |    loop {
       |        let mut req = agent.request(method, &url);
-      |        for (k, v) in extra { req = req.set(k, v); }
+      |        for (k, v) in extra {
+      |            // Drop headers containing CR/LF to prevent request-splitting via untrusted values.
+      |            if k.contains('\r') || k.contains('\n') || v.contains('\r') || v.contains('\n') { continue; }
+      |            req = req.set(k, v);
+      |        }
       |        let result = match body {
       |            Some(b) => req.send_string(b),
       |            None => req.call(),

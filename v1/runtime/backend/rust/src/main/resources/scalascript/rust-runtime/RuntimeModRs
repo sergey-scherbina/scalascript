@@ -141,8 +141,9 @@
       |
       |#[allow(dead_code)]
       |pub fn _delete_file(path: &str) {
-      |    let p = std::path::Path::new(path);
-      |    if p.is_dir() { std::fs::remove_dir_all(p) } else { std::fs::remove_file(p) }
+      |    // Single file only — matches JVM/JS/interpreter (which error on a directory).
+      |    // Previously `remove_dir_all` on a dir → divergent + destructive recursive wipe.
+      |    std::fs::remove_file(std::path::Path::new(path))
       |        .unwrap_or_else(|e| panic!("deleteFile({}): {}", path, e));
       |}
       |
