@@ -2739,6 +2739,46 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               VM/ASM/build-jvm output without `PluginBridge`.
                               Gate dependency/class-load/module limits before
                               reclassifying and retiring the row.
+                              - [x] **TI-8.2d3g0 installed baseline:** reproduce
+                                    all three blocking examples on the staged
+                                    standard launcher. `dataset-stats.ssc` and
+                                    `dataset-word-count.ssc` fail as unhandled
+                                    `Dataset.of/fromFile` on VM and `Op/3` on
+                                    direct ASM; `dataset-parallel-sum.ssc` fails
+                                    at `Dataset.fromList`, with ASM additionally
+                                    overflowing while rendering the 100k-element
+                                    unresolved payload. Track the shared missing
+                                    provider as `v21-native-dataset-provider-missing`.
+                              - [ ] **TI-8.2d3g1 provider contract:** specify the
+                                    lazy Dataset method-object representation,
+                                    deterministic operation order, callback and
+                                    error semantics, large-list stack safety,
+                                    provider ownership, and explicit exclusions
+                                    for Spark/distributed execution. Commit the
+                                    spec before provider code.
+                              - [ ] **TI-8.2d3g2 provider implementation:** add a
+                                    zero-v1-dependency native standard provider,
+                                    ServiceLoader metadata, build/install/slim
+                                    wiring, and provider unit coverage for
+                                    constructors, lazy transforms, terminals,
+                                    deterministic grouping/sorting, file input,
+                                    and 100k-element conversion. Keep the Scala 3
+                                    seed and compatibility bridge intact but
+                                    unreachable from the standard native route.
+                              - [ ] **TI-8.2d3g3 assembled contract:** add one
+                                    focused real-launcher fixture covering the
+                                    full local Dataset surface, then require exact
+                                    VM/direct-ASM output for that fixture and all
+                                    three public Dataset examples; require the
+                                    100k parallel example to finish without
+                                    recursive conversion or renderer overflow.
+                              - [ ] **TI-8.2d3g4 release closure:** run native
+                                    entry, provider/class-load/dependency/slim/JRE,
+                                    deterministic build-jvm, full corpus/parity,
+                                    runtime taxonomy, and fresh `v2-*`
+                                    conformance. Retire only Dataset rows proved
+                                    exact; record the measured baseline and push
+                                    the green slice immediately.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its

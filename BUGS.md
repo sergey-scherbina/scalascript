@@ -1,5 +1,27 @@
 # Bug tracker
 
+## v21-native-dataset-provider-missing — standard Dataset calls escape as effects
+
+**Status:** open (2026-07-11); found by codex while starting queued TI-8.2d3g.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run each of
+  `examples/dataset-{stats,word-count,parallel-sum}.ssc` through
+  `bin/ssc-standard run --native`, then repeat with `--bytecode`.
+- **Observed:** VM rejects `Dataset.of`, `Dataset.fromFile`, and
+  `Dataset.fromList` as unhandled effects. Direct ASM leaks the same missing
+  statics as `Op/3`; rendering the 100k-element `fromList` payload additionally
+  overflows `Show.ul` before the real program can run.
+- **Expected:** the standard native provider owns local `Dataset` constructors,
+  lazy transformations, and terminals on both execution engines, with
+  deterministic values and stack-safe large-list conversion. Spark and
+  distributed execution remain explicit backend/provider surfaces.
+- **Plan/done-when:** specify and add a core-free ServiceLoader provider with no
+  `PluginBridge`, v1 interpreter, Scalameta, Scala compiler, or Java compiler
+  dependency; prove provider unit behavior, exact assembled VM/ASM/build-jvm
+  output for all three public examples, 100k-element stack safety, strict
+  dependency/class-load gates, full corpus/parity/taxonomy, and fresh
+  conformance before retiring the three rows.
+
 ## v21-native-doc-nested-render — nested documents leak the runtime tag
 
 **Status:** fixed (2026-07-11, `fe279650d`), awaiting Sergiy confirmation;
