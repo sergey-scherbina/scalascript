@@ -1491,3 +1491,15 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       pattern code in ssc1-front.ssc0. A bare `lenL` was unbound standalone; a plain `def lenL`
       duplicated ssc1-lower's when both imported (25-fail cascade). Fixed with a front-local
       uniquely-named `lenLF`. Coordinated in rozum.
+
+## native Array methods (2026-07-11, opus) — array-companion-statics green, conformance 406/0
+
+- [x] K62.24 — Array.tabulate/fill(...).mkString(sep) crashed ("scrutinee not Data: <foreign>").
+      Array statics return a ForeignV(ArrayBuffer); applied .mkString lowers to prelude
+      _sel_mkString (List-only Nil/Cons). Fix: _sel_mkString default arm → __method__ fallback
+      (runtime handles mkString on isList = List AND ArrayBuffer). Lists unchanged (zero risk).
+- [x] K62.25 — Array.empty[T] crashed ("unbound global: Array"). Bare companion static reaches
+      selOrMethod with robj=uid(Array) → unbound global; applied path already wraps as
+      ctorap(Array). Do the same for 0-arg, gated on isCollectionCompanion (enum cases untouched).
+- [ ] Follow-up: Map.empty/List.empty resolve receiver to a <closure> (not uid) via a different
+      path — separate companion-receiver bug. Also: standard-scala-multifence %-format specifiers.
