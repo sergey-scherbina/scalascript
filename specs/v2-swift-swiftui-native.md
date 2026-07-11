@@ -358,6 +358,26 @@ The v2 UI plugin switches its complete constructor family atomically to version
 1; it may not mix the current experimental four-field `NativeUiElement`/
 `ForeignV` signal shapes with the frozen ABI.
 
+Portable maps in this graph use the target-owned insertion-ordered runtime map
+value (`Value.MapV` on the JVM and `SscValue.map` in Swift), never a tagged-data
+imitation or a host collection inside `ForeignV`. The general mutable-map value
+keeps reference identity for ordinary runtime `equals`/`hash` behavior on both
+targets. NativeUi change suppression uses a separate `portableEquals` operation:
+it recursively compares scalar values (including numeric Decimal equality),
+constructor fields, lists, and map key/value contents; closure equality is
+identity. Pairwise identity tracking makes the comparison cycle-safe. This
+separate operation is used for signal defaults/writes and keyed-list unchanged
+checks, so mutable map identity does not create target-dependent UI updates.
+
+Every NativeUi constructor recursively canonicalizes incoming lists, maps, and
+constructor fields before storing them. The walk preserves closure identity,
+uses an identity visited set for cyclic runtime containers, and rejects the
+first remaining `ForeignV` with a stable value path such as
+`NativeUiElement.attrs["aria-label"]`. Attributes, events, metadata, headers,
+and table-row maps additionally require string keys. Transitional external
+SQL/HTTP/plugin adapters may accept a host map at their own boundary, but it
+must be copied to `MapV` before entering a NativeUi value.
+
 ### Root registration and program handoff
 
 Existing `.ssc` UI programs normally finish with `emit(tree, outDir)` or
@@ -392,6 +412,12 @@ object hidden inside data. The dynamic method surface is fixed as `apply/get`
 → `read()`, `set(value)` → `write(value)`, `update(f)` →
 `write(f(read()))`, and `id` → the stable id. A read-only signal still carries
 a write closure, but that closure raises `native UI signal '<id>' is read-only`.
+Runtime extension dispatch for this surface is tag-qualified
+(`NativeUiSignal.apply/get/set/update/id`), snapshot/restored with the plugin
+registry, and checked before generic method/effect fallback. Registering
+name-only `get`/`set` hooks is forbidden because it would collide with maps,
+JSON facades, and effect receivers. Swift mirrors the same tag dispatch through
+the AppCore `NativeUiHost` callback.
 
 Signal `kind` is one of `mutable`, `seed`, `computed`, `equality`, `hash`,
 `fetch`, `online`, or `persisted`. Metadata is portable tagged data and may
@@ -408,6 +434,19 @@ retain the existing `ctxClean` sanitization and collision rules.
 `siteId` is a hidden stable string assigned by portable UI lowering from the
 lexical CoreIR path of the constructor call (definition name plus child-term
 path). It is not observable from `.ssc` or derived from a collection index.
+Eligibility is captured by the frontend import resolver from the exact
+`std/ui` extern definitions before imported sources are flattened; a later pass
+must never rewrite an arbitrary same-named user function. After effect Op-ANF,
+a pure `NativeUiSites` pass rewrites eligible calls to reserved versioned
+internal globals under `__ssc_nativeui_v1.*`. User definitions in that prefix,
+bare/eta-expanded references to a site-bearing primitive, and unexpected
+arities are deterministic compile errors. The unhashed id contains definition
+ordinal/name plus the CoreIR child-index path so snapshots remain explainable
+and stable across executions. The import resolver also captures file/range
+provenance before flattening; hidden internal constructor arguments register a
+`NativeUiSourceRef` for the site in the target store without changing the
+public node field shapes above.
+
 Runtime instance identity is the structural path
 `(rootId, ownerPath, siteId, occurrence)`: `ownerPath` contains every enclosing
 `(forSiteId, key)` and component scope, while `occurrence` is the zero-based
