@@ -657,17 +657,26 @@ there before changing this plan.
                   Grid/LazyVStack renderer, strict ABI decoding, one dotted-path
                   walker, deterministic formatters, stable table-local row
                   models, and refactor the existing capability/generation/
-                  cancellation runner for row network work. Do not code until
-                  these spec gaps are resolved in a spec-only commit:
-                  - [ ] freeze stable row-key selection and duplicate/missing
+                  cancellation runner for row network work. Spec freeze landed
+                  as `0f234fbd6` after three blocker-driven Rozum reviews and a
+                  final `nativeui-reviewer` APPROVE:
+                  - [x] freeze stable row-key selection and duplicate/missing
                         behavior (the ABI currently has no rowKeyPath);
-                  - [ ] reconcile general Field/WholeRow/Fields payloads with
+                  - [x] reconcile general Field/WholeRow/Fields payloads with
                         the String-only `rowPostAction(bodyField)` surface;
-                  - [ ] freeze a target-independent base URL contract for
+                  - [x] freeze a target-independent base URL contract for
                         relative `/api` requests used by shipped sources;
-                  - [ ] freeze exact date/edit dotted-key/template/link and
+                  - [x] freeze exact date/edit dotted-key/template/link and
                         loading/empty/error semantics plus strict Swift 6 macOS
                         runtime/iOS compile gates.
+                  - [ ] update the target-independent public/ABI surface and all
+                        existing JVM/JS/Rust/Swift adapters for `rowKeyPath`,
+                        Any row payloads, and normalized Apple `--server-url`;
+                  - [ ] add the shared strict Apple table decoder/model/view and
+                        reuse the exact-capability request runner for row work;
+                  - [ ] execute the six named generated-Swift table tests plus
+                        focused compatibility/conformance gates, obtain final
+                        Rozum implementation APPROVE, then document results.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
