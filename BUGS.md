@@ -58,8 +58,8 @@ browser E2E.
   thread entered the SPI. This violates the interpreter thread-safety comment
   and races application-level read-modify-write transactions.
 - **Plan/done-when:** specify the boundary, add a concurrent multi-request
-  regression that proves max one handler body in flight, dispatch the complete
-  middleware/route chain through the existing executor, rebuild the assembled
+  regression that proves max one handler body in flight, dispatch every
+  callback through one per-interpreter reentrant gate, rebuild the assembled
   CLI and rerun the exact busi Vault plus offline-drain browser regressions.
 
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`

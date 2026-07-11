@@ -19,9 +19,8 @@ WS, but `InterpreterHttpHandler.onHttpRequest` invokes the handler directly.
 
 - [ ] **http-handler-serial-dispatch** — specify the per-interpreter execution
       boundary, add a real concurrent application-handler regression, execute
-      the entire matched HTTP middleware/handler chain through the shared
-      serial executor without blocking that executor recursively, and retain
-      direct in-process transport behavior. Verify the assembled `bin/ssc`
+      every interpreter callback through a shared per-interpreter reentrant
+      gate, and retain direct in-process plus multi-server behavior. Verify the assembled `bin/ssc`
       with busi's concurrent Vault/restart/browser repro after the focused
       Scala tests and affected conformance slice. Do not serialize socket I/O,
       unrelated interpreters, unmatched static fallbacks, or the separate v2

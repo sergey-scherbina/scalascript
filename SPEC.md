@@ -1169,6 +1169,16 @@ useCacheHeaders(maxAge = 3600)        // Cache-Control
 
 Built-in routes: `/_health` (liveness), `/_ready` (readiness).
 
+#### 7.9.5 Interpreter execution boundary
+
+Network backends may parse requests and write responses concurrently. For an
+interpreter-backed server, user HTTP middleware/route callbacks, WebSocket
+callbacks, and deferred stream callbacks execute serially per `Interpreter`
+instance. This boundary is reentrant (`middleware -> next -> route` remains
+valid) and does not serialize unrelated interpreters, unmatched static-file
+fallbacks, or socket I/O. Explicit Async/actor facilities remain the way to
+express parallel application work.
+
 ### 7.10 WebSocket Server
 
 ```scalascript
