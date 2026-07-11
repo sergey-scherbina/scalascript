@@ -476,6 +476,24 @@ there before changing this plan.
             native table/column/row-action decoding, persisted/online state, and
             isolated non-persistent WKWebView trusted HTML. Gate cancellation,
             2xx-only effects, exact payloads, and safe navigation/resource rules.
+            - [ ] **async fetch/action lifecycle** — URLSession tasks keyed by
+                  owner/site/occurrence, generation-checked cancellation,
+                  idle/loading/done/error transitions, click-time source/body/
+                  headers snapshots, capture→clear→ordered success effects,
+                  and no effects outside 2xx. Real Swift uses a controllable
+                  URLProtocol fixture for replacement/late-completion gates.
+            - [ ] **persisted/online ownership** — UserDefaults-backed persisted
+                  signals and one refcounted NWPathMonitor owned by first/last
+                  observable tokens; callbacks hop to MainActor and root/scope
+                  disposal cancels target resources deterministically.
+            - [ ] **native tables and row actions** — decode static/signal/fetch
+                  sources, column options/field paths and row payloads into the
+                  shared Grid/Table behavior; execute row post/delete/link/edit
+                  through the same action engine with exact request bodies.
+            - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
+                  a nonpersistent store, JavaScript disabled, compiled network
+                  content rules, cancelled external navigation, and SwiftUI
+                  openURL handoff for http/https/mailto links.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.
