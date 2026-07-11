@@ -98,6 +98,14 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
   exactly one PKG; make DMG input the codesign-verified app and require
   staple/validate only when notarization ran; transport release notes only via
   `SSC_RELEASE_NOTES` and pin custom lane names plus hostile-text gates.
+- **Implementation review round 1 (22:33 BLOCKED):** route every explicit v2
+  Apple package before `Parser` and reject signed `--v2 package` without a
+  target before parse. Preflight flag-dependent codesign/ditto/xcrun/hdiutil,
+  parse timeout with an exact bounded diagnostic, and reject incomplete API-key
+  JSON before archive. Generated pilot/deliver must consume `SSC_BUNDLE_ID`.
+  Extend secret-free fakes across device, Developer-ID/notary toggles, Mac PKG,
+  generated/custom fastlane, tool absence, archive path/plist/app identity, and
+  zero/duplicate app/PKG outputs; assembled negatives must prove no v1/stack.
 - **Plan/done-when:** commit the exact distribution authority spec delta and
   obtain Rozum APPROVE before code. Then implement secret-free command plans,
   verified archive/export handoffs, device deploy, Developer-ID/notary/DMG, and

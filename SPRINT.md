@@ -1006,6 +1006,15 @@ there before changing this plan.
             `--no-notarize`; and carry hostile release notes through
             `SSC_RELEASE_NOTES` (not Ruby interpolation) while preserving custom
             lane names `testflight`, `appstore`, and `mac_appstore`.
+            Implementation round 1 (`7d066084e`/`c380f3363`) is BLOCKED until:
+            every explicit v2 Apple package and target-required error bypasses
+            `Parser`; all selected tools and complete API-key credentials are
+            preflighted before archive with exact timeout diagnostics; generated
+            pilot/deliver consumes `SSC_BUNDLE_ID`; and fake/negative evidence
+            covers device, Developer-ID/notary/DMG toggles, Mac PKG, both iOS
+            upload lanes, custom Fastfile cwd/env, missing tools/credentials,
+            malformed/escaping archives, wrong apps, duplicate exports, and
+            assembled no-v1/no-stack behavior.
       - [x] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS
