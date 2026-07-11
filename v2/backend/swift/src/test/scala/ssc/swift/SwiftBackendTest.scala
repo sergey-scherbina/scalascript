@@ -3322,19 +3322,28 @@ import CoreFoundation
 import Foundation
 
 final class TableURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
     nonisolated(unsafe) private static var instances: [TableURLProtocol] = []
     nonisolated(unsafe) private static var stopped: Set<Int> = []
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() { Self.instances.append(self) }
-    override func stopLoading() {
-        if let index = Self.instances.firstIndex(where: { $0 === self }) { Self.stopped.insert(index) }
+    override func startLoading() {
+        Self.lock.lock(); Self.instances.append(self); Self.lock.unlock()
     }
-    static var count: Int { instances.count }
-    static func request(_ index: Int) -> URLRequest { instances[index].request }
+    override func stopLoading() {
+        Self.lock.lock()
+        if let index = Self.instances.firstIndex(where: { $0 === self }) { Self.stopped.insert(index) }
+        Self.lock.unlock()
+    }
+    static var count: Int {
+        lock.lock(); defer { lock.unlock() }; return instances.count
+    }
+    static func request(_ index: Int) -> URLRequest {
+        lock.lock(); defer { lock.unlock() }; return instances[index].request
+    }
     static func body(_ index: Int) -> String? {
-        let request = instances[index].request
+        let request = request(index)
         if let data = request.httpBody { return String(data: data, encoding: .utf8) }
         guard let stream = request.httpBodyStream else { return nil }
         stream.open(); defer { stream.close() }
@@ -3346,9 +3355,11 @@ final class TableURLProtocol: URLProtocol, @unchecked Sendable {
         }
         return String(data: data, encoding: .utf8)
     }
-    static func wasStopped(_ index: Int) -> Bool { stopped.contains(index) }
+    static func wasStopped(_ index: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return stopped.contains(index)
+    }
     static func respond(_ index: Int, status: Int, body: String) {
-        let instance = instances[index]
+        lock.lock(); let instance = instances[index]; lock.unlock()
         let response = HTTPURLResponse(
             url: instance.request.url!, statusCode: status, httpVersion: nil,
             headerFields: ["Content-Type": "application/json"])!
