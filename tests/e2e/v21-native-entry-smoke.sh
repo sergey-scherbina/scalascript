@@ -86,6 +86,7 @@ assignment_expression_expected=$'6\ntrue\n7'
 final_mini_language_expected=$'condition-ok\nstage\n7\ntrue'
 [[ $(run_native "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
 [[ $(run_native "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
+[[ $(run_native "$FIXTURES/multiline-link-import.ssc") == '82' ]]
 imported_tuple_expected='Ada:90|Lin=88|Some(Cy/77)'
 [[ $(run_native "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 exact_decimal_expected=$'12.35\n10.00\n13.00\n3.60\ntrue\n10\ndue: 12.35'
@@ -163,6 +164,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
+[[ $(run_native --bytecode "$FIXTURES/multiline-link-import.ssc") == '82' ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]

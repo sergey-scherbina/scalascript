@@ -1,0 +1,19 @@
+---
+name: v21-native-multiline-link-import
+---
+
+[This prose begins like a link label
+but ends at the paragraph boundary without becoming an import.
+
+[WrappedImport,
+ value](multiline-link-import-lib.ssc)
+
+[firstPart](multi-link-first.ssc) [secondPart](multi-link-second.ssc)
+
+```text
+[fenced-example](missing-and-must-not-load.ssc)
+```
+
+```scalascript
+println(WrappedImport.value() + firstPart() + secondPart())
+```
