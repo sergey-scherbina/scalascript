@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — local Dataset execution is core-free
+
+The ScalaScript 2.1 standard tier now supplies a required lazy Dataset provider
+for VM, direct ASM, and deterministic `build-jvm`, including stable local
+transformations, UTF-8 files, iterative 100k-list conversion, and ordered
+virtual-thread pointwise execution. Structural List/Option/Either selectors
+dynamically fall through for opaque provider receivers, so the canonical
+word-count chain stays fluent. All three public Dataset examples are exact;
+the full release gate is ready at 50 runtime successes, 40 identical / 26
+both-fail, zero mismatch/one-sided rows, and 14 remaining blockers. Landed
+through `9feff81a8`.
+
 ## 2026-07-11 — nested native documents render as content
 
 The core-free ScalaScript 2.1 host provider now recursively flattens nested

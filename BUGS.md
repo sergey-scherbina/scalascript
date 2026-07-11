@@ -2,7 +2,8 @@
 
 ## v21-native-dataset-provider-missing — standard Dataset calls escape as effects
 
-**Status:** open (2026-07-11); found by codex while starting queued TI-8.2d3g.
+**Status:** fixed (2026-07-11, `17cee1805`, taxonomy `9feff81a8`), awaiting
+Sergiy confirmation; found by codex while starting queued TI-8.2d3g.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run each of
   `examples/dataset-{stats,word-count,parallel-sum}.ssc` through
@@ -28,6 +29,14 @@
   output for all three public examples, 100k-element stack safety, strict
   dependency/class-load gates, full corpus/parity/taxonomy, and fresh
   conformance before retiring the three rows.
+- **Fix/evidence:** a required native Dataset provider now owns the lazy local
+  plan, deterministic operations, UTF-8 files, iterative list conversion, and
+  ordered virtual-thread pointwise stages. Structural selector helpers retain
+  their List/Option/Either fast arms and dynamically fall through for opaque
+  receivers. Provider unit is 4/4; all three public examples and the complete
+  fixture are exact on VM/direct ASM/build-jvm. The full release gate is ready
+  at 50 runtime successes, 40 identical / 26 both-fail / 129 skipped, zero
+  mismatch/one-sided rows, and 14 remaining blockers.
 
 ## v21-native-doc-nested-render — nested documents leak the runtime tag
 

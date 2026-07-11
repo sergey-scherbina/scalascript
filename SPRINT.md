@@ -2729,7 +2729,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         Each provider family needs unit coverage, assembled
                         VM/ASM coverage, and forbidden-dependency/class-load
                         gates before its taxonomy rows can leave the blocker set.
-                        - [ ] **TI-8.2d3g core-free Dataset provider:**
+                        - [x] **TI-8.2d3g core-free Dataset provider:**
                               `dataset-stats.ssc` currently reaches unresolved
                               `Dataset.of` as a fallback effect `Op`; this is not
                               an algebraic-effect handler gap. Port the existing
@@ -2786,13 +2786,26 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                           provider receivers are never matched as
                                           lists. Pin the complete fluent
                                           word-count chain on VM/direct ASM.
-                              - [ ] **TI-8.2d3g4 release closure:** run native
+                              - [x] **TI-8.2d3g4 release closure:** run native
                                     entry, provider/class-load/dependency/slim/JRE,
                                     deterministic build-jvm, full corpus/parity,
                                     runtime taxonomy, and fresh `v2-*`
                                     conformance. Retire only Dataset rows proved
                                     exact; record the measured baseline and push
                                     the green slice immediately.
+                                    Result: provider unit is 4/4; the complete
+                                    local surface fixture plus stats, word-count,
+                                    and 100k parallel-sum are exact on VM/direct
+                                    ASM/build-jvm. Stage-2, native entry,
+                                    dependency/class-load/slim/JRE/artifact gates
+                                    pass with 20 roots / 78 edges / 34 staged
+                                    dependency jars and zero violations; slim is
+                                    35 jars / 6650 classes / 30,962,247 bytes.
+                                    Corpus runtime is 50 OK / 87 errors; parity
+                                    is 40 identical / 26 both-fail / 129 skipped
+                                    with zero mismatch/one-sided rows. Taxonomy
+                                    is 4 language / 10 standard / 14 blockers /
+                                    26 total; conformance 11/11 and release-ready.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
