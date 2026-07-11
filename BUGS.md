@@ -21,7 +21,7 @@ provider advanced `storage-demo.ssc` into `bumpCounter`.
 
 ## v2-swift-nativeui-descriptor-proof — debug root summary hides ABI field drift
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+**Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
 
 - **Real-harness repro:** `v2SwiftBackend/test` executes real generated packages,
@@ -32,10 +32,13 @@ uncommitted Swift AppCore ABI-v1 review.
   raw sentinel, mobile CSS, and source provenance without flattening closures.
 - **Done-when:** exact descriptor fields/defaults and source refs are asserted by
   real Swift execution and the reviewer approves; keep `fixed` until Sergiy confirms.
+- **Fix/verified:** real AppCore probes inspect the exact table source, shortened
+  column/options, POST/id delete, post request/payload, unsupported provenance,
+  and trusted HTML; the reviewer approved the final diff.
 
 ## v2-swift-nativeui-duplicate-root-source — diagnostic omits both source refs
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+**Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
 
 - **Real-harness repro:** register `emit` and then `serve`; `registerRoot` stores
@@ -44,10 +47,12 @@ uncommitted Swift AppCore ABI-v1 review.
   both source refs, with a negative generated-Swift process gate.
 - **Done-when:** the exact diagnostic is pinned and reviewer-approved; keep
   `fixed` until Sergiy confirms.
+- **Fix/verified:** the negative real-Swift process names both operations and
+  exact file/line/column/source-operation refs.
 
 ## v2-swift-nativeui-mobile-css-regex — valid shipped override is rejected
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+**Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
 
 - **Real-harness repro:** pass the exact `mobileOverrideCss` grammar to generated
@@ -57,10 +62,12 @@ uncommitted Swift AppCore ABI-v1 review.
   prove both branches through real Swift execution.
 - **Done-when:** valid/invalid CSS gates pass and reviewer approves; keep `fixed`
   until Sergiy confirms.
+- **Fix/verified:** the Swift raw regex now matches the JVM grammar; exact CSS
+  retains the root and a one-character near miss becomes sourced Unsupported.
 
 ## v2-swift-nativeui-flat-name-detection — domain globals trigger UI mode
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+**Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
 
 - **Real-harness repro:** generate a domain `Program` defining and calling its
@@ -71,10 +78,12 @@ uncommitted Swift AppCore ABI-v1 review.
   remain host-free and run under real Swift.
 - **Done-when:** same-name domain regression is byte-for-byte host-free and green;
   keep `fixed` until Sergiy confirms.
+- **Fix/verified:** mode detection honors reserved ABI provenance and excludes
+  program definitions; a user `signal` remains a normal host-free Swift package.
 
 ## v2-swift-nativeui-evaluation-rollback — arbitrary failure cannot reuse session
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+**Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
 
 - **Real-harness repro:** begin a host, register provisional signal/root state,
@@ -90,10 +99,13 @@ uncommitted Swift AppCore ABI-v1 review.
   gate an invalid NativeUi call in outer-function position plus same-host reuse.
 - **Done-when:** a real Swift test fails after provisional state, recovers on the
   same host, and extracts a clean root; keep `fixed` until Sergiy confirms.
+- **Fix/verified:** extension failures are catchable and sticky; all enclosing
+  evaluated subterms short-circuit. A nested invalid function position aborts,
+  then the same host accepts a conflicting-default signal and clean root.
 
 ## v2-swift-nativeui-root-session-lifetime — extracted ABI loses callbacks/store
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+**Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
 
 - **Real-harness repro:** `takeRoot()` calls `abort()` and clears signals while
@@ -111,6 +123,9 @@ uncommitted Swift AppCore ABI-v1 review.
 - **Done-when:** real Swift extracts a root and subsequently invokes signal get/
   set, computed, and user/render closures successfully; reviewer approves and
   the entry stays `fixed` until Sergiy confirms.
+- **Fix/verified:** retained sessions own Machine/store until disposal; real
+  post-root probes call mutable/computed/key/render closures and construct a
+  short-arity fetch action through the still-live root `emptyHeaders` signal.
 
 ## v21-runtime-taxonomy-ui-remote-table-stale — successful UI row remains blocked
 

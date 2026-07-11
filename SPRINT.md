@@ -333,39 +333,43 @@ there before changing this plan.
       `tkv2-*` is 12/12 and `std-ui-jobpanel` is 1/1. Next: step 5, mirror the
       ABI globals/store/root extraction in Swift AppCore `NativeUiHost` before
       adding the SwiftUI recursive renderer.
-      - [ ] **v2-swift-nativeui-host-core** — make Swift generation detect
+      - [x] **v2-swift-nativeui-host-core** — landed `9ef73ac81`: Swift generation detects
         ABI-v1 globals, emit `Sources/AppCore/NativeUiHost.swift`, and let the
         AppCore machine install target-owned globals plus tag-qualified signal
         apply/get/set/update/id dispatch. Add `makeNativeUiRoot` evaluation with
         begin/take/abort, exactly-one root, scoped signal defaults, seed/
         computed/equality behavior, and no SwiftUI/Foundation object inside
         `SscValue`. Domain packages must remain byte-for-byte UI-host-free.
-      - [ ] **v2-swift-nativeui-descriptors** — mirror every JVM ABI-v1 view,
+      - [x] **v2-swift-nativeui-descriptors** — landed `9ef73ac81`: mirrors every JVM ABI-v1 view,
         event/fetch/form/storage/offline/table/column/row-action constructor and
         shortened default in Swift. Root-local empty headers, exact raw sentinel,
         portable ordered maps/lists/closures, and deterministic unsupported
         source refs must match the frozen tags/field order.
-      - [ ] **v2-swift-nativeui-real-toolchain-gate** — compile and run generated
+      - [x] **v2-swift-nativeui-real-toolchain-gate** — landed `9ef73ac81`: compile and run generated
         SwiftPM AppCore packages that exercise signal methods, descriptors, and
         exactly-one root extraction; include zero/duplicate-root negative
         processes and a checked `std/ui` source when FrontendBridge coverage is
         sufficient. Re-run `v2SwiftBackend/test`, the JVM ABI suite, assembled
         toolkit conformance, and request a read-only Rozum review before landing.
         Reviewer blockers (Rozum 2026-07-11; no landing before re-approval):
-        - [ ] retain a `NativeUiSession`/Machine through `makeNativeUiRoot` and
+        - [x] retain a `NativeUiSession`/Machine through `makeNativeUiRoot` and
               prove signal/computed/user closures still execute after extraction;
               keep root-local `emptyHeaders` until session disposal and invoke a
               short-arity fetch/action from a post-extraction render closure;
-        - [ ] replace fatal-only evaluation failure with a catchable boundary,
+        - [x] replace fatal-only evaluation failure with a catchable boundary,
               abort provisional state, and recover on the same host/session;
               short-circuit outer apply/primitive/guard evaluation immediately
               after a nested extension failure instead of consuming placeholder Unit;
-        - [ ] select UI mode from reserved annotated ABI provenance, not flat
+        - [x] select UI mode from reserved annotated ABI provenance, not flat
               user names; gate domain-local `signal`/`emit` definitions;
-        - [ ] correct the raw Swift mobile CSS regex and gate exact/near-miss CSS;
-        - [ ] include both operations/source refs in duplicate-root diagnostics
+        - [x] correct the raw Swift mobile CSS regex and gate exact/near-miss CSS;
+        - [x] include both operations/source refs in duplicate-root diagnostics
               and pin exact descriptor fields/defaults/provenance with a real
               structural Swift digest gate.
+        Result: independent Rozum review approved after two blocker rounds.
+        Swift backend passes 19/19 and CLI 5/5 with real SwiftPM execution;
+        JVM NativeUi passes 14/14, `tkv2-*` 12/12, and jobpanel 1/1. Next:
+        implement the recursive SwiftUI renderer/store and Xcode App target.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,

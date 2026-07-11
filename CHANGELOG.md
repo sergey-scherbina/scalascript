@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — Swift AppCore executes the portable NativeUi ABI
+
+Checked `std/ui` CoreIR now generates a SwiftUI-free AppCore `NativeUiHost`,
+retained root session, complete ABI-v1 descriptors, transactional evaluation,
+source-rich diagnostics, and a dedicated SwiftPM debug CLI. Real Swift probes
+exercise post-root mutable/computed/keyed closures and exact descriptor fields;
+the independent Rozum review approved the final diff. Landed `9ef73ac81`;
+documentation `b56286df1`.
+
 ## 2026-07-11 — toolchain spec reflects the completed self-hosted core
 
 The SQL/front-matter and native JSON migration sections now describe structural
