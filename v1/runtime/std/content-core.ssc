@@ -9,7 +9,7 @@ description: Pure self-hosted projection from native Markdown/YAML ADTs to std.c
 This module is evaluated by the native frontend tower. It performs every
 text-to-content conversion before values cross the permanent Scala seed.
 
-[markdownParse, MarkdownDocument, MarkdownHeading, MarkdownImport, MarkdownParagraph, MarkdownText, MarkdownExpr, MarkdownFence, MarkdownBulletList, MarkdownOrderedList, MarkdownImage, MarkdownTable, MarkdownTableRow, MarkdownMetadata](std/markdown-core.ssc)
+[markdownParse, MarkdownDocument, MarkdownError, MarkdownHeading, MarkdownImport, MarkdownParagraph, MarkdownText, MarkdownExpr, MarkdownFence, MarkdownBulletList, MarkdownOrderedList, MarkdownImage, MarkdownTable, MarkdownTableRow, MarkdownMetadata](std/markdown-core.ssc)
 [yamlParse, YamlOk, YamlErr, YamlNull, YamlBool, YamlInteger, YamlDecimal, YamlString, YamlArray, YamlObject, YamlField](std/yaml-core.ssc)
 
 ```scalascript
@@ -276,11 +276,14 @@ def contentProjectModule(
   directImports: List[String],
   manifest: Any,
   markdown: Any
-): NativeContentModule = NativeContentModule(
-  source,
-  explicitRoot,
-  directImports,
-  contentNamespace(manifest, source),
-  contentDocument(markdown, manifest)
-)
+): NativeContentModule = markdown match
+  case MarkdownError(_, _, _, _) => NativeContentModule(
+    source, explicitRoot, directImports, contentNamespace(manifest, source), markdown)
+  case _ => NativeContentModule(
+    source,
+    explicitRoot,
+    directImports,
+    contentNamespace(manifest, source),
+    contentDocument(markdown, manifest)
+  )
 ```

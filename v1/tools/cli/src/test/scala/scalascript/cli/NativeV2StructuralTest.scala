@@ -124,3 +124,13 @@ class NativeV2StructuralTest extends AnyFunSuite:
     }
     assert(error.getMessage.contains("bad DocumentContent"))
     assert(error.getMessage.contains(root.getName))
+
+  test("source-located Markdown errors survive content projection"):
+    val root = source()
+    val markdownError = DataV("MarkdownError", Vector(
+      StrV("unterminated fenced block"), IntV(12), IntV(2), IntV(1)))
+    val error = intercept[IllegalArgumentException] {
+      NativeV2Structural.decode(
+        compilation(List(root), List(noManifest), List(contentModule(root, markdownError))), List(root))
+    }
+    assert(error.getMessage.contains(s"${root.getName}:2:1: unterminated fenced block"))

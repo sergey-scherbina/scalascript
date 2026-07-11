@@ -103,7 +103,11 @@ private[cli] object NativeV2Structural:
       }
       if source.isEmpty then abiError("content module has an empty source identity")
       if namespace.isEmpty then abiError(s"content module $source has an empty namespace")
-      validateDocument(document, source)
+      document match
+        case DataV("MarkdownError", IndexedSeq(
+              StrV(message), IntV(_), IntV(line), IntV(column))) =>
+          throw new IllegalArgumentException(s"$source:$line:$column: $message")
+        case _ => validateDocument(document, source)
       NativeContentModule(source, explicitRoot, directImports, namespace, document)
     case other => abiError(s"bad native content module: ${show(other)}")
 
