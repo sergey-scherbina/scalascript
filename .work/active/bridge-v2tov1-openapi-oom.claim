@@ -1,0 +1,6 @@
+feature/bridge-v2tov1-openapi-oom 2026-07-11T14:20:00Z
+agent: codex
+heartbeat: 2026-07-11T14:20:00Z
+status: in-progress
+done-so-far: busi tests/v2/api.ssc passes on assembled 3666ccb7a but reproducibly exhausts 2 GiB in PluginBridge.v2ToV1 on assembled 495467456
+next: bisect the published range in the assembled real harness, record BUGS/SPRINT, add a focused regression, repair and verify before republishing
