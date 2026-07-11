@@ -88,8 +88,10 @@ struct NativeUiKeyedResult {
 
 private struct NativeUiHostSnapshot {
     let signals: [String: NativeUiSignalCell]
+    let signalValues: [String: SscValue]
     let signalStates: [String: NativeUiSignalState]
     let storage: [String: String]
+    let persistedJournal: [String: String]
     let scopes: [String]
     let ownerScopes: [String: Set<String>]
     let scopeSignals: [String: Set<String>]
@@ -159,6 +161,8 @@ final class NativeUiSession {
     func ownerPath(for node: SscValue) -> String? { host.ownerPath(for: node) }
     func fetchSignal(scope: String, id: String) -> SscValue? { host.fetchSignal(scope: scope, id: id) }
     func fetchSignal(for signal: SscValue) -> SscValue? { host.fetchSignal(for: signal) }
+    func signal(scope: String, id: String) -> SscValue? { host.signal(scope: scope, id: id) }
+    func signalKind(scope: String, id: String) -> String? { host.signalKind(scope: scope, id: id) }
     func isWritable(_ signal: SscValue) -> Bool { host.isWritable(signal) }
     func validActionStatus(_ action: SscValue, phase: SscValue, error: SscValue) -> Bool {
         host.validActionStatus(action, phase: phase, error: error)
@@ -185,9 +189,14 @@ final class NativeUiSession {
 }
 
 final class NativeUiHost: SscRuntimeExtension {
+    private let persistedRead: (String) -> String?
+    private let persistedWrite: (String, String) -> Void
     private var invoke: ((SscClosure, [SscValue]) throws -> SscValue)?
     private var signals: [String: NativeUiSignalCell] = [:]
+    private var signalValues: [String: SscValue] = [:]
     private var storage: [String: String] = [:]
+    private var persistedJournal: [String: String] = [:]
+    private var persistedTransactionDepth = 0
     private var scopes: [String] = ["root"]
     private var root: (SscValue, SscValue, SscValue)?
     private var active = false
@@ -214,6 +223,14 @@ final class NativeUiHost: SscRuntimeExtension {
     var onBatchCommit: (() -> Void)?
     var onBatchRollback: (() -> Void)?
 
+    init(
+        persistedRead: @escaping (String) -> String? = { _ in nil },
+        persistedWrite: @escaping (String, String) -> Void = { _, _ in }
+    ) {
+        self.persistedRead = persistedRead
+        self.persistedWrite = persistedWrite
+    }
+
     func bind(_ invoke: @escaping (SscClosure, [SscValue]) throws -> SscValue) {
         self.invoke = invoke
     }
@@ -222,6 +239,9 @@ final class NativeUiHost: SscRuntimeExtension {
         active = true
         root = nil
         signals.removeAll(keepingCapacity: true)
+        signalValues.removeAll(keepingCapacity: true)
+        persistedJournal.removeAll(keepingCapacity: true)
+        persistedTransactionDepth = 0
         scopes = ["root"]
         ownerScopes.removeAll(keepingCapacity: true)
         scopeSignals = ["root": []]
@@ -245,9 +265,16 @@ final class NativeUiHost: SscRuntimeExtension {
     }
 
     func abort() {
+        for name in persistedJournal.keys {
+            if let value = persistedRead(name) { storage[name] = value }
+            else { storage.removeValue(forKey: name) }
+        }
         active = false
         root = nil
         signals.removeAll(keepingCapacity: true)
+        signalValues.removeAll(keepingCapacity: true)
+        persistedJournal.removeAll(keepingCapacity: true)
+        persistedTransactionDepth = 0
         scopes = ["root"]
         ownerScopes.removeAll(keepingCapacity: true)
         scopeSignals = ["root": []]
@@ -296,6 +323,7 @@ final class NativeUiHost: SscRuntimeExtension {
         active = false
         root = nil
         scopes = ["root"]
+        flushPersistedJournal()
         return result
     }
 
@@ -625,13 +653,22 @@ final class NativeUiHost: SscRuntimeExtension {
         }
         native("localStorageSet") { [weak self] args in try nativeUiRequire(args.count == 2, "localStorageSet"); self!.storage[try nativeUiString(args[0], "storage key")] = try nativeUiString(args[1], "storage value"); return .unit }
         native("localStorageRemove") { [weak self] args in try nativeUiRequire(args.count == 1, "localStorageRemove"); self!.storage.removeValue(forKey: try nativeUiString(args[0], "storage key")); return .unit }
-        native("onlineSignal") { [weak self] args in try nativeUiRequire(args.isEmpty, "onlineSignal()"); return try self!.makeSignal(id: "__online__", kind: "online", declaredDefault: .bool(true), metadata: try nativeUiData("NativeUiSignalMetaOnline", []), writable: false) }
+        native("onlineSignal") { [weak self] args in try nativeUiRequire(args.isEmpty, "onlineSignal()"); return try self!.makeSignal(id: "__online__", kind: "online", declaredDefault: .bool(true), metadata: try nativeUiData("NativeUiSignalMetaOnline", []), writable: false, targetWritable: true, scopeOverride: "root") }
         native("persistedSignal") { [weak self] args in
             try nativeUiRequire(args.count == 2, "persistedSignal(name, default)")
             let name = try nativeUiString(args[0], "persisted name"), fallback = try nativeUiString(args[1], "persisted default")
-            let signal = try self!.makeSignal(id: name, kind: "persisted", declaredDefault: .string(self!.storage[name] ?? fallback), metadata: try nativeUiData("NativeUiSignalMetaPersisted", [.string(name)]))
+            let initial = self!.storage[name] ?? self!.persistedRead(name) ?? fallback
+            self!.storage[name] = initial
+            let signal = try self!.makeSignal(id: name, kind: "persisted", declaredDefault: .string(initial), metadata: try nativeUiData("NativeUiSignalMetaPersisted", [.string(name)]))
             let fields = try nativeUiSignalFields(signal, "persistedSignal")
-            self!.signals[self!.signalKey(scope: try nativeUiString(fields[1], "persisted scope"), id: name)]!.afterWrite = { [weak self] value in self!.storage[name] = try nativeUiString(value, "persisted value") }
+            self!.signals[self!.signalKey(scope: try nativeUiString(fields[1], "persisted scope"), id: name)]!.afterWrite = { [weak self] value in
+                guard let self else {
+                    throw SscRuntimeFailure(description: "native UI persisted signal '\(name)' is no longer live")
+                }
+                let string = try nativeUiString(value, "persisted value")
+                self.storage[name] = string
+                self.stagePersisted(name, string)
+            }
             return signal
         }
         native("componentScope") { [weak self] args in
@@ -691,10 +728,10 @@ final class NativeUiHost: SscRuntimeExtension {
 
     private func signalKey(scope: String, id: String) -> String { "\(scope)\u{0}\(id)" }
 
-    private func makeSignal(id: String, kind: String, declaredDefault: SscValue, metadata: SscValue, writable: Bool = true, targetWritable: Bool = false) throws -> SscValue {
+    private func makeSignal(id: String, kind: String, declaredDefault: SscValue, metadata: SscValue, writable: Bool = true, targetWritable: Bool = false, scopeOverride: String? = nil) throws -> SscValue {
         try nativeUiEnsurePortable(declaredDefault, "NativeUiSignal[\(id)].default")
         try nativeUiEnsurePortable(metadata, "NativeUiSignal[\(id)].metadata")
-        let scope = scopes.last!, key = signalKey(scope: scope, id: id)
+        let scope = scopeOverride ?? scopes.last!, key = signalKey(scope: scope, id: id)
         let metadataSignature = try nativeUiCanonicalSignalRefs(metadata)
         let cell: NativeUiSignalCell
         var metadataChanged = false
@@ -715,24 +752,40 @@ final class NativeUiHost: SscRuntimeExtension {
         scopeSignals[scope, default: []].insert(key)
         if scope != "root" { currentOwnerScopes.insert(scope) }
         let read = SscClosure(arity: 0) { [weak self] _ in
-            try self?.onRead?(scope, id)
-            defer { self?.onReadEnd?(scope, id) }
+            guard let self, self.signals[key] === cell else {
+                throw SscRuntimeFailure(description: "native UI signal '\(id)' is no longer live")
+            }
+            try self.onRead?(scope, id)
+            defer { self.onReadEnd?(scope, id) }
             let value = try cell.dynamicRead()
             try nativeUiEnsurePortable(value, "NativeUiSignal[\(id)].read")
             return value
         }
         let write = SscClosure(arity: 1) { [weak self] args in
+            guard let self, self.signals[key] === cell else {
+                throw SscRuntimeFailure(description: "native UI signal '\(id)' is no longer live")
+            }
             guard cell.writable else { throw SscRuntimeFailure(description: "native UI signal '\(id)' is read-only") }
             let next = args[0]
             try nativeUiEnsurePortable(next, "NativeUiSignal[\(id)].write")
+            if cell.kind == "persisted" { _ = try nativeUiString(next, "persisted value") }
             let firstSeedWrite = cell.kind == "seed" && !cell.dirty
             if firstSeedWrite || !nativeUiEqual(cell.current, next) {
-                cell.current = next; cell.dirty = true; try cell.afterWrite(next)
-                self?.onWrite?(scope, id)
+                let state = cell.snapshot()
+                do {
+                    cell.current = next
+                    cell.dirty = true
+                    try cell.afterWrite(next)
+                    self.onWrite?(scope, id)
+                } catch {
+                    cell.restore(state)
+                    throw error
+                }
             }
             return .unit
         }
         let result = try nativeUiData("NativeUiSignal", [.string(id), .string(scope), .string(kind), .closure(read), .closure(write), metadata])
+        signalValues[key] = result
         if metadataChanged && kind == "fetch" {
             for index in fetchChangeCollectors.indices { fetchChangeCollectors[index].append(result) }
         }
@@ -833,6 +886,8 @@ final class NativeUiHost: SscRuntimeExtension {
         render: SscClosure
     ) throws -> NativeUiKeyedResult {
         let snapshot = snapshotState()
+        let previousPersistedTransactionDepth = persistedTransactionDepth
+        persistedTransactionDepth = previousPersistedTransactionDepth + 1
         onBatchBegin?()
         let previousOwnerPath = currentOwnerPath
         let previousOwnerScopes = currentOwnerScopes
@@ -905,6 +960,8 @@ final class NativeUiHost: SscRuntimeExtension {
             currentSiteOccurrences = previousSiteOccurrences
             scopes = previousScopes
             onBatchCommit?()
+            persistedTransactionDepth = previousPersistedTransactionDepth
+            if persistedTransactionDepth == 0 { flushPersistedJournal() }
             let replacedActionStatuses = actionReplacementCollectors.removeLast()
             let rawFetchChanges = fetchChangeCollectors.removeLast()
             var changedFetchOrder: [String] = []
@@ -933,6 +990,7 @@ final class NativeUiHost: SscRuntimeExtension {
             _ = actionReplacementCollectors.removeLast()
             _ = fetchChangeCollectors.removeLast()
             restoreState(snapshot)
+            persistedTransactionDepth = previousPersistedTransactionDepth
             onBatchRollback?()
             throw error
         }
@@ -941,8 +999,10 @@ final class NativeUiHost: SscRuntimeExtension {
     private func snapshotState() -> NativeUiHostSnapshot {
         NativeUiHostSnapshot(
             signals: signals,
+            signalValues: signalValues,
             signalStates: signals.mapValues { $0.snapshot() },
             storage: storage,
+            persistedJournal: persistedJournal,
             scopes: scopes,
             ownerScopes: ownerScopes,
             scopeSignals: scopeSignals,
@@ -964,7 +1024,9 @@ final class NativeUiHost: SscRuntimeExtension {
             if let state = snapshot.signalStates[key] { cell.restore(state) }
         }
         signals = snapshot.signals
+        signalValues = snapshot.signalValues
         storage = snapshot.storage
+        persistedJournal = snapshot.persistedJournal
         scopes = snapshot.scopes
         ownerScopes = snapshot.ownerScopes
         scopeSignals = snapshot.scopeSignals
@@ -1008,6 +1070,7 @@ final class NativeUiHost: SscRuntimeExtension {
         for scope in disposedScopes {
             for key in scopeSignals.removeValue(forKey: scope) ?? [] {
                 signals.removeValue(forKey: key)
+                signalValues.removeValue(forKey: key)
                 signalSources.removeValue(forKey: key)
                 fetchFamilies.removeValue(forKey: key)
                 disposedSignals.append(key)
@@ -1028,6 +1091,19 @@ final class NativeUiHost: SscRuntimeExtension {
         parent + "/c" + String(scope.utf8.count) + ":" + scope
     }
 
+    private func stagePersisted(_ name: String, _ value: String) {
+        persistedJournal[name] = value
+        if !active && persistedTransactionDepth == 0 { flushPersistedJournal() }
+    }
+
+    private func flushPersistedJournal() {
+        let pending = persistedJournal
+        persistedJournal.removeAll(keepingCapacity: true)
+        for name in pending.keys.sorted() {
+            if let value = pending[name] { persistedWrite(name, value) }
+        }
+    }
+
     func sourceRef(_ siteId: String) -> SscValue? { siteSources[siteId] }
     func sourceRef(for signal: SscValue) -> SscValue? {
         guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
@@ -1041,6 +1117,12 @@ final class NativeUiHost: SscRuntimeExtension {
         guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
               case let .string(id) = fields[0], case let .string(scope) = fields[1] else { return nil }
         return fetchSignal(scope: scope, id: id)
+    }
+    func signal(scope: String, id: String) -> SscValue? {
+        signalValues[signalKey(scope: scope, id: id)]
+    }
+    func signalKind(scope: String, id: String) -> String? {
+        signals[signalKey(scope: scope, id: id)]?.kind
     }
     func isWritable(_ signal: SscValue) -> Bool {
         guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,

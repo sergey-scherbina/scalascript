@@ -124,9 +124,12 @@ object SwiftBackend:
          |import Foundation
          |
          |public enum SscGeneratedProgram {
-         |    static func makeNativeUiRoot() throws -> NativeUiSession {
+         |    static func makeNativeUiRoot(
+         |        persistedRead: @escaping (String) -> String? = { _ in nil },
+         |        persistedWrite: @escaping (String, String) -> Void = { _, _ in }
+         |    ) throws -> NativeUiSession {
          |        let program = ${emitProgram(program)}
-         |        let host = NativeUiHost()
+         |        let host = NativeUiHost(persistedRead: persistedRead, persistedWrite: persistedWrite)
          |        return try host.evaluate(program)
          |    }
          |

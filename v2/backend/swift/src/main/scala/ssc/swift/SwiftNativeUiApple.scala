@@ -35,7 +35,25 @@ private[swift] object SwiftNativeUiApple:
 
   val storeSource: String = """import CoreFoundation
 import Foundation
+import Network
 import SwiftUI
+
+protocol NativeUiOnlineMonitoring: AnyObject {
+    func start(_ update: @escaping @Sendable (Bool) -> Void)
+    func cancel()
+}
+
+private final class NativeUiPathMonitor: NativeUiOnlineMonitoring, @unchecked Sendable {
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "scalascript.nativeui.online")
+
+    func start(_ update: @escaping @Sendable (Bool) -> Void) {
+        monitor.pathUpdateHandler = { path in update(path.status == .satisfied) }
+        monitor.start(queue: queue)
+    }
+
+    func cancel() { monitor.cancel() }
+}
 
 struct NativeUiSubscriptionToken: Hashable {
     fileprivate let id = UUID()
@@ -91,11 +109,18 @@ final class NativeUiStore: ObservableObject {
     private var dependencies: [String: Set<String>] = [:]
     private var dependents: [String: Set<String>] = [:]
     private var dependencyFetchOwners: [String: Set<String>] = [:]
+    private var dependencyOnlineOwners: [String: Set<String>] = [:]
     private var cachedValues: [String: SscValue] = [:]
     private var pendingBatchWrites: [NativeUiPendingWrite]?
     private var pendingBatchWriteSet = Set<NativeUiPendingWrite>()
     private var pendingSeedReleases = Set<String>()
     private let urlSession: URLSession
+    private let onlineMonitorFactory: () -> any NativeUiOnlineMonitoring
+    private var onlineMonitor: (any NativeUiOnlineMonitoring)?
+    private var onlineMonitorToken: UUID?
+    private var onlineSubscriberCounts: [String: Int] = [:]
+    private var onlineSignals: [String: SscValue] = [:]
+    private var tokenOnlineKeys: [UUID: String] = [:]
     private var fetchTasks: [String: Task<Void, Never>] = [:]
     private var fetchGenerations: [String: UInt64] = [:]
     private var fetchTaskTokens: [String: UUID] = [:]
@@ -105,10 +130,18 @@ final class NativeUiStore: ObservableObject {
     private var openURLHandler: ((URL) -> Void)?
     private var mutationObserver: ((String, String) -> Void)?
 
-    init(urlSession: URLSession = .shared) {
+    init(
+        urlSession: URLSession = .shared,
+        userDefaults: UserDefaults = .standard,
+        onlineMonitorFactory: @escaping () -> any NativeUiOnlineMonitoring = { NativeUiPathMonitor() }
+    ) {
         self.urlSession = urlSession
+        self.onlineMonitorFactory = onlineMonitorFactory
         do {
-            let built = try SscGeneratedProgram.makeNativeUiRoot()
+            let defaults = userDefaults
+            let built = try SscGeneratedProgram.makeNativeUiRoot(
+                persistedRead: { defaults.string(forKey: $0) },
+                persistedWrite: { defaults.set($1, forKey: $0) })
             session = built
             root = built.root
             built.observe(
@@ -144,6 +177,7 @@ final class NativeUiStore: ObservableObject {
 
     isolated deinit {
         for task in fetchTasks.values { task.cancel() }
+        onlineMonitor?.cancel()
         session?.dispose()
     }
 
@@ -176,12 +210,19 @@ final class NativeUiStore: ObservableObject {
             tokenFetchKeys[token.id] = fetchKey
             acquireFetchSignal(fetch, key: fetchKey)
         }
+        if signalKind(cell.signal) == "online" {
+            tokenOnlineKeys[token.id] = cell.key
+            acquireOnlineSignal(cell.signal, key: cell.key)
+        }
         return token
     }
 
     func unsubscribe(_ token: NativeUiSubscriptionToken) {
         if let fetchKey = tokenFetchKeys.removeValue(forKey: token.id) {
             releaseFetchSignal(key: fetchKey)
+        }
+        if let onlineKey = tokenOnlineKeys.removeValue(forKey: token.id) {
+            releaseOnlineSignal(key: onlineKey)
         }
         guard let key = tokens.removeValue(forKey: token.id) else { return }
         let remaining = max(0, subscriberCounts[key, default: 1] - 1)
@@ -537,6 +578,14 @@ final class NativeUiStore: ObservableObject {
         for key in nextFetches.subtracting(previousFetches) {
             if let signal = fetchSignalForKey(key) { acquireFetchSignal(signal, key: key) }
         }
+        let previousOnline = dependencyOnlineOwners[reader, default: []]
+        let nextOnline = Set(next.compactMap(onlineSignalForKey).compactMap(signalKey))
+        if nextOnline.isEmpty { dependencyOnlineOwners.removeValue(forKey: reader) }
+        else { dependencyOnlineOwners[reader] = nextOnline }
+        for key in previousOnline.subtracting(nextOnline) { releaseOnlineSignal(key: key) }
+        for key in nextOnline.subtracting(previousOnline) {
+            if let signal = onlineSignalForKey(key) { acquireOnlineSignal(signal, key: key) }
+        }
     }
 
     private func releaseDependencies(reader: String) {
@@ -547,6 +596,9 @@ final class NativeUiStore: ObservableObject {
         }
         for key in dependencyFetchOwners.removeValue(forKey: reader) ?? [] {
             releaseFetchSignal(key: key)
+        }
+        for key in dependencyOnlineOwners.removeValue(forKey: reader) ?? [] {
+            releaseOnlineSignal(key: key)
         }
     }
 
@@ -566,9 +618,17 @@ final class NativeUiStore: ObservableObject {
         for id in removedTokens {
             tokens.removeValue(forKey: id)
             tokenFetchKeys.removeValue(forKey: id)
+            tokenOnlineKeys.removeValue(forKey: id)
         }
         for key in removed where fetchSubscriberCounts.removeValue(forKey: key) != nil {
             cancelNetworkTask(key: key)
+        }
+        for key in removed {
+            onlineSubscriberCounts.removeValue(forKey: key)
+            onlineSignals.removeValue(forKey: key)
+        }
+        if onlineSubscriberCounts.isEmpty {
+            stopOnlineMonitor()
         }
         for key in removed { dependents.removeValue(forKey: key) }
         for reader in Array(dependencies.keys) {
@@ -578,6 +638,10 @@ final class NativeUiStore: ObservableObject {
         for reader in Array(dependencyFetchOwners.keys) {
             dependencyFetchOwners[reader]?.subtract(removed)
             if dependencyFetchOwners[reader]?.isEmpty == true { dependencyFetchOwners.removeValue(forKey: reader) }
+        }
+        for reader in Array(dependencyOnlineOwners.keys) {
+            dependencyOnlineOwners[reader]?.subtract(removed)
+            if dependencyOnlineOwners[reader]?.isEmpty == true { dependencyOnlineOwners.removeValue(forKey: reader) }
         }
         for source in Array(dependents.keys) {
             dependents[source]?.subtract(removed)
@@ -695,6 +759,51 @@ final class NativeUiStore: ObservableObject {
             fetchSubscriberCounts[key] = remaining
         }
     }
+
+    private func acquireOnlineSignal(_ signal: SscValue, key: String) {
+        let wasInactive = onlineSubscriberCounts.values.reduce(0, +) == 0
+        onlineSubscriberCounts[key, default: 0] += 1
+        onlineSignals[key] = signal
+        guard wasInactive else { return }
+        let monitor = onlineMonitorFactory()
+        let token = UUID()
+        onlineMonitor = monitor
+        onlineMonitorToken = token
+        monitor.start { [weak self] online in
+            Task { @MainActor [weak self] in self?.applyOnlineStatus(online, token: token) }
+        }
+    }
+
+    private func releaseOnlineSignal(key: String) {
+        let remaining = max(0, onlineSubscriberCounts[key, default: 1] - 1)
+        if remaining == 0 {
+            onlineSubscriberCounts.removeValue(forKey: key)
+            onlineSignals.removeValue(forKey: key)
+        } else {
+            onlineSubscriberCounts[key] = remaining
+        }
+        if onlineSubscriberCounts.isEmpty {
+            stopOnlineMonitor()
+        }
+    }
+
+    private func stopOnlineMonitor() {
+        let monitor = onlineMonitor
+        onlineMonitorToken = nil
+        onlineMonitor = nil
+        monitor?.cancel()
+    }
+
+    private func applyOnlineStatus(_ online: Bool, token: UUID) {
+        guard onlineMonitorToken == token else { return }
+        let writes = onlineSignals.compactMap { key, signal in
+            onlineSubscriberCounts[key, default: 0] > 0 ? (signal, SscValue.bool(online)) : nil
+        }
+        if !writes.isEmpty { _ = targetTransaction(writes) }
+    }
+
+    func onlineOwnerCount() -> Int { onlineSubscriberCounts.values.reduce(0, +) }
+    func onlineMonitorActive() -> Bool { onlineMonitor != nil }
 
     private func beginNetworkTask(key: String) -> NativeUiTaskIdentity {
         fetchTasks.removeValue(forKey: key)?.cancel()
@@ -1195,6 +1304,13 @@ final class NativeUiStore: ObservableObject {
         let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return nil }
         return session?.fetchSignal(scope: String(parts[0]), id: String(parts[1]))
+    }
+
+    private func onlineSignalForKey(_ key: String) -> SscValue? {
+        let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              session?.signalKind(scope: String(parts[0]), id: String(parts[1])) == "online" else { return nil }
+        return session?.signal(scope: String(parts[0]), id: String(parts[1]))
     }
 }
 """

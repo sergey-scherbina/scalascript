@@ -367,6 +367,40 @@ final class SwiftBackendTest extends AnyFunSuite:
       assert(stdout == "identical|literal-restart|late-inert|ref-restart|coalesced|bounded")
     finally deleteRecursively(root)
 
+  test("persisted and online signals own Apple adapters by subscription lifecycle"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-platform-signals-")
+    val compileErrors = root.resolve("compile.stderr")
+    val runErrors = root.resolve("run.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiPlatformSignalsProgram(), "NativePlatformSignals")
+      generated.writeTo(root)
+      val probe = root.resolve("PlatformSignalsProbe.swift")
+      val binary = root.resolve("PlatformSignalsProbe")
+      Files.writeString(probe, nativeUiPlatformSignalsProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") || path == "AppleApp/NativeUiStore.swift" =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder(
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+          "-strict-concurrency=complete", "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
+      ).redirectError(compileErrors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(compileErrors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift platform signals compile failed ($compileExit):\n$compileErr\n$compileOut")
+
+      val run = new ProcessBuilder(binary.toString).redirectError(runErrors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift platform signals probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "defaults|rollback|first-last|main-actor|restart")
+    finally deleteRecursively(root)
+
   test("failed keyed Store batch drops provisional writes revisions and derived cache changes"):
     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
     val root = Files.createTempDirectory("ssc-swiftui-store-rollback-")
@@ -818,6 +852,45 @@ final class SwiftBackendTest extends AnyFunSuite:
     Program(Nil, Term.Let(
       List(mode, items, render, keyed),
       Term.App(Term.Global("emit"), List(root, str("out"))),
+    ))
+
+  private def nativeUiPlatformSignalsProgram(): Program =
+    val persisted = Term.App(Term.Global("persistedSignal"), List(str("draft"), str("fallback")))
+    val boot = Term.App(Term.Global("persistedSignal"), List(str("boot"), str("boot-fallback")))
+    val hidden = Term.App(Term.Global("persistedSignal"), List(str("hidden"), str("hidden-fallback")))
+    val online = Term.App(Term.Global("onlineSignal"), Nil)
+    val derived = Term.App(Term.Global("computedSignal"), List(
+      Term.Lam(0, Term.App(Term.Local(0), Nil)),
+    ))
+    def scopedOnline(scope: String) = Term.App(Term.Global("componentScope"), List(
+      str(scope), Term.Lam(0, Term.App(Term.Global("onlineSignal"), Nil)),
+    ))
+    val items = Term.App(Term.Global("signal"), List(str("platform-items"), list(List(str("row")))))
+    val scopedPersisted = Term.App(Term.Global("forKeyedView"), List(
+      Term.Local(0),
+      Term.Lam(1, Term.Local(0)),
+      Term.Lam(1, Term.App(Term.Global("componentScope"), List(
+        str("persisted-row"), Term.Lam(0, Term.App(Term.Global("signalText"), List(
+          Term.App(Term.Global("persistedSignal"), List(str("scoped"), str("scoped-fallback"))),
+        ))),
+      ))),
+    ))
+    val root = Term.App(Term.Global("fragment"), List(list(List(
+      Term.App(Term.Global("signalText"), List(Term.Local(7))),
+      Term.App(Term.Global("signalText"), List(Term.Local(6))),
+      Term.App(Term.Global("signalText"), List(Term.Local(5))),
+      Term.App(Term.Global("signalText"), List(Term.Local(4))),
+      Term.App(Term.Global("signalText"), List(Term.Local(3))),
+      Term.App(Term.Global("signalText"), List(Term.Local(2))),
+      Term.App(Term.Global("signalText"), List(Term.Local(1))),
+      scopedPersisted,
+    ))))
+    Program(Nil, Term.Let(
+      List(persisted, boot, hidden, online, derived, scopedOnline("first"), scopedOnline("second"), items),
+      Term.Seq(List(
+        Term.Prim("__method__", List(str("set"), Term.Local(6), str("boot-committed"))),
+        Term.App(Term.Global("emit"), List(root, str("out"))),
+      )),
     ))
 
   private def nativeUiKeyedLifecycleProgram(): Program =
@@ -2182,6 +2255,319 @@ struct KeyedFetchProbe {
         guard store.fetchOwnerCount(for: doubleFetch) == 0,
               store.networkMetadataCount() == 0 else { fatalError("fetch metadata lifecycle leaked") }
         Swift.print("identical|literal-restart|late-inert|ref-restart|coalesced|bounded")
+    }
+}
+"""
+
+  private val nativeUiPlatformSignalsProbe = """
+import Foundation
+
+final class ControlledOnlineMonitor: NativeUiOnlineMonitoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callbacks: [@Sendable (Bool) -> Void] = []
+    private var cancels = 0
+
+    func start(_ update: @escaping @Sendable (Bool) -> Void) {
+        lock.lock()
+        callbacks.append(update)
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        cancels += 1
+        lock.unlock()
+    }
+
+    func emitFromBackground(_ generation: Int, _ online: Bool) {
+        lock.lock()
+        let callback = callbacks[generation]
+        lock.unlock()
+        DispatchQueue.global().async { callback(online) }
+    }
+
+    var startCount: Int {
+        lock.lock(); defer { lock.unlock() }; return callbacks.count
+    }
+
+    var cancelCount: Int {
+        lock.lock(); defer { lock.unlock() }; return cancels
+    }
+}
+
+@main
+struct PlatformSignalsProbe {
+    private static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
+        guard case let .data(actual, fields) = value, actual == tag else {
+            fatalError("expected \(tag)")
+        }
+        return fields.asArray()
+    }
+
+    private static func list(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected list")
+            }
+        }
+    }
+
+    private static func signal(_ node: SscValue) -> SscValue {
+        fields(node, "NativeUiSignalText")[0]
+    }
+
+    private static func string(_ value: SscValue) -> String {
+        guard case let .string(result) = value else { fatalError("expected string") }
+        return result
+    }
+
+    private static func bool(_ value: SscValue) -> Bool {
+        guard case let .bool(result) = value else { fatalError("expected bool") }
+        return result
+    }
+
+    private static func closure(_ value: SscValue) -> SscClosure {
+        guard case let .closure(result) = value else { fatalError("expected closure") }
+        return result
+    }
+
+    private static func signalKey(_ value: SscValue) -> String {
+        let parts = fields(value, "NativeUiSignal")
+        return string(parts[1]) + "\u{0}" + string(parts[0])
+    }
+
+    @MainActor
+    private static func waitForBool(_ store: NativeUiStore, _ signal: SscValue, _ expected: Bool) async {
+        for _ in 0..<400 {
+            if bool(store.read(signal)) == expected { return }
+            await Task.yield()
+        }
+        fatalError("timed out waiting for online=\(expected)")
+    }
+
+    @MainActor
+    static func main() async {
+        let suite = "ssc.swiftui.platform." + UUID().uuidString
+        guard let defaults = UserDefaults(suiteName: suite) else { fatalError("suite defaults") }
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set("disk-before", forKey: "draft")
+        defaults.set("boot-before", forKey: "boot")
+        defaults.set("failed-before", forKey: "failed-root")
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let monitor = ControlledOnlineMonitor()
+        weak var releasedStore: NativeUiStore?
+        var releasedWrite: SscClosure?
+        do {
+            let store = NativeUiStore(
+                userDefaults: defaults,
+                onlineMonitorFactory: { monitor })
+            releasedStore = store
+            let abi = fields(store.root, "NativeUiAbi")
+            let children = list(fields(abi[1], "NativeUiFragment")[0])
+            let persisted = signal(children[0])
+            let boot = signal(children[1])
+            let hidden = signal(children[2])
+            let online = signal(children[3])
+            let derived = signal(children[4])
+            let scopedFirst = signal(children[5])
+            let scopedSecond = signal(children[6])
+            let keyed = fields(children[7], "NativeUiForKeyed")
+
+            guard defaults.string(forKey: "boot") == "boot-committed",
+                  string(store.read(boot)) == "boot-committed" else {
+                fatalError("successful root-evaluation write was not committed")
+            }
+            guard signalKey(online) == "root\u{0}__online__",
+                  signalKey(scopedFirst) == signalKey(online),
+                  signalKey(scopedSecond) == signalKey(online) else {
+                fatalError("component online signals were not process-wide")
+            }
+
+            let hiddenWrite = closure(fields(hidden, "NativeUiSignal")[4])
+            do { _ = try hiddenWrite.native!([.string("hidden-after")]) }
+            catch { fatalError("no-cell persisted write failed: \(error)") }
+            guard defaults.string(forKey: "hidden") == "hidden-after" else {
+                fatalError("no-cell persisted write did not reach UserDefaults")
+            }
+
+            let persistedCell = store.cell(for: persisted)
+            guard string(persistedCell.read()) == "disk-before" else {
+                fatalError("UserDefaults did not override persisted fallback")
+            }
+            let persistedWrite = closure(fields(persisted, "NativeUiSignal")[4])
+            do {
+                _ = try persistedWrite.native!([.int(7)])
+                fatalError("wrong-type persisted write unexpectedly succeeded")
+            } catch {
+                guard String(describing: error).contains("persisted value must be String") else {
+                    fatalError("wrong persisted type diagnostic: \(error)")
+                }
+            }
+            guard string(persistedCell.read()) == "disk-before",
+                  defaults.string(forKey: "draft") == "disk-before" else {
+                fatalError("wrong-type persisted write corrupted state")
+            }
+            persistedCell.write(.string("disk-after"))
+            guard defaults.string(forKey: "draft") == "disk-after" else {
+                fatalError("committed persisted write did not reach UserDefaults")
+            }
+
+            let key = SscClosure(arity: 1) { _ in .string("row") }
+            let failing = SscClosure(arity: 1) { _ in
+                MainActor.assumeIsolated { () -> Void in
+                    persistedCell.write(.string("provisional"))
+                }
+                throw SscRuntimeFailure(description: "persisted rollback")
+            }
+            do {
+                _ = try store.reconcileKeyed(
+                    parentOwnerPath: "root", siteId: "persisted-rollback",
+                    items: [.string("row")], key: key, render: failing)
+                fatalError("persisted rollback unexpectedly committed")
+            } catch {
+                guard String(describing: error).contains("persisted rollback") else {
+                    fatalError("wrong rollback error: \(error)")
+                }
+            }
+            guard string(persistedCell.read()) == "disk-after",
+                  defaults.string(forKey: "draft") == "disk-after" else {
+                fatalError("rolled-back persisted write escaped")
+            }
+
+            let scopedFirstResult = try! store.reconcileKeyed(
+                parentOwnerPath: "root", siteId: string(keyed[0]),
+                items: [.string("row")], key: closure(keyed[2]), render: closure(keyed[3]))
+            guard scopedFirstResult.entries.count == 1 else { fatalError("scoped persisted insert") }
+            let firstScopedSignal = signal(scopedFirstResult.entries[0].value)
+            let staleWrite = closure(fields(firstScopedSignal, "NativeUiSignal")[4])
+            do { _ = try staleWrite.native!([.string("scoped-before")]) }
+            catch { fatalError("scoped persisted commit failed: \(error)") }
+            guard defaults.string(forKey: "scoped") == "scoped-before" else {
+                fatalError("scoped persisted commit missed disk")
+            }
+            _ = try! store.reconcileKeyed(
+                parentOwnerPath: "root", siteId: string(keyed[0]),
+                items: [], key: closure(keyed[2]), render: closure(keyed[3]))
+            do {
+                _ = try staleWrite.native!([.string("scoped-stale")])
+                fatalError("disposed persisted wrapper unexpectedly wrote")
+            } catch {
+                guard String(describing: error).contains("no longer live") else {
+                    fatalError("wrong disposed wrapper error: \(error)")
+                }
+            }
+            guard defaults.string(forKey: "scoped") == "scoped-before" else {
+                fatalError("disposed persisted wrapper changed disk")
+            }
+            let scopedFreshResult = try! store.reconcileKeyed(
+                parentOwnerPath: "root", siteId: string(keyed[0]),
+                items: [.string("row")], key: closure(keyed[2]), render: closure(keyed[3]))
+            let freshScopedSignal = signal(scopedFreshResult.entries[0].value)
+            let freshWrite = closure(fields(freshScopedSignal, "NativeUiSignal")[4])
+            do { _ = try freshWrite.native!([.string("scoped-fresh")]) }
+            catch { fatalError("fresh persisted wrapper failed: \(error)") }
+            guard defaults.string(forKey: "scoped") == "scoped-fresh" else {
+                fatalError("fresh persisted wrapper missed disk")
+            }
+            releasedWrite = freshWrite
+
+            let derivedCell = store.cell(for: derived)
+            let first = store.subscribe(derivedCell)
+            guard monitor.startCount == 1, store.onlineOwnerCount() == 1,
+                  store.onlineMonitorActive() else { fatalError("derived owner did not start monitor") }
+            monitor.emitFromBackground(0, false)
+            await waitForBool(store, derived, false)
+            guard derivedCell.revision == 1 else {
+                fatalError("online callback did not recompute derived signal")
+            }
+
+            let onlineCell = store.cell(for: scopedFirst)
+            guard bool(onlineCell.read()) == false, bool(store.read(scopedSecond)) == false else {
+                fatalError("late component owner did not see current online state")
+            }
+            let second = store.subscribe(onlineCell)
+            guard monitor.startCount == 1, store.onlineOwnerCount() == 2 else {
+                fatalError("second owner started another monitor")
+            }
+            store.unsubscribe(first)
+            guard monitor.cancelCount == 0, store.onlineOwnerCount() == 1 else {
+                fatalError("first unsubscribe cancelled shared monitor")
+            }
+            store.unsubscribe(second)
+            guard monitor.cancelCount == 1, store.onlineOwnerCount() == 0,
+                  !store.onlineMonitorActive() else { fatalError("last unsubscribe did not cancel monitor") }
+
+            let stoppedRevision = onlineCell.revision
+            _ = store.subscribe(store.cell(for: scopedSecond))
+            guard monitor.startCount == 2, store.onlineOwnerCount() == 1 else {
+                fatalError("later first owner did not restart monitor")
+            }
+            monitor.emitFromBackground(0, true)
+            for _ in 0..<40 { await Task.yield() }
+            guard bool(onlineCell.read()) == false, onlineCell.revision == stoppedRevision else {
+                fatalError("stale monitor generation mutated restarted online signal")
+            }
+            monitor.emitFromBackground(1, true)
+            await waitForBool(store, online, true)
+
+            let failedHost = NativeUiHost(
+                persistedRead: { defaults.string(forKey: $0) },
+                persistedWrite: { defaults.set($1, forKey: $0) })
+            let failedProgram = SscProgram(definitions: [], entry: .letBindings([
+                .apply(.global("persistedSignal"), [
+                    .literal(.string("failed-root")), .literal(.string("fallback"))])
+            ], .sequence([
+                .primitive("__method__", [
+                    .literal(.string("set")), .local(0), .literal(.string("escaped"))]),
+                .literal(.unit)
+            ])), fieldLayouts: [:])
+            do {
+                _ = try failedHost.evaluate(failedProgram)
+                fatalError("failed root unexpectedly evaluated")
+            } catch {
+                guard String(describing: error).contains("did not register a root") else {
+                    fatalError("wrong failed-root error: \(error)")
+                }
+            }
+            guard defaults.string(forKey: "failed-root") == "failed-before" else {
+                fatalError("failed root-evaluation write escaped")
+            }
+            let recoveredProgram = SscProgram(definitions: [], entry: .letBindings([
+                .apply(.global("persistedSignal"), [
+                    .literal(.string("failed-root")), .literal(.string("fallback"))])
+            ], .apply(.global("emit"), [
+                .apply(.global("signalText"), [.local(0)]), .literal(.string("out"))
+            ])), fieldLayouts: [:])
+            do {
+                let recovered = try failedHost.evaluate(recoveredProgram)
+                let recoveredAbi = fields(recovered.root, "NativeUiAbi")
+                let recoveredSignal = signal(recoveredAbi[1])
+                guard string(try recovered.read(recoveredSignal)) == "failed-before" else {
+                    fatalError("failed root left staged persisted memory")
+                }
+            } catch { fatalError("failed Host did not recover: \(error)") }
+        }
+
+        for _ in 0..<40 where releasedStore != nil { await Task.yield() }
+        guard releasedStore == nil, monitor.cancelCount == 2,
+              defaults.string(forKey: "hidden") == "hidden-after" else {
+            fatalError("root disposal did not release online monitor")
+        }
+        do {
+            _ = try releasedWrite!.native!([.string("after-dispose")])
+            fatalError("released persisted wrapper unexpectedly wrote")
+        } catch {
+            guard String(describing: error).contains("no longer live"),
+                  defaults.string(forKey: "scoped") == "scoped-fresh" else {
+                fatalError("released persisted wrapper was not inert: \(error)")
+            }
+        }
+        Swift.print("defaults|rollback|first-last|main-actor|restart")
     }
 }
 """
