@@ -480,6 +480,20 @@ enum Option[+A]:
   case None
 ```
 
+Singleton objects may use either significant indentation or explicit braces.
+The two forms define the same member scope: every member belongs to the object,
+selectors resolve through that owner, and unqualified sibling-member calls stay
+inside the object. A trailing `:` opens layout only in a declaration header;
+colons used for type ascriptions and return types do not open blocks.
+
+```scalascript
+object Parser:
+  def char(c: Int): Int = c + 1
+  def twice(c: Int): Int = char(char(c))
+
+Parser.twice(1)
+```
+
 ### 4.4 Type Inference
 
 Types are inferred where possible:
