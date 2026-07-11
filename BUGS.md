@@ -2,7 +2,7 @@
 
 ## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
 
-**Status:** fixed (2026-07-11, `5f8ed9614`); reported by busi while
+**Status:** fixed (2026-07-11, `2f3994b31`); reported by busi while
 verifying the newly published HTTP runtime. Reporter confirmation on the final
 published pin is pending.
 
