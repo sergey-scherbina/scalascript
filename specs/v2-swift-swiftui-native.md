@@ -934,6 +934,24 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### Provenance-aware NativeUi lexical sites (`0643fde39`, 2026-07-11)
+
+- `NativeUiSites` is a pure post-Op-ANF CoreIR pass. The FrontendBridge import
+  resolver records exact `runtime/std/ui` extern eligibility before flattening,
+  source-marker ownership maps imported definitions back to their files, and
+  only those direct calls become reserved `__ssc_nativeui_v1.*` globals with
+  explainable definition/path site ids plus `NativeUiSourceRef` data.
+- Same-named user definitions remain untouched. Reserved-prefix definitions,
+  bare/eta-expanded site-bearing primitives, and unexpected arities fail during
+  lowering. `emit`/`serve` receive source metadata without adding a public site
+  field. Current JVM/static providers accept the hidden arguments through
+  versioned compatibility wrappers; the next atomic plugin migration consumes
+  them into the frozen ABI rather than dropping them.
+- The dedicated pass/provenance suite passes 6/6; combined FrontendBridge tests
+  pass 62/62 and the UI plugin baseline passes 4/4. The affected toolkit
+  conformance gate passes 12/12 and `std-ui-jobpanel` remains green 1/1 on its
+  declared lanes.
+
 ### Portable map and tag-qualified runtime seam (`689969978`, 2026-07-11)
 
 - The v2 JVM runtime now has a target-neutral, insertion-ordered `Value.MapV`
