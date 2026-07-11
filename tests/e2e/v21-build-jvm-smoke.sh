@@ -121,6 +121,16 @@ unzip -p "$sandbox/signals.jar" META-INF/scalascript/artifact.properties \
 grep -F 'ssc.plugin.reactive.ReactiveNativePlugin' \
   "$sandbox/signals-artifact.properties" >/dev/null
 
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$ROOT/examples/yaml-parse.ssc" -o "$sandbox/yaml.jar"
+yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
+[[ $(PATH="$clean_path" java -jar "$sandbox/yaml.jar") == "$yaml_expected" ]]
+unzip -p "$sandbox/yaml.jar" META-INF/scalascript/artifact.properties \
+  >"$sandbox/yaml-artifact.properties"
+grep -F 'ssc.plugin.yaml.YamlNativePlugin' \
+  "$sandbox/yaml-artifact.properties" >/dev/null
+grep -F 'scalascript-yaml_' "$sandbox/yaml-artifact.properties" >/dev/null
+
 deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class "$sandbox/app-a.jar")
 if printf '%s\n' "$deps" | grep -E \
     'scala[.]meta|dotty[.]tools|javax[.]tools|ssc[.]bridge|scalascript[.](ast|interpreter)' >/dev/null; then

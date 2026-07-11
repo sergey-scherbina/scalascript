@@ -64,6 +64,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/sql-provider.ssc" -o "$sandbox/sql.jar"
 [[ $(PATH="$clean_path" java -jar "$sandbox/sql.jar") == $'1\n7\nAda\ntrue' ]]
 
+cp "$ROOT/examples/yaml-parse.ssc" "$sandbox/other/yaml-parse.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/yaml-parse.ssc" -o "$sandbox/yaml.jar"
+yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
+[[ $(PATH="$clean_path" java -jar "$sandbox/yaml.jar") == "$yaml_expected" ]]
+
 jar_cmd=$(command -v jar)
 javap_cmd=$(command -v javap)
 jdeps_cmd=$(command -v jdeps)
@@ -74,15 +80,19 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/a/app.jar" >"$sandbox/app.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/sql.jar" >"$sandbox/sql.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/yaml.jar" >"$sandbox/yaml.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/sql.jar" >"$sandbox/sql.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/yaml.jar" >"$sandbox/yaml.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
-    "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/app.modules" \
-    "$sandbox/sql.modules" >/dev/null; then
+    "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/yaml.jdeps" \
+    "$sandbox/app.modules" "$sandbox/sql.modules" "$sandbox/yaml.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -102,6 +112,7 @@ artifact_hash=$(hash_file "$sandbox/a/app.jar")
 artifact_bytes=$(wc -c <"$sandbox/a/app.jar" | tr -d ' ')
 app_modules=$(tr -d '\r\n' <"$sandbox/app.modules")
 sql_modules=$(tr -d '\r\n' <"$sandbox/sql.modules")
+yaml_modules=$(tr -d '\r\n' <"$sandbox/yaml.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -111,11 +122,13 @@ report_tmp="$sandbox/release.tsv"
   printf 'artifact.source-path-independent\ttrue\n'
   printf 'app.modules\t%s\n' "$app_modules"
   printf 'sql.modules\t%s\n' "$sql_modules"
+  printf 'yaml.modules\t%s\n' "$yaml_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
   printf 'import.output\t42\n'
   printf 'sql.output\t1/7/Ada/true\n'
+  printf 'yaml.output\tType/Host/Port/Debug/Tags/Round-trip/App\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

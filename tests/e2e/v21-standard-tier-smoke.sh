@@ -27,6 +27,9 @@ fi
 
 [[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 [[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --bytecode "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
+yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
+[[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
+[[ $(SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 plan=$(SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" info --execution-plan --bytecode)
 [[ $plan == *'"tier":"standard"'* && $plan == *'"backend":"asm"'* && $plan == *'"compiler":false'* ]]
 

@@ -1,0 +1,5 @@
+[importedYamlName](yaml-section-import-helper.ssc)
+
+```scalascript
+println(importedYamlName())
+```

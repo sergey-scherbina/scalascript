@@ -1,0 +1,11 @@
+[yamlStr, yamlGet](std/yaml.ssc)
+
+# Imported config
+
+```yml
+name: imported
+```
+
+```scalascript
+def importedYamlName(): String = yamlStr(yamlGet(ImportedConfig.yaml, "name"))
+```

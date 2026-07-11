@@ -23,6 +23,87 @@ def joinScalaScript = (blocks) =>
     } in
   go(blocks, "")
 
+-- Collect executable source while retaining the heading-scoped YAML section
+-- contract.  The generic Markdown extractor deliberately returns only fences,
+-- so it cannot associate a yaml/yml fence with its nearest heading.
+def sscAsciiDigit = (c) => if #i.ge(c, 48) then #i.le(c, 57) else false
+def sscAsciiAlpha = (c) =>
+  let upper = if #i.ge(c, 65) then #i.le(c, 90) else false in
+  if upper then true else (if #i.ge(c, 97) then #i.le(c, 122) else false)
+def sscAsciiAlnum = (c) => if sscAsciiAlpha(c) then true else sscAsciiDigit(c)
+def sscUpperAscii = (s, i) =>
+  let c = #scodeAt(s, i) in
+  if #i.ge(c, 97) then
+    if #i.le(c, 122) then #sfromCodes(Cons(#i.sub(c, 32), Nil))
+    else #sslice(s, i, #i.add(i, 1))
+  else #sslice(s, i, #i.add(i, 1))
+def sscSkipHashes = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else if #i.eq(#scodeAt(s, i), 35) then sscSkipHashes(s, #i.add(i, 1)) else i
+def sscHeadingWords = (s, i, inWord, words, acc) =>
+  if #i.ge(i, #slen(s)) then acc
+  else
+    let c = #scodeAt(s, i) in
+    if sscAsciiAlnum(c) then
+      let piece =
+        if inWord then #sslice(s, i, #i.add(i, 1))
+        else if #i.gt(words, 0) then sscUpperAscii(s, i)
+        else #sslice(s, i, #i.add(i, 1)) in
+      sscHeadingWords(s, #i.add(i, 1), true, words, #sconcat(acc, piece))
+    else
+      sscHeadingWords(s, #i.add(i, 1), false,
+        if inWord then #i.add(words, 1) else words, acc)
+def sscHeadingId = (line) =>
+  let t = strip(line) in
+  if #i.eq(#slen(t), 0) then ""
+  else if #i.eq(#scodeAt(t, 0), 35) then
+    let body = strip(#sslice(t, sscSkipHashes(t, 0), #slen(t))) in
+    let raw = sscHeadingWords(body, 0, false, 0, "") in
+    if #i.eq(#slen(raw), 0) then ""
+    else if sscAsciiDigit(#scodeAt(raw, 0)) then #sconcat("_", raw)
+    else raw
+  else ""
+def sscAppendSource = (acc, chunk) =>
+  if #i.eq(#slen(chunk), 0) then acc
+  else if #i.eq(#slen(acc), 0) then chunk
+  else #sconcat(acc, #sconcat("\n\n", chunk))
+def sscFenceSource = (lang, source, heading) =>
+  let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
+  if isCode then source
+  else if #seq(lang, "yaml") then
+    #sconcat("val __yaml_", #sconcat(heading,
+      #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
+  else if #seq(lang, "yml") then
+    #sconcat("val __yaml_", #sconcat(heading,
+      #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
+  else ""
+def sscSourceLines = (lines, heading, inFence, lang, curLines, acc) =>
+  match lines {
+    case Nil =>
+      if inFence then
+        sscAppendSource(acc, sscFenceSource(lang, joinLines(reverse(curLines)), heading))
+      else acc
+    case Cons(line, rest) =>
+      if inFence then
+        if isClosingFence(line) then
+          let source = joinLines(reverse(curLines)) in
+          sscSourceLines(rest, heading, false, "", Nil,
+            sscAppendSource(acc, sscFenceSource(lang, source, heading)))
+        else sscSourceLines(rest, heading, true, lang, Cons(line, curLines), acc)
+      else
+        let t = strip(line) in
+        if startsWith3bt(t) then
+          sscSourceLines(rest, heading, true, getFenceLang(t), Nil, acc)
+        else
+          let nextHeading = sscHeadingId(t) in
+          sscSourceLines(rest,
+            if #i.eq(#slen(nextHeading), 0) then heading else nextHeading,
+            false, "", Nil, acc)
+  }
+def sscProgramSource = (src) =>
+  let lines = splitLines(stripBom(src), 0, Nil) in
+  sscSourceLines(skipYaml(frontmatterLines(lines)), "S0", false, "", Nil, "")
+
 -- ── .ssc module loading (v2-native-front-ssc-module-loading) ─────────────────
 -- The parser treats `[names](path.ssc)` markdown-link imports as a parse-only
 -- no-op ("sealed"), assuming imported names are plugin globals. That holds for
@@ -173,7 +254,7 @@ def sscLoadMod = (rawPath, seen) =>
   if sscMem(seen, path) then Pair(Nil, seen)
   else
     let fileStr = #utf8->str(#io.readFile(path)) in
-    let modSrc = joinScalaScript(extractFences(fileStr)) in
+    let modSrc = sscProgramSource(fileStr) in
     let defs = sscDefsOnly(parse(modSrc)) in
     match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
       case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs), seen2)
@@ -193,7 +274,7 @@ def sscLoadRoot = (rawPath, seen) =>
   let path = sscNormalize(rawPath) in
   let bytes = #io.readFile(path) in
   let fileStr = #utf8->str(bytes) in
-  let src = joinScalaScript(extractFences(fileStr)) in
+  let src = sscProgramSource(fileStr) in
   if #i.eq(slen(src), 0) then
     let z = #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) in
     #io.exit(1)

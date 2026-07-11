@@ -43,4 +43,3 @@ typed-sql-crud.ssc	standard-provider	yes	sql	native SQL-fence lowering and typed
 wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
 wasm-scalascript.ssc	tools-backend	no	wasm	WASM ScalaScript syntax is already a reviewed backend surface
 x402-client.ssc	tools-backend	no	x402	compiler-backed Scala/sttp client syntax is already a reviewed tools surface
-yaml-parse.ssc	standard-provider	yes	yaml	parseYaml is missing from a core-free standard YAML provider

@@ -680,7 +680,20 @@ def resolveField = (robj, field) =>
       else if #seq(rt, "var") then #seq(rd, "RoundingMode")
       else false
   } in
-  if isExtensionMethod(field) then
+  let yamlSection = match robj {
+    case Pair(rt, rn) =>
+      if #seq(field, "yaml") then
+        if #seq(rt, "var") then
+          let hidden = #sconcat("__yaml_", rn) in
+          if isTopVal(hidden) then hidden else ""
+        else if #seq(rt, "uid") then
+          let hidden2 = #sconcat("__yaml_", rn) in
+          if isTopVal(hidden2) then hidden2 else ""
+        else ""
+      else ""
+  } in
+  if #i.gt(#slen(yamlSection), 0) then Pair("var", yamlSection)
+  else if isExtensionMethod(field) then
     Pair("app", Pair(Pair("var", field), Cons(robj, Nil)))
   else if roundingOwner then Pair("str", field)
   else if #seq(field, "length") then

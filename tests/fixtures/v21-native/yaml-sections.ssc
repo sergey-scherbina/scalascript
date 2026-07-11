@@ -1,0 +1,16 @@
+# First YAML
+
+```yaml
+name: first
+```
+
+# 2 YAML alias
+
+```yml
+name: second
+```
+
+```scalascript
+println(yamlStr(yamlGet(FirstYAML.yaml, "name")))
+println(yamlStr(yamlGet(_2YAMLAlias.yaml, "name")))
+```

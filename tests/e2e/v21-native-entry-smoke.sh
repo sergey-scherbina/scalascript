@@ -57,6 +57,10 @@ state_expected=$'17\n20\n2\n101\n101\n2'
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
+yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
+[[ $(run_native "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
+[[ $(run_native "$FIXTURES/yaml-sections.ssc") == $'first\nsecond' ]]
+[[ $(run_native "$FIXTURES/yaml-section-import-main.ssc") == 'imported' ]]
 [[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
 interpolation_expected=$'Squares: 1, 4, 9, 16, 25\nWrapped: 1-4-9-16-25!'
 [[ $(run_native "$FIXTURES/interpolation-expression.ssc") == "$interpolation_expected" ]]
@@ -165,6 +169,9 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/state-effect-provider.ssc") == "$state_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 [[ $(run_native --bytecode "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/yaml-sections.ssc") == $'first\nsecond' ]]
+[[ $(run_native --bytecode "$FIXTURES/yaml-section-import-main.ssc") == 'imported' ]]
 
 assert_frontmatter_failure() {
   local name=$1

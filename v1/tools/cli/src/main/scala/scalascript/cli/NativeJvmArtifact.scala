@@ -30,6 +30,8 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-state-effect-plugin_",
     "scalascript-v2-native-storage-effect-plugin_",
     "scalascript-v2-native-reactive-plugin_",
+    "scalascript-v2-native-yaml-plugin_",
+    "scalascript-yaml_",
   )
 
   private val RequiredPrefixes = List(
