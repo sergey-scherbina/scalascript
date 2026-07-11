@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI fetches and actions have native lifecycle ownership
+
+Generated Apple clients now execute `fetchUrlSignal` and `fetchAction*` through
+main-actor URLSession tasks with structural request metadata, exact status
+capabilities, first/last subscriber ownership, generation-safe cancellation,
+form snapshots, 2xx-only ordered effects, bounded failures, and preflighted safe
+navigation. Same-key refresh preserves identical work, real descriptor changes
+restart once, and stale/late callbacks are inert. Independent Rozum review
+approved the slice; Swift backend is 30/30 and `tkv2-*` is 12/12. Landed
+`5c0b38ad9`, `068e8b62d`, and `03f2f1fcf`; docs `5d6c13955`.
+
 ## 2026-07-11 — typed match arms retain their delimiter and body
 
 The self-hosted frontend now bounds pattern type annotations before a

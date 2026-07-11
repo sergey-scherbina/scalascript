@@ -530,7 +530,7 @@ there before changing this plan.
             native table/column/row-action decoding, persisted/online state, and
             isolated non-persistent WKWebView trusted HTML. Gate cancellation,
             2xx-only effects, exact payloads, and safe navigation/resource rules.
-            - [ ] **async fetch/action lifecycle** — URLSession tasks keyed by
+            - [x] **async fetch/action lifecycle** — URLSession tasks keyed by
                   owner/site/occurrence, generation-checked cancellation,
                   idle/loading/done/error transitions, click-time source/body/
                   headers snapshots, capture→clear→ordered success effects,
@@ -568,6 +568,11 @@ there before changing this plan.
                   same-key registrations inside one Host transaction to its final
                   committed descriptor before starting Store side effects; an
                   intermediate A followed by final B must produce only B.
+                  Result: landed `5c0b38ad9` + hardening `068e8b62d` /
+                  `03f2f1fcf`; strict real-Swift URLProtocol/SwiftPM gates and
+                  full backend suite pass 30/30, `tkv2-*` passes 12/12, and
+                  `nativeui-reviewer` posted APPROVE in Rozum. Docs landed
+                  `5d6c13955`.
             - [ ] **ordinary event mutation hardening** — validate live writable
                   targets for set/input/toggle/increment before dispatch, use a
                   checked non-trapping Int64 increment, and retain the owning

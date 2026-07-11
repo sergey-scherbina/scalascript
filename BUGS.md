@@ -1090,8 +1090,9 @@ room.
 
 ## v2-swiftui-keyed-fetch-metadata-stale — surviving fetch keeps its first request descriptor
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` during the
-read-only async lifecycle review in the `scalascript` Rozum room.
+**Status:** done (2026-07-11; fixed in `5c0b38ad9`, `068e8b62d`, and
+`03f2f1fcf`; `nativeui-reviewer` confirmed with final APPROVE in the
+`scalascript` Rozum room).
 
 - **Real-harness repro:** reconstruct a fetch with the same keyed/component
   `(scope,id,kind,default)` but change its literal URL, or swap a literal URL for
@@ -1117,8 +1118,9 @@ read-only async lifecycle review in the `scalascript` Rozum room.
 
 ## v2-swiftui-surviving-owner-action-task-leak — removed action can finish under a surviving keyed owner
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` during the
-read-only async lifecycle review in the `scalascript` Rozum room.
+**Status:** done (2026-07-11; fixed in `5c0b38ad9`, `068e8b62d`, and
+`03f2f1fcf`; `nativeui-reviewer` confirmed with final APPROVE in the
+`scalascript` Rozum room).
 
 - **Real-harness repro:** mount a keyed row containing a fetch action, start its
   controllable `URLProtocol` request, then reconcile the same key to a row that
