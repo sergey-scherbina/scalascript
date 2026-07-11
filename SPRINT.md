@@ -862,7 +862,7 @@ there before changing this plan.
                         document content-size observation and remove observers
                         on dismantle/deinit. Descriptor replacement updates the
                         existing view without retaining the prior markup;
-                  - [ ] close the four pre-code design blockers tracked as
+                  - [x] close the four pre-code design blockers tracked as
                         `v2-trusted-html-isolation-contract-gaps`: generation-
                         scoped allow-once main navigation, linkActivated-only
                         shared external URL handoff including `_blank`, latest-
@@ -870,6 +870,10 @@ there before changing this plan.
                         platform size observer clamp/rebind/cleanup plus exact
                         forged-descriptor diagnostics. Commit the spec delta and
                         obtain Rozum design APPROVE before implementation;
+                        Result: frozen in `fa3c36627`; `nativeui-reviewer`
+                        posted final spec-only APPROVE in Rozum after both SDK
+                        corrections (isolated macOS client world and no
+                        deprecated explicit process pool).
                   - [ ] add generated strict Swift gates for configuration,
                         compiled-rule-before-load ordering, strong/`data-x` plus
                         inline CSS/data visibility, external-link handoff,
