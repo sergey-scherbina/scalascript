@@ -1,6 +1,0 @@
-feature/v21-native-parser-dsl-stub-values 2026-07-11T17:49:00Z
-agent: codex
-heartbeat: 2026-07-11T17:49:00Z
-status: in-progress
-done-so-far: spec is on main; imported Parser.map/List.map collision is fixed locally through __methodOrExt__; focused tuple/ADT and exact JSON pass; local tuple destructuring now binds every component
-next: preserve typed-pattern tag tests in the self-hosted frontend so imported layout code selects IndentContext arms; then make YAML/layout exact on VM/ASM and run the full release gates
