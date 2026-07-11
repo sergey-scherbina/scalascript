@@ -33,6 +33,13 @@ diff -u "$EXPECTED" "$TMP/run-swift.out"
 "$SSC" run --target macos "$FIXTURE" --v2 >"$TMP/run-target.out"
 diff -u "$EXPECTED" "$TMP/run-target.out"
 
+"$SSC" package --target macos --out "$TMP/plain-package" "$FIXTURE" \
+  >"$TMP/plain-package.out" 2>"$TMP/plain-package.err"
+test -f "$TMP/plain-package/macos/Sources/AppCore/GeneratedProgram.swift"
+test -f "$TMP/plain-package/macos/Package.swift"
+! grep -Fq 'Exception in thread' "$TMP/plain-package.err"
+! grep -Fq 'Parser' "$TMP/plain-package.err"
+
 set +e
 "$SSC" run --v2 --target ios "$FIXTURE" >"$TMP/ios-run.out" 2>"$TMP/ios-run.err"
 IOS_EXIT=$?
@@ -107,7 +114,7 @@ INCOMPLETE_KEY_EXIT=$?
 set -e
 test "$INCOMPLETE_KEY_EXIT" -eq 1
 grep -Fqx \
-  'ssc publish --target ios: API key JSON requires non-empty key_id, issuer_id, and key' \
+  'ssc publish --target ios: API key JSON requires non-empty key_id and key' \
   "$TMP/incomplete-api-key.err"
 ! grep -Fq 'Exception in thread' "$TMP/incomplete-api-key.err"
 
