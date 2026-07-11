@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — imported mapped parsers stay portable across VM and ASM
+
+A clean assembly proved the reported `PMapped/2` exception was a stale staged
+distribution, not a missing generic match arm. An exact multi-file regression
+now imports the parser evaluator and maps `20` to `22` with unchanged input and
+position on native VM/direct ASM; focused JSON/YAML parser smokes enforce clean
+exit and byte parity without adding host parser code. Landed `5b16df6df`;
+taxonomy reconciliation `06a1ae9bb`; verified in
+`specs/v2.1-imported-pmapped-evaluation.md`.
+
 ## 2026-07-11 — interpreter HTTP mutations are fair and durable
 
 Interpreter-backed HTTP now shares one weak per-interpreter fair read/write

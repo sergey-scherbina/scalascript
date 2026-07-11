@@ -1845,7 +1845,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               improves to 36/90, parity to 23/43/129, blockers
                               to 31, with every release gate and conformance
                               11/11 green.
-                        - [ ] **TI-8.2d2s2 JSON `PMapped/2` match:** native case
+                        - [x] **TI-8.2d2s2 JSON `PMapped/2` match — DONE
+                              2026-07-11 (`5b16df6df`, taxonomy
+                              `06a1ae9bb`):** native case
                               objects advance `dsl-json-parser.ssc` to identical
                               VM/ASM `match: no arm for PMapped/2`. Isolate the
                               imported constructor/arm boundary in a multi-file
@@ -1860,6 +1862,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               assembled artifact; still add an exact multi-file
                               imported `PMapped` regression and a focused parser
                               DSL release smoke before closing the slice.
+                              Result: the exact imported evaluator fixture
+                              prints `22/0/0`; JSON/YAML exit 0 with empty
+                              stderr and byte-identical VM/ASM output. No host
+                              matcher code changed. Full baseline is 194/194
+                              front/check, 39 runtime successes, parity
+                              25/1/40/129, and sentinel 68 with zero standard
+                              gaps; the one functional mismatch, later parser
+                              placeholders, and HTTP release-tail assertion are
+                              each tracked independently.
                         - [ ] **TI-8.2d2s3 parser DSL placeholder semantics:**
                               clean assembly removes the `PMapped/2` exception,
                               but JSON arrays/objects render `[Stub]`/`{Stub}`

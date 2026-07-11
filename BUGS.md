@@ -114,13 +114,13 @@ browser E2E. Fix commit: `1f7ea78d7`.
 
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
 
-**Status:** open, non-reproducible after clean assembly (2026-07-11); found by
-codex after native `case object` support advanced `dsl-json-parser.ssc` beyond
-`unbound global: NoContext`.
+**Status:** done (2026-07-11; regression `5b16df6df`, taxonomy
+`06a1ae9bb`); found and confirmed by codex after native `case object` support
+advanced `dsl-json-parser.ssc` beyond `unbound global: NoContext`.
 
-- **Real-harness repro:** `bin/ssc-standard run --native
-  examples/dsl-json-parser.ssc` now fails identically on VM/ASM with `match: no
-  arm for PMapped/2`.
+- **Historical real-harness repro:** a staged `bin/ssc-standard run --native
+  examples/dsl-json-parser.ssc` failed identically on VM/ASM with `match: no arm
+  for PMapped/2`; a clean assembly at the same source state does not reproduce.
 - **Expected:** the imported combinator evaluator's existing `PMapped(inner, f)`
   arm matches the reified parser node and applies the mapping closure.
 - **Diagnosis:** a clean `scripts/sbtc "installBin"` at `c227b40ee` makes both
@@ -128,10 +128,12 @@ codex after native `case object` support advanced `dsl-json-parser.ssc` beyond
   source commit after the extension receiver fix `878474b8d` changed the
   frontend/runtime path. The earlier failure therefore came from a staged
   distribution assembled before that fix, not from a missing `PMapped/2` arm.
-- **Plan/done-when:** pin the already-correct imported `PMapped(inner, f)`
-  behavior in a multi-file exact-output VM/direct-ASM regression, add the
-  parser DSLs to a focused release smoke, and close without parser-specific
-  host code only after the clean release gates pass.
+- **Fix/result:** no matcher patch was needed. The exact multi-file regression
+  imports the evaluator and prints `22/0/0` on VM/direct ASM; the focused parser
+  DSL smoke proves zero-exit, empty stderr, and byte parity. Both stale
+  `PMapped/2` taxonomy rows are retired. Later JSON/YAML placeholder semantics,
+  the `functional.ssc` parity mismatch, and HTTP release-tail failure have
+  separate owners.
 
 ## v21-k62-flat-tuple-pattern-regression — flat tuple values keep nested `Pair` patterns
 
