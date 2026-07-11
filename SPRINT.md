@@ -1377,6 +1377,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               honest collection arity gap, and mixed Scala fences
                               are reviewed backend skips. Corpus is 33/93,
                               parity 14/54/127, blockers 42, conformance 11/11.
+                        - [ ] **TI-8.2d2j exact top-level summon:** retain the
+                              bracketed type string only for `summon[T]`, resolve
+                              it through the existing named-given table, and
+                              lower the result as that static instance without
+                              adding reflection or compiler fallback. Cover
+                              multiple typeclasses/type arguments and missing
+                              evidence on VM/direct ASM; rerun `typeclass.ssc`
+                              and `custom-derives-mirror.ssc`, reclassifying the
+                              latter only if it advances to independent Mirror/
+                              derives support. Require native-entry, corpus,
+                              strict parity, both taxonomies, and fresh affected
+                              conformance before push.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
