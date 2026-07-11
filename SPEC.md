@@ -621,7 +621,26 @@ ageLens.modify(alice, _ + 10)   // Person(Alice, 40)
 `Prism[Outer, Variant]` focuses on a single enum case.
 All optics compose via `.andThen`.
 
-### 5.6 String Interpolators
+### 5.6 Extension Methods
+
+An extension declaration uses significant indentation to delimit its members.
+Each indented definition receives the declared receiver; dedent closes the
+extension before the next top-level declaration. A Markdown fenced-code
+boundary also returns to the enclosing indentation and therefore closes an
+open extension body.
+
+```scalascript
+extension [A](xs: List[A])
+  def second: Option[A] = xs.drop(1).headOption
+  def twiceSize(): Int = xs.length * 2
+
+def ordinary(x: Int): Int = x + 1 // not an extension member
+```
+
+Nested delimiters in receiver types and parameter types do not affect the
+layout boundary.
+
+### 5.7 String Interpolators
 
 ```scalascript
 s"Hello, $name"                   // standard interpolation
