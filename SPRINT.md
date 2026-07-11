@@ -268,6 +268,13 @@ there before changing this plan.
         focused tests, then require fresh toolkit conformance 12/12 before the
         atomic plugin slice can land. Tracked in `BUGS.md` and announced in
         Rozum.
+        Assembled checkpoint: JS is now green. INT revealed that the plugin
+        native invokes the user thunk in a child interpreter; `EvalRuntime`
+        snapshots stable vals but not immutable callable globals, so imported
+        `ctxName`/`ctxSignal`/`form` disappear at callback time. Extend lambda
+        capture to retain body-referenced `FunV`/`NativeFnV` bindings while
+        preserving live lookup for true vars; the existing multi-file component
+        and forms cases are the regression gate.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
