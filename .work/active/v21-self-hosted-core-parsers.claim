@@ -1,7 +1,7 @@
-feature/v21-shc-bootstrap-release-gates 2026-07-10T16:27:29Z
+feature/v21-shc-toolchain-spec-reconcile 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-11T05:01:52Z
+heartbeat: 2026-07-11T05:32:19Z
 status: in-progress
-done-so-far: pure/structural JSON, YAML, Markdown; strict plugin/backend isolation 6f393beea; standard layout 27 JARs and zero parser edges
-next: add stage-2 compiler-image reproducibility plus consolidated deletion/jdeps/classload/corpus/fuzz/slim/build-jvm release gates, then close every remaining 2.1 behavior item
-scope: release verification and reproducibility only; reconcile toolchain spec after its owner releases, preserve permanent Scala 3 seed and avoid overlapping active toolchain worktree files
+done-so-far: pure/structural JSON, YAML, Markdown; strict dependency isolation 6f393beea; complete stage2/full-corpus release gate 88bb53fb5; feature spec complete
+next: after the live v21-toolchain-independence claim releases, reconcile its two stale historical SimpleYaml/ujson sections and record the final 2.1 baseline
+scope: docs-only toolchain spec reconciliation; do not touch the live owner's spec/worktree, runtime implementation and release gates are complete
