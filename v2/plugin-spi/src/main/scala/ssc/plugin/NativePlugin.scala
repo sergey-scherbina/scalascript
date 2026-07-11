@@ -9,9 +9,20 @@ final case class NativeDatabaseConfig(
     password: Option[String] = None,
     driver: Option[String] = None)
 
+/** One immutable self-hosted content product from the linked module closure.
+ *  `document` is a validated public `DocumentContent/6` value; providers must
+ *  not reopen or reparse `source`. */
+final case class NativeContentModule(
+    source: String,
+    explicitRoot: Boolean,
+    directImports: List[String],
+    namespace: String,
+    document: Value)
+
 /** Immutable configuration visible to one native provider installation. */
 final case class NativeRuntimeConfig(
-    databases: Map[String, NativeDatabaseConfig] = Map.empty)
+    databases: Map[String, NativeDatabaseConfig] = Map.empty,
+    contentModules: List[NativeContentModule] = Nil)
 
 /** Scalameta-free native intrinsic provider for the ScalaScript 2.1 runtime. */
 trait NativePlugin:
@@ -22,6 +33,7 @@ trait NativePlugin:
 trait NativePluginContext:
   def argv: List[String]
   def databases: Map[String, NativeDatabaseConfig]
+  def contentModules: List[NativeContentModule]
   def invoke(fn: Value, args: List[Value]): Value
   def withEffect(effectTag: String)(handler: (String, List[Value]) => Value)(body: => Value): Value
   def register(name: String)(fn: List[Value] => Value): Unit

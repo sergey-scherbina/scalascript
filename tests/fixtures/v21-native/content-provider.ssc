@@ -1,0 +1,20 @@
+---
+name: content-provider-fixture
+---
+
+# Native Content
+
+[contentFixtureVersion](content-module.ssc)
+[contentModuleSection, contentBlock, contentToMarkdown](std/content.ssc)
+
+```yaml @id=payload
+answer: 42
+```
+
+# Run
+
+```scalascript
+println(contentModuleSection("fixture-content", "details").get.title)
+println(contentFixtureVersion().toString)
+println(contentToMarkdown(contentBlock("payload").get))
+```

@@ -60,4 +60,11 @@ object NativeArtifactRuntime:
             password = optional("password"),
             driver = optional("driver"))
         }.toMap
-        NativeRuntimeConfig(databases)
+        NativeRuntimeConfig(databases, loadContent())
+
+  private def loadContent(): List[NativeContentModule] =
+    Option(getClass.getClassLoader.getResourceAsStream("META-INF/scalascript/content.bin")) match
+      case None => Nil
+      case Some(stream) =>
+        try NativeContentCodec.decode(stream.readAllBytes())
+        finally stream.close()

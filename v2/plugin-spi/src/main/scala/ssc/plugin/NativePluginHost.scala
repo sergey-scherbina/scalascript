@@ -34,6 +34,7 @@ object NativePluginHost:
       val context = new NativePluginContext:
         def argv: List[String] = Runtime.argv
         def databases: Map[String, NativeDatabaseConfig] = config.databases
+        def contentModules: List[NativeContentModule] = config.contentModules
 
         def invoke(fn: Value, args: List[Value]): Value = fn match
           case clos: Value.ClosV =>

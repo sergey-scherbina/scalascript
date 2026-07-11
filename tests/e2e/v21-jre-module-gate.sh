@@ -121,7 +121,7 @@ report_tmp="$sandbox/jre-module.tsv"
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'
   printf 'standard.asm\tpass\n'
-  printf 'standard.providers\tfs-os/json/http/sql/ui/state/storage/reactive/yaml\n'
+  printf 'standard.providers\tfs-os/json/http/sql/ui/state/storage/reactive/yaml/content\n'
   printf 'standard.build-jvm\tpass\n'
 } >"$report_tmp"
 if [[ -n $REPORT ]]; then

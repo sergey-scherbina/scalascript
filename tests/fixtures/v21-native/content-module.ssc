@@ -1,0 +1,11 @@
+---
+name: fixture-content
+---
+
+# Details {#details}
+
+Imported structural content.
+
+```scalascript
+def contentFixtureVersion(): Int = 1
+```

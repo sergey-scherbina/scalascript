@@ -109,6 +109,30 @@ class NativePluginHostTest extends AnyFunSuite:
     assert(seen == config.databases)
   }
 
+  test("providers see immutable structural content and artifact codec is deterministic") {
+    val document = Value.DataV("DocumentContent", Vector(
+      Value.DataV("MapV", Vector(Value.MapV.empty)),
+      Value.DataV("Some", Vector(Value.StrV("Title"))),
+      Value.DataV("None", Vector.empty), Value.MapV.empty,
+      Value.DataV("Nil", Vector.empty), Value.DataV("Nil", Vector.empty)))
+    val module = NativeContentModule(
+      "main.ssc", explicitRoot = true, List("std/money.ssc"), "main", document)
+    val encoded = NativeContentCodec.encode(List(module))
+    assert(java.util.Arrays.equals(encoded, NativeContentCodec.encode(List(module))))
+    val decoded = NativeContentCodec.decode(encoded)
+    assert(decoded.map(item => (item.source, item.explicitRoot, item.directImports, item.namespace)) ==
+      List((module.source, module.explicitRoot, module.directImports, module.namespace)))
+    assert(ssc.Show.show(decoded.head.document) == ssc.Show.show(module.document))
+
+    var seen = List.empty[NativeContentModule]
+    val provider = new NativePlugin:
+      def id: String = "content-config"
+      def install(context: NativePluginContext): Unit = seen = context.contentModules
+    NativePluginHost.installProviders(
+      List(provider), NativeRuntimeConfig(contentModules = List(module)))
+    assert(seen == List(module))
+  }
+
   test("effect scope is nested and always restored") {
     var observed = List.empty[Value]
     val provider = new NativePlugin:

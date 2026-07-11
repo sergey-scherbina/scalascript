@@ -32,6 +32,7 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-storage-effect-plugin_",
     "scalascript-v2-native-reactive-plugin_",
     "scalascript-v2-native-yaml-plugin_",
+    "scalascript-v2-native-content-plugin_",
     "scalascript-yaml_",
   )
 
@@ -168,6 +169,11 @@ private[cli] object NativeJvmArtifact:
       "META-INF/scalascript/artifact.properties",
       metadataBytes(sourceUnits, runtimeJars.map(_.getName), providers, config),
       "generated metadata")
+    if config.contentModules.nonEmpty then
+      add(
+        "META-INF/scalascript/content.bin",
+        _root_.ssc.plugin.NativeContentCodec.encode(config.contentModules),
+        "generated structural content")
     val sourceDebug = NativeJvmSourceMap.build(program, sourceUnits)
     add(
       EntryClass,
@@ -229,6 +235,7 @@ private[cli] object NativeJvmArtifact:
       s"runtime.jars=${escape(runtimeJars.sorted.mkString(","))}",
       s"providers=${escape(providers.sorted.mkString(","))}",
       s"database.count=${databaseRows.length}",
+      s"content.count=${config.contentModules.length}",
     ) ++ sourceRows.zipWithIndex.flatMap { case ((name, digest), index) =>
       List(
         s"source.$index.name=${escape(name)}",

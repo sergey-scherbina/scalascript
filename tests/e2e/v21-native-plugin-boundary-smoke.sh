@@ -20,7 +20,8 @@ state=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-state-effect-plugi
 storage=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-storage-effect-plugin_*.jar' -print -quit)
 reactive=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-reactive-plugin_*.jar' -print -quit)
 yaml=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-yaml-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml"; do
+content=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-content-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml" "$content"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -43,8 +44,9 @@ jar tf "$state" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/nul
 jar tf "$storage" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$reactive" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$yaml" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$content" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml" "$content"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -71,13 +73,14 @@ standard_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-standard-classload.XXXXXX
 json_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-json-classload.XXXXXX")
 http_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-http-classload.XXXXXX")
 yaml_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-yaml-classload.XXXXXX")
+content_classlog=$(mktemp "${TMPDIR:-/tmp}/v21-native-content-classload.XXXXXX")
 ui_tmp=$(mktemp -d "${TMPDIR:-/tmp}/v21-native-ui.XXXXXX")
 sql_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-vm.XXXXXX")
 sql_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-asm.XXXXXX")
 state_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-vm.XXXXXX")
 state_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-asm.XXXXXX")
 storage_path="$ui_tmp/storage.json"
-trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$yaml_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
+trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$yaml_classlog" "$content_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run --native \
   "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >"$standard_classlog" 2>&1
 grep -F 'Ada' "$standard_classlog" >/dev/null
@@ -128,8 +131,17 @@ if grep -E 'org\.yaml\.snakeyaml|com\.fasterxml\.jackson|io\.circe' \
   echo 'native YAML run loaded an external parser/codec class' >&2
   exit 1
 fi
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run \
+  "$ROOT/tests/fixtures/v21-native/content-provider.ssc" >"$content_classlog" 2>&1
+grep -F 'Imported structural content.' "$content_classlog" >/dev/null || \
+  grep -F 'Details' "$content_classlog" >/dev/null
+if grep -E 'org\.commonmark|com\.vladsch\.flexmark|scalascript\.parser\.Parser' \
+    "$content_classlog" >/dev/null; then
+  echo 'native content run loaded a retired host Markdown/content parser' >&2
+  exit 1
+fi
 if grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' \
-    "$classlog" "$yaml_classlog" >/dev/null; then
+    "$classlog" "$yaml_classlog" "$content_classlog" >/dev/null; then
   echo 'native run loaded a compatibility bridge or Scalameta class' >&2
   grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' \
     "$classlog" "$yaml_classlog" >&2

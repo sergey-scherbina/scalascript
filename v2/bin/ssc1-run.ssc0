@@ -377,6 +377,57 @@ def sscParseMarkdowns = (paths) =>
       #coreir.eval(lowerProg(sscApp(markdownDefs, callStmts)))
   }
 
+-- Build the complete immutable content-module closure in the self-hosted
+-- tower. Direct import edges, namespace selection, heading/fence attributes,
+-- section trees, and structured fence data are all projected by .ssc code;
+-- the Scala seed receives only validated structural values.
+def sscResolvedImports = (path) =>
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  sscResolveImports(sscImports(fileStr), sscDir(path))
+def sscResolveImports = (imports, dir) =>
+  match imports {
+    case Nil => Nil
+    case Cons(rel, rest) => Cons(sscResolve(dir, rel), sscResolveImports(rest, dir))
+  }
+def sscQuotedStrings = (values) =>
+  match values {
+    case Nil => ""
+    case Cons(value, rest) =>
+      match rest {
+        case Nil => sscQuoteYamlString(value)
+        case _ => #sconcat(sscQuoteYamlString(value), #sconcat(", ", sscQuotedStrings(rest)))
+      }
+  }
+def sscContentModuleCall = (path, roots) =>
+  let explicitRoot = if sscMem(roots, path) then "true" else "false" in
+  let imports = #sconcat("List(", #sconcat(sscQuotedStrings(sscResolvedImports(path)), ")")) in
+  #sconcat("contentProjectModule(",
+    #sconcat(sscQuoteYamlString(path),
+      #sconcat(", ",
+        #sconcat(explicitRoot,
+          #sconcat(", ",
+            #sconcat(imports,
+              #sconcat(", ",
+                #sconcat(sscFrontmatterCall(path),
+                  #sconcat(", ", #sconcat(sscMarkdownCall(path), ")"))))))))))
+def sscContentModuleCalls = (paths, roots) =>
+  match paths {
+    case Nil => ""
+    case Cons(path, rest) =>
+      match rest {
+        case Nil => sscContentModuleCall(path, roots)
+        case _ => #sconcat(sscContentModuleCall(path, roots), #sconcat(", ", sscContentModuleCalls(rest, roots)))
+      }
+  }
+def sscParseContents = (modulePaths, roots) =>
+  let contentPath = sscResolve("", "std/content-core.ssc") in
+  match sscLoadMod(contentPath, Nil) {
+    case Pair(contentDefs, contentSeen) =>
+      let callSource = #sconcat("List(", #sconcat(sscContentModuleCalls(modulePaths, roots), ")")) in
+      let callStmts = parse(callSource) in
+      #coreir.eval(lowerProg(sscApp(contentDefs, callStmts)))
+  }
+
 def sscStructuralCell = #cell.new(false)
 def sscNativeArgs = (args) =>
   match args {
@@ -401,7 +452,7 @@ def main = () =>
         case Pair(allStmts, seen) =>
           let ir = lowerProg(allStmts) in
           if #cell.get(sscStructuralCell) then
-            NativeCompilation(ir, sscParseFrontmatters(paths), sscParseMarkdowns(paths), paths)
+            NativeCompilation(ir, sscParseFrontmatters(paths), sscParseContents(reverse(seen), paths), paths)
           else #io.print(#coreir.encode(ir))
       }
     case Nil =>

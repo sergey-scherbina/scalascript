@@ -1,0 +1,286 @@
+---
+name: content-core
+version: 2.1.0
+description: Pure self-hosted projection from native Markdown/YAML ADTs to std.content.
+---
+
+# Self-hosted native content projection
+
+This module is evaluated by the native frontend tower. It performs every
+text-to-content conversion before values cross the permanent Scala seed.
+
+[markdownParse, MarkdownDocument, MarkdownHeading, MarkdownImport, MarkdownParagraph, MarkdownText, MarkdownExpr, MarkdownFence, MarkdownBulletList, MarkdownOrderedList, MarkdownImage, MarkdownTable, MarkdownTableRow, MarkdownMetadata](std/markdown-core.ssc)
+[yamlParse, YamlOk, YamlErr, YamlNull, YamlBool, YamlInteger, YamlDecimal, YamlString, YamlArray, YamlObject, YamlField](std/yaml-core.ssc)
+
+```scalascript
+// Exact public std.content tags. The historical enum declarations are an API
+// surface; this self-hosted projection constructs their target-independent
+// runtime representation directly and the native provider registers fields.
+case class DocumentContent(manifest: Any, title: Any, description: Any, attrs: Any, sections: Any, blocks: Any)
+case class SectionContent(id: String, level: Int, title: String, attrs: Any, blocks: Any, children: Any)
+case class Paragraph(inlines: Any, attrs: Any)
+case class BulletList(items: Any, attrs: Any)
+case class OrderedList(items: Any, start: Int, attrs: Any)
+case class Image(src: String, alt: String, title: Any, attrs: Any)
+case class Table(headers: Any, rows: Any, alignments: Any, attrs: Any)
+case class Embedded(lang: String, source: String, kind: Any, data: Any, attrs: Any)
+case object StructuredData
+case object Executable
+case object StringBlock
+case object Opaque
+case class Text(value: String)
+case class Emphasis(children: Any)
+case class Strong(children: Any)
+case class Code(value: String)
+case class Link(label: Any, href: String, title: Any)
+case class Expr(source: String)
+case class Str(value: String)
+case class Bool(value: Boolean)
+case class Num(value: Double)
+case class ListV(values: Any)
+case class MapV(values: Any)
+case object NullV
+
+case class NativeContentModule(
+  source: String,
+  explicitRoot: Boolean,
+  directImports: List[String],
+  namespace: String,
+  document: Any
+)
+
+case class ContentBlockCollect(values: List[Any], remaining: List[Any])
+case class ContentSectionCollect(values: List[Any], remaining: List[Any])
+
+def contentMapPut(values: Map[String, Any], key: String, value: Any): Map[String, Any] =
+  values.updated(key, value)
+
+def contentYamlFields(fields: List[Any], values: Map[String, Any]): Map[String, Any] = fields match
+  case Nil => values
+  case Cons(YamlField(key, value), tail) =>
+    contentYamlFields(tail, contentMapPut(values, key, contentYamlValue(value)))
+  case Cons(_, tail) => contentYamlFields(tail, values)
+
+def contentYamlList(values: List[Any]): List[Any] = values match
+  case Nil => Nil
+  case Cons(head, tail) => contentYamlValue(head) :: contentYamlList(tail)
+
+def contentYamlValue(value: Any): Any = value match
+  case YamlNull() => NullV
+  case YamlBool(v) => Bool(v)
+  case YamlInteger(raw) => Num(raw.toDouble())
+  case YamlDecimal(raw) => Num(raw.toDouble())
+  case YamlString(v) => Str(v)
+  case YamlArray(items) => ListV(contentYamlList(items))
+  case YamlObject(fields) => MapV(contentYamlFields(fields, Map()))
+  case _ => NullV
+
+def contentYamlResult(value: Any): Option[Any] = value match
+  case YamlOk(yaml, _) => Some(contentYamlValue(yaml))
+  case _ => None
+
+def contentManifestValue(manifest: Any): Any = manifest match
+  case Some(YamlOk(yaml, _)) => contentYamlValue(yaml)
+  case _ => MapV(Map())
+
+def contentManifestField(fields: List[Any], key: String): Option[String] = fields match
+  case Nil => None
+  case Cons(YamlField(k, YamlString(value)), tail) =>
+    if k == key then Some(value) else contentManifestField(tail, key)
+  case Cons(_, tail) => contentManifestField(tail, key)
+
+def contentManifestString(manifest: Any, key: String): Option[String] = manifest match
+  case Some(YamlOk(YamlObject(fields), _)) => contentManifestField(fields, key)
+  case _ => None
+
+def contentSpace(code: Int): Boolean = code == 32 || code == 9 || code == 10 || code == 13
+
+def contentSkipSpace(text: String, from: Int): Int =
+  if from < text.length && contentSpace(text.charAt(from)) then contentSkipSpace(text, from + 1)
+  else from
+
+def contentWordEnd(text: String, from: Int): Int =
+  if from >= text.length || contentSpace(text.charAt(from)) then from
+  else contentWordEnd(text, from + 1)
+
+def contentWords(text: String, from: Int): List[String] =
+  val start = contentSkipSpace(text, from)
+  if start >= text.length then Nil
+  else
+    val end = contentWordEnd(text, start)
+    text.substring(start, end) :: contentWords(text, end)
+
+def contentFindEquals(text: String, from: Int): Int =
+  if from >= text.length then -1
+  else if text.charAt(from) == 61 then from
+  else contentFindEquals(text, from + 1)
+
+def contentAttrToken(token0: String, attrs: Map[String, Any]): Map[String, Any] =
+  val token = if token0.length > 0 && token0.charAt(0) == 64 then token0.substring(1) else token0
+  if token.length > 1 && token.charAt(0) == 35 then
+    contentMapPut(attrs, "id", Str(token.substring(1)))
+  else
+    val eq = contentFindEquals(token, 0)
+    if eq > 0 then contentMapPut(attrs, token.substring(0, eq), Str(token.substring(eq + 1)))
+    else attrs
+
+def contentAttrsWords(words: List[String], attrs: Map[String, Any]): Map[String, Any] = words match
+  case Nil => attrs
+  case Cons(head, tail) => contentAttrsWords(tail, contentAttrToken(head, attrs))
+
+def contentAttrs(text: String): Map[String, Any] = contentAttrsWords(contentWords(text, 0), Map())
+
+def contentAttrString(attrs: Map[String, Any], key: String): Option[String] = attrs.get(key) match
+  case Some(Str(value)) => Some(value)
+  case _ => None
+
+def contentSlugChar(code: Int): Boolean =
+  (code >= 48 && code <= 57) || (code >= 97 && code <= 122)
+
+def contentSlugAt(text: String, from: Int, out: String, dashed: Boolean): String =
+  if from >= text.length then
+    if out.length > 0 && out.charAt(out.length - 1) == 45 then out.substring(0, out.length - 1) else out
+  else
+    val lower = text.substring(from, from + 1).toLowerCase
+    val code = lower.charAt(0)
+    if contentSlugChar(code) then contentSlugAt(text, from + 1, out + lower, false)
+    else if out.nonEmpty && !dashed then contentSlugAt(text, from + 1, out + "-", true)
+    else contentSlugAt(text, from + 1, out, dashed)
+
+def contentSlug(text: String): String =
+  val slug = contentSlugAt(text, 0, "", false)
+  if slug.nonEmpty then slug else "section"
+
+def contentHeadingId(title: String, attrs: Map[String, Any]): String = contentAttrString(attrs, "id") match
+  case Some(value) => value
+  case None => contentSlug(title)
+
+def contentInlines(values: List[Any]): List[Any] = values match
+  case Nil => Nil
+  case Cons(MarkdownText(value), tail) => Text(value) :: contentInlines(tail)
+  case Cons(MarkdownExpr(source), tail) => Expr(source) :: contentInlines(tail)
+  case Cons(_, tail) => contentInlines(tail)
+
+def contentCell(value: String): List[Any] = Text(value) :: Nil
+
+def contentCells(values: List[String]): List[List[Any]] = values match
+  case Nil => Nil
+  case Cons(head, tail) => contentCell(head) :: contentCells(tail)
+
+def contentRows(values: List[Any]): List[List[List[Any]]] = values match
+  case Nil => Nil
+  case Cons(MarkdownTableRow(cells), tail) => contentCells(cells) :: contentRows(tail)
+  case Cons(_, tail) => contentRows(tail)
+
+def contentItem(value: String): List[Any] =
+  Paragraph(Text(value) :: Nil, Map()) :: Nil
+
+def contentItems(values: List[String]): List[List[Any]] = values match
+  case Nil => Nil
+  case Cons(head, tail) => contentItem(head) :: contentItems(tail)
+
+def contentFenceLanguage(info: String): String = contentWords(info, 0) match
+  case Cons(head, _) => head
+  case Nil => ""
+
+def contentFenceAttrs(info: String): Map[String, Any] = contentWords(info, 0) match
+  case Cons(_, tail) => contentAttrsWords(tail, Map())
+  case Nil => Map()
+
+def contentFenceKind(language: String): Any =
+  if language == "yaml" || language == "yml" || language == "json" || language == "toml" then StructuredData
+  else if language == "scalascript" || language == "scala" then Executable
+  else if language == "text" || language == "txt" || language == "markdown" || language == "md" then StringBlock
+  else Opaque
+
+def contentFenceData(language: String, source: String): Option[Any] =
+  if language == "yaml" || language == "yml" then contentYamlResult(yamlParse(source))
+  else None
+
+def contentBlock(value: Any, attrs: Map[String, Any]): Option[Any] = value match
+  case MarkdownParagraph(inlines, _) => Some(Paragraph(contentInlines(inlines), attrs))
+  case MarkdownBulletList(items, _) => Some(BulletList(contentItems(items), attrs))
+  case MarkdownOrderedList(start, items, _) => Some(OrderedList(contentItems(items), start, attrs))
+  case MarkdownImage(alt, source, title, _) =>
+    Some(Image(source, alt, if title.nonEmpty then Some(title) else None, attrs))
+  case MarkdownTable(headers, alignments, rows, _) =>
+    Some(Table(contentCells(headers), contentRows(rows), alignments, attrs))
+  case MarkdownFence(info, source, _) =>
+    val language = contentFenceLanguage(info)
+    val merged = contentAttrsWords(contentWords(info, 0).drop(1), attrs)
+    Some(Embedded(language, source, contentFenceKind(language), contentFenceData(language, source), merged))
+  case _ => None
+
+def contentCollectBlocks(values: List[Any], pending: Map[String, Any], reversed: List[Any]): ContentBlockCollect = values match
+  case Nil => ContentBlockCollect(reversed.reverse, Nil)
+  case Cons(MarkdownHeading(_, _, _, _), _) => ContentBlockCollect(reversed.reverse, values)
+  case Cons(MarkdownMetadata(raw, _), tail) => contentCollectBlocks(tail, contentAttrs(raw), reversed)
+  case Cons(head, tail) => contentBlock(head, pending) match
+    case Some(block) => contentCollectBlocks(tail, Map(), block :: reversed)
+    case None => contentCollectBlocks(tail, pending, reversed)
+
+def contentFlatSections(values: List[Any], reversed: List[Any]): List[Any] = values match
+  case Nil => reversed.reverse
+  case Cons(MarkdownHeading(level, title, rawAttrs, _), tail) =>
+    val attrs = contentAttrs(rawAttrs)
+    contentCollectBlocks(tail, Map(), Nil) match
+      case ContentBlockCollect(blocks, remaining) =>
+        val section = SectionContent(contentHeadingId(title, attrs), level, title, attrs, blocks, Nil)
+        contentFlatSections(remaining, section :: reversed)
+  case Cons(_, tail) => contentFlatSections(tail, reversed)
+
+def contentNestSections(values: List[Any], parentLevel: Int, reversed: List[Any]): ContentSectionCollect = values match
+  case Nil => ContentSectionCollect(reversed.reverse, Nil)
+  case Cons(SectionContent(id, level, title, attrs, blocks, _), tail) =>
+    if level <= parentLevel then ContentSectionCollect(reversed.reverse, values)
+    else contentNestSections(tail, level, Nil) match
+      case ContentSectionCollect(children, remaining) =>
+        val section = SectionContent(id, level, title, attrs, blocks, children)
+        contentNestSections(remaining, parentLevel, section :: reversed)
+  case Cons(_, tail) => contentNestSections(tail, parentLevel, reversed)
+
+def contentSections(values: List[Any]): List[Any] = contentNestSections(contentFlatSections(values, Nil), 0, Nil) match
+  case ContentSectionCollect(sections, _) => sections
+
+def contentRootBlocks(values: List[Any]): List[Any] = contentCollectBlocks(values, Map(), Nil) match
+  case ContentBlockCollect(blocks, _) => blocks
+
+def contentTitle(values: List[Any]): Option[String] = values match
+  case Nil => None
+  case Cons(MarkdownHeading(_, title, _, _), _) => Some(title)
+  case Cons(_, tail) => contentTitle(tail)
+
+def contentDocument(markdown: Any, manifest: Any): Any = markdown match
+  case MarkdownDocument(blocks) => DocumentContent(
+    contentManifestValue(manifest),
+    contentTitle(blocks),
+    contentManifestString(manifest, "description"),
+    Map(),
+    contentSections(blocks),
+    contentRootBlocks(blocks)
+  )
+  case _ => DocumentContent(MapV(Map()), None, None, Map(), Nil, Nil)
+
+def contentPathStem(path: String): String =
+  val slash = path.lastIndexOf("/")
+  val name = if slash >= 0 then path.substring(slash + 1) else path
+  if name.endsWith(".ssc") then name.substring(0, name.length - 4) else name
+
+def contentNamespace(manifest: Any, path: String): String = contentManifestString(manifest, "name") match
+  case Some(value) => if value.nonEmpty then value else contentPathStem(path)
+  case None => contentPathStem(path)
+
+def contentProjectModule(
+  source: String,
+  explicitRoot: Boolean,
+  directImports: List[String],
+  manifest: Any,
+  markdown: Any
+): NativeContentModule = NativeContentModule(
+  source,
+  explicitRoot,
+  directImports,
+  contentNamespace(manifest, source),
+  contentDocument(markdown, manifest)
+)
+```
