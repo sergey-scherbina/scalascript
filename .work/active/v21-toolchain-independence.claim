@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-11T07:45:47Z
+heartbeat: 2026-07-11T09:19:55Z
 status: in-progress
-done-so-far: TI-1..TI-8.2d2k; nested-pattern fallback landed; corpus 34/92, parity 15/53/127, blockers 41 with all gates green
-next: fix the tracked list mkString separator capture, add VM/direct-ASM regression, rerun typed-data and all release gates
+done-so-far: TI-1..TI-8.2d3b landed; reactive provider implemented locally and unit tests are green; frontend drops top-level reactive effect calls
+next: track and fix effect-call/declaration parsing, then run reactive VM/ASM/build-jvm and full release gates
