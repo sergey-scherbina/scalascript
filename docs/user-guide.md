@@ -309,6 +309,12 @@ given, including nested type arguments. Missing evidence fails explicitly;
 anonymous givens, Mirror/derived evidence, subtype search, and type-directed
 overload selection remain bounded migration gaps.
 
+Nested constructor matches on the native route preserve source arm order. If an
+outer tag matches but an inner constructor does not—such as
+`Person(name, age, Some(email))` receiving `None`—matching continues with the
+next arm over the original once-evaluated value. This behavior is identical on
+the VM and direct ASM and applies recursively to deeper constructor patterns.
+
 The standard native route publishes the same portable `math` receiver on both
 execution lanes. `math.Pi`, `math.E`, and numeric `abs`, `sqrt`, `pow`, `sin`,
 `cos`, `tan`, `log`, `log10`, `exp`, `min`, `max`, `floor`, `ceil`, and `round`

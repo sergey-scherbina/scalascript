@@ -64,6 +64,8 @@ Exact top-level `summon[TC[T]]` resolves a matching named given; Mirror/derived
 evidence, anonymous givens, and general implicit search remain migration gaps.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
 `sqrt`, `pow`, `floor`, `ceil`, and `round`) without loading the tools tier.
+Nested constructor patterns fall through to later source arms correctly, so
+repeated outer case-class tags can be distinguished by inner `Some`/`None`.
 
 ```bash
 git clone https://github.com/sergey-scherbina/scalascript
