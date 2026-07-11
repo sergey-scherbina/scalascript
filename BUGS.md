@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v21-native-dynamic-toint-dropped — selected String conversion vanishes
+
+**Status:** open (2026-07-11); found by codex while the new core-free Storage
+provider advanced `storage-demo.ssc` into `bumpCounter`.
+
+- **Real-harness repro:** after staging the native frontend, inspect/run
+  `Storage.get(key).getOrElse("0").toInt + 1` from `storage-demo.ssc`. The
+  generated CoreIR applies `__arith__("+", <String>, 1)` and contains no
+  `__str_toInt` call; VM later reports `i->str: not Int`, direct ASM reports
+  `expected Int, got "01"`.
+- **Expected:** zero-argument selected `.toInt` lowers through the existing
+  portable `__str_toInt` helper on both lanes before arithmetic.
+- **Plan/done-when:** add a focused dynamic String conversion fixture (including
+  an Option/getOrElse receiver), repair selector lowering without changing
+  numeric `.toString`, rerun `storage-demo.ssc` and every native release gate,
+  and keep `fixed` until Sergiy confirms.
+
 ## v2-swift-nativeui-descriptor-proof — debug root summary hides ABI field drift
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the

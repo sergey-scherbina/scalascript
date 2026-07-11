@@ -1496,6 +1496,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Result: `ui-remote-table.ssc` is identical;
                               standard-provider/blocker/total counts tighten to
                               22/40/52 and all gates pass.
+                        - [ ] **TI-8.2d2o dynamic String `.toInt`:** preserve
+                              selected zero-argument `.toInt` in CoreIR by
+                              routing through the existing `__str_toInt` helper.
+                              Cover a direct dynamic String and an Option/
+                              getOrElse receiver on VM/direct ASM, then rerun the
+                              Storage example and all release gates.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
