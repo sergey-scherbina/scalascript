@@ -40,7 +40,7 @@
 
 ## v21-native-reactive-ctor-bypasses-provider — fresh install loses subscriptions
 
-**Status:** done (2026-07-11, VM `e3ab46f68`, ASM `ffdb99a9b`); found by codex when the native `doc`/`render` slice reran the
+**Status:** done (2026-07-11, VM `04b7f5fd1`, ASM `8cf29ede2`); found by codex when the native `doc`/`render` slice reran the
 full plugin and `build-jvm` gates from a clean current-source installation.
 
 - **Real-harness repro:** run `scripts/sbtc "installBin"`, then
@@ -63,7 +63,7 @@ full plugin and `build-jvm` gates from a clean current-source installation.
 
 ## v21-native-doc-render-unbound — standard native host omits core content helpers
 
-**Status:** done (2026-07-11, through `55619c912`); found by codex while isolating the `examples/content.ssc`
+**Status:** done (2026-07-11, through `5b6bb6b5d`); found by codex while isolating the `examples/content.ssc`
 cutover blocker.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, a focused `.ssc`
