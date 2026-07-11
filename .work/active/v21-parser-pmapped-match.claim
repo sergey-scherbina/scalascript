@@ -1,0 +1,6 @@
+feature/v21-parser-pmapped-match 2026-07-11T13:31:48Z
+agent: codex
+heartbeat: 2026-07-11T13:31:48Z
+status: in-progress
+done-so-far: JSON and YAML parser DSLs reach identical VM/ASM match: no arm for PMapped/2
+next: isolate evaluator constructor matching, specify ordered arm behavior, implement an import regression, and rerun parser DSLs
