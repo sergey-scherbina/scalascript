@@ -533,6 +533,14 @@ there before changing this plan.
                   2xx capture/clear/effect can commit. Gate same-key removal and
                   fresh reinsertion without relying on SwiftUI `onDisappear`
                   (`v2-swiftui-surviving-owner-action-task-leak`).
+                  Preserve stable action status and in-flight work when the same
+                  structural action is reconstructed for a surviving key: compare
+                  request/effect signal refs by `(scope,id,kind)`, not regenerated
+                  closure identity; only absence or a genuine descriptor change
+                  cancels/resets. Apply the same canonical metadata rule to fetch
+                  signals so literal/ref URL/header/refresh changes restart an
+                  active family exactly once while identical registration does not
+                  (`v2-swiftui-keyed-fetch-metadata-stale`).
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope

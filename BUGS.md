@@ -1069,6 +1069,30 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
   category ceilings shrink to the measured counts, and affected conformance is
   green. Keep `fixed` until Sergiy confirms the release-gate behavior.
 
+## v2-swiftui-keyed-fetch-metadata-stale — surviving fetch keeps its first request descriptor
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` during the
+read-only async lifecycle review in the `scalascript` Rozum room.
+
+- **Real-harness repro:** reconstruct a fetch with the same keyed/component
+  `(scope,id,kind,default)` but change its literal URL, or swap a literal URL for
+  a scoped URL signal. Host reuses the live cell while ignoring new metadata;
+  Store retains the first wrapper in its stable observable cell. An active A
+  request is therefore neither cancelled nor restarted as B, and later refresh
+  dependencies continue to use stale A metadata. Conversely, comparing the new
+  wrappers with ordinary equality treats regenerated read/write closures as a
+  false change and restarts identical fetches.
+- **Expected/root-cause direction:** canonicalize every nested NativeUiSignal
+  reference in request metadata to validated `(scope,id,kind)`, retain current
+  metadata for the live family, and restart an observed family only after a
+  committed structural metadata change. Generation checks make late A inert;
+  identical registration preserves one stable cell/task.
+- **Plan/done-when:** strict generated Swift drives same-key scoped fetch
+  reconstruction through identical A, literal A→B, and literal→signal-ref B;
+  assert exact cancellation/request counts, late-A inertness, current value,
+  dependency ownership, and bounded task metadata. Keep `fixed` until the Rozum
+  reporter confirms the regression.
+
 ## v2-swiftui-surviving-owner-action-task-leak — removed action can finish under a surviving keyed owner
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` during the
