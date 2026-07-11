@@ -4,9 +4,6 @@ actors-typed-remote-spawn.ssc	standard-provider	yes	actors	runActors is not inst
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
 async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-free standard async provider
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
-dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
-dataset-stats.ssc	language-runtime	yes	effects	portable dataset evaluation leaks an unhandled Op/3 into match lowering
-dataset-word-count.ssc	language-runtime	yes	value-conversion	portable dataset rendering attempts to use a List as String
 direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
 distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
 distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
