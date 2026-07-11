@@ -464,10 +464,16 @@ building generated Swift; snapshot/string tests alone are insufficient.
   implementation (including exact add/subtract/multiply/divide/remainder and
   comparisons). A real generated package round-tripped a 30-digit value through
   multiplication and division; the Swift backend suite is now 4/4.
+- Follow-up `21939ae49` added the complete frozen `dec.*` vocabulary on top of
+  that BigInt core. Scale-preserving display, numeric equality/map-key identity,
+  arithmetic, division and set-scale rounding modes, powers, unscaled access,
+  and dynamic Decimal arithmetic all execute without binary-float or host
+  Decimal conversion. A generated SwiftPM package produced
+  `(3.50, 0.125, 2.35, true, 12.30, Some(7))`; the suite is now 5/5 and the
+  affected `money-portable-v2` conformance smoke remains green 1/1.
 - This is the first backend sub-slice, not closure of the Swift-core gate:
-  portable Decimal/Money, explicit `Pure`/`Op`, mutual-TCO, and real checked
-  `.ssc` domain fixtures remain required before `v2-swift-core-backend` is
-  complete.
+  explicit `Pure`/`Op`, mutual-TCO, and real checked `.ssc` Money/effect domain
+  fixtures remain required before `v2-swift-core-backend` is complete.
 
 ### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
 
