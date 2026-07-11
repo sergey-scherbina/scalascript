@@ -1,0 +1,14 @@
+---
+name: native-dynamic-tostring
+---
+
+# Dynamic selected conversion
+
+```scalascript
+def dynamicString(value: Any): String = value.toString
+
+println(7.toString)
+println(dynamicString(BigInt(1234)))
+println(dynamicString(12.5))
+println(dynamicString("text"))
+```

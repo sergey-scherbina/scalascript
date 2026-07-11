@@ -823,7 +823,12 @@ def resolveField = (robj, field) =>
     else
       Pair("prim", Pair("__method__", Cons(Pair("str", "size"), Cons(robj, Nil))))
   else if #seq(field, "toString") then
-    Pair("prim", Pair("i->str", Cons(robj, Nil)))
+    -- A selected conversion may receive BigInt/Float/String/record values from
+    -- an imported call or another dynamic expression. Keep the direct integer
+    -- primitive only when the receiver itself proves that shape; otherwise the
+    -- shared runtime method table owns the conversion.
+    (if isIntLitExpr(robj) then Pair("prim", Pair("i->str", Cons(robj, Nil)))
+     else Pair("prim", Pair("__method__", Cons(Pair("str", "toString"), Cons(robj, Nil)))))
   else if #seq(field, "toInt") then
     -- The receiver may be a dynamically-produced String (for example
     -- Option[String].getOrElse) or a numeric value. Runtime method dispatch
