@@ -1237,7 +1237,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               lanes; `lang-split.ssc` prints both grids and moves
                               to its standard math boundary, parity stays clean
                               at 12/58/125, and conformance 11/11 passes.
-                        - [ ] **TI-8.2d2e extension receiver dispatch:** retain
+                        - [x] **TI-8.2d2e extension receiver dispatch — DONE
+                              2026-07-11 (`0a89b861d`):** retain
                               the receiver parameter for contiguous top-level
                               extension definitions, register unique extension
                               method names, and rewrite receiver syntax to the
@@ -1246,6 +1247,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Int, and List extensions on VM/direct ASM; rerun
                               `extensions.ssc` and `script.ssc`, then shrink the
                               taxonomy only after all release gates stay green.
+                              Result: `script.ssc` runs identically, the full
+                              extension example advances to a List-length gap,
+                              corpus improves to 31/95, blockers shrink to 45,
+                              and strict deterministic parity is 12/57/126.
                               - [x] **TI-8.2d2e1 deterministic external-HTTP
                                     parity — DONE 2026-07-11
                                     (`2769bc479`):** classify `v2-http-sql-demo.ssc` as

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — self-hosted extensions bind and dispatch receivers
+
+Contiguous top-level extension definitions now retain their receiver as a real
+function parameter, and registered property/call syntax lowers to that global
+function on both VM and direct ASM. `script.ssc` runs fully, the broader
+extension example advances to an independent list-length gap, and runtime
+blockers shrink from 46 to 45. Landed `0a89b861d`.
+
 ## 2026-07-11 — collection companion factories lower portably
 
 The self-hosted resolver now represents collection companions through the
