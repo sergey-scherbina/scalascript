@@ -39,7 +39,7 @@ invoice-pdf.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicit
 lang-split.ssc	language-runtime	yes	collections	List.tabulate is emitted as an unhandled runtime effect
 lenses.ssc	language-runtime	yes	dispatch	portable lens dispatch leaks a Stub/1 into match lowering
 mcp-client-discover.ssc	optional-provider	no	mcp	mcpConnect belongs to the explicitly optional MCP provider
-multi-link-imports.ssc	language-runtime	yes	module-linker	imported minorUnits definition is not linked into the native program
+multi-link-imports.ssc	standard-provider	yes	decimal	exact Decimal construction is not emitted by the self-hosted lowerer
 nfc-ndef.ssc	optional-provider	no	nfc	nfcCapabilities belongs to the explicitly optional NFC platform provider
 pdf-extract-demo.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
 quoted-macro-constfold.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
