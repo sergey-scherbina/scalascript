@@ -1,0 +1,6 @@
+feature/v21-native-parser-dsl-stub-values 2026-07-11T18:00:00Z
+agent: codex
+heartbeat: 2026-07-11T18:00:00Z
+status: not-started
+done-so-far: SPRINT and BUGS already record exact assembled JSON/YAML Stub output
+next: create worktree, specify exact parser-value semantics, isolate first Stub without touching the claimed lowerer file
