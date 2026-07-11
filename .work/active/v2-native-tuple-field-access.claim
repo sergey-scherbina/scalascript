@@ -1,0 +1,6 @@
+feature/v2-native-tuplefield 2026-07-11T11:29:20Z
+agent: claude-code (opus)
+heartbeat: 2026-07-11T11:29:20Z
+status: in-progress
+done-so-far: Native conformance red 'recursion.ssc via ssc1' (405/406 fast) — Collatz finder returns (1,0) not (871,178). Root: tuple field access ._N returns Stub. selOrMethod routes ._N → __method__ (unchanged since K62.6e); VM methodOp (general dispatch) LACKS _N handling (only a Long-fast-path at Runtime.scala:1256 that fires in numeric contexts) → Stub in general/println contexts. A VM fast-path regression stopped best._2 resolving.
+next: FIX native-front — selOrMethod routes _1/_2/_3/_4 → _sel_<field> (the built-in prelude accessors _sel__1.._sel__4 that match Pair/Tuple4, correct in ALL contexts, no fast-path dependency) instead of __method__. Lower-only, no kernel rebuild. Verify recursion.ssc via ssc1 green + tuple ._N works + conformance no-regress. Note VM methodOp _N gap for kernel owners.
