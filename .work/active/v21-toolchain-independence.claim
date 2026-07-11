@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-11T11:05:31Z
+heartbeat: 2026-07-11T11:46:00Z
 status: in-progress
-done-so-far: TI-1..TI-8.2d3d plus layout object bodies/properties landed; all release gates green and the worktree was cleaned
-next: specify and fix the PRegex/1 constructor-match failure now shared by three parser-combinator examples
+done-so-far: TI-1..TI-8.2d3d plus layout objects and durable extension layout/import ownership landed; parity 23/43/129, 31 blockers
+next: specify and fix symbolic extension infix precedence while preserving primitive integer bitwise OR
