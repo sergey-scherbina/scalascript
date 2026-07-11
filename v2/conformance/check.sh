@@ -35,13 +35,13 @@ trap print_diag_summary EXIT
 run_logged() { # label command...
   local lbl log code retry
   lbl="$1"; shift
-  log="$LOGDIR/$(diag_path "$lbl")-$RANDOM.err"
+  log="$LOGDIR/$(diag_path "$lbl")-$BASHPID-$RANDOM.err"
   "$@" 2>"$log"
   code=$?
   if [ "$code" -ne 0 ]; then
     record_diag "FAIL $lbl exit=$code stderr=$log"
     sed -n '1,80p' "$log" >> "$ERR_SUMMARY"
-    retry="$LOGDIR/$(diag_path "$lbl")-$RANDOM-retry.err"
+    retry="$LOGDIR/$(diag_path "$lbl")-$BASHPID-$RANDOM-retry.err"
     "$@" 2>"$retry"
     code=$?
     if [ "$code" -ne 0 ]; then
@@ -56,11 +56,11 @@ run_logged() { # label command...
 run_stdout_logged() { # label command...
   local lbl out code retry_out retry_code
   lbl="$1"; shift
-  out="$LOGDIR/$(diag_path "$lbl")-$RANDOM.out"
+  out="$LOGDIR/$(diag_path "$lbl")-$BASHPID-$RANDOM.out"
   if run_logged "$lbl" "$@" > "$out"; then code=0; else code=$?; fi
   if [ "$code" -eq 0 ] && [ ! -s "$out" ]; then
     record_diag "EMPTY stdout for $lbl; retrying once stdout=$out"
-    retry_out="$LOGDIR/$(diag_path "$lbl")-$RANDOM-retry.out"
+    retry_out="$LOGDIR/$(diag_path "$lbl")-$BASHPID-$RANDOM-retry.out"
     if run_logged "$lbl-empty-retry" "$@" > "$retry_out"; then retry_code=0; else retry_code=$?; fi
     if [ "$retry_code" -eq 0 ] && [ -s "$retry_out" ]; then
       record_diag "EMPTY-RETRY-OK $lbl stdout=$retry_out"
