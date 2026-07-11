@@ -3,13 +3,12 @@
 ## Overview
 
 Interpreter-backed HTTP and WebSocket servers may parse requests and write
-responses concurrently, but one `Interpreter` instance is mutable and must not
-execute two user callbacks at once. This contract makes route handlers,
-middleware, WebSocket auth and frame callbacks, and deferred stream callbacks a
-single reentrant transaction per interpreter. It prevents an accepted request
-from racing another request's application-level read/modify/write work while
-preserving concurrency between independent interpreters and in the network
-backends.
+responses concurrently, but mutating callbacks must not overlap another
+application transaction on the same `Interpreter`. This contract gives safe
+HTTP reads a shared section and mutations/WS callbacks an exclusive section. It
+prevents an accepted request from racing another request's application-level
+read/modify/write work without starving a reactive application behind all of
+its concurrent dashboard GETs.
 
 ## Interface
 
@@ -17,16 +16,19 @@ There is no source-language or SPI signature change. `route`, `use`,
 `onWebSocket`, `serve`, `serveAsync`, `HttpHandler`, and every backend selection
 keep their current APIs.
 
-The interpreter-server runtime owns one internal weakly keyed reentrant gate per
-`Interpreter`. Every user callback entered by `InterpreterHttpHandler` or
-`InterpreterWsListener` runs through that gate. The gate is reentrant so a
-middleware callback can call `next()`, a handler can produce a stream callback,
-and existing direct/in-process dispatch does not deadlock.
+The interpreter-server runtime owns one internal weakly keyed fair reentrant
+read/write gate per `Interpreter`. `GET`, `HEAD`, and `OPTIONS` callbacks use the
+shared read section. Other HTTP methods, WebSocket callbacks, and any callback
+without a safe-method context use the exclusive write section. The gate is
+reentrant so a middleware callback can call `next()`, a handler can produce a
+stream callback, and existing direct/in-process dispatch does not deadlock.
 
 ## Behavior
 
-- [ ] Two concurrent matched HTTP requests targeting one interpreter never have
-      more than one user handler body in flight.
+- [ ] Two concurrent mutating HTTP requests targeting one interpreter never
+      overlap, and a mutation never overlaps a safe HTTP read.
+- [ ] Safe GET/HEAD/OPTIONS handlers targeting one interpreter may execute
+      concurrently, so an eager reactive dashboard cannot starve a mutation.
 - [ ] HTTP middleware plus its nested route handler remain one reentrant
       transaction, including `next()` on the same interpreter.
 - [ ] WebSocket auth, open/message/pong/close callbacks and deferred stream
@@ -43,16 +45,16 @@ and existing direct/in-process dispatch does not deadlock.
 ## Design
 
 `InterpreterExecutionGate` is internal to `backend-interpreter-server`. A
-synchronized `WeakHashMap[Interpreter, ReentrantLock]` gives stable identity
-while an interpreter is live without permanently retaining finished
-interpreters. Each dispatch acquires the lock, evaluates the callback on the
-calling/request thread, and releases it in `finally`. This preserves the
-backend's virtual-thread and event-loop scheduling: only user interpreter work
-is serialized.
+synchronized `WeakHashMap[Interpreter, ReentrantReadWriteLock]` gives stable
+identity while an interpreter is live without permanently retaining finished
+interpreters. Fair ordering prevents a stream of new reads from overtaking a
+queued mutation. Each dispatch acquires the method-appropriate lock, evaluates
+the callback on the calling/request thread, and releases it in `finally`. This
+preserves the backend's virtual-thread and event-loop scheduling.
 
-The complete middleware transaction is serialized naturally. The outer
-middleware invocation holds its interpreter gate while `next()` synchronously
-enters the route; `ReentrantLock` permits same-interpreter nesting. Different
+The complete middleware transaction is protected naturally. The outer
+middleware invocation holds its interpreter section while `next()` synchronously
+enters the route; the lock permits same-interpreter nesting. Different
 middleware interpreters acquire gates in the fixed registered middleware order.
 
 The existing single-thread WebSocket executor remains an ordering mechanism for
@@ -62,10 +64,11 @@ the same interpreter gate.
 
 ## Decisions
 
-- **Per-interpreter reentrant gate** — chosen because multiple server instances
-  and the in-process transport can expose the same interpreter. Rejected:
-  dispatching HTTP through each server's existing single-thread executor, which
-  still races across servers and can deadlock on reentrant entry.
+- **Fair per-interpreter reentrant read/write gate** — chosen because multiple
+  server instances and the in-process transport can expose the same interpreter,
+  while a real reactive SPA issues many eager reads. Rejected: dispatching HTTP
+  through each server's single-thread executor or an exclusive lock, which
+  either races across servers or starves mutations behind dashboard reads.
 - **Keep I/O concurrent** — the gate wraps only `Interpreter.invoke` callback
   transactions. Rejected: synchronizing the complete network handler, which
   would serialize request parsing, static files and response writes without a
@@ -79,8 +82,8 @@ the same interpreter gate.
 - Making arbitrary host code outside interpreter-server thread-safe.
 - Cross-process repository locking or multi-writer storage transactions.
 - Changing the separate v2 native `http-fast` plugin execution model.
-- Parallel execution within one interpreter; applications needing parallel
-  work use explicit Async/actor facilities and isolate mutable state.
+- Parallel mutation within one interpreter; applications needing parallel
+  writes use explicit Async/actor facilities and isolate mutable state.
 
 ## Results
 

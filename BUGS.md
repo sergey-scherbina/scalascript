@@ -57,10 +57,15 @@ browser E2E.
   calls `Interpreter.invoke` directly on whichever JDK/Jetty/Netty request
   thread entered the SPI. This violates the interpreter thread-safety comment
   and races application-level read-modify-write transactions.
-- **Plan/done-when:** specify the boundary, add a concurrent multi-request
-  regression that proves max one handler body in flight, dispatch every
-  callback through one per-interpreter reentrant gate, rebuild the assembled
+- **Plan/done-when:** specify the boundary, add concurrent multi-request
+  regressions that prove writes exclude reads/writes while safe reads remain
+  concurrent, dispatch through one fair per-interpreter read/write gate, rebuild the assembled
   CLI and rerun the exact busi Vault plus offline-drain browser regressions.
+- **Rejected prototype:** an exclusive per-interpreter lock passed 54 module
+  tests and the focused live Vault check, but the full SPA's eager GET fan-out
+  starved mutations for more than 10 seconds. A standalone concurrent POST+GET
+  completed and persisted, so the remaining symptom was queue starvation, not
+  a deadlock. The gate must preserve concurrent safe reads.
 
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
 

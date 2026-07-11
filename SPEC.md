@@ -1172,12 +1172,13 @@ Built-in routes: `/_health` (liveness), `/_ready` (readiness).
 #### 7.9.5 Interpreter execution boundary
 
 Network backends may parse requests and write responses concurrently. For an
-interpreter-backed server, user HTTP middleware/route callbacks, WebSocket
-callbacks, and deferred stream callbacks execute serially per `Interpreter`
-instance. This boundary is reentrant (`middleware -> next -> route` remains
-valid) and does not serialize unrelated interpreters, unmatched static-file
-fallbacks, or socket I/O. Explicit Async/actor facilities remain the way to
-express parallel application work.
+interpreter-backed server, safe HTTP methods (`GET`, `HEAD`, `OPTIONS`) share a
+per-`Interpreter` read section; mutating methods and WebSocket callbacks use its
+fair exclusive section. This boundary is reentrant (`middleware -> next ->
+route` remains valid), prevents a stream of reads from starving a queued write,
+and does not serialize unrelated interpreters, unmatched static-file fallbacks,
+or socket I/O. Explicit Async/actor facilities remain the way to express
+parallel mutation.
 
 ### 7.10 WebSocket Server
 

@@ -19,12 +19,18 @@ WS, but `InterpreterHttpHandler.onHttpRequest` invokes the handler directly.
 
 - [ ] **http-handler-serial-dispatch** — specify the per-interpreter execution
       boundary, add a real concurrent application-handler regression, execute
-      every interpreter callback through a shared per-interpreter reentrant
-      gate, and retain direct in-process plus multi-server behavior. Verify the assembled `bin/ssc`
+      safe reads through a shared section and mutations/WS callbacks through a
+      fair per-interpreter exclusive section; retain direct in-process plus
+      multi-server behavior. Verify the assembled `bin/ssc`
       with busi's concurrent Vault/restart/browser repro after the focused
       Scala tests and affected conformance slice. Do not serialize socket I/O,
       unrelated interpreters, unmatched static fallbacks, or the separate v2
       native `http-fast` plugin.
+      Baseline gotcha: a first exclusive-lock prototype made unit tests green
+      and stopped one offline race, but the eager owner SPA queues dozens of
+      1–2.5 s GETs; three mutation POSTs then remained unfinished past 10 s.
+      A standalone concurrent POST+GET stayed green, proving starvation rather
+      than a handler deadlock or missing append.
 
 ## v2-http-fast — super-optimal HTTP/WS plugin for v2 JVM (2026-07-11, Sergiy: "сделай для v2 jvm новый супер оптимальный http/ws плагин … по умолчанию вместо старого … проверь thread-safety")
 
