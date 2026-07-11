@@ -920,7 +920,13 @@ def isCollectionCompanion = (name) =>
   if #seq(name, "List") then true
   else if #seq(name, "Seq") then true
   else if #seq(name, "Vector") then true
-  else #seq(name, "Array")
+  else if #seq(name, "Array") then true
+  -- K62.27: Map too, so `Map.empty` (bare companion) lowers its receiver to ctorap(Map) →
+  -- DataV("Map") for the runtime __method__ Map.empty handler, instead of the unbound global
+  -- Map (a constructor closure) → "no dispatch for .empty on <closure>". Map construction
+  -- (Map(a -> b)) uses the separate direct-application path, and the curried-factory sugar is
+  -- gated to tabulate/fill (which Map lacks), so both are unaffected.
+  else #seq(name, "Map")
 def isCurriedCollectionFactory = (method) =>
   if #seq(method, "tabulate") then true else #seq(method, "fill")
 def expandCollectionCurry = (fn, args) =>
@@ -1648,25 +1654,30 @@ def listTailDef =
         Cons(IrArm("Cons", 2, IrLocal(0)), Nil),
         None)))
 
--- __list_isEmpty(xs): true if Nil OR None, else false
--- .isEmpty lowers here for BOTH List and Option (no type info at lowering time);
--- None must count as empty (K62.21) — was only matching Nil, so None.isEmpty gave false.
+-- __list_isEmpty(xs): true if Nil OR None; otherwise delegate to the runtime __method__
+-- isEmpty (K62.27) so MapV/StrV/ArrayBuffer answer correctly (was a flat `false`, so
+-- Map.empty.isEmpty / "".isEmpty were wrong). .isEmpty lowers here for List AND Option AND
+-- everything else (no type info at lowering time); Nil/None (K62.21) stay a fast literal.
 def listIsEmptyDef =
   IrDef("__list_isEmpty",
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Nil", 0, IrLit(IrBool(true))),
         Cons(IrArm("None", 0, IrLit(IrBool(true))), Nil)),
-        Some(IrLit(IrBool(false))))))
+        Some(IrPrim("__method__",
+          Cons(IrLit(IrStr("isEmpty")), Cons(IrLocal(0), Nil)))))))
 
--- __list_nonEmpty(xs): false if Nil OR None, else true (symmetric with isEmpty, K62.21)
+-- __list_nonEmpty(xs): false if Nil OR None; otherwise NOT(isEmpty) via the runtime isEmpty
+-- op (MapV has no nonEmpty handler, but every collection answers isEmpty). K62.27.
 def listNonEmptyDef =
   IrDef("__list_nonEmpty",
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Nil", 0, IrLit(IrBool(false))),
         Cons(IrArm("None", 0, IrLit(IrBool(false))), Nil)),
-        Some(IrLit(IrBool(true))))))
+        Some(IrIf(IrPrim("__method__",
+          Cons(IrLit(IrStr("isEmpty")), Cons(IrLocal(0), Nil))),
+          IrLit(IrBool(false)), IrLit(IrBool(true)))))))
 
 -- __str_toInt(s): parse s as integer, default 0 on failure
 def strToIntDef =
