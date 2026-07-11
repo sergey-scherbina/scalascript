@@ -139,6 +139,22 @@ def topValsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
 -- List variable name registry (for .length dispatch to _sel_length vs slen)
 def listVarsCell = #cell.new(Nil)
+-- Total arity of assembled top-level definitions. Source parameter clauses are
+-- flattened in def nodes but calls retain nested App clauses; this table lets
+-- resolveE reconcile only a known full curried call without relaxing CoreIR.
+def defAritiesCell = #cell.new(Nil)
+
+def defArity = (name) =>
+  let rec go = (entries) =>
+    match entries {
+      case Nil => Pair(false, 0)
+      case Cons(entry, rest) =>
+        match entry {
+          case Pair(defName, arity) =>
+            if #seq(defName, name) then Pair(true, arity) else go(rest)
+        }
+    } in
+  go(#cell.get(defAritiesCell))
 
 -- Check if a name is a registered list variable
 def isListVar = (name) =>
@@ -1089,7 +1105,25 @@ def resolveE = (expr) =>
                           case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
                         }
                     }
-                  else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                  else
+                    match fdata {
+                      case Pair(innerFn, innerArgs) =>
+                        let innerName = match innerFn {
+                          case Pair(innerTag, innerData) =>
+                            if #seq(innerTag, "var") then innerData
+                            else if #seq(innerTag, "uid") then innerData
+                            else ""
+                        } in
+                        let combinedArgs = append(innerArgs, args) in
+                        match defArity(innerName) {
+                          case Pair(found, arity) =>
+                            if found then
+                              if #i.eq(lenL(combinedArgs), arity) then
+                                resolveE(Pair("app", Pair(innerFn, combinedArgs)))
+                              else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                            else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                        }
+                    }
                 else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
                   }
             }
@@ -3203,6 +3237,24 @@ def caseFieldRegs = (order) =>
              caseFieldRegs(rest)) }
   }
 
+def collectDefArities = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(stmt, rest) =>
+      match stmt {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, defRest) =>
+                match defRest {
+                  case Pair(params, body) =>
+                    Cons(Pair(name, lenL(params)), collectDefArities(rest))
+                }
+            }
+          else collectDefArities(rest)
+      }
+  }
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
@@ -3224,6 +3276,7 @@ def lowerProg = (stmts) =>
   let _av = #cell.set(arrVarsCell, Nil) in
   let _mv = #cell.set(mapVarsCell, Nil) in
   let _lv = #cell.set(listVarsCell, Nil) in
+  let _da = #cell.set(defAritiesCell, collectDefArities(stmts)) in
   -- K62.6b: register top-level var names BEFORE lowering so references resolve to cells
   let _tv = #cell.set(topVarsCell, collectTopVars(stmts)) in
   let topValNames = collectTopVals(stmts) in
