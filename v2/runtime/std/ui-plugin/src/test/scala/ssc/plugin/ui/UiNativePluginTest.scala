@@ -3,7 +3,7 @@ package ssc.plugin.ui
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Runtime, V2PluginRegistry, Value}
+import ssc.{NativeUiSites, Runtime, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
 
 class UiNativePluginTest extends AnyFunSuite:
@@ -88,3 +88,18 @@ class UiNativePluginTest extends AnyFunSuite:
     val html = Files.readString(out.resolve("index.html"), StandardCharsets.UTF_8)
     assert(html ==
       "<!doctype html>\n<main class=\"card\" id=\"app\"><h1>Hi &lt;native&gt;</h1>Ada<span>shown</span></main>\n")
+
+  test("reserved ABI-v1 globals accept hidden site and source metadata"):
+    NativePluginHost.installProviders(List(UiNativePlugin()))
+    val source = Value.DataV("NativeUiSourceRef", Vector(
+      Value.StrV("app.ssc"), Value.IntV(4), Value.IntV(2), Value.StrV("element")))
+    val value = call(
+      NativeUiSites.internalName("element"),
+      Value.StrV("d0:entry/root"), source,
+      Value.StrV("div"), map(), map(), list())
+
+    val Value.DataV("NativeUiElement", fields) = value: @unchecked
+    assert(fields.head == Value.StrV("div"))
+    assert(fields(1).asInstanceOf[Value.MapV].entries.isEmpty)
+    assert(fields(2).asInstanceOf[Value.MapV].entries.isEmpty)
+    assert(fields(3) == list())

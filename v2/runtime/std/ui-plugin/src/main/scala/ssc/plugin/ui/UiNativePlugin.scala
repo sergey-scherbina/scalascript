@@ -3,7 +3,7 @@ package ssc.plugin.ui
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import scala.collection.mutable
-import ssc.{Done, Runtime, Show, Value}
+import ssc.{Done, NativeUiSites, Runtime, Show, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 
 /** Core-free signals, view values, and deterministic static UI emission. */
@@ -16,6 +16,11 @@ final class UiNativePlugin extends NativePlugin:
   private def native(context: NativePluginContext, name: String)(fn: List[Value] => Value): Unit =
     context.register(name)(fn)
     context.registerGlobal(name, -1)(fn)
+    if NativeUiSites.annotatedSymbols(name) then
+      val internal: List[Value] => Value = args =>
+        fn(args.drop(NativeUiSites.hiddenArgumentCount(name)))
+      context.register(NativeUiSites.internalName(name))(internal)
+      context.registerGlobal(NativeUiSites.internalName(name), -1)(internal)
 
   private abstract class NativeSignal(val id: String, context: NativePluginContext)
       extends Value.NamedMethodObj:

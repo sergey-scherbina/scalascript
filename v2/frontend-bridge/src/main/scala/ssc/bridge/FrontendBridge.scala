@@ -816,7 +816,8 @@ object FrontendBridge:
     parseDatabasesFromFrontmatter(src)
     selectFrontendFromFrontmatter(src)
     pendingRemoteHandlers = collectRemoteHandlersFromSource(src)
-    val merged = resolveImportsCode(src, fileDir)
+    val resolvedImports = resolveImportsCode(src, fileDir)
+    val merged = resolvedImports.code
     // Op-arg lifting is only NEEDED by programs where a raw effect Op can
     // materialize: typed `handle` programs / `effect` declarations (context-based
     // runners intercept ops BEFORE an Op value is built — viaCtx in Runtime's
@@ -825,8 +826,15 @@ object FrontendBridge:
     // with the pass unconditionally on). False positives (the words in prose)
     // only re-enable the pass — a perf tax, never a semantics change.
     opAnfNeeded = merged.contains("effect ") || merged.contains("handle")
-    convertStats(parseStats(desugarListLiterals(
-      stripExternDecls(preprocessAtAnnotations(preprocessRemoteDefs(merged))))))
+    val processed = desugarListLiterals(
+      stripExternDecls(preprocessAtAnnotations(preprocessRemoteDefs(merged))))
+    val stats = parseStats(processed)
+    val program = convertStats(stats)
+    val sourceRefs = nativeUiDefinitionSources(stats, processed)
+    ssc.NativeUiSites.annotate(program, ssc.NativeUiSites.Config(
+      eligibleSymbols = resolvedImports.nativeUiSymbols,
+      sourcesByDefinition = sourceRefs,
+      entrySource = ssc.NativeUiSites.SourceRef("<entry>")))
 
   /** Strip ScalaScript-specific `extern` declarations that scalameta cannot parse.
    *  Handles extern def/val (single or multi-line via open parens) and
@@ -974,12 +982,46 @@ object FrontendBridge:
           sb.append(c); i += 1
     sb.toString
 
+  private final case class ResolvedImports(code: String, nativeUiSymbols: Set[String])
+  private val sourceMarkerPrefix = "//__ssc_source__:"
+
+  private def markedSource(file: String, code: String): String =
+    val encoded = java.util.Base64.getUrlEncoder.withoutPadding()
+      .encodeToString(file.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    s"$sourceMarkerPrefix$encoded\n$code"
+
+  private def nativeUiDefinitionSources(
+      stats: List[Stat],
+      processed: String): Map[String, ssc.NativeUiSites.SourceRef] =
+    val markers = processed.linesIterator.zipWithIndex.flatMap { case (line, index) =>
+      if line.startsWith(sourceMarkerPrefix) then
+        val encoded = line.drop(sourceMarkerPrefix.length)
+        scala.util.Try(new String(
+          java.util.Base64.getUrlDecoder.decode(encoded),
+          java.nio.charset.StandardCharsets.UTF_8)).toOption.map(index -> _)
+      else None
+    }.toVector
+
+    def ref(tree: Tree): ssc.NativeUiSites.SourceRef =
+      val line = if tree.pos != Position.None then tree.pos.startLine else 0
+      val (markerLine, file) = markers.reverseIterator.find(_._1 <= line).getOrElse(-1 -> "<entry>")
+      val sourceLine = if markerLine < 0 then line + 1 else line - markerLine
+      val column = if tree.pos != Position.None then tree.pos.startColumn + 1 else 0
+      ssc.NativeUiSites.SourceRef(file, sourceLine.max(0), column)
+
+    stats.flatMap {
+      case definition: Defn.Def => Some(definition.name.value -> ref(definition))
+      case definition: Defn.Object => Some(definition.name.value -> ref(definition))
+      case _ => None
+    }.toMap
+
   /** Collect std-import lines `[names](path.ssc)` from the document body (outside fences),
    *  load each referenced file, and prepend their code before the main code block.
    *  Falls back gracefully if a path can't be resolved. */
-  private def resolveImportsCode(src: String, fileDir: Option[java.io.File]): String =
+  private def resolveImportsCode(src: String, fileDir: Option[java.io.File]): ResolvedImports =
     val seen    = collection.mutable.HashSet[String]()
-    val ordered = collection.mutable.ListBuffer.empty[(String, String)] // (canonical, code)
+    val ordered = collection.mutable.ListBuffer.empty[(String, String, String)] // (canonical, display, code)
+    val nativeUiSymbols = collection.mutable.LinkedHashSet.empty[String]
     val importPat = """\[([^\]]+)\]\(([^)]+)\)""".r
     // fenceOnly=true: only scan outside fences (top-level user files, where imports are prose).
     // fenceOnly=false: scan ALL lines (stdlib files where imports live inside code fences).
@@ -1018,9 +1060,14 @@ object FrontendBridge:
               val key = resolvedFile.getCanonicalPath
               if seen.add(key) then
                 PluginBridge.registerImportedContent(rel, resolvedFile, content)
+                val normalized = key.replace(java.io.File.separatorChar, '/')
+                if normalized.contains("/runtime/std/ui/") then
+                  "[A-Za-z_][A-Za-z0-9_]*".r.findAllIn(m.group(1)).foreach { symbol =>
+                    if ssc.NativeUiSites.annotatedSymbols(symbol) then nativeUiSymbols += symbol
+                  }
                 // DFS: recurse first so dependencies come before their dependents
                 collectImports(content, Some(resolvedFile.getParentFile), fenceOnly = false)
-                ordered += key -> extractCode(content, allFences = true)
+                ordered += ((key, rel, extractCode(content, allFences = true)))
             }
           }
       }
@@ -1043,14 +1090,18 @@ object FrontendBridge:
         "[button, textField, checkbox, select, slider, colorPicker](std/ui/input.ssc)\n"
       collectImports(uiAutoImports, fileDir, fenceOnly = false)
     collectImports(src, fileDir, fenceOnly = false)
-    val prelude = ordered.map(_._2).filter(_.nonEmpty).mkString("\n")
+    val prelude = ordered.collect {
+      case (_, display, code) if code.nonEmpty => markedSource(display, code)
+    }.mkString("\n")
     // v1 semantics: ALL scalascript fences of the entry file run in document
     // order (first-fence-only silently dropped every later section — the T4.4
     // output-equality suite exposed it on multi-section conformance files).
     lastExtractDocOnly = false
     val mainCode = extractCode(src, allFences = true)
     lastTopDocOnly = lastExtractDocOnly
-    if prelude.isEmpty then mainCode else s"$prelude\n$mainCode"
+    val markedMain = markedSource("<entry>", mainCode)
+    val code = if prelude.isEmpty then markedMain else s"$prelude\n$markedMain"
+    ResolvedImports(code, nativeUiSymbols.toSet)
 
   /** Resolve a std-import path like `std/dsl/ast.ssc` to an absolute file.
    *  Search order: relative to fileDir → ImportResolver.stdPath → cwd-based dev-tree walk. */
