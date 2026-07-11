@@ -177,7 +177,9 @@ function exec(cmd, argsList, opts) {
     return {
       stdout:   result.stdout || '',
       stderr:   result.stderr || '',
-      exitCode: result.status || 0
+      // status is null on signal-kill or spawn error (ENOENT); don't collapse that to 0
+      // (a success code) — a security gate keying on exitCode !== 0 would be bypassed.
+      exitCode: (result.status != null ? result.status : ((result.signal || result.error) ? -1 : 0))
     };
   }
   throw new Error('ProcessNotSupported: exec is not available in the browser');

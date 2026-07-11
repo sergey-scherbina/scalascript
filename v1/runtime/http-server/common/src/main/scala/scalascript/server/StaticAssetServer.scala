@@ -20,7 +20,9 @@ object StaticAssetServer:
     val rootDir   = new java.io.File(root).getCanonicalFile
     val target    = new java.io.File(rootDir, effective).getCanonicalFile
     if !target.exists() || !target.isFile() then None
-    else if !target.getPath.startsWith(rootDir.getPath) then None
+    // Path-aware containment: component-wise startsWith, so a sibling dir sharing the
+    // root's basename prefix (e.g. root `/srv/pub` vs `/srv/public-secret`) can't escape.
+    else if !target.toPath.startsWith(rootDir.toPath) then None
     else if target.getName.endsWith(".ssc") then None
     else Some(target)
 
