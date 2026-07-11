@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v2-nativeui-component-scope-compat — new scope extern is unbound in legacy INT/JS lanes
+
+**Status:** open (2026-07-11); found by codex while verifying the atomic
+NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
+
+- **Real-harness repro:** run `tests/conformance/run.sh --only 'tkv2-*'
+  --no-memo` after `std/ui/component.ssc` starts wrapping component bodies in
+  the new `componentScope(scopeId, bodyThunk)` extern. Nine cases pass, while
+  `tkv2-busi-home`, `tkv2-component`, and `tkv2-forms` fail: INT reports
+  `'componentScope' not found in primitives.ssc` and JS reports `not callable:
+  ()`.
+- **Expected:** the new source-level helper must preserve all existing toolkit
+  lanes. V2 NativeUi owns scoped signal identity; backends without that state
+  model must execute the body exactly once and return its value.
+- **Root-cause direction:** the public extern was added to
+  `v1/runtime/std/ui/primitives.ssc` before compatibility implementations were
+  registered in the legacy frontend plugin and generated JS/JVM runtimes.
+- **Planned fix:** add identity adapters
+  `componentScope(scopeId, thunk) = thunk()` in the owning standard plugin and
+  codegen runtimes, plus focused regressions; keep the v2 NativeUi plugin's
+  scoped semantics unchanged.
+- **Done-when:** fresh toolkit conformance is 12/12 across declared lanes,
+  focused plugin/codegen tests cover the thunk contract, and the landed SHA is
+  reported in Rozum. Keep `fixed` until Sergiy confirms.
+
 ## v21-parity-external-http-flake — live httpbin makes VM/ASM parity one-sided
 
 **Status:** fixed (2026-07-11, `2769bc479`); found by codex while verifying

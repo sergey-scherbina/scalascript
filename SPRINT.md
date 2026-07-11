@@ -258,6 +258,16 @@ there before changing this plan.
       Gates: sites/provenance 6/6, combined FrontendBridge 62/62, UI 4/4,
       toolkit conformance 12/12, std-ui-jobpanel 1/1. Next: step 4 atomic
       `UiNativePlugin` ABI-v1 signal/view/root migration and deep canonicalizer.
+      - [ ] **v2-nativeui-component-scope-compat** — the step-4 public
+        `componentScope(scopeId, thunk)` declaration exposed missing legacy
+        adapters: a fresh `tests/conformance/run.sh --only 'tkv2-*' --no-memo`
+        is 9/12, with INT `componentScope not found` and JS `not callable` in
+        the three component-import cases. Preserve scoped identity only in the
+        v2 NativeUi plugin; add exact-once identity-thunk adapters to the owning
+        v1 frontend plugin and generated JS/JVM runtimes, cover them with
+        focused tests, then require fresh toolkit conformance 12/12 before the
+        atomic plugin slice can land. Tracked in `BUGS.md` and announced in
+        Rozum.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
