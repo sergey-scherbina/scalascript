@@ -69,6 +69,23 @@ self-hosted release gate while verifying the new structural content projection.
   established source-located failure. Structural tests are 8/8 and both the
   exact Markdown frontend repro and native content e2e pass after the final
   rebase; affected conformance is 16/16, and the fix is on `origin/main`.
+## v2-swift-ios-run-unbounded-error — domain source leaks a JVM stack trace
+
+**Status:** open (2026-07-11); found by codex in the assembled
+`tests/e2e/v2-swift-cli.sh` gate after the Xcode application route was enabled.
+
+- **Real-harness repro:** fresh `scripts/sbtc installBin`, then
+  `bin/ssc run --v2 --target ios tests/conformance/money-portable-v2.ssc`.
+  It exits 1 as intended because the checked domain program has no NativeUi
+  application, but stderr includes `Exception in thread "main"` and the full
+  Scala/JVM stack from `SwiftV2Cli.buildXcodeApplication`.
+- **Root cause:** `runV2IosTargets` is the only v2 Apple run adapter without the
+  bounded command-level exception handler already used by the macOS route.
+- **Expected/fix:** preserve the exact command-scoped diagnostic
+  `run --target ios: checked program does not define a NativeUi application`,
+  print no stack, and keep exit 1/no-v1-fallback. Gate through the freshly
+  assembled CLI e2e, not a direct helper invocation.
+
 ## tkv2-pwa-stale-default-backend — expected output pins retired JDK default
 
 **Status:** open (2026-07-11); found by codex while running the mandatory
@@ -85,6 +102,7 @@ self-hosted release gate while verifying the new structural content projection.
 - **Expected/fix:** update the real-harness expected banner to the current
   deterministic default, rerun the isolated case and full `tkv2-*` gate, and
   report the result in Rozum. Do not weaken or filter the remaining output.
+
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
 **Status:** done (2026-07-11, taxonomy `77da8e8e2`); found by codex while

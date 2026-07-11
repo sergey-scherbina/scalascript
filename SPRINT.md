@@ -993,6 +993,12 @@ there before changing this plan.
             eight semantic assertions pass. Track in `BUGS.md`, align the exact
             expected banner, then require isolated `tkv2-pwa` and full
             `tkv2-* --no-memo` green before any Swift slice push.
+      - [ ] **v2-swift-ios-run-unbounded-error** — assembled domain-source
+            `run --v2 --target ios` correctly rejects the missing NativeUi app
+            but leaks the JVM stack because `runV2IosTargets` has no command
+            exception boundary. Add the same bounded stderr/exit-1 contract as
+            macOS, update the exact e2e expectation, and assert the real
+            assembled stderr contains no `Exception in thread`.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 
