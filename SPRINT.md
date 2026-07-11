@@ -1015,6 +1015,14 @@ there before changing this plan.
             upload lanes, custom Fastfile cwd/env, missing tools/credentials,
             malformed/escaping archives, wrong apps, duplicate exports, and
             assembled no-v1/no-stack behavior.
+            Implementation round 2 is BLOCKED until generated Mac publication
+            invokes platform-scoped `fastlane mac mac_appstore`; the common app
+            verifier selects iOS/macOS executable layout strictly from
+            `SwiftPlatform` and the fakes use matching shapes; Fastlane API key
+            validation accepts individual keys with optional `issuer_id` while
+            still requiring `key_id` + `key`; and tests cover both independent
+            notarize/DMG toggle combinations plus assembled plain non-v1 macOS
+            package routing before Parser.
       - [x] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS

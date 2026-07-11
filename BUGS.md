@@ -126,6 +126,16 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
   Extend secret-free fakes across device, Developer-ID/notary toggles, Mac PKG,
   generated/custom fastlane, tool absence, archive path/plist/app identity, and
   zero/duplicate app/PKG outputs; assembled negatives must prove no v1/stack.
+- **Implementation review round 2 (22:53 BLOCKED):** generated Mac publication
+  must invoke the platform-scoped lane as `fastlane mac mac_appstore`; the
+  current bare `mac_appstore` resolves under `default_platform(:ios)` and the
+  fake runner hides the real Fastlane failure. App verification must choose
+  iOS versus macOS bundle layout from `SwiftPlatform`, never from which plist
+  happens to exist; current device/archive fakes encode a mac-shaped iOS app.
+  Fastlane API-key validation requires non-empty `key_id` and `key`, with
+  optional `issuer_id` for supported individual keys. Add independent
+  notarize/DMG toggle combinations and an assembled plain non-v1
+  `package --target macos` Parser-bypass gate before round 3.
 - **Plan/done-when:** commit the exact distribution authority spec delta and
   obtain Rozum APPROVE before code. Then implement secret-free command plans,
   verified archive/export handoffs, device deploy, Developer-ID/notary/DMG, and
