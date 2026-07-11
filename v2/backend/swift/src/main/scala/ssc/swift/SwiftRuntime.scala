@@ -320,7 +320,7 @@ final class SscClosure {
     let arity: Int
     var environment: [SscValue]
     let body: SscTerm?
-    let native: (([SscValue]) -> SscValue)?
+    let native: (([SscValue]) throws -> SscValue)?
 
     init(arity: Int, environment: [SscValue], body: SscTerm) {
         self.arity = arity
@@ -329,7 +329,7 @@ final class SscClosure {
         self.native = nil
     }
 
-    init(arity: Int, native: @escaping ([SscValue]) -> SscValue) {
+    init(arity: Int, native: @escaping ([SscValue]) throws -> SscValue) {
         self.arity = arity
         self.environment = []
         self.body = nil
@@ -383,6 +383,17 @@ indirect enum SscValue {
     case array(SscArray)
 }
 
+protocol SscRuntimeExtension: AnyObject {
+    func bind(_ invoke: @escaping (SscClosure, [SscValue]) throws -> SscValue)
+    func globals() throws -> [String: SscValue]
+    func apply(_ receiver: SscValue, _ arguments: [SscValue]) throws -> SscValue?
+    func method(_ name: String, _ receiver: SscValue, _ arguments: [SscValue]) throws -> SscValue?
+}
+
+struct SscRuntimeFailure: Error, CustomStringConvertible {
+    let description: String
+}
+
 private enum EvalStep {
     case value(SscValue)
     case call(SscClosure, [SscValue])
@@ -390,24 +401,80 @@ private enum EvalStep {
 
 enum SscRuntime {
     public static func execute(_ program: SscProgram) {
-        let runtime = Machine(program)
-        let result = runtime.run()
+        let result = evaluate(program)
         if case .unit = result { return }
         Swift.print(sscShow(result))
+    }
+
+    static func evaluate(_ program: SscProgram, nativeUiHost: SscRuntimeExtension? = nil) -> SscValue {
+        Machine(program, nativeUiHost: nativeUiHost).run()
+    }
+
+    static func session(_ program: SscProgram, nativeUiHost: SscRuntimeExtension) -> SscRuntimeSession {
+        SscRuntimeSession(program, nativeUiHost: nativeUiHost)
+    }
+}
+
+final class SscRuntimeSession {
+    private let machine: Machine
+
+    init(_ program: SscProgram, nativeUiHost: SscRuntimeExtension) {
+        machine = Machine(program, nativeUiHost: nativeUiHost)
+    }
+
+    func evaluate() -> Result<SscValue, SscRuntimeFailure> { machine.runResult() }
+
+    func invoke(_ closure: SscClosure, _ arguments: [SscValue]) throws -> SscValue {
+        switch machine.invokeResult(closure, arguments) {
+        case let .success(value): return value
+        case let .failure(error): throw error
+        }
     }
 }
 
 private final class Machine {
     private let program: SscProgram
+    private let nativeUiHost: SscRuntimeExtension?
     private var globals: [String: SscValue] = [:]
+    private var failure: SscRuntimeFailure?
 
-    init(_ program: SscProgram) {
+    init(_ program: SscProgram, nativeUiHost: SscRuntimeExtension? = nil) {
         self.program = program
+        self.nativeUiHost = nativeUiHost
+        nativeUiHost?.bind { [weak self] closure, arguments in
+            guard let self else { throw SscRuntimeFailure(description: "native UI runtime released") }
+            let result = self.call(closure, arguments)
+            if let failure = self.failure { throw failure }
+            return result
+        }
         installBuiltins()
+        if let nativeUiHost {
+            do { globals.merge(try nativeUiHost.globals()) { _, replacement in replacement } }
+            catch { recordFailure(error) }
+        }
         installDefinitions()
     }
 
     func run() -> SscValue { runTerm(program.entry, []) }
+
+    func runResult() -> Result<SscValue, SscRuntimeFailure> {
+        if let failure { return .failure(failure) }
+        let result = runTerm(program.entry, [])
+        if let failure { return .failure(failure) }
+        return .success(result)
+    }
+
+    func invokeResult(_ closure: SscClosure, _ arguments: [SscValue]) -> Result<SscValue, SscRuntimeFailure> {
+        if let failure { return .failure(failure) }
+        let result = call(closure, arguments)
+        if let failure { return .failure(failure) }
+        return .success(result)
+    }
+
+    private func recordFailure(_ error: Error) {
+        guard failure == nil else { return }
+        failure = error as? SscRuntimeFailure ?? SscRuntimeFailure(description: String(describing: error))
+    }
 
     private func installBuiltins() {
         globals["print"] = .closure(SscClosure(arity: -1) { args in
@@ -447,7 +514,7 @@ private final class Machine {
         })
         globals["effect"] = .closure(SscClosure(arity: 1) { _ in .unit })
         globals["__throw__"] = .closure(SscClosure(arity: 1) { args in
-            fatalError("throw: \(sscPlain(args[0]))")
+            throw SscRuntimeFailure(description: "throw: \(sscPlain(args[0]))")
         })
     }
 
@@ -467,11 +534,15 @@ private final class Machine {
         var term = initialTerm
         var environment = initialEnvironment
         while true {
+            if failure != nil { return .unit }
             switch evaluate(term, environment, tail: true) {
             case let .value(value): return value
             case let .call(closure, arguments):
                 checkArity(closure, arguments)
-                if let native = closure.native { return native(arguments) }
+                if let native = closure.native {
+                    do { return try native(arguments) }
+                    catch { recordFailure(error); return .unit }
+                }
                 guard let body = closure.body else { fatalError("app: closure has no body") }
                 term = body
                 environment = closure.environment + arguments
@@ -490,13 +561,18 @@ private final class Machine {
     }
 
     private func call(_ closure: SscClosure, _ arguments: [SscValue]) -> SscValue {
+        if failure != nil { return .unit }
         checkArity(closure, arguments)
-        if let native = closure.native { return native(arguments) }
+        if let native = closure.native {
+            do { return try native(arguments) }
+            catch { recordFailure(error); return .unit }
+        }
         guard let body = closure.body else { fatalError("app: closure has no body") }
         return runTerm(body, closure.environment + arguments)
     }
 
     private func evaluate(_ term: SscTerm, _ environment: [SscValue], tail: Bool) -> EvalStep {
+        if failure != nil { return .value(.unit) }
         switch term {
         case let .literal(constant): return .value(constantValue(constant))
         case let .local(index):
@@ -509,15 +585,30 @@ private final class Machine {
         case let .lambda(arity, body):
             return .value(.closure(SscClosure(arity: arity, environment: environment, body: body)))
         case let .apply(function, arguments):
-            guard case let .closure(closure) = value(function, environment) else {
-                fatalError("app: not a function")
+            let functionValue = value(function, environment)
+            if failure != nil { return .value(.unit) }
+            var values: [SscValue] = []
+            for argument in arguments {
+                values.append(value(argument, environment))
+                if failure != nil { return .value(.unit) }
             }
-            let values = arguments.map { value($0, environment) }
-            if tail { return .call(closure, values) }
-            return .value(call(closure, values))
+            if case let .closure(closure) = functionValue {
+                if tail { return .call(closure, values) }
+                return .value(call(closure, values))
+            }
+            do {
+                if let result = try nativeUiHost?.apply(functionValue, values) { return .value(result) }
+            } catch {
+                recordFailure(error)
+                return .value(.unit)
+            }
+            fatalError("app: not a function")
         case let .letBindings(bindings, body):
             var extended = environment
-            for binding in bindings { extended.append(value(binding, extended)) }
+            for binding in bindings {
+                extended.append(value(binding, extended))
+                if failure != nil { return .value(.unit) }
+            }
             return evaluate(body, extended, tail: tail)
         case let .letRecursive(bindings, body):
             var closures: [SscClosure] = []
@@ -531,14 +622,22 @@ private final class Machine {
             for closure in closures { closure.environment = extended }
             return evaluate(body, extended, tail: tail)
         case let .ifThenElse(condition, ifTrue, ifFalse):
-            guard case let .bool(test) = value(condition, environment) else {
+            let conditionValue = value(condition, environment)
+            if failure != nil { return .value(.unit) }
+            guard case let .bool(test) = conditionValue else {
                 fatalError("if: condition not Bool")
             }
             return evaluate(test ? ifTrue : ifFalse, environment, tail: tail)
         case let .constructor(tag, fields):
-            return .value(.data(tag, fields.map { value($0, environment) }))
+            var values: [SscValue] = []
+            for field in fields {
+                values.append(value(field, environment))
+                if failure != nil { return .value(.unit) }
+            }
+            return .value(.data(tag, values))
         case let .matchValue(scrutinee, arms, fallback):
             let scrutineeValue = value(scrutinee, environment)
+            if failure != nil { return .value(.unit) }
             if case let .data(tag, fields) = scrutineeValue,
                let arm = arms.first(where: { $0.tag == tag && $0.arity == fields.count }) {
                 return evaluate(arm.body, environment + fields, tail: tail)
@@ -546,19 +645,32 @@ private final class Machine {
             if let fallback { return evaluate(fallback, environment, tail: tail) }
             fatalError("match: no arm for \(sscShow(scrutineeValue))")
         case let .primitive(operation, arguments):
-            return .value(primitive(operation, arguments.map { value($0, environment) }))
+            var values: [SscValue] = []
+            for argument in arguments {
+                values.append(value(argument, environment))
+                if failure != nil { return .value(.unit) }
+            }
+            let result = primitive(operation, values)
+            if failure != nil { return .value(.unit) }
+            return .value(result)
         case let .whileLoop(condition, body):
             while true {
-                guard case let .bool(test) = value(condition, environment) else {
+                let conditionValue = value(condition, environment)
+                if failure != nil { return .value(.unit) }
+                guard case let .bool(test) = conditionValue else {
                     fatalError("while: condition not Bool")
                 }
                 if !test { break }
                 _ = value(body, environment)
+                if failure != nil { return .value(.unit) }
             }
             return .value(.unit)
         case let .sequence(terms):
             guard let last = terms.last else { return .value(.unit) }
-            for term in terms.dropLast() { _ = value(term, environment) }
+            for term in terms.dropLast() {
+                _ = value(term, environment)
+                if failure != nil { return .value(.unit) }
+            }
             return evaluate(last, environment, tail: tail)
         }
     }
@@ -825,6 +937,12 @@ private final class Machine {
     }
 
     private func method(_ name: String, _ receiver: SscValue, _ args: [SscValue]) -> SscValue {
+        do {
+            if let result = try nativeUiHost?.method(name, receiver, args) { return result }
+        } catch {
+            recordFailure(error)
+            return .unit
+        }
         if case .data("Op", _) = receiver {
             return liftOperation(receiver) { [weak self] resumed in self!.method(name, resumed, args) }
         }

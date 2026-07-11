@@ -45,8 +45,9 @@ private[cli] object SwiftV2Cli:
     scala.util.Try(os.remove.all(output / "Sources"))
     scala.util.Try(os.remove(output / "Package.swift"))
     os.makeDir.all(output)
-    SwiftBackend.generate(program, product, platform).writeTo(output.toNIO)
-    EmittedPackage(output, product, platform)
+    val generated = SwiftBackend.generate(program, product, platform)
+    generated.writeTo(output.toNIO)
+    EmittedPackage(output, generated.executable, platform)
 
   def requireSwift(command: String): String =
     val executable = sys.props.getOrElse("ssc.swift.command", "swift")

@@ -12,6 +12,7 @@ final class SwiftV2CliTest extends AnyFunSuite:
 
   private val money = repoRoot / "tests" / "conformance" / "money-portable-v2.ssc"
   private val appcoreExample = repoRoot / "examples" / "swift" / "appcore-money.ssc"
+  private val nativeUiExample = repoRoot / "examples" / "swift" / "appcore-nativeui.ssc"
 
   test("emit writes deterministic v2 AppCore packages for macOS and iOS"):
     withLibPath {
@@ -52,6 +53,19 @@ final class SwiftV2CliTest extends AnyFunSuite:
       val out = os.temp.dir(prefix = "ssc-v2-swift-run-")
       try
         val emitted = SwiftV2Cli.emit(appcoreExample, out, SwiftPlatform.MacOS)
+        assert(SwiftV2Cli.runPackage(emitted, Nil, "run-swift") == 0)
+      finally os.remove.all(out)
+    }
+
+  test("NativeUi package uses and runs the dedicated debug CLI product"):
+    assume(swiftAvailable, "swift not on PATH")
+    withLibPath {
+      val out = os.temp.dir(prefix = "ssc-v2-swift-nativeui-")
+      try
+        val emitted = SwiftV2Cli.emit(nativeUiExample, out, SwiftPlatform.MacOS)
+        assert(emitted.product == "appcore_nativeuiCli")
+        assert(os.exists(out / "Sources" / "AppCore" / "NativeUiHost.swift"))
+        assert(os.exists(out / "Sources" / emitted.product / "main.swift"))
         assert(SwiftV2Cli.runPackage(emitted, Nil, "run-swift") == 0)
       finally os.remove.all(out)
     }
