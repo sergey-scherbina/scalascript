@@ -1491,6 +1491,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         Each provider family needs unit coverage, assembled
                         VM/ASM coverage, and forbidden-dependency/class-load
                         gates before its taxonomy rows can leave the blocker set.
+                        - [ ] **TI-8.2d3a core-free crypto breadth:** port the
+                              established v1 crypto-plugin contracts—not its
+                              frontend/runtime dependencies—into the v2 native
+                              crypto provider: AES-GCM/CBC, X.509/RSA-OAEP,
+                              Ed25519 sign/total verify, RFC 6238 TOTP, and
+                              Shamir split/recover. Reuse existing algorithms
+                              and vectors, cover malformed inputs, run all three
+                              crypto examples on VM/direct ASM, then apply every
+                              release gate and remove only resolved taxonomy rows.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move
