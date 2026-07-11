@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T05:38:07Z
+heartbeat: 2026-07-11T05:43:21Z
 status: in-progress
-done-so-far: Swift AppCore and honest CLI routes landed through bb08306a0; backend 10/10, CLI/registry 12/12, assembled e2e and real Money/effects green
-next: close Xcode application-project acceptance gap in the NativeUi ABI spec, obtain final Rozum review, then land the spec-only commit
+done-so-far: Swift AppCore/CLI are green; reviewed NativeUi ABI, lifecycle, root handoff, and real Xcode application-project contract landed through b3cd2e1bf
+next: implement and test the versioned portable NativeUi ABI in the v2 JVM runtime before the SwiftUI renderer
