@@ -461,13 +461,18 @@ When to use each:
 | `ssc run-js --v2` | Node.js via v2 CoreIR JS | Opt-in v2 JS lane verification before the default JS flip |
 | `ssc run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
 | `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
+| `ssc emit-swift` | v2 AppCore Swift package | Inspect/integrate deterministic checked-CoreIR Swift sources |
+| `ssc run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable on macOS |
+| `ssc run --target macos` | v2 AppCore via SwiftPM | Apple desktop spelling; use `--v1` only for the legacy SwiftUI lane |
 
 **Requirements:** `ssc run --native` requires a staged installation produced by
 `installBin`, but does not require Scala CLI or a Java/Scala compiler at user
 runtime. `ssc run --target jvm` / `ssc run-jvm` require `scala-cli` on PATH;
 `ssc run-js` requires `node` on PATH; `ssc run-rust` /
 `ssc build-rust` require `cargo` on PATH (install via `brew install rust`
-or <https://www.rust-lang.org/tools/install>).
+or <https://www.rust-lang.org/tools/install>). `ssc run-swift` and
+`ssc run --target macos` require Swift 6+ on PATH; package generation itself
+does not invoke Scala CLI, v1 `JvmGen`, or the legacy SwiftUI emitter.
 
 ```bash
 # Example: same file, four runtimes
@@ -475,6 +480,7 @@ ssc run                    examples/recursion.ssc    # interpreter
 ssc run --target jvm       examples/recursion.ssc    # JVM bytecode
 ssc run-js                 examples/recursion.ssc    # Node.js
 ssc run-rust               examples/hello.ssc        # native binary via Cargo
+ssc run-swift              examples/swift/appcore-money.ssc  # native SwiftPM AppCore
 
 # HTTP server on JVM (real threads, JDBC available)
 ssc run --target jvm myapp.ssc
@@ -512,6 +518,29 @@ closures, single-generator `for … yield`, filesystem/env I/O,
 surface fails loudly (never a silent miscompile), and a `rust` fence
 block is always available as an escape into hand-written Rust. See
 [`rust-backend.md`](rust-backend.md) for the full matrix and roadmap.
+
+#### Compiling checked CoreIR to Swift AppCore
+
+The ScalaScript 2 Swift backend emits a deterministic Swift Package with a
+target-owned `AppCore` library/runtime and a thin executable. It consumes only
+the checked v2 `Program`; generated sources do not reference the v1 parser,
+interpreter, `JvmGen`, `View`, or `SwiftUIEmitter`.
+
+```bash
+ssc emit-swift --target macos -o ./myapp-swift myapp.ssc
+swift run --package-path ./myapp-swift
+
+ssc run-swift myapp.ssc -- arg1 arg2
+ssc build --target macos myapp.ssc       # v2 is the default
+ssc run --target macos myapp.ssc
+ssc run --v1 --target macos legacy.ssc   # explicit compatibility only
+```
+
+`--target ios` already emits an iOS-deployment Swift package through the same
+v2 backend. Until the portable NativeUi application target lands, iOS launch,
+signing, distribution, and publication stop with an explicit diagnostic and
+never retry the v1 generator. The subsequent SwiftUI milestone replaces that
+temporary boundary with the native app/simulator/device adapters.
 
 **Reactive web server.** A declarative `std/ui` view compiled with
 `serve(view, port)` emits a native `tokio` + `hyper` server with

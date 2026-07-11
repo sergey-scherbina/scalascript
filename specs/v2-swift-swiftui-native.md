@@ -355,9 +355,9 @@ change deployment metadata and native adapters, not source-level behavior.
 
 ### CLI/package
 
-- [ ] `emit-swift` writes deterministic sources and `run-swift` runs AppCore.
-- [ ] Apple build/run lane flags are parsed as flags in every supported order.
-- [ ] Apple targets use v2 by default, `--v1` is explicit, and v2 failures never
+- [x] `emit-swift` writes deterministic sources and `run-swift` runs AppCore.
+- [x] Apple build/run lane flags are parsed as flags in every supported order.
+- [x] Apple targets use v2 by default, `--v1` is explicit, and v2 failures never
   fall back.
 - [ ] Package/sign/simulator/device/publish adapters consume the generated
   package and retain bounded missing-tool diagnostics.
@@ -491,9 +491,35 @@ building generated Swift; snapshot/string tests alone are insufficient.
   `effect-transitive-handler.ssc` follows the same path and prints `6`,
   `sum=6`, and `sum=6!6`, proving operation lifting through collection methods,
   arithmetic, and reusable continuations.
-- The final Swift backend suite passes 8/8 on Swift 6.3.2. The unchanged
+- The Swift backend suite passed 8/8 at core closure and now passes 10/10 after
+  platform metadata and executable-argv coverage on Swift 6.3.2. The unchanged
   conformance gates pass 1/1 for `money-portable-v2` and 4/4 for
   `effect-*,effects` on every applicable lane.
+
+### Swift CLI/package routing (`159e45625`, 2026-07-11)
+
+- `emit-swift` and `run-swift` are ServiceLoader-discovered commands over the
+  checked FrontendBridge → CoreIR → SwiftBackend path. Generated packages carry
+  explicit macOS 13 or iOS 16 deployment metadata; executable argv is read from
+  Swift `CommandLine.arguments` through portable `io.args`.
+- `build` and `run` consume `--v2`, `--v1`, and Apple target flags in either
+  order. macOS and iOS generation default to v2, while `--v1` is the only route
+  to `Parser`/`JvmGen`/the compatibility SwiftUI emitter. v2 errors never retry
+  that route.
+- The domain-only macOS package builds/runs now. Until the separately reviewed
+  NativeUi App target lands, iOS launch and Apple package/publish operations
+  stop with a bounded `NativeUi application target is not generated yet`
+  diagnostic after v2 generation; this is an explicit staged boundary, not a
+  claim that simulator/signing adapters are complete.
+- Final gates for this slice: Swift backend 10/10; new CLI/registry tests 12/12;
+  existing SwiftUI CLI and real legacy fixture tests 27/27; assembled
+  `tests/e2e/v2-swift-cli.sh` passes real `bin/ssc` emit/build/run in both flag
+  orders plus no-fallback diagnostics; Money/effect conformance remains 1/1 and
+  4/4.
+- Follow-up `0174796ef` made compiler-internal `global.reg` update the Swift
+  machine's dynamic globals instead of rejecting ordinary top-level `val`
+  initialization. The user-facing `examples/swift/appcore-money.ssc` now runs
+  through real `run-swift` and pins that non-toy source shape.
 
 ### Portable Decimal/Money/effects (`ff3a52eba`, 2026-07-10)
 

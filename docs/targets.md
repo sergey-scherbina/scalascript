@@ -274,6 +274,26 @@ Phases R.2 through R.6 widen the capability set: core IR coverage
 monomorphisation, WebSockets, Auth, MCP, Streams, type classes).
 Full spec: [`../specs/rust-backend.md`](../specs/rust-backend.md).
 
+## Swift Backend (ScalaScript 2 AppCore)
+
+The v2 Swift backend consumes checked CoreIR and writes a deterministic Swift
+Package containing `Sources/AppCore/SscRuntime.swift`,
+`Sources/AppCore/GeneratedProgram.swift`, and a thin executable target. It is a
+separate implementation from the v1 SwiftUI/JvmGen compatibility generator.
+
+| Command | Purpose |
+|---|---|
+| `ssc emit-swift --target macos|ios [-o dir] <file>` | Write the package without building it. |
+| `ssc run-swift <file> [-- args…]` | Build and run AppCore with host SwiftPM on macOS. |
+| `ssc build --target macos|ios <file>` | Use the v2 generator by default; `--v1` explicitly selects compatibility. |
+| `ssc run --target macos <file>` | Generate and run the v2 domain executable. |
+
+macOS declares a 13.0 deployment floor; iOS declares 16.0. The current
+domain-only slice intentionally rejects iOS launch/package/publish before the
+portable NativeUi application target exists, naming that boundary and never
+falling back to v1. Decimal/BigInt, Money, algebraic effects, tail recursion,
+and executable argv are implemented by the target-owned Swift runtime.
+
 ## Conformance
 
 ### Semantic Guarantees
