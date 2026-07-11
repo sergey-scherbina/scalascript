@@ -1,5 +1,0 @@
-claim: native-reduce
-owner: opus (native-front correctness program, cont.)
-started: 2026-07-11
-scope:
-  - v2/src/Runtime.scala — reduce/reduceLeft/reduceRight __method__ handlers (isList)

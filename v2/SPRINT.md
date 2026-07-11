@@ -1560,3 +1560,11 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       slen fast path kept for unambiguous strings.
       Both verified; collections.ssc FULL MATCH; v2/conformance 406/0.
 - [ ] Follow-up: `.reduce` returns Stub (native prelude/runtime gap, separate from placeholders).
+
+## native List.reduce (2026-07-11, opus) — K62.31, conformance 406/0
+
+- [x] K62.31 — `.reduce`/`.reduceLeft`/`.reduceRight` returned a silent Stub (native routes them
+      to __method__, runtime had no handler). Added reduce/reduceLeft/reduceRight for isList
+      (List + ArrayBuffer). Verified reduce/reduceLeft/reduceRight (incl. _ ++ _ list-concat, and
+      the K62.29 multi-placeholder _ + _); sum/foldLeft/max unchanged; conformance 406/0, bridge
+      unchanged. (v2Core recompiled.)
