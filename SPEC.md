@@ -522,6 +522,14 @@ given Functor[List] with
   def map[A, B](fa: List[A])(f: A => B): List[B] = fa.map(f)
 ```
 
+A named `given` is a first-class immutable dictionary value. Its concrete
+members survive ordinary value flow: it may be passed as an explicit function
+argument, returned, aliased, imported, or stored in a collection, and member
+selection is owned by that value rather than by the source spelling of the
+given. A zero-parameter member behaves as a property; a parameterized member
+behaves as a callable closure. Static direct and `summon[...]` access are
+observationally equivalent to dispatch through the first-class dictionary.
+
 ### 4.7 Checked Errors — `throws`
 
 ```scalascript
