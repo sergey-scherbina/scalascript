@@ -1,0 +1,6 @@
+feature/qa-correctness-audit 2026-07-11T09:02:59Z
+agent: claude-code (opus)
+heartbeat: 2026-07-11T09:02:59Z
+status: in-progress
+done-so-far: v2 parser lane is crowded (v2.1 track); my K62.13-18 integrated cleanly (afb11b082 BUILT ON my K62.17 — no dup). Pivoting to a NON-feature QA/correctness lane the feature-swarm under-invests in. cli-fork exit-1 just addressed (6a7c42d79); cross-backend audit is unclaimed + opus-suited + low-collision.
+next: QA/correctness-audit track — (QA.1 done: K62.17 verified as foundation). QA.2: establish ground-truth on flagged red tests (graph-edge-display, tkv2-awaitClient, money-Currency .scale) + cross-backend parity (CrossBackendPropertyTest family). QA.3: for recently-swarm-churned features (enums/given/summon/default-args/extensions), find cross-backend divergences NOT in the corpus; minimize + root-cause + fix-or-file. Review-mode = low collision. AVOID: v2/lib, ssc1-front/lower (v2.1 track), swift-ui, perf-jit, json-intrinsics, asm-jit (claimed).
