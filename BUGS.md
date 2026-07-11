@@ -19,12 +19,19 @@ advanced all three parser-combinator examples past their missing owned members.
   physical dedent/code-block boundary when the next statement is another
   `def`. It therefore prepends the stale receiver `p` to `runParser`, emitting
   `lam 5`; four-argument calls shift the scrutinee and surface the misleading
-  match failure.
+  match failure. After closing the layout boundary, `runParser` correctly
+  becomes `lam 4`, exposing the companion cross-module defect: extension method
+  names live only in the parser's transient `extensionMethodsCell`. Per-module
+  parsing resets that cell before the combined module closure is lowered, so
+  imported `Parser.map` becomes the built-in `_sel_map(PRegex, ...)`; that
+  list/option helper has no `PRegex` arm and produces the same diagnostic.
 - **Plan/done-when:** give an indented extension declaration a real layout
-  boundary, clear receiver state at its virtual close, preserve all extension
-  members inside the body, and verify a following top-level function's arity.
-  Add an isolated VM/ASM regression and rerun all three examples; keep any later
-  independent failures separately classified.
+  boundary and persist extension start/end ownership in the parsed AST so the
+  combined lowerer reconstructs imported extension dispatch deterministically.
+  Clear receiver state at virtual close, preserve all members inside the body,
+  and verify a following top-level function's arity. Add a multi-file VM/ASM
+  regression and rerun all three examples; keep any later independent failures
+  separately classified.
 
 ## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
 

@@ -1659,9 +1659,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `runParser` is `lam 5`, not its declared arity 4:
                               stale extension receiver state crosses the
                               dedent/code-block boundary. Specify and implement
-                              a real indented extension-body close, cover member
-                              ownership plus the following top-level def arity
-                              on VM/ASM, then rerun the three examples and
+                              a real indented extension-body close. The first
+                              fix restores `lam 4` and exposes a second cause:
+                              imported extension names are transient cell state,
+                              so `Parser.map` lowers to `_sel_map(PRegex, ...)`.
+                              Persist extension start/end ownership in AST,
+                              rebuild the registry over the merged module
+                              closure, and use a mandatory multi-file regression
+                              for imported dispatch plus following top-level def
+                              arity on VM/ASM. Then rerun the three examples and
                               reclassify only fully resolved rows.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
