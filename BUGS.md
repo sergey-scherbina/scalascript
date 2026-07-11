@@ -1,5 +1,28 @@
 # Bug tracker
 
+## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
+
+**Status:** open (2026-07-11); found by codex while selecting the next
+toolchain-independence runtime blocker after core-free YAML.
+
+- **Real-harness repro:** run
+  `bin/ssc-standard run examples/dsl-calc-parser.ssc`. The assembled native
+  route fails with `unbound global: Parser_regex`. Its emitted CoreIR contains
+  `PRegex` and unprefixed `regex`, but no `Parser_regex`; `Parser.char` also
+  points at missing `Parser_char`.
+- **Expected:** `object Parser:` owns all contiguous indented members, emits
+  `Parser_<member>` definitions, and runs identically on native VM/direct ASM.
+- **Root cause:** the layout pass recognizes a trailing colon only while inside
+  a `trait` header. For `object Parser:` it emits no virtual braces;
+  `skipToBrace` consumes the first member and the remaining definitions are
+  parsed as unrelated top-level declarations, while selector lowering still
+  treats `Parser` as a known object.
+- **Plan/done-when:** make colon layout opening declaration-contextual for
+  object headers without treating ordinary type-ascription colons as blocks;
+  add focused braced/layout VM/ASM coverage, rerun the three parser-combinator
+  rows, then update taxonomy only for examples that fully complete. Require
+  native-entry, corpus/parity/taxonomy, and fresh affected conformance gates.
+
 ## v2-swiftui-fetch-wrapper-silent-default — non-text fetch bindings render an empty value
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` in the third

@@ -1602,6 +1602,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               release gates. Result: the focused fixture prints
                               42/8/1/9 identically, `storage-demo.ssc` advances,
                               and native-entry plus fresh conformance 11/11 pass.
+                        - [ ] **TI-8.2d2p layout object bodies:** implement
+                              `specs/v2.1-layout-object-bodies.md`. A colon-style
+                              `object Parser:` currently opens no virtual layout
+                              block: `skipToBrace` consumes its first member and
+                              later defs become unprefixed top-level globals,
+                              although selector lowering calls
+                              `Parser_<member>`. Extend the layout header state
+                              only for object declarations, preserve ordinary
+                              type-ascription colons and braced objects, and add
+                              exact VM/direct-ASM regressions for first/later
+                              properties and methods. Rerun the three DSL regex
+                              rows and retire/reclassify only rows that fully
+                              complete; require native-entry, full corpus/parity,
+                              both taxonomies, and fresh conformance before push.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
