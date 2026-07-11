@@ -2257,6 +2257,8 @@ def lowerStmtToList = (stmt) =>
         match data {
           case Pair(name, params) => lowerCaseCls(name, params)
         }
+      else if #seq(tag, "caseobj") then
+        Cons(IrDef(data, IrCtor(data, Nil)), Nil)
       else if #seq(tag, "enum") then
         -- K62.13: expand each enum case into ctor def(s)
         match data {

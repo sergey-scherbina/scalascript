@@ -1305,6 +1305,7 @@ def parseVal = (toks) =>
 
 def mkMatch   = (e, arms) => Pair("match",   Pair(e, arms))
 def mkCaseCls = (n, ps)   => Pair("casecls", Pair(n, ps))
+def mkCaseObj = (n)       => Pair("caseobj", n)
 
 -- parsePat: single flat pattern; returns (pat, remaining-toks)
 -- Supports: Ctor(v1,v2), lowercase-var, _ wildcard, kw-literal
@@ -1511,6 +1512,39 @@ def parseCaseClass = (toks) =>
   else ts2 in
   pr(mkCaseCls(name, prV(rp)), ts3)
 
+-- parseCaseObject: `case object Name [extends ...]` (keywords consumed).
+-- The native route represents the declaration as one stable nullary value.
+-- Member-bearing bodies are deliberately skipped by this slice, matching the
+-- bounded contract in specs/v2.1-native-case-objects.md.
+def parseCaseObject = (toks) =>
+  let name = tokVal(peek(toks)) in
+  let rec skipTail = (ts) =>
+    if kindIs("EOF", ts) then ts
+    else if kindIs(";", ts) then ts
+    else if kindIs("{", ts) then ts
+    else if kindIs("kw", ts) then
+      if kwIs("def", ts) then ts
+      else if kwIs("val", ts) then ts
+      else if kwIs("var", ts) then ts
+      else if kwIs("case", ts) then ts
+      else if kwIs("sealed", ts) then ts
+      else if kwIs("trait", ts) then ts
+      else if kwIs("given", ts) then ts
+      else if kwIs("object", ts) then ts
+      else if kwIs("class", ts) then ts
+      else if kwIs("abstract", ts) then ts
+      else skipTail(advance(ts))
+    else skipTail(advance(ts)) in
+  let ts1 = skipTail(advance(toks)) in
+  let ts2 = if kindIs("{", ts1) then
+    let rec skipBody = (ts) =>
+      if kindIs("}", ts) then advance(ts)
+      else if kindIs("EOF", ts) then ts
+      else skipBody(advance(ts)) in
+    skipBody(advance(ts1))
+  else ts1 in
+  pr(mkCaseObj(name), ts2)
+
 -- skipToBrace: advance past extends/with clauses until `{` or EOF/;
 def skipToBrace = (ts) =>
   if kindIs("{",   ts) then ts
@@ -1674,6 +1708,7 @@ def parseOneStmt = (toks) =>
     else if #seq(v, "case") then
       let ts2 = advance(toks) in
       if kwIs("class", ts2) then parseCaseClass(advance(ts2))
+      else if kwIs("object", ts2) then parseCaseObject(advance(ts2))
       else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
     else if #seq(v, "sealed") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))

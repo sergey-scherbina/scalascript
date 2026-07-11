@@ -134,6 +134,7 @@ def sscIsDecl = (tag) =>
   else if #seq(tag, "val") then true
   else if #seq(tag, "var") then true
   else if #seq(tag, "casecls") then true
+  else if #seq(tag, "caseobj") then true
   else if #seq(tag, "given") then true
   else if #seq(tag, "object") then true
   else false

@@ -1,0 +1,15 @@
+---
+name: v21-native-case-object-import
+---
+
+[Empty, classify](case-object-import-lib.ssc)
+
+# Imported value and pattern
+
+```scalascript
+val alias = Empty
+
+println(Empty)
+println(classify(alias))
+println(Empty == alias)
+```

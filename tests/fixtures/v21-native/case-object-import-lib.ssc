@@ -1,0 +1,14 @@
+---
+name: v21-native-case-object-import-lib
+---
+
+# Stable nullary value
+
+```scalascript
+trait Marker
+case object Empty extends Marker
+
+def classify(value: Any): String = value match
+  case Empty => "empty"
+  case _     => "custom"
+```
