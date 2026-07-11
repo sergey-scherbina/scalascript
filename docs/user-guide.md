@@ -326,7 +326,8 @@ The native route also has its own core-free ServiceLoader plugin boundary. The
 process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (hashing,
 Base64, HMAC/PBKDF2/random, AES-GCM/CBC, RSA/X.509, Ed25519, HOTP/TOTP, and
 Shamir recovery), and the JVM implementations of
-`std.fs`/`std.os`, and typed `std.json` no longer load the v1 `PluginBridge`,
+`std.fs`/`std.os`, typed `std.json`, and the `Storage` effect no longer load the
+v1 `PluginBridge`,
 interpreter values, or Scalameta classes. File reads/writes, byte I/O, directory
 operations, environment lookup, path operations, temporary paths, total JSON
 navigation, strict/tolerant parsing, exact string-decimals, and structured JSON
@@ -342,9 +343,14 @@ land; there is no compatibility fallback. Named JDBC connections from explicit
 root `databases:` front-matter plus `Db.query`/`Db.execute` now use the standalone
 SQL runtime through the same core-free provider boundary on VM and direct ASM.
 Typed writes, LISTEN/NOTIFY, and native lowering of fenced `sql`/`transaction`
-blocks remain separate migration slices. Other plugin families are still being
-migrated; a missing native provider fails explicitly. Use `--compat-frontend`
-for a tools-tier plugin that has not moved yet.
+blocks remain separate migration slices. `runEphemeralStorage` creates a fresh
+insertion-ordered map per scope; `runStorage` loads and flushes its JSON string
+map after each mutation. Its path is an explicit second argument, then
+`SSC_STORAGE_PATH`, then `./ssc-storage.json`. Both runners, all five
+`Storage.get/put/remove/has/keys` operations, and packaged `build-jvm` artifacts
+use the same core-free provider on VM and direct ASM. Other plugin families are
+still being migrated; a missing native provider fails explicitly. Use
+`--compat-frontend` for a tools-tier plugin that has not moved yet.
 
 ### `build-jvm` — executable JAR directly from native CoreIR + ASM
 

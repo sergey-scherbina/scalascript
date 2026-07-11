@@ -34,10 +34,10 @@ Five operations:
 runEphemeralStorage {
   Storage.put("user", "alice")
   Storage.put("role", "admin")
-  println(Storage.get("user"))         // Some(alice)
+  println(Storage.get("user"))         // Some("alice")
   println(Storage.get("missing"))      // None
   println(Storage.has("role"))         // true
-  println(Storage.keys())              // List(user, role)
+  println(Storage.keys())              // List("user", "role")
 }
 ```
 
@@ -55,7 +55,7 @@ runEphemeralStorage {
   println(bumpCounter("alice"))   // 2
   println(bumpCounter("bob"))     // 1
   println(bumpCounter("alice"))   // 3
-  println(Storage.keys())         // List(hits:alice, hits:bob)
+  println(Storage.keys())         // List("hits:alice", "hits:bob")
 }
 ```
 

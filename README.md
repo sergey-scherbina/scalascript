@@ -285,7 +285,7 @@ compiles them via Scala.js.
 | Effect-row unions | `direct[Async \| Random] { ... }` |
 | Built-in `Async` effect | `runAsync { Async.delay(ms); Async.parallel(...) }` |
 | Real-thread `runAsyncParallel` | genuine JVM concurrency without touching call sites |
-| Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — JSON file-backed or ephemeral |
+| Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — core-free JSON file-backed or ephemeral handlers on 2.1 native VM/direct ASM/build-jvm |
 | Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]` ADT, `coroutineCancel` |
 | Generators | `generator[T] { yield(v) }`, `fromGenerator`, streaming interop |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with diamond-dedup flush |
@@ -503,7 +503,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [async-demo.ssc](examples/async-demo.ssc) | Built-in `Async` effect — `runAsync`, `async`, `await`, `parallel`, `delay` |
 | [coroutine-demo.ssc](examples/coroutine-demo.ssc) | `coroutineCreate`, `coroutineResume`, `suspend`, generators |
 | [signals-demo.ssc](examples/signals-demo.ssc) | Reactive signals — `Signal`, `computed`, `effect`, diamond dedup |
-| [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — JSON-backed and ephemeral handlers |
+| [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — core-free JSON-backed and ephemeral handlers on native VM/direct ASM |
 | [actors-demo.ssc](examples/actors-demo.ssc) | Actors — spawn, send, receive, supervision, cluster |
 | [actors-typed-remote-spawn.ssc](examples/actors-typed-remote-spawn.ssc) | Typed `ActorRef[M]` helpers plus named `registerBehavior` / `spawnRemote` |
 | [cluster-capability.ssc](examples/cluster-capability.ssc) | `ClusterCapability`, static seed discovery, and code identity checks |
