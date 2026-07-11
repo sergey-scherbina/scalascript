@@ -121,14 +121,14 @@ multi-effect CPS.
   `arity: 2 expected, 1 given`. Structural CoreIR correctly represents the
   source as nested applications of a two-argument closure; the runtime rejects
   the first, intentionally partial, application.
-- **Expected:** applying fewer arguments than a closure's remaining arity
-  returns a closure that captures those arguments; the later application
-  invokes the original body exactly once with arguments in source order. VM
-  and direct ASM share this ABI, while over-application remains an arity error.
-- **Plan/done-when:** specify and implement the shared partial-closure helper,
-  use it from both `Runtime.run` and `Emit.app`, add focused full/partial and
-  over-application tests, then require exact installed VM/ASM output and the
-  affected conformance/release gates.
+- **Expected:** the lowerer reconciles the source's nested parameter-list call
+  with the known definition's flattened total arity before emitting CoreIR.
+  VM/direct ASM retain exact closure arity; an invalid single-clause
+  `required()` call must still fail rather than become a closure.
+- **Plan/done-when:** pre-scan definition arities, flatten only a nested call
+  whose combined arguments exactly satisfy a known definition, retain the
+  existing under/over-arity negative gates, then require exact installed
+  VM/ASM output and the affected conformance/release gates.
 
 ## v21-native-multi-effect-hidden-cps — declared operation gains a hidden argument
 
