@@ -819,8 +819,8 @@ object Compiler:
       // a registered global value. Safe: same dispatch the bridge uses (0-mismatch corpus);
       // effect runners (runAsync/serve/actors) are block-form, not handlers, so untouched.
       case App(Global(g), args)
-          if !topDefs.contains(g) && !globals.contains(g)
-             && !V2PluginRegistry.hasGlobal(g) && V2PluginRegistry.lookup(g).isDefined =>
+          if !globals.contains(g) && !V2PluginRegistry.hasGlobal(g)
+             && V2PluginRegistry.lookup(g).isDefined =>
         compile(Prim(g, args))
       case App(fn, args) =>
         // Global-call FC fast path: skip Done/run for the function lookup.
@@ -3525,6 +3525,11 @@ object Prims:
       case _ =>
         anyStr(v)
     String.format(java.util.Locale.US, spec, arg)
+  /** User-visible deterministic display shared by standard host providers and
+   *  the kernel's println/interpolation paths. This is a renderer over an
+   *  already-built Value; it never parses source or data formats. */
+  def display(v: Value): String = anyStr(v)
+
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
     // Stub breadcrumbs render as the bare tag in user-visible strings — the

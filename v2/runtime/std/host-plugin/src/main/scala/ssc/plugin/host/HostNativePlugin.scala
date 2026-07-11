@@ -16,10 +16,10 @@ final class HostNativePlugin extends NativePlugin:
     context.registerValue("sep", Value.StrV(java.io.File.separator))
     context.registerValue("platform", Value.DataV("JVM", Vector.empty))
 
-    context.registerGlobal("doc", -1) { parts =>
+    context.register("doc") { parts =>
       Value.DataV("NativeDoc", parts.toVector)
     }
-    context.registerGlobal("render", 1) {
+    context.register("render") {
       case Value.DataV("NativeDoc", parts) :: Nil =>
         Console.out.println(parts.map(Prims.display).mkString("\n"))
         Value.UnitV

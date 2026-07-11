@@ -4,16 +4,12 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets
 
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Runtime, V2PluginRegistry, Value}
+import ssc.{V2PluginRegistry, Value}
 import ssc.plugin.host.HostNativePlugin
 
 final class HostNativePluginTest extends AnyFunSuite:
   private def call(name: String, args: Value*): Value =
-    V2PluginRegistry.lookupGlobal(name).getOrElse(fail(s"missing global $name")) match
-      case closure: Value.ClosV =>
-        val env = if args.isEmpty then closure.env else Runtime.extend(closure.env, args.toArray)
-        Runtime.run(closure.code, env)
-      case value => fail(s"global $name is not callable: $value")
+    V2PluginRegistry.lookup(name).getOrElse(fail(s"missing handler $name"))(args.toList)
 
   private def captured(body: => Unit): String =
     val bytes = new ByteArrayOutputStream()
@@ -24,6 +20,8 @@ final class HostNativePluginTest extends AnyFunSuite:
 
   test("doc preserves arbitrary values and render shares println display semantics"):
     NativePluginHost.installProviders(List(new HostNativePlugin))
+    assert(V2PluginRegistry.lookupGlobal("doc").isEmpty)
+    assert(V2PluginRegistry.lookupGlobal("render").isEmpty)
     val list = Value.DataV("Cons", Vector(
       Value.StrV("x"),
       Value.DataV("Cons", Vector(Value.StrV("y"), Value.DataV("Nil", Vector.empty)))))
