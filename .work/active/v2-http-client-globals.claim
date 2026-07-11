@@ -1,0 +1,6 @@
+feature/v2-http-client-globals 2026-07-11T18:31:36Z
+agent: claude-code (rozum-ucc-test)
+heartbeat: 2026-07-11T18:31:36Z
+status: in-progress
+done-so-far: Root-caused "unbound global: httpClient" on ssc run (v2 VM). The fast http plugin registers httpClient/httpTimeout/httpRetry as natives, but PluginBridge only gives httpGet/httpPost a *global* binding for the batch/ssc-run env, so the scoped client-config intrinsics are unreachable. Fix: mirror the httpGet/httpPost registerGlobal delegation for httpClient/httpTimeout/httpRetry in PluginBridge.
+next: implement 3 registerGlobal delegations; conformance http slice; push.
