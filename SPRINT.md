@@ -444,6 +444,9 @@ there before changing this plan.
             an invalid-value gate and exact three-token border grammar. Require
             NativeUiEvent metadata Map and a complete six-field signal target;
             fabricate malformed metadata/target values in the executable gate.
+            Require a valid shorthand color token even with explicit border-
+            color, allowlist all frozen signal kinds, and reject non-String
+            event metadata keys with source-located forged-value regressions.
             Fetch signals/actions stay sourced Unsupported until the next slice
             implements phases, cancellation, and ordered success effects; the
             guard must cover signal text, controls, styles, and keyed items,

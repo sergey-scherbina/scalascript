@@ -76,6 +76,8 @@ read-only SwiftUI store/renderer review in Rozum.
   Fifth review narrowed the remaining event shape to field 3: metadata must be
   a portable Map (as every constructor emits), and the target must be the full
   six-field `NativeUiSignal`, not merely a matching tag/kind string.
+  Sixth review adds the adversarial boundary: signal kind must be one of the
+  eight frozen values and every event metadata key must be String.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 
@@ -102,6 +104,9 @@ read-only SwiftUI store/renderer review in Rozum.
   `box-shadow` grammar exactly (or source Unsupported) rather than applying one
   hard-coded shadow to every value, and require the exact accepted border
   shorthand instead of accepting trailing junk.
+  Sixth review adds that an explicit `border-color` must not mask an invalid
+  third color token in the shorthand itself; validate the shorthand first,
+  then apply the explicit override.
 
 ## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
 
