@@ -160,9 +160,11 @@ there before changing this plan.
       Progress 2026-07-10 (`68d0b6610`): deterministic AppCore SwiftPM package,
       complete structural Term evaluator/trampoline, generation-time negative
       diagnostics, and real Swift fact/TCO/map gates landed (3/3). Remaining in
-      this item: Decimal/Money, Pure/Op, mutual-TCO, and checked `.ssc` domain
+      this item: Pure/Op, mutual-TCO, and checked Money/effect `.ssc` domain
       execution. Follow-up `02342d967` landed arbitrary-precision signed BigInt
-      arithmetic and a real 30-digit SwiftPM round-trip; backend suite is 4/4.
+      arithmetic and a real 30-digit SwiftPM round-trip. `21939ae49` then landed
+      exact scale-preserving Decimal, portable rounding, and numeric map-key
+      identity under real SwiftPM execution; backend suite is 5/5.
 - [ ] **v2-swift-cli-package** — add Rust-shaped developer commands
       (`emit-swift`, `run-swift`) and route `build/run --target
       macos|desktop-macos|ios|mobile-ios` to v2 by default. `--v1` is the only
