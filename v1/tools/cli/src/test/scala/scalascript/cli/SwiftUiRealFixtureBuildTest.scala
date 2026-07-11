@@ -33,6 +33,14 @@ class SwiftUiRealFixtureBuildTest extends AnyFunSuite:
 
   test("examples/frontend/ios-hello/ios-hello.ssc builds a real Swift package via swift build") {
     assume(swiftAvailable, "swift not on PATH — skipping end-to-end SwiftUI native build")
+    // buildSwiftUIPackage compiles the .ssc to JVM bytecode via `scala-cli`, and
+    // when scala-cli is absent it calls `System.exit(1)` (SwiftUiCommands.scala) —
+    // which, run in-process here, kills the whole forked test JVM (a silent
+    // `sbt.ForkMain … exit code 1` with zero failed tests). The GitHub `sbt` job
+    // has swift but NOT scala-cli, so without this gate the test ran and nuked the
+    // fork. Gate on scala-cli too — same predicate buildSwiftUIPackage checks — so
+    // a box without it cancels cleanly instead of crashing (mirrors swiftAvailable).
+    assume(JvmBytecode.scalaCliAvailable, "scala-cli not on PATH — needed for the --bytecode SwiftUI build")
 
     // ssc.lib.path = repoRoot itself, matching bin/ssc's launcher (`-Dssc.lib.path="$_SSC_ROOT"`,
     // _SSC_ROOT = dirname(bin/)) — ImportResolver falls back to <libPath>/runtime/<path> for
