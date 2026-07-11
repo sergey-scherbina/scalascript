@@ -84,17 +84,17 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
 
   def hasRoute(path: String): Boolean = wsRouter.find("GET", path).isDefined
 
-  override def selectSubprotocol(path: String, offered: List[String]): Option[String] =
-    wsRouter.find("GET", path).flatMap { m =>
-      m.handler.protocols.find(offered.contains)
-    }
-
-  def open(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
-           out: java.io.OutputStream, subprotocol: Option[String]): WsConnection =
+  def onUpgrade(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
+                out: java.io.OutputStream): Unit =
     val route = wsRouter.find("GET", request.path)
       .getOrElse(throw new RuntimeException(s"no websocket route for ${request.path}"))
+    val key = request.headers.getOrElse("sec-websocket-key", "")
+    val sub = route.handler.protocols.find(WebSocketFrames.offeredSubprotocols(request.headers).contains)
+    WebSocketFrames.writeHandshake(out, key, sub)
+    sock.setSoTimeout(0) // a live WebSocket may idle between frames; rely on ping/pong + close
+
     val id      = wsIds.incrementAndGet()
-    val conn    = new WsConnection(id, sock, reader, out, request, subprotocol)
+    val conn    = new WsConnection(id, sock, reader, out, request, sub)
     val channel = new ServerWsChannel(conn)
     wsChannels.put(id, channel)
     conn.onTeardown = () => { wsChannels.remove(id); removeFromAllRooms(id) }
@@ -113,7 +113,7 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       conn.close(1008, "unauthorized")
     else
       context.invoke(route.handler.handler, List(wsValue(id))) // wires ws.onMessage/onClose/…
-    conn
+    conn.readLoop() // blocks on this connection's vthread until close/EOF
 
   // ---- WebSocket: operations invoked by the plugin's tagged methods ----
 

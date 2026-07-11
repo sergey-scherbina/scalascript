@@ -241,7 +241,7 @@ lazy val v2NativeJsonPlugin = project
 // `v2NativeHttpPlugin` (v2/runtime/std/http-plugin), which was removed. See specs/v2-http-fast.md.
 lazy val v2NativeHttpFastPlugin = project
   .in(file("v2/runtime/std/http-fast-plugin"))
-  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin)
+  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin, httpFastEngine)
   .settings(
     name := "scalascript-v2-native-http-fast-plugin",
     libraryDependencies += scalatestTest,
@@ -626,6 +626,30 @@ lazy val runtimeServerJvmJetty = project
       "org.eclipse.jetty.websocket" %  "jetty-websocket-jetty-server" % "12.0.13",
       scalatestTest
     ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
+// The value-agnostic from-scratch HTTP/1.1 + WebSocket engine (NIO + virtual-thread-per-
+// connection). Zero deps. Shared by the v2 native plugin (v2NativeHttpFastPlugin) and the v1
+// HttpServerSpi backend (runtimeServerJvmFast) below. Package: ssc.plugin.httpfast.
+lazy val httpFastEngine = project
+  .in(file("v1/runtime/http-server/fast-engine"))
+  .settings(
+    name := "scalascript-http-fast-engine",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
+// HttpServerSpi backend on the fast engine — gives the v1 WebServer framework (and thus the
+// --v2 lane) the fast NIO/vthread transport, replacing the com.sun JdkServerBackend when
+// selected via HttpServerBackends.setBackend("fast"). Registered via ServiceLoader.
+lazy val runtimeServerJvmFast = project
+  .in(file("v1/runtime/http-server/jvm-fast"))
+  .dependsOn(runtimeServerSpi, runtimeServerCommon, httpFastEngine)
+  .settings(
+    name := "scalascript-runtime-server-jvm-fast",
+    libraryDependencies += scalatestTest,
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )
@@ -1168,7 +1192,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -4234,7 +4258,7 @@ lazy val root = project
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
-    runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
+    runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientSolana, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,

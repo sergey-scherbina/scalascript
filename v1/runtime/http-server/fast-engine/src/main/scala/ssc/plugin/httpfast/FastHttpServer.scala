@@ -33,6 +33,11 @@ final class FastHttpServer(
     val ss = new ServerSocket()
     ss.setReuseAddress(true)
     ss.bind(new InetSocketAddress(host, port))
+    startOn(ss)
+
+  /** Start accepting on an already-bound `ServerSocket` (e.g. an `SSLServerSocket` for TLS, or
+    * a socket the HttpServerSpi backend created). Returns the bound port. */
+  def startOn(ss: ServerSocket): Int =
     server = ss
     running = true
     val t = Thread.ofVirtual().name("ssc-http-accept").start(() => acceptLoop(ss))
@@ -96,26 +101,10 @@ final class FastHttpServer(
   private def isWebSocketUpgrade(req: RawRequest): Boolean =
     webSocket.isDefined && WebSocketFrames.isUpgrade(req.headers) && webSocket.nn.get.hasRoute(req.path)
 
-  /** Complete the RFC 6455 handshake, hand the socket to the dispatcher, and run the frame
-    * read loop on this connection's virtual thread until the peer closes. */
+  /** The request is a WebSocket upgrade for a path the dispatcher owns — hand it the socket
+    * for the full handshake (101 or reject) + frame read loop, on this connection's vthread. */
   private def upgradeWebSocket(req: RawRequest, sock: Socket, reader: HttpReader, out: OutputStream): Unit =
-    val dispatcher = webSocket.nn.get
-    val key    = req.headers.getOrElse("sec-websocket-key", "")
-    val offered = req.headers.get("sec-websocket-protocol")
-      .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList).getOrElse(Nil)
-    val sub = dispatcher.selectSubprotocol(req.path, offered)
-    val sb = new StringBuilder(160)
-    sb.append("HTTP/1.1 101 Switching Protocols\r\n")
-      .append("Upgrade: websocket\r\n")
-      .append("Connection: Upgrade\r\n")
-      .append("Sec-WebSocket-Accept: ").append(WebSocketFrames.acceptKey(key)).append("\r\n")
-    sub.foreach(p => sb.append("Sec-WebSocket-Protocol: ").append(p).append("\r\n"))
-    sb.append("\r\n")
-    out.write(sb.toString.getBytes(ISO_8859_1))
-    out.flush()
-    sock.setSoTimeout(0) // a live WebSocket may idle between frames; rely on ping/pong + close
-    val conn = dispatcher.open(req, sock, reader, out, sub)
-    conn.readLoop() // blocks on this vthread until close/EOF; closes the socket on exit
+    webSocket.nn.get.onUpgrade(req, sock, reader, out)
 
   private def trySend(out: OutputStream, resp: RawResponse, keepAlive: Boolean): Unit =
     try HttpProtocol.writeResponse(out, resp, keepAlive)
@@ -143,11 +132,12 @@ object FastHttpServer:
     * `onWebSocket` handlers, building the `ws` value); the engine drives the handshake +
     * read loop. */
   trait WebSocketDispatcher:
-    /** Is there an `onWebSocket` route for this path? (else the request 404s as normal HTTP). */
+    /** Does this path take WebSocket upgrades? `false` ⇒ the request 404s as normal HTTP. A
+      * dispatcher that decides accept/reject itself (e.g. the HttpServerSpi backend) returns
+      * `true` for any upgrade and rejects inside `onUpgrade`. */
     def hasRoute(path: String): Boolean
-    /** Pick a subprotocol from the client's offered list (empty ⇒ none echoed). */
-    def selectSubprotocol(path: String, offered: List[String]): Option[String] = None
-    /** Build + register the connection and run the ssc handler to wire callbacks. The engine
-      * calls `readLoop()` on the returned connection. */
-    def open(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
-             out: java.io.OutputStream, subprotocol: Option[String]): WsConnection
+    /** Own the upgrade end-to-end: write the `101` (via [[WebSocketFrames.writeHandshake]]) or a
+      * reject response, build a [[WsConnection]], wire its callbacks, and call `readLoop()`
+      * (which blocks on this connection's vthread until close). */
+    def onUpgrade(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
+                  out: java.io.OutputStream): Unit

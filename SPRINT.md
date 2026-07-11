@@ -52,7 +52,17 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       artifact discovery; restore `Response.text` under slim/JRE deletion
       gates; rerun every v2.1 release gate. Coordinate with the live
       `http-handler-serial-dispatch` claim before editing HTTP provider files.
-
+- [x] **hf-7 fast engine backs --v2 too** (Sergiy: "сделай это тоже") — DONE. Extracted the
+      value-agnostic engine to module httpFastEngine (v1/runtime/http-server/fast-engine, pkg
+      unchanged); both v2NativeHttpFastPlugin + the new backend depend on it. New FastServerBackend
+      extends HttpServerSpi (name "fast", module runtimeServerJvmFast) mirroring the Jetty backend
+      (Request POJO direct, HttpResult→RawResponse incl. setSession via SessionCookie, StreamResp,
+      WS accept/reject via WsListener/FastWsControls + WsConnection.recv/remoteAddress, TLS via
+      SSLServerSocket). Refactored the engine WS seam to onUpgrade (dispatcher owns 101/reject) so
+      the backend can 401 pre-handshake; native plugin updated in lockstep. CLI depends on the
+      backend; PluginBridge.registerWebServer calls HttpServerBackends.setBackend("fast"). Verified
+      `ssc run --v2` serves on the fast transport (marker), --native unregressed (params/query/WS
+      echo). 44 module tests (engine 36 + backend 4 + plugin 4).
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 
 Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`

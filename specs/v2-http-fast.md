@@ -159,6 +159,35 @@ without your own synchronization" (out of scope for the VM fix).
       lane. Full `tests/conformance` runs via `--v2`, so it exercises the v1 WebServer, not this
       plugin; the `--native` e2e programs above are the authoritative validation.
 
+## hf-6 — the fast engine also backs the `--v2` lane (HttpServerSpi backend)
+
+The `--v2` FrontendBridge lane serves http through the mature v1 `scalascript.server.WebServer`
+framework (literate `.ssc` rendering, routing, static files, TLS, session, health, OpenAPI, WS)
+on a **pluggable `HttpServerSpi` transport backend** (default `JdkServerBackend` = com.sun;
+`jetty`/`netty` are opt-in). To give `--v2` the fast NIO/vthread transport **without**
+reimplementing the framework, add a new backend on the same engine — the framework stays above
+the SPI.
+
+- [x] **hf-6a engine extraction** — DONE. The value-agnostic engine (`FastHttpServer`,
+      `HttpProtocol`/`HttpReader`, `Router`, `WsConnection`, `WebSocketFrames`) moved to its own
+      dependency-free module `httpFastEngine` (`v1/runtime/http-server/fast-engine`, package
+      unchanged `ssc.plugin.httpfast`). Both `v2NativeHttpFastPlugin` and the new v1 backend
+      depend on it; the backend never pulls in the plugin's `NativePlugin` ServiceLoader entry.
+      Added for the backend: `FastHttpServer.start(ServerSocket)` (TLS/supplied socket) +
+      `WsConnection.recv()`/`id`/`remoteAddress`.
+- [x] **hf-6b FastServerBackend** — DONE. `runtimeServerJvmFast`
+      (`v1/runtime/http-server/jvm-fast`): `FastServerBackend extends HttpServerSpi` (name
+      `"fast"`), mirroring the Jetty backend — builds the POJO `Request(method,path,query,
+      headers,body,cookies)` directly, maps `HttpResult` (PlainResp incl. `setSession` via the
+      shared `SessionCookie.toSetCookie`; StreamResp → the engine stream hook; Reject), and WS
+      `onWsUpgrade` → `Accept(subprotocol,listener)` wired to a `WsConnection` + `FastWsControls`.
+      TLS via `TlsContextBuilder` + `SSLServerSocket`. Registered via
+      `META-INF/services/scalascript.server.spi.HttpServerSpi`.
+- [x] **hf-6c default in --v2** — DONE. The CLI depends on `runtimeServerJvmFast`; the v2 lane
+      selects it with `HttpServerBackends.setBackend("fast")` so `ssc run --v2 <server>` serves
+      on the fast engine (framework unchanged). `--native` keeps the native plugin lane;
+      `--v1`/default keep the JDK backend unless they `setHttpServerBackend("fast")`.
+
 ## Non-goals (this spec)
 
 HTTP/2, HTTP/3/QUIC (future); the HTTP CLIENT stays on `java.net.http` (the win is the

@@ -36,7 +36,28 @@ final class WsConnection(
   @volatile private var closedFlag = false
   private val closeNotified = new AtomicBoolean(false)
 
+  // Blocking receive support (HttpServerSpi WsControls.recv — cluster handshake flows). The
+  // read loop feeds text messages here only once recv() has been used, so non-recv
+  // connections don't accumulate. Both recv() AND onText fire per the SPI contract.
+  @volatile private var recvActive = false
+  private val recvQueue = new java.util.concurrent.LinkedBlockingQueue[java.util.Optional[String]]()
+
   def isClosed: Boolean = closedFlag
+
+  /** The peer address as `host:port` (`"?"` if unavailable) — for WsControls.remoteAddress. */
+  def remoteAddress: String =
+    sock.getRemoteSocketAddress match
+      case a: java.net.InetSocketAddress => s"${a.getHostString}:${a.getPort}"
+      case other => Option(other).map(_.toString).getOrElse("?")
+
+  /** Blocking receive of the next text frame; `None` when the peer closes. Parks the calling
+    * (virtual) thread until a frame arrives or the connection closes. */
+  def recv(): Option[String] =
+    recvActive = true
+    try
+      val v = recvQueue.take()
+      if v.isPresent then Some(v.get) else None
+    catch case _: InterruptedException => None
 
   def sendText(s: String): Unit       = send(TEXT, textPayload(s))
   def sendBytes(b: Array[Byte]): Unit = send(BINARY, b)
@@ -104,11 +125,16 @@ final class WsConnection(
       safe(onTeardown())
 
   private def dispatch(opcode: Int, bytes: Array[Byte]): Unit =
-    if opcode == TEXT then safe(onText(new String(bytes, UTF_8)))
+    if opcode == TEXT then
+      val s = new String(bytes, UTF_8)
+      if recvActive then recvQueue.offer(java.util.Optional.of(s))
+      safe(onText(s))
     else safe(onBinary(bytes))
 
   private def notifyClose(code: Int, reason: String): Unit =
-    if closeNotified.compareAndSet(false, true) then safe(onClose(code, reason))
+    if closeNotified.compareAndSet(false, true) then
+      if recvActive then recvQueue.offer(java.util.Optional.empty[String]())
+      safe(onClose(code, reason))
 
   private def forceClosed(): Unit = closedFlag = true
 

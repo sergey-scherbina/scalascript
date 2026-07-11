@@ -89,3 +89,21 @@ object WebSocketFrames:
   /** Status code from a received close payload (1005 = none present). */
   def closeCode(payload: Array[Byte]): Int =
     if payload.length >= 2 then ((payload(0) & 0xFF) << 8) | (payload(1) & 0xFF) else 1005
+
+  /** Write the `101 Switching Protocols` upgrade response (accept-key + optional negotiated
+    * subprotocol). Shared by every [[FastHttpServer.WebSocketDispatcher]]. */
+  def writeHandshake(out: OutputStream, clientKey: String, subprotocol: Option[String]): Unit =
+    val sb = new StringBuilder(160)
+    sb.append("HTTP/1.1 101 Switching Protocols\r\n")
+      .append("Upgrade: websocket\r\n")
+      .append("Connection: Upgrade\r\n")
+      .append("Sec-WebSocket-Accept: ").append(acceptKey(clientKey)).append("\r\n")
+    subprotocol.foreach(p => sb.append("Sec-WebSocket-Protocol: ").append(p).append("\r\n"))
+    sb.append("\r\n")
+    out.write(sb.toString.getBytes(ISO_8859_1))
+    out.flush()
+
+  /** The client's offered subprotocols, parsed from the `Sec-WebSocket-Protocol` header. */
+  def offeredSubprotocols(headers: Map[String, String]): List[String] =
+    headers.get("sec-websocket-protocol")
+      .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList).getOrElse(Nil)

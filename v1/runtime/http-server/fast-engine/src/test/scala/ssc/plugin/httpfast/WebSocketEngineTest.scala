@@ -27,12 +27,15 @@ class WebSocketEngineTest extends AnyFunSuite:
     private val ids = new AtomicLong(0)
     val opened = new java.util.concurrent.atomic.AtomicInteger(0)
     def hasRoute(path: String): Boolean = path == route
-    def open(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
-             out: java.io.OutputStream, subprotocol: Option[String]): WsConnection =
-      val conn = new WsConnection(ids.incrementAndGet(), sock, reader, out, request, subprotocol)
+    def onUpgrade(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
+                  out: java.io.OutputStream): Unit =
+      val key = request.headers.getOrElse("sec-websocket-key", "")
+      WebSocketFrames.writeHandshake(out, key, None)
+      sock.setSoTimeout(0)
+      val conn = new WsConnection(ids.incrementAndGet(), sock, reader, out, request, None)
       opened.incrementAndGet()
       wire(conn)
-      conn
+      conn.readLoop()
 
   private def withWsServer(dispatcher: FastHttpServer.WebSocketDispatcher)(body: (Int, HttpClient) => Unit): Unit =
     val server = new FastHttpServer(
