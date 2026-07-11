@@ -40,7 +40,7 @@
 
 ## v21-native-reactive-ctor-bypasses-provider — fresh install loses subscriptions
 
-**Status:** open; found by codex when the native `doc`/`render` slice reran the
+**Status:** done (2026-07-11, VM `2de959bc1`, ASM `70165120f`); found by codex when the native `doc`/`render` slice reran the
 full plugin and `build-jvm` gates from a clean current-source installation.
 
 - **Real-harness repro:** run `scripts/sbtc "installBin"`, then
@@ -57,16 +57,19 @@ full plugin and `build-jvm` gates from a clean current-source installation.
   it with the evaluated fields; the legacy raw-cell behavior remains only for
   bare-kernel execution. Fresh-install VM/ASM/build-jvm output must match the
   complete public example and restore the previously claimed release gates.
+- **Verification:** reactive provider unit 4/4, full `signals-demo.ssc` exact on
+  fresh VM/direct ASM/build-jvm, plugin/dependency/standard/slim/JRE gates pass,
+  and affected conformance is 17/17.
 
 ## v21-native-doc-render-unbound — standard native host omits core content helpers
 
-**Status:** open; found by codex while isolating the `examples/content.ssc`
+**Status:** done (2026-07-11, through `f7cef379d`); found by codex while isolating the `examples/content.ssc`
 cutover blocker.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, a focused `.ssc`
   program containing `render(doc("one", 2, true))` fails on both
   `bin/ssc run --native` and `--native --bytecode` because the standard
-  core-free native host registers no `doc` or `render` globals. The public
+  core-free native host registers no `doc` or `render` handlers. The public
   `examples/content.ssc` is currently stopped one boundary earlier by the
   independently queued `md` lowering bug.
 - **Expected:** `doc(parts...)` preserves its runtime values in source order;
@@ -75,9 +78,15 @@ cutover blocker.
   `build-jvm` must agree without v1 `DocV`, `PluginBridge`, Scalameta, or a
   parser/renderer dependency.
 - **Plan/done-when:** specify the runtime value and output contract, implement
-  only the host-owned globals in the existing v2 native host provider, add a
+  only the host-owned handlers in the existing v2 native host provider, add a
   faithful assembled regression plus provider unit coverage, and pass plugin,
   dependency/class-load, artifact, and affected conformance gates.
+- **Root cause/fix:** the native host exposed neither helper, while the ASM
+  global loader also lacked the VM's unresolved-handler fallback. Both lanes
+  now resolve lexical-safe provider handlers, reuse one deterministic display
+  function, and leave local definitions authoritative. Unit is 2/2; focused
+  VM/ASM/standard/build-jvm, dependency/plugin/standard/slim/JRE, and
+  conformance 17/17 all pass.
 
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
 

@@ -2539,7 +2539,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               (not the structural content plugin). Gate the full
                               example byte-identically on VM/ASM/build-jvm and
                               keep user-defined interpolator dispatch unchanged.
-                              - [ ] **TI-8.2d2w-doc core-free `doc`/`render`
+                              - [x] **TI-8.2d2w-doc core-free `doc`/`render`
                                     host contract:** split the provider-owned half
                                     from the lowerer-owned `md` fix while the
                                     effect-runtime worktree edits
@@ -2558,6 +2558,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     conformance before publishing. Do not add a
                                     parser, v1 `DocV`, `PluginBridge`, Scalameta,
                                     or content-plugin ownership.
+                                    Result: lexical-safe host handlers preserve
+                                    arbitrary parts and shared display semantics
+                                    without occupying the plugin-global namespace;
+                                    VM/ASM/standard/build-jvm are exact, local
+                                    shadowing is exact, provider unit is 2/2,
+                                    dependency is 18 roots / 69 edges / 32 JARs /
+                                    0 violations, standard/slim/JRE/plugin gates
+                                    pass, and affected conformance is 17/17.
                         - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
                               2026-07-11 (`e2511c6ad`):** after the
                               structural content provider resolves
@@ -2656,7 +2664,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               plugin/class-load, JRE, slim, build-jvm,
                               standard-tier, portable/taxonomy, algebraic
                               effects, and fresh conformance 11/11 pass.
-                              - [ ] **TI-8.2d3c2 installed-source reactive ctor
+                              - [x] **TI-8.2d3c2 installed-source reactive ctor
                                     provider bypass:** a clean `installBin` from
                                     current `origin/main` stages the post-K62.33
                                     lowerer, which emits `Ctor("Signal", ...)` /
@@ -2673,6 +2681,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     exact fresh-install VM/ASM/build-jvm
                                     `signals-demo.ssc` output and rerun plugin,
                                     artifact, dependency, and conformance gates.
+                                    Result: VM and direct ASM prefer the
+                                    registered reactive provider and retain the
+                                    legacy cell only without one; provider unit
+                                    is 4/4 and fresh VM/ASM/build-jvm print the
+                                    complete public signal sequence. All shared
+                                    distribution and affected conformance gates
+                                    pass.
                         - [x] **TI-8.2d3d core-free YAML — DONE 2026-07-11
                               (code `2da4183f5`, docs `1d28aeeca`):** implement
                               `specs/v2.1-native-yaml.md`. Add a dedicated
