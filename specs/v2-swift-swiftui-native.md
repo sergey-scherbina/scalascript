@@ -1126,22 +1126,36 @@ ZIP with `ditto -c -k --keepParent`, and submits it using
 accepts only `1...3600`. It then runs `xcrun stapler staple` and
 `xcrun stapler validate` on the verified app. `--no-notarize` requires no
 notary credential. A requested DMG is created only from that exact verified,
-stapled app; `--no-dmg` returns the app.
+codesign-checked exported app; when notarization is enabled it is created only
+after successful staple and validate, while `--no-notarize` intentionally has
+no staple precondition. `--no-dmg` returns the same verified app.
 
 Publication never invokes fastlane `gym` and never permits fastlane to rebuild
 or discover a product. v2 iOS publish first creates the verified
 `app-store-connect` IPA, then uploads its explicit path with `pilot` for
 TestFlight or `deliver` for App Store. v2 macOS publish first exports exactly one
 verified Mac App Store `.pkg`, then calls `deliver(pkg: <exact path>)`.
+The Mac App Store route uses the shared checked Release archive authority,
+verifies the archived app, then exports canonical `method=app-store-connect`,
+`destination=export`, `signingStyle=automatic`,
+`manageAppVersionAndBuildNumber=false`, and the exact team id into a fresh
+directory that must contain exactly one `.pkg`; it never reuses the
+Developer-ID app export.
 `--api-key-path` wins over `APP_STORE_CONNECT_API_KEY_PATH` and must name a
 regular API-key JSON file before build/upload; it is passed by environment or
 `api_key_path`, never embedded in generated text or logs. Generated Fastfiles
 live in the owned distribution directory and consume
 `SSC_IPA_PATH`/`SSC_PKG_PATH`, `SSC_XCODE_PROJECT`, `SSC_XCODE_SCHEME`,
-`SSC_BUNDLE_ID`, and the API-key path. `--fastlane` selects an existing
-source-adjacent Fastfile only after the CLI has built and verified the artifact;
+`SSC_BUNDLE_ID`, the API-key path, and optional `SSC_RELEASE_NOTES`. Release
+notes are never interpolated into Ruby source: the variable is absent when the
+flag is unset, and the generated TestFlight lane passes
+`ENV["SSC_RELEASE_NOTES"]` to `pilot` as its changelog. Tests cover quotes,
+backslashes, CR/LF, and Unicode without syntax or code injection. `--fastlane`
+selects an existing source-adjacent Fastfile only after the CLI has built and
+verified the artifact;
 the same environment contract is provided and the custom lane is responsible
-for uploading that path, not substituting a build.
+for uploading that path, not substituting a build. Existing custom lane names
+remain exactly `testflight`, `appstore`, and `mac_appstore`.
 
 Every external tool probe catches a missing executable and emits one
 command-scoped corrective diagnostic with no host stack before expensive work.
