@@ -2539,6 +2539,25 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               (not the structural content plugin). Gate the full
                               example byte-identically on VM/ASM/build-jvm and
                               keep user-defined interpolator dispatch unchanged.
+                              - [ ] **TI-8.2d2w-doc core-free `doc`/`render`
+                                    host contract:** split the provider-owned half
+                                    from the lowerer-owned `md` fix while the
+                                    effect-runtime worktree edits
+                                    `v2/lib/ssc1-lower.ssc0`. Track the assembled
+                                    `unbound global: doc` boundary in `BUGS.md`,
+                                    specify the target-neutral document value and
+                                    rendering contract in
+                                    `specs/v2.1-native-doc-render.md`, then add
+                                    `doc`/`render` only to the existing core-free
+                                    native host provider. Preserve ordered newline
+                                    rendering and one trailing output newline,
+                                    reject no ordinary runtime values, and prove
+                                    focused VM/direct-ASM plus build-jvm output,
+                                    provider unit coverage, plugin/dependency/
+                                    class-load gates, and affected `v2-*`
+                                    conformance before publishing. Do not add a
+                                    parser, v1 `DocV`, `PluginBridge`, Scalameta,
+                                    or content-plugin ownership.
                         - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
                               2026-07-11 (`e2511c6ad`):** after the
                               structural content provider resolves
