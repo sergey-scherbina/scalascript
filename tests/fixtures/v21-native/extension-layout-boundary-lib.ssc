@@ -1,0 +1,23 @@
+---
+name: v21-native-extension-layout-boundary-lib
+---
+
+# Extension body
+
+```scalascript
+case class Holder[A](value: Any)
+case class PRegex(pattern: String)
+
+extension [A](h: Holder[(A, A)])
+  def current: Any = h.value
+  def plus(n: Int): Int = h.value + n
+```
+
+# Dedented top-level code unit
+
+```scalascript
+def classify(p: Any, fallback: String): String =
+  p match
+    case PRegex(pattern) => pattern
+    case _               => fallback
+```

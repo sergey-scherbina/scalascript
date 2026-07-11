@@ -1,0 +1,15 @@
+---
+name: v21-native-extension-layout-boundary
+---
+
+[Holder, PRegex, current, plus, classify](extension-layout-boundary-lib.ssc)
+
+# Imported extension use
+
+```scalascript
+val holder = Holder(20)
+println(holder.current)
+println(holder.plus(2))
+println(classify(PRegex("rx"), "no"))
+println(classify(Holder(0), "fallback"))
+```

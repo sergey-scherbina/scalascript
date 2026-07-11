@@ -129,6 +129,8 @@ def sscDir = (path) =>
 -- DocLine` ctor was lost, so importers hit `unbound global: DocLine`.
 def sscIsDecl = (tag) =>
   if #seq(tag, "def") then true
+  else if #seq(tag, "extension_start") then true
+  else if #seq(tag, "extension_end") then true
   else if #seq(tag, "val") then true
   else if #seq(tag, "var") then true
   else if #seq(tag, "casecls") then true

@@ -279,6 +279,30 @@ def isExtensionMethod = (name) =>
     } in
   go(#cell.get(extensionMethodsCell))
 
+-- Extension parser state is per source module, while lowering runs once over
+-- the assembled import closure. Explicit start/end markers in the parsed stmt
+-- stream preserve ownership across that boundary; rebuild the method registry
+-- here instead of trusting whichever module happened to parse last.
+def collectExtensionMethods = (stmts) =>
+  let rec go = (ss, active) =>
+    match ss {
+      case Nil => Nil
+      case Cons(s, rest) =>
+        match s {
+          case Pair(tag, data) =>
+            if #seq(tag, "extension_start") then go(rest, true)
+            else if #seq(tag, "extension_end") then go(rest, false)
+            else if active then
+              if #seq(tag, "def") then
+                match data {
+                  case Pair(name, defRest) => Cons(name, go(rest, active))
+                }
+              else go(rest, active)
+            else go(rest, active)
+        }
+    } in
+  go(stmts, false)
+
 def isCaseField = (name) =>
   let rec go = (xs) =>
     match xs {
@@ -2973,6 +2997,9 @@ def buildMergedAccessors = (caseOrder) =>
   go(acc_uniqFields(triples, Nil))
 
 def lowerProg = (stmts) =>
+  -- K62.18: imported extension identity is AST-owned, never transient parser
+  -- state. This must run before resolveE classifies selected method calls.
+  let _em = #cell.set(extensionMethodsCell, collectExtensionMethods(stmts)) in
   -- KC5: initialize given table and sig table from parsed stmts
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in

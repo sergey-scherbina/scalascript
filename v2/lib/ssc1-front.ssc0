@@ -1771,12 +1771,14 @@ def parseOneStmt = (toks) =>
     -- KV9: check for "multi effect E { ... }" multi-shot effect declaration
     if #seq(k, "id") then
       if #seq(v, "extension") then
-        -- K62.18: retain the receiver names for the contiguous defs that follow.
+        -- K62.18: retain receiver names through the virtual layout body. The
+        -- top-level parse loop clears them when it consumes the matching `}`.
         let ts1 = skipTypeParams(advance(toks)) in
         let rp = if kindIs("(", ts1) then parseParamList(ts1) else pr(Nil, ts1) in
         let _ext = #cell.set(extensionParamsCell, prV(rp)) in
         let ts2 = prT(rp) in
-        pr(Pair("sealed", ""), ts2)
+        let ts3 = if kindIs("{", ts2) then advance(ts2) else ts2 in
+        pr(Pair("extension_start", ""), ts3)
       else if #seq(v, "multi") then
         let ts1 = advance(toks) in
         if kindIs("kw", ts1) then
@@ -1839,6 +1841,12 @@ def parseStmts = (toks) =>
   let rec go = (ts, acc) =>
     let ts2 = skipSemis(ts) in
     if kindIs("EOF", ts2) then reverse(acc)
+    else if kindIs("}", ts2) then
+      -- A residual virtual close belongs to a flat extension layout body.
+      -- Its member defs have already been emitted as ordinary top-level defs;
+      -- clear the receiver before parsing the following dedented declaration.
+      let _closeExtension = #cell.set(extensionParamsCell, Nil) in
+      go(advance(ts2), Cons(Pair("extension_end", ""), acc))
     else
       let r = parseOneStmt(ts2) in
       go(prT(r), Cons(prV(r), acc)) in
@@ -1997,12 +2005,30 @@ def nlStep = (v, stack, cont) =>
             case Pair(closeToks, ns) => Pair(append(closeToks, (if cont then Nil else sepAfter(v, ns))), ns)
           } } }
 
+def topStackIs = (wanted, stack) =>
+  match stack {
+    case Nil => false
+    case Cons(top, rest) =>
+      match top { case Pair(tag, ind) => #seq(tag, wanted) }
+  }
+
+def extensionReceiverParen = (extensionHead, stack) =>
+  if extensionHead then
+    if topStackIs("P", stack) then false
+    else if topStackIs("S", stack) then false
+    else if topStackIs("X", stack) then false
+    else true
+  else false
+
 def layout = (toks) =>
   -- A trailing `:` opens layout only while scanning a trait/object declaration
   -- header. Treating every colon as an opener would misclassify split type
   -- annotations; keeping this one bit of header context gives declaration
   -- bodies real virtual braces without changing expression/type colons.
-  let rec go = (ts, stack, prevOpener, prevCanEnd, declHead) =>
+  -- `extension [A](receiver)` uses its outer receiver parentheses as a
+  -- contextual layout opener. X distinguishes that delimiter from nested
+  -- parentheses in receiver/function types.
+  let rec go = (ts, stack, prevOpener, prevCanEnd, declHead, extensionHead) =>
     match ts {
       case Nil => Nil
       case Cons(t, rest) =>
@@ -2010,27 +2036,41 @@ def layout = (toks) =>
           if #seq(k, "EOF") then append(closeAllL(stack), Cons(t, Nil))
           else if #seq(k, "NL") then
             if prevOpener then
-              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false, false, false))
+              Cons(mkTok("{", ""), go(rest, Cons(Pair("L", v), stack), false, false, false, false))
             else
               let suppressSep =
                 if prevCanEnd then
                   if canStartLine(rest) then isCont(rest) else true
                 else true in
               match nlStep(v, stack, suppressSep) {
-                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false))
+                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false, false))
               }
           else if #seq(k, "(") then
-            Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, declHead))
+            if extensionReceiverParen(extensionHead, stack) then
+              Cons(t, go(rest, Cons(Pair("X", 0), stack), false, false, declHead, false))
+            else
+              Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, declHead, extensionHead))
           else if #seq(k, "[") then
-            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, declHead))
+            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, declHead, extensionHead))
           else if #seq(k, ")") then
-            match closeToDelim("P", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead))) }
+            if topStackIs("X", stack) then
+              match closeToDelim("X", stack) {
+                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, true, true, declHead, false)))
+              }
+            else
+              match closeToDelim("P", stack) {
+                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead, extensionHead)))
+              }
           else if #seq(k, "]") then
-            match closeToDelim("S", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead))) }
+            match closeToDelim("S", stack) {
+              case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead, extensionHead)))
+            }
           else if #seq(k, "{") then
-            Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false, false))
+            Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false, false, false))
           else if #seq(k, "}") then
-            match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, false))) }
+            match closeToBrace(stack) {
+              case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, false, false)))
+            }
           else
             let inDeclHead =
               if #seq(k, "kw") then
@@ -2038,12 +2078,15 @@ def layout = (toks) =>
               else declHead in
             let declColon = if #seq(k, ":") then inDeclHead else false in
             let nextDeclHead = if #seq(k, ":") then false else inDeclHead in
+            let nextExtensionHead =
+              if #seq(k, "id") then (if #seq(v, "extension") then true else extensionHead)
+              else extensionHead in
             Cons(t, go(rest, stack,
               (if declColon then true else isLayoutOpener(t)),
-              canEndLine(t), nextDeclHead))
+              canEndLine(t), nextDeclHead, nextExtensionHead))
         }
     } in
-  go(toks, Nil, false, false, false)
+  go(toks, Nil, false, false, false, false)
 
 def parse = (src) =>
   let _ep = #cell.set(extensionParamsCell, Nil) in

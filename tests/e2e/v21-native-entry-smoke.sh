@@ -105,6 +105,8 @@ layout_given_expected=$'int\nint:7\nbool:yes\nbool:no\nafter-givens'
 [[ $(run_native "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
 layout_object_expected=$'40\n41\n81\n40\n41\n81'
 [[ $(run_native "$FIXTURES/layout-object-body.ssc") == "$layout_object_expected" ]]
+extension_layout_expected=$'20\n22\nrx\nfallback'
+[[ $(run_native "$FIXTURES/extension-layout-boundary.ssc") == "$extension_layout_expected" ]]
 native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 exact_summon_expected=$'show:7\ntrue\nnested'
@@ -153,6 +155,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/layout-object-body.ssc") == "$layout_object_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/extension-layout-boundary.ssc") == "$extension_layout_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/nested-pattern-fallback.ssc") == "$nested_pattern_expected" ]]
