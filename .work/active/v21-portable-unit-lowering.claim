@@ -1,6 +1,0 @@
-feature/v21-portable-unit-lowering 2026-07-11T15:10:00Z
-agent: codex
-heartbeat: 2026-07-11T15:10:00Z
-status: in-progress
-done-so-far: YAML-like parser reaches identical VM/ASM unbound global Unit after case-object support
-next: isolate source construct, specify portable UnitV lowering, implement multi-file regression
