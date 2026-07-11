@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T07:26:23Z
+heartbeat: 2026-07-11T07:50:03Z
 status: in-progress
-done-so-far: all recorded ABI blockers are fixed locally with negative regressions; focused suites, real cargo, installBin, tkv2 12/12, and std-ui-jobpanel 1/1 are green; implementation remains uncommitted
-next: obtain fresh nativeui-reviewer APPROVE in Rozum, then land the atomic portable-runtime slice and continue Swift AppCore NativeUiHost
+done-so-far: final retention fix bounds component binding identity state across refresh/deletion; NativeUi 14/14 and prior full assembled/conformance/cargo gates are green; implementation remains uncommitted
+next: obtain final targeted nativeui-reviewer APPROVE, rerun affected conformance immediately before push, then land and continue Swift AppCore NativeUiHost
