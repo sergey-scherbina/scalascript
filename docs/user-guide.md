@@ -342,6 +342,14 @@ does not retain dormant compatibility command references. `bin/ssc` remains the
 compatibility launcher until the TI-8 default cutover; a standard request for a
 compiler-backed command fails with a tools-tier diagnostic.
 
+The closed standard JAR layout excludes the optional SQL wire codec and its
+ujson/upickle/upack/geny implementation family. Basic native SQL remains
+available through the named JDBC provider without those JARs. External ASM is
+owned only by the direct JVM-bytecode backend: ordinary native VM execution
+does not load `org.objectweb.asm`, while `--bytecode` selects and loads it
+explicitly. The canonical JSON, Frontmatter YAML, and Markdown modules are pure
+ScalaScript scanners with no `extern def` or host-regex route.
+
 The full installation also stages `bin/ssc-tools`, whose classpath contains the
 compatibility runtime, plugins, and lazy compiler directory. An explicit
 `ssc-standard run --v1 ...` or `--compat-frontend` delegates to that launcher;
