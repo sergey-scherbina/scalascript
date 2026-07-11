@@ -326,8 +326,8 @@ The native route also has its own core-free ServiceLoader plugin boundary. The
 process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (hashing,
 Base64, HMAC/PBKDF2/random, AES-GCM/CBC, RSA/X.509, Ed25519, HOTP/TOTP, and
 Shamir recovery), and the JVM implementations of
-`std.fs`/`std.os`, typed `std.json`, and the `Storage` effect no longer load the
-v1 `PluginBridge`,
+`std.fs`/`std.os`, typed `std.json`, the `Storage` effect, and general
+`Signal`/`computed`/`effect` reactivity no longer load the v1 `PluginBridge`,
 interpreter values, or Scalameta classes. File reads/writes, byte I/O, directory
 operations, environment lookup, path operations, temporary paths, total JSON
 navigation, strict/tolerant parsing, exact string-decimals, and structured JSON
@@ -348,8 +348,13 @@ insertion-ordered map per scope; `runStorage` loads and flushes its JSON string
 map after each mutation. Its path is an explicit second argument, then
 `SSC_STORAGE_PATH`, then `./ssc-storage.json`. Both runners, all five
 `Storage.get/put/remove/has/keys` operations, and packaged `build-jvm` artifacts
-use the same core-free provider on VM and direct ASM. Other plugin families are
-still being migrated; a missing native provider fails explicitly. Use
+use the same core-free provider on VM and direct ASM. General reactive signals
+use a separate portable provider: dependencies are recollected on every
+effect/computed rerun, subscribers flush synchronously in insertion order,
+diamonds run a consumer once, and a running effect may write a signal it reads
+without recursively scheduling itself. The same semantics run in packaged
+`build-jvm` artifacts. Other plugin families are still being migrated; a
+missing native provider fails explicitly. Use
 `--compat-frontend` for a tools-tier plugin that has not moved yet.
 
 ### `build-jvm` — executable JAR directly from native CoreIR + ASM
@@ -445,7 +450,8 @@ java -jar app.jar -- one two
 
 The JAR embeds the v2 core, Scala runtime, and the currently selected core-free
 native providers (host/process globals, crypto, FS/OS, JSON, HTTP, UI, State,
-and SQL when a database is configured). Imported modules and multiple explicit
+Storage, general reactive signals, and SQL when a database is configured).
+Imported modules and multiple explicit
 roots are lowered into the same checked program; resolved source identities are
 recorded in the artifact. Entries are lexically ordered with fixed ZIP metadata;
 two builds from identical sources and staged runtime inputs are byte-identical.
@@ -1452,6 +1458,13 @@ effect {
 count.set(3)   // → "count=3 doubled=6"
 count.set(5)   // → "count=5 doubled=10"
 ```
+
+On the compiler-free ScalaScript 2.1 route, this surface is implemented by a
+dedicated core-free provider on native VM, direct ASM, and `build-jvm`. Effects
+run immediately and synchronously; dependency sets refresh on every rerun,
+diamond subscriptions are deduplicated in insertion order, and a self-write
+does not recursively reschedule the currently running effect. Async scheduling
+and explicit subscription disposal are not part of this general signal API.
 
 ---
 
