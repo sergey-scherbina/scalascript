@@ -414,7 +414,10 @@ final class SwiftBackendTest extends AnyFunSuite:
           root.resolve(path).toString
       }
       val compile = new ProcessBuilder(
-        (List("xcrun", "swiftc", "-parse-as-library") ++ sources ++ List(probe.toString, "-o", binary.toString))*
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+          "-strict-concurrency=complete", "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
       ).redirectError(compileErrors.toFile).start()
       val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
       val compileExit = compile.waitFor()
