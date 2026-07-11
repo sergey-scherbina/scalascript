@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T19:22:10Z
+heartbeat: 2026-07-11T21:17:00Z
 status: in-progress
-done-so-far: worktree created from current origin/main
-next: queue the four-row slice in SPRINT, commit its feature spec, then assemble the installed standard binary and capture exact VM/ASM first-loss boundaries
+done-so-far: explicit effect declarations/handlers are pushed; imported focused VM/ASM smoke and effects conformance are green
+next: run the exhaustive release gate, retire only the verified effects.ssc taxonomy row, then implement the separately queued standard effect runners
