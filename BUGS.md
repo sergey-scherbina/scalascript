@@ -25,6 +25,30 @@
   dictionaries, property/method/eta/value-flow behavior, and exact full
   `typeclass.ssc`; retire only its taxonomy row after all release gates pass.
 
+## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum room during the pre-code Xcode-project audit at seq/time
+20:55, after Trusted HTML closure `2c1db9f1d`.
+
+- **Design repro:** the v2 generator returns one ambiguous executable string and
+  writes SwiftPM/Apple sources but no PBX application artifact. Apple CLI lanes
+  either run the debug CLI or stop, while legacy device/archive/publish helpers
+  call v1 `Parser`/`JvmGen`, hard-code `Debug-*` product paths, and do not prove
+  that the selected bundle is an application rather than `<AppName>Cli`.
+- **Expected:** metadata is extracted with the checked v2 source pass; UI mode
+  requires validated reverse-DNS bundle identity and validated Apple versions.
+  One deterministic multi-platform application target/scheme owns all AppCore,
+  AppleApp, and resource inputs. Apple commands consume an explicit
+  `XcodeAppArtifact`, discover the product through build settings, then verify
+  `.app`, `CFBundlePackageType=APPL`, exact bundle id, and non-CLI executable.
+- **Plan/done-when:** freeze the exact metadata/default/validation, PBX id and
+  target settings, source/resource membership, artifact split, discovery, and
+  distribution sub-slice in `specs/v2-swift-swiftui-native.md`; obtain Rozum
+  design APPROVE before implementation. Close only after real unsigned macOS
+  build/inspection/bounded launch, installed iOS 26.5 Simulator build, signed
+  adapter routing tests, full affected suites, and reviewer confirmation.
+
 ## v2-trusted-html-isolation-contract-gaps — first WKWebView plan leaves stale and navigation authority ambiguous
 
 **Status:** done (2026-07-11, `7cc1ff978`); reported by `nativeui-reviewer` in the

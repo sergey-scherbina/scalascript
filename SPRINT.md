@@ -920,11 +920,43 @@ there before changing this plan.
             shared scheme compiling AppCore directly. Pin product type, bundle/
             version/deployment settings, supported platforms, source/resource
             phases, and ensure package/publish select the `.app`, never the CLI.
+            Pre-code Rozum review is BLOCKED until the following spec delta is
+            committed and approved:
+            - [ ] add a v2 checked-source result carrying top-level app metadata
+                  without calling v1 `Parser`/`JvmGen`: product precedence is
+                  explicit product name, then manifest `name`, then file stem;
+                  UI app mode requires an exact reverse-DNS `bundle-id`; display
+                  name falls back through manifest name/product; Apple dotted
+                  `version` and `build-version` default to `1.0.0` and `1` and
+                  reject malformed values with bounded key/value diagnostics;
+            - [ ] generate one Xcode-14-compatible/objectVersion-56 multi-platform
+                  application target with semantic SHA-256 24-hex object ids,
+                  collision checks, stable ordering, Swift 6, generated plist,
+                  macOS 13/iOS 16, no Catalyst, and no persisted signing secret;
+            - [ ] compile every sorted `Sources/AppCore/*.swift` (including
+                  `NativeUiHost.swift`) plus `AppleApp/*.swift`, exclude the CLI
+                  main/Package.swift, recursively resource sorted
+                  `AppleApp/Resources`, always emit a minimal Assets catalog,
+                  and make the shared scheme reference only the `.app` target;
+            - [ ] replace the ambiguous package product field with explicit
+                  `debugCli` and `XcodeAppArtifact`. Only `run-swift` may consume
+                  the CLI; Apple build/run/package/publish use `-project/-scheme`,
+                  discover `TARGET_BUILD_DIR` + `FULL_PRODUCT_NAME` through
+                  `-showBuildSettings`, and verify `.app`, Info.plist `APPL`, exact
+                  bundle id, and a non-CLI executable before launch/distribution.
+      - [ ] **v2-swiftui-apple-distribution-adapters** — after the common
+            `XcodeAppArtifact` helper lands, route signed device/archive/IPA,
+            macOS codesign/notarization/DMG, TestFlight, and App Store lanes to
+            that artifact with their existing bounded credential/tool errors;
+            no adapter may regenerate through v1 or infer a hard-coded Debug path.
       - [ ] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS
-            Simulator destination when the SDK exists. Re-run Swift/AppCore/JVM
-            ABI/toolkit conformance and obtain Rozum read-only approval.
+            Simulator destination (iOS 26.5 runtime/device is installed). Gate
+            full-tree byte determinism, `xcodebuild -list/-showBuildSettings`,
+            exact app discovery/inspection/non-CLI executable selection, then
+            re-run Swift/AppCore/JVM ABI/toolkit conformance and obtain Rozum
+            read-only approval.
 - [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
       `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
       exact supported glob form), verify every behavior
