@@ -4,7 +4,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
-## 2026-07-11 — SwiftUI ships verified signed Apple applications
+## 2026-07-11 — ScalaScript 2 ships verified SwiftUI Apple applications
 
 Checked-v2 Xcode artifact authority now drives physical-device deployment,
 canonical IPA and Mac PKG exports, Developer-ID verification, bounded
@@ -12,7 +12,10 @@ keychain-profile notarization/stapling/DMG, and explicit TestFlight/App Store
 uploads. Every route preflights tools and credentials, verifies the exact
 platform app, bypasses v1, and prevents fastlane rebuild/product discovery.
 Rozum round 3 approved; Swift 43/43, CLI 53/53, assembled e2e, and toolkit
-conformance 12/12 pass. Landed through `c75f49fe2`.
+conformance 12/12 pass. The final assembled gate byte-compares complete trees,
+bounded-launches the real macOS APPL bundle, and verifies the same checked app
+on a concrete iPhone 16 Pro Simulator; money 2/2, effects 4/4, and v2 11/11
+complete the release corpus. Landed through `7e4b2e563`.
 
 ## 2026-07-11 — JS runtime owns one Node crypto binding
 

@@ -907,7 +907,7 @@ there before changing this plan.
                         `nativeui-reviewer` posted round-3 APPROVE in Rozum.
                         Full Swift backend passed 41/41 twice, final affected
                         WebKit/macOS+iOS16 gate 2/2, and `tkv2-*` 12/12.
-- [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
+- [x] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.
       Gate macOS by producing and launching a real `.app`, and iOS with available
@@ -1049,13 +1049,17 @@ there before changing this plan.
             Result: full-tree equality, exact list/settings/plist checks,
             bounded real macOS launch, and concrete installed iOS 26.5
             Simulator build execute in the checked CLI gate; round 3 approved.
-- [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
+      Result: deterministic Xcode generation, unsigned/signed adapters, real
+      macOS launch, concrete iOS Simulator build, documentation, and final
+      assembled gate are all published through `7e4b2e563`; every Rozum review
+      ended APPROVE.
+- [x] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
       `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
       exact supported glob form), verify every behavior
       item in the feature spec, record actual test counts/toolchain limitations,
       update the bug to `fixed`, add CHANGELOG bookkeeping, push each green
       commit to `origin/main`, release the claim, and remove the worktree.
-      - [ ] **v2-swiftui-final-apple-e2e** — add the remaining assembled
+      - [x] **v2-swiftui-final-apple-e2e** — add the remaining assembled
             `tests/e2e/v2-swiftui-apple.sh` acceptance gate over
             `examples/swift/appcore-nativeui.ssc`: emit two deterministic
             macOS trees, assert app-only project/scheme/ownership and no legacy
@@ -1064,11 +1068,14 @@ there before changing this plan.
             same checked source for one concrete installed iOS Simulator.
             The script must use only `bin/ssc`, Xcode/plutil/simctl, temporary
             owned paths, and no certificate, secret, network, or v1 fallback.
-      - [ ] **v2-swift-core-stale-testing-command** — final spec verification
+            Landed `ae10c1581`; local and independent reviewer runs both PASS
+            with macOS and iOS `appcore_nativeui.app` on iPhone 16 Pro.
+      - [x] **v2-swift-core-stale-testing-command** — final spec verification
             found that `tests/e2e/v2-swift-core.sh` is only a stale planned
             command and exits 127. Replace it in the durable testing strategy
             with the real `v2SwiftBackend/test` 43/43 gate; retain assembled
             `v2-swift-cli.sh` and `v2-swiftui-apple.sh` as separate e2e paths.
+            Fixed in spec verification `7e4b2e563`.
       - [x] **tkv2-js-duplicate-nodecrypto** — the mandatory fresh assembled
             `tkv2-* --no-memo` gate is 1/12 after the current-main rebase:
             every JS case fails at generated stdin line 2098 because
@@ -1093,6 +1100,10 @@ there before changing this plan.
             macOS, update the exact e2e expectation, and assert the real
             assembled stderr contains no `Exception in thread`. Landed
             `08735b15a`; fresh assembled e2e passes.
+      Result: the verified feature spec has no unchecked behavior item. Swift
+      backend 43/43, combined CLI 53/53, both assembled Apple/CLI scripts,
+      money 2/2, effects 4/4, toolkit-v2 12/12, and v2 11/11 all pass on every
+      applicable lane without signing credentials or external network.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 
