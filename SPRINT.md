@@ -434,6 +434,12 @@ there before changing this plan.
             (`v2-swiftui-shipped-inventory-semantic-loss`). Malformed element/
             keyed/event paths and invalid semantic booleans must retain their
             lexical source (`v2-swiftui-unsourced-malformed-seams`).
+            Use the shipped Int shape for `ol start`; validate every recognized
+            display/flex/gap/alignment/text-decoration/border value instead of
+            accepting a default. Hash/relative href remains sourced Unsupported
+            until route-signal semantics land. Validate `aria-modal` and each
+            set/input/toggle/increment event target/payload before mutation so
+            no malformed event can no-op or throw without the owning site.
             Fetch signals/actions stay sourced Unsupported until the next slice
             implements phases, cancellation, and ordered success effects; the
             guard must cover signal text, controls, styles, and keyed items,

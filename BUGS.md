@@ -52,6 +52,10 @@ read-only SwiftUI store/renderer review in Rozum.
 - **Plan/done-when:** pass site/source through the renderer and action seams,
   validate semantic booleans before modifiers run, and add executable exact-
   source negative gates for element, keyed, event, aria-disabled, and required.
+  Fourth review found the remaining shapes: invalid `aria-modal` must also be
+  rejected, and every `NativeUiEvent` kind must validate its target/payload
+  before mutation so increment-on-non-Int and malformed set/input/toggle cannot
+  silently no-op or surface an unsourced runtime failure.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 
@@ -68,6 +72,12 @@ read-only SwiftUI store/renderer review in Rozum.
   sourced Unsupported for any deferred value, and execute behavior-or-
   Unsupported probes for alignment, medium weight, semantic text, href-only
   navigation, and ordered-list numbering/start.
+  The real `content.ssc` ordered-list `start` field is an `Int`, not the String
+  used by the first draft gate. Recognized CSS also needs value-total handling:
+  `display`, `flex-direction`, `gap`, `flex`/`flex-grow`, `text-align`,
+  `text-decoration`, and border shorthands must map or diagnose invalid values.
+  Until a route-signal seam exists, hash/relative href is sourced Unsupported;
+  treating `#/path` as a generic `Link` violates the frozen route contract.
 
 ## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
 
