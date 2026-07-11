@@ -1,0 +1,16 @@
+---
+name: v21-native-typed-pattern-boundary-lib
+---
+
+# Typed pattern implementation
+
+```scalascript
+case class IndentContext(currentLevel: Int)
+
+def level(value: Any): Int = value match
+  case context: Wrapper[IndentContext] => context.currentLevel
+
+def classify(value: Any): String = value match
+  case context: Wrapper[(IndentContext, List[Int])] if context.currentLevel > 1 => "deep"
+  case context: Wrapper[(IndentContext, List[Int])]                             => "shallow"
+```

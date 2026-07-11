@@ -111,6 +111,8 @@ case_object_expected=$'Empty\nempty\ntrue'
 [[ $(run_native "$FIXTURES/case-object-import.ssc") == "$case_object_expected" ]]
 symbolic_extension_precedence_expected=$'a|b\na|b|c\n7'
 [[ $(run_native "$FIXTURES/symbolic-extension-precedence.ssc") == "$symbolic_extension_precedence_expected" ]]
+typed_pattern_boundary_expected=$'3\ndeep\nshallow'
+[[ $(run_native "$FIXTURES/typed-pattern-boundary.ssc") == "$typed_pattern_boundary_expected" ]]
 native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 exact_summon_expected=$'show:7\ntrue\nnested'
@@ -162,6 +164,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/extension-layout-boundary.ssc") == "$extension_layout_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/case-object-import.ssc") == "$case_object_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/symbolic-extension-precedence.ssc") == "$symbolic_extension_precedence_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/typed-pattern-boundary.ssc") == "$typed_pattern_boundary_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/nested-pattern-fallback.ssc") == "$nested_pattern_expected" ]]

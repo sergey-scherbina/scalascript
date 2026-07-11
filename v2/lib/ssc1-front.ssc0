@@ -424,6 +424,34 @@ def skipType = (toks) => skipTypeAt(0, toks)
 def skipTypeAnnot = (toks) =>
   if kindIs(":", toks) then skipType(advance(toks)) else toks
 
+-- A match-pattern annotation has two additional depth-zero terminators that
+-- cannot be added to skipTypeAt: `=>` and guard `if` delimit the arm, while a
+-- general type may itself contain an unwrapped function arrow. Keep the same
+-- nested []/() discipline and specialize only the arm boundary.
+def skipPatternTypeAt = (depth, toks) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  if #seq(k, "EOF") then toks
+  else if #seq(k, "[") then skipPatternTypeAt(#i.add(depth, 1), advance(toks))
+  else if #seq(k, "(") then skipPatternTypeAt(#i.add(depth, 1), advance(toks))
+  else if #seq(k, "]") then
+    if #i.eq(depth, 0) then toks
+    else skipPatternTypeAt(#i.sub(depth, 1), advance(toks))
+  else if #seq(k, ")") then
+    if #i.eq(depth, 0) then toks
+    else skipPatternTypeAt(#i.sub(depth, 1), advance(toks))
+  else if #i.gt(depth, 0) then skipPatternTypeAt(depth, advance(toks))
+  else if #seq(k, "=>") then toks
+  else if kwIs("if", toks) then toks
+  else if #seq(k, "=") then toks
+  else if #seq(k, ",") then toks
+  else if #seq(k, "{") then toks
+  else if #seq(k, "}") then toks
+  else skipPatternTypeAt(depth, advance(toks))
+
+def skipPatternTypeAnnot = (toks) =>
+  if kindIs(":", toks) then skipPatternTypeAt(0, advance(toks)) else toks
+
 -- ── K62.17: default-parameter registry (call-site default synthesis) ──────────
 -- ssc1-lower `import`s ssc1-front and both run in ONE ssc0 process, so these
 -- top-level cells are SHARED: the front populates them during parse; lowerProg
@@ -1455,7 +1483,7 @@ def parseMatchArm = (toks) =>
       match rest { case Nil => one case _ => Pair("apat", pats) }
     case Nil => Pair("wpat", "")
   } in
-  let ts1 = skipTypeAnnot(prT(rAlts)) in
+  let ts1 = skipPatternTypeAnnot(prT(rAlts)) in
   let canGuard = guardablePat(pat0) in
   let rGuard = if canGuard then
     if kwIs("if", ts1) then
