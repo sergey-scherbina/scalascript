@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T22:30:00Z
+heartbeat: 2026-07-11T23:24:53Z
 status: in-progress
-done-so-far: W2 effect runners and TI-8.2d2x parser recovery are pushed through 28d52d13b; combined release gate is ready at 37 identical / 29 both-fail / 17 blockers
-next: implement queued TI-8.2d3g core-free Dataset provider/runtime boundary, prove all three Dataset examples on VM/direct ASM, and retire only the exact green rows after full gates
+done-so-far: W2 effects, parser recovery, and the required core-free Dataset provider are pushed through 645ba0d69; release gate is ready at 40 identical / 26 both-fail / 14 blockers
+next: implement the core-free standard Generator provider deferred by Dataset, prove generators.ssc on VM/direct ASM/build-jvm, and retire only its exact row after full gates
