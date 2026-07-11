@@ -856,11 +856,59 @@ Callers remain responsible for sanitizing user-controlled input before
 `rawHtml`, exactly as on the browser path. A future safe `richText` API is a
 separate additive contract; it cannot silently narrow `rawHtml`.
 
+Each representable creates a fresh `WKWebViewConfiguration`, fresh
+`WKUserContentController`, and per-view `.nonPersistent()`
+`WKWebsiteDataStore`. It does not set the deprecated `processPool` property:
+on the deployment floors WebKit owns process selection and multiple explicit
+pools no longer provide isolation. The normative guarantee is no persistent or
+app-shared cookie/cache state plus isolated scripts/handlers, not a dedicated
+operating-system web process.
+
+HTML replacement is generation-owned. After the current generation's content
+rule compiles and is installed, the coordinator authorizes exactly one
+renderer-originated main-frame `about:blank` navigation produced by
+`loadHTMLString`. Initial content and every replacement get a new generation;
+stale compile, navigation, finish, size, and failure callbacks cannot authorize
+or publish. Every other main-frame/subframe, programmatic, redirect, meta, or
+user navigation is cancelled. Only a `.linkActivated` absolute `http`,
+`https`, or non-empty `mailto` URL may be handed to SwiftUI `openURL`. The
+decision uses the same factored external-URL predicate as native actions.
+For `target=_blank`, the UI delegate performs that handoff at most once and
+returns `nil`; unsafe/relative/hash/data/file/javascript/about targets only
+cancel. Programmatic redirects never call `openURL`.
+
+The first HTML load cannot start until rule compilation and installation both
+succeed for the latest, still-mounted generation. The rule matches network
+schemes only and the subresource types image, style-sheet, script, font, media,
+raw, and svg-document; it does not match the document/navigation resource, so
+inline markup/CSS, `data:` resources, and external link taps remain available.
+Compilation failure loads no HTML and renders a Unicode-bounded sourced
+`NativeUiUnsupported`. Executable coverage uses a loopback resource and proves
+zero network hits under the installed rule.
+
+Height is clamped to the finite positive range `1...100000` points. iOS
+observes `scrollView.contentSize`. macOS has no public `WKWebView.scrollView`
+API, so a constant adapter-owned `ResizeObserver` runs at main-frame document
+end in `WKContentWorld.defaultClient` and posts generation-tagged numeric
+height through a handler in the same isolated world. Page-world
+`allowsContentJavaScript` remains false: markup `<script>` cannot run or access
+the client world. The client observer is retained in its world, replaced for
+each load, and removed with its handler/script on dismantle. All iOS KVO tokens,
+both delegates, message handlers, scripts, and callbacks are invalidated or
+detached on replacement/dismantle/deinit; no post-dismantle height/error/link
+publication is permitted. Tests cover initial/grow/shrink replacement, stale
+generation, and teardown.
+
 The version-1 `element` builder canonicalizes the exact lowerer sentinel
 `span(style = display:contents, data-ssc-raw-html = source, children = [])` to
 `NativeUiTrustedHtml(siteId, source)`. A malformed sentinel (wrong tag,
 children, or non-string source) is `NativeUiUnsupported`, not an ordinary span
 whose special attribute is ignored.
+
+The Apple renderer accepts `NativeUiTrustedHtml` only at arity two with a
+source-ref site and String markup. A forged tag/arity/site/source becomes a
+deterministic bounded sourced Unsupported view; the exact Host-side malformed
+rawHtml sentinel diagnostic remains unchanged.
 
 ### Generated package and acceptance
 
