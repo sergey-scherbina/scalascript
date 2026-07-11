@@ -11,7 +11,6 @@ direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an un
 distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
 distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
 dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evaluation receives token text where an Int value is required
-dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhandled Op/3 into match lowering
 generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
 graph-storage-interpreter.ssc	standard-provider	yes	graph	Graph.putVertex has no core-free standard effect handler
