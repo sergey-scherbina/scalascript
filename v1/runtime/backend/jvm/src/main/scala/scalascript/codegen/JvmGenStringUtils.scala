@@ -5,6 +5,7 @@ object JvmGenStringUtils:
 
   def escapeStringLit(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
+     .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 
   /** Wrap `s` as a properly-escaped Scala double-quoted string literal,
    *  safe for embedding in emitted `.sc` source. */

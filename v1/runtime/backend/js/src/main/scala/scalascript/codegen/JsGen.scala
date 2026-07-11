@@ -3857,7 +3857,7 @@ class JsGen(
           val argsExpr = args.map(a => genExpr(a.asInstanceOf[Term]))
           impl.jsEmit(partStrs, argsExpr)
         case None =>
-          val partsJs = partStrs.map(s => "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+          val partsJs = partStrs.map(JsGenStringUtils.jsStringLit)
             .mkString("[", ", ", "]")
           val argsJs = args.map(a => genExpr(a.asInstanceOf[Term])).mkString("[", ", ", "]")
           s"_ext_StringContext_$prefix(_sc($partsJs), $argsJs)"

@@ -481,7 +481,11 @@ object OpenApiGenerator:
     sb.append("\"").toString
 
   private def jsonEscape(s: String): String =
-    s.flatMap { case '"' => "\\\""; case '\\' => "\\\\"; case c => c.toString }
+    // Reuse the full escaper (adds \n\r\t control-char escaping) minus the outer
+    // quotes jsonStr appends — the previous "/\ -only escaper produced invalid
+    // JSON for a schema/$ref name containing a newline.
+    val q = jsonStr(s)
+    q.substring(1, q.length - 1)
 
   private def yamlStr(s: String): String =
     val needsQuotes =
