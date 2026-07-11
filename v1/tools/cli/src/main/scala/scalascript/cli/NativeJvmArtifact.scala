@@ -29,6 +29,7 @@ private[cli] object NativeJvmArtifact:
     "scalascript-http-fast-engine_",
     "scalascript-v2-native-ui-plugin_",
     "scalascript-v2-native-state-effect-plugin_",
+    "scalascript-v2-native-effect-runners-plugin_",
     "scalascript-v2-native-storage-effect-plugin_",
     "scalascript-v2-native-reactive-plugin_",
     "scalascript-v2-native-yaml-plugin_",

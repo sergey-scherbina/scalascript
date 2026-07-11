@@ -139,87 +139,12 @@ def topValsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
 -- List variable name registry (for .length dispatch to _sel_length vs slen)
 def listVarsCell = #cell.new(Nil)
--- KV9: multi-shot effect names (from "multi effect E { ... }" declarations)
-def multiEffectsCell = #cell.new(Nil)
--- KV9: function names that were CPS-transformed for multi-shot effects
-def multiShotFnsCell = #cell.new(Nil)
 
 -- Check if a name is a registered list variable
 def isListVar = (name) =>
   let rec go = (xs) =>
     match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
   go(#cell.get(listVarsCell))
-
--- KV9: check if string s has the given prefix
-def shasprefix = (s, prefix) =>
-  let plen = #slen(prefix) in
-  if #i.gt(plen, #slen(s)) then false
-  else #seq(#sslice(s, 0, plen), prefix)
-
--- KV9: check if var name "E_op" where E is a registered multi-shot effect
-def isMultiShotVarName = (name) =>
-  let rec go = (effects) =>
-    match effects {
-      case Nil => false
-      case Cons(eName, rest) =>
-        if shasprefix(name, #sconcat(eName, "_")) then true
-        else go(rest)
-    } in
-  go(#cell.get(multiEffectsCell))
-
--- KV9: check if resolved expr is a call to a multi-shot effect op: app(var("E_op"), args)
-def isMultiShotCallExprResolved = (expr) =>
-  match expr {
-    case Pair(tag, data) =>
-      if #seq(tag, "app") then
-        match data {
-          case Pair(fn, args) =>
-            match fn {
-              case Pair(ftag, fdata) =>
-                if #seq(ftag, "var") then isMultiShotVarName(fdata) else false
-            }
-        }
-      else false
-  }
-
--- KV9: get the opts arg (first arg) from a resolved multi-shot call
-def getMultiShotOptsResolved = (expr) =>
-  match expr {
-    case Pair(tag, data) =>
-      match data {
-        case Pair(fn, args) =>
-          match args {
-            case Cons(opts, optsTail) => opts
-            case Nil => Pair("ctorap", Pair("Nil", Nil))
-          }
-      }
-  }
-
--- KV9: check if any val-binding in resolved stmts is a multi-shot call
-def blockHasMultiShotResolved = (stmts) =>
-  match stmts {
-    case Nil => false
-    case Cons(s, rest) =>
-      match s {
-        case Pair(tag, data) =>
-          if #seq(tag, "val") then
-            match data {
-              case Pair(vname, vexpr) =>
-                if isMultiShotCallExprResolved(vexpr) then true
-                else blockHasMultiShotResolved(rest)
-            }
-          else blockHasMultiShotResolved(rest)
-      }
-  }
-
--- KV9: check if a function name is CPS-registered as multi-shot
-def isMultiShotFn = (name) =>
-  let rec go = (xs) =>
-    match xs {
-      case Nil => false
-      case Cons(n, rest) => if #seq(n, name) then true else go(rest)
-    } in
-  go(#cell.get(multiShotFnsCell))
 
 -- Check if a resolved expression returns a list (call to a list-returning selector)
 def isListConstruction = (rb) =>
@@ -2383,45 +2308,6 @@ def lowerBlock = (scope, stmts) =>
       }
   }
 
--- KV9: CPS-lower a block containing multi-shot effect calls.
--- scope: current De Bruijn scope (kName must be in scope)
--- kName: name of the continuation param added by the CPS transform
--- stmts: resolved block stmts (output of resolveBlock)
--- Each "val x = E.op(opts)" → _list_flatMap(opts, lam(1, rest_cps))
--- Final "expr e" → app(lookupVar(scope,kName), [e])
-def lowerBlockCps = (scope, kName, stmts) =>
-  match stmts {
-    case Nil => IrLit(IrUnit)
-    case Cons(s, rest) =>
-      match s {
-        case Pair(tag, data) =>
-          if #seq(tag, "val") then
-            match data {
-              case Pair(vname, vexpr) =>
-                if isMultiShotCallExprResolved(vexpr) then
-                  -- multi-shot call: flatMap over opts, bind result as vname
-                  let opts = getMultiShotOptsResolved(vexpr) in
-                  let optsIr = lowerE(scope, opts) in
-                  let newScope = Cons(vname, scope) in
-                  let restIr = lowerBlockCps(newScope, kName, rest) in
-                  IrApp(IrGlobal("_list_flatMap"), Cons(optsIr, Cons(IrLam(1, restIr), Nil)))
-                else
-                  -- regular val: IrLet, shift scope
-                  let exprIr = lowerE(scope, vexpr) in
-                  let newScope = Cons(vname, scope) in
-                  let restIr = lowerBlockCps(newScope, kName, rest) in
-                  IrLet(Cons(exprIr, Nil), restIr)
-            }
-          else if #seq(tag, "expr") then
-            -- final expr: apply continuation k
-            let eIr = lowerE(scope, data) in
-            IrApp(lookupVar(scope, kName), Cons(eIr, Nil))
-          else
-            -- unsupported stmt in CPS mode (assign/while/etc.) — skip
-            lowerBlockCps(scope, kName, rest)
-      }
-  }
-
 -- ── Statement lowering ────────────────────────────────────────────────────────
 
 -- Lower a statement to a list of IrDef nodes (case class → multiple defs)
@@ -2437,18 +2323,11 @@ def lowerStmtToList = (stmt) =>
                 -- KC5b: set active ctx for summon dispatch within this def body
                 let prevCtx = #cell.get(kc5ActiveCtxCell) in
                 let _setCtx = #cell.set(kc5ActiveCtxCell, computeActiveCtx(params)) in
-                -- KV9: detect multi-shot calls in body → CPS transform
                 let resolvedBody = resolveE(body) in
                 let ir = match resolvedBody {
                   case Pair(btag, bdata) =>
                     if #seq(btag, "block") then
-                      if blockHasMultiShotResolved(bdata) then
-                        let kName = "__k__" in
-                        let cpsScope = Cons(kName, scope) in
-                        let _regCps = #cell.set(multiShotFnsCell, Cons(name, #cell.get(multiShotFnsCell))) in
-                        IrDef(name, IrLam(#i.add(lenL(params), 1), lowerBlockCps(cpsScope, kName, bdata)))
-                      else
-                        IrDef(name, IrLam(lenL(params), lowerBlock(scope, bdata)))
+                      IrDef(name, IrLam(lenL(params), lowerBlock(scope, bdata)))
                     else
                       IrDef(name, IrLam(lenL(params), lowerE(scope, resolvedBody)))
                 } in
@@ -2580,10 +2459,7 @@ def lowerStmtToList = (stmt) =>
         match data {
           case Pair(name, rest2) =>
             match rest2 {
-              case Pair(isMulti, stmts) =>
-                let _multi = if isMulti then
-                  #cell.set(multiEffectsCell, Cons(name, #cell.get(multiEffectsCell)))
-                else 0 in
+              case Pair(ignoredMulti, stmts) =>
                 let rec lowerOps = (ss) =>
                   match ss {
                     case Nil => Nil
@@ -2615,8 +2491,6 @@ def lowerStmtToList = (stmt) =>
             }
         }
       else if #seq(tag, "multi_effect") then
-        -- KV9: register effect name as multi-shot for CPS detection
-        let _reg = #cell.set(multiEffectsCell, Cons(data, #cell.get(multiEffectsCell))) in
         Nil
       else if #seq(tag, "tuppat") then
         -- Like ordinary top-level vals, tuple bindings are cell-backed and
@@ -3129,16 +3003,12 @@ def kc6Defs =
   Cons(selSumDef,
   Cons(selMapUpdatedDef,
   Cons(selMapGetOrElseDef,
-  Cons(runLoggerDef,
-  Cons(streamBufDef,
-  Cons(streamEmitDef,
-  Cons(runStreamDef,
   Cons(selRunToListDef,
   Cons(selToListDef,
   Cons(selLengthDef,
   Cons(listConcatDef,
   Cons(listFlatMapDef,
-  Nil))))))))))))))))))))))))))))))))))))))))))
+  Nil))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
 -- K62.7b: pre-scan user `object` names so isKnownObject is reliable during lowering

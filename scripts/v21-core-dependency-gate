@@ -124,6 +124,7 @@ declare -a root_specs=(
   'feature-plugin|scalascript-v2-native-sql-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-ui-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-state-effect-plugin_*.jar'
+  'feature-plugin|scalascript-v2-native-effect-runners-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-storage-effect-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-reactive-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-yaml-plugin_*.jar'
