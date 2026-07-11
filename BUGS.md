@@ -2,8 +2,9 @@
 
 ## v2-swiftui-ios16-onchange-availability — generated renderer requires iOS 17 accidentally
 
-**Status:** open (2026-07-11); found by codex in the real iOS Simulator
-strict typecheck for the native table Apple gate.
+**Status:** done (2026-07-11, `45033e891`); found by codex in the real iOS
+Simulator strict typecheck and confirmed fixed by `nativeui-reviewer` in the
+`scalascript` Rozum room.
 
 - **Real-harness repro:** typecheck all generated AppCore/AppleApp sources with
   `xcrun swiftc -target arm64-apple-ios16.0-simulator` against the installed
@@ -18,11 +19,16 @@ strict typecheck for the native table Apple gate.
   iOS 16 but is deprecated under the installed macOS 14+ SDK and therefore also
   fails warnings-as-errors; use deployment-compatible `task(id:)` observation
   instead of choosing either incompatible `onChange` overload.
+- **Fix/verification:** both generated observers use `task(id:)`. The sixth
+  named table gate typechecks the complete generated Apple source set for the
+  installed iOS 16 Simulator target under strict Swift 6; the full Swift backend
+  is 40/40.
 
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
 
-**Status:** open (2026-07-11); found by `apple_table_impl_map` during the
-read-only implementation audit of the local Apple table decoder draft.
+**Status:** done (2026-07-11, `45033e891`); found by
+`apple_table_impl_map` during the read-only implementation audit and confirmed
+fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
 
 - **Draft repro:** evaluate a fetch table in `loading` with last-good rows and
   an empty/stale body; the draft reparses and can replace the retained rows.
@@ -77,6 +83,12 @@ read-only implementation audit of the local Apple table decoder draft.
 - **Plan/done-when:** close all four seams before the first Apple table code
   commit, add them to the six named executable gates, and obtain Rozum reviewer
   confirmation with the complete slice.
+- **Fix/verification:** one strict decoder/model/Grid implementation now owns
+  transactional source snapshots, exact row/action capabilities, shared
+  URLSession generation, deterministic columns, and synchronous stale-row/task
+  disposal. Round-3 review found no remaining blocker or lifecycle leak.
+  Independent and local runs both passed the named 6/6 and full Swift backend
+  40/40, including generated macOS execution and iOS 16 strict typecheck.
 
 ## v2-native-table-payload-validator-drift — row payload descriptors validate differently by adapter
 

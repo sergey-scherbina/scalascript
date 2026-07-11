@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI renders transactional keyed native tables
+
+Generated Apple apps now share one strict macOS/iOS Grid table runtime for
+static, signal, and fetch sources, with typed dotted row identity,
+deterministic columns, last-good retention, exact row payloads, inline-edit
+dedupe, and normalized relative request URLs. Row actions authenticate the
+current descriptor/action slot/row at launch and completion through the shared
+generation-aware URLSession runner, so replacement and disposal cannot publish
+stale work. Named table gates passed 6/6 and full Swift backend 40/40, including
+macOS execution and iOS 16 strict typecheck; round-3 Rozum review approved with
+no lifecycle leak. Landed `45033e891`; docs `27a59f15c`.
+
 ## 2026-07-11 — imported recursive records cross the compatibility bridge in linear space
 
 `v2ToV1` now converts each `DataV` field once and shares the result across

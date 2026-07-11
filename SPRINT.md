@@ -687,7 +687,7 @@ there before changing this plan.
                         Swift 34/34, JS 52/52, JVM emitted-helper 2/2, TUI 35/35,
                         Rust 261/261, v2 provider 14/14, v1 fetch 12/12, CLI 6/6,
                         and `tkv2-*` conformance 12/12 are green.
-                  - [ ] add the shared strict Apple table decoder/model/view and
+                  - [x] add the shared strict Apple table decoder/model/view and
                         reuse the exact-capability request runner for row work;
                         Draft-audit blockers (tracked as
                         `v2-native-table-model-contract-gaps`): loading must
@@ -707,7 +707,7 @@ there before changing this plan.
                         strict dotted-identifier/boundary regex now frozen in
                         the feature spec, and any malformed `/:` rejects the
                         whole request before base resolution.
-                  - [ ] execute the six named generated-Swift table tests plus
+                  - [x] execute the six named generated-Swift table tests plus
                         focused compatibility/conformance gates, obtain final
                         Rozum implementation APPROVE, then document results.
                         The real installed iOS Simulator gate found
@@ -735,6 +735,17 @@ there before changing this plan.
                         static/signal rowsPath plus strict fetch dotted paths;
                         preserve invalid→valid mounting and never combine old
                         retained cells with a changed column descriptor.
+                        Result: landed `45033e891`; final docs `27a59f15c`.
+                        The shared macOS/iOS Grid table runtime covers strict
+                        static/signal/fetch decoding, typed identity, all frozen
+                        column and payload modes, exact-current row actions,
+                        transactional replacement, and lifecycle cancellation.
+                        `nativeui-reviewer` posted round-3 APPROVE in Rozum with
+                        no lifecycle leak. Local and independent table gates are
+                        6/6 and full `v2SwiftBackend/test` is 40/40; provider
+                        14/14, fetch compatibility 12/12, and Swift CLI 6/6 are
+                        green. The installed iOS 16 Simulator strict Swift 6
+                        typecheck is part of the sixth named gate.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
