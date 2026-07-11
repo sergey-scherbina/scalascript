@@ -16,5 +16,35 @@
        |  ()
        |def exists(path: String): Boolean =
        |  java.nio.file.Files.exists(java.nio.file.Paths.get(path))
+       |def appendFile(path: String, contents: String): Unit =
+       |  java.nio.file.Files.writeString(java.nio.file.Paths.get(path), contents,
+       |    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)
+       |  ()
+       |def readBytes(path: String): List[Long] =
+       |  java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path))
+       |    .map(_sscB => (_sscB & 0xFF).toLong).toList
+       |def writeBytes(path: String, bytes: List[Long]): Unit =
+       |  java.nio.file.Files.write(java.nio.file.Paths.get(path), bytes.map(_.toByte).toArray)
+       |  ()
+       |def isFile(path: String): Boolean =
+       |  java.nio.file.Files.isRegularFile(java.nio.file.Paths.get(path))
+       |def isDir(path: String): Boolean =
+       |  java.nio.file.Files.isDirectory(java.nio.file.Paths.get(path))
+       |def mkdir(path: String): Unit =
+       |  val _sscP = java.nio.file.Paths.get(path)
+       |  if !java.nio.file.Files.exists(_sscP) then java.nio.file.Files.createDirectory(_sscP)
+       |  ()
+       |def mkdirs(path: String): Unit =
+       |  java.nio.file.Files.createDirectories(java.nio.file.Paths.get(path))
+       |  ()
+       |def listDir(path: String): List[String] =
+       |  val _sscArr = new java.io.File(path).list()
+       |  if _sscArr == null then (Nil: List[String]) else _sscArr.toList
+       |def copyFile(src: String, dst: String): Unit =
+       |  java.nio.file.Files.copy(java.nio.file.Paths.get(src), java.nio.file.Paths.get(dst))
+       |  ()
+       |def moveFile(src: String, dst: String): Unit =
+       |  java.nio.file.Files.move(java.nio.file.Paths.get(src), java.nio.file.Paths.get(dst))
+       |  ()
        |
        |
