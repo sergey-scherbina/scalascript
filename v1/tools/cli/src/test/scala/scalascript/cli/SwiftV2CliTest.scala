@@ -77,13 +77,74 @@ final class SwiftV2CliTest extends AnyFunSuite:
     withLibPath {
       val out = os.temp.dir(prefix = "ssc-v2-swift-nativeui-")
       try
+        os.makeDir.all(out / "AppleApp" / "Resources")
+        os.write(out / "AppleApp" / "Resources" / "user.txt", "owned by user")
         val emitted = SwiftV2Cli.emit(nativeUiExample, out, SwiftPlatform.MacOS)
         assert(emitted.debugCli == "appcore_nativeuiCli")
         assert(emitted.xcodeApp.exists(_.appProduct == "appcore_nativeui.app"))
         assert(os.exists(out / "Sources" / "AppCore" / "NativeUiHost.swift"))
         assert(os.exists(out / "Sources" / emitted.debugCli / "main.swift"))
         assert(os.exists(out / "appcore_nativeui.xcodeproj" / "project.pbxproj"))
+        assert(os.read(out / "appcore_nativeui.xcodeproj" / "project.pbxproj").contains("user.txt in Resources"))
         assert(SwiftV2Cli.runPackage(emitted, Nil, "run-swift") == 0)
+      finally os.remove.all(out)
+    }
+
+  test("checked top-level metadata forces SwiftUI mode and rejects nested or empty bundle ids"):
+    withLibPath {
+      val root = os.temp.dir(prefix = "ssc-v2-swift-metadata-")
+      try
+        val good = root / "good.ssc"
+        os.write(good,
+          "---\nname: Meta App\nfrontend: swiftui\nbundle-id: com.scalascript.meta\nversion: 1.2\nbuild-version: 9\n---\n```scalascript\nprintln(\"meta\")\n```\n")
+        val emitted = SwiftV2Cli.emit(good, root / "good-out", SwiftPlatform.MacOS)
+        assert(emitted.xcodeApp.exists(_.bundleId == "com.scalascript.meta"))
+
+        val nested = root / "nested.ssc"
+        os.write(nested,
+          "---\nname: Nested\nfrontend: swiftui\nconfig:\n  bundle-id: com.scalascript.nested\n---\n```scalascript\nprintln(\"nested\")\n```\n")
+        val nestedError = intercept[IllegalArgumentException](
+          SwiftV2Cli.emit(nested, root / "nested-out", SwiftPlatform.MacOS))
+        assert(nestedError.getMessage.contains("requires front-matter bundle-id"))
+
+        val empty = root / "empty.ssc"
+        os.write(empty,
+          "---\nname: Empty\nfrontend: swiftui\nbundle-id:\n---\n```scalascript\nprintln(\"empty\")\n```\n")
+        val emptyError = intercept[IllegalArgumentException](
+          SwiftV2Cli.emit(empty, root / "empty-out", SwiftPlatform.MacOS))
+        assert(emptyError.getMessage.contains("bundle-id"))
+        assert(!os.exists(root / "nested-out") && !os.exists(root / "empty-out"))
+      finally os.remove.all(root)
+    }
+
+  test("checked NativeUi Xcode artifact builds verifies and bounded-launches macOS plus iOS simulator"):
+    assume(xcodeAvailable, "Xcode is not available")
+    withLibPath {
+      val out = os.temp.dir(prefix = "ssc-v2-swift-xcode-cli-")
+      try
+        os.makeDir.all(out / "AppleApp" / "Resources")
+        os.write(out / "AppleApp" / "Resources" / "user-e2e.txt", "preserved resource")
+        val emitted = SwiftV2Cli.emit(nativeUiExample, out, SwiftPlatform.MacOS)
+        val listing = os.proc("xcodebuild", "-list", "-json", "-project", emitted.xcodeApp.get.project)
+          .call(cwd = out, stdout = os.Pipe, stderr = os.Pipe)
+        val project = ujson.read(listing.out.text())("project")
+        assert(project("targets").arr.map(_.str).toVector == Vector("appcore_nativeui"))
+        assert(project("schemes").arr.map(_.str).toVector == Vector("appcore_nativeui"))
+        val mac = SwiftV2Cli.buildXcodeApplication(
+          emitted, "platform=macOS", out / "derived-mac", "test macOS app")
+        assert(mac.bundle.ext == "app" && os.exists(mac.executable))
+        assert(os.read(mac.bundle / "Contents" / "Resources" / "user-e2e.txt") == "preserved resource")
+        val process = new ProcessBuilder(mac.executable.toString).start()
+        Thread.sleep(1000)
+        assert(process.isAlive, "macOS application exited before bounded smoke interval")
+        process.destroy()
+        process.waitFor()
+
+        val (udid, _) = pickIosSimulator().getOrElse(fail("installed iOS simulator is unavailable"))
+        val iosEmitted = SwiftV2Cli.emit(nativeUiExample, out / "ios", SwiftPlatform.IOS)
+        val ios = SwiftV2Cli.buildXcodeApplication(
+          iosEmitted, s"platform=iOS Simulator,id=$udid", out / "derived-ios", "test iOS app")
+        assert(ios.bundle.ext == "app")
       finally os.remove.all(out)
     }
 
@@ -108,6 +169,10 @@ final class SwiftV2CliTest extends AnyFunSuite:
 
   private def swiftAvailable: Boolean =
     try os.proc("swift", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+    catch case _: Throwable => false
+
+  private def xcodeAvailable: Boolean =
+    try os.proc("xcodebuild", "-version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
     catch case _: Throwable => false
 
   private def withLibPath[A](body: => A): A =

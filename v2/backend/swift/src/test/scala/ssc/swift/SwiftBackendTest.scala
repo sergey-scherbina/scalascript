@@ -90,6 +90,17 @@ final class SwiftBackendTest extends AnyFunSuite:
       assert(Files.readString(userResource) == "keep")
     finally deleteRecursively(root)
 
+    Vector("../escape", root.resolveSibling("absolute").toString).foreach { hostile =>
+      val hostileRoot = Files.createTempDirectory("ssc-swift-hostile-")
+      try
+        Files.writeString(hostileRoot.resolve(".ssc-swift-generated.json"),
+          "[\n  \"" + hostile.replace("\\", "\\\\").replace("\"", "\\\"") + "\"\n]\n")
+        val error = intercept[IllegalArgumentException](
+          SwiftBackend.generate(fixture("fact"), "Hostile").writeTo(hostileRoot))
+        assert(error.getMessage.contains("invalid generated Swift ownership path"))
+      finally deleteRecursively(hostileRoot)
+    }
+
   test("generated Xcode application scheme builds real macOS and iOS Simulator apps"):
     assume(xcodebuildAvailable, "Xcode toolchain is not available")
     val root = Files.createTempDirectory("ssc-swift-xcode-")

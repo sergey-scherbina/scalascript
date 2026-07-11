@@ -1645,11 +1645,7 @@ final class RunCmd extends CliCommand:
     if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
       rejectProgramArgs("run --target ios")
       if v1Flag then runIosTargets(fileArgs.toList, deviceFlag, deviceIdFlag, consoleFlag, rebuildFlag)
-      else
-        System.err.println(
-          "run --target ios: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted"
-        )
-        System.exit(1)
+      else runV2IosTargets(fileArgs.toList, consoleFlag)
       return
 
     val noExplicitRunMode =
@@ -1862,8 +1858,14 @@ private[cli] def runV2MacosTargets(files: List[String], backendBaseUrl: Option[S
         _root_.ssc.swift.SwiftPlatform.MacOS,
         backendBaseUrl = backendBaseUrl,
       )
-      val exit = SwiftV2Cli.runPackage(emitted, Nil, "run --target macos")
-      if exit != 0 then System.exit(exit)
+      emitted.xcodeApp match
+        case Some(_) =>
+          val built = SwiftV2Cli.buildXcodeApplication(
+            emitted, "platform=macOS", outRoot / "derived", "run --target macos")
+          new ProcessBuilder(built.executable.toString).inheritIO().start()
+        case None =>
+          val exit = SwiftV2Cli.runPackage(emitted, Nil, "run --target macos")
+          if exit != 0 then System.exit(exit)
     catch case e: Exception =>
       System.err.println(s"run --target macos: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
       System.exit(1)
@@ -1880,6 +1882,26 @@ private[cli] def runIosTargets(files: List[String], device: Boolean, deviceId: O
     val outDir = os.Path("target/build", os.pwd) / "ios"
     for file <- files do
       runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, console, rebuild)
+
+private[cli] def runV2IosTargets(files: List[String], console: Boolean): Unit =
+  val outDir = os.Path("target/build", os.pwd) / "ios"
+  val (simUdid, simName) = pickIosSimulator().getOrElse {
+    throw new IllegalStateException("run --target ios: no available iOS Simulator")
+  }
+  for file <- files do
+    val emitted = buildV2SwiftPackage(
+      os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS)
+    val built = SwiftV2Cli.buildXcodeApplication(
+      emitted, s"platform=iOS Simulator,id=$simUdid", outDir / "derived", "run --target ios")
+    os.proc("xcrun", "simctl", "boot", simUdid).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    val install = os.proc("xcrun", "simctl", "install", simUdid, built.bundle.toString)
+      .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
+    if install.exitCode != 0 then throw new IllegalStateException("run --target ios: simulator install failed")
+    val bundleId = emitted.xcodeApp.get.bundleId
+    val launchArgs = if console then List("--console", simUdid, bundleId) else List(simUdid, bundleId)
+    val launch = os.proc(List("xcrun", "simctl", "launch") ++ launchArgs)
+      .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
+    if launch.exitCode != 0 then throw new IllegalStateException(s"run --target ios: launch failed on $simName")
 
 private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purpose: String): Unit =
   if !os.exists(sscFile) then

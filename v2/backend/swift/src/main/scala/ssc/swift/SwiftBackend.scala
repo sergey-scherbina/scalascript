@@ -35,9 +35,7 @@ final case class SwiftPackage(
     val manifest = root.resolve(ownershipManifest)
     val temporary = root.resolve(s"$ownershipManifest.tmp")
     Files.writeString(temporary, rendered, StandardCharsets.UTF_8)
-    try Files.move(temporary, manifest, ATOMIC_MOVE, REPLACE_EXISTING)
-    catch case _: java.nio.file.AtomicMoveNotSupportedException =>
-      Files.move(temporary, manifest, REPLACE_EXISTING)
+    Files.move(temporary, manifest, ATOMIC_MOVE, REPLACE_EXISTING)
 
   private def ownedPath(root: Path, relative: String): Path =
     val candidate = Path.of(relative)
@@ -134,10 +132,12 @@ object SwiftBackend:
       platform: SwiftPlatform = SwiftPlatform.MacOS,
       backendBaseUrl: Option[String] = None,
       appMetadata: Option[SwiftAppMetadata] = None,
+      forceNativeUi: Boolean = false,
+      appleResourcePaths: Vector[String] = Vector.empty,
   ): SwiftPackage =
     validate(program)
     val product = productName(packageName)
-    val nativeUi = usesNativeUi(program)
+    val nativeUi = forceNativeUi || usesNativeUi(program)
     val normalizedBaseUrl = if nativeUi then backendBaseUrl.map(normalizeBackendBaseUrl) else None
     val executable = if nativeUi then s"${product}Cli" else product
     val baseFiles = Vector(
@@ -157,12 +157,15 @@ object SwiftBackend:
     val (xcodeFiles, xcodeApp) =
       if nativeUi && appMetadata.nonEmpty then
         val metadata = appMetadata.get
-        val (files, artifact) = SwiftXcodeProject.generate(product, metadata)
+        val (files, artifact) = SwiftXcodeProject.generate(product, metadata, appleResourcePaths)
         files -> Some(artifact)
       else Vector.empty -> None
     SwiftPackage(baseFiles ++ xcodeFiles, executable, xcodeApp)
 
   def requiresNativeUi(program: Program): Boolean = usesNativeUi(program)
+
+  def validateAppMetadata(metadata: SwiftAppMetadata): Unit =
+    SwiftXcodeProject.validate(metadata)
 
   def productName(raw: String): String =
     val cleaned = raw.replaceAll("[^A-Za-z0-9_]", "_")

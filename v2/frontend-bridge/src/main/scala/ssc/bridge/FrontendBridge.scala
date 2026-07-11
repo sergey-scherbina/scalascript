@@ -25,6 +25,7 @@ object FrontendBridge:
       displayName: Option[String],
       version: Option[String],
       buildVersion: Option[String],
+      frontend: Option[String],
   )
 
   final case class CheckedSource(program: Program, metadata: SourceMetadata)
@@ -771,11 +772,12 @@ object FrontendBridge:
       fileDir: Option[java.io.File] = None,
   ): CheckedSource =
     val metadata = SourceMetadata(
-      name = frontMatterValue(src, "name").filter(_.nonEmpty),
-      bundleId = frontMatterValue(src, "bundle-id").filter(_.nonEmpty),
-      displayName = frontMatterValue(src, "display-name").filter(_.nonEmpty),
-      version = frontMatterValue(src, "version").filter(_.nonEmpty),
-      buildVersion = frontMatterValue(src, "build-version").filter(_.nonEmpty),
+      name = topLevelFrontMatterValue(src, "name"),
+      bundleId = topLevelFrontMatterValue(src, "bundle-id"),
+      displayName = topLevelFrontMatterValue(src, "display-name"),
+      version = topLevelFrontMatterValue(src, "version"),
+      buildVersion = topLevelFrontMatterValue(src, "build-version"),
+      frontend = topLevelFrontMatterValue(src, "frontend"),
     )
     CheckedSource(convertSource(src, fileDir), metadata)
 
@@ -1247,6 +1249,20 @@ object FrontendBridge:
               val rawValue = t.drop(colon + 1).takeWhile(_ != '#').trim
               Some(rawValue.stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'"))
         }.toSeq.headOption
+
+  private def topLevelFrontMatterValue(raw: String, key: String): Option[String] =
+    val noShebang = if raw.startsWith("#!/") then raw.dropWhile(_ != '\n').drop(1) else raw
+    if !noShebang.stripLeading().startsWith("---") then None
+    else
+      val start = noShebang.indexOf("---")
+      val end = noShebang.indexOf("\n---", start + 3)
+      if end < 0 then None
+      else
+        noShebang.slice(start + 3, end).linesIterator.collectFirst {
+          case line if line.nonEmpty && !line.head.isWhitespace && line.startsWith(key + ":") =>
+            line.drop(key.length + 1).takeWhile(_ != '#').trim
+              .stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'")
+        }
 
   private def truthyFrontMatterValue(value: String): Boolean =
     value.trim.toLowerCase match

@@ -41,7 +41,11 @@ private[swift] object SwiftXcodeProject:
 }
 """
 
-  def generate(product: String, metadata: SwiftAppMetadata): (Vector[(String, String)], XcodeAppArtifact) =
+  def generate(
+      product: String,
+      metadata: SwiftAppMetadata,
+      existingResources: Vector[String],
+  ): (Vector[(String, String)], XcodeAppArtifact) =
     validate(metadata)
     val appSource = s"AppleApp/${product}App.swift"
     val sources = (sourcePaths :+ appSource).sorted
@@ -58,12 +62,14 @@ private[swift] object SwiftXcodeProject:
     )
     val files = Vector(
       assetsContentsPath -> assetsContents,
-      s"$project/project.pbxproj" -> pbxproj(product, metadata, sources),
+      s"$project/project.pbxproj" -> pbxproj(
+        product, metadata, sources,
+        (Vector(assetsPath) ++ existingResources).distinct.sorted),
       s"$project/xcshareddata/xcschemes/$product.xcscheme" -> scheme(product),
     )
     files -> artifact
 
-  private def validate(metadata: SwiftAppMetadata): Unit =
+  private[swift] def validate(metadata: SwiftAppMetadata): Unit =
     val bundlePattern = "[A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9][A-Za-z0-9-]*)+".r
     if bundlePattern.matches(metadata.bundleId) == false then
       invalid("bundle-id", metadata.bundleId, "must be reverse-DNS ASCII segments")
@@ -93,13 +99,19 @@ private[swift] object SwiftXcodeProject:
       case c => c.toString
     } + "\""
 
-  private def pbxproj(product: String, metadata: SwiftAppMetadata, sources: Vector[String]): String =
+  private def pbxproj(
+      product: String,
+      metadata: SwiftAppMetadata,
+      sources: Vector[String],
+      resources: Vector[String],
+  ): String =
     val allKeys = Vector(
       "project", "main-group", "products-group", "sources-group", "apple-group", "resources-group",
       "target", "product-ref", "sources-phase", "resources-phase", "frameworks-phase",
       "project-config-list", "target-config-list", "project-debug", "project-release",
-      "target-debug", "target-release", "assets-ref", "assets-build",
-    ) ++ sources.flatMap(path => Vector(s"source-ref:$path", s"source-build:$path"))
+      "target-debug", "target-release",
+    ) ++ sources.flatMap(path => Vector(s"source-ref:$path", s"source-build:$path")) ++
+      resources.flatMap(path => Vector(s"resource-ref:$path", s"resource-build:$path"))
     val ids = allKeys.map(key => key -> id(key)).toMap
     require(ids.values.toSet.size == ids.size, "deterministic PBX object id collision")
     def i(key: String) = ids(key)
@@ -111,6 +123,15 @@ private[swift] object SwiftXcodeProject:
     }.mkString("\n")
     val sourceChildren = sources.map(path => s"\t\t\t\t${i(s"source-ref:$path")} /* ${path.split('/').last} */,").mkString("\n")
     val sourcePhaseFiles = sources.map(path => s"\t\t\t\t${i(s"source-build:$path")} /* ${path.split('/').last} in Sources */,").mkString("\n")
+    val resourceRefs = resources.map { path =>
+      val fileType = if path.endsWith(".xcassets") then "folder.assetcatalog" else "text"
+      s"\t\t${i(s"resource-ref:$path")} /* ${path.split('/').last} */ = {isa = PBXFileReference; lastKnownFileType = $fileType; path = ${q(path)}; sourceTree = SOURCE_ROOT; };"
+    }.mkString("\n")
+    val resourceBuilds = resources.map { path =>
+      s"\t\t${i(s"resource-build:$path")} /* ${path.split('/').last} in Resources */ = {isa = PBXBuildFile; fileRef = ${i(s"resource-ref:$path")} /* ${path.split('/').last} */; };"
+    }.mkString("\n")
+    val resourceChildren = resources.map(path => s"${i(s"resource-ref:$path")} /* ${path.split('/').last} */").mkString(", ")
+    val resourcePhaseFiles = resources.map(path => s"${i(s"resource-build:$path")} /* ${path.split('/').last} in Resources */").mkString(", ")
     val targetSettings = Vector(
       "CODE_SIGN_STYLE = Automatic;",
       "CURRENT_PROJECT_VERSION = " + q(metadata.buildVersion) + ";",
@@ -136,12 +157,12 @@ private[swift] object SwiftXcodeProject:
 
 /* Begin PBXBuildFile section */
 $sourceBuilds
-\t\t${i("assets-build")} /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ${i("assets-ref")} /* Assets.xcassets */; };
+$resourceBuilds
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 $sourceRefs
-\t\t${i("assets-ref")} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = ${q(assetsPath)}; sourceTree = SOURCE_ROOT; };
+$resourceRefs
 \t\t${i("product-ref")} /* $product.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ${q(s"$product.app")}; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -154,7 +175,7 @@ $sourceRefs
 \t\t${i("sources-group")} = {isa = PBXGroup; children = (
 $sourceChildren
 \t\t\t); name = Sources; sourceTree = "<group>"; };
-\t\t${i("resources-group")} = {isa = PBXGroup; children = (${i("assets-ref")}); name = Resources; sourceTree = "<group>"; };
+\t\t${i("resources-group")} = {isa = PBXGroup; children = ($resourceChildren); name = Resources; sourceTree = "<group>"; };
 \t\t${i("products-group")} = {isa = PBXGroup; children = (${i("product-ref")}); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -167,7 +188,7 @@ $sourceChildren
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-\t\t${i("resources-phase")} = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (${i("assets-build")}); runOnlyForDeploymentPostprocessing = 0; };
+\t\t${i("resources-phase")} = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ($resourcePhaseFiles); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
