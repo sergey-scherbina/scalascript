@@ -2,8 +2,8 @@
 
 ## v2-native-table-payload-validator-drift — row payload descriptors validate differently by adapter
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
-`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+**Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
+`nativeui-reviewer` in the `scalascript` Rozum room after three review rounds.
 
 - **Real-harness repro:** construct `Field`, `WholeRow`, and `Fields` payloads
   through the v2 UI provider, generated Swift Host, and v1 compatibility
@@ -20,11 +20,16 @@
   compound JSON), rejected the valid empty-String `Field` body, and normalized a
   forged `wholeRow` descriptor carrying names. JVM helper coverage only searched
   generated text instead of executing rejection. These remain part of this bug.
+- **Fix/verification:** all v2, Swift Host, v1, generated JVM, and JS entry
+  points now enforce the same exact descriptor shapes. JS preserves arbitrary
+  JSON `Fields` values and an empty String `Field`; the emitted JVM helper is
+  executed through `scala-cli`. Reviewer-confirmed gates: JS 52/52, JVM 2/2,
+  v2 14/14, fetch 12/12, Swift 34/34, and CLI 6/6.
 
 ## v2-native-table-request-url-untested — Swift URL resolver and CLI routing lack executable coverage
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
-`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+**Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
+`nativeui-reviewer` in the `scalascript` Rozum room after executable review.
 
 - **Real-harness repro:** current JVM generator tests normalize/embed a base and
   CLI tests call `SwiftV2Cli.emit` directly, but no generated Swift execution
@@ -37,11 +42,14 @@
 - **Plan/done-when:** execute the resolver matrix through generated strict Swift
   plus controllable URLProtocol and invoke the actual CLI command path with
   `--server-url`; pin accepted URLs, rejected forms, and emitted configuration.
+- **Fix/verification:** generated Swift executes the accepted/rejected URL
+  matrix and the real `BuildCmd` threads normalized `--server-url` into Store
+  configuration. Swift 34/34 and CLI 6/6 passed before the reviewer APPROVE.
 
 ## v2-native-table-rowkey-adapter-drop — non-default row identity is silently lost outside Swift
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
-`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+**Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
+`nativeui-reviewer` in the `scalascript` Rozum room after three review rounds.
 
 - **Real-harness repro:** compile `dataTableView(..., rowKeyPath = "meta.key")`
   through every adapter. JS emits a DOM attribute that its mount runtime never
@@ -56,11 +64,15 @@
 - **Review round 2:** JS must reject non-object rows rather than accepting an
   array via a numeric dotted segment. TUI/Rust must execute the complete
   missing/empty/compound/duplicate runtime matrix, not rely on compile smoke.
+- **Fix/verification:** JS mount consumes the typed canonical identity and
+  rejects arrays/missing/empty/compound/duplicates; TUI consumes the selected
+  path and generic Rust rejects unsupported tables explicitly. JS 52/52, TUI
+  35/35, and Rust 261/261 include executable invalid-key matrices.
 
 ## v2-native-table-five-field-registry-drift — v2 field layout disagrees with constructed ABI value
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
-`scalascript` Rozum review of local table-plumbing commit `8b758a174`.
+**Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
+`nativeui-reviewer` in the `scalascript` Rozum room.
 
 - **Real-harness repro:** the v2 `UiNativePlugin` constructs
   `NativeUiDataTable(siteId, source, columns, actions, rowKeyPath)` but its
@@ -70,6 +82,8 @@
   five-field ABI layout, including named `rowKeyPath` at index four.
 - **Plan/done-when:** update the authoritative layout and add an executable
   named-field/arity regression before the five-field value reaches Swift.
+- **Fix/verification:** registry reflection and `Prims.methodOp` now address the
+  exact five-field layout; `v2NativeUiPlugin/test` passes 14/14.
 
 ## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
 

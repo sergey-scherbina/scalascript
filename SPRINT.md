@@ -658,19 +658,19 @@ there before changing this plan.
                   blocked publication on four cross-adapter contract gaps;
                   each is tracked in `BUGS.md` and must close before the ABI
                   plumbing push:
-                  - [ ] make the v2 `NativeUiDataTable` registry and named-field
+                  - [x] make the v2 `NativeUiDataTable` registry and named-field
                         access use the exact five fields, with an arity/layout
                         regression in `v2NativeUiPlugin/test`;
-                  - [ ] preserve and consume non-default `rowKeyPath` in JS and
+                  - [x] preserve and consume non-default `rowKeyPath` in JS and
                         Rust/TUI (never an ignored underscore argument/unused
                         DOM attribute), with missing/empty/compound/duplicate
                         row-key adapter gates; reject non-object JS rows and
                         execute the full invalid-key matrix in TUI/Rust;
-                  - [ ] execute Swift request resolution for absolute,
+                  - [x] execute Swift request resolution for absolute,
                         root-relative, base-relative, and rejected URL forms,
                         and invoke a real Apple CLI command with `--server-url`
                         to prove it reaches generated Store configuration;
-                  - [ ] unify exact Field/WholeRow/Fields validation across the
+                  - [x] unify exact Field/WholeRow/Fields validation across the
                         v2 provider, generated Swift Host, v1 compatibility,
                         generated JVM, and JS adapters, including wrong-type,
                         empty, malformed, and duplicate negative gates; no
@@ -679,9 +679,14 @@ there before changing this plan.
                         empty String verbatim, and forged raw descriptors retain
                         exact shape rejection; JVM rejection must execute from
                         emitted helpers rather than use source-text assertions.
-                  - [ ] update the target-independent public/ABI surface and all
+                  - [x] update the target-independent public/ABI surface and all
                         existing JVM/JS/Rust/Swift adapters for `rowKeyPath`,
                         Any row payloads, and normalized Apple `--server-url`;
+                        Result: landed `046281c99` + hardening `1ecbc80ca` after
+                        three blocker-driven reviews and final Rozum APPROVE.
+                        Swift 34/34, JS 52/52, JVM emitted-helper 2/2, TUI 35/35,
+                        Rust 261/261, v2 provider 14/14, v1 fetch 12/12, CLI 6/6,
+                        and `tkv2-*` conformance 12/12 are green.
                   - [ ] add the shared strict Apple table decoder/model/view and
                         reuse the exact-capability request runner for row work;
                   - [ ] execute the six named generated-Swift table tests plus
