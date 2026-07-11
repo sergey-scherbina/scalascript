@@ -19,9 +19,11 @@ class FastServerBackend extends HttpServerSpi:
   @volatile private var _engine:    FastHttpServer | Null = null
   @volatile private var _running:   Boolean = false
   @volatile private var _localPort: Int     = 0
+  @volatile private var _secure:    Boolean = false // HTTPS → Secure session cookies
 
   override def start(port: Int, tls: Option[TlsConfig], handler: HttpHandler): Unit =
     if _running then return
+    _secure = tls.isDefined
     val engine = new FastHttpServer(
       handler   = raw => httpDispatch(raw, handler),
       webSocket = Some(new WsBridge(handler)))
@@ -70,7 +72,7 @@ class FastServerBackend extends HttpServerSpi:
     if !headers.keysIterator.exists(_.equalsIgnoreCase("content-type")) then
       headers = headers + ("Content-Type" -> "text/plain; charset=utf-8")
     r.setSession.foreach { payload =>
-      headers = headers + ("Set-Cookie" -> SessionCookie.toSetCookie(payload, secureFlag = false))
+      headers = headers + ("Set-Cookie" -> SessionCookie.toSetCookie(payload, secureFlag = _secure))
     }
     RawResponse(r.status, headers, r.body.getBytes(UTF_8))
 
