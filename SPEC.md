@@ -624,6 +624,12 @@ NoContext match
   case _         => "custom"
 ```
 
+Two-element tuples have one source-level identity regardless of their internal
+producer. Tuple literals, `key -> value`, collection operations such as `zip`
+and `zipWithIndex`, map entries, and imported values all support `._1`/`._2`
+and `(left, right)` patterns. Backend-internal `Pair/2` versus `Tuple2/2` tags
+are not observable at the ScalaScript source level.
+
 ### 5.5 Functional Updates and Lenses
 
 Case classes carry an auto-generated `copy` method:
