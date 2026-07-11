@@ -612,6 +612,13 @@ The `if` and `=>` tokens above belong to the match arm, not to the pattern
 type. Function arrows remain valid in general type annotations; this boundary
 rule is specific to typed match patterns.
 
+A typed binder is a runtime nominal test, not an erased binder annotation. For
+a portable case-class, case-object, or enum type head `T`, `case value: T`
+matches only a value carrying the nominal runtime tag `T`; a different tag or
+a non-data value falls through to the next arm. On success the complete
+scrutinee is bound to `value`. Type arguments are erased after their balanced
+syntax has been checked, but the outer nominal type head is retained in CoreIR.
+
 A `case object` is one stable nullary constructor value. It can be imported,
 referenced directly, compared structurally, and matched by name:
 
