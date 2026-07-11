@@ -1,0 +1,22 @@
+---
+name: v21-native-parser-dsl-values-lib
+exports:
+  - ParsedRows
+  - parsedRows
+---
+
+[Position, ParseOk, Parser, PSucceed, NoContext](std/parsing/core.ssc)
+
+[runParser](std/parsing/combinators.ssc)
+
+# Imported parser result composition
+
+```scalascript
+case class ParsedRows(rows: Any)
+
+def parsedRows(): Any =
+  val parser: Parser[Any] =
+    PSucceed(List((1, "alpha"), (2, "beta"), (3, "gamma")))
+      .map(rows => ParsedRows(rows))
+  runParser(parser, "", Position(0), NoContext)
+```

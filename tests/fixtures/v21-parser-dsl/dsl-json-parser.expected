@@ -1,0 +1,7 @@
+null => null
+true => true
+42 => 42
+"hello" => "hello"
+[1, 2, 3] => [1, 2, 3]
+{"a": 1, "b": true} => {"a": 1, "b": true}
+{"name": "Alice", "scores": [95, 87, 91]} => {"name": "Alice", "scores": [95, 87, 91]}

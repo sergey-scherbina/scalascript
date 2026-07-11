@@ -1,0 +1,19 @@
+---
+name: v21-native-parser-dsl-values
+---
+
+[ParsedRows, parsedRows](parser-dsl-values-lib.ssc)
+
+[ParseOk](std/parsing/core.ssc)
+
+# Parser extension and ordinary collection dispatch
+
+```scalascript
+parsedRows() match
+  case ParseOk(ParsedRows(rows), rest, pos) =>
+    val rendered = rows.asInstanceOf[List[Any]].map(row =>
+      row._1.toString + ":" + row._2
+    ).mkString("|")
+    println(rendered)
+  case _ => println("failed")
+```

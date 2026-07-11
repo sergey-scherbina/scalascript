@@ -1,0 +1,17 @@
+Parsed successfully.
+server:
+  host: localhost
+  port: 8080
+  tls:
+    cert: /etc/tls/cert.pem
+    key: /etc/tls/key.pem
+database:
+  host: db.internal
+  port: 5432
+  name: myapp
+  pool:
+    min: 2
+    max: 10
+server.host = localhost
+database.name = myapp
+database.pool.max = 10
