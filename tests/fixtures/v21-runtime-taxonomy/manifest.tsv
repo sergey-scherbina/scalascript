@@ -41,7 +41,6 @@ signals-demo.ssc	standard-provider	yes	ui	Signal companion values are missing fr
 sql-browser-duckdb.ssc	example-contract	yes	sql-browser	browser SQL section binding Totals is not declared as a non-JVM backend surface
 sql-browser-sqlite.ssc	example-contract	yes	sql-browser	browser SQL section binding Active is not declared as a non-JVM backend surface
 sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section binding ActiveUsers is not lowered natively
-storage-demo.ssc	standard-provider	yes	storage	runEphemeralStorage is missing from a core-free standard storage provider
 typeclass.ssc	language-runtime	yes	typeclass	exact summon now runs; an explicitly passed typeclass dictionary remains a sentinel value whose member dispatch fails
 typed-sql-crud.ssc	example-contract	yes	sql	the deterministic native run queries TODOS before the fixture creates it
 wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
