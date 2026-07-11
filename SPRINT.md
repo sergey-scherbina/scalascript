@@ -2656,6 +2656,23 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               plugin/class-load, JRE, slim, build-jvm,
                               standard-tier, portable/taxonomy, algebraic
                               effects, and fresh conformance 11/11 pass.
+                              - [ ] **TI-8.2d3c2 installed-source reactive ctor
+                                    provider bypass:** a clean `installBin` from
+                                    current `origin/main` stages the post-K62.33
+                                    lowerer, which emits `Ctor("Signal", ...)` /
+                                    `Ctor("ComputedSignal", ...)`. The kernel
+                                    then constructs its legacy raw cell before
+                                    consulting the registered core-free reactive
+                                    provider, so initial reads work but dependency
+                                    subscriptions never rerun; the previously
+                                    staged main binary was stale and masked this.
+                                    In `v2/src/Runtime.scala`, make those two
+                                    legacy ctor cases invoke a registered provider
+                                    global first and retain the raw-cell fallback
+                                    only for a bare kernel with no provider. Pin
+                                    exact fresh-install VM/ASM/build-jvm
+                                    `signals-demo.ssc` output and rerun plugin,
+                                    artifact, dependency, and conformance gates.
                         - [x] **TI-8.2d3d core-free YAML — DONE 2026-07-11
                               (code `2da4183f5`, docs `1d28aeeca`):** implement
                               `specs/v2.1-native-yaml.md`. Add a dedicated
