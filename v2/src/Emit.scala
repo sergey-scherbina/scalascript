@@ -235,7 +235,11 @@ object Emit:
       case ro => globalsRef = scala.collection.concurrent.TrieMap.from(ro).addOne(name -> v)
   def global(name: String): Value =
     globalsRef.getOrElse(name,
-      V2PluginRegistry.lookupGlobal(name).getOrElse {
+      V2PluginRegistry.lookupGlobal(name)
+        .orElse(V2PluginRegistry.lookup(name).map { handler =>
+          Value.ClosV(Runtime.emptyEnv, -1, env => Done(handler(env.toList)))
+        })
+        .getOrElse {
         // VM parity: @xxx cell globals AUTO-CREATE on first access (lazy
         // UnitV init) — readers and writers then share the same cell object
         // through the mutable globals map.
@@ -244,7 +248,7 @@ object Emit:
           registerGlobal(name, cell)
           cell
         else sys.error(s"unbound global: $name")
-      })
+        })
   def strV(s: String): Value = Value.StrV(s)
   def intV(n: Long): Value = Value.IntV(n)
   def floatV(d: Double): Value = Value.FloatV(d)
