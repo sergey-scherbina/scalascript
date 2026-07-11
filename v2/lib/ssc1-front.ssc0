@@ -1998,12 +1998,11 @@ def nlStep = (v, stack, cont) =>
           } } }
 
 def layout = (toks) =>
-  -- A trailing `:` opens layout only while scanning a trait header. Treating
-  -- every colon as an opener would misclassify split type annotations; keeping
-  -- this one bit of header context gives trait bodies real virtual braces so
-  -- the trait parser can skip their abstract members without consuming the
-  -- following top-level declaration.
-  let rec go = (ts, stack, prevOpener, prevCanEnd, traitHead) =>
+  -- A trailing `:` opens layout only while scanning a trait/object declaration
+  -- header. Treating every colon as an opener would misclassify split type
+  -- annotations; keeping this one bit of header context gives declaration
+  -- bodies real virtual braces without changing expression/type colons.
+  let rec go = (ts, stack, prevOpener, prevCanEnd, declHead) =>
     match ts {
       case Nil => Nil
       case Cons(t, rest) =>
@@ -2021,26 +2020,27 @@ def layout = (toks) =>
                 case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false))
               }
           else if #seq(k, "(") then
-            Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, traitHead))
+            Cons(t, go(rest, Cons(Pair("P", 0), stack), false, false, declHead))
           else if #seq(k, "[") then
-            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, traitHead))
+            Cons(t, go(rest, Cons(Pair("S", 0), stack), false, false, declHead))
           else if #seq(k, ")") then
-            match closeToDelim("P", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, traitHead))) }
+            match closeToDelim("P", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead))) }
           else if #seq(k, "]") then
-            match closeToDelim("S", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, traitHead))) }
+            match closeToDelim("S", stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, declHead))) }
           else if #seq(k, "{") then
             Cons(t, go(rest, Cons(Pair("B", 0), stack), false, false, false))
           else if #seq(k, "}") then
             match closeToBrace(stack) { case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, false, true, false))) }
           else
-            let inTraitHead =
-              if #seq(k, "kw") then (if #seq(v, "trait") then true else traitHead)
-              else traitHead in
-            let traitColon = if #seq(k, ":") then inTraitHead else false in
-            let nextTraitHead = if #seq(k, ":") then false else inTraitHead in
+            let inDeclHead =
+              if #seq(k, "kw") then
+                (if #seq(v, "trait") then true else if #seq(v, "object") then true else declHead)
+              else declHead in
+            let declColon = if #seq(k, ":") then inDeclHead else false in
+            let nextDeclHead = if #seq(k, ":") then false else inDeclHead in
             Cons(t, go(rest, stack,
-              (if traitColon then true else isLayoutOpener(t)),
-              canEndLine(t), nextTraitHead))
+              (if declColon then true else isLayoutOpener(t)),
+              canEndLine(t), nextDeclHead))
         }
     } in
   go(toks, Nil, false, false, false)

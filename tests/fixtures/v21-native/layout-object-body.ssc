@@ -1,0 +1,20 @@
+---
+name: v21-native-layout-object-body
+---
+
+```scalascript
+object LayoutMath:
+  def first(x: Int): Int = x + 1
+  def later(x: Int): Int = first(x) + 1
+
+object BracedMath {
+  def first(x: Int): Int = x + 1
+  def later(x: Int): Int = first(x) + 1
+}
+
+val typed: Int = 40
+println(LayoutMath.first(typed))
+println(LayoutMath.later(typed))
+println(BracedMath.first(typed))
+println(BracedMath.later(typed))
+```

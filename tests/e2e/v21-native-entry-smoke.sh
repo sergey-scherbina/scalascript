@@ -103,6 +103,8 @@ top_level_while_expected=$'0\n10\n4'
 [[ $(run_native "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 layout_given_expected=$'int\nint:7\nbool:yes\nbool:no\nafter-givens'
 [[ $(run_native "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
+layout_object_expected=$'41\n42\n41\n42'
+[[ $(run_native "$FIXTURES/layout-object-body.ssc") == "$layout_object_expected" ]]
 native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 exact_summon_expected=$'show:7\ntrue\nnested'
@@ -150,6 +152,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/dynamic-string-toint.ssc") == "$dynamic_to_int_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/layout-object-body.ssc") == "$layout_object_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/nested-pattern-fallback.ssc") == "$nested_pattern_expected" ]]
@@ -271,16 +274,30 @@ set -e
 grep -F 'distance (0,0)-(3,4) = 5' "$sandbox/imports.out" >/dev/null
 grep -F 'arity: 1 expected, 2 given' "$sandbox/imports.err" >/dev/null
 
-set +e
-run_native "$ROOT/examples/components-demo.ssc" >"$sandbox/components.out" 2>"$sandbox/components.err"
-components_rc=$?
-set -e
-[[ $components_rc -ne 0 ]]
-# Triple-quoted component templates now parse completely. The remaining gap is
-# ordinary extension/runtime resolution, not a parser sentinel or host crash.
-grep -F 'unbound global: s' "$sandbox/components.err" >/dev/null
-if grep -E 'File name too long|StackOverflowError' "$sandbox/components.err" >/dev/null; then
-  echo 'components native regression: recursive prose import or frontend stack overflow' >&2
+# Object layout now keeps the imported component methods owned, so this
+# long-running server example reaches `serve` instead of failing at `unbound s`.
+# Start it only long enough to prove the assembled native route reaches the
+# listening boundary, then terminate the exact Java process deterministically.
+PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" \
+  SSC_STORAGE_PATH="$sandbox/storage.json" SSC_NO_CDS=1 \
+  "$ROOT/bin/ssc" run --native "$ROOT/examples/components-demo.ssc" \
+  >"$sandbox/components.out" 2>"$sandbox/components.err" &
+components_pid=$!
+components_ready=false
+for _ in {1..100}; do
+  if grep -F 'Listening on http://localhost:8768/' "$sandbox/components.out" >/dev/null 2>&1; then
+    components_ready=true
+    break
+  fi
+  if ! kill -0 "$components_pid" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+kill "$components_pid" 2>/dev/null || true
+wait "$components_pid" 2>/dev/null || true
+[[ $components_ready == true ]]
+if grep -E 'unbound global|parser sentinel _err|File name too long|StackOverflowError' \
+  "$sandbox/components.err" >/dev/null; then
+  echo 'components native regression before server startup' >&2
   exit 1
 fi
 
