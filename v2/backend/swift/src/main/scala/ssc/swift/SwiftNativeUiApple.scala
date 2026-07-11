@@ -33,7 +33,8 @@ private[swift] object SwiftNativeUiApple:
        |}
        |""".stripMargin
 
-  val storeSource: String = """import CoreFoundation
+  private val storeSourcePart1: String = """import Combine
+import CoreFoundation
 import Foundation
 import Network
 import SwiftUI
@@ -74,6 +75,96 @@ private struct NativeUiPreparedEffect {
     let target: SscValue
     let payload: SscValue
     let url: URL?
+}
+
+enum NativeUiTableIdentity: Hashable, CustomStringConvertible {
+    case string(String)
+    case int(Int64)
+    case big(String)
+
+    var description: String {
+        switch self {
+        case let .string(value): return "string:" + value
+        case let .int(value): return "int:" + String(value)
+        case let .big(value): return "bigint:" + value
+        }
+    }
+}
+
+struct NativeUiTableColumn {
+    let kind: String
+    let title: String
+    let fieldPath: String
+    let alignment: String
+    let options: SscMap
+    let editAction: SscValue?
+}
+
+struct NativeUiTableAction {
+    let kind: String
+    let label: String
+    let request: SscValue
+    let payload: SscValue
+    let refresh: SscValue
+    let options: SscMap
+    let signature: String
+}
+
+private struct NativeUiTableCapability {
+    let descriptorSignature: String
+    let actionSignatures: [Int: String]
+    var rowIdentities: Set<NativeUiTableIdentity>
+}
+
+struct NativeUiTableCellValue {
+    let primary: String
+    let secondary: String?
+    let link: URL?
+    let statusColor: String?
+    let alignment: String
+}
+
+struct NativeUiTableRow: Identifiable {
+    let identity: NativeUiTableIdentity
+    let value: SscMap
+    let cells: [NativeUiTableCellValue]
+    var id: String { identity.description }
+}
+
+struct NativeUiTableDescriptor {
+    let siteId: String
+    let sourceKind: String
+    let sourceValue: SscValue
+    let rowsPath: String
+    let columns: [NativeUiTableColumn]
+    let actions: [NativeUiTableAction]
+    let rowKeyPath: String
+}
+
+struct NativeUiTableSnapshot {
+    let rows: [NativeUiTableRow]
+    let status: String?
+    let error: String?
+}
+
+enum NativeUiColorGrammar {
+    static func isValid(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if ["black", "white", "red", "green", "blue", "gray", "grey", "transparent", "none"].contains(lower) { return true }
+        if lower.range(of: "^#[0-9a-f]{3}([0-9a-f]{3})?$", options: .regularExpression) != nil { return true }
+        return rgba(lower) != nil
+    }
+
+    static func rgba(_ text: String) -> (Double, Double, Double, Double)? {
+        let lower = text.lowercased()
+        guard lower.hasPrefix("rgba("), lower.hasSuffix(")") else { return nil }
+        let parts = lower.dropFirst(5).dropLast().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 4,
+              let red = Int(parts[0]), let green = Int(parts[1]), let blue = Int(parts[2]),
+              let alpha = Double(parts[3]), (0...255).contains(red),
+              (0...255).contains(green), (0...255).contains(blue), alpha >= 0, alpha <= 1 else { return nil }
+        return (Double(red) / 255, Double(green) / 255, Double(blue) / 255, alpha)
+    }
 }
 
 @MainActor
@@ -126,6 +217,7 @@ final class NativeUiStore: ObservableObject {
     private var fetchGenerations: [String: UInt64] = [:]
     private var fetchTaskTokens: [String: UUID] = [:]
     private var actionTaskStatusKeys: [String: Set<String>] = [:]
+    private var tableCapabilities: [String: NativeUiTableCapability] = [:]
     private var fetchSubscriberCounts: [String: Int] = [:]
     private var tokenFetchKeys: [UUID: String] = [:]
     private var openURLHandler: ((URL) -> Void)?
@@ -362,29 +454,23 @@ final class NativeUiStore: ObservableObject {
             ])
             return
         }
-        let transport = urlSession
-        let task = Task { @MainActor [weak self] in
-            do {
-                let (data, response) = try await transport.data(for: request)
-                guard let self else { return }
-                self.completeFetchAction(
+        launchNetworkTask(
+            key: taskKey, identity: identity, request: request,
+            onResponse: { [weak self] data, response in
+                self?.completeFetchAction(
                     fields: fields, phase: phase, errorSignal: errorSignal,
                     key: taskKey, identity: identity, data: data, response: response)
-            } catch {
-                guard let self, self.isCurrentTask(key: taskKey, identity: identity) else { return }
-                if Task.isCancelled || (error as? URLError)?.code == .cancelled {
-                    self.finishTask(key: taskKey, identity: identity)
-                    _ = self.targetTransaction([(errorSignal, .string("")), (phase, .string("idle"))])
-                    return
-                }
-                self.finishTask(key: taskKey, identity: identity)
+            },
+            onError: { [weak self] error in
+                guard let self else { return }
                 _ = self.targetTransaction([
                     (errorSignal, .string(self.bounded("request failed: " + String(describing: error)))),
                     (phase, .string("error")),
                 ])
-            }
-        }
-        fetchTasks[taskKey] = task
+            },
+            onCancel: { [weak self] in
+                _ = self?.targetTransaction([(errorSignal, .string("")), (phase, .string("idle"))])
+            })
     }
 
     func cancelFetchAction(_ event: SscValue, ownerPath: String) {
@@ -399,6 +485,320 @@ final class NativeUiStore: ObservableObject {
         let statusKeys: Set<String> = [phaseKey, errorKey]
         let stillOwned = actionTaskStatusKeys.values.contains { $0 == statusKeys }
         if !stillOwned { _ = targetTransaction([(error, .string("")), (phase, .string("idle"))]) }
+    }
+
+"""
+
+  private val storeSourcePart2: String = """    func nativeTableDescriptorSignature(_ value: SscValue) -> String {
+        func encode(_ value: SscValue, visiting: inout Set<ObjectIdentifier>) -> String {
+            switch value {
+            case .unit: return "u"
+            case let .bool(value): return value ? "b1" : "b0"
+            case let .int(value): return "i" + String(value)
+            case let .big(value): return "g" + value.description
+            case let .decimal(value): return "d" + value.description
+            case let .float(value): return "f" + String(value.bitPattern)
+            case let .string(value): return "s" + String(value.utf8.count) + ":" + value
+            case let .bytes(value): return "y" + value.map { String(format: "%02x", $0) }.joined()
+            case let .data("NativeUiSignal", fields) where fields.count == 6:
+                guard case let .string(id) = fields[0], case let .string(scope) = fields[1],
+                      case let .string(kind) = fields[2] else { return "invalid-signal" }
+                return "signal(" + scope + "," + id + "," + kind + "," + encode(fields[5], visiting: &visiting) + ")"
+            case let .data(tag, fields):
+                let identity = ObjectIdentifier(fields)
+                guard visiting.insert(identity).inserted else { return "cycle:" + tag }
+                defer { visiting.remove(identity) }
+                return "data(" + tag + ":" + fields.map { encode($0, visiting: &visiting) }.joined(separator: ",") + ")"
+            case .closure: return "closure"
+            case let .map(map):
+                let identity = ObjectIdentifier(map)
+                guard visiting.insert(identity).inserted else { return "cycle:map" }
+                defer { visiting.remove(identity) }
+                return "map(" + map.entries.map {
+                    encode($0.0, visiting: &visiting) + "=" + encode($0.1, visiting: &visiting)
+                }.sorted().joined(separator: ",") + ")"
+            case .cell, .longCell, .array: return "target-specific"
+            }
+        }
+        var visiting = Set<ObjectIdentifier>()
+        return encode(value, visiting: &visiting)
+    }
+
+    private func nativeTableCapabilityKey(ownerPath: String, siteId: String) -> String {
+        ownerPath + "\u{0}" + siteId
+    }
+
+    func installNativeTableCapability(
+        ownerPath: String,
+        descriptor: NativeUiTableDescriptor,
+        signature: String,
+        rows: [NativeUiTableRow]
+    ) {
+        let key = nativeTableCapabilityKey(ownerPath: ownerPath, siteId: descriptor.siteId)
+        if let previous = tableCapabilities[key], previous.descriptorSignature != signature {
+            cancelNativeTableTasks(ownerPath: ownerPath, siteId: descriptor.siteId)
+        }
+        var actions = Dictionary(uniqueKeysWithValues: descriptor.actions.enumerated().map { ($0.offset, $0.element.signature) })
+        for (index, column) in descriptor.columns.enumerated() {
+            if let raw = column.editAction,
+               let action = try? decodeNativeTableActionForEdit(raw, columnIndex: index) {
+                actions[descriptor.actions.count + index] = action.signature
+            }
+        }
+        tableCapabilities[key] = NativeUiTableCapability(
+            descriptorSignature: signature, actionSignatures: actions,
+            rowIdentities: Set(rows.map(\.identity)))
+    }
+
+    func removeNativeTableCapability(ownerPath: String, siteId: String, signature: String) {
+        let key = nativeTableCapabilityKey(ownerPath: ownerPath, siteId: siteId)
+        guard tableCapabilities[key]?.descriptorSignature == signature else { return }
+        tableCapabilities.removeValue(forKey: key)
+        cancelNativeTableTasks(ownerPath: ownerPath, siteId: siteId)
+    }
+
+    private func currentNativeTableCapability(
+        ownerPath: String,
+        siteId: String,
+        signature: String,
+        action: NativeUiTableAction,
+        actionIndex: Int,
+        rowIdentity: NativeUiTableIdentity
+    ) -> Bool {
+        guard let capability = tableCapabilities[nativeTableCapabilityKey(ownerPath: ownerPath, siteId: siteId)] else { return false }
+        return capability.descriptorSignature == signature &&
+            capability.actionSignatures[actionIndex] == action.signature &&
+            capability.rowIdentities.contains(rowIdentity)
+    }
+
+    func updateNativeTableCapabilityRows(
+        ownerPath: String,
+        siteId: String,
+        signature: String,
+        rows: [NativeUiTableRow]
+    ) {
+        let key = nativeTableCapabilityKey(ownerPath: ownerPath, siteId: siteId)
+        guard var capability = tableCapabilities[key], capability.descriptorSignature == signature else { return }
+        capability.rowIdentities = Set(rows.map(\.identity))
+        tableCapabilities[key] = capability
+    }
+
+    func runNativeTableAction(
+        _ action: NativeUiTableAction,
+        row: NativeUiTableRow,
+        actionIndex: Int,
+        ownerPath: String,
+        siteId: String,
+        descriptorSignature: String,
+        editField: String? = nil,
+        editValue: String? = nil,
+        update: @escaping @MainActor (String, String?) -> Void
+    ) {
+        guard currentNativeTableCapability(
+            ownerPath: ownerPath, siteId: siteId, signature: descriptorSignature,
+            action: action, actionIndex: actionIndex, rowIdentity: row.identity) else {
+            update("error", "native table action capability is stale")
+            return
+        }
+        if action.kind == "edit" {
+            guard editField != nil, editValue != nil else {
+                update("error", "native table edit action requires field and value")
+                return
+            }
+        } else if editField != nil || editValue != nil {
+            update("error", "native table edit field/value supplied to non-edit action")
+            return
+        }
+        if action.kind == "link" {
+            do {
+                let (_, names) = try decodeNativeRowPayload(action.payload, operation: "native table link")
+                let value = try nativeTableDotted(row.value, path: names[0], missingAllowed: false)
+                let text = try nativeTablePayloadScalarText(value, path: names[0])
+                guard let target = action.options.get(.string("signal")) else {
+                    throw SscRuntimeFailure(description: "native table link target is missing")
+                }
+                guard case .string = try readUserTarget(target) else {
+                    throw SscRuntimeFailure(description: "native table link target is not current String")
+                }
+                try writeUserTarget(target, .string(text))
+                update("done", nil)
+            } catch { update("error", bounded(String(describing: error))) }
+            return
+        }
+        guard let refreshValue = try? readUserTarget(action.refresh),
+              case let .int(currentRefresh) = refreshValue, currentRefresh < Int64.max else {
+            update("error", "native table refresh must be writable non-overflowing Int signal")
+            return
+        }
+        let taskKey = nativeTableTaskKey(
+            ownerPath: ownerPath, siteId: siteId, descriptorSignature: descriptorSignature,
+            identity: row.identity, actionIndex: actionIndex)
+        let identity = beginNetworkTask(key: taskKey)
+        update("loading", nil)
+        let request: URLRequest
+        do {
+            request = try nativeTableRequest(
+                action, row: row, editField: editField, editValue: editValue)
+        } catch {
+            finishTask(key: taskKey, identity: identity)
+            update("error", bounded("request failed: " + String(describing: error)))
+            return
+        }
+        launchNetworkTask(
+            key: taskKey, identity: identity, request: request,
+            onResponse: { [weak self] data, response in
+                guard let self else { return }
+                self.finishTask(key: taskKey, identity: identity)
+                guard self.currentNativeTableCapability(
+                    ownerPath: ownerPath, siteId: siteId, signature: descriptorSignature,
+                    action: action, actionIndex: actionIndex, rowIdentity: row.identity) else { return }
+                guard let http = response as? HTTPURLResponse else {
+                    update("error", "request failed: response was not HTTP"); return
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    update("error", self.bounded("HTTP \(http.statusCode): " + body)); return
+                }
+                do {
+                    guard case let .int(current) = try self.readUserTarget(action.refresh), current < Int64.max else {
+                        throw SscRuntimeFailure(description: "native table refresh must be writable non-overflowing Int signal")
+                    }
+                    try self.writeUserTarget(action.refresh, .int(current + 1))
+                    update("done", nil)
+                } catch { update("error", self.bounded(String(describing: error))) }
+            },
+            onError: { [weak self] error in
+                guard let self,
+                      self.currentNativeTableCapability(
+                        ownerPath: ownerPath, siteId: siteId, signature: descriptorSignature,
+                        action: action, actionIndex: actionIndex, rowIdentity: row.identity) else { return }
+                update("error", self.bounded("request failed: " + String(describing: error)))
+            },
+            onCancel: {})
+    }
+
+    func cancelNativeTableTasks(ownerPath: String, siteId: String) {
+        let prefix = "table\u{0}" + ownerPath + "\u{0}" + siteId + "\u{0}"
+        let keys = Set(fetchTasks.keys).union(fetchGenerations.keys).filter { $0.hasPrefix(prefix) }
+        for key in keys { cancelNetworkTask(key: key) }
+    }
+
+    func cancelNativeTableRowTasks(
+        ownerPath: String,
+        siteId: String,
+        descriptorSignature: String,
+        identity: NativeUiTableIdentity
+    ) {
+        let prefix = "table\u{0}" + ownerPath + "\u{0}" + siteId + "\u{0}" + descriptorSignature +
+            "\u{0}" + identity.description + "\u{0}"
+        let keys = Set(fetchTasks.keys).union(fetchGenerations.keys).filter { $0.hasPrefix(prefix) }
+        for key in keys { cancelNetworkTask(key: key) }
+    }
+
+    private func nativeTableTaskKey(
+        ownerPath: String,
+        siteId: String,
+        descriptorSignature: String,
+        identity: NativeUiTableIdentity,
+        actionIndex: Int
+    ) -> String {
+        "table\u{0}" + ownerPath + "\u{0}" + siteId + "\u{0}" + descriptorSignature +
+            "\u{0}" + identity.description + "\u{0}" + String(actionIndex)
+    }
+
+    private func nativeTableRequest(
+        _ action: NativeUiTableAction,
+        row: NativeUiTableRow,
+        editField: String?,
+        editValue: String?
+    ) throws -> URLRequest {
+        guard let session,
+              case let .data("NativeUiFetchRequest", fields) = action.request, fields.count == 4,
+              case let .string(method) = fields[0], case let .string(rawURL) = fields[1] else {
+            throw SscRuntimeFailure(description: "native table request is malformed")
+        }
+        let substituted = try nativeTableSubstituteURL(rawURL, row: row.value)
+        var request = URLRequest(url: try resolveRequestURL(substituted))
+        request.httpMethod = method.uppercased()
+        let body = try nativeTablePayloadBody(
+            action.payload, row: row.value,
+            editField: editField, editValue: editValue)
+        request.httpBody = body.data
+        let headersValue = try resolveRequestSource(fields[3], operation: "native table headers", session: session)
+        let headers = try requestHeaders(headersValue)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        if body.isJson && !headers.keys.contains(where: { $0.caseInsensitiveCompare("Content-Type") == .orderedSame }) {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        return request
+    }
+
+    private func nativeTableSubstituteURL(_ template: String, row: SscMap) throws -> String {
+        let expression = try NSRegularExpression(
+            pattern: "/:([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?=/|\\?|#|$)")
+        let source = template as NSString
+        let matches = expression.matches(in: template, range: NSRange(location: 0, length: source.length))
+        let exactStarts = Set(matches.map { $0.range(at: 0).location })
+        var search = NSRange(location: 0, length: source.length)
+        while search.length > 0 {
+            let marker = source.range(of: "/:", options: [], range: search)
+            if marker.location == NSNotFound { break }
+            guard exactStarts.contains(marker.location) else {
+                throw SscRuntimeFailure(description: "native table URL contains malformed /: token")
+            }
+            let next = marker.location + marker.length
+            search = NSRange(location: next, length: source.length - next)
+        }
+        var result = template
+        for match in matches.reversed() {
+            let field = source.substring(with: match.range(at: 1))
+            try validateDottedPath(field, operation: "native table URL token")
+            let raw = try nativeTableDotted(row, path: field, missingAllowed: false)
+            let text = try nativeTablePayloadScalarText(raw, path: field)
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-._~")
+            guard let encoded = text.addingPercentEncoding(withAllowedCharacters: allowed) else {
+                throw SscRuntimeFailure(description: "native table URL token " + field + " cannot be encoded")
+            }
+            let replacement = "/" + encoded
+            let range = Range(match.range(at: 0), in: result)!
+            result.replaceSubrange(range, with: replacement)
+        }
+        return result
+    }
+
+    private func nativeTablePayloadBody(
+        _ payload: SscValue,
+        row: SscMap,
+        editField: String?,
+        editValue: String?
+    ) throws -> (data: Data, isJson: Bool) {
+        let (kind, names) = try decodeNativeRowPayload(payload, operation: "native table action")
+        if let editField {
+            try validateDottedPath(editField, operation: "native table edit field")
+            guard let editValue else { throw SscRuntimeFailure(description: "native table edit value is missing") }
+            var object: [String: Any] = [:]
+            for name in names {
+                object[name] = try jsonObject(try nativeTableDotted(row, path: name, missingAllowed: false))
+            }
+            object[editField] = editValue
+            return (try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), true)
+        }
+        switch kind {
+        case "field":
+            let value = try nativeTableDotted(row, path: names[0], missingAllowed: false)
+            let text = try nativeTablePayloadScalarText(value, path: names[0])
+            return (Data(text.utf8), false)
+        case "wholeRow":
+            return (try JSONSerialization.data(withJSONObject: jsonObject(.map(row)), options: [.sortedKeys]), true)
+        case "fields":
+            var object: [String: Any] = [:]
+            for name in names {
+                object[name] = try jsonObject(try nativeTableDotted(row, path: name, missingAllowed: false))
+            }
+            return (try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), true)
+        default: preconditionFailure("validated row payload kind")
+        }
     }
 
     func invoke(_ closure: SscClosure, _ arguments: [SscValue]) -> SscValue {
@@ -818,6 +1218,33 @@ final class NativeUiStore: ObservableObject {
         return NativeUiTaskIdentity(generation: generation, token: token)
     }
 
+    private func launchNetworkTask(
+        key: String,
+        identity: NativeUiTaskIdentity,
+        request: URLRequest,
+        onResponse: @escaping @MainActor (Data, URLResponse) -> Void,
+        onError: @escaping @MainActor (Error) -> Void,
+        onCancel: @escaping @MainActor () -> Void
+    ) {
+        let transport = urlSession
+        let task = Task { @MainActor [weak self] in
+            do {
+                let (data, response) = try await transport.data(for: request)
+                guard let self, self.isCurrentTask(key: key, identity: identity) else { return }
+                onResponse(data, response)
+            } catch {
+                guard let self, self.isCurrentTask(key: key, identity: identity) else { return }
+                self.finishTask(key: key, identity: identity)
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                    onCancel()
+                } else {
+                    onError(error)
+                }
+            }
+        }
+        fetchTasks[key] = task
+    }
+
     private func cancelNetworkTask(key: String) {
         fetchTasks.removeValue(forKey: key)?.cancel()
         fetchGenerations.removeValue(forKey: key)
@@ -828,9 +1255,12 @@ final class NativeUiStore: ObservableObject {
     private func cancelTasks(ownedBy owner: String) {
         let marker = "\u{0}" + owner
         let ownedKeys = Set(fetchTasks.keys).union(fetchGenerations.keys)
-        for key in ownedKeys where key.hasPrefix("action\u{0}") &&
+        for key in ownedKeys where (key.hasPrefix("action\u{0}") || key.hasPrefix("table\u{0}")) &&
             (key.contains(marker + "\u{0}") || key.contains(marker + "/")) {
             cancelNetworkTask(key: key)
+        }
+        for key in Array(tableCapabilities.keys) where key.hasPrefix(owner + "\u{0}") || key.hasPrefix(owner + "/") {
+            tableCapabilities.removeValue(forKey: key)
         }
     }
 
@@ -1224,6 +1654,549 @@ final class NativeUiStore: ObservableObject {
         return candidate
     }
 
+"""
+
+  private val storeSourcePart3: String = """    func decodeNativeTable(_ value: SscValue) throws -> NativeUiTableDescriptor {
+        guard case let .data("NativeUiDataTable", fields) = value, fields.count == 5,
+              case let .string(siteId) = fields[0],
+              case let .data("NativeUiTableSource", sourceFields) = fields[1], sourceFields.count == 3,
+              case let .string(sourceKind) = sourceFields[0],
+              case let .string(rowsPath) = sourceFields[2],
+              case let .string(rawRowKeyPath) = fields[4] else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable must contain exactly five fields")
+        }
+        guard ["static", "signal", "fetch"].contains(sourceKind) else {
+            throw SscRuntimeFailure(description: "NativeUiTableSource kind must be static, signal, or fetch")
+        }
+        if sourceKind == "static" || sourceKind == "signal" {
+            guard rowsPath.isEmpty else {
+                throw SscRuntimeFailure(description: "NativeUiTableSource \(sourceKind) rowsPath must be empty")
+            }
+        } else if !rowsPath.isEmpty {
+            try validateDottedPath(rowsPath, operation: "NativeUiTableSource fetch rowsPath")
+        }
+        if sourceKind != "static", signalKind(sourceFields[1]) == nil {
+            throw SscRuntimeFailure(description: "NativeUiTableSource \(sourceKind) value must be NativeUiSignal")
+        }
+        if sourceKind == "fetch" {
+            guard case let .data("NativeUiSignal", signalFields) = sourceFields[1], signalFields.count == 6,
+                  case let .data("NativeUiSignalMetaFetch", metadata) = signalFields[5], metadata.count == 5 else {
+                throw SscRuntimeFailure(description: "NativeUiTableSource fetch value must have exact fetch metadata")
+            }
+        }
+        let rowKeyPath = rawRowKeyPath.isEmpty ? "id" : rawRowKeyPath
+        try validateDottedPath(rowKeyPath, operation: "NativeUiDataTable.rowKeyPath")
+        let columns = try list(fields[2], operation: "NativeUiDataTable.columns").enumerated().map {
+            try decodeNativeTableColumn($0.element, index: $0.offset)
+        }
+        let actions = try list(fields[3], operation: "NativeUiDataTable.actions").enumerated().map {
+            let action = try decodeNativeTableAction($0.element, index: $0.offset)
+            guard action.kind != "edit" else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable edit actions belong to editable columns")
+            }
+            return action
+        }
+        return NativeUiTableDescriptor(
+            siteId: siteId, sourceKind: sourceKind, sourceValue: sourceFields[1],
+            rowsPath: rowsPath, columns: columns, actions: actions, rowKeyPath: rowKeyPath)
+    }
+
+    func nativeTableDiagnostic(_ error: Error, value: SscValue) -> String {
+        let siteId: String
+        if case let .data("NativeUiDataTable", fields) = value,
+           let first = fields.first, case let .string(site) = first { siteId = site }
+        else { siteId = "" }
+        return "Error: " + bounded(String(describing: error)) + " at " + source(siteId)
+    }
+
+    private func decodeNativeTableColumn(_ value: SscValue, index: Int) throws -> NativeUiTableColumn {
+        guard case let .data("NativeUiColumn", fields) = value, fields.count == 5,
+              case let .string(kind) = fields[0], case let .string(title) = fields[1],
+              case let .string(fieldPath) = fields[2], case let .string(rawAlignment) = fields[3],
+              case let .map(options) = fields[4] else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable column[\(index)] is malformed")
+        }
+        guard ["text", "date", "money", "status", "link", "stacked"].contains(kind) else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable column[\(index)] has unsupported kind \(kind)")
+        }
+        try validateDottedPath(fieldPath, operation: "NativeUiDataTable column[\(index)].fieldPath")
+        let alignment: String
+        switch rawAlignment {
+        case "", "start", "left": alignment = "leading"
+        case "center": alignment = "center"
+        case "end", "right": alignment = "trailing"
+        default:
+            throw SscRuntimeFailure(description: "NativeUiDataTable column[\(index)] alignment is invalid")
+        }
+        let expected: Set<String>
+        switch kind {
+        case "text": expected = ["editAction"]
+        case "date": expected = ["format"]
+        case "money": expected = ["currency", "locale"]
+        case "status": expected = ["colorMap"]
+        case "link": expected = ["urlTemplate"]
+        case "stacked": expected = ["subFieldPath"]
+        default: preconditionFailure("validated table column kind")
+        }
+        try validateExactOptionKeys(options, expected: expected, operation: "NativeUiDataTable column[\(index)]")
+        var editAction: SscValue?
+        switch kind {
+        case "text":
+            guard let raw = options.get(.string("editAction")) else { preconditionFailure("validated option keys") }
+            if case .unit = raw {} else {
+                let action = try decodeNativeTableAction(raw, index: index)
+                guard action.kind == "edit" else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable editable text column requires edit row action")
+                }
+                editAction = raw
+            }
+        case "date":
+            guard case .string = options.get(.string("format")) else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable date format must be String")
+            }
+        case "money":
+            guard case let .string(currency) = options.get(.string("currency")),
+                  case let .string(locale) = options.get(.string("locale")), !currency.isEmpty else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable money currency/locale must be Strings")
+            }
+            guard Locale.commonISOCurrencyCodes.contains(currency.uppercased()) else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable money currency is not ISO-4217")
+            }
+            guard locale.isEmpty || Locale.availableIdentifiers.contains(locale) else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable money locale is invalid")
+            }
+        case "status":
+            guard let raw = options.get(.string("colorMap")) else { preconditionFailure("validated option keys") }
+            if case .unit = raw {} else {
+                guard case let .map(colors) = raw else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable status colorMap must be Map or Unit")
+                }
+                for (key, color) in colors.entries {
+                    guard case .string = key, case let .string(text) = color, NativeUiColorGrammar.isValid(text) else {
+                        throw SscRuntimeFailure(description: "NativeUiDataTable status colorMap is malformed")
+                    }
+                }
+            }
+        case "link":
+            guard case .string = options.get(.string("urlTemplate")) else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable link urlTemplate must be String")
+            }
+        case "stacked":
+            guard case let .string(path) = options.get(.string("subFieldPath")) else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable stacked subFieldPath must be String")
+            }
+            try validateDottedPath(path, operation: "NativeUiDataTable stacked subFieldPath")
+        default: break
+        }
+        return NativeUiTableColumn(
+            kind: kind, title: title, fieldPath: fieldPath, alignment: alignment,
+            options: options, editAction: editAction)
+    }
+
+    private func decodeNativeTableAction(_ value: SscValue, index: Int) throws -> NativeUiTableAction {
+        guard case let .data("NativeUiRowAction", fields) = value, fields.count == 6,
+              case let .string(kind) = fields[0], case let .string(label) = fields[1],
+              case let .map(options) = fields[5], ["delete", "post", "link", "edit"].contains(kind) else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable action[\(index)] is malformed")
+        }
+        let (payloadKind, _) = try decodeNativeRowPayload(fields[3], operation: "NativeUiDataTable action[\(index)]")
+        if ["delete", "link", "edit"].contains(kind) && payloadKind != "field" {
+            throw SscRuntimeFailure(description: "NativeUiDataTable \(kind) action requires Field payload")
+        }
+        if kind == "link" {
+            guard case .unit = fields[2], case .unit = fields[4] else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable link action must not contain request or refresh")
+            }
+            try validateExactOptionKeys(options, expected: ["signal"], operation: "NativeUiDataTable link action")
+            guard let signal = options.get(.string("signal")), signalKind(signal) != nil,
+                  isUserWritable(signal), case .string = try readUserTarget(signal) else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable link action target must be current writable String signal")
+            }
+        } else {
+            guard case let .data("NativeUiFetchRequest", requestFields) = fields[2], requestFields.count == 4,
+                  case let .string(method) = requestFields[0], isHttpToken(method),
+                  case .string = requestFields[1] else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable action[\(index)] request is malformed")
+            }
+            try validateExactOptionKeys(options, expected: [], operation: "NativeUiDataTable action[\(index)]")
+            guard signalKind(fields[4]) != nil, isUserWritable(fields[4]),
+                  case let .int(current) = try readUserTarget(fields[4]), current < Int64.max else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable action[\(index)] refresh must be current writable non-overflowing Int signal")
+            }
+        }
+        return NativeUiTableAction(
+            kind: kind, label: label, request: fields[2], payload: fields[3],
+            refresh: fields[4], options: options,
+            signature: nativeTableDescriptorSignature(value))
+    }
+
+    func decodeNativeTableActionForEdit(_ value: SscValue, columnIndex: Int) throws -> NativeUiTableAction {
+        let action = try decodeNativeTableAction(value, index: columnIndex)
+        guard action.kind == "edit" else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable editable column requires edit action")
+        }
+        return action
+    }
+
+    private func decodeNativeRowPayload(_ value: SscValue, operation: String) throws -> (String, [String]) {
+        guard case let .data("NativeUiRowPayload", fields) = value, fields.count == 2,
+              case let .string(kind) = fields[0] else {
+            throw SscRuntimeFailure(description: operation + " row payload is malformed")
+        }
+        let names = try list(fields[1], operation: operation + " payload names").map { raw -> String in
+            guard case let .string(name) = raw else {
+                throw SscRuntimeFailure(description: operation + " payload names must be String")
+            }
+            try validateDottedPath(name, operation: operation + " payload name")
+            return name
+        }
+        switch kind {
+        case "field" where names.count == 1: break
+        case "wholeRow" where names.isEmpty: break
+        case "fields" where !names.isEmpty && Set(names).count == names.count: break
+        default: throw SscRuntimeFailure(description: operation + " row payload is malformed")
+        }
+        return (kind, names)
+    }
+
+    private func validateExactOptionKeys(_ options: SscMap, expected: Set<String>, operation: String) throws {
+        var actual = Set<String>()
+        for (key, _) in options.entries {
+            guard case let .string(name) = key else {
+                throw SscRuntimeFailure(description: operation + " option keys must be String")
+            }
+            actual.insert(name)
+        }
+        guard actual == expected else {
+            throw SscRuntimeFailure(description: operation + " options must contain exactly " + expected.sorted().joined(separator: ","))
+        }
+    }
+
+    private func validateDottedPath(_ path: String, operation: String) throws {
+        guard !path.isEmpty,
+              path.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty }) else {
+            throw SscRuntimeFailure(description: operation + " must be a non-empty dotted path")
+        }
+    }
+
+    func nativeTableObservedSignals(_ descriptor: NativeUiTableDescriptor) -> [SscValue] {
+        guard descriptor.sourceKind != "static" else { return [] }
+        var result = [descriptor.sourceValue]
+        if descriptor.sourceKind == "fetch",
+           case let .data("NativeUiSignal", signalFields) = descriptor.sourceValue, signalFields.count == 6,
+           case let .data("NativeUiSignalMetaFetch", metadata) = signalFields[5], metadata.count == 5 {
+            result.append(metadata[3]); result.append(metadata[4])
+        }
+        return result
+    }
+
+    func nativeTableSnapshot(
+        _ descriptor: NativeUiTableDescriptor,
+        retaining previousRows: [NativeUiTableRow] = [],
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> NativeUiTableSnapshot {
+        let sourceLocation = source(descriptor.siteId)
+        do {
+            let candidateValue: SscValue
+            var sourceError: String?
+            switch descriptor.sourceKind {
+            case "static": candidateValue = descriptor.sourceValue
+            case "signal": candidateValue = read(descriptor.sourceValue)
+            case "fetch":
+                candidateValue = read(descriptor.sourceValue)
+                guard case let .data("NativeUiSignal", signalFields) = descriptor.sourceValue,
+                      signalFields.count == 6,
+                      case let .data("NativeUiSignalMetaFetch", metadata) = signalFields[5], metadata.count == 5 else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable fetch signal metadata is malformed")
+                }
+                let phase = string(read(metadata[3]))
+                let error = string(read(metadata[4]))
+                if phase == "loading" {
+                    let retained = try previousRows.map { previous in
+                        NativeUiTableRow(
+                            identity: previous.identity, value: previous.value,
+                            cells: try descriptor.columns.enumerated().map {
+                                try nativeTableCell(
+                                    previous.value, column: $0.element, index: $0.offset,
+                                    locale: locale, timeZone: timeZone)
+                            })
+                    }
+                    return NativeUiTableSnapshot(rows: retained, status: "Loading…", error: nil)
+                }
+                else if phase == "error" { sourceError = error.isEmpty ? "request failed" : error }
+                else if !["idle", "done"].contains(phase) {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable fetch phase is invalid")
+                }
+            default: preconditionFailure("validated table source kind")
+            }
+            if let sourceError {
+                return NativeUiTableSnapshot(
+                    rows: previousRows, status: "Error: " + bounded(sourceError),
+                    error: "Error: " + bounded(sourceError) + " at " + sourceLocation)
+            }
+            let rawRows: [SscValue]
+            if descriptor.sourceKind == "fetch" {
+                guard case let .string(body) = candidateValue else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable fetch value must be UTF-8 JSON text")
+                }
+                if body.isEmpty {
+                    rawRows = []
+                } else {
+                    rawRows = try nativeTableJsonRows(body, rowsPath: descriptor.rowsPath)
+                }
+            } else {
+                rawRows = try list(candidateValue, operation: "NativeUiDataTable rows")
+            }
+            var identities = Set<NativeUiTableIdentity>()
+            let rows = try rawRows.enumerated().map { index, raw -> NativeUiTableRow in
+                guard case let .map(row) = raw else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable row[\(index)] must be Map")
+                }
+                for (key, _) in row.entries {
+                    guard case .string = key else {
+                        throw SscRuntimeFailure(description: "NativeUiDataTable row[\(index)] keys must be String")
+                    }
+                }
+                let keyValue = try nativeTableDotted(row, path: descriptor.rowKeyPath, missingAllowed: false)
+                let identity = try nativeTableIdentity(keyValue, index: index)
+                guard identities.insert(identity).inserted else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable duplicate row identity \(identity)")
+                }
+                let cells = try descriptor.columns.enumerated().map { columnIndex, column in
+                    try nativeTableCell(row, column: column, index: columnIndex, locale: locale, timeZone: timeZone)
+                }
+                return NativeUiTableRow(identity: identity, value: row, cells: cells)
+            }
+            let visibleStatus = rows.isEmpty ? "No rows" : nil
+            return NativeUiTableSnapshot(rows: rows, status: visibleStatus, error: nil)
+        } catch {
+            let message = "Error: " + bounded(String(describing: error))
+            return NativeUiTableSnapshot(
+                rows: previousRows,
+                status: previousRows.isEmpty ? message : message,
+                error: message + " at " + sourceLocation)
+        }
+    }
+
+    private func nativeTableJsonRows(_ text: String, rowsPath: String) throws -> [SscValue] {
+        guard let data = text.data(using: .utf8) else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable response is not UTF-8")
+        }
+        let root: Any
+        do { root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) }
+        catch { throw SscRuntimeFailure(description: "NativeUiDataTable response is not valid JSON") }
+        var candidates: [Any] = []
+        if rowsPath.isEmpty {
+            if root is [Any] { candidates.append(root) }
+        } else if let explicit = nativeTableJsonDotted(root, path: rowsPath) {
+            candidates.append(explicit)
+        }
+        if let object = root as? [String: Any] {
+            for key in ["data", "rows", "items", "results"] {
+                if let value = object[key] { candidates.append(value) }
+            }
+        }
+        guard let array = candidates.first(where: { $0 is [Any] }) as? [Any] else {
+            throw SscRuntimeFailure(description: "NativeUiDataTable response has no row array")
+        }
+        return try array.map(nativeTableJsonValue)
+    }
+
+    private func nativeTableJsonDotted(_ root: Any, path: String) -> Any? {
+        var current: Any = root
+        for segment in path.split(separator: ".").map(String.init) {
+            guard let object = current as? [String: Any], let next = object[segment] else { return nil }
+            current = next
+        }
+        return current
+    }
+
+    private func nativeTableJsonValue(_ raw: Any) throws -> SscValue {
+        if raw is NSNull { return .unit }
+        if let value = raw as? String { return .string(value) }
+        if let value = raw as? NSNumber {
+            if CFGetTypeID(value) == CFBooleanGetTypeID() { return .bool(value.boolValue) }
+            let text = value.stringValue
+            if !text.contains(".") && !text.lowercased().contains("e") {
+                if let integer = Int64(text) { return .int(integer) }
+                return .big(SscBigInt(text))
+            }
+            return .decimal(SscDecimal(text))
+        }
+        if let values = raw as? [Any] {
+            return try nativeTableList(values.map(nativeTableJsonValue))
+        }
+        if let object = raw as? [String: Any] {
+            let map = SscMap()
+            for key in object.keys.sorted() { map.put(.string(key), try nativeTableJsonValue(object[key]!)) }
+            return .map(map)
+        }
+        throw SscRuntimeFailure(description: "NativeUiDataTable JSON contains unsupported value")
+    }
+
+    private func nativeTableList(_ values: [SscValue]) throws -> SscValue {
+        var result = SscValue.data("Nil", [])
+        for value in values.reversed() { result = .data("Cons", [value, result]) }
+        return result
+    }
+
+    private func nativeTableDotted(_ row: SscMap, path: String, missingAllowed: Bool) throws -> SscValue {
+        var current: SscValue = .map(row)
+        for segment in path.split(separator: ".").map(String.init) {
+            guard case let .map(map) = current, let next = map.get(.string(segment)) else {
+                if missingAllowed { return .unit }
+                throw SscRuntimeFailure(description: "NativeUiDataTable missing dotted path " + path)
+            }
+            current = next
+        }
+        return current
+    }
+
+    private func nativeTableIdentity(_ value: SscValue, index: Int) throws -> NativeUiTableIdentity {
+        switch value {
+        case let .string(value) where !value.isEmpty: return .string(value)
+        case let .int(value): return .int(value)
+        case let .big(value): return .big(value.description)
+        default:
+            throw SscRuntimeFailure(description: "NativeUiDataTable row[\(index)] identity must be non-empty String, Int, or BigInt")
+        }
+    }
+
+    private func nativeTableScalarText(_ value: SscValue, path: String) throws -> String? {
+        switch value {
+        case .unit: return nil
+        case let .string(value): return value
+        case let .int(value): return String(value)
+        case let .big(value): return value.description
+        case let .decimal(value): return value.description
+        case let .bool(value): return value ? "true" : "false"
+        default: throw SscRuntimeFailure(description: "NativeUiDataTable field " + path + " must be scalar")
+        }
+    }
+
+    private func nativeTablePayloadScalarText(_ value: SscValue, path: String) throws -> String {
+        switch value {
+        case let .string(value): return value
+        case let .int(value): return String(value)
+        case let .big(value): return value.description
+        case let .bool(value): return value ? "true" : "false"
+        default: throw SscRuntimeFailure(description: "NativeUiDataTable payload field " + path + " must be String, Int, BigInt, or Bool")
+        }
+    }
+
+    private func nativeTableCell(
+        _ row: SscMap,
+        column: NativeUiTableColumn,
+        index: Int,
+        locale: Locale,
+        timeZone: TimeZone
+    ) throws -> NativeUiTableCellValue {
+        let raw = try nativeTableDotted(row, path: column.fieldPath, missingAllowed: true)
+        let text: String
+        if column.kind == "money" {
+            switch raw {
+            case .unit: text = ""
+            case let .string(value): text = value
+            case let .int(value): text = String(value)
+            case let .big(value): text = value.description
+            case let .decimal(value): text = value.description
+            case let .float(value) where value.isFinite: text = String(value)
+            default: throw SscRuntimeFailure(description: "NativeUiDataTable money field must be finite numeric or String")
+            }
+        } else {
+            text = try nativeTableScalarText(raw, path: column.fieldPath) ?? ""
+        }
+        var primary = text
+        var secondary: String?
+        var link: URL?
+        var color: String?
+        switch column.kind {
+        case "text": break
+        case "date":
+            guard case let .string(format) = column.options.get(.string("format")) else { preconditionFailure("validated date options") }
+            if !text.isEmpty, let date = nativeTableDate(text, timeZone: timeZone) {
+                let output = DateFormatter()
+                output.locale = locale; output.timeZone = timeZone
+                switch format {
+                case "": output.dateStyle = .medium; output.timeStyle = .none
+                case "short": output.dateStyle = .short; output.timeStyle = .none
+                case "medium": output.dateStyle = .medium; output.timeStyle = .none
+                case "long": output.dateStyle = .long; output.timeStyle = .none
+                case "full": output.dateStyle = .full; output.timeStyle = .none
+                default: output.dateFormat = format
+                }
+                primary = output.string(from: date)
+            }
+        case "money":
+            guard case let .string(currency) = column.options.get(.string("currency")),
+                  case let .string(localeId) = column.options.get(.string("locale")) else { preconditionFailure("validated money options") }
+            let decimalText: String?
+            switch raw {
+            case .unit: decimalText = nil
+            case let .int(value): decimalText = String(value)
+            case let .big(value): decimalText = value.description
+            case let .decimal(value): decimalText = value.description
+            case let .float(value) where value.isFinite: decimalText = String(value)
+            case let .string(value): decimalText = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")) == nil ? nil : value
+            default: throw SscRuntimeFailure(description: "NativeUiDataTable money field must be numeric or numeric String")
+            }
+            if let decimalText, let number = Decimal(string: decimalText, locale: Locale(identifier: "en_US_POSIX")) {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .currency
+                formatter.currencyCode = currency.uppercased()
+                formatter.locale = localeId.isEmpty ? locale : Locale(identifier: localeId)
+                guard let formatted = formatter.string(from: number as NSDecimalNumber) else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable money formatter failed")
+                }
+                primary = formatted
+            }
+        case "status":
+            if let rawMap = column.options.get(.string("colorMap")), case let .map(colors) = rawMap,
+               let mapped = colors.get(.string(text)), case let .string(value) = mapped { color = value }
+        case "link":
+            guard case let .string(template) = column.options.get(.string("urlTemplate")) else { preconditionFailure("validated link options") }
+            let destination: String
+            if template.isEmpty { destination = text }
+            else {
+                var allowed = CharacterSet.alphanumerics
+                allowed.insert(charactersIn: "-_.!~*'()")
+                guard let encoded = text.addingPercentEncoding(withAllowedCharacters: allowed) else {
+                    throw SscRuntimeFailure(description: "NativeUiDataTable link value cannot be encoded")
+                }
+                destination = template.replacingOccurrences(of: ":value", with: encoded)
+            }
+            guard text.isEmpty || safeExternalURL(destination) != nil else {
+                throw SscRuntimeFailure(description: "NativeUiDataTable link target is unsafe")
+            }
+            if !text.isEmpty { link = safeExternalURL(destination) }
+        case "stacked":
+            guard case let .string(subPath) = column.options.get(.string("subFieldPath")) else { preconditionFailure("validated stacked options") }
+            let subValue = try nativeTableDotted(row, path: subPath, missingAllowed: true)
+            let subText = try nativeTableScalarText(subValue, path: subPath) ?? ""
+            if !subText.isEmpty { secondary = subText }
+        default: preconditionFailure("validated table column kind")
+        }
+        return NativeUiTableCellValue(
+            primary: primary, secondary: secondary, link: link,
+            statusColor: color, alignment: column.alignment)
+    }
+
+    private func nativeTableDate(_ text: String, timeZone: TimeZone) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let value = iso.date(from: text) { return value }
+        iso.formatOptions = [.withInternetDateTime]
+        if let value = iso.date(from: text) { return value }
+        let exact = DateFormatter()
+        exact.locale = Locale(identifier: "en_US_POSIX")
+        exact.timeZone = timeZone
+        exact.dateFormat = "yyyy-MM-dd"
+        exact.isLenient = false
+        guard let value = exact.date(from: text), exact.string(from: value) == text else { return nil }
+        return value
+    }
+
     private func requestHeaders(_ value: SscValue) throws -> [String: String] {
         guard case let .string(text) = value else {
             throw SscRuntimeFailure(description: "native fetch headers signal must contain JSON text")
@@ -1343,7 +2316,182 @@ final class NativeUiStore: ObservableObject {
         return session?.signal(scope: String(parts[0]), id: String(parts[1]))
     }
 }
+
+@MainActor
+final class NativeUiTableModel: ObservableObject {
+    struct ActionState {
+        let phase: String
+        let error: String?
+    }
+
+    private unowned let store: NativeUiStore
+    @Published private(set) var descriptor: NativeUiTableDescriptor?
+    let ownerPath: String
+    @Published private(set) var snapshot: NativeUiTableSnapshot
+    @Published private(set) var actionStates: [String: ActionState] = [:]
+    private var descriptorSignature: String
+    private var observedCells: [NativeUiObservableCell]
+    private var observers: [AnyCancellable] = []
+    private var sourceToken: NativeUiSubscriptionToken?
+    private var editRevisions: [String: UInt64] = [:]
+    private var nextEditRevision: UInt64 = 0
+    private var mounted = false
+
+    init(store: NativeUiStore, value: SscValue, ownerPath: String) {
+        self.store = store
+        self.ownerPath = ownerPath
+        self.descriptorSignature = store.nativeTableDescriptorSignature(value)
+        do {
+            let decoded = try store.decodeNativeTable(value)
+            descriptor = decoded
+            observedCells = store.nativeTableObservedSignals(decoded).map { store.cell(for: $0) }
+            snapshot = store.nativeTableSnapshot(decoded)
+        } catch {
+            descriptor = nil
+            observedCells = []
+            let diagnostic = store.nativeTableDiagnostic(error, value: value)
+            snapshot = NativeUiTableSnapshot(
+                rows: [], status: diagnostic, error: diagnostic)
+        }
+    }
+
+    func mount() {
+        mounted = true
+        guard let descriptor else { return }
+        store.installNativeTableCapability(
+            ownerPath: ownerPath, descriptor: descriptor, signature: descriptorSignature,
+            rows: snapshot.rows)
+        if sourceToken == nil, let sourceCell = observedCells.first {
+            sourceToken = store.subscribe(sourceCell)
+        }
+        if observers.isEmpty {
+            observers = observedCells.map { cell in
+                cell.objectWillChange.sink { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.refresh() }
+                }
+            }
+        }
+        apply(store.nativeTableSnapshot(descriptor, retaining: snapshot.rows))
+    }
+
+    func unmount() {
+        mounted = false
+        if let sourceToken { store.unsubscribe(sourceToken); self.sourceToken = nil }
+        observers.removeAll()
+        if let descriptor {
+            store.removeNativeTableCapability(
+                ownerPath: ownerPath, siteId: descriptor.siteId, signature: descriptorSignature)
+        }
+    }
+
+    func update(_ value: SscValue) {
+        let nextSignature = store.nativeTableDescriptorSignature(value)
+        guard nextSignature != descriptorSignature else { return }
+        let wasMounted = mounted
+        do {
+            let decoded = try store.decodeNativeTable(value)
+            let candidate = store.nativeTableSnapshot(decoded, retaining: snapshot.rows)
+            guard candidate.error == nil else {
+                snapshot = NativeUiTableSnapshot(
+                    rows: snapshot.rows, status: candidate.status, error: candidate.error)
+                return
+            }
+            if wasMounted { unmount() }
+            descriptorSignature = nextSignature
+            descriptor = decoded
+            observedCells = store.nativeTableObservedSignals(decoded).map { store.cell(for: $0) }
+            snapshot = candidate
+            actionStates.removeAll()
+            editRevisions.removeAll()
+            if wasMounted { mount() }
+        } catch {
+            let diagnostic = store.nativeTableDiagnostic(error, value: value)
+            snapshot = NativeUiTableSnapshot(
+                rows: snapshot.rows,
+                status: diagnostic, error: diagnostic)
+        }
+    }
+
+    func refresh() {
+        guard let descriptor else { return }
+        apply(store.nativeTableSnapshot(descriptor, retaining: snapshot.rows))
+    }
+
+    func actionState(row: NativeUiTableRow, index: Int) -> ActionState {
+        actionStates[actionKey(row: row, index: index)] ?? ActionState(phase: "idle", error: nil)
+    }
+
+    func run(_ action: NativeUiTableAction, row: NativeUiTableRow, index: Int) {
+        guard let descriptor else { return }
+        let key = actionKey(row: row, index: index)
+        store.runNativeTableAction(
+            action, row: row, actionIndex: index, ownerPath: ownerPath, siteId: descriptor.siteId,
+            descriptorSignature: descriptorSignature
+        ) { [weak self] phase, error in
+            self?.actionStates[key] = ActionState(phase: phase, error: error)
+        }
+    }
+
+    func beginEdit(row: NativeUiTableRow, columnIndex: Int) -> UInt64 {
+        nextEditRevision &+= 1
+        let key = editKey(row: row, columnIndex: columnIndex)
+        editRevisions[key] = nextEditRevision
+        return nextEditRevision
+    }
+
+    func commitEdit(
+        row: NativeUiTableRow,
+        column: NativeUiTableColumn,
+        columnIndex: Int,
+        revision: UInt64,
+        value: String
+    ) {
+        let key = editKey(row: row, columnIndex: columnIndex)
+        guard editRevisions[key] == revision, let rawAction = column.editAction,
+              let action = try? store.decodeNativeTableActionForEdit(rawAction, columnIndex: columnIndex),
+              let descriptor else { return }
+        editRevisions.removeValue(forKey: key)
+        let actionIndex = descriptor.actions.count + columnIndex
+        let stateKey = actionKey(row: row, index: actionIndex)
+        store.runNativeTableAction(
+            action, row: row, actionIndex: actionIndex, ownerPath: ownerPath,
+            siteId: descriptor.siteId, descriptorSignature: descriptorSignature,
+            editField: column.fieldPath, editValue: value
+        ) { [weak self] phase, error in
+            self?.actionStates[stateKey] = ActionState(phase: phase, error: error)
+        }
+    }
+
+    private func actionKey(row: NativeUiTableRow, index: Int) -> String {
+        row.identity.description + "\u{0}" + String(index)
+    }
+
+    private func editKey(row: NativeUiTableRow, columnIndex: Int) -> String {
+        row.identity.description + "\u{0}" + String(columnIndex)
+    }
+
+    private func apply(_ next: NativeUiTableSnapshot) {
+        if next.error == nil, let descriptor {
+            let old = Set(snapshot.rows.map(\.identity))
+            let retained = Set(next.rows.map(\.identity))
+            for identity in old.subtracting(retained) {
+                store.cancelNativeTableRowTasks(
+                    ownerPath: ownerPath, siteId: descriptor.siteId,
+                    descriptorSignature: descriptorSignature, identity: identity)
+                let prefix = identity.description + "\u{0}"
+                actionStates = actionStates.filter { !$0.key.hasPrefix(prefix) }
+                editRevisions = editRevisions.filter { !$0.key.hasPrefix(prefix) }
+            }
+            store.updateNativeTableCapabilityRows(
+                ownerPath: ownerPath, siteId: descriptor.siteId,
+                signature: descriptorSignature, rows: next.rows)
+        }
+        snapshot = next
+    }
+}
 """
+
+  val storeSource: String = storeSourcePart1 + storeSourcePart2 + storeSourcePart3
 
   val rendererSource: String = """import SwiftUI
 #if os(macOS)
@@ -1430,9 +2578,13 @@ struct NativeUiRenderer: View {
         case "NativeUiTrustedHtml" where fields.count == 2:
             let site = store.string(fields[0])
             return unsupported("trusted HTML adapter pending at " + store.source(site))
+        case "NativeUiDataTable" where fields.count == 5:
+            return AnyView(NativeUiDataTableView(
+                store: store, value: value,
+                ownerPath: store.ownerPath(for: value, fallback: ownerPath)))
         case "NativeUiDataTable":
             let site = fields.first.map(store.string) ?? ""
-            return unsupported("native data table adapter pending at " + store.source(site))
+            return unsupported("malformed NativeUiDataTable at " + store.source(site))
         case "NativeUiUnsupported" where fields.count == 3:
             return unsupported(store.string(fields[0]) + " at " + store.source(fields[1]) + ": " + store.string(fields[2]))
         case "NativeUiElement":
@@ -1998,12 +3150,176 @@ private struct NativeUiForKeyedView: View {
         }
         .onAppear {
             if token == nil { token = store.subscribe(itemsCell) }
-            if itemsCell.renderedDiagnostic() == nil { model.refresh(itemsCell.read()) }
         }
         .onDisappear { if let token { store.unsubscribe(token); self.token = nil } }
-        .onChange(of: itemsCell.revision) { _, _ in
+        .task(id: itemsCell.revision) {
             if itemsCell.renderedDiagnostic() == nil { model.refresh(itemsCell.read()) }
         }
+    }
+}
+
+@MainActor
+private struct NativeUiDataTableView: View {
+    @ObservedObject var store: NativeUiStore
+    @StateObject private var model: NativeUiTableModel
+    let value: SscValue
+
+    init(store: NativeUiStore, value: SscValue, ownerPath: String) {
+        self.store = store
+        self.value = value
+        self._model = StateObject(wrappedValue: NativeUiTableModel(
+            store: store, value: value, ownerPath: ownerPath))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let descriptor = model.descriptor {
+                ScrollView(.horizontal) {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                        GridRow {
+                            ForEach(Array(descriptor.columns.enumerated()), id: \.offset) { _, column in
+                                Text(column.title).bold()
+                            }
+                            if !descriptor.actions.isEmpty { Text("Actions").bold() }
+                        }
+                        Divider()
+                        ForEach(model.snapshot.rows) { row in
+                            GridRow {
+                                ForEach(Array(descriptor.columns.enumerated()), id: \.offset) { index, column in
+                                    NativeUiTableCellView(
+                                        model: model, row: row, column: column,
+                                        columnIndex: index, cell: row.cells[index])
+                                }
+                                if !descriptor.actions.isEmpty {
+                                    HStack(spacing: 6) {
+                                        ForEach(Array(descriptor.actions.enumerated()), id: \.offset) { index, action in
+                                            let state = model.actionState(row: row, index: index)
+                                            Button(action.label) { model.run(action, row: row, index: index) }
+                                                .disabled(state.phase == "loading")
+                                            if state.phase == "loading" { ProgressView().controlSize(.small) }
+                                            if let error = state.error { Text(error).foregroundStyle(.red) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let status = model.snapshot.status {
+                Text(status).foregroundStyle(model.snapshot.error == nil ? Color.secondary : Color.red)
+            }
+        }
+        .onAppear { model.mount() }
+        .onDisappear { model.unmount() }
+        .task(id: store.nativeTableDescriptorSignature(value)) { model.update(value) }
+    }
+}
+
+@MainActor
+private struct NativeUiTableCellView: View {
+    @ObservedObject var model: NativeUiTableModel
+    let row: NativeUiTableRow
+    let column: NativeUiTableColumn
+    let columnIndex: Int
+    let cell: NativeUiTableCellValue
+
+    var body: some View {
+        Group {
+            if column.editAction != nil {
+                NativeUiEditableTableCell(
+                    model: model, row: row, column: column,
+                    columnIndex: columnIndex, initial: cell.primary)
+            } else if let link = cell.link {
+                Link(cell.primary, destination: link)
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(cell.primary)
+                    if let secondary = cell.secondary {
+                        Text(secondary).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(cell.statusColor == nil ? 0 : 4)
+                .background(nativeUiTableColor(cell.statusColor))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: nativeUiTableAlignment(cell.alignment))
+    }
+}
+
+@MainActor
+private struct NativeUiEditableTableCell: View {
+    @ObservedObject var model: NativeUiTableModel
+    let row: NativeUiTableRow
+    let column: NativeUiTableColumn
+    let columnIndex: Int
+    @State private var text: String
+    @State private var revision: UInt64?
+    @FocusState private var focused: Bool
+
+    init(
+        model: NativeUiTableModel,
+        row: NativeUiTableRow,
+        column: NativeUiTableColumn,
+        columnIndex: Int,
+        initial: String
+    ) {
+        self.model = model
+        self.row = row
+        self.column = column
+        self.columnIndex = columnIndex
+        self._text = State(initialValue: initial)
+    }
+
+    var body: some View {
+        TextField("", text: $text)
+            .focused($focused)
+            .onSubmit { commit() }
+            .task(id: focused) {
+                if focused { revision = model.beginEdit(row: row, columnIndex: columnIndex) }
+                else { commit() }
+            }
+    }
+
+    private func commit() {
+        guard let revision else { return }
+        self.revision = nil
+        model.commitEdit(
+            row: row, column: column, columnIndex: columnIndex,
+            revision: revision, value: text)
+    }
+}
+
+private func nativeUiTableAlignment(_ value: String) -> Alignment {
+    switch value {
+    case "center": return .center
+    case "trailing": return .trailing
+    default: return .leading
+    }
+}
+
+private func nativeUiTableColor(_ value: String?) -> Color {
+    guard let value else { return .clear }
+    switch value.lowercased() {
+    case "black": return .black; case "white": return .white; case "red": return .red
+    case "green": return .green; case "blue": return .blue; case "gray", "grey": return .gray
+    case "transparent", "none": return .clear
+    default:
+        let raw = value.lowercased()
+        if raw.hasPrefix("#") {
+            let hex = String(raw.dropFirst())
+            let expanded = hex.count == 3 ? hex.map { "\($0)\($0)" }.joined() : hex
+            if expanded.count == 6, let number = UInt64(expanded, radix: 16) {
+                return Color(
+                    red: Double((number >> 16) & 255) / 255,
+                    green: Double((number >> 8) & 255) / 255,
+                    blue: Double(number & 255) / 255)
+            }
+        }
+        if let (red, green, blue, alpha) = NativeUiColorGrammar.rgba(raw) {
+            return Color(red: red, green: green, blue: blue, opacity: alpha)
+        }
+        return .clear
     }
 }
 """
@@ -2432,14 +3748,8 @@ enum NativeUiStyles {
                     )
                 }
             }
-            if raw.hasPrefix("rgba("), raw.hasSuffix(")") {
-                let parts = raw.dropFirst(5).dropLast().split(separator: ",").map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                if parts.count == 4, let red = Double(parts[0]), let green = Double(parts[1]),
-                   let blue = Double(parts[2]), let alpha = Double(parts[3]) {
-                    return Color(red: red / 255, green: green / 255, blue: blue / 255, opacity: alpha)
-                }
+            if let (red, green, blue, alpha) = NativeUiColorGrammar.rgba(raw) {
+                return Color(red: red, green: green, blue: blue, opacity: alpha)
             }
             return nil
         }

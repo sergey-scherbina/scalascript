@@ -180,6 +180,30 @@ final class SwiftBackendTest extends AnyFunSuite:
       assert(stdout == "constructors|actions|raw")
     finally deleteRecursively(root)
 
+  test("native table ABI decodes five fields and rejects malformed payloads"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeTableProbe("abi") == "abi")
+
+  test("native table sources apply rowsPath fallback and retain exact states"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeTableProbe("sources") == "sources")
+
+  test("native table columns format dotted values deterministically"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeTableProbe("columns") == "columns")
+
+  test("native table row identity rejects missing empty compound and duplicates"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeTableProbe("identity") == "identity")
+
+  test("native table actions emit exact request bytes and lifecycle transitions"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeTableProbe("actions") == "actions")
+
+  test("native table generated Swift runs on macOS and typechecks for iOS"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeTableProbe("apple", includeAppleSources = true) == "apple")
+
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val cases = List(
@@ -702,6 +726,56 @@ final class SwiftBackendTest extends AnyFunSuite:
     ))))
     Program(Nil, Term.Let(List(mutable, items, computed),
       Term.App(Term.Global("emit"), List(root, str("out")))))
+
+  private def nativeUiTableProgram(): Program =
+    val emptyMap = Term.Prim("map.new", Nil)
+    val refresh = Term.App(Term.Global("signal"), List(str("refresh"), Term.Lit(Const.CInt(0))))
+    val headers = Term.App(Term.Global("signal"), List(str("headers"), str("")))
+    val selection = Term.App(Term.Global("signal"), List(str("selection"), str("")))
+    // At this point: selection=0, headers=1, refresh=2, nested=3, row=4.
+    val rows = Term.App(Term.Global("signal"), List(str("rows"), list(List(Term.Local(4)))))
+    // rows=0, selection=1, headers=2, refresh=3, nested=4, row=5.
+    val fetch = Term.App(Term.Global("fetchUrlSignal"), List(
+      str("remote"), str("/rows"), Term.Local(3), Term.Local(2),
+    ))
+    // fetch=0, rows=1, selection=2, headers=3, refresh=4, nested=5, row=6.
+    def editAction = Term.App(Term.Global("rowEditAction"), List(
+      str("PATCH"), str("/edit/:id"), str("id"), Term.Local(4), Term.Local(3),
+    ))
+    def columns = list(List(Term.App(Term.Global("fieldColumn"), List(
+      str("Name"), str("nested.name"), str(""), editAction,
+    ))))
+    def actions = list(List(
+      Term.App(Term.Global("rowDeleteAction"), List(str("/delete/:id"), str("id"), Term.Local(4), Term.Local(3))),
+      Term.App(Term.Global("rowPostAction"), List(
+        str("Save"), str("POST"), str("/post/:id"),
+        Term.App(Term.Global("wholeRowPayload"), Nil), Term.Local(4), Term.Local(3),
+      )),
+      Term.App(Term.Global("rowLinkAction"), List(str("Pick"), Term.Local(2), str("nested.name"))),
+      Term.App(Term.Global("rowPostAction"), List(
+        str("Fields"), str("POST"), str("/post/:id"),
+        Term.App(Term.Global("fieldsPayload"), List(list(List(str("id"), str("nested.name"))))),
+        Term.Local(4), Term.Local(3),
+      )),
+    ))
+    val staticTable = Term.App(Term.Global("dataTableView"), List(
+      Term.App(Term.Global("staticRowsSource"), List(list(List(Term.Local(6))))), columns, actions, str("id"),
+    ))
+    val signalTable = Term.App(Term.Global("dataTableView"), List(
+      Term.App(Term.Global("signalRowsSource"), List(Term.Local(1))), columns, actions, str("id"),
+    ))
+    val fetchTable = Term.App(Term.Global("dataTableView"), List(
+      Term.App(Term.Global("fetchRowsSource"), List(Term.Local(0), str("payload.items"))), columns, actions, str("id"),
+    ))
+    val root = Term.App(Term.Global("fragment"), List(list(List(staticTable, signalTable, fetchTable))))
+    val entry = Term.Let(List(emptyMap, emptyMap), Term.Seq(List(
+      Term.Prim("map.put", List(Term.Local(0), str("name"), str("Alpha"))),
+      Term.Prim("map.put", List(Term.Local(1), str("id"), str("row-a"))),
+      Term.Prim("map.put", List(Term.Local(1), str("nested"), Term.Local(0))),
+      Term.Let(List(refresh, headers, selection, rows, fetch),
+        Term.App(Term.Global("emit"), List(root, str("out")))),
+    )))
+    Program(Nil, entry)
 
   private def nativeUiObservationProgram(): Program =
     def source(operation: String) = Term.Ctor("NativeUiSourceRef", List(
@@ -3243,6 +3317,547 @@ struct PayloadValidationProbe {
 }
 """
 
+  private val nativeUiTableProbe = """
+import CoreFoundation
+import Foundation
+
+final class TableURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) private static var instances: [TableURLProtocol] = []
+    nonisolated(unsafe) private static var stopped: Set<Int> = []
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Self.instances.append(self) }
+    override func stopLoading() {
+        if let index = Self.instances.firstIndex(where: { $0 === self }) { Self.stopped.insert(index) }
+    }
+    static var count: Int { instances.count }
+    static func request(_ index: Int) -> URLRequest { instances[index].request }
+    static func body(_ index: Int) -> String? {
+        let request = instances[index].request
+        if let data = request.httpBody { return String(data: data, encoding: .utf8) }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 1024)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return String(data: data, encoding: .utf8)
+    }
+    static func wasStopped(_ index: Int) -> Bool { stopped.contains(index) }
+    static func respond(_ index: Int, status: Int, body: String) {
+        let instance = instances[index]
+        let response = HTTPURLResponse(
+            url: instance.request.url!, statusCode: status, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"])!
+        instance.client?.urlProtocol(instance, didReceive: response, cacheStoragePolicy: .notAllowed)
+        instance.client?.urlProtocol(instance, didLoad: Data(body.utf8))
+        instance.client?.urlProtocolDidFinishLoading(instance)
+    }
+}
+
+@main
+struct NativeTableProbe {
+    static func list(_ values: [SscValue]) -> SscValue {
+        values.reversed().reduce(.data("Nil", [])) { .data("Cons", [$1, $0]) }
+    }
+    static func map(_ values: [(String, SscValue)]) -> SscMap {
+        let result = SscMap()
+        for (key, value) in values { result.put(.string(key), value) }
+        return result
+    }
+    static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
+        guard case let .data(actual, fields) = value, actual == tag else { fatalError("expected \(tag)") }
+        return fields.asArray()
+    }
+    static func properList(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected list")
+            }
+        }
+    }
+    @MainActor static func generatedTables(_ store: NativeUiStore) -> [SscValue] {
+        let abi = fields(store.root, "NativeUiAbi")
+        let fragment = fields(abi[1], "NativeUiFragment")
+        return properList(fragment[0])
+    }
+    static func row(_ values: [(String, SscValue)]) -> SscValue { .map(map(values)) }
+    static func source(_ rows: [SscValue]) -> SscValue {
+        .data("NativeUiTableSource", [.string("static"), list(rows), .string("")])
+    }
+    static func column(
+        _ kind: String, _ title: String, _ path: String, _ align: String,
+        _ options: [(String, SscValue)]
+    ) -> SscValue {
+        .data("NativeUiColumn", [.string(kind), .string(title), .string(path), .string(align), .map(map(options))])
+    }
+    static func table(
+        like existing: SscValue,
+        rows: [SscValue],
+        columns: [SscValue] = [],
+        actions: [SscValue] = [],
+        rowKeyPath: String = "id"
+    ) -> SscValue {
+        let base = fields(existing, "NativeUiDataTable")
+        return .data("NativeUiDataTable", [
+            base[0], source(rows), list(columns), list(actions), .string(rowKeyPath),
+        ])
+    }
+    @MainActor static func makeStore(
+        baseURL: URL? = URL(string: "https://api.example/base/")!
+    ) -> NativeUiStore {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TableURLProtocol.self]
+        return NativeUiStore(
+            urlSession: URLSession(configuration: configuration),
+            backendBaseURL: baseURL)
+    }
+    static func mustReject(_ body: () throws -> Void, _ label: String) {
+        do { try body(); fatalError("accepted \(label)") }
+        catch is SscRuntimeFailure {}
+        catch { fatalError("unexpected \(label): \(error)") }
+    }
+    static func waitFor(_ condition: @escaping @MainActor () -> Bool) async {
+        for _ in 0..<10000 {
+            if await MainActor.run(body: condition) { return }
+            await Task.yield()
+        }
+        fatalError("timed out")
+    }
+    static func mark(_ value: String) {
+        try? FileHandle.standardError.write(contentsOf: Data((value + "\n").utf8))
+    }
+
+    @MainActor static func abi() {
+        let store = makeStore(), tables = generatedTables(store)
+        let decoded = try! store.decodeNativeTable(tables[0])
+        guard decoded.rowKeyPath == "id", decoded.columns.count == 1, decoded.actions.count == 4 else { fatalError("valid ABI") }
+        let base = fields(tables[0], "NativeUiDataTable")
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", SscFields(Array(base.dropLast())))) }, "four fields")
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", SscFields(base + [.unit]))) }, "six fields")
+        let badSource = SscValue.data("NativeUiTableSource", [.string("bogus"), list([]), .string("")])
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [base[0], badSource, base[2], base[3], base[4]])) }, "source kind")
+        let staticPath = SscValue.data("NativeUiTableSource", [.string("static"), list([]), .string("a")])
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [base[0], staticPath, base[2], base[3], base[4]])) }, "static rowsPath")
+        let fetchBase = fields(tables[2], "NativeUiDataTable")
+        let fetchSourceFields = fields(fetchBase[1], "NativeUiTableSource")
+        let malformedFetchPath = SscValue.data("NativeUiTableSource", [fetchSourceFields[0], fetchSourceFields[1], .string("a..b")])
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [fetchBase[0], malformedFetchPath, fetchBase[2], fetchBase[3], fetchBase[4]])) }, "fetch rowsPath")
+        let action = fields(decoded.actions[1].request, "NativeUiFetchRequest")
+        guard action.count == 4 else { fatalError("request") }
+        let rawAction = properList(base[3])[1]
+        let actionFields = fields(rawAction, "NativeUiRowAction")
+        let badPayload = SscValue.data("NativeUiRowPayload", [.string("fields"), list([])])
+        let forged = SscValue.data("NativeUiRowAction", [actionFields[0], actionFields[1], actionFields[2], badPayload, actionFields[4], actionFields[5]])
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [base[0], base[1], base[2], list([forged]), base[4]])) }, "payload")
+        let whole = SscValue.data("NativeUiRowPayload", [.string("wholeRow"), list([])])
+        let deleteFields = fields(properList(base[3])[0], "NativeUiRowAction")
+        let badDelete = SscValue.data("NativeUiRowAction", [deleteFields[0], deleteFields[1], deleteFields[2], whole, deleteFields[4], deleteFields[5]])
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [base[0], base[1], base[2], list([badDelete]), base[4]])) }, "delete whole row")
+        let linkFields = fields(properList(base[3])[2], "NativeUiRowAction")
+        let badLink = SscValue.data("NativeUiRowAction", [linkFields[0], linkFields[1], linkFields[2], whole, linkFields[4], linkFields[5]])
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [base[0], base[1], base[2], list([badLink]), base[4]])) }, "link whole row")
+        let columnFields = fields(properList(base[2])[0], "NativeUiColumn")
+        guard case let .map(columnOptions) = columnFields[4], let editRaw = columnOptions.get(.string("editAction")) else { fatalError("edit option") }
+        mustReject({ _ = try store.decodeNativeTable(.data("NativeUiDataTable", [base[0], base[1], base[2], list([editRaw]), base[4]])) }, "top-level edit")
+
+        let badTargetStore = makeStore(), badTargetTables = generatedTables(badTargetStore)
+        let badTargetDescriptor = try! badTargetStore.decodeNativeTable(badTargetTables[0])
+        let target = badTargetDescriptor.actions[2].options.get(.string("signal"))!
+        try! badTargetStore.writeUserTarget(target, .int(1))
+        mustReject({ _ = try badTargetStore.decodeNativeTable(badTargetTables[0]) }, "non-string link target")
+
+        let overflowStore = makeStore(), overflowTables = generatedTables(overflowStore)
+        let overflowDescriptor = try! overflowStore.decodeNativeTable(overflowTables[0])
+        try! overflowStore.writeUserTarget(overflowDescriptor.actions[0].refresh, .int(Int64.max))
+        mustReject({ _ = try overflowStore.decodeNativeTable(overflowTables[0]) }, "overflow refresh")
+        let malformed = SscValue.data("NativeUiDataTable", SscFields(Array(base.dropLast())))
+        let malformedModel = NativeUiTableModel(store: store, value: malformed, ownerPath: "root/malformed")
+        guard let diagnostic = malformedModel.snapshot.error, diagnostic.contains(" at "),
+              diagnostic.unicodeScalars.count <= 1100 else { fatalError("bounded sourced init diagnostic") }
+        malformedModel.mount()
+        malformedModel.update(tables[0])
+        guard malformedModel.descriptor != nil, malformedModel.snapshot.rows.map(\.id) == ["string:row-a"] else {
+            fatalError("invalid to valid recovery")
+        }
+        malformedModel.update(malformed)
+        guard malformedModel.descriptor != nil, malformedModel.snapshot.rows.map(\.id) == ["string:row-a"],
+              malformedModel.snapshot.error != nil else { fatalError("transactional invalid replacement") }
+        malformedModel.unmount()
+        Swift.print("abi")
+    }
+
+    @MainActor static func sources() async {
+        let store = makeStore(), tables = generatedTables(store)
+        let staticDescriptor = try! store.decodeNativeTable(tables[0])
+        let initial = store.nativeTableSnapshot(staticDescriptor)
+        guard initial.rows.map(\.id) == ["string:row-a"], initial.status == nil else { fatalError("static") }
+        let empty = table(like: tables[0], rows: [], columns: properList(fields(tables[0], "NativeUiDataTable")[2]))
+        guard store.nativeTableSnapshot(try! store.decodeNativeTable(empty)).status == "No rows" else { fatalError("empty") }
+
+        let signalDescriptor = try! store.decodeNativeTable(tables[1])
+        let signalRows = signalDescriptor.sourceValue
+        let replacement = row([("id", .string("row-b")), ("nested", .map(map([("name", .string("Beta"))])))])
+        try! store.writeUserTarget(signalRows, list([replacement]))
+        let signalSnapshot = store.nativeTableSnapshot(signalDescriptor)
+        guard signalSnapshot.rows.map(\.id) == ["string:row-b"] else { fatalError("signal") }
+        try! store.writeUserTarget(signalRows, list([.string("bad")]))
+        let retained = store.nativeTableSnapshot(signalDescriptor, retaining: signalSnapshot.rows)
+        guard retained.error != nil, retained.rows.map(\.id) == ["string:row-b"] else { fatalError("transactional") }
+
+        let fetchModel = NativeUiTableModel(store: store, value: tables[2], ownerPath: "root/table")
+        fetchModel.mount()
+        await waitFor { TableURLProtocol.count == 1 }
+        guard fetchModel.snapshot.status == "Loading…", fetchModel.snapshot.rows.isEmpty else { fatalError("loading") }
+        TableURLProtocol.respond(0, status: 200, body: "{\"payload\":{\"items\":[{\"id\":\"remote-a\",\"nested\":{\"name\":\"Remote\"}}]}}")
+        await waitFor { fetchModel.snapshot.rows.first?.id == "string:remote-a" }
+        let fetchDescriptor = try! store.decodeNativeTable(tables[2])
+        let refresh = try! store.decodeNativeTable(tables[0]).actions[0].refresh
+        try! store.writeUserTarget(refresh, .int(1))
+        await waitFor { TableURLProtocol.count == 2 }
+        guard fetchModel.snapshot.status == "Loading…", fetchModel.snapshot.rows.first?.id == "string:remote-a" else { fatalError("last-good loading") }
+        TableURLProtocol.respond(1, status: 500, body: "nope")
+        await waitFor { fetchModel.snapshot.error != nil }
+        guard fetchModel.snapshot.rows.first?.id == "string:remote-a" else { fatalError("last-good error") }
+        try! store.writeUserTarget(refresh, .int(2))
+        await waitFor { TableURLProtocol.count == 3 }
+        TableURLProtocol.respond(2, status: 200, body: "{\"data\":[{\"id\":\"fallback\",\"nested\":{\"name\":\"Fallback\"}}]}")
+        await waitFor { fetchModel.snapshot.rows.first?.id == "string:fallback" }
+        let fallbackBodies = [
+            "{\"data\":{},\"rows\":[{\"id\":\"rows\",\"nested\":{\"name\":\"Rows\"}}]}",
+            "{\"data\":{},\"rows\":{},\"items\":[{\"id\":\"items\",\"nested\":{\"name\":\"Items\"}}]}",
+            "{\"data\":{},\"rows\":{},\"items\":{},\"results\":[{\"id\":\"results\",\"nested\":{\"name\":\"Results\"}}]}",
+        ]
+        for (offset, body) in fallbackBodies.enumerated() {
+            try! store.writeUserTarget(refresh, .int(Int64(offset + 3)))
+            await waitFor { TableURLProtocol.count == offset + 4 }
+            TableURLProtocol.respond(offset + 3, status: 200, body: body)
+            let expected = ["rows", "items", "results"][offset]
+            await waitFor { fetchModel.snapshot.rows.first?.id == "string:" + expected }
+        }
+        _ = fetchDescriptor
+        fetchModel.unmount()
+
+        let errorStore = makeStore(), errorTables = generatedTables(errorStore)
+        let errorModel = NativeUiTableModel(store: errorStore, value: errorTables[2], ownerPath: "root/error")
+        errorModel.mount()
+        await waitFor { TableURLProtocol.count == 7 }
+        TableURLProtocol.respond(6, status: 503, body: "initial")
+        await waitFor { errorModel.snapshot.error != nil }
+        guard errorModel.snapshot.rows.isEmpty,
+              errorModel.snapshot.status?.hasPrefix("Error: HTTP 503") == true else { fatalError("initial error visibility") }
+        errorModel.unmount()
+        Swift.print("sources")
+    }
+
+    @MainActor static func columns() {
+        let store = makeStore(), existing = generatedTables(store)[0]
+        let colors = map([("ok", .string("rgba(1,2,3,0.5)"))])
+        let columns: [SscValue] = [
+            column("text", "Name", "nested.name", "left", [("editAction", .unit)]),
+            column("date", "Date", "created", "center", [("format", .string("yyyy-MM-dd"))]),
+            column("money", "Amount", "amount", "right", [("currency", .string("USD")), ("locale", .string("en_US"))]),
+            column("status", "Status", "status", "", [("colorMap", .map(colors))]),
+            column("link", "Link", "slug", "", [("urlTemplate", .string("https://example.test/u/:value"))]),
+            column("stacked", "Stacked", "nested.name", "", [("subFieldPath", .string("nested.sub"))]),
+        ]
+        let value = row([
+            ("id", .string("r")),
+            ("nested", .map(map([("name", .string("Alpha")), ("sub", .string("Detail"))]))),
+            ("created", .string("2024-01-02")), ("amount", .float(12.5)),
+            ("status", .string("ok")), ("slug", .string("a/b")),
+        ])
+        let descriptor = try! store.decodeNativeTable(table(like: existing, rows: [value], columns: columns))
+        let snapshot = store.nativeTableSnapshot(
+            descriptor, locale: Locale(identifier: "en_US"), timeZone: TimeZone(secondsFromGMT: 0)!)
+        guard snapshot.error == nil, snapshot.rows.count == 1 else { fatalError(snapshot.error ?? "columns") }
+        let cells = snapshot.rows[0].cells
+        guard cells[0].primary == "Alpha", cells[0].alignment == "leading",
+              cells[1].primary == "2024-01-02", cells[2].primary.contains("12.50"),
+              cells[3].statusColor == "rgba(1,2,3,0.5)",
+              cells[4].link?.absoluteString == "https://example.test/u/a%2Fb",
+              cells[5].secondary == "Detail" else { fatalError("formatted columns") }
+        let floatRow = row([("id", .string("float")), ("nested", .map(map([("name", .float(1.5))])))])
+        let rejected = store.nativeTableSnapshot(
+            try! store.decodeNativeTable(table(like: existing, rows: [floatRow], columns: [columns[0]])),
+            retaining: snapshot.rows)
+        guard rejected.error != nil, rejected.rows.count == 1 else { fatalError("float display") }
+        let badDate = row([("id", .string("date")), ("created", .string("2024-01-02tail"))])
+        let dateSnapshot = store.nativeTableSnapshot(
+            try! store.decodeNativeTable(table(like: existing, rows: [badDate], columns: [columns[1]])),
+            locale: Locale(identifier: "en_US"), timeZone: TimeZone(secondsFromGMT: 0)!)
+        guard dateSnapshot.rows[0].cells[0].primary == "2024-01-02tail" else { fatalError("exact date") }
+        let badAlignment = column("text", "Bad", "nested.name", "justify", [("editAction", .unit)])
+        mustReject({ _ = try store.decodeNativeTable(table(like: existing, rows: [value], columns: [badAlignment])) }, "alignment")
+        let badColors = map([("ok", .string("rgba(256,2,3,0.5)"))])
+        let badStatus = column("status", "Bad", "status", "", [("colorMap", .map(badColors))])
+        mustReject({ _ = try store.decodeNativeTable(table(like: existing, rows: [value], columns: [badStatus])) }, "color")
+        let unsafeLink = column("link", "Bad", "slug", "", [("urlTemplate", .string("javascript::value"))])
+        let unsafeSnapshot = store.nativeTableSnapshot(
+            try! store.decodeNativeTable(table(like: existing, rows: [value], columns: [unsafeLink])))
+        guard unsafeSnapshot.error != nil else { fatalError("unsafe link") }
+        Swift.print("columns")
+    }
+
+    @MainActor static func identity() {
+        let store = makeStore(), existing = generatedTables(store)[0]
+        let goodRows = [
+            row([("id", .string("1"))]), row([("id", .int(1))]),
+            row([("id", .big(SscBigInt("1")))]),
+        ]
+        let descriptor = try! store.decodeNativeTable(table(like: existing, rows: goodRows))
+        let good = store.nativeTableSnapshot(descriptor)
+        guard Set(good.rows.map(\.id)).count == 3 else { fatalError("typed identity") }
+        let invalid: [[SscValue]] = [
+            [row([])], [row([("id", .unit)])], [row([("id", .string(""))])],
+            [row([("id", .map(map([])))])], [row([("id", .float(1.0))])],
+            [row([("id", .string("x"))]), row([("id", .string("x"))])],
+        ]
+        let nonStringKeys = map([("id", .string("key"))])
+        nonStringKeys.put(.int(1), .string("bad"))
+        for rows in invalid + [[.map(nonStringKeys)]] {
+            let candidate = store.nativeTableSnapshot(
+                try! store.decodeNativeTable(table(like: existing, rows: rows)), retaining: good.rows)
+            guard candidate.error != nil, candidate.rows.count == 3 else { fatalError("invalid identity") }
+        }
+        Swift.print("identity")
+    }
+
+    @MainActor static func actions() async {
+        mark("actions:start")
+        let store = makeStore(), tables = generatedTables(store)
+        let descriptor = try! store.decodeNativeTable(tables[0])
+        let signature = store.nativeTableDescriptorSignature(tables[0])
+        let row = store.nativeTableSnapshot(descriptor).rows[0]
+        store.installNativeTableCapability(
+            ownerPath: "root/table", descriptor: descriptor, signature: signature, rows: [row])
+        var phase = "idle", error: String?
+        store.runNativeTableAction(
+            descriptor.actions[0], row: row, actionIndex: 0, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature) { phase = $0; error = $1 }
+        await waitFor { TableURLProtocol.count == 1 }
+        guard TableURLProtocol.request(0).url?.absoluteString == "https://api.example/delete/row-a",
+              TableURLProtocol.body(0) == "row-a",
+              phase == "loading", error == nil else {
+            fatalError("delete request url=\(TableURLProtocol.request(0).url?.absoluteString ?? "nil") body=\(TableURLProtocol.body(0) ?? "nil") phase=\(phase) error=\(error ?? "nil")")
+        }
+        TableURLProtocol.respond(0, status: 204, body: "")
+        await waitFor { phase == "done" }
+        mark("actions:basic")
+        guard case .int(1) = store.read(descriptor.actions[0].refresh) else { fatalError("refresh") }
+
+        store.runNativeTableAction(
+            descriptor.actions[1], row: row, actionIndex: 1, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature) { phase = $0; error = $1 }
+        await waitFor { TableURLProtocol.count == 2 }
+        let post = TableURLProtocol.request(1)
+        guard post.url?.absoluteString == "https://api.example/post/row-a",
+              post.value(forHTTPHeaderField: "Content-Type") == "application/json",
+              TableURLProtocol.body(1)?.contains("\"id\":\"row-a\"") == true else { fatalError("post request") }
+        TableURLProtocol.respond(1, status: 500, body: "no")
+        await waitFor { phase == "error" }
+        guard case .int(1) = store.read(descriptor.actions[1].refresh) else { fatalError("failure refresh") }
+
+        store.runNativeTableAction(
+            descriptor.actions[2], row: row, actionIndex: 2, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature) { phase = $0; error = $1 }
+        guard TableURLProtocol.count == 2, phase == "done",
+              case let .string(selected) = store.read(descriptor.actions[2].options.get(.string("signal"))!),
+              selected == "Alpha" else { fatalError("local link") }
+
+        let editAction = try! store.decodeNativeTableActionForEdit(
+            descriptor.columns[0].editAction!, columnIndex: 0)
+        store.runNativeTableAction(
+            editAction, row: row, actionIndex: 4, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature,
+            editField: "nested.name", editValue: "Beta"
+        ) { phase = $0; error = $1 }
+        await waitFor { TableURLProtocol.count == 3 }
+        let edit = TableURLProtocol.request(2)
+        guard edit.url?.absoluteString == "https://api.example/edit/row-a",
+              edit.value(forHTTPHeaderField: "Content-Type") == "application/json",
+              TableURLProtocol.body(2) == "{\"id\":\"row-a\",\"nested.name\":\"Beta\"}" else { fatalError("edit request") }
+        TableURLProtocol.respond(2, status: 200, body: "ok")
+        await waitFor { phase == "done" }
+        guard case .int(2) = store.read(editAction.refresh) else { fatalError("edit refresh") }
+
+        guard case let .data("NativeUiFetchRequest", requestFields) = descriptor.actions[1].request,
+              requestFields.count == 4 else { fatalError("post request descriptor") }
+        try! store.writeUserTarget(requestFields[3], .string("{\"content-type\":\"application/custom\",\"X-Test\":\"yes\"}"))
+        store.runNativeTableAction(
+            descriptor.actions[3], row: row, actionIndex: 3, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature
+        ) { phase = $0; error = $1 }
+        await waitFor { TableURLProtocol.count == 4 }
+        guard TableURLProtocol.body(3) == "{\"id\":\"row-a\",\"nested.name\":\"Alpha\"}",
+              TableURLProtocol.request(3).value(forHTTPHeaderField: "Content-Type") == "application/custom",
+              TableURLProtocol.request(3).value(forHTTPHeaderField: "X-Test") == "yes" else { fatalError("Fields/header override") }
+        TableURLProtocol.respond(3, status: 200, body: "ok")
+        await waitFor { phase == "done" }
+
+        let requestCount = TableURLProtocol.count
+        let malformedRequest = SscValue.data("NativeUiFetchRequest", [
+            .string("POST"), .string("/bad/:bad-name"), .unit, requestFields[3],
+        ])
+        let base = fields(tables[0], "NativeUiDataTable")
+        let postRawFields = fields(properList(base[3])[1], "NativeUiRowAction")
+        let malformedRaw = SscValue.data("NativeUiRowAction", [
+            postRawFields[0], postRawFields[1], malformedRequest,
+            postRawFields[3], postRawFields[4], postRawFields[5],
+        ])
+        let malformedTable = SscValue.data("NativeUiDataTable", [
+            base[0], base[1], base[2], list([malformedRaw]), base[4],
+        ])
+        let malformedDescriptor = try! store.decodeNativeTable(malformedTable)
+        let malformedSignature = store.nativeTableDescriptorSignature(malformedTable)
+        store.installNativeTableCapability(
+            ownerPath: "root/malformed", descriptor: malformedDescriptor,
+            signature: malformedSignature, rows: [row])
+        store.runNativeTableAction(
+            malformedDescriptor.actions[0], row: row, actionIndex: 0, ownerPath: "root/malformed",
+            siteId: malformedDescriptor.siteId, descriptorSignature: malformedSignature
+        ) { phase = $0; error = $1 }
+        guard TableURLProtocol.count == requestCount, phase == "error", error?.contains("malformed /: token") == true else { fatalError("token preflight") }
+
+        try! store.writeUserTarget(requestFields[3], .string("{"))
+        store.runNativeTableAction(
+            descriptor.actions[3], row: row, actionIndex: 3, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature
+        ) { phase = $0; error = $1 }
+        guard TableURLProtocol.count == requestCount, phase == "error" else { fatalError("header preflight") }
+
+        let decimalRowMap = map([("id", .decimal(SscDecimal("1.0")))])
+        let decimalRow = NativeUiTableRow(identity: row.identity, value: decimalRowMap, cells: [])
+        store.runNativeTableAction(
+            descriptor.actions[0], row: decimalRow, actionIndex: 0, ownerPath: "root/table",
+            siteId: descriptor.siteId, descriptorSignature: signature
+        ) { phase = $0; error = $1 }
+        guard TableURLProtocol.count == requestCount, phase == "error" else { fatalError("payload scalar preflight") }
+        mark("actions:negatives")
+
+        try! store.writeUserTarget(requestFields[3], .string(""))
+        let editModel = NativeUiTableModel(store: store, value: tables[0], ownerPath: "root/edit-model")
+        editModel.mount()
+        let editRow = editModel.snapshot.rows[0]
+        let revision = editModel.beginEdit(row: editRow, columnIndex: 0)
+        editModel.commitEdit(
+            row: editRow, column: editModel.descriptor!.columns[0], columnIndex: 0,
+            revision: revision, value: "Once")
+        editModel.commitEdit(
+            row: editRow, column: editModel.descriptor!.columns[0], columnIndex: 0,
+            revision: revision, value: "Twice")
+        await waitFor { TableURLProtocol.count == 5 }
+        guard TableURLProtocol.body(4) == "{\"id\":\"row-a\",\"nested.name\":\"Once\"}" else { fatalError("edit dedupe") }
+        TableURLProtocol.respond(4, status: 200, body: "ok")
+        editModel.unmount()
+        mark("actions:edit")
+
+        let replacementModel = NativeUiTableModel(store: store, value: tables[0], ownerPath: "root/replacement")
+        replacementModel.mount()
+        let oldRow = replacementModel.snapshot.rows[0]
+        replacementModel.run(replacementModel.descriptor!.actions[1], row: oldRow, index: 1)
+        await waitFor { TableURLProtocol.count == 6 }
+        let newRow = Self.row([("id", .string("row-new")), ("nested", .map(map([("name", .string("New"))])))])
+        let replacement = table(
+            like: tables[0], rows: [newRow], columns: properList(base[2]), actions: properList(base[3]))
+        replacementModel.update(replacement)
+        await waitFor { TableURLProtocol.wasStopped(5) }
+        guard case let .int(beforeLate) = store.read(descriptor.actions[1].refresh) else { fatalError("refresh before late") }
+        TableURLProtocol.respond(5, status: 200, body: "late")
+        await Task.yield()
+        guard case let .int(afterLate) = store.read(descriptor.actions[1].refresh), afterLate == beforeLate,
+              replacementModel.snapshot.rows.first?.id == "string:row-new" else { fatalError("replacement stale completion") }
+        replacementModel.run(descriptor.actions[1], row: oldRow, index: 1)
+        guard TableURLProtocol.count == 6,
+              replacementModel.actionState(row: oldRow, index: 1).error?.contains("stale") == true else {
+            fatalError("model stale row/action capability")
+        }
+        phase = "idle"; error = nil
+        store.runNativeTableAction(
+            descriptor.actions[1], row: oldRow, actionIndex: 1, ownerPath: "root/replacement",
+            siteId: descriptor.siteId, descriptorSignature: signature
+        ) { phase = $0; error = $1 }
+        guard TableURLProtocol.count == 6, phase == "error", error?.contains("stale") == true else { fatalError("stale descriptor capability") }
+        let newDescriptor = replacementModel.descriptor!
+        replacementModel.run(newDescriptor.actions[1], row: replacementModel.snapshot.rows[0], index: 1)
+        await waitFor { TableURLProtocol.count == 7 }
+        replacementModel.unmount()
+        await waitFor { TableURLProtocol.wasStopped(6) }
+        mark("actions:replacement")
+
+        let signalModel = NativeUiTableModel(store: store, value: tables[1], ownerPath: "root/row-removal")
+        signalModel.mount()
+        let signalRow = signalModel.snapshot.rows[0]
+        signalModel.run(signalModel.descriptor!.actions[1], row: signalRow, index: 1)
+        await waitFor { TableURLProtocol.count == 8 }
+        try! store.writeUserTarget(signalModel.descriptor!.sourceValue, list([]))
+        await waitFor { TableURLProtocol.wasStopped(7) && signalModel.snapshot.rows.isEmpty }
+        guard signalModel.actionStates.isEmpty else { fatalError("removed-row action state") }
+        TableURLProtocol.respond(7, status: 200, body: "late-row")
+        await Task.yield()
+        signalModel.unmount()
+        mark("actions:row-removal")
+
+        var doomedStore: NativeUiStore? = makeStore()
+        var doomedModel: NativeUiTableModel? = NativeUiTableModel(
+            store: doomedStore!, value: generatedTables(doomedStore!)[0], ownerPath: "root/deinit")
+        doomedModel!.mount()
+        doomedModel!.run(doomedModel!.descriptor!.actions[1], row: doomedModel!.snapshot.rows[0], index: 1)
+        await waitFor { TableURLProtocol.count == 9 }
+        weak let weakStore = doomedStore
+        doomedModel = nil
+        doomedStore = nil
+        await waitFor { weakStore == nil && TableURLProtocol.wasStopped(8) }
+        mark("actions:deinit")
+
+        let noBaseStore = makeStore(baseURL: nil), noBaseTables = generatedTables(noBaseStore)
+        let noBaseDescriptor = try! noBaseStore.decodeNativeTable(noBaseTables[0])
+        let noBaseSignature = noBaseStore.nativeTableDescriptorSignature(noBaseTables[0])
+        let noBaseRows = noBaseStore.nativeTableSnapshot(noBaseDescriptor).rows
+        noBaseStore.installNativeTableCapability(
+            ownerPath: "root/no-base", descriptor: noBaseDescriptor,
+            signature: noBaseSignature, rows: noBaseRows)
+        phase = "idle"; error = nil
+        noBaseStore.runNativeTableAction(
+            noBaseDescriptor.actions[0], row: noBaseRows[0],
+            actionIndex: 0, ownerPath: "root/no-base", siteId: noBaseDescriptor.siteId,
+            descriptorSignature: noBaseSignature
+        ) { phase = $0; error = $1 }
+        guard TableURLProtocol.count == 9, phase == "error",
+              error?.contains("requires --server-url") == true else { fatalError("base preflight") }
+        mark("actions:done")
+        Swift.print("actions")
+    }
+
+    @MainActor static func main() async {
+        let mode = CommandLine.arguments.dropFirst().first ?? ""
+        switch mode {
+        case "abi": abi()
+        case "sources": await sources()
+        case "columns": columns()
+        case "identity": identity()
+        case "actions": await actions()
+        case "apple":
+            let store = makeStore()
+            let table = generatedTables(store)[0]
+            guard (try? store.decodeNativeTable(table)) != nil else { fatalError("apple") }
+            #if SSC_TABLE_APPLE
+            _ = NativeUiRenderer(store: store, value: table).body
+            #endif
+            Swift.print("apple")
+        default: fatalError("unknown mode")
+        }
+    }
+}
+"""
+
   private val nativeUiUnsupportedProbe = """
 public enum SessionProbe {
     private static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
@@ -3277,6 +3892,68 @@ public enum SessionProbe {
       val process = new ProcessBuilder("xcrun", "--find", "swiftc").start()
       process.waitFor() == 0
     catch case _: Exception => false
+
+  private def runNativeTableProbe(mode: String, includeAppleSources: Boolean = false): String =
+    val root = Files.createTempDirectory(s"ssc-swift-table-$mode-")
+    val errors = root.resolve("swift.stderr")
+    try
+      val generated = SwiftBackend.generate(
+        nativeUiTableProgram(), "NativeTable", backendBaseUrl = Some("https://api.example/base"))
+      generated.writeTo(root)
+      val probe = root.resolve("NativeTableProbe.swift")
+      val binary = root.resolve("NativeTableProbe")
+      Files.writeString(probe, nativeUiTableProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") || path == "AppleApp/NativeUiStore.swift" ||
+            (includeAppleSources && path.startsWith("AppleApp/") && !path.endsWith("App.swift")) =>
+          root.resolve(path).toString
+      }
+      if includeAppleSources then
+        val appleSources = generated.files.collect {
+          case (path, _) if path.startsWith("Sources/AppCore/") || path.startsWith("AppleApp/") =>
+            root.resolve(path).toString
+        }
+        val appleErrors = root.resolve("apple-typecheck.stderr")
+        val apple = new ProcessBuilder((List(
+          "xcrun", "swiftc", "-typecheck", "-parse-as-library", "-swift-version", "6",
+          "-strict-concurrency=complete", "-warnings-as-errors",
+        ) ++ appleSources)*).redirectError(appleErrors.toFile).start()
+        val appleOut = new String(apple.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+        val appleExit = apple.waitFor()
+        val appleErr = Files.readString(appleErrors, StandardCharsets.UTF_8)
+        assert(appleExit == 0, s"Swift native table Apple typecheck failed ($appleExit):\n$appleErr\n$appleOut")
+        val sdkProbe = new ProcessBuilder("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path").start()
+        val sdkPath = new String(sdkProbe.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+        val sdkExit = sdkProbe.waitFor()
+        if sdkExit == 0 && sdkPath.nonEmpty then
+          val architecture = if sys.props.getOrElse("os.arch", "").contains("aarch64") then "arm64" else "x86_64"
+          val iosErrors = root.resolve("ios-typecheck.stderr")
+          val ios = new ProcessBuilder((List(
+            "xcrun", "swiftc", "-typecheck", "-parse-as-library", "-swift-version", "6",
+            "-strict-concurrency=complete", "-warnings-as-errors", "-sdk", sdkPath,
+            "-target", s"$architecture-apple-ios16.0-simulator",
+          ) ++ appleSources)*).redirectError(iosErrors.toFile).start()
+          val iosOut = new String(ios.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+          val iosExit = ios.waitFor()
+          val iosErr = Files.readString(iosErrors, StandardCharsets.UTF_8)
+          assert(iosExit == 0, s"Swift native table iOS typecheck failed ($iosExit):\n$iosErr\n$iosOut")
+        else info("iOS Simulator SDK unavailable; native table iOS typecheck recorded as environment skip")
+      val appleDefine = if includeAppleSources then List("-DSSC_TABLE_APPLE") else Nil
+      val compile = new ProcessBuilder((List(
+        "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+        "-strict-concurrency=complete", "-warnings-as-errors",
+      ) ++ appleDefine ++ sources ++ List(probe.toString, "-o", binary.toString))*).redirectError(errors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift native table compile failed ($compileExit):\n$compileErr\n$compileOut")
+      val run = new ProcessBuilder(binary.toString, mode).redirectError(errors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val exit = run.waitFor()
+      val stderr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(exit == 0, s"Swift native table probe failed ($exit):\n$stderr\n$stdout")
+      stdout
+    finally deleteRecursively(root)
 
   private def runSwift(name: String, program: Program, programArgs: List[String] = Nil): String =
     val result = runSwiftResult(name, program, programArgs)
