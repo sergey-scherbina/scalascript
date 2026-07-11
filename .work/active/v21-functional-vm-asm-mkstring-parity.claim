@@ -1,0 +1,6 @@
+feature/v21-functional-vm-asm-mkstring-parity 2026-07-11T13:56:16Z
+agent: codex
+heartbeat: 2026-07-11T13:56:16Z
+status: in-progress
+done-so-far: full strict parity isolates the only mismatch at functional.ssc final Stub.mkString dispatch
+next: create worktree, isolate the final expression, write the spec, repair shared VM/ASM semantics, and restore strict parity
