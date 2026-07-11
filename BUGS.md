@@ -153,6 +153,13 @@ taxonomy. Provider implementation already landed in `608d63425`.
   exists. The real gate hand-builds Program, hard-codes Debug paths, weakly
   matches `-list`, uses a generic simulator, and omits plist/product discovery
   and bounded launch. Record/fix all before round 2.
+- **Implementation review round 2 (BLOCKED on evidence only):** production
+  residuals above are closed, but the checked gate does not byte-compare two
+  complete written UI trees including ownership manifest or assert the frozen
+  destination-specific Xcode settings (target/product, bundle/display/version,
+  deployments/platforms, Catalyst off, no team). macOS smoke calls unbounded
+  `waitFor()` after `destroy`; use timed wait and forced kill in `finally` so
+  both process and temporary-tree cleanup are bounded.
 - **Plan/done-when:** freeze the exact metadata/default/validation, PBX id and
   target settings, source/resource membership, artifact split, discovery, and
   distribution sub-slice in `specs/v2-swift-swiftui-native.md`; obtain Rozum

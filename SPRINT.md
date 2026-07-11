@@ -976,6 +976,11 @@ there before changing this plan.
             destination-specific build-settings discovery, plist inspection,
             bounded macOS executable launch, and the concrete installed iOS
             26.5 simulator destination.
+            Round-2 production paths are accepted, but evidence remains BLOCKED:
+            byte-compare two fully written UI trees including ownership manifest;
+            assert destination-specific target/product/bundle/display/version/
+            deployment/platform/Catalyst/no-team build settings; and make macOS
+            teardown strictly bounded with timed wait plus forced kill in `finally`.
 - [ ] **v2-swift-swiftui-verify-release** — run the affected unit/e2e suites and
       `tests/conformance/run.sh --only 'money-*|effect-*|tkv2-*|v2-*'` (or the
       exact supported glob form), verify every behavior
