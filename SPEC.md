@@ -666,6 +666,22 @@ def ordinary(x: Int): Int = x + 1 // not an extension member
 Nested delimiters in receiver types and parameter types do not affect the
 layout boundary.
 
+Nested layout inside one member also does not close the surrounding extension.
+Every later member still receives the declared receiver, even when it has no
+explicit parameter list; only the extension's own dedent or closing brace ends
+receiver ownership:
+
+```scalascript
+extension (p: Parser)
+  def guarded: Parser =
+    readContext { ctx =>
+      ctx match
+        case Active => p
+        case _      => fail
+    }
+  def repeat: Parser = p.many()
+```
+
 An in-scope symbolic extension is selected for non-primitive operands. Built-in
 numeric semantics remain authoritative for their primitive operand types, so a
 module may use an ADT extension named `|` and integer bitwise OR together:
