@@ -28,7 +28,7 @@ binary.
 
 ## v21-native-content-markdown-error-swallowed — malformed roots become empty content
 
-**Status:** fixed (2026-07-11, `b6fe50ef2`); found by codex in the consolidated
+**Status:** done (2026-07-11, `b6fe50ef2`); found by codex in the consolidated
 self-hosted release gate while verifying the new structural content projection.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`,
@@ -50,12 +50,11 @@ self-hosted release gate while verifying the new structural content projection.
   `b6fe50ef2` now preserves `MarkdownError/4`; the seed converts it back to the
   established source-located failure. Structural tests are 8/8 and both the
   exact Markdown frontend repro and native content e2e pass after the final
-  rebase; affected conformance is 16/16. Awaiting the origin push before moving
-  status to `done`.
+  rebase; affected conformance is 16/16, and the fix is on `origin/main`.
 
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
-**Status:** fixed (2026-07-11, taxonomy `77da8e8e2`); found by codex while
+**Status:** done (2026-07-11, taxonomy `77da8e8e2`); found by codex while
 joining the fresh 195-row typeclass release report to the reviewed runtime
 taxonomy. Provider implementation already landed in `608d63425`.
 
