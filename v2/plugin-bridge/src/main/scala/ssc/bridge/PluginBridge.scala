@@ -2676,12 +2676,9 @@ object PluginBridge:
   private lazy val routeInterp = new scalascript.interpreter.Interpreter()
   private def registerWebServer(): Unit =
     import V2Value.*
-    // The --v2 lane serves through the v1 WebServer framework, but on the fast NIO/vthread
-    // HttpServerSpi backend (runtimeServerJvmFast) rather than the com.sun JdkServerBackend —
-    // same framework features, faster transport + native WebSocket. Falls back silently to the
-    // default backend if the fast module isn't on the classpath.
-    try scalascript.server.spi.HttpServerBackends.setBackend("fast")
-    catch case _: Throwable => ()
+    // Transport: the fast NIO/vthread HttpServerSpi backend (runtimeServerJvmFast) is now the
+    // global default when on the classpath (HttpServerBackends.current), so the --v2 lane — and
+    // every other lane — serves on it without a per-lane setBackend here.
     def doRegisterRoute(method: V2Value, path: V2Value, h: V2Value): Unit =
       (method, path, h) match
         case (StrV(m), StrV(pth), c: ClosV) =>

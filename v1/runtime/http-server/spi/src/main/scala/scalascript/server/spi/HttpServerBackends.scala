@@ -103,7 +103,12 @@ object HttpServerBackends:
                           throw new IllegalStateException(
                             s"HttpServerSpi name='$n' selected but no " +
                             s"impl with that name registered."))
-        case None    => impls.head
+        // No explicit choice: prefer the from-scratch fast backend (NIO + virtual-thread-per-
+        // connection HTTP/1.1 + WebSocket) when it is on the classpath — it is the default
+        // transport for every lane (v1 interpreter, --v2 framework). Falls back to first-found
+        // (the JDK backend in a bare distribution) when `fast` isn't present. An explicit
+        // setBackend("jdk"/"jetty"/"netty") still wins.
+        case None    => impls.find(_.name == "fast").getOrElse(impls.head)
       _cached = chosen
       chosen
 
