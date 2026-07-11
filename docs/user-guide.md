@@ -752,9 +752,10 @@ ScalaScript frontend directly to the portable indent primitive. It does not
 resolve a global named `md`, load Scalameta, or call a host Markdown parser.
 Ordinary calls such as a user-defined `md(value)` remain lexical.
 
-`doc(parts...)` keeps ordinary runtime values in source order; `render(value)`
-writes either those document parts separated by one newline or one ordinary
-value using the same display rules as `println`:
+`doc(parts...)` keeps ordinary runtime values in source order; nested documents
+are flattened recursively when rendered, while empty nested documents add no
+text or separator. `render(value)` writes the resulting leaves separated by one
+newline, or one ordinary value using the same display rules as `println`:
 
 ```scalascript
 val report = doc(
@@ -765,6 +766,9 @@ val report = doc(
 
 render(report)
 ```
+
+The reserved native document representation is opaque: `render` never exposes
+`NativeDoc(...)` in output, including when one document contains another.
 
 The helpers compose values; they do not parse Markdown. On the ScalaScript 2.1
 compiler-free JVM path they are owned by the core-free native host provider and
