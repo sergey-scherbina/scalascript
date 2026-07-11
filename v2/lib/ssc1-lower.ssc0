@@ -1080,6 +1080,13 @@ def resolveE = (expr) =>
                   else if #seq(fdata, "Cons") then Pair("ctorap", Pair("Cons", rargs))
                   else if #seq(fdata, "Left") then Pair("ctorap", Pair("Left", rargs))
                   else if #seq(fdata, "Right") then Pair("ctorap", Pair("Right", rargs))
+                  -- K62.33: Signal(x) / ComputedSignal(x) are COMPILER-special ctors (Runtime
+                  -- Ctor("Signal") → a mutable ForeignV cell so .get/.set work). The scalameta
+                  -- bridge lowers them as ctors; the native front used to fall to the unknown-
+                  -- uid `app(global Signal)` path → "unbound global: Signal". Lower to ctorap so
+                  -- the compiler special-case fires (no reactive plugin global needed).
+                  else if #seq(fdata, "Signal") then Pair("ctorap", Pair("Signal", rargs))
+                  else if #seq(fdata, "ComputedSignal") then Pair("ctorap", Pair("ComputedSignal", rargs))
                   else if #seq(fdata, "List") then buildListExpr(rargs)
                   else if #seq(fdata, "Array") then
                     Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
