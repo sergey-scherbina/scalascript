@@ -364,7 +364,7 @@ final class SwiftBackendTest extends AnyFunSuite:
       val runExit = run.waitFor()
       val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
       assert(runExit == 0, s"Swift keyed fetch probe failed ($runExit):\n$stderr\n$stdout")
-      assert(stdout == "identical|literal-restart|late-inert|ref-restart|bounded")
+      assert(stdout == "identical|literal-restart|late-inert|ref-restart|coalesced|bounded")
     finally deleteRecursively(root)
 
   test("failed keyed Store batch drops provisional writes revisions and derived cache changes"):
@@ -778,13 +778,23 @@ final class SwiftBackendTest extends AnyFunSuite:
         )),
       ),
     )
+    val doubleFetch = Term.Let(List(
+      Term.App(Term.Global("fetchUrlSignal"), List(
+        str("remote"), str("https://example.test/a"), Term.Local(2), Term.Local(1),
+      )),
+      Term.App(Term.Global("fetchUrlSignal"), List(
+        str("remote"), str("https://example.test/b"), Term.Local(3), Term.Local(2),
+      )),
+    ), Term.App(Term.Global("signalText"), List(Term.Local(0))))
+    val renderedFetch = Term.If(modeIs("double"), doubleFetch,
+      Term.App(Term.Global("signalText"), List(fetch)))
     val render = Term.Lam(1, Term.App(Term.Global("componentScope"), List(
       str("fetch-scope"),
       Term.Lam(0, Term.Let(List(
         Term.App(Term.Global("signal"), List(str("scoped-refresh"), Term.Lit(Const.CInt(0)))),
         Term.App(Term.Global("signal"), List(str("scoped-headers"), str(""))),
         Term.App(Term.Global("signal"), List(str("scoped-url"), str("https://example.test/b"))),
-      ), Term.App(Term.Global("signalText"), List(fetch)))),
+      ), renderedFetch)),
     )))
     val keyed = Term.App(Term.Global("forKeyedView"), List(
       Term.Local(1), Term.Lam(1, Term.Local(0)), Term.Local(0),
@@ -1510,8 +1520,10 @@ struct AsyncProbe {
         await waitForStop(3)
         ControlledURLProtocol.respond(3, status: 200, body: "cancelled")
         await Task.yield()
-        guard string(store.read(effect)) == "keep-effect" else {
-            fatalError("cancelled action ran success mutations")
+        guard string(store.read(effect)) == "keep-effect",
+              string(store.read(actionPhase)) == "idle",
+              string(store.read(actionError)).isEmpty else {
+            fatalError("cancelled action ran success mutations or left loading status")
         }
         mutations = []
         let captureFields = fields(captureAction, "NativeUiFetchAction")
@@ -1615,7 +1627,10 @@ struct AsyncProbe {
         let stoppedIndex = ControlledURLProtocol.wasStopped(0) ? 0 : 1
         let liveIndex = stoppedIndex == 0 ? 1 : 0
         guard ControlledURLProtocol.wasStopped(stoppedIndex),
-              !ControlledURLProtocol.wasStopped(liveIndex) else { fatalError("cancel A cancelled zero or both shared mounts") }
+              !ControlledURLProtocol.wasStopped(liveIndex),
+              string(store.read(actionPhase)) == "loading" else {
+            fatalError("cancel A cancelled zero/both mounts or reset shared loading status")
+        }
         ControlledURLProtocol.respond(liveIndex, status: 200, body: "owner-b")
         await waitForPhase(store, actionPhase, "done")
         ControlledURLProtocol.respond(stoppedIndex, status: 200, body: "late-owner-a")
@@ -1623,6 +1638,28 @@ struct AsyncProbe {
         guard string(store.read(actionError)).isEmpty,
               store.networkMetadataCount() == 0 else {
             fatalError("shared owner B lost completion or leaked task metadata")
+        }
+
+        ControlledURLProtocol.reset()
+        store.runFetchAction(baseAction, ownerPath: ownerA)
+        store.runFetchAction(baseAction, ownerPath: ownerB)
+        await waitForRequests(2)
+        store.cancelFetchAction(baseAction, ownerPath: ownerA)
+        for _ in 0..<200 where !ControlledURLProtocol.wasStopped(0) && !ControlledURLProtocol.wasStopped(1) {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        guard string(store.read(actionPhase)) == "loading" else {
+            fatalError("first shared cancellation reset phase")
+        }
+        store.cancelFetchAction(baseAction, ownerPath: ownerB)
+        for _ in 0..<200 where !ControlledURLProtocol.wasStopped(0) || !ControlledURLProtocol.wasStopped(1) {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        guard ControlledURLProtocol.wasStopped(0), ControlledURLProtocol.wasStopped(1),
+              string(store.read(actionPhase)) == "idle",
+              string(store.read(actionError)).isEmpty,
+              store.networkMetadataCount() == 0 else {
+            fatalError("last shared cancellation did not reset idle or leaked metadata")
         }
         ControlledURLProtocol.reset()
         var opened: [String] = []
@@ -2017,7 +2054,8 @@ struct KeyedFetchProbe {
         store.cell(for: mode).write(.string("ref"))
         let refFetch = fetch(try! reconcile("v4"))
         await waitForRequest(3)
-        guard FetchURLProtocol.request(2).url?.absoluteString == "https://example.test/b" else {
+        guard store.cell(for: refFetch) === firstCell,
+              FetchURLProtocol.request(2).url?.absoluteString == "https://example.test/b" else {
             fatalError("signal URL source did not resolve B")
         }
         _ = fetch(try! reconcile("v5"))
@@ -2025,11 +2063,24 @@ struct KeyedFetchProbe {
         guard FetchURLProtocol.count == 3, !FetchURLProtocol.wasStopped(2) else {
             fatalError("identical signal-ref metadata duplicated request")
         }
-        store.unsubscribe(token)
+        store.cell(for: mode).write(.string("double"))
+        let doubleFetch = fetch(try! reconcile("v6"))
+        await waitForRequest(4)
         await waitForStop(2)
-        guard store.fetchOwnerCount(for: refFetch) == 0,
+        guard FetchURLProtocol.count == 4,
+              FetchURLProtocol.request(3).url?.absoluteString == "https://example.test/b" else {
+            fatalError("one transaction A then B did not coalesce to one final B restart")
+        }
+        _ = fetch(try! reconcile("v7"))
+        await Task.yield()
+        guard FetchURLProtocol.count == 4, !FetchURLProtocol.wasStopped(3) else {
+            fatalError("transaction ending at unchanged B restarted the family")
+        }
+        store.unsubscribe(token)
+        await waitForStop(3)
+        guard store.fetchOwnerCount(for: doubleFetch) == 0,
               store.networkMetadataCount() == 0 else { fatalError("fetch metadata lifecycle leaked") }
-        Swift.print("identical|literal-restart|late-inert|ref-restart|bounded")
+        Swift.print("identical|literal-restart|late-inert|ref-restart|coalesced|bounded")
     }
 }
 """

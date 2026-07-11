@@ -345,8 +345,14 @@ final class NativeUiStore: ObservableObject {
 
     func cancelFetchAction(_ event: SscValue, ownerPath: String) {
         guard case let .data("NativeUiFetchAction", fields) = event, fields.count == 5,
-              case let .string(siteId) = fields[0] else { return }
+              case let .string(siteId) = fields[0], case let .map(status) = fields[4],
+              let phase = status.get(.string("phase")),
+              let error = status.get(.string("error")),
+              let phaseKey = signalKey(phase), let errorKey = signalKey(error) else { return }
         cancelNetworkTask(key: "action\u{0}" + ownerPath + "\u{0}" + siteId)
+        let statusKeys: Set<String> = [phaseKey, errorKey]
+        let stillOwned = actionTaskStatusKeys.values.contains { $0 == statusKeys }
+        if !stillOwned { _ = targetTransaction([(error, .string("")), (phase, .string("idle"))]) }
     }
 
     func invoke(_ closure: SscClosure, _ arguments: [SscValue]) -> SscValue {

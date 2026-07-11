@@ -862,7 +862,23 @@ final class NativeUiHost: SscRuntimeExtension {
             scopes = previousScopes
             onBatchCommit?()
             let replacedActionStatuses = actionReplacementCollectors.removeLast()
-            let changedFetchSignals = fetchChangeCollectors.removeLast()
+            let rawFetchChanges = fetchChangeCollectors.removeLast()
+            var changedFetchOrder: [String] = []
+            var changedFetchByKey: [String: SscValue] = [:]
+            for signal in rawFetchChanges {
+                guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
+                      case let .string(id) = fields[0], case let .string(scope) = fields[1] else { continue }
+                let key = signalKey(scope: scope, id: id)
+                if changedFetchByKey[key] == nil { changedFetchOrder.append(key) }
+                changedFetchByKey[key] = signal
+            }
+            let changedFetchSignals = changedFetchOrder.compactMap { key -> SscValue? in
+                guard let signal = changedFetchByKey[key],
+                      let before = snapshot.signalStates[key]?.metadataSignature,
+                      let after = signals[key]?.metadataSignature,
+                      !nativeUiEqual(before, after) else { return nil }
+                return signal
+            }
             return NativeUiKeyedResult(
                 entries: entries,
                 disposedSignalKeys: disposed.sorted(),
