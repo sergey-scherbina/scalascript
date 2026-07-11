@@ -25,20 +25,20 @@ stream callback, and existing direct/in-process dispatch does not deadlock.
 
 ## Behavior
 
-- [ ] Two concurrent mutating HTTP requests targeting one interpreter never
+- [x] Two concurrent mutating HTTP requests targeting one interpreter never
       overlap, and a mutation never overlaps a safe HTTP read.
-- [ ] Safe GET/HEAD/OPTIONS handlers targeting one interpreter may execute
+- [x] Safe GET/HEAD/OPTIONS handlers targeting one interpreter may execute
       concurrently, so an eager reactive dashboard cannot starve a mutation.
-- [ ] HTTP middleware plus its nested route handler remain one reentrant
+- [x] HTTP middleware plus its nested route handler remain one reentrant
       transaction, including `next()` on the same interpreter.
-- [ ] WebSocket auth, open/message/pong/close callbacks and deferred stream
+- [x] WebSocket auth, open/message/pong/close callbacks and deferred stream
       callbacks share the same per-interpreter gate as HTTP handlers.
-- [ ] Requests targeting distinct interpreter instances may execute
+- [x] Requests targeting distinct interpreter instances may execute
       concurrently; socket parsing, response writing and unmatched static
       fallback work are not serialized by this gate.
-- [ ] Handler exceptions retain the existing HTTP/WS error mapping, and the gate
+- [x] Handler exceptions retain the existing HTTP/WS error mapping, and the gate
       is always released after success or failure.
-- [ ] The assembled `ssc --v2` server survives busi's concurrent Vault
+- [x] The assembled `ssc --v2` server survives busi's concurrent Vault
       GET/POST, durable restart and canonical browser regressions without losing
       an accepted fact.
 
@@ -87,4 +87,18 @@ the same interpreter gate.
 
 ## Results
 
-Pending implementation and verification.
+Implemented by `InterpreterExecutionGate`, a weak per-interpreter fair
+`ReentrantReadWriteLock` shared by HTTP, middleware, stream and WebSocket
+callback dispatch. Focused execution/HTTP concurrency tests passed 8/8,
+including queued-writer fairness and concurrent safe reads. The complete
+`backendInterpreterServer/test` module passed 58/58 (one explicit 10k load test
+canceled by its normal opt-in gate), and `rest-validate` conformance passed on
+INT, JS and JVM after `installBin`.
+
+The assembled runtime then passed busi's paired live Vault HTTP/restart check
+and canonical Chromium matrix: JDG, four-locale/offline shell, RBAC, no-JS,
+Housing and all eleven Vault transitions were 6/6 green in 2.4 minutes. Housing
+and Vault additionally rejected any hidden-area GET during their action loops;
+the final Lease/deposit and recovery-rotation facts survived reload. This is
+real process/browser evidence over local simulators, not a production external
+disclosure or filing.

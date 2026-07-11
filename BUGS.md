@@ -41,26 +41,31 @@ work before touching the provider.
 
 ## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
 
-**Status:** open (2026-07-11); reported by busi's personal-Vault canonical
-browser E2E.
+**Status:** fixed (2026-07-11); reported by busi's personal-Vault canonical
+browser E2E. Fix commit: `e43a985dd` (subject to final rebase SHA).
 
 - **Real-harness repro:** boot busi's assembled `scripts/ssc --v2` hub against
   an empty scratch repo, pair `/app`, and advance the eleven Vault simulator
   actions while its reactive dashboard polls `GET /api/vault`. All POSTs return
   200 with the exact action, but the final recovery-rotation fact can vanish;
   sequential live HTTP and in-process runs are green.
-- **Expected:** one interpreter executes user HTTP and WS callbacks serially,
-  so an accepted handler mutation is visible to the next request and survives
-  restart, while the network backend continues to parse/write concurrently.
+- **Expected:** one interpreter excludes mutations from every other callback,
+  while safe reads share a fair section and the network backend continues to
+  parse/write concurrently. Accepted mutations are visible to later requests
+  and survive restart without starving behind a reactive GET burst.
 - **Root cause:** `WebServer` creates and documents a shared single-thread
   executor, and WS callbacks use it, but `InterpreterHttpHandler.onHttpRequest`
   calls `Interpreter.invoke` directly on whichever JDK/Jetty/Netty request
   thread entered the SPI. This violates the interpreter thread-safety comment
   and races application-level read-modify-write transactions.
-- **Plan/done-when:** specify the boundary, add concurrent multi-request
-  regressions that prove writes exclude reads/writes while safe reads remain
-  concurrent, dispatch through one fair per-interpreter read/write gate, rebuild the assembled
-  CLI and rerun the exact busi Vault plus offline-drain browser regressions.
+- **Root cause/fix:** the v1 `InterpreterHttpHandler` entered one mutable
+  interpreter directly from concurrent request threads. A weak per-interpreter
+  fair reentrant read/write gate now wraps safe reads, mutations, middleware,
+  streams and WebSocket callbacks while leaving I/O and distinct interpreters
+  concurrent.
+- **Verification:** focused concurrency 8/8; interpreter-server 58/58;
+  `rest-validate` INT/JS/JVM; assembled busi live Vault/restart; canonical busi
+  Chromium 6/6 including offline drain, Housing and eleven Vault transitions.
 - **Rejected prototype:** an exclusive per-interpreter lock passed 54 module
   tests and the focused live Vault check, but the full SPA's eager GET fan-out
   starved mutations for more than 10 seconds. A standalone concurrent POST+GET
