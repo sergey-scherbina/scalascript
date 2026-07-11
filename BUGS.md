@@ -1,5 +1,26 @@
 # Bug tracker
 
+## v2-native-table-urlprotocol-harness-race — strict action probe mutates shared Set concurrently
+
+**Status:** open (2026-07-11); found by codex in the mandatory post-rebase
+six-test rerun after the native-table round-3 Rozum APPROVE.
+
+- **Real-harness repro:** run
+  `scripts/sbtc 'v2SwiftBackend/testOnly ssc.swift.SwiftBackendTest -- -z "native table"'`.
+  The generated action probe can exit 134 after `actions:edit` with
+  `NSInvalidArgumentException` in `Set.contains`: `TableURLProtocol.stopLoading`
+  inserts into the static `stopped` Set on a URLSession callback while the main
+  actor calls `wasStopped` without synchronization. Static `instances`, request
+  reads, and response lookup are likewise unsynchronized.
+- **Expected:** the controllable URLProtocol probe is data-race-free under
+  strict Swift 6; cancellation polling and synthetic response delivery observe
+  coherent snapshots and never crash independently of Store behavior.
+- **Plan/done-when:** guard all `TableURLProtocol` shared state with one lock,
+  copy the selected instance/request under that lock before doing callback/body
+  work, then pass the action probe repeatedly, all six named tests, and the full
+  40-test backend suite. Ask `nativeui-reviewer` to confirm the harness-only
+  root cause in Rozum before closing.
+
 ## v2-swiftui-ios16-onchange-availability — generated renderer requires iOS 17 accidentally
 
 **Status:** done (2026-07-11, `62b6cd81f`); found by codex in the real iOS
