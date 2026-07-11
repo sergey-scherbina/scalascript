@@ -73,3 +73,79 @@ final class CryptoNativePlugin extends NativePlugin:
       try Value.StrV(String(bytes64(text(args, 0)), UTF_8))
       catch case _: Throwable => Value.StrV("")
     }
+    native(context, "aesGenKey") { _ => Value.StrV(NativeCrypto.generateAesKey()) }
+    native(context, "aesGcmEncrypt") { args =>
+      Value.StrV(NativeCrypto.aesGcmEncrypt(text(args, 0), text(args, 1).getBytes(UTF_8)))
+    }
+    native(context, "aesGcmDecrypt") { args =>
+      Value.StrV(String(NativeCrypto.aesGcmDecrypt(text(args, 0), text(args, 1)), UTF_8))
+    }
+    native(context, "aesGcmEncryptBytes") { args =>
+      Value.StrV(NativeCrypto.aesGcmEncrypt(text(args, 0), bytes64(text(args, 1))))
+    }
+    native(context, "aesGcmDecryptBytes") { args =>
+      Value.StrV(base64(NativeCrypto.aesGcmDecrypt(text(args, 0), text(args, 1))))
+    }
+    native(context, "aesGenIv") { _ => Value.StrV(NativeCrypto.generateAesIv()) }
+    native(context, "aesCbcEncrypt") { args =>
+      Value.StrV(NativeCrypto.aesCbcEncrypt(
+        text(args, 0), text(args, 1), bytes64(text(args, 2))))
+    }
+    native(context, "aesCbcDecrypt") { args =>
+      Value.StrV(base64(NativeCrypto.aesCbcDecrypt(
+        text(args, 0), text(args, 1), text(args, 2))))
+    }
+    native(context, "rsaOaepEncrypt") { args =>
+      Value.StrV(NativeCrypto.rsaOaepEncrypt(text(args, 0), bytes64(text(args, 1))))
+    }
+    native(context, "x509PublicKey") { args =>
+      Value.StrV(NativeCrypto.x509PublicKey(text(args, 0)))
+    }
+    native(context, "verifyEd25519") { args =>
+      Value.BoolV(args.length == 3 && NativeCrypto.verifyEd25519(
+        text(args, 0), text(args, 1), text(args, 2), NativeCrypto.decode))
+    }
+    native(context, "verifyEd25519Url") { args =>
+      Value.BoolV(args.length == 3 && NativeCrypto.verifyEd25519(
+        text(args, 0), text(args, 1), text(args, 2), NativeCrypto.decodeUrl))
+    }
+    native(context, "verifyRsaSha256") { args =>
+      Value.BoolV(args.length == 4 && NativeCrypto.verifyRsaSha256(
+        text(args, 0), text(args, 1), text(args, 2), text(args, 3)))
+    }
+    native(context, "ed25519Sign") { args =>
+      Value.StrV(NativeCrypto.signEd25519(
+        text(args, 0), text(args, 1), NativeCrypto.decode, NativeCrypto.encode))
+    }
+    native(context, "ed25519SignUrl") { args =>
+      Value.StrV(NativeCrypto.signEd25519(
+        text(args, 0), text(args, 1), NativeCrypto.decodeUrl, NativeCrypto.encodeUrl))
+    }
+    native(context, "rsaSignSha256") { args =>
+      Value.StrV(NativeCrypto.signRsaSha256(
+        text(args, 0), text(args, 1), text(args, 2)))
+    }
+    native(context, "hotp") { args =>
+      Value.StrV(NativeTotp.hotp(
+        bytes64(text(args, 0)), integer(args, 1), integer(args, 2).toInt,
+        NativeTotp.algorithm(text(args, 3))))
+    }
+    native(context, "totp") { args =>
+      Value.StrV(NativeTotp.totp(
+        bytes64(text(args, 0)), integer(args, 1), integer(args, 2).toInt,
+        integer(args, 3).toInt, NativeTotp.algorithm(text(args, 4))))
+    }
+    native(context, "totpValidate") { args =>
+      Value.BoolV(NativeTotp.validate(
+        bytes64(text(args, 0)), text(args, 1), integer(args, 2), integer(args, 3).toInt,
+        integer(args, 4).toInt, NativeTotp.algorithm(text(args, 5)), integer(args, 6).toInt))
+    }
+    native(context, "shamirSplit") { args =>
+      val shares = NativeShamir.split(
+        bytes64(text(args, 0)), integer(args, 1).toInt, integer(args, 2).toInt)
+      Value.StrV(shares.map(NativeShamir.encode).mkString(" "))
+    }
+    native(context, "shamirRecover") { args =>
+      val shares = text(args, 0).split(" ").filter(_.nonEmpty).map(NativeShamir.decode).toList
+      Value.StrV(base64(NativeShamir.recover(shares)))
+    }
