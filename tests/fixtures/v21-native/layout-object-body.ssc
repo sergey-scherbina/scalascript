@@ -4,17 +4,21 @@ name: v21-native-layout-object-body
 
 ```scalascript
 object LayoutMath:
+  def base: Int = 40
   def first(x: Int): Int = x + 1
-  def later(x: Int): Int = first(x) + 1
+  def later(x: Int): Int = first(x) + base
 
 object BracedMath {
+  def base: Int = 40
   def first(x: Int): Int = x + 1
-  def later(x: Int): Int = first(x) + 1
+  def later(x: Int): Int = first(x) + base
 }
 
 val typed: Int = 40
+println(LayoutMath.base)
 println(LayoutMath.first(typed))
 println(LayoutMath.later(typed))
+println(BracedMath.base)
 println(BracedMath.first(typed))
 println(BracedMath.later(typed))
 ```

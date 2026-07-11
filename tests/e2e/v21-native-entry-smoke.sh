@@ -103,7 +103,7 @@ top_level_while_expected=$'0\n10\n4'
 [[ $(run_native "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 layout_given_expected=$'int\nint:7\nbool:yes\nbool:no\nafter-givens'
 [[ $(run_native "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
-layout_object_expected=$'41\n42\n41\n42'
+layout_object_expected=$'40\n41\n81\n40\n41\n81'
 [[ $(run_native "$FIXTURES/layout-object-body.ssc") == "$layout_object_expected" ]]
 native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]

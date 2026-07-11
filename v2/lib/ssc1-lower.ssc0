@@ -752,6 +752,13 @@ def resolveField = (robj, field) =>
             Pair("var", #sconcat(rname, #sconcat("_", field)))
           else
             selOrMethod(field, robj)
+        else if #seq(rtag, "uid") then
+          if isKnownObject(rname) then
+            -- User objects parse as uid receivers; properties use the same
+            -- deterministic owner prefix as method calls.
+            Pair("var", #sconcat(rname, #sconcat("_", field)))
+          else
+            selOrMethod(field, robj)
         else
           selOrMethod(field, robj)
     }
@@ -2216,8 +2223,21 @@ def lowerStmtToList = (stmt) =>
                       if #seq(stag, "def") then
                         match sdata {
                           case Pair(dname, drest) =>
-                            let prefixed = Pair("def", Pair(#sconcat(prefix, dname), drest)) in
-                            appendL(lowerStmtToList(prefixed), prefixDefs(rest))
+                            match drest {
+                              case Pair(dparams, dbody) =>
+                                -- Match given-object semantics: a declaration
+                                -- without parameters is a static property,
+                                -- while a declaration with parameters remains
+                                -- an owned function.
+                                let pfxName = #sconcat(prefix, dname) in
+                                let lowered =
+                                  if #i.eq(lenL(dparams), 0) then
+                                    Cons(IrDef(pfxName, lowerE(Nil, dbody)), Nil)
+                                  else
+                                    let prefixed = Pair("def", Pair(pfxName, drest)) in
+                                    lowerStmtToList(prefixed) in
+                                appendL(lowered, prefixDefs(rest))
+                            }
                         }
                       else prefixDefs(rest)
                   }
