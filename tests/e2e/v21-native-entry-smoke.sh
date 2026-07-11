@@ -54,6 +54,7 @@ ui_asm="$sandbox/ui-asm"
 [[ $(<"$ui_vm/index.html") == "$ui_expected" ]]
 state_expected=$'17\n20\n2\n101\n101\n2'
 [[ $(run_native "$FIXTURES/state-effect-provider.ssc") == "$state_expected" ]]
+[[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
 [[ $(run_native "$FIXTURES/prefix-postfix.ssc") == $'true\n-1\n-2' ]]
@@ -162,6 +163,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/ui-provider.ssc" -- "$ui_asm") == "$ui_expected" ]]
 [[ $(<"$ui_asm/index.html") == "$ui_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/state-effect-provider.ssc") == "$state_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 [[ $(run_native --bytecode "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
 
 assert_frontmatter_failure() {

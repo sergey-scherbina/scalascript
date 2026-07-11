@@ -1,0 +1,7 @@
+# Zero-argument println
+
+```scalascript
+println("before")
+println()
+println("after")
+```

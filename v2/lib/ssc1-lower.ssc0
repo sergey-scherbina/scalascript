@@ -1315,7 +1315,12 @@ def lowerE = (scope, rawExpr) =>
             match fn {
               case Pair(ftag, fname) =>
                 if #seq(ftag, "var") then
-                  if isArrVar(fname) then
+                  if #seq(fname, "println") then
+                    match injArgs {
+                      case Nil => IrPrim("io.println", Cons(IrLit(IrStr("")), Nil))
+                      case _ => IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+                    }
+                  else if isArrVar(fname) then
                     match injArgs {
                       case Cons(idx, idxRest) =>
                         match idxRest {
