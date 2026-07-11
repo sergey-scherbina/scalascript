@@ -55,6 +55,14 @@ Ranked perf gaps (from the JvmByteGen map; confirm/reorder via the running basel
       corpus; identify workloads where bytecode > VM (deopt/box). Grounds the perf-slice order.
       BLOCKED: needs a QUIET machine — load fluctuated 2→36 during the attempt, bench crawled/
       stuck on array-update. Retry when load is stable.
+- [x] **v2asm-dcell-accumulator** — DONE 2026-07-11 (`4a5bd4083`, bench-validated after a
+      stale-server false alarm). Double twin of lcellAccum: `dcell.set(c, arith(op,
+      dcell.get(c), r))` → one `Emit.dcellAccum` (unboxed cell side, Int elems widened).
+      BENCH: **float-fold bytecode 0.520ms vs VM 1.14 = 2.2x FASTER** (mirrors lcellAccum's
+      list-fold win). Added bench/corpus/float-fold.ssc. Gate: float-foreach-sum test
+      (bytecode==VM==7.0) + installBin green. NOTE: hit + corrected a FALSE "CLI build broken"
+      alarm — was a STALE sbt server (didn't know v2SwiftBackend from a sibling's recent
+      commits); `sbtc shutdown` fixes it, NOT a build.sbt change. Rozum /13→/16.
 - [x] **v2asm-listfold-accumulator** — DONE 2026-07-11 (`c52089858`). Closed the ONE
       workload where bytecode lost to the VM. list-fold (`foreach(x => sum = sum + x)`) emitted
       box(lcell.get) + Emit.arith(str) + prim2 lcell.set(str) per element (element `x` is a
