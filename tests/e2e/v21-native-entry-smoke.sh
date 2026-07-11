@@ -119,7 +119,7 @@ case_object_expected=$'Empty\nempty\ntrue'
 [[ $(run_native "$FIXTURES/case-object-import.ssc") == "$case_object_expected" ]]
 symbolic_extension_precedence_expected=$'a|b\na|b|c\n7'
 [[ $(run_native "$FIXTURES/symbolic-extension-precedence.ssc") == "$symbolic_extension_precedence_expected" ]]
-typed_pattern_boundary_expected=$'3\ndeep\nshallow'
+typed_pattern_boundary_expected=$'3\ndeep\nshallow\n-1'
 [[ $(run_native "$FIXTURES/typed-pattern-boundary.ssc") == "$typed_pattern_boundary_expected" ]]
 native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]

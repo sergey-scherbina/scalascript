@@ -6,11 +6,15 @@ name: v21-native-typed-pattern-boundary-lib
 
 ```scalascript
 case class IndentContext(currentLevel: Int)
+case class Wrapper[A](currentLevel: Int)
+case class Other(currentLevel: Int)
 
 def level(value: Any): Int = value match
   case context: Wrapper[IndentContext] => context.currentLevel
+  case _                              => -1
 
 def classify(value: Any): String = value match
   case context: Wrapper[(IndentContext, List[Int])] if context.currentLevel > 1 => "deep"
   case context: Wrapper[(IndentContext, List[Int])]                             => "shallow"
+  case _                                                                        => "other"
 ```

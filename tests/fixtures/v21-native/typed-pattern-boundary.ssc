@@ -2,12 +2,13 @@
 name: v21-native-typed-pattern-boundary
 ---
 
-[IndentContext, level, classify](typed-pattern-boundary-lib.ssc)
+[IndentContext, Wrapper, Other, level, classify](typed-pattern-boundary-lib.ssc)
 
 # Imported typed pattern boundary
 
 ```scalascript
-println(level(IndentContext(3)))
-println(classify(IndentContext(3)))
-println(classify(IndentContext(1)))
+println(level(Wrapper(3)))
+println(classify(Wrapper(3)))
+println(classify(Wrapper(1)))
+println(level(Other(9)))
 ```

@@ -33,4 +33,13 @@ run_native --bytecode "$native_fixtures/$focused" >"$tmp/$focused.asm.out" 2>"$t
 [[ ! -s "$tmp/$focused.vm.err" ]]
 [[ ! -s "$tmp/$focused.asm.err" ]]
 
+layout=parser-layout-block.ssc
+layout_expected=$'ParseOk((), host, Position(2))\nParseOk(List(host), , Position(6))'
+run_native "$native_fixtures/$layout" >"$tmp/$layout.vm.out" 2>"$tmp/$layout.vm.err"
+run_native --bytecode "$native_fixtures/$layout" >"$tmp/$layout.asm.out" 2>"$tmp/$layout.asm.err"
+[[ $(<"$tmp/$layout.vm.out") == "$layout_expected" ]]
+[[ $(<"$tmp/$layout.asm.out") == "$layout_expected" ]]
+[[ ! -s "$tmp/$layout.vm.err" ]]
+[[ ! -s "$tmp/$layout.asm.err" ]]
+
 echo 'PASS v21-parser-dsl-smoke'
