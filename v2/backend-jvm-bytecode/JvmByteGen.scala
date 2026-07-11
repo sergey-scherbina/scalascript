@@ -974,6 +974,18 @@ object JvmByteGen:
         genLong(body, ctx)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LCELL, "v_$eq", "(J)V", false)
         call0(mv, "unitV")
+      // Fused accumulator: lcell.set(c, arith(op, lcell.get(c), r)) where r is a boxed
+      // element (not statically Long) — the foreach/loop accumulator hot path. Emits a
+      // single Emit.lcellAccum (unboxed cell side) instead of box(lcell.get)+arith+prim2.
+      case Term.Prim("lcell.set", List(Term.Local(c),
+          Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)),
+            Term.Prim("lcell.get", List(Term.Local(c2))), r))))
+          if c == c2 && op.length == 1 && "+-*/%".contains(op) && !canLong(r) =>
+        loadLocalValue(c, ctx)
+        mv.visitLdcInsn(op)
+        gen(r, ctx)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "lcellAccum",
+          s"(L$VAL;Ljava/lang/String;L$VAL;)L$VAL;", false)
       case t @ Term.Prim("dcell.get", List(Term.Local(_))) if canDouble(t) =>
         genDouble(t, ctx)
         callD(mv, "floatV")

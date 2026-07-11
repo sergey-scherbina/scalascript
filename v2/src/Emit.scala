@@ -14,6 +14,29 @@ object Emit:
   /** Direct arithmetic — no resolve, no List, no StrV boxing of the op. */
   def arith(op: String, a: Value, b: Value): Value = Prims.arithFast(op, a, b)
 
+  // Fused accumulator: `cell = cell <op> r` for a Long cell, unboxed on the cell side.
+  // Emitted for the hot foreach/loop accumulator pattern `lcell.set(c, arith(op,
+  // lcell.get(c), r))` where r is a boxed element (not statically Long) — replaces
+  // box(lcell.get) + Emit.arith + prim2(lcell.set) with a single unboxed op. Matches the
+  // old semantics `c.v = asInt1(arithFast(op, IntV(c.v), r))` (a non-Int result into a Long
+  // cell is a type error under both paths).
+  def lcellAccum(cell: Value, op: String, r: Value): Value =
+    val c = cell.asInstanceOf[Value.LongCellV]
+    r match
+      case Value.IntV(n) =>
+        op match
+          case "+" => c.v = c.v + n
+          case "-" => c.v = c.v - n
+          case "*" => c.v = c.v * n
+          case "/" => c.v = c.v / n
+          case "%" => c.v = c.v % n
+          case _   => c.v = accLong(Prims.arithFast(op, Value.IntV(c.v), r))
+      case _ => c.v = accLong(Prims.arithFast(op, Value.IntV(c.v), r))
+    Value.UnitV
+  private def accLong(v: Value): Long = v match
+    case Value.IntV(n) => n
+    case other         => sys.error(s"lcellAccum: non-Int result ${Show.show(other)}")
+
   def prim0(op: String): Value = fn(op)(Nil)
   def prim1(op: String, a: Value): Value = fn(op)(a :: Nil)
   def prim2(op: String, a: Value, b: Value): Value =

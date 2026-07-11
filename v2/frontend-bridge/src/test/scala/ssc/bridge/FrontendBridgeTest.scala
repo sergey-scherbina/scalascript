@@ -725,6 +725,32 @@ class FrontendBridgeTest extends AnyFunSuite:
     assert(prog.toString.contains("dcell"), "expected dcell lowering for Double vars")
   }
 
+  test("v2 bytecode lcell foreach accumulator matches the VM") {
+    val src =
+      """def workload(): Long = {
+        |  var sum = 0L
+        |  val xs: List[Int] = List(1, 2, 3, 4, 5)
+        |  xs.foreach(x => { sum = sum + x })
+        |  sum
+        |}
+        |workload()
+        |""".stripMargin
+    assert(runBytecode(src) == Value.IntV(15)) // 1+2+3+4+5, the fused lcellAccum path
+    assert(run(src) == Value.IntV(15))         // VM agrees
+    // subtraction variant to pin op order (cell - elem, not elem - cell)
+    val subSrc =
+      """def workload(): Long = {
+        |  var acc = 100L
+        |  val xs: List[Int] = List(1, 2, 3)
+        |  xs.foreach(x => { acc = acc - x })
+        |  acc
+        |}
+        |workload()
+        |""".stripMargin
+    assert(runBytecode(subSrc) == Value.IntV(94)) // 100-1-2-3
+    assert(run(subSrc) == Value.IntV(94))
+  }
+
   test("if-else") {
     assert(run("if (1 < 2) \"yes\" else \"no\"") == Value.StrV("yes"))
   }
