@@ -34,6 +34,13 @@ private[codegen] trait JvmGenRuntimeSources:
   private[codegen] val fsRuntime: String = JvmGenRuntimeCache.memo("fsRuntime"):
     JvmRuntimeResource.load("fsRuntime")
 
+  /** std.process — ProcessOptions/ProcessResult/exec (ProcessBuilder). Supplied
+   *  by the runtime (types are not inlined from the import on JVM), appended
+   *  unconditionally like fsRuntime to both the inline preamble and the shared
+   *  `_ssc_runtime` object so `exec` resolves in the split --bytecode path. */
+  private[codegen] val processRuntime: String = JvmGenRuntimeCache.memo("processRuntime"):
+    JvmRuntimeResource.load("processRuntime")
+
   private[codegen] val generatorRuntime: String = JvmGenRuntimeCache.memo("generatorRuntime"):
     JvmRuntimeResource.load("generatorRuntime")
 

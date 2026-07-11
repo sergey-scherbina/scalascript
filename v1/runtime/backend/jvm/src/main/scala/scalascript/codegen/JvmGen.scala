@@ -459,6 +459,10 @@ class JvmGen(
     sb.append(if userShadowsHttpModel then commonRuntimeWithoutHttpModel else commonRuntime)
     sb.append(generatorRuntime)
     sb.append(fsRuntime)
+    // std.process exec + ProcessOptions/ProcessResult — supplied by the runtime
+    // (not inlined from the import). Unconditional like fsRuntime; also appended
+    // to the shared `_ssc_runtime` (genRuntime) for the split --bytecode path.
+    sb.append(processRuntime)
     sb.append(htmlDslTagBindings(userTopNames))
     // commonRuntime inlines Logger, whose effect-style static methods call
     // _perform. Keep the effect runtime available even for route-only modules
@@ -1048,6 +1052,10 @@ class JvmGen(
     body.append(commonRuntime)
     body.append(generatorRuntime)
     body.append(fsRuntime)
+    // std.process exec + ProcessOptions/ProcessResult — cross-module via
+    // `import _ssc_runtime.*` (the split --bytecode/run-jvm path), mirroring
+    // fsRuntime above so a called `exec(...)` resolves.
+    body.append(processRuntime)
     // HTML tag bindings: emit all of them — the runtime doesn't know which
     // names the user shadows, so we drop tags into the runtime package and
     // user code shadows via its own top-level definitions where it wants

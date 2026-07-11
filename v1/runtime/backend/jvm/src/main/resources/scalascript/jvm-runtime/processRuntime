@@ -1,0 +1,24 @@
+|
+       |// ── std.process — synchronous process spawning (java.lang.ProcessBuilder) ──
+       |// Like the http Request/Response model, std/process's case classes are NOT
+       |// inlined from the import on JVM codegen — the runtime supplies both the
+       |// types AND `exec`. Appended unconditionally (self-contained, no user-type
+       |// refs) to BOTH the inline preamble and the shared `_ssc_runtime` object
+       |// (split --bytecode/run-jvm path), so `exec` resolves cross-module the same
+       |// way `readFile` does. ssc Int is 64-bit → Long. `exec` honours
+       |// opts.cwd / opts.env (the interpreter ignores them).
+       |case class ProcessOptions(cwd: Option[String] = None, env: Map[String, String] = Map(), timeout: Option[Long] = None)
+       |case class ProcessResult(stdout: String, stderr: String, exitCode: Long)
+       |def exec(cmd: String, args: List[String], opts: ProcessOptions): ProcessResult =
+       |  val _sscPb = new java.lang.ProcessBuilder((cmd :: args)*)
+       |  _sscPb.redirectErrorStream(false)
+       |  opts.cwd.foreach(_d => _sscPb.directory(new java.io.File(_d)))
+       |  if opts.env.nonEmpty then
+       |    val _sscEnv = _sscPb.environment()
+       |    opts.env.foreach { case (_k, _v) => _sscEnv.put(_k, _v) }
+       |  val _sscProc = _sscPb.start()
+       |  val _sscOut  = scala.io.Source.fromInputStream(_sscProc.getInputStream).mkString
+       |  val _sscErr  = scala.io.Source.fromInputStream(_sscProc.getErrorStream).mkString
+       |  val _sscCode = _sscProc.waitFor()
+       |  ProcessResult(_sscOut, _sscErr, _sscCode.toLong)
+       |
