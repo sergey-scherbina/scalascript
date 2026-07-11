@@ -598,6 +598,20 @@ case Some(x) => x
 case head :: tail => head
 ```
 
+A typed binder's annotation ends before a depth-zero guard or arm arrow.
+Nested type delimiters remain part of the annotation:
+
+```scalascript
+value match
+  case item: Wrapper[Entry] if item.enabled => item.value
+  case item: Entry                         => item.value
+  case _                                   => 0
+```
+
+The `if` and `=>` tokens above belong to the match arm, not to the pattern
+type. Function arrows remain valid in general type annotations; this boundary
+rule is specific to typed match patterns.
+
 A `case object` is one stable nullary constructor value. It can be imported,
 referenced directly, compared structurally, and matched by name:
 
