@@ -104,7 +104,7 @@ fi
 
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$ROOT/examples/storage-demo.ssc" -o "$sandbox/storage.jar"
-storage_expected=$'Some("alice")\nNone\ntrue\nList("user", "role")\n1\n2\n1\n3\nList("hits:alice", "hits:bob")\nSome("hello world")'
+storage_expected=$'Some(alice)\nNone\ntrue\nList(user, role)\n1\n2\n1\n3\nList(hits:alice, hits:bob)\nSome(hello world)'
 [[ $(PATH="$clean_path" SSC_STORAGE_PATH="$sandbox/storage.json" \
   java -jar "$sandbox/storage.jar") == "$storage_expected" ]]
 unzip -p "$sandbox/storage.jar" META-INF/scalascript/artifact.properties \

@@ -129,7 +129,7 @@ crypto_verify_expected=$'signature valid: true\ntampered valid: false\nmalformed
 [[ $(run_native "$ROOT/examples/crypto-verify-demo.ssc") == "$crypto_verify_expected" ]]
 totp_shamir_expected=$'TOTP code: 14050471\ncode valid: true\nwrong code valid: false\nsplit into 3 shares\nrecovered matches: true\none share recovers secret: false'
 [[ $(run_native "$ROOT/examples/totp-shamir-demo.ssc") == "$totp_shamir_expected" ]]
-storage_expected=$'Some("alice")\nNone\ntrue\nList("user", "role")\n1\n2\n1\n3\nList("hits:alice", "hits:bob")\nSome("hello world")'
+storage_expected=$'Some(alice)\nNone\ntrue\nList(user, role)\n1\n2\n1\n3\nList(hits:alice, hits:bob)\nSome(hello world)'
 [[ $(run_native "$ROOT/examples/storage-demo.ssc") == "$storage_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]

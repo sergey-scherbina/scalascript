@@ -111,7 +111,7 @@ PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native
 grep -F '101' "$classlog" >/dev/null
 PATH=/usr/bin:/bin SSC_STORAGE_PATH="$storage_path" JAVA_TOOL_OPTIONS=-verbose:class \
   "$ROOT/bin/ssc" run --native "$ROOT/examples/storage-demo.ssc" >>"$classlog" 2>&1
-grep -F 'Some("hello world")' "$classlog" >/dev/null
+grep -F 'Some(hello world)' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/signals-demo.ssc" >>"$classlog" 2>&1
 grep -F 'n=4 sq=16 cube=64' "$classlog" >/dev/null
