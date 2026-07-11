@@ -1283,6 +1283,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               both lanes, unsupported receivers fail honestly,
                               and the full extension example advances to its
                               independent `while` boundary with all gates green.
+                        - [ ] **TI-8.2d2g top-level while statements:** reuse the
+                              existing block `while` parser and `IrWhile`
+                              lowering for document-level loops, sequence them in
+                              the entry alongside top-level vars/expressions, and
+                              preserve cell-backed mutation. Add zero-iteration,
+                              counted, and nested-body VM/direct-ASM regressions,
+                              rerun `extensions.ssc`, then apply all corpus,
+                              parity, taxonomy, native-entry, and conformance gates.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
