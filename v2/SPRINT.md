@@ -1438,3 +1438,20 @@ scalameta bridge exactly:
       Term.Throw → App(Global("__throw__")). __throw__ is registered by the plugin runtime
       (loadAll), so it resolves under BridgeCli (the bare VM has no throw). inline (macros,
       `${}` quote/splice) and ctx (context var) stay out of scope.
+
+## K62.19 — native tuple field access ._N → _sel__N (fix recursion conformance red) — 2026-07-11
+
+Native v2/conformance red `recursion.ssc via ssc1` (405/406 fast): the Collatz longest-sequence
+finder returned (1,0) not (871,178). Root: tuple positional field access `._N` returned a Stub.
+selOrMethod routes `._N` → __method__ (unchanged since K62.6e), but the VM only resolves `_N` via
+a Long fast-path (Runtime.scala:1256) that fires in numeric contexts — so `println(x._2)` and
+`best._2` in the fold lambda got a Stub (methodOp has no general `_N` handler). A VM fast-path
+change stopped `best._2` (in `s > best._2`) resolving.
+
+- [x] FIX (ssc1-lower, lower-only, no kernel rebuild): selOrMethod routes `_1`/`_2`/`_3`/`_4` to
+      `_sel_<field>` — the built-in prelude accessors `_sel__1.._sel__4` (match Pair/Tuple4),
+      correct in ALL contexts, no fast-path dependency. Verified: (5,7)._1/._2 → 5/7,
+      foldLeft tuple accumulator → correct, recursion.ssc via ssc1 → Collatz (871,178) GREEN.
+- NOTE for kernel owners: the VM `methodOp` (Runtime.scala:3225) lacks a general `_N` positional
+      handler; `__method__("_2", Pair)` returns Stub outside the Long fast-path. A VM fix there
+      would also cover any other `._N`→__method__ path (e.g. records with `_N` fields).
