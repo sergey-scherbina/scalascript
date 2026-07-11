@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T21:46:54Z
+heartbeat: 2026-07-11T22:30:00Z
 status: in-progress
-done-so-far: W2 standard effect runners, hidden-CPS removal, strict curried-call reconciliation, taxonomy retirement, specs, and full release gate are pushed through 2a49bf6ad
-next: implement queued TI-8.2d2x parser recovery companion dispatch for dsl-sql-recovery.ssc, retire only its proved blocker after full gates, then continue Dataset
+done-so-far: W2 effect runners and TI-8.2d2x parser recovery are pushed through 28d52d13b; combined release gate is ready at 37 identical / 29 both-fail / 17 blockers
+next: implement queued TI-8.2d3g core-free Dataset provider/runtime boundary, prove all three Dataset examples on VM/direct ASM, and retire only the exact green rows after full gates
