@@ -1,5 +1,88 @@
 # Bug tracker
 
+## v2-swift-nativeui-descriptor-proof — debug root summary hides ABI field drift
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+uncommitted Swift AppCore ABI-v1 review.
+
+- **Real-harness repro:** `v2SwiftBackend/test` executes real generated packages,
+  but `nativeUiDebug` prints only root version/tag/operation. A wrong descriptor
+  field/default/source can therefore pass every current Swift assertion.
+- **Expected/fix:** add a deterministic structural ABI digest/test seam and real
+  Swift programs that pin shortened columns, fetch defaults, POST/id delete,
+  raw sentinel, mobile CSS, and source provenance without flattening closures.
+- **Done-when:** exact descriptor fields/defaults and source refs are asserted by
+  real Swift execution and the reviewer approves; keep `fixed` until Sergiy confirms.
+
+## v2-swift-nativeui-duplicate-root-source — diagnostic omits both source refs
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+uncommitted Swift AppCore ABI-v1 review.
+
+- **Real-harness repro:** register `emit` and then `serve`; `registerRoot` stores
+  both `NativeUiSourceRef` values but the fatal message renders only configs.
+- **Expected/fix:** the bounded duplicate diagnostic names both operations and
+  both source refs, with a negative generated-Swift process gate.
+- **Done-when:** the exact diagnostic is pinned and reviewer-approved; keep
+  `fixed` until Sergiy confirms.
+
+## v2-swift-nativeui-mobile-css-regex — valid shipped override is rejected
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+uncommitted Swift AppCore ABI-v1 review.
+
+- **Real-harness repro:** pass the exact `mobileOverrideCss` grammar to generated
+  `serve`; the Swift raw regex contains doubled backslashes and returns
+  `NativeUiUnsupported` instead of the original root.
+- **Expected/fix:** match the frozen JVM grammar exactly and reject a near miss;
+  prove both branches through real Swift execution.
+- **Done-when:** valid/invalid CSS gates pass and reviewer approves; keep `fixed`
+  until Sergiy confirms.
+
+## v2-swift-nativeui-flat-name-detection — domain globals trigger UI mode
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+uncommitted Swift AppCore ABI-v1 review.
+
+- **Real-harness repro:** generate a domain `Program` defining and calling its
+  own `signal` or `emit`; flat-name scanning emits `NativeUiHost.swift` and later
+  fails because the user function registered no UI root.
+- **Expected/fix:** select UI mode only from reserved, provenance-annotated ABI
+  globals (or otherwise exclude user definitions); same-named domain definitions
+  remain host-free and run under real Swift.
+- **Done-when:** same-name domain regression is byte-for-byte host-free and green;
+  keep `fixed` until Sergiy confirms.
+
+## v2-swift-nativeui-evaluation-rollback — arbitrary failure cannot reuse session
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+uncommitted Swift AppCore ABI-v1 review.
+
+- **Real-harness repro:** begin a host, register provisional signal/root state,
+  then trigger any runtime validation failure other than missing/duplicate root.
+  AppCore uses `fatalError`, so no recoverable boundary calls `abort` and the same
+  host cannot be proven clean on a second evaluation.
+- **Expected/fix:** introduce a catchable Swift runtime failure boundary,
+  abort-on-error, and same-host recovery without weakening bounded diagnostics.
+- **Done-when:** a real Swift test fails after provisional state, recovers on the
+  same host, and extracts a clean root; keep `fixed` until Sergiy confirms.
+
+## v2-swift-nativeui-root-session-lifetime — extracted ABI loses callbacks/store
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum during the
+uncommitted Swift AppCore ABI-v1 review.
+
+- **Real-harness repro:** `takeRoot()` calls `abort()` and clears signals while
+  `Machine` is weakly captured by the host and deallocated when `evaluate`
+  returns. Invoking an extracted signal/computed/keyed/user closure then sees an
+  empty store or `native UI runtime released`.
+- **Expected/fix:** expose `makeNativeUiRoot` backed by a retained evaluation
+  session/store lifetime; successful handoff detaches provisional transaction
+  bookkeeping without destroying live cells/Machine.
+- **Done-when:** real Swift extracts a root and subsequently invokes signal get/
+  set, computed, and user/render closures successfully; reviewer approves and
+  the entry stays `fixed` until Sergiy confirms.
+
 ## v21-runtime-taxonomy-ui-remote-table-stale — successful UI row remains blocked
 
 **Status:** fixed (2026-07-11, `4cdca959c`); found by codex in the full

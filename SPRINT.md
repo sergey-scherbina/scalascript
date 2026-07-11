@@ -342,6 +342,17 @@ there before changing this plan.
         processes and a checked `std/ui` source when FrontendBridge coverage is
         sufficient. Re-run `v2SwiftBackend/test`, the JVM ABI suite, assembled
         toolkit conformance, and request a read-only Rozum review before landing.
+        Reviewer blockers (Rozum 2026-07-11; no landing before re-approval):
+        - [ ] retain a `NativeUiSession`/Machine through `makeNativeUiRoot` and
+              prove signal/computed/user closures still execute after extraction;
+        - [ ] replace fatal-only evaluation failure with a catchable boundary,
+              abort provisional state, and recover on the same host/session;
+        - [ ] select UI mode from reserved annotated ABI provenance, not flat
+              user names; gate domain-local `signal`/`emit` definitions;
+        - [ ] correct the raw Swift mobile CSS regex and gate exact/near-miss CSS;
+        - [ ] include both operations/source refs in duplicate-root diagnostics
+              and pin exact descriptor fields/defaults/provenance with a real
+              structural Swift digest gate.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
