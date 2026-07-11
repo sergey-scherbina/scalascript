@@ -46,7 +46,6 @@ sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section 
 storage-demo.ssc	standard-provider	yes	storage	runEphemeralStorage is missing from a core-free standard storage provider
 totp-shamir-demo.ssc	standard-provider	yes	crypto	totp is missing from the core-free standard crypto provider
 typeclass.ssc	language-runtime	yes	typeclass	exact summon now runs; an explicitly passed typeclass dictionary remains a sentinel value whose member dispatch fails
-typed-data.ssc	language-runtime	yes	pattern-match	constructor defaults now lower; nested Option pattern matching has no Some/1 arm at runtime
 typed-sql-crud.ssc	example-contract	yes	sql	the deterministic native run queries TODOS before the fixture creates it
 ui-remote-table.ssc	standard-provider	yes	ui	fieldColumn is missing from the core-free standard UI provider
 wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface

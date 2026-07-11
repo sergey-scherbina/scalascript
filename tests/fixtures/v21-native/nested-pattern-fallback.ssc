@@ -1,0 +1,26 @@
+---
+name: v21-native-nested-pattern-fallback
+---
+
+```scalascript
+case class Box(value: Int)
+case class Envelope(id: Int, payload: Option[Box])
+
+def describe(envelope: Envelope, suffix: String): String = envelope match
+  case Envelope(id, Some(Box(value))) => "some:" + value + ":" + suffix
+  case Envelope(id, None) => "none:" + id + ":" + suffix
+  case _ => "other:" + suffix
+
+case class Deep(value: Option[Option[Int]])
+
+def describeDeep(deep: Deep, suffix: String): String = deep match
+  case Deep(Some(Some(value))) => "deep:" + value
+  case Deep(Some(None)) => "inner-none"
+  case _ => "fallback:" + suffix
+
+println(describe(Envelope(1, Some(Box(7))), "outer"))
+println(describe(Envelope(2, None), "outer"))
+println(describeDeep(Deep(Some(Some(9))), "kept"))
+println(describeDeep(Deep(Some(None)), "kept"))
+println(describeDeep(Deep(None), "kept"))
+```

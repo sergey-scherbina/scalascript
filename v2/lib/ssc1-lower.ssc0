@@ -1641,6 +1641,31 @@ def dischargeObs = (obs, scope, body) =>
       }
   }
 
+-- Ordered nested-pattern lowering. `successScope` exposes binders from the
+-- current source arm; `failureScope` has dummy binders at the same depths so a
+-- failed nested tag cannot leak names while outer locals keep their indices.
+-- `scrutPos` points at the once-evaluated original scrutinee in both scopes.
+def dischargeObsOr = (obs, successScope, failureScope, scrutPos, body, fallbackArms) =>
+  match obs {
+    case Nil => lowerE(successScope, body)
+    case Cons(ob, rest) =>
+      match ob { case Pair(pos, sp) =>
+        match sp { case Pair(sptag, spdata) =>
+          match spdata { case Pair(subctor, subs) =>
+            let m = lenL(subs) in
+            let innerSuccess = appendL(revL(fldBinders(subs)), successScope) in
+            let innerFailure = appendL(revL(guardDummyBinders(subs)), failureScope) in
+            let subObs = fldObligations(subs, m) in
+            let restShifted = shiftObs(rest, m) in
+            let successBody = dischargeObsOr(
+              appendL(subObs, restShifted), innerSuccess, innerFailure,
+              #i.add(scrutPos, m), body, fallbackArms) in
+            let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
+            IrMatch(IrLocal(pos), Cons(IrArm(subctor, m, successBody), Nil), Some(failureBody))
+          } }
+      }
+  }
+
 -- K62.14: LITERAL patterns (`case 0` / `case 'x'` [char = int code] / `case "s"` /
 -- `case true`) are EQUALITY tests, not catch-all binders. The front emits ("lpat",
 -- Pair(ty, v)); before this the lower dropped them into the vpat/wpat default arm, so
@@ -1694,6 +1719,28 @@ def hasGuardPat = (arms) =>
           if #seq(ptag, "gpat") then true else hasGuardPat(rest) } }
   }
 
+def fieldsHaveNestedPat = (fields) =>
+  match fields {
+    case Nil => false
+    case Cons(field, rest) =>
+      match field { case Pair(ftag, fdata) =>
+        if #seq(ftag, "cpat") then true else fieldsHaveNestedPat(rest) }
+  }
+
+def hasNestedPat = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "cpat") then
+            match pdata { case Pair(ctorName, fields) =>
+              if fieldsHaveNestedPat(fields) then true else hasNestedPat(rest) }
+          else hasNestedPat(rest)
+        }
+      }
+  }
+
 def guardDummyBinders = (fields) =>
   match fields {
     case Nil => Nil
@@ -1744,10 +1791,14 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
             IrLet(Cons(IrLocal(scrutPos), Nil), lowerE(Cons(pdata, scope), body))
           else if #seq(ptag, "cpat") then
             match pdata { case Pair(ctorName, fields) =>
+              let arity = lenL(fields) in
               let armScope = appendL(revL(fldBinders(fields)), scope) in
-              let armBody = dischargeObs(fldObligations(fields, lenL(fields)), armScope, body) in
+              let failedScope = appendL(revL(guardDummyBinders(fields)), scope) in
+              let armBody = dischargeObsOr(
+                fldObligations(fields, arity), armScope, failedScope,
+                #i.add(scrutPos, arity), body, rest) in
               IrMatch(IrLocal(scrutPos),
-                Cons(IrArm(ctorName, lenL(fields), armBody), Nil),
+                Cons(IrArm(ctorName, arity, armBody), Nil),
                 Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
             }
           else lowerE(scope, body)
@@ -1779,6 +1830,8 @@ def lowerMatch = (scope, scrutinee, arms) =>
   let letScope = Cons("__scr__", scope) in
   let flatArms = expandAltArms(arms) in
   if hasGuardPat(flatArms) then
+    IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
+  else if hasNestedPat(flatArms) then
     IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
   else if hasLpat(flatArms) then
     IrLet(Cons(eIr, Nil), lowerLitArms(scope, letScope, flatArms))
