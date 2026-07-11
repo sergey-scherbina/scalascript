@@ -14,7 +14,10 @@ strict typecheck for the native table Apple gate.
   one-argument overload.
 - **Plan/done-when:** update both generated call sites, retain their behavior,
   and pass the exact strict iOS Simulator typecheck in the sixth named table
-  gate plus the full Swift backend suite.
+  gate plus the full Swift backend suite. The one-argument overload compiles on
+  iOS 16 but is deprecated under the installed macOS 14+ SDK and therefore also
+  fails warnings-as-errors; use deployment-compatible `task(id:)` observation
+  instead of choosing either incompatible `onChange` overload.
 
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
 

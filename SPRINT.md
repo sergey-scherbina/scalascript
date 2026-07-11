@@ -713,7 +713,10 @@ there before changing this plan.
                         The real installed iOS Simulator gate found
                         `v2-swiftui-ios16-onchange-availability`: replace both
                         iOS-17-only two-argument `onChange` overloads with the
-                        iOS-16-compatible form before publication.
+                        iOS-16-compatible form before publication. The old
+                        one-argument overload is deprecated by the current
+                        macOS SDK under warnings-as-errors, so use `task(id:)`
+                        observation compatible with both deployment floors.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
