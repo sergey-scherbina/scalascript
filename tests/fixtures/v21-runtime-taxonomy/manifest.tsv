@@ -3,7 +3,6 @@ actors-pingpong.ssc	standard-provider	yes	actors	runActors is not installed by a
 actors-typed-remote-spawn.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
 async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-free standard async provider
-content.ssc	language-runtime	yes	interpolator	built-in md interpolation lowers to an unbound global before doc/render execute
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
 dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
 dataset-stats.ssc	language-runtime	yes	effects	portable dataset evaluation leaks an unhandled Op/3 into match lowering
