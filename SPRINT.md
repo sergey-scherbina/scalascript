@@ -2121,6 +2121,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               strengthen `v21-parser-dsl-smoke.sh` to exact
                               canonical JSON/YAML output on VM/direct ASM.
                               Spec: `specs/v2.1-parser-dsl-values.md`.
+                              Diagnosis: imported `Parser.map` is collected as
+                              a closure-global extension name, and the native
+                              lowerer incorrectly routes ordinary `List.map`
+                              through that global. The focused multi-file repro
+                              consequently prints `Stub` on both lanes. Route
+                              selected extensions through the existing runtime
+                              `__methodOrExt__` member-first protocol after the
+                              live `native-head-shadow` lowerer claim lands.
                         - [x] **TI-8.2d2s4 functional VM/ASM parity — DONE
                               2026-07-11 (`4c5254eed`):** the full
                               post-PMapped sweep is 25 identical / 1 mismatch /

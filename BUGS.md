@@ -271,6 +271,15 @@ during the post-`PMapped` full strict parity sweep.
 - **Expected:** the self-hosted native pipeline preserves the parser mapping,
   list/fold, tuple, and rendering semantics needed for the examples' canonical
   output; successful exit must not hide placeholder values.
+- **Root cause:** the imported parser combinator module registers an extension
+  named `map`. The self-hosted type-erased lowerer currently treats that name
+  as a global override at every selected call site, so
+  `items.asInstanceOf[List[Any]].map(f)` calls the parser extension and builds
+  `PMapped(items, f)` instead of mapping the list. The following `mkString`
+  therefore receives a parser ADT and returns `Stub`. The shared runtime
+  already exposes the correct member-first/fallback-extension contract as
+  `__methodOrExt__`; the native lowerer is not yet routing imported extension
+  calls through it.
 - **Plan/done-when:** isolate the first complex mapping result in a focused
   import-shaped fixture, classify each later placeholder separately if it has
   a different root cause, restore exact compatibility output on VM/direct ASM,
