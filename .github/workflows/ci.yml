@@ -251,7 +251,16 @@ jobs:
 
       - name: Test via sbt
         timeout-minutes: 60
-        run: sbt test
+        run: |
+          # DIAGNOSTIC (temporary): a separate silent cli-fork exit-1 remains
+          # (ForkMain exit 1, zero failed tests) that only reproduces on CI and
+          # is unpinpointable in the interleaved multi-fork `sbt test` log. Run
+          # the cli suite ALONE first so its output is clean and the crashing
+          # suite is named in order (parallelExecution/logBuffered are already
+          # off for cli). `|| true` keeps going so the full suite still runs.
+          # Revert to plain `sbt test` once the culprit is identified.
+          sbt "cli/test" || echo "::warning::isolated cli/test failed (diagnostic)"
+          sbt test
 
       # Save the classes/zinc cache ONLY when compile + assembly + tests all
       # passed, so a failed build can never poison later runs.
