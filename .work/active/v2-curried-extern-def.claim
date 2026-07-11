@@ -1,6 +1,0 @@
-feature/v2-curried-extern-def 2026-07-11T20:31:17Z
-agent: claude-code (rozum-ucc-test)
-heartbeat: 2026-07-11T20:31:17Z
-status: in-progress
-done-so-far: Root-caused "unbound global: httpClient" (curried top-level extern def). stripExternDecls detects curried methods only inside extern class/trait (curriedDef regex @899), NOT in the top-level 'extern def' branch (873-886). So 'extern def httpClient(baseUrl)(block)' in std/http.ssc is never added to curriedExternMethods, so the curried-merge (@2435) collapses httpClient(base){block} → unbound. Fix: mirror the curriedDef detection into the extern-def branch.
-next: implement + conformance http slice + push.
