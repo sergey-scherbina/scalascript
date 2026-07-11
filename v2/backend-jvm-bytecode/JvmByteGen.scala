@@ -1073,9 +1073,11 @@ object JvmByteGen:
       case Term.App(f, args) =>
         gen(f, ctx); genArray(args, ctx); callApp(mv)
       case Term.Ctor(tag, fields) if tag == "Signal" || tag == "ComputedSignal" =>
-        // VM parity: reactive signals are mutable cells, not data values
+        // VM parity: the installed reactive provider wins; bare kernels retain
+        // the legacy mutable-cell fallback.
+        mv.visitLdcInsn(tag)
         if fields.isEmpty then call0(mv, "unitV") else gen(fields.head, ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "signalNew", s"(L$VAL;)L$VAL;", false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "signalNew", s"(Ljava/lang/String;L$VAL;)L$VAL;", false)
       case Term.Ctor(tag, fields) =>
         mv.visitLdcInsn(tag); genArray(fields, ctx); callCtorArr(mv)
       case Term.Match(scrut, arms, default) if mayOp(scrut) =>
