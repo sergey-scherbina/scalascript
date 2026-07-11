@@ -1116,7 +1116,7 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
 
 ## Results
 
-### Native Apple tables and row actions (`1ff7304f2`, 2026-07-11)
+### Native Apple tables and row actions (`d54d02126`, 2026-07-11)
 
 - Generated Apple sources now decode the exact five-field table ABI into one
   shared macOS/iOS Grid renderer and a transactional model for static, signal,
@@ -1134,7 +1134,7 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   execution and strict Swift 6 typechecking against the installed iOS 16
   Simulator target. Provider 14/14, compatibility fetch 12/12, and Swift CLI
   6/6 also remain green. A final-repeat URLProtocol harness race was isolated
-  from production code and fixed in `331db2bcd`; action execution then passed
+  from production code and fixed in `400931f68`; action execution then passed
   5/5 consecutively before another named 6/6 and full 40/40 run.
 
 ### SwiftUI persisted and online Apple ownership (`0ade8bf7c`, 2026-07-11)
