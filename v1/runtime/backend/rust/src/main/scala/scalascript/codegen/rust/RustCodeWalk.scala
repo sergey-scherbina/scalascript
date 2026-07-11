@@ -2675,7 +2675,27 @@ object RustCodeWalk:
     "crate::runtime::_json_parse",
     "crate::runtime::_json_stringify",
     // R.3.4 — env() takes its arg by reference.
-    "crate::runtime::_env"
+    "crate::runtime::_env",
+    "crate::runtime::_env_or_else",
+    // fs/path helpers whose params are all &str. Previously omitted → codegen
+    // passed an owned String to a &str param and cargo failed E0308, so
+    // mkdir/mkdirs/tempFile/copyFile/moveFile/isFile/appendFile/readBytes and the
+    // path.* helpers were unusable from Rust. (_write_bytes has a non-&str arg and
+    // still needs per-arg borrowing — left out here.)
+    "crate::runtime::_append_file",
+    "crate::runtime::_read_bytes",
+    "crate::runtime::_is_file",
+    "crate::runtime::_mkdir",
+    "crate::runtime::_mkdirs",
+    "crate::runtime::_delete_file",
+    "crate::runtime::_copy_file",
+    "crate::runtime::_move_file",
+    "crate::runtime::_temp_file",
+    "crate::runtime::_path_dirname",
+    "crate::runtime::_path_basename",
+    "crate::runtime::_path_extname",
+    "crate::runtime::_path_resolve",
+    "crate::runtime::_path_is_absolute"
   )
 
   /** Resolve a non-List/Vec `Term.Apply` callee against intrinsics,
