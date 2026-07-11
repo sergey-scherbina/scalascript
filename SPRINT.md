@@ -1406,7 +1406,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               dictionary-sentinel gap; Mirror derives stays
                               honest. Corpus/parity/taxonomy remain 33/93,
                               14/54/127, and 42 blockers; conformance is 11/11.
-                        - [ ] **TI-8.2d2k nested-pattern arm fallback:** lower
+                        - [x] **TI-8.2d2k nested-pattern arm fallback:** DONE
+                              2026-07-11 (`b6b359b60`). Lower
                               nested constructor obligations with an ordered
                               fallback to later outer arms when an inner tag
                               does not match, preserving once-evaluated scrutinee
@@ -1416,6 +1417,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               rerun `typed-data.ssc`, then require native-entry,
                               corpus, strict parity, both taxonomies, and fresh
                               affected conformance before removing its blocker.
+                              Result: ordered nested obligations now fall through
+                              with de Bruijn-safe dummy failure scopes; focused
+                              and `typed-data.ssc` VM/direct-ASM execution agrees.
+                              Corpus/parity improve to 34/92 and 15/53/127;
+                              runtime blockers fall to 41; conformance is 11/11.
                         - [ ] **TI-8.2d2l list mkString capture index:** correct
                               `_sel_mkString`'s `Cons/2` environment reference so
                               it inserts the captured separator (local 4), not

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — nested constructor patterns preserve ordered fallback
+
+The self-hosted lowerer now carries nested constructor failures to the next
+source arm over the original once-evaluated scrutinee while preserving binder
+depth. Repeated outer tags, deeper nesting, wildcard fallback, and
+`typed-data.ssc` agree on VM/direct ASM; runtime blockers fall from 42 to 41.
+Landed `b6b359b60`.
+
 ## 2026-07-11 — exact summon resolves named givens natively
 
 The self-hosted parser now retains nested type text for `summon[TC[T]]`, and the
