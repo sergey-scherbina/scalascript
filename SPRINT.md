@@ -410,7 +410,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       distribution and `BUGS.md` records the landed SHA. Result: both smokes
       pass, `bin/ssc-standard` runs native SQL/Markdown, and the slim JAR
       contains `NativeSourceMarkdown.class`.
-- [ ] **v21-shc-plugin-backend-isolation** — after the live TI-7 slim-layout
+- [x] **v21-shc-plugin-backend-isolation — DONE 2026-07-11 (`6f393beea`):** after the live TI-7 slim-layout
       owner lands, rebase and isolate ASM plus every remaining removable
       dependency behind the backend/plugin that declares it. Keep JDK and Scala
       runtime as the explicit permanent seed allowance; ensure pure core has no
@@ -424,7 +424,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       ASM, direct bytecode does, and basic SQL still runs with the external
       parser family absent. `build.sbt` is temporarily overlapping the live
       Swift worktree; prepare the independent gate changes first and edit the
-      allowlist only after that worktree is clean/landed.
+      allowlist only after that worktree is clean/landed. Result: the closed
+      standard layout is 27 dependency JARs with zero strict parser edges; the
+      optional SQL wire/ujson family is physically absent, pure parsers have no
+      host escape, VM does not load external ASM, direct bytecode does, and
+      slim/build-jvm/provider/conformance gates are green.
 - [ ] **v21-shc-bootstrap-release-gates** — add stage-2 compiler-image
       reproducibility, forbidden-JAR deletion, `jdeps`, runtime class-load,
       parser corpus/fuzz, standard slim execution, and deterministic build-jvm

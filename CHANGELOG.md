@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — parser codecs and ASM are isolated by explicit owner
+
+The closed standard runtime now has 27 dependency JARs and zero strict
+parser/codec edges: the optional SQL wire/ujson/upickle/upack/geny family is no
+longer staged, while native SQL remains green. Pure JSON/YAML/Markdown have no
+host intrinsic/regex path; native VM does not load external ASM and direct
+bytecode loads it only when selected. Slim, deterministic build-jvm, provider,
+dependency, and 10/10 conformance gates pass. Landed `6f393beea`.
+
 ## 2026-07-11 — native module loader accepts multiple imports per line
 
 Standalone Markdown import lines now resolve every whitespace-separated
