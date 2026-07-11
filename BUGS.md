@@ -59,6 +59,29 @@ found by codex while closing the native content-helper cutover.
   dependency/plugin/standard/slim/JRE gates pass, native corpus runtime success
   rises to 47, standard parity is 36/30/129 with no mismatch/one-sided row,
   runtime blockers fall to 18, and affected conformance is 17/17.
+## v21-native-multiline-markdown-import-dropped — std parser companion stays unloaded
+
+**Status:** open (2026-07-11); found by codex while reproducing the queued
+TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run --native examples/dsl-sql-recovery.ssc` and repeat with
+  `--bytecode`. VM fails `unhandled runtime effect: Parser.regex`; ASM fails
+  `match: no arm for Op/3`. Structural compilation contains no `Parser_*`
+  definitions and its source closure contains only the root file.
+- **Root cause:** `ssc1-run.ssc0` scans Markdown imports one physical line at a
+  time. Every import in the example wraps its link label before `](path.ssc)`,
+  so none enters the DFS module closure; selected `Parser.regex` therefore
+  looks like an unknown uppercase provider call and becomes the fallback `Op`.
+- **Expected:** a standalone Markdown import link may wrap its label across
+  physical lines outside fences. The scanner joins only that bounded label,
+  preserves existing multiple-links-per-line behavior, and loads the ordinary
+  `.ssc` declarations so `Parser.regex` resolves statically to `PRegex`.
+- **Plan/done-when:** add a multi-file wrapped-import regression, fix the pure
+  self-hosted import scanner without source rewriting or compatibility
+  fallback, require the installed VM/direct-ASM public example to advance
+  identically, then pass module-loading/native-entry/full release and fresh
+  `v2-*` conformance gates before retiring only the proved taxonomy row.
 
 ## v2-swift-core-stale-testing-command — spec names an absent e2e script
 

@@ -2111,10 +2111,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `dsl-sql-recovery.ssc` imports the same self-hosted
                               Parser companion that works in YAML but currently
                               reaches `Parser.regex` as a fallback `Op/3` in this
-                              larger recovery closure. Isolate declaration/
-                              ownership order across its four imports, restore
-                              the existing `PRegex` constructor dispatch, and
-                              keep parser recovery as ordinary `.ssc` code.
+                              larger recovery closure. Installed structural
+                              compilation proves the four wrapped Markdown link
+                              labels are dropped before DFS: the source closure
+                              contains only the root and no `Parser_*` defs.
+                              Extend the pure line scanner with bounded
+                              multi-line link-label accumulation, preserve the
+                              already-supported multiple links per line and
+                              fence exclusion, then restore existing `PRegex`
+                              static dispatch as ordinary imported `.ssc` code.
+                              Track in
+                              `v21-native-multiline-markdown-import-dropped`;
+                              require a multi-file exact regression, the full
+                              public example on installed VM/direct ASM, module
+                              loading/native-entry/release gates, and fresh
+                              `v2-*` conformance before taxonomy retirement.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line
