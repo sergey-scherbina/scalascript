@@ -2,9 +2,9 @@
 
 ## v21-k62-flat-tuple-pattern-regression — flat tuple values keep nested `Pair` patterns
 
-**Status:** open (2026-07-11); found by codex in the mandatory native-entry
-gate after K62.20 (`28061083a`) changed tuple expressions of arity three or
-greater to flat `TupleN` values.
+**Status:** done (2026-07-11, `7f6821856`); found and confirmed by codex in the
+mandatory native-entry gate after K62.20 (`28061083a`) changed tuple
+expressions of arity three or greater to flat `TupleN` values.
 
 - **Real-harness repro:** `bin/ssc-standard run --native
   tests/fixtures/v21-native/nested-tuple-pattern.ssc` prints `left` followed by
@@ -19,6 +19,10 @@ greater to flat `TupleN` values.
   arity two, flat `TupleN` for arity three or greater), retain existing nested
   and flat tuple regressions, and rerun native-entry, corpus/parity/taxonomy,
   release, and fresh conformance gates.
+- **Fix/verified:** `tuplePat` now emits the same Pair/2 versus flat `TupleN`
+  representation as expression lowering. The existing fixture again prints
+  `left` / `left+right` exactly on VM and ASM; every release gate and fresh
+  conformance 11/11 pass.
 
 ## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
 
@@ -70,8 +74,9 @@ advanced `dsl-json-parser.ssc` beyond the `PRegex/1` failure.
 
 ## v21-symbolic-extension-infix-precedence — `Parser.|` becomes numeric `i.or`
 
-**Status:** open (2026-07-11); found by codex after imported extension dispatch
-advanced calculator/YAML-like parser examples beyond `PRegex/1`.
+**Status:** done (2026-07-11, `4a336ddec`); found and confirmed by codex after
+imported extension dispatch advanced calculator/YAML-like parser examples
+beyond `PRegex/1`.
 
 - **Real-harness repro:** `bin/ssc-standard run examples/dsl-calc-parser.ssc`
   and `dsl-yaml-like.ssc` fail identically on VM/ASM with `expected Int, got
@@ -82,6 +87,13 @@ advanced calculator/YAML-like parser examples beyond `PRegex/1`.
 - **Plan/done-when:** make infix resolution consult durable extension identity
   before primitive dispatch, cover Parser-like and Int receivers on VM/ASM, and
   rerun both DSLs plus release gates.
+- **Root cause/fix:** the self-hosted lowerer hard-coded `|` to `i.or` before
+  consulting its durable extension registry. Registered `|` now carries its
+  exact closure through `__arithExt__`; only `IntV/IntV` keeps primitive OR.
+- **Verified:** the imported two-file fixture prints `a|b`, `a|b|c`, `7` on
+  VM/ASM; a no-extension String misuse fails honestly; calculator/YAML advance
+  to separately tracked `NoContext`/`Unit` gaps. Full release gates and fresh
+  conformance 11/11 pass.
 
 ## v21-match-pregex-constructor — extension body captures the following top-level def
 

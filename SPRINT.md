@@ -1731,13 +1731,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               lanes. `dsl-ast-builder.ssc` becomes identical;
                               parity improves to 23/43/129 and blockers to 31,
                               with all release gates and conformance 11/11 green.
-                        - [ ] **TI-8.2d2r symbolic extension precedence:** the
+                        - [x] **TI-8.2d2r symbolic extension precedence — DONE
+                              2026-07-11 (`4a336ddec`, docs `3de7049a5`):** the
                               durable imported registry now exposes the next
                               calc/YAML boundary: `Parser.|` is still hard-coded
                               to numeric `i.or`, producing `expected Int, got
                               PChar`. Specify extension-before-primitive infix
                               resolution, preserve integer bitwise OR, add exact
                               VM/ASM coverage, and rerun both examples/gates.
+                              Result: the two-file fixture prints
+                              `a|b/a|b|c/7` exactly on both lanes; calculator
+                              and YAML advance to independently tracked
+                              `NoContext`/`Unit` gaps. Strict parity is
+                              22/44/129 with zero mismatch/one-sided errors,
+                              taxonomy is 32 blockers, and all release gates
+                              plus conformance 11/11 pass.
                         - [ ] **TI-8.2d2s native `case object`:** the JSON parser
                               now reaches `unbound global: NoContext` because the
                               native frontend does not retain `case object
@@ -1763,7 +1771,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               the same boundary after its min/max output), and
                               retire both taxonomy rows only when the full
                               examples become identical.
-                        - [ ] **TI-8.2d2v K62.20 tuple-pattern regression:**
+                        - [x] **TI-8.2d2v K62.20 tuple-pattern regression — DONE
+                              2026-07-11 (`7f6821856`):**
                               flat `TupleN` expression lowering left
                               `tuplePat` on the obsolete right-nested `Pair`
                               shape, so `Some((left, '+', right))` now returns
@@ -1772,6 +1781,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               then rerun the existing exact VM/ASM fixture and
                               every v2.1 release gate before publishing either
                               this fix or the symbolic-extension slice.
+                              Result: `Some((left, '+', right))` again prints
+                              `left+right` on VM/ASM; all corpus, parity,
+                              taxonomy, release, and conformance gates pass.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

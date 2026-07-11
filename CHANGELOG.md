@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — symbolic extensions coexist with primitive bitwise OR
+
+The self-hosted route now selects imported symbolic `|` extensions for ADT
+operands while preserving integer bitwise OR in the same assembled program.
+Exact VM/ASM coverage includes chained extension calls, primitive `6 | 3`, and
+the honest no-extension failure. The mandatory gate also caught and fixed the
+K62.20 nested tuple-pattern regression by aligning 3+ patterns with flat
+`TupleN` values. Landed `4a336ddec` and `7f6821856`; documented `3de7049a5`.
+
 ## 2026-07-11 — extension ownership survives layout and imports
 
 Indented extension bodies now close at dedent/code-fence boundaries, so a
