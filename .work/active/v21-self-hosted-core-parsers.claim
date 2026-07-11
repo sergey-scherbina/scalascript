@@ -1,7 +1,7 @@
-feature/v21-self-hosted-markdown-profile 2026-07-10T16:27:29Z
+feature/v21-shc-plugin-backend-isolation 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-11T04:32:28Z
+heartbeat: 2026-07-11T04:49:34Z
 status: in-progress
-done-so-far: dependency gates; pure JSON core; public JSON/HTTP cutover ed945466d; pure YAML core 7a06d4a55; structural frontend manifest/config cutover 20d9db6db
-next: localize the Markdown core Tuple4 runtime mismatch, complete conformance, then integrate the structural result into the standard frontend path
-scope: headings/scopes, pure-link imports, prose, fences, lists, images, tables, metadata directives, interpolation source; preserve compatibility libraries only in tools/tests
+done-so-far: dependency gates; pure JSON core; JSON/HTTP cutover ed945466d; pure YAML core 7a06d4a55; structural YAML 20d9db6db; pure/structural Markdown 54e26493c/36d5ef3b6
+next: isolate ASM and every remaining removable standard dependency behind its declaring backend/plugin, then make the strict dependency gate green
+scope: plugin/backend ownership, physical standard packaging, pure-core extern/host-regex audit; preserve JDK and Scala runtime as the permanent Scala 3 seed allowance
