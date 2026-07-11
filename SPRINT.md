@@ -710,6 +710,10 @@ there before changing this plan.
                   - [ ] execute the six named generated-Swift table tests plus
                         focused compatibility/conformance gates, obtain final
                         Rozum implementation APPROVE, then document results.
+                        The real installed iOS Simulator gate found
+                        `v2-swiftui-ios16-onchange-availability`: replace both
+                        iOS-17-only two-argument `onChange` overloads with the
+                        iOS-16-compatible form before publication.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI

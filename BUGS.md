@@ -1,5 +1,21 @@
 # Bug tracker
 
+## v2-swiftui-ios16-onchange-availability — generated renderer requires iOS 17 accidentally
+
+**Status:** open (2026-07-11); found by codex in the real iOS Simulator
+strict typecheck for the native table Apple gate.
+
+- **Real-harness repro:** typecheck all generated AppCore/AppleApp sources with
+  `xcrun swiftc -target arm64-apple-ios16.0-simulator` against the installed
+  Simulator SDK. The two-argument `onChange(of:) { old, new in ... }` overload
+  in keyed rendering and editable table cells is iOS 17-only.
+- **Expected:** the frozen iOS 16 deployment compiles without availability
+  annotations or runtime branching; both observers use the compatible
+  one-argument overload.
+- **Plan/done-when:** update both generated call sites, retain their behavior,
+  and pass the exact strict iOS Simulator typecheck in the sixth named table
+  gate plus the full Swift backend suite.
+
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
 
 **Status:** open (2026-07-11); found by `apple_table_impl_map` during the
