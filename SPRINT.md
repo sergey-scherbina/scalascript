@@ -1046,6 +1046,37 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
                   report must not count both-fail as parity success.
+                  - [ ] **TI-8.2d1 stable runtime taxonomy gate:** add a reviewed
+                        60-row manifest and a parity-joined report with categories
+                        `language-runtime`, `standard-provider`,
+                        `optional-provider`, `example-contract`, and
+                        `tools-backend`. Record blocker status and a concrete
+                        reason/owner for every row; fail on unknown, duplicate,
+                        stale, reclassified, or category-growing entries. Add a
+                        synthetic smoke and rerun the real standard report plus
+                        fresh `v2-*` conformance before push.
+                  - [ ] **TI-8.2d2 language/runtime blockers:** group the rows
+                        classified as portable language/runtime defects by root
+                        cause (arity/default arguments, match/effect lowering,
+                        extension dispatch, recursion/stack safety, and value
+                        conversion). Queue a spec-first slice per independent
+                        root cause, add real VM/direct-ASM regressions, and shrink
+                        the blocker ceiling after every green push.
+                  - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
+                        standard-owned globals/intrinsics through core-free
+                        `v2/runtime/std` providers, never through the v1 bridge.
+                        Each provider family needs unit coverage, assembled
+                        VM/ASM coverage, and forbidden-dependency/class-load
+                        gates before its taxonomy rows can leave the blocker set.
+                  - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
+                        fixture setup, and deterministic data/config assumptions
+                        only where the example is valid standard surface. Move
+                        genuinely platform/compiler-backed rows to a reviewed
+                        non-blocking category instead of weakening runtime errors.
+                  - [ ] **TI-8.2d5 release freeze:** rerun all 195 rows, require
+                        zero unclassified and zero blocking `both-fail` rows,
+                        freeze exact non-blocking optional/tools counts, and keep
+                        mismatch/one-sided counts at zero before TI-8.3.
       - [ ] **TI-8.3 default launcher cutover:** once TI-4 parity is green, make
             staged/self-installed `bin/ssc` use `StandardMain`, require
             `ssc-tools` for every explicit compatibility/compiler surface, and
