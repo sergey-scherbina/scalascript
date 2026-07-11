@@ -41,18 +41,21 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   model must execute the body exactly once and return its value.
 - **Root cause:** the public extern was added before compatibility
   implementations existed. After those adapters were assembled, JS became
-  green but INT exposed a deeper callback boundary: the transitive frontend
-  plugin native belongs to a child `Interpreter`, while lambda capture only
-  snapshots stable top-level vals. Body-referenced immutable `FunV`/`NativeFnV`
-  globals (`ctxName`, `ctxSignal`, `form`) were incorrectly left to live lookup
-  and are undefined when the child interpreter invokes the user thunk.
+  green but INT exposed a deeper module boundary: `SectionRuntime` rebinds an
+  explicitly imported plugin native to the parent interpreter, but leaves the
+  same native child-owned when it enters exported functions through transitive
+  `childCtx` closure enrichment. `componentScope` therefore invoked the user
+  thunk in the primitives child interpreter, where caller module globals such
+  as `ctxName`, `ctxSignal`, and `form` do not exist.
 - **Planned fix:** retain identity adapters
   `componentScope(scopeId, thunk) = thunk()` in the owning standard plugin and
-  JS/JVM/Rust runtimes; additionally snapshot body-referenced callable globals
-  in interpreter lambdas just like stable vals, while genuine top-level vars
-  remain live. The existing multi-file toolkit imports are the faithful
-  cross-module regression. Keep the v2 NativeUi plugin's scoped semantics
-  unchanged.
+  JS/JVM/Rust runtimes; additionally apply the existing parent
+  `rebindPluginNative` rule to plugin-native entries placed into transitive
+  `childCtx`. Do not broaden lambda capture: that experiment made the component
+  case pass but broke optimized forms/fold parameter semantics, while the same
+  program stayed green with fast/JIT disabled. The existing multi-file toolkit
+  imports are the faithful cross-module regression. Keep the v2 NativeUi
+  plugin's scoped semantics unchanged.
 - **Done-when:** fresh toolkit conformance is 12/12 across declared lanes,
   focused plugin/codegen tests cover the thunk contract, and the landed SHA is
   reported in Rozum. Keep `fixed` until Sergiy confirms.

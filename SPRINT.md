@@ -275,6 +275,13 @@ there before changing this plan.
         capture to retain body-referenced `FunV`/`NativeFnV` bindings while
         preserving live lookup for true vars; the existing multi-file component
         and forms cases are the regression gate.
+        Correction after real-harness A/B: broad callable capture made component
+        green but broke optimized forms (`No field 'name'`); FASTTIER/JIT-off
+        remained green, so that route is rejected. Keep lambda/var/JIT semantics
+        unchanged. Instead, reuse `SectionRuntime.rebindPluginNative` when
+        transitive plugin natives enter exported closures through `childCtx`, so
+        `componentScope` executes its thunk in the caller interpreter just like
+        an explicitly imported native.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,
