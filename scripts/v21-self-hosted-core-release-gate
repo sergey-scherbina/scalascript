@@ -53,6 +53,7 @@ fi
 
 "$ROOT/tests/e2e/v21-plugin-backend-isolation-smoke.sh"
 "$ROOT/tests/e2e/v21-native-entry-smoke.sh"
+"$ROOT/tests/e2e/v21-native-effect-handlers-smoke.sh"
 "$ROOT/tests/e2e/v21-native-plugin-boundary-smoke.sh"
 "$ROOT/tests/e2e/v21-slim-distribution-gate.sh" \
   --report "$report_dir/slim.tsv"

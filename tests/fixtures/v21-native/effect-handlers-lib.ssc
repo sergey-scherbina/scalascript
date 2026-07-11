@@ -1,0 +1,46 @@
+---
+name: v21-native-effect-handlers-lib
+---
+
+# Portable effect declarations
+
+```scalascript
+effect Probe:
+  def zero(): Int
+  def one(value: Int): Int
+  def many(left: Int, right: Int): Int
+
+def afterDeclaration(): String = "owned"
+
+def zeroArgument(): Int = handle(Probe.zero()) {
+  case Probe.zero(resume) => resume(7)
+}
+
+def oneArgument(): Int = handle(Probe.one(4)) {
+  case Probe.one(value, resume) => resume(value + 1)
+}
+
+def manyArguments(): Int = handle(Probe.many(2, 3)) {
+  case Probe.many(left, right, resume) => resume(left * right)
+}
+
+def ignoredResume(): Int = handle(Probe.one(9)) {
+  case Probe.one(value, resume) => 41
+}
+
+def deepResume(): Int = handle {
+  val first = Probe.one(1)
+  val second = Probe.one(first + 1)
+  first + second
+} {
+  case Probe.one(value, resume) => resume(value + 10)
+}
+
+def returnArm(): Int = handle(41) {
+  case Return(value) => value + 1
+}
+
+def multiShot(): List[Int] = handle(Probe.one(2)) {
+  case Probe.one(value, resume) => List(resume(value), resume(value + 10))
+}
+```
