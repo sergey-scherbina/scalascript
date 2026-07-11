@@ -1023,6 +1023,24 @@ lanes, including functions declared locally inside another function. The
 direct-ASM `build-jvm` artifact uses the same trampoline contract; it does not
 invoke the VM or a Java/Scala compiler to obtain tail-call elimination.
 
+### Singleton Objects
+
+Object bodies may use significant indentation or explicit braces. Both forms
+own methods and parameterless properties identically; a bare sibling reference
+stays inside the object.
+
+```scalascript
+object Counters:
+  def base: Int = 40
+  def next(n: Int): Int = n + 1
+  def answer: Int = next(base) + 1
+
+println(Counters.answer) // 42
+```
+
+The colon after `object Counters` opens the body. Colons in parameter, return,
+and value type annotations remain ordinary type ascriptions.
+
 ### Case Classes and Sealed Traits
 
 ```scalascript
