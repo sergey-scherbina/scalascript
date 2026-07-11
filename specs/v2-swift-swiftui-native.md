@@ -109,9 +109,9 @@ PortableTargetLowering
   - portable NativeUi values/closures (UI slice)
         |
         v
-SwiftBackend -> generated Swift Package
+SwiftBackend -> generated Swift package + Xcode project
   AppCore: runtime + compiled domain program
-  App: SwiftUI entry + portable NativeUi renderer (UI target only)
+  App: real Xcode application target + portable NativeUi renderer (UI mode)
         |
         +-> swift run / swift build (macOS)
         +-> xcodebuild / simctl / signing adapters (iOS)
@@ -132,17 +132,24 @@ The deterministic package layout is:
   Package.swift
   Sources/AppCore/SscRuntime.swift
   Sources/AppCore/GeneratedProgram.swift
-  Sources/<AppName>/<AppName>App.swift       # UI target
-  Sources/<AppName>/SscSwiftUIView.swift     # UI target
-  Sources/<AppName>/ContentView.swift        # UI target
+  Sources/<AppName>/main.swift               # domain mode only
+  Sources/<AppName>Cli/main.swift            # UI-mode debug executable only
+  AppleApp/<AppName>App.swift                # UI mode only
+  AppleApp/NativeUiStore.swift
+  AppleApp/NativeUiRenderer.swift
+  AppleApp/NativeUiStyles.swift
+  AppleApp/NativeUiHtml.swift
+  AppleApp/Resources/...                     # declared UI assets
+  <AppName>.xcodeproj/project.pbxproj         # real Apple application target
   Tests/AppCoreTests/...                     # optional emitted debug fixtures
-  Resources/...                              # declared assets
 ```
 
 `AppCore` has no SwiftUI dependency. A domain-only package can therefore run
-under `swift run` on macOS and serve as the first backend gate. The application
-target imports `AppCore` and SwiftUI. Stable filenames and product names are
-part of the command/test contract.
+under `swift run` on macOS and serve as the first backend gate. In UI mode the
+generated Xcode application target compiles the same `AppCore` sources together
+with the `AppleApp` SwiftUI sources; the SwiftPM debug executable imports the
+`AppCore` library. The frozen mode-specific filenames and products are specified
+in the reviewed package section below.
 
 For direct generator tests the backend may expose a single-file rendering of
 the same `AppCore` sources, but CLI artifacts use the package layout above.
@@ -256,10 +263,11 @@ Generation is separated from Apple orchestration:
 
 1. Resolve roots/imports and obtain checked CoreIR.
 2. Apply portable target lowering.
-3. Generate/write the deterministic Swift package.
+3. Generate/write the deterministic Swift package and, in UI mode, Xcode
+   application project.
 4. Optionally invoke `swift build` or `xcodebuild`.
 5. Reuse the existing launch/sign/archive/notarize/publish adapters against the
-   generated package/app product.
+   generated package/Xcode application product.
 
 Steps 1–3 are unit/e2e testable without a simulator or signing identity. Missing
 Swift/Xcode/SDK/device/signing tools fail only at the first step that needs them
@@ -288,8 +296,8 @@ compiled into an Apple application.
 
 ## SwiftUI state and reconciliation requirements
 
-The UI review must settle the exact generated types, but the required behavior
-is fixed:
+The reviewed contract below settles the generated value families; these
+required behaviors remain the acceptance summary:
 
 - signal reads used by a rendered subtree subscribe that subtree; writes occur
   on the main actor and invalidate the correct view;
@@ -307,6 +315,448 @@ is fixed:
   explicitly specified safe rich-text subset); it may not silently disappear;
 - platform types never appear in `.ssc` source.
 
+## Frozen NativeUi ABI and SwiftUI lifecycle (reviewed 2026-07-11)
+
+This section closes the dedicated reactive-spec gate. It is normative for the
+portable runtime and Apple renderer; implementation must not substitute v1
+objects merely because they expose a similar method surface.
+
+### Runtime value boundary
+
+The public `std/ui` API remains unchanged. Its externs lower to portable runtime
+constructors with the following shapes. Every field is an ordinary CoreIR value,
+list/map, or closure; no field is a `ForeignV`, `PluginValue`, Scala `View`, DOM
+node, Foundation/SwiftUI object, or host callback.
+
+```text
+NativeUiAbi(version = 1, root, config)
+NativeUiRootConfig(operation, outDir, port, extraCss)
+
+NativeUiSignal(
+  id: String,
+  scope: String,
+  kind: String,
+  read: () => Value,
+  write: Value => Unit,
+  metadata: Map[String, Value])
+
+NativeUiText(text)
+NativeUiSignalText(signal)
+NativeUiShow(condition, whenTrue, whenFalse)
+NativeUiFragment(children)
+NativeUiElement(siteId, tag, attrs, events, children)
+NativeUiForKeyed(siteId, items, keyClosure, renderClosure)
+NativeUiTrustedHtml(siteId, source)
+NativeUiDataTable(siteId, source, columns, actions)
+NativeUiUnsupported(feature, sourceRef, detail)
+NativeUiSourceRef(file, line, column, operation)
+```
+
+`NativeUiAbi(1, root, config)` is mandatory at the generated-program boundary. The
+renderer rejects a missing or unknown version before constructing a window.
+The v2 UI plugin switches its complete constructor family atomically to version
+1; it may not mix the current experimental four-field `NativeUiElement`/
+`ForeignV` signal shapes with the frozen ABI.
+
+### Root registration and program handoff
+
+Existing `.ssc` UI programs normally finish with `emit(tree, outDir)` or
+`serve(tree, port, extraCss)` and therefore return `Unit`; requiring the program
+result itself to be a view would reject the shipped source contract. In an
+Apple UI context those two externs perform the portable operation
+`ui.root(tree, config)`, register a root in the current evaluation context, and
+return `Unit`:
+
+- `emit` records operation=`emit` and `outDir`; it does not write an HTML file;
+- `serve` records operation=`serve`, `port`, and `extraCss`; it does not bind a
+  native server socket;
+- `port`/`outDir` remain provenance for diagnostics and other targets, not
+  silently repurposed Apple behavior.
+
+`SscGeneratedProgram.makeNativeUiRoot(store)` evaluates the checked program to
+completion, then extracts the registered root and returns
+`NativeUiAbi(1, root, config)`. No registration fails with `native UI program
+did not register a root; call emit(...) or serve(...) exactly once`. A second
+registration fails immediately and names both operations/source refs. A failed
+evaluation or root registration rolls back every provisional signal/scope/task.
+
+Empty `extraCss` is accepted. The exact `mobileOverrideCss` grammar emitted by
+`std/ui/lower.ssc` is decoded to breakpoint-dependent native typography,
+spacing, and radius overrides. Any other non-empty `extraCss` produces
+`NativeUiUnsupported("root extraCss", sourceRef, detail)`; it is never ignored
+or evaluated by WebKit. Domain mode retains the existing file/server behavior
+of `emit`/`serve`; only an explicit Apple UI evaluation context captures a root.
+
+`NativeUiSignal` is data plus closures over a target-owned store, not a host
+object hidden inside data. The dynamic method surface is fixed as `apply/get`
+→ `read()`, `set(value)` → `write(value)`, `update(f)` →
+`write(f(read()))`, and `id` → the stable id. A read-only signal still carries
+a write closure, but that closure raises `native UI signal '<id>' is read-only`.
+
+Signal `kind` is one of `mutable`, `seed`, `computed`, `equality`, `hash`,
+`fetch`, `online`, or `persisted`. Metadata is portable tagged data and may
+refer to other `NativeUiSignal` values and closures. It never contains a Swift
+`Task`, `URLSession`, `UserDefaults`, `NWPathMonitor`, or JVM object. Those live
+in the target store keyed by `(scope, id)`.
+
+The store reuses a second registration of the same `(scope, id, kind)` only
+when its default value is semantically equal. A different kind or conflicting
+default is a deterministic duplicate-signal error. After the owning scope is
+disposed, recreating the same id starts from the declared default. Signal ids
+retain the existing `ctxClean` sanitization and collision rules.
+
+`siteId` is a hidden stable string assigned by portable UI lowering from the
+lexical CoreIR path of the constructor call (definition name plus child-term
+path). It is not observable from `.ssc` or derived from a collection index.
+Runtime instance identity is the structural path
+`(rootId, ownerPath, siteId, occurrence)`: `ownerPath` contains every enclosing
+`(forSiteId, key)` and component scope, while `occurrence` is the zero-based
+count of repeated evaluation of the same site under that exact owner. Each
+root/keyed render transaction resets its occurrence counters, so re-executing a
+render closure recreates the same structural ids rather than consuming a global
+monotonic id. Unkeyed repeated siblings are intentionally position-identified;
+stateful moves require `forKeyed`.
+
+Unsupported UI data must carry `NativeUiSourceRef(file, line, column,
+operation)` when source position is available; otherwise it carries the entry
+file and operation. A host stack trace is not an acceptable substitute.
+
+### Events, fetches, and tables
+
+Event values use tagged portable data:
+
+```text
+NativeUiEvent(kind, target, payload, metadata)
+NativeUiFetchRequest(method, urlSource, bodySource, headersSource)
+NativeUiFetchAction(siteId, request, onSuccess, captureTarget, status)
+NativeUiSuccessEffect(kind, target, payload)
+NativeUiFormBody(fields)
+
+NativeUiSignalMetaSeed(source)
+NativeUiSignalMetaComputed(compute)
+NativeUiSignalMetaEquality(source, expected)
+NativeUiSignalMetaHash()
+NativeUiSignalMetaFetch(urlSource, refresh, headers, phase, error)
+NativeUiSignalMetaOnline()
+NativeUiSignalMetaPersisted(storageKey)
+```
+
+Event `kind` covers `set`, `input`, `toggle`, `increment`, `navigate`, and
+`openUrl`. URL/body/header sources are either literal portable values, signal
+references, or the existing `formBody` descriptor; they are resolved at click
+time. Success effects cover `bumpTick`, `setSignal`, `navigate`, and `openJson`
+and run in list order only after a 2xx result. Non-2xx, decoding, cancellation,
+and transport failures do not run success effects.
+
+The frozen public-to-ABI mapping is complete, not just the initial plugin
+subset:
+
+| Public primitive family | ABI behavior |
+|---|---|
+| `signal`, `seedSignal`, `computedSignal`, `eqSignal`, `hashSignal` | the matching signal kind/metadata above |
+| `emptyHeaders` | one root-scoped read-only string signal with id `__empty_headers__` |
+| `fetchUrlSignal`, `fetchUrlSignalTo` | fetch metadata with literal or signal URL source |
+| `setSignal`, `inputChange`, `toggleSignal`, `incSignal` | `NativeUiEvent` kinds `set`, `input`, `toggle`, `increment` |
+| `fetchAction`, `fetchActionTo`, `fetchActionClear`, `fetchCaptureAction`, `fetchActionWith` | one request/action family; clear/capture are explicit metadata, never inferred from ids |
+| `formBody`, `onBumpTick`, `onSetSignal`, `onNavigate`, `onOpenJson` | form descriptor plus ordered success effects |
+| `localStorageGet/Set/Remove` | portable `ui.storage.get/set/remove` operations owned by the target store |
+| `onlineSignal`, `persistedSignal` | `online`/`persisted` signal metadata |
+| `component` | portable `ui.componentScope(scopeId, bodyThunk)` operation |
+
+Every defaulted arity in `primitives.ssc` resolves before ABI construction.
+Literal and dynamic URL variants remain distinguishable, as do clear, capture,
+and structured-success actions. A backend that supports the short legacy arity
+but drops one of these descriptors does not implement ABI version 1.
+
+On a successful action, capture writes the response body first, clear resets
+the submitted body signal second, and the declared success effects then run in
+source order. The legacy single refresh tick is encoded as the final
+`bumpTick` effect. No capture/clear/tick mutation occurs on failure.
+
+A fetch owns portable phase/value/error signals. Phase is exactly `idle`,
+`loading`, `done`, or `error`; cancellation is a task transition, not a fifth
+user-visible phase. The value signal retains the public response-body behavior
+and the error signal contains a bounded message. The
+returned public `Signal[String]` is the value reference, with phase/error refs
+in its metadata so the renderer and tests can observe the full state without a
+new Apple-only source API. Header signals contain a JSON object of string
+values; malformed JSON or non-string values are deterministic request errors.
+
+Table values preserve the existing descriptor families rather than flattening
+to pre-rendered text:
+
+```text
+NativeUiTableSource(kind = static|signal|fetch, value, rowsPath)
+NativeUiColumn(kind = text|date|money|status|link|stacked,
+               title, fieldPath, align, options)
+NativeUiRowAction(kind = delete|post|link|edit,
+                  label, request, payload, refresh, options)
+NativeUiRowPayload(kind = field|wholeRow|fields, names)
+```
+
+Rows remain portable `Map[String, Value]` values. macOS and iOS share the same
+descriptor decoding; presentation may use platform-appropriate `Table`/`Grid`
+containers, but ordering, field-path lookup, formatting, action payloads, and
+empty/error behavior are identical. Column `options` preserve date format,
+money currency/locale, status color maps, link templates, stacked sub-fields,
+alignment, and inline-edit descriptors. Row actions preserve path templating,
+headers, id/body fields, refresh signals, and Field/WholeRow/Fields payload
+selection.
+
+### Component scopes and keyed reconciliation
+
+The generic source signature `component[N](kind, key)(body)` stays compatible.
+Its implementation enters a portable `ui.componentScope(scopeId, bodyThunk)`
+runtime region, invokes the thunk, and returns `N` unchanged. There is no
+`ComponentScope` view wrapper that would change the generic result type.
+
+`component.ssc` is updated internally to call that operation with the existing
+sanitized `Ctx.prefix`; callers and result types do not change. The target store
+maintains a dynamic scope stack while the body thunk creates signals. The exact
+keys are:
+
+```text
+ownerKey = (rootId, structuralOwnerPath)
+scopeKey = (rootId, sanitizedCtxPrefix)
+signalKey = (scopeKey, fullSignalId)
+taskKey = (ownerKey, lexicalSiteId, occurrence)
+```
+
+Outside a keyed renderer the owner is the root and state lives until root
+disposal. While evaluating a `NativeUiForKeyed` render closure, the structural
+owner path is extended by `(forSiteId, key)`. Every nested component scope,
+signal registration, observer dependency, async task, and site occurrence is
+recorded in a provisional owner transaction. A committed owner contributes one
+reference to each scope it uses; a scope is disposed only when its committed
+owner reference count reaches zero. This preserves the existing documented
+`kind + key` sharing rule without leaking a removed key's private state.
+
+For every items update the renderer:
+
+1. reads the complete list and evaluates `keyClosure(item)` to a `String`;
+2. rejects the first duplicate with `duplicate NativeUiForKeyed key '<key>' at
+   site <siteId>`; array-index fallback is forbidden;
+3. re-evaluates `renderClosure` for every item on a non-equal items-signal
+   emission, while retaining identity `(forInstancePath, key)` and the
+   surviving scope store; no host collection/reference equality heuristic is
+   used to guess whether an item changed;
+4. presents entries in the new list order, so moves preserve state;
+5. commits the new owner→scope set, then disposes scopes belonging only to
+   deleted keys and cancels their async work.
+
+Scope ownership changes are transactional: an error while rendering the new
+value rolls back provisional scopes, subscriptions, tasks, and occurrence
+counters and leaves the last committed keyed state intact. Portable semantic
+equality at signal write suppresses a truly unchanged list notification;
+otherwise every key is refreshed as above. Re-inserting a key after a committed
+deletion creates fresh component state. There is no hidden tombstone cache.
+Root disposal releases every remaining scope, observer, and task.
+
+### Swift observation and concurrency
+
+The generated App module owns one `@MainActor NativeUiStore`. AppCore still
+imports neither SwiftUI nor v1 UI code: it exposes an evaluation entry point
+returning the root `SscValue` and talks to the store through a small target-owned
+callback interface. The existing domain executable continues to use the
+printing `execute` entry point.
+
+For each live `signalKey`, the App module creates exactly one stable
+`NativeUiObservableCell: ObservableObject` with `@Published private(set) var
+revision: UInt64`. The store retains that cell until scope disposal. A rendered
+binding/subtree holds the cell with `@ObservedObject`, acquires one opaque
+subscription token on appearance, and releases that exact token on
+disappearance. The token, not a view count guess, owns dependency/task
+lifetime. A write updates portable storage, and only when semantic value changed
+increments that cell's revision. A single global revision or root-wide
+`objectWillChange` is forbidden.
+
+Computed/equality signals activate on their first mounted subscriber. Evaluation
+records all transitive signal reads in a provisional dependency set, commits
+new subscriptions only after success, and releases obsolete dependencies. The
+last subscriber releases the dependency set; a later first subscriber computes
+again from current values. A dependency cell change recomputes, but publishes
+only when the result changed semantically. The evaluation stack rejects direct
+or transitive cycles and names the ordered signal ids. Fetch signals use the
+same first-subscriber/last-subscriber ownership, so off-screen or deleted
+subtrees do not keep requests alive.
+
+Root evaluation, signal writes, keyed reconciliation commits, and UI callbacks
+run on the main actor. Network/connectivity/storage callbacks hop to the main
+actor before observing or mutating portable values. AppCore closures are never
+invoked concurrently on the same machine. Swift 6 strict-concurrency warnings
+are build failures for the generated package.
+
+### Async lifecycle
+
+`fetchUrlSignal` starts on first mounted observation and whenever its URL,
+refresh tick, or headers change. `fetchAction*` resolves all dynamic request
+sources when tapped. A fetch signal is subscribed when a mounted view or active
+computed signal holds a subscription token to its value, phase, or error ref.
+An action is mounted while the element containing it is mounted. Each
+fetch/action `taskKey` owns one generation counter and task; a dependency change
+cancels the old task before starting the next. Last-subscriber, element, scope,
+or root disposal also cancels it. Completion checks both task identity and
+generation before writing, so a late cancelled response cannot overwrite newer
+state.
+
+Starting a request atomically sets phase=`loading` and error=`""` while
+retaining the previous response value. A 2xx completion writes the full response
+body, clears error, sets phase=`done`, and only then runs ordered success
+effects. A non-2xx completion retains the previous value and sets phase=`error`
+with `HTTP <status>: <body-prefix>`. Transport/decoding failure does the same
+with `request failed: <message>`. Error text is truncated to 1024 Unicode
+scalars and never contains a host stack. Cancellation caused by replacement is
+not published; the replacement remains `loading`. Cancellation with no
+replacement returns a still-mounted signal to `idle`, while disposal has no
+observable transition because its subscribers are gone.
+
+All phase/value/error transitions are atomic main-actor transactions. Request
+bodies and headers are snapshots taken at start. `URLSession` is the Apple
+transport; platform security policy errors are surfaced as bounded error state,
+not worked around with an insecure fallback. Seed signals subscribe to their
+source and copy it only while pristine; the first program or user write marks
+them dirty and releases that subscription. Persisted signals use `UserDefaults`,
+and the process-wide online signal uses one reference-counted `NWPathMonitor`;
+both retain the same public ids and value types on macOS/iOS and stop target
+callbacks when their last subscriber/root is disposed.
+
+### Native element and rich-content mapping
+
+The renderer decodes the exact HTML-like vocabulary emitted by
+`std/ui/lower.ssc`:
+
+- `div` flex column/row → `VStack`/`HStack`; fragment/display-contents →
+  transparent grouping; spacer/divider map to native equivalents;
+- `p`, `span`, `pre`, `label`, `strong`, `em`, `code`, `br`, `hr`, and
+  `h1`…`h6` map to configured text/group/divider variants;
+- `ul`, `ol`, and `li` preserve list order/markers; `img` maps asset/data URLs
+  synchronously and network URLs through bounded `AsyncImage` state;
+- `input[type=text]`, `input[type=checkbox]`, and `button` map to
+  `TextField`, `Toggle`, and `Button` bindings/actions;
+- `a` with a route event writes the route signal, while an ordinary anchor
+  uses SwiftUI `openURL`; `#/path` also updates the process hash/route signal;
+- table roles/data descriptors map to the shared native table/grid renderer;
+- `role`, `aria-label`, `aria-disabled`, `required`, `disabled`, and value/
+  checked bindings map to SwiftUI accessibility/control modifiers.
+
+The style decoder supports every declaration emitted by the current
+`lower.ssc`: flex direction/alignment/gap/grow, display, padding/margins,
+width/min-width/max-width/height, foreground/background, border and individual
+border sides/colors, radius, font size/family/weight, opacity, text decoration,
+white space/overflow/overflow-x, text alignment, modal position/inset/z-index,
+shadow, and flex shorthands. It accepts px, `%`, `vw`, unitless numeric,
+hex/rgba, `transparent`, `none`, and the exact keywords emitted by
+`lower.ssc`/content lowering. `box-sizing`, `border-collapse`, `cursor`, and
+`user-select` are recognized native-inert declarations rather than errors;
+their browser-only behavior is irrelevant after the corresponding native
+layout/control has been selected.
+
+A generated inventory test extracts tags, attributes, declarations, and value
+forms from the shipped `std/ui/lower.ssc` plus content lowering. Every entry
+must map to a native behavior or the explicit native-inert allowlist. Only an
+unknown direct `element` tag, semantic attribute, declaration, or value becomes
+`NativeUiUnsupported`; silently discarding it is forbidden. Adding toolkit
+output requires updating the Apple decoder/inventory in the same change.
+
+`rawHtml` retains the accepted trusted-markup contract; it is not redefined as
+safe rich text. Both Apple platforms use a dynamically sized isolated
+`WKWebView` with a non-persistent data store. Content JavaScript is disabled,
+a compiled content rule blocks every subresource network request, navigation
+outside the loaded document is cancelled, and tapped `http`/`https`/`mailto`
+links are handed to SwiftUI `openURL`. Inline markup/CSS and `data:` resources
+remain visible, preserving arbitrary trusted fragments including the existing
+strong/`data-x` regression. No cookie/cache state is shared with the app.
+Callers remain responsible for sanitizing user-controlled input before
+`rawHtml`, exactly as on the browser path. A future safe `richText` API is a
+separate additive contract; it cannot silently narrow `rawHtml`.
+
+The version-1 `element` builder canonicalizes the exact lowerer sentinel
+`span(style = display:contents, data-ssc-raw-html = source, children = [])` to
+`NativeUiTrustedHtml(siteId, source)`. A malformed sentinel (wrong tag,
+children, or non-string source) is `NativeUiUnsupported`, not an ordinary span
+whose special attribute is ignored.
+
+### Generated package and acceptance
+
+Generation has two explicit modes so a top-level `main.swift` and SwiftUI
+`@main App` never share one target:
+
+```text
+# domain mode (`emit-swift` / `run-swift`, no NativeUi constructors)
+Sources/AppCore/SscRuntime.swift
+Sources/AppCore/GeneratedProgram.swift
+Sources/<AppName>/main.swift
+
+# UI mode (`build/run/package --target macos|ios` with NativeUi constructors)
+Package.swift                              # AppCore library + <AppName>Cli only
+Sources/AppCore/SscRuntime.swift
+Sources/AppCore/GeneratedProgram.swift
+Sources/<AppName>Cli/main.swift
+AppleApp/<AppName>App.swift
+AppleApp/NativeUiStore.swift
+AppleApp/NativeUiRenderer.swift
+AppleApp/NativeUiStyles.swift
+AppleApp/NativeUiHtml.swift
+AppleApp/Resources/...
+<AppName>.xcodeproj/project.pbxproj
+```
+
+Domain mode retains the current `<AppName>` executable product. UI mode emits
+two independently useful artifacts: a SwiftPM package exposing the `AppCore`
+library plus `<AppName>Cli` domain/debug executable, and an Xcode project whose
+`<AppName>` scheme builds a real application product. Only `AppleApp` contains
+an `@main App`; only `<AppName>Cli` contains `main.swift`. To keep one generated
+domain implementation without requiring a separately embedded framework, the
+Xcode application target compiles `Sources/AppCore/*.swift` directly into its
+module together with `AppleApp/*.swift`. `AppleApp` sources therefore reference
+AppCore declarations directly and do not `import AppCore`; the SwiftPM CLI does
+import the library. `AppCore` itself remains SwiftUI-free.
+
+The generated PBX project contains an application target with product type
+`com.apple.product-type.application`, a sources phase for the AppCore and
+AppleApp Swift files, and a resources phase for `AppleApp/Resources`. Its shared
+scheme selects that application target, never the CLI. Generated settings pin
+`SWIFT_VERSION = 6.0`, `GENERATE_INFOPLIST_FILE = YES`, the manifest bundle id,
+display name, marketing/build versions, `IPHONEOS_DEPLOYMENT_TARGET = 16.0`,
+`MACOSX_DEPLOYMENT_TARGET = 13.0`, and
+`SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx"`; signing/team flags
+remain adapter inputs rather than being persisted as secrets. The generator
+selects UI mode when checked CoreIR references ABI-v1 UI constructors (or the
+manifest explicitly requests SwiftUI), never by attempting a v1 parse after a
+failure. Generated source cleanup is target-scoped so changing modes cannot
+leave the old entry point in the new target.
+
+The iOS adapter invokes `xcodebuild -project <AppName>.xcodeproj -scheme
+<AppName>` with an iOS Simulator/device destination, derived-data path, and the
+existing signing/team flags. It locates the application target's produced
+`.app`, verifies its `Info.plist` bundle id before install or archive, and rejects
+a command-line executable even if it compiled. macOS distribution selects the
+same application scheme/product before codesign/notarization/DMG;
+package/publish never point at `<AppName>Cli`. Simulator, device, IPA,
+notarization, TestFlight, and App Store adapters consume that generated app
+bundle and retain their existing tool/credential diagnostics.
+
+This project shape is an acceptance requirement, not packaging preference. On
+2026-07-11 the legacy generated SwiftPM package with an `@main App` and
+`.iOS(.v17)` was tested using `xcodebuild` from Xcode 26.5. The generic iOS
+Simulator build exited 70 because the matching iOS 26.5 platform was not
+installed; eligible destinations exposed by the scheme were macOS, Catalyst,
+and DriverKit, so that run did not prove an installable iOS `.app`. Therefore a
+plain SwiftPM executable scheme is not accepted as the Apple application
+contract. The first implementation gate builds the generated Xcode application
+scheme on macOS, inspects the real `.app` product and target type/settings, and
+also builds for an iOS Simulator wherever the SDK is installed. A missing local
+iOS SDK is a recorded skip only; CI with that SDK must run the simulator build.
+
+The first implementation gate must prove the ABI on the JVM v2 runtime before
+SwiftUI rendering: no `ForeignV`, exact tags/fields, mutable/computed dependency
+updates, component scope ownership, keyed insert/move/update/delete, duplicate
+diagnostics, fetch cancellation generations, and unsupported source refs. The
+Apple gates then run the same reduced busi fixture through real SwiftPM
+AppCore/CLI tests, a macOS `xcodebuild` of the application scheme, and an
+available iOS Simulator `xcodebuild` compile. Snapshot/string-only Swift
+assertions are not acceptance.
+
 ## Toolkit parity acceptance surface
 
 The final Apple renderer covers the shared toolkit-v2 contract used by a
@@ -323,8 +773,9 @@ reduced busi screen:
 - accessibility metadata and deterministic diagnostics for any feature whose
   native semantics are intentionally unavailable.
 
-The same `.ssc` source emits both macOS and iOS packages. Platform selection may
-change deployment metadata and native adapters, not source-level behavior.
+The same `.ssc` source emits both macOS and iOS application projects. Platform
+selection may change deployment metadata and native adapters, not source-level
+behavior.
 
 ## Behavior
 
@@ -375,8 +826,10 @@ change deployment metadata and native adapters, not source-level behavior.
 ### Apple end to end
 
 - [ ] One reduced busi `.ssc` fixture emits for both macOS and iOS.
-- [ ] The macOS package passes real `swift build` and an executable smoke.
-- [ ] The iOS package passes an available simulator `xcodebuild` compile.
+- [ ] The macOS Xcode application scheme produces a real `.app` and launches a
+  smoke fixture.
+- [ ] The iOS Xcode application scheme passes an available simulator
+  `xcodebuild` compile.
 - [ ] Existing focused conformance and SwiftUI compatibility suites stay green.
 
 ## Testing strategy
