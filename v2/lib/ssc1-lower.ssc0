@@ -1918,6 +1918,29 @@ def hasGuardPat = (arms) =>
           if #seq(ptag, "gpat") then true else hasGuardPat(rest) } }
   }
 
+def hasTypedPat = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "tpat") then true
+          else if #seq(ptag, "gpat") then
+            match pdata { case Pair(basePat, guard) =>
+              match basePat { case Pair(btag, bdata) =>
+                if #seq(btag, "tpat") then true else hasTypedPat(rest) } }
+          else hasTypedPat(rest) } }
+  }
+
+-- A typed binder retains only its portable outer nominal ADT tag. Constructor
+-- arity is intentionally unconstrained: type arguments and field layout are
+-- erased, while the nominal tag remains observable on every target.
+def typedTagTest = (scrut, typeHead) =>
+  IrPrim("__isTag__",
+    Cons(scrut,
+      Cons(IrLit(IrStr(typeHead)),
+        Cons(IrLit(IrInt(#i.sub(0, 1))), Nil))))
+
 def fieldsHaveNestedPat = (fields) =>
   match fields {
     case Nil => false
@@ -1979,6 +2002,25 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                       ctorPatternArms(ctorName, arity, armBody),
                       Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
                   }
+                else if #seq(btag, "tpat") then
+                  match bdata { case Pair(basePat, typeHead) =>
+                    match basePat { case Pair(tbaseTag, tbaseData) =>
+                      if #seq(tbaseTag, "vpat") then
+                        let boundScope = Cons(tbaseData, scope) in
+                        let failedScope = Cons("__typed_scrut__", scope) in
+                        let fallback = lowerOrderedGuardArms(
+                          failedScope, #i.add(scrutPos, 1), rest) in
+                        IrLet(Cons(IrLocal(scrutPos), Nil),
+                          IrIf(typedTagTest(IrLocal(0), typeHead),
+                            IrIf(lowerE(boundScope, guard), lowerE(boundScope, body), fallback),
+                            fallback))
+                      else
+                        IrIf(typedTagTest(IrLocal(scrutPos), typeHead),
+                          IrIf(lowerE(scope, guard), lowerE(scope, body),
+                            lowerOrderedGuardArms(scope, scrutPos, rest)),
+                          lowerOrderedGuardArms(scope, scrutPos, rest))
+                    }
+                  }
                 else
                   IrIf(lowerE(scope, guard), lowerE(scope, body),
                     lowerOrderedGuardArms(scope, scrutPos, rest))
@@ -1991,6 +2033,22 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
             }
           else if #seq(ptag, "vpat") then
             IrLet(Cons(IrLocal(scrutPos), Nil), lowerE(Cons(pdata, scope), body))
+          else if #seq(ptag, "tpat") then
+            match pdata { case Pair(basePat, typeHead) =>
+              match basePat { case Pair(btag, bdata) =>
+                if #seq(btag, "vpat") then
+                  let boundScope = Cons(bdata, scope) in
+                  let failedScope = Cons("__typed_scrut__", scope) in
+                  let fallback = lowerOrderedGuardArms(
+                    failedScope, #i.add(scrutPos, 1), rest) in
+                  IrLet(Cons(IrLocal(scrutPos), Nil),
+                    IrIf(typedTagTest(IrLocal(0), typeHead),
+                      lowerE(boundScope, body), fallback))
+                else
+                  IrIf(typedTagTest(IrLocal(scrutPos), typeHead),
+                    lowerE(scope, body), lowerOrderedGuardArms(scope, scrutPos, rest))
+              }
+            }
           else if #seq(ptag, "cpat") then
             match pdata { case Pair(ctorName, fields) =>
               let arity = lenL(fields) in
@@ -2032,6 +2090,8 @@ def lowerMatch = (scope, scrutinee, arms) =>
   let letScope = Cons("__scr__", scope) in
   let flatArms = expandAltArms(arms) in
   if hasGuardPat(flatArms) then
+    IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
+  else if hasTypedPat(flatArms) then
     IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
   else if hasNestedPat(flatArms) then
     IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
