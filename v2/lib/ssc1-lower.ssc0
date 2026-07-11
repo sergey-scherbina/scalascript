@@ -716,7 +716,16 @@ def isKnownSelMethod = (m) =>
   go(ks)
 
 def selMethodOr = (method, robj, rargs) =>
-  if isKnownSelMethod(method) then
+  -- K62.32: the _sel_mkString prelude helper is arity-2 (receiver, sep), so the 0-arg
+  -- (mkString) and 3-arg (mkString(pre, sep, post)) forms crashed "arity: 2 expected, N given".
+  -- Route those to the polymorphic runtime __method__ (handles all three arities on List AND
+  -- ArrayBuffer); keep the 1-arg (sep) form on the fast _sel_mkString path.
+  if #seq(method, "mkString") then
+    (if #i.eq(lenL(rargs), 1) then
+       Pair("app", Pair(Pair("var", "_sel_mkString"), Cons(robj, rargs)))
+     else
+       Pair("prim", Pair("__method__", Cons(Pair("str", "mkString"), Cons(robj, rargs)))))
+  else if isKnownSelMethod(method) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
   else
     Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
