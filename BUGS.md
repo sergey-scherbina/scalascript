@@ -25,7 +25,8 @@
 
 ## v21-native-md-interpolator-unbound — self-hosted front misses the built-in prefix
 
-**Status:** open; found by codex while closing the native content-helper cutover.
+**Status:** fixed (2026-07-11, `50715b7a3`), awaiting Sergiy confirmation;
+found by codex while closing the native content-helper cutover.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, both
   `bin/ssc-standard run --native examples/content.ssc` and the same command
@@ -46,6 +47,12 @@
   separately claimed lowerer, add a faithful assembled regression, then require
   the full content example, stage-2, release/dependency, corpus/parity, and
   affected conformance gates before landing.
+- **Fix/verification:** the front now recognizes only the reserved `md` prefix
+  before a string token, reuses `buildSInterp`, and emits `__mdStrip__` directly.
+  Focused/full VM, ASM, and `build-jvm` are exact; stage-2 is source-exact,
+  dependency/plugin/standard/slim/JRE gates pass, native corpus runtime success
+  rises to 47, standard parity is 36/30/129 with no mismatch/one-sided row,
+  runtime blockers fall to 18, and affected conformance is 17/17.
 
 ## v2-swift-core-stale-testing-command — spec names an absent e2e script
 

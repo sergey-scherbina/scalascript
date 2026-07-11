@@ -2597,7 +2597,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     dependency is 18 roots / 69 edges / 32 JARs /
                                     0 violations, standard/slim/JRE/plugin gates
                                     pass, and affected conformance is 17/17.
-                              - [ ] **TI-8.2d2w-md self-hosted built-in `md`:**
+                              - [x] **TI-8.2d2w-md self-hosted built-in `md`
+                                    — DONE 2026-07-11 (`50715b7a3`):**
                                     track the assembled `unbound global: md`
                                     boundary in `BUGS.md` and specify the
                                     language-owned interpolation/indent contract
@@ -2620,6 +2621,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     stage-2, dependency/plugin/distribution gates,
                                     corpus/parity taxonomy, and affected
                                     `content*,v2-*` conformance are green.
+                                    Result: the self-hosted front reuses complete
+                                    `s` interpolation and emits `__mdStrip__`
+                                    directly; no lowerer/provider/host parser or
+                                    dependency changed. Focused and full content
+                                    output is exact on VM/ASM/build-jvm; stage-2,
+                                    plugin/dependency/standard/slim/JRE pass;
+                                    corpus runtime success is 47, standard parity
+                                    is 36 identical / 30 both-fail / 129 skipped,
+                                    blockers fall 19→18, and no-memo conformance
+                                    is 17/17. Full execution exposed the separately
+                                    queued nested-`NativeDoc` rendering bug.
                               - [ ] **TI-8.2d2w-doc-nested recursive document
                                     rendering:** once `md` lets the full public
                                     example run, its nested `doc(table(...),

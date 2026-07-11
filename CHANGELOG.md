@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native `md` interpolation is self-hosted
+
+ScalaScript 2.1 now parses `$name` / `${expr}` and strips common indentation for
+the normative `md"..."` interpolator entirely in the ScalaScript-written front.
+It emits the existing portable primitive directly, adds no provider or parser
+dependency, and leaves ordinary lexical calls intact. Focused and complete
+content output is exact on VM, direct ASM, and `build-jvm`; stage-2 and every
+release/dependency gate pass, conformance is 17/17, and the standard runtime
+blocker total falls from 19 to 18. Landed through `50715b7a3`.
+
 ## 2026-07-11 — portable standard effect runners complete natively
 
 ScalaScript 2.1 now runs Logger, State, and Stream standard effects through
