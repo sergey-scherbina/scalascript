@@ -24,4 +24,15 @@ done
 cmp "$tmp/vm.out" "$tmp/asm.out"
 ! rg -q 'Stub|unhandled runtime effect|unbound global' "$tmp/vm.out" "$tmp/asm.out"
 
+algebraic_expected=$'List(Hello, World!)\n0\n1\n[LOG] before increment\n[LOG] after increment\n10\n11\nList(11, 21, 12, 22, 13, 23)\ndone\n(42, List((info, step 1), (info, step 2)))\nList(1, 2)'
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args+=(--bytecode)
+  run_native "${mode_args[@]}" "$ROOT/examples/algebraic-effects.ssc" \
+    >"$tmp/algebraic.$mode.out" 2>"$tmp/algebraic.$mode.err"
+  [[ $(<"$tmp/algebraic.$mode.out") == "$algebraic_expected" ]]
+  [[ ! -s "$tmp/algebraic.$mode.err" ]]
+done
+cmp "$tmp/algebraic.vm.out" "$tmp/algebraic.asm.out"
+
 echo 'PASS v21-native-effect-handlers-smoke'
