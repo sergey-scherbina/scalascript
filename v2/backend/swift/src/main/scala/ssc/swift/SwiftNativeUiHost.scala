@@ -140,6 +140,12 @@ final class NativeUiSession {
 
     func read(_ signal: SscValue) throws -> SscValue { try host.readSignal(signal, "NativeUiSession.read") }
     func write(_ signal: SscValue, _ value: SscValue) throws { try host.writeSignal(signal, value, "NativeUiSession.write") }
+    func userWrite(_ signal: SscValue, _ value: SscValue) throws {
+        try host.userWriteSignal(signal, value, "NativeUiSession.userWrite")
+    }
+    func userRead(_ signal: SscValue) throws -> SscValue {
+        try host.userReadSignal(signal, "NativeUiSession.userRead")
+    }
     func targetWrite(_ signal: SscValue, _ value: SscValue) throws {
         try host.targetWriteSignals([(signal, value)], "NativeUiSession.targetWrite")
     }
@@ -741,6 +747,44 @@ final class NativeUiHost: SscRuntimeExtension {
     func writeSignal(_ signal: SscValue, _ value: SscValue, _ operation: String) throws {
         let fields = try nativeUiSignalFields(signal, operation)
         _ = try call(try nativeUiClosure(fields[4], operation), [value])
+    }
+
+    func userWriteSignal(_ signal: SscValue, _ value: SscValue, _ operation: String) throws {
+        let fields = try nativeUiSignalFields(signal, operation)
+        let id = try nativeUiString(fields[0], operation + " id")
+        let scope = try nativeUiString(fields[1], operation + " scope")
+        let kind = try nativeUiString(fields[2], operation + " kind")
+        try nativeUiEnsurePortable(value, operation + " value")
+        guard let cell = signals[signalKey(scope: scope, id: id)],
+              cell.kind == kind, cell.writable else {
+            throw SscRuntimeFailure(description: "\(operation): signal '\(id)' is not a live writable target")
+        }
+        let firstSeedWrite = cell.kind == "seed" && !cell.dirty
+        guard firstSeedWrite || !nativeUiEqual(cell.current, value) else { return }
+        let state = cell.snapshot()
+        do {
+            cell.current = value
+            cell.dirty = true
+            try cell.afterWrite(value)
+            onWrite?(scope, id)
+        } catch {
+            cell.restore(state)
+            throw error
+        }
+    }
+
+    func userReadSignal(_ signal: SscValue, _ operation: String) throws -> SscValue {
+        let fields = try nativeUiSignalFields(signal, operation)
+        let id = try nativeUiString(fields[0], operation + " id")
+        let scope = try nativeUiString(fields[1], operation + " scope")
+        let kind = try nativeUiString(fields[2], operation + " kind")
+        guard let cell = signals[signalKey(scope: scope, id: id)],
+              cell.kind == kind, cell.writable else {
+            throw SscRuntimeFailure(description: "\(operation): signal '\(id)' is not a live writable target")
+        }
+        let value = try cell.dynamicRead()
+        try nativeUiEnsurePortable(value, operation + " value")
+        return value
     }
 
     func targetWriteSignals(_ writes: [(SscValue, SscValue)], _ operation: String) throws {

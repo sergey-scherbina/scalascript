@@ -423,6 +423,14 @@ final class NativeUiStore: ObservableObject {
     }
 
     func isUserWritable(_ signal: SscValue) -> Bool { session?.isWritable(signal) == true }
+    func readUserTarget(_ signal: SscValue) throws -> SscValue {
+        guard let session else { throw SscRuntimeFailure(description: "native UI session is unavailable") }
+        return try session.userRead(signal)
+    }
+    func writeUserTarget(_ signal: SscValue, _ value: SscValue) throws {
+        guard let session else { throw SscRuntimeFailure(description: "native UI session is unavailable") }
+        try session.userWrite(signal, value)
+    }
 
     private func signalKind(_ signal: SscValue, visiting: inout Set<ObjectIdentifier>) -> String? {
         guard case let .data("NativeUiSignal", fields) = signal, fields.count == 6,
@@ -2360,27 +2368,41 @@ enum NativeUiActions {
             store.report("native event " + kind + " target must be writable NativeUiSignal at " + store.source(siteId))
             return
         }
+        func write(_ value: SscValue) -> Bool {
+            do { try store.writeUserTarget(fields[1], value); return true }
+            catch {
+                store.report("native event " + kind + " write failed: " + String(describing: error) + " at " + store.source(siteId))
+                return false
+            }
+        }
+        func read() -> SscValue? {
+            do { return try store.readUserTarget(fields[1]) }
+            catch {
+                store.report("native event " + kind + " read failed: " + String(describing: error) + " at " + store.source(siteId))
+                return nil
+            }
+        }
         switch kind {
-        case "set": store.cell(for: fields[1]).write(fields[2])
+        case "set": _ = write(fields[2])
         case "input":
             guard case .unit = fields[2] else {
                 store.report("native event input payload must be Unit at " + store.source(siteId)); return
             }
-            store.cell(for: fields[1]).write(.string(input ?? ""))
+            _ = write(.string(input ?? ""))
         case "toggle":
-            guard case .unit = fields[2], case let .bool(current) = store.read(fields[1]) else {
+            guard case .unit = fields[2], let currentValue = read(), case let .bool(current) = currentValue else {
                 store.report("native event toggle requires Unit payload and Bool target at " + store.source(siteId)); return
             }
-            store.cell(for: fields[1]).write(.bool(!current))
+            _ = write(.bool(!current))
         case "increment":
-            guard case let .int(amount) = fields[2], case let .int(value) = store.read(fields[1]) else {
+            guard case let .int(amount) = fields[2], let currentValue = read(), case let .int(value) = currentValue else {
                 store.report("native event increment requires Int payload and Int target at " + store.source(siteId)); return
             }
             let (next, overflow) = value.addingReportingOverflow(amount)
             guard !overflow else {
                 store.report("native event increment would overflow Int64 at " + store.source(siteId)); return
             }
-            store.cell(for: fields[1]).write(.int(next))
+            _ = write(.int(next))
         default: preconditionFailure("validated NativeUiEvent kind")
         }
     }

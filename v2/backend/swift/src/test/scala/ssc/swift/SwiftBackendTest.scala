@@ -869,11 +869,15 @@ final class SwiftBackendTest extends AnyFunSuite:
     val action = Term.App(Term.Global("__ssc_nativeui_v1.fetchAction"), List(
       str("deferred:action"), source(20, "fetchAction"), str("POST"), str("/api"), Term.Local(1), Term.Local(2),
     ))
+    val intSource = Term.App(Term.Global("signal"), List(str("int-source"), Term.Lit(Const.CInt(1))))
+    val intSeed = Term.App(Term.Global("seedSignal"), List(str("int-seed"), Term.Local(0)))
     val root = Term.App(Term.Global("fragment"), List(list(List(
+      Term.App(Term.Global("signalText"), List(Term.Local(3))),
+      Term.Local(2),
       Term.App(Term.Global("signalText"), List(Term.Local(1))),
-      Term.Local(0),
+      Term.App(Term.Global("signalText"), List(Term.Local(0))),
     ))))
-    Program(Nil, Term.Let(List(refresh, body, fetch, action),
+    Program(Nil, Term.Let(List(refresh, body, fetch, action, intSource, intSeed),
       Term.App(Term.Global("emit"), List(root, str("out")))))
 
   private val nativeUiDeferredProbe = """
@@ -911,6 +915,8 @@ struct DeferredProbe {
         let abi = fields(store.root, "NativeUiAbi")
         let children = list(fields(abi[1], "NativeUiFragment")[0])
         let fetch = fields(children[0], "NativeUiSignalText")[0]
+        let intSource = fields(children[2], "NativeUiSignalText")[0]
+        let intSeed = fields(children[3], "NativeUiSignalText")[0]
         guard store.signalKind(fetch) == "fetch",
               store.source(for: fetch) == "deferred.ssc:10:3 [fetchUrlSignal]" else {
             fatalError("fetch signal source missing")
@@ -1063,6 +1069,38 @@ struct DeferredProbe {
             "native event increment would overflow Int64 at deferred.ssc:20:3 [fetchAction]",
               int(store.read(refresh)) == Int64.max else {
             fatalError("increment overflow trapped, mutated, or lost source")
+        }
+        store.cell(for: refresh).write(.int(5))
+        var forgedReadRan = false
+        var forgedWriteRan = false
+        let refreshFields = fields(refresh, "NativeUiSignal")
+        let forgedLiveWrapper = SscValue.data("NativeUiSignal", [
+            refreshFields[0], refreshFields[1], refreshFields[2],
+            .closure(SscClosure(arity: 0) { _ in forgedReadRan = true; return .int(-999) }),
+            .closure(SscClosure(arity: 1) { _ in forgedWriteRan = true; return .unit }),
+            refreshFields[5]
+        ])
+        NativeUiActions.run(
+            .data("NativeUiEvent", [.string("increment"), forgedLiveWrapper, .int(1), .map(SscMap())]),
+            input: nil,
+            store: store,
+            siteId: "deferred:action",
+            ownerPath: "root"
+        )
+        guard !forgedReadRan, !forgedWriteRan, int(store.read(refresh)) == 6 else {
+            fatalError("event authenticated one Host cell but executed forged wrapper closures")
+        }
+        store.cell(for: intSource).write(.int(9))
+        NativeUiActions.run(
+            .data("NativeUiEvent", [.string("increment"), intSeed, .int(1), .map(SscMap())]),
+            input: nil,
+            store: store,
+            siteId: "deferred:action",
+            ownerPath: "root"
+        )
+        store.cell(for: intSource).write(.int(20))
+        guard int(store.read(intSeed)) == 10 else {
+            fatalError("seed event read stale construction default or failed to become dirty")
         }
         let forgedKind = SscValue.data("NativeUiSignal", [
             fetchFields[0], fetchFields[1], .string("bogus"),
