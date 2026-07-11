@@ -642,7 +642,14 @@ Neither slot participates in row identity.
 
 Row request URL substitution happens before base resolution. Every `/:field`
 token resolves the named dotted row path to a scalar and percent-encodes it as
-exactly one path segment; a missing/non-scalar token fails before transport.
+exactly one path segment. The token grammar is exactly
+`/:([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)(?=/|\?|#|$)`;
+pre-scan rejects the complete request if any `/:` occurrence is not one exact
+token, rather than accepting a valid prefix. String (including empty), Int,
+BigInt, and Bool resolve to their canonical text; Decimal, Float, Unit,
+missing/null, and compound values fail before transport. `rowLinkAction` uses
+the same four-type canonicalization for its local signal write and starts no
+transport.
 After substitution an absolute `http`/`https` URL with a host is unchanged. A
 root-relative or relative URL is resolved by Foundation against the sole
 generated `--server-url`, which itself must be absolute `http`/`https` with a

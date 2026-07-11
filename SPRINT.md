@@ -699,6 +699,12 @@ there before changing this plan.
                         non-overflow before transport, and a committed row-set
                         update cancels/prunes task/action/edit state for deleted
                         typed identities without relying on `onDisappear`.
+                        Rozum verdict for the only draft spec ambiguity: URL
+                        `/:field` and row-link values accept exactly String,
+                        Int, BigInt, and Bool canonical text; tokens use the
+                        strict dotted-identifier/boundary regex now frozen in
+                        the feature spec, and any malformed `/:` rejects the
+                        whole request before base resolution.
                   - [ ] execute the six named generated-Swift table tests plus
                         focused compatibility/conformance gates, obtain final
                         Rozum implementation APPROVE, then document results.
