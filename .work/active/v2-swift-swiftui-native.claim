@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T08:05:36Z
+heartbeat: 2026-07-11T08:45:32Z
 status: in-progress
-done-so-far: portable JVM NativeUi ABI landed with reviewer approval; SwiftBackend and SwiftRuntime now have an uncommitted AppCore extension seam and generated NativeUiHost source
-next: compile the Scala generator, add real Swift package ABI/root regression gates, then request nativeui-reviewer verdict before landing
+done-so-far: Swift AppCore NativeUiHost now has retained sessions, catchable rollback, provenance mode detection, exact descriptors/CSS/source diagnostics; real Swift backend 19/19 and CLI 5/5 are green; implementation remains uncommitted
+next: obtain nativeui-reviewer re-approval, rerun affected conformance, then land host code and update spec/results/board separately
