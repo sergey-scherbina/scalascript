@@ -735,7 +735,7 @@ there before changing this plan.
                         static/signal rowsPath plus strict fetch dotted paths;
                         preserve invalid→valid mounting and never combine old
                         retained cells with a changed column descriptor.
-                        Result: landed `1ff7304f2`; docs `a3830756e`.
+                        Result: landed `d54d02126`; docs `2f7d600f9`.
                         The shared macOS/iOS Grid table runtime covers strict
                         static/signal/fetch decoding, typed identity, all frozen
                         column and payload modes, exact-current row actions,
@@ -754,7 +754,7 @@ there before changing this plan.
                         before stream/callback work. Stress the action test,
                         repeat named 6/6 and full 40/40, then obtain Rozum
                         confirmation before publication.
-                        Result: fixed `331db2bcd`; `nativeui-reviewer` confirmed
+                        Result: fixed `400931f68`; `nativeui-reviewer` confirmed
                         the harness-only root cause and lock boundary in Rozum.
                         Action stress 5/5, named table 6/6, and full backend
                         40/40 are green after the fix.

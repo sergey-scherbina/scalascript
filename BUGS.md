@@ -2,7 +2,7 @@
 
 ## v2-native-table-urlprotocol-harness-race — strict action probe mutates shared Set concurrently
 
-**Status:** done (2026-07-11, `331db2bcd`); found by codex in the mandatory
+**Status:** done (2026-07-11, `400931f68`); found by codex in the mandatory
 post-rebase six-test rerun and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum room.
 
@@ -29,7 +29,7 @@ post-rebase six-test rerun and confirmed fixed by `nativeui-reviewer` in the
 
 ## v2-swiftui-ios16-onchange-availability — generated renderer requires iOS 17 accidentally
 
-**Status:** done (2026-07-11, `1ff7304f2`); found by codex in the real iOS
+**Status:** done (2026-07-11, `d54d02126`); found by codex in the real iOS
 Simulator strict typecheck and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum room.
 
@@ -53,7 +53,7 @@ Simulator strict typecheck and confirmed fixed by `nativeui-reviewer` in the
 
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
 
-**Status:** done (2026-07-11, `1ff7304f2`); found by
+**Status:** done (2026-07-11, `d54d02126`); found by
 `apple_table_impl_map` during the read-only implementation audit and confirmed
 fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
 
