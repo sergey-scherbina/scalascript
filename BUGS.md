@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v21-match-pregex-constructor — native match rejects `PRegex/1`
+
+**Status:** open (2026-07-11); found by codex after the layout-object fix
+advanced all three parser-combinator examples past their missing owned members.
+
+- **Real-harness repro:** run
+  `bin/ssc-standard run examples/dsl-calc-parser.ssc` after the
+  `v21-layout-object-members-unprefixed` fix. VM and direct ASM both fail with
+  `ssc: match: no arm for PRegex/1`; `dsl-json-parser.ssc` and
+  `dsl-yaml-like.ssc` reach the same failure.
+- **Expected:** matching the `PRegex(pattern)` constructor selects its arm and
+  the three pure parser-combinator examples continue identically on VM/ASM.
+- **Plan/done-when:** inspect the emitted constructor tag/arity and ordered
+  match lowering for `Parser`'s algebra; fix the native frontend/runtime seam,
+  add an isolated constructor-match regression, and rerun all three examples.
+  Keep any later independent failures separately classified.
+
 ## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
 
 **Status:** open (2026-07-11); found by codex while selecting the next

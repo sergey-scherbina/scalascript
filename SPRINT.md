@@ -1626,6 +1626,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               rows and retire/reclassify only rows that fully
                               complete; require native-entry, full corpus/parity,
                               both taxonomies, and fresh conformance before push.
+                        - [ ] **TI-8.2d2q `PRegex` constructor matching:** all
+                              three parser-combinator examples now pass owned
+                              `Parser_*` lookup but both VM and direct ASM fail
+                              with `match: no arm for PRegex/1`. Inspect emitted
+                              constructor metadata and ordered pattern lowering,
+                              specify the intended constructor-match behavior,
+                              add an isolated regression, then rerun the three
+                              examples and reclassify only fully resolved rows.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
