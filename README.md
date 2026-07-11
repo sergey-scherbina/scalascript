@@ -68,6 +68,8 @@ An imported symbolic extension such as parser choice `|` handles non-primitive
 values while `6 | 3` remains ordinary integer bitwise OR.
 Exact top-level `summon[TC[T]]` resolves a matching named given; Mirror/derived
 evidence, anonymous givens, and general implicit search remain migration gaps.
+Top-level `case object` declarations are stable portable nullary values across
+imports, direct references, equality, and pattern matching.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
 `sqrt`, `pow`, `floor`, `ceil`, and `round`) without loading the tools tier.
 Nested constructor patterns fall through to later source arms correctly, so

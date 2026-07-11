@@ -1181,6 +1181,26 @@ println(display(42))              // "42"
 println(display(List(1, 2, 3)))   // "[1, 2, 3]"
 ```
 
+### Case Objects
+
+A top-level `case object` is one stable nullary value. It survives `.ssc`
+imports and can be referenced, compared, and matched directly:
+
+```scalascript
+trait ParserContext
+case object NoContext extends ParserContext
+
+val defaultContext = NoContext
+println(defaultContext == NoContext) // true
+
+defaultContext match
+  case NoContext => println("default")
+  case _         => println("custom")
+```
+
+On the compiler-free native route, inheritance is type metadata; the runtime
+value is the portable nullary constructor `NoContext`.
+
 ### Extension Methods
 
 ```scalascript
