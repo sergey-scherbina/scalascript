@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-10T20:40:28Z
+heartbeat: 2026-07-11T04:18:13Z
 status: in-progress
 done-so-far: portable runtime plus structural AppCore SwiftPM backend and arbitrary BigInt landed through 0c85fc214; real fact/tco/map/bigint swift-run gates green
 next: add exact portable Decimal/Money and reusable Pure/Op to AppCore, then mutual-TCO and checked domain fixtures
