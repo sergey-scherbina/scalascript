@@ -111,7 +111,7 @@ content provider exposed the next failure in `content-linked-namespaces.ssc`.
 
 ## v21-coreir-curried-closure-underapplication — nested parameter lists fail at runtime
 
-**Status:** open (2026-07-11); found by codex while advancing the installed
+**Status:** fixed (2026-07-11, `e23bff273`), awaiting Sergiy confirmation; found by codex while advancing the installed
 `algebraic-effects.ssc` VM/direct-ASM regression after removing hidden
 multi-effect CPS.
 
@@ -129,10 +129,17 @@ multi-effect CPS.
   whose combined arguments exactly satisfy a known definition, retain the
   existing under/over-arity negative gates, then require exact installed
   VM/ASM output and the affected conformance/release gates.
+- **Root cause/fix:** the parser preserves parameter clauses as nested calls,
+  while definitions use one flattened CoreIR lambda. The lowerer now pre-scans
+  definition arities and combines only a known nested call whose total exactly
+  satisfies that definition; strict runtime arity remains unchanged.
+- **Verification:** installed VM/direct ASM complete all eleven
+  `algebraic-effects.ssc` lines, native-entry retains under/over-arity failures,
+  and the consolidated release gate plus fresh conformance 11/11 pass.
 
 ## v21-native-multi-effect-hidden-cps — declared operation gains a hidden argument
 
-**Status:** open (2026-07-11); found by codex while running the installed
+**Status:** fixed (2026-07-11, `2a66b1221`), awaiting Sergiy confirmation; found by codex while running the installed
 VM/direct-ASM regression for TI-8.2d2w2 standard effect runners.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
@@ -151,6 +158,10 @@ VM/direct-ASM regression for TI-8.2d2w2 standard effect runners.
   from reusable portable resume closures, add the exact `handle(program())`
   shape to the installed VM/ASM regression, and require both the focused effect
   smoke and the full release gates before closing the bug.
+- **Fix/verification:** the KV9 hidden-parameter branch is removed; declared
+  multi-effect operations use the same portable `Op` and reusable resume
+  closures as ordinary effects. The focused VM/ASM regression, exact public
+  example, consolidated release gate, and fresh conformance 11/11 all pass.
 
 ## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
 

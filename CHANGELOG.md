@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — portable standard effect runners complete natively
+
+ScalaScript 2.1 now runs Logger, State, and Stream standard effects through
+core-free providers and portable operations, including nested runner
+restoration and reusable multi-shot resumes. The obsolete hidden multi-effect
+CPS convention is removed, and definition-aware frontend reconciliation
+supports multiple source parameter clauses while preserving strict CoreIR
+under/over-arity failures. `algebraic-effects.ssc` is exact on installed VM and
+direct ASM; the consolidated gate is release-ready with 35 identical, 31
+both-fail, zero mismatches/one-sided rows, and 19 remaining blockers. Landed
+through `a1166ca52`.
+
 ## 2026-07-11 — native `doc` / `render` stay core-free
 
 The ScalaScript 2.1 host provider now supplies lexical-safe `doc` and `render`

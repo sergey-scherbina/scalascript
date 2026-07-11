@@ -2043,7 +2043,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               early-return, and reusable multi-shot resume with
                               exact imported VM/ASM regressions plus full
                               `effects.ssc` compatibility output.
-                        - [ ] **TI-8.2d2w2 standard portable effect runners:**
+                        - [x] **TI-8.2d2w2 standard portable effect runners:**
                               after explicit handlers are exact, isolate
                               `algebraic-effects.ssc` runners (`runLogger`,
                               `runState`, `runLoggerToList`, `runStream`) and
@@ -2051,7 +2051,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               effect semantics through core-free providers or
                               portable runtime definitions, with nested runner
                               and multi-shot coverage.
-                        - [ ] **TI-8.2d2w1b remove hidden multi-effect CPS:** the
+                              Result: core-free Logger/Stream providers and the
+                              existing State provider complete all eleven
+                              `algebraic-effects.ssc` lines plus nested runner
+                              restoration on installed VM/direct ASM.
+                        - [x] **TI-8.2d2w1b remove hidden multi-effect CPS:** the
                               W2 installed regression exposes that the old KV9
                               list-specific transform changes a source
                               zero-argument function containing `multi effect`
@@ -2061,7 +2065,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               reusable-resume contract as ordinary effects;
                               pin exact `handle(program())` VM/ASM output before
                               continuing to the standard runner boundary.
-                        - [ ] **TI-8.2d2w1c curried call reconciliation:** the next
+                              Result: the KV9 list-specific transform is gone;
+                              source arity remains exact and reusable resume
+                              closures provide multi-shot behavior.
+                        - [x] **TI-8.2d2w1c curried call reconciliation:** the next
                               installed boundary is a normal two-clause helper
                               whose CoreIR is nested `App(App(fn, first), second)`
                               over a flattened two-argument `Lam`. Make
@@ -2070,6 +2077,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               retain strict under/over-application errors on VM
                               and direct ASM, then pin the full invocation before
                               resuming W2 provider checks.
+                              Result: definition-aware lowerer reconciliation
+                              handles `f(a)(b)` without weakening CoreIR closure
+                              arity. Consolidated gate: 35 identical / 31
+                              both-fail / 129 skipped, zero mismatch/one-sided,
+                              19 blockers / 31 taxonomy rows, release-ready.
                         - [x] **TI-8.2d2w0 extern-class layout ownership:** the
                               post-handler exhaustive gate newly exposes
                               `extern class UploadedFile:` members as top-level
