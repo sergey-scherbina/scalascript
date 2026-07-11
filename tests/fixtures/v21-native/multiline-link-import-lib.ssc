@@ -4,5 +4,5 @@ name: v21-native-multiline-link-import-lib
 
 ```scalascript
 object WrappedImport:
-  def value(): Int = 40
+  def value(extra: Int): Int = 40 + extra
 ```

@@ -15,5 +15,5 @@ but ends at the paragraph boundary without becoming an import.
 ```
 
 ```scalascript
-println(WrappedImport.value() + firstPart() + secondPart())
+println(WrappedImport.value(0) + firstPart() + secondPart())
 ```
