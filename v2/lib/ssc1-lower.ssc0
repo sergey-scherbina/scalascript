@@ -271,6 +271,27 @@ def staticMemberNames = (stmts) =>
       }
   }
 
+-- Build the alternating name/value payload expected by the existing portable
+-- __mk_method_obj__ primitive. Static member globals are still emitted for
+-- direct owner/summon dispatch; the method object makes the same members
+-- survive when the given flows through an ordinary value.
+def staticMemberObjectArgs = (prefix, stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, body) =>
+                Cons(IrLit(IrStr(name)),
+                  Cons(IrGlobal(#sconcat(prefix, name)),
+                    staticMemberObjectArgs(prefix, rest)))
+            }
+          else staticMemberObjectArgs(prefix, rest)
+      }
+  }
+
 def isExtensionMethod = (name) =>
   let rec go = (xs) =>
     match xs {
@@ -2490,7 +2511,8 @@ def lowerStmtToList = (stmt) =>
             loweredMembers
         }
       else if #seq(tag, "given_obj") then
-        -- KC5+KC7b: given name: T with { defs } → emit prefixed defs + dummy sentinel
+        -- KC5+KC7b: given name: T with { defs } → emit prefixed defs plus the
+        -- same portable method-object value used by the compatibility bridge.
         match data {
           case Pair(name, rest2) =>
             match rest2 {
@@ -2525,11 +2547,13 @@ def lowerStmtToList = (stmt) =>
                           else prefixDefs(rest3)
                       }
                   } in
-                -- emit prefixed method defs + sentinel val (for KC5 injection at call sites)
+                -- Emit prefixed members for direct/summon dispatch, then a
+                -- first-class dictionary for explicit arguments/value flow.
                 let loweredMembers = prefixDefs(stmts) in
                 let _clearOwnerPrefix = #cell.set(kc7bOwnerPrefixCell, "") in
                 let _clearOwnerMembers = #cell.set(kc7bOwnerMembersCell, Nil) in
-                appendL(loweredMembers, Cons(IrDef(name, IrLit(IrInt(0))), Nil))
+                let dictionary = IrPrim("__mk_method_obj__", staticMemberObjectArgs(prefix, stmts)) in
+                appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
             }
         }
       else if #seq(tag, "multi_effect") then

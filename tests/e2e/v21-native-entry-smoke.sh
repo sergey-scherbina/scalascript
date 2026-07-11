@@ -125,6 +125,10 @@ native_math_expected=$'3141593\n2718282\n42\n25\n90\n1024'
 [[ $(run_native "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 exact_summon_expected=$'show:7\ntrue\nnested'
 [[ $(run_native "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
+typeclass_dictionary_expected=$'int\n0\n7\nstring\n[]\nleft-right\nint|string\n17\n21'
+[[ $(run_native "$FIXTURES/typeclass-dictionary.ssc") == "$typeclass_dictionary_expected" ]]
+typeclass_example_expected=$'Int    : Int(42)\nBool   : yes\nString : \'hello\'\nsummon : Int(99)\n1 == 1  : true\n1 == 2  : false\nhi == hi: true\nhi == ho: false\n3 < 7   : true\n5 > 2   : true\nmin(3,7): 3\nmax(3,7): 7\nsorted  : 1, 2, 3, 5, 8, 9\nsum    : 15\nconcat : hello, world!\nrepeat : abababab\ndoubled: 2, 4, 6, 8, 10\nsquared: 1, 4, 9, 16, 25'
+[[ $(run_native "$ROOT/examples/typeclass.ssc") == "$typeclass_example_expected" ]]
 nested_pattern_expected=$'some:7:outer\nnone:2:outer\ndeep:9\ninner-none\nfallback:kept'
 [[ $(run_native "$FIXTURES/nested-pattern-fallback.ssc") == "$nested_pattern_expected" ]]
 list_mkstring_expected=$'[]\none\none, two, three\n1|2|3'
@@ -179,6 +183,8 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/typed-pattern-boundary.ssc") == "$typed_pattern_boundary_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-summon.ssc") == "$exact_summon_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/typeclass-dictionary.ssc") == "$typeclass_dictionary_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/typeclass.ssc") == "$typeclass_example_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/nested-pattern-fallback.ssc") == "$nested_pattern_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/list-mkstring-capture.ssc") == "$list_mkstring_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/crypto-encrypt-demo.ssc") == "$crypto_encrypt_expected" ]]

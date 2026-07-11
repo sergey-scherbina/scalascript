@@ -136,6 +136,7 @@ def sscIsDecl = (tag) =>
   else if #seq(tag, "casecls") then true
   else if #seq(tag, "caseobj") then true
   else if #seq(tag, "given") then true
+  else if #seq(tag, "given_obj") then true
   else if #seq(tag, "object") then true
   else false
 def sscDefsOnly = (stmts) =>
