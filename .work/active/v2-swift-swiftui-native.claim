@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T15:04:54Z
+heartbeat: 2026-07-11T15:50:45Z
 status: in-progress
-done-so-far: native-table spec freeze 0f234fbd6 and plan 252d12952 landed after Rozum APPROVE; public/ABI/CLI plumbing is implemented locally with Swift 32/32 and compatibility gates green
-next: obtain Rozum implementation approval, land the plumbing slice, then implement the shared Apple table renderer and row actions
+done-so-far: native-table adapter fixes are locally green (Swift 34/34, JS 52/52, JVM emitted helper 2/2, TUI 35/35, Rust 261/261); Rozum review round 3 is in progress
+next: obtain Rozum APPROVE, land the adapter slice, then implement the shared Apple table renderer and row actions
