@@ -17,8 +17,25 @@
        |    val _sscEnv = _sscPb.environment()
        |    opts.env.foreach { case (_k, _v) => _sscEnv.put(_k, _v) }
        |  val _sscProc = _sscPb.start()
-       |  val _sscOut  = scala.io.Source.fromInputStream(_sscProc.getInputStream).mkString
-       |  val _sscErr  = scala.io.Source.fromInputStream(_sscProc.getErrorStream).mkString
-       |  val _sscCode = _sscProc.waitFor()
-       |  ProcessResult(_sscOut, _sscErr, _sscCode.toLong)
+       |  // Drain BOTH stdout and stderr on separate threads: reading a stream to EOF blocks
+       |  // until the child exits, which would defeat opts.timeout AND (stderr >~64 KB) deadlock.
+       |  val _sscOutBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
+       |  val _sscErrBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
+       |  val _sscOutThread = new Thread(() =>
+       |    _sscOutBuf.set(scala.io.Source.fromInputStream(_sscProc.getInputStream).mkString))
+       |  val _sscErrThread = new Thread(() =>
+       |    _sscErrBuf.set(scala.io.Source.fromInputStream(_sscProc.getErrorStream).mkString))
+       |  _sscOutThread.setDaemon(true)
+       |  _sscErrThread.setDaemon(true)
+       |  _sscOutThread.start()
+       |  _sscErrThread.start()
+       |  // Honour opts.timeout (ms): kill the child and report exit -1 on expiry.
+       |  val _sscCode = opts.timeout match
+       |    case Some(_ms) =>
+       |      if _sscProc.waitFor(_ms, java.util.concurrent.TimeUnit.MILLISECONDS) then _sscProc.exitValue()
+       |      else { _sscProc.destroyForcibly(); _sscProc.waitFor(); -1 }
+       |    case None => _sscProc.waitFor()
+       |  _sscOutThread.join(1000)
+       |  _sscErrThread.join(1000)
+       |  ProcessResult(_sscOutBuf.get(), _sscErrBuf.get(), _sscCode.toLong)
        |
