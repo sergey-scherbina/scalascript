@@ -80,7 +80,10 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       signed-session round-trip + smuggling + metrics tests); graceful drain (active-request counter);
       maxConnections cap; onExchange access-log hook + ssc idleTimeout/maxConnections/onRequest
       intrinsics (e2e "LOG GET /x 200"); FastVsJdkBench → fast 1.40× req/s vs jdk (39.9k/28.4k, p50
-      −35%, p99 −30%). Deferred: SSE write-watchdog (documented). 40 engine + 8 backend tests.
+      −35%, p99 −30%). SSE/stream write-watchdog DONE too (52757e975): WatchdogOutputStream bounds
+      each streaming write, closes the socket if it blocks past streamWriteTimeoutMs (default 30s) —
+      arms only while a write is in-flight; ssc streamWriteTimeout(ms) intrinsic. 41 engine + 8
+      backend tests. Nothing deferred.
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 
 Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`
