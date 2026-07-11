@@ -1,6 +1,6 @@
 feature/v21-native-doc-render 2026-07-11T20:48:37Z
 agent: codex
-heartbeat: 2026-07-11T20:58:11Z
+heartbeat: 2026-07-11T21:27:01Z
 status: in-progress
-done-so-far: spec plus core-free host implementation and faithful unit/VM/ASM/build-jvm regression are committed; focused tests pass
-next: rebase on current main, run dependency/distribution/conformance gates, verify spec/docs/ledger, then publish
+done-so-far: doc/render plus fresh-install reactive VM/ASM fixes, specs, docs, ledger, and all focused/dependency/distribution/conformance gates are committed and green
+next: rerun final post-rebase assembled gates, push feature branch to origin/main, then release claim and clean worktree
