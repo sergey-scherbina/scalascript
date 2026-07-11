@@ -1192,6 +1192,12 @@ extension (n: Int)
 3.times { println("hello") }
 ```
 
+The indented definitions are the complete extension body. Dedent—or the end of
+the Markdown code fence—closes it before the next top-level declaration.
+Extension ownership is retained across `.ssc` imports, so selected calls use
+the imported extension rather than an unrelated built-in method with the same
+name.
+
 ### List and Map Literals
 
 In `.ssc` code blocks `[…]` is compact syntax sugar — no import needed:

@@ -62,6 +62,8 @@ The standard self-hosted route supports named indented `given ... with`
 objects and explicit property/method calls on both its VM and direct-ASM lanes.
 Ordinary `object Name:` bodies retain their first and later members with the
 same owned method/property semantics as explicitly braced objects.
+Indented extension bodies close at dedent and retain selected-call ownership
+when imported through another `.ssc` module.
 Exact top-level `summon[TC[T]]` resolves a matching named given; Mirror/derived
 evidence, anonymous givens, and general implicit search remain migration gaps.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
