@@ -32,8 +32,9 @@ read-only SwiftUI store/renderer review in Rozum.
   subsequent reconcile.
 ## v21-native-zero-arg-println-arity — blank println fails before later statements
 
-**Status:** open (2026-07-11); found by codex while running the new core-free
-YAML provider against `yaml-parse.ssc`.
+**Status:** fixed (2026-07-11, `e74241f5e`), awaiting Sergiy confirmation;
+found by codex while running the new core-free YAML provider against
+`yaml-parse.ssc`.
 
 - **Real-harness repro:** after staging the YAML provider, run
   `bin/ssc run --native examples/yaml-parse.ssc` or its `--bytecode` lane. Both
@@ -44,9 +45,11 @@ YAML provider against `yaml-parse.ssc`.
 - **Root cause:** the self-hosted lowerer exposes `println` only as an arity-one
   lambda and lowers an empty source application without the compatibility
   frontend's empty-string adaptation.
-- **Plan/done-when:** lower only zero-argument global `println()` to the portable
-  print primitive with an empty string, add a focused VM/ASM fixture, and prove
-  the full YAML example advances to its independent fenced-section boundary.
+- **Fix/evidence:** lower only zero-argument global `println()` to the portable
+  print primitive with an empty string. The focused real-harness fixture is
+  exact on VM/direct ASM, the complete native-entry smoke passes, the YAML
+  example advances to its independent fenced-section boundary, and fresh
+  affected conformance passes 11/11.
 ## v21-parity-backends-list-ignored — JS-only examples run on the standard JVM lane
 
 **Status:** fixed (2026-07-11, `d4c953b9c`), awaiting Sergiy confirmation;

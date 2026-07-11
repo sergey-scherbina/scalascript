@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native zero-argument println preserves the blank line
+
+The self-hosted lowerer now adapts only `println()` with no arguments to the
+portable empty-string print primitive. Native VM and direct ASM emit the exact
+blank line and continue with later statements; ordinary `println(value)` calls
+keep their existing path. Landed `e74241f5e`.
+
 ## 2026-07-11 — example-contract debt reaches zero
 
 The standard parity harness now honors JS/Node/Wasm-only plural `backends:`
