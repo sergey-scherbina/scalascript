@@ -934,6 +934,36 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### Portable NativeUi ABI-v1 JVM gate (`1f3ca3962`, 2026-07-11)
+
+- `UiNativePlugin` now emits the complete frozen ABI-v1 signal, view, event,
+  fetch, form, offline/storage, table, column, row-action, and exactly-one-root
+  families as `DataV`/`MapV`/`ClosV`; it no longer embeds v1 `View`,
+  `PluginValue`, or v2 `ForeignV` values in a NativeUi graph. Every descriptor
+  boundary canonicalizes recursively with stable paths and String-key checks.
+- `NativeUiPortable` preserves cyclic DataV/MapV graphs and closure identity
+  without mutating caller environments. Closure-reachable portable containers
+  stay pinned when an unrelated transitional host map is copied, preserving
+  shared aliases. NativeUi semantic equality is separate from MapV identity,
+  cycle-safe, and transactionally backtracks unordered-map candidates.
+- The JVM/static lifecycle gate implements root begin/take/abort rollback,
+  component- and occurrence-qualified structural owner paths, duplicate keyed
+  diagnostics, move/update retention, shared-scope reference counting,
+  deleted-key disposal, render rollback, and bounded identity bindings with no
+  component tombstone graph. The root-local `emptyHeaders` signal is registered
+  again after each Apple begin.
+- Public shortened column arities, the exact trusted-HTML sentinel, seed first
+  write detachment, POST/id delete payload, and tag-qualified signal `id` match
+  the frozen contract. Legacy interpreter/JS/JVM/Rust backends implement
+  `componentScope(_, thunk) = thunk()` exactly once; transitive interpreter
+  rebinding requires child plugin provenance plus object identity.
+- The independent `nativeui-reviewer` approved the final uncommitted diff in
+  the `scalascript` Rozum room after four blocker rounds. Final gates passed:
+  NativeUi 14/14; NativeUiSites + FrontendBridge 63/63; frontend intrinsic 6/6;
+  JS/JVM/import compatibility 57/57; Rust toolkit 25/25 including a real Cargo
+  compile/run; assembled `installBin`; `tkv2-*` conformance 12/12; and
+  `std-ui-jobpanel` 1/1.
+
 ### Provenance-aware NativeUi lexical sites (`0643fde39`, 2026-07-11)
 
 - `NativeUiSites` is a pure post-Op-ANF CoreIR pass. The FrontendBridge import
