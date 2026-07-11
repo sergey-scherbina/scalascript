@@ -2749,7 +2749,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     overflowing while rendering the 100k-element
                                     unresolved payload. Track the shared missing
                                     provider as `v21-native-dataset-provider-missing`.
-                              - [ ] **TI-8.2d3g1 provider contract:** specify the
+                              - [x] **TI-8.2d3g1 provider contract:** specify the
                                     lazy Dataset method-object representation,
                                     deterministic operation order, callback and
                                     error semantics, large-list stack safety,
