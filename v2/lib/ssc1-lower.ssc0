@@ -664,16 +664,20 @@ def resolveField = (robj, field) =>
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
     else if isListConstruction(robj) then
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
-    else
+    else if isStrExpr(robj) then
       Pair("prim", Pair("slen", Cons(robj, Nil)))
+    else
+      Pair("prim", Pair("__method__", Cons(Pair("str", "length"), Cons(robj, Nil))))
   else if #seq(field, "size") then
     let rname2 = match robj { case Pair(rt, rd) => if #seq(rt, "var") then rd else "" } in
     if isListVar(rname2) then
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
     else if isListConstruction(robj) then
       Pair("app", Pair(Pair("var", "_sel_length"), Cons(robj, Nil)))
-    else
+    else if isStrExpr(robj) then
       Pair("prim", Pair("slen", Cons(robj, Nil)))
+    else
+      Pair("prim", Pair("__method__", Cons(Pair("str", "size"), Cons(robj, Nil))))
   else if #seq(field, "toString") then
     Pair("prim", Pair("i->str", Cons(robj, Nil)))
   else if #seq(field, "toInt") then

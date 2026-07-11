@@ -87,6 +87,8 @@ collection_companions_expected=$'0,1,4,9\n1-2-3\n4-5-6\nx,x,x\n2,3,4,5\n10\n12\n
 [[ $(run_native "$FIXTURES/collection-companions.ssc") == "$collection_companions_expected" ]]
 extension_receivers_expected=$'HELLO!\nhahaha\n25\n20\n5'
 [[ $(run_native "$FIXTURES/extension-receivers.ssc") == "$extension_receivers_expected" ]]
+dynamic_length_expected=$'3\n8\n6\n4'
+[[ $(run_native "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -114,6 +116,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/default-arguments.ssc") == "$default_arguments_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/collection-companions.ssc") == "$collection_companions_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/extension-receivers.ssc") == "$extension_receivers_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]
@@ -166,6 +169,21 @@ for mode in vm asm; do
       exit 1
     fi
   done
+done
+
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  set +e
+  run_native "${mode_args[@]}" "$FIXTURES/dynamic-length-invalid.ssc" \
+    >"$sandbox/dynamic-length-invalid.$mode.out" \
+    2>"$sandbox/dynamic-length-invalid.$mode.err"
+  dynamic_length_rc=$?
+  set -e
+  [[ $dynamic_length_rc -ne 0 ]]
+  [[ ! -s "$sandbox/dynamic-length-invalid.$mode.out" ]]
+  grep -F 'no dispatch for .length on true' \
+    "$sandbox/dynamic-length-invalid.$mode.err" >/dev/null
 done
 
 http_port=$((32000 + ($$ % 10000)))

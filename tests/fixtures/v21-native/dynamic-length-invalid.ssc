@@ -1,0 +1,8 @@
+---
+name: v21-native-dynamic-length-invalid
+---
+
+```scalascript
+def invalid(value: Boolean): Int = value.length
+println(invalid(true))
+```

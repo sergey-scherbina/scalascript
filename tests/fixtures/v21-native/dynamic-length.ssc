@@ -1,0 +1,15 @@
+---
+name: v21-native-dynamic-length
+---
+
+```scalascript
+def textMeasure(value: String): Int = value.length + value.size
+def listMeasure(values: List[Int]): Int = values.length + values.size
+def arrayMeasure(values: Array[Int]): Int = values.length + values.size
+
+println("abc".length)
+println(textMeasure("abcd"))
+println(listMeasure(List(1, 2, 3)))
+val generated = Array.fill(2)(7)
+println(arrayMeasure(generated))
+```
