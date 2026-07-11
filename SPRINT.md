@@ -386,7 +386,7 @@ there before changing this plan.
       semantics exist. Use a reduced busi screen as the conformance fixture;
       toy `Text`/`Button` output alone is insufficient.
       Implementation slices (frozen spec `specs/v2-swift-swiftui-native.md`):
-      - [ ] **v2-swiftui-observation-store** — emit `AppleApp/NativeUiStore.swift`
+      - [x] **v2-swiftui-observation-store** — landed `70bee065d`: emit `AppleApp/NativeUiStore.swift`
             with one stable `ObservableObject` cell per signal key, opaque
             subscriber tokens, main-actor writes, retained `NativeUiSession`,
             dependency-safe computed/equality reads, and deterministic disposal.
@@ -400,7 +400,10 @@ there before changing this plan.
             observed cell/token wrapper; direct `store.read` in a rendered
             subtree is not reactive and is tracked as
             `v2-swiftui-unobserved-signal-read`.
-      - [ ] **v2-swiftui-recursive-renderer** — emit
+            Result: real Swift gates cover stable identity, semantic-equal
+            suppression, direct/transitive single publication, ordered cycle
+            errors, exact token release, and atomic keyed rollback/disposal.
+      - [x] **v2-swiftui-recursive-renderer** — landed `70bee065d`: emit
             `NativeUiRenderer.swift`/`NativeUiStyles.swift`; recursively decode
             text/signal/show/fragment/element/forKeyed/unsupported and the exact
             lowerer tag/style/accessibility inventory into SwiftUI. Preserve
@@ -464,6 +467,10 @@ there before changing this plan.
             implements phases, cancellation, and ordered success effects; the
             guard must cover signal text, controls, styles, and keyed items,
             not only one wrapper (`v2-swiftui-fetch-wrapper-silent-default`).
+            Result: recursive SwiftUI rendering, structural keyed ownership,
+            strict source diagnostics, value-total shipped inventory, and
+            adversarial ABI shape validation pass Swift 27/27; independent
+            ninth-round Rozum review APPROVE. Actions/tables/WK remain next.
       - [ ] **v2-swiftui-actions-tables-html** — add control bindings and ordered
             set/input/toggle/increment/navigation/fetch/form success actions,
             native table/column/row-action decoding, persisted/online state, and

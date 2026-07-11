@@ -65,7 +65,7 @@ toolchain-independence runtime blocker after core-free YAML.
 
 ## v2-swiftui-fetch-wrapper-silent-default — non-text fetch bindings render an empty value
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
 
 - **Real-harness repro:** bind a deferred `fetch` signal to a text control or a
@@ -80,7 +80,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-unsourced-malformed-seams — malformed nodes and events lose site provenance
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
 
 - **Real-harness repro:** render malformed `NativeUiElement` attrs/events/
@@ -110,7 +110,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
 
 - **Real-harness repro:** shipped `align-items:center` is accepted while stacks
@@ -139,7 +139,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in the third
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
 
 - **Real-harness repro:** two `NativeUiForKeyed` nodes reuse the same render
@@ -157,7 +157,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-owner-hint-fifo-swap — reversed tree construction exchanges repeated-site state
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in the second
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the second
 read-only SwiftUI store/renderer review in Rozum.
 
 - **Real-harness repro:** construct two `NativeUiForKeyed` nodes at the same
@@ -173,7 +173,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-keyed-store-rollback-publication — failed provisional render leaks revisions
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in the second
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the second
 read-only SwiftUI store/renderer review in Rozum.
 
 - **Real-harness repro:** a keyed render writes a live signal and then a later
@@ -256,7 +256,7 @@ found by codex while gating the core-free reactive provider.
 
 ## v2-swift-session-sticky-callback-failure — one caught render error poisons the retained runtime
 
-**Status:** open (2026-07-11); found by codex in the executable Swift keyed
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by codex in the executable Swift keyed
 rollback probe and announced to `@scalascript` /
 `@nativeui-reviewer` in Rozum.
 
@@ -298,7 +298,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v2-swiftui-keyed-owner-lifecycle — deleted keys retain and resurrect component state
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` during the first
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` during the first
 read-only Apple store/renderer review in Rozum.
 
 - **Real-harness repro:** the draft Swift renderer invokes a keyed render
@@ -318,7 +318,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v2-swiftui-unobserved-signal-read — dynamic nodes do not rerender
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` during the first
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` during the first
 read-only Apple store/renderer review in Rozum.
 
 - **Real-harness repro:** only `NativeUiSignalTextView` owns an
@@ -334,7 +334,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v2-swiftui-dependent-double-publish — one dependency write advances a computed cell twice
 
-**Status:** open (2026-07-11); found by codex while implementing the generated
+**Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by codex while implementing the generated
 SwiftUI observation store, announced to `@scalascript` /
 `@nativeui-reviewer` in Rozum.
 

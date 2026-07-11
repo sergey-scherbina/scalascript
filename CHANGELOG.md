@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — SwiftUI observation and keyed rendering are native and transactional
+
+Generated AppleApp sources now include a main-actor per-signal observation
+store and recursive SwiftUI renderer. Derived publications deduplicate,
+rendered signal seams subscribe exactly, keyed component owners preserve moves
+and dispose deletions without tombstones, failed renders roll back Host and
+Store state atomically, and all implemented/malformed/deferred inventory is
+explicit behavior or source-located Unsupported. The independent Rozum review
+approved the ninth diff; landed `70bee065d`, documented `9e813fc98`.
+
 ## 2026-07-11 — layout objects retain owned methods and properties
 
 The self-hosted frontend now gives `object Name:` the same virtual-brace scope
