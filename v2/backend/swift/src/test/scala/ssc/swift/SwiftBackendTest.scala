@@ -717,6 +717,9 @@ final class SwiftBackendTest extends AnyFunSuite:
     def navigate(destination: String) = list(List(
       Term.App(Term.Global("onNavigate"), List(str(destination))),
     ))
+    def openJson(template: String) = list(List(
+      Term.App(Term.Global("onOpenJson"), List(str(template), str("id"))),
+    ))
     val success = list(List(
       Term.App(Term.Global("onSetSignal"), List(Term.Local(4), str("after"))),
       Term.App(Term.Global("onBumpTick"), List(Term.Local(2))),
@@ -729,8 +732,14 @@ final class SwiftBackendTest extends AnyFunSuite:
       Term.If(modeIs("with"), action("POST", "https://example.test/keyed", success),
         Term.If(modeIs("data"), action("POST", "https://example.test/data", navigate("data:text/plain,x")),
           Term.If(modeIs("file"), action("POST", "https://example.test/file", navigate("file:///tmp/x")),
-            Term.If(modeIs("bad-method"), action("POST\r\nX-Injected", "https://example.test/bad", success),
-              Term.App(Term.Global("textNode"), List(str("plain"))),
+            Term.If(modeIs("hostless"), action("POST", "https://example.test/hostless", navigate("https:foo")),
+              Term.If(modeIs("unsafe-open"), action("POST", "https://example.test/unsafe-open", openJson("javascript::value")),
+                Term.If(modeIs("hostless-open"), action("POST", "https://example.test/hostless-open", openJson("https:foo/:value")),
+                  Term.If(modeIs("bad-method"), action("POST\r\nX-Injected", "https://example.test/bad", success),
+                    Term.App(Term.Global("textNode"), List(str("plain"))),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -1869,6 +1878,13 @@ struct KeyedActionProbe {
         let freshOwner = store.actionOwnerPath(for: freshAction, mountedAt: fresh.entries[0].ownerPath)
         store.runFetchAction(freshAction, ownerPath: freshOwner)
         await waitForRequest(2)
+        store.cancelFetchAction(firstAction, ownerPath: freshOwner)
+        await Task.yield()
+        guard !LifecycleURLProtocol.wasStopped(1),
+              string(store.read(freshStatus.0)) == "loading",
+              store.networkMetadataCount() == 1 else {
+            fatalError("stale removed action cancelled fresh replacement")
+        }
         store.cell(for: mode).write(.string("data"))
         let dataAction = try! reconcile("v5").entries[0]
         await waitForStop(1)
@@ -1891,6 +1907,15 @@ struct KeyedActionProbe {
         guard LifecycleURLProtocol.count == 2,
               store.failure?.contains("absolute http/https/mailto URL") == true else {
             fatalError("unsafe file navigation started transport")
+        }
+        for unsafeMode in ["hostless", "unsafe-open", "hostless-open"] {
+            store.cell(for: mode).write(.string(unsafeMode))
+            let unsafe = try! reconcile("unsafe-\(unsafeMode)").entries[0]
+            let unsafeOwner = store.actionOwnerPath(for: unsafe.value, mountedAt: unsafe.ownerPath)
+            store.runFetchAction(unsafe.value, ownerPath: unsafeOwner)
+            guard LifecycleURLProtocol.count == 2 else {
+                fatalError("unsafe \(unsafeMode) descriptor started transport")
+            }
         }
         store.cell(for: mode).write(.string("bad-method"))
         do {

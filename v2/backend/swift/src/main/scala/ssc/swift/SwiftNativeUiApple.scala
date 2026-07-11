@@ -344,10 +344,12 @@ final class NativeUiStore: ObservableObject {
     }
 
     func cancelFetchAction(_ event: SscValue, ownerPath: String) {
-        guard case let .data("NativeUiFetchAction", fields) = event, fields.count == 5,
+        guard let session,
+              case let .data("NativeUiFetchAction", fields) = event, fields.count == 5,
               case let .string(siteId) = fields[0], case let .map(status) = fields[4],
               let phase = status.get(.string("phase")),
               let error = status.get(.string("error")),
+              session.validActionStatus(event, phase: phase, error: error),
               let phaseKey = signalKey(phase), let errorKey = signalKey(error) else { return }
         cancelNetworkTask(key: "action\u{0}" + ownerPath + "\u{0}" + siteId)
         let statusKeys: Set<String> = [phaseKey, errorKey]
@@ -914,13 +916,13 @@ final class NativeUiStore: ObservableObject {
                 predict(effectFields[1], effectFields[2])
             case "navigate":
                 guard case .unit = effectFields[1], case let .string(path) = effectFields[2],
-                      let url = URL(string: path), let scheme = url.scheme?.lowercased(),
-                      ["http", "https", "mailto"].contains(scheme), openURLHandler != nil else {
+                      safeExternalURL(path) != nil, openURLHandler != nil else {
                     throw SscRuntimeFailure(description: "navigate requires an absolute http/https/mailto URL and SwiftUI openURL environment")
                 }
             case "openJson":
                 guard case let .string(template) = effectFields[1], !template.isEmpty,
                       case let .string(field) = effectFields[2], !field.isEmpty,
+                      safeExternalURL(template.replacingOccurrences(of: ":value", with: "ssc")) != nil,
                       openURLHandler != nil else {
                     throw SscRuntimeFailure(description: "openJson requires template, field, and SwiftUI openURL environment")
                 }
@@ -967,8 +969,7 @@ final class NativeUiStore: ObservableObject {
                 result.append(NativeUiPreparedEffect(kind: kind, target: fields[1], payload: fields[2], url: nil))
             case "navigate":
                 guard case .unit = fields[1], case let .string(path) = fields[2],
-                      let url = URL(string: path), let scheme = url.scheme?.lowercased(),
-                      ["http", "https", "mailto"].contains(scheme), openURLHandler != nil else {
+                      let url = safeExternalURL(path), openURLHandler != nil else {
                     throw SscRuntimeFailure(description: "navigate requires an absolute http/https/mailto URL and SwiftUI openURL environment")
                 }
                 result.append(NativeUiPreparedEffect(kind: kind, target: fields[1], payload: fields[2], url: url))
@@ -990,8 +991,7 @@ final class NativeUiStore: ObservableObject {
                     throw SscRuntimeFailure(description: "openJson field could not be URL-encoded")
                 }
                 let destination = template.replacingOccurrences(of: ":value", with: encoded)
-                guard let url = URL(string: destination),
-                      let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme),
+                guard let url = safeExternalURL(destination),
                       openURLHandler != nil else {
                     throw SscRuntimeFailure(description: "openJson produced an unsafe or invalid URL")
                 }
@@ -1001,6 +1001,20 @@ final class NativeUiStore: ObservableObject {
             }
         }
         return result
+    }
+
+    private func safeExternalURL(_ text: String) -> URL? {
+        guard let url = URL(string: text), let scheme = url.scheme?.lowercased() else { return nil }
+        switch scheme {
+        case "http", "https":
+            guard let host = url.host, !host.isEmpty else { return nil }
+        case "mailto":
+            let target = String(text.dropFirst(scheme.count + 1))
+            guard !target.isEmpty, !target.hasPrefix("?"),
+                  target.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value != 0x7f }) else { return nil }
+        default: return nil
+        }
+        return url
     }
 
     private func apply(_ effect: NativeUiPreparedEffect) throws {
