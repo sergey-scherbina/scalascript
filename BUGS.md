@@ -22,6 +22,11 @@
   iOS/macOS use explicit finite positive height clamps and dismantle every
   observer/delegate. Forged `NativeUiTrustedHtml` and malformed rawHtml
   sentinels must remain exact sourced diagnostics.
+- **Real WebKit rule repro:** the first generated macOS probe correctly withheld
+  the HTML load, but `WKContentRuleListStore` rejected the grouped
+  `^(http|https|ws|wss|ftp)://` filter because its regex subset does not support
+  disjunctions. Emit one independent rule per network scheme with the same
+  subresource-only type list and require real compilation before load.
 - **Plan/done-when:** freeze these four rules in
   `specs/v2-swift-swiftui-native.md` before code, obtain a second Rozum design
   APPROVE, then implement and execute loopback-zero-hit, data/inline,

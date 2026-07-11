@@ -853,6 +853,9 @@ there before changing this plan.
                         content rule installed before the first HTML load. The
                         rule blocks network subresources while preserving
                         inline markup/CSS and `data:` resources;
+                        WebKit's rule regex subset rejects disjunctions, so use
+                        independent filters for http, https, ws, wss, and ftp
+                        with the same subresource-only type list;
                   - [ ] allow only the initial in-memory document navigation.
                         Cancel every subsequent in-webview navigation; hand
                         tapped absolute `http`, `https`, and non-empty `mailto`
