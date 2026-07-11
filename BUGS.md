@@ -75,8 +75,9 @@ advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
 
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
 
-**Status:** open (2026-07-11); found by codex after imported extension dispatch
-advanced `dsl-json-parser.ssc` beyond the `PRegex/1` failure.
+**Status:** done (2026-07-11, `500ba1668`, taxonomy `9411ebf0e`); found and
+confirmed by codex after imported extension dispatch advanced
+`dsl-json-parser.ssc` beyond the `PRegex/1` failure.
 
 - **Real-harness repro:** `bin/ssc-standard run examples/dsl-json-parser.ssc`
   fails identically on VM/ASM with `unbound global: NoContext`; the declaration
@@ -86,6 +87,14 @@ advanced `dsl-json-parser.ssc` beyond the `PRegex/1` failure.
 - **Plan/done-when:** specify native `case object` parsing/lowering, add an
   isolated import-boundary VM/ASM regression, and rerun the JSON/YAML parser
   examples plus release gates.
+- **Root cause/fix:** the top-level `case` branch recognized only `case class`,
+  so `case object` was parsed as an expression and never entered the imported
+  declaration closure. An explicit `caseobj` AST tag now survives module
+  filtering and lowers to one `IrCtor(Name, Nil)` value definition.
+- **Verified:** imported value/alias/pattern/equality print
+  `Empty/empty/true` on VM/ASM; calculator becomes identical, JSON advances to
+  the separately tracked `PMapped/2` gap, YAML remains at `Unit`. Every release
+  gate and fresh conformance 11/11 pass.
 
 ## v21-symbolic-extension-infix-precedence — `Parser.|` becomes numeric `i.or`
 

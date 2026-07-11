@@ -1749,13 +1749,22 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               22/44/129 with zero mismatch/one-sided errors,
                               taxonomy is 32 blockers, and all release gates
                               plus conformance 11/11 pass.
-                        - [ ] **TI-8.2d2s native `case object`:** the JSON parser
+                        - [x] **TI-8.2d2s native `case object` — DONE 2026-07-11
+                              (`500ba1668`, taxonomy `9411ebf0e`, docs
+                              `90c11cb88`):** the JSON parser
                               now reaches `unbound global: NoContext` because the
                               native frontend does not retain `case object
                               NoContext extends ParserContext`. Specify a
                               portable nullary constructor value, add a
                               multi-file VM/ASM regression, and rerun JSON/YAML
                               parser examples plus all release gates.
+                              Result: imported value/alias/pattern/equality
+                              prints `Empty/empty/true` exactly on VM/ASM;
+                              calculator becomes identical, JSON advances to
+                              `PMapped/2`, and YAML remains at `Unit`. Runtime
+                              improves to 36/90, parity to 23/43/129, blockers
+                              to 31, with every release gate and conformance
+                              11/11 green.
                         - [ ] **TI-8.2d2s2 JSON `PMapped/2` match:** native case
                               objects advance `dsl-json-parser.ssc` to identical
                               VM/ASM `match: no arm for PMapped/2`. Isolate the

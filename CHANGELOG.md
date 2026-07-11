@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native case objects are stable imported values
+
+Top-level `case object` declarations now survive the self-hosted parser and
+module closure as stable nullary constructor values. Imports, aliases,
+structural equality, and pattern matching agree on VM/direct ASM. The
+calculator parser becomes fully identical; JSON and YAML advance to separately
+tracked runtime gaps. Landed `500ba1668`; taxonomy `9411ebf0e`; documented
+`90c11cb88`.
+
 ## 2026-07-11 — symbolic extensions coexist with primitive bitwise OR
 
 The self-hosted route now selects imported symbolic `|` extensions for ADT
