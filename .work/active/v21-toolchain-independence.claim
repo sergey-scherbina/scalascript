@@ -1,6 +1,6 @@
 feature/v21-toolchain-independence 2026-07-10T10:35:04Z
 agent: codex
-heartbeat: 2026-07-11T06:32:00Z
+heartbeat: 2026-07-11T06:57:47Z
 status: in-progress
-done-so-far: TI-1..TI-8.2d2g; standard parser gaps closed; runtime taxonomy established; exact Decimal/BigInt, defaults, collection curry, extension dispatch, dynamic length, and top-level while landed
-next: finish TI-8.2d2h layout given-object parsing/lowering gates, push implementation/docs/bookkeeping, then continue shrinking runtime blockers
+done-so-far: TI-1..TI-8.2d2h; standard parser gaps closed; runtime taxonomy established; layout givens and explicit typeclass calls landed with corpus/parity/taxonomy green
+next: specify and land the core-free native math object global, rerun three affected examples and all release gates, then continue shrinking runtime blockers
