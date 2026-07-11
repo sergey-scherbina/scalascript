@@ -1,5 +1,0 @@
-claim: native-multi-placeholder
-owner: opus (native-front correctness program, cont.)
-started: 2026-07-11
-scope:
-  - v2/lib/ssc1-front.ssc0 — wrapPhArg: N-placeholder → N-arg lambda (_ + _ = 2 params)

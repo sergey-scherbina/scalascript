@@ -1549,3 +1549,14 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       FrontendBridge populates on the scalameta path). Closes the NATIVE side of the field-name
       registry family. Verified head-field-shadow MATCH (native + bridge), List.head/.tail
       unchanged, conformance 406/0, bridge spot unchanged (v2Core recompiled, 5s).
+
+## multi-placeholder + ambiguous ++.length (2026-07-11, opus) — K62.29/30, collections green
+
+- [x] K62.29 — `_ + _` was a ONE-arg lambda (all `_` shared one param) → foldLeft/reduce crashed
+      "arity: 1 expected, 2 given". Each `_` is a DISTINCT param left-to-right: wrapPhArg counts
+      placeholders + binds __u<i> in order → N-arg lambda. Single-placeholder unchanged.
+- [x] K62.30 — `a ++ b` ambiguous (String/List); isStrExpr called every `++` a string so
+      `(xs++ys).length` → slen crash. ++ receiver for .length/.size → polymorphic __method__;
+      slen fast path kept for unambiguous strings.
+      Both verified; collections.ssc FULL MATCH; v2/conformance 406/0.
+- [ ] Follow-up: `.reduce` returns Stub (native prelude/runtime gap, separate from placeholders).
