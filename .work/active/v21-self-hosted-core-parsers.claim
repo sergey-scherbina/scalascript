@@ -1,7 +1,7 @@
 feature/v21-self-hosted-markdown-profile 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-10T21:11:12Z
+heartbeat: 2026-07-11T04:32:28Z
 status: in-progress
 done-so-far: dependency gates; pure JSON core; public JSON/HTTP cutover ed945466d; pure YAML core 7a06d4a55; structural frontend manifest/config cutover 20d9db6db
-next: complete the self-hosted ScalaScript Markdown Profile and remove CommonMark/Flexmark from the standard path
+next: localize the Markdown core Tuple4 runtime mismatch, complete conformance, then integrate the structural result into the standard frontend path
 scope: headings/scopes, pure-link imports, prose, fences, lists, images, tables, metadata directives, interpolation source; preserve compatibility libraries only in tools/tests
