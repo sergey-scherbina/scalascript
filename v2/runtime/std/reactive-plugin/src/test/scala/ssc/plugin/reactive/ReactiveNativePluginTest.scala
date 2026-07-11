@@ -68,6 +68,11 @@ class ReactiveNativePluginTest extends AnyFunSuite:
     assert(observed.toList == List(1L, 10L, 11L))
 
     val tick = global("Signal", Value.IntV(0))
+    val tickObserved = scala.collection.mutable.ArrayBuffer.empty[Long]
+    global("effect", Value.ClosV(Runtime.emptyEnv, 0, _ =>
+      val Value.IntV(value) = method(tick, "get"): @unchecked
+      tickObserved += value
+      Done(Value.UnitV)))
     var runs = 0
     global("effect", Value.ClosV(Runtime.emptyEnv, 0, _ =>
       runs += 1
@@ -76,3 +81,4 @@ class ReactiveNativePluginTest extends AnyFunSuite:
       Done(Value.UnitV)))
     assert(runs == 1)
     assert(method(tick, "get") == Value.IntV(1))
+    assert(tickObserved.toList == List(0L, 1L))
