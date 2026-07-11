@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T05:43:21Z
+heartbeat: 2026-07-11T06:17:05Z
 status: in-progress
-done-so-far: Swift AppCore/CLI are green; reviewed NativeUi ABI, lifecycle, root handoff, and real Xcode application-project contract landed through b3cd2e1bf
-next: implement and test the versioned portable NativeUi ABI in the v2 JVM runtime before the SwiftUI renderer
+done-so-far: Swift AppCore/CLI and reviewed ABI are green; portable MapV/tagged dispatch foundation landed through f8d9358a0; NativeUiSites is under focused green verification
+next: land provenance-aware reserved ABI-v1 CoreIR site/source annotation, then atomically migrate UiNativePlugin values
