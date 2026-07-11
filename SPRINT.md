@@ -1809,7 +1809,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               isolate it across the import boundary, repair
                               portable call/name lowering, and rerun all parser
                               DSLs plus release gates without a host special
-                              case.
+                              case. Diagnosis: `IndentContext_at` is correctly
+                              arity 1; `seqItem.block` calls a broken extension
+                              member. A nested layout close after `sameIndent`
+                              clears the receiver cell, so later `deeperIndent`,
+                              `block`, and `line` become arity 0 with unbound
+                              global `p`. Specify real extension-dedent ownership
+                              versus nested virtual closes before changing code.
                         - [ ] **TI-8.2d2u imported tuple collection match:**
                               K62.19 advances `imports.ssc` beyond its former
                               collection arity boundary to identical VM/ASM

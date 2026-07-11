@@ -115,10 +115,18 @@ fix advanced `dsl-yaml-like.ssc` beyond the false `Unit` global.
   parser enters its first typed arm.
 - **Expected:** the imported parser/context operation selects the intended
   callable definition and completes identically on VM/ASM.
+- **Root cause:** assembled CoreIR proves `IndentContext_at` is correctly
+  `lam 1`; the first failing call is `seqItem.block`. The extension starts with
+  receiver `p`; `withIndent(n)` lowers as `lam 2` and `sameIndent` as `lam 1`,
+  but the nested layout close after `sameIndent` clears
+  `extensionParamsCell`. Later receiver-only members `deeperIndent`, `block`,
+  and `line` therefore lower as `lam 0`, retain unbound `(global p)` bodies,
+  and are invoked with one receiver argument.
 - **Plan/done-when:** identify the exact callee and declaration ownership from
-  the assembled CoreIR, add an import-boundary regression, repair name/call
-  lowering without a YAML-specific host path, and rerun all parser DSLs plus
-  release gates.
+  the assembled CoreIR, add an import-boundary regression whose earlier member
+  has a nested layout body and whose later receiver-only/parameterized members
+  retain the receiver, distinguish the extension's real dedent from nested
+  virtual closes, and rerun all parser DSLs plus release gates.
 
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
 
