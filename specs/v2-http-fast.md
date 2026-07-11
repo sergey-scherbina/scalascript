@@ -129,8 +129,17 @@ without your own synchronization" (out of scope for the VM fix).
       ways, 20-conn broadcast, RFC vector) + a ServiceLoader install smoke test asserting the
       full surface registers. VM-level `.ssc` end-to-end validated in hf-5 conformance (the
       tagged-method dispatch mirrors the proven reactive-plugin idiom).
-- [ ] **hf-4 streaming/middleware** — fill the current stubs feasibly: `sse`, `cors`, `use`
-      (middleware chain), `useGzip`, `maxBodySize`. Tests.
+- [x] **hf-4 streaming/middleware** — DONE. `use(mw)` middleware chain (first middleware to
+      return a `Response` short-circuits, else falls through to the route); `cors([origin,
+      methods, headers])` (adds CORS headers + answers OPTIONS preflight 204); `useGzip()`
+      (gzips a ≥256 B body when the client accepts gzip); `sse(req){ stream => }` +
+      `streamResponse([ct]){ stream => }` via a small engine streaming hook (`RawResponse.
+      stream`: status+headers with no Content-Length + `Connection: close`, then the handler
+      writes the body over time). `HttpStream` value (an [[SseWriter]]) with tagged methods
+      send/write/comment/close/isClosed; multi-line SSE data split into `data:` lines. Tests:
+      an engine streaming test + the install smoke test extended over the new intrinsics +
+      `HttpStream` methods (37 module tests). Still stubbed (honest): `uploadSpoolThreshold`,
+      `uploadDir`, `mount` (file-upload spooling + static mounting — future).
 - [ ] **hf-5 default-swap** — make the new plugin the DEFAULT http plugin (service-file swap /
       drop the old module), full conformance + the busi/http examples green, remove the old.
 

@@ -16,9 +16,13 @@ class HttpFastPluginInstallTest extends AnyFunSuite:
       "route", "serve", "serveAsync", "stop",
       "httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
       "Response.apply", "Response.json", "Response.html", "Response.text",
-      "maxBodySize", "onWebSocket", "onWebSocketAuth", "wsConnect", "WsRoom")
+      "maxBodySize", "onWebSocket", "onWebSocketAuth", "wsConnect", "WsRoom",
+      "use", "cors", "useGzip", "sse", "streamResponse")
     for name <- intrinsics do
       assert(ssc.V2PluginRegistry.lookup(name).isDefined, s"intrinsic '$name' not registered")
+
+    for m <- List("send", "write", "comment", "close", "isClosed") do
+      assert(ssc.V2PluginRegistry.lookupTaggedMethod("HttpStream", m).isDefined, s"stream.$m not registered")
 
     val wsMethods = List("send", "sendBytes", "close", "ping",
       "onMessage", "onClose", "onPong", "isClosed", "request", "subprotocol", "user")

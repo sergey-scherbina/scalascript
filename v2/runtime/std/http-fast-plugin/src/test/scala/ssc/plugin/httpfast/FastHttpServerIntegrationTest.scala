@@ -83,6 +83,21 @@ class FastHttpServerIntegrationTest extends AnyFunSuite:
     }
   }
 
+  test("streams an open-ended (SSE-style) response body") {
+    val handler: RawRequest => RawResponse = _ =>
+      RawResponse(200, Map("Content-Type" -> "text/event-stream"), Array.emptyByteArray,
+        stream = Some { out =>
+          for i <- 1 to 3 do { out.write(s"data: event$i\n\n".getBytes(UTF_8)); out.flush() }
+        })
+    withServer(handler) { (base, client) =>
+      val r = get(client, s"$base/events")
+      assert(r.statusCode() == 200)
+      assert(r.headers().firstValue("content-type").get == "text/event-stream")
+      assert(r.body().contains("data: event1"))
+      assert(r.body().contains("data: event3"))
+    }
+  }
+
   test("a body over the configured limit is rejected with 400") {
     val server = new FastHttpServer(_ => text(200, "ok"),
       limits = HttpProtocol.Limits(maxBodyBytes = 8), idleTimeoutMs = 5000)

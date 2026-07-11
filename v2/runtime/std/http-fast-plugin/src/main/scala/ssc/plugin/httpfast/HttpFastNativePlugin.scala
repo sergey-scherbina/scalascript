@@ -392,8 +392,59 @@ final class HttpFastNativePlugin extends NativePlugin:
     }
     native(context, "WsRoom") { _ => serverHost.roomCreate() }
 
-    // Still stubbed — filled by hf-4 (streaming/middleware).
-    List("use", "cors", "useGzip",
-      "streamResponse", "sse", "uploadSpoolThreshold", "uploadDir", "mount").foreach { name =>
+    // ---- middleware + streaming ----
+    context.registerFields("HttpStream", Vector("id"))
+
+    native(context, "use") { args =>
+      val mw = args.headOption.getOrElse(throw new RuntimeException("use(middleware)"))
+      serverHost.addMiddleware(mw); Value.UnitV
+    }
+    native(context, "cors") { args =>
+      val origin  = args.lift(0).collect { case Value.StrV(s) => s }.getOrElse("*")
+      val methods = args.lift(1).collect { case Value.StrV(s) => s }.getOrElse("GET, POST, PUT, PATCH, DELETE, OPTIONS")
+      val hdrs    = args.lift(2).collect { case Value.StrV(s) => s }.getOrElse("Content-Type, Authorization")
+      serverHost.enableCors(origin, methods, hdrs); Value.UnitV
+    }
+    native(context, "useGzip") { _ => serverHost.enableGzip(); Value.UnitV }
+
+    native(context, "sse") { args =>
+      if args.isEmpty then throw new RuntimeException("sse(req) { stream => … }")
+      closure(1) {
+        case List(bodyHandler) => Value.DataV("__SseStream__", Vector(bodyHandler))
+        case _ => throw new RuntimeException("sse(req) { stream => … }")
+      }
+    }
+    native(context, "streamResponse") { args =>
+      val contentType = args.lift(0).collect { case Value.StrV(s) => s }.getOrElse("text/plain; charset=utf-8")
+      closure(1) {
+        case List(bodyHandler) => Value.DataV("__RawStream__", Vector(Value.StrV(contentType), bodyHandler))
+        case _ => throw new RuntimeException("streamResponse([contentType]) { stream => … }")
+      }
+    }
+
+    context.registerTaggedMethod("HttpStream", "send") {
+      case recv :: Value.StrV(data) :: Nil               => serverHost.streamWriterOf(recv).event(data); Value.UnitV
+      case recv :: Value.StrV(event) :: Value.StrV(d) :: Nil => serverHost.streamWriterOf(recv).event(event, d); Value.UnitV
+      case _ => throw new RuntimeException("stream.send(data) | stream.send(event, data)")
+    }
+    context.registerTaggedMethod("HttpStream", "write") {
+      case recv :: Value.StrV(raw) :: Nil => serverHost.streamWriterOf(recv).write(raw); Value.UnitV
+      case _ => throw new RuntimeException("stream.write(text)")
+    }
+    context.registerTaggedMethod("HttpStream", "comment") {
+      case recv :: Value.StrV(c) :: Nil => serverHost.streamWriterOf(recv).comment(c); Value.UnitV
+      case _ => throw new RuntimeException("stream.comment(text)")
+    }
+    context.registerTaggedMethod("HttpStream", "close") {
+      case recv :: Nil => serverHost.streamWriterOf(recv).close(); Value.UnitV
+      case _ => throw new RuntimeException("stream.close()")
+    }
+    context.registerTaggedMethod("HttpStream", "isClosed") {
+      case recv :: Nil => Value.BoolV(serverHost.streamWriterOf(recv).isClosed)
+      case _ => throw new RuntimeException("stream.isClosed")
+    }
+
+    // Still stubbed — file-upload spooling + static mounting (future).
+    List("uploadSpoolThreshold", "uploadDir", "mount").foreach { name =>
       native(context, name)(unsupported(name))
     }

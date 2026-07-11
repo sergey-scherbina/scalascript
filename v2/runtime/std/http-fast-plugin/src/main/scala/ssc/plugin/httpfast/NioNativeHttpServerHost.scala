@@ -29,6 +29,17 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
   private val rooms       = new ConcurrentHashMap[Long, CopyOnWriteArrayList[java.lang.Long]]()
   private val roomIds     = new AtomicLong(0)
 
+  // --- middleware / transforms ---
+  private final case class CorsConfig(origin: String, methods: String, headers: String)
+  private val middlewares = collection.mutable.ArrayBuffer.empty[Value]
+  @volatile private var corsCfg: Option[CorsConfig] = None
+  @volatile private var gzip = false
+
+  def addMiddleware(mw: Value): Unit = synchronized { middlewares += mw }
+  def enableCors(origin: String, methods: String, headers: String): Unit =
+    synchronized { corsCfg = Some(CorsConfig(origin, methods, headers)) }
+  def enableGzip(): Unit = synchronized { gzip = true }
+
   def register(method: String, path: String, handler: Value): Unit = synchronized {
     if server != null then throw new RuntimeException("route registration after serve is not supported")
     router.add(method, path, handler)
@@ -184,6 +195,26 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     case other          => other.toString
 
   private def dispatch(req: RawRequest): RawResponse =
+    val cors = corsCfg
+    // CORS preflight short-circuits before routing.
+    if cors.isDefined && req.method == "OPTIONS" then
+      finish(cors, req, RawResponse(204, Map.empty, Array.emptyByteArray))
+    else
+      // Middleware chain: the first middleware that returns a Response short-circuits;
+      // anything else (Unit/…) falls through to the next / the route handler.
+      var short: RawResponse | Null = null
+      if middlewares.nonEmpty then
+        val reqVal = requestValue(req, Map.empty)
+        var i = 0
+        while short == null && i < middlewares.length do
+          context.invoke(middlewares(i), List(reqVal)) match
+            case r @ Value.DataV("Response", _) => short = toResponse(r)
+            case _                              => ()
+          i += 1
+      val base = if short != null then short.nn else routeDispatch(req)
+      finish(cors, req, base)
+
+  private def routeDispatch(req: RawRequest): RawResponse =
     router.find(req.method, req.path) match
       case Some(m) =>
         val result = context.invoke(m.handler, List(requestValue(req, m.params)))
@@ -196,6 +227,29 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
         else
           RawResponse(404, Map("Content-Type" -> "text/plain; charset=utf-8"),
             "Not Found".getBytes(UTF_8))
+
+  /** Apply response transforms (CORS headers, gzip) after the handler/middleware. */
+  private def finish(cors: Option[CorsConfig], req: RawRequest, resp: RawResponse): RawResponse =
+    var r = resp
+    cors.foreach(c => r = withCors(c, r))
+    if gzip then r = maybeGzip(req, r)
+    r
+
+  private def withCors(c: CorsConfig, resp: RawResponse): RawResponse =
+    resp.copy(headers = resp.headers ++ Map(
+      "Access-Control-Allow-Origin"  -> c.origin,
+      "Access-Control-Allow-Methods" -> c.methods,
+      "Access-Control-Allow-Headers" -> c.headers))
+
+  private def maybeGzip(req: RawRequest, resp: RawResponse): RawResponse =
+    val accepts = req.headers.get("accept-encoding").exists(_.toLowerCase(java.util.Locale.ROOT).contains("gzip"))
+    val already = resp.headers.keysIterator.exists(_.equalsIgnoreCase("content-encoding"))
+    if accepts && !already && resp.body.length >= 256 then
+      val bos = new java.io.ByteArrayOutputStream()
+      val gz  = new java.util.zip.GZIPOutputStream(bos)
+      gz.write(resp.body); gz.close()
+      resp.copy(headers = resp.headers + ("Content-Encoding" -> "gzip"), body = bos.toByteArray)
+    else resp
 
   private def requestValue(req: RawRequest, pathParams: Map[String, String]): Value =
     // `form` carries query + path params (path params win) to stay 9-field compatible.
@@ -214,10 +268,30 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
   private def toResponse(value: Value): RawResponse = value match
     case Value.DataV("Response", Seq(Value.IntV(status), headerValue, Value.StrV(body))) =>
       RawResponse(status.toInt, stringMap(headerValue), body.getBytes(UTF_8))
+    case Value.DataV("__SseStream__", Seq(bodyHandler)) =>
+      streamResponse(Map("Content-Type" -> "text/event-stream", "Cache-Control" -> "no-cache"), bodyHandler)
+    case Value.DataV("__RawStream__", Seq(Value.StrV(contentType), bodyHandler)) =>
+      streamResponse(Map("Content-Type" -> contentType), bodyHandler)
     case Value.StrV(body) =>
       RawResponse(200, Map("Content-Type" -> "text/plain; charset=utf-8"), body.getBytes(UTF_8))
     case other =>
       RawResponse(200, Map("Content-Type" -> "text/plain; charset=utf-8"), other.toString.getBytes(UTF_8))
+
+  /** Build an open-ended streaming response whose body runs the ssc handler with a
+    * `HttpStream` value (an [[SseWriter]] wrapped in a DataV). */
+  private def streamResponse(headers: Map[String, String], bodyHandler: Value): RawResponse =
+    RawResponse(200, headers, Array.emptyByteArray,
+      stream = Some { out =>
+        val writer   = new SseWriter(out)
+        val streamVal = Value.DataV("HttpStream", Vector(Value.ForeignV(writer)))
+        try context.invoke(bodyHandler, List(streamVal))
+        finally writer.close()
+      })
+
+  /** Extract the [[SseWriter]] from a `HttpStream` value (for the tagged methods). */
+  def streamWriterOf(recv: Value): SseWriter = recv match
+    case Value.DataV("HttpStream", Seq(Value.ForeignV(w: SseWriter))) => w
+    case _ => throw new RuntimeException("HttpStream handle expected")
 
   private def cookies(headers: Map[String, String]): Map[String, String] =
     headers.get("cookie") match

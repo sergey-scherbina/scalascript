@@ -15,8 +15,17 @@ final case class RawRequest(
     keepAlive: Boolean)
 
 /** A response ready to serialize. `headers` keys are used verbatim; the engine adds
-  * `Content-Length`, `Date`, and `Connection` itself. */
-final case class RawResponse(status: Int, headers: Map[String, String], body: Array[Byte])
+  * `Content-Length`, `Date`, and `Connection` itself.
+  *
+  * When `stream` is set, the response is open-ended (SSE / chunked-style streaming): the
+  * engine writes the status line + headers with no `Content-Length` and `Connection: close`,
+  * then hands the raw output stream to the closure to write over time, then closes the
+  * connection. `body`/`Content-Length` are ignored in that mode. */
+final case class RawResponse(
+    status: Int,
+    headers: Map[String, String],
+    body: Array[Byte],
+    stream: Option[java.io.OutputStream => Unit] = None)
 
 /** Raised when a request is malformed → the engine answers `400` and closes. */
 final class BadRequest(msg: String) extends RuntimeException(msg)
@@ -234,4 +243,21 @@ object HttpProtocol:
     sb.append("\r\n")
     out.write(sb.toString.getBytes(ISO_8859_1))
     if resp.body.length > 0 then out.write(resp.body)
+    out.flush()
+
+  /** Status line + handler headers for an open-ended streaming response: no Content-Length,
+    * `Connection: close` (the stream is close-delimited). The body follows separately. */
+  def writeStreamHeaders(out: OutputStream, resp: RawResponse): Unit =
+    val sb = new java.lang.StringBuilder(256)
+    sb.append("HTTP/1.1 ").append(resp.status).append(' ').append(reason(resp.status)).append("\r\n")
+    var hasDate = false
+    for (k, v) <- resp.headers do
+      val lk = k.toLowerCase(java.util.Locale.ROOT)
+      if lk != "content-length" && lk != "connection" then
+        if lk == "date" then hasDate = true
+        sb.append(k).append(": ").append(v).append("\r\n")
+    if !hasDate then
+      sb.append("Date: ").append(httpDate.format(java.time.Instant.now())).append("\r\n")
+    sb.append("Connection: close\r\n\r\n")
+    out.write(sb.toString.getBytes(ISO_8859_1))
     out.flush()

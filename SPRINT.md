@@ -35,7 +35,10 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       + tagged methods (send/onMessage/close/…), onWebSocket/onWebSocketAuth/wsConnect/WsRoom.
       10 tests (echo, fragmentation, 200KB, binary, close both ways, 20-conn broadcast, RFC
       vector, ServiceLoader install smoke). VM-level .ssc e2e → hf-5 conformance.
-- [ ] **hf-4 streaming/middleware** — sse, cors, use (chain), useGzip, maxBodySize (fill stubs).
+- [x] **hf-4 streaming/middleware** — DONE. use(mw) chain (short-circuit on Response), cors
+      (headers + OPTIONS preflight), useGzip (>=256B + Accept-Encoding), sse/streamResponse via
+      engine stream hook (RawResponse.stream), HttpStream value (send/write/comment/close/
+      isClosed). 37 module tests. Still stubbed (honest): uploadSpoolThreshold/uploadDir/mount.
 - [ ] **hf-5 default-swap** — make it the default http plugin, full conformance, remove old.
 
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")

@@ -78,9 +78,16 @@ final class FastHttpServer(
             catch case err: Throwable =>
               RawResponse(500, Map("Content-Type" -> "text/plain; charset=utf-8"),
                 s"native HTTP handler failed: ${msg(err)}".getBytes(ISO_8859_1))
-          val keep = req.nn.keepAlive && running && served < maxKeepAliveRequests
-          HttpProtocol.writeResponse(out, resp, keep)
-          if !keep then open = false
+          resp.stream match
+            case Some(writeBody) =>
+              // Open-ended stream (SSE / streamResponse): headers now, body over time, close.
+              HttpProtocol.writeStreamHeaders(out, resp)
+              try writeBody(out) catch case _: Throwable => ()
+              open = false // connection consumed by the stream
+            case None =>
+              val keep = req.nn.keepAlive && running && served < maxKeepAliveRequests
+              HttpProtocol.writeResponse(out, resp, keep)
+              if !keep then open = false
     catch case _: IOException => () // client vanished mid-write
     finally
       connections.remove(sock)
