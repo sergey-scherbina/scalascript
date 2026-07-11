@@ -37,7 +37,6 @@ nfc-ndef.ssc	optional-provider	no	nfc	nfcCapabilities belongs to the explicitly 
 pdf-extract-demo.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
 quoted-macro-constfold.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
 quoted-macro-interpreter.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
-signals-demo.ssc	standard-provider	yes	ui	Signal companion values are missing from the core-free standard UI provider
 sql-browser-duckdb.ssc	example-contract	yes	sql-browser	browser SQL section binding Totals is not declared as a non-JVM backend surface
 sql-browser-sqlite.ssc	example-contract	yes	sql-browser	browser SQL section binding Active is not declared as a non-JVM backend surface
 sql-h2-quickstart.ssc	standard-provider	yes	sql	standard JVM SQL fenced-section binding ActiveUsers is not lowered natively
