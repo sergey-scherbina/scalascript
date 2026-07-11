@@ -323,8 +323,9 @@ loaded. Integer `abs` stays an integer, while `sqrt`/`pow` are floating-point
 and `round` returns an integer.
 
 The native route also has its own core-free ServiceLoader plugin boundary. The
-process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (`sha256`,
-SHA/base64/HMAC/PBKDF2/random helpers), and the JVM implementations of
+process globals (`args`, `cwd`, `sep`, `platform`), crypto intrinsics (hashing,
+Base64, HMAC/PBKDF2/random, AES-GCM/CBC, RSA/X.509, Ed25519, HOTP/TOTP, and
+Shamir recovery), and the JVM implementations of
 `std.fs`/`std.os`, and typed `std.json` no longer load the v1 `PluginBridge`,
 interpreter values, or Scalameta classes. File reads/writes, byte I/O, directory
 operations, environment lookup, path operations, temporary paths, total JSON
