@@ -288,6 +288,10 @@ there before changing this plan.
         sound cyclic unordered-map equality; deep canonicalization of every
         descriptor; String-keyed static rows; adversarial cycles, failed-key
         candidates, nested ForeignV paths, and closure non-mutation tests.
+        Fresh re-review found one remaining benign-alias case: when an unrelated
+        host map forces copying, a portable MapV shared by an outer DataV and a
+        ClosV environment must stay the same object on both paths. Preserve
+        closure identity without mutating its env and add that exact graph test.
       - [ ] **exact descriptor surface** — all shortened column arities, exact
         rawHtml sentinel, first-write seed detachment, POST/id row-delete, and
         tag-qualified signal `id`.
@@ -295,6 +299,12 @@ there before changing this plan.
         duplicate/evaluation error; frozen owner/scope/signal keys; duplicate
         keyed diagnostics; stable insert/move/update; deleted-key disposal;
         render rollback.
+        Fresh re-review requires component scopes and per-site occurrences in
+        the structural owner path: two component instances evaluating the same
+        lexical keyed site/key must not overwrite each other's owner refs.
+        Also recreate/lazily register `emptyHeaders` per Apple root after begin
+        clears the store; an omitted-header descriptor may not retain the
+        install-time stale signal.
       - [ ] **compatibility hardening** — child-provenance/identity-gated
         transitive native rebind plus same-name user regression; real cargo/rustc
         compile for the generic Rust adapter.

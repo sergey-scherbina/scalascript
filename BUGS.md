@@ -62,6 +62,10 @@ frozen first JVM NativeUi gate.
 - **Expected/fix:** implement the frozen root/owner/scope/signal keys,
   provisional owner transactions, duplicate diagnostics, stable surviving
   scopes, deleted-key disposal, and rollback on render failure.
+- **Fresh review delta (Rozum 2026-07-11):** `currentOwnerPath` still omits
+  enclosing component scopes and lexical occurrence. Two component/repeated
+  instances at the same `forKeyed` site/key can collide; add that collision
+  repro plus shared-scope refcount/delete coverage before re-review.
 - **Done-when:** insert/move/update/delete/duplicate/rollback tests pass and the
   reviewer approves.
 
@@ -74,6 +78,9 @@ frozen first JVM NativeUi gate.
   The current test reinstalls the plugin and masks leakage.
 - **Expected/fix:** explicit begin/commit/abort transaction with cleanup or
   restoration for zero roots, duplicate roots, and evaluation failure.
+- **Fresh review delta (Rozum 2026-07-11):** `emptyHeaders` is registered once
+  at plugin install, but begin clears its `SignalKey` while the global retains
+  the old cell. Make it root-local/lazy and test an omitted-header Apple root.
 - **Done-when:** one plugin instance can fail then begin a clean extraction;
   zero/duplicate/evaluation-error tests prove rollback.
 
@@ -101,6 +108,10 @@ frozen first JVM NativeUi gate.
 - **Expected/fix:** graph-safe non-mutating validation/canonicalization,
   tri-state or candidate-isolated cyclic equality, deep stable paths at every
   ABI constructor, and exact row/map validation.
+- **Fresh review delta (Rozum 2026-07-11):** conversion still breaks a benign
+  alias when an outer DataV and a closure env share the same portable MapV and
+  an unrelated host map forces copying. Preserve that alias without changing
+  ClosV identity or its environment.
 - **Done-when:** adversarial cycle/reorder negatives, nested ForeignV paths,
   closure non-mutation, and every descriptor family are green.
 ## v21-layout-given-after-abstract-def — abstract return type consumes the next given
