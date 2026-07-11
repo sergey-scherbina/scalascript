@@ -282,6 +282,24 @@ there before changing this plan.
         transitive plugin natives enter exported closures through `childCtx`, so
         `componentScope` executes its thunk in the caller interpreter just like
         an explicitly imported native.
+      ABI review blockers (Rozum `blockers:`, 2026-07-11; no landing until a
+      second `approve:`):
+      - [ ] **portable graph** — graph-safe non-mutating canonicalization;
+        sound cyclic unordered-map equality; deep canonicalization of every
+        descriptor; String-keyed static rows; adversarial cycles, failed-key
+        candidates, nested ForeignV paths, and closure non-mutation tests.
+      - [ ] **exact descriptor surface** — all shortened column arities, exact
+        rawHtml sentinel, first-write seed detachment, POST/id row-delete, and
+        tag-qualified signal `id`.
+      - [ ] **root + keyed ownership transactions** — cleanup on zero/
+        duplicate/evaluation error; frozen owner/scope/signal keys; duplicate
+        keyed diagnostics; stable insert/move/update; deleted-key disposal;
+        render rollback.
+      - [ ] **compatibility hardening** — child-provenance/identity-gated
+        transitive native rebind plus same-name user regression; real cargo/rustc
+        compile for the generic Rust adapter.
+      - [ ] Re-run focused suites, assembled `tkv2-*` and `std-ui-jobpanel`,
+        then request a fresh read-only Rozum review. Commit only after approve.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,

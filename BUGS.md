@@ -21,7 +21,84 @@
 - **Done-when:** focused and full strict parity report no one-sided rows,
   runtime/sentinel taxonomy gates pass, and the landed SHA is recorded here.
   Keep `fixed` until Sergiy confirms.
+## v2-nativeui-rust-component-scope-proof — Rust adapter lacks a real compiler gate
 
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum while
+reviewing the uncommitted NativeUi ABI-v1 migration.
+
+- **Repro:** `RustGenWebToolkitTest` only string-matches the emitted generic
+  `FnOnce` adapter; it never runs `cargo check`/`rustc` on a program calling
+  `componentScope`.
+- **Expected/fix:** compile a generated Rust package containing the generic
+  identity call and retain the exact-return/exact-once contract.
+- **Done-when:** a real Rust toolchain gate passes and its landed SHA is reported
+  in Rozum; keep `fixed` until Sergiy confirms.
+
+## v2-nativeui-transitive-native-provenance — childCtx rebind can replace user NativeFnV
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum while
+reviewing the `componentScope` compatibility fix.
+
+- **Repro:** every raw `childCtx` `NativeFnV` currently enters
+  `rebindPluginNative`; a same-named user/case-constructor native can be
+  replaced whenever the parent owns a plugin native of that name.
+- **Expected/fix:** require child plugin provenance and identity with the child
+  plugin binding before rebinding to the parent.
+- **Done-when:** component callbacks stay green, a same-name non-plugin
+  regression is preserved, and the SHA is reported in Rozum.
+
+## v2-nativeui-keyed-scope-ownership — JVM ABI lacks transactional keyed lifecycle
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum against the
+frozen first JVM NativeUi gate.
+
+- **Repro:** `UiNativePlugin` has only a scope stack; signals have no owner
+  references/disposal, and `NativeUiForKeyed` static evaluation neither rejects
+  duplicate keys nor commits/rolls back insert/move/delete ownership.
+- **Expected/fix:** implement the frozen root/owner/scope/signal keys,
+  provisional owner transactions, duplicate diagnostics, stable surviving
+  scopes, deleted-key disposal, and rollback on render failure.
+- **Done-when:** insert/move/update/delete/duplicate/rollback tests pass and the
+  reviewer approves.
+
+## v2-nativeui-root-transaction — failed Apple extraction leaks root/runtime state
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum.
+
+- **Repro:** missing-root `__nativeUiTakeRoot` throws before clearing
+  `appleContext`; duplicate registration retains the first root and signals.
+  The current test reinstalls the plugin and masks leakage.
+- **Expected/fix:** explicit begin/commit/abort transaction with cleanup or
+  restoration for zero roots, duplicate roots, and evaluation failure.
+- **Done-when:** one plugin instance can fail then begin a clean extraction;
+  zero/duplicate/evaluation-error tests prove rollback.
+
+## v2-nativeui-descriptor-contract — public UI descriptors diverge from ABI-v1
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum.
+
+- **Repro:** shortened column arities are rejected; raw HTML does not require
+  the exact sentinel; seed first-write can stay pristine; row-delete encodes
+  DELETE/Unit instead of shipped POST/id payload; tagged signal dispatch omits
+  `id`.
+- **Expected/fix:** fill every public default, enforce the exact sentinel,
+  dirty seed on the first user write, restore POST/id semantics, and register
+  tag-qualified `id`.
+- **Done-when:** focused tests plus `std-ui-jobpanel` and toolkit conformance pass.
+
+## v2-nativeui-portable-graph — canonicalization/equality can leak host values or miscompare cycles
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum.
+
+- **Repro:** DataV→MapV cycles point to an unconverted DataV; ClosV traversal
+  mutates caller-owned environments; equality marks failed map-key candidates
+  as visited/equal. Descriptor helpers retain raw values, and static table rows
+  are not validated as String-keyed maps.
+- **Expected/fix:** graph-safe non-mutating validation/canonicalization,
+  tri-state or candidate-isolated cyclic equality, deep stable paths at every
+  ABI constructor, and exact row/map validation.
+- **Done-when:** adversarial cycle/reorder negatives, nested ForeignV paths,
+  closure non-mutation, and every descriptor family are green.
 ## v21-layout-given-after-abstract-def — abstract return type consumes the next given
 
 **Status:** fixed (2026-07-11, `2a223d060`); found by codex while implementing
