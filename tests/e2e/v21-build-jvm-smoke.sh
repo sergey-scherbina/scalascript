@@ -51,6 +51,9 @@ grep -Fx 'source.count=3' "$sandbox/artifact.properties" >/dev/null
 grep -F 'source.2.name=std/crypto.ssc' "$sandbox/artifact.properties" >/dev/null
 grep -F 'ssc.plugin.host.HostNativePlugin' "$sandbox/artifact.properties" >/dev/null
 grep -F 'ssc.plugin.crypto.CryptoNativePlugin' "$sandbox/artifact.properties" >/dev/null
+grep -F 'ssc.plugin.httpfast.HttpFastNativePlugin' "$sandbox/artifact.properties" >/dev/null
+grep -F 'scalascript-v2-native-http-fast-plugin_' "$sandbox/artifact.properties" >/dev/null
+grep -F 'scalascript-http-fast-engine_' "$sandbox/artifact.properties" >/dev/null
 
 javap -classpath "$sandbox/app-a.jar" -l -v ssc.gen.Entry >"$sandbox/entry.javap"
 grep -F 'SourceFile: "argv.ssc"' "$sandbox/entry.javap" >/dev/null

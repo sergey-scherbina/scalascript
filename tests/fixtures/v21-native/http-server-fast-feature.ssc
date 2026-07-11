@@ -1,0 +1,7 @@
+# Native HTTP fast middleware is available
+
+[useGzip](std/http.ssc)
+
+```scalascript
+useGzip()
+```

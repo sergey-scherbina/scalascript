@@ -1,7 +1,0 @@
-# Native HTTP features remain explicit until their host sub-slice lands
-
-[useGzip](std/http.ssc)
-
-```scalascript
-useGzip()
-```

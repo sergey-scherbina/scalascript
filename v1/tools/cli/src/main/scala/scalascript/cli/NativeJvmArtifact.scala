@@ -25,7 +25,8 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-os-plugin_",
     "scalascript-v2-native-fs-plugin_",
     "scalascript-v2-native-json-plugin_",
-    "scalascript-v2-native-http-plugin_",
+    "scalascript-v2-native-http-fast-plugin_",
+    "scalascript-http-fast-engine_",
     "scalascript-v2-native-ui-plugin_",
     "scalascript-v2-native-state-effect-plugin_",
     "scalascript-v2-native-storage-effect-plugin_",
@@ -40,6 +41,8 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-core_",
     "scalascript-v2-native-plugin-spi_",
     "scalascript-v2-native-host-plugin_",
+    "scalascript-v2-native-http-fast-plugin_",
+    "scalascript-http-fast-engine_",
   )
 
   private val SqlRuntimePrefixes = List(

@@ -292,13 +292,8 @@ http_port=$((32000 + ($$ % 10000)))
 [[ $(PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" SSC_NO_CDS=1 \
   "$ROOT/bin/ssc" run --compat-frontend "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 
-set +e
-run_native "$FIXTURES/http-server-feature-unavailable.ssc" >"$sandbox/http-server.out" 2>"$sandbox/http-server.err"
-http_server_rc=$?
-set -e
-[[ $http_server_rc -ne 0 ]]
-grep -F 'native HTTP server unavailable: useGzip requires the standard server-host SPI' \
-  "$sandbox/http-server.err" >/dev/null
+[[ $(run_native "$FIXTURES/http-server-fast-feature.ssc") == '' ]]
+[[ $(run_native --bytecode "$FIXTURES/http-server-fast-feature.ssc") == '' ]]
 
 set +e
 run_native "$ROOT/examples/imports.ssc" >"$sandbox/imports.out" 2>"$sandbox/imports.err"

@@ -12,14 +12,15 @@ crypto=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-crypto-plugin_*.j
 os=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-os-plugin_*.jar' -print -quit)
 fs=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-fs-plugin_*.jar' -print -quit)
 json=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-json-plugin_*.jar' -print -quit)
-http=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-http-plugin_*.jar' -print -quit)
+http=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-http-fast-plugin_*.jar' -print -quit)
+http_engine=$(find "$JARS" -maxdepth 1 -name 'scalascript-http-fast-engine_*.jar' -print -quit)
 sql=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-sql-plugin_*.jar' -print -quit)
 ui=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-ui-plugin_*.jar' -print -quit)
 state=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-state-effect-plugin_*.jar' -print -quit)
 storage=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-storage-effect-plugin_*.jar' -print -quit)
 reactive=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-reactive-plugin_*.jar' -print -quit)
 yaml=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-yaml-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -32,6 +33,10 @@ jar tf "$os" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$fs" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$json" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$http" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+if jar tf "$http_engine" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null; then
+  echo 'v21-native-plugin-boundary-smoke: HTTP fast engine must not be a native provider' >&2
+  exit 1
+fi
 jar tf "$sql" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$ui" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$state" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
@@ -39,7 +44,7 @@ jar tf "$storage" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/n
 jar tf "$reactive" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$yaml" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$storage" "$reactive" "$yaml"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
