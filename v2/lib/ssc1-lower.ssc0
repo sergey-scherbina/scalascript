@@ -1222,7 +1222,16 @@ def lowerTuple = (scope, elems) =>
             case Nil =>
               IrCtor("Pair", Cons(lowerE(scope, a), Cons(lowerE(scope, b), Nil)))
             case Cons(c, rest3) =>
-              IrCtor("Pair", Cons(lowerE(scope, a), Cons(lowerTuple(scope, rest1), Nil)))
+              -- K62.20: 3+ tuples are FLAT Tuple${N} ctors (matching the front's Tuple${N}
+              -- patterns from parsePat AND the scalameta bridge's Tuple${N}), NOT nested
+              -- Pairs — otherwise `case (a,b,c)` (a Tuple3 pattern) never matched the value
+              -- `Pair(a, Pair(b,c))` and `._2`/`._3` returned the inner pair / no-arm'd.
+              let rec lowerAll = (es) =>
+                match es {
+                  case Nil => Nil
+                  case Cons(e, more) => Cons(lowerE(scope, e), lowerAll(more))
+                } in
+              IrCtor(#sconcat("Tuple", #i->str(lenL(elems))), lowerAll(elems))
           }
       }
   }
@@ -2361,22 +2370,26 @@ def sel1Def =
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Pair",   2, IrLocal(1)),
+        Cons(IrArm("Tuple3", 3, IrLocal(2)),
         Cons(IrArm("Tuple4", 4, IrLocal(3)),
-        Nil)), None)))
+        Nil))), None)))
 
 def sel2Def =
   IrDef("_sel__2",
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Pair",   2, IrLocal(0)),
+        Cons(IrArm("Tuple3", 3, IrLocal(1)),
         Cons(IrArm("Tuple4", 4, IrLocal(2)),
-        Nil)), None)))
+        Nil))), None)))
 
 def sel3Def =
   IrDef("_sel__3",
     IrLam(1,
       IrMatch(IrLocal(0),
-        Cons(IrArm("Tuple4", 4, IrLocal(1)), Nil), None)))
+        Cons(IrArm("Tuple3", 3, IrLocal(0)),
+        Cons(IrArm("Tuple4", 4, IrLocal(1)),
+        Nil)), None)))
 
 def sel4Def =
   IrDef("_sel__4",

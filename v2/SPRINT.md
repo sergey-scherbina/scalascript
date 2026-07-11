@@ -1455,3 +1455,21 @@ change stopped `best._2` (in `s > best._2`) resolving.
 - NOTE for kernel owners: the VM `methodOp` (Runtime.scala:3225) lacks a general `_N` positional
       handler; `__method__("_2", Pair)` returns Stub outside the Long fast-path. A VM fix there
       would also cover any other `._N`→__method__ path (e.g. records with `_N` fields).
+
+## Native-front correctness program (2026-07-11, opus) — accurate worklist + K62.20 tuples
+
+Accurate native-parity (ssc1-run → BridgeCli run-ir WITH plugins vs tests/conformance/expected):
+MATCH=44, MISMATCH=110. Categories: Stub-dispatch 7 (bimap/fmap/copy — extension/typeclass, v2.1
+lane), Op-unperformed 11 (plugin), empty/early-halt 70 (bulk, mostly plugin-runtime + a few native
+early-halts like Array.tabulate curried-static). The native front is far less correct on the broad
+corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session program.
+
+- [x] K62.20 — 3+ tuples: FLAT `Tuple${N}` ctors, not nested Pairs. lowerTuple built
+      `Pair(a,Pair(b,c))` for 3-tuples while parsePat + the bridge use `Tuple3` → `case (a,b,c)`
+      never matched and `._2`/`._3` were wrong. Fix: lowerTuple emits `Tuple${N}` for N≥3 (2-tuples
+      stay Pair, shared with `->`), + Tuple3 arms on _sel__1/_sel__2/_sel__3. Verified: 2/3/4-tuple
+      `._N`, `val (a,b,c)=` destructure, and `case (n,s,flag)=>` all correct; tuples.ssc GREEN.
+- [ ] Remaining program (v2.1 track's lane — coordinate): extension/typeclass dispatch Stub
+      (bimap/fmap/copy), plugin-Op unperformed, per-file early-halts (Array.tabulate static+curried,
+      Option ops, string %-format). RECOMMEND: wire the native-parity check into CI (ssc1-run vs
+      expected/, non-plugin subset) so these regressions are caught.
