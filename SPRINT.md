@@ -1740,6 +1740,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               portable nullary constructor value, add a
                               multi-file VM/ASM regression, and rerun JSON/YAML
                               parser examples plus all release gates.
+                        - [ ] **TI-8.2d2t portable unit lowering:** after
+                              symbolic `|` dispatch, `dsl-yaml-like.ssc` advances
+                              to identical VM/ASM `unbound global: Unit`. Isolate
+                              the imported layout-parser declaration that leaks
+                              the type/literal as a value global, add a
+                              multi-file regression, preserve portable `UnitV`
+                              semantics, and rerun the YAML-like example plus
+                              all release gates.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

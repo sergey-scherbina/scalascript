@@ -1,5 +1,21 @@
 # Bug tracker
 
+## v21-yaml-unit-global — native layout parser emits an unbound `Unit` value
+
+**Status:** open (2026-07-11); found by codex after symbolic extension dispatch
+advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
+
+- **Real-harness repro:** `bin/ssc-standard run --native
+  examples/dsl-yaml-like.ssc` fails identically on VM/ASM with `unbound global:
+  Unit` after the imported parser `|` extension is selected correctly.
+- **Expected:** source-level unit types/literals used by the imported layout
+  parser lower to the portable unit value and never become a value-level global
+  named `Unit`.
+- **Plan/done-when:** isolate the owning imported declaration in a multi-file
+  fixture, specify the portable unit boundary if current specs do not cover it,
+  fix native parsing/lowering, and rerun the YAML-like example plus release
+  gates.
+
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
 
 **Status:** open (2026-07-11); found by codex after imported extension dispatch
