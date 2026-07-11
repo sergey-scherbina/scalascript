@@ -83,7 +83,13 @@ object SwiftBackend:
       "Sources/AppCore/GeneratedProgram.swift" -> generatedProgram(program, nativeUi),
       s"Sources/$executable/main.swift" ->
         "import AppCore\n\nSscGeneratedProgram.run()\n",
-    )
+    ) ++ (if nativeUi then Vector(
+      s"AppleApp/${product}App.swift" -> SwiftNativeUiApple.appSource(product),
+      "AppleApp/NativeUiStore.swift" -> SwiftNativeUiApple.storeSource,
+      "AppleApp/NativeUiRenderer.swift" -> SwiftNativeUiApple.rendererSource,
+      "AppleApp/NativeUiStyles.swift" -> SwiftNativeUiApple.stylesSource,
+      "AppleApp/NativeUiHtml.swift" -> SwiftNativeUiApple.htmlSource,
+    ) else Vector.empty)
     SwiftPackage(coreFiles, executable)
 
   def productName(raw: String): String =

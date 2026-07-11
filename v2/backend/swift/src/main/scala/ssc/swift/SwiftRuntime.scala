@@ -366,6 +366,31 @@ final class SscMap {
     func delete(_ key: SscValue) { if let i = index(of: key) { entries.remove(at: i) } }
 }
 
+final class SscFields: RandomAccessCollection, ExpressibleByArrayLiteral {
+    typealias Element = SscValue
+    typealias Index = Int
+
+    private let values: [SscValue]
+
+    init(_ values: [SscValue]) { self.values = values }
+    required init(arrayLiteral elements: SscValue...) { self.values = elements }
+
+    var startIndex: Int { values.startIndex }
+    var endIndex: Int { values.endIndex }
+    subscript(index: Int) -> SscValue { values[index] }
+    func index(after index: Int) -> Int { values.index(after: index) }
+    func index(before index: Int) -> Int { values.index(before: index) }
+    func asArray() -> [SscValue] { values }
+}
+
+private func + (left: [SscValue], right: SscFields) -> [SscValue] {
+    left + right.asArray()
+}
+
+private func + (left: SscFields, right: [SscValue]) -> [SscValue] {
+    left.asArray() + right
+}
+
 indirect enum SscValue {
     case unit
     case bool(Bool)
@@ -375,7 +400,7 @@ indirect enum SscValue {
     case float(Double)
     case string(String)
     case bytes([UInt8])
-    case data(String, [SscValue])
+    case data(String, SscFields)
     case closure(SscClosure)
     case cell(SscCell)
     case longCell(SscCell)
@@ -437,6 +462,7 @@ private final class Machine {
     private let nativeUiHost: SscRuntimeExtension?
     private var globals: [String: SscValue] = [:]
     private var failure: SscRuntimeFailure?
+    private var evaluatingProgram = false
 
     init(_ program: SscProgram, nativeUiHost: SscRuntimeExtension? = nil) {
         self.program = program
@@ -444,7 +470,10 @@ private final class Machine {
         nativeUiHost?.bind { [weak self] closure, arguments in
             guard let self else { throw SscRuntimeFailure(description: "native UI runtime released") }
             let result = self.call(closure, arguments)
-            if let failure = self.failure { throw failure }
+            if let failure = self.failure {
+                if !self.evaluatingProgram { self.failure = nil }
+                throw failure
+            }
             return result
         }
         installBuiltins()
@@ -455,19 +484,31 @@ private final class Machine {
         installDefinitions()
     }
 
-    func run() -> SscValue { runTerm(program.entry, []) }
+    func run() -> SscValue {
+        evaluatingProgram = true
+        defer { evaluatingProgram = false }
+        return runTerm(program.entry, [])
+    }
 
     func runResult() -> Result<SscValue, SscRuntimeFailure> {
         if let failure { return .failure(failure) }
+        evaluatingProgram = true
+        defer { evaluatingProgram = false }
         let result = runTerm(program.entry, [])
         if let failure { return .failure(failure) }
         return .success(result)
     }
 
     func invokeResult(_ closure: SscClosure, _ arguments: [SscValue]) -> Result<SscValue, SscRuntimeFailure> {
-        if let failure { return .failure(failure) }
+        if let failure {
+            self.failure = nil
+            return .failure(failure)
+        }
         let result = call(closure, arguments)
-        if let failure { return .failure(failure) }
+        if let failure {
+            self.failure = nil
+            return .failure(failure)
+        }
         return .success(result)
     }
 
@@ -503,7 +544,7 @@ private final class Machine {
         })
         globals["RoundingMode"] = .data("__RoundingModeCompanion__", [])
         globals["RuntimeException"] = .closure(SscClosure(arity: 1) { args in
-            .data("RuntimeException", args)
+            .data("RuntimeException", SscFields(args))
         })
         globals["handle"] = .closure(SscClosure(arity: 1) { [weak self] first in
             guard let self else { fatalError("effect: runtime released") }
@@ -634,7 +675,7 @@ private final class Machine {
                 values.append(value(field, environment))
                 if failure != nil { return .value(.unit) }
             }
-            return .value(.data(tag, values))
+            return .value(.data(tag, SscFields(values)))
         case let .matchValue(scrutinee, arms, fallback):
             let scrutineeValue = value(scrutinee, environment)
             if failure != nil { return .value(.unit) }
@@ -752,7 +793,7 @@ private final class Machine {
             let argument: SscValue
             if operationArgs.isEmpty { argument = .unit }
             else if operationArgs.count == 1 { argument = operationArgs[0] }
-            else { argument = .data("__EffArgs__", operationArgs) }
+            else { argument = .data("__EffArgs__", SscFields(operationArgs)) }
             let identity = SscClosure(arity: 1) { values in values[0] }
             return .data("Op", [.string(label), argument, .closure(identity)])
         case "effect.handle":
@@ -994,7 +1035,7 @@ private final class Machine {
                 guard case let .closure(fn) = args[0] else { fatalError("List.map expects closure") }
                 return listValue(values.map { item in
                     if case let .data(tag, fields) = item, tag.hasPrefix("Tuple"), fn.arity == fields.count {
-                        return call(fn, fields)
+                        return call(fn, fields.asArray())
                     }
                     return call(fn, [item])
                 })
@@ -1018,7 +1059,7 @@ private final class Machine {
             let argument: SscValue
             if args.isEmpty { argument = .unit }
             else if args.count == 1 { argument = args[0] }
-            else { argument = .data("__EffArgs__", args) }
+            else { argument = .data("__EffArgs__", SscFields(args)) }
             let identity = SscClosure(arity: 1) { values in values[0] }
             return .data("Op", [.string("\(tag).\(name)"), argument, .closure(identity)])
         default: break
@@ -1064,7 +1105,7 @@ private final class Machine {
             default: eventArgs = [fields[1], .closure(resume)]
             }
             let operation = label.split(separator: ".").last.map(String.init) ?? label
-            return call(handler, [.data(operation, eventArgs)])
+            return call(handler, [.data(operation, SscFields(eventArgs))])
         case .data("Op", _): fatalError("effect: malformed Op")
         default:
             return call(handler, [.data("Return", [computation])])
@@ -1153,7 +1194,7 @@ private func bytes(_ args: [SscValue], _ index: Int) -> [UInt8] {
 }
 private func data(_ value: SscValue) -> (String, [SscValue]) {
     guard case let .data(tag, fields) = value else { fatalError("expected Data, got \(sscShow(value))") }
-    return (tag, fields)
+    return (tag, fields.asArray())
 }
 private func cell(_ value: SscValue) -> SscCell {
     guard case let .cell(result) = value else { fatalError("expected Cell") }
