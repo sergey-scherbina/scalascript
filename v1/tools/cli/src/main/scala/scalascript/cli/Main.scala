@@ -1901,6 +1901,7 @@ private[cli] def runV2IosTargets(
     if device then
       val resolvedTeam = SwiftV2Distribution.resolveTeam(teamId, sys.env, "run --target ios --device")
       SwiftV2Distribution.requireIosDeploy("run --target ios --device")
+      SwiftV2Distribution.requireXcodebuild("run --target ios --device")
       for file <- files do
         val outDir = os.Path("target/build", os.pwd) / "ios-device"
         val context = SwiftV2Distribution.context(
@@ -4857,37 +4858,52 @@ final class PackageCmd extends CliCommand:
       case Some(pf) =>
         val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
         val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
+        if v2Flag && effectiveTarget.isEmpty then
+          System.err.println("ssc package --v2: --target is required")
+          System.exit(1)
         val explicitV2Apple = !v1Flag && effectiveTarget.exists {
           case "ios" | "mobile-ios" => true
-          case "macos" | "desktop-macos" => distributionFlag
+          case "macos" | "desktop-macos" => true
           case _ => false
         }
         if explicitV2Apple then
           try
             os.makeDir.all(outDir)
-            val team = SwiftV2Distribution.resolveTeam(teamIdFlag, sys.env, "ssc package")
             effectiveTarget.get match
               case "ios" | "mobile-ios" =>
+                val team = SwiftV2Distribution.resolveTeam(teamIdFlag, sys.env, "ssc package")
+                val command = "ssc package --target ios"
+                val exportMethod = SwiftV2Distribution.normalizeExportMethod(exportMethodFlag, command)
+                SwiftV2Distribution.requireXcodebuild(command)
                 val targetOut = outDir / effectiveTarget.get
                 val context = SwiftV2Distribution.context(
                   pf, targetOut, _root_.ssc.swift.SwiftPlatform.IOS,
-                  serverUrlFlag, "ssc package --target ios")
+                  serverUrlFlag, command)
                 val ipa = SwiftV2Distribution.packageIos(
-                  context, exportMethodFlag, team, "ssc package --target ios")
+                  context, exportMethod, team, command)
                 println(s"  .ipa → ${displayPath(ipa)}")
               case "macos" | "desktop-macos" =>
-                val timeout = notaryTimeoutFlag.map(_.toInt).getOrElse(900)
-                val profile = notaryProfileFlag.orElse(sys.env.get("SSC_NOTARY_KEYCHAIN_PROFILE"))
                 val targetOut = outDir / effectiveTarget.get
-                val context = SwiftV2Distribution.context(
-                  pf, targetOut, _root_.ssc.swift.SwiftPlatform.MacOS,
-                  serverUrlFlag, "ssc package --target macos --distribution")
-                val result = SwiftV2Distribution.packageMacDeveloperId(
-                  context, team, notarizeFlag, dmgFlag, profile, timeout,
-                  "ssc package --target macos --distribution")
-                result.dmg match
-                  case Some(path) => println(s"  .dmg → ${displayPath(path)}")
-                  case None => println(s"  .app → ${displayPath(result.app)}")
+                if distributionFlag then
+                  val command = "ssc package --target macos --distribution"
+                  val team = SwiftV2Distribution.resolveTeam(teamIdFlag, sys.env, command)
+                  val timeout = SwiftV2Distribution.parseNotaryTimeout(notaryTimeoutFlag, command)
+                  val profile = notaryProfileFlag.orElse(sys.env.get("SSC_NOTARY_KEYCHAIN_PROFILE"))
+                  SwiftV2Distribution.preflightMacDistribution(
+                    notarizeFlag, dmgFlag, profile, command)
+                  val context = SwiftV2Distribution.context(
+                    pf, targetOut, _root_.ssc.swift.SwiftPlatform.MacOS,
+                    serverUrlFlag, command)
+                  val result = SwiftV2Distribution.packageMacDeveloperId(
+                    context, team, notarizeFlag, dmgFlag, profile, timeout, command)
+                  result.dmg match
+                    case Some(path) => println(s"  .dmg → ${displayPath(path)}")
+                    case None => println(s"  .app → ${displayPath(result.app)}")
+                else
+                  buildV2SwiftPackage(
+                    pf, targetOut, _root_.ssc.swift.SwiftPlatform.MacOS,
+                    runSwiftBuild = true, backendBaseUrl = serverUrlFlag)
+                  println(s"  Xcode application → ${displayPath(targetOut)}")
               case _ => ()
             return
           catch case e: Exception =>
@@ -4994,6 +5010,7 @@ final class PublishCmd extends CliCommand:
         val team = SwiftV2Distribution.resolveTeam(teamIdFlag, sys.env, command)
         val apiKey = SwiftV2Distribution.requireApiKey(apiKeyPathFlag, sys.env, command)
         SwiftV2Distribution.requireFastlane(command)
+        SwiftV2Distribution.requireXcodebuild(command)
         val output = os.Path("target/publish", os.pwd) / (if isIos then "ios" else "macos")
         val platform = if isIos then _root_.ssc.swift.SwiftPlatform.IOS else _root_.ssc.swift.SwiftPlatform.MacOS
         val context = SwiftV2Distribution.context(

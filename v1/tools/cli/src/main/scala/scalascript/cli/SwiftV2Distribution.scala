@@ -30,6 +30,38 @@ private[cli] object SwiftV2Distribution:
       throw new IllegalArgumentException(s"$command: invalid Apple team id")
     value
 
+  def parseNotaryTimeout(raw: Option[String], command: String): Int =
+    val parsed = raw match
+      case None => 900
+      case Some(value) => scala.util.Try(value.toInt).toOption.getOrElse(
+        throw new IllegalArgumentException(
+          s"$command: --notary-timeout-seconds must be an integer in 1..3600"))
+    if parsed < 1 || parsed > 3600 then
+      throw new IllegalArgumentException(
+        s"$command: --notary-timeout-seconds must be an integer in 1..3600")
+    parsed
+
+  def requireXcodebuild(command: String): Unit =
+    requireSuccess(tool("xcodebuild") ++ List("-version"), None, command, "xcodebuild")
+
+  def preflightMacDistribution(
+      notarize: Boolean,
+      dmg: Boolean,
+      notaryProfile: Option[String],
+      command: String,
+  ): Unit =
+    requireXcodebuild(command)
+    requireSuccess(tool("codesign") ++ List("--version"), None, command, "codesign")
+    if notarize then
+      notaryProfile.map(_.trim).filter(_.nonEmpty).getOrElse(
+        throw new IllegalArgumentException(
+          s"$command: --notary-profile or SSC_NOTARY_KEYCHAIN_PROFILE is required"))
+      requireSuccess(tool("ditto") ++ List("--help"), None, command, "ditto")
+      requireSuccess(tool("xcrun") ++ List("--find", "notarytool"), None, command, "notarytool")
+      requireSuccess(tool("xcrun") ++ List("--find", "stapler"), None, command, "stapler")
+    if dmg then
+      requireSuccess(tool("hdiutil") ++ List("help"), None, command, "hdiutil")
+
   def normalizeExportMethod(raw: String, command: String): String =
     raw.trim.toLowerCase match
       case "development" | "debugging" => "debugging"
@@ -172,9 +204,15 @@ private[cli] object SwiftV2Distribution:
     val path = os.Path(raw, os.pwd)
     if !os.exists(path) || !os.isFile(path) then
       throw new IllegalArgumentException(s"$command: API key JSON file not found")
-    val parsed = scala.util.Try(ujson.read(os.read(path))).toOption
-    if !parsed.exists(_.isInstanceOf[ujson.Obj]) then
-      throw new IllegalArgumentException(s"$command: API key must be a valid JSON object")
+    val parsed = scala.util.Try(ujson.read(os.read(path)).obj).toOption
+    val complete = parsed.exists { obj =>
+      def string(key: String): Boolean =
+        obj.get(key).exists(value => scala.util.Try(value.str.trim.nonEmpty).getOrElse(false))
+      string("key_id") && string("issuer_id") && string("key")
+    }
+    if !complete then
+      throw new IllegalArgumentException(
+        s"$command: API key JSON requires non-empty key_id, issuer_id, and key")
     path
 
   def requireFastlane(command: String): Unit =
@@ -188,16 +226,16 @@ private[cli] object SwiftV2Distribution:
        |
        |platform :ios do
        |  lane :testflight do
-       |    pilot(ipa: ENV.fetch("SSC_IPA_PATH"), api_key_path: ENV.fetch("APP_STORE_CONNECT_API_KEY_PATH"), changelog: ENV["SSC_RELEASE_NOTES"], skip_waiting_for_build_processing: true)
+       |    pilot(ipa: ENV.fetch("SSC_IPA_PATH"), app_identifier: ENV.fetch("SSC_BUNDLE_ID"), api_key_path: ENV.fetch("APP_STORE_CONNECT_API_KEY_PATH"), changelog: ENV["SSC_RELEASE_NOTES"], skip_waiting_for_build_processing: true)
        |  end
        |  lane :appstore do
-       |    deliver(ipa: ENV.fetch("SSC_IPA_PATH"), api_key_path: ENV.fetch("APP_STORE_CONNECT_API_KEY_PATH"), submit_for_review: ENV["SSC_SUBMIT_FOR_REVIEW"] == "true", automatic_release: false)
+       |    deliver(ipa: ENV.fetch("SSC_IPA_PATH"), app_identifier: ENV.fetch("SSC_BUNDLE_ID"), api_key_path: ENV.fetch("APP_STORE_CONNECT_API_KEY_PATH"), submit_for_review: ENV["SSC_SUBMIT_FOR_REVIEW"] == "true", automatic_release: false)
        |  end
        |end
        |
        |platform :mac do
        |  lane :mac_appstore do
-       |    deliver(pkg: ENV.fetch("SSC_PKG_PATH"), api_key_path: ENV.fetch("APP_STORE_CONNECT_API_KEY_PATH"), submit_for_review: ENV["SSC_SUBMIT_FOR_REVIEW"] == "true", automatic_release: false, platform: :mac)
+       |    deliver(pkg: ENV.fetch("SSC_PKG_PATH"), app_identifier: ENV.fetch("SSC_BUNDLE_ID"), api_key_path: ENV.fetch("APP_STORE_CONNECT_API_KEY_PATH"), submit_for_review: ENV["SSC_SUBMIT_FOR_REVIEW"] == "true", automatic_release: false, platform: :mac)
        |  end
        |end
        |""".stripMargin
