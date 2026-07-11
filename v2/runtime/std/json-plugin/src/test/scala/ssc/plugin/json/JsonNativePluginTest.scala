@@ -16,6 +16,20 @@ class JsonNativePluginTest extends AnyFunSuite:
     val renderer = Value.ClosV(Runtime.emptyEnv, 1, _ => Done(Value.StrV("SELF-HOSTED")))
     call("__jsonCoreInstallRenderer", renderer)
 
+  test("stringify falls back to a native renderer when none is installed (--native lane)") {
+    NativeJsonCodec.resetRenderer()
+    val obj = Value.MapV.from(List(
+      Value.StrV("a") -> Value.IntV(1L),
+      Value.StrV("b") -> Value.StrV("hi")))
+    assert(NativeJsonCodec.stringify(obj) == """{"a":1,"b":"hi"}""")
+    assert(NativeJsonCodec.stringify(Value.BoolV(true)) == "true")
+    assert(NativeJsonCodec.stringify(Value.StrV("x\"y")) == "\"x\\\"y\"")
+    assert(NativeJsonCodec.stringify(Value.UnitV) == "null")
+    val arr = Value.DataV("Cons", Vector(Value.IntV(1L),
+      Value.DataV("Cons", Vector(Value.IntV(2L), Value.DataV("Nil", Vector.empty)))))
+    assert(NativeJsonCodec.stringify(arr) == "[1,2]")
+  }
+
   test("JsonValue bridge navigates portable JsonCore values totally") {
     install()
     val source = Value.MapV.from(List(

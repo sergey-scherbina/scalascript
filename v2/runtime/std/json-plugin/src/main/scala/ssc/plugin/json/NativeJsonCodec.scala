@@ -31,9 +31,46 @@ private[plugin] object NativeJsonCodec:
     case Some((context, fn)) => context.invoke(fn, List(core)) match
       case Value.StrV(text) => text
       case other => throw new RuntimeException(s"self-hosted JSON renderer returned $other")
-    case None =>
-      throw new RuntimeException(
-        "self-hosted JSON renderer is not installed; import std/json.ssc")
+    // No self-hosted renderer installed — this happens on the `--native` lane,
+    // where std/json.ssc (whose top-level `__jsonCoreInstallRenderer` call wires
+    // the ssc renderer) is not part of the program's source closure, so
+    // `Response.json` / `jsonStringify` would otherwise throw. Fall back to a
+    // faithful native renderer over the canonical JsonCore ADT. The self-hosted
+    // renderer still wins whenever it IS installed (--v2 / interpreter), so this
+    // only affects the otherwise-broken --native path.
+    case None => renderCoreNative(core)
+
+  /** Native JsonCore → JSON string. Mirrors the self-hosted json-core renderer:
+   *  numbers are already canonical raw strings, strings are code-unit lists. */
+  private def renderCoreNative(core: Value): String = core match
+    case Value.DataV("JsonCoreNull", _)                       => "null"
+    case Value.DataV("JsonCoreBool", Seq(Value.BoolV(b)))     => if b then "true" else "false"
+    case Value.DataV("JsonCoreNumber", Seq(Value.StrV(raw)))  => raw
+    case Value.DataV("JsonCoreString", Seq(codeUnits))        => jsonQuote(decodeCodeUnits(codeUnits))
+    case Value.DataV("JsonCoreArray", Seq(items))             =>
+      unlist(items).map(renderCoreNative).mkString("[", ",", "]")
+    case Value.DataV("JsonCoreObject", Seq(fields))           =>
+      unlist(fields).map {
+        case Value.DataV("JsonCoreField", Seq(key, value)) =>
+          jsonQuote(decodeCodeUnits(key)) + ":" + renderCoreNative(value)
+        case other => throw new RuntimeException(s"invalid JsonCoreField: $other")
+      }.mkString("{", ",", "}")
+    case other => throw new RuntimeException(s"cannot render JsonCore value: $other")
+
+  private def jsonQuote(text: String): String =
+    val sb = new StringBuilder("\"")
+    text.foreach {
+      case '"'  => sb.append("\\\"")
+      case '\\' => sb.append("\\\\")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case '\b' => sb.append("\\b")
+      case '\f' => sb.append("\\f")
+      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
+      case c => sb.append(c)
+    }
+    sb.append('"').toString
 
   def toCore(value: Value): Value = value match
     case Value.ForeignV(box: NativeJsonValue) => box.core
